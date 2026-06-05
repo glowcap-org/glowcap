@@ -1,0 +1,12 @@
+.zig-cache/
+zig-out/
+bindings/rust/Cargo.lock
+bindings/rust/target/
+
+# binding consumer caches
+**/__pycache__/
+**/*.pyc
+bindings/deno/node_modules/
+
+# local scratch: reference clones, throwaway experiments (never committed)
+.local/

@@ -1,0 +1,116 @@
+# SHACL shape for goblins:Episode (kernel scope).
+#
+# Validation is runtime-deferred — shapes/ here is the kernel-local
+# declaration that names every property a kernel-emitted Episode carries.
+# Promotes to a top-level `goblins-shapes/` ontology if/when shapes
+# multiply (e.g. TerminusDB integration with multiple Episode classes).
+
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix goblins: <https://goblins.org/ns/goblins#> .
+@prefix goblinsh: <https://goblins.org/ns/goblins-shapes#> .
+
+goblinsh:EpisodeShape
+    a sh:NodeShape ;
+    sh:targetClass goblins:Episode ;
+    rdfs:comment "An Episode is a signed bitemporal RDF-Star quad recording one capability invocation. The kernel emits exactly one per loop turn." ;
+
+    # RDF-Star quad fields: subject + predicate + object + named graph.
+    sh:property [
+        sh:path goblins:subject ;
+        sh:datatype xsd:anyURI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        rdfs:comment "The Actor (DID-anchored Principal) that invoked the capability."
+    ] ;
+    sh:property [
+        sh:path goblins:predicate ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        rdfs:comment "Always 'goblins:invoked' for kernel Episodes; a richer predicate vocabulary would land if/when the ontology grows."
+    ] ;
+    sh:property [
+        sh:path goblins:object ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        rdfs:comment "Structured object: { affordance, result }. Affordance is goblins:affordance/<name>; result is the Affordance's return value."
+    ] ;
+    sh:property [
+        sh:path goblins:graph ;
+        sh:datatype xsd:anyURI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        rdfs:comment "Named graph = goblins:vat/<aid>. Each Vat owns its own named graph in the shared bitemporal KG."
+    ] ;
+    sh:property [
+        sh:path goblins:place ;
+        sh:datatype xsd:anyURI ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        rdfs:comment "The Place (coordination boundary, == Vat) where the invocation occurred."
+    ] ;
+
+    # Bitemporal columns: valid time + transaction time.
+    sh:property [
+        sh:path goblins:valid_time_start ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        rdfs:comment "When the event occurred in the world."
+    ] ;
+    sh:property [
+        sh:path goblins:valid_time_end ;
+        sh:maxCount 1 ;
+        rdfs:comment "When the event stopped being valid (null for open-ended events; kernel emits null)."
+    ] ;
+    sh:property [
+        sh:path goblins:tx_time_start ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        rdfs:comment "When the event was recorded into the bitemporal store."
+    ] ;
+    sh:property [
+        sh:path goblins:tx_time_end ;
+        sh:maxCount 1 ;
+        rdfs:comment "When the recording was superseded (null for current records)."
+    ] ;
+
+    # Provenance + signature chain.
+    sh:property [
+        sh:path goblins:policy_grant ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        rdfs:comment "The Policy clause under which the Affordance was invoked. Kernel uses 'default-grant'."
+    ] ;
+    sh:property [
+        sh:path goblins:ephemeral_pubkey ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        rdfs:comment "CESR-encoded Ed25519 ephemeral verkey (D-prefix). Generated per Episode; signs the Episode payload."
+    ] ;
+    sh:property [
+        sh:path goblins:ephemeral_pubkey_sig ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        rdfs:comment "CESR-encoded Ed25519 signature (0B-prefix) of the ephemeral pubkey, made by the AID's CURRENT verkey at the seq named in kel_anchor. Sigstore-style countersignature."
+    ] ;
+    sh:property [
+        sh:path goblins:sig ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        rdfs:comment "CESR-encoded Ed25519 signature (0B-prefix) of the Episode payload, made by the ephemeral private key."
+    ] ;
+    sh:property [
+        sh:path goblins:kel_anchor ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        rdfs:comment "Reference to the AID's KEL state at the time of signing: { aid, seq }."
+    ] .

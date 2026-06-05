@@ -1,0 +1,78 @@
+---
+id: ADR-0010
+status: accepted
+date: 2026-05-08
+tags: [codec, syrup, wire, references, goblins-parity]
+decision: The payload-position descriptor decoder dispatches on the wire tag into a **receiver-perspective** model `Reference`, flipping sender↔receiver — `<desc:export>` lifts to a `near` ref (our local export), `<desc:import-object>` / `<desc:import-promise>` lift to a `far` ref whose `ImportKind` preserves the object/promise tag (our import), and `<desc:answer>` lifts to a `promise`. The flip is a fixed wire-tag relabel — table-blind, so the codec still owns no authority; the session validates the relabeled reference against the matching table.
+supersedes: []
+superseded_by: []
+---
+
+# ADR-0010 Payload-position descriptor discriminator
+
+## Context
+
+Four descriptor shapes appear in **payload position** — a `resolve:fulfill` argument, an `op:listen` target or listener, an `op:deliver` arg. The OCapN `CapTP Specification.md` (§ Descriptors) and Goblins's `outgoing-pre-marshall!` (`goblins/ocapn/captp.rkt`) write each from the **sender's** table perspective: `<desc:export N>` names an object that lives on the *receiver* (the sender is referring to something it imports); `<desc:import-object N>` / `<desc:import-promise N>` name one of the *sender's* own exports — an object the sender hosts and the receiver should import — and carry whether that export is object- or promise-shaped; `<desc:answer N>` names a still-pending answer.
+
+Because the wire arm is the sender's, a descriptor that crosses the wire must be **re-anchored to the receiver's perspective** on decode: the sender's export is the receiver's import, and vice versa. Goblins does this in `incoming-post-unmarshall!` (`<desc:export>` → `(hash-ref exports-pos2val pos)`, a local refr; `<desc:import-*>` → `maybe-install-import!`, a remote refr); the Rust core does it in `reference_from_payload_desc` (`pancake-codec-syrup/src/ocapn/references.rs`). pancake's Zig codec matches them.
+
+The flip must turn each wire tag into one receiver-perspective model reference **without consulting a session table** (codecs do not own authority) — it is a fixed wire-tag relabel, not a lookup — while keeping the object-vs-promise nature of a promise-shaped reference intact.
+
+Engages the First Principles [*session state is authoritative*](../../../AGENTS.md#first-principles) — the codec relabels, the session validates — and *codecs parse and render but do not own authority*.
+
+## Decision
+
+### Table-blind decode flip
+
+`readReference` in [`src/codec/syrup/core.zig`](../../../src/codec/syrup/core.zig) maps each payload-position wire tag (the sender's perspective) to exactly one receiver-perspective model `Reference`, consulting no table:
+
+- `<desc:export N>` → `.near` (`NearRef{ export_id = N, kind = .object }`) — the sender names *our* export.
+- `<desc:import-object N>` → `.far` (`FarRef{ import_id = N, kind = .object }`) — the sender offers one of *its* exports for us to import.
+- `<desc:import-promise N>` → `.far` (`FarRef{ import_id = N, kind = .promise }`).
+- `<desc:answer N>` → `.promise` (`PromiseRef{ answer_id = N }`).
+
+The relabel is a fixed wire-tag↔variant map, not a lookup: the decoder never reads or mutates a table, so the codec still owns no authority. The Cap'n Proto codec ([`src/codec/capnp/core.zig`](../../../src/codec/capnp/core.zig)) applies the identical flip on its own word-shaped wire (`RefKind.near` → `.far`, `RefKind.far` → `.near`), so a reference decoded from either codec means the same thing (Invariant 1).
+
+### The encoder is the mirror; the flip is an involution
+
+The encode side ([`src/codec/syrup/core.zig`](../../../src/codec/syrup/core.zig), and [ADR-0023](ADR-0023-nearref-kind-on-the-wire.md) for the kind dispatch) is the exact inverse: our `near` export → `<desc:import-object>` / `<desc:import-promise>` (dispatching on `NearKind`), our `far` import → `<desc:export>`, a `promise` → `<desc:answer>`. So a reference sent and echoed back swaps arms — that swap **is** the perspective change, not a round-trip bug. Two wire crossings restore the original arm, which is how the codec round-trip tests assert byte stability.
+
+### The reference shape carries the wire tag
+
+[`src/model/mod.zig`](../../../src/model/mod.zig) gives `NearRef` a `kind: NearKind { object, promise }` and `FarRef` a symmetric `kind: ImportKind { object, promise }`, both defaulting `.object`. The decoder fills `ImportKind` from the `import-object` / `import-promise` tag, so the object-vs-promise distinction of an offered cap survives into the receiver's import. `<desc:export>` carries no object/promise signal — the receiver's session is the authority on its own export's kind — so a decoded `NearRef.kind` is `.object`.
+
+### The session validates in the receiver's perspective
+
+Because the codec already re-anchored the reference, [`src/session/mod.zig`](../../../src/session/mod.zig) validates each arm against the table that arm names directly: an inbound `near` resolves against the **export** table (it is one of ours), an inbound `far` against the **import** table; the outbound path is the mirror (`near` → exports, `far` → imports). An inbound `far` that names a not-yet-held import is an *introduction* (a fresh cap the partner is handing us), so the session installs it rather than rejecting — see `installIntroducedImports`. The partner's bootstrap export is always reachable on an open session (ADR-0006). A genuine miss is `InvalidReference`; the codec mutates no table.
+
+### The far-kind is preserved across enliven
+
+A resolved import's `ImportKind` is preserved verbatim. The sturdyref enliven dedup cache in [`src/session/mod.zig`](../../../src/session/mod.zig) stores `(import_id, kind)`, so a cache-hit short-circuit reconstructs the `FarRef` with its wire-tag discriminator intact rather than collapsing it to `.object`.
+
+## Scope (what this does not decide)
+
+- **Encode-side emission of `<desc:import-promise>`** for a promise-shaped local export — [ADR-0023](ADR-0023-nearref-kind-on-the-wire.md) owns the `NearKind` → wire-tag dispatch this ADR's decode mirrors.
+- **Promise-import bookkeeping.** The session has no concept of queuing against an import the way the inbound-answer table queues against an answer; `ImportKind.promise` on a decoded import is carried, not yet branched on.
+
+## Alternatives Considered
+
+- **A perspective-neutral, non-flipping bijection** (`<desc:export>` → `far`, `<desc:import-*>` → `near`, with the session resolving direction at validation). Rejected: it diverges from both reference implementations. Goblins (`incoming-post-unmarshall!`) and the Rust core (`reference_from_payload_desc`) both flip in the codec, so a non-flipping Zig codec would force every runtime helper that reads a decoded arm to re-flip by hand (a footgun) and would not be byte-equivalent to a partner's understanding of the same frame. The flip is still table-blind, so the *codecs-do-not-own-authority* principle holds either way; matching the wire-established convention wins.
+- **Resolve perspective inside the decoder by table lookup** (consult the receiver's tables at decode). Rejected: codecs do not own authority. The flip is a fixed wire-tag relabel; the session still validates against the table the relabeled arm names.
+- **One collapsed reference variant for all three import/export descriptors.** Rejected: it discards both the object-vs-promise nature and the near/far distinction the session needs to pick a table.
+- **A view-only discriminator** (kind on the borrowed view only). Rejected: a caller holding an owned `Reference` would have no answer to "object or promise?". The kind is a semantic property, stored on the model.
+
+## Consequences
+
+- `NearRef` carries `NearKind`, `FarRef` carries `ImportKind`; both default `.object`, so ordinary call sites stay terse. A decoded import carries its object/promise kind; a decoded export defaults `.object` (the session owns its export's kind).
+- The session validates an inbound `near` against exports and an inbound `far` against imports, surfacing `InvalidReference` on a genuine miss; an inbound `far` for an unheld import is installed as an introduction. The outbound path is the mirror.
+- Both codecs flip identically, so a reference is codec-neutral (Invariant 1): the Syrup and Cap'n Proto paths decode the same wire-perspective reference to the same receiver-perspective model arm.
+- The sturdyref enliven cache preserves the resolved `ImportKind`.
+- Conformance scenarios under [`src/conformance/`](../../../src/conformance/mod.zig) exercise each payload descriptor in a fulfill argument, an `op:listen` slot, and an `op:deliver` arg; the byte shapes are pinned against Goblins fixtures under `zig build oracle-check`.
+
+## Forward compatibility
+
+`NearKind` and `ImportKind` are additive enums, so a future axis (transient debug ref, handoff-arrived import) lands without breaking existing matches. Because the kind rides the model field rather than the wire-label string, the Syrup and Cap'n Proto codecs carry the same `kind` content through their respective wire shapes — adding a codec adds a wire-tag↔arm relabel, not a new model concept.
+
+## Notes
+
+[ADR-0023](ADR-0023-nearref-kind-on-the-wire.md) is the encode-side counterpart: it dispatches `NearKind` onto the `import-object` / `import-promise` wire tags, which this ADR's decode flips back into an import's `ImportKind`. [ADR-0007](ADR-0007-promise-pipelining-substrate.md) owns `<desc:answer>` (pipelining against an answer-pos). [ADR-0011](ADR-0011-op-get-op-index.md) relies on this dispatch to reach an `op:get` / `op:index` receiver. [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md) and [ADR-0013](ADR-0013-cross-session-distributed-equality.md) consume the preserved far-kind through the enliven cache.

@@ -1,0 +1,4 @@
+scenario=stage0_abort
+event=abort:bye
+session=closed
+

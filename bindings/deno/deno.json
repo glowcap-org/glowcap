@@ -1,0 +1,22 @@
+{
+  "name": "@pancake/deno",
+  "version": "0.1.0",
+  "exports": "./mod.ts",
+  "tasks": {
+    "verify": "deno run --allow-ffi --allow-env --unstable-ffi src/scenarios.ts",
+    "check": "deno check mod.ts src/scenarios.ts",
+    "fmt": "deno fmt",
+    "lint": "deno lint"
+  },
+  "fmt": {
+    "lineWidth": 100,
+    "indentWidth": 2,
+    "semiColons": true,
+    "singleQuote": false
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}

@@ -1,0 +1,71 @@
+---
+id: ADR-0012
+status: accepted
+date: 2026-05-10
+tags: [model, session, runtime, sturdyref, enliven, equality, goblins, interop]
+decision: A sturdyref is a `Reference.sturdy` arm carrying `SturdyRef { peer, swissnum }` with structural equality on `(peer, swissnum)`; a `sturdyref` feature gate makes a sturdyref-bearing payload on a non-negotiated session a loud refusal; and enlivenment rides the existing bootstrap-fetch behind a feature+open precondition, a per-session dedup cache (swissnum → `(import_id, kind)`) that short-circuits a repeat enliven with no wire traffic, and an in-flight marker that collapses a concurrent enliven onto the outstanding answer.
+supersedes: []
+superseded_by: []
+---
+
+# ADR-0012 Sturdyref shape and enliven substrate
+
+## Context
+
+A sturdyref is a persistent locator for an object that may outlive its current session: the OCapN `Locators.md` describes it as a capability obtainable "with this information alone," and Goblins enlivens one by looking up the location, reusing the open session, and asking that session's bootstrap for the swiss-number. pancake already has the bootstrap-fetch substrate ([ADR-0006](ADR-0006-handshake-substrate-and-bootstrap-fetch.md)); enlivenment is a thin orchestration over it, plus the model shape a sturdyref decodes to and the gate that keeps it off a session that did not ask for it.
+
+Engages the First Principles *session state is authoritative* (the feature gate and the dedup cache live on the session, not the codec), *conformance is load-bearing* (the shape and the enliven happy/sad paths are scenario-pinned), and *fail loud rather than succeed wrong* (a settlement that is not a live `Reference.far` is refused, never surfaced as an unreachable reference).
+
+## Decision
+
+### Typed shape and equality
+
+A sturdyref is structured, not opaque bytes. [`src/model/mod.zig`](../../../src/model/mod.zig) carries it as a `Reference.sturdy` arm over
+
+```zig
+pub const SturdyRef = struct { peer: PeerLocator, swissnum: []const u8 };
+```
+
+reusing the same `PeerLocator` that `op:start-session` and the handoff descriptors carry. Equality is structural: [`src/model/equality.zig`](../../../src/model/equality.zig) `referencesEqual` compares the `.sturdy` arm field-wise — `peerLocatorsEqual` over `(transport, designator, hints)` and byte-equality on `swissnum`. Because it is structural on the codec-neutral value tree, two sturdyrefs naming the same target compare equal regardless of which codec or Syrup profile carried them (First Principle *codec-neutral semantics*).
+
+### The `sturdyref` feature gate
+
+`FeatureSet.sturdyref` is load-bearing, not advertised-and-ignored. Both reference-validation paths in [`src/session/mod.zig`](../../../src/session/mod.zig) refuse a `Reference.sturdy` with `Error.FeatureNotNegotiated` when the session did not negotiate the flag — on inbound decode and on outbound encode alike, so a peer cannot smuggle a sturdyref across a session that never agreed to speak them. `FeatureSet.stage3Default` turns `sturdyref` (and `equality`, consumed by [ADR-0013](ADR-0013-cross-session-distributed-equality.md)) on; the handshake `intersect` reduces the negotiated set to what both peers advertised.
+
+### Enliven over bootstrap-fetch
+
+[`src/runtime/sturdyref.zig`](../../../src/runtime/sturdyref.zig) adds only the enliven-specific halves the sync core owns; the wire loop is an adapter concern, exactly as for the bootstrap-fetch it rides.
+
+- **Precondition.** `checkEnlivenPreconditions` requires the session to have negotiated `FeatureSet.sturdyref` (`Error.SturdyrefsNotNegotiated`) and to be `open` (`Error.SessionNotOpen`). Whether `sturdyref.peer` names this session's remote is a dial/adapter concern — the core tracks no remote locator and never dials.
+- **Dedup.** `prepareEnliven` resolves to one of three starts. A cache hit (`sturdyrefCacheHit`) rebuilds the cached `Reference.far` — kind preserved per [ADR-0010](ADR-0010-payload-descriptor-discriminator.md) — with no wire traffic. An in-flight match (`pendingEnlivenAnswer`) collapses a concurrent enliven for the same swiss-number onto the outstanding answer id. A miss issues a fresh bootstrap-fetch and records the in-flight marker (`notePendingEnliven`), releasing every allocation if the marker cannot be recorded.
+- **Settle.** `recordEnlivenment` clears the in-flight marker, then caches `(import_id, kind)` on a `fulfilled(Reference.far)` and returns the live reference. A non-`far` fulfillment, a `break`, or a malformed settlement releases any owned payload and fails with `Error.EnlivenmentBroke`.
+
+The dedup state lives on the session ([`src/session/mod.zig`](../../../src/session/mod.zig)): `cacheSturdyrefEnlivenment` / `sturdyrefImportFor` / `sturdyrefKindFor` over a swissnum → `(import_id, kind)` cache, and `notePendingEnliven` / `finishPendingEnliven` over the in-flight markers. The cache is non-load-bearing — a miss costs one extra round-trip, never correctness — so it is bounded by `SessionLimits.max_sturdyref_cache_entries` and evicts the oldest entry on overflow rather than erroring.
+
+## Scope (what this does not decide)
+
+- **Sturdyref withdrawal.** There is no sturdyref-revocation channel; the `(peer, swissnum)` shape is unsigned and irrevocable. (Handoff-gift withdrawal is unrelated handoff state, [ADR-0009](ADR-0009-three-party-handoff-substrate.md).)
+- **Locator-URI parsing.** The `ocapn://…/s/<swiss-num>` URI form is not parsed; the core consumes the in-band Syrup record, not a URI string. URI interchange is an adapter concern.
+- **Dial-on-enliven.** Enliven requires an already-open session; opening one on miss is a dial/transport concern outside the no-I/O core.
+- **Sturdyref-vs-handoff far-ref collapse.** That two paths to one target reduce to one import row is [ADR-0013](ADR-0013-cross-session-distributed-equality.md), which builds on this cache.
+
+## Alternatives Considered
+
+- **Opaque-bytes sturdyref with lazy parse.** Rejected: two sturdyrefs that should compare equal under Pass Invariant Equality would compare unequal once each codec chose its own byte layout, breaking codec-neutral semantics.
+- **A `Value`-level sturdyref arm.** Rejected: a sturdyref is authority-bearing — it enlivens to a live reference — so it belongs on `Reference`, alongside near/far/promise.
+- **Per-adapter enliven orchestration.** Rejected: the enliven story (precondition → dedup → fetch → settle) is identical everywhere; centralizing it in the core lets scenarios exercise it without a transport.
+
+## Consequences
+
+- The model carries `SturdyRef { peer, swissnum }` as `Reference.sturdy`; `referencesEqual` compares it structurally.
+- The session refuses a sturdyref on a non-negotiated session (`Error.FeatureNotNegotiated`) and owns the dedup cache and in-flight markers.
+- `src/runtime/sturdyref.zig` exposes the precondition / prepare / settle halves; the adapter drives the wire loop, as for bootstrap-fetch.
+- Enliven happy-path, cache-hit short-circuit, in-flight collapse, and the not-negotiated / broken refusals are conformance-bearing scenarios.
+
+## Forward compatibility
+
+A future signed sturdyref grows additively as a wrapped Syrup record on the `v1_0` profile, mirroring the handoff signature-envelope pattern; the `pre_spec` profile refuses the extended form via the feature flag. The unsigned `(peer, swissnum)` shape and its structural equality are the substrate [ADR-0013](ADR-0013-cross-session-distributed-equality.md) binds its dedup sidecar to.
+
+## Notes
+
+[ADR-0003](ADR-0003-codec-interoperability-posture.md) owns the profile posture the sturdyref record sits inside; the shape is profile-uniform across all cells. [ADR-0006](ADR-0006-handshake-substrate-and-bootstrap-fetch.md) is the bootstrap-fetch substrate enliven composes on, unchanged. [ADR-0010](ADR-0010-payload-descriptor-discriminator.md) settles the `(import_id, kind)` discriminator the cache preserves. The full project contract is the [First Principles](../../../AGENTS.md#first-principles).

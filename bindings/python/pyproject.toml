@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pancake-python"
+version = "0.1.0"
+description = "Python ctypes bindings for the libpancake C-ABI cdylib family (codec-neutral CapTP runtime for OCapN)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Apache-2.0" }
+# Stdlib ctypes only — no third-party runtime dependencies.
+dependencies = []
+
+[project.scripts]
+pancake-scenarios = "pancake.scenarios:main"
+
+[tool.setuptools]
+packages = ["pancake"]

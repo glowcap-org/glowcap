@@ -1,0 +1,9 @@
+# Per-clone Serena runtime state.
+/cache
+/logs
+/memories
+/project.local.yml
+/mcp-server.pid
+/mcp-server.lock
+/index.lock
+/.index-complete

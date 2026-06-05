@@ -1,0 +1,12 @@
+[submodule "conformance/ocapn-conformance/upstream"]
+	path = conformance/ocapn-conformance/upstream
+	url = https://github.com/ocapn/ocapn-test-suite.git
+[submodule "conformance/ocapn-spec/upstream"]
+	path = conformance/ocapn-spec/upstream
+	url = https://github.com/ocapn/ocapn.git
+[submodule "conformance/syrup/upstream"]
+	path = conformance/syrup/upstream
+	url = https://github.com/ocapn/syrup.git
+[submodule "conformance/spritely-goblins/upstream"]
+	path = conformance/spritely-goblins/upstream
+	url = https://codeberg.org/spritely/racket-goblins.git
