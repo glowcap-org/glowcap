@@ -3,7 +3,7 @@ id: ADR-0003
 status: accepted
 date: 2026-04-30
 tags: [codec, syrup, capnp, wire-profile, goblins-interop, captp-version]
-decision: Codecs encode one codec-neutral model; codec functions are stateless across sessions and take a per-call `WireProfile` (a `CaptpVersion` plus opt-in `ProfileFlags`). Syrup advertises two profiles — pancake-internal `pre_spec` and Goblins-canonical `v1_0`. The Cap'n Proto slot is hand-rolled (ADR-0026) but not yet runtime-integrated.
+decision: Codecs encode one codec-neutral model; codec functions are stateless across sessions and take a per-call `WireProfile` (a `CaptpVersion` plus opt-in `ProfileFlags`). Syrup advertises two profiles — pancake-internal `pre_spec` and Goblins-canonical `v1_0`. The Cap'n Proto slot is hand-rolled (ADR-0026) and runtime-integrated through the codec-dispatch seam (`session.codec`).
 supersedes: []
 superseded_by: []
 ---
@@ -28,7 +28,7 @@ A [`WireProfile`](../../../src/model/mod.zig) — a `CaptpVersion` plus an opt-i
 
 The **Syrup** codec ([`src/codec/syrup/`](../../../src/codec/syrup/)) is the OCapN-compatibility codec. It translates between the codec-neutral `Message` model and the Syrup shapes Goblins-compatible traffic requires (resolver callbacks, split GC, handoff descriptors, error records). It advertises two profiles: `pre_spec` (pancake-internal) and `v1_0` with `goblins_canonical` (the OCapN-recognized wire). The `goblins_canonical` flag is the opt-in marker that selects the V1.0 translation path (resolver-callback `op:deliver` instead of `op:resolve`, split `op:gc-exports` instead of a single release).
 
-The **Cap'n Proto** codec ([`src/codec/capnp/`](../../../src/codec/capnp/)) fills the second-codec slot, hand-rolled against the wire format per [ADR-0026](ADR-0026-hand-rolled-capnp-codec.md). It is view-first and codec-neutral, and complete: all ten `Message` arms and their shared sub-trees encode and decode. It is not yet runtime-integrated — the runtime's dispatch is bound to the Syrup view types and Goblins-v1.0 semantics — so the codec is reachable as a tested module rather than selectable on a live session. It advertises a single pancake-internal profile (`pre_spec`), because its wire shape does not vary with `CaptpVersion`.
+The **Cap'n Proto** codec ([`src/codec/capnp/`](../../../src/codec/capnp/)) fills the second-codec slot, hand-rolled against the wire format per [ADR-0026](ADR-0026-hand-rolled-capnp-codec.md). It is view-first and codec-neutral, and complete: all ten `Message` arms and their shared sub-trees encode and decode. It is runtime-integrated and selectable on a live session: a peer pair negotiates it (`runtime.factories.pairedWithCodec`), and the handshake plus all subsequent traffic ride it through the codec-dispatch seam (`session.codec`), the session state machine staying codec-neutral. It advertises a single pancake-internal profile (`pre_spec`), because its wire shape does not vary with `CaptpVersion`.
 
 ## Scope (what this does not decide)
 
@@ -50,9 +50,9 @@ The **Cap'n Proto** codec ([`src/codec/capnp/`](../../../src/codec/capnp/)) fill
 - **Symmetric refusal:** if a codec cannot encode a value the model admits, it fails loud (`Error.UnsupportedArgument` and siblings) rather than dropping it, so the model stays the single source of representability. The Syrup `float64` encode gap is the live example — it returns `UnsupportedArgument`, asserted by a fixture, rather than silently omitting the argument.
 - Wire-profile work is validated against checked Goblins Syrup byte fixtures (`zig build oracle-check`), not byte-equality between codecs.
 
-## Forward compatibility
+## Cross-codec parity
 
-The reserved Cap'n Proto slot is the only second-codec seam. Adding it is additive: a new `CodecId`, a profile advertisement, and the view types the runtime would project. Until then, any claim of cross-codec semantic parity is unbacked — the conformance harness exercises one codec.
+The Cap'n Proto codec fills the second-codec seam, so cross-codec semantic parity is backed rather than aspirational: the deliver/resolve and bootstrap-fetch conformance scenarios produce byte-identical traces on Syrup and Cap'n Proto (the first such coverage, not the full matrix). The one boundary that remains is the real-crypto handshake — the canonical `<my-location …>` signing input is profile-defined (Syrup), so a Cap'n Proto session uses the stub-key path.
 
 ## Notes
 

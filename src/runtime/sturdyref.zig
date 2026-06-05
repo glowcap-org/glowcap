@@ -31,13 +31,13 @@ const fetch = @import("fetch.zig");
 
 pub const Error = error{
     /// The session did not negotiate `FeatureSet.sturdyref`; Stage-3 enlivenment
-    /// requires a positive handshake (ADR-0012 § Decision 3).
+    /// requires a positive handshake (ADR-0012 § The `sturdyref` feature gate).
     SturdyrefsNotNegotiated,
     /// Enliven was attempted on a session that is not `open`.
     SessionNotOpen,
     /// The partner settled the bootstrap-fetch answer as a `break`, or with a
     /// non-`Reference` fulfillment — the swiss-number could not be enlivened
-    /// (ADR-0012 § Decision 5).
+    /// (ADR-0012 § Enliven over bootstrap-fetch).
     EnlivenmentBroke,
 };
 
@@ -56,7 +56,8 @@ pub const EnlivenStart = union(enum) {
     fresh: fetch.PreparedFetch,
 };
 
-/// Check the enliven preconditions (ADR-0012 § Decision 5 steps 1-2, minus the
+/// Check the enliven preconditions (ADR-0012 § Enliven over bootstrap-fetch
+/// steps 1-2, minus the
 /// locator-match that is an adapter/dial concern in the Zig core): the session
 /// negotiated `FeatureSet.sturdyref` and is open.
 pub fn checkEnlivenPreconditions(session: *session_mod.Session) Error!void {
@@ -66,7 +67,8 @@ pub fn checkEnlivenPreconditions(session: *session_mod.Session) Error!void {
 
 /// ADR-0013 cache short-circuit: if `sturdyref.swissnum` was already enlivened on
 /// `session`, rebuild the cached `Reference.far` (kind preserved, ADR-0010
-/// § Decision 5) without wire traffic. Returns null on a cache miss; callers fall
+/// § The far-kind is preserved across enliven) without wire traffic. Returns
+/// null on a cache miss; callers fall
 /// through to a fresh enliven. The returned reference is POD (no allocation).
 pub fn sturdyrefCacheHit(session: *session_mod.Session, sturdyref: model.SturdyRef) ?model.Reference {
     const import_id = session.sturdyrefImportFor(sturdyref.swissnum) orelse return null;

@@ -14,6 +14,9 @@ const model = @import("../model/mod.zig");
 const syrup = @import("syrup/mod.zig");
 const capnp = @import("capnp/mod.zig");
 
+pub const framing = @import("framing.zig");
+pub const Prefix = framing.Prefix;
+
 /// Union of both codecs' decode error sets. The runtime folds this into its
 /// `DecodeError` alongside the lazy-projection [`model.view.ProjectError`].
 pub const Error = syrup.Error || capnp.Error;
@@ -23,6 +26,28 @@ pub fn decodeBody(codec: model.CodecId, frame: foundation.FrameView) Error!model
     return switch (codec) {
         .syrup => syrup.decodeBody(frame),
         .capnp => capnp.decodeBody(frame),
+    };
+}
+
+/// Frame the front of `bytes` as one `codec` message, reporting consumed length
+/// or a structural verdict (incomplete / malformed / too_large). This is the
+/// stream-framing entry point: the active codec's own decoder finds the frame
+/// boundary as it decodes, so there is no separate boundary scanner to disagree
+/// with the decode. `max_frame_bytes` caps an accepted frame.
+pub fn decodePrefix(codec: model.CodecId, bytes: []const u8, max_frame_bytes: usize) Prefix {
+    return switch (codec) {
+        .syrup => syrup.decodePrefix(bytes, max_frame_bytes),
+        .capnp => capnp.decodePrefix(bytes, max_frame_bytes),
+    };
+}
+
+/// The wire frame shape `codec` produces and consumes (Invariant 4): Syrup is
+/// a byte stream, Cap'n Proto is word-aligned. A byte-stream framer needs this
+/// to materialize the owned frame it retains from a decoded prefix.
+pub fn frameShape(codec: model.CodecId) foundation.FrameShape {
+    return switch (codec) {
+        .syrup => .byte,
+        .capnp => .word,
     };
 }
 

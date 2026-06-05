@@ -54,19 +54,16 @@ test "abort kinds round-trip every variant through their wire names" {
     }
 }
 
-test "V1_0 abort wire string preserves a typed prefix and parses it back" {
-    const abort = model.AbortReason{
-        .kind = .version_mismatch,
-        .message = "expected ocapn-1.0",
-    };
+test "parseV1_0 splits a typed abort prefix into kind + message and falls back to other" {
+    const typed = model.AbortReason.parseV1_0("VersionMismatch: expected ocapn-1.0");
+    try std.testing.expectEqual(model.AbortKind.version_mismatch, typed.kind);
+    try std.testing.expectEqualStrings("expected ocapn-1.0", typed.message);
 
-    try std.testing.expectEqualStrings(
-        "VersionMismatch: expected ocapn-1.0",
-        abort.toV1_0Wire(),
-    );
-    try std.testing.expectEqual(model.AbortKind.version_mismatch, model.AbortReason.parseV1_0("VersionMismatch: expected ocapn-1.0").kind);
-    // A message with no recognized prefix falls back to `other`.
-    try std.testing.expectEqual(model.AbortKind.other, model.AbortReason.parseV1_0("free-form").kind);
+    // An unrecognized label, or no "<label>: " prefix at all, is `other` carrying
+    // the whole string verbatim.
+    const freeform = model.AbortReason.parseV1_0("free-form");
+    try std.testing.expectEqual(model.AbortKind.other, freeform.kind);
+    try std.testing.expectEqualStrings("free-form", freeform.message);
 }
 
 test "near and far ref constructors set the wire-tag kind discriminant" {

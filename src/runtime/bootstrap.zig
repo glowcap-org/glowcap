@@ -1,7 +1,7 @@
 //! Inbound bootstrap-`'fetch` responder primitives — the no-I/O half of
 //! answering "give me the cap behind this swissnum" (ADR-0006 responder half).
 //!
-//! Two pure pieces, wired into `Peer.dispatchOwnedFrameInner` (Task 3):
+//! Two pure pieces, wired into `Peer.dispatchOwnedFrameInner`:
 //!
 //! 1. [`pendingBootstrapRequest`]: structurally recognize an inbound
 //!    `op:deliver` to the bootstrap export (id 0) carrying `['fetch <swissnum>]`

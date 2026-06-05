@@ -780,7 +780,7 @@ test "a pipelined call queues until its answer resolves, then delivers locally" 
 
     // The pipelined call is held on the answer's queue, not surfaced as an event.
     try std.testing.expect(p2.pollEvent() == null);
-    try std.testing.expectEqual(@as(usize, 1), p2.session_state.inboundAnswer(42).?.queue.items.len);
+    try std.testing.expectEqual(@as(usize, 1), p2.session_state.inboundAnswer(42).?.queued_calls);
 
     // p2 resolves answer 42 to a local export (#9); the queued call drains into
     // a local delivery against that export, carrying its original args + answer.
@@ -793,7 +793,7 @@ test "a pipelined call queues until its answer resolves, then delivers locally" 
         var resolve_frame = p2.takeOutbound().?;
         resolve_frame.deinit();
     }
-    try std.testing.expectEqual(@as(usize, 0), p2.session_state.inboundAnswer(42).?.queue.items.len);
+    try std.testing.expectEqual(@as(usize, 0), p2.session_state.inboundAnswer(42).?.queued_calls);
 
     var local_event = p2.pollEvent().?;
     defer local_event.deinit();
@@ -898,7 +898,7 @@ test "a pipelined call re-queues when its answer resolves to another promise" {
         resolve_frame.deinit();
     }
     try std.testing.expect(p2.pollEvent() == null);
-    try std.testing.expectEqual(@as(usize, 1), p2.session_state.inboundAnswer(50).?.queue.items.len);
+    try std.testing.expectEqual(@as(usize, 1), p2.session_state.inboundAnswer(50).?.queued_calls);
 
     // Resolving #50 to a local export finally drains the re-queued call.
     try p2.sendCopying(.{ .resolve = .{

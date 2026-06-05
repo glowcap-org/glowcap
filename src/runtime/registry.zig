@@ -1,6 +1,6 @@
 //! One-session-per-peer-pair registry — the session-pair-uniqueness invariant
 //! that makes cross-session distributed equality load-bearing per
-//! ADR-0013 § Decision 1.
+//! ADR-0013 § Session-pair uniqueness in `SessionRegistry`.
 //!
 //! By refusing a second session to a [`foundation.PeerId`] this peer already has
 //! one open with, cross-session equality reduces to same-session equality on
@@ -21,7 +21,8 @@ const foundation = @import("../foundation/mod.zig");
 
 pub const Error = error{
     /// `register` was called for a [`foundation.PeerId`] that already has an open
-    /// session. The session-pair-uniqueness invariant (ADR-0013 § Decision 1) is
+    /// session. The session-pair-uniqueness invariant
+    /// (ADR-0013 § Session-pair uniqueness in `SessionRegistry`) is
     /// a loud refusal, never a silent second session.
     PeerAlreadyOpen,
 };

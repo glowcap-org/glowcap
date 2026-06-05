@@ -123,6 +123,21 @@ test "op:abort encodes to the Goblins-aligned Syrup byte shape" {
     try std.testing.expectEqualSlices(u8, "<8'op:abort13\"shutting down>", frame.bytes());
 }
 
+test "op:abort with a typed kind encodes the wire label prefix" {
+    const allocator = std.testing.allocator;
+    const message = model.Message{
+        .abort = .{ .kind = .version_mismatch, .message = "expected ocapn-1.0" },
+    };
+
+    var frame = try syrup.encodeMessage(allocator, message);
+    defer frame.deinit();
+
+    // The encoder derives the label from the kind discriminant (kind.wireName())
+    // and builds "<label>: <message>" at encode time — general across kinds and
+    // symmetric with parseV1_0, with no per-message special case.
+    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "VersionMismatch: expected ocapn-1.0") != null);
+}
+
 test "minimal op:deliver encodes to the PreSpec Syrup byte shape" {
     const allocator = std.testing.allocator;
     const target = model.Reference{ .far = .{ .import_id = 7 } };
@@ -143,6 +158,58 @@ test "minimal op:deliver encodes to the PreSpec Syrup byte shape" {
         "<10'op:deliver<11'desc:export7+>[5:hello]42+f>",
         frame.bytes(),
     );
+}
+
+test "neutral Args iterator walks the codec backing in one forward pass" {
+    const allocator = std.testing.allocator;
+    // A multi-arg deliver whose args include a nested list, so the walk exercises
+    // both the top-level sequence and a nested backed sub-`Args`.
+    const nested = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 } };
+    const args = [_]model.Argument{
+        .{ .bytes = "hello" },
+        .{ .symbol = "sym" },
+        .{ .list = nested[0..] },
+        .{ .boolean = true },
+    };
+    const message = model.Message{ .deliver = .{
+        .target = .{ .far = .{ .import_id = 7 } },
+        .args = args[0..],
+        .answer = 42,
+    } };
+
+    var frame = try syrup.encodeMessage(allocator, message);
+    defer frame.deinit();
+
+    const body = try syrup.decodeBody(frame.view());
+    const decoded_args = body.deliver.args;
+
+    // The forward iterator yields exactly the same sequence as random access,
+    // and the same count as `len()` — proving the cursor advances correctly
+    // without the per-element re-walk that `at(i)` performs.
+    const count = try decoded_args.len();
+    try std.testing.expectEqual(@as(usize, 4), count);
+
+    var it = decoded_args.iterator();
+    var index: usize = 0;
+    while (try it.next()) |arg| : (index += 1) {
+        const expected = try decoded_args.at(index);
+        try std.testing.expectEqualStrings(@tagName(expected), @tagName(arg));
+        switch (arg) {
+            .bytes => |b| try std.testing.expectEqualStrings("hello", b),
+            .symbol => |s| try std.testing.expectEqualStrings("sym", s),
+            .boolean => |v| try std.testing.expect(v),
+            .list => |items| {
+                var inner = items.iterator();
+                var inner_count: usize = 0;
+                while (try inner.next()) |inner_arg| : (inner_count += 1) {
+                    try std.testing.expectEqual(@as(i64, @intCast(inner_count + 1)), inner_arg.integer);
+                }
+                try std.testing.expectEqual(@as(usize, 2), inner_count);
+            },
+            else => return error.TestUnexpectedArgument,
+        }
+    }
+    try std.testing.expectEqual(count, index);
 }
 
 test "op:abort fixture decodes as a borrowed view" {
@@ -864,15 +931,17 @@ test "neutral view projects every Syrup-encodable argument arm" {
 
 test "neutral view round-trips deliver with promise target and resolver-callback" {
     const args = [_]model.Argument{ .{ .symbol = "fulfill" }, .{ .reference = .{ .near = model.NearRef.object(3) } } };
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .deliver = .{
-        .target = .{ .promise = .{ .answer_id = 5 } },
-        .args = args[0..],
-        .answer = 8,
-        // Object-kind resolver desc: the promise-kind on a decoded `Far` import
-        // is not wire-preserved (`Far`→`<desc:export>`), so it would not survive
-        // the second crossing — kind preservation is tested via near→far above.
-        .resolve_me_desc = .{ .near = model.NearRef.object(4) },
-    } });
+    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{
+        .deliver = .{
+            .target = .{ .promise = .{ .answer_id = 5 } },
+            .args = args[0..],
+            .answer = 8,
+            // Object-kind resolver desc: the promise-kind on a decoded `Far` import
+            // is not wire-preserved (`Far`→`<desc:export>`), so it would not survive
+            // the second crossing — kind preservation is tested via near→far above.
+            .resolve_me_desc = .{ .near = model.NearRef.object(4) },
+        },
+    });
 }
 
 test "neutral view round-trips resolve, gc, abort, listen, get, index" {

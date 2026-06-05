@@ -25,8 +25,8 @@ pub const freePipelinePath = owned.freePipelinePath;
 pub const view = @import("view.zig");
 
 /// Structural equality on the codec-neutral value tree — the in-memory evidence
-/// for distributed (Pass Invariant) equality per ADR-0013 § Decision 5. See
-/// [`equality`].
+/// for distributed (Pass Invariant) equality per ADR-0013 § Structural
+/// `Reference` equality is the evidence. See [`equality`].
 pub const equality = @import("equality.zig");
 pub const referencesEqual = equality.referencesEqual;
 pub const argumentsEqual = equality.argumentsEqual;
@@ -416,7 +416,7 @@ pub const FarRef = struct {
 /// - `call` is admitted by both codecs. On Syrup it is decomposed into chained
 ///   single-hop `op:deliver`s at the runtime layer
 ///   ([`runtime.pipeline.decomposeOutboundDeliver`]); capnp encodes the path
-///   natively once that codec lands.
+///   natively.
 /// - `field` is Cap'n Proto-only; the Syrup decomposer and encoders reject it
 ///   because the OCapN spec admits no structural-navigation analog on
 ///   `op:deliver`.
@@ -585,18 +585,11 @@ pub const AbortReason = struct {
     kind: AbortKind,
     message: []const u8,
 
-    pub fn toV1_0Wire(self: AbortReason) []const u8 {
-        // Allocating combined typed abort strings belongs at encode time.
-        return switch (self.kind) {
-            .version_mismatch => if (@import("std").mem.eql(u8, self.message, "expected ocapn-1.0"))
-                "VersionMismatch: expected ocapn-1.0"
-            else
-                self.message,
-            .other => self.message,
-            else => self.message,
-        };
-    }
-
+    /// Parse a V1.0 abort wire string back into a typed reason. A
+    /// `"<Label>: <message>"` shape whose label is a known [`AbortKind.wireName`]
+    /// recovers that kind; anything else is `.other` carrying the whole string.
+    /// The encode side is the codec's (`syrup.writeAbortWireString` builds the
+    /// `"<label>: <message>"` form from `kind.wireName()` at encode time).
     pub fn parseV1_0(wire: []const u8) AbortReason {
         if (std.mem.indexOf(u8, wire, ": ")) |split| {
             const label = wire[0..split];

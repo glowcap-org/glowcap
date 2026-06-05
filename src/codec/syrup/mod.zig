@@ -12,6 +12,7 @@ pub const admits = descriptor_mod.admits;
 pub const Error = reader.Error;
 pub const decodeView = reader.decodeView;
 pub const decodeBody = reader.decodeBody;
+pub const decodePrefix = reader.decodePrefix;
 
 pub const decodeOwned = owned.decodeOwned;
 pub const ownedFromView = owned.ownedFromView;

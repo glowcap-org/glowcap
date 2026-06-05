@@ -5,7 +5,7 @@
 //!
 //! This module knows nothing about pancake's message model — it is the
 //! mechanical layer (segment framing, pointer bit-packing, a single-segment
-//! builder, bounds-checked word reads). The model mapping lives in `mod.zig`.
+//! builder, bounds-checked word reads). The model mapping lives in `core.zig`.
 //!
 //! Reads are endian-explicit (`std.mem.readInt(..., .little)`), so decoding is
 //! correct on any host. The builder writes the same way, so encoding is too.

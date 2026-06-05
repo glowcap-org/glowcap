@@ -49,8 +49,8 @@ Generated state is ignored and must not be committed:
 - `.serena/cache/`
 - `.serena/logs/`
 - `.serena/memories/` unless a maintainer explicitly asks to share a memory
-- `rust-dogfood/target/`
-- `rust-dogfood/Cargo.lock`
+- `bindings/rust/target/`
+- `bindings/rust/Cargo.lock`
 
 If generated cache appears in status, fix `.gitignore` rather than relying on
 manual cleanup.

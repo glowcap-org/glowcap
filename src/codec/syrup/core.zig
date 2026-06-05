@@ -2,6 +2,7 @@ const std = @import("std");
 
 const foundation = @import("../../foundation/mod.zig");
 const model = @import("../../model/mod.zig");
+const framing = @import("../framing.zig");
 
 pub const AdmittedMessage = enum {
     deliver,
@@ -73,7 +74,25 @@ pub const Error = error{
     UnsupportedArgument,
     UnsupportedMessage,
     UnsupportedReference,
+    /// The buffer ends inside a message — a leaf reader ran past the available
+    /// bytes. This is an internal framing signal, not a public decode failure:
+    /// the whole-frame [`decodeBody`] folds it into `MalformedFrame` (a frame
+    /// must be complete), while the streaming [`decodePrefix`] surfaces it as
+    /// `.incomplete` so the caller reads more bytes. No structurally-valid
+    /// frame ever yields it from `decodeBody`.
+    Incomplete,
 };
+
+/// Decode-time recursion bound for the neutral argument walker. The arg tree is
+/// attacker-controlled, and slicing a nested `list` / `set` / `user-record`
+/// recurses one native frame per level, so an unbounded nesting depth is a
+/// one-frame stack overflow during decode — *before* the session's
+/// authority-level [`SessionLimits.max_nesting_depth`] (default 64) can reject
+/// it. This cap fails such a frame loud as `MalformedFrame` instead. It sits
+/// well above the session cap so it never rejects a frame authority would
+/// admit; a frame deeper than the session cap but shallower than this still
+/// decodes and is rejected by validation as `resource_exhausted`.
+const max_decode_nesting: usize = 512;
 
 pub const AbortView = struct {
     kind: model.AbortKind,
@@ -410,7 +429,18 @@ pub fn encodeMessageForProfile(
     return try foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1));
 }
 
+/// Project a full-fidelity borrowed [`MessageView`] over a complete `frame`.
+/// Like [`decodeBody`], a frame must decode whole, so a short read is a
+/// malformed frame; the shared leaf readers signal truncation as `Incomplete`,
+/// which this whole-frame entry folds back into `MalformedFrame`.
 pub fn decodeView(frame: foundation.FrameView) Error!MessageView {
+    return decodeViewInner(frame) catch |err| switch (err) {
+        Error.Incomplete => Error.MalformedFrame,
+        else => |other| other,
+    };
+}
+
+fn decodeViewInner(frame: foundation.FrameView) Error!MessageView {
     if (frame.shape != .byte) {
         return Error.InvalidFrameShape;
     }
@@ -616,18 +646,20 @@ pub fn ownedFromView(allocator: std.mem.Allocator, view: MessageView) !model.Mes
 const neutral_args_vtable = model.view.Args.VTable{
     .len = neutralArgsLen,
     .at = neutralArgsAt,
+    .next = neutralArgsNext,
 };
 
 const neutral_positions_vtable = model.view.PositionList.VTable{
     .len = neutralPositionsLen,
     .at = neutralPositionsAt,
+    .next = neutralPositionsNext,
 };
 
 fn neutralArgsLen(ctx: model.view.Args.Ctx) model.view.ProjectError!usize {
     var cursor: usize = 0;
     var total: usize = 0;
     while (cursor < ctx.bytes.len) : (total += 1) {
-        _ = readNeutralArgument(ctx.bytes, &cursor) catch return error.MalformedView;
+        _ = readNeutralArgument(ctx.bytes, &cursor, 0) catch return error.MalformedView;
     }
     return total;
 }
@@ -636,10 +668,21 @@ fn neutralArgsAt(ctx: model.view.Args.Ctx, index: usize) model.view.ProjectError
     var cursor: usize = 0;
     var current: usize = 0;
     while (cursor < ctx.bytes.len) : (current += 1) {
-        const argument = readNeutralArgument(ctx.bytes, &cursor) catch return error.MalformedView;
+        const argument = readNeutralArgument(ctx.bytes, &cursor, 0) catch return error.MalformedView;
         if (current == index) return argument;
     }
     return error.MalformedView;
+}
+
+/// Forward cursor: `cursor` is a byte offset into the list region. One
+/// `readNeutralArgument` advances it past the element it returns, so a full
+/// walk is a single linear pass — not the per-`at` re-scan from byte 0.
+fn neutralArgsNext(ctx: model.view.Args.Ctx, cursor: *u64) model.view.ProjectError!?model.view.Argument {
+    var c: usize = @intCast(cursor.*);
+    if (c >= ctx.bytes.len) return null;
+    const argument = readNeutralArgument(ctx.bytes, &c, 0) catch return error.MalformedView;
+    cursor.* = @intCast(c);
+    return argument;
 }
 
 fn neutralPositionsLen(ctx: model.view.Args.Ctx) model.view.ProjectError!usize {
@@ -659,6 +702,14 @@ fn neutralPositionsAt(ctx: model.view.Args.Ctx, index: usize) model.view.Project
         if (current == index) return value;
     }
     return error.MalformedView;
+}
+
+fn neutralPositionsNext(ctx: model.view.Args.Ctx, cursor: *u64) model.view.ProjectError!?u64 {
+    var c: usize = @intCast(cursor.*);
+    if (c >= ctx.bytes.len) return null;
+    const value = readPositiveInt(ctx.bytes, &c) catch return error.MalformedView;
+    cursor.* = @intCast(c);
+    return value;
 }
 
 fn neutralArgs(list_body: []const u8) model.view.Args {
@@ -682,12 +733,13 @@ fn neutralReference(reference: ReferenceView) model.view.Reference {
 /// Project one borrowed full-fidelity [`model.view.Argument`] and advance
 /// `cursor` past it. Nested `list` / `set` / `tagged` arms project lazily as
 /// backed [`model.view.Args`] over their byte sub-region.
-fn readNeutralArgument(bytes: []const u8, cursor: *usize) Error!model.view.Argument {
-    if (cursor.* >= bytes.len) return Error.MalformedFrame;
+fn readNeutralArgument(bytes: []const u8, cursor: *usize, depth: usize) Error!model.view.Argument {
+    if (depth > max_decode_nesting) return Error.MalformedFrame;
+    if (cursor.* >= bytes.len) return Error.Incomplete;
     return switch (bytes[cursor.*]) {
         '0'...'9' => blk: {
             const marker_index = cursor.* + countDigits(bytes[cursor.*..]);
-            if (marker_index >= bytes.len) return Error.MalformedFrame;
+            if (marker_index >= bytes.len) return Error.Incomplete;
             break :blk switch (bytes[marker_index]) {
                 ':' => .{ .bytes = try readBytes(bytes, cursor) },
                 '"' => .{ .string = try readString(bytes, cursor) },
@@ -697,8 +749,8 @@ fn readNeutralArgument(bytes: []const u8, cursor: *usize) Error!model.view.Argum
             };
         },
         't', 'f' => .{ .boolean = try readBool(bytes, cursor) },
-        '[' => .{ .list = neutralArgs(try sliceArgumentListNeutral(bytes, cursor)) },
-        '#' => .{ .set = neutralArgs(try sliceSetNeutral(bytes, cursor)) },
+        '[' => .{ .list = neutralArgs(try sliceArgumentListNeutral(bytes, cursor, depth + 1)) },
+        '#' => .{ .set = neutralArgs(try sliceSetNeutral(bytes, cursor, depth + 1)) },
         '<' => blk: {
             if (isReferenceRecord(bytes, cursor.*)) {
                 break :blk .{ .reference = neutralReference(try readReference(bytes, cursor)) };
@@ -716,7 +768,7 @@ fn readNeutralArgument(bytes: []const u8, cursor: *usize) Error!model.view.Argum
             }
             if (std.mem.eql(u8, tag, "user-record")) {
                 const record_tag = try readSymbol(bytes, cursor);
-                const value_body = try sliceArgumentListNeutral(bytes, cursor);
+                const value_body = try sliceArgumentListNeutral(bytes, cursor, depth + 1);
                 try readByte(bytes, cursor, '>');
                 break :blk .{ .tagged = .{ .tag = record_tag, .value = neutralArgs(value_body) } };
             }
@@ -732,27 +784,28 @@ fn readNeutralArgument(bytes: []const u8, cursor: *usize) Error!model.view.Argum
 }
 
 /// Slice a `[ … ]` argument list body (between the brackets) using the
-/// full-fidelity walker, advancing `cursor` past the closing `]`.
-fn sliceArgumentListNeutral(bytes: []const u8, cursor: *usize) Error![]const u8 {
+/// full-fidelity walker, advancing `cursor` past the closing `]`. `depth` is
+/// the nesting level entered (bounded by [`max_decode_nesting`]).
+fn sliceArgumentListNeutral(bytes: []const u8, cursor: *usize, depth: usize) Error![]const u8 {
     try readByte(bytes, cursor, '[');
     const body_start = cursor.*;
     while (cursor.* < bytes.len and bytes[cursor.*] != ']') {
-        _ = try readNeutralArgument(bytes, cursor);
+        _ = try readNeutralArgument(bytes, cursor, depth);
     }
-    if (cursor.* >= bytes.len) return Error.MalformedFrame;
+    if (cursor.* >= bytes.len) return Error.Incomplete;
     const body = bytes[body_start..cursor.*];
     cursor.* += 1;
     return body;
 }
 
 /// Slice a `# … $` set body, advancing `cursor` past the closing `$`.
-fn sliceSetNeutral(bytes: []const u8, cursor: *usize) Error![]const u8 {
+fn sliceSetNeutral(bytes: []const u8, cursor: *usize, depth: usize) Error![]const u8 {
     try readByte(bytes, cursor, '#');
     const body_start = cursor.*;
     while (cursor.* < bytes.len and bytes[cursor.*] != '$') {
-        _ = try readNeutralArgument(bytes, cursor);
+        _ = try readNeutralArgument(bytes, cursor, depth);
     }
-    if (cursor.* >= bytes.len) return Error.MalformedFrame;
+    if (cursor.* >= bytes.len) return Error.Incomplete;
     const body = bytes[body_start..cursor.*];
     cursor.* += 1;
     return body;
@@ -762,7 +815,7 @@ fn readNeutralResolution(bytes: []const u8, cursor: *usize) Error!model.view.Res
     try readByte(bytes, cursor, '<');
     const tag = try readSymbol(bytes, cursor);
     if (std.mem.eql(u8, tag, "resolve:fulfill")) {
-        const argument = try readNeutralArgument(bytes, cursor);
+        const argument = try readNeutralArgument(bytes, cursor, 0);
         try readByte(bytes, cursor, '>');
         return .{ .fulfill = argument };
     }
@@ -774,29 +827,64 @@ fn readNeutralResolution(bytes: []const u8, cursor: *usize) Error!model.view.Res
     return Error.MalformedFrame;
 }
 
-/// Project the borrowed codec-neutral [`model.view.Body`] over `frame`.
+/// Project the borrowed codec-neutral [`model.view.Body`] over a complete
+/// `frame`. A frame is exactly one message with no trailing bytes; a short
+/// read is therefore a malformed frame here. Streaming callers that do not yet
+/// know the frame boundary use [`decodePrefix`], which shares the same parser.
 pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
     if (frame.shape != .byte) return Error.InvalidFrameShape;
 
     var cursor: usize = 0;
-    try readByte(frame.bytes, &cursor, '<');
-    const op = try readSymbol(frame.bytes, &cursor);
+    const body = decodeBodyAt(frame.bytes, &cursor) catch |err| switch (err) {
+        Error.Incomplete => return Error.MalformedFrame,
+        else => |other| return other,
+    };
+    try expectEnd(frame.bytes, cursor);
+    return body;
+}
+
+/// Decode the one message at the front of `bytes`, returning its borrowed body
+/// and the number of bytes it consumed, or a structural verdict. This is the
+/// single stream framer: the decoder *is* the framer, so there is no second
+/// boundary scanner to disagree with it.
+///
+/// `max_frame_bytes` caps an accepted frame — a fully-decoded message longer
+/// than the cap is rejected as `.too_large` rather than admitted. A frame that
+/// is merely longer than `bytes` (still arriving) reports `.incomplete`; the
+/// caller's read buffer bound is what stops an unbounded never-completing
+/// stream, so the buffer must be sized to the cap.
+pub fn decodePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Prefix {
+    var cursor: usize = 0;
+    const body = decodeBodyAt(bytes, &cursor) catch |err| switch (err) {
+        Error.Incomplete => return .incomplete,
+        else => return .malformed,
+    };
+    if (cursor > max_frame_bytes) return .too_large;
+    return .{ .decoded = .{ .body = body, .consumed = cursor } };
+}
+
+/// Decode exactly one message starting at `cursor.*`, advancing `cursor` to the
+/// byte just past it and leaving any trailing bytes untouched. The cursor it
+/// leaves *is* the frame boundary. `Error.Incomplete` means the buffer ends
+/// mid-message (read more); every other error means the bytes are structurally
+/// invalid regardless of how many more arrive.
+fn decodeBodyAt(bytes: []const u8, cursor: *usize) Error!model.view.Body {
+    try readByte(bytes, cursor, '<');
+    const op = try readSymbol(bytes, cursor);
 
     if (std.mem.eql(u8, op, "op:abort")) {
-        const message = try readString(frame.bytes, &cursor);
-        try readByte(frame.bytes, &cursor, '>');
-        try expectEnd(frame.bytes, cursor);
+        const message = try readString(bytes, cursor);
+        try readByte(bytes, cursor, '>');
         const abort = model.AbortReason.parseV1_0(message);
         return .{ .abort = .{ .kind = abort.kind, .message = abort.message } };
     }
 
     if (std.mem.eql(u8, op, "op:deliver")) {
-        const target = try readReference(frame.bytes, &cursor);
-        const args_body = try sliceArgumentListNeutral(frame.bytes, &cursor);
-        const answer = try readOptionalPositiveInt(frame.bytes, &cursor);
-        const resolve_me_desc = try readOptionalReference(frame.bytes, &cursor);
-        try readByte(frame.bytes, &cursor, '>');
-        try expectEnd(frame.bytes, cursor);
+        const target = try readReference(bytes, cursor);
+        const args_body = try sliceArgumentListNeutral(bytes, cursor, 0);
+        const answer = try readOptionalPositiveInt(bytes, cursor);
+        const resolve_me_desc = try readOptionalReference(bytes, cursor);
+        try readByte(bytes, cursor, '>');
         return .{ .deliver = .{
             .target = neutralReference(target),
             .args = neutralArgs(args_body),
@@ -806,18 +894,16 @@ pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
     }
 
     if (std.mem.eql(u8, op, "op:resolve")) {
-        const answer = try readPositiveInt(frame.bytes, &cursor);
-        const resolution = try readNeutralResolution(frame.bytes, &cursor);
-        try readByte(frame.bytes, &cursor, '>');
-        try expectEnd(frame.bytes, cursor);
+        const answer = try readPositiveInt(bytes, cursor);
+        const resolution = try readNeutralResolution(bytes, cursor);
+        try readByte(bytes, cursor, '>');
         return .{ .resolve = .{ .answer = answer, .resolution = resolution } };
     }
 
     if (std.mem.eql(u8, op, "op:gc-exports")) {
-        const positions = try readPositionList(frame.bytes, &cursor);
-        const deltas = try readPositionList(frame.bytes, &cursor);
-        try readByte(frame.bytes, &cursor, '>');
-        try expectEnd(frame.bytes, cursor);
+        const positions = try readPositionList(bytes, cursor);
+        const deltas = try readPositionList(bytes, cursor);
+        try readByte(bytes, cursor, '>');
         return .{ .gc_export = .{
             .positions = neutralPositions(positions.bytes),
             .deltas = neutralPositions(deltas.bytes),
@@ -825,39 +911,35 @@ pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
     }
 
     if (std.mem.eql(u8, op, "op:gc-answers")) {
-        const positions = try readPositionList(frame.bytes, &cursor);
-        try readByte(frame.bytes, &cursor, '>');
-        try expectEnd(frame.bytes, cursor);
+        const positions = try readPositionList(bytes, cursor);
+        try readByte(bytes, cursor, '>');
         return .{ .gc_answer = .{ .positions = neutralPositions(positions.bytes) } };
     }
 
     if (std.mem.eql(u8, op, "op:get")) {
-        const receiver = try readReference(frame.bytes, &cursor);
-        const field = try readSymbol(frame.bytes, &cursor);
-        const answer = try readPositiveInt(frame.bytes, &cursor);
-        try readByte(frame.bytes, &cursor, '>');
-        try expectEnd(frame.bytes, cursor);
+        const receiver = try readReference(bytes, cursor);
+        const field = try readSymbol(bytes, cursor);
+        const answer = try readPositiveInt(bytes, cursor);
+        try readByte(bytes, cursor, '>');
         return .{ .get = .{ .receiver = neutralReference(receiver), .field = field, .answer = answer } };
     }
 
     if (std.mem.eql(u8, op, "op:index")) {
-        const receiver = try readReference(frame.bytes, &cursor);
-        const index = try readInteger(frame.bytes, &cursor);
-        const answer = try readPositiveInt(frame.bytes, &cursor);
-        try readByte(frame.bytes, &cursor, '>');
-        try expectEnd(frame.bytes, cursor);
+        const receiver = try readReference(bytes, cursor);
+        const index = try readInteger(bytes, cursor);
+        const answer = try readPositiveInt(bytes, cursor);
+        try readByte(bytes, cursor, '>');
         return .{ .index = .{ .receiver = neutralReference(receiver), .index = index, .answer = answer } };
     }
 
     if (std.mem.eql(u8, op, "op:listen")) {
-        const target = try readReference(frame.bytes, &cursor);
-        const listener = try readReference(frame.bytes, &cursor);
-        const wants_partial = if (cursor < frame.bytes.len and frame.bytes[cursor] != '>')
-            try readBool(frame.bytes, &cursor)
+        const target = try readReference(bytes, cursor);
+        const listener = try readReference(bytes, cursor);
+        const wants_partial = if (cursor.* < bytes.len and bytes[cursor.*] != '>')
+            try readBool(bytes, cursor)
         else
             false;
-        try readByte(frame.bytes, &cursor, '>');
-        try expectEnd(frame.bytes, cursor);
+        try readByte(bytes, cursor, '>');
         return .{ .listen = .{
             .target = neutralReference(target),
             .listener = neutralReference(listener),
@@ -866,13 +948,12 @@ pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
     }
 
     if (std.mem.eql(u8, op, "op:start-session")) {
-        const version_wire = try readString(frame.bytes, &cursor);
+        const version_wire = try readString(bytes, cursor);
         const captp_version = model.CaptpVersion.fromWireString(version_wire) orelse return Error.MalformedFrame;
-        const session_pubkey = try readPeerKeyQ(frame.bytes, &cursor);
-        const acceptable_location = try readLocator(frame.bytes, &cursor);
-        const acceptable_location_sig = try readSignatureView(frame.bytes, &cursor);
-        try readByte(frame.bytes, &cursor, '>');
-        try expectEnd(frame.bytes, cursor);
+        const session_pubkey = try readPeerKeyQ(bytes, cursor);
+        const acceptable_location = try readLocator(bytes, cursor);
+        const acceptable_location_sig = try readSignatureView(bytes, cursor);
+        try readByte(bytes, cursor, '>');
         return .{ .start_session = .{
             .captp_version = captp_version,
             .session_pubkey = session_pubkey,
@@ -886,9 +967,11 @@ pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
     }
 
     if (std.mem.eql(u8, op, "desc:sig-envelope")) {
+        // The signed-handoff reader re-parses the whole envelope from the
+        // start, so its cursor — not the outer one — marks the frame end.
         var envelope_cursor: usize = 0;
-        const handoff = try readBorrowedSignedHandoff(frame.bytes, &envelope_cursor);
-        try expectEnd(frame.bytes, envelope_cursor);
+        const handoff = try readBorrowedSignedHandoff(bytes, &envelope_cursor);
+        cursor.* = envelope_cursor;
         return .{ .handoff = handoff };
     }
 
@@ -1474,7 +1557,8 @@ fn writeTargetReference(allocator: std.mem.Allocator, out: *std.ArrayList(u8), r
         // A pipelined deliver targets the (still-unresolved) answer position.
         // `desc:answer` carries no path operand: a non-empty path must have been
         // decomposed into single-hop links by the runtime before encode (ADR-0007
-        // § Decision 1). One reaching here is a runtime bug — fail loud rather
+        // § Multi-hop decomposition at the sender). One reaching here is a
+        // runtime bug — fail loud rather
         // than silently drop the path.
         .promise => |promise| {
             if (!promise.path.isEmpty()) return Error.UnsupportedReference;
@@ -1520,7 +1604,8 @@ fn readString(bytes: []const u8, cursor: *usize) Error![]const u8 {
     while (cursor.* < bytes.len and std.ascii.isDigit(bytes[cursor.*])) {
         cursor.* += 1;
     }
-    if (cursor.* == len_start or cursor.* >= bytes.len or bytes[cursor.*] != '"') {
+    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* == len_start or bytes[cursor.*] != '"') {
         return Error.MalformedFrame;
     }
 
@@ -1531,7 +1616,7 @@ fn readString(bytes: []const u8, cursor: *usize) Error![]const u8 {
 
     const body_start = cursor.*;
     if (len > bytes.len - body_start) {
-        return Error.MalformedFrame;
+        return Error.Incomplete;
     }
     const body_end = body_start + len;
     cursor.* = body_end;
@@ -1543,7 +1628,8 @@ fn readSymbol(bytes: []const u8, cursor: *usize) Error![]const u8 {
     while (cursor.* < bytes.len and std.ascii.isDigit(bytes[cursor.*])) {
         cursor.* += 1;
     }
-    if (cursor.* == len_start or cursor.* >= bytes.len or bytes[cursor.*] != '\'') {
+    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* == len_start or bytes[cursor.*] != '\'') {
         return Error.MalformedFrame;
     }
 
@@ -1554,7 +1640,7 @@ fn readSymbol(bytes: []const u8, cursor: *usize) Error![]const u8 {
 
     const body_start = cursor.*;
     if (len > bytes.len - body_start) {
-        return Error.MalformedFrame;
+        return Error.Incomplete;
     }
     const body_end = body_start + len;
     cursor.* = body_end;
@@ -1568,7 +1654,7 @@ fn readPositionList(bytes: []const u8, cursor: *usize) Error!PositionListView {
         _ = try readPositiveInt(bytes, cursor);
     }
     if (cursor.* >= bytes.len) {
-        return Error.MalformedFrame;
+        return Error.Incomplete;
     }
 
     const view = PositionListView{ .bytes = bytes[body_start..cursor.*] };
@@ -1583,7 +1669,7 @@ fn readArgumentList(bytes: []const u8, cursor: *usize) Error!ArgumentListView {
         _ = try readArgument(bytes, cursor);
     }
     if (cursor.* >= bytes.len) {
-        return Error.MalformedFrame;
+        return Error.Incomplete;
     }
 
     const view = ArgumentListView{ .bytes = bytes[body_start..cursor.*] };
@@ -1592,14 +1678,14 @@ fn readArgumentList(bytes: []const u8, cursor: *usize) Error!ArgumentListView {
 }
 
 fn readArgument(bytes: []const u8, cursor: *usize) Error!ArgumentView {
-    if (cursor.* >= bytes.len) return Error.MalformedFrame;
+    if (cursor.* >= bytes.len) return Error.Incomplete;
     return switch (bytes[cursor.*]) {
         '0'...'9' => blk: {
             const len_start = cursor.*;
             while (cursor.* < bytes.len and std.ascii.isDigit(bytes[cursor.*])) {
                 cursor.* += 1;
             }
-            if (cursor.* >= bytes.len) return Error.MalformedFrame;
+            if (cursor.* >= bytes.len) return Error.Incomplete;
             cursor.* = len_start;
             break :blk switch (bytes[cursor.* + countDigits(bytes[cursor.*..])]) {
                 ':' => .{ .bytes = try readBytes(bytes, cursor) },
@@ -1705,7 +1791,17 @@ fn readError(bytes: []const u8, cursor: *usize) Error!model.Error {
 }
 
 fn readPeerKeyQ(bytes: []const u8, cursor: *usize) Error![]const u8 {
+    // `readBalanced` consumes against the live buffer, so a truncated list is a
+    // genuine `Incomplete` (read more). `list` is then a *complete* slice, so a
+    // short read while re-parsing it is malformed, not stream-incomplete.
     const list = try readBalanced(bytes, cursor, '[', ']');
+    return parsePeerKeyQ(list) catch |err| switch (err) {
+        Error.Incomplete => Error.MalformedFrame,
+        else => |other| other,
+    };
+}
+
+fn parsePeerKeyQ(list: []const u8) Error![]const u8 {
     var inner: usize = 0;
     while (inner < list.len) {
         if (list[inner] == '[') {
@@ -1744,12 +1840,14 @@ fn readLocator(bytes: []const u8, cursor: *usize) Error!model.PeerLocator {
 }
 
 fn readHints(bytes: []const u8, cursor: *usize) Error!model.Hints {
-    if (cursor.* >= bytes.len) return Error.MalformedFrame;
+    if (cursor.* >= bytes.len) return Error.Incomplete;
     if (bytes[cursor.*] == 'f') {
         cursor.* += 1;
         return model.Hints.emptyFalse();
     }
-    if (cursor.* + 2 <= bytes.len and std.mem.eql(u8, bytes[cursor.* .. cursor.* + 2], "{}")) {
+    if (bytes[cursor.*] == '{') {
+        if (cursor.* + 2 > bytes.len) return Error.Incomplete;
+        if (bytes[cursor.* + 1] != '}') return Error.MalformedFrame;
         cursor.* += 2;
         return model.Hints.emptyMap();
     }
@@ -1757,7 +1855,15 @@ fn readHints(bytes: []const u8, cursor: *usize) Error!model.Hints {
 }
 
 fn readSignatureView(bytes: []const u8, cursor: *usize) Error!SignatureView {
+    // See `readPeerKeyQ`: `list` is complete, so a short re-parse is malformed.
     const list = try readBalanced(bytes, cursor, '[', ']');
+    return parseSignatureView(list) catch |err| switch (err) {
+        Error.Incomplete => Error.MalformedFrame,
+        else => |other| other,
+    };
+}
+
+fn parseSignatureView(list: []const u8) Error!SignatureView {
     var inner: usize = 0;
     var r: ?[]const u8 = null;
     var s: ?[]const u8 = null;
@@ -1796,7 +1902,8 @@ fn readPositiveInt(bytes: []const u8, cursor: *usize) Error!u64 {
     while (cursor.* < bytes.len and std.ascii.isDigit(bytes[cursor.*])) {
         cursor.* += 1;
     }
-    if (cursor.* == start or cursor.* >= bytes.len or bytes[cursor.*] != '+') {
+    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* == start or bytes[cursor.*] != '+') {
         return Error.MalformedFrame;
     }
 
@@ -1812,7 +1919,8 @@ fn readInteger(bytes: []const u8, cursor: *usize) Error!i64 {
     while (cursor.* < bytes.len and std.ascii.isDigit(bytes[cursor.*])) {
         cursor.* += 1;
     }
-    if (cursor.* == start or cursor.* >= bytes.len) {
+    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* == start) {
         return Error.MalformedFrame;
     }
     const value = std.fmt.parseInt(i64, bytes[start..cursor.*], 10) catch {
@@ -1832,7 +1940,7 @@ fn readInteger(bytes: []const u8, cursor: *usize) Error!i64 {
 }
 
 fn readBool(bytes: []const u8, cursor: *usize) Error!bool {
-    if (cursor.* >= bytes.len) return Error.MalformedFrame;
+    if (cursor.* >= bytes.len) return Error.Incomplete;
     switch (bytes[cursor.*]) {
         't' => {
             cursor.* += 1;
@@ -1851,7 +1959,8 @@ fn readBytes(bytes: []const u8, cursor: *usize) Error![]const u8 {
     while (cursor.* < bytes.len and std.ascii.isDigit(bytes[cursor.*])) {
         cursor.* += 1;
     }
-    if (cursor.* == len_start or cursor.* >= bytes.len or bytes[cursor.*] != ':') {
+    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* == len_start or bytes[cursor.*] != ':') {
         return Error.MalformedFrame;
     }
 
@@ -1862,7 +1971,7 @@ fn readBytes(bytes: []const u8, cursor: *usize) Error![]const u8 {
 
     const body_start = cursor.*;
     if (len > bytes.len - body_start) {
-        return Error.MalformedFrame;
+        return Error.Incomplete;
     }
     const body_end = body_start + len;
     cursor.* = body_end;
@@ -1891,11 +2000,11 @@ fn readBalanced(bytes: []const u8, cursor: *usize, open: u8, close: u8) Error![]
             try skipByteStringLike(bytes, cursor);
         }
     }
-    return Error.MalformedFrame;
+    return Error.Incomplete;
 }
 
 fn skipSyrupValue(bytes: []const u8, cursor: *usize) Error!void {
-    if (cursor.* >= bytes.len) return Error.MalformedFrame;
+    if (cursor.* >= bytes.len) return Error.Incomplete;
     switch (bytes[cursor.*]) {
         '<' => _ = try readBalanced(bytes, cursor, '<', '>'),
         '[' => _ = try readBalanced(bytes, cursor, '[', ']'),
@@ -1911,7 +2020,8 @@ fn skipByteStringLike(bytes: []const u8, cursor: *usize) Error!void {
     while (cursor.* < bytes.len and std.ascii.isDigit(bytes[cursor.*])) {
         cursor.* += 1;
     }
-    if (cursor.* == len_start or cursor.* >= bytes.len) {
+    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (cursor.* == len_start) {
         return Error.MalformedFrame;
     }
     const marker = bytes[cursor.*];
@@ -1927,15 +2037,14 @@ fn skipByteStringLike(bytes: []const u8, cursor: *usize) Error!void {
     };
     cursor.* += 1;
     if (len > bytes.len - cursor.*) {
-        return Error.MalformedFrame;
+        return Error.Incomplete;
     }
     cursor.* += len;
 }
 
 fn readByte(bytes: []const u8, cursor: *usize, expected: u8) Error!void {
-    if (cursor.* >= bytes.len or bytes[cursor.*] != expected) {
-        return Error.MalformedFrame;
-    }
+    if (cursor.* >= bytes.len) return Error.Incomplete;
+    if (bytes[cursor.*] != expected) return Error.MalformedFrame;
     cursor.* += 1;
 }
 

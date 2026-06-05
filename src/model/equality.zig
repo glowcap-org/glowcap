@@ -1,7 +1,8 @@
 //! Structural equality on the codec-neutral [`model`] value tree.
 //!
 //! This is the in-memory evidence for distributed (Pass Invariant) equality per
-//! ADR-0013 § Decision 5: there is no wire field carrying equality; two references that
+//! ADR-0013 § Structural `Reference` equality is the evidence: there is no wire
+//! field carrying equality; two references that
 //! name the same target compare equal here, and the conformance assertions are
 //! made on the values the session tables hold. Equality is **codec-neutral**
 //! (Invariant 1): the same two values compare equal regardless of which codec or
@@ -17,9 +18,19 @@
 const std = @import("std");
 const model = @import("mod.zig");
 
+/// Stack-safety ceiling on the argument-tree recursion. Equality only ever runs
+/// on owned trees the session already validated (`SessionLimits.max_nesting_depth`,
+/// far below this) or on locally-constructed values, so conformant data never
+/// reaches this bound; it is the backstop that keeps the predicate total against
+/// a pathologically deep tree instead of overflowing the native stack. A tree
+/// deeper than this cannot have traversed an OCapN network, so failing such a
+/// comparison closed (unequal) is safe.
+const max_equality_depth: usize = 256;
+
 /// Structural equality on two [`model.Reference`] values. Differing variants are
 /// never equal; within a variant the comparison is field-wise (the `far` /
-/// `near` wire-kind discriminator participates per ADR-0010 § Decision 5).
+/// `near` wire-kind discriminator participates per ADR-0010 § The reference
+/// shape carries the wire tag).
 pub fn referencesEqual(a: model.Reference, b: model.Reference) bool {
     return switch (a) {
         .near => |x| b == .near and x.export_id == b.near.export_id and x.kind == b.near.kind,
@@ -46,6 +57,11 @@ pub fn peerLocatorsEqual(a: model.PeerLocator, b: model.PeerLocator) bool {
 /// hint-encoding marker is *not* compared (it is a wire-shape artifact, not a
 /// semantic value — Invariant 1).
 pub fn argumentsEqual(a: model.Argument, b: model.Argument) bool {
+    return argumentsEqualDepth(a, b, 0);
+}
+
+fn argumentsEqualDepth(a: model.Argument, b: model.Argument, depth: usize) bool {
+    if (depth > max_equality_depth) return false;
     return switch (a) {
         .bytes => |x| b == .bytes and std.mem.eql(u8, x, b.bytes),
         .symbol => |x| b == .symbol and std.mem.eql(u8, x, b.symbol),
@@ -56,22 +72,40 @@ pub fn argumentsEqual(a: model.Argument, b: model.Argument) bool {
         .handoff => |x| b == .handoff and handoffsEqual(x, b.handoff),
         .integer => |x| b == .integer and x == b.integer,
         .boolean => |x| b == .boolean and x == b.boolean,
-        .float64 => |x| b == .float64 and x == b.float64,
+        .float64 => |x| b == .float64 and float64Equal(x, b.float64),
         .void => b == .void,
-        .list => |x| b == .list and argumentSlicesEqual(x, b.list),
-        .set => |x| b == .set and argumentSlicesEqual(x, b.set),
+        .list => |x| b == .list and argumentSlicesEqualDepth(x, b.list, depth + 1),
+        .set => |x| b == .set and argumentSlicesEqualDepth(x, b.set, depth + 1),
         .tagged => |x| b == .tagged and std.mem.eql(u8, x.tag, b.tagged.tag) and
-            argumentSlicesEqual(x.value, b.tagged.value),
+            argumentSlicesEqualDepth(x.value, b.tagged.value, depth + 1),
     };
 }
 
 /// Element-wise structural equality on two argument slices (order-sensitive).
 pub fn argumentSlicesEqual(a: []const model.Argument, b: []const model.Argument) bool {
+    return argumentSlicesEqualDepth(a, b, 0);
+}
+
+fn argumentSlicesEqualDepth(a: []const model.Argument, b: []const model.Argument, depth: usize) bool {
+    if (depth > max_equality_depth) return false;
     if (a.len != b.len) return false;
     for (a, b) |x, y| {
-        if (!argumentsEqual(x, y)) return false;
+        if (!argumentsEqualDepth(x, y, depth)) return false;
     }
     return true;
+}
+
+/// Pass-Invariant `Float64` equality (Model.md § Pass Invariant Equality): the
+/// `Object.is` axis, *not* IEEE `==`. Two distinctions matter and IEEE `==` gets
+/// both wrong: every NaN bit-pattern is Equal to every other NaN (IEEE: never),
+/// and `+0.0` is *not* Equal to `-0.0` (IEEE: equal). So NaN is collapsed to a
+/// single Equal class and the remaining values compare by raw bits — which keeps
+/// the sign-zero distinction the spec requires for round-trip JSON invariance.
+fn float64Equal(x: f64, y: f64) bool {
+    const x_is_nan = std.math.isNan(x);
+    const y_is_nan = std.math.isNan(y);
+    if (x_is_nan or y_is_nan) return x_is_nan and y_is_nan;
+    return @as(u64, @bitCast(x)) == @as(u64, @bitCast(y));
 }
 
 fn pipelinePathsEqual(a: model.PipelinePath, b: model.PipelinePath) bool {

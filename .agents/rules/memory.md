@@ -62,17 +62,47 @@ re-deriving the contract that forces it.
   `FrameView` is transient; a surfaced event must outlive it, so the bytes are
   copied once into an owned `Frame`. Word-shaped frames need 8-byte-aligned
   storage, hence `alignedAlloc` + `@memcpy` rather than `dupe`. The owned-frame
-  and zero-copy borrow paths split exactly here.
+  and zero-copy borrow paths split exactly here. This is the *only* allocation a
+  steady-state inbound deliver to a live export costs — the irreducible
+  wire-path floor asserted by `test/runtime/alloc_budget_test.zig`.
+- **Borrowed-validate / owned-on-retain inbound path — `Session.recordRecvView`.**
+  The session is codec-neutral but `model.view.Body` is a codec-neutral *borrowed*
+  projection over the frame, so the common inbound kinds (deliver / resolve /
+  listen / start-session / abort) validate and apply session authority directly
+  from it — zero per-turn materialization. An owned `Message` is materialized
+  only on the two paths that *retain*: a pipelined deliver queued on its answer
+  (`Peer.maybeEnqueuePipelinedCall`), and the rare sub-structure-heavy kinds
+  (`gc_*`, `handoff`, `get`/`index`) that fall back to one owned validate/apply.
+  Replaces the prior unconditional per-message `ownedFromView` (formerly named
+  under "not yet optimized"). That owned-fallback copy is *turn-scratch*, not
+  session-lived: it feeds the shared owned validate/apply and dies when the turn
+  ends, so it is materialized into the session's **`recv_scratch`** bump arena
+  and reclaimed with one `reset(.retain_capacity)` at the end of every
+  `recordRecvView` — the per-message dupe-then-`freeMessage` choreography
+  collapses to a bump-and-reset, and capacity amortizes across turns. Apply dupes
+  anything session-lived onto the gpa, so resetting the scratch can never dangle
+  a table row. The argument walk that validates and the install walk are
+  depth-bounded (`SessionLimits.max_nesting_depth`) so an attacker-nested arg
+  tree fails loud (`NestingTooDeep` → `resource_exhausted` abort) instead of
+  overflowing the native stack.
 - **Crypto fixed-width materialization — `crypto.PeerKey.fromSlice`,
   `crypto.Signature.fromParts`.** `std.crypto` Ed25519 operates on fixed-size
   arrays (`[32]u8` / `[64]u8`) while the wire exposes `[]const u8`. Materializing
   the array from a borrowed slice is an inherent, bounded copy at the verification
   boundary — `std.crypto` offers no allocator pattern to avoid it.
-- **Authoritative session state — `model.clonePeerLocator`, gift and session-id
-  dupes in the session.** Session tables are the source of truth (Invariant 5)
-  and outlive any borrowed frame, so an owned `op:start-session` locator, a
-  deposited gift's id/key, and a recorded session id are duped into session-owned
-  storage.
+- **Authoritative session state — `model.clonePeerLocator`, plus the per-session
+  byte key arena.** Session tables are the source of truth (Invariant 5) and
+  outlive any borrowed frame, so an owned `op:start-session` locator is duped into
+  session-owned storage. The byte-keyed tables are position/key-keyed hash maps
+  (no linear `std.mem.eql` scans): exports / imports / answers are O(1)
+  position-keyed `SlotTable` / `AnswerTable`; `gifts`, `handoff_counts`, and the
+  `bootstrap` registry are O(1) `StringHashMap`s whose key (and gift recipient-key)
+  bytes live in one per-session **`key_arena`**, freed wholesale at teardown — the
+  *monotonic* tables never remove a row, so a bump arena is the right owner.
+  Deliberately excluded from the arena: the FIFO-evicting `sturdyref_cache` and
+  the individually-removed `pending_enlivens` / imported-promise hosts keep their
+  swissnum / host bytes on the gpa with precise per-row frees, because a bump
+  arena cannot reclaim an evicted or removed row and would leak under churn.
 - **Listener fan-out — one synthesized fire per listener.** When a promise with
   N listeners resolves, [`runtime.pipeline.synthesizeListenerFire`] builds each
   listener its own owned `op:deliver` carrying the resolution payload (one stored
@@ -118,15 +148,8 @@ re-deriving the contract that forces it.
 
 ### Named, not yet optimized
 
-- **Inbound validation materialization — `codec.syrup.ownedFromView` in
-  `Peer.dispatchOwnedFrame`.** The session is codec-neutral and cannot see codec
-  views, so today every inbound message (except the Goblins V1.0 resolver-callback,
-  which already projects a *borrowed* `Resolve`) is materialized owned purely to
-  feed `recordRecv`, then freed — `recordRecv` only reads it. The
-  borrowed-validate / owned-on-retain split (validate from a borrowed projection;
-  materialize owned only when a pipelined deliver must be queued, matching the
-  canonical runtime) lands with the pipelining spine. Named here so it is not a
-  silent wire-path allocation in the meantime.
+- *(empty — the inbound validation materialization that lived here is now the
+  borrowed-validate / owned-on-retain path above.)*
 
 ## Allocator Discipline
 

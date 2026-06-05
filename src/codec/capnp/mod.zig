@@ -9,6 +9,7 @@ pub const Kind = core.Kind;
 
 pub const decodeView = core.decodeView;
 pub const decodeBody = core.decodeBody;
+pub const decodePrefix = core.decodePrefix;
 pub const decodeOwned = core.decodeOwned;
 pub const ownedFromView = core.ownedFromView;
 pub const encodeMessage = core.encodeMessage;

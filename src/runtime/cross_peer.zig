@@ -39,8 +39,8 @@ pub const PendingRelayedResolution = struct {
 /// Returns whether any entry was processed.
 ///
 /// Single-peer today (every entry mutates one session); it lives here for
-/// API-location parity with the canonical runtime and the future cross-session
-/// forwarding that would also take the introducing session.
+/// API-location parity with the canonical runtime. Cross-session forwarding —
+/// an entry that also takes the introducing session — is not implemented.
 pub fn drainRelayedResolutions(peer: *Peer) !bool {
     if (peer.pending_relayed_resolutions.items.len == 0) return false;
     const pending = try peer.pending_relayed_resolutions.toOwnedSlice(peer.allocator);

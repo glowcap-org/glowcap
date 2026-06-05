@@ -57,10 +57,17 @@ fn allowedTargets(layer: []const u8) ?[]const []const u8 {
         .{ .layer = "session", .targets = &.{ "foundation", "model", "session" } },
         .{ .layer = "runtime", .targets = &.{ "foundation", "model", "codec", "session", "runtime" } },
         .{ .layer = "io_adapter", .targets = &.{ "foundation", "model", "io_adapter" } },
-        .{ .layer = "c_abi", .targets = &.{ "foundation", "model", "runtime", "c_abi" } },
+        // `c_abi` also re-exposes the byte-stream adapter as blocking endpoint
+        // handles (the host-driven netlayer seam), so it may import
+        // `net_adapter` (and the `model` codec id it threads through).
+        .{ .layer = "c_abi", .targets = &.{ "foundation", "model", "runtime", "net_adapter", "c_abi" } },
         .{ .layer = "conformance", .targets = &.{ "foundation", "model", "codec", "session", "runtime", "conformance" } },
+        // The byte-stream adapter is NOT a core layer (absent from `core_layers`
+        // above), so it is the one place `std.Io` is allowed. It drives the
+        // runtime over a stream; it never reaches below `runtime`'s authority.
+        .{ .layer = "net_adapter", .targets = &.{ "foundation", "model", "codec", "session", "runtime", "io_adapter", "net_adapter" } },
         // The public aggregator at `src/root.zig` re-exports every layer.
-        .{ .layer = "<root>", .targets = &.{ "foundation", "model", "codec", "session", "runtime", "io_adapter", "c_abi", "conformance" } },
+        .{ .layer = "<root>", .targets = &.{ "foundation", "model", "codec", "session", "runtime", "io_adapter", "c_abi", "conformance", "net_adapter" } },
     };
     for (rules) |rule| {
         if (std.mem.eql(u8, rule.layer, layer)) return rule.targets;

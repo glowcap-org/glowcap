@@ -32,6 +32,15 @@ const model = @import("mod.zig");
 /// loud, and the runtime projects the failure to a typed `op:abort`.
 pub const ProjectError = error{MalformedView};
 
+/// Hard stack-safety ceiling on the nesting depth `toOwned` will materialize.
+/// The session enforces a lower, *configurable* inbound cap
+/// (`SessionLimits.max_nesting_depth`) and validates before it materializes, so
+/// wire data never reaches this bound; it is the model-layer backstop for a
+/// direct `toOwned` of a borrowed view that skipped session validation, so a
+/// pathologically nested tree fails closed (`MalformedView`) instead of
+/// overflowing the native stack.
+pub const max_owned_depth: usize = 256;
+
 /// Materialization failure: a projection failure ([`ProjectError`]) or an
 /// allocation failure while building the owned tree.
 pub const Error = ProjectError || std.mem.Allocator.Error;
@@ -64,11 +73,38 @@ pub const Args = struct {
     pub const VTable = struct {
         len: *const fn (Ctx) ProjectError!usize,
         at: *const fn (Ctx, usize) ProjectError!Argument,
+        /// Forward cursor: read the element at the codec-interpreted `cursor`,
+        /// advance `cursor` past it, and return it; return `null` at the end.
+        /// The single forward walk replaces a loop of `at(i)`, which on a
+        /// byte-framed codec re-scans from the start each call (O(n^2)).
+        next: *const fn (Ctx, *u64) ProjectError!?Argument,
     };
 
     pub const Backed = struct {
         ctx: Ctx,
         vtable: *const VTable,
+    };
+
+    /// Forward-only walk over an [`Args`] sequence. One linear pass, no
+    /// per-element re-scan and no `len()` pre-walk — the shape the session's
+    /// hot validate/install paths use.
+    pub const Iterator = struct {
+        inner: union(enum) {
+            slice: struct { items: []const model.Argument, index: usize },
+            backed: struct { backed: Backed, cursor: u64 },
+        },
+
+        pub fn next(self: *Iterator) ProjectError!?Argument {
+            switch (self.inner) {
+                .slice => |*s| {
+                    if (s.index >= s.items.len) return null;
+                    const out = Argument.fromOwned(&s.items[s.index]);
+                    s.index += 1;
+                    return out;
+                },
+                .backed => |*b| return b.backed.vtable.next(b.backed.ctx, &b.cursor),
+            }
+        }
     };
 
     pub fn empty() Args {
@@ -97,16 +133,31 @@ pub const Args = struct {
         };
     }
 
+    pub fn iterator(self: Args) Iterator {
+        return switch (self.inner) {
+            .slice => |s| .{ .inner = .{ .slice = .{ .items = s, .index = 0 } } },
+            .backed => |b| .{ .inner = .{ .backed = .{ .backed = b, .cursor = 0 } } },
+        };
+    }
+
     pub fn toOwnedSlice(self: Args, allocator: std.mem.Allocator) Error![]model.Argument {
+        return self.toOwnedSliceDepth(allocator, 0);
+    }
+
+    fn toOwnedSliceDepth(self: Args, allocator: std.mem.Allocator, depth: usize) Error![]model.Argument {
+        if (depth > max_owned_depth) return error.MalformedView;
         const count = try self.len();
         const out = try allocator.alloc(model.Argument, count);
         errdefer allocator.free(out);
         var initialized: usize = 0;
         errdefer for (out[0..initialized]) |arg| model.freeArgument(allocator, arg);
-        while (initialized < count) {
-            out[initialized] = try (try self.at(initialized)).toOwned(allocator);
+        var it = self.iterator();
+        while (try it.next()) |arg| {
+            if (initialized >= count) return error.MalformedView;
+            out[initialized] = try arg.toOwnedDepth(allocator, depth);
             initialized += 1;
         }
+        if (initialized != count) return error.MalformedView;
         return out;
     }
 };
@@ -126,11 +177,31 @@ pub const PositionList = struct {
     pub const VTable = struct {
         len: *const fn (Ctx) ProjectError!usize,
         at: *const fn (Ctx, usize) ProjectError!u64,
+        next: *const fn (Ctx, *u64) ProjectError!?u64,
     };
 
     pub const Backed = struct {
         ctx: Ctx,
         vtable: *const VTable,
+    };
+
+    pub const Iterator = struct {
+        inner: union(enum) {
+            slice: struct { items: []const u64, index: usize },
+            backed: struct { backed: Backed, cursor: u64 },
+        },
+
+        pub fn next(self: *Iterator) ProjectError!?u64 {
+            switch (self.inner) {
+                .slice => |*s| {
+                    if (s.index >= s.items.len) return null;
+                    const out = s.items[s.index];
+                    s.index += 1;
+                    return out;
+                },
+                .backed => |*b| return b.backed.vtable.next(b.backed.ctx, &b.cursor),
+            }
+        }
     };
 
     pub fn empty() PositionList {
@@ -159,12 +230,25 @@ pub const PositionList = struct {
         };
     }
 
+    pub fn iterator(self: PositionList) Iterator {
+        return switch (self.inner) {
+            .slice => |s| .{ .inner = .{ .slice = .{ .items = s, .index = 0 } } },
+            .backed => |b| .{ .inner = .{ .backed = .{ .backed = b, .cursor = 0 } } },
+        };
+    }
+
     pub fn toOwnedSlice(self: PositionList, allocator: std.mem.Allocator) Error![]u64 {
         const count = try self.len();
         const out = try allocator.alloc(u64, count);
         errdefer allocator.free(out);
-        var i: usize = 0;
-        while (i < count) : (i += 1) out[i] = try self.at(i);
+        var initialized: usize = 0;
+        var it = self.iterator();
+        while (try it.next()) |value| {
+            if (initialized >= count) return error.MalformedView;
+            out[initialized] = value;
+            initialized += 1;
+        }
+        if (initialized != count) return error.MalformedView;
         return out;
     }
 };
@@ -183,11 +267,31 @@ pub const PipelinePath = struct {
     pub const VTable = struct {
         len: *const fn (Ctx) ProjectError!usize,
         at: *const fn (Ctx, usize) ProjectError!PipelineOp,
+        next: *const fn (Ctx, *u64) ProjectError!?PipelineOp,
     };
 
     pub const Backed = struct {
         ctx: Ctx,
         vtable: *const VTable,
+    };
+
+    pub const Iterator = struct {
+        inner: union(enum) {
+            slice: struct { items: []const model.PipelineOp, index: usize },
+            backed: struct { backed: Backed, cursor: u64 },
+        },
+
+        pub fn next(self: *Iterator) ProjectError!?PipelineOp {
+            switch (self.inner) {
+                .slice => |*s| {
+                    if (s.index >= s.items.len) return null;
+                    const out = PipelineOp.fromOwned(&s.items[s.index]);
+                    s.index += 1;
+                    return out;
+                },
+                .backed => |*b| return b.backed.vtable.next(b.backed.ctx, &b.cursor),
+            }
+        }
     };
 
     pub fn empty() PipelinePath {
@@ -216,6 +320,13 @@ pub const PipelinePath = struct {
         };
     }
 
+    pub fn iterator(self: PipelinePath) Iterator {
+        return switch (self.inner) {
+            .slice => |s| .{ .inner = .{ .slice = .{ .items = s, .index = 0 } } },
+            .backed => |b| .{ .inner = .{ .backed = .{ .backed = b, .cursor = 0 } } },
+        };
+    }
+
     pub fn toOwned(self: PipelinePath, allocator: std.mem.Allocator) Error!model.PipelinePath {
         const count = try self.len();
         if (count == 0) return .{};
@@ -223,10 +334,13 @@ pub const PipelinePath = struct {
         errdefer allocator.free(ops);
         var initialized: usize = 0;
         errdefer for (ops[0..initialized]) |op| freePipelineOp(allocator, op);
-        while (initialized < count) {
-            ops[initialized] = try (try self.at(initialized)).toOwned(allocator);
+        var it = self.iterator();
+        while (try it.next()) |op| {
+            if (initialized >= count) return error.MalformedView;
+            ops[initialized] = try op.toOwned(allocator);
             initialized += 1;
         }
+        if (initialized != count) return error.MalformedView;
         return .{ .ops = ops };
     }
 };
@@ -375,6 +489,10 @@ pub const Argument = union(enum) {
     }
 
     pub fn toOwned(self: Argument, allocator: std.mem.Allocator) Error!model.Argument {
+        return self.toOwnedDepth(allocator, 0);
+    }
+
+    fn toOwnedDepth(self: Argument, allocator: std.mem.Allocator, depth: usize) Error!model.Argument {
         return switch (self) {
             .bytes => |bytes| .{ .bytes = try allocator.dupe(u8, bytes) },
             .symbol => |symbol| .{ .symbol = try allocator.dupe(u8, symbol) },
@@ -384,14 +502,14 @@ pub const Argument = union(enum) {
             .string => |string| .{ .string = try allocator.dupe(u8, string) },
             .integer => |integer| .{ .integer = integer },
             .boolean => |boolean| .{ .boolean = boolean },
-            .list => |items| .{ .list = try items.toOwnedSlice(allocator) },
+            .list => |items| .{ .list = try items.toOwnedSliceDepth(allocator, depth + 1) },
             .void => .{ .void = {} },
             .float64 => |float64| .{ .float64 = float64 },
-            .set => |items| .{ .set = try items.toOwnedSlice(allocator) },
+            .set => |items| .{ .set = try items.toOwnedSliceDepth(allocator, depth + 1) },
             .tagged => |tagged| blk: {
                 const tag = try allocator.dupe(u8, tagged.tag);
                 errdefer allocator.free(tag);
-                const value = try tagged.value.toOwnedSlice(allocator);
+                const value = try tagged.value.toOwnedSliceDepth(allocator, depth + 1);
                 break :blk .{ .tagged = .{ .tag = tag, .value = value } };
             },
             .keyword => |keyword| .{ .keyword = try allocator.dupe(u8, keyword) },

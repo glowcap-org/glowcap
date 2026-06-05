@@ -11,9 +11,9 @@ pending (Phase 2). This doc is the plan of record for two coupled pieces of work
    initiator today. The examples are the forcing function: write the consumer
    story first, then build what makes it pass.
 
-The canonical Rust runtime is the single-source-of-truth (Invariant 12); the
-serving half here is a faithful mirror of Rust's already-accepted substrate, not
-a new design.
+pancake's Rust workbench already validated this serving substrate; the half here
+is re-derived against the OCapN behavior and Goblins fixtures that are the
+conformance authority, not a new design.
 
 ## The examples
 

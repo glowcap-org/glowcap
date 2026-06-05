@@ -23,8 +23,10 @@ core is library-shaped, explicitly memory-managed, and designed so protocol code
 keeps ownership, allocation, wire format, cryptography, I/O, and host scheduling
 boundaries visible.
 
-The conformance authority is OCapN behavior as exercised by Spritely Goblins
-fixtures and pancake's own checked protocol scenarios. The package name is
+The conformance authority is OCapN behavior — as defined by Spritely Goblins on
+the wire and the OCapN test suite. The in-repo gate checks pancake's protocol
+scenarios and pancake-authored Syrup byte vectors against that intent; live
+external-peer interop is the next step, not yet wired. The package name is
 `pancake`.
 
 ## On The Wire Today
@@ -35,10 +37,11 @@ Implemented Zig behavior includes:
   `FrameShape` carries explicit byte vs word-aligned frame metadata.
 - **Model.** Codec-neutral CapTP model types exist independently of the wire
   encoding that carried them.
-- **Syrup.** The Syrup codec encodes the current message model against checked
-  Goblins fixtures, decodes borrowed views for the supported operation set, and
-  materializes owned messages for runtime-surfaced operations including
-  start-session and handoff fixtures.
+- **Syrup.** The Syrup codec encodes the current message model against
+  pancake-authored Syrup byte vectors (cross-checked through the upstream Syrup
+  encoders, not Goblins captures), decodes borrowed views for the supported
+  operation set, and materializes owned messages for runtime-surfaced operations
+  including start-session and handoff.
 - **Session/runtime.** Sessions own profile/features, lifecycle,
   import/export/answer/release authority, validate-then-apply, and feature
   gates. `Peer` remains caller-owned and drives outbound profile-aware encoding,
@@ -108,7 +111,7 @@ Implemented Zig behavior includes:
   negotiated codec with explicit release and no re-encode. `std.Io` appears at
   the adapter boundary, not in the core.
 - **Protocol oracle bridge.** `zig build oracle-check` enumerates shipped
-  message arms, checks Goblins Syrup fixture parity, and runs runtime scenarios
+  message arms, checks pancake-authored Syrup fixture parity (cross-encoder), and runs runtime scenarios
   including the multi-peer third-party handoff. `conformance` also drives a
   deliver → resolve round-trip, a handshake → bootstrap-fetch auto-serve scenario
   (the ADR-0006 responder half), and a cross-mode parity check that proves the
@@ -123,8 +126,16 @@ Implemented Zig behavior includes:
 
 ## Not Implemented
 
-These boundaries are outside the shipped surface today: streams and a production
-netlayer. Sturdyref enliven ships its initiator half (`runtime.sturdyref`); its
+A byte-stream netlayer ships (`net_adapter`): the active codec's own decoder
+finds frame boundaries (one parser, ADR-0029), a `Connection` folds it over
+`std.Io.Reader`/`Writer`, and `net_adapter.tcp` (`tcp-testing-only`, cleartext)
+proves a handshake-to-open + bootstrap-fetch round-trip over a real socket. The
+C ABI re-exposes it as blocking endpoint handles with a `last_error` seam
+(ADR-0030). Still outside the shipped surface: production transports (TLS,
+QUIC/iroh), full-duplex backpressure, crossed-hellos, and the small-buffer /
+bounded-overflow read path — all deferred by name in ADR-0030.
+
+Sturdyref enliven ships its initiator half (`runtime.sturdyref`); its
 responder half is the same inbound-`'fetch` serving path
 (`Peer.registerBootstrapCap`), since an enliven is a `'fetch` against the local
 bootstrap exporter. Distributed equality ships the in-memory substrate
@@ -139,7 +150,9 @@ traffic ride that codec through the codec-dispatch seam (`session.codec`). The
 session state machine is codec-neutral, so the Goblins-v1.0 resolver-callback
 translation is codec-blind. Cross-codec semantic parity (Invariant 8's two-codec
 requirement) is proven: the deliver/resolve and bootstrap-fetch conformance
-scenarios produce byte-identical traces on Syrup and Cap'n Proto. The one Cap'n
+scenarios produce identical *observable* traces on Syrup and Cap'n Proto: the
+state machine is codec-neutral, so the behavior does not depend on which codec
+carried it (the two wire encodings differ; the observable trace does not). The one Cap'n
 Proto boundary that remains is the real-crypto handshake — the canonical
 `<my-location …>` signing input is profile-defined (Syrup), so a Cap'n Proto
 session uses the stub-key path.
@@ -198,10 +211,10 @@ zig build bench-frame-view
 `zig-out/`.
 
 `zig build check` runs the architecture gate, tests, the example programs, Rust
-C ABI dogfood, the protocol/Goblins oracle checks, and the frame/view benchmark
+C ABI dogfood, the protocol/Syrup oracle checks, and the frame/view benchmark
 smoke check. `zig build arch-check` runs the layering gate on its own.
-`zig build oracle-check` runs the protocol manifest and Goblins fixture checks
-directly.
+`zig build oracle-check` runs the protocol manifest and pancake-authored Syrup
+fixture checks directly.
 
 ## Examples
 

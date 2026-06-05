@@ -108,7 +108,8 @@ pub const DecomposeError = std.mem.Allocator.Error || error{
 
 /// Decompose an owned multi-hop pipelined `op:deliver` (target = promise with a
 /// non-empty path) into the chain of single-hop messages the Syrup wire admits.
-/// `desc:answer` carries no path operand (ADR-0007 § Decision 1), so each `call`
+/// `desc:answer` carries no path operand (ADR-0007 § Multi-hop decomposition at
+/// the sender), so each `call`
 /// step becomes its own flat `op:deliver` against a freshly-allocated
 /// intermediate answer, and the caller's outer deliver chains against the last.
 ///
@@ -163,7 +164,7 @@ pub fn decomposeOutboundDeliver(
 }
 
 /// What draining one listener against a resolution produces, per ADR-0007
-/// § Decision 5. The runtime applies the action (send the fire, reinstall the
+/// § Listener fire matrix. The runtime applies the action (send the fire, reinstall the
 /// entry). Each variant owns the heap it carries.
 pub const ListenerDrainAction = union(enum) {
     /// Fire the listener once with the resolution and drop the entry. Every
@@ -184,7 +185,7 @@ pub const ListenerDrainAction = union(enum) {
     },
 };
 
-/// Decide how `entry` drains against `resolution` (ADR-0007 § Decision 5),
+/// Decide how `entry` drains against `resolution` (ADR-0007 § Listener fire matrix),
 /// taking ownership of `entry`'s target. `Fulfill(Promise(_))` re-anchors the
 /// listener on the promise's answer (firing first only when `wants_partial`);
 /// every other resolution fires once. On failure `entry`'s target is released.

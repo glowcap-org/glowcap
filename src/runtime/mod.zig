@@ -1,3 +1,11 @@
+//! The caller-owned `Peer` and its sync, no-I/O dispatch spine.
+//!
+//! A `Peer` is the runtime object an adapter holds: it owns a `Session`, queues
+//! inbound frames and outbound messages, and surfaces application events. It
+//! performs no I/O and runs no scheduler — the adapter feeds frames
+//! (`feedInbound` / `recvBorrowed`), calls `step` to encode queued work, drains
+//! `outbound`, and polls events. All host integration lives above this layer.
+
 const std = @import("std");
 
 const codec = @import("../codec/mod.zig");
@@ -102,17 +110,67 @@ pub const Event = struct {
     }
 };
 
+/// The caller-owned protocol peer: owns a `Session`, an inbound frame queue, an
+/// outbound message queue, and an event queue. Sync and no-I/O — the adapter
+/// drives it (`feedInbound` / `recvBorrowed` → `step` → drain `outbound` → poll
+/// events). Construct via [`factories`]; the caller `deinit`s it.
+/// A FIFO with a drain cursor: `push` appends, `pop` advances a head index and
+/// reclaims the backing (rewind the head, retain capacity) once fully drained,
+/// so steady enqueue/dequeue neither grows without bound nor shifts on every
+/// pop. The four peer queues (inbound frames, pending sends, outbound frames,
+/// events) share this one shape instead of open-coding a parallel `_head` field.
+fn Queue(comptime T: type) type {
+    return struct {
+        items: std.ArrayList(T) = .empty,
+        head: usize = 0,
+
+        const Self = @This();
+
+        /// Append to the back.
+        fn push(self: *Self, allocator: std.mem.Allocator, value: T) !void {
+            try self.items.append(allocator, value);
+        }
+
+        /// Dequeue the front element, or null when drained — reclaiming the
+        /// backing slots (rewind the head, retain capacity) at that point.
+        fn pop(self: *Self) ?T {
+            if (self.head == self.items.items.len) {
+                if (self.head != 0) {
+                    self.items.clearRetainingCapacity();
+                    self.head = 0;
+                }
+                return null;
+            }
+            const value = self.items.items[self.head];
+            self.head += 1;
+            return value;
+        }
+
+        /// Remove and return the most-recently pushed element, for `errdefer`
+        /// undo of an append whose follow-up failed. Null when empty.
+        fn popBack(self: *Self) ?T {
+            return self.items.pop();
+        }
+
+        /// The not-yet-dequeued elements, for type-specific teardown before
+        /// `deinit` (the queue owns the slots, not how to free a `T`).
+        fn pending(self: *Self) []T {
+            return self.items.items[self.head..];
+        }
+
+        fn deinit(self: *Self, allocator: std.mem.Allocator) void {
+            self.items.deinit(allocator);
+        }
+    };
+}
+
 pub const Peer = struct {
     allocator: std.mem.Allocator,
     session_state: session.Session,
-    inbound: std.ArrayList(foundation.Frame),
-    inbound_head: usize,
-    pending_send: std.ArrayList(model.Message),
-    pending_send_head: usize,
-    outbound: std.ArrayList(foundation.Frame),
-    outbound_head: usize,
-    events: std.ArrayList(Event),
-    events_head: usize,
+    inbound: Queue(foundation.Frame),
+    pending_send: Queue(model.Message),
+    outbound: Queue(foundation.Frame),
+    events: Queue(Event),
     /// Resolutions forwarded for handoff-imported promises (ADR-0009) awaiting
     /// the cross-peer [`cross_peer.drainRelayedResolutions`] drain. Each entry
     /// owns its resolution until drained.
@@ -165,35 +223,31 @@ pub const Peer = struct {
         return .{
             .allocator = allocator,
             .session_state = session_state,
-            .inbound = .empty,
-            .inbound_head = 0,
-            .pending_send = .empty,
-            .pending_send_head = 0,
-            .outbound = .empty,
-            .outbound_head = 0,
-            .events = .empty,
-            .events_head = 0,
+            .inbound = .{},
+            .pending_send = .{},
+            .outbound = .{},
+            .events = .{},
             .pending_relayed_resolutions = .empty,
         };
     }
 
     pub fn deinit(self: *Peer) void {
-        for (self.inbound.items[self.inbound_head..]) |*frame| {
+        for (self.inbound.pending()) |*frame| {
             frame.deinit();
         }
         self.inbound.deinit(self.allocator);
 
-        for (self.pending_send.items[self.pending_send_head..]) |*message| {
+        for (self.pending_send.pending()) |*message| {
             freeMessage(self.allocator, message.*);
         }
         self.pending_send.deinit(self.allocator);
 
-        for (self.outbound.items[self.outbound_head..]) |*frame| {
+        for (self.outbound.pending()) |*frame| {
             frame.deinit();
         }
         self.outbound.deinit(self.allocator);
 
-        for (self.events.items[self.events_head..]) |*event| {
+        for (self.events.pending()) |*event| {
             event.frame.deinit();
         }
         self.events.deinit(self.allocator);
@@ -213,9 +267,10 @@ pub const Peer = struct {
         // A multi-hop pipelined deliver (promise target carrying a non-empty
         // path) has no single-frame Syrup shape — `desc:answer` carries no path
         // operand — so it decomposes into a chain of single-hop links, each
-        // recorded + enqueued through this same path (ADR-0007 § Decision 1).
-        // The Cap'n Proto codec (not implemented) is the only shape that would
-        // carry a path operand directly, without decomposition.
+        // recorded + enqueued through this same path
+        // (ADR-0007 § Multi-hop decomposition at the sender). The Cap'n Proto
+        // codec is the only shape that would carry a path operand directly,
+        // without decomposition.
         if (message == .deliver and
             message.deliver.target == .promise and
             !message.deliver.target.promise.path.isEmpty())
@@ -234,17 +289,18 @@ pub const Peer = struct {
         var owned_needs_free = true;
         errdefer if (owned_needs_free) freeMessage(self.allocator, message);
 
-        try self.pending_send.append(self.allocator, message);
+        try self.pending_send.push(self.allocator, message);
         owned_needs_free = false;
         var appended = true;
-        errdefer if (appended) freeMessage(self.allocator, self.pending_send.pop().?);
+        errdefer if (appended) freeMessage(self.allocator, self.pending_send.popBack().?);
 
         try self.session_state.recordSend(message);
         appended = false;
     }
 
     /// Decompose a multi-hop pipelined deliver and enqueue each single-hop link
-    /// in send order (ADR-0007 § Decision 1), taking ownership of `message`. Each
+    /// in send order (ADR-0007 § Multi-hop decomposition at the sender), taking
+    /// ownership of `message`. Each
     /// link is flat by construction, so it enqueues through [`enqueueRecorded`]
     /// directly. On a mid-chain failure the unsent remainder is released; links
     /// already handed to `enqueueRecorded` are owned by it.
@@ -325,30 +381,21 @@ pub const Peer = struct {
     /// On success the peer owns `frame`; on error the caller remains
     /// responsible for releasing it.
     pub fn feedInbound(self: *Peer, frame: foundation.Frame) !void {
-        try self.inbound.append(self.allocator, frame);
+        try self.inbound.push(self.allocator, frame);
     }
 
     pub fn step(self: *Peer) !StepOutcome {
-        if (self.inbound_head != self.inbound.items.len) {
-            const frame = self.inbound.items[self.inbound_head];
-            self.inbound_head += 1;
-            // Transfer ownership into dispatch: on success the frame moves into
-            // the surfaced event (zero copy); on error dispatch frees it.
+        // One inbound frame per step. `pop` transfers ownership into dispatch (on
+        // success the frame moves into the surfaced event, zero copy; on error
+        // dispatch frees it) and reclaims the backing once inbound is drained —
+        // the consumed frames below the head were moved out, so reclaim never
+        // double-frees.
+        if (self.inbound.pop()) |frame| {
             try self.dispatchOwnedFrame(frame);
             return .progress;
         }
-        // Inbound fully drained: reclaim the backing slots. Consumed frames were
-        // moved out (into events or freed on error), so the stale values below
-        // the head are not owned here and clearing never double-frees.
-        reclaimDrained(foundation.Frame, &self.inbound, &self.inbound_head);
 
-        if (self.pending_send_head == self.pending_send.items.len) {
-            reclaimDrained(model.Message, &self.pending_send, &self.pending_send_head);
-            return .idle;
-        }
-
-        const message = self.pending_send.items[self.pending_send_head];
-        self.pending_send_head += 1;
+        const message = self.pending_send.pop() orelse return .idle;
         defer freeMessage(self.allocator, message);
 
         // Goblins V1.0 has no wire `op:resolve`: a semantic `Resolve` ships as an
@@ -366,13 +413,14 @@ pub const Peer = struct {
                 wire_message,
             );
             errdefer frame.deinit();
-            try self.outbound.append(self.allocator, frame);
+            try self.outbound.push(self.allocator, frame);
         }
 
         // A sent `op:resolve` settles one of our inbound answers; drain the calls
         // the partner pipelined against it, then fire its listeners (ADR-0007
-        // § Decision 5 — calls first, since a drained call may settle further
-        // answers). The resolution frame is already on `outbound`, so a drain
+        // § Queue ownership and drain — calls first, since a drained call may
+        // settle further answers). The resolution frame is already on `outbound`,
+        // so a drain
         // refusal surfaces as a step error without un-sending the resolution.
         if (message == .resolve) {
             try self.drainPipelinedCalls(message.resolve);
@@ -405,7 +453,7 @@ pub const Peer = struct {
             wire,
         );
         errdefer frame.deinit();
-        try self.outbound.append(self.allocator, frame);
+        try self.outbound.push(self.allocator, frame);
     }
 
     /// Register an inbound `op:listen`'s listener against the targeted answer so
@@ -473,7 +521,7 @@ pub const Peer = struct {
 
     /// Drain the calls the partner pipelined against the answer a just-sent
     /// `op:resolve` settles, dispatching each against the resolution (ADR-0007
-    /// § Decision 5). Queued inbound targets always carry an empty path: a
+    /// § Queue ownership and drain). Queued inbound targets always carry an empty path: a
     /// multi-hop pipeline is decomposed at the *sender* into single-hop frames
     /// ([`sendDecomposedPipeline`]), so every `desc:answer` on the wire is flat.
     fn drainPipelinedCalls(self: *Peer, resolve: model.Resolve) !void {
@@ -550,13 +598,13 @@ pub const Peer = struct {
             rewritten,
         );
         errdefer frame.deinit();
-        try self.events.append(self.allocator, .{ .frame = frame, .tag = .deliver, .resolve_answer = null, .codec = self.session_state.codec });
+        try self.events.push(self.allocator, .{ .frame = frame, .tag = .deliver, .resolve_answer = null, .codec = self.session_state.codec });
         self.local_delivery_depth += 1;
     }
 
     /// Drain the listeners registered against the answer a just-sent
     /// `op:resolve` settles, firing each per the (resolution × `wants_partial`)
-    /// matrix (ADR-0007 § Decision 5). Each fire moves onto `pending_send` via
+    /// matrix (ADR-0007 § Listener fire matrix). Each fire moves onto `pending_send` via
     /// [`send`] so a later `step` encodes it; partial promises re-anchor the
     /// listener on the next answer.
     fn fireListenersOnResolve(self: *Peer, resolve: model.Resolve) !void {
@@ -651,13 +699,7 @@ pub const Peer = struct {
     }
 
     pub fn takeOutbound(self: *Peer) ?foundation.Frame {
-        if (self.outbound_head == self.outbound.items.len) {
-            reclaimDrained(foundation.Frame, &self.outbound, &self.outbound_head);
-            return null;
-        }
-        const frame = self.outbound.items[self.outbound_head];
-        self.outbound_head += 1;
-        return frame;
+        return self.outbound.pop();
     }
 
     /// Dispatch a borrowed inbound frame. The borrowed bytes are transient, so
@@ -666,6 +708,59 @@ pub const Peer = struct {
     pub fn recvBorrowed(self: *Peer, frame: foundation.FrameView) !void {
         const owned = try ownedFrameFromView(self.allocator, frame);
         try self.dispatchOwnedFrame(owned);
+    }
+
+    /// Outcome of framing one message off the front of a byte-stream buffer.
+    pub const RecvStream = union(enum) {
+        /// A complete frame was decoded, validated, and applied; the caller may
+        /// drop (`toss`) the first `consumed` bytes of the buffer.
+        consumed: usize,
+        /// The buffer holds only part of a frame; the caller reads more and
+        /// retries with the extended buffer (the leading bytes are unchanged).
+        incomplete,
+    };
+
+    /// Frame, decode, validate, and apply the one message at the front of a
+    /// borrowed byte-stream `buffer`, reporting how many bytes it consumed — or
+    /// that more bytes are needed. This is the byte-stream generalization of
+    /// [`recvBorrowed`]: the active codec's decoder finds the frame boundary as
+    /// it decodes (one parse, no separate scanner), authority is applied through
+    /// the same borrowed-validate path, and only then is the frame retained
+    /// (the single intentional copy, as on `recvBorrowed`). `buffer` must stay
+    /// valid for the call; afterwards the consumed bytes may be discarded.
+    ///
+    /// A malformed frame or one exceeding `SessionLimits.max_frame_bytes`
+    /// projects to a typed outbound `op:abort` and closes the session
+    /// ([`abort_projection`]) before the error surfaces, exactly as the frame
+    /// seam does. `.incomplete` is not an error: no abort, no state change.
+    pub fn recvStreamPrefix(self: *Peer, buffer: []const u8) !RecvStream {
+        const prefix = codec.dispatch.decodePrefix(
+            self.session_state.codec,
+            buffer,
+            self.session_state.limits.max_frame_bytes,
+        );
+        switch (prefix) {
+            .incomplete => return .incomplete,
+            .malformed => {
+                self.emitAbortForError(error.MalformedFrame);
+                return error.MalformedFrame;
+            },
+            .too_large => {
+                self.emitAbortForError(error.FrameTooLarge);
+                return error.FrameTooLarge;
+            },
+            .decoded => |decoded| {
+                const owned = try ownedFrameFromView(self.allocator, .{
+                    .bytes = buffer[0..decoded.consumed],
+                    .shape = codec.dispatch.frameShape(self.session_state.codec),
+                });
+                self.applyDecodedOwnedFrame(owned, decoded.body) catch |err| {
+                    self.emitAbortForError(err);
+                    return err;
+                };
+                return .{ .consumed = decoded.consumed };
+            },
+        }
     }
 
     /// Dispatch an owned inbound frame, taking ownership.
@@ -709,15 +804,32 @@ pub const Peer = struct {
             self.session_state.wire_profile,
             message,
         ) catch return;
-        self.outbound.append(self.allocator, frame) catch frame.deinit();
+        self.outbound.push(self.allocator, frame) catch frame.deinit();
     }
 
     fn dispatchOwnedFrameInner(self: *Peer, frame_in: foundation.Frame) !void {
+        const decoded_body = codec.dispatch.decodeBody(self.session_state.codec, frame_in.view()) catch |err| {
+            var frame = frame_in;
+            frame.deinit();
+            return err;
+        };
+        try self.applyDecodedOwnedFrame(frame_in, decoded_body);
+    }
+
+    /// Apply an already-decoded inbound frame: install listeners, enqueue a
+    /// pipelined call, surface the event, and record authority. This is the
+    /// shared tail of the owned-frame seam ([`dispatchOwnedFrameInner`]) and the
+    /// byte-stream framer ([`recvStreamPrefix`]), so an inbound frame is parsed
+    /// exactly once regardless of how it arrived.
+    ///
+    /// `decoded_body` may borrow `frame_in`'s own bytes (frame seam) or a
+    /// separate stream buffer that outlives this call (`recvStreamPrefix`). It
+    /// must stay valid until apply completes; afterwards the retained event owns
+    /// only `frame_in` and the borrow is dropped.
+    fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_body: model.view.Body) !void {
         var frame = frame_in;
         var stored = false;
         errdefer if (!stored) frame.deinit();
-
-        const decoded_body = try codec.dispatch.decodeBody(self.session_state.codec, frame.view());
 
         // An inbound `op:listen` against one of our pending inbound answers
         // registers the listener so the resolution fires it (ADR-0007 §
@@ -751,45 +863,41 @@ pub const Peer = struct {
         var tag = eventKindFromBody(decoded_body);
         var resolve_answer: ?u64 = null;
 
-        // The session is codec-neutral and never sees codec views, so validation
-        // works against an owned codec-neutral message materialized from the same
-        // view (no second parse). It is released here and never retained; the
-        // event keeps only the originating frame.
+        // The session validates and applies authority directly from the borrowed
+        // codec-neutral projection (`recordRecvView`) — no per-turn owned
+        // materialization on the steady-state wire path; the event retains only
+        // the originating frame.
         //
         // Goblins V1.0 exception: an inbound deliver to one of our resolver
         // exports is the partner resolving an answer (ADR-0023). It validates as
         // a semantic `Resolve` whose answer-id comes from bookkeeping, not the
         // wire, so the session sees a borrowed `Resolve` projected from the frame
         // (no allocation, transient — `recordRecv` reads only the discriminant).
-        var record_message: model.Message = undefined;
-        var record_owned = false;
+        var v1_0_resolve: ?model.Resolve = null;
         if (self.session_state.needsV1_0Translation() and decoded_body == .deliver) {
             if (try self.classifyInboundV1_0Deliver(decoded_body.deliver)) |answer| {
                 tag = .resolve;
                 resolve_answer = answer;
-                record_message = .{ .resolve = .{
+                v1_0_resolve = .{
                     .answer = answer,
                     .resolution = borrowedResolution(try resolutionFromResolverCallback(decoded_body.deliver.args)),
-                } };
-            } else {
-                record_message = try decoded_body.toOwned(self.allocator);
-                record_owned = true;
+                };
             }
-        } else {
-            record_message = try decoded_body.toOwned(self.allocator);
-            record_owned = true;
         }
-        defer if (record_owned) freeMessage(self.allocator, record_message);
 
-        try self.events.append(self.allocator, .{ .frame = frame, .tag = tag, .resolve_answer = resolve_answer, .codec = self.session_state.codec });
+        try self.events.push(self.allocator, .{ .frame = frame, .tag = tag, .resolve_answer = resolve_answer, .codec = self.session_state.codec });
         stored = true;
         var appended = true;
         errdefer if (appended) {
-            var removed = self.events.pop().?;
+            var removed = self.events.popBack().?;
             removed.frame.deinit();
         };
 
-        try self.session_state.recordRecv(record_message);
+        if (v1_0_resolve) |resolve| {
+            try self.session_state.recordRecv(.{ .resolve = resolve });
+        } else {
+            try self.session_state.recordRecvView(decoded_body);
+        }
         appended = false;
 
         if (bootstrap_request) |req| {
@@ -822,13 +930,7 @@ pub const Peer = struct {
     }
 
     pub fn pollEvent(self: *Peer) ?Event {
-        if (self.events_head == self.events.items.len) {
-            reclaimDrained(Event, &self.events, &self.events_head);
-            return null;
-        }
-        const event = self.events.items[self.events_head];
-        self.events_head += 1;
-        return event;
+        return self.events.pop();
     }
 };
 
@@ -836,12 +938,6 @@ pub const Peer = struct {
 /// backing list and rewind the head to 0 so a long-lived [`Peer`] reuses slots
 /// instead of growing one entry per message processed. The entries below the
 /// head were already moved out by their consumer, so clearing never frees them.
-fn reclaimDrained(comptime T: type, list: *std.ArrayList(T), head: *usize) void {
-    if (head.* == 0) return;
-    list.clearRetainingCapacity();
-    head.* = 0;
-}
-
 /// The export/import position a reference names, or null for a pipeline promise.
 /// Mirrors the V1.0 resolver-callback target lookup: both a near export and a far
 /// import collapse to the bare position id the resolver bookkeeping is keyed on.
@@ -942,8 +1038,12 @@ fn eventKindFromBody(body: model.view.Body) EventKind {
 }
 
 /// Copy borrowed wire bytes into an owned frame that respects the frame shape's
-/// alignment, so a surfaced event can outlive the borrowed inbound buffer.
-fn ownedFrameFromView(allocator: std.mem.Allocator, frame: foundation.FrameView) !foundation.Frame {
+/// alignment, so a surfaced event (or a netlayer's owned frame handed across the
+/// C ABI) can outlive the borrowed inbound buffer. The single shape-aware
+/// materialization: a `word` frame is over-aligned to 8 bytes so it satisfies
+/// `Frame` shape validation; a `byte` frame takes natural alignment. The copy is
+/// named here, the one boundary that retains.
+pub fn ownedFrameFromView(allocator: std.mem.Allocator, frame: foundation.FrameView) !foundation.Frame {
     switch (frame.shape) {
         .byte => {
             const storage = try allocator.dupe(u8, frame.bytes);

@@ -89,6 +89,58 @@ test "session records outbound answers from sent deliver" {
     try std.testing.expectEqual(session.AnswerStatus.pending, s.outboundAnswer(42).?.status);
 }
 
+test "inbound deliver nested past max_nesting_depth fails closed" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerExport(7);
+
+    // Build an argument tree nested deeper than the cap. A bump arena owns the
+    // scratch tree; the test only needs it to live across the one recordRecv.
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const cap = (session.SessionLimits{}).max_nesting_depth;
+    var node = try a.alloc(model.Argument, 1);
+    node[0] = .{ .integer = 1 };
+    var level: usize = 0;
+    while (level < cap + 5) : (level += 1) {
+        const wrap = try a.alloc(model.Argument, 1);
+        wrap[0] = .{ .list = node };
+        node = wrap;
+    }
+
+    // The recursive validate walk hits the cap and fails loud instead of
+    // overflowing the native stack — a one-frame DoS becomes a typed error
+    // that the runtime projects to a `resource_exhausted` op:abort.
+    try std.testing.expectError(session.Error.NestingTooDeep, s.recordRecv(.{
+        .deliver = .{
+            .target = .{ .near = .{ .export_id = 7 } },
+            .args = node,
+            .answer = null,
+        },
+    }));
+
+    // A tree at the cap is accepted.
+    var ok_node = try a.alloc(model.Argument, 1);
+    ok_node[0] = .{ .integer = 1 };
+    var ok_level: usize = 0;
+    // cap-1 wraps over the base list keeps total nesting within the bound.
+    while (ok_level < cap - 1) : (ok_level += 1) {
+        const wrap = try a.alloc(model.Argument, 1);
+        wrap[0] = .{ .list = ok_node };
+        ok_node = wrap;
+    }
+    try s.recordRecv(.{
+        .deliver = .{
+            .target = .{ .near = .{ .export_id = 7 } },
+            .args = ok_node,
+            .answer = null,
+        },
+    });
+}
+
 test "session records inbound answers and settles on resolve" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
@@ -114,6 +166,53 @@ test "session records inbound answers and settles on resolve" {
     });
 
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, s.inboundAnswer(11).?.status);
+}
+
+test "inbound deliver to an unheld far target is rejected on both recv paths" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+
+    // Import 7 is not held, so a deliver whose *target* is far import 7 names a
+    // capability that does not exist for us. The borrowed steady-state path
+    // (`recordRecvView`) and the owned retain path (`recordRecv`) share one
+    // target-reference rule, so both must reject it as `InvalidReference`. The
+    // view path previously accepted any far target — this is the regression guard.
+    const message = model.Message{
+        .deliver = .{
+            .target = .{ .far = .{ .import_id = 7 } },
+            .args = &.{.{ .bytes = "x" }},
+            .answer = 1,
+        },
+    };
+
+    try std.testing.expectError(
+        session.Error.InvalidReference,
+        s.recordRecvView(model.view.Body.fromOwned(&message)),
+    );
+    try std.testing.expectError(
+        session.Error.InvalidReference,
+        s.recordRecv(message),
+    );
+}
+
+test "inbound deliver to a held far target is accepted through the borrowed path" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(7);
+
+    // The strict target rule accepts a far target we *do* hold — it rejects only
+    // unheld ones, so the borrowed walker is not simply refusing every far.
+    const message = model.Message{
+        .deliver = .{
+            .target = .{ .far = .{ .import_id = 7 } },
+            .args = &.{.{ .bytes = "x" }},
+            .answer = 1,
+        },
+    };
+    try s.recordRecvView(model.view.Body.fromOwned(&message));
+    try std.testing.expect(s.inboundAnswer(1) != null);
 }
 
 test "session validates gc export positions and deltas align" {

@@ -4,7 +4,7 @@
 
 **Goal:** Build the inbound-`'fetch` responder half in the Zig runtime and bring the Rust `docs/examples/` chapters over as runnable Zig programs, starting with the two (02, 08) that the responder unblocks.
 
-**Architecture:** Mirror the canonical Rust substrate (Invariant 12): a session-owned `BootstrapTable` (swissnum→export) plus a runtime recognizer/synthesizer (`runtime/bootstrap.zig`) hooked into `Peer.dispatchOwnedFrameInner`. The responder synthesizes a semantic `Resolve`; the existing V1_0 outbound translation turns it into a resolver-callback on the wire automatically. Examples are runnable `examples/zig/NN_*.zig` programs with narrative in `//!` headers, run by `zig build examples`/`check`.
+**Architecture:** Re-derive the serving substrate pancake's Rust workbench validated, against the OCapN / Goblins conformance authority: a session-owned swissnum→export registry plus a runtime recognizer/synthesizer (`runtime/bootstrap.zig`) hooked into `Peer.dispatchOwnedFrameInner`. The responder synthesizes a semantic `Resolve`; the existing V1_0 outbound translation turns it into a resolver-callback on the wire automatically. Examples are runnable `examples/zig/NN_*.zig` programs with narrative in `//!` headers, run by `zig build examples`/`check`.
 
 **Tech Stack:** Zig (build via `zig build`), pancake-zig core (`src/session`, `src/runtime`, `src/codec/syrup`), the spec gate `ADR-0006` (already amended to accept serving).
 

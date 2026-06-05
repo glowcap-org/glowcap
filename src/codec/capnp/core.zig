@@ -26,6 +26,7 @@ const std = @import("std");
 
 const foundation = @import("../../foundation/mod.zig");
 const model = @import("../../model/mod.zig");
+const framing = @import("../framing.zig");
 
 pub const wire = @import("wire.zig");
 
@@ -191,6 +192,26 @@ pub fn decodeView(frame: foundation.FrameView) Error!MessageView {
 
 pub fn decodeOwned(allocator: std.mem.Allocator, frame: foundation.FrameView) Error!model.Message {
     return ownedFromView(allocator, try decodeView(frame));
+}
+
+/// Frame the front of `bytes` as one Cap'n Proto message. The segment table at
+/// the head of the frame is self-delimiting: the single-segment header word
+/// gives the frame length directly, so the frame boundary comes from the same
+/// header the decoder reads — there is no separate scanner. The body is then
+/// decoded over exactly that slice and ratifies the length.
+pub fn decodePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Prefix {
+    // Header word not fully arrived yet.
+    if (bytes.len < wire.WORD_BYTES) return .incomplete;
+    const header = std.mem.readInt(u64, bytes[0..wire.WORD_BYTES], .little);
+    // Single-segment only (segment_count - 1 == 0); multi-segment is a
+    // structural rejection, not a short read.
+    if (@as(u32, @truncate(header)) != 0) return .malformed;
+    const seg_words: usize = @intCast(header >> 32);
+    const frame_len = (1 + seg_words) * wire.WORD_BYTES;
+    if (frame_len > max_frame_bytes) return .too_large;
+    if (bytes.len < frame_len) return .incomplete;
+    const body = decodeBody(.{ .shape = .word, .bytes = bytes[0..frame_len] }) catch return .malformed;
+    return .{ .decoded = .{ .body = body, .consumed = frame_len } };
 }
 
 pub fn ownedFromView(allocator: std.mem.Allocator, view: MessageView) Error!model.Message {
@@ -481,9 +502,9 @@ fn readerFromFrameBytes(bytes: []const u8) Error!Reader {
     return .{ .bytes = bytes, .seg_words = @intCast(header >> 32) };
 }
 
-const neutral_args_vtable = model.view.Args.VTable{ .len = neutralArgsLen, .at = neutralArgsAt };
-const neutral_positions_vtable = model.view.PositionList.VTable{ .len = neutralPositionsLen, .at = neutralPositionsAt };
-const neutral_path_vtable = model.view.PipelinePath.VTable{ .len = neutralPathLen, .at = neutralPathAt };
+const neutral_args_vtable = model.view.Args.VTable{ .len = neutralArgsLen, .at = neutralArgsAt, .next = neutralArgsNext };
+const neutral_positions_vtable = model.view.PositionList.VTable{ .len = neutralPositionsLen, .at = neutralPositionsAt, .next = neutralPositionsNext };
+const neutral_path_vtable = model.view.PipelinePath.VTable{ .len = neutralPathLen, .at = neutralPathAt, .next = neutralPathNext };
 
 /// Pack a composite (struct-list) pointer field into a backing `Ctx`. A null /
 /// empty list packs a zero count; otherwise the composite tag word supplies the
@@ -527,6 +548,16 @@ fn neutralArgsAt(ctx: model.view.Args.Ctx, index: usize) model.view.ProjectError
     return neutralArgument(reader, compositeElem(ctx, index)) catch return error.MalformedView;
 }
 
+/// Forward cursor over a composite list: `cursor` is the element index. Element
+/// access is already O(1) stride math here, so this is `at` plus a bounds-gated
+/// increment — the iterator interface is uniform across codecs.
+fn neutralArgsNext(ctx: model.view.Args.Ctx, cursor: *u64) model.view.ProjectError!?model.view.Argument {
+    if (cursor.* >= ctx.w2) return null;
+    const out = try neutralArgsAt(ctx, @intCast(cursor.*));
+    cursor.* += 1;
+    return out;
+}
+
 fn neutralPositionsLen(ctx: model.view.PositionList.Ctx) model.view.ProjectError!usize {
     return @intCast(ctx.w2);
 }
@@ -537,6 +568,13 @@ fn neutralPositionsAt(ctx: model.view.PositionList.Ctx, index: usize) model.view
     return reader.word(@as(usize, @intCast(ctx.w0)) + index) catch return error.MalformedView;
 }
 
+fn neutralPositionsNext(ctx: model.view.PositionList.Ctx, cursor: *u64) model.view.ProjectError!?u64 {
+    if (cursor.* >= ctx.w2) return null;
+    const out = try neutralPositionsAt(ctx, @intCast(cursor.*));
+    cursor.* += 1;
+    return out;
+}
+
 fn neutralPathLen(ctx: model.view.PipelinePath.Ctx) model.view.ProjectError!usize {
     return @intCast(ctx.w2);
 }
@@ -545,6 +583,13 @@ fn neutralPathAt(ctx: model.view.PipelinePath.Ctx, index: usize) model.view.Proj
     if (index >= ctx.w2) return error.MalformedView;
     const reader = readerFromFrameBytes(ctx.bytes) catch return error.MalformedView;
     return neutralPipelineOp(reader, compositeElem(ctx, index)) catch return error.MalformedView;
+}
+
+fn neutralPathNext(ctx: model.view.PipelinePath.Ctx, cursor: *u64) model.view.ProjectError!?model.view.PipelineOp {
+    if (cursor.* >= ctx.w2) return null;
+    const out = try neutralPathAt(ctx, @intCast(cursor.*));
+    cursor.* += 1;
+    return out;
 }
 
 fn neutralArgsBacking(reader: Reader, loc: StructLoc, i: u16) Error!model.view.Args {
