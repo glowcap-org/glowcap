@@ -1,12 +1,13 @@
 # pancake — Agent Guide
 
 This repository is `pancake`: a Zig implementation of the OCapN / CapTP
-substrate. Agents working here carry forward the Rust project's architectural
-lessons without treating Rust implementation details as Zig protocol design.
+substrate. pancake is the implementation — there is no released predecessor to
+defer to.
 
 OCapN behavior, Spritely Goblins fixtures, and Zig-local protocol scenarios are
-the conformance authority. Rust is implementation history to mine and a C ABI
-dogfood consumer; it is not the oracle for Zig semantics.
+the conformance authority for every semantic claim. A Rust binding consumes the
+C ABI as a dogfood, and a fuller Rust consumer may follow; a consumer is never
+the oracle for Zig semantics.
 
 ## First Principles
 
@@ -37,7 +38,7 @@ through one directory symlink, [`.claude/rules`](.claude/rules/) →
 rules by `.mdc` file.
 
 Read [`.agents/rules/agent-scaffolding.md`](.agents/rules/agent-scaffolding.md)
-before changing scaffolding, public APIs, frame ownership, codec/session/runtime
+before changing scaffolding, public APIs, frame ownership, codec/session/engine
 boundaries, or test/debug helper placement.
 
 Load the focused rule before touching its surface: `project-values`,

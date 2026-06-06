@@ -22,12 +22,14 @@ Engages the [First Principles](../../../AGENTS.md#first-principles) *protocol co
 
 **Signing domain.** The signature is over the Goblins-canonical `<my-location $acceptable-location>` record produced by [`canonicalLocationSignedBytes`](../../../src/codec/syrup/) in the Syrup codec ([`src/codec/syrup/core.zig`](../../../src/codec/syrup/core.zig)). Signing the wrapped record rather than the bare locator matches Goblins's `pk-sign` domain, so a Goblins peer verifies a pancake signature and pancake verifies a Goblins one. This one function is the single canonical domain both the signer and the verifier call.
 
-**Sign and verify.** [`src/runtime/factories.zig`](../../../src/runtime/factories.zig) `pairedWithKeys` derives each side's key from its seed, signs that side's canonical location bytes, and drives the keyed handshake. `verifyAndDrainEvents` verifies the partner signature against the **decoded** frame view (zero-copy): only the canonical signed bytes are materialized to verify against, and the sole fixed-width boundary is `crypto.PeerKey.fromSlice` / `Signature.fromParts` taking the wire-borrowed key / signature halves into their by-value forms. The session stores no key bytes — verification reads the decoded view and discards. A failure surfaces as `Error.InvalidStartSessionSignature`, projected as the [`AbortKind.invalid_start_session_signature`](../../../src/model/mod.zig) typed abort.
+**Sign and verify.** [`src/engine/pairing.zig`](../../../src/engine/pairing.zig) `pairedWithKeys` derives each side's key from its seed, signs that side's canonical location bytes, and drives the keyed handshake. `verifyAndDrainEvents` verifies the partner signature against the **decoded** frame view (zero-copy): only the canonical signed bytes are materialized to verify against, and the sole fixed-width boundary is `crypto.PeerKey.fromSlice` / `Signature.fromParts` taking the wire-borrowed key / signature halves into their by-value forms. The session stores no key bytes — verification reads the decoded view and discards. A failure surfaces as `Error.InvalidStartSessionSignature`, projected as the [`AbortKind.invalid_start_session_signature`](../../../src/model/mod.zig) typed abort.
 
 ## Scope (what this does not decide)
 
 - Wire confidentiality (TLS or any transport encryption) is a netlayer concern and is not implemented. CapTP authenticates the peer here; encrypting the bytes is an adapter / transport's job.
-- No Zig netlayer exists, so driving the keyed handshake over a real socket — and the connection lifecycle around it — is an adapter concern.
+- The shipped Zig net adapter is a testing TCP surface; driving the keyed
+  handshake over a production transport — and the connection lifecycle around it
+  — is an adapter concern.
 - The handoff `desc:sig-envelope` certificates that reuse the same crypto primitives — [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
 
 ## Alternatives Considered

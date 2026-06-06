@@ -1,3 +1,22 @@
+//! The session: the part of pancake that holds the truth.
+//!
+//! A `Session` owns the export, import, and answer tables for one direct session,
+//! plus all the handshake, pipelining, gc, handoff, and sturdyref bookkeeping.
+//! More to the point, it's the only layer allowed to decide whether a message is
+//! valid. `recordSend` and `recordRecvView` run the protocol state machine: first
+//! an exhaustive check that the message is even allowed in the current state, then
+//! the rules specific to its kind. If it passes, they apply its effect. If it
+//! doesn't, they hand back a typed `Error`, and the engine turns that into an
+//! `op:abort`. Codecs and adapters just move bytes. They never get a vote on
+//! what's valid.
+//!
+//! Inside, the layout is built for speed; there's more in `docs/architecture.md`
+//! under Session Representation. Protocol positions are dense integers, so the
+//! export, import, and answer tables are O(1) lookups instead of scans. Byte keys
+//! all live in one per-session arena. And in the common case the receive path
+//! checks a message straight off the borrowed codec view, only building an owned
+//! copy when something actually needs to hold onto it past the turn.
+
 const std = @import("std");
 const model = @import("../model/mod.zig");
 const slot_table = @import("slot_table.zig");
@@ -74,7 +93,7 @@ pub const Error = error{
 /// The fixed bootstrap export id installed when a session reaches `open`
 /// (ADR-0006). An inbound `op:deliver` to `<desc:export 0>` with method
 /// `'fetch` is the bootstrap-fetch entry point. The initiator side lives in
-/// `runtime.fetch`; the inbound-`'fetch` responder lives in `runtime.bootstrap`,
+/// `engine.fetch`; the inbound-`'fetch` responder lives in `engine.bootstrap`,
 /// not the session.
 pub const BOOTSTRAP_EXPORT_ID: u64 = 0;
 
@@ -105,9 +124,9 @@ pub const State = enum {
 /// Bounds on pipelining state (ADR-0007), keeping a peer from being driven into
 /// unbounded memory by a partner that pipelines or listens without ever
 /// resolving. Each overflow is a loud session error, never a silent drop. The
-/// `max_local_deliveries` bound is enforced by the runtime's resolution drain;
+/// `max_local_deliveries` bound is enforced by the engine's resolution drain;
 /// the rest are enforced here in the session. Defaults mirror the canonical
-/// runtime's `SessionLimits`.
+/// engine's `SessionLimits`.
 pub const SessionLimits = struct {
     /// Max pipelined calls queued against a single pending answer.
     queue_cap: usize = 1024,
@@ -115,7 +134,7 @@ pub const SessionLimits = struct {
     max_inbound_answers: usize = 65_536,
     /// Max listeners registered against a single target.
     max_listeners_per_target: usize = 64,
-    /// Max local deliveries surfaced from one resolution drain (runtime-enforced).
+    /// Max local deliveries surfaced from one resolution drain (engine-enforced).
     max_local_deliveries: usize = 4096,
     /// Max import-table rows — bounds a partner introducing unboundedly many
     /// imports (ADR-0025). Each new partner-driven import registration checks it;
@@ -145,7 +164,7 @@ pub const SessionLimits = struct {
     /// `resource_exhausted` rather than growing a buffer without bound. A
     /// byte-stream adapter sizes its read buffer to this cap (the
     /// loopback-testing simplification; a production small-buffer + overflow
-    /// path is a named follow-up). Not consulted by the frame seam, which is
+    /// path is a named follow-up). Not consulted by the frame boundary, which is
     /// handed an already-framed buffer.
     max_frame_bytes: usize = 1 << 20,
 };
@@ -284,9 +303,8 @@ fn ensureAnswerPayload(allocator: std.mem.Allocator, entry: *AnswerEntry) !*Answ
 ///
 /// The presence of a row marks `import_id` third-party-hosted — the distinction
 /// that lets an inbound `op:listen` on this import install a listener here rather
-/// than be rejected. (The canonical runtime keeps `host` on the import-table
-/// entry and the listeners / resolution in separate maps; grouping all three in
-/// one owned row is the Zig-idiomatic single-lifecycle equivalent.)
+/// than be rejected. Grouping the host, listeners, and resolution in one owned
+/// row gives the third-party promise a single lifecycle.
 pub const ImportedPromise = struct {
     /// The third-party host this promise lives on (owned designator bytes). Held
     /// so a re-root with a conflicting host is rejected ([`Error.HostMismatch`]).
@@ -327,9 +345,9 @@ pub const Session = struct {
     allocator: std.mem.Allocator,
     state: State,
     wire_profile: model.WireProfile,
-    /// The wire codec negotiated for this direct session (Invariant 4). The
-    /// authoritative record of the codec choice; the runtime's codec-dispatch
-    /// seam ([`codec.dispatch`]) reads it to route each frame, and every event
+    /// The wire codec negotiated for this direct session. The
+    /// authoritative record of the codec choice; the engine's codec-dispatch
+    /// boundary ([`codec.dispatch`]) reads it to route each frame, and every event
     /// the session produces is tagged with it. Defaults to `.syrup` for the
     /// non-negotiating constructors.
     codec: model.CodecId,
@@ -399,25 +417,40 @@ pub const Session = struct {
     /// (ADR-0006). Keys live in `key_arena`; O(1) lookup. Never removed.
     bootstrap: std.StringHashMapUnmanaged(u64),
 
+    /// Construction knobs for [`initWith`]. Every field has a default, so a
+    /// caller names only what it overrides: `Session.init(allocator)` is
+    /// `initWith(allocator, .{})`. The four knobs are orthogonal — `negotiating`
+    /// selects the starting [`State`], the rest set the negotiated
+    /// profile / codec / features the handshake would otherwise install.
+    pub const Options = struct {
+        /// Start in `negotiating` (awaiting `op:start-session`) instead of `open`.
+        negotiating: bool = false,
+        codec: model.CodecId = .syrup,
+        wire_profile: model.WireProfile = model.WireProfile.pre_spec,
+        features: model.FeatureSet = model.FeatureSet.full(),
+    };
+
+    /// Open session, all defaults — `initWith(allocator, .{})`.
     pub fn init(allocator: std.mem.Allocator) Session {
-        return initWithAllocatorProfileAndFeatures(
-            allocator,
-            model.WireProfile.pre_spec,
-            model.FeatureSet.full(),
-        );
+        return initWith(allocator, .{});
     }
 
-    pub fn initWithAllocatorProfileAndFeatures(
-        allocator: std.mem.Allocator,
-        wire_profile: model.WireProfile,
-        features: model.FeatureSet,
-    ) Session {
+    /// Session that begins in `negotiating`, awaiting the `op:start-session`
+    /// handshake on the default profile / feature set. The in-process handshake
+    /// driver ([`engine.pairing`]) constructs both peers this way; use
+    /// [`initWith`] with `.negotiating = true` to override the negotiated knobs.
+    pub fn initNegotiating(allocator: std.mem.Allocator) Session {
+        return initWith(allocator, .{ .negotiating = true });
+    }
+
+    /// The one full constructor; every `init*` shorthand delegates here.
+    pub fn initWith(allocator: std.mem.Allocator, options: Options) Session {
         return .{
             .allocator = allocator,
-            .state = .open,
-            .wire_profile = wire_profile,
-            .codec = .syrup,
-            .features = features,
+            .state = if (options.negotiating) .negotiating else .open,
+            .wire_profile = options.wire_profile,
+            .codec = options.codec,
+            .features = options.features,
             .limits = .{},
             .next_export_id = 0,
             .key_arena = std.heap.ArenaAllocator.init(allocator),
@@ -437,42 +470,6 @@ pub const Session = struct {
             .pending_enlivens = .empty,
             .bootstrap = .empty,
         };
-    }
-
-    pub fn initNegotiating(allocator: std.mem.Allocator) Session {
-        return initNegotiatingWithProfileAndFeatures(
-            allocator,
-            model.WireProfile.pre_spec,
-            model.FeatureSet.full(),
-        );
-    }
-
-    /// A session that begins in `negotiating`, awaiting the `op:start-session`
-    /// handshake on the given wire profile / feature set. The in-process
-    /// handshake driver ([`runtime.factories`]) constructs both peers this way.
-    pub fn initNegotiatingWithProfileAndFeatures(
-        allocator: std.mem.Allocator,
-        wire_profile: model.WireProfile,
-        features: model.FeatureSet,
-    ) Session {
-        var session = initWithAllocatorProfileAndFeatures(allocator, wire_profile, features);
-        session.state = .negotiating;
-        return session;
-    }
-
-    /// As [`initNegotiatingWithProfileAndFeatures`], recording the
-    /// handshake-negotiated [`model.CodecId`] ([`runtime.negotiation`]
-    /// `Negotiated.chosen`) so the runtime dispatches this session's frames to
-    /// the right codec (Invariant 4).
-    pub fn initNegotiatingWithCodecProfileAndFeatures(
-        allocator: std.mem.Allocator,
-        codec: model.CodecId,
-        wire_profile: model.WireProfile,
-        features: model.FeatureSet,
-    ) Session {
-        var session = initNegotiatingWithProfileAndFeatures(allocator, wire_profile, features);
-        session.codec = codec;
-        return session;
     }
 
     pub fn deinit(self: *Session) void {
@@ -585,7 +582,7 @@ pub const Session = struct {
     }
 
     /// Install `id` as a pending inbound answer we owe resolution for. Idempotent;
-    /// bounded by [`SessionLimits.max_inbound_answers`]. Used when the runtime
+    /// bounded by [`SessionLimits.max_inbound_answers`]. Used when the engine
     /// redirects a drained pipelined call to a local export — the forwarded
     /// call's own answer becomes one we must resolve, even though no wire
     /// `op:deliver` installed it through `recordRecv`.
@@ -1245,11 +1242,11 @@ pub const Session = struct {
     //
     // A pipelined `op:deliver` targets an answer the partner has not resolved
     // yet, so the session holds it (owned) on that answer's queue until the
-    // resolution arrives, then the runtime drains and redirects it. `op:listen`
+    // resolution arrives, then the engine drains and redirects it. `op:listen`
     // registers a party to be told when the answer resolves; the resolution is
     // stored so a late listener fires immediately. These operate on the inbound
     // answer table — the partner's answers we hold — mirroring the canonical
-    // runtime's `InboundAnswers`.
+    // engine's `InboundAnswers`.
 
     /// Queue a pipelined call (an owned `op:deliver` whose target is the pending
     /// answer `answer_id`), taking ownership of `message`. On any failure the
@@ -1329,7 +1326,7 @@ pub const Session = struct {
     /// Register `listener` (taking ownership of its `target`) as wanting
     /// `answer_id`'s resolution. On failure the target is freed. The answer must
     /// exist; it may be `pending` or already resolved (a late listener — the
-    /// runtime fires it immediately from the stored resolution).
+    /// engine fires it immediately from the stored resolution).
     pub fn installListener(self: *Session, answer_id: u64, listener: ListenerEntry) !void {
         errdefer model.freeReference(self.allocator, listener.target);
         const entry = self.inbound_answers.getPtr(answer_id) orelse

@@ -30,15 +30,18 @@ Engages the First Principles [*protocol correctness before convenience*](../../.
 
 ### `field` stays Cap'n Proto-only
 
-`PipelineOp.field` is structural navigation with no `op:deliver` analog, so the Syrup decomposer ([`decomposeOutboundDeliver`](../../../src/runtime/pipeline.zig)) rejects a `field` step loudly with `UnsupportedPipelineOp`, and the reference encoders reject a promise target carrying a non-empty path with `UnsupportedReference`. Syrup does **not** rewrite a `field` step into a chained `op:get`: OCapN is methodic, and a structural path-step rides only a native Cap'n Proto frame, which is not implemented. A `call` step decomposes into chained `op:deliver` per [ADR-0007](ADR-0007-promise-pipelining-substrate.md); a `field` step has no chain.
+`PipelineOp.field` is structural navigation with no `op:deliver` analog, so the Syrup decomposer ([`decomposeOutboundDeliver`](../../../src/engine/pipeline.zig)) rejects a `field` step loudly with `UnsupportedPipelineOp`, and the reference encoders reject a promise target carrying a non-empty path with `UnsupportedReference`. Syrup does **not** rewrite a `field` step into a chained `op:get`: OCapN is methodic, and a structural path-step rides only a native Cap'n Proto frame. A `call` step decomposes into chained `op:deliver` per [ADR-0007](ADR-0007-promise-pipelining-substrate.md); a `field` step has no chain.
 
 ### Serving is not implemented
 
-Computing a field / index result against a local object model is not implemented. A received `op:get` / `op:index` surfaces an application event (`EventKind.get` / `.index`, [`src/runtime/mod.zig`](../../../src/runtime/mod.zig)) and records receipt through `recordRecv`; the session opens no answer row and the runtime synthesizes no resolution. The application owns dispatch.
+Computing a field / index result against a local object model is not implemented. A received `op:get` / `op:index` surfaces an application event (`EventKind.get` / `.index`, [`src/engine/mod.zig`](../../../src/engine/mod.zig)) and records receipt through `recordRecv`; the session opens no answer row and the engine synthesizes no resolution. The application owns dispatch.
 
 ## Scope (what this does not decide)
 
-- **The Cap'n Proto codec is not implemented** — the only shape that would carry a `field` path-step as a native frame operand; codec posture is [ADR-0003](ADR-0003-codec-interoperability-posture.md).
+- **Syrup cannot carry a native `field` path-step** — Cap'n Proto can encode the
+  operand shape, but Syrup still rejects it loudly rather than inventing an
+  `op:get` rewrite. Codec posture is
+  [ADR-0003](ADR-0003-codec-interoperability-posture.md).
 - **`op:untag`** — the spec's third structural op is not implemented; pancake follows the OCapN community rather than leads.
 - **Actor-model synthesis** — running a method and materializing the field / index value against a resolution is not implemented.
 
@@ -52,7 +55,7 @@ Computing a field / index result against a local object model is not implemented
 ## Consequences
 
 - `Message.get` and `Message.index` arms plus matching `view` arms; the Syrup label set and encode / decode / view projection grow `op:get` and `op:index`.
-- The session records receipt of an inbound `op:get` / `op:index` without opening an answer row; the runtime surfaces it as an application event.
+- The session records receipt of an inbound `op:get` / `op:index` without opening an answer row; the engine surfaces it as an application event.
 - Conformance under [`src/conformance/`](../../../src/conformance/mod.zig) exercises both ops across their receiver shapes; Goblins fixtures pin the byte shapes under `zig build oracle-check`.
 
 ## Forward compatibility

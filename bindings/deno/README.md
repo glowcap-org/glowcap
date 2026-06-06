@@ -4,28 +4,27 @@ A [Deno](https://deno.com) consumer of the Zig `libpancake` C ABI, loaded
 through `Deno.dlopen`. See [`../README.md`](../README.md) for the shipped C ABI
 surface and how the bindings are gated.
 
-## Wired today
+## The API
 
-[`zig_smoke.ts`](zig_smoke.ts) is the consumer `zig build bindings` runs: it
-loads the installed `libpancake`, creates a peer, feeds a borrowed `op:abort`
-frame, and asserts the surfaced event is an Abort. That exercises the entire
-shipped ABI — `pancake_peer_new` / `feed_borrowed` / `step` / `poll_event` plus
-frame and event release — from a real foreign-language consumer.
+[`pancake.ts`](pancake.ts) is the idiomatic Deno API over the C ABI. The raw
+`Deno.dlopen` FFI is private; what you use is a `Peer` class (disposable),
+discriminated-union value types, and typed events. Integers are `bigint`, floats
+are `number`:
 
-```sh
-zig build bindings        # builds libpancake, runs every binding smoke
+```ts
+using peer = new Peer();
+peer.registerImport(5n);
+peer.sendDeliver(far(5n), [42n, new Uint8Array([1, 2])], 9n);
+peer.step();
+const frame = peer.takeOutbound();
+// ...and poll() returns a typed { kind: "deliver" | "resolve" | "other", ... }
 ```
 
-Deno's FFI needs `--allow-ffi --allow-env --unstable-ffi`; the build step passes
-them and resolves the shared library relative to `zig-out/`.
+[`zig_smoke.ts`](zig_smoke.ts) is the consumer `zig build bindings` runs: it
+drives a real OCapN round-trip through that API (construct a call, read a
+delivery's args). Deno's FFI needs `--allow-ffi --allow-read`; the build step
+passes them and resolves the shared library relative to `zig-out/`.
 
-## Pending reference (not wired)
-
-The richer code under [`src/`](src/) and [`mod.ts`](mod.ts) — an env-driven
-multi-library loader, per-library last-error slots, fixed-size tagged-union
-value marshalling, a TCP/TLS/iroh netlayer, and a single-thread cooperative poll
-pump — targets a larger C ABI than `libpancake` ships today (peer/frame
-primitives only: no netlayer, codec selection, handshake, or `last_error`). It
-is preserved as reference, not deleted, and wires back in as the C ABI grows the
-surface it needs. Until then it is not built or run, and its file paths and APIs
-describe that planned surface rather than the current one.
+```sh
+zig build bindings        # builds libpancake, runs every binding consumer
+```

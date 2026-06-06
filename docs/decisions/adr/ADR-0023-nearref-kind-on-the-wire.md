@@ -32,7 +32,7 @@ Engages the First Principles [*session state is authoritative*](../../../AGENTS.
 
 ### Promise-shaped export call sites
 
-The runtime constructs `NearRef.promise` exactly at the sites that export a promise: the V1.0 resolver-callback `resolve_me_desc` ([`src/runtime/mod.zig`](../../../src/runtime/mod.zig)) and the bootstrap-fetch resolver ([`src/runtime/fetch.zig`](../../../src/runtime/fetch.zig)). The session does not branch on `NearKind`; the export's promise nature is a model fact set at the construction site.
+The engine constructs `NearRef.promise` exactly at the sites that export a promise: the V1.0 resolver-callback `resolve_me_desc` ([`src/engine/mod.zig`](../../../src/engine/mod.zig)) and the bootstrap-fetch resolver ([`src/engine/fetch.zig`](../../../src/engine/fetch.zig)). The session does not branch on `NearKind`; the export's promise nature is a model fact set at the construction site.
 
 ### Perspective and round-trip
 

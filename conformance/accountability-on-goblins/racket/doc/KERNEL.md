@@ -6,7 +6,8 @@ The kernel is the smallest demonstrable case of the loop the Vat then extends to
 
 ## The eight steps
 
-When `bash reference/implementations/accountability-on-goblins/stack/run.sh kernel` executes, you see all eight on stdout:
+When `racket conformance/accountability-on-goblins/racket/kernel.rkt` executes,
+you see all eight on stdout:
 
 ```
 [1/8] Vat hosts one Actor
@@ -63,7 +64,11 @@ The result: every Episode is signed by an ephemeral key derived (in the Sigstore
 The Episode JSON is appended as one line to `.data/episodes.jsonld`. Its byte hash is added as a leaf to the local Sigstore-shaped Merkle transparency log at `.data/transparency.log`. The log's root is recomputed on every append and stored at `.data/transparency.root`.
 
 ### Step 8 — Episode auditable
-A separate `audit.rkt` command (driven from outside via [`reference/tests/episode-audit/run.sh`](../../../../tests/episode-audit/run.sh)) re-reads the Episode and verifies the full chain: ephemeral pubkey signature against AID@seq verkey, Episode signature against ephemeral pubkey. The verification round-trips. **Auditability is structural, not bolted on.**
+A separate `audit.rkt` command (driven from outside via
+[`../../../episode-audit/run.sh`](../../../episode-audit/run.sh)) re-reads the
+Episode and verifies the full chain: ephemeral pubkey signature against AID@seq
+verkey, Episode signature against ephemeral pubkey. The verification
+round-trips. **Auditability is structural, not bolted on.**
 
 ## What the kernel deliberately does NOT cover
 

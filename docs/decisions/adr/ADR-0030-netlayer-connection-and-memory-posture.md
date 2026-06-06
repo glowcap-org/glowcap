@@ -12,7 +12,7 @@ superseded_by: []
 
 ## Context
 
-The sync, no-I/O protocol core (foundation / model / codec / session / runtime)
+The sync, no-I/O protocol core (foundation / model / codec / session / engine)
 is the project's load-bearing invariant: it stays deterministic and reaches no
 clock, socket, or scheduler ([First Principles](../../../AGENTS.md#first-principles)).
 A netlayer must connect that core to real sockets without dragging `std.Io`,
@@ -24,7 +24,7 @@ bound the memory an untrusted partner can make a connection hold.
 **The netlayer is `src/net_adapter/`, outside the core.** The arch gate
 ([`tools/arch_check.zig`](../../../tools/arch_check.zig)) keeps the five core
 layers free of `std.Io` and admits `net_adapter` as a non-core layer that may
-import down to `runtime` but is itself imported only by `c_abi` and the public
+import down to `engine` but is itself imported only by `c_abi` and the public
 root. It is the one place `std.Io` enters.
 
 **`Connection` folds the one parser over a type-erased stream.**

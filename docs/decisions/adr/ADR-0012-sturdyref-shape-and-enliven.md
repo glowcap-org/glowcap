@@ -2,7 +2,7 @@
 id: ADR-0012
 status: accepted
 date: 2026-05-10
-tags: [model, session, runtime, sturdyref, enliven, equality, goblins, interop]
+tags: [model, session, engine, sturdyref, enliven, equality, goblins, interop]
 decision: A sturdyref is a `Reference.sturdy` arm carrying `SturdyRef { peer, swissnum }` with structural equality on `(peer, swissnum)`; a `sturdyref` feature gate makes a sturdyref-bearing payload on a non-negotiated session a loud refusal; and enlivenment rides the existing bootstrap-fetch behind a feature+open precondition, a per-session dedup cache (swissnum → `(import_id, kind)`) that short-circuits a repeat enliven with no wire traffic, and an in-flight marker that collapses a concurrent enliven onto the outstanding answer.
 supersedes: []
 superseded_by: []
@@ -34,7 +34,7 @@ reusing the same `PeerLocator` that `op:start-session` and the handoff descripto
 
 ### Enliven over bootstrap-fetch
 
-[`src/runtime/sturdyref.zig`](../../../src/runtime/sturdyref.zig) adds only the enliven-specific halves the sync core owns; the wire loop is an adapter concern, exactly as for the bootstrap-fetch it rides.
+[`src/engine/sturdyref.zig`](../../../src/engine/sturdyref.zig) adds only the enliven-specific halves the sync core owns; the wire loop is an adapter concern, exactly as for the bootstrap-fetch it rides.
 
 - **Precondition.** `checkEnlivenPreconditions` requires the session to have negotiated `FeatureSet.sturdyref` (`Error.SturdyrefsNotNegotiated`) and to be `open` (`Error.SessionNotOpen`). Whether `sturdyref.peer` names this session's remote is a dial/adapter concern — the core tracks no remote locator and never dials.
 - **Dedup.** `prepareEnliven` resolves to one of three starts. A cache hit (`sturdyrefCacheHit`) rebuilds the cached `Reference.far` — kind preserved per [ADR-0010](ADR-0010-payload-descriptor-discriminator.md) — with no wire traffic. An in-flight match (`pendingEnlivenAnswer`) collapses a concurrent enliven for the same swiss-number onto the outstanding answer id. A miss issues a fresh bootstrap-fetch and records the in-flight marker (`notePendingEnliven`), releasing every allocation if the marker cannot be recorded.
@@ -59,7 +59,7 @@ The dedup state lives on the session ([`src/session/mod.zig`](../../../src/sessi
 
 - The model carries `SturdyRef { peer, swissnum }` as `Reference.sturdy`; `referencesEqual` compares it structurally.
 - The session refuses a sturdyref on a non-negotiated session (`Error.FeatureNotNegotiated`) and owns the dedup cache and in-flight markers.
-- `src/runtime/sturdyref.zig` exposes the precondition / prepare / settle halves; the adapter drives the wire loop, as for bootstrap-fetch.
+- `src/engine/sturdyref.zig` exposes the precondition / prepare / settle halves; the adapter drives the wire loop, as for bootstrap-fetch.
 - Enliven happy-path, cache-hit short-circuit, in-flight collapse, and the not-negotiated / broken refusals are conformance-bearing scenarios.
 
 ## Forward compatibility

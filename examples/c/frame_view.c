@@ -12,7 +12,6 @@ int main(void) {
 
     printf("shape=%u bytes=%zu\n", frame.shape, frame.len);
     pancake_managed_frame_release(NULL);
-    pancake_frame_release(NULL);
 
     PancakePeer *peer = NULL;
     if (pancake_peer_new(&peer) != PANCAKE_OK) {

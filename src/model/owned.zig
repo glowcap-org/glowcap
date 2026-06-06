@@ -1,18 +1,18 @@
-//! Ownership lifecycle for the codec-neutral [`model.Message`] tree: acquire an
-//! owned copy (`clone*`) and release one (`free*`).
+//! Cloning and freeing the `model.Message` tree. `clone*` makes an owned copy,
+//! `free*` releases one.
 //!
-//! This lives at the model layer so every consumer that owns
-//! a message past its originating frame shares one release contract — chiefly
-//! the session's pipelining tables (the per-answer call queue and stored
-//! resolutions, ADR-0007), which own queued messages and free them on drain /
-//! deinit without reaching up into the runtime.
+//! This lives in the model layer so that everyone who hangs onto a message after
+//! its frame is gone plays by the same release rules. Mostly that's the session's
+//! pipelining tables (ADR-0007): the per-answer call queue and the stored
+//! resolutions own the messages they hold and free them on their own, without
+//! reaching back up into the engine.
 //!
-//! `free*` is the spine: owned messages move into the outbound queue and the
-//! pipelining tables and are freed once on the way out. `clone*` is the named
-//! exception — the one boundary copy ([`runtime.Peer.sendCopying`]) for callers
-//! that hold borrowed or static input they keep owning. Internal paths move
-//! through [`runtime.Peer.send`] and never clone. Re-exported as
-//! `model.cloneMessage` / `model.freeMessage` (and the per-field helpers).
+//! Think of `free*` as the main line. Owned messages move into the outbound queue
+//! and the pipelining tables, and each one is freed exactly once on the way out.
+//! `clone*` is the single exception we call out by name: one boundary copy in
+//! `Peer.sendCopying`, for callers holding borrowed or static data they want to
+//! keep owning. Everything internal goes through `Peer.send` and never clones.
+//! You'll also meet these as `model.cloneMessage` and `model.freeMessage`.
 
 const std = @import("std");
 const model = @import("mod.zig");
@@ -155,7 +155,7 @@ pub fn cloneArgument(allocator: std.mem.Allocator, argument: model.Argument) std
         .symbol => |symbol| .{ .symbol = try allocator.dupe(u8, symbol) },
         .reference => |reference| .{ .reference = try cloneReference(allocator, reference) },
         .@"error" => |err| .{ .@"error" = try cloneError(allocator, err) },
-        .handoff => |handoff| .{ .handoff = try cloneHandoff(allocator, handoff) },
+        .handoff => |handoff| .{ .handoff = try cloneHandoffBoxed(allocator, handoff.*) },
         .string => |string| .{ .string = try allocator.dupe(u8, string) },
         .list => |items| .{ .list = try cloneArgumentSlice(allocator, items) },
         .set => |items| .{ .set = try cloneArgumentSlice(allocator, items) },
@@ -176,7 +176,10 @@ pub fn freeArgument(allocator: std.mem.Allocator, argument: model.Argument) void
         .symbol => |symbol| allocator.free(symbol),
         .reference => |reference| freeReference(allocator, reference),
         .@"error" => |err| freeError(allocator, err),
-        .handoff => |handoff| freeHandoff(allocator, handoff),
+        .handoff => |handoff| {
+            freeHandoff(allocator, handoff.*);
+            allocator.destroy(handoff);
+        },
         .string => |string| allocator.free(string),
         .list => |items| freeArgumentSlice(allocator, items),
         .set => |items| freeArgumentSlice(allocator, items),
@@ -266,9 +269,9 @@ pub fn freeReference(allocator: std.mem.Allocator, reference: model.Reference) v
     }
 }
 
-/// Deep-clone a [`PipelinePath`]: the `ops` slice and each op's owned payload
-/// (`call` args, `field` symbol). Mirrored by [`freePipelinePath`]. An empty
-/// path clones to the shared empty slice with no allocation.
+/// Deep-clone a `PipelinePath`: the `ops` slice plus each op's payload (a
+/// `call`'s args, a `field`'s symbol). Free it with `freePipelinePath`. An empty
+/// path clones to the shared empty slice and allocates nothing.
 pub fn clonePipelinePath(allocator: std.mem.Allocator, path: model.PipelinePath) !model.PipelinePath {
     if (path.ops.len == 0) return .{};
     const ops = try allocator.alloc(model.PipelineOp, path.ops.len);
@@ -307,6 +310,17 @@ fn freePipelineOp(allocator: std.mem.Allocator, op: model.PipelineOp) void {
         .field => |field| allocator.free(field),
         .call => |args| freeArgumentSlice(allocator, args),
     }
+}
+
+/// Clone a `Handoff` into a fresh box for the owned `Argument.handoff` arm. We
+/// allocate the box first, on purpose: if the clone then fails, we destroy the
+/// empty box and leak nothing, and if the box itself can't be allocated, there's
+/// nothing to clean up.
+pub fn cloneHandoffBoxed(allocator: std.mem.Allocator, handoff: model.Handoff) !*model.Handoff {
+    const boxed = try allocator.create(model.Handoff);
+    errdefer allocator.destroy(boxed);
+    boxed.* = try cloneHandoff(allocator, handoff);
+    return boxed;
 }
 
 pub fn cloneHandoff(allocator: std.mem.Allocator, handoff: model.Handoff) !model.Handoff {

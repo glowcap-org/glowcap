@@ -1,33 +1,35 @@
-//! Frame ownership: the byte-storage primitive every protocol layer moves.
+//! A frame is a chunk of wire bytes, and this file pins down who owns it.
 //!
-//! `Frame` owns wire bytes; `FrameView` borrows them for a bounded call scope.
-//! Production paths move owned frames or take bounded borrows — never a hidden
-//! copy. Copy helpers live in `test/support`, not here.
+//! Ownership comes in two shapes. A `Frame` owns its bytes and frees them when
+//! it's done. A `FrameView` only borrows them, and only for the length of a
+//! single call. Production code either moves an owned frame or takes a brief
+//! borrow. It never copies behind your back. The copy helpers you'd want for a
+//! test live in `test/support`, not in here.
 
 const std = @import("std");
 
-/// How a frame's storage is laid out, kept explicit so a codec-neutral core
-/// never flattens one shape into the other.
+/// How a frame's bytes are laid out. We keep this explicit so the core never
+/// quietly treats one layout as the other.
 ///
-/// - `byte`: ordinary byte storage (Syrup is byte-framed).
-/// - `word`: word-aligned storage — pointer aligned to 8, byte length divisible
-///   by 8 (Cap'n Proto is word-framed).
+/// Syrup works in plain bytes, so its frames are `byte`. Cap'n Proto works in
+/// 8-byte words, so its frames are `word`: the pointer is aligned to 8 and the
+/// length is a multiple of 8.
 pub const FrameShape = enum {
     byte,
     word,
 };
 
-/// A borrowed view over a frame's bytes, valid only for the call scope that was
-/// handed it. Holds no owner and allocates nothing; session state must never
-/// retain one. Obtain with [`Frame.view`].
+/// A borrowed look at a frame's bytes, good only for the call you were handed it
+/// in. It owns nothing and allocates nothing. Don't stash one in session state,
+/// because the bytes can vanish out from under you. You get one from `Frame.view`.
 pub const FrameView = struct {
     bytes: []const u8,
     shape: FrameShape,
 };
 
-/// Owned wire bytes with a single visible owner. The owner that allocated
-/// releases — `deinit` frees through whichever ownership path constructed the
-/// frame, with the metadata needed to free correctly.
+/// Wire bytes with exactly one owner: this frame. Whoever allocated the storage
+/// is who releases it. `deinit` frees it back through whichever path created the
+/// frame, carrying the metadata it needs to free correctly.
 pub const Frame = struct {
     pub const Error = error{
         InvalidFrameShape,
@@ -37,7 +39,7 @@ pub const Frame = struct {
     shape: FrameShape,
     owner: Owner,
 
-    /// Release hook for externally-owned storage; see [`initExternal`].
+    /// The callback that releases storage pancake didn't allocate. See `initExternal`.
     pub const ExternalReleaseFn = *const fn (*anyopaque) void;
 
     const Owner = union(enum) {
@@ -47,9 +49,10 @@ pub const Frame = struct {
 
     const AllocatorOwner = struct {
         allocator: std.mem.Allocator,
-        /// The alignment the storage was allocated with — tracked so the free
-        /// matches the allocation. Decoupled from `shape`: a `byte` frame may be
-        /// over-aligned and still frees with its true allocation metadata.
+        /// The alignment this storage was allocated with. We track it so the
+        /// free matches the allocation exactly. It's kept separate from `shape`
+        /// on purpose: a `byte` frame might be over-aligned, and it should still
+        /// free with the alignment it was really allocated under.
         storage_alignment: std.mem.Alignment,
     };
 
@@ -58,10 +61,11 @@ pub const Frame = struct {
         release: ExternalReleaseFn,
     };
 
-    /// Adopt allocator-owned `storage` without copying. `storage_alignment` is
-    /// the alignment `storage` was allocated with — `deinit` frees with it, so a
-    /// `word` frame's 8-byte allocation is reclaimed correctly. Rejects storage
-    /// whose layout violates `shape` ([`Error.InvalidFrameShape`]).
+    /// Take ownership of `storage` as it is, with no copy. Pass the alignment it
+    /// was allocated with as `storage_alignment`, and `deinit` will free it with
+    /// that same alignment, so a `word` frame's 8-byte allocation comes back
+    /// cleanly. If the bytes don't actually fit `shape`, you get
+    /// `Error.InvalidFrameShape`.
     pub fn initOwned(
         allocator: std.mem.Allocator,
         storage: []u8,
@@ -81,10 +85,10 @@ pub const Frame = struct {
         };
     }
 
-    /// Adopt storage owned elsewhere (a host buffer, an mmap, another runtime)
-    /// without copying. `deinit` hands `context` to `release` instead of freeing;
-    /// the external owner decides what that means. Rejects storage whose layout
-    /// violates `shape` ([`Error.InvalidFrameShape`]).
+    /// Wrap storage that something else owns, like a host buffer, an mmap, or
+    /// another runtime, without copying it. Instead of freeing, `deinit` calls
+    /// your `release` with `context`, and what that means is up to you. If the
+    /// bytes don't fit `shape`, you get `Error.InvalidFrameShape`.
     pub fn initExternal(
         storage: []u8,
         shape: FrameShape,
@@ -99,9 +103,9 @@ pub const Frame = struct {
         };
     }
 
-    /// Release the storage through its ownership path: an allocator-owned frame
-    /// is freed with its tracked alignment; an external frame's `release` is
-    /// invoked. Call exactly once.
+    /// Let the storage go. An allocator-owned frame is freed with the alignment
+    /// it remembered. An external frame gets its `release` called. Do this
+    /// exactly once.
     pub fn deinit(self: *Frame) void {
         switch (self.owner) {
             .allocator => |owner| freeStorage(owner.allocator, self.storage, owner.storage_alignment),
@@ -109,14 +113,14 @@ pub const Frame = struct {
         }
     }
 
-    /// Borrow the frame's bytes as a const slice for the frame's lifetime. No
-    /// allocation, no ownership transfer.
+    /// Read the frame's bytes as a const slice. They're good for as long as the
+    /// frame is. Nothing is allocated, and nothing changes hands.
     pub fn bytes(self: *const Frame) []const u8 {
         return self.storage;
     }
 
-    /// Borrow a [`FrameView`] over the frame's bytes — no allocation, no copy.
-    /// The view is valid only while this frame is.
+    /// Hand out a `FrameView` over these bytes. No allocation, no copy. The view
+    /// is only good while this frame is still around.
     pub fn view(self: *const Frame) FrameView {
         return .{
             .bytes = self.storage,

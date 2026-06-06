@@ -3,7 +3,7 @@ id: ADR-0021
 status: accepted
 date: 2026-05-17
 tags: [model, codec, syrup-wire, goblins-interop, value-tree]
-decision: The codec-neutral `Argument` union admits the OCapN passable value tree Goblins's marshaller emits, so a partner's value cannot crash pancake's decoder. The Syrup codec renders the variants it can represent and refuses the rest loudly with `UnsupportedArgument` rather than dropping them; `float64` is the one admitted variant the encoder does not render. `Null`, `Dict`, `Float32` fidelity, and arbitrary-precision integers are not modeled.
+decision: The codec-neutral `Argument` union admits the OCapN passable value tree Goblins's marshaller emits, so a partner's value cannot crash pancake's decoder. The Syrup codec renders every modeled positional passable — `float64` included, as the canonical `'D'` + big-endian binary64 — and a value *outside* the model (`Null`, `Dict`, `Float32` fidelity, arbitrary-precision integers) has no model home and is refused loudly with `UnsupportedArgument` rather than dropped or coerced.
 supersedes: []
 superseded_by: []
 ---
@@ -31,23 +31,22 @@ the passable value tree as 14 variants: `bytes`, `symbol`, `reference`, `error`,
 home, so decoding never forces a crash.
 
 The Syrup codec in [`src/codec/syrup/core.zig`](../../../src/codec/syrup/core.zig)
-renders the variants it can represent and refuses the rest:
+renders and lifts every modeled positional passable:
 
 - `writeArgument` encodes `bytes`, `symbol`, `reference`, `string`, `handoff`,
-  `integer`, `boolean`, `list`, `void` (`<void>`), `set` (`#…$`), `tagged`
-  (`<user-record …>`), and `keyword` (`<kw …>`). `float64` reaches the
-  fall-through arm and fails loud with `Error.UnsupportedArgument`; the `error`
-  variant has no positional-argument arm and shares that refusal (it rides
-  resolutions through the dedicated `resolve:break` path instead).
-- The borrowed-view decoder (`readArgument` → `ArgumentView`) lifts the
-  byte-atom subset (`bytes` / `string` / `symbol`), references, `<void>`, and
-  `<error …>`; a wire shape outside that subset returns `UnsupportedArgument`
-  rather than being mis-decoded.
+  `integer`, `float64` (`'D'` + 8 bytes IEEE-754 big-endian), `boolean`, `list`,
+  `void` (`<void>`), `set` (`#…$`), `tagged` (`<user-record …>`), and `keyword`
+  (`<kw …>`). The `error` variant has no positional-argument arm — it rides
+  resolutions through the dedicated `resolve:break` path, so a positional
+  `.error` reaches the fall-through and refuses loudly.
+- The neutral decoder (`readNeutralArgument`) lifts the same variants on the way
+  in, including `float64` from the `'D'` marker; a wire shape with no model home
+  returns `UnsupportedArgument` rather than being mis-decoded.
 
 Refusal is loud at both edges. An outbound value the encoder cannot render
 surfaces `UnsupportedArgument` to the application; an inbound value the decoder
 cannot lift projects to a `protocol_error` `op:abort`
-([`src/runtime/abort_projection.zig`](../../../src/runtime/abort_projection.zig))
+([`src/engine/abort_projection.zig`](../../../src/engine/abort_projection.zig))
 that closes the session. This is the symmetric-refusal contract from
 [ADR-0003](ADR-0003-codec-interoperability-posture.md): a value the model admits
 but a codec cannot carry is refused, never dropped, so cross-codec behavior does
@@ -55,13 +54,11 @@ not fork on representability.
 
 ## Scope (what this does not decide)
 
-- **`float64` rendering.** The variant is modeled but the encoder does not render
-  it; the boundary is the loud `UnsupportedArgument` refusal, pinned by the
-  fixture in [`test/codec/syrup_test.zig`](../../../test/codec/syrup_test.zig).
 - **Variants outside the model.** `Null` (distinct from `void`), `Dict`,
   `Float32` round-trip fidelity, and arbitrary-precision `integer` (the model
   caps at `i64`) are not modeled. A value carrying one is refused at the decode
-  boundary, not silently coerced.
+  boundary, not silently coerced. These are the live `UnsupportedArgument`
+  boundary now that `float64` renders.
 
 ## Alternatives Considered
 
@@ -77,14 +74,15 @@ not fork on representability.
 
 - The `Argument` union is the single codec-neutral value vocabulary; a new codec
   grows arms against the same union.
-- The encode breadth (12 rendered variants) is wider than the borrowed-view
-  decode breadth (byte atoms, references, `void`, `error`). Shapes between the
-  two widths are refused loudly on decode — a named boundary, not an invisible
-  one.
+- The Syrup encode and neutral-decode breadths both match the modeled positional
+  passables; the only refusal boundary left is a wire value with no model home
+  (`Null`/`Dict`/`Float32`/bignum), refused loudly on decode — a named boundary,
+  not an invisible one.
 - Conformance evidence lives in
   [`test/codec/syrup_test.zig`](../../../test/codec/syrup_test.zig): the rendered
-  variants assert against Goblins byte fixtures (`op_deliver_arg_*`); the
-  `float64` refusal asserts `UnsupportedArgument`.
+  variants assert against Goblins byte fixtures (`op_deliver_arg_*`); `float64`
+  pins the canonical `'D'` + big-endian binary64 bytes and round-trips NaN and
+  signed zero bit-for-bit.
 
 ## Notes
 

@@ -31,7 +31,7 @@ Engages the First Principles [*session state is authoritative*](../../../AGENTS.
 - `<desc:import-promise N>` → `.far` (`FarRef{ import_id = N, kind = .promise }`).
 - `<desc:answer N>` → `.promise` (`PromiseRef{ answer_id = N }`).
 
-The relabel is a fixed wire-tag↔variant map, not a lookup: the decoder never reads or mutates a table, so the codec still owns no authority. The Cap'n Proto codec ([`src/codec/capnp/core.zig`](../../../src/codec/capnp/core.zig)) applies the identical flip on its own word-shaped wire (`RefKind.near` → `.far`, `RefKind.far` → `.near`), so a reference decoded from either codec means the same thing (Invariant 1).
+The relabel is a fixed wire-tag↔variant map, not a lookup: the decoder never reads or mutates a table, so the codec still owns no authority. The Cap'n Proto codec ([`src/codec/capnp/core.zig`](../../../src/codec/capnp/core.zig)) applies the identical flip on its own word-shaped wire (`RefKind.near` → `.far`, `RefKind.far` → `.near`), so a reference decoded from either codec means the same thing.
 
 ### The encoder is the mirror; the flip is an involution
 
@@ -56,7 +56,7 @@ A resolved import's `ImportKind` is preserved verbatim. The sturdyref enliven de
 
 ## Alternatives Considered
 
-- **A perspective-neutral, non-flipping bijection** (`<desc:export>` → `far`, `<desc:import-*>` → `near`, with the session resolving direction at validation). Rejected: it diverges from both reference implementations. Goblins (`incoming-post-unmarshall!`) and the Rust core (`reference_from_payload_desc`) both flip in the codec, so a non-flipping Zig codec would force every runtime helper that reads a decoded arm to re-flip by hand (a footgun) and would not be byte-equivalent to a partner's understanding of the same frame. The flip is still table-blind, so the *codecs-do-not-own-authority* principle holds either way; matching the wire-established convention wins.
+- **A perspective-neutral, non-flipping bijection** (`<desc:export>` → `far`, `<desc:import-*>` → `near`, with the session resolving direction at validation). Rejected: it diverges from both reference implementations. Goblins (`incoming-post-unmarshall!`) and the Rust core (`reference_from_payload_desc`) both flip in the codec, so a non-flipping Zig codec would force every engine helper that reads a decoded arm to re-flip by hand (a footgun) and would not be byte-equivalent to a partner's understanding of the same frame. The flip is still table-blind, so the *codecs-do-not-own-authority* principle holds either way; matching the wire-established convention wins.
 - **Resolve perspective inside the decoder by table lookup** (consult the receiver's tables at decode). Rejected: codecs do not own authority. The flip is a fixed wire-tag relabel; the session still validates against the table the relabeled arm names.
 - **One collapsed reference variant for all three import/export descriptors.** Rejected: it discards both the object-vs-promise nature and the near/far distinction the session needs to pick a table.
 - **A view-only discriminator** (kind on the borrowed view only). Rejected: a caller holding an owned `Reference` would have no answer to "object or promise?". The kind is a semantic property, stored on the model.
@@ -65,7 +65,7 @@ A resolved import's `ImportKind` is preserved verbatim. The sturdyref enliven de
 
 - `NearRef` carries `NearKind`, `FarRef` carries `ImportKind`; both default `.object`, so ordinary call sites stay terse. A decoded import carries its object/promise kind; a decoded export defaults `.object` (the session owns its export's kind).
 - The session validates an inbound `near` against exports and an inbound `far` against imports, surfacing `InvalidReference` on a genuine miss; an inbound `far` for an unheld import is installed as an introduction. The outbound path is the mirror.
-- Both codecs flip identically, so a reference is codec-neutral (Invariant 1): the Syrup and Cap'n Proto paths decode the same wire-perspective reference to the same receiver-perspective model arm.
+- Both codecs flip identically, so a reference is codec-neutral: the Syrup and Cap'n Proto paths decode the same wire-perspective reference to the same receiver-perspective model arm.
 - The sturdyref enliven cache preserves the resolved `ImportKind`.
 - Conformance scenarios under [`src/conformance/`](../../../src/conformance/mod.zig) exercise each payload descriptor in a fulfill argument, an `op:listen` slot, and an `op:deliver` arg; the byte shapes are pinned against Goblins fixtures under `zig build oracle-check`.
 

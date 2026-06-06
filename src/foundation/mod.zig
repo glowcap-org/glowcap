@@ -1,3 +1,9 @@
+//! The foundation layer, gathered in one place. These are the primitives every
+//! other layer moves around: `frame` for wire bytes and who owns them, `id` for
+//! the `PeerId` and `SessionId`, and `crypto` for the Ed25519 and SHA-256 work
+//! the handshake and handoff signatures need. Nothing down here knows a thing
+//! about the message model above it.
+
 pub const id = @import("id.zig");
 pub const frame = @import("frame.zig");
 pub const crypto = @import("crypto.zig");

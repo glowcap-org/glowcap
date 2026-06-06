@@ -52,7 +52,7 @@ to the task:
 | General / unknown | `src/root.zig` |
 | Frame / FrameView ownership | `src/foundation/frame.zig` |
 | Session state / validate-apply | `src/session/mod.zig` |
-| Peer API / runtime dispatch | `src/runtime/mod.zig` |
+| Peer API / engine dispatch | `src/engine/mod.zig` |
 | Syrup encode/decode / views | `src/codec/syrup/core.zig` |
 | Model types / clone-free | `src/model/mod.zig` |
 | C ABI surface | `src/c_abi/mod.zig` |

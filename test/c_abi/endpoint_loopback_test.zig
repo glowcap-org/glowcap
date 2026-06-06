@@ -1,20 +1,20 @@
-//! C-ABI frame-seam loopback — proves the blocking TCP endpoint handles drive a
+//! C-ABI frame-boundary loopback — proves the blocking TCP endpoint handles drive a
 //! real handshake + bootstrap fetch when the *host* owns the peer and shuttles
 //! frames itself (`read_frame -> recvStreamPrefix` / `takeOutbound ->
-//! write_frame`). This is the host-driven netlayer seam the C ABI exposes: the
+//! write_frame`). This is the host-driven netlayer boundary the C ABI exposes: the
 //! transport is the exported endpoint surface, the framing is still the one
-//! parser, and no `Io` is ever named on the seam.
+//! parser, and no `Io` is ever named on the boundary.
 //!
-//! The peers here are `runtime.Peer`s driven through the public Zig seam
+//! The peers here are `engine.Peer`s driven through the public Zig boundary
 //! (`recvStreamPrefix` / `takeOutbound`); the only thing under test that is new
-//! is the C endpoint surface bridging bytes to that seam.
+//! is the C endpoint surface bridging bytes to that boundary.
 
 const std = @import("std");
 const pancake = @import("pancake");
 
 const c = pancake.c_abi;
 const model = pancake.model;
-const runtime = pancake.runtime;
+const engine = pancake.engine;
 const tcp = pancake.net_adapter.tcp;
 
 const zero_pubkey = [_]u8{0} ** 32;
@@ -34,15 +34,15 @@ fn startSession(designator: []const u8) model.Message {
     } };
 }
 
-fn isOpen(peer: *runtime.Peer) bool {
+fn isOpen(peer: *engine.Peer) bool {
     return peer.session_state.state == .open;
 }
 
 const Step = enum { received, closed };
 
 /// One pump over a C endpoint: encode + write all queued outbound, then block
-/// for one inbound frame and apply it through the peer seam.
-fn pumpStep(peer: *runtime.Peer, conn: *c.PancakeTcpConn) !Step {
+/// for one inbound frame and apply it through the peer boundary.
+fn pumpStep(peer: *engine.Peer, conn: *c.PancakeTcpConn) !Step {
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_value| {
         var frame = frame_value;
@@ -76,7 +76,7 @@ fn serveThread(args: *ServerArgs) void {
 }
 
 fn serveOnce(args: *ServerArgs) !void {
-    var peer = runtime.Peer.initNegotiating(args.allocator);
+    var peer = engine.Peer.initNegotiating(args.allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
@@ -92,7 +92,7 @@ fn serveOnce(args: *ServerArgs) !void {
 }
 
 fn fetchOnce(conn: *c.PancakeTcpConn, allocator: std.mem.Allocator) !void {
-    var peer = runtime.Peer.initNegotiating(allocator);
+    var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
 
@@ -102,7 +102,7 @@ fn fetchOnce(conn: *c.PancakeTcpConn, allocator: std.mem.Allocator) !void {
     }
     drainEvents(&peer);
 
-    const prepared = try runtime.fetch.prepareFetchSwissnum(allocator, &peer.session_state, "thermostat");
+    const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &peer.session_state, "thermostat");
     try peer.send(prepared.message);
 
     var settled = false;
@@ -112,7 +112,7 @@ fn fetchOnce(conn: *c.PancakeTcpConn, allocator: std.mem.Allocator) !void {
             var event = event_value;
             defer event.deinit();
             const owned = try event.decodeOwned(allocator);
-            const match = try runtime.fetch.tryMatchFetchOutcome(
+            const match = try engine.fetch.tryMatchFetchOutcome(
                 allocator,
                 prepared.resolver_export,
                 prepared.answer_id,
@@ -139,7 +139,7 @@ fn fetchOnce(conn: *c.PancakeTcpConn, allocator: std.mem.Allocator) !void {
     try std.testing.expect(settled);
 }
 
-fn drainEvents(peer: *runtime.Peer) void {
+fn drainEvents(peer: *engine.Peer) void {
     while (peer.pollEvent()) |event| {
         var e = event;
         e.deinit();
@@ -152,7 +152,7 @@ test "c-abi endpoint loopback: handshake to open + bootstrap fetch round-trip" {
     var netlayer: ?*c.PancakeTcpNetlayer = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_tcp_netlayer_new(&netlayer));
     const netlayer_ptr = netlayer.?;
-    defer c.pancake_tcp_netlayer_free(netlayer_ptr);
+    defer c.pancake_tcp_netlayer_release(netlayer_ptr);
 
     var listener: ?*c.PancakeTcpListener = null;
     const host = "127.0.0.1";
@@ -195,7 +195,7 @@ test "c-abi last_error records a cause on connect failure" {
     var netlayer: ?*c.PancakeTcpNetlayer = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_tcp_netlayer_new(&netlayer));
     const netlayer_ptr = netlayer.?;
-    defer c.pancake_tcp_netlayer_free(netlayer_ptr);
+    defer c.pancake_tcp_netlayer_release(netlayer_ptr);
 
     var conn: ?*c.PancakeTcpConn = null;
     const host = "not a valid ip";
@@ -213,7 +213,7 @@ test "c-abi endpoint rejects bad arguments distinctly from network faults" {
     var netlayer: ?*c.PancakeTcpNetlayer = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_tcp_netlayer_new(&netlayer));
     const netlayer_ptr = netlayer.?;
-    defer c.pancake_tcp_netlayer_free(netlayer_ptr);
+    defer c.pancake_tcp_netlayer_release(netlayer_ptr);
 
     const host = "127.0.0.1";
     var conn: ?*c.PancakeTcpConn = null;

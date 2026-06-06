@@ -40,6 +40,48 @@ test "managed frame release is null safe and idempotent" {
     try std.testing.expectEqual(@as(?c_abi.ReleaseFn, null), managed.release);
 }
 
+test "C ABI recv_stream frames a byte stream one frame at a time" {
+    var peer: ?*c_abi.PancakePeer = null;
+    try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_new(&peer));
+    defer c_abi.pancake_peer_release(peer);
+    try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_register_export(peer, 7));
+
+    const frame = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
+
+    // A partial frame consumes nothing and asks for more bytes.
+    var consumed: usize = 123;
+    try std.testing.expectEqual(
+        c_abi.PANCAKE_ERR_WOULD_BLOCK,
+        c_abi.pancake_peer_recv_stream(peer, frame.ptr, frame.len - 3, &consumed),
+    );
+    try std.testing.expectEqual(@as(usize, 0), consumed);
+
+    // Two whole frames back-to-back: each call consumes exactly one frame.
+    const stream = frame ++ frame;
+    var offset: usize = 0;
+    try std.testing.expectEqual(
+        c_abi.PANCAKE_OK,
+        c_abi.pancake_peer_recv_stream(peer, stream.ptr + offset, stream.len - offset, &consumed),
+    );
+    try std.testing.expectEqual(frame.len, consumed);
+    offset += consumed;
+    try std.testing.expectEqual(
+        c_abi.PANCAKE_OK,
+        c_abi.pancake_peer_recv_stream(peer, stream.ptr + offset, stream.len - offset, &consumed),
+    );
+    try std.testing.expectEqual(frame.len, consumed);
+    offset += consumed;
+    try std.testing.expectEqual(stream.len, offset);
+
+    // Both deliveries surfaced as events.
+    var event: c_abi.PancakeEvent = undefined;
+    try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_poll_event(peer, &event));
+    try std.testing.expectEqual(c_abi.PANCAKE_EVENT_DELIVER, event.kind);
+    c_abi.pancake_event_release(&event);
+    try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_poll_event(peer, &event));
+    c_abi.pancake_event_release(&event);
+}
+
 test "C ABI peer handles borrowed abort frames" {
     var peer: ?*c_abi.PancakePeer = null;
     try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_new(&peer));
@@ -69,7 +111,7 @@ test "C ABI exposes non-abort events as managed event frames in the negotiated c
         .len = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>".len,
         .shape = c_abi.PANCAKE_FRAME_SHAPE_BYTE,
     };
-    const runtime_peer: *pancake.runtime.Peer = @ptrCast(@alignCast(peer.?));
+    const runtime_peer: *pancake.engine.Peer = @ptrCast(@alignCast(peer.?));
     try runtime_peer.session_state.registerExport(7);
     try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_feed_borrowed(peer, &frame));
 
@@ -174,5 +216,39 @@ test "C ABI owned feed moves the frame end to end and releases it once at event 
     c_abi.pancake_event_release(&event);
     try std.testing.expectEqual(@as(usize, 1), Callback.calls);
     c_abi.pancake_event_release(&event);
+    try std.testing.expectEqual(@as(usize, 1), Callback.calls);
+}
+
+test "C ABI owned feed failure leaves caller ownership intact" {
+    const Callback = struct {
+        var calls: usize = 0;
+
+        fn release(frame: *c_abi.PancakeManagedFrame) callconv(.c) void {
+            calls += 1;
+            frame.bytes = null;
+            frame.len = 0;
+            frame.release = null;
+            frame.private_data = null;
+        }
+    };
+
+    var peer: ?*c_abi.PancakePeer = null;
+    try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_new(&peer));
+    defer c_abi.pancake_peer_release(peer);
+
+    var bytes = [_]u8{ 1, 2, 3 };
+    var managed = c_abi.PancakeManagedFrame{
+        .bytes = bytes[0..].ptr,
+        .len = bytes.len,
+        .shape = c_abi.PANCAKE_FRAME_SHAPE_WORD,
+        .release = Callback.release,
+        .private_data = null,
+    };
+
+    try std.testing.expectEqual(c_abi.PANCAKE_ERR_CODEC, c_abi.pancake_peer_feed_owned(peer, &managed));
+    try std.testing.expectEqual(@as(usize, 0), Callback.calls);
+    try std.testing.expect(managed.bytes != null);
+
+    c_abi.pancake_managed_frame_release(&managed);
     try std.testing.expectEqual(@as(usize, 1), Callback.calls);
 }

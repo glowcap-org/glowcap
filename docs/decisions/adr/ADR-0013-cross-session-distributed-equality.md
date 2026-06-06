@@ -2,7 +2,7 @@
 id: ADR-0013
 status: accepted
 date: 2026-05-11
-tags: [session, runtime, equality, registry, sturdyref, peerid, goblins, interop]
+tags: [session, engine, equality, registry, sturdyref, peerid, goblins, interop]
 decision: One session per peer pair is enforced by a caller-held `SessionRegistry` keyed on `PeerId`, consulted at the `negotiating → open` transition; a second open is a loud `Error.PeerAlreadyOpen`. With that invariant, in-memory structural `Reference` equality (`referencesEqual`) is the distributed-equality evidence for OCapN Pass Invariant Equality — two references naming the same target compare equal on `(import_id, kind)` regardless of codec — and the sturdyref dedup cache supplies the sturdyref-vs-handoff collapse onto one import row. The `equality` feature gate means "this peer commits to session-pair uniqueness." No new wire field carries equality.
 supersedes: []
 superseded_by: []
@@ -16,13 +16,13 @@ OCapN's `Model.md` gives targets Pass Invariant Equality: a target sent to a pee
 
 Two gaps stand between that property and the code. There is no session-pair-uniqueness enforcement, so two sessions to one peer would give a target two import ids and two unequal references. And a sturdyref-enlivened far-ref and a handoff-introduced far-ref for the same target have no defined relationship. This ADR closes both.
 
-Engages the First Principles *session state is authoritative* (the registry and the dedup cache are session/runtime state), *codec-neutral semantics* (equality on `Reference` means the same thing across every codec and profile), *conformance is load-bearing* (the collapse and the duplicate-refusal are scenarios), and *pancake is not OCapN* — the equality "evidence" is an in-memory assertion, never a new wire field.
+Engages the First Principles *session state is authoritative* (the registry and the dedup cache are session/engine state), *codec-neutral semantics* (equality on `Reference` means the same thing across every codec and profile), *conformance is load-bearing* (the collapse and the duplicate-refusal are scenarios), and *pancake is not OCapN* — the equality "evidence" is an in-memory assertion, never a new wire field.
 
 ## Decision
 
 ### Session-pair uniqueness in `SessionRegistry`
 
-[`src/runtime/registry.zig`](../../../src/runtime/registry.zig) holds a `SessionRegistry` — a set of [`foundation.PeerId`](../../../src/foundation/id.zig) (a fixed 32-byte id compared with `eql`). `register` returns `Error.PeerAlreadyOpen` when an entry for that `PeerId` already exists; `unregister` and `contains` round out the surface. The registry is **caller-held**, mirroring the cross-peer posture: the adapter threads it through and consults it at the `negotiating → open` transition (`register` on open, `unregister` on close), never the session state machine itself, which stays a passive observer. A peer that negotiated `equality = false` opts out — the adapter simply does not consult the registry for that session.
+[`src/engine/registry.zig`](../../../src/engine/registry.zig) holds a `SessionRegistry` — a set of [`foundation.PeerId`](../../../src/foundation/id.zig) (a fixed 32-byte id compared with `eql`). `register` returns `Error.PeerAlreadyOpen` when an entry for that `PeerId` already exists; `unregister` and `contains` round out the surface. The registry is **caller-held**, mirroring the cross-peer posture: the adapter threads it through and consults it at the `negotiating → open` transition (`register` on open, `unregister` on close), never the session state machine itself, which stays a passive observer. A peer that negotiated `equality = false` opts out — the adapter simply does not consult the registry for that session.
 
 ### Structural `Reference` equality is the evidence
 
@@ -40,7 +40,9 @@ The per-session dedup cache from [ADR-0012](ADR-0012-sturdyref-shape-and-enliven
 
 - **Container-type value-tree equality.** `referencesEqual` settles target (`Reference.*`) equality; Pass Invariant Equality over List / Set / Tagged value-tree shapes is a separate value-tree concern — [ADR-0021](ADR-0021-ocapn-value-tree-breadth.md). (`argumentsEqual` provides a structural substrate, but the container semantics are not settled here.)
 - **Cross-process registries.** `SessionRegistry` is in-process; one logical identity spanning multiple processes must coordinate registration externally.
-- **Transport-side crossed-hellos tie-break.** The registry refuses the second registration synchronously; which side wins when two peers dial each other at once is a transport concern with no Zig netlayer today.
+- **Transport-side crossed-hellos tie-break.** The registry refuses the second
+  registration synchronously; which side wins when two peers dial each other at
+  once is a production-transport concern outside the testing TCP adapter.
 
 ## Alternatives Considered
 
@@ -50,14 +52,20 @@ The per-session dedup cache from [ADR-0012](ADR-0012-sturdyref-shape-and-enliven
 
 ## Consequences
 
-- `src/runtime/registry.zig` carries `SessionRegistry` with `register` / `unregister` / `contains` and `Error.PeerAlreadyOpen`; the adapter consults it at `negotiating → open`.
+- `src/engine/registry.zig` carries `SessionRegistry` with `register` / `unregister` / `contains` and `Error.PeerAlreadyOpen`; the adapter consults it at `negotiating → open`.
 - `referencesEqual` is the conformance-bearing equality predicate; the sturdyref cache from [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md) supplies the collapse.
 - `FeatureSet.equality` carries the session-pair-uniqueness commitment; `stage3Default` turns it on.
 - Same-session far-ref equality, the cross-session sturdyref-and-handoff collapse to one far-ref, and the second-session refusal are conformance scenarios.
 
 ## Forward compatibility
 
-A future `lookup` helper on `SessionRegistry` (retrieving an in-flight session by `PeerId`) is additive over the duplicate-detection surface. When a production netlayer lands, the registry is the consult point a transport-side crossed-hellos tie-break feeds back into: the losing side `unregister`s and retreats. Container-type Pass Invariant Equality ([ADR-0021](ADR-0021-ocapn-value-tree-breadth.md)) composes on the same in-memory `referencesEqual` substrate, with `Reference.*` arms reducing to the contract settled here.
+A future `lookup` helper on `SessionRegistry` (retrieving an in-flight session by
+`PeerId`) is additive over the duplicate-detection surface. When a production
+transport lands, the registry is the consult point a crossed-hellos tie-break
+feeds back into: the losing side `unregister`s and retreats. Container-type Pass
+Invariant Equality ([ADR-0021](ADR-0021-ocapn-value-tree-breadth.md)) composes on
+the same in-memory `referencesEqual` substrate, with `Reference.*` arms reducing
+to the contract settled here.
 
 ## Notes
 

@@ -13,16 +13,21 @@ Run before calling code work complete:
 zig build check
 ```
 
-`zig build check` runs the correctness tests, public examples, Rust C ABI
-dogfood, and the protocol/Goblins oracle checks, plus the frame/view benchmark
-smoke check. Use focused steps while iterating:
+`zig build check` runs the Zig-hermetic gate: architecture checks, meta
+scaffolding checks, correctness tests, public examples, protocol/Goblins oracle
+checks, and benchmark smoke checks. Cross-language C ABI dogfood runs as sibling
+steps because it requires non-Zig runtimes on PATH. Use focused steps while
+iterating:
 
 ```sh
 zig build test
+zig build meta-check
 zig build oracle-check
 zig build rust-dogfood
+zig build bindings
 zig build examples
 zig build bench-frame-view
+zig build bench-codec
 ```
 
 ## Devcontainer

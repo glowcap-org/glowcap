@@ -1,6 +1,6 @@
 //! TCP loopback integration proof — the headline of the netlayer design.
 //!
-//! Two real `runtime.Peer`s talk over a 127.0.0.1 socket pair driven by a
+//! Two real `engine.Peer`s talk over a 127.0.0.1 socket pair driven by a
 //! `std.Io.Threaded` backend: the server runs concurrently (`io.concurrent`),
 //! the client on the test fiber. We prove (1) the handshake drives both peers to
 //! `open` over the wire, and (2) a bootstrap fetch — an `op:deliver` answered by
@@ -12,7 +12,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const model = pancake.model;
-const runtime = pancake.runtime;
+const engine = pancake.engine;
 const tcp = pancake.net_adapter.tcp;
 
 const net = std.Io.net;
@@ -34,7 +34,7 @@ fn startSession(designator: []const u8) model.Message {
     } };
 }
 
-fn isOpen(peer: *runtime.Peer) bool {
+fn isOpen(peer: *engine.Peer) bool {
     return peer.session_state.state == .open;
 }
 
@@ -44,7 +44,7 @@ const ServerError = anyerror;
 /// by pumping until the client closes (graceful EOF). The responder half is
 /// automatic in the runtime; the server only drives bytes.
 fn serveOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) ServerError!void {
-    var peer = runtime.Peer.initNegotiating(allocator);
+    var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
@@ -73,7 +73,7 @@ fn serveOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) ServerError!
 /// fulfilled. Closes the connection on return (its `defer`), which lets the
 /// concurrent server observe EOF and finish.
 fn fetchOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator) !void {
-    var peer = runtime.Peer.initNegotiating(allocator);
+    var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
 
@@ -100,7 +100,7 @@ fn fetchOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator) !
     drainEvents(&peer);
 
     // 2. Fetch the published cap.
-    const prepared = try runtime.fetch.prepareFetchSwissnum(allocator, &peer.session_state, "thermostat");
+    const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &peer.session_state, "thermostat");
     try peer.send(prepared.message);
 
     // 3. Pump until the settlement event arrives.
@@ -111,7 +111,7 @@ fn fetchOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator) !
             var event = event_value;
             defer event.deinit();
             const owned = try event.decodeOwned(allocator);
-            const match = try runtime.fetch.tryMatchFetchOutcome(
+            const match = try engine.fetch.tryMatchFetchOutcome(
                 allocator,
                 prepared.resolver_export,
                 prepared.answer_id,
@@ -138,7 +138,7 @@ fn fetchOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator) !
     try std.testing.expect(settled);
 }
 
-fn drainEvents(peer: *runtime.Peer) void {
+fn drainEvents(peer: *engine.Peer) void {
     while (peer.pollEvent()) |event| {
         var e = event;
         e.deinit();

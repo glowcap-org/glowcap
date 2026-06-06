@@ -8,4 +8,5 @@ Canonical home for hook scripts that fire around agent file edits.
 
 The script formats `*.zig` with `zig fmt`. Anything else is ignored. The script
 exits 0 even when formatting fails; `zig build check` stays the load-bearing
-gate.
+gate. `zig build meta-check` verifies that Cursor and Claude both point at this
+canonical command.

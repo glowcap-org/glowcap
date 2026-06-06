@@ -1,9 +1,11 @@
 # Re-homing pancake's reference material into the Zig tree
 
-Status: in flight. This doc is the plan of record for moving the load-bearing
-reference content out of the Rust workbench (`reference/` in the Rust repo) and
-into this repository, where the devcontainer already provides every runtime
-(Zig, Racket + patched Goblins, Deno/Node, Rust, Python) natively.
+Status: historical snapshot. This doc records the re-homing plan for the
+load-bearing reference content that moved out of the Rust workbench
+(`reference/` in the Rust repo) and into this repository, where the devcontainer
+provides every runtime (Zig, Racket + patched Goblins, Deno/Node, Rust, Python)
+natively. Current first-read state lives in `README.md`, `conformance/README.md`,
+`bindings/README.md`, and `test/oracles/`.
 
 ## The line
 
@@ -61,12 +63,13 @@ net-iroh, a `last_error` seam, netlayer endpoints). This repo's `pancake.h`
 exposes only the peer/frame surface (`pancake_peer_new` / `feed_borrowed` /
 `feed_owned` / `step` / `take_outbound` / `poll_event` + frame/event release).
 
-Each binding therefore lands a **Zig-ABI-backed smoke consumer** mirroring
+Each binding therefore landed a **Zig-ABI-backed smoke consumer** mirroring
 `bindings/rust` (load `libpancake`, create a peer, feed `op:abort` and
-`op:gc-answers` frames, assert the surfaced event kind), wired into a new
-`zig build bindings` step folded into `zig build check`. The relocated
-netlayer / handshake / full-CapTP scenario code is preserved alongside but
-marked **pending** the C ABI's growth — not falsely wired, not deleted.
+`op:gc-answers` frames, assert the surfaced event kind), wired into
+`zig build bindings`. The cross-language dogfood requires non-Zig runtimes, so
+it runs as a sibling gate rather than inside `zig build check`. The relocated
+netlayer / handshake / full-CapTP scenario code is preserved alongside and
+marked outside the current C ABI surface — not falsely wired, not deleted.
 
 ## Out of scope
 
@@ -76,12 +79,15 @@ marked **pending** the C ABI's growth — not falsely wired, not deleted.
 
 ## Verification status
 
-- `zig build` builds `libpancake.{a,so}`; the **deno** Zig-ABI smoke passes
-  against it (verified). The python/racket smokes mirror the same verified
-  ABI layout and run in this repo's devcontainer (python3/racket on PATH).
-- `zig build check` is green: the full Zig unit-test suite, both examples, the
-  Rust C ABI dogfood, the oracle checks, and the arch gate all pass. The dogfood
-  feeds an `op:gc-answers` (`<13'op:gc-answers[11+13+]>`) releasing
+- `zig build` builds `libpancake.{a,so}`; the **deno** Zig-ABI smoke passed
+  against it during this snapshot. The python/racket smokes mirror the same
+  verified ABI layout and run in this repo's devcontainer (python3/racket on
+  PATH).
+- At the time of this snapshot, `zig build check` covered the Zig unit-test
+  suite, examples, oracle checks, and the architecture gate. Cross-language C
+  ABI dogfood now runs through `zig build rust-dogfood` and `zig build
+  bindings`. The dogfood feeds an `op:gc-answers`
+  (`<13'op:gc-answers[11+13+]>`) releasing
   answer-positions a fresh peer never owned and asserts the fail-loud contract:
   the frame decodes cleanly, so the borrowed-view dispatch rejects it as a
   session state-machine refusal (`PANCAKE_ERR_SESSION`, per ADR-0008 wire-delta

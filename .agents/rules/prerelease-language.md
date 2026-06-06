@@ -20,7 +20,7 @@ it.
 ## What To Write Instead
 
 - Describe current APIs and invariants authoritatively.
-- For missing pieces, state the present boundary: "Cap'n Proto is not implemented"
-  rather than narrating a roadmap.
+- For missing pieces, state the present boundary: "production transports are not
+  implemented" rather than narrating a roadmap.
 - Keep transition rationale in PR descriptions or historical decision records,
   not first-read project surfaces.

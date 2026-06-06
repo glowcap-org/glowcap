@@ -1,21 +1,23 @@
-//! TCP transport — the one file that names sockets / `std.Io.net`.
+//! The TCP transport, and the only file in pancake that says "socket".
 //!
-//! Thin by design: a locator (or address) becomes a `std.Io.net.Stream`, which
-//! the caller's chosen `std.Io` already exposes as a `Reader` / `Writer`. That
-//! stream is handed to one of two seams — a [`Connection`] (the stream welded to
-//! a borrowed `*runtime.Peer`, borrowed-validate apply) or a peer-less
-//! [`FrameStream`] (the host owns the peer; the C ABI endpoints sit here). No
-//! runtime is chosen here — the host passes its `std.Io` (Threaded / Uring /
-//! Kqueue / fibers) and this is the only `Io`-to-syscall site.
+//! It stays thin on purpose. A locator or address becomes a `std.Io.net.Stream`,
+//! which the caller's `std.Io` already hands back as a reader and writer. From
+//! there the stream goes to one of two places: a `Connection`, where it's wired to
+//! a borrowed `*engine.Peer` that validates and applies as it reads, or a
+//! peer-less `FrameStream`, where the host owns the peer (this is what the C ABI
+//! endpoints use). Nothing here picks a runtime. The host brings its own `std.Io`
+//! (Threaded, Uring, Kqueue, fibers), and this is the single spot where `Io`
+//! turns into syscalls.
 //!
-//! Transport name is `tcp-testing-only`: cleartext, no TLS, honest naming. It
-//! exists to prove the one-parser framing design end-to-end over a real socket;
-//! production transports (TLS, QUIC/iroh) layer above the same seams.
+//! The transport is named `tcp-testing-only`, and that's honest: it's cleartext,
+//! no TLS. It's here to prove the one-parser framing end to end over a real
+//! socket. Real transports like TLS or QUIC/iroh would layer on top of the same
+//! two boundaries.
 
 const std = @import("std");
 
 const model = @import("../model/mod.zig");
-const runtime = @import("../runtime/mod.zig");
+const engine = @import("../engine/mod.zig");
 const connection = @import("connection.zig");
 const frame_stream = @import("frame_stream.zig");
 
@@ -38,7 +40,7 @@ pub const Error = error{
 /// `read_buf` / `write_buf` (see [`Connection.initStream`] for sizing).
 pub fn connectAddress(
     io: std.Io,
-    peer: *runtime.Peer,
+    peer: *engine.Peer,
     address: net.IpAddress,
     read_buf: []u8,
     write_buf: []u8,
@@ -53,7 +55,7 @@ pub fn connectAddress(
 /// designator → address mapping.
 pub fn connect(
     io: std.Io,
-    peer: *runtime.Peer,
+    peer: *engine.Peer,
     locator: model.PeerLocator,
     read_buf: []u8,
     write_buf: []u8,
@@ -63,7 +65,7 @@ pub fn connect(
 }
 
 /// As [`connectAddress`], but yielding a peer-less [`FrameStream`] (the host-
-/// driven frame seam the C ABI sits on, where the host owns the peer).
+/// driven frame boundary the C ABI sits on, where the host owns the peer).
 pub fn connectFrameStream(
     io: std.Io,
     address: net.IpAddress,
@@ -101,7 +103,7 @@ pub const Listener = struct {
     /// Block until a client connects, welding the accepted stream to `peer`.
     pub fn accept(
         self: *Listener,
-        peer: *runtime.Peer,
+        peer: *engine.Peer,
         read_buf: []u8,
         write_buf: []u8,
     ) net.Server.AcceptError!Connection {

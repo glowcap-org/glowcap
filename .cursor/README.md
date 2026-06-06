@@ -9,4 +9,5 @@ This directory is a Cursor-shaped overlay over [`.agents/`](../.agents/).
 - `hooks.json` wires Cursor edit hooks to scripts under [`.agents/hooks`](../.agents/hooks).
 - `settings.json` enables shared agent plugins.
 
-Edit canonical guidance in `.agents/`; keep this overlay thin.
+Edit canonical guidance in `.agents/`; keep this overlay thin. `zig build
+meta-check` verifies the symlink shape and hook/MCP wiring.

@@ -1,44 +1,43 @@
-//! Codec-neutral borrowed views over CapTP wire memory.
+//! Reading a message without copying it, straight off the wire bytes.
 //!
-//! A codec projects a borrowed [`Body`] over a decoded frame instead of
-//! materializing the owned [`model.Message`] tree on every recv. The view is
-//! the single codec-neutral shape both the Syrup and Cap'n Proto codecs
-//! produce (Invariant 1) and the only message shape the runtime dispatches on
-//! — the runtime never names a codec's own view types. Owned materialization
-//! ([`Body.toOwned`]) happens only when a caller needs ownership past the
-//! frame.
+//! On every receive, a codec lays a borrowed `Body` over the decoded frame
+//! instead of building the whole owned `model.Message` tree. This view is the one
+//! shape both codecs produce, and it's the only message shape the engine looks
+//! at; the engine never touches a codec's private view types. You build the
+//! owned tree (`Body.toOwned`) only when you actually need a message to outlive
+//! its frame.
 //!
-//! ## Lifetimes and the backing abstraction
+//! ## Lifetimes, and how the lists work
 //!
-//! Borrowed scalar fields and slices point into the frame's bytes (or, on the
-//! owned-fallback path, into an owned [`model.Message`]). The three unbounded
-//! sequences — [`Args`], [`PositionList`], [`PipelinePath`] — are reached
-//! through an inline **vtable backing**: a small POD [`Args.Ctx`] borrowing
-//! wire memory plus a `*const VTable` of codec-supplied `len` / `at` functions.
-//! This keeps the lazy projection allocation-free (no `Box`-per-list) and keeps
-//! this module free of any `codec` import — the codec owns the parse logic, the
-//! view owns only the dispatch. The owned-fallback backing is a plain slice.
+//! Scalar fields and slices point right into the frame's bytes. (On the
+//! owned-fallback path they point into an owned `model.Message` instead.) The
+//! three open-ended sequences, `Args`, `PositionList`, and `PipelinePath`, need a
+//! little more machinery. Each carries a small piece of borrowed state plus a
+//! tiny table of `len` and `at` functions the codec hands it. That's what lets
+//! the view walk a list lazily without allocating a box per list, and it's also
+//! why this file never imports `codec`: the codec owns the parsing, the view just
+//! dispatches into it. On the owned-fallback path the backing is simply a slice.
 //!
-//! Nested containers (`Argument.list` / `.set` / `.tagged`) are themselves
-//! [`Args`], so the whole tree stays lazily borrowed with no per-node
-//! allocation until [`toOwned`](Body.toOwned).
+//! Nested containers (`Argument.list`, `.set`, `.tagged`) are themselves `Args`,
+//! so the whole tree stays borrowed and allocation-free right up until you call
+//! `toOwned`.
 
 const std = @import("std");
 const model = @import("mod.zig");
 
-/// Failure projecting a borrowed element from wire bytes. The codec backings
-/// are the only producers; the owned-fallback (slice) backings are infallible.
-/// Granular codec errors collapse to `MalformedView` — the codec still fails
-/// loud, and the runtime projects the failure to a typed `op:abort`.
+/// What you get when reading a borrowed element out of wire bytes goes wrong.
+/// Only the codec-backed lists can produce this; the slice-backed fallback never
+/// fails. The codec's finer-grained errors all collapse to `MalformedView` here.
+/// The codec still fails loudly, and the engine turns that into a typed
+/// `op:abort`.
 pub const ProjectError = error{MalformedView};
 
-/// Hard stack-safety ceiling on the nesting depth `toOwned` will materialize.
-/// The session enforces a lower, *configurable* inbound cap
-/// (`SessionLimits.max_nesting_depth`) and validates before it materializes, so
-/// wire data never reaches this bound; it is the model-layer backstop for a
-/// direct `toOwned` of a borrowed view that skipped session validation, so a
-/// pathologically nested tree fails closed (`MalformedView`) instead of
-/// overflowing the native stack.
+/// A hard ceiling on how deep `toOwned` will build. The session sets its own,
+/// lower inbound cap (`SessionLimits.max_nesting_depth`) and validates before it
+/// materializes anything, so real wire data never reaches this. This is the
+/// model-layer backstop for the case where someone calls `toOwned` on a borrowed
+/// view that skipped session validation: a pathologically nested tree fails with
+/// `MalformedView` rather than overflowing the stack.
 pub const max_owned_depth: usize = 256;
 
 /// Materialization failure: a projection failure ([`ProjectError`]) or an
@@ -47,11 +46,12 @@ pub const Error = ProjectError || std.mem.Allocator.Error;
 
 // ── Lazy sequences ───────────────────────────────────────────────────────────
 
-/// Borrowed sequence of [`Argument`] values.
+/// A borrowed sequence of `Argument` values.
 ///
-/// Two backings: a `slice` of owned arguments (owned-fallback path) or a
-/// codec-supplied inline `backed` vtable (the wire path). Callers see only
-/// [`len`](Args.len) and [`at`](Args.at); the backing is opaque.
+/// It's backed one of two ways: by a plain `slice` of owned arguments (the
+/// fallback path), or by a small codec-supplied table that reads them straight
+/// off the wire. Either way you only ever see `len` and `at`; which backing it
+/// is stays hidden.
 pub const Args = struct {
     inner: Inner,
 
@@ -475,7 +475,7 @@ pub const Argument = union(enum) {
             .symbol => |symbol| .{ .symbol = symbol },
             .reference => |*reference| .{ .reference = Reference.fromOwned(reference) },
             .@"error" => |err| .{ .@"error" = .{ .message = err.message } },
-            .handoff => |*handoff| .{ .handoff = Handoff.fromOwned(handoff) },
+            .handoff => |handoff| .{ .handoff = Handoff.fromOwned(handoff) },
             .string => |string| .{ .string = string },
             .integer => |integer| .{ .integer = integer },
             .boolean => |boolean| .{ .boolean = boolean },
@@ -498,7 +498,12 @@ pub const Argument = union(enum) {
             .symbol => |symbol| .{ .symbol = try allocator.dupe(u8, symbol) },
             .reference => |reference| .{ .reference = try reference.toOwned(allocator) },
             .@"error" => |err| .{ .@"error" = try err.toOwned(allocator) },
-            .handoff => |handoff| .{ .handoff = try handoff.toOwned(allocator) },
+            .handoff => |handoff| blk: {
+                const boxed = try allocator.create(model.Handoff);
+                errdefer allocator.destroy(boxed);
+                boxed.* = try handoff.toOwned(allocator);
+                break :blk .{ .handoff = boxed };
+            },
             .string => |string| .{ .string = try allocator.dupe(u8, string) },
             .integer => |integer| .{ .integer = integer },
             .boolean => |boolean| .{ .boolean = boolean },

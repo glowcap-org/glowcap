@@ -13,13 +13,13 @@ test "CapTP versions parse and render wire strings" {
     try std.testing.expectEqual(@as(?model.CaptpVersion, null), model.CaptpVersion.fromWireString("2.0"));
 }
 
-test "wire profile constructors carry CapTP version, canonical flag, and name" {
-    const goblins = model.WireProfile.goblinsV1_0();
+test "wire profile constants carry CapTP version, canonical flag, and name" {
+    const goblins = model.WireProfile.v1_0;
     try std.testing.expectEqual(model.CaptpVersion.v1_0, goblins.captp_version);
     try std.testing.expect(goblins.flags.goblins_canonical);
     try std.testing.expectEqualStrings("ocapn-v1.0", goblins.name());
 
-    const pre_spec = model.WireProfile.preSpec();
+    const pre_spec = model.WireProfile.pre_spec;
     try std.testing.expectEqual(model.CaptpVersion.pre_spec, pre_spec.captp_version);
     try std.testing.expect(!pre_spec.flags.goblins_canonical);
     try std.testing.expectEqualStrings("pancake-pre-spec", pre_spec.name());

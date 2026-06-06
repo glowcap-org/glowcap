@@ -4,6 +4,7 @@
 
 [![Zig](https://img.shields.io/badge/language-Zig-f7a41d.svg)](https://ziglang.org/)
 [![zero-copy contract](https://img.shields.io/badge/zero--copy-contract-blue.svg)](docs/architecture.md)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#license)
 
 > **pancake is a codec-neutral [CapTP](http://erights.org/elib/distrib/captp/) core for [OCapN](https://github.com/ocapn/ocapn).**
 > **Syrup where OCapN requires it. Owned frames or borrowed views wherever frames cross a boundary.**
@@ -18,16 +19,16 @@ references. No ambient authority, no string-typed permissions. If you hold the
 reference, you can use it.
 
 It targets OCapN, the open object-capability network protocol from
-[Spritely Institute](https://spritely.institute/) and the OCapN community. The
-core is library-shaped, explicitly memory-managed, and designed so protocol code
-keeps ownership, allocation, wire format, cryptography, I/O, and host scheduling
-boundaries visible.
+[Spritely Institute](https://spritely.institute/) and the OCapN community. You use
+it as a library, and you manage its memory yourself. The whole point of the design
+is that nothing important hides: where a copy happens, where something is
+allocated, which wire format is in play, where crypto runs, where I/O and
+scheduling live — all of it stays visible at the boundary that owns it.
 
 The conformance authority is OCapN behavior — as defined by Spritely Goblins on
 the wire and the OCapN test suite. The in-repo gate checks pancake's protocol
-scenarios and pancake-authored Syrup byte vectors against that intent; live
-external-peer interop is the next step, not yet wired. The package name is
-`pancake`.
+scenarios and pancake-authored Syrup byte vectors against that intent. Live
+external-peer interop is outside the current gate. The package name is `pancake`.
 
 ## On The Wire Today
 
@@ -40,9 +41,9 @@ Implemented Zig behavior includes:
 - **Syrup.** The Syrup codec encodes the current message model against
   pancake-authored Syrup byte vectors (cross-checked through the upstream Syrup
   encoders, not Goblins captures), decodes borrowed views for the supported
-  operation set, and materializes owned messages for runtime-surfaced operations
+  operation set, and materializes owned messages for engine-surfaced operations
   including start-session and handoff.
-- **Session/runtime.** Sessions own profile/features, lifecycle,
+- **Session/engine.** Sessions own profile/features, lifecycle,
   import/export/answer/release authority, validate-then-apply, and feature
   gates. `Peer` remains caller-owned and drives outbound profile-aware encoding,
   V1.0 resolve-me-desc synthesis, borrowed inbound dispatch, owned queued
@@ -51,20 +52,20 @@ Implemented Zig behavior includes:
 - **Third-party handoff.** Give and receive work end to end. The Syrup codec
   round-trips the handoff fixtures, the session owns a gift table with
   deposit/withdraw bookkeeping, signed-give consistency, and handoff-count replay
-  rejection, and `runtime.cross_peer` routes the gifter → exporter → recipient
+  rejection, and `engine.cross_peer` routes the gifter → exporter → recipient
   flow across peers with signature verification injected at the boundary.
 - **Promise pipelining.** Sessions own the inbound-answer table, listeners, and
-  stored resolutions; `runtime.pipeline` carries the pure transforms. A pipelined
+  stored resolutions; `engine.pipeline` carries the pure transforms. A pipelined
   `op:deliver` against an unresolved answer queues and drains to the resolution
   (local delivery, requeue, or far-forward) when `op:resolve` settles, and a
   multi-hop call path decomposes at the sender into chained single-hop frames so
   every `desc:answer` on the Syrup wire stays flat.
 - **Relayed-resolution forwarding.** An `op:listen` on a handoff-imported promise
   installs against the third-party-hosted import; when the introducing session
-  forwards the host's resolution, `runtime.cross_peer.drainRelayedResolutions`
+  forwards the host's resolution, `engine.cross_peer.drainRelayedResolutions`
   fires the listeners and stores the resolution so a late listener fires
   immediately (ADR-0009).
-- **Bootstrap fetch (initiator).** `runtime.fetch` builds the canonical
+- **Bootstrap fetch (initiator).** `engine.fetch` builds the canonical
   bootstrap-fetch `op:deliver` and matches the partner's settlement — an
   `op:resolve` or a resolver-callback `op:deliver` — into an owned outcome.
   Driving the wire loop between the two is an adapter concern; the core ships the
@@ -72,32 +73,32 @@ Implemented Zig behavior includes:
 - **Bootstrap fetch (responder).** `Peer.registerBootstrapCap(swissnum)` exposes
   a local capability behind a swiss-number; an inbound `'fetch` to the bootstrap
   export is then recognized and answered automatically by the dispatcher
-  (`runtime.bootstrap` synthesizes the `Resolve`; the V1.0 path renders it as a
+  (`engine.bootstrap` synthesizes the `Resolve`; the V1.0 path renders it as a
   resolver-callback), with `break "unknown swissnum"` for an unregistered
   swissnum (ADR-0006 responder half).
-- **Sturdyref enliven (initiator).** `runtime.sturdyref` turns a persistent
+- **Sturdyref enliven (initiator).** `engine.sturdyref` turns a persistent
   `(peer, swissnum)` sturdyref into a live `Reference` over the existing
   bootstrap-fetch: a feature-negotiated + open precondition gate, a session dedup
   cache (swissnum → `(import_id, kind)`, kind preserved) that short-circuits a
   repeat enliven with no wire traffic, and an in-flight marker that collapses a
   concurrent enliven onto the outstanding answer. The wire loop is adapter-driven,
-  exactly like `runtime.fetch`.
+  exactly like `engine.fetch`.
 - **Distributed equality.** `model.referencesEqual` is the codec-neutral
   structural-equality predicate — the in-memory evidence for OCapN Pass Invariant
   Equality (ADR-0013): two references that name the same target compare equal
-  regardless of which codec or profile carried them. `runtime.SessionRegistry`
+  regardless of which codec or profile carried them. `engine.SessionRegistry`
   enforces one session per `PeerId` (`PeerAlreadyOpen` on a duplicate open), so
   cross-session equality reduces to same-session equality on `(import_id, kind)`;
   the sturdyref dedup cache supplies the sturdyref-vs-handoff collapse.
 - **Handshake feature negotiation.** `model.FeatureSet.intersect` is the
-  per-feature AND, and `runtime.negotiation.negotiate` is the pure, symmetric
+  per-feature AND, and `engine.negotiation.negotiate` is the pure, symmetric
   pick of the most-preferred shared codec plus the intersected feature set over
   two `Offer`s. `op:start-session` carries no feature operand (pancake does not
   extend OCapN's wire shapes), so both ends compute the same answer from the same
-  offers; `factories.pairedWithOffers` constructs both peers with the negotiated
+  offers; `pairing.pairedWithOffers` constructs both peers with the negotiated
   set, so neither exercises a capability the other withheld.
 - **Fail-loud aborts.** A rejected inbound frame — a codec-malformed frame or a
-  session state-machine refusal — projects through `runtime.abort_projection` to
+  session state-machine refusal — projects through `engine.abort_projection` to
   a typed outbound `op:abort` (and a session close where warranted) before the
   error surfaces, instead of bubbling a bare host error and leaving the partner
   hanging. Both inbound entry points share the projection.
@@ -109,9 +110,14 @@ Implemented Zig behavior includes:
   release-explicit. Borrowed frames dispatch synchronously; managed frames
   transfer ownership without copying; events return the originating frame in the
   negotiated codec with explicit release and no re-encode. `std.Io` appears at
-  the adapter boundary, not in the core.
+  the adapter boundary, not in the core. Allocation policy is a `PancakeContext`:
+  the `*_in` constructors allocate a whole handle family — peers, netlayers, and
+  every managed frame and buffer they own — through a context you supply (the
+  library allocator by default, or host `alloc`/`free` callbacks), freed back
+  through the same context.
 - **Protocol oracle bridge.** `zig build oracle-check` enumerates shipped
-  message arms, checks pancake-authored Syrup fixture parity (cross-encoder), and runs runtime scenarios
+  message arms, checks pancake-authored Syrup fixture parity across the upstream
+  Syrup encoders, and runs engine scenarios
   including the multi-peer third-party handoff. `conformance` also drives a
   deliver → resolve round-trip, a handshake → bootstrap-fetch auto-serve scenario
   (the ADR-0006 responder half), and a cross-mode parity check that proves the
@@ -121,35 +127,40 @@ Implemented Zig behavior includes:
   `@import` edges, and enforces the layer dependency DAG (codec-neutral session,
   no-`std.Io`-in-core, codecs own no authority) — a new top-level module with no
   declared rule fails the gate loudly.
+- **Meta scaffolding gate.** `zig build meta-check` verifies canonical `.agents`
+  guidance, thin Cursor/Claude overlays, hook and Serena MCP wiring, ignored
+  generated state, and documented build-step names.
 - **Rust C ABI dogfood.** A Rust crate links `libpancake` through the C ABI and
   drives a peer smoke test through the public host boundary.
 
-## Not Implemented
+## Current Boundaries
 
 A byte-stream netlayer ships (`net_adapter`): the active codec's own decoder
 finds frame boundaries (one parser, ADR-0029), a `Connection` folds it over
 `std.Io.Reader`/`Writer`, and `net_adapter.tcp` (`tcp-testing-only`, cleartext)
 proves a handshake-to-open + bootstrap-fetch round-trip over a real socket. The
-C ABI re-exposes it as blocking endpoint handles with a `last_error` seam
+C ABI re-exposes it as blocking endpoint handles with a `last_error` boundary
 (ADR-0030). Still outside the shipped surface: production transports (TLS,
 QUIC/iroh), full-duplex backpressure, crossed-hellos, and the small-buffer /
 bounded-overflow read path — all deferred by name in ADR-0030.
 
-Sturdyref enliven ships its initiator half (`runtime.sturdyref`); its
+Sturdyref enliven ships its initiator half (`engine.sturdyref`); its
 responder half is the same inbound-`'fetch` serving path
 (`Peer.registerBootstrapCap`), since an enliven is a `'fetch` against the local
 bootstrap exporter. Distributed equality ships the in-memory substrate
-(`model.referencesEqual`, `runtime.SessionRegistry`); container-type Pass
-Invariant Equality (value-tree equality on List / Struct / Tagged shapes) is not
-implemented.
+(`model.referencesEqual`, `engine.SessionRegistry`). Container-type Pass
+Invariant Equality ships too: `model.argumentsEqual` compares value trees through
+List, Set, and Tagged shapes, with Set equality order-agnostic (a multiset) so a
+set compares Equal whichever codec's element order carried it. Null, Dict,
+Float32 fidelity, and bignum integers stay unmodeled.
 
 The Cap'n Proto codec ([`src/codec/capnp/`](src/codec/capnp/), [ADR-0026](docs/decisions/adr/ADR-0026-hand-rolled-capnp-codec.md))
-is runtime-integrated and selectable on a live session: a peer pair negotiates it
-(`runtime.factories.pairedWithCodec`), and the handshake plus all subsequent
-traffic ride that codec through the codec-dispatch seam (`session.codec`). The
+is engine-integrated and selectable on a live session: a peer pair negotiates it
+(`engine.pairing.pairedWithCodec`), and the handshake plus all subsequent
+traffic ride that codec through the codec-dispatch boundary (`session.codec`). The
 session state machine is codec-neutral, so the Goblins-v1.0 resolver-callback
-translation is codec-blind. Cross-codec semantic parity (Invariant 8's two-codec
-requirement) is proven: the deliver/resolve and bootstrap-fetch conformance
+translation is codec-blind. Cross-codec semantic parity is proven: the
+deliver/resolve and bootstrap-fetch conformance
 scenarios produce identical *observable* traces on Syrup and Cap'n Proto: the
 state machine is codec-neutral, so the behavior does not depend on which codec
 carried it (the two wire encodings differ; the observable trace does not). The one Cap'n
@@ -199,20 +210,29 @@ environment notes: [`./.devcontainer/README.md`](.devcontainer/README.md).
 ```sh
 zig build
 zig build check
+zig build meta-check
 zig build oracle-check
 zig build rust-dogfood
 zig build bindings
 zig build examples
 zig build test
 zig build bench-frame-view
+zig build bench-codec
 ```
 
 `zig build` installs `libpancake.a`, `libpancake.so`, and `pancake.h` under
 `zig-out/`.
 
-`zig build check` runs the architecture gate, tests, the example programs, Rust
-C ABI dogfood, the protocol/Syrup oracle checks, and the frame/view benchmark
-smoke check. `zig build arch-check` runs the layering gate on its own.
+`zig build check` is the Zig-hermetic correctness gate — the architecture gate,
+meta scaffolding gate, tests, the example programs, the protocol/Syrup oracle
+checks, and the frame/view + codec throughput benchmark smoke checks; a Zig
+toolchain is all it needs. The
+cross-language C ABI dogfood (`zig build rust-dogfood`, `zig build bindings`)
+needs cargo/deno/python/racket on PATH, so it runs as a separate step alongside
+`check`. `zig build arch-check` runs the layering gate on its own. `zig build
+meta-check` runs the agent/docs scaffolding gate on its own. `zig build
+bench-codec` reports codec encode/decode throughput,
+steady-state dispatch ns/turn, and the sparse partner-position table cost.
 `zig build oracle-check` runs the protocol manifest and pancake-authored Syrup
 fixture checks directly.
 
@@ -226,7 +246,7 @@ under `zig build examples` (and `zig build check`) — see
   pairs two peers; one calls a method on the other and reads the answer back.
 - [`examples/zig/02_look_up_by_name.zig`](examples/zig/02_look_up_by_name.zig)
   fetches a capability through the bootstrap object by swiss-number — the server
-  side is just `registerBootstrapCap`, and the runtime answers the `'fetch`.
+  side is just `registerBootstrapCap`, and the engine answers the `'fetch`.
 
 Lower-level library mechanics:
 
@@ -246,15 +266,25 @@ Lower-level library mechanics:
   (rust, deno, python, racket), each dogfooding the ABI. Run with
   `zig build bindings`.
 - [`test/oracles/`](test/oracles/) — the canonical Syrup byte corpus (gated by
-  `zig build oracle-check`) plus the Goblins (Racket) and pancake (Python)
-  generators that reproduce it.
+  `zig build oracle-check`) plus the Racket and Python upstream-Syrup generators
+  that reproduce it.
 
 ## Documentation
 
 - [`docs/architecture.md`](docs/architecture.md) explains the memory, C ABI, and
   layer boundaries.
+- [`docs/captp-examples/README.md`](docs/captp-examples/README.md) indexes the
+  living CapTP diagrams.
 - [`docs/planning/reference-rehoming.md`](docs/planning/reference-rehoming.md)
-  is the plan of record for the re-homed reference material above.
+  is a historical snapshot for the re-homed reference material above.
 - [`AGENTS.md`](AGENTS.md) is the agent entrypoint for invariants and
   scaffolding discipline.
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) is the contributor entry point; this is a
+  one-person project, so reviews are best-effort.
+- [`SECURITY.md`](SECURITY.md) is the vulnerability-reporting policy and the
+  protocol invariants a security report may cite.
+
+## License
+
+Licensed under [Apache-2.0](LICENSE-APACHE). Contributions are accepted under the same terms.
 

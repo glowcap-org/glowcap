@@ -1,19 +1,20 @@
-//! Ed25519 + SHA-256 primitives for OCapN handshake and handoff signatures.
+//! The Ed25519 and SHA-256 work that OCapN's signatures need, and nothing more.
 //!
-//! These are the cryptographic operations the wire shapes require: signing the
-//! `op:start-session` `acceptable-location-sig`, signing / verifying the
-//! `desc:sig-envelope` handoff certificates, and the CapTP SHA256² derivations
-//! of [`id.PeerId`] (Public Identifier) and [`id.SessionId`].
+//! Three jobs live here. We sign the `acceptable-location-sig` that rides on
+//! `op:start-session`. We sign and check the `desc:sig-envelope` certificates a
+//! handoff carries. And we derive a peer's and a session's identity using the
+//! double-SHA256 the CapTP spec calls for, which gives us `PeerId` and
+//! `SessionId`.
 //!
-//! Everything here is pure computation: no allocation, no I/O, no hidden global
-//! state. It compiles to `wasm32` unchanged. The one operation that needs an
-//! entropy source — generating a fresh key pair or gift id — is deliberately
-//! *not* here: it lives at the adapter boundary, because entropy is I/O. The
-//! core consumes a caller-supplied 32-byte seed ([`SecretKey.fromSeed`]) and a
-//! caller-supplied gift id; the adapter owns where those bytes come from.
+//! It's all pure math. Nothing here allocates, does I/O, or keeps global state,
+//! and it builds for `wasm32` as-is. There's one thing you won't find: making
+//! fresh randomness. Generating a key pair or a gift id needs entropy, and
+//! entropy is I/O, so that stays out at the adapter boundary. Down here we take a
+//! 32-byte seed you hand us (`SecretKey.fromSeed`) and a gift id you hand us. You
+//! decide where those bytes come from.
 //!
-//! Syrup encoding of these key / signature shapes lives in the Syrup codec;
-//! this module owns only the raw byte math.
+//! Turning these keys and signatures into Syrup is the codec's job. This module
+//! only does the byte math.
 
 const std = @import("std");
 
@@ -36,8 +37,8 @@ pub const SEED_BYTES: usize = 32;
 /// Width in bytes of a `gift-id` per CapTP `desc:handoff-give`.
 pub const GIFT_ID_BYTES: usize = 32;
 
-/// Failure surface for verification. Signing and key derivation from a valid
-/// seed are infallible, so this only carries verify-side shapes.
+/// The ways verification can go wrong. Signing and deriving a key from a good
+/// seed can't fail, so everything here is about checking someone else's bytes.
 pub const CryptoError = error{
     /// The signature does not match what `pubkey` would produce for `payload`.
     InvalidSignature,
@@ -47,9 +48,10 @@ pub const CryptoError = error{
     MalformedSignature,
 };
 
-/// A per-session Ed25519 public key (32-byte raw `q` value).
+/// A per-session Ed25519 public key: the raw 32-byte `q` value.
 ///
-/// Verification material only; authority lives in `Reference`, never in a key.
+/// It's only ever used to check signatures. A key never grants authority. That
+/// always lives in a `Reference`.
 pub const PeerKey = struct {
     bytes: [PEER_KEY_BYTES]u8,
 
@@ -57,15 +59,15 @@ pub const PeerKey = struct {
         return .{ .bytes = bytes };
     }
 
-    /// Materialize a fixed-size key from a wire-borrowed slice (e.g. a decoded
-    /// `session_pubkey` view). Ed25519 keys are fixed-width, so the boundary
-    /// from `[]const u8` to `[32]u8` is the one unavoidable copy; this is where
-    /// it lives, with the length check, so call sites stay slice-shaped.
+    /// Pull a fixed-size key out of a borrowed wire slice, like a decoded
+    /// `session_pubkey`. Ed25519 keys are a fixed 32 bytes, so going from a slice
+    /// to a `[32]u8` means one small copy. It happens here, behind the length
+    /// check, so callers get to keep passing slices around.
     pub fn fromSlice(bytes: []const u8) CryptoError!PeerKey {
         if (bytes.len != PEER_KEY_BYTES) return CryptoError.MalformedKey;
-        // Slice → fixed array via array-pointer deref (length checked by the
-        // `[0..N]` bound). Ed25519 keys are taken by value, so this 32-byte
-        // materialization is inherent to the primitive, same as std.crypto.
+        // Copy the slice into a fixed array; the `[0..N]` bound checks the
+        // length. Ed25519 wants the key by value, so this 32-byte copy is just
+        // part of the primitive, same as in std.crypto.
         return .{ .bytes = bytes[0..PEER_KEY_BYTES].* };
     }
 
@@ -86,15 +88,15 @@ pub const Signature = struct {
         return .{ .bytes = bytes };
     }
 
-    /// Materialize a fixed-size signature from the wire-borrowed `r` / `s`
-    /// halves (Ed25519 `r || s` per RFC 8032, the shape the Syrup `sig-val`
-    /// view exposes). See [`PeerKey.fromSlice`] for the fixed-width-boundary
-    /// rationale; here the two 32-byte halves are joined into the 64-byte value.
+    /// Build a fixed-size signature from its two borrowed halves, `r` and `s`.
+    /// An Ed25519 signature is `r || s` (RFC 8032), which is the shape the Syrup
+    /// `sig-val` view hands you. Same fixed-width copy as `PeerKey.fromSlice`;
+    /// here the two 32-byte halves get joined into one 64-byte value.
     pub fn fromParts(r: []const u8, s: []const u8) CryptoError!Signature {
         const half = SIGNATURE_BYTES / 2;
         if (r.len != half or s.len != half) return CryptoError.MalformedSignature;
-        // Join the two halves via array-pointer deref (lengths checked above).
-        // The 64-byte materialization is inherent to the by-value `Signature`.
+        // Join the two halves (the lengths were checked just above). The 64-byte
+        // copy is inherent to a by-value `Signature`.
         var out: [SIGNATURE_BYTES]u8 = undefined;
         out[0..half].* = r[0..half].*;
         out[half..].* = s[0..half].*;
@@ -108,50 +110,51 @@ pub const Signature = struct {
 
 /// The secret half of an Ed25519 key pair.
 ///
-/// Construct from a caller-supplied 32-byte seed ([`fromSeed`]). The seed is the
-/// entropy boundary: generating one needs randomness (I/O), which the core does
-/// not own. [`seed`] projects the seed back out for a caller that must carry the
-/// key across a boundary; the projection is explicit so key-material duplication
-/// stays visible.
+/// You build one from a 32-byte seed you supply (`fromSeed`). The seed is where
+/// entropy lives: making a fresh one needs randomness, and the core doesn't do
+/// randomness. If you need to carry the key across a boundary, `seed` hands the
+/// bytes back out. That's deliberately a named call, so copying key material
+/// never happens by accident.
 pub const SecretKey = struct {
     keypair: Ed25519.KeyPair,
 
-    /// Reconstruct a secret key from a 32-byte seed. The seed's provenance is
-    /// the caller's responsibility; nothing here checks where it came from.
+    /// Rebuild a secret key from a 32-byte seed. Where the seed came from is on
+    /// you; nothing here checks it.
     pub fn fromSeed(seed_bytes: [SEED_BYTES]u8) CryptoError!SecretKey {
         const keypair = Ed25519.KeyPair.generateDeterministic(seed_bytes) catch
             return CryptoError.MalformedKey;
         return .{ .keypair = keypair };
     }
 
-    /// Project the 32-byte secret seed for reconstruction via [`fromSeed`].
+    /// Hand back the 32-byte seed, so you can rebuild this key later with `fromSeed`.
     pub fn seed(self: *const SecretKey) [SEED_BYTES]u8 {
         return self.keypair.secret_key.seed();
     }
 
-    /// Derive the public-key half (cheap; Ed25519 carries it on the pair).
+    /// Get the matching public key. It's cheap; Ed25519 keeps it on the pair.
     pub fn publicKey(self: *const SecretKey) PeerKey {
         return .{ .bytes = self.keypair.public_key.toBytes() };
     }
 };
 
-/// Sign `payload` with `secret`, producing an Ed25519 signature.
+/// Sign `payload` with `secret` and get back an Ed25519 signature.
 ///
-/// For `desc:sig-envelope` flows the caller passes the Syrup-canonical bytes of
-/// the inner object; canonicalization happens before this call.
+/// For the `desc:sig-envelope` flows, hand in the Syrup-canonical bytes of the
+/// inner object. You canonicalize before you call this, not after.
 ///
-/// Infallible: signing with a well-formed key pair cannot fail. The
-/// `unreachable` documents that the underlying error arms (key mismatch,
-/// identity element) are impossible for a key pair built from a valid seed.
+/// This can't fail. Signing with a well-formed key pair always works, and the
+/// `unreachable` says exactly that: the errors underneath (a key mismatch, an
+/// identity element) can't happen for a key built from a valid seed.
 pub fn sign(secret: *const SecretKey, payload: []const u8) Signature {
     const sig = secret.keypair.sign(payload, null) catch unreachable;
     return .{ .bytes = sig.toBytes() };
 }
 
-/// Verify that `sig` is `pubkey`'s signature over `payload`.
+/// Check that `sig` really is `pubkey`'s signature over `payload`.
 ///
-/// Returns `CryptoError.MalformedKey` if the public-key bytes are off-curve and
-/// `CryptoError.InvalidSignature` if the bytes are well-shaped but do not match.
+/// You get `CryptoError.MalformedKey` if the public-key bytes aren't a point on
+/// the curve, and `CryptoError.InvalidSignature` if they're shaped right but
+/// just don't match.
 pub fn verify(pubkey: PeerKey, payload: []const u8, sig: Signature) CryptoError!void {
     const key = Ed25519.PublicKey.fromBytes(pubkey.bytes) catch
         return CryptoError.MalformedKey;
@@ -159,18 +162,17 @@ pub fn verify(pubkey: PeerKey, payload: []const u8, sig: Signature) CryptoError!
     signature.verify(payload, key) catch return CryptoError.InvalidSignature;
 }
 
-/// Derive the OCapN-canonical Public Identifier for a `PeerKey`.
+/// Work out the OCapN Public Identifier for a `PeerKey`.
 ///
-/// Per the CapTP spec § Public Identifier:
-/// 1. Serialize the public key as the gcrypt s-expression
-///    `[public-key [ecc [curve Ed25519] [flags eddsa] [q q_value]]]`.
-/// 2. `SHA256(SHA256(...))` of that serialization (double-SHA256, matching
-///    Goblins-Racket `our-side-id` and the OCapN Python suite).
+/// The CapTP spec spells out two steps. First, write the public key as the
+/// gcrypt s-expression `[public-key [ecc [curve Ed25519] [flags eddsa] [q
+/// q_value]]]`. Then hash that twice with SHA256. That double hash is exactly
+/// what Goblins-Racket's `our-side-id` and the OCapN Python suite both do.
 ///
-/// The serialization is hand-rolled here against the byte-level Syrup spec to
-/// keep `foundation` free of a codec dependency; it is byte-identical to what
-/// the Syrup codec's canonical encoder produces for the same s-expression
-/// (pinned by an oracle fixture).
+/// We hand-roll the serialization right here, against the Syrup byte spec, so
+/// `foundation` doesn't have to depend on a codec. It comes out byte-for-byte
+/// identical to what the Syrup codec would produce for the same s-expression,
+/// and an oracle fixture keeps it honest.
 pub fn derivePublicIdentifier(key: PeerKey) id.PeerId {
     // Stream the gcrypt s-expression straight into SHA256: each structural
     // token and the raw `q` bytes are hashed in place. No staging buffer, so
@@ -201,15 +203,12 @@ pub fn derivePublicIdentifier(key: PeerKey) id.PeerId {
     return id.PeerId.fromBytes(outer);
 }
 
-/// Derive the SHA256² `SessionId` for a pair of per-session public keys.
+/// Work out the `SessionId` for a pair of per-session public keys.
 ///
-/// 1. Derive both `PeerId`s.
-/// 2. Sort them byte-ascending (canonical pairing, independent of who is
-///    local / remote).
-/// 3. `outer = SHA256(SHA256("prot0" || first || second))`.
-///
-/// Both ends arrive at the same value because the sort eliminates the
-/// initiator / acceptor asymmetry.
+/// Derive both `PeerId`s, sort the two byte-ascending so it doesn't matter which
+/// side is local, then double-SHA256 over `"prot0"` followed by the first and
+/// the second. Because of the sort, both ends land on the same value even though
+/// one side dialed and the other answered.
 pub fn deriveSessionId(local_key: PeerKey, remote_key: PeerKey) id.SessionId {
     const id_a = derivePublicIdentifier(local_key);
     const id_b = derivePublicIdentifier(remote_key);

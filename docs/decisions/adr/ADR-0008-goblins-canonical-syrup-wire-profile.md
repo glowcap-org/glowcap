@@ -42,14 +42,17 @@ The import, export, and answer tables in [`src/session/mod.zig`](../../../src/se
 - **`pre_spec`:** carries both kind and message; a pancake↔pancake session routes on the kind.
 - **`v1_0`:** emits the single-string `<op:abort message>` the spec requires. The kind rides as a discoverable prefix — `"<KindName>: <message>"` — which `AbortReason.parseV1_0` matches back to a kind, falling to `.other` when no prefix matches. Spec-strict on the wire, typed within pancake.
 
-The taxonomy spans the conditions the protocol core originates (`protocol_error`, `malformed_frame`, the `*_not_negotiated` family, `resource_exhausted`, `version_mismatch`, `invalid_start_session_signature`, `invalid_handoff_signature`, `handoff_replay`) **and** the connection-lifecycle conditions an adapter detects (`connection_lost`, `graceful_shutdown`, `crossed_hellos`, `timeout`). The no-I/O core does not detect a lost socket or a crossed-hellos collision — those are dial/transport concerns an adapter owns — but the kind and its wire projection live here so an adapter can project a *typed* abort through the one shared projection path rather than inventing its own wire shape. [`src/runtime/abort_projection.zig`](../../../src/runtime/abort_projection.zig) maps a rejected inbound frame (codec-malformed or session-refused) to the typed `op:abort` before the error surfaces.
+The taxonomy spans the conditions the protocol core originates (`protocol_error`, `malformed_frame`, the `*_not_negotiated` family, `resource_exhausted`, `version_mismatch`, `invalid_start_session_signature`, `invalid_handoff_signature`, `handoff_replay`) **and** the connection-lifecycle conditions an adapter detects (`connection_lost`, `graceful_shutdown`, `crossed_hellos`, `timeout`). The no-I/O core does not detect a lost socket or a crossed-hellos collision — those are dial/transport concerns an adapter owns — but the kind and its wire projection live here so an adapter can project a *typed* abort through the one shared projection path rather than inventing its own wire shape. [`src/engine/abort_projection.zig`](../../../src/engine/abort_projection.zig) maps a rejected inbound frame (codec-malformed or session-refused) to the typed `op:abort` before the error surfaces.
 
 ## Scope (what this does not decide)
 
 - The handoff cryptographic suite and three-party protocol — [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
 - Promise pipelining queue/drain and `op:listen` — [ADR-0007](ADR-0007-promise-pipelining-substrate.md).
 - The session table caps that bound these accumulators against a hostile peer — [ADR-0025](ADR-0025-session-table-cap-policy.md).
-- Adapter detection of connection loss / crossed hellos / graceful shutdown. The core carries the kinds and projects them; an adapter decides when to raise them. There is no Zig netlayer today, so these kinds are projected only on an adapter's behalf.
+- Adapter detection of connection loss / crossed hellos / graceful shutdown. The
+  core carries the kinds and projects them; an adapter decides when to raise
+  them. The testing TCP adapter is intentionally minimal, so these kinds remain
+  production-transport policy rather than core behavior.
 
 ## Alternatives Considered
 

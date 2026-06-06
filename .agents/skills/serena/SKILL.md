@@ -27,7 +27,7 @@ task focus:
 | General / unknown | `src/root.zig` |
 | Frame / FrameView ownership | `src/foundation/frame.zig` |
 | Session state / validate-apply | `src/session/mod.zig` |
-| Peer API / runtime dispatch | `src/runtime/mod.zig` |
+| Peer API / engine dispatch | `src/engine/mod.zig` |
 | Syrup encode/decode / views | `src/codec/syrup/core.zig` |
 | Model types / clone-free | `src/model/mod.zig` |
 | C ABI surface | `src/c_abi/mod.zig` |
@@ -51,22 +51,21 @@ When you need to map a directory, list files first then call per-file.
 | model | `src/model/mod.zig` | `Message`, `Reference`, `Argument`, `Resolution`, `Deliver`, `Resolve`, `StartSession`, `HandoffGive`, `HandoffReceive`, `AbortReason` |
 | codec | `src/codec/syrup/core.zig` | `MessageView`, `DeliverView`, `encodeMessage`, `decodeView`, `ownedFromView` |
 | session | `src/session/mod.zig` | `Session` (validate/apply, all tables) |
-| runtime | `src/runtime/mod.zig` | `Peer`, `StepOutcome`, `Event`, `EventKind` |
-| runtime | `src/runtime/pipeline.zig` | `decomposeOutboundDeliver`, `synthesizeListenerFire`, `classifyListenerDrain` |
+| engine | `src/engine/mod.zig` | `Peer`, `StepOutcome`, `Event`, `EventKind` |
+| engine | `src/engine/pipeline.zig` | `decomposeOutboundDeliver`, `synthesizeListenerFire`, `classifyListenerDrain` |
 | c_abi | `src/c_abi/mod.zig` | all `pancake_*` exported C functions |
-| io_adapter | `src/io_adapter/mod.zig` | `MemoryEndpoint` |
 | conformance | `src/conformance/mod.zig` | scenario trace runners |
 
 ## Common Calls
 
 Map a file:
 ```json
-{"name": "get_symbols_overview", "arguments": {"relative_path": "src/runtime/mod.zig"}}
+{"name": "get_symbols_overview", "arguments": {"relative_path": "src/engine/mod.zig"}}
 ```
 
 Map children of a struct (e.g. all Peer methods) before reading bodies:
 ```json
-{"name": "find_symbol", "arguments": {"name_path_pattern": "Peer", "relative_path": "src/runtime/mod.zig", "depth": 1}}
+{"name": "find_symbol", "arguments": {"name_path_pattern": "Peer", "relative_path": "src/engine/mod.zig", "depth": 1}}
 ```
 
 Find a symbol by name pattern across a subtree:
@@ -81,7 +80,7 @@ Find callers of a specific symbol:
 
 Read a symbol body directly when you already know its name and file:
 ```json
-{"name": "find_symbol", "arguments": {"name_path_pattern": "Peer/send", "relative_path": "src/runtime/mod.zig", "include_body": true}}
+{"name": "find_symbol", "arguments": {"name_path_pattern": "Peer/send", "relative_path": "src/engine/mod.zig", "include_body": true}}
 ```
 
 `find_symbol` uses `name_path_pattern`; all reference/rename/body tools use

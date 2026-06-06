@@ -3,7 +3,7 @@ id: ADR-0029
 status: accepted
 date: 2026-06-05
 tags: [codec, runtime, net_adapter, framing, resilience]
-decision: "Stream frame boundaries are found by the active codec's own decoder (`decodePrefix`), not a separate length-prefix or delimiter scanner. The decoder distinguishes `incomplete` (need more bytes), `decoded` (whole frame + consumed length), `malformed` (structurally invalid), and `too_large` (would exceed `max_frame_bytes`). The runtime (`recvStreamPrefix`) and the byte-stream adapter (`pumpOver`) consume that one verdict; there is no second parse."
+decision: "Stream frame boundaries are found by the active codec's own decoder (`decodePrefix`), not a separate length-prefix or delimiter scanner. The decoder distinguishes `incomplete` (need more bytes), `decoded` (whole frame + consumed length), `malformed` (structurally invalid), and `too_large` (would exceed `max_frame_bytes`). The engine (`recvStreamPrefix`) and the byte-stream adapter (`pumpOver`) consume that one verdict; there is no second parse."
 supersedes: []
 superseded_by: []
 ---
@@ -49,7 +49,7 @@ already-bounded sub-slices (peer-key, signature) remap an inner `incomplete` to
 `malformed`, because *within* a bounded region "ran out of bytes" means the
 region is corrupt, not that the stream needs more.
 
-`codec.dispatch.decodePrefix` routes to the session's active codec. The runtime
+`codec.dispatch.decodePrefix` routes to the session's active codec. The engine
 consumes exactly one verdict in `recvStreamPrefix` (`consumed` -> apply borrowed
 + report length; `incomplete` -> ask for more; `malformed`/`too_large` -> typed
 error projected to `op:abort`), and the byte-stream adapter's `pumpOver`
@@ -72,7 +72,7 @@ native stack — the parse-stage analog of the session-level cap in
 - **Per-connection memory.** The buffer sizing and the bounded-overflow follow-up
   are [ADR-0030](ADR-0030-netlayer-connection-and-memory-posture.md).
 - **Abort projection.** Mapping `malformed` / `too_large` to abort kinds is owned
-  by [`abort_projection`](../../../src/runtime/abort_projection.zig) /
+  by [`abort_projection`](../../../src/engine/abort_projection.zig) /
   [ADR-0025](ADR-0025-session-table-cap-policy.md).
 
 ## Alternatives Considered
@@ -90,7 +90,7 @@ native stack — the parse-stage analog of the session-level cap in
 - Each codec gains `decodePrefix`; `codec.dispatch` gains `decodePrefix` +
   `frameShape`; the Syrup error set gains `Incomplete` (internal to the decoder,
   never surfaced past a whole-frame boundary).
-- `runtime.Peer.recvStreamPrefix` is the single stream-framing entry the
+- `engine.Peer.recvStreamPrefix` is the single stream-framing entry the
   adapters drive.
 - Evidence: the differential prefix-decode property test
   [`test/codec/prefix_decode_test.zig`](../../../test/codec/prefix_decode_test.zig)

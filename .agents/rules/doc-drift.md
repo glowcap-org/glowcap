@@ -1,6 +1,6 @@
 ---
 description: "Doc-drift discipline for Zig pancake: living-state claims must describe current code or be removed."
-globs: **/*.md, src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h, build.zig
+globs: **/*.md, src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h, build.zig, .cursor/*.json, .claude/*.json, .mcp.json, .serena/*.yml
 ---
 
 # pancake — Doc Drift Prevention
@@ -20,6 +20,9 @@ change as the state they describe:
 - `docs/architecture.md`
 - `AGENTS.md`
 - `.agents/**`
+- `.cursor/README.md`, `.cursor/*.json`, and `.cursor/rules/*.mdc`
+- `.claude/README.md`, `.claude/*.json`, and `.claude/rules`
+- `.mcp.json` and `.serena/project.yml`
 - public doc comments on exported Zig declarations
 - test names that encode API contracts
 
@@ -31,6 +34,10 @@ them by role:
 - operational notes when they describe local workflow without project-state
   claims.
 
+`docs/planning/**` is not a first-read contract by default. A planning file must
+say whether it is an active plan, a historical snapshot, or a living-state
+surface; do not let old plan language masquerade as current architecture.
+
 ## Discipline
 
 - Prefer present-tense contracts over project-history narration.
@@ -40,3 +47,5 @@ them by role:
   a PR/commit message or remove it.
 - When an API name changes, sweep docs, tests, examples, and agent rules in the
   same change.
+- When scaffolding topology changes, update `.agents/README.md`,
+  `tools/meta_check.zig`, and the affected tool overlay docs together.

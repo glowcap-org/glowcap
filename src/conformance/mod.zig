@@ -1,11 +1,25 @@
+//! Canonical CapTP scenario drivers — the observable-trace oracle.
+//!
+//! Each `run*` function drives a [`engine.Peer`] through one fixed protocol
+//! scenario (a Stage-0 abort, a driven deliver/resolve, a handshake-then-
+//! bootstrap-fetch, an inbound dispatch mode) and returns the resulting wire
+//! bytes. Those byte traces are the conformance evidence: the Zig oracle tests
+//! ([`test/conformance`], [`test/oracle`]) and the cross-language bindings'
+//! scenario runners compare them for identical observable behavior. This is a
+//! public surface on purpose — it is how a consumer proves it produces the
+//! canonical trace — so it ships in `libpancake`, not under `test/`.
+//!
+//! The drivers are sync and codec-parameterized; they own no I/O and add no
+//! protocol semantics the engine lacks.
+
 const std = @import("std");
 
 const foundation = @import("../foundation/mod.zig");
 const model = @import("../model/mod.zig");
-const runtime = @import("../runtime/mod.zig");
+const engine = @import("../engine/mod.zig");
 
 pub fn runStage0Abort(allocator: std.mem.Allocator) ![]u8 {
-    var peer = runtime.Peer.init(allocator);
+    var peer = engine.Peer.init(allocator);
     defer peer.deinit();
 
     const inbound = "<8'op:abort3\"bye>";
@@ -34,9 +48,9 @@ pub fn runStage0Abort(allocator: std.mem.Allocator) ![]u8 {
 }
 
 pub fn runDrivenAbort(allocator: std.mem.Allocator) ![]u8 {
-    var p1 = runtime.Peer.init(allocator);
+    var p1 = engine.Peer.init(allocator);
     defer p1.deinit();
-    var p2 = runtime.Peer.init(allocator);
+    var p2 = engine.Peer.init(allocator);
     defer p2.deinit();
 
     var out: std.ArrayList(u8) = .empty;
@@ -71,9 +85,9 @@ pub fn runDrivenAbort(allocator: std.mem.Allocator) ![]u8 {
 /// as a semantic `Resolve`. Broadens conformance past the abort axis onto the
 /// deliver / answer / resolve state machine. Runs on `codec`; the trace is
 /// codec-agnostic by construction, so a parity test asserts it is identical on
-/// Syrup and Cap'n Proto (Invariant 8's two-codec requirement).
+/// Syrup and Cap'n Proto.
 pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8 {
-    var pair = try runtime.factories.pairedWithCodec(allocator, codec);
+    var pair = try engine.pairing.pairedWithCodec(allocator, codec);
     defer pair.deinit();
 
     var out: std.ArrayList(u8) = .empty;
@@ -132,12 +146,12 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
 /// Handshake → register a bootstrap cap on the responder → the initiator fetches
 /// it → the responder AUTO-resolves (no hand-rolled reply). The exporter-side
 /// proof for ADR-0006's responder half: serving an inbound `'fetch` lives in the
-/// runtime, not the test harness. The settlement rides back as a V1.0
+/// engine, not the test harness. The settlement rides back as a V1.0
 /// resolver-callback and surfaces at the initiator as a `fulfilled` outcome.
 /// Runs on `codec`; the trace is codec-agnostic by construction, so a parity
-/// test asserts it is identical on Syrup and Cap'n Proto (Invariant 8).
+/// test asserts it is identical on Syrup and Cap'n Proto.
 pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8 {
-    var pair = try runtime.factories.pairedWithCodec(allocator, codec);
+    var pair = try engine.pairing.pairedWithCodec(allocator, codec);
     defer pair.deinit();
 
     var out: std.ArrayList(u8) = .empty;
@@ -147,7 +161,7 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
     const export_id = try pair.p2.registerBootstrapCap("thermostat");
     try appendTraceLine(allocator, &out, "p2=registered:swissnum=thermostat:export={d}\n", .{export_id});
 
-    const prepared = try runtime.fetch.prepareFetchSwissnum(allocator, &pair.p1.session_state, "thermostat");
+    const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &pair.p1.session_state, "thermostat");
     try pair.p1.send(prepared.message);
     _ = try pair.p1.step();
     try out.appendSlice(allocator, "p1=sent:fetch\n");
@@ -176,7 +190,7 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
         var settle = pair.p1.pollEvent().?;
         defer settle.deinit();
         const owned = try settle.decodeOwned(allocator);
-        const match = try runtime.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer_id, owned);
+        const match = try engine.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer_id, owned);
         switch (match) {
             .settled => |outcome| switch (outcome) {
                 .fulfilled => |reference| {
@@ -208,8 +222,8 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
     return out.toOwnedSlice(allocator);
 }
 
-/// The two inbound entry points that converge on one dispatcher (Invariant 14):
-/// the borrowed zero-copy path and the owned-frame path.
+/// The two inbound entry points that converge on one dispatcher: the borrowed
+/// zero-copy path and the owned-frame path.
 pub const InboundMode = enum { borrowed, owned };
 
 /// Drive one inbound frame through `mode` and trace the observable dispatcher
@@ -218,9 +232,9 @@ pub const InboundMode = enum { borrowed, owned };
 /// machinery, so a parity test asserts byte-identical traces — the load-bearing
 /// proof that the borrowed and owned entry points run one state machine, not
 /// two. The frame is a malformed one, so the trace also exercises the
-/// abort-projection path ([`runtime.abort_projection`]) across both modes.
+/// abort-projection path ([`engine.abort_projection`]) across both modes.
 pub fn runInboundMode(allocator: std.mem.Allocator, mode: InboundMode) ![]u8 {
-    var peer = runtime.Peer.init(allocator);
+    var peer = engine.Peer.init(allocator);
     defer peer.deinit();
 
     const garbage = "this is not a syrup frame";

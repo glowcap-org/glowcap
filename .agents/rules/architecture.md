@@ -8,8 +8,8 @@ globs: src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/
 ## Protocol Authority
 
 OCapN behavior, Spritely Goblins fixtures, and Zig-local protocol scenarios are
-the conformance authority. Rust pancake is implementation history to mine and a
-C ABI dogfood consumer, not the oracle for Zig semantics.
+the conformance authority. A Rust binding is a C ABI dogfood consumer (a fuller
+Rust consumer may follow), not the oracle for Zig semantics.
 
 Committed files should not mention external taste-reference names from prompts.
 Encode that taste as Zig-native control, explicit protocol vocabulary, honest
@@ -33,7 +33,7 @@ The portable core stays deterministic, sync, and no-I/O:
 - no hidden scheduler;
 - no background tasks;
 - no `std.Io` in core protocol modules;
-- no adapter policy inside codecs/session/runtime.
+- no adapter policy inside codecs/session/engine.
 
 Adapters may use `std.Io`, transports, callbacks, and host scheduling. They do
 not add CapTP semantics that the core lacks.
@@ -44,8 +44,7 @@ not add CapTP semantics that the core lacks.
 - `model`: codec-neutral semantic types.
 - `codec`: encode/decode and borrowed semantic views.
 - `session`: validation and authoritative tables.
-- `runtime`: caller-owned `Peer`, `step`, inbound dispatch, outbound drain.
+- `engine`: caller-owned `Peer`, `step`, inbound dispatch, outbound drain.
 - `c_abi`: C-shaped vocabulary only.
-- `io_adapter`: runtime-flavored I/O glue only.
 
 If a change moves authority downward into codec/adapter code, stop and redesign.

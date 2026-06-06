@@ -87,6 +87,47 @@ test "argument equality recurses through lists and nested references" {
     try std.testing.expect(!model.argumentsEqual(.{ .list = &inner_a }, .{ .list = &shorter }));
 }
 
+test "set equality is order-agnostic (multiset), per Pass Invariant Equality" {
+    // A set is unordered. The two codecs emit its elements in different orders
+    // (Syrup canonical-sorts, Cap'n Proto keeps insertion order), so the same set
+    // decoded from each must still compare Equal.
+    const a = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } };
+    const reordered = [_]model.Argument{ .{ .integer = 3 }, .{ .integer = 1 }, .{ .integer = 2 } };
+    try std.testing.expect(model.argumentsEqual(.{ .set = &a }, .{ .set = &reordered }));
+
+    // The same elements as a list in a different order are NOT equal — lists are
+    // ordered, only sets are not. This is the line that keeps the two arms honest.
+    try std.testing.expect(!model.argumentsEqual(.{ .list = &a }, .{ .list = &reordered }));
+
+    // Same length, different elements is unequal.
+    const different = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 4 } };
+    try std.testing.expect(!model.argumentsEqual(.{ .set = &a }, .{ .set = &different }));
+
+    // Multiplicity matters: {1, 1, 2} is not the {1, 2, 2} multiset, even though
+    // they share the same distinct elements and length.
+    const ones = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 1 }, .{ .integer = 2 } };
+    const twos = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 2 } };
+    try std.testing.expect(!model.argumentsEqual(.{ .set = &ones }, .{ .set = &twos }));
+
+    // Differing arity is unequal.
+    const shorter_set = [_]model.Argument{.{ .integer = 1 }};
+    try std.testing.expect(!model.argumentsEqual(.{ .set = &a }, .{ .set = &shorter_set }));
+}
+
+test "nested set equality stays order-agnostic at depth" {
+    // A set of sets, with both the outer and the inner orderings shuffled. The
+    // value is the same, so it compares Equal all the way down.
+    const inner1 = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 } };
+    const inner2 = [_]model.Argument{ .{ .integer = 3 }, .{ .integer = 4 } };
+    const outer_a = [_]model.Argument{ .{ .set = &inner1 }, .{ .set = &inner2 } };
+
+    const inner1_r = [_]model.Argument{ .{ .integer = 2 }, .{ .integer = 1 } };
+    const inner2_r = [_]model.Argument{ .{ .integer = 4 }, .{ .integer = 3 } };
+    const outer_b = [_]model.Argument{ .{ .set = &inner2_r }, .{ .set = &inner1_r } };
+
+    try std.testing.expect(model.argumentsEqual(.{ .set = &outer_a }, .{ .set = &outer_b }));
+}
+
 test "scalar arguments compare by value and reject variant mismatch" {
     try std.testing.expect(model.argumentsEqual(.{ .boolean = true }, .{ .boolean = true }));
     try std.testing.expect(!model.argumentsEqual(.{ .boolean = true }, .{ .boolean = false }));

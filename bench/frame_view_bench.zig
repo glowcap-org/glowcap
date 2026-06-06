@@ -2,7 +2,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const foundation = pancake.foundation;
-const runtime = pancake.runtime;
+const engine = pancake.engine;
 const model = pancake.model;
 
 /// Counts every backing allocation (fresh `alloc`, plus a growing
@@ -46,11 +46,11 @@ const TotalCountingAllocator = struct {
 const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
 
 /// Print the steady-state heap traffic of one inbound `op:deliver` to a live
-/// local export. Mirrors `test/runtime/alloc_budget_test.zig`; the rewrite
+/// local export. Mirrors `test/engine/alloc_budget_test.zig`; the rewrite
 /// drives this number down (Phase 5 removes the validation materialization).
 fn reportWirePathBudget(backing: std.mem.Allocator) !void {
     var counter = TotalCountingAllocator{ .backing = backing };
-    var peer = runtime.Peer.init(counter.allocator());
+    var peer = engine.Peer.init(counter.allocator());
     defer peer.deinit();
     try peer.session_state.registerExport(7);
 
@@ -67,9 +67,11 @@ fn reportWirePathBudget(backing: std.mem.Allocator) !void {
 }
 
 /// Print the in-memory footprint of the value-tree types. `Argument` is a
-/// 14-arm recursive `union(enum)`, so it pays the size of its largest arm
-/// everywhere; this is the layout anchor for the codec-neutral hot path (read
-/// the number deliberately rather than discover it under a profiler).
+/// 14-arm recursive `union(enum)`, so it pays the size of its largest arm on
+/// every element of every args list; its rare ~160-byte `handoff` arm is boxed
+/// (`*Handoff`) so the common arm sets the size (`Reference`, 80 bytes) instead.
+/// This is the layout anchor for the codec-neutral hot path — read the number
+/// deliberately rather than discover it under a profiler.
 fn reportModelLayout() void {
     std.debug.print(
         "model_layout Argument={d} Message={d} Reference={d} Resolution={d}\n",
@@ -82,7 +84,7 @@ fn reportModelLayout() void {
     );
 }
 
-fn driveOneTurn(peer: *runtime.Peer) !void {
+fn driveOneTurn(peer: *engine.Peer) !void {
     try peer.recvBorrowed(.{ .bytes = deliver_to_live_export, .shape = .byte });
     while (peer.pollEvent()) |event_in| {
         var event = event_in;

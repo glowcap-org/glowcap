@@ -1,36 +1,34 @@
-//! Structural equality on the codec-neutral [`model`] value tree.
+//! Comparing two model values for structural equality.
 //!
-//! This is the in-memory evidence for distributed (Pass Invariant) equality per
-//! ADR-0013 § Structural `Reference` equality is the evidence: there is no wire
-//! field carrying equality; two references that
-//! name the same target compare equal here, and the conformance assertions are
-//! made on the values the session tables hold. Equality is **codec-neutral**
-//! (Invariant 1): the same two values compare equal regardless of which codec or
-//! Syrup profile carried them.
+//! OCapN never puts an equality marker on the wire. So the way you tell that two
+//! references name the same thing is to compare their structure, and that's what
+//! this file does. It's the in-memory evidence behind distributed equality
+//! (ADR-0013), and the conformance tests assert on the values the session tables
+//! hold. Which codec or Syrup profile carried a value doesn't matter: the same
+//! two values compare equal either way.
 //!
-//! The load-bearing case is `Reference.far`: cross-session equality reduces to
-//! same-session equality on `(import_id, kind)` once one-session-per-peer-pair
-//! holds (the [`runtime.SessionRegistry`] invariant). The remaining arms compare
-//! structurally; promise paths and arguments recurse so the predicate is total
-//! over the value tree (Pass Invariant Equality *semantics* for container shapes
-//! is a separate conformance concern, but the structural substrate is here).
+//! The case that really earns its keep is `Reference.far`. Once we hold to
+//! one-session-per-peer-pair (that's the `engine.SessionRegistry` invariant),
+//! comparing two far refs across sessions comes down to comparing `(import_id,
+//! kind)` within a session. The other arms compare field by field, and promise
+//! paths and arguments recurse, so the check is total over the whole tree. (The
+//! finer question of what equality *means* for container shapes is a separate
+//! conformance concern; the structural groundwork is here.)
 
 const std = @import("std");
 const model = @import("mod.zig");
 
-/// Stack-safety ceiling on the argument-tree recursion. Equality only ever runs
-/// on owned trees the session already validated (`SessionLimits.max_nesting_depth`,
-/// far below this) or on locally-constructed values, so conformant data never
-/// reaches this bound; it is the backstop that keeps the predicate total against
-/// a pathologically deep tree instead of overflowing the native stack. A tree
-/// deeper than this cannot have traversed an OCapN network, so failing such a
-/// comparison closed (unequal) is safe.
+/// A ceiling on how deep the recursion will go, so a pathological tree can't
+/// blow the stack. In practice we only ever compare trees the session already
+/// validated (its `max_nesting_depth` sits far below this) or values we built
+/// ourselves, so real data never gets close. A tree deeper than this couldn't
+/// have crossed an OCapN network anyway, so calling such a comparison unequal and
+/// stopping there is the safe move.
 const max_equality_depth: usize = 256;
 
-/// Structural equality on two [`model.Reference`] values. Differing variants are
-/// never equal; within a variant the comparison is field-wise (the `far` /
-/// `near` wire-kind discriminator participates per ADR-0010 § The reference
-/// shape carries the wire tag).
+/// Are these two references structurally equal? Different variants are never
+/// equal. Within a variant we go field by field, and that includes the `near` /
+/// `far` wire kind (per ADR-0010, a reference carries its wire tag).
 pub fn referencesEqual(a: model.Reference, b: model.Reference) bool {
     return switch (a) {
         .near => |x| b == .near and x.export_id == b.near.export_id and x.kind == b.near.kind,
@@ -55,7 +53,7 @@ pub fn peerLocatorsEqual(a: model.PeerLocator, b: model.PeerLocator) bool {
 /// Structural equality on two argument value trees. Recurses through lists,
 /// sets, tagged values, and nested references; the `empty_wire_was_false`
 /// hint-encoding marker is *not* compared (it is a wire-shape artifact, not a
-/// semantic value — Invariant 1).
+/// semantic value).
 pub fn argumentsEqual(a: model.Argument, b: model.Argument) bool {
     return argumentsEqualDepth(a, b, 0);
 }
@@ -69,13 +67,13 @@ fn argumentsEqualDepth(a: model.Argument, b: model.Argument, depth: usize) bool 
         .keyword => |x| b == .keyword and std.mem.eql(u8, x, b.keyword),
         .reference => |x| b == .reference and referencesEqual(x, b.reference),
         .@"error" => |x| b == .@"error" and std.mem.eql(u8, x.message, b.@"error".message),
-        .handoff => |x| b == .handoff and handoffsEqual(x, b.handoff),
+        .handoff => |x| b == .handoff and handoffsEqual(x.*, b.handoff.*),
         .integer => |x| b == .integer and x == b.integer,
         .boolean => |x| b == .boolean and x == b.boolean,
         .float64 => |x| b == .float64 and float64Equal(x, b.float64),
         .void => b == .void,
         .list => |x| b == .list and argumentSlicesEqualDepth(x, b.list, depth + 1),
-        .set => |x| b == .set and argumentSlicesEqualDepth(x, b.set, depth + 1),
+        .set => |x| b == .set and setsEqualDepth(x, b.set, depth + 1),
         .tagged => |x| b == .tagged and std.mem.eql(u8, x.tag, b.tagged.tag) and
             argumentSlicesEqualDepth(x.value, b.tagged.value, depth + 1),
     };
@@ -91,6 +89,31 @@ fn argumentSlicesEqualDepth(a: []const model.Argument, b: []const model.Argument
     if (a.len != b.len) return false;
     for (a, b) |x, y| {
         if (!argumentsEqualDepth(x, y, depth)) return false;
+    }
+    return true;
+}
+
+/// Order-agnostic (multiset) equality for `set` arms. A set is unordered, and the
+/// two codecs emit its elements in different orders — Syrup canonical-sorts,
+/// Cap'n Proto keeps insertion order — so comparing element-by-element would call
+/// equal sets unequal. Instead, two sets are equal when they have the same length
+/// and every element appears the same number of times in each. That count check
+/// is enough on its own: with equal lengths, if every element of `a` occurs as
+/// often in `b`, then `b` has no element `a` lacks. No allocation, O(n^2), which
+/// is fine for the small sets that cross the wire.
+fn setsEqualDepth(a: []const model.Argument, b: []const model.Argument, depth: usize) bool {
+    if (depth > max_equality_depth) return false;
+    if (a.len != b.len) return false;
+    for (a) |elem| {
+        var count_a: usize = 0;
+        for (a) |x| {
+            if (argumentsEqualDepth(elem, x, depth)) count_a += 1;
+        }
+        var count_b: usize = 0;
+        for (b) |y| {
+            if (argumentsEqualDepth(elem, y, depth)) count_b += 1;
+        }
+        if (count_a != count_b) return false;
     }
     return true;
 }

@@ -1,3 +1,21 @@
+//! The Syrup codec, top to bottom.
+//!
+//! Syrup is the byte-record format, the self-delimiting alternative to Cap'n
+//! Proto. It carries the same `model.Message` tree as length-prefixed records
+//! (`<...>`), lists (`[...]`), symbols, strings, and integers. Everything for that
+//! lives in this one file: the borrowed `MessageView` and its `*View` types, the
+//! encoder (`encodeMessage` and the little `write*` helpers beneath it), the
+//! borrowed-view decoder (`decodeView` / `decodeBody` / `decodePrefix`, which
+//! doubles as the stream framer, see ADR-0029), and the owned materializer
+//! (`decodeOwned` / `ownedFromView`). It all comes out through `codec.syrup`, and
+//! `codec.capnp` is the word-aligned counterpart.
+//!
+//! Every frame here is potentially hostile, so the length math on each prefix is
+//! checked, and the recursive readers stop at `max_decode_nesting`, which means a
+//! deeply nested frame fails loudly instead of running off the stack. And, as
+//! everywhere in the codec layer, this only reads and writes bytes. It holds no
+//! session authority.
+
 const std = @import("std");
 
 const foundation = @import("../../foundation/mod.zig");
@@ -159,10 +177,17 @@ pub const ReferenceView = union(enum) {
     }
 };
 
+/// A coarse borrowed view of a deliver argument, carrying the structure the
+/// engine inspects directly: references, handoffs, errors, void, and raw bytes
+/// (strings and symbols read back as `.bytes` — the byte-fidelity distinction is
+/// dropped here). Numeric, boolean, float, list, set, tagged, and keyword
+/// argument kinds are not modeled; a deliver carrying them decodes through the
+/// codec-neutral [`decodeBody`] / [`model.view.Body`], which is full fidelity.
 pub const ArgumentView = union(enum) {
     bytes: []const u8,
     reference: ReferenceView,
     @"error": model.Error,
+    handoff: model.view.Handoff,
     void: void,
 
     pub fn toOwned(self: ArgumentView, allocator: std.mem.Allocator) !model.Argument {
@@ -170,6 +195,12 @@ pub const ArgumentView = union(enum) {
             .bytes => |bytes| .{ .bytes = try allocator.dupe(u8, bytes) },
             .reference => |reference| .{ .reference = reference.toModel() },
             .@"error" => |err| .{ .@"error" = .{ .message = try allocator.dupe(u8, err.message) } },
+            .handoff => |handoff| blk: {
+                const boxed = try allocator.create(model.Handoff);
+                errdefer allocator.destroy(boxed);
+                boxed.* = try handoff.toOwned(allocator);
+                break :blk .{ .handoff = boxed };
+            },
             .void => .{ .void = {} },
         };
     }
@@ -338,6 +369,9 @@ pub fn encodeMessageForProfile(
             try endRecord(allocator, &out);
         },
         .deliver => |deliver| {
+            // A no-answer deliver is a single `op:deliver` with a `#f` answer
+            // position — the fire-and-forget one-way send. There is no separate
+            // one-way record on the wire.
             try beginRecord(allocator, &out);
             try writeSymbol(allocator, &out, "op:deliver");
             try writeTargetReference(allocator, &out, deliver.target);
@@ -429,10 +463,15 @@ pub fn encodeMessageForProfile(
     return try foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1));
 }
 
-/// Project a full-fidelity borrowed [`MessageView`] over a complete `frame`.
-/// Like [`decodeBody`], a frame must decode whole, so a short read is a
-/// malformed frame; the shared leaf readers signal truncation as `Incomplete`,
-/// which this whole-frame entry folds back into `MalformedFrame`.
+/// Project a borrowed [`MessageView`] over a complete `frame`. The view spans
+/// every message kind and the reference / handoff / error structure callers
+/// inspect; deliver argument *payloads* are projected coarsely (see
+/// [`ArgumentView`]), so a deliver whose arguments include numeric, list, set,
+/// tagged, or keyword values is rejected as `UnsupportedArgument` — those decode
+/// through the codec-neutral [`decodeBody`]. Like [`decodeBody`], a frame must
+/// decode whole, so a short read is a malformed frame; the shared leaf readers
+/// signal truncation as `Incomplete`, which this whole-frame entry folds back
+/// into `MalformedFrame`.
 pub fn decodeView(frame: foundation.FrameView) Error!MessageView {
     return decodeViewInner(frame) catch |err| switch (err) {
         Error.Incomplete => Error.MalformedFrame,
@@ -575,7 +614,7 @@ pub fn decodeOwned(allocator: std.mem.Allocator, frame: foundation.FrameView) !m
 
 /// Materialize an owned [`model.Message`] from an already-decoded borrowed
 /// [`MessageView`]. Split out so callers that already hold a view (e.g. the
-/// runtime's inbound dispatch, which needs the view's event tag first) convert
+/// engine's inbound dispatch, which needs the view's event tag first) convert
 /// without re-parsing the frame.
 pub fn ownedFromView(allocator: std.mem.Allocator, view: MessageView) !model.Message {
     return switch (view) {
@@ -599,11 +638,11 @@ pub fn ownedFromView(allocator: std.mem.Allocator, view: MessageView) !model.Mes
                 .message = try allocator.dupe(u8, abort.message),
             },
         },
-        .gc_export => |gc_export| .{
-            .gc_export = .{
-                .positions = try gc_export.positions.toOwnedSlice(allocator),
-                .deltas = try gc_export.deltas.toOwnedSlice(allocator),
-            },
+        .gc_export => |gc_export| blk: {
+            const positions = try gc_export.positions.toOwnedSlice(allocator);
+            errdefer allocator.free(positions);
+            const deltas = try gc_export.deltas.toOwnedSlice(allocator);
+            break :blk .{ .gc_export = .{ .positions = positions, .deltas = deltas } };
         },
         .gc_answer => |gc_answer| .{
             .gc_answer = .{ .positions = try gc_answer.positions.toOwnedSlice(allocator) },
@@ -634,10 +673,10 @@ pub fn ownedFromView(allocator: std.mem.Allocator, view: MessageView) !model.Mes
     };
 }
 
-// ── Codec-neutral view projection (Invariant 1) ─────────────────────────────
+// ── Codec-neutral view projection ────────────────────────────────────────────
 //
 // `decodeBody` projects the borrowed codec-neutral `model.view.Body` over the
-// frame's bytes — the single message shape the runtime dispatches on. The
+// frame's bytes — the single message shape the engine dispatches on. The
 // unbounded sequences (`Args`, `PositionList`) are reached through inline
 // vtable backings whose `Ctx.bytes` borrow the list region; `at` re-walks the
 // Syrup bytes lazily. Argument projection is full fidelity — every arm the
@@ -749,9 +788,13 @@ fn readNeutralArgument(bytes: []const u8, cursor: *usize, depth: usize) Error!mo
             };
         },
         't', 'f' => .{ .boolean = try readBool(bytes, cursor) },
+        'D' => .{ .float64 = try readFloat64(bytes, cursor) },
         '[' => .{ .list = neutralArgs(try sliceArgumentListNeutral(bytes, cursor, depth + 1)) },
         '#' => .{ .set = neutralArgs(try sliceSetNeutral(bytes, cursor, depth + 1)) },
         '<' => blk: {
+            if (isSignedHandoffEnvelope(bytes, cursor.*)) {
+                break :blk .{ .handoff = try readBorrowedSignedHandoff(bytes, cursor) };
+            }
             if (isReferenceRecord(bytes, cursor.*)) {
                 break :blk .{ .reference = neutralReference(try readReference(bytes, cursor)) };
             }
@@ -829,8 +872,8 @@ fn readNeutralResolution(bytes: []const u8, cursor: *usize) Error!model.view.Res
 
 /// Project the borrowed codec-neutral [`model.view.Body`] over a complete
 /// `frame`. A frame is exactly one message with no trailing bytes; a short
-/// read is therefore a malformed frame here. Streaming callers that do not yet
-/// know the frame boundary use [`decodePrefix`], which shares the same parser.
+/// read is therefore a malformed frame here. Streaming callers with incomplete
+/// input use [`decodePrefix`], which shares the same parser.
 pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
     if (frame.shape != .byte) return Error.InvalidFrameShape;
 
@@ -1063,24 +1106,35 @@ fn readSignedHandoff(allocator: std.mem.Allocator, bytes: []const u8, cursor: *u
     try readByte(bytes, cursor, '<');
     const payload_tag = try readSymbol(bytes, cursor);
 
+    // The signature lives outside the payload record, so it is read after the
+    // payload closes. It is bound to a local (not stitched into the struct until
+    // the final return) because the payload freer already covers a struct's
+    // `signature` field: writing the owned signature in early and *also* keeping
+    // the whole-struct errdefer would double-free it if the trailing `>` fails.
+    // The payload's placeholder `signature = &.{}` is zero-length, so the
+    // whole-struct errdefer frees it as a no-op until the real one is attached.
     if (std.mem.eql(u8, payload_tag, "desc:handoff-give")) {
-        var give = try readHandoffGivePayload(allocator, bytes, cursor);
+        const give = try readHandoffGivePayload(allocator, bytes, cursor);
         errdefer freeOwnedHandoffGive(allocator, give);
         try readByte(bytes, cursor, '>');
-        give.signature = try signatureViewToOwned(allocator, try readSignatureView(bytes, cursor));
-        errdefer allocator.free(give.signature);
+        const signature = try signatureViewToOwned(allocator, try readSignatureView(bytes, cursor));
+        errdefer allocator.free(signature);
         try readByte(bytes, cursor, '>');
-        return .{ .give = give };
+        var result = give;
+        result.signature = signature;
+        return .{ .give = result };
     }
 
     if (std.mem.eql(u8, payload_tag, "desc:handoff-receive")) {
-        var receive = try readHandoffReceivePayload(allocator, bytes, cursor);
+        const receive = try readHandoffReceivePayload(allocator, bytes, cursor);
         errdefer freeOwnedHandoffReceive(allocator, receive);
         try readByte(bytes, cursor, '>');
-        receive.signature = try signatureViewToOwned(allocator, try readSignatureView(bytes, cursor));
-        errdefer allocator.free(receive.signature);
+        const signature = try signatureViewToOwned(allocator, try readSignatureView(bytes, cursor));
+        errdefer allocator.free(signature);
         try readByte(bytes, cursor, '>');
-        return .{ .receive = receive };
+        var result = receive;
+        result.signature = signature;
+        return .{ .receive = result };
     }
 
     return Error.UnsupportedMessage;
@@ -1350,6 +1404,16 @@ fn writeBool(allocator: std.mem.Allocator, out: *std.ArrayList(u8), value: bool)
     try out.append(allocator, if (value) 't' else 'f');
 }
 
+/// Syrup encodes a `binary64` double as `'D'` followed by 8 bytes IEEE-754
+/// big-endian. The model carries only `float64`; `'F'` (binary32) is not a
+/// pancake passable.
+fn writeFloat64(allocator: std.mem.Allocator, out: *std.ArrayList(u8), value: f64) !void {
+    try out.append(allocator, 'D');
+    var buf: [8]u8 = undefined;
+    std.mem.writeInt(u64, &buf, @bitCast(value), .big);
+    try out.appendSlice(allocator, buf[0..]);
+}
+
 fn writeArgumentList(allocator: std.mem.Allocator, out: *std.ArrayList(u8), args: []const model.Argument) anyerror!void {
     try out.append(allocator, '[');
     for (args) |arg| {
@@ -1380,8 +1444,9 @@ fn writeArgument(allocator: std.mem.Allocator, out: *std.ArrayList(u8), arg: mod
         .symbol => |symbol| try writeSymbol(allocator, out, symbol),
         .reference => |reference| try writePayloadReference(allocator, out, reference),
         .string => |string| try writeString(allocator, out, string),
-        .handoff => |handoff| try writeHandoff(allocator, out, handoff),
+        .handoff => |handoff| try writeHandoff(allocator, out, handoff.*),
         .integer => |integer| try writeInteger(allocator, out, integer),
+        .float64 => |value| try writeFloat64(allocator, out, value),
         .boolean => |value| try writeBool(allocator, out, value),
         .list => |items| try writeArgumentList(allocator, out, items),
         .void => {
@@ -1391,9 +1456,7 @@ fn writeArgument(allocator: std.mem.Allocator, out: *std.ArrayList(u8), arg: mod
         },
         .set => |items| {
             try out.append(allocator, '#');
-            for (items) |item| {
-                try writeArgument(allocator, out, item);
-            }
+            try writeCanonicalSet(allocator, out, items);
             try out.append(allocator, '$');
         },
         .tagged => |tagged| {
@@ -1411,6 +1474,37 @@ fn writeArgument(allocator: std.mem.Allocator, out: *std.ArrayList(u8), arg: mod
         },
         else => return Error.UnsupportedArgument,
     }
+}
+
+/// Encode a set's elements in canonical order: each element is encoded
+/// independently, the encodings are sorted lexicographically by byte, and
+/// emitted in that order. A set is unordered, so its wire form must not depend
+/// on the order the model held it in — the encode-side partner of the
+/// order-agnostic set equality in `model.equality`.
+fn writeCanonicalSet(allocator: std.mem.Allocator, out: *std.ArrayList(u8), items: []const model.Argument) anyerror!void {
+    if (items.len == 0) return;
+
+    const encoded = try allocator.alloc([]u8, items.len);
+    var built: usize = 0;
+    defer {
+        for (encoded[0..built]) |element| allocator.free(element);
+        allocator.free(encoded);
+    }
+
+    for (items) |item| {
+        var element: std.ArrayList(u8) = .empty;
+        errdefer element.deinit(allocator);
+        try writeArgument(allocator, &element, item);
+        encoded[built] = try element.toOwnedSlice(allocator);
+        built += 1;
+    }
+
+    std.mem.sort([]u8, encoded, {}, lessByteSlice);
+    for (encoded) |element| try out.appendSlice(allocator, element);
+}
+
+fn lessByteSlice(_: void, a: []u8, b: []u8) bool {
+    return std.mem.lessThan(u8, a, b);
 }
 
 fn writeHandoff(allocator: std.mem.Allocator, out: *std.ArrayList(u8), handoff: model.Handoff) !void {
@@ -1556,9 +1650,9 @@ fn writeTargetReference(allocator: std.mem.Allocator, out: *std.ArrayList(u8), r
         },
         // A pipelined deliver targets the (still-unresolved) answer position.
         // `desc:answer` carries no path operand: a non-empty path must have been
-        // decomposed into single-hop links by the runtime before encode (ADR-0007
-        // § Multi-hop decomposition at the sender). One reaching here is a
-        // runtime bug — fail loud rather
+        // decomposed into single-hop links by the engine before encode (ADR-0007
+        // § Multi-hop decomposition at the sender). One reaching here is an
+        // engine bug — fail loud rather
         // than silently drop the path.
         .promise => |promise| {
             if (!promise.path.isEmpty()) return Error.UnsupportedReference;
@@ -1695,6 +1789,9 @@ fn readArgument(bytes: []const u8, cursor: *usize) Error!ArgumentView {
             };
         },
         '<' => blk: {
+            if (isSignedHandoffEnvelope(bytes, cursor.*)) {
+                break :blk .{ .handoff = try readBorrowedSignedHandoff(bytes, cursor) };
+            }
             if (isReferenceRecord(bytes, cursor.*)) {
                 break :blk .{ .reference = try readReference(bytes, cursor) };
             }
@@ -1716,8 +1813,8 @@ fn readArgument(bytes: []const u8, cursor: *usize) Error!ArgumentView {
 }
 
 /// Decode a payload/target-position descriptor into a model `Reference` in the
-/// **receiver's** perspective (ADR-0010 perspective flip, matching the Rust core
-/// and Goblins's `incoming-post-unmarshall!`). The flip is a fixed wire-tag
+/// **receiver's** perspective (ADR-0010 perspective flip, matching Goblins's
+/// `incoming-post-unmarshall!`). The flip is a fixed wire-tag
 /// relabel — no table lookup, so the codec still owns no authority:
 ///
 /// - `<desc:export N>` — the sender names *our* export — lifts to `.near`.
@@ -1954,6 +2051,16 @@ fn readBool(bytes: []const u8, cursor: *usize) Error!bool {
     }
 }
 
+/// Read a `'D'`-tagged `binary64` double: the marker then 8 bytes IEEE-754
+/// big-endian. Advances `cursor` past all 9 bytes.
+fn readFloat64(bytes: []const u8, cursor: *usize) Error!f64 {
+    if (cursor.* >= bytes.len or bytes[cursor.*] != 'D') return Error.MalformedFrame;
+    if (cursor.* + 9 > bytes.len) return Error.Incomplete;
+    const raw = std.mem.readInt(u64, bytes[cursor.* + 1 ..][0..8], .big);
+    cursor.* += 9;
+    return @bitCast(raw);
+}
+
 fn readBytes(bytes: []const u8, cursor: *usize) Error![]const u8 {
     const len_start = cursor.*;
     while (cursor.* < bytes.len and std.ascii.isDigit(bytes[cursor.*])) {
@@ -2061,6 +2168,10 @@ fn isReferenceRecord(bytes: []const u8, cursor: usize) bool {
         std.mem.startsWith(u8, bytes[cursor..], "<11'desc:answer");
 }
 
+fn isSignedHandoffEnvelope(bytes: []const u8, cursor: usize) bool {
+    return std.mem.startsWith(u8, bytes[cursor..], "<17'desc:sig-envelope");
+}
+
 fn countDigits(bytes: []const u8) usize {
     var count: usize = 0;
     while (count < bytes.len and std.ascii.isDigit(bytes[count])) {
@@ -2070,11 +2181,5 @@ fn countDigits(bytes: []const u8) usize {
 }
 
 fn freeOwnedArgument(allocator: std.mem.Allocator, argument: model.Argument) void {
-    switch (argument) {
-        .bytes => |bytes| allocator.free(bytes),
-        .symbol => |symbol| allocator.free(symbol),
-        .string => |string| allocator.free(string),
-        .@"error" => |err| allocator.free(err.message),
-        else => {},
-    }
+    model.freeArgument(allocator, argument);
 }

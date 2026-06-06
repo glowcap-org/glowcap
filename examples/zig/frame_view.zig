@@ -1,3 +1,11 @@
+//! Frame ownership, in miniature.
+//!
+//! The smallest taste of the library surface: allocate some bytes, hand them to
+//! an owned `Frame`, take a borrowed `FrameView` over them, and clean up. No
+//! session, no peer — just the ownership primitive everything else moves around.
+//!
+//! Run: `zig build examples` (it also runs under `zig build check`).
+
 const std = @import("std");
 const pancake = @import("pancake");
 

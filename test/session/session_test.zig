@@ -261,11 +261,11 @@ fn startSessionMessage(version: model.CaptpVersion) model.Message {
 
 test "start-session handshake transitions to open and installs bootstrap export" {
     const allocator = std.testing.allocator;
-    var s = session.Session.initNegotiatingWithProfileAndFeatures(
-        allocator,
-        model.WireProfile.v1_0,
-        model.FeatureSet.full(),
-    );
+    var s = session.Session.initWith(allocator, .{
+        .negotiating = true,
+        .wire_profile = model.WireProfile.v1_0,
+        .features = model.FeatureSet.full(),
+    });
     defer s.deinit();
 
     // Local half first: stays negotiating until the partner's half lands.
@@ -293,11 +293,11 @@ test "start-session is rejected outside the negotiating state" {
 
 test "negotiating session refuses non-handshake traffic" {
     const allocator = std.testing.allocator;
-    var s = session.Session.initNegotiatingWithProfileAndFeatures(
-        allocator,
-        model.WireProfile.v1_0,
-        model.FeatureSet.full(),
-    );
+    var s = session.Session.initWith(allocator, .{
+        .negotiating = true,
+        .wire_profile = model.WireProfile.v1_0,
+        .features = model.FeatureSet.full(),
+    });
     defer s.deinit();
     try s.registerImport(7);
     try std.testing.expectError(session.Error.UnexpectedMessage, s.recordSend(.{
@@ -312,11 +312,11 @@ test "negotiating session refuses non-handshake traffic" {
 
 test "duplicate start-session halves are rejected" {
     const allocator = std.testing.allocator;
-    var s = session.Session.initNegotiatingWithProfileAndFeatures(
-        allocator,
-        model.WireProfile.v1_0,
-        model.FeatureSet.full(),
-    );
+    var s = session.Session.initWith(allocator, .{
+        .negotiating = true,
+        .wire_profile = model.WireProfile.v1_0,
+        .features = model.FeatureSet.full(),
+    });
     defer s.deinit();
 
     try s.recordSend(startSessionMessage(.v1_0));
@@ -335,11 +335,11 @@ test "duplicate start-session halves are rejected" {
 
 test "a second inbound start-session half is rejected while negotiating" {
     const allocator = std.testing.allocator;
-    var s = session.Session.initNegotiatingWithProfileAndFeatures(
-        allocator,
-        model.WireProfile.v1_0,
-        model.FeatureSet.full(),
-    );
+    var s = session.Session.initWith(allocator, .{
+        .negotiating = true,
+        .wire_profile = model.WireProfile.v1_0,
+        .features = model.FeatureSet.full(),
+    });
     defer s.deinit();
 
     try s.recordRecv(startSessionMessage(.v1_0));
@@ -352,11 +352,11 @@ test "a second inbound start-session half is rejected while negotiating" {
 
 test "start-session with a mismatched captp version is rejected" {
     const allocator = std.testing.allocator;
-    var s = session.Session.initNegotiatingWithProfileAndFeatures(
-        allocator,
-        model.WireProfile.v1_0,
-        model.FeatureSet.full(),
-    );
+    var s = session.Session.initWith(allocator, .{
+        .negotiating = true,
+        .wire_profile = model.WireProfile.v1_0,
+        .features = model.FeatureSet.full(),
+    });
     defer s.deinit();
     try std.testing.expectError(
         session.Error.CaptpVersionMismatch,
@@ -373,11 +373,10 @@ test "session stores selected wire profile and negotiated features" {
         .stream = false,
         .equality = true,
     };
-    var s = session.Session.initWithAllocatorProfileAndFeatures(
-        std.testing.allocator,
-        model.WireProfile.v1_0,
-        features,
-    );
+    var s = session.Session.initWith(std.testing.allocator, .{
+        .wire_profile = model.WireProfile.v1_0,
+        .features = features,
+    });
     defer s.deinit();
 
     try std.testing.expectEqual(model.CaptpVersion.v1_0, s.wire_profile.captp_version);
@@ -558,11 +557,10 @@ test "session rejects a malformed handoff give" {
 
 test "session feature gates listen and sturdyref-bearing payloads" {
     const allocator = std.testing.allocator;
-    var s = session.Session.initWithAllocatorProfileAndFeatures(
-        allocator,
-        model.WireProfile.pre_spec,
-        model.FeatureSet.minimum(),
-    );
+    var s = session.Session.initWith(allocator, .{
+        .wire_profile = model.WireProfile.pre_spec,
+        .features = model.FeatureSet.minimum(),
+    });
     defer s.deinit();
     try s.registerImport(1);
     try s.registerExport(2);
@@ -609,11 +607,10 @@ test "session feature gates listen and sturdyref-bearing payloads" {
 
 test "v1.0 session records and queries resolver-callback links" {
     const allocator = std.testing.allocator;
-    var s = session.Session.initWithAllocatorProfileAndFeatures(
-        allocator,
-        model.WireProfile.v1_0,
-        model.FeatureSet.full(),
-    );
+    var s = session.Session.initWith(allocator, .{
+        .wire_profile = model.WireProfile.v1_0,
+        .features = model.FeatureSet.full(),
+    });
     defer s.deinit();
 
     try std.testing.expect(s.needsV1_0Translation());
@@ -832,11 +829,10 @@ test "pre-spec session needs no v1.0 resolver translation" {
 
 test "gc-answers prunes the outbound resolver link when the answer is released" {
     const allocator = std.testing.allocator;
-    var s = session.Session.initWithAllocatorProfileAndFeatures(
-        allocator,
-        model.WireProfile.v1_0,
-        model.FeatureSet.full(),
-    );
+    var s = session.Session.initWith(allocator, .{
+        .wire_profile = model.WireProfile.v1_0,
+        .features = model.FeatureSet.full(),
+    });
     defer s.deinit();
     try s.registerImport(7);
 
@@ -890,11 +886,10 @@ test "deposited gifts are bounded by max_deposited_gifts (ADR-0025)" {
 
 test "seen-handoff-count rows are bounded by max_seen_handoff_counts (ADR-0025)" {
     const allocator = std.testing.allocator;
-    var s = session.Session.initWithAllocatorProfileAndFeatures(
-        allocator,
-        model.WireProfile.pre_spec,
-        model.FeatureSet.full(),
-    );
+    var s = session.Session.initWith(allocator, .{
+        .wire_profile = model.WireProfile.pre_spec,
+        .features = model.FeatureSet.full(),
+    });
     defer s.deinit();
     s.limits.max_seen_handoff_counts = 1;
 

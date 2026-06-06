@@ -1,11 +1,11 @@
-//! Codec dispatch seam — routes a frame to its session's negotiated codec.
+//! Sending each frame to the codec its session negotiated.
 //!
-//! Invariant 4: codec selection is per direct session. The session records the
-//! negotiated [`model.CodecId`]; this seam switches on it so the runtime stays
-//! codec-neutral — it never names `syrup` or `capnp` directly. Both arms
-//! produce the identical [`model.view.Body`] on decode and an equivalent wire
-//! [`foundation.Frame`] on encode, so the state machine above is codec-blind
-//! (Invariant 1).
+//! The codec is chosen once per direct session, and the session remembers which
+//! one as a `model.CodecId`. This small boundary switches on that, and that's
+//! what lets the engine stay codec-neutral: it never has to say `syrup` or
+//! `capnp` itself. Whichever arm runs, decode hands back the same
+//! `model.view.Body` and encode hands back an equivalent `Frame`, so the state
+//! machine above never has to care which codec is underneath.
 
 const std = @import("std");
 
@@ -17,7 +17,7 @@ const capnp = @import("capnp/mod.zig");
 pub const framing = @import("framing.zig");
 pub const Prefix = framing.Prefix;
 
-/// Union of both codecs' decode error sets. The runtime folds this into its
+/// Union of both codecs' decode error sets. The engine folds this into its
 /// `DecodeError` alongside the lazy-projection [`model.view.ProjectError`].
 pub const Error = syrup.Error || capnp.Error;
 
@@ -41,8 +41,8 @@ pub fn decodePrefix(codec: model.CodecId, bytes: []const u8, max_frame_bytes: us
     };
 }
 
-/// The wire frame shape `codec` produces and consumes (Invariant 4): Syrup is
-/// a byte stream, Cap'n Proto is word-aligned. A byte-stream framer needs this
+/// The wire frame shape `codec` produces and consumes: Syrup is a byte stream,
+/// Cap'n Proto is word-aligned. A byte-stream framer needs this
 /// to materialize the owned frame it retains from a decoded prefix.
 pub fn frameShape(codec: model.CodecId) foundation.FrameShape {
     return switch (codec) {

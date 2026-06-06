@@ -1,15 +1,14 @@
 # Examples port + inbound-`'fetch` serving
 
-Status: in flight — Phase 1 landed (inbound-`'fetch` serving half + examples
-01–02 + the handshake→bootstrap-fetch conformance scenario); examples 03–08
-pending (Phase 2). This doc is the plan of record for two coupled pieces of work:
+Status: historical implementation snapshot. Phase 1 landed (inbound-`'fetch`
+serving half + examples 01–02 + the handshake→bootstrap-fetch conformance
+scenario). This doc records the plan for two coupled pieces of work:
 
 1. Bringing the Rust repo's eight `docs/examples/` chapters into this tree as
    runnable Zig example programs.
 2. Building the inbound-`'fetch` **serving** (responder) half in the Zig
-   runtime — the surface chapters 02 and 08 need, which Zig ships only as an
-   initiator today. The examples are the forcing function: write the consumer
-   story first, then build what makes it pass.
+   runtime — the surface chapters 02 and 08 need. The examples were the forcing
+   function: write the consumer story first, then build what makes it pass.
 
 pancake's Rust workbench already validated this serving substrate; the half here
 is re-derived against the OCapN behavior and Goblins fixtures that are the
@@ -28,11 +27,11 @@ Rust repo, each prose plus compiling snippets, drift-defended by
 | 01 | Call a remote method | `paired`, deliver/resolve, references, `op:gc-exports` | yes |
 | 02 | Look up a service by name | **inbound-`'fetch` serving** (new) + initiator | needs serving half |
 | 03 | Pass a reference along | `Argument.reference` in a deliver | yes |
-| 04 | Skip the round-trip | `runtime.pipeline` against an unresolved answer | yes |
+| 04 | Skip the round-trip | `engine.pipeline` against an unresolved answer | yes |
 | 05 | Do three things at once | multi-hop pipeline decomposition | yes |
 | 06 | Poke me when it's ready | `op:listen` + relayed resolution | yes |
 | 07 | Speak Goblins | `pairedWithOffers` / V1_0 wire profile + resolver-callback | yes |
-| 08 | Enliven a sturdyref | `runtime.sturdyref` initiator + **inbound-`'fetch` serving** | needs serving half |
+| 08 | Enliven a sturdyref | `engine.sturdyref` initiator + **inbound-`'fetch` serving** | needs serving half |
 
 Sturdyref enliven (08) on the wire **is** a `'fetch` to the partner's bootstrap,
 so once `'fetch` serving exists, 08's responder is automatic — no enliven-specific
@@ -61,7 +60,7 @@ ADR-0006 changes.
 | Layer | Rust (canonical, exists) | Zig (to build) |
 | --- | --- | --- |
 | Session | `BootstrapTable` (swissnum→export), `register`/`lookup` | `BootstrapTable` on `Session`; `registerBootstrapCap`, `bootstrapLookup` |
-| Runtime | `bootstrap.rs`: `pending_bootstrap_request` + `resolve_for_swissnum` | new `src/runtime/bootstrap.zig` |
+| Runtime | `bootstrap.rs`: `pending_bootstrap_request` + `resolve_for_swissnum` | `src/engine/bootstrap.zig` |
 | Dispatch | recognition branch in `inbound.rs` before `record_recv` | branch in `dispatchOwnedFrameInner`, after pipelining, before event append |
 | Peer | `register_bootstrap_cap` | `Peer.registerBootstrapCap` |
 | Factories | `with_p1/p2_swissnums` | post-construction `registerBootstrapCap` (add `pairedWithSwissnums` only if call sites get noisy) |
@@ -112,7 +111,7 @@ exists.
   (paired peers, register a cap on the responder, initiator fetches, assert the
   responder **auto**-resolves) plus a golden trace under `test/oracles/`, run by
   `oracle-check`. Parallels Rust's `handshake_then_bootstrap_fetch_then_canonical`.
-- De-manualize `test/runtime/fetch_test.zig` and `test/runtime/sturdyref_test.zig`:
+- De-manualize `test/engine/fetch_test.zig` and `test/engine/sturdyref_test.zig`:
   drop the hand-rolled responder `sendCopying(.resolve …)`, assert auto-synthesis.
 - Examples drift-defended by running in `check`.
 - README "Not Implemented" loses inbound-`'fetch` serving and inbound

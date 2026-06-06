@@ -1,6 +1,6 @@
 ---
 description: "Zig pancake memory and frame ownership: owned transfer, bounded borrow, explicit test-only copies."
-globs: src/foundation/**/*.zig, src/codec/**/*.zig, src/runtime/**/*.zig, src/c_abi/**/*.zig, src/io_adapter/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h
+globs: src/foundation/**/*.zig, src/codec/**/*.zig, src/engine/**/*.zig, src/c_abi/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h
 ---
 
 # pancake — Memory and Frame Ownership
@@ -25,7 +25,7 @@ Production paths use owned transfer or bounded borrow:
   queue — the canonical, copy-free spine.
 - `Peer.sendCopying(Message)` names the one boundary copy over `send`, for
   callers that hold borrowed or static message data they keep owning.
-- `runtime.pipeline.decomposeOutboundDeliver` splits a multi-hop pipelined
+- `engine.pipeline.decomposeOutboundDeliver` splits a multi-hop pipelined
   deliver into single-hop links by *moving* each path step's payload into its
   own message (and freeing only the emptied `path.ops` backing slice) — a spine
   repartition, not a copy. The one allocation is the `[]Message` chain container.
@@ -64,7 +64,7 @@ re-deriving the contract that forces it.
   storage, hence `alignedAlloc` + `@memcpy` rather than `dupe`. The owned-frame
   and zero-copy borrow paths split exactly here. This is the *only* allocation a
   steady-state inbound deliver to a live export costs — the irreducible
-  wire-path floor asserted by `test/runtime/alloc_budget_test.zig`.
+  wire-path floor asserted by `test/engine/alloc_budget_test.zig`.
 - **Borrowed-validate / owned-on-retain inbound path — `Session.recordRecvView`.**
   The session is codec-neutral but `model.view.Body` is a codec-neutral *borrowed*
   projection over the frame, so the common inbound kinds (deliver / resolve /
@@ -73,18 +73,17 @@ re-deriving the contract that forces it.
   only on the two paths that *retain*: a pipelined deliver queued on its answer
   (`Peer.maybeEnqueuePipelinedCall`), and the rare sub-structure-heavy kinds
   (`gc_*`, `handoff`, `get`/`index`) that fall back to one owned validate/apply.
-  Replaces the prior unconditional per-message `ownedFromView` (formerly named
-  under "not yet optimized"). That owned-fallback copy is *turn-scratch*, not
-  session-lived: it feeds the shared owned validate/apply and dies when the turn
-  ends, so it is materialized into the session's **`recv_scratch`** bump arena
-  and reclaimed with one `reset(.retain_capacity)` at the end of every
-  `recordRecvView` — the per-message dupe-then-`freeMessage` choreography
-  collapses to a bump-and-reset, and capacity amortizes across turns. Apply dupes
-  anything session-lived onto the gpa, so resetting the scratch can never dangle
-  a table row. The argument walk that validates and the install walk are
-  depth-bounded (`SessionLimits.max_nesting_depth`) so an attacker-nested arg
-  tree fails loud (`NestingTooDeep` → `resource_exhausted` abort) instead of
-  overflowing the native stack.
+  That owned-fallback copy is *turn-scratch*, not session-lived: it feeds the
+  shared owned validate/apply and dies when the turn ends, so it is materialized
+  into the session's **`recv_scratch`** bump arena and reclaimed with one
+  `reset(.retain_capacity)` at the end of every `recordRecvView` — the
+  per-message dupe-then-`freeMessage` choreography collapses to a bump-and-reset,
+  and capacity amortizes across turns. Apply dupes anything session-lived onto
+  the gpa, so resetting the scratch can never dangle a table row. The argument
+  walk that validates and the install walk are depth-bounded
+  (`SessionLimits.max_nesting_depth`) so an attacker-nested arg tree fails loud
+  (`NestingTooDeep` → `resource_exhausted` abort) instead of overflowing the
+  native stack.
 - **Crypto fixed-width materialization — `crypto.PeerKey.fromSlice`,
   `crypto.Signature.fromParts`.** `std.crypto` Ed25519 operates on fixed-size
   arrays (`[32]u8` / `[64]u8`) while the wire exposes `[]const u8`. Materializing
@@ -104,19 +103,29 @@ re-deriving the contract that forces it.
   swissnum / host bytes on the gpa with precise per-row frees, because a bump
   arena cannot reclaim an evicted or removed row and would leak under churn.
 - **Listener fan-out — one synthesized fire per listener.** When a promise with
-  N listeners resolves, [`runtime.pipeline.synthesizeListenerFire`] builds each
+  N listeners resolves, [`engine.pipeline.synthesizeListenerFire`] builds each
   listener its own owned `op:deliver` carrying the resolution payload (one stored
   resolution → N independently-freed delivers). Irreducible without refcounted
   shared payloads, which would trade an explicit copy for hidden shared
   ownership. The drain spine otherwise *moves*: drained entries flow into a
-  [`runtime.pipeline.ListenerDrainAction`] and then onto `pending_send` /
+  [`engine.pipeline.ListenerDrainAction`] and then onto `pending_send` /
   the listener table without copying.
 - **Partial-listener re-anchor — one `model.cloneReference` per partial fire.**
   The single named clone in the listener drain: a `wants_partial` listener that
   resolves to another promise must both fire now (with the partial promise) and
-  stay anchored on the next answer, so [`runtime.pipeline.classifyListenerDrain`]
+  stay anchored on the next answer, so [`engine.pipeline.classifyListenerDrain`]
   duplicates the listener target. V1.0-only by construction (PreSpec never sets
   `wants_partial`); every other resolution shape moves the target into the fire.
+- **Boxed handoff argument — `model.owned.cloneHandoffBoxed` (one alloc per
+  `desc:handoff-*` *argument*).** The owned `Argument.handoff` arm is `*Handoff`,
+  not inline: a handoff payload is ~160 bytes and would otherwise set the size of
+  *every* `Argument`, so an ordinary integer arg in a deliver list would pay for
+  the handoff arm it never uses (`Argument` 168 → 88 bytes, `Resolution` 176 →
+  96; measured by `bench/frame_view_bench.zig`). The cost is one `create(Handoff)`
+  only when a handoff actually appears as an argument — rare (three-party only) —
+  freed once in `freeArgument`. The borrowed `model.view.Argument` keeps its
+  handoff inline; it borrows wire bytes and never allocates, so the box lives only
+  on the owned/retain side.
 - **Local-delivery frame synthesis — `Peer.deliverDrainedCallLocally`.** When a
   pipelined call's answer resolves to a *local* export, the drained call is
   delivered to that export by encoding the re-targeted `op:deliver` into a fresh
@@ -138,7 +147,7 @@ re-deriving the contract that forces it.
   (ADR-0013).** `Session.cacheSturdyrefEnlivenment` and `notePendingEnliven` each
   `dupe` the swiss-number into a session-owned row; the resolved cache stores only
   the `(import_id, kind)` POD alongside it, never a clone of the enlivened
-  reference. `runtime.sturdyref.recordEnlivenment` *moves* the fulfilled
+  reference. `engine.sturdyref.recordEnlivenment` *moves* the fulfilled
   `Reference.far` out to the caller (POD `FarRef`, no heap) and copies just its
   `import_id` + `kind` into the cache. The cache is non-load-bearing: an overflow
   evicts the oldest row (freeing its swissnum) and a failed insert is swallowed —
@@ -146,10 +155,9 @@ re-deriving the contract that forces it.
   swissnum is freed once on overwrite-evict, `finishPendingEnliven`, or
   `Session.deinit`.
 
-### Named, not yet optimized
+### Named Deferred Costs
 
-- *(empty — the inbound validation materialization that lived here is now the
-  borrowed-validate / owned-on-retain path above.)*
+- *(empty.)*
 
 ## Allocator Discipline
 

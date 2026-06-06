@@ -35,12 +35,16 @@ guidance:
 - `.claude/skills` and `.cursor/skills` are directory symlinks to
   `.agents/skills`.
 
+`zig build meta-check` verifies this topology, the shared hook command, Serena
+MCP pointers, ignored Serena runtime state, and documented build-step names.
+Update `tools/meta_check.zig` with any intentional scaffolding change.
+
 ## Rules
 
 | Rule | Purpose |
 | --- | --- |
 | [agent-scaffolding](rules/agent-scaffolding.md) | Principle-first scaffolding, no-footgun APIs, Serena-first symbol work, and verification discipline |
-| [architecture](rules/architecture.md) | Layer ownership, sync no-I/O core, codec/session/runtime boundaries |
+| [architecture](rules/architecture.md) | Layer ownership, sync no-I/O core, codec/session/engine boundaries |
 | [cli](rules/cli.md) | Zig gates, generated state, and git posture |
 | [doc-drift](rules/doc-drift.md) | Living-state docs must match current code or drop the state claim |
 | [memory](rules/memory.md) | Frame ownership, bounded borrows, copy budget, allocator discipline |

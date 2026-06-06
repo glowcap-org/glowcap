@@ -1,6 +1,6 @@
 # Deliver and resolve
 
-Anchors: CapTP Specification § op:deliver, § op:deliver-only, § op:resolve,
+Anchors: CapTP Specification § op:deliver, § op:resolve,
 § Bootstrap object, § op:get, § op:index.
 
 ## DR-1 — op:deliver with an answer
@@ -17,16 +17,18 @@ sequenceDiagram
     R->>Q: op:resolve (N, resolve:fulfill value)
 ```
 
-## DR-2 — op:deliver-only
+## DR-2 — op:deliver with no answer (one-way)
 
-Fire-and-forget: no answer position is allocated, so no `op:resolve` ever
-returns. The receiver invokes the target and the transaction ends there.
+Fire-and-forget: the answer position is `false`, so no `op:resolve` ever
+returns. The receiver invokes the target and the transaction ends there. There
+is no separate one-way record — a one-way send is an `op:deliver` whose answer
+is `false`.
 
 ```mermaid
 sequenceDiagram
     participant Q as Sender
     participant R as Receiver
-    Q->>R: op:deliver-only (to-desc, args)
+    Q->>R: op:deliver (to-desc, args, answer-pos false)
     Note over R: target invoked, nothing owed back
 ```
 
@@ -58,7 +60,7 @@ sequenceDiagram
     participant R as Answerer
     Q->>R: op:deliver (to-desc, args, answer-pos N, resolve-me-desc desc:import-object P)
     Note over R: imports resolver at position P
-    R->>Q: op:deliver-only (to desc:import-object P, args ['fulfill, value])
+    R->>Q: op:deliver (to desc:import-object P, args ['fulfill, value], answer-pos false)
 ```
 
 ## DR-5 — Bootstrap fetch

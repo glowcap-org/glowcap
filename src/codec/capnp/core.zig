@@ -1,25 +1,27 @@
-//! Hand-rolled Cap'n Proto codec for the pancake↔pancake wire profile.
+//! The Cap'n Proto codec, hand-rolled for the pancake-to-pancake wire.
 //!
-//! Cap'n Proto is the word-aligned alternative to Syrup: it carries the same
-//! codec-neutral [`model.Message`] tree (Invariant 1) over a sequence of
-//! 8-byte words rather than Syrup's byte records. There is no schema-compiler
-//! dependency — the struct/list layout is defined directly against the wire
-//! primitives in [`wire`] (see [ADR-0026]), so the codec is self-contained and
-//! the layout moves with the model.
+//! Cap'n Proto is the word-aligned alternative to Syrup. It carries the same
+//! `model.Message` tree, just laid out as a run of 8-byte words instead of
+//! Syrup's byte records. There's no schema compiler in the loop: we write the
+//! struct and list layout directly against the wire primitives in `wire.zig`
+//! (ADR-0026), so the codec stands on its own and the layout tracks the model.
 //!
-//! Decode is view-first (Invariant 3): [`decodeView`] projects a borrowed
-//! [`MessageView`] over the frame's bytes without copying; [`decodeOwned`] is
-//! `ownedFromView ∘ decodeView`, materializing the owned tree only when asked.
+//! Decode reads before it copies. `decodeView` lays a borrowed `MessageView` over
+//! the frame without copying anything, and `decodeOwned` is just that followed by
+//! building the owned tree, which only happens when you ask for it.
 //!
-//! Reference perspective flips on every wire crossing (ADR-0010), exactly as
-//! the Syrup codec does: a model `near` (our export) encodes to a wire `near`
-//! arm that the partner decodes as a `far` import, and vice versa. The flip is
-//! a fixed wire-arm relabel — table-blind, so the codec still owns no authority.
+//! References flip perspective every time they cross the wire (ADR-0010), the
+//! same way Syrup does. Something we export goes out as a `near`, and the partner
+//! reads it back as a `far` import; the reverse happens too. The flip is a fixed
+//! relabel of the wire arm. It never consults a table, so the codec still holds
+//! no authority.
 //!
-//! All ten [`Message`](model.Message) arms and the shared sub-trees
-//! (`Reference`, `Argument` with its fourteen recursive arms, `Resolution`,
-//! `Error`, `PeerLocator`, `Handoff`, `Tagged`, `PipelineOp`) encode and decode.
-//! `BrokenRef` is local-only and rejected on encode (`Error.UnsupportedReference`).
+//! All ten `Message` arms encode and decode, along with everything they share:
+//! `Reference`, `Argument` and its fourteen arms, `Resolution`, `Error`,
+//! `PeerLocator`, `Handoff`, `Tagged`, and `PipelineOp`. The one holdout is
+//! `BrokenRef`, which is local-only and gets rejected on encode with
+//! `Error.UnsupportedReference`.
+//!
 //! [ADR-0026]: ../../../docs/decisions/adr/ADR-0026-hand-rolled-capnp-codec.md
 
 const std = @import("std");
@@ -153,6 +155,70 @@ fn followList(reader: Reader, loc: StructLoc, i: u16) Error!ListLoc {
     return .{ .data_idx = try reader.target(ptr_idx, lp.offset), .count = lp.count, .elem = lp.elem };
 }
 
+/// Map an untrusted wire discriminant to its enum, rejecting an out-of-range
+/// value as a malformed frame instead of reaching `@enumFromInt`'s illegal
+/// behavior (a panic in a safe build, undefined behavior otherwise). Every
+/// union tag a partner controls — `RefKind`, `ArgKind`, `ResolutionKind`,
+/// `HandoffKind`, `PipelineOpKind` — decodes through here, exactly as `Kind`
+/// and `abortKindFromWire` already range-check their discriminants.
+fn enumFromWire(comptime E: type, raw: u64) Error!E {
+    const value: u16 = @truncate(raw);
+    inline for (@typeInfo(E).@"enum".fields) |field| {
+        if (value == field.value) return @enumFromInt(value);
+    }
+    return Error.MalformedFrame;
+}
+
+/// A bounds-validated composite (struct) list. A composite list pointer's word
+/// count and the per-element sizes in its tag word are attacker-controlled, so
+/// before a caller allocates `element_count` rows or stride-walks the elements
+/// this proves the tag is consistent with the words the list pointer reserved
+/// (`element_count * stride == count`) and that the tag word plus body fit the
+/// segment. An inconsistent tag — one claiming more elements than the list has
+/// room for — would otherwise amplify a few wire bytes into an oversized
+/// allocation the per-element reads could never fill. pancake's own dialect
+/// never emits a zero-width composite element (ADR-0026), so a zero stride is
+/// rejected rather than admitting an unbounded element count over no words.
+const CompositeList = struct {
+    /// Segment index of the list's tag word; element `n`'s data section begins
+    /// at `tag_idx + 1 + n * stride`.
+    tag_idx: usize,
+    element_count: usize,
+    data_words: u16,
+    ptr_words: u16,
+
+    fn elem(self: CompositeList, index: usize) StructLoc {
+        const stride = @as(usize, self.data_words) + self.ptr_words;
+        return .{
+            .data_idx = self.tag_idx + 1 + index * stride,
+            .data_words = self.data_words,
+            .ptr_words = self.ptr_words,
+        };
+    }
+};
+
+/// Decode and bounds-validate composite list field `i`, or null for an
+/// absent/empty list. See [`CompositeList`] for the invariants proven here.
+fn compositeList(reader: Reader, loc: StructLoc, i: u16) Error!?CompositeList {
+    const list = try followList(reader, loc, i);
+    if (list.count == 0) return null;
+    if (list.elem != .composite) return Error.InvalidPointer;
+    if (list.data_idx >= reader.seg_words) return Error.Truncated;
+    const tag = wire.decodeCompositeTag(try reader.word(list.data_idx));
+    const stride = @as(usize, tag.data_words) + tag.ptr_words;
+    if (stride == 0) return Error.MalformedFrame;
+    const body = std.math.mul(usize, tag.element_count, stride) catch return Error.MalformedFrame;
+    if (body != list.count) return Error.MalformedFrame;
+    const end = std.math.add(usize, list.data_idx + 1, list.count) catch return Error.Truncated;
+    if (end > reader.seg_words) return Error.Truncated;
+    return .{
+        .tag_idx = list.data_idx,
+        .element_count = tag.element_count,
+        .data_words = tag.data_words,
+        .ptr_words = tag.ptr_words,
+    };
+}
+
 // ── Views ────────────────────────────────────────────────────────────────────
 
 /// Borrowed projection of a decoded message: the reader plus the located body
@@ -174,7 +240,12 @@ pub fn decodeView(frame: foundation.FrameView) Error!MessageView {
     const header = std.mem.readInt(u64, frame.bytes[0..wire.WORD_BYTES], .little);
     if (@as(u32, @truncate(header)) != 0) return Error.UnsupportedSegmentCount;
     const seg_words: usize = @intCast(header >> 32);
-    if (frame.bytes.len < (1 + seg_words) * wire.WORD_BYTES) return Error.Truncated;
+    // Checked: `seg_words` is the attacker's header value (up to 2^32-1), so on a
+    // 32-bit target (wasm32) `(1 + seg_words) * 8` can overflow `usize` and panic.
+    // Fail closed with a typed error instead.
+    const frame_words = std.math.add(usize, seg_words, 1) catch return Error.Truncated;
+    const frame_len = std.math.mul(usize, frame_words, wire.WORD_BYTES) catch return Error.Truncated;
+    if (frame.bytes.len < frame_len) return Error.Truncated;
 
     const reader = Reader{ .bytes = frame.bytes, .seg_words = seg_words };
 
@@ -207,7 +278,10 @@ pub fn decodePrefix(bytes: []const u8, max_frame_bytes: usize) framing.Prefix {
     // structural rejection, not a short read.
     if (@as(u32, @truncate(header)) != 0) return .malformed;
     const seg_words: usize = @intCast(header >> 32);
-    const frame_len = (1 + seg_words) * wire.WORD_BYTES;
+    // Checked against `usize` overflow on 32-bit targets (see decodeView): a
+    // seg-count that can't fit the length math is, in effect, oversized.
+    const frame_words = std.math.add(usize, seg_words, 1) catch return .too_large;
+    const frame_len = std.math.mul(usize, frame_words, wire.WORD_BYTES) catch return .too_large;
     if (frame_len > max_frame_bytes) return .too_large;
     if (bytes.len < frame_len) return .incomplete;
     const body = decodeBody(.{ .shape = .word, .bytes = bytes[0..frame_len] }) catch return .malformed;
@@ -223,10 +297,12 @@ pub fn ownedFromView(allocator: std.mem.Allocator, view: MessageView) Error!mode
 fn ownedMessage(allocator: std.mem.Allocator, reader: Reader, kind: Kind, body: StructLoc) Error!model.Message {
     return switch (kind) {
         .gc_answer => .{ .gc_answer = .{ .positions = try ownedU64List(allocator, reader, body, 0) } },
-        .gc_export => .{ .gc_export = .{
-            .positions = try ownedU64List(allocator, reader, body, 0),
-            .deltas = try ownedU64List(allocator, reader, body, 1),
-        } },
+        .gc_export => blk: {
+            const positions = try ownedU64List(allocator, reader, body, 0);
+            errdefer allocator.free(positions);
+            const deltas = try ownedU64List(allocator, reader, body, 1);
+            break :blk .{ .gc_export = .{ .positions = positions, .deltas = deltas } };
+        },
         .abort => .{ .abort = .{
             .kind = try abortKindFromWire(@truncate(try reader.dataWord(body, 0))),
             .message = try ownedText(allocator, reader, body, 0),
@@ -236,21 +312,29 @@ fn ownedMessage(allocator: std.mem.Allocator, reader: Reader, kind: Kind, body: 
             .resolution = try ownedResolution(allocator, reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
         } },
         .deliver => try ownedDeliver(allocator, reader, body),
-        .listen => .{ .listen = .{
-            .target = try ownedRefAt(allocator, reader, body, 0),
-            .listener = try ownedRefAt(allocator, reader, body, 1),
-            .wants_partial = (try reader.dataWord(body, 0)) & 1 != 0,
-        } },
-        .get => .{ .get = .{
-            .receiver = try ownedRefAt(allocator, reader, body, 0),
-            .field = try ownedText(allocator, reader, body, 1),
-            .answer = try reader.dataWord(body, 0),
-        } },
-        .index => .{ .index = .{
-            .receiver = try ownedRefAt(allocator, reader, body, 0),
-            .index = @bitCast(try reader.dataWord(body, 0)),
-            .answer = try reader.dataWord(body, 1),
-        } },
+        .listen => blk: {
+            const target = try ownedRefAt(allocator, reader, body, 0);
+            errdefer model.freeReference(allocator, target);
+            const listener = try ownedRefAt(allocator, reader, body, 1);
+            errdefer model.freeReference(allocator, listener);
+            const wants_partial = (try reader.dataWord(body, 0)) & 1 != 0;
+            break :blk .{ .listen = .{ .target = target, .listener = listener, .wants_partial = wants_partial } };
+        },
+        .get => blk: {
+            const receiver = try ownedRefAt(allocator, reader, body, 0);
+            errdefer model.freeReference(allocator, receiver);
+            const field = try ownedText(allocator, reader, body, 1);
+            errdefer allocator.free(field);
+            const answer = try reader.dataWord(body, 0);
+            break :blk .{ .get = .{ .receiver = receiver, .field = field, .answer = answer } };
+        },
+        .index => blk: {
+            const receiver = try ownedRefAt(allocator, reader, body, 0);
+            errdefer model.freeReference(allocator, receiver);
+            const index: i64 = @bitCast(try reader.dataWord(body, 0));
+            const answer = try reader.dataWord(body, 1);
+            break :blk .{ .index = .{ .receiver = receiver, .index = index, .answer = answer } };
+        },
         .start_session => try ownedStartSession(allocator, reader, body),
         .handoff => .{ .handoff = try ownedHandoff(allocator, reader, body) },
     };
@@ -258,9 +342,13 @@ fn ownedMessage(allocator: std.mem.Allocator, reader: Reader, kind: Kind, body: 
 
 fn ownedDeliver(allocator: std.mem.Allocator, reader: Reader, body: StructLoc) Error!model.Message {
     const flags = try reader.dataWord(body, 0);
+    const target = try ownedRefAt(allocator, reader, body, 0);
+    errdefer model.freeReference(allocator, target);
+    const args = try ownedArgumentList(allocator, reader, body, 1);
+    errdefer model.freeArgumentSlice(allocator, args);
     var deliver = model.Deliver{
-        .target = try ownedRefAt(allocator, reader, body, 0),
-        .args = try ownedArgumentList(allocator, reader, body, 1),
+        .target = target,
+        .args = args,
         .answer = if (flags & 1 != 0) try reader.dataWord(body, 1) else null,
         .resolve_me_desc = null,
     };
@@ -271,20 +359,30 @@ fn ownedDeliver(allocator: std.mem.Allocator, reader: Reader, body: StructLoc) E
 }
 
 fn ownedStartSession(allocator: std.mem.Allocator, reader: Reader, body: StructLoc) Error!model.Message {
-    const version_text = try ownedText(allocator, reader, body, 0);
-    errdefer allocator.free(version_text);
-    const version = model.CaptpVersion.fromWireString(version_text) orelse return Error.MalformedFrame;
-    allocator.free(version_text);
+    // The version text is purely transient — only the parsed `version` outlives
+    // it. Scope it to a block with `defer` so it is freed exactly once on every
+    // exit (the `orelse return` and the normal break alike); a function-scoped
+    // `errdefer` plus an explicit free would double-free if a later field fails.
+    const version = blk: {
+        const version_text = try ownedText(allocator, reader, body, 0);
+        defer allocator.free(version_text);
+        break :blk model.CaptpVersion.fromWireString(version_text) orelse return Error.MalformedFrame;
+    };
+    const session_pubkey = try ownedData(allocator, reader, body, 1);
+    errdefer allocator.free(session_pubkey);
+    const acceptable_location = try ownedPeerLocator(allocator, reader, (try reader.followStruct(body, 2)) orelse return Error.MalformedFrame);
+    errdefer model.freePeerLocator(allocator, acceptable_location);
+    const acceptable_location_sig = try ownedData(allocator, reader, body, 3);
     return .{ .start_session = .{
         .captp_version = version,
-        .session_pubkey = .{ .bytes = try ownedData(allocator, reader, body, 1) },
-        .acceptable_location = try ownedPeerLocator(allocator, reader, (try reader.followStruct(body, 2)) orelse return Error.MalformedFrame),
-        .acceptable_location_sig = .{ .bytes = try ownedData(allocator, reader, body, 3) },
+        .session_pubkey = .{ .bytes = session_pubkey },
+        .acceptable_location = acceptable_location,
+        .acceptable_location_sig = .{ .bytes = acceptable_location_sig },
     } };
 }
 
 fn ownedResolution(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) Error!model.Resolution {
-    const disc: ResolutionKind = @enumFromInt(@as(u16, @truncate(try reader.dataWord(loc, 0))));
+    const disc = try enumFromWire(ResolutionKind, try reader.dataWord(loc, 0));
     const inner = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
     return switch (disc) {
         .fulfill => .{ .fulfill = try ownedArgument(allocator, reader, inner) },
@@ -293,7 +391,7 @@ fn ownedResolution(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc)
 }
 
 fn ownedHandoff(allocator: std.mem.Allocator, reader: Reader, body: StructLoc) Error!model.Handoff {
-    const disc: HandoffKind = @enumFromInt(@as(u16, @truncate(try reader.dataWord(body, 0))));
+    const disc = try enumFromWire(HandoffKind, try reader.dataWord(body, 0));
     const inner = (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame;
     return switch (disc) {
         .give => .{ .give = try ownedHandoffGive(allocator, reader, inner) },
@@ -302,23 +400,42 @@ fn ownedHandoff(allocator: std.mem.Allocator, reader: Reader, body: StructLoc) E
 }
 
 fn ownedHandoffGive(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) Error!model.HandoffGive {
+    const recipient_key = try ownedData(allocator, reader, loc, 0);
+    errdefer allocator.free(recipient_key);
+    const exporter_location = try ownedData(allocator, reader, loc, 1);
+    errdefer allocator.free(exporter_location);
+    const gifter_exporter_session = try ownedData(allocator, reader, loc, 2);
+    errdefer allocator.free(gifter_exporter_session);
+    const gifter_side = try ownedData(allocator, reader, loc, 3);
+    errdefer allocator.free(gifter_side);
+    const gift_id = try ownedData(allocator, reader, loc, 4);
+    errdefer allocator.free(gift_id);
+    const signature = try ownedData(allocator, reader, loc, 5);
     return .{
-        .recipient_key = try ownedData(allocator, reader, loc, 0),
-        .exporter_location = try ownedData(allocator, reader, loc, 1),
-        .gifter_exporter_session = try ownedData(allocator, reader, loc, 2),
-        .gifter_side = try ownedData(allocator, reader, loc, 3),
-        .gift_id = try ownedData(allocator, reader, loc, 4),
-        .signature = try ownedData(allocator, reader, loc, 5),
+        .recipient_key = recipient_key,
+        .exporter_location = exporter_location,
+        .gifter_exporter_session = gifter_exporter_session,
+        .gifter_side = gifter_side,
+        .gift_id = gift_id,
+        .signature = signature,
     };
 }
 
 fn ownedHandoffReceive(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) Error!model.Handoff {
+    const receiving_session = try ownedData(allocator, reader, loc, 0);
+    errdefer allocator.free(receiving_session);
+    const receiving_side = try ownedData(allocator, reader, loc, 1);
+    errdefer allocator.free(receiving_side);
+    const handoff_count = try reader.dataWord(loc, 0);
+    const signed_give = try ownedHandoffGive(allocator, reader, (try reader.followStruct(loc, 2)) orelse return Error.MalformedFrame);
+    errdefer model.freeHandoffGive(allocator, signed_give);
+    const signature = try ownedData(allocator, reader, loc, 3);
     return .{ .receive = .{
-        .receiving_session = try ownedData(allocator, reader, loc, 0),
-        .receiving_side = try ownedData(allocator, reader, loc, 1),
-        .handoff_count = try reader.dataWord(loc, 0),
-        .signed_give = try ownedHandoffGive(allocator, reader, (try reader.followStruct(loc, 2)) orelse return Error.MalformedFrame),
-        .signature = try ownedData(allocator, reader, loc, 3),
+        .receiving_session = receiving_session,
+        .receiving_side = receiving_side,
+        .handoff_count = handoff_count,
+        .signed_give = signed_give,
+        .signature = signature,
     } };
 }
 
@@ -328,7 +445,7 @@ fn ownedRefAt(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u
 
 fn ownedReference(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) Error!model.Reference {
     const data0 = try reader.dataWord(loc, 0);
-    const disc: RefKind = @enumFromInt(@as(u16, @truncate(data0)));
+    const disc = try enumFromWire(RefKind, data0);
     const scalar = try reader.dataWord(loc, 1);
     const is_promise = data0 & (1 << 16) != 0;
     return switch (disc) {
@@ -339,10 +456,12 @@ fn ownedReference(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) 
         .near => .{ .far = .{ .import_id = scalar, .kind = if (is_promise) .promise else .object } },
         .far => .{ .near = .{ .export_id = scalar, .kind = if (is_promise) .promise else .object } },
         .promise => .{ .promise = .{ .answer_id = scalar, .path = .{ .ops = try ownedPipelinePath(allocator, reader, loc, 0) } } },
-        .sturdy => .{ .sturdy = .{
-            .peer = try ownedPeerLocator(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame),
-            .swissnum = try ownedData(allocator, reader, loc, 1),
-        } },
+        .sturdy => blk: {
+            const peer = try ownedPeerLocator(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame);
+            errdefer model.freePeerLocator(allocator, peer);
+            const swissnum = try ownedData(allocator, reader, loc, 1);
+            break :blk .{ .sturdy = .{ .peer = peer, .swissnum = swissnum } };
+        },
     };
 }
 
@@ -365,13 +484,19 @@ fn ownedError(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) Erro
 
 fn ownedArgument(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) Error!model.Argument {
     const data0 = try reader.dataWord(loc, 0);
-    const disc: ArgKind = @enumFromInt(@as(u16, @truncate(data0)));
+    const disc = try enumFromWire(ArgKind, data0);
     return switch (disc) {
         .bytes => .{ .bytes = try ownedData(allocator, reader, loc, 0) },
         .symbol => .{ .symbol = try ownedText(allocator, reader, loc, 0) },
         .reference => .{ .reference = try ownedReference(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame) },
         .@"error" => .{ .@"error" = try ownedError(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame) },
-        .handoff => .{ .handoff = try handoffFromStruct(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame) },
+        .handoff => blk: {
+            const handoff = try handoffFromStruct(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame);
+            errdefer model.owned.freeHandoff(allocator, handoff);
+            const boxed = try allocator.create(model.Handoff);
+            boxed.* = handoff;
+            break :blk .{ .handoff = boxed };
+        },
         .string => .{ .string = try ownedText(allocator, reader, loc, 0) },
         .integer => .{ .integer = @bitCast(try reader.dataWord(loc, 1)) },
         .boolean => .{ .boolean = data0 & (1 << 16) != 0 },
@@ -387,7 +512,7 @@ fn ownedArgument(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) E
 /// Materialize a handoff envelope reached through an `Argument`. The handoff
 /// struct carries its own give/receive discriminant.
 fn handoffFromStruct(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) Error!model.Handoff {
-    const disc: HandoffKind = @enumFromInt(@as(u16, @truncate(try reader.dataWord(loc, 0))));
+    const disc = try enumFromWire(HandoffKind, try reader.dataWord(loc, 0));
     const inner = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
     return switch (disc) {
         .give => .{ .give = try ownedHandoffGive(allocator, reader, inner) },
@@ -396,26 +521,30 @@ fn handoffFromStruct(allocator: std.mem.Allocator, reader: Reader, loc: StructLo
 }
 
 fn ownedTagged(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) Error!model.Tagged {
-    return .{
-        .tag = try ownedText(allocator, reader, loc, 0),
-        .value = try ownedArgumentList(allocator, reader, loc, 1),
-    };
+    const tag = try ownedText(allocator, reader, loc, 0);
+    errdefer allocator.free(tag);
+    const value = try ownedArgumentList(allocator, reader, loc, 1);
+    return .{ .tag = tag, .value = value };
 }
 
 fn ownedPipelinePath(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u16) Error![]const model.PipelineOp {
-    const list = try followList(reader, loc, i);
-    if (list.count == 0) return &.{};
-    const tag = wire.decodeCompositeTag(try reader.word(list.data_idx));
-    const stride = @as(usize, tag.data_words) + tag.ptr_words;
-    const ops = try allocator.alloc(model.PipelineOp, tag.element_count);
-    errdefer freePipelineOps(allocator, ops);
-    for (ops, 0..) |*op, idx| {
-        const elem = StructLoc{ .data_idx = list.data_idx + 1 + idx * stride, .data_words = tag.data_words, .ptr_words = tag.ptr_words };
-        const disc: PipelineOpKind = @enumFromInt(@as(u16, @truncate(try reader.dataWord(elem, 0))));
+    const clist = (try compositeList(reader, loc, i)) orelse return &.{};
+    const ops = try allocator.alloc(model.PipelineOp, clist.element_count);
+    var filled: usize = 0;
+    // Free only the ops materialized so far: the unwritten tail is still
+    // uninitialized union memory, so a whole-slice free would read garbage tags.
+    errdefer {
+        for (ops[0..filled]) |op| freePipelineOp(allocator, op);
+        allocator.free(ops);
+    }
+    for (ops) |*op| {
+        const elem = clist.elem(filled);
+        const disc = try enumFromWire(PipelineOpKind, try reader.dataWord(elem, 0));
         op.* = switch (disc) {
             .field => .{ .field = try ownedText(allocator, reader, elem, 0) },
             .call => .{ .call = try ownedArgumentSlice(allocator, reader, elem, 0) },
         };
+        filled += 1;
     }
     return ops;
 }
@@ -425,19 +554,15 @@ fn ownedArgumentList(allocator: std.mem.Allocator, reader: Reader, loc: StructLo
 }
 
 fn ownedArgumentSlice(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u16) Error![]const model.Argument {
-    const list = try followList(reader, loc, i);
-    if (list.count == 0) return &.{};
-    const tag = wire.decodeCompositeTag(try reader.word(list.data_idx));
-    const stride = @as(usize, tag.data_words) + tag.ptr_words;
-    const args = try allocator.alloc(model.Argument, tag.element_count);
+    const clist = (try compositeList(reader, loc, i)) orelse return &.{};
+    const args = try allocator.alloc(model.Argument, clist.element_count);
     var filled: usize = 0;
     errdefer {
         for (args[0..filled]) |arg| model.freeArgument(allocator, arg);
         allocator.free(args);
     }
     for (args) |*arg| {
-        const elem = StructLoc{ .data_idx = list.data_idx + 1 + filled * stride, .data_words = tag.data_words, .ptr_words = tag.ptr_words };
-        arg.* = try ownedArgument(allocator, reader, elem);
+        arg.* = try ownedArgument(allocator, reader, clist.elem(filled));
         filled += 1;
     }
     return args;
@@ -463,12 +588,11 @@ fn ownedData(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u1
     return allocator.dupe(u8, try reader.byteSlice(list.data_idx, list.count));
 }
 
-fn freePipelineOps(allocator: std.mem.Allocator, ops: []model.PipelineOp) void {
-    for (ops) |op| switch (op) {
+fn freePipelineOp(allocator: std.mem.Allocator, op: model.PipelineOp) void {
+    switch (op) {
         .field => |field| allocator.free(field),
         .call => |call| model.freeArgumentSlice(allocator, call),
-    };
-    allocator.free(ops);
+    }
 }
 
 fn abortKindFromWire(value: u16) Error!model.AbortKind {
@@ -476,10 +600,10 @@ fn abortKindFromWire(value: u16) Error!model.AbortKind {
     return @enumFromInt(value);
 }
 
-// ── Decode: borrowed codec-neutral view projection (Invariant 1, ADR-0026) ───
+// ── Decode: borrowed codec-neutral view projection (ADR-0026) ────────────────
 //
 // `decodeBody` projects the shared [`model.view.Body`] directly over the
-// frame's words — the codec-neutral shape the runtime dispatches on, identical
+// frame's words — the codec-neutral shape the engine dispatches on, identical
 // to the one [`syrup.decodeBody`](../syrup/core.zig) produces. Copies nothing:
 // scalar and reference fields read straight from the words, borrowed text/bytes
 // slice into the segment (`byteSlice`), and the unbounded sequences (`Args`,
@@ -510,14 +634,12 @@ const neutral_path_vtable = model.view.PipelinePath.VTable{ .len = neutralPathLe
 /// empty list packs a zero count; otherwise the composite tag word supplies the
 /// per-element section sizes and element count.
 fn compositeListCtx(reader: Reader, loc: StructLoc, i: u16) Error!model.view.Args.Ctx {
-    const list = try followList(reader, loc, i);
-    if (list.count == 0) return .{ .bytes = reader.bytes };
-    const tag = wire.decodeCompositeTag(try reader.word(list.data_idx));
+    const clist = (try compositeList(reader, loc, i)) orelse return .{ .bytes = reader.bytes };
     return .{
         .bytes = reader.bytes,
-        .w0 = list.data_idx + 1,
-        .w1 = (@as(u64, tag.data_words) << 16) | tag.ptr_words,
-        .w2 = tag.element_count,
+        .w0 = clist.tag_idx + 1,
+        .w1 = (@as(u64, clist.data_words) << 16) | clist.ptr_words,
+        .w2 = clist.element_count,
     };
 }
 
@@ -616,7 +738,7 @@ fn borrowedData(reader: Reader, loc: StructLoc, i: u16) Error![]const u8 {
 /// `ownedReference`.
 fn neutralReferenceView(reader: Reader, loc: StructLoc) Error!model.view.Reference {
     const data0 = try reader.dataWord(loc, 0);
-    const disc: RefKind = @enumFromInt(@as(u16, @truncate(data0)));
+    const disc = try enumFromWire(RefKind, data0);
     const scalar = try reader.dataWord(loc, 1);
     const is_promise = data0 & (1 << 16) != 0;
     return switch (disc) {
@@ -644,7 +766,7 @@ fn neutralErrorView(reader: Reader, loc: StructLoc) Error!model.view.ErrorValue 
 }
 
 fn neutralPipelineOp(reader: Reader, loc: StructLoc) Error!model.view.PipelineOp {
-    const disc: PipelineOpKind = @enumFromInt(@as(u16, @truncate(try reader.dataWord(loc, 0))));
+    const disc = try enumFromWire(PipelineOpKind, try reader.dataWord(loc, 0));
     return switch (disc) {
         .field => .{ .field = try borrowedData(reader, loc, 0) },
         .call => .{ .call = try neutralArgsBacking(reader, loc, 0) },
@@ -655,7 +777,7 @@ fn neutralPipelineOp(reader: Reader, loc: StructLoc) Error!model.view.PipelineOp
 /// `list` / `set` / `tagged` arms are lazy `Args` backings (no allocation).
 fn neutralArgument(reader: Reader, loc: StructLoc) Error!model.view.Argument {
     const data0 = try reader.dataWord(loc, 0);
-    const disc: ArgKind = @enumFromInt(@as(u16, @truncate(data0)));
+    const disc = try enumFromWire(ArgKind, data0);
     return switch (disc) {
         .bytes => .{ .bytes = try borrowedData(reader, loc, 0) },
         .symbol => .{ .symbol = try borrowedData(reader, loc, 0) },
@@ -681,7 +803,7 @@ fn neutralArgument(reader: Reader, loc: StructLoc) Error!model.view.Argument {
 }
 
 fn neutralHandoffFromStruct(reader: Reader, loc: StructLoc) Error!model.view.Handoff {
-    const disc: HandoffKind = @enumFromInt(@as(u16, @truncate(try reader.dataWord(loc, 0))));
+    const disc = try enumFromWire(HandoffKind, try reader.dataWord(loc, 0));
     const inner = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
     return switch (disc) {
         .give => .{ .give = try neutralHandoffGive(reader, inner) },
@@ -713,7 +835,7 @@ fn neutralHandoffReceive(reader: Reader, loc: StructLoc) Error!model.view.Handof
 }
 
 fn neutralResolution(reader: Reader, loc: StructLoc) Error!model.view.Resolution {
-    const disc: ResolutionKind = @enumFromInt(@as(u16, @truncate(try reader.dataWord(loc, 0))));
+    const disc = try enumFromWire(ResolutionKind, try reader.dataWord(loc, 0));
     const inner = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
     return switch (disc) {
         .fulfill => .{ .fulfill = try neutralArgument(reader, inner) },
@@ -786,13 +908,13 @@ pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
 
 // ── Encode ───────────────────────────────────────────────────────────────────
 
-/// Encode for a wire profile — the codec-dispatch seam's counterpart to
+/// Encode for a wire profile — the codec-dispatch boundary's counterpart to
 /// [`syrup.encodeMessageForProfile`](../syrup/core.zig). Cap'n Proto is
 /// pancake's self-consistent dialect (ADR-0026): the struct schema always
-/// carries `resolve_me_desc` / `wants_partial`, and the runtime applies the
+/// carries `resolve_me_desc` / `wants_partial`, and the engine applies the
 /// V1.0 semantic translation (resolver-callback projection) *before* handing a
 /// `model.Message` here, so the word layout is profile-independent. The
-/// parameter is accepted for seam uniformity and intentionally unused.
+/// parameter is accepted for boundary uniformity and intentionally unused.
 pub fn encodeMessageForProfile(
     allocator: std.mem.Allocator,
     profile: model.WireProfile,
@@ -1034,7 +1156,7 @@ fn encodeArgumentInto(b: *wire.Builder, allocator: std.mem.Allocator, arg: model
         },
         .handoff => |handoff| {
             b.set(loc.data_idx, @intFromEnum(ArgKind.handoff));
-            setStructPtr(b, ptrIndex(loc, 0), try encodeHandoff(b, allocator, handoff));
+            setStructPtr(b, ptrIndex(loc, 0), try encodeHandoff(b, allocator, handoff.*));
         },
         .string => |string| {
             b.set(loc.data_idx, @intFromEnum(ArgKind.string));
@@ -1058,7 +1180,9 @@ fn encodeArgumentInto(b: *wire.Builder, allocator: std.mem.Allocator, arg: model
         },
         .set => |set| {
             b.set(loc.data_idx, @intFromEnum(ArgKind.set));
-            setListPtr(b, ptrIndex(loc, 0), try encodeArgumentList(b, allocator, set));
+            const ordered = try canonicalSetOrder(allocator, set);
+            defer allocator.free(ordered);
+            setListPtr(b, ptrIndex(loc, 0), try encodeArgumentList(b, allocator, ordered));
         },
         .tagged => |tagged| {
             b.set(loc.data_idx, @intFromEnum(ArgKind.tagged));
@@ -1083,6 +1207,57 @@ fn encodeArgumentList(b: *wire.Builder, allocator: std.mem.Allocator, args: []co
         try encodeArgumentInto(b, allocator, arg, .{ .data_idx = block + i * stride, .data_words = data_words, .ptr_words = ptr_words });
     }
     return .{ .data_idx = tag_idx, .elem = .composite, .count = args.len * stride };
+}
+
+/// Return a set's elements in canonical order: each element is encoded to its
+/// own standalone Cap'n Proto message, the elements are sorted by those encoded
+/// bytes, and the reordered (shallow) slice is returned for the caller to encode
+/// in place. A set is unordered, so its wire form must not leak the order the
+/// model held it in — the Cap'n Proto partner of the same canonicalization the
+/// Syrup codec applies, each codec sorting by its own encoded bytes. The
+/// per-element encodings are scratch keys, freed before returning; only the
+/// reordered slice (which the caller frees) survives. Caller owns it.
+fn canonicalSetOrder(allocator: std.mem.Allocator, args: []const model.Argument) Error![]model.Argument {
+    const ordered = try allocator.alloc(model.Argument, args.len);
+    errdefer allocator.free(ordered);
+    for (args, 0..) |arg, i| ordered[i] = arg;
+    if (args.len < 2) return ordered;
+
+    const keys = try allocator.alloc([]u8, args.len);
+    var built: usize = 0;
+    defer {
+        for (keys[0..built]) |key| allocator.free(key);
+        allocator.free(keys);
+    }
+    for (args) |arg| {
+        keys[built] = try encodeArgumentKey(allocator, arg);
+        built += 1;
+    }
+
+    // Sort an index permutation by key bytes, then materialize the reorder.
+    const order = try allocator.alloc(usize, args.len);
+    defer allocator.free(order);
+    for (order, 0..) |*o, i| o.* = i;
+    std.mem.sort(usize, order, keys, lessByKeyBytes);
+    for (order, 0..) |src, i| ordered[i] = args[src];
+    return ordered;
+}
+
+fn lessByKeyBytes(keys: []const []u8, a: usize, b: usize) bool {
+    return std.mem.lessThan(u8, keys[a], keys[b]);
+}
+
+/// Encode a single `Argument` as a standalone Cap'n Proto message and return its
+/// owned bytes — the canonical sort key for set ordering. Caller owns the slice.
+fn encodeArgumentKey(allocator: std.mem.Allocator, arg: model.Argument) Error![]u8 {
+    var builder = wire.Builder{};
+    defer builder.deinit(allocator);
+    const root_idx = try builder.allocWords(allocator, 1);
+    const loc = try encodeArgument(&builder, allocator, arg);
+    setStructPtr(&builder, root_idx, loc);
+    var frame = try builder.finish(allocator);
+    defer frame.deinit();
+    return allocator.dupe(u8, frame.bytes());
 }
 
 /// Composite list of `PipelineOp` (1 data word, 1 pointer word per element).

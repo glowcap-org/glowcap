@@ -1,8 +1,9 @@
 # pancake Architecture
 
-pancake is a library-shaped OCapN / CapTP core. It is designed so protocol
-correctness, wire compatibility, ownership, allocation, and host integration
-costs are visible in the API that creates them.
+pancake is an OCapN / CapTP core you use as a library. The guiding idea is simple:
+the things that usually hide — whether a frame is owned or borrowed, where a copy
+or an allocation happens, which wire format is in play, where I/O and scheduling
+live — should all be visible right at the API that creates them.
 
 ## Founding Thesis
 
@@ -28,7 +29,7 @@ Core invariants:
 
 - Codec-neutral semantics.
 - Authoritative session state.
-- A sync, no-I/O canonical runtime.
+- A sync, no-I/O canonical engine.
 - Explicit frame ownership and borrowed message views.
 - C ABI ownership promises.
 - Conformance fixtures and scenario traces as release gates.
@@ -36,7 +37,7 @@ Core invariants:
 
 The Zig repo keeps a local oracle bridge under `test/oracle/` and
 `test/oracles/`. It enumerates the shipped message model, embeds the Goblins
-Syrup fixture corpus, and defines the session-trace shape used by runtime
+Syrup fixture corpus, and defines the session-trace shape used by engine
 scenario tests.
 
 Out of the core:
@@ -55,6 +56,11 @@ The canonical core owns protocol semantics and nothing else:
 - no hidden scheduler;
 - no process-level runtime object.
 
+This is also why the driving layer is named `engine`, not `runtime`. In this
+codebase "runtime" means exactly the thing above that the core refuses to be —
+an ambient executor with its own scheduler and tasks. The engine is the explicit,
+caller-driven alternative: it dispatches a session synchronously and nothing more.
+
 Adapters feed inbound frames, call `Peer.step`, drain outbound frames, and poll
 events. Adapters may use `std.Io`, native transports, or host callbacks, but
 they do not add CapTP behavior.
@@ -68,7 +74,7 @@ The netlayer is the one place `std.Io` enters; the arch gate
 - **One parser (ADR-0029).** Stream frame boundaries are found by the active
   codec's own decoder (`codec.dispatch.decodePrefix`), which distinguishes
   `incomplete` (read more), `decoded` (whole frame + consumed length),
-  `malformed`, and `too_large`. The runtime consumes that single verdict in
+  `malformed`, and `too_large`. The engine consumes that single verdict in
   `Peer.recvStreamPrefix`; there is no separate length-prefix or delimiter
   scanner. A deeply nested untrusted prefix is rejected at decode time
   (`max_decode_nesting`) before it can overflow the stack.
@@ -77,7 +83,7 @@ The netlayer is the one place `std.Io` enters; the arch gate
   one inbound frame zero-copy, distinguish graceful EOF from a mid-frame
   truncation — so the framing core is proven with `Reader.fixed`/`Writer.fixed`
   without a socket. `net_adapter.tcp` is the only `std.Io.net`-to-socket site;
-  `net_adapter.FrameStream` is the peer-less frame seam the C ABI sits on.
+  `net_adapter.FrameStream` is the peer-less frame boundary the C ABI sits on.
 - **Bounded per-connection memory (ADR-0030).** Inbound frame size is capped by
   `SessionLimits.max_frame_bytes` (`too_large` → `resource_exhausted` abort).
   The small-buffer/bounded-overflow path, full-duplex backpressure, and
@@ -111,7 +117,7 @@ re-deriving them with linear scans.
   (`gc_*`, `handoff`, `get`/`index`) materialize one transient copy into a
   per-turn scratch arena reset wholesale at the end of the turn. A steady-state
   deliver to a live export costs exactly one allocation — the owned-frame copy
-  the event model requires — asserted by `test/runtime/alloc_budget_test.zig`.
+  the event model requires — asserted by `test/engine/alloc_budget_test.zig`.
 - **Forward-cursor argument walks.** The borrowed `Args` / `PositionList` /
   `PipelinePath` sequences expose a forward `iterator()` whose `next()` advances
   a codec-interpreted cursor, so the validate / install / materialize walks make
@@ -203,7 +209,7 @@ frame movement model:
 
 The target shape is explicit: inbound C ABI borrowed frames dispatch
 synchronously, inbound C ABI managed frames transfer into a peer-owned queued
-frame without copying, runtime-owned frames move by transfer, events return the
+frame without copying, engine-owned frames move by transfer, events return the
 originating frame in the negotiated codec without re-encoding, and outbound C ABI
 returns a managed frame with a release callback. Zig must preserve that contract
 and make accidental copies harder to write.
@@ -222,13 +228,35 @@ The C ABI stays boring:
 Public artifacts are named for the project: `libpancake.a`, `libpancake.so`,
 and `pancake.h`.
 
-Zig slices, allocators, error unions, futures, and `std.Io` objects do not cross
-the C ABI. The blocking `tcp-testing-only` endpoint handles
+The ABI is versioned. `pancake.h` carries `PANCAKE_VERSION_*` macros (the
+version the header was compiled against) and `pancake_abi_version` reports the
+version the linked library implements, so header/library skew is detectable. The
+shared library carries a soname tracking the major version (`libpancake.so.0`).
+The major version is 0, so the ABI is unstable: symbols, layouts, and return
+codes can still change.
+
+Allocation policy is a context. A `PancakeContext` owns the allocator for a
+family of handles: `pancake_context_new_default` uses the library-owned
+allocator, `pancake_context_new_with_allocator` binds host `alloc`/`free`
+callbacks. The `*_in` constructors (`pancake_peer_new_in`,
+`pancake_tcp_netlayer_new_in`) allocate from a context, and every allocation a
+context-scoped handle makes — the handle objects, managed outbound/event frames,
+adopted inbound frames, and TCP connection/listener payloads with their buffers
+— frees back through that context. The context must outlive its handles; a
+host-backed context's allocator vtable lives inside the context object, and the
+context object itself is allocated through the host callbacks, so a host-backed
+handle family frees entirely through host policy. Callers still free handles only
+through the explicit release functions — the context is policy, not a `free` a
+caller invokes by hand (ADR-0031).
+
+A Zig `std.mem.Allocator`, slices, error unions, futures, and `std.Io` objects do
+not cross the C ABI; allocation policy crosses as the plain C callbacks a context
+binds, never as a Zig allocator. The blocking `tcp-testing-only` endpoint handles
 (`pancake_endpoint_tcp_*`) keep this contract: a host that owns the peer shuttles
 whole frames (`read_frame -> feed_owned -> step -> take_outbound ->
 write_frame`). Because `std.Io` cannot cross the boundary, the I/O backend is an
 explicit owned handle (`PancakeTcpNetlayer` owns one `std.Io.Threaded`, created
-and freed by the host) rather than a hidden global runtime, and
+and released by the host) rather than a hidden global runtime, and
 `pancake_last_error` re-surfaces the concrete socket cause behind a flat
 `PANCAKE_ERR_IO` (ADR-0030).
 
@@ -240,6 +268,10 @@ Examples are not snippets. They are build targets:
   frame transfer and borrowed views directly.
 - `examples/c/frame_view.c` proves `pancake.h` is ordinary C ABI vocabulary and
   links an exported symbol from `libpancake`.
+- `examples/c/context_alloc.c` proves a C embedder can own every pancake
+  allocation: it drives a `PancakeContext` from host `alloc`/`free` callbacks
+  over a bump arena, creates a peer in it, and asserts the frees balance the
+  allocations.
 
-`zig build check` runs both examples.
+`zig build check` runs every example.
 

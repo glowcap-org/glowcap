@@ -24,7 +24,7 @@ The Syrup codec ([`src/codec/syrup/core.zig`](../../../src/codec/syrup/core.zig)
 
 ### Ed25519 signatures over decoded fields
 
-[`src/foundation/crypto.zig`](../../../src/foundation/crypto.zig) owns the Ed25519 `sign` / `verify` over caller-supplied canonical bytes, the fixed-width `PeerKey` / `Signature`, and the SHA256² Public Identifier derivation. The core treats a signature as opaque bytes: verification is an **injected hook** (`SignatureVerifier` in [`src/runtime/cross_peer.zig`](../../../src/runtime/cross_peer.zig)) supplied by the caller, so the no-I/O core depends on no crypto. Signatures cover the **decoded fields** of the signed object, not its encoded bytes, so re-rendering the same record produces a signature-preserving frame — the cross-codec re-encode contract ([ADR-0003](ADR-0003-codec-interoperability-posture.md)). Entropy is not in the core: a key seed and the `gift-id` come from the adapter boundary.
+[`src/foundation/crypto.zig`](../../../src/foundation/crypto.zig) owns the Ed25519 `sign` / `verify` over caller-supplied canonical bytes, the fixed-width `PeerKey` / `Signature`, and the SHA256² Public Identifier derivation. The core treats a signature as opaque bytes: verification is an **injected hook** (`SignatureVerifier` in [`src/engine/cross_peer.zig`](../../../src/engine/cross_peer.zig)) supplied by the caller, so the no-I/O core depends on no crypto. Signatures cover the **decoded fields** of the signed object, not its encoded bytes, so re-rendering the same record produces a signature-preserving frame — the cross-codec re-encode contract ([ADR-0003](ADR-0003-codec-interoperability-posture.md)). Entropy is not in the core: a key seed and the `gift-id` come from the adapter boundary.
 
 ### Session-owned gift table
 
@@ -32,7 +32,7 @@ The exporter session is the authority for whether a withdrawal is allowed ([`src
 
 ### Cross-peer routing is caller-orchestrated
 
-A `Peer` owns exactly one direct session, so a three-vat handoff spans several peers: the gifter↔recipient session, the recipient↔exporter session, and the exporter session that authorizes the withdrawal. Routing lives in free functions in [`src/runtime/cross_peer.zig`](../../../src/runtime/cross_peer.zig) — `deliverGive` (the exporter records the gift, then the gifter sends the signed give to the recipient) and `withdrawGift` (the injected verifier checks the recipient's signature, then the recipient sends the receive to the exporter, whose session authorizes it). Each takes a `*Peer` per participating session; this is **not** inside the per-peer dispatcher. The borrow checker enforces that no two participants alias, so there is no shared mutable state and no lock discipline.
+A `Peer` owns exactly one direct session, so a three-vat handoff spans several peers: the gifter↔recipient session, the recipient↔exporter session, and the exporter session that authorizes the withdrawal. Routing lives in free functions in [`src/engine/cross_peer.zig`](../../../src/engine/cross_peer.zig) — `deliverGive` (the exporter records the gift, then the gifter sends the signed give to the recipient) and `withdrawGift` (the injected verifier checks the recipient's signature, then the recipient sends the receive to the exporter, whose session authorizes it). Each takes a `*Peer` per participating session; this is **not** inside the per-peer dispatcher. The borrow checker enforces that no two participants alias, so there is no shared mutable state and no lock discipline.
 
 ### Relayed-resolution forwarding
 
@@ -40,7 +40,10 @@ A handoff can import a promise hosted by a third party. An `op:listen` on that i
 
 ## Scope (what this does not decide)
 
-- The Cap'n Proto codec is not implemented ([ADR-0003](ADR-0003-codec-interoperability-posture.md)), so cross-codec handoff re-encode is not exercisable today. The decoded-field signing contract is what makes it signature-preserving when a second codec lands.
+- Cross-codec handoff re-encode still needs dedicated scenario coverage across
+  the live codec-dispatch seam ([ADR-0003](ADR-0003-codec-interoperability-posture.md)).
+  The decoded-field signing contract is what makes that path
+  signature-preserving.
 - Real cryptographic verification: the injected `SignatureVerifier` is the seam; the bundled accept-everything verifier is for in-process tests and trusted substrates only.
 - The handshake substrate and bootstrap-fetch shape the deposit / withdraw `op:deliver`s ride on — [ADR-0006](ADR-0006-handshake-substrate-and-bootstrap-fetch.md).
 - `op:start-session` signing reuse of the same Ed25519 substrate — [ADR-0015](ADR-0015-handshake-signing.md).
@@ -59,7 +62,7 @@ A handoff can import a promise hosted by a third party. An `op:listen` on that i
 ## Consequences
 
 - [`src/foundation/crypto.zig`](../../../src/foundation/crypto.zig) owns Ed25519 sign / verify, `PeerKey` / `Signature`, and the SHA256² identifier derivation; it allocates nothing and compiles to `wasm32`.
-- [`src/runtime/cross_peer.zig`](../../../src/runtime/cross_peer.zig) owns `deliverGive` / `withdrawGift` / `drainRelayedResolutions` and the `SignatureVerifier` injection seam.
+- [`src/engine/cross_peer.zig`](../../../src/engine/cross_peer.zig) owns `deliverGive` / `withdrawGift` / `drainRelayedResolutions` and the `SignatureVerifier` injection seam.
 - [`src/session/mod.zig`](../../../src/session/mod.zig) owns the gift table, `validateInboundWithdraw` / `applyInboundWithdraw` (validate-then-apply, atomic), monotonic handoff-count replay rejection, and the deposited-gift / handoff-count caps.
 - [`src/codec/syrup/core.zig`](../../../src/codec/syrup/core.zig) renders and parses the three `desc:*` records; the signature rides as the gcrypt `sig-val`.
 - Conformance covers give / withdraw end to end, replay rejection, recipient mismatch, and relayed resolution with a late listener, against Zig scenarios and Goblins-emitted Syrup fixtures.

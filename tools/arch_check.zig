@@ -1,22 +1,21 @@
-//! Architecture gate — the Zig analog of the canonical runtime's `cargo xtask
-//! arch`. Walks `src/**/*.zig`, parses each file's `@import("…")` edges, and
-//! asserts the layer dependency DAG plus the no-`std.Io`-in-core ban. Wired as
-//! the `zig build arch-check` step and into `zig build check`.
+//! Architecture gate — walks `src/**/*.zig`, parses each file's `@import("…")`
+//! edges, and asserts the layer dependency DAG plus the no-`std.Io`-in-core ban.
+//! Wired as the `zig build arch-check` step and into `zig build check`.
 //!
 //! The layering it enforces (matching `.agents/rules/architecture.md` § Layer
 //! Ownership):
 //!
 //! ```text
-//! foundation ← model ← codec ← runtime → (c_abi | io_adapter | conformance)
+//! foundation ← model ← codec ← engine → (c_abi | conformance)
 //!                          ↖ session ↗
 //! ```
 //!
 //! The load-bearing edges, beyond "lower layers don't import higher ones":
-//!   * `session` is codec-neutral — it MUST NOT import `codec` or `runtime`
+//!   * `session` is codec-neutral — it MUST NOT import `codec` or `engine`
 //!     (authority lives in the session, never reached through a codec).
-//!   * `codec` parses/renders only — it MUST NOT import `session` or `runtime`.
+//!   * `codec` parses/renders only — it MUST NOT import `session` or `engine`.
 //!   * `model` is pure semantic data — it imports nothing above `foundation`.
-//!   * core protocol modules (foundation/model/codec/session/runtime) carry no
+//!   * core protocol modules (foundation/model/codec/session/engine) carry no
 //!     `std.Io` — the sync, no-I/O core boundary (Invariant 13 analog).
 //!
 //! A new top-level `src/<dir>/` with no rule here fails the gate loudly: adding
@@ -43,7 +42,7 @@ const ArchCheck = struct {
 };
 
 /// Layers that must stay free of `std.Io` (the sync, no-I/O core).
-const core_layers = [_][]const u8{ "foundation", "model", "codec", "session", "runtime" };
+const core_layers = [_][]const u8{ "foundation", "model", "codec", "session", "engine" };
 
 /// One layer's allowed `@import` target layers (its own layer is always allowed
 /// — intra-layer imports). `null` for an unrecognized layer means "no rule;
@@ -55,19 +54,18 @@ fn allowedTargets(layer: []const u8) ?[]const []const u8 {
         .{ .layer = "model", .targets = &.{ "foundation", "model" } },
         .{ .layer = "codec", .targets = &.{ "foundation", "model", "codec" } },
         .{ .layer = "session", .targets = &.{ "foundation", "model", "session" } },
-        .{ .layer = "runtime", .targets = &.{ "foundation", "model", "codec", "session", "runtime" } },
-        .{ .layer = "io_adapter", .targets = &.{ "foundation", "model", "io_adapter" } },
+        .{ .layer = "engine", .targets = &.{ "foundation", "model", "codec", "session", "engine" } },
         // `c_abi` also re-exposes the byte-stream adapter as blocking endpoint
         // handles (the host-driven netlayer seam), so it may import
         // `net_adapter` (and the `model` codec id it threads through).
-        .{ .layer = "c_abi", .targets = &.{ "foundation", "model", "runtime", "net_adapter", "c_abi" } },
-        .{ .layer = "conformance", .targets = &.{ "foundation", "model", "codec", "session", "runtime", "conformance" } },
+        .{ .layer = "c_abi", .targets = &.{ "foundation", "model", "engine", "net_adapter", "c_abi" } },
+        .{ .layer = "conformance", .targets = &.{ "foundation", "model", "codec", "session", "engine", "conformance" } },
         // The byte-stream adapter is NOT a core layer (absent from `core_layers`
         // above), so it is the one place `std.Io` is allowed. It drives the
-        // runtime over a stream; it never reaches below `runtime`'s authority.
-        .{ .layer = "net_adapter", .targets = &.{ "foundation", "model", "codec", "session", "runtime", "io_adapter", "net_adapter" } },
+        // engine over a stream; it never reaches below `engine`'s authority.
+        .{ .layer = "net_adapter", .targets = &.{ "foundation", "model", "codec", "session", "engine", "net_adapter" } },
         // The public aggregator at `src/root.zig` re-exports every layer.
-        .{ .layer = "<root>", .targets = &.{ "foundation", "model", "codec", "session", "runtime", "io_adapter", "c_abi", "conformance", "net_adapter" } },
+        .{ .layer = "<root>", .targets = &.{ "foundation", "model", "codec", "session", "engine", "c_abi", "conformance", "net_adapter" } },
     };
     for (rules) |rule| {
         if (std.mem.eql(u8, rule.layer, layer)) return rule.targets;

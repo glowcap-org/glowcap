@@ -4,7 +4,7 @@ A dissection of OCapN / CapTP into small Mermaid diagrams: one transaction
 shape or state flow per diagram. The authority for every diagram is the
 [OCapN draft specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications)
 (CapTP, Model, Locators) and, where flagged, Spritely Goblins's wire behavior.
-Rust pancake is prior art, not the oracle; nothing here cites Rust internals.
+Nothing here cites another implementation's internals as the oracle.
 
 ## Conventions
 
@@ -27,7 +27,7 @@ Rust pancake is prior art, not the oracle; nothing here cites Rust internals.
 | File | Diagrams | Covers |
 | --- | --- | --- |
 | [01-session-lifecycle.md](01-session-lifecycle.md) | SL-1 … SL-6 | Session state machine, `op:start-session`, crossed hellos, admission policy, `op:abort` teardown |
-| [02-deliver-and-resolve.md](02-deliver-and-resolve.md) | DR-1 … DR-7 | `op:deliver`, `op:deliver-only`, `op:resolve`, resolver callbacks, bootstrap `fetch`, `op:get` / `op:index` |
+| [02-deliver-and-resolve.md](02-deliver-and-resolve.md) | DR-1 … DR-7 | `op:deliver` (with and without an answer), `op:resolve`, resolver callbacks, bootstrap `fetch`, `op:get` / `op:index` |
 | [03-promises-and-pipelining.md](03-promises-and-pipelining.md) | PP-1 … PP-7 | Promise lifecycle, pipelined delivers, multi-hop chains, resolved-answer forwarding, `op:listen` |
 | [04-references-and-tables.md](04-references-and-tables.md) | RT-1 … RT-4 | Descriptor taxonomy, perspective flip, the four tables, import installation |
 | [05-gc.md](05-gc.md) | GC-1 … GC-4 | Export refcount lifecycle, `op:gc-exports` wire-deltas, the GC race, `op:gc-answers` |

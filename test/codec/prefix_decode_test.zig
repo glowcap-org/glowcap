@@ -174,7 +174,7 @@ test "syrup decodePrefix: deep nesting fails loud, never overflows the stack" {
     try std.testing.expect(syrup.decodePrefix(deep, big_max) == .malformed);
 }
 
-test "dispatch.decodePrefix routes syrup through the codec-neutral seam" {
+test "dispatch.decodePrefix routes syrup through the codec-neutral boundary" {
     const allocator = std.testing.allocator;
     var frame = try encodeSyrup(allocator, .{ .gc_answer = .{ .positions = &.{42} } });
     defer frame.deinit();
@@ -183,7 +183,7 @@ test "dispatch.decodePrefix routes syrup through the codec-neutral seam" {
     try std.testing.expect(p == .decoded);
     try std.testing.expectEqual(frame.bytes().len, p.decoded.consumed);
 
-    // A strict prefix is incomplete through the same seam.
+    // A strict prefix is incomplete through the same boundary.
     try std.testing.expect(dispatch.decodePrefix(.syrup, frame.bytes()[0 .. frame.bytes().len - 1], big_max) == .incomplete);
 }
 

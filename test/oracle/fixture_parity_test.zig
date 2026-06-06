@@ -89,15 +89,15 @@ test "oracle-check verifies core Syrup fixture encoding parity" {
 
 test "oracle-check exercises a three-peer handoff give and withdrawal" {
     const allocator = std.testing.allocator;
-    const cross_peer = pancake.runtime.cross_peer;
+    const cross_peer = pancake.engine.cross_peer;
 
-    var gifter = pancake.runtime.Peer.init(allocator);
+    var gifter = pancake.engine.Peer.init(allocator);
     defer gifter.deinit();
-    var recipient_from_gifter = pancake.runtime.Peer.init(allocator);
+    var recipient_from_gifter = pancake.engine.Peer.init(allocator);
     defer recipient_from_gifter.deinit();
-    var recipient_to_exporter = pancake.runtime.Peer.init(allocator);
+    var recipient_to_exporter = pancake.engine.Peer.init(allocator);
     defer recipient_to_exporter.deinit();
-    var exporter = pancake.runtime.Peer.init(allocator);
+    var exporter = pancake.engine.Peer.init(allocator);
     defer exporter.deinit();
 
     try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, fixtureGive());
@@ -106,7 +106,7 @@ test "oracle-check exercises a three-peer handoff give and withdrawal" {
     {
         var event = recipient_from_gifter.pollEvent().?;
         defer event.deinit();
-        try std.testing.expectEqual(pancake.runtime.EventKind.handoff, event.kind());
+        try std.testing.expectEqual(pancake.engine.EventKind.handoff, event.kind());
     }
 
     try cross_peer.withdrawGift(
@@ -120,7 +120,7 @@ test "oracle-check exercises a three-peer handoff give and withdrawal" {
     {
         var event = exporter.pollEvent().?;
         defer event.deinit();
-        try std.testing.expectEqual(pancake.runtime.EventKind.handoff, event.kind());
+        try std.testing.expectEqual(pancake.engine.EventKind.handoff, event.kind());
     }
 }
 
@@ -144,7 +144,7 @@ test "oracle-check verifies supported owned fixture decoding parity" {
 
 test "oracle-check verifies runtime deliver event and resolve state scenarios" {
     const allocator = std.testing.allocator;
-    var peer = pancake.runtime.Peer.init(allocator);
+    var peer = pancake.engine.Peer.init(allocator);
     defer peer.deinit();
     try peer.session_state.registerExport(7);
 
@@ -154,10 +154,10 @@ test "oracle-check verifies runtime deliver event and resolve state scenarios" {
     });
     var event = peer.pollEvent().?;
     defer event.deinit();
-    try std.testing.expectEqual(pancake.runtime.EventKind.deliver, event.kind());
+    try std.testing.expectEqual(pancake.engine.EventKind.deliver, event.kind());
     try std.testing.expect(peer.session_state.inboundAnswer(11) != null);
 
-    var resolver = pancake.runtime.Peer.init(allocator);
+    var resolver = pancake.engine.Peer.init(allocator);
     defer resolver.deinit();
     try resolver.session_state.registerImport(9);
     try resolver.session_state.recordSend(.{

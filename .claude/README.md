@@ -13,4 +13,5 @@ Claude reads repository rules through the root [`CLAUDE.md`](../CLAUDE.md)
 symlink to [`AGENTS.md`](../AGENTS.md), and this overlay exposes canonical rules
 through `.claude/rules`. Canonical guidance lives in `AGENTS.md` and `.agents/`.
 
-Edit canonical guidance under `.agents/`; keep this overlay thin.
+Edit canonical guidance under `.agents/`; keep this overlay thin. `zig build
+meta-check` verifies the symlink shape and hook/MCP wiring.

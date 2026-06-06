@@ -1,10 +1,24 @@
+//! The message, described once, with no codec attached.
+//!
+//! Both codecs produce this same shape, and the engine works against it, so all
+//! of pancake shares one vocabulary for what a message actually is. That's what
+//! lives here: the value types (`Message` and its arms, `Reference`, `Argument`,
+//! `Resolution`, and the handshake, handoff, and gc shapes), plus the words two
+//! peers negotiate with (`CodecId`, `CaptpVersion`, `WireProfile`, `FeatureSet`,
+//! `AbortKind`).
+//!
+//! None of it carries a codec, an allocation policy, or any authority. It's just
+//! the shape. `session` is what decides whether a given message is valid, and
+//! `codec` is what turns it into bytes. Three sibling files finish the story:
+//! `owned` handles who clones and frees the tree, `view` is the borrowed look at
+//! it over live wire bytes, and `equality` is how two values compare.
+
 const std = @import("std");
 
-/// Ownership lifecycle for the owned [`Message`] tree (and its sub-trees): who
-/// owns a message past its originating frame, and how it is released. Single
-/// sourced in `owned.zig` so the session's pipelining tables and the one
-/// outbound boundary copy share one acquire (`clone`) / release (`free`)
-/// contract. See [`owned`].
+/// Who owns a `Message` once the frame it arrived on is gone, and how it gets
+/// released. It all lives in `owned.zig` so there's a single `clone` / `free`
+/// contract for everyone who keeps a message around: the session's pipelining
+/// tables, and the one copy we make on the way out.
 pub const owned = @import("owned.zig");
 pub const cloneMessage = owned.cloneMessage;
 pub const freeMessage = owned.freeMessage;
@@ -18,30 +32,30 @@ pub const cloneReference = owned.cloneReference;
 pub const freeReference = owned.freeReference;
 pub const clonePipelinePath = owned.clonePipelinePath;
 pub const freePipelinePath = owned.freePipelinePath;
+pub const freeHandoffGive = owned.freeHandoffGive;
 
-/// Codec-neutral borrowed views over wire memory — the single message shape
-/// both codecs project and the runtime dispatches on (Invariant 1). See
-/// [`view`].
+/// The borrowed look at a message, read straight off the wire bytes with no
+/// copy. Both codecs produce this one shape, and the engine works against it.
+/// See `view`.
 pub const view = @import("view.zig");
 
-/// Structural equality on the codec-neutral value tree — the in-memory evidence
-/// for distributed (Pass Invariant) equality per ADR-0013 § Structural
-/// `Reference` equality is the evidence. See [`equality`].
+/// Whether two value trees are structurally equal. This is the in-memory
+/// evidence behind distributed equality: per ADR-0013, two references that name
+/// the same thing compare equal here. See `equality`.
 pub const equality = @import("equality.zig");
 pub const referencesEqual = equality.referencesEqual;
 pub const argumentsEqual = equality.argumentsEqual;
 pub const peerLocatorsEqual = equality.peerLocatorsEqual;
 
-/// Which wire codec carries a direct session. Declaration order is the
-/// negotiation tie-break (most-preferred first): `capnp` is the native
-/// word-aligned fast path, `syrup` the byte-record compatibility path.
+/// Which wire codec a direct session speaks. The order they're listed in is the
+/// tie-break during negotiation, best first: `capnp` is the native word-aligned
+/// fast path, `syrup` the byte-record one that everyone can fall back to.
 ///
-/// Lives in `model` (not `codec`) so the codec-neutral session
-/// ([`session`](../session/mod.zig)) can record which codec it negotiated
-/// without importing a codec — authority over the choice stays in the session
-/// per Invariant 5, and the codec dispatch seam ([`codec.dispatch`]) switches
-/// on it. The runtime's handshake negotiation
-/// ([`runtime.negotiation`](../runtime/negotiation.zig)) produces it.
+/// This lives in `model` rather than `codec`, and that's deliberate. The session
+/// has to record which codec it picked, but it must not depend on a codec to do
+/// it; the choice stays the session's to make. So the enum sits down here,
+/// `codec.dispatch` switches on it, and `engine.negotiation` is what settles it
+/// during the handshake.
 pub const CodecId = enum {
     capnp,
     syrup,
@@ -81,13 +95,6 @@ pub const WireProfile = struct {
     pub const pre_spec = WireProfile{
         .captp_version = .pre_spec,
     };
-    pub fn goblinsV1_0() WireProfile {
-        return v1_0;
-    }
-
-    pub fn preSpec() WireProfile {
-        return pre_spec;
-    }
 
     pub fn name(self: WireProfile) []const u8 {
         return switch (self.captp_version) {
@@ -126,11 +133,6 @@ pub const FeatureSet = struct {
         };
     }
 
-    /// Stage 1 default — pipelining only (ADR-0007).
-    pub fn pipeliningCapable() FeatureSet {
-        return .{ .pipelining = true };
-    }
-
     /// Stage 2 default — pipelining + handoff + wire_delta (ADR-0008, ADR-0009).
     pub fn stage2Default() FeatureSet {
         return .{ .pipelining = true, .handoff = true, .wire_delta = true };
@@ -151,7 +153,7 @@ pub const FeatureSet = struct {
     /// two peers' advertised sets, so neither side exercises a capability the
     /// other did not advertise. Pure and symmetric:
     /// `a.intersect(b) == b.intersect(a)`. The feature half of
-    /// [`runtime.negotiation.negotiate`]; the codec half lives there.
+    /// [`engine.negotiation.negotiate`]; the codec half lives there.
     pub fn intersect(self: FeatureSet, other: FeatureSet) FeatureSet {
         return .{
             .pipelining = self.pipelining and other.pipelining,
@@ -161,42 +163,6 @@ pub const FeatureSet = struct {
             .stream = self.stream and other.stream,
             .equality = self.equality and other.equality,
         };
-    }
-
-    pub fn withPipelining(self: FeatureSet, on: bool) FeatureSet {
-        var next = self;
-        next.pipelining = on;
-        return next;
-    }
-
-    pub fn withHandoff(self: FeatureSet, on: bool) FeatureSet {
-        var next = self;
-        next.handoff = on;
-        return next;
-    }
-
-    pub fn withWireDelta(self: FeatureSet, on: bool) FeatureSet {
-        var next = self;
-        next.wire_delta = on;
-        return next;
-    }
-
-    pub fn withSturdyref(self: FeatureSet, on: bool) FeatureSet {
-        var next = self;
-        next.sturdyref = on;
-        return next;
-    }
-
-    pub fn withStream(self: FeatureSet, on: bool) FeatureSet {
-        var next = self;
-        next.stream = on;
-        return next;
-    }
-
-    pub fn withEquality(self: FeatureSet, on: bool) FeatureSet {
-        var next = self;
-        next.equality = on;
-        return next;
     }
 };
 
@@ -239,11 +205,11 @@ pub const LocationSig = struct {
     bytes: []const u8,
 };
 
-/// Deep-clone a [`PeerLocator`] (transport, designator, and the hint map) with
-/// `allocator`. Mirrored by [`freePeerLocator`]. Used by the runtime's
-/// owned-message path ([`cloneMessage`] / `freeMessage`) when a borrowed
-/// `op:start-session` or `desc:sturdyref` is queued for outbound encode and
-/// must outlive the borrowed frame it came from.
+/// Make a deep copy of a `PeerLocator` (its transport, designator, and hint map).
+/// Free it again with `freePeerLocator`. The engine reaches for this when it
+/// needs to hold onto a locator past the frame it came in on: a borrowed
+/// `op:start-session` or `desc:sturdyref` gets queued for sending, and it has to
+/// outlive the borrowed frame.
 pub fn clonePeerLocator(allocator: std.mem.Allocator, locator: PeerLocator) !PeerLocator {
     const transport = try allocator.dupe(u8, locator.transport);
     errdefer allocator.free(transport);
@@ -322,74 +288,33 @@ pub fn freeHintValue(allocator: std.mem.Allocator, value: HintValue) void {
     }
 }
 
-pub const GiftId = struct {
-    bytes: []const u8,
-};
-
-pub const ExportId = struct {
-    value: u64,
-
-    pub fn init(value: u64) ExportId {
-        return .{ .value = value };
-    }
-
-    pub fn raw(self: ExportId) u64 {
-        return self.value;
-    }
-};
-
-pub const ImportId = struct {
-    value: u64,
-
-    pub fn init(value: u64) ImportId {
-        return .{ .value = value };
-    }
-
-    pub fn raw(self: ImportId) u64 {
-        return self.value;
-    }
-};
-
-pub const AnswerId = struct {
-    value: u64,
-
-    pub fn init(value: u64) AnswerId {
-        return .{ .value = value };
-    }
-
-    pub fn raw(self: AnswerId) u64 {
-        return self.value;
-    }
-};
-
-/// Wire-tag discriminator on [`NearRef`].
+/// Whether a `NearRef` points at a plain object or a promise.
 ///
-/// Records whether the local export the sender refers to is object-shaped or
-/// promise-shaped, so the stateless encoder emits the matching descriptor
-/// (`<desc:import-object>` vs `<desc:import-promise>`). Most exports are
-/// object-shaped; promise-shaped exports (vow / resolver-callback /
-/// handoff-imported promise) carry `.promise`.
+/// The encoder needs to know which, because the two get different wire
+/// descriptors: an object is `<desc:import-object>`, a promise is
+/// `<desc:import-promise>`. Most exports are plain objects. The promise ones are
+/// the special cases: a vow, a resolver callback, a promise imported through a
+/// handoff.
 pub const NearKind = enum { object, promise };
 
-/// Wire-tag discriminator on [`FarRef`].
-///
-/// Records which payload-position descriptor named the import:
-/// `<desc:import-object>` lifts to `.object`, `<desc:import-promise>` to
-/// `.promise`. Symmetric with [`NearKind`] on the encode side.
+/// Whether a `FarRef` points at a plain object or a promise. It remembers which
+/// descriptor named the import on the wire: `<desc:import-object>` becomes
+/// `.object`, `<desc:import-promise>` becomes `.promise`. It's the decode-side
+/// mirror of `NearKind`.
 pub const ImportKind = enum { object, promise };
 
 pub const NearRef = struct {
     export_id: u64,
-    /// `.object` (default) emits `<desc:import-object N>`; `.promise` emits
+    /// `.object` (the default) encodes as `<desc:import-object N>`, `.promise` as
     /// `<desc:import-promise N>`.
     kind: NearKind = .object,
 
-    /// Object-shaped local export — the common case.
+    /// A plain object export. The common case.
     pub fn object(export_id: u64) NearRef {
         return .{ .export_id = export_id, .kind = .object };
     }
 
-    /// Promise-shaped local export (vow / resolver-callback / handoff vow).
+    /// A promise export: a vow, a resolver callback, or a handoff vow.
     pub fn promise(export_id: u64) NearRef {
         return .{ .export_id = export_id, .kind = .promise };
     }
@@ -397,36 +322,34 @@ pub const NearRef = struct {
 
 pub const FarRef = struct {
     import_id: u64,
-    /// Wire-tag discriminator preserved from decode. Defaults to `.object`.
+    /// Which descriptor named this import on the wire. Defaults to `.object`.
     kind: ImportKind = .object,
 
-    /// Object-shaped import — the common case.
+    /// A plain object import. The common case.
     pub fn object(import_id: u64) FarRef {
         return .{ .import_id = import_id, .kind = .object };
     }
 
-    /// Promise-shaped import (`<desc:import-promise>`-decoded refs).
+    /// A promise import, decoded from `<desc:import-promise>`.
     pub fn promise(import_id: u64) FarRef {
         return .{ .import_id = import_id, .kind = .promise };
     }
 };
 
-/// A single step along a promise pipeline path.
+/// One step along a promise pipeline path.
 ///
-/// - `call` is admitted by both codecs. On Syrup it is decomposed into chained
-///   single-hop `op:deliver`s at the runtime layer
-///   ([`runtime.pipeline.decomposeOutboundDeliver`]); capnp encodes the path
-///   natively.
-/// - `field` is Cap'n Proto-only; the Syrup decomposer and encoders reject it
-///   because the OCapN spec admits no structural-navigation analog on
-///   `op:deliver`.
+/// A `call` works in both codecs. Syrup can't carry a multi-hop path on the
+/// wire, so the engine breaks it into a chain of single-hop `op:deliver`s
+/// (`engine.pipeline.decomposeOutboundDeliver`); Cap'n Proto just encodes the
+/// path as-is. A `field` is Cap'n Proto only. Syrup rejects it, because OCapN
+/// has no way to express "navigate into a field" on an `op:deliver`.
 pub const PipelineOp = union(enum) {
     field: []const u8,
     call: []const Argument,
 };
 
-/// Sequence of pipeline operations relative to a promise's eventual
-/// resolution. An empty path means "the resolution itself."
+/// A sequence of pipeline steps taken relative to a promise's eventual answer.
+/// An empty path just means the answer itself.
 pub const PipelinePath = struct {
     ops: []const PipelineOp = &.{},
 
@@ -446,11 +369,10 @@ pub const PromiseRef = struct {
     path: PipelinePath = .{},
 };
 
-/// Persistent locator for an object that may outlive its current session.
-///
-/// Structural shape is `(peer, swissnum)`: the peer locator names where the
-/// object lives, the swiss-number names the specific object. Equality is
-/// structural on `(peer, swissnum)`.
+/// A lasting handle to an object, one that can outlive the session you found it
+/// in. It's a pair: the peer locator says where the object lives, and the
+/// swiss-number says which object. Two sturdyrefs are equal when both halves
+/// match.
 pub const SturdyRef = struct {
     peer: PeerLocator,
     swissnum: []const u8,
@@ -468,25 +390,19 @@ pub const Reference = union(enum) {
     broken: BrokenRef,
 };
 
-/// Identifier of a CapTP stream within a session, allocated by the originator
-/// (the side holding the source object).
-///
-/// OCapN specifies no stream wire shape. A stream is modelled as ordinary
-/// capability calls (`Sink.write`, `FlowControl.ready`, `close` / `abort`)
-/// riding `op:deliver` / `op:resolve`, so `StreamId` is codec-neutral and
-/// constructible only from a typed value — it carries no wire encoding. The
-/// `FeatureSet.stream` flag negotiates the capability; stream credit and
-/// lifecycle tracking are not implemented.
-pub const StreamId = struct {
-    value: u64,
-};
-
 pub const Argument = union(enum) {
     bytes: []const u8,
     symbol: []const u8,
     reference: Reference,
     @"error": Error,
-    handoff: Handoff,
+    /// This one is boxed, and here's why. A handoff payload is about 160 bytes,
+    /// and a handoff almost never shows up as an argument. If we stored it inline,
+    /// every `Argument` would be 160 bytes wide, so a plain integer in a deliver
+    /// list would carry the weight of a handoff arm it never uses. Boxing it means
+    /// we only pay an allocation when a handoff genuinely appears as an argument.
+    /// `cloneArgument` and `freeArgument` own the box. The borrowed `view.Argument`
+    /// keeps its handoff inline, since it borrows wire bytes and never allocates.
+    handoff: *Handoff,
     string: []const u8,
     integer: i64,
     boolean: bool,
@@ -585,11 +501,11 @@ pub const AbortReason = struct {
     kind: AbortKind,
     message: []const u8,
 
-    /// Parse a V1.0 abort wire string back into a typed reason. A
-    /// `"<Label>: <message>"` shape whose label is a known [`AbortKind.wireName`]
-    /// recovers that kind; anything else is `.other` carrying the whole string.
-    /// The encode side is the codec's (`syrup.writeAbortWireString` builds the
-    /// `"<label>: <message>"` form from `kind.wireName()` at encode time).
+    /// Turn a V1.0 abort string back into a typed reason. V1.0 writes aborts as
+    /// `"<Label>: <message>"`. If the label is one we recognize, we recover that
+    /// kind; if it isn't, we keep the whole string as an `.other` reason. The
+    /// other direction is the codec's job: `syrup.writeAbortWireString` builds
+    /// that `"<label>: <message>"` form from `kind.wireName()` when it encodes.
     pub fn parseV1_0(wire: []const u8) AbortReason {
         if (std.mem.indexOf(u8, wire, ": ")) |split| {
             const label = wire[0..split];

@@ -3,7 +3,7 @@ id: ADR-0025
 status: accepted
 date: 2026-05-17
 tags: [session, limits, resilience, abort-taxonomy, security]
-decision: Every partner-driven session accumulator is bounded by a configurable cap on the `SessionLimits` struct. A fresh insert past a cap fails loud with a typed `*CapExceeded` error that projects to a `resource_exhausted` `op:abort` and closes the session, never a silent drop. The five resource-exhaustion caps are `max_inbound_answers`, `max_listeners_per_target`, `max_imports`, `max_seen_handoff_counts`, and `max_deposited_gifts`; the sturdyref cache evicts instead of erroring and the local-delivery bound is a runtime recursion guard.
+decision: Every partner-driven session accumulator is bounded by a configurable cap on the `SessionLimits` struct. A fresh insert past a cap fails loud with a typed `*CapExceeded` error that projects to a `resource_exhausted` `op:abort` and closes the session, never a silent drop. The five resource-exhaustion caps are `max_inbound_answers`, `max_listeners_per_target`, `max_imports`, `max_seen_handoff_counts`, and `max_deposited_gifts`; the sturdyref cache evicts instead of erroring and the local-delivery bound is an engine recursion guard.
 supersedes: []
 superseded_by: []
 ---
@@ -46,9 +46,9 @@ resource-exhaustion caps each project to one wire kind, `resource_exhausted`:
 kind in [`src/model/mod.zig`](../../../src/model/mod.zig): the partner's traffic
 is well-formed but exceeds the resource budget, so the observable contract ("back
 off") differs from `protocol_error`. The projection in
-[`src/runtime/abort_projection.zig`](../../../src/runtime/abort_projection.zig)
+[`src/engine/abort_projection.zig`](../../../src/engine/abort_projection.zig)
 maps all five typed errors to a `resource_exhausted` abort with `close = true`;
-the runtime emits the abort before surfacing the typed error.
+the engine emits the abort before surfacing the typed error.
 
 Two adjacent accumulators are bounded but do **not** project to
 `resource_exhausted`, by design:
@@ -58,7 +58,7 @@ Two adjacent accumulators are bounded but do **not** project to
   [ADR-0013](ADR-0013-cross-session-distributed-equality.md) — a miss costs one
   extra bootstrap-fetch round-trip, not correctness — so an overflow evicts the
   oldest entry instead of erroring (a cap of 0 disables caching).
-- `max_local_deliveries` (default 4096) is enforced by the runtime's resolution
+- `max_local_deliveries` (default 4096) is enforced by the engine's resolution
   drain, not a session table: it bounds the chain of local deliveries one
   resolution can trigger, failing with `LocalDeliveryCapExceeded` to stop a loop.
 
@@ -96,7 +96,7 @@ Two adjacent accumulators are bounded but do **not** project to
 ## Consequences
 
 - `SessionLimits` is the single tuning surface; table insert paths return typed
-  `*CapExceeded` errors the runtime projects to `resource_exhausted`.
+  `*CapExceeded` errors the engine projects to `resource_exhausted`.
 - The `AbortKind` taxonomy (governed by
   [ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md)) carries
   `resource_exhausted` as a public wire kind, distinct from `queue_cap_exceeded`
@@ -105,7 +105,7 @@ Two adjacent accumulators are bounded but do **not** project to
 - Evidence: per-cap refusals in
   [`test/session/session_test.zig`](../../../test/session/session_test.zig), the
   five-error → `resource_exhausted` projection in
-  [`test/runtime/abort_projection_test.zig`](../../../test/runtime/abort_projection_test.zig),
+  [`test/engine/abort_projection_test.zig`](../../../test/engine/abort_projection_test.zig),
   and the Goblins-aligned `op_abort_resource_exhausted.bin` fixture asserted in
   [`test/codec/syrup_test.zig`](../../../test/codec/syrup_test.zig).
 

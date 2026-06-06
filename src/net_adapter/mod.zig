@@ -1,11 +1,11 @@
-//! Byte-stream network adapter — the `std.Io`-bound layer above the no-I/O core.
+//! Where pancake meets a real byte stream.
 //!
-//! pancake's protocol core (`foundation` / `model` / `codec` / `session` /
-//! `runtime`) is sync and owns no I/O. This layer is the seam where a host's
-//! `std.Io` capability drives a `runtime.Peer` over a real byte stream:
-//! [`Connection`] folds inbound bytes into frames (one-parser framing) and
-//! streams the peer's outbound frames back. It is **not** a core layer; it is
-//! the only layer permitted to touch `std.Io`.
+//! The protocol core (foundation, model, codec, session, engine) is synchronous
+//! and does no I/O. This layer is the seam where a host's `std.Io` actually drives
+//! a `engine.Peer` over a live stream: `Connection` reads inbound bytes, lets the
+//! codec find frame boundaries as it goes, and streams the peer's outbound frames
+//! back. It isn't part of the core, and it's the one and only layer allowed to
+//! touch `std.Io`.
 
 const connection = @import("connection.zig");
 const frame_stream = @import("frame_stream.zig");

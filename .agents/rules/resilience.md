@@ -1,6 +1,6 @@
 ---
 description: "Zig pancake resilience posture for attacker-controlled bytes and layer ownership."
-globs: src/codec/**/*.zig, src/runtime/**/*.zig, src/session/**/*.zig, src/io_adapter/**/*.zig, src/c_abi/**/*.zig, test/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h
+globs: src/codec/**/*.zig, src/engine/**/*.zig, src/session/**/*.zig, src/c_abi/**/*.zig, test/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h
 ---
 
 # pancake — Resilience
@@ -14,7 +14,7 @@ complete.
 - Length arithmetic belongs where bytes are parsed; use checked arithmetic.
 - Codec parse limits belong in codecs.
 - Session validity belongs in session.
-- Decode/session failures project through runtime events and abort behavior.
+- Decode/session failures project through engine events and abort behavior.
 - Application rate limits, authorization, and deadlines belong above pancake.
 
 Concern not listed? Do layer analysis before patching.

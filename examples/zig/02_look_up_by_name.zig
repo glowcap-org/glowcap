@@ -1,28 +1,30 @@
 //! 02 — Look up a service by name.
 //!
-//! A client fetches a capability through the server's bootstrap object using a
-//! swiss-number — the spec-shaped alternative to chapter 01's pre-wiring. The
-//! server never writes a fetch handler: it registers `(swissnum -> cap)` and the
-//! runtime answers the inbound `'fetch` automatically (ADR-0006 responder half).
+//! A client asks the server's bootstrap object for a capability, naming it with a
+//! swiss-number. This is the spec-shaped way to do what chapter 01 did by
+//! pre-wiring. Notice the server never writes a fetch handler: it just registers a
+//! `swissnum -> cap` mapping, and the runtime answers the inbound `'fetch` for it
+//! on its own (ADR-0006, our side of the exchange).
 //!
-//! `fetch.prepareFetchSwissnum` builds the canonical bootstrap-fetch deliver and
-//! (on V1.0) the resolver the settlement rides back to; `tryMatchFetchOutcome`
-//! turns the partner's settlement — a resolver-callback `op:deliver` on V1.0 —
-//! back into a `fulfilled` / `broken` outcome.
+//! On the client side, `fetch.prepareFetchSwissnum` builds the bootstrap-fetch
+//! deliver, plus, on V1.0, the resolver the answer comes back to. Then
+//! `tryMatchFetchOutcome` takes the partner's reply (on V1.0 that's a
+//! resolver-callback `op:deliver`) and turns it back into a plain fulfilled or
+//! broken outcome.
 //!
-//! Run: `zig build examples` (also runs under `zig build check`).
+//! Run: `zig build examples` (it also runs under `zig build check`).
 
 const std = @import("std");
 const pancake = @import("pancake");
 const model = pancake.model;
-const runtime = pancake.runtime;
+const engine = pancake.engine;
 
 pub fn main() !void {
     var gpa: std.heap.DebugAllocator(.{}) = .{};
     defer if (gpa.deinit() == .leak) @panic("leaked memory");
     const allocator = gpa.allocator();
 
-    var pair = try runtime.factories.paired(allocator);
+    var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
     const client = &pair.p1;
     const server = &pair.p2;
@@ -35,7 +37,7 @@ pub fn main() !void {
 
     // The client prepares a bootstrap fetch and drives the wire loop. `send`
     // takes ownership of the prepared (heap-owned) message.
-    const prepared = try runtime.fetch.prepareFetchSwissnum(allocator, &client.session_state, swissnum);
+    const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, swissnum);
     try client.send(prepared.message);
     _ = try client.step();
     try server.feedInbound(client.takeOutbound().?);
@@ -55,7 +57,7 @@ pub fn main() !void {
     var settle = client.pollEvent().?;
     defer settle.deinit();
     const owned = try settle.decodeOwned(allocator);
-    const match = try runtime.fetch.tryMatchFetchOutcome(
+    const match = try engine.fetch.tryMatchFetchOutcome(
         allocator,
         prepared.resolver_export,
         prepared.answer_id,

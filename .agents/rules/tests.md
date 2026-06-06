@@ -17,7 +17,7 @@ globs: test/**/*.zig, src/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/
 
 ## Protocol Claims Need Scenarios
 
-Any claim about codec-neutral behavior, session state, runtime behavior, C ABI
+Any claim about codec-neutral behavior, session state, engine behavior, C ABI
 frame ownership, or cross-codec semantics needs a test or oracle trace.
 
 Do not use another implementation as the semantic authority in prose. If a
@@ -30,14 +30,14 @@ gap explicitly.
 - `test/model`: codec-neutral model types and structural equality.
 - `test/codec`: encode/decode fixtures and borrowed-view behavior.
 - `test/session`: validation and state transitions.
-- `test/runtime`: `Peer` dispatch, ownership, events, outbound drain.
+- `test/engine`: `Peer` dispatch, ownership, events, outbound drain.
 - `test/c_abi`: C ABI layout and ownership vocabulary.
-- `test/io_adapter`: adapter I/O glue and owned-frame transfer.
 - `test/conformance`: scenario trace comparisons.
 - `test/oracle`: protocol message-arm manifests and fixture loaders.
 - `test/oracles`: checked-in fixture corpora consumed by Zig tests.
 - `rust-dogfood`: Rust C ABI consumer smoke tests.
 
 Run `zig build check` before calling code work complete. Use focused steps such
-as `zig build test`, `zig build oracle-check`, `zig build rust-dogfood`,
-`zig build examples`, and `zig build bench-frame-view` while iterating.
+as `zig build test`, `zig build meta-check`, `zig build oracle-check`,
+`zig build rust-dogfood`, `zig build examples`, and `zig build bench-frame-view`
+while iterating.

@@ -1,14 +1,17 @@
-//! Cap'n Proto wire primitives: the word-aligned substrate the capnp codec
-//! builds on. A Cap'n Proto message is a sequence of 8-byte little-endian
-//! words grouped into segments; structured data is reached by following
-//! pointers (struct / list) that encode a signed word offset to their target.
+//! The word-aligned plumbing the Cap'n Proto codec sits on.
 //!
-//! This module knows nothing about pancake's message model — it is the
-//! mechanical layer (segment framing, pointer bit-packing, a single-segment
-//! builder, bounds-checked word reads). The model mapping lives in `core.zig`.
+//! A Cap'n Proto message is a run of 8-byte little-endian words, grouped into
+//! segments. You reach structured data by following pointers, struct or list,
+//! each of which packs a signed word offset to whatever it points at.
 //!
-//! Reads are endian-explicit (`std.mem.readInt(..., .little)`), so decoding is
-//! correct on any host. The builder writes the same way, so encoding is too.
+//! Nothing in this file knows about pancake's messages. It's purely mechanical:
+//! framing segments, packing and unpacking pointer bits, a small single-segment
+//! builder, and bounds-checked word reads. Mapping all of that onto the model is
+//! `core.zig`'s job.
+//!
+//! Every read names its endianness (`std.mem.readInt(..., .little)`), so decoding
+//! comes out right on any host, and the builder writes the same way, so encoding
+//! does too.
 
 const std = @import("std");
 

@@ -7,18 +7,36 @@ FFI consumer.
 
 ## The C ABI surface today
 
-The shipped `pancake.h` exposes:
+The current `pancake.h` exposes:
 
+- **Allocation context:** `pancake_context_new_default` /
+  `pancake_context_new_with_allocator` / `pancake_context_release`. A context
+  owns allocation policy for a handle family; the `*_in` constructors
+  (`pancake_peer_new_in`, `pancake_tcp_netlayer_new_in`) allocate peers,
+  netlayers, and every managed frame and buffer they own through that context —
+  the library allocator by default, or host `alloc`/`free` callbacks.
 - **Peer / frame primitives:** `pancake_peer_new` /
   `pancake_peer_feed_borrowed` / `pancake_peer_feed_owned` / `pancake_peer_step`
   / `pancake_peer_take_outbound` / `pancake_peer_poll_event` plus frame/event
   release.
+- **Sans-I/O stream input:** `pancake_peer_recv_stream` frames *and* dispatches
+  one frame from a raw byte-stream buffer, reporting how many bytes it consumed
+  (or `PANCAKE_ERR_WOULD_BLOCK` for a partial frame). The peer never blocks and
+  owns no socket, so a binding drives it from its own event loop — this is what
+  lets each binding run async over its language-native networking.
 - **Bootstrap serving:** `pancake_peer_register_bootstrap_cap` (publish a local
   capability behind a swissnum for inbound fetch).
+- **Typed OCapN driving surface (ADR-0032):** `pancake_peer_send_deliver` /
+  `_send_resolve` construct a call/reply from fixed-layout `PancakeReference` /
+  `PancakeArgument` structs; `pancake_peer_peek_event` +
+  `pancake_peer_poll_event_deliver` / `_poll_event_resolve` read an inbound
+  delivery/resolution as structured values; `_register_export` / `_register_import`
+  name the positions served or called. This is what lets a binding *drive* OCapN
+  rather than shuttle opaque frames.
 - **Per-thread last error:** `pancake_last_error` / `pancake_clear_last_error`
   re-expose the concrete socket cause behind a flat `PANCAKE_ERR_IO`.
 - **Blocking `tcp-testing-only` endpoint handles:** `pancake_tcp_netlayer_new` /
-  `_free` (an explicit handle owning the I/O backend), then
+  `_release` (an explicit handle owning the I/O backend), then
   `pancake_endpoint_tcp_testing_connect` / `_testing_listen` / `_testing_accept`
   / `_listener_port` / `_read_frame` / `_write_frame` / `_conn_close` /
   `_listener_close`. The host owns the peer and shuttles whole frames
@@ -32,31 +50,57 @@ The shipped `pancake.h` exposes:
 The shared library still carries no TLS, crossed-hellos, or background run loop
 (all deferred by name in ADR-0030).
 
-Each binding ships a **Zig-ABI smoke consumer** that loads the installed shared
-library, creates a peer, feeds a borrowed `op:abort` frame, and asserts the
-surfaced event is an Abort:
+Each binding is a real foreign-language consumer of the installed pancake
+artifacts. Rust links the installed static library; Deno, Python, and Racket load
+the installed shared library. Each binding ships an **idiomatic, language-native
+API** over the *whole* C ABI — the raw FFI is private; what a consumer touches is
+a `Peer` that releases itself, native values as call arguments, typed events, and
+a `Netlayer`/`Listener`/`Conn` for running a peer over a real TCP socket. The
+dogfood consumer in each drives a real OCapN round-trip through that API
+(construct a call, read a delivery as structured values, and run a peer over a
+loopback socket — synchronously and through the language-native async layer):
 
-| Binding | Smoke consumer | Pending (awaiting C ABI growth) |
+| Binding | Idiomatic API | Dogfood consumer |
 | --- | --- | --- |
-| [`rust/`](rust/) | `src/lib.rs` (`zig build rust-dogfood`) | — |
-| [`deno/`](deno/) | `zig_smoke.ts` | the netlayer/handshake/scenario code under `src/` |
-| [`python/`](python/) | `zig_smoke.py` | the netlayer/handshake/scenario code under `pancake/` |
-| [`racket/`](racket/) | `zig-smoke.rkt` | the Goblins/CapTP shim under `racket/` |
+| [`rust/`](rust/) | `src/lib.rs` (`Peer`, `Reference`/`Argument`/`Event` enums) | `cargo test` |
+| [`deno/`](deno/) | `pancake.ts` (`Peer` class, discriminated-union values) | `zig_smoke.ts` |
+| [`python/`](python/) | `pancake.py` (`Peer`, native Python values) | `zig_smoke.py` |
+| [`racket/`](racket/) | `pancake.rkt` (`peer`, native Racket values, event structs) | `zig-smoke.rkt` |
 
-The richer code each binding carries (full netlayers, scenario runners, the
-Goblins captp shim) targeted the Rust workbench's three-cdylib FFI family
-(runtime + net-tcp + net-iroh, with a `last_error` seam). It is preserved
-here as **pending reference** — not wired, not deleted — until the Zig C ABI
-grows the remaining surface (TLS / iroh transports, crossed-hellos).
+Each binding also exposes an **async connection** in its language-native idiom,
+driving the same sans-io peer over its own non-blocking sockets via
+`pancake_peer_recv_stream` — no blocking C netlayer, no thread-per-call:
+
+| Binding | Async idiom | Async type |
+| --- | --- | --- |
+| [`rust/`](rust/) | tokio (opt-in `async` feature) | `AsyncConnection` over `tokio::net::TcpStream` |
+| [`deno/`](deno/) | native promises | `AsyncConnection` over `Deno.connect`/`Deno.listen` |
+| [`python/`](python/) | `asyncio` | `AsyncConnection` over `asyncio` streams |
+| [`racket/`](racket/) | green threads + ports | `async-connection` over `tcp-connect`/`tcp-listen` |
+
+One async connection owns one peer (the peer is a single-owner state machine), so
+it lives on one task/thread — a connection actor. The peer calls are instant and
+never block the event loop; only the socket reads/writes await.
+
+Each idiomatic layer maps the same way: integers/floats/booleans/bytes/strings/
+symbols/references/lists in the language's own types, references via constructors
+(`Far(5)` / `far(5n)` / `(far 5)`), a `poll` that returns a typed `Deliver` /
+`Resolve` / other event, bootstrap serving, and TCP networking (a blocking
+netlayer for whole-frame shuttling, plus the language-native async layer above).
+The carried value set spans the model's passable tree (ADR-0032): integers, floats,
+booleans, bytes, strings, symbols, references, lists, sets, tagged records, and
+keywords all marshal in the language's own types. Handoff arguments and
+sturdy/broken targets are refused loudly (`PANCAKE_ERR_UNSUPPORTED_VALUE`). The
+shared library still carries no production transport beyond `tcp-testing-only`.
 
 ## Running
 
 ```sh
 zig build bindings        # rust + deno + python + racket smokes
-zig build rust-dogfood    # just the Rust consumer (also part of `zig build check`)
+zig build rust-dogfood    # just the Rust consumer
 ```
 
-`zig build bindings` requires `deno`, `python3`, and `racket` on PATH —
-provided by [`../.devcontainer/`](../.devcontainer/). The shared library is
-built and installed to `../zig-out/lib/libpancake.so` first; each consumer
-resolves it relative to its own location.
+`zig build bindings` requires `cargo`, `deno`, `python3`, and `racket` on PATH —
+provided by [`../.devcontainer/`](../.devcontainer/). The libraries are built and
+installed under `../zig-out/lib/` first; each consumer resolves the artifact it
+uses relative to its own location.

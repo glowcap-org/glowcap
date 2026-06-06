@@ -1,30 +1,30 @@
-//! Peer-less frame transport over a `std.Io` byte stream.
+//! Moving whole frames over a `std.Io` byte stream, without a peer involved.
 //!
-//! Where [`Connection`](connection.zig) folds frames straight into a
-//! `runtime.Peer` (borrowed-validate, zero-copy apply), a `FrameStream` exposes
-//! the boundary one level lower: read *one whole frame* off the wire as an owned
-//! `Frame`, or write one. It is the substrate the host-driven C ABI endpoint
-//! sits on — the C host owns the peer and does `read_frame -> feed_owned -> step
-//! -> take_outbound -> write_frame` itself, so this layer frames inbound bytes
-//! without applying any authority.
+//! A `Connection` reads frames straight into a `engine.Peer` and applies them.
+//! A `FrameStream` sits one level lower: read one whole frame off the wire as an
+//! owned `Frame`, or write one, and that's it. It's what the host-driven C ABI
+//! endpoint is built on. There, the C host owns the peer and runs the loop itself
+//! (read a frame, feed it, step, take the outbound, write it), so all this layer
+//! does is frame the inbound bytes. It applies no authority of its own.
 //!
-//! Framing is still the one parser: the active codec's decoder delimits the
-//! frame ([`codec.dispatch.decodePrefix`]), and the stream-edge conditions the
-//! codec does not decide (graceful vs mid-frame EOF, a full buffer that cannot
-//! hold a frame) are decided in exactly one place ([`fillStep`]), shared with
-//! the `Connection` pump so the two cannot drift.
+//! The framing is still the one parser: the active codec's decoder marks where a
+//! frame ends (`codec.dispatch.decodePrefix`). And the edge cases the codec can't
+//! decide on its own, a clean EOF versus one in the middle of a frame, or a buffer
+//! that fills up without holding a whole frame, are all settled in a single place
+//! (`fillStep`), which the `Connection` pump shares too so the two can't drift
+//! apart.
 //!
-//! The frame-level operations are free functions over a type-erased
-//! `*std.Io.Reader` / `*std.Io.Writer` ([`readFrameFrom`] / [`writeFrameTo`]),
-//! so they are proven with `Reader.fixed` / `Writer.fixed` across both codecs
-//! without a socket; [`FrameStream`] is the thin socket-backed binding.
+//! The frame operations themselves are free functions over a type-erased reader
+//! and writer (`readFrameFrom` / `writeFrameTo`), so we test them with
+//! `Reader.fixed` and `Writer.fixed` across both codecs without a socket.
+//! `FrameStream` is just the thin socket-backed binding on top.
 
 const std = @import("std");
 
 const foundation = @import("../foundation/mod.zig");
 const model = @import("../model/mod.zig");
 const codec = @import("../codec/mod.zig");
-const runtime = @import("../runtime/mod.zig");
+const engine = @import("../engine/mod.zig");
 
 const net = std.Io.net;
 
@@ -90,7 +90,7 @@ pub fn readFrameFrom(
                         .shape = codec.dispatch.frameShape(codec_id),
                     };
                     // The one shape-aware owned copy (8-aligned for `word`).
-                    const frame = runtime.ownedFrameFromView(allocator, view) catch |err| switch (err) {
+                    const frame = engine.ownedFrameFromView(allocator, view) catch |err| switch (err) {
                         error.OutOfMemory => return error.OutOfMemory,
                         // decodePrefix already accepted the frame, so a shape
                         // violation cannot occur; classify defensively.

@@ -1,4 +1,4 @@
-# sample-kel — frozen `.data/` fixture for `keri-conformance verify`
+# sample-kel — frozen `.data/` fixture for `keri-conformance`
 
 Captured from a real `accountability-on-goblins kernel` run on 2026-04-30.
 
@@ -15,7 +15,7 @@ A minimum reproducible KEL + Episode set covering one AID
   (the rotation key), `crypto_suite=ed25519-blake3-cesr-v1`.
 
 The original four-AID `.data/` lives under
-[`reference/implementations/accountability-on-goblins/.data/`](../../../../implementations/accountability-on-goblins/.data/);
+[`../../../accountability-on-goblins/.data/`](../../../accountability-on-goblins/.data/);
 this fixture captures a single coherent slice of it so the Python
 KERI conformance oracle can run without first invoking the Racket
 kernel.
@@ -37,12 +37,12 @@ kernel.
 
 When the kernel's KERI primitives change shape:
 
-1. Run `bash reference/implementations/accountability-on-goblins/stack/run.sh kernel`
+1. Run `racket conformance/accountability-on-goblins/racket/kernel.rkt`
    in a devcontainer to regenerate the source `.data/`.
 2. Pick one AID's KEL + matching Episode (the Episode's
    `kel_anchor.aid` must match a committed KEL filename) and copy
    the two files into this fixture, overwriting the old contents.
-3. Re-run `bash reference/tests/keri-conformance/run.sh verify --fixture sample-kel`
+3. Re-run `bash conformance/keri-conformance/run.sh --fixture sample-kel`
    to confirm the fixture still passes the oracle.
 4. Commit the refreshed fixture in the same PR that changes the
    kernel's KERI primitives.

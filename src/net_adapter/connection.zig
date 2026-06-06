@@ -1,26 +1,24 @@
-//! Byte-stream connection: a fold over frames welding a borrowed `*runtime.Peer`
-//! to a `std.Io` byte stream.
+//! A connection: it runs a borrowed `*engine.Peer` over a `std.Io` byte stream.
 //!
-//! A CapTP transport carries a stream of self-delimiting codec frames. The
-//! connection reads bytes into a buffer, hands the buffered prefix to the
-//! runtime, and the *active codec's own decoder* finds the frame boundary as it
-//! decodes ([`runtime.Peer.recvStreamPrefix`]) — one parse, no separate
-//! boundary scanner. Decoded frames are applied immediately (borrowed-validate),
-//! consumed bytes are dropped, and the peer's outbound frames are streamed back.
+//! A CapTP transport is a stream of self-delimiting codec frames. The connection
+//! reads bytes into a buffer and hands the buffered prefix to the engine, and the
+//! active codec's own decoder finds the frame boundary as it decodes
+//! (`engine.Peer.recvStreamPrefix`). One parse does both jobs; there's no
+//! separate boundary scanner. A decoded frame is applied right away, the bytes it
+//! used are dropped, and the peer's outbound frames are streamed back.
 //!
-//! This layer is the one place `std.Io` enters: the five core layers
-//! (`foundation` / `model` / `codec` / `session` / `runtime`) stay sync and
-//! no-I/O. The connection owns no socket abstraction of its own; it drives the
-//! standard `std.Io.Reader` / `std.Io.Writer` a stream already hands out, so the
-//! same code serves TCP today and TLS / in-memory pipes unchanged. The actual
-//! socket lives behind [`tcp`](tcp.zig); the framing core ([`pumpOver`]) takes
-//! only the type-erased reader/writer, so it is proven with `Reader.fixed` and
-//! `Writer.fixed` without any socket.
+//! This is the one place `std.Io` shows up. The five core layers stay synchronous
+//! and I/O-free. The connection doesn't wrap a socket of its own; it just drives
+//! the plain `std.Io.Reader` and `std.Io.Writer` a stream already gives you, so
+//! the same code handles TCP today and TLS or in-memory pipes tomorrow without
+//! changing. The actual socket lives behind `tcp.zig`, and the framing core
+//! (`pumpOver`) only ever sees a type-erased reader and writer, which is how we
+//! test it with `Reader.fixed` and `Writer.fixed` and no socket at all.
 
 const std = @import("std");
 
 const foundation = @import("../foundation/mod.zig");
-const runtime = @import("../runtime/mod.zig");
+const engine = @import("../engine/mod.zig");
 const frame_stream = @import("frame_stream.zig");
 
 /// One unit of forward progress reported by [`pumpOver`] / [`Connection.pump`].
@@ -66,7 +64,7 @@ pub const PumpError = error{
 /// concept — every byte-stream transport already funnels through
 /// `std.Io.Reader` / `std.Io.Writer`.
 pub const Connection = struct {
-    peer: *runtime.Peer,
+    peer: *engine.Peer,
     reader: std.Io.net.Stream.Reader,
     writer: std.Io.net.Stream.Writer,
     io: std.Io,
@@ -81,7 +79,7 @@ pub const Connection = struct {
     /// streams a large frame straight through.
     pub fn initStream(
         io: std.Io,
-        peer: *runtime.Peer,
+        peer: *engine.Peer,
         stream: std.Io.net.Stream,
         read_buf: []u8,
         write_buf: []u8,
@@ -108,7 +106,7 @@ pub const Connection = struct {
     /// Pump until `pred(peer)` holds or the stream closes. The only blocking
     /// sugar; the honest primitive is [`pump`]. Returns the last `Progress`
     /// (`.closed` if the stream ended first).
-    pub fn runUntil(self: *Connection, pred: *const fn (*runtime.Peer) bool) PumpError!Progress {
+    pub fn runUntil(self: *Connection, pred: *const fn (*engine.Peer) bool) PumpError!Progress {
         if (pred(self.peer)) return .idle;
         while (true) {
             const progress = try self.pump();
@@ -136,7 +134,7 @@ pub const Connection = struct {
 /// mid-`writeAll` to a slow reader can head-of-line-block. Request/response
 /// traffic (handshake, fetch, deliver/resolve) is safe on one fiber; concurrent
 /// streaming wants split read/write fibers above this primitive.
-pub fn pumpOver(peer: *runtime.Peer, r: *std.Io.Reader, w: *std.Io.Writer) PumpError!Progress {
+pub fn pumpOver(peer: *engine.Peer, r: *std.Io.Reader, w: *std.Io.Writer) PumpError!Progress {
     // 1. Encode queued sends, then flush everything outbound.
     stepToIdle(peer) catch |err| {
         _ = drainOutbound(peer, w) catch 0;
@@ -177,14 +175,14 @@ pub fn pumpOver(peer: *runtime.Peer, r: *std.Io.Reader, w: *std.Io.Writer) PumpE
 /// Encode every queued send into outbound frames (run `step` to quiescence).
 /// `step` here only drains `pending_send`; the connection never uses the
 /// frame-queue `feedInbound` path.
-fn stepToIdle(peer: *runtime.Peer) !void {
+fn stepToIdle(peer: *engine.Peer) !void {
     while ((try peer.step()) != .idle) {}
 }
 
 /// Write and flush every outbound frame, returning the byte count. The frame is
 /// owned by `takeOutbound`; this releases it after writing. `writeAll` streams a
 /// frame larger than the write buffer straight through.
-fn drainOutbound(peer: *runtime.Peer, w: *std.Io.Writer) std.Io.Writer.Error!usize {
+fn drainOutbound(peer: *engine.Peer, w: *std.Io.Writer) std.Io.Writer.Error!usize {
     var total: usize = 0;
     while (peer.takeOutbound()) |frame_value| {
         var frame: foundation.Frame = frame_value;

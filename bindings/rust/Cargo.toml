@@ -6,3 +6,11 @@ publish = false
 
 [lib]
 path = "src/lib.rs"
+
+[features]
+# Opt-in async I/O over tokio. The base binding stays dependency-free; the sync
+# `Peer` is sans-io and drives from any runtime, so async is purely additive.
+async = ["dep:tokio"]
+
+[dependencies]
+tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros"], optional = true }

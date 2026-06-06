@@ -160,6 +160,96 @@ test "minimal op:deliver encodes to the PreSpec Syrup byte shape" {
     );
 }
 
+test "Syrup encodes a Set in canonical encoded-byte order, not model order" {
+    const allocator = std.testing.allocator;
+    const target = model.Reference{ .far = .{ .import_id = 7 } };
+
+    // The same three-element set, built in two different model orders.
+    const set_a = [_]model.Argument{ .{ .integer = 3 }, .{ .integer = 1 }, .{ .integer = 2 } };
+    const set_b = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } };
+    const args_a = [_]model.Argument{.{ .set = set_a[0..] }};
+    const args_b = [_]model.Argument{.{ .set = set_b[0..] }};
+
+    var frame_a = try syrup.encodeMessage(allocator, .{ .deliver = .{ .target = target, .args = args_a[0..] } });
+    defer frame_a.deinit();
+    var frame_b = try syrup.encodeMessage(allocator, .{ .deliver = .{ .target = target, .args = args_b[0..] } });
+    defer frame_b.deinit();
+
+    // Canonical ordering means both encode to identical bytes regardless of the
+    // order the model held the set in — the encode-side partner of the
+    // order-agnostic set equality in model.equality.
+    try std.testing.expectEqualSlices(u8, frame_a.bytes(), frame_b.bytes());
+
+    // The items come out sorted by their encoded bytes (1, 2, 3), not insertion order.
+    try std.testing.expect(std.mem.indexOf(u8, frame_a.bytes(), "#1+2+3+$") != null);
+}
+
+test "Syrup encodes an empty Set as the bare #$ markers and the neutral decode accepts it" {
+    const allocator = std.testing.allocator;
+    const target = model.Reference{ .far = .{ .import_id = 7 } };
+    const empty: [0]model.Argument = .{};
+    const args = [_]model.Argument{.{ .set = empty[0..] }};
+
+    var frame = try syrup.encodeMessage(allocator, .{ .deliver = .{ .target = target, .args = args[0..] } });
+    defer frame.deinit();
+    // An empty set is the open/close markers with nothing between them.
+    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "#$") != null);
+
+    // The codec-neutral decode (the production inbound path) reads it back as a
+    // single empty-set argument.
+    const body = try syrup.decodeBody(frame.view());
+    try std.testing.expect(body == .deliver);
+    try std.testing.expectEqual(@as(usize, 1), try body.deliver.args.len());
+    const arg = try body.deliver.args.at(0);
+    try std.testing.expect(arg == .set);
+    try std.testing.expectEqual(@as(usize, 0), try arg.set.len());
+}
+
+test "Syrup canonicalizes nested Sets recursively, not just the outer one" {
+    const allocator = std.testing.allocator;
+    const target = model.Reference{ .far = .{ .import_id = 7 } };
+
+    // The set { {1,2}, {3,4} } built two ways: the outer elements in different
+    // order, and each inner set in different order. Canonical encoding has to
+    // sort at every level, so both must produce identical bytes.
+    const inner1_rev = [_]model.Argument{ .{ .integer = 2 }, .{ .integer = 1 } };
+    const inner2_rev = [_]model.Argument{ .{ .integer = 4 }, .{ .integer = 3 } };
+    const inner1 = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 } };
+    const inner2 = [_]model.Argument{ .{ .integer = 3 }, .{ .integer = 4 } };
+
+    const outer_a = [_]model.Argument{ .{ .set = inner1_rev[0..] }, .{ .set = inner2_rev[0..] } };
+    const outer_b = [_]model.Argument{ .{ .set = inner2[0..] }, .{ .set = inner1[0..] } };
+    const args_a = [_]model.Argument{.{ .set = outer_a[0..] }};
+    const args_b = [_]model.Argument{.{ .set = outer_b[0..] }};
+
+    var frame_a = try syrup.encodeMessage(allocator, .{ .deliver = .{ .target = target, .args = args_a[0..] } });
+    defer frame_a.deinit();
+    var frame_b = try syrup.encodeMessage(allocator, .{ .deliver = .{ .target = target, .args = args_b[0..] } });
+    defer frame_b.deinit();
+    try std.testing.expectEqualSlices(u8, frame_a.bytes(), frame_b.bytes());
+}
+
+test "a no-answer deliver encodes as a single op:deliver, never op:deliver-only" {
+    const allocator = std.testing.allocator;
+    const target = model.Reference{ .far = .{ .import_id = 7 } };
+    const args = [_]model.Argument{.{ .bytes = "hello" }};
+    const message = model.Message{ .deliver = .{ .target = target, .args = args[0..], .answer = null } };
+
+    // A one-way (no-answer) send is a single op:deliver with a #f answer position
+    // on every profile, including the Goblins-canonical V1.0 one. OCapN 1.0 has no
+    // separate one-way record.
+    var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, message);
+    defer frame.deinit();
+    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "op:deliver-only") == null);
+    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "op:deliver") != null);
+
+    // It round-trips to a deliver with no answer — the shape the engine and
+    // session handle for a one-way send.
+    const body = try syrup.decodeBody(frame.view());
+    try std.testing.expect(body == .deliver);
+    try std.testing.expect(body.deliver.answer == null);
+}
+
 test "neutral Args iterator walks the codec backing in one forward pass" {
     const allocator = std.testing.allocator;
     // A multi-arg deliver whose args include a nested list, so the walk exercises
@@ -451,18 +541,45 @@ test "Syrup decode rejects malformed parser boundary cases" {
     }
 }
 
-test "Syrup encode fails loud on a not-yet-wired float64 argument" {
+test "Syrup encodes float64 as the canonical 'D' + big-endian binary64 wire shape" {
     const allocator = std.testing.allocator;
-    // `float64` is a model value-tree breadth variant (ADR-0021) the Syrup
-    // encoder does not yet render; it must fail loud rather than drop the arg.
-    const args = [_]model.Argument{.{ .float64 = 3.5 }};
-    try std.testing.expectError(syrup.Error.UnsupportedArgument, syrup.encodeMessage(allocator, .{
-        .deliver = .{
+    // Syrup renders a double as `'D'` then 8 bytes IEEE-754 big-endian. 1.5 is
+    // 0x3FF8000000000000, so the frame pins the exact spec bytes — the wire
+    // contract a Goblins peer emitting a float over Syrup expects.
+    const args = [_]model.Argument{.{ .float64 = 1.5 }};
+    var frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
+        .target = .{ .far = .{ .import_id = 7 } },
+        .args = args[0..],
+        .answer = 42,
+    } });
+    defer frame.deinit();
+
+    try std.testing.expectEqualSlices(
+        u8,
+        "<10'op:deliver<11'desc:export7+>[D\x3f\xf8\x00\x00\x00\x00\x00\x00]42+f>",
+        frame.bytes(),
+    );
+}
+
+test "Syrup round-trips float64 through decode, including NaN and signed zero" {
+    const allocator = std.testing.allocator;
+    // `Object.is` bit-fidelity (ADR-0027): a NaN and a -0.0 must survive the wire
+    // bit-for-bit, not be normalized. Round-trip each through encode → decodeBody.
+    const cases = [_]f64{ 1.5, -0.0, 0.0, 3.141592653589793, std.math.nan(f64), std.math.inf(f64), -std.math.inf(f64) };
+    for (cases) |value| {
+        const args = [_]model.Argument{.{ .float64 = value }};
+        var frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
             .target = .{ .far = .{ .import_id = 7 } },
             .args = args[0..],
             .answer = 42,
-        },
-    }));
+        } });
+        defer frame.deinit();
+
+        const body = try syrup.decodeBody(frame.view());
+        const decoded = try body.deliver.args.at(0);
+        // Compare raw bits so NaN and signed zero are exact, not IEEE `==`.
+        try std.testing.expectEqual(@as(u64, @bitCast(value)), @as(u64, @bitCast(decoded.float64)));
+    }
 }
 
 test "Syrup decodeOwned rejects a handoff with an unsupported payload tag" {
@@ -498,6 +615,71 @@ test "Syrup decode rejects a truncated handoff envelope" {
         syrup.Error.MalformedFrame,
         syrup.decodeOwned(allocator, .{ .bytes = truncated, .shape = .byte }),
     );
+}
+
+// The Syrup owned decoder is the second attacker-facing surface. Like the
+// Cap'n Proto fuzz, this corrupts every byte of representative frames and
+// asserts `decodeOwned` stays total — a typed error or a well-formed message,
+// never a panic, a leak, or a double-free. It exercises the multi-allocation
+// arms whose partial-failure cleanup is easy to get wrong: gc-export's two
+// parallel lists, start-session, and both handoff envelopes.
+test "Syrup: corrupting any byte of a frame stays total: typed error or message, never a panic" {
+    const allocator = std.testing.allocator;
+    var handoff_arg = model.Handoff{ .give = fixtureGive() };
+
+    const messages = [_]model.Message{
+        .{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(4) },
+            .args = &.{
+                .{ .bytes = &.{ 1, 2, 3 } },
+                .{ .reference = .{ .far = model.FarRef.promise(2) } },
+                .{ .handoff = &handoff_arg },
+            },
+            .answer = 7,
+        } },
+        .{ .resolve = .{ .answer = 9, .resolution = .{ .break_ = .{ .message = "boom" } } } },
+        .{ .resolve = .{ .answer = 2, .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(6) } } } } },
+        .{ .gc_export = .{ .positions = &.{ 2, 5, 8 }, .deltas = &.{ 1, 1, 3 } } },
+        .{ .gc_answer = .{ .positions = &.{ 1, 4, 9 } } },
+        .{ .abort = .{ .kind = .version_mismatch, .message = "expected ocapn-1.0" } },
+        .{ .listen = .{
+            .target = .{ .far = model.FarRef.promise(1) },
+            .listener = .{ .far = model.FarRef.object(2) },
+            .wants_partial = true,
+        } },
+        .{ .get = .{ .receiver = .{ .far = model.FarRef.object(5) }, .field = "value", .answer = 8 } },
+        .{ .index = .{ .receiver = .{ .far = model.FarRef.object(6) }, .index = -3, .answer = 9 } },
+        .{ .start_session = .{
+            .captp_version = .v1_0,
+            .session_pubkey = .{ .bytes = &([_]u8{0xab} ** 32) },
+            .acceptable_location = .{ .transport = "tcp", .designator = "1.2.3.4:5" },
+            .acceptable_location_sig = .{ .bytes = &([_]u8{0xcd} ** 64) },
+        } },
+        .{ .handoff = .{ .give = fixtureGive() } },
+        .{ .handoff = .{ .receive = fixtureReceive() } },
+    };
+
+    for (messages) |message| {
+        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, message);
+        defer frame.deinit();
+
+        const original = try allocator.dupe(u8, frame.bytes());
+        defer allocator.free(original);
+
+        for (0..original.len) |i| {
+            for ([_]u8{ 0xFF, 0x7F, 0x01 }) |corruption| {
+                if (original[i] == corruption) continue;
+                const buf = try allocator.dupe(u8, original);
+                defer allocator.free(buf);
+                buf[i] = corruption;
+                const view = pancake.foundation.FrameView{ .bytes = buf, .shape = .byte };
+
+                if (syrup.decodeOwned(allocator, view)) |decoded| {
+                    model.freeMessage(allocator, decoded);
+                } else |_| {}
+            }
+        }
+    }
 }
 
 test "Syrup typed abort encode matches Goblins prefix fixture" {
@@ -826,9 +1008,10 @@ test "Syrup encoder matches handoff fixture batch" {
     }
 
     {
+        var handoff_arg = model.Handoff{ .receive = fixtureReceive() };
         const args = [_]model.Argument{
             .{ .symbol = "withdraw-gift" },
-            .{ .handoff = .{ .receive = fixtureReceive() } },
+            .{ .handoff = &handoff_arg },
         };
         var frame = try syrup.encodeMessage(allocator, .{
             .deliver = .{
@@ -839,6 +1022,17 @@ test "Syrup encoder matches handoff fixture batch" {
         });
         defer frame.deinit();
         try expectFixtureBytes("op_deliver_withdraw_gift.bin", frame);
+
+        const body = try syrup.decodeBody(frame.view());
+        try std.testing.expectEqual(@as(usize, 2), try body.deliver.args.len());
+        const borrowed_arg = try body.deliver.args.at(1);
+        try std.testing.expect(borrowed_arg == .handoff);
+        try std.testing.expectEqual(@as(u64, 1), borrowed_arg.handoff.receive.handoff_count);
+
+        const decoded = try syrup.decodeOwned(allocator, frame.view());
+        defer model.freeMessage(allocator, decoded);
+        try std.testing.expect(decoded.deliver.args[1] == .handoff);
+        try std.testing.expectEqual(@as(u64, 1), decoded.deliver.args[1].handoff.*.receive.handoff_count);
     }
 }
 

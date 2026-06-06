@@ -1,12 +1,13 @@
-//! Stream-framing result shared by the codecs and their dispatch seam.
+//! The verdict a codec gives back when it tries to frame a byte stream.
 //!
-//! A CapTP transport carries a stream of self-delimiting frames; the netlayer
-//! never length-prefixes them at the transport (Invariant: the codec's own
-//! grammar owns the frame boundary). To frame the stream, the active codec's
-//! decoder is run over the front of a read buffer and reports one of these
-//! verdicts. There is deliberately no separate boundary scanner — the decoder
-//! that produces the body is the same code that reports where the frame ends,
-//! so the two can never disagree and smuggle trailing bytes past validation.
+//! A CapTP transport is just a stream of self-delimiting frames. The netlayer
+//! never adds a length prefix of its own; the codec's grammar is what marks where
+//! a frame ends. So to pull a frame off the front of a read buffer, we run the
+//! active codec's decoder over it, and it answers with one of these verdicts.
+//!
+//! There's deliberately no separate "find the boundary" scanner. The same code
+//! that decodes the body is the code that says where the frame ends, so the two
+//! can't disagree and let trailing bytes slip past validation.
 
 const model = @import("../model/mod.zig");
 

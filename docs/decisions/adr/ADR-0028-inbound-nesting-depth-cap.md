@@ -29,7 +29,7 @@ bounds partner-driven table *breadth* but says nothing about tree *depth*.
 argument-tree depth. The recursive `validateInboundArguments` /
 `installIntroducedImports` walkers thread a depth counter and return
 `Error.NestingTooDeep` past the cap;
-[`src/runtime/abort_projection.zig`](../../../src/runtime/abort_projection.zig)
+[`src/engine/abort_projection.zig`](../../../src/engine/abort_projection.zig)
 projects it to a `resource_exhausted` `op:abort` with `close = true`, the same
 fail-loud-and-close posture as the ADR-0025 caps (the partner's frame is
 well-formed but exceeds the resource budget). Because validation runs before any

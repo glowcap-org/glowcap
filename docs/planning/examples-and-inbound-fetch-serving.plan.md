@@ -1,12 +1,16 @@
 # Examples port + inbound-`'fetch` serving — Implementation Plan
 
+Status: historical implementation plan. Current first-read state lives in
+`README.md`, `examples/README.md`, and
+`docs/planning/examples-and-inbound-fetch-serving.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the inbound-`'fetch` responder half in the Zig runtime and bring the Rust `docs/examples/` chapters over as runnable Zig programs, starting with the two (02, 08) that the responder unblocks.
 
 **Architecture:** Re-derive the serving substrate pancake's Rust workbench validated, against the OCapN / Goblins conformance authority: a session-owned swissnum→export registry plus a runtime recognizer/synthesizer (`runtime/bootstrap.zig`) hooked into `Peer.dispatchOwnedFrameInner`. The responder synthesizes a semantic `Resolve`; the existing V1_0 outbound translation turns it into a resolver-callback on the wire automatically. Examples are runnable `examples/zig/NN_*.zig` programs with narrative in `//!` headers, run by `zig build examples`/`check`.
 
-**Tech Stack:** Zig (build via `zig build`), pancake-zig core (`src/session`, `src/runtime`, `src/codec/syrup`), the spec gate `ADR-0006` (already amended to accept serving).
+**Tech Stack:** Zig (build via `zig build`), pancake-zig core (`src/session`, `src/engine`, `src/codec/syrup`), the spec gate `ADR-0006` (already amended to accept serving).
 
 **Spec of record:** [`examples-and-inbound-fetch-serving.md`](examples-and-inbound-fetch-serving.md). **Decision:** [`../decisions/adr/ADR-0006-handshake-substrate-and-bootstrap-fetch.md`](../decisions/adr/ADR-0006-handshake-substrate-and-bootstrap-fetch.md).
 
@@ -163,14 +167,14 @@ Expected: green (arch-check tolerates the new struct; it adds no new top-level m
 ### Task 2: `runtime/bootstrap.zig` recognizer + synthesizer
 
 **Files:**
-- Create: `src/runtime/bootstrap.zig`
-- Modify: `src/runtime/mod.zig:11` area (add `pub const bootstrap = @import("bootstrap.zig");`)
-- Modify: `tools/arch_check.zig` if it requires an explicit rule for each `src/runtime/*.zig` (check; `fetch.zig`/`sturdyref.zig` precedent applies)
-- Test: `test/runtime/bootstrap_test.zig` (new) — register in `test/all_test.zig`
+- Create: `src/engine/bootstrap.zig`
+- Modify: `src/engine/mod.zig:11` area (add `pub const bootstrap = @import("bootstrap.zig");`)
+- Modify: `tools/arch_check.zig` if it requires an explicit rule for each `src/engine/*.zig` (check; `fetch.zig`/`sturdyref.zig` precedent applies)
+- Test: `test/engine/bootstrap_test.zig` (new) — register in `test/all_test.zig`
 
 - [ ] **Step 1: Write the failing test**
 
-Create `test/runtime/bootstrap_test.zig`:
+Create `test/engine/bootstrap_test.zig`:
 
 ```zig
 const std = @import("std");
@@ -195,11 +199,11 @@ test "resolveForSwissnum fulfills with the mapped export, breaks on a miss" {
     defer sess.deinit();
     const export_id = try sess.registerBootstrapCap("k");
 
-    const hit = runtime.bootstrap.resolveForSwissnum(&sess, .{ .swissnum = "k", .answer = 7 });
+    const hit = engine.bootstrap.resolveForSwissnum(&sess, .{ .swissnum = "k", .answer = 7 });
     try std.testing.expectEqual(@as(u64, 7), hit.resolve.answer);
     try std.testing.expectEqual(model.NearRef.object(export_id), hit.resolve.resolution.fulfill.reference.near);
 
-    const miss = runtime.bootstrap.resolveForSwissnum(&sess, .{ .swissnum = "nope", .answer = 9 });
+    const miss = engine.bootstrap.resolveForSwissnum(&sess, .{ .swissnum = "nope", .answer = 9 });
     try std.testing.expectEqualStrings("unknown swissnum", miss.resolve.resolution.break_.message);
 }
 ```
@@ -215,9 +219,9 @@ test {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `zig build test`
-Expected: FAIL — no `runtime.bootstrap`.
+Expected: FAIL — no `engine.bootstrap`.
 
-- [ ] **Step 3: Create `src/runtime/bootstrap.zig`**
+- [ ] **Step 3: Create `src/engine/bootstrap.zig`**
 
 ```zig
 //! Inbound bootstrap-`'fetch` responder primitives — the no-I/O half of
@@ -289,7 +293,7 @@ pub fn resolveForSwissnum(session: *const session_mod.Session, request: Request)
 }
 
 /// The export/import position a reference view names, or null for a promise.
-/// Mirrors `runtime`'s view-side helper: an inbound deliver to our bootstrap
+/// Mirrors `engine`'s view-side helper: an inbound deliver to our bootstrap
 /// export decodes `<desc:export 0>` to `.near{export_id = 0}`.
 fn referencePosition(reference: codec.syrup.ReferenceView) ?u64 {
     return switch (reference) {
@@ -300,7 +304,7 @@ fn referencePosition(reference: codec.syrup.ReferenceView) ?u64 {
 }
 ```
 
-- [ ] **Step 4: Re-export from `src/runtime/mod.zig`**
+- [ ] **Step 4: Re-export from `src/engine/mod.zig`**
 
 After `pub const fetch = @import("fetch.zig");` (line 11):
 
@@ -328,25 +332,25 @@ Ask the user to commit: `feat(runtime): add bootstrap-fetch recognizer + synthes
 ### Task 3: Dispatch hook + `Peer.registerBootstrapCap`
 
 **Files:**
-- Modify: `src/runtime/mod.zig` — add `Peer.registerBootstrapCap` (near `send`/`sendCopying` ~line 256); hook in `dispatchOwnedFrameInner` (~lines 691–738)
-- Test: `test/runtime/bootstrap_test.zig` (extend) — an end-to-end auto-resolve
+- Modify: `src/engine/mod.zig` — add `Peer.registerBootstrapCap` (near `send`/`sendCopying` ~line 256); hook in `dispatchOwnedFrameInner` (~lines 691–738)
+- Test: `test/engine/bootstrap_test.zig` (extend) — an end-to-end auto-resolve
 
 - [ ] **Step 1: Write the failing test (end-to-end auto-serve)**
 
-Append to `test/runtime/bootstrap_test.zig`:
+Append to `test/engine/bootstrap_test.zig`:
 
 ```zig
 const foundation = pancake.foundation;
 
 test "responder auto-resolves an inbound bootstrap fetch (no manual reply)" {
-    var pair = try runtime.factories.paired(std.testing.allocator);
+    var pair = try engine.pairing.paired(std.testing.allocator);
     defer pair.deinit();
 
     // p2 exposes a cap behind a swissnum.
     const export_id = try pair.p2.registerBootstrapCap("thermostat");
 
     // p1 fetches it.
-    const prepared = try runtime.fetch.prepareFetchSwissnum(std.testing.allocator, &pair.p1.session_state, "thermostat");
+    const prepared = try engine.fetch.prepareFetchSwissnum(std.testing.allocator, &pair.p1.session_state, "thermostat");
     try pair.p1.send(prepared.message);
     _ = try pair.p1.step();
 
@@ -360,7 +364,7 @@ test "responder auto-resolves an inbound bootstrap fetch (no manual reply)" {
     {
         var ev = pair.p2.pollEvent().?; // the deliver event still surfaces
         defer ev.deinit();
-        try std.testing.expectEqual(runtime.EventKind.deliver, ev.kind());
+        try std.testing.expectEqual(engine.EventKind.deliver, ev.kind());
     }
     _ = try pair.p2.step(); // drain pending_send: encode the resolve (as a V1.0 resolver-callback)
 
@@ -373,7 +377,7 @@ test "responder auto-resolves an inbound bootstrap fetch (no manual reply)" {
     var settle = pair.p1.pollEvent().?;
     defer settle.deinit();
     const owned = try settle.decodeOwned(std.testing.allocator);
-    var match = try runtime.fetch.tryMatchFetchOutcome(
+    var match = try engine.fetch.tryMatchFetchOutcome(
         std.testing.allocator,
         prepared.resolver_export,
         prepared.answer_id,
@@ -397,7 +401,7 @@ Expected: FAIL — `Peer` has no `registerBootstrapCap`; the inbound fetch surfa
 
 - [ ] **Step 3: Add `Peer.registerBootstrapCap`**
 
-In `src/runtime/mod.zig` after `sendCopying` (~line 256):
+In `src/engine/mod.zig` after `sendCopying` (~line 256):
 
 ```zig
     /// Expose a local capability behind `swissnum` for inbound bootstrap-fetch
@@ -454,7 +458,7 @@ Ask the user to commit: `feat(runtime): serve inbound bootstrap-fetch automatica
 - Modify: `src/conformance/mod.zig` — add `runHandshakeThenBootstrapFetch`
 - Modify: `test/conformance/parity_test.zig` — assert against a golden trace
 - Create: `test/oracles/handshake_bootstrap_fetch.trace`
-- Modify: `test/runtime/fetch_test.zig`, `test/runtime/sturdyref_test.zig` — drop the hand-rolled responder resolve, drive the auto-serve
+- Modify: `test/engine/fetch_test.zig`, `test/engine/sturdyref_test.zig` — drop the hand-rolled responder resolve, drive the auto-serve
 
 - [ ] **Step 1: Add the scenario**
 
@@ -466,7 +470,7 @@ In `src/conformance/mod.zig`, after `runDrivenDeliverResolve` (~line 127):
 /// proof for ADR-0006's responder half: serving an inbound `'fetch` is in the
 /// runtime, not the test harness.
 pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator) ![]u8 {
-    var pair = try runtime.factories.paired(allocator);
+    var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
 
     var out: std.ArrayList(u8) = .empty;
@@ -476,7 +480,7 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator) ![]u8 {
     const export_id = try pair.p2.registerBootstrapCap("thermostat");
     try appendTraceLine(allocator, &out, "p2=registered:swissnum=thermostat:export={d}\n", .{export_id});
 
-    const prepared = try runtime.fetch.prepareFetchSwissnum(allocator, &pair.p1.session_state, "thermostat");
+    const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &pair.p1.session_state, "thermostat");
     try pair.p1.send(prepared.message);
     _ = try pair.p1.step();
     try out.appendSlice(allocator, "p1=sent:fetch\n");
@@ -503,7 +507,7 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator) ![]u8 {
         var settle = pair.p1.pollEvent().?;
         defer settle.deinit();
         const owned = try settle.decodeOwned(allocator);
-        var match = try runtime.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer_id, owned);
+        var match = try engine.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer_id, owned);
         switch (match.settled) {
             .fulfilled => |ref| {
                 defer pancake_model.freeReference(allocator, ref);
@@ -550,7 +554,7 @@ p1=fulfilled:import=1
 
 - [ ] **Step 4: De-manualize `fetch_test.zig` / `sturdyref_test.zig`**
 
-Read `test/runtime/fetch_test.zig` (~lines 98–138) and `test/runtime/sturdyref_test.zig` (~lines 196–245). Replace the blocks where the "server" peer hand-rolls `sendCopying(.{ .resolve = … })` with `registerBootstrapCap` + letting `step` auto-serve (the Task 3 pattern). Keep each test's assertion on the initiator's matched outcome unchanged.
+Read `test/engine/fetch_test.zig` (~lines 98–138) and `test/engine/sturdyref_test.zig` (~lines 196–245). Replace the blocks where the "server" peer hand-rolls `sendCopying(.{ .resolve = … })` with `registerBootstrapCap` + letting `step` auto-serve (the Task 3 pattern). Keep each test's assertion on the initiator's matched outcome unchanged.
 
 - [ ] **Step 5: Run tests + oracle**
 
@@ -677,7 +681,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var pair = try runtime.factories.paired(allocator);
+    var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
     const phone = &pair.p1;
     const speaker = &pair.p2;
@@ -771,7 +775,7 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    var pair = try runtime.factories.paired(allocator);
+    var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
     const client = &pair.p1;
     const server = &pair.p2;
@@ -783,7 +787,7 @@ pub fn main() !void {
     std.debug.print("server published swissnum -> export {d}\n", .{cap_export});
 
     // The client prepares a bootstrap fetch and drives the wire loop.
-    const prepared = try runtime.fetch.prepareFetchSwissnum(allocator, &client.session_state, swissnum);
+    const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, swissnum);
     try client.send(prepared.message);
     _ = try client.step();
     {
@@ -806,7 +810,7 @@ pub fn main() !void {
     var settle = client.pollEvent().?;
     defer settle.deinit();
     const owned = try settle.decodeOwned(allocator);
-    var match = try runtime.fetch.tryMatchFetchOutcome(
+    var match = try engine.fetch.tryMatchFetchOutcome(
         allocator,
         prepared.resolver_export,
         prepared.answer_id,
@@ -854,7 +858,8 @@ Remove "serving an inbound `'fetch`" from the not-implemented list and the sturd
 
 - [ ] **Step 2: Edit the planning doc status**
 
-Change `Status: planned.` to `Status: in flight — Phase 1 (serving half + examples 01–02) landed; examples 03–08 pending.`
+Mark the planning doc with the current role it plays: active plan, historical
+snapshot, or living-state surface.
 
 - [ ] **Step 3: Gate + commit (user)**
 
@@ -871,11 +876,11 @@ examples` → fix → gate). They are independent and additive; ch 08 reuses the
 Task 3 serving half.
 
 - **03 — Pass a reference along:** an `Argument.reference` inside a `deliver`. Read: `src/model/mod.zig` (`Argument.reference`). No new runtime surface.
-- **04 — Skip the round-trip:** pipeline a call against an unresolved answer. Read: `src/runtime/pipeline.zig`, `Session` inbound-answer/queue APIs.
-- **05 — Do three things at once:** multi-hop pipeline decomposition. Read: `src/runtime/pipeline.zig` (`decomposeOutboundDeliver`), `model.PipelineOp`/`PipelinePath`.
+- **04 — Skip the round-trip:** pipeline a call against an unresolved answer. Read: `src/engine/pipeline.zig`, `Session` inbound-answer/queue APIs.
+- **05 — Do three things at once:** multi-hop pipeline decomposition. Read: `src/engine/pipeline.zig` (`decomposeOutboundDeliver`), `model.PipelineOp`/`PipelinePath`.
 - **06 — Poke me when it's ready:** `op:listen` + listener fire on resolve. Read: `maybeInstallInboundListener`, `fireListenersOnResolve`, `model.Listen`.
-- **07 — Speak Goblins:** pin V1.0 / inspect `wire_profile`. Read: `runtime.factories.pairedWithOffers`, `model.WireProfile`, `negotiation`.
-- **08 — Enliven a sturdyref:** initiator `runtime.sturdyref` + the Task 3 responder. Read: `src/runtime/sturdyref.zig` (`checkEnlivenPreconditions`, `prepareEnliven`, `recordEnlivenment`), `model.SturdyRef`.
+- **07 — Speak Goblins:** pin V1.0 / inspect `wire_profile`. Read: `engine.pairing.pairedWithOffers`, `model.WireProfile`, `negotiation`.
+- **08 — Enliven a sturdyref:** initiator `engine.sturdyref` + the Task 3 responder. Read: `src/engine/sturdyref.zig` (`checkEnlivenPreconditions`, `prepareEnliven`, `recordEnlivenment`), `model.SturdyRef`.
 
 Each: add its `examples/zig/NN_*.zig`, append to `build.zig`'s `zig_examples`, add a row to `examples/README.md`, gate, commit.
 

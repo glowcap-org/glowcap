@@ -1,0 +1,145 @@
+const std = @import("std");
+const pancake = @import("pancake");
+
+const model = pancake.model;
+const engine = pancake.engine;
+const session = pancake.session;
+
+const fetch = engine.fetch;
+
+test "prepareFetchSwissnum builds the canonical bootstrap-fetch deliver (PreSpec)" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+
+    const prepared = try fetch.prepareFetchSwissnum(allocator, &s, "abc");
+    defer model.freeMessage(allocator, prepared.message);
+
+    try std.testing.expect(prepared.message == .deliver);
+    const deliver = prepared.message.deliver;
+    try std.testing.expect(deliver.target == .far);
+    try std.testing.expectEqual(session.BOOTSTRAP_EXPORT_ID, deliver.target.far.import_id);
+    try std.testing.expectEqual(@as(?u64, prepared.answer_id), deliver.answer);
+    try std.testing.expect(deliver.resolve_me_desc == null);
+    try std.testing.expectEqual(@as(usize, 2), deliver.args.len);
+    try std.testing.expectEqualStrings("fetch", deliver.args[0].symbol);
+    try std.testing.expectEqualStrings("abc", deliver.args[1].bytes);
+    try std.testing.expect(s.hasExport(prepared.resolver_export));
+}
+
+test "prepareFetchSwissnum carries a promise resolver desc on V1.0" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{
+        .wire_profile = model.WireProfile.v1_0,
+        .features = model.FeatureSet.full(),
+    });
+    defer s.deinit();
+
+    const prepared = try fetch.prepareFetchSwissnum(allocator, &s, "abc");
+    defer model.freeMessage(allocator, prepared.message);
+
+    const rmd = prepared.message.deliver.resolve_me_desc orelse return error.TestUnexpectedResult;
+    try std.testing.expect(rmd == .near);
+    try std.testing.expectEqual(prepared.resolver_export, rmd.near.export_id);
+    try std.testing.expectEqual(model.NearKind.promise, rmd.near.kind);
+}
+
+test "tryMatchFetchOutcome settles on an op:resolve keyed to the answer" {
+    const allocator = std.testing.allocator;
+    const match = try fetch.tryMatchFetchOutcome(allocator, 5, 9, .{ .resolve = .{
+        .answer = 9,
+        .resolution = .{ .fulfill = .{ .reference = .{ .far = .{ .import_id = 3 } } } },
+    } });
+    try std.testing.expect(match == .settled);
+    try std.testing.expect(match.settled == .fulfilled);
+    try std.testing.expectEqual(@as(u64, 3), match.settled.fulfilled.far.import_id);
+    model.freeReference(allocator, match.settled.fulfilled);
+}
+
+test "tryMatchFetchOutcome reports a partner-side break with its reason" {
+    const allocator = std.testing.allocator;
+    const msg = model.Message{ .resolve = .{
+        .answer = 9,
+        .resolution = .{ .break_ = .{ .message = try allocator.dupe(u8, "unknown swissnum") } },
+    } };
+    const match = try fetch.tryMatchFetchOutcome(allocator, 5, 9, msg);
+    try std.testing.expect(match.settled == .broken);
+    try std.testing.expectEqualStrings("unknown swissnum", match.settled.broken);
+    allocator.free(match.settled.broken);
+}
+
+test "tryMatchFetchOutcome settles on a resolver-callback deliver" {
+    const allocator = std.testing.allocator;
+    const args = try allocator.alloc(model.Argument, 2);
+    args[0] = .{ .symbol = try allocator.dupe(u8, "fulfill") };
+    args[1] = .{ .reference = .{ .far = .{ .import_id = 7 } } };
+    const msg = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_id = 5 } },
+        .args = args,
+        .answer = null,
+    } };
+    const match = try fetch.tryMatchFetchOutcome(allocator, 5, 9, msg);
+    try std.testing.expect(match.settled == .fulfilled);
+    try std.testing.expectEqual(@as(u64, 7), match.settled.fulfilled.far.import_id);
+    model.freeReference(allocator, match.settled.fulfilled);
+}
+
+test "tryMatchFetchOutcome hands back unrelated traffic" {
+    const allocator = std.testing.allocator;
+    const match = try fetch.tryMatchFetchOutcome(allocator, 5, 9, .{ .resolve = .{
+        .answer = 100,
+        .resolution = .{ .fulfill = .{ .void = {} } },
+    } });
+    try std.testing.expect(match == .unrelated);
+    model.freeMessage(allocator, match.unrelated);
+}
+
+test "bootstrap fetch round-trips: prepare, send, partner resolves, match" {
+    const allocator = std.testing.allocator;
+    var p1 = engine.Peer.init(allocator);
+    defer p1.deinit();
+    var p2 = engine.Peer.init(allocator);
+    defer p2.deinit();
+
+    // p1 addresses p2's bootstrap (import 0) — always reachable on an open
+    // session, no explicit import needed; p2 holds it as export 0.
+    try p2.session_state.registerExport(session.BOOTSTRAP_EXPORT_ID);
+    // Register the cap the fetch looks up so the runtime's auto-serve fulfills
+    // (rather than `break`s) the inbound bootstrap-fetch.
+    const cap_export = try p2.registerBootstrapCap("swiss");
+
+    const prepared = try fetch.prepareFetchSwissnum(allocator, &p1.session_state, "swiss");
+    const answer_id = prepared.answer_id;
+    const resolver_export = prepared.resolver_export;
+    try p1.send(prepared.message);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+    try p2.feedInbound(p1.takeOutbound().?);
+    // This step dispatches the inbound fetch: it surfaces the deliver event AND
+    // enqueues the synthesized resolve onto p2's pending_send.
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+    {
+        var fetch_event = p2.pollEvent().?;
+        fetch_event.deinit();
+    }
+
+    // A subsequent step encodes the auto-served resolve onto the outbound queue.
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+    try p1.feedInbound(p2.takeOutbound().?);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+
+    var resolve_event = p1.pollEvent().?;
+    defer resolve_event.deinit();
+    const msg = try resolve_event.decodeOwned(allocator);
+    const match = try fetch.tryMatchFetchOutcome(allocator, resolver_export, answer_id, msg);
+    try std.testing.expect(match == .settled);
+    try std.testing.expect(match.settled == .fulfilled);
+    // The matcher returns the fulfilled reference as decoded; assert its
+    // position (not its near/far variant) against the registered export.
+    const position: u64 = switch (match.settled.fulfilled) {
+        .near => |near| near.export_id,
+        .far => |far| far.import_id,
+        else => return error.TestUnexpectedResult,
+    };
+    try std.testing.expectEqual(cap_export, position);
+    model.freeReference(allocator, match.settled.fulfilled);
+}

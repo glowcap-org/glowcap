@@ -1,5 +1,5 @@
 //! Connection framing-core tests, driven over `Reader.fixed` / `Writer.fixed`
-//! with a real `*runtime.Peer` — no sockets. These prove the byte-stream half of
+//! with a real `*engine.Peer` — no sockets. These prove the byte-stream half of
 //! the one-parser contract: bytes in, frames out, and every termination
 //! condition (graceful close, truncation, malformed, oversize) surfaced as the
 //! right typed outcome rather than swallowed.
@@ -9,7 +9,7 @@ const pancake = @import("pancake");
 
 const model = pancake.model;
 const syrup = pancake.codec.syrup;
-const runtime = pancake.runtime;
+const engine = pancake.engine;
 const net_adapter = pancake.net_adapter;
 
 const zero_pubkey = [_]u8{0} ** 32;
@@ -35,7 +35,7 @@ fn startSessionFrame(allocator: std.mem.Allocator, designator: []const u8) !panc
 test "pumpOver frames one buffered frame, applies it, then reports graceful close" {
     const allocator = std.testing.allocator;
 
-    var peer = runtime.Peer.initNegotiating(allocator);
+    var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
 
     var frame = try startSessionFrame(allocator, "remote");
@@ -51,7 +51,7 @@ test "pumpOver frames one buffered frame, applies it, then reports graceful clos
 
     var event = peer.pollEvent() orelse return error.TestExpectedEvent;
     defer event.deinit();
-    try std.testing.expectEqual(runtime.EventKind.start_session, event.kind());
+    try std.testing.expectEqual(engine.EventKind.start_session, event.kind());
 
     // Buffer drained, stream ended on a frame boundary → graceful close.
     const second = try net_adapter.pumpOver(&peer, &reader, &writer);
@@ -61,7 +61,7 @@ test "pumpOver frames one buffered frame, applies it, then reports graceful clos
 test "pumpOver frames each frame of a concatenation in order" {
     const allocator = std.testing.allocator;
 
-    var peer = runtime.Peer.initNegotiating(allocator);
+    var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
 
     var f1 = try startSessionFrame(allocator, "a");
@@ -91,7 +91,7 @@ test "pumpOver frames each frame of a concatenation in order" {
 test "pumpOver surfaces a mid-frame EOF as TruncatedFrame" {
     const allocator = std.testing.allocator;
 
-    var peer = runtime.Peer.initNegotiating(allocator);
+    var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
 
     var frame = try startSessionFrame(allocator, "remote");
@@ -118,7 +118,7 @@ test "pumpOver surfaces a mid-frame EOF as TruncatedFrame" {
 test "pumpOver surfaces structurally invalid bytes as MalformedFrame" {
     const allocator = std.testing.allocator;
 
-    var peer = runtime.Peer.initNegotiating(allocator);
+    var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
 
     var reader = std.Io.Reader.fixed("<7'op:foo>");
@@ -131,7 +131,7 @@ test "pumpOver surfaces structurally invalid bytes as MalformedFrame" {
 test "pumpOver surfaces an over-cap frame as FrameTooLarge" {
     const allocator = std.testing.allocator;
 
-    var peer = runtime.Peer.initNegotiating(allocator);
+    var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     // A cap far below the start-session frame: cap-on-parse rejects it.
     peer.session_state.limits.max_frame_bytes = 8;
@@ -149,7 +149,7 @@ test "pumpOver surfaces an over-cap frame as FrameTooLarge" {
 test "pumpOver flushes the peer's queued outbound frames" {
     const allocator = std.testing.allocator;
 
-    var peer = runtime.Peer.initNegotiating(allocator);
+    var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
 
     // A negotiating peer may send its own op:start-session.

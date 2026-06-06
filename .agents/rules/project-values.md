@@ -11,8 +11,8 @@ small, direct, and product-grade.
 ## Values
 
 - **Protocol evidence over implementation folklore.** OCapN behavior, Goblins
-  fixtures, and Zig protocol scenarios justify semantic claims. Rust history is
-  useful context and C ABI dogfood, not the source of truth.
+ fixtures, and Zig protocol scenarios justify semantic claims. A C ABI dogfood
+ consumer proves consumability, not the source of truth.
 - **Explicit over implicit.** Ownership, allocation, copying, I/O, scheduling,
   and authority must be visible at the API boundary that performs them.
 - **No hidden runtime.** The protocol core is deterministic, sync, and no-I/O.

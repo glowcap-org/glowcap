@@ -1,10 +1,10 @@
 {
   "name": "@pancake/deno",
   "version": "0.1.0",
-  "exports": "./mod.ts",
+  "exports": "./pancake.ts",
   "tasks": {
-    "verify": "deno run --allow-ffi --allow-env --unstable-ffi src/scenarios.ts",
-    "check": "deno check mod.ts src/scenarios.ts",
+    "smoke": "deno run --allow-ffi --allow-read zig_smoke.ts",
+    "check": "deno check pancake.ts zig_smoke.ts",
     "fmt": "deno fmt",
     "lint": "deno lint"
   },
