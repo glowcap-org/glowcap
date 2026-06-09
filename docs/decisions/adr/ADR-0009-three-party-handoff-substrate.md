@@ -38,6 +38,14 @@ A `Peer` owns exactly one direct session, so a three-vat handoff spans several p
 
 A handoff can import a promise hosted by a third party. An `op:listen` on that import installs a listener against the third-party-hosted import (`imported_promises` in the session). When the introducing session forwards the host's resolution, `drainRelayedResolutions` fires the installed listeners with the forwarded resolution and stores it on the import, so a late `op:listen` fires immediately rather than waiting for a resolution that already arrived.
 
+### Signature verification and gifter-key provenance
+
+Handoff signature verification is an embedder-boundary concern, the same as `op:start-session`. pancake surfaces the signed certificates and ships the canonical signable-bytes encoders, and the embedder verifies them with `crypto.verify`. [`codec.syrup`](../../../src/codec/syrup/core.zig) provides `canonicalHandoffGiveSignedBytes` and `canonicalHandoffReceiveSignedBytes`, single-sourced against the wire encoders so the signing domain can never drift from what goes on the wire. `cross_peer.withdrawGift` verifies each certificate over its full canonical envelope through the injected `SignatureVerifier`, not over the gift-id field alone, because a single field is forgeable by replay across envelopes.
+
+The exporter's gift record carries the depositing gifter's session public key as opaque provenance. `Session.depositGift` records a `gifter_key` beside the recipient key, and `Session.giftGifterKey` reads it back, so a withdrawal routes each certificate to the right key: the give to the gifter key the exporter recorded at deposit, and the receive to the recipient key the give names. The exporter learns that gifter key automatically from the handshake. The session records its partner's session public key when it applies the partner's `op:start-session` and exposes it as `Session.partnerSessionKey`, and `cross_peer.deliverGive` falls back to that learned key when none is threaded explicitly. The session stores the key as opaque bytes and runs no crypto; verification stays the embedder's. `test/engine/cross_peer_test.zig` proves an end-to-end real-Ed25519 withdrawal authorized against the key the exporter learned from the handshake, and refuses a give signed by any other key with `SignatureRejected`.
+
+The present boundary: a live three-party handoff against Goblins, where the exporter holds separate sessions with the gifter and the recipient and the gift authority must span both, needs cross-session gift forwarding. That is not yet implemented and is the live frontier.
+
 ## Scope (what this does not decide)
 
 - Cross-codec handoff re-encode still needs dedicated scenario coverage across
@@ -45,8 +53,7 @@ A handoff can import a promise hosted by a third party. An `op:listen` on that i
   The decoded-field signing contract is what makes that path
   signature-preserving.
 - Real cryptographic verification: the injected `SignatureVerifier` is the seam; the bundled accept-everything verifier is for in-process tests and trusted substrates only.
-- The handshake substrate and bootstrap-fetch shape the deposit / withdraw `op:deliver`s ride on — [ADR-0006](ADR-0006-handshake-substrate-and-bootstrap-fetch.md).
-- `op:start-session` signing reuse of the same Ed25519 substrate — [ADR-0015](ADR-0015-handshake-signing.md).
+- The handshake substrate, bootstrap-fetch, and the `op:start-session` Ed25519 signing the deposit / withdraw `op:deliver`s reuse — [ADR-0006](ADR-0006-handshake-substrate-and-bootstrap-fetch.md).
 - Promise pipelining and the `op:listen` core semantics relayed resolution builds on — [ADR-0007](ADR-0007-promise-pipelining-substrate.md).
 - GC / abort wire shapes and the `handoff_replay` abort kind — [ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md).
 - Sturdyref enliven dedup, a sibling cross-peer concern that is not handoff — [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md).

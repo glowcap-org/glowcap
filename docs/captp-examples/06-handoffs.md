@@ -36,7 +36,7 @@ sequenceDiagram
 
 ## HO-3 — Step 1: deposit-gift
 
-An ordinary bootstrap-object call on the Gifter↔Exporter session. The
+Step 1 is an ordinary bootstrap-object call on the Gifter↔Exporter session. The
 Exporter stores the gift keyed by gift-id until a matching withdrawal.
 
 ```mermaid
@@ -49,8 +49,9 @@ sequenceDiagram
 
 ## HO-4 — The desc:handoff-give certificate
 
-Five fields, signed by the Gifter with its key from the **G↔X** session. Each
-field exists so a specific later check can hold (HO-5, HO-7).
+The give carries five fields, signed by the Gifter with its key from the
+**G↔X** session. Each field exists so a specific later check can hold, as HO-5
+and HO-7 show.
 
 ```mermaid
 flowchart TD

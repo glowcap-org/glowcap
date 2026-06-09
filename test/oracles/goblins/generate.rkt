@@ -87,7 +87,7 @@
 
 ;; <op:listen <desc:answer 7> <desc:import-object 9>>.
 ;;
-;; Stage 1 op:listen wire-shape per ADR-0007 § Decision 4 — two
+;; op:listen wire-shape per ADR-0007 § Decision 4 — two
 ;; desc:* reference operands. `to-desc` may be `desc:answer`
 ;; (pipelining target case) or `desc:export` (local-export target
 ;; case). `listen-desc` is `desc:import-object` or
@@ -96,9 +96,9 @@
 ;; via the standard payload-position perspective flip.
 ;;
 ;; Same shape on PreSpec and V1_0 — adding a new record is wire-
-;; additive. The Stage 2 V1_0 Goblins-canonical 3-operand
-;; `wants-partial?` extension lives in a separate fixture once the
-;; Stage 2 Goblins-canonical wire profile lands.
+;; additive. The V1_0 Goblins-canonical 3-operand `wants-partial?`
+;; extension lives in a separate fixture once the Goblins-canonical
+;; wire profile lands.
 (define (op-listen-promise-target)
   (record* 'op:listen
            (record* 'desc:answer 7)
@@ -140,16 +140,17 @@
 ;; <op:deliver <desc:export 7> [b"hello"] 42 <desc:import-object 99>>.
 ;;
 ;; V1_0 Goblins-canonical resolver-callback shape per
-;; crates/core/pancake-model/src/argument.rs (ADR-0003) and
-;; crates/codec/pancake-codec-syrup/src/lib.rs § "Versioned wire shapes":
-;; the fourth `op:deliver` field carries the partner-installable
-;; `<desc:import-object pos>` resolver descriptor (Goblins encodes
-;; it via `marshall-local-refr!` in
-;; reference/implementations/spritely-goblins/upstream/goblins/ocapn/captp.rkt).
+;; src/model/mod.zig (ADR-0003) and src/codec/syrup/core.zig
+;; § "Versioned wire shapes": the fourth `op:deliver` field carries the
+;; partner-installable `<desc:import-object pos>` resolver descriptor
+;; (Goblins encodes it via `marshall-local-refr!` in
+;; conformance/spritely-goblins/upstream/goblins/ocapn/captp.rkt).
 ;; A future `op:deliver` to that import carries the resolution
-;; ('fulfill <ref>) or ('break <error>) — that callback `op:deliver`
-;; is shape-identical to the existing `op_deliver.bin` fixture and is
-;; not a separate vector.
+;; ('fulfill <value>) or ('break <reason>). The fulfill callback is
+;; shape-identical to the existing `op_deliver.bin` fixture. The break
+;; reason is not always a `desc:error`: Goblins marshals a thrown
+;; exception as a record, which pancake renders to the break message
+;; (see `resolutionFromResolverCallback` in src/engine/mod.zig).
 (define (op-deliver-v1-0-with-resolve-me-desc)
   (record* 'op:deliver
            (record* 'desc:export 7)
@@ -157,7 +158,7 @@
            42
            (record* 'desc:import-object 99)))
 
-;; ── Stage 2 / ADR-0008 fixtures ────────────────────────────────────
+;; ── ADR-0008 fixtures ──────────────────────────────────────────────
 
 ;; <op:gc-exports [3 7] [1 2]> — Goblins-canonical op:gc-exports per
 ;; goblins/ocapn/captp.rkt:90-92: two parallel lists, the sender's
@@ -176,7 +177,7 @@
 
 ;; <op:abort "VersionMismatch: peer requested 2.0">.
 ;;
-;; Stage 2 / ADR-0008 typed-reason wire projection: pancake's
+;; ADR-0008 typed-reason wire projection: pancake's
 ;; AbortReasonKind taxonomy emits the spec-strict single-string
 ;; op:abort with a "<KindName>: <message>" prefix on V1_0 syrup.
 ;; Goblins-canonical wire stays a single string; the typed-kind
@@ -188,9 +189,9 @@
 
 ;; <op:abort "ResourceExhausted: ImportTable cap hit">.
 ;;
-;; Stage 4 / ADR-0025 typed-reason wire projection — same shape as
+;; ADR-0025 typed-reason wire projection — same shape as
 ;; op-abort-typed but with the new ResourceExhausted kind that
-;; ADR-0025 added (Stage 4 session table-cap hardening). Sibling
+;; ADR-0025 added (session table-cap hardening). Sibling
 ;; to the Python fixture; cross-impl byte parity on the typed
 ;; ResourceExhausted abort is the load-bearing check.
 (define (op-abort-resource-exhausted)
@@ -261,7 +262,7 @@
 (define (op-deliver-arg-set)
   (op-deliver-one-arg (set 1 2 3)))
 
-;; ── Stage 2 / ADR-0009 handoff envelope fixtures ───────────────────
+;; ── ADR-0009 handoff envelope fixtures ─────────────────────────────
 
 ;; Encode an Ed25519 public key as the OCapN-canonical gcrypt
 ;; s-expression `['public-key ['ecc ['curve 'Ed25519] ['flags 'eddsa]
@@ -335,7 +336,7 @@
 ;;             99
 ;;             #f>.
 ;;
-;; Stage 2 / ADR-0009 § Receiver side step 8 wire shape: the
+;; ADR-0009 § Receiver side step 8 wire shape: the
 ;; Receiver invokes `withdraw-gift` on the Exporter's bootstrap
 ;; object (<desc:export 0>) carrying a desc:sig-envelope-wrapped
 ;; desc:handoff-receive certificate as the second op:deliver arg.
@@ -363,7 +364,7 @@
   (define args (list 'withdraw-gift signed-receive))
   (record* 'op:deliver target args 99 #f))
 
-;; ── ADR-0011 / op:get + op:index fixtures ─────────────────────────
+;; ── ADR-0007 / op:get + op:index fixtures ─────────────────────────
 ;;
 ;; Goblins's `(define-recordable-struct op:get (receiver-desc
 ;; field-name new-answer-pos))` and the parallel `op:index` at
@@ -376,7 +377,7 @@
 ;; receiver = sender's `Reference::Far(import_id=7)` → wire
 ;; `<desc:export 7>` (target-position perspective flip per
 ;; ADR-0010 § Decision 3). `field-name` is a Syrup symbol per
-;; ADR-0011 § Decision 1 (the field name itself, not a string).
+;; ADR-0007 § Decision 1 (the field name itself, not a string).
 ;; `new-answer-pos` is the result-promise answer id the sender
 ;; just allocated.
 (define (op-get)
@@ -389,7 +390,7 @@
 ;;
 ;; receiver = sender's `Reference::Far(import_id=7)` → wire
 ;; `<desc:export 7>`. `index` is a Syrup positive integer per
-;; ADR-0011 § Decision 1 (model field is `i64` with `0` admitted);
+;; ADR-0007 § Decision 1 (model field is `i64` with `0` admitted);
 ;; `new-answer-pos` is the result-promise answer id.
 (define (op-index)
   (record* 'op:index
@@ -411,7 +412,7 @@
 ;; same shape via `peer_key_to_syrup` / `locator_to_syrup` /
 ;; `signature_to_syrup` — fixture confirms cross-impl byte parity.
 ;;
-;; Per ADR-0015 the signature domain is the *wrapped* `<my-location
+;; Per ADR-0006 the signature domain is the *wrapped* `<my-location
 ;; $loc>` Syrup-canonical bytes (Goblins's verification path at
 ;; `captp.rkt:1454-1457`). The signature byte pattern below
 ;; (`#xCC`) is a fixture placeholder — real handshake bytes are
@@ -473,10 +474,10 @@
         (cons "op_deliver_arg_tagged.bin"                      op-deliver-arg-tagged)
         (cons "op_deliver_arg_keyword.bin"                     op-deliver-arg-keyword)
         (cons "op_deliver_arg_set.bin"                         op-deliver-arg-set)
-        ;; ADR-0011 op:get / op:index field-projection ops
+        ;; ADR-0007 op:get / op:index field-projection ops
         (cons "op_get.bin"                                     op-get)
         (cons "op_index.bin"                                   op-index)
-        ;; ADR-0006 / ADR-0015 op:start-session handshake (V1_0)
+        ;; ADR-0006 op:start-session handshake (V1_0)
         (cons "op_start_session_v1_0.bin"                      op-start-session-v1-0)
         (cons "prim_string_hello.bin"                          prim-string-hello)
         (cons "prim_integer_pos_42.bin"                        prim-integer-pos-42)

@@ -252,7 +252,7 @@ fn updateByteString(hasher: *Sha256, bytes: []const u8) void {
 
 /// Hash a decimal length prefix. The digits are formatted into a small stack
 /// buffer (a `usize` is at most 20 decimal digits) then streamed in; this is
-/// integer→ASCII formatting, not a copy of any wire payload.
+/// integer-to-ASCII formatting, not a copy of any wire payload.
 fn updateLen(hasher: *Sha256, len: usize) void {
     var buf: [20]u8 = undefined;
     const text = std.fmt.bufPrint(&buf, "{d}", .{len}) catch unreachable;

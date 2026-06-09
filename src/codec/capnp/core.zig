@@ -115,7 +115,12 @@ pub const Reader = struct {
     /// Points directly into the frame; copies nothing.
     fn byteSlice(self: Reader, seg_idx: usize, len: usize) Error![]const u8 {
         if (len == 0) return &.{};
-        if (seg_idx + wire.wordsForBytes(len) > self.seg_words) return Error.Truncated;
+        // `seg_idx` and `len` both derive from an attacker-controlled list
+        // pointer, so add them checked: on a 32-bit target the sum could
+        // otherwise wrap below `seg_words` and pass a bound meant to reject it.
+        // This matches the checked arithmetic in `decodeView` and `compositeList`.
+        const end = std.math.add(usize, seg_idx, wire.wordsForBytes(len)) catch return Error.Truncated;
+        if (end > self.seg_words) return Error.Truncated;
         return self.bytes[(seg_idx + 1) * wire.WORD_BYTES ..][0..len];
     }
 
@@ -313,15 +318,15 @@ fn ownedMessage(allocator: std.mem.Allocator, reader: Reader, kind: Kind, body: 
         } },
         .deliver => try ownedDeliver(allocator, reader, body),
         .listen => blk: {
-            const target = try ownedRefAt(allocator, reader, body, 0);
+            const target = try ownedRefAt(allocator, reader, body, 0, 0);
             errdefer model.freeReference(allocator, target);
-            const listener = try ownedRefAt(allocator, reader, body, 1);
+            const listener = try ownedRefAt(allocator, reader, body, 1, 0);
             errdefer model.freeReference(allocator, listener);
             const wants_partial = (try reader.dataWord(body, 0)) & 1 != 0;
             break :blk .{ .listen = .{ .target = target, .listener = listener, .wants_partial = wants_partial } };
         },
         .get => blk: {
-            const receiver = try ownedRefAt(allocator, reader, body, 0);
+            const receiver = try ownedRefAt(allocator, reader, body, 0, 0);
             errdefer model.freeReference(allocator, receiver);
             const field = try ownedText(allocator, reader, body, 1);
             errdefer allocator.free(field);
@@ -329,7 +334,7 @@ fn ownedMessage(allocator: std.mem.Allocator, reader: Reader, kind: Kind, body: 
             break :blk .{ .get = .{ .receiver = receiver, .field = field, .answer = answer } };
         },
         .index => blk: {
-            const receiver = try ownedRefAt(allocator, reader, body, 0);
+            const receiver = try ownedRefAt(allocator, reader, body, 0, 0);
             errdefer model.freeReference(allocator, receiver);
             const index: i64 = @bitCast(try reader.dataWord(body, 0));
             const answer = try reader.dataWord(body, 1);
@@ -342,9 +347,9 @@ fn ownedMessage(allocator: std.mem.Allocator, reader: Reader, kind: Kind, body: 
 
 fn ownedDeliver(allocator: std.mem.Allocator, reader: Reader, body: StructLoc) Error!model.Message {
     const flags = try reader.dataWord(body, 0);
-    const target = try ownedRefAt(allocator, reader, body, 0);
+    const target = try ownedRefAt(allocator, reader, body, 0, 0);
     errdefer model.freeReference(allocator, target);
-    const args = try ownedArgumentList(allocator, reader, body, 1);
+    const args = try ownedArgumentList(allocator, reader, body, 1, 0);
     errdefer model.freeArgumentSlice(allocator, args);
     var deliver = model.Deliver{
         .target = target,
@@ -353,7 +358,7 @@ fn ownedDeliver(allocator: std.mem.Allocator, reader: Reader, body: StructLoc) E
         .resolve_me_desc = null,
     };
     if (flags & 2 != 0) {
-        if (try reader.followStruct(body, 2)) |ref_loc| deliver.resolve_me_desc = try ownedReference(allocator, reader, ref_loc);
+        if (try reader.followStruct(body, 2)) |ref_loc| deliver.resolve_me_desc = try ownedReference(allocator, reader, ref_loc, 0);
     }
     return .{ .deliver = deliver };
 }
@@ -385,7 +390,7 @@ fn ownedResolution(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc)
     const disc = try enumFromWire(ResolutionKind, try reader.dataWord(loc, 0));
     const inner = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
     return switch (disc) {
-        .fulfill => .{ .fulfill = try ownedArgument(allocator, reader, inner) },
+        .fulfill => .{ .fulfill = try ownedArgument(allocator, reader, inner, 0) },
         .break_ => .{ .break_ = try ownedError(allocator, reader, inner) },
     };
 }
@@ -439,11 +444,11 @@ fn ownedHandoffReceive(allocator: std.mem.Allocator, reader: Reader, loc: Struct
     } };
 }
 
-fn ownedRefAt(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u16) Error!model.Reference {
-    return ownedReference(allocator, reader, (try reader.followStruct(loc, i)) orelse return Error.MalformedFrame);
+fn ownedRefAt(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u16, depth: usize) Error!model.Reference {
+    return ownedReference(allocator, reader, (try reader.followStruct(loc, i)) orelse return Error.MalformedFrame, depth);
 }
 
-fn ownedReference(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) Error!model.Reference {
+fn ownedReference(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, depth: usize) Error!model.Reference {
     const data0 = try reader.dataWord(loc, 0);
     const disc = try enumFromWire(RefKind, data0);
     const scalar = try reader.dataWord(loc, 1);
@@ -455,7 +460,7 @@ fn ownedReference(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) 
         // Syrup decoder's `<desc:import-object>`→`far`, `<desc:export>`→`near`.
         .near => .{ .far = .{ .import_id = scalar, .kind = if (is_promise) .promise else .object } },
         .far => .{ .near = .{ .export_id = scalar, .kind = if (is_promise) .promise else .object } },
-        .promise => .{ .promise = .{ .answer_id = scalar, .path = .{ .ops = try ownedPipelinePath(allocator, reader, loc, 0) } } },
+        .promise => .{ .promise = .{ .answer_id = scalar, .path = .{ .ops = try ownedPipelinePath(allocator, reader, loc, 0, depth) } } },
         .sturdy => blk: {
             const peer = try ownedPeerLocator(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame);
             errdefer model.freePeerLocator(allocator, peer);
@@ -482,13 +487,25 @@ fn ownedError(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) Erro
     return .{ .message = try ownedText(allocator, reader, loc, 0) };
 }
 
-fn ownedArgument(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) Error!model.Argument {
+/// Maximum owned-decode nesting. A composite list pointer can address words
+/// earlier in the segment, so a crafted single-segment frame could otherwise
+/// drive `ownedArgument` to recurse one native stack frame per nesting level and
+/// overflow the stack. This is the same backstop the engine's borrowed-view
+/// materialization enforces (`model.view.max_owned_depth`); naming the codec's
+/// own `decodeOwned` entry point to it keeps both public decode paths hardened
+/// identically. `depth` counts argument-nesting levels, checked at the single
+/// choke point below — every deeper recursion passes through here.
+const max_owned_nesting: usize = model.view.max_owned_depth;
+
+fn ownedArgument(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, depth: usize) Error!model.Argument {
+    if (depth > max_owned_nesting) return Error.MalformedFrame;
+    const next = depth + 1;
     const data0 = try reader.dataWord(loc, 0);
     const disc = try enumFromWire(ArgKind, data0);
     return switch (disc) {
         .bytes => .{ .bytes = try ownedData(allocator, reader, loc, 0) },
         .symbol => .{ .symbol = try ownedText(allocator, reader, loc, 0) },
-        .reference => .{ .reference = try ownedReference(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame) },
+        .reference => .{ .reference = try ownedReference(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame, next) },
         .@"error" => .{ .@"error" = try ownedError(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame) },
         .handoff => blk: {
             const handoff = try handoffFromStruct(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame);
@@ -500,11 +517,11 @@ fn ownedArgument(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) E
         .string => .{ .string = try ownedText(allocator, reader, loc, 0) },
         .integer => .{ .integer = @bitCast(try reader.dataWord(loc, 1)) },
         .boolean => .{ .boolean = data0 & (1 << 16) != 0 },
-        .list => .{ .list = try ownedArgumentList(allocator, reader, loc, 0) },
+        .list => .{ .list = try ownedArgumentList(allocator, reader, loc, 0, next) },
         .void => .{ .void = {} },
         .float64 => .{ .float64 = @bitCast(try reader.dataWord(loc, 1)) },
-        .set => .{ .set = try ownedArgumentList(allocator, reader, loc, 0) },
-        .tagged => .{ .tagged = try ownedTagged(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame) },
+        .set => .{ .set = try ownedArgumentList(allocator, reader, loc, 0, next) },
+        .tagged => .{ .tagged = try ownedTagged(allocator, reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame, next) },
         .keyword => .{ .keyword = try ownedText(allocator, reader, loc, 0) },
     };
 }
@@ -520,14 +537,14 @@ fn handoffFromStruct(allocator: std.mem.Allocator, reader: Reader, loc: StructLo
     };
 }
 
-fn ownedTagged(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc) Error!model.Tagged {
+fn ownedTagged(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, depth: usize) Error!model.Tagged {
     const tag = try ownedText(allocator, reader, loc, 0);
     errdefer allocator.free(tag);
-    const value = try ownedArgumentList(allocator, reader, loc, 1);
+    const value = try ownedArgumentList(allocator, reader, loc, 1, depth);
     return .{ .tag = tag, .value = value };
 }
 
-fn ownedPipelinePath(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u16) Error![]const model.PipelineOp {
+fn ownedPipelinePath(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u16, depth: usize) Error![]const model.PipelineOp {
     const clist = (try compositeList(reader, loc, i)) orelse return &.{};
     const ops = try allocator.alloc(model.PipelineOp, clist.element_count);
     var filled: usize = 0;
@@ -542,18 +559,18 @@ fn ownedPipelinePath(allocator: std.mem.Allocator, reader: Reader, loc: StructLo
         const disc = try enumFromWire(PipelineOpKind, try reader.dataWord(elem, 0));
         op.* = switch (disc) {
             .field => .{ .field = try ownedText(allocator, reader, elem, 0) },
-            .call => .{ .call = try ownedArgumentSlice(allocator, reader, elem, 0) },
+            .call => .{ .call = try ownedArgumentSlice(allocator, reader, elem, 0, depth) },
         };
         filled += 1;
     }
     return ops;
 }
 
-fn ownedArgumentList(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u16) Error![]const model.Argument {
-    return ownedArgumentSlice(allocator, reader, loc, i);
+fn ownedArgumentList(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u16, depth: usize) Error![]const model.Argument {
+    return ownedArgumentSlice(allocator, reader, loc, i, depth);
 }
 
-fn ownedArgumentSlice(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u16) Error![]const model.Argument {
+fn ownedArgumentSlice(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u16, depth: usize) Error![]const model.Argument {
     const clist = (try compositeList(reader, loc, i)) orelse return &.{};
     const args = try allocator.alloc(model.Argument, clist.element_count);
     var filled: usize = 0;
@@ -562,7 +579,7 @@ fn ownedArgumentSlice(allocator: std.mem.Allocator, reader: Reader, loc: StructL
         allocator.free(args);
     }
     for (args) |*arg| {
-        arg.* = try ownedArgument(allocator, reader, clist.elem(filled));
+        arg.* = try ownedArgument(allocator, reader, clist.elem(filled), depth);
         filled += 1;
     }
     return args;
@@ -571,7 +588,11 @@ fn ownedArgumentSlice(allocator: std.mem.Allocator, reader: Reader, loc: StructL
 fn ownedU64List(allocator: std.mem.Allocator, reader: Reader, loc: StructLoc, i: u16) Error![]const u64 {
     const list = try followList(reader, loc, i);
     if (list.count == 0) return &.{};
-    if (list.data_idx + list.count > reader.seg_words) return Error.Truncated;
+    // `data_idx` and `count` both come from the attacker-controlled list pointer;
+    // add them checked so a wrap can't slip past this segment bound (the same
+    // hardening `decodeView`/`compositeList` apply).
+    const end = std.math.add(usize, list.data_idx, list.count) catch return Error.Truncated;
+    if (end > reader.seg_words) return Error.Truncated;
     const out = try allocator.alloc(u64, list.count);
     errdefer allocator.free(out);
     for (out, 0..) |*value, idx| value.* = try reader.word(list.data_idx + idx);

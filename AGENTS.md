@@ -9,8 +9,15 @@ the conformance authority for every semantic claim. A Rust binding consumes the
 C ABI as a dogfood, and a fuller Rust consumer may follow; a consumer is never
 the oracle for Zig semantics.
 
+[`docs/vision.md`](docs/vision.md) is the north star every change serves. Read it
+before scoping new work, and keep the README's shipped list honest about how far
+the code has actually reached toward it.
+
 ## First Principles
 
+- Every change moves toward the vision in [`docs/vision.md`](docs/vision.md), or
+  holds a line that protects it. Performance, the architecture, and that
+  destination do not get traded for convenience.
 - Protocol correctness and capability semantics come before implementation
   convenience.
 - Performance is a public contract: every allocation and copy on the wire path
@@ -42,9 +49,10 @@ before changing scaffolding, public APIs, frame ownership, codec/session/engine
 boundaries, or test/debug helper placement.
 
 Load the focused rule before touching its surface: `project-values`,
-`architecture`, `memory`, `tests`, `resilience`, `cli`, `doc-drift`, and
-`prerelease-language` all live under
-[`.agents/rules/`](.agents/rules/).
+`architecture`, `memory`, `tests`, `resilience`, `cli`, `doc-drift`, `doc-voice`,
+and `prerelease-language` all live under
+[`.agents/rules/`](.agents/rules/). When you write or edit a doc, `doc-voice`
+covers how it should read and `doc-drift` covers whether its claims are still true.
 
 Serena is first-class for code-symbol work. Read
 [`.agents/rules/serena-mcp.md`](.agents/rules/serena-mcp.md) before symbol

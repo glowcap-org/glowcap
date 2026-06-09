@@ -33,7 +33,7 @@ test "pendingBootstrapRequest recognizes a real bootstrap-fetch, misses otherwis
     var frame = try codec.syrup.encodeMessage(allocator, prepared.message);
     defer frame.deinit();
     const view = try codec.syrup.decodeBody(frame.view());
-    const hit = try engine.bootstrap.pendingBootstrapRequest(view.deliver);
+    const hit = try engine.bootstrap.pendingBootstrapRequest(view.deliver, &sess);
     try std.testing.expect(hit != null);
     try std.testing.expectEqualStrings("swiss", hit.?.swissnum);
     try std.testing.expectEqual(prepared.answer_id, hit.?.answer);
@@ -52,7 +52,7 @@ test "pendingBootstrapRequest recognizes a real bootstrap-fetch, misses otherwis
         var miss_frame = try codec.syrup.encodeMessage(allocator, msg);
         defer miss_frame.deinit();
         const miss_view = try codec.syrup.decodeBody(miss_frame.view());
-        try std.testing.expect((try engine.bootstrap.pendingBootstrapRequest(miss_view.deliver)) == null);
+        try std.testing.expect((try engine.bootstrap.pendingBootstrapRequest(miss_view.deliver, &sess)) == null);
     }
 
     // Miss: a fetch-shaped deliver to a non-bootstrap target falls through too.
@@ -69,7 +69,7 @@ test "pendingBootstrapRequest recognizes a real bootstrap-fetch, misses otherwis
         var miss_frame = try codec.syrup.encodeMessage(allocator, msg);
         defer miss_frame.deinit();
         const miss_view = try codec.syrup.decodeBody(miss_frame.view());
-        try std.testing.expect((try engine.bootstrap.pendingBootstrapRequest(miss_view.deliver)) == null);
+        try std.testing.expect((try engine.bootstrap.pendingBootstrapRequest(miss_view.deliver, &sess)) == null);
     }
 }
 

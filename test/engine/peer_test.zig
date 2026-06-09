@@ -1022,3 +1022,218 @@ test "a malformed inbound frame emits a malformed-frame abort and closes" {
     try std.testing.expect(decoded == .abort);
     try std.testing.expectEqual(model.AbortKind.malformed_frame, decoded.abort.kind);
 }
+
+test "a pipelined call whose arg references an unheld export is rejected, like a direct deliver" {
+    const allocator = std.testing.allocator;
+    var p1 = engine.Peer.init(allocator);
+    defer p1.deinit();
+    var p2 = engine.Peer.init(allocator);
+    defer p2.deinit();
+
+    try p1.session_state.registerImport(7);
+    try p2.session_state.registerExport(7);
+    // p1 claims to hold import 99, which p2 never exported — a desynced or
+    // hostile partner naming a capability that does not exist on p2's side.
+    try p1.session_state.registerImport(99);
+
+    // p1 calls p2's export, allocating answer 42 (now pending on p2).
+    try p1.sendCopying(.{ .deliver = .{
+        .target = .{ .far = .{ .import_id = 7 } },
+        .args = &.{},
+        .answer = 42,
+    } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+    try p2.feedInbound(p1.takeOutbound().?);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+    {
+        var event = p2.pollEvent().?;
+        event.deinit();
+    }
+
+    // p1 pipelines a call against answer 42 whose arg references far import 99.
+    // On p2 that decodes (perspective flip, ADR-0010) to near export 99, which p2
+    // does not hold. A direct deliver carrying that arg is rejected as
+    // InvalidReference; the pipelined call must be rejected the same way instead
+    // of slipping past validation onto the answer's queue.
+    try p1.sendCopying(.{ .deliver = .{
+        .target = .{ .promise = .{ .answer_id = 42 } },
+        .args = &.{.{ .reference = .{ .far = .{ .import_id = 99 } } }},
+        .answer = 43,
+    } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+    try p2.feedInbound(p1.takeOutbound().?);
+
+    // p2 dispatches the pipelined frame and rejects it at validation — the call
+    // never reaches the queue.
+    try std.testing.expectError(error.InvalidReference, p2.step());
+    try std.testing.expectEqual(@as(usize, 0), p2.session_state.inboundAnswer(42).?.queued_calls);
+}
+
+test "local-delivery depth bounds one resolution and resets, so a long-lived peer never wedges" {
+    const allocator = std.testing.allocator;
+    var p1 = engine.Peer.init(allocator);
+    defer p1.deinit();
+    var p2 = engine.Peer.init(allocator);
+    defer p2.deinit();
+
+    // Tighten the cap so the test exercises the per-resolution reset without
+    // 4096 iterations. With the cap at 1, each resolution may drive exactly one
+    // local delivery; before the fix `local_delivery_depth` was a peer-lifetime
+    // counter, so the *second* resolution aborted with LocalDeliveryCapExceeded.
+    p2.session_state.limits.max_local_deliveries = 1;
+
+    try p1.session_state.registerImport(7);
+    try p2.session_state.registerExport(7);
+    try p2.session_state.registerExport(9);
+
+    var answer: u64 = 100;
+    var cycle: usize = 0;
+    while (cycle < 4) : (cycle += 1) {
+        // p1 calls p2's export, allocating `answer` (pending on p2).
+        try p1.sendCopying(.{ .deliver = .{
+            .target = .{ .far = .{ .import_id = 7 } },
+            .args = &.{},
+            .answer = answer,
+        } });
+        try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+        try p2.feedInbound(p1.takeOutbound().?);
+        try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+        {
+            var event = p2.pollEvent().?;
+            event.deinit();
+        }
+
+        // p1 pipelines a call against the unresolved answer.
+        try p1.sendCopying(.{ .deliver = .{
+            .target = .{ .promise = .{ .answer_id = answer } },
+            .args = &.{.{ .bytes = "ping" }},
+            .answer = answer + 1,
+        } });
+        try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+        try p2.feedInbound(p1.takeOutbound().?);
+        try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+
+        // p2 resolves `answer` to a local export: one local delivery. This must
+        // not exceed the cap on any cycle — the depth resets per resolution.
+        try p2.sendCopying(.{ .resolve = .{
+            .answer = answer,
+            .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_id = 9 } } } },
+        } });
+        try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+        {
+            var resolve_frame = p2.takeOutbound().?;
+            resolve_frame.deinit();
+        }
+        var local_event = p2.pollEvent().?;
+        local_event.deinit();
+
+        answer += 2;
+    }
+}
+
+test "a closed session refuses a pipelined deliver instead of queuing it (fail closed)" {
+    const allocator = std.testing.allocator;
+    var p1 = engine.Peer.init(allocator);
+    defer p1.deinit();
+    var p2 = engine.Peer.init(allocator);
+    defer p2.deinit();
+
+    try p1.session_state.registerImport(7);
+    try p2.session_state.registerExport(7);
+
+    // p1 calls p2's export, allocating answer 42 (pending on p2).
+    try p1.sendCopying(.{ .deliver = .{
+        .target = .{ .far = .{ .import_id = 7 } },
+        .args = &.{},
+        .answer = 42,
+    } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+    try p2.feedInbound(p1.takeOutbound().?);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+    {
+        var event = p2.pollEvent().?;
+        event.deinit();
+    }
+
+    // A fatal abort closes p2's session. close() flips state but does not clear
+    // the pending answer table, so answer 42 still exists.
+    p2.session_state.close();
+    try std.testing.expect(p2.session_state.inboundAnswer(42) != null);
+
+    // p1 pipelines a call against answer 42. A closed session admits nothing —
+    // the engine must refuse it at the state gate, before the pipelined-enqueue
+    // pre-mutation, rather than queuing a call onto a dead session.
+    try p1.sendCopying(.{ .deliver = .{
+        .target = .{ .promise = .{ .answer_id = 42 } },
+        .args = &.{.{ .bytes = "ping" }},
+        .answer = 43,
+    } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+    try p2.feedInbound(p1.takeOutbound().?);
+    try std.testing.expectError(error.SessionClosed, p2.step());
+
+    // Nothing was queued onto the closed session.
+    try std.testing.expectEqual(@as(usize, 0), p2.session_state.inboundAnswer(42).?.queued_calls);
+}
+
+test "a multi-hop pipeline cycle terminates: a batch cannot be requeued onto an already-resolved answer" {
+    const allocator = std.testing.allocator;
+    var p1 = engine.Peer.init(allocator);
+    defer p1.deinit();
+    var p2 = engine.Peer.init(allocator);
+    defer p2.deinit();
+
+    try p1.session_state.registerImport(7);
+    try p2.session_state.registerExport(7);
+
+    // p1 makes two calls to p2's export, allocating answers 1 and 2 (both pending
+    // on p2).
+    inline for (.{ 1, 2 }) |answer| {
+        try p1.sendCopying(.{ .deliver = .{
+            .target = .{ .far = .{ .import_id = 7 } },
+            .args = &.{},
+            .answer = answer,
+        } });
+        try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+        try p2.feedInbound(p1.takeOutbound().?);
+        try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+        var event = p2.pollEvent().?;
+        event.deinit();
+    }
+
+    // p1 pipelines a call against promise(answer 1).
+    try p1.sendCopying(.{ .deliver = .{
+        .target = .{ .promise = .{ .answer_id = 1 } },
+        .args = &.{.{ .bytes = "ping" }},
+        .answer = 99,
+    } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
+    try p2.feedInbound(p1.takeOutbound().?);
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+    try std.testing.expectEqual(@as(usize, 1), p2.session_state.inboundAnswer(1).?.queued_calls);
+
+    // p2 resolves answer 1 to promise(2): the queued call moves onto answer 2.
+    // Resolving answer 1 settles it.
+    try p2.sendCopying(.{ .resolve = .{
+        .answer = 1,
+        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_id = 2, .path = .{ .ops = &.{} } } } } },
+    } });
+    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
+    {
+        var f = p2.takeOutbound().?;
+        f.deinit();
+    }
+    try std.testing.expectEqual(@as(usize, 1), p2.session_state.inboundAnswer(2).?.queued_calls);
+
+    // p2 now resolves answer 2 back to promise(1) — the cycle's back-edge. Answer 1
+    // is already resolved, so the batch cannot be requeued onto it: the drain fails
+    // closed with InvalidReference and frees the batch (no infinite bounce, no leak,
+    // no amplification). This is why a multi-hop cycle terminates without a
+    // chain-history guard — resolving an answer settles it, and a settled answer
+    // refuses a requeue.
+    try p2.sendCopying(.{ .resolve = .{
+        .answer = 2,
+        .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_id = 1, .path = .{ .ops = &.{} } } } } },
+    } });
+    try std.testing.expectError(error.InvalidReference, p2.step());
+}

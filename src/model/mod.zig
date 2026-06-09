@@ -33,6 +33,7 @@ pub const freeReference = owned.freeReference;
 pub const clonePipelinePath = owned.clonePipelinePath;
 pub const freePipelinePath = owned.freePipelinePath;
 pub const freeHandoffGive = owned.freeHandoffGive;
+pub const freeHandoff = owned.freeHandoff;
 
 /// The borrowed look at a message, read straight off the wire bytes with no
 /// copy. Both codecs produce this one shape, and the engine works against it.
@@ -40,25 +41,37 @@ pub const freeHandoffGive = owned.freeHandoffGive;
 pub const view = @import("view.zig");
 
 /// Whether two value trees are structurally equal. This is the in-memory
-/// evidence behind distributed equality: per ADR-0013, two references that name
+/// evidence behind distributed equality: per ADR-0012, two references that name
 /// the same thing compare equal here. See `equality`.
 pub const equality = @import("equality.zig");
 pub const referencesEqual = equality.referencesEqual;
 pub const argumentsEqual = equality.argumentsEqual;
+
+/// OCapN locator ⇄ `ocapn://` URI: the out-of-band bootstrap form a peer or
+/// sturdyref address is shared in. Pure parse/emit over the locator types here;
+/// no netlayer, no I/O. See `uri`.
+pub const uri = @import("uri.zig");
 pub const peerLocatorsEqual = equality.peerLocatorsEqual;
 
-/// Which wire codec a direct session speaks. The order they're listed in is the
-/// tie-break during negotiation, best first: `capnp` is the native word-aligned
-/// fast path, `syrup` the byte-record one that everyone can fall back to.
+/// Which wire codec a direct session speaks. The two built-ins are `capnp` (the
+/// native word-aligned fast path) and `syrup` (the byte-record one everyone can
+/// fall back to); negotiation lists them best-first and breaks ties on that
+/// order.
+///
+/// The enum is non-exhaustive on purpose: a consumer can mint their own codec id
+/// (`@enumFromInt` past the built-ins) and register it with `codec.registry`, so
+/// "bring your own codec" needs no fork of this type. The tag is a stable `u16`
+/// wire identity — built-in values never move.
 ///
 /// This lives in `model` rather than `codec`, and that's deliberate. The session
 /// has to record which codec it picked, but it must not depend on a codec to do
-/// it; the choice stays the session's to make. So the enum sits down here,
-/// `codec.dispatch` switches on it, and `engine.negotiation` is what settles it
-/// during the handshake.
-pub const CodecId = enum {
-    capnp,
-    syrup,
+/// it; the choice stays the session's to make. So the id sits down here,
+/// `codec.registry`/`codec.dispatch` resolve it to an implementation, and
+/// `engine.negotiation` is what settles it during the handshake.
+pub const CodecId = enum(u16) {
+    capnp = 0,
+    syrup = 1,
+    _,
 };
 
 pub const CaptpVersion = enum {
@@ -116,7 +129,7 @@ pub const FeatureSet = struct {
     stream: bool = false,
     equality: bool = false,
 
-    /// Stage 0 minimum — Deliver / Resolve / Abort only.
+    /// The minimal set: Deliver, Resolve, and Abort only.
     pub fn minimum() FeatureSet {
         return .{};
     }
@@ -133,13 +146,15 @@ pub const FeatureSet = struct {
         };
     }
 
-    /// Stage 2 default — pipelining + handoff + wire_delta (ADR-0008, ADR-0009).
-    pub fn stage2Default() FeatureSet {
+    /// Pipelining, handoff, and wire-delta, without sturdyrefs or equality
+    /// (ADR-0008, ADR-0009).
+    pub fn pipeliningAndHandoff() FeatureSet {
         return .{ .pipelining = true, .handoff = true, .wire_delta = true };
     }
 
-    /// Stage 3 default — stage 2 + sturdyref + equality (ADR-0012, ADR-0013).
-    pub fn stage3Default() FeatureSet {
+    /// Everything except streaming: pipelining, handoff, wire-delta, sturdyrefs,
+    /// and equality (ADR-0012).
+    pub fn fullExceptStreaming() FeatureSet {
         return .{
             .pipelining = true,
             .handoff = true,
@@ -551,6 +566,13 @@ pub const HandoffGive = struct {
     gifter_side: []const u8,
     gift_id: []const u8,
     signature: []const u8,
+    /// Optional verbatim `<desc:sig-envelope <desc:handoff-give …> <sig-val …>>`
+    /// bytes. When set, the encoder emits these exactly instead of re-encoding the
+    /// fields above. A recipient forwarding a gifter's give to the exporter uses
+    /// this so the exporter re-verifies the gifter's signature over the *exact*
+    /// bytes the gifter signed — re-encoding could differ (e.g. `#f` vs `{}` hints)
+    /// and fail verification.
+    raw_signed: ?[]const u8 = null,
 };
 
 pub const HandoffReceive = struct {

@@ -2,11 +2,17 @@
 zig-out/
 bindings/rust/Cargo.lock
 bindings/rust/target/
+examples/apps/*/rust/Cargo.lock
+examples/apps/*/rust/target/
 
 # binding consumer caches
 **/__pycache__/
 **/*.pyc
 bindings/deno/node_modules/
+
+# accountability-on-pancake writes its durable Episode log + transparency root
+# here at run time; generated state, never committed.
+conformance/accountability-on-pancake/.data/
 
 # local scratch: reference clones, throwaway experiments (never committed)
 .local/

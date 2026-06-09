@@ -17,10 +17,19 @@ from __future__ import annotations
 import asyncio
 import ctypes
 import pathlib
+import secrets
+import sys
 from dataclasses import dataclass, field
 from typing import Optional, Union
 
-_LIB = pathlib.Path(__file__).resolve().parents[2] / "zig-out" / "lib" / "libpancake.so"
+# The dynamic library's name is platform-specific: `.dylib` on macOS, `.dll` on
+# Windows, `.so` elsewhere. `zig build` emits the right one into zig-out/lib.
+_LIB_FILE = (
+    "libpancake.dylib" if sys.platform == "darwin"
+    else "pancake.dll" if sys.platform == "win32"
+    else "libpancake.so"
+)
+_LIB = pathlib.Path(__file__).resolve().parents[2] / "zig-out" / "lib" / _LIB_FILE
 
 _OK = 0
 _WOULD_BLOCK = -7
@@ -131,6 +140,12 @@ def _load():
         "pancake_context_release": ([P], None),
         "pancake_peer_new": ([ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_peer_new_in": ([P, ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_peer_new_negotiating": ([ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_peer_start_session_keyed": (
+            [P, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.c_void_p],
+            ctypes.c_int32,
+        ),
+        "pancake_peer_session_is_open": ([P], ctypes.c_int32),
         "pancake_peer_release": ([P], None),
         "pancake_peer_feed_borrowed": ([P, ctypes.POINTER(_Frame)], ctypes.c_int32),
         "pancake_peer_feed_owned": ([P, ctypes.POINTER(_ManagedFrame)], ctypes.c_int32),
@@ -543,6 +558,17 @@ class Peer:
         self._raw = ptr
         return self
 
+    @classmethod
+    def new_negotiating(cls) -> "Peer":
+        """A negotiating peer, awaiting the keyed ``op:start-session`` handshake —
+        the peer to drive when the partner requires it (a real Goblins vat). Pair
+        it with :meth:`start_session_keyed`, then pump until :meth:`session_is_open`."""
+        self = cls.__new__(cls)
+        ptr = ctypes.c_void_p()
+        _check(_lib.pancake_peer_new_negotiating(ctypes.byref(ptr)))
+        self._raw = ptr
+        return self
+
     def __enter__(self) -> "Peer":
         return self
 
@@ -562,6 +588,43 @@ class Peer:
 
     def register_import(self, import_id: int) -> None:
         _check(_lib.pancake_peer_register_import(self._raw, import_id))
+
+    def start_session_keyed(
+        self,
+        seed: bytes,
+        *,
+        transport: str = "tcp",
+        designator: str,
+        hints_empty_false: bool = True,
+        version: str = "v1.0",
+    ) -> None:
+        """Sign and queue a keyed ``op:start-session`` from this negotiating peer.
+        The 32-byte ``seed`` is the session key; ``transport``/``designator`` form
+        the locator the partner verifies, so they must be what it expects — for a
+        Goblins partner, ``"tcp"`` with ``hints_empty_false`` true (an empty hints
+        map encoded as ``#f``). ``version`` is ``"v1.0"`` or ``"pre-spec"``. Flush
+        it, then pump until :meth:`session_is_open`."""
+        if len(seed) != 32:
+            raise ValueError("a session seed must be 32 bytes")
+        transport_b = transport.encode()
+        designator_b = designator.encode()
+        _check(_lib.pancake_peer_start_session_keyed(
+            self._raw,
+            1 if version == "pre-spec" else 0,
+            transport_b, len(transport_b),
+            designator_b, len(designator_b),
+            1 if hints_empty_false else 0,
+            seed,
+        ))
+
+    def session_is_open(self) -> bool:
+        """Whether the keyed handshake has completed and the session is open for
+        traffic. Pump the connection and poll this before sending application
+        messages."""
+        rc = _lib.pancake_peer_session_is_open(self._raw)
+        if rc < 0:
+            raise PancakeError(rc)
+        return rc == 1
 
     def feed(self, frame: bytes) -> None:
         buf = ctypes.create_string_buffer(frame, len(frame))
@@ -684,7 +747,7 @@ class Peer:
 
     def _poll_deliver(self) -> Deliver:
         d = _Deliver()
-        _lib.pancake_peer_poll_event_deliver(self._raw, ctypes.byref(d))
+        _check(_lib.pancake_peer_poll_event_deliver(self._raw, ctypes.byref(d)))
         event = Deliver(
             target=_ref_from_c(d.target),
             args=[_arg_from_c(d.args[i]) for i in range(d.args_len)],
@@ -695,7 +758,7 @@ class Peer:
 
     def _poll_resolve(self) -> Resolve:
         r = _Resolve()
-        _lib.pancake_peer_poll_event_resolve(self._raw, ctypes.byref(r))
+        _check(_lib.pancake_peer_poll_event_resolve(self._raw, ctypes.byref(r)))
         if r.resolution_kind == _RESOLUTION_FULFILL:
             resolution: Resolution = Fulfill(_arg_from_c(r.fulfill))
         else:
@@ -712,6 +775,297 @@ class Peer:
         kind = e.kind
         _lib.pancake_event_release(ctypes.byref(e))
         return Other(kind=kind, frame=frame)
+
+
+# ── Actors ───────────────────────────────────────────────────────────────────
+#
+# This is pancake's Goblins-shaped actor model in Python, the seam where the
+# actor layer meets the OCapN peer. It mirrors the Zig ``actors.vat`` and the
+# Racket binding's actor section in idiomatic Python: callables for behaviors,
+# exceptions for broken resolutions, dataclasses for the unified reference and
+# promise.
+#
+# An actor is a callable ``behavior(verb, args) -> value``. It returns a reply
+# value, or raises to break the resolution. A :class:`Ref` names an object the
+# vat can eventual-send to, wherever it lives: a local actor in this vat, or a
+# far object the bound peer holds as an import. :meth:`Vat.call` is the
+# synchronous near-call and is local-only; :meth:`Vat.send` is the
+# location-transparent eventual-send and routes by where the ref lives.
+
+
+@dataclass(frozen=True)
+class Ref:
+    """A reference the vat can eventual-send to, wherever the object lives.
+
+    A *local* ref names an actor in this vat; :meth:`Vat.call` and
+    :meth:`Vat.send` run its turns here. A *far* ref wraps a :class:`Far`
+    import the bound peer holds; :meth:`Vat.send` routes to it as an
+    ``op:deliver`` and :meth:`Vat.call` (near) is illegal.
+    """
+
+    local_id: Optional[int] = None
+    far: Optional[Far] = None
+    # The wire reference this marshals to when handed to a partner as a capability
+    # argument. A locally-spawned actor carries a `Near` (our export); set by the
+    # :class:`Connection` layer. The vat itself never reads this.
+    near: Optional[Near] = None
+
+    @classmethod
+    def local(cls, actor_id: int) -> "Ref":
+        """A reference to a local actor by its vat id."""
+        return cls(local_id=actor_id)
+
+    @classmethod
+    def to(cls, far: Far) -> "Ref":
+        """A reference to a partner-hosted object the peer holds as an import."""
+        return cls(far=far)
+
+    @property
+    def is_local(self) -> bool:
+        return self.local_id is not None
+
+    def _wire(self) -> Reference:
+        """The wire reference to marshal this capability to in a `send` argument:
+        a local actor's `Near` export, else the `Far` import it names."""
+        if self.near is not None:
+            return self.near
+        if self.far is not None:
+            return self.far
+        raise PancakeError(-13, "this ref has no wire reference to marshal")
+
+
+class VowBroken(Exception):
+    """Raised when an awaited vow settles broken; the message is the break reason."""
+
+
+@dataclass(frozen=True)
+class Vow:
+    """A handle to the eventual result of a :meth:`Vat.send`.
+
+    A vow is awaitable: ``value = await vat.send(ref, verb, args)`` resolves with
+    the value, or raises :class:`VowBroken` on a break. You can also observe it
+    with :meth:`Vat.on` for the callback style. A *local* vow settles during
+    :meth:`Vat.drive`; a *far* vow settles when :meth:`Vat.serve` dispatches the
+    matching inbound resolve, so something must be driving the vat (e.g. an
+    ``async for event in conn`` loop) for the await to complete.
+    """
+
+    local_id: Optional[int] = None
+    answer: Optional[int] = None
+    # The vat that issued this vow, so `await` can register for its settlement.
+    # Excluded from equality/repr — two vows are the same by position, not vat.
+    vat: Optional["Vat"] = field(default=None, compare=False, repr=False)
+
+    @property
+    def is_local(self) -> bool:
+        return self.local_id is not None
+
+    def __await__(self):
+        future = asyncio.get_running_loop().create_future()
+
+        def fulfilled(value: object) -> None:
+            if not future.done():
+                future.set_result(value)
+
+        def broken(message: str) -> None:
+            if not future.done():
+                future.set_exception(VowBroken(message))
+
+        assert self.vat is not None, "an awaitable vow must come from Vat.send"
+        self.vat.on(self, on_fulfilled=fulfilled, on_broken=broken)
+        return future.__await__()
+
+
+@dataclass
+class _Listener:
+    """A one-shot promise listener: at most one of ``on_fulfilled`` /
+    ``on_broken`` fires when the vow settles."""
+
+    on_fulfilled: Optional[object] = None
+    on_broken: Optional[object] = None
+
+
+class Vat:
+    """A turn loop over a heap of actors, local and remote alike.
+
+    A vat owns local actors (callables ``behavior(verb, args) -> value``), a
+    queue of pending local eventual-sends, listeners for local and far vows, and
+    — when bound to a peer — an export map so inbound deliveries run published
+    actors. You drive it; it owns no I/O and no scheduler thread.
+
+    A pure-local vat (``Vat()``) sends and drives over local actors only. A vat
+    bound to a peer (``Vat(peer)``) also routes far sends out as ``op:deliver``
+    and serves inbound peer events through :meth:`serve`.
+    """
+
+    # Far sends allocate their own outbound answer positions (the C ABI has no
+    # answer allocator). Start high so they never collide with answers a test or
+    # an application picks by hand for inbound deliveries.
+    _FAR_ANSWER_BASE = 1000
+
+    def __init__(self, peer: Optional[Peer] = None):
+        self._peer = peer
+        self._actors: dict = {}
+        self._exports: dict = {}  # export id -> local actor id
+        self._listeners: dict = {}  # local vow id -> _Listener
+        self._far_listeners: dict = {}  # far answer -> _Listener
+        self._queue: list = []  # pending local sends: (actor_id, verb, args, vow_id)
+        self._next_actor = 1
+        self._next_vow = 1
+        self._next_answer = self._FAR_ANSWER_BASE
+
+    @property
+    def peer(self) -> Optional[Peer]:
+        """The bound peer — to feed/step/take_outbound around :meth:`serve`."""
+        return self._peer
+
+    def spawn(self, behavior) -> Ref:
+        """Spawn a local actor with ``behavior``, returning a local :class:`Ref`."""
+        actor_id = self._next_actor
+        self._next_actor += 1
+        self._actors[actor_id] = behavior
+        return Ref.local(actor_id)
+
+    def call(self, ref: Ref, verb: str, args: Optional[list] = None):
+        """The synchronous near-call (``$``): run ``ref``'s handler now and
+        return its value. Legal only for a *local* ref — a far ref raises, since
+        only :meth:`send` reaches one. Raises if no such actor exists, or
+        propagates whatever the behavior itself raises."""
+        if not ref.is_local:
+            raise PancakeError(-13, "cannot near-call a far ref; use send")
+        behavior = self._actors.get(ref.local_id)
+        if behavior is None:
+            raise KeyError(f"no such actor: {ref.local_id}")
+        return behavior(verb, list(args or []))
+
+    def send(self, ref: Ref, verb: str, args: Optional[list] = None) -> Vow:
+        """The eventual send (``<-``): location-transparent. A local target
+        queues a turn for :meth:`drive` and returns a local :class:`Vow`. A far
+        target sends an ``op:deliver`` over the bound peer — a leading
+        :class:`Symbol` carries the verb, matching Goblins's
+        ``($ obj 'method …)`` — and returns a far vow carrying the answer."""
+        rest = list(args or [])
+        if ref.is_local:
+            vow_id = self._next_vow
+            self._next_vow += 1
+            self._queue.append((ref.local_id, verb, rest, vow_id))
+            return Vow(local_id=vow_id, vat=self)
+        if self._peer is None:
+            raise PancakeError(-13, "this vat has no peer; far sends need Vat(peer)")
+        answer = self._next_answer
+        self._next_answer += 1
+        payload = [Symbol(verb), *rest] if verb else rest
+        self._peer.send_deliver(ref.far, payload, answer=answer)
+        return Vow(answer=answer, vat=self)
+
+    def on(self, vow: Vow, on_fulfilled=None, on_broken=None) -> None:
+        """Register a one-shot listener for ``vow``. A local vow fires during
+        :meth:`drive`; a far vow fires when :meth:`serve` dispatches the
+        partner's resolution. ``on_fulfilled(value)`` runs on a fulfill,
+        ``on_broken(message)`` on a break."""
+        listener = _Listener(on_fulfilled, on_broken)
+        if vow.is_local:
+            self._listeners[vow.local_id] = listener
+        else:
+            self._far_listeners[vow.answer] = listener
+
+    def break_far_vows(self, message: str) -> None:
+        """Break every outstanding far vow with ``message``, firing each
+        listener's ``on_broken``. A far vow settles only when the partner's
+        resolution arrives over the wire, so once the connection is gone those
+        replies can never come. The connection driver calls this on disconnect,
+        so an awaiting :meth:`send` raises :class:`VowBroken` instead of hanging
+        forever. Local vows are untouched: they settle synchronously in
+        :meth:`drive` and never wait on the wire."""
+        # Snapshot then clear before firing: a listener may register another far
+        # vow, and mutating the dict mid-iteration would lose it.
+        pending = list(self._far_listeners.values())
+        self._far_listeners.clear()
+        for listener in pending:
+            if listener.on_broken is not None:
+                listener.on_broken(message)
+
+    def drive(self) -> None:
+        """Run queued local eventual-sends to quiescence, settling each vow with
+        the handler's value (a break carrying the message on a raised exception)
+        and firing its listener. Turns queued by a turn run in the same drive
+        (FIFO)."""
+        index = 0
+        while index < len(self._queue):
+            actor_id, verb, args, vow_id = self._queue[index]
+            index += 1
+            try:
+                resolution: Resolution = Fulfill(self.call(Ref.local(actor_id), verb, args))
+            except Exception as error:  # noqa: BLE001 — a raise breaks the resolution
+                resolution = Break(str(error))
+            self._settle_local(vow_id, resolution)
+        self._queue.clear()
+
+    def publish(self, export_id: int, behavior) -> Ref:
+        """Spawn ``behavior`` and publish it at ``export_id`` so a partner's
+        deliveries to that export run the actor (dispatched by :meth:`serve`).
+        Requires a bound peer. Returns the new local :class:`Ref`."""
+        if self._peer is None:
+            raise PancakeError(-13, "this vat has no peer; publish needs Vat(peer)")
+        ref = self.spawn(behavior)
+        self._peer.register_export(export_id)
+        self._exports[export_id] = ref.local_id
+        return ref
+
+    def serve(self, event: Event) -> bool:
+        """Dispatch one inbound peer event. A deliver to a published export runs
+        its actor (a leading :class:`Symbol` is the verb) and resolves the
+        answer with the reply (a break if the actor raised). A resolve for a
+        pending far vow fires its listener. Returns whether the event belonged
+        to this vat — ``False`` means the caller handles it."""
+        if isinstance(event, Deliver):
+            return self._serve_deliver(event)
+        if isinstance(event, Resolve):
+            return self._serve_resolve(event)
+        return False
+
+    def _serve_deliver(self, event: Deliver) -> bool:
+        if not isinstance(event.target, Near):
+            return False
+        actor_id = self._exports.get(event.target.id)
+        if actor_id is None:
+            return False
+
+        # A leading symbol is the method verb; the rest are its arguments.
+        args = event.args
+        if args and isinstance(args[0], Symbol):
+            verb, rest = str(args[0]), args[1:]
+        else:
+            verb, rest = "", args
+
+        try:
+            resolution: Resolution = Fulfill(self.call(Ref.local(actor_id), verb, rest))
+        except Exception as error:  # noqa: BLE001 — broken resolution carries the message
+            resolution = Break(str(error))
+        if event.answer is not None and self._peer is not None:
+            self._peer.send_resolve(event.answer, resolution)
+        return True
+
+    def _serve_resolve(self, event: Resolve) -> bool:
+        listener = self._far_listeners.pop(event.answer, None)
+        if listener is None:
+            return False
+        self._fire(listener, event.resolution)
+        return True
+
+    def _settle_local(self, vow_id: int, resolution: Resolution) -> None:
+        listener = self._listeners.pop(vow_id, None)
+        if listener is not None:
+            self._fire(listener, resolution)
+
+    @staticmethod
+    def _fire(listener: _Listener, resolution: Resolution) -> None:
+        if isinstance(resolution, Fulfill):
+            if listener.on_fulfilled is not None:
+                listener.on_fulfilled(resolution.value)
+        else:
+            if listener.on_broken is not None:
+                listener.on_broken(resolution.message)
 
 
 # ── Async driver ──────────────────────────────────────────────────────────────
@@ -737,6 +1091,7 @@ class AsyncConnection:
         self._peer = peer
         self._reader = reader
         self._writer = writer
+        self._vat: Optional[Vat] = None
         # Inbound bytes read from the wire but not yet framed into whole frames.
         self._inbox = bytearray()
 
@@ -757,6 +1112,28 @@ class AsyncConnection:
         """The owned peer — e.g. to register exports/imports before driving."""
         return self._peer
 
+    def vat(self) -> "Vat":
+        """A :class:`Vat` bound to this connection's peer, created once and
+        cached. This is how you drive actors over the wire: ``publish`` an actor
+        to host it, ``send`` to a far :class:`Ref` to call a remote object, and
+        hand each event from :meth:`next_event` to :meth:`Vat.serve`. The vat
+        enqueues on the peer; :meth:`next_event` and :meth:`flush` move bytes."""
+        if self._vat is None:
+            self._vat = Vat(self._peer)
+        return self._vat
+
+    async def flush(self) -> None:
+        """Flush whatever is already queued on the peer's outbound to the wire.
+
+        A :meth:`Vat.send` only enqueues; the bytes leave when something pumps
+        the peer. :meth:`next_event` pumps at the top of its loop, so a reply
+        queued while serving an event leaves on the next turn. But work another
+        task queues onto this peer — a server pushing a broadcast to a subscriber
+        whose own task is parked reading — would sit unsent until that task woke.
+        Call :meth:`flush` right after such a cross-task send to put the bytes on
+        the wire now."""
+        await self._pump_outbound()
+
     async def send_deliver(self, target: Reference, args: list, answer: Optional[int] = None) -> None:
         """Queue a call to ``target`` and flush it to the wire. ``answer``
         requests a reply."""
@@ -767,6 +1144,19 @@ class AsyncConnection:
         """Queue a reply settling ``answer`` and flush it to the wire."""
         self._peer.send_resolve(answer, resolution)
         await self._pump_outbound()
+
+    def __aiter__(self):
+        """The connection as a native event stream: ``async for event in conn:``.
+        Yields each event the peer surfaces and ends on a clean disconnect, so the
+        idiomatic receive loop is just an ``async for``. (Same as looping on
+        :meth:`next_event` until it returns ``None``.)"""
+        return self._events()
+
+    async def _events(self):
+        event = await self.next_event()
+        while event is not None:
+            yield event
+            event = await self.next_event()
 
     async def next_event(self) -> Optional[Event]:
         """Await the next application event, driving the socket as needed.
@@ -928,3 +1318,240 @@ class Netlayer:
         out = ctypes.c_void_p()
         _check(_lib.pancake_endpoint_tcp_testing_connect(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, port, codec, max_frame_bytes, ctypes.byref(out)))
         return Conn(out)
+
+
+# ── Connection: the application surface ──────────────────────────────────────
+#
+# This is what an application holds. It composes a peer, a vat, and the asyncio
+# I/O driver into one object, so a consumer never stitches those three together
+# by hand. The verbs — ``connect``/``listen``, ``fetch``/``publish``, ``spawn``,
+# ``send``, ``serve``, ``close`` — are the whole common surface. The raw
+# :class:`Peer`, :class:`Vat`, and :class:`AsyncConnection` remain for power
+# users (reach ``conn.peer``), but no application needs them.
+
+_BOOTSTRAP_POSITION = 0
+_FIRST_SPAWN_POSITION = 32
+
+
+def _is_wire_reference(value: object) -> bool:
+    return isinstance(value, (Near, Far, Promise, Sturdy, Broken))
+
+
+def _local_designator(writer: "asyncio.StreamWriter") -> str:
+    """The ``host:port`` of this socket's own end — the locator a peer signs in
+    its keyed start-session."""
+    host, port, *_ = writer.get_extra_info("sockname")
+    return f"{host}:{port}"
+
+
+async def _open_keyed_session(ac: "AsyncConnection", designator: str) -> None:
+    """Complete the keyed ``op:start-session`` handshake over a negotiating peer:
+    sign a ``tcp`` locator naming ``designator`` with a per-connection random
+    session key, flush it, and pump until the partner's start-session opens the
+    session. Entropy is generated here, at the I/O boundary, never in the sans-io
+    core. Signing the socket's real local address keeps the locator a true ``tcp``
+    locator, which a Goblins partner accepts."""
+    ac.peer.start_session_keyed(secrets.token_bytes(32), designator=designator)
+    await ac.flush()
+    while not ac.peer.session_is_open():
+        if await ac.next_event() is None:
+            raise PancakeError(-8, "connection closed during the OCapN handshake")
+
+
+class Connection:
+    """A live connection to one OCapN partner — the one object an app holds.
+
+        conn = await connect("127.0.0.1", 9099)
+        conn.serve()
+        board = await conn.fetch("board")
+        inbox = conn.spawn(lambda verb, args: None)
+        await conn.send(board, "watch", [inbox])
+    """
+
+    def __init__(self, ac: AsyncConnection):
+        self._ac = ac
+        self._vat = ac.vat()
+        self._next_spawn = _FIRST_SPAWN_POSITION
+        self._serve_task: Optional[asyncio.Task] = None
+        self._closing = False
+
+    @classmethod
+    async def connect(cls, host: str, port: int) -> "Connection":
+        """Dial ``host:port``, complete the keyed OCapN handshake, and return a
+        ready connection. The session is open before this resolves, so a
+        ``fetch``/``send`` rides an established session — the same handshake a
+        real Goblins peer requires."""
+        reader, writer = await asyncio.open_connection(host, port)
+        ac = AsyncConnection.from_stream(Peer.new_negotiating(), reader, writer)
+        await _open_keyed_session(ac, _local_designator(writer))
+        return cls(ac)
+
+    @classmethod
+    async def _accept(cls, reader, writer) -> "Connection":
+        """Wrap an accepted stream and complete the keyed handshake from the
+        responder side. Resolves once the session is open."""
+        ac = AsyncConnection.from_stream(Peer.new_negotiating(), reader, writer)
+        await _open_keyed_session(ac, _local_designator(writer))
+        return cls(ac)
+
+    @property
+    def peer(self) -> Peer:
+        """The underlying sans-io peer — the escape hatch for handoff, pipelining,
+        and session control. Applications do not need it."""
+        return self._ac.peer
+
+    def spawn(self, behavior) -> Ref:
+        """Spawn a local actor and return a capability to it. Pass the returned
+        :class:`Ref` as a ``send`` argument to hand a partner a callback."""
+        position = self._next_spawn
+        self._next_spawn += 1
+        local = self._vat.publish(position, self._wrap(behavior))
+        return Ref(local_id=local.local_id, near=Near(position))
+
+    def publish(self, name: str, behavior) -> Ref:
+        """Publish an actor so a partner can :meth:`fetch` it by ``name``. The
+        name is a swiss-number: readable for a discoverable service, a secret
+        where the name itself is the authorization."""
+        position = self._ac.peer.register_bootstrap_cap(name.encode())
+        local = self._vat.publish(position, self._wrap(behavior))
+        return Ref(local_id=local.local_id, near=Near(position))
+
+    def _settle(self, vow) -> "asyncio.Future":
+        """Register a listener on ``vow`` now and return a future it settles. The
+        listener must be registered before any pump (``drive``/``flush``): a local
+        ``drive`` fires synchronously, and a far reply can land on the serve loop
+        the instant ``flush`` yields — either would settle before a later ``await``
+        could subscribe."""
+        future = asyncio.get_running_loop().create_future()
+
+        def fulfilled(value: object) -> None:
+            if not future.done():
+                future.set_result(value)
+
+        def broken(message: str) -> None:
+            if not future.done():
+                future.set_exception(VowBroken(message))
+
+        self._vat.on(vow, on_fulfilled=fulfilled, on_broken=broken)
+        return future
+
+    async def fetch(self, name: str) -> Ref:
+        """Fetch a partner's published capability by ``name``. Requires
+        :meth:`serve` to be running so the resolution arrives."""
+        self._ac.peer.register_import(_BOOTSTRAP_POSITION)
+        vow = self._vat.send(Ref.to(Far(_BOOTSTRAP_POSITION)), "fetch", [name.encode()])
+        future = self._settle(vow)
+        await self._ac.flush()
+        result = await future
+        if not _is_wire_reference(result):
+            raise PancakeError(-13, f'fetch("{name}") did not resolve to a capability')
+        return Ref(far=result) if isinstance(result, Far) else Ref(near=result)
+
+    async def send(self, target: Ref, verb: str, args: Optional[list] = None):
+        """Call ``verb(args)`` on the capability ``target`` and await the reply.
+        Flushes immediately. ``args`` may contain :class:`Ref`s. Raises
+        :class:`VowBroken` if the partner breaks the call."""
+        wire_args = [self._lower(a) for a in (args or [])]
+        vow = self._vat.send(target, verb, wire_args)
+        future = self._settle(vow)
+        if target.local_id is not None:
+            self._vat.drive()
+        else:
+            await self._ac.flush()
+        return self._lift(await future)
+
+    async def tell(self, target: Ref, verb: str, args: Optional[list] = None) -> None:
+        """Fire-and-forget eventual-send (Goblins ``<-np``): no answer is
+        allocated and no reply comes back, so a notification or broadcast costs
+        one deliver rather than a deliver plus a reply. Flushes immediately."""
+        wire_args = [self._lower(a) for a in (args or [])]
+        if target.local_id is not None:
+            self._vat.send(target, verb, wire_args)
+            self._vat.drive()
+            return
+        payload = [Symbol(verb), *wire_args] if verb else wire_args
+        self._ac.peer.send_deliver(target._wire(), payload, answer=None)
+        await self._ac.flush()
+
+    def serve(self) -> "asyncio.Task":
+        """Run the inbound event loop as a background task: dispatch each arriving
+        call to its actor and settle the promises of awaiting ``send``s. The task
+        completes when the connection closes; started once."""
+        if self._serve_task is None:
+            self._serve_task = asyncio.create_task(self._serve_loop())
+        return self._serve_task
+
+    async def _serve_loop(self) -> None:
+        # Either a clean disconnect or a transport fault ends the loop; the wire
+        # is gone in both cases, so break any ``send`` still awaiting a reply
+        # rather than leaving its future pending forever.
+        try:
+            async for event in self._ac:
+                self._vat.serve(event)
+        except (asyncio.CancelledError, OSError):
+            if not self._closing:
+                raise
+        finally:
+            self._vat.break_far_vows("connection closed")
+
+    async def close(self) -> None:
+        """Close the connection; a running :meth:`serve` completes cleanly."""
+        self._closing = True
+        await self._ac.aclose()
+        if self._serve_task is not None:
+            try:
+                await self._serve_task
+            except (asyncio.CancelledError, OSError):
+                pass
+
+    async def __aenter__(self) -> "Connection":
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        await self.close()
+
+    def _wrap(self, behavior):
+        def wrapped(verb: str, raw_args: list):
+            result = behavior(verb, [self._lift(a) for a in raw_args])
+            return None if result is None else self._lower(result)
+        return wrapped
+
+    @staticmethod
+    def _lower(value):
+        if isinstance(value, Ref):
+            return value._wire()
+        if isinstance(value, list):
+            return [Connection._lower(v) for v in value]
+        return value
+
+    @staticmethod
+    def _lift(value):
+        if isinstance(value, Far):
+            return Ref(far=value)
+        if isinstance(value, Near):
+            return Ref(near=value)
+        if isinstance(value, list):
+            return [Connection._lift(v) for v in value]
+        return value
+
+
+async def connect(host: str, port: int) -> Connection:
+    """Dial ``host:port`` and return a ready connection — the module-level
+    shorthand for :meth:`Connection.connect`."""
+    return await Connection.connect(host, port)
+
+
+async def listen(host: str, port: int):
+    """Accept connections: ``async for conn in listen(host, port): ...``. Each
+    yielded :class:`Connection` is one accepted partner — publish capabilities on
+    it and call :meth:`Connection.serve`."""
+    queue: asyncio.Queue = asyncio.Queue()
+    server = await asyncio.start_server(
+        lambda r, w: queue.put_nowait((r, w)), host, port,
+    )
+    try:
+        while True:
+            reader, writer = await queue.get()
+            yield await Connection._accept(reader, writer)
+    finally:
+        server.close()

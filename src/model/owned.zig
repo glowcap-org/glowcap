@@ -373,6 +373,8 @@ pub fn cloneHandoffGive(allocator: std.mem.Allocator, give: model.HandoffGive) !
     const gift_id = try allocator.dupe(u8, give.gift_id);
     errdefer allocator.free(gift_id);
     const signature = try allocator.dupe(u8, give.signature);
+    errdefer allocator.free(signature);
+    const raw_signed: ?[]const u8 = if (give.raw_signed) |raw| try allocator.dupe(u8, raw) else null;
     return .{
         .recipient_key = recipient_key,
         .exporter_location = exporter_location,
@@ -380,6 +382,7 @@ pub fn cloneHandoffGive(allocator: std.mem.Allocator, give: model.HandoffGive) !
         .gifter_side = gifter_side,
         .gift_id = gift_id,
         .signature = signature,
+        .raw_signed = raw_signed,
     };
 }
 
@@ -390,4 +393,5 @@ pub fn freeHandoffGive(allocator: std.mem.Allocator, give: model.HandoffGive) vo
     allocator.free(give.gifter_side);
     allocator.free(give.gift_id);
     allocator.free(give.signature);
+    if (give.raw_signed) |raw| allocator.free(raw);
 }

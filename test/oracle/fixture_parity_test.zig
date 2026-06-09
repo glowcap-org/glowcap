@@ -100,7 +100,7 @@ test "oracle-check exercises a three-peer handoff give and withdrawal" {
     var exporter = pancake.engine.Peer.init(allocator);
     defer exporter.deinit();
 
-    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, fixtureGive());
+    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, fixtureGive(), "");
     try std.testing.expect(exporter.session_state.giftDeposited(fixture_gift_id[0..]));
 
     {
@@ -128,14 +128,9 @@ test "oracle-check verifies supported owned fixture decoding parity" {
     const allocator = std.testing.allocator;
     const fixture = protocol_oracle.fixtureByName("op_handoff_give.bin").?;
     const decoded = try syrup.decodeOwned(allocator, .{ .bytes = fixture.bytes(), .shape = .byte });
-    defer {
-        allocator.free(decoded.handoff.give.recipient_key);
-        allocator.free(decoded.handoff.give.exporter_location);
-        allocator.free(decoded.handoff.give.gifter_exporter_session);
-        allocator.free(decoded.handoff.give.gifter_side);
-        allocator.free(decoded.handoff.give.gift_id);
-        allocator.free(decoded.handoff.give.signature);
-    }
+    // Free through the model so every owned field is reclaimed, including the
+    // signed-envelope `raw_signed` bytes the decode captures for verification.
+    defer model.freeMessage(allocator, decoded);
 
     try std.testing.expectEqualStrings(fixture_recipient_key[0..], decoded.handoff.give.recipient_key);
     try std.testing.expectEqualStrings("memory:exporter", decoded.handoff.give.exporter_location);

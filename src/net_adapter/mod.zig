@@ -6,6 +6,19 @@
 //! codec find frame boundaries as it goes, and streams the peer's outbound frames
 //! back. It isn't part of the core, and it's the one and only layer allowed to
 //! touch `std.Io`.
+//!
+//! ## Bring your own transport (ADR-0030)
+//!
+//! The transport seam is a `*std.Io.Reader` / `*std.Io.Writer` pair — nothing
+//! more. [`pumpOver`] (one step) and [`readFrameFrom`] / [`writeFrameTo`] (raw
+//! whole-frame I/O) take that pair directly, so *any* transport that yields a
+//! reader/writer — TCP, TLS or unix over `std.Io`, an in-memory pipe — drives a
+//! peer with no change here. [`tcp`] is the built-in TCP binding (`Connection`
+//! welds the pair to a socket); it is the example, not the requirement. A
+//! transport that is not a blocking `std.Io` stream (a callback or datagram API)
+//! drives the peer directly through `engine.Peer.recvStreamPrefix` /
+//! `takeOutbound` — which is exactly how a language binding runs a peer over its
+//! own async sockets via the C ABI's `pancake_peer_recv_stream`.
 
 const connection = @import("connection.zig");
 const frame_stream = @import("frame_stream.zig");

@@ -43,10 +43,10 @@ fn expectFramesOneWholeFrame(codec_id: model.CodecId) !void {
 
     // Byte-identical to the encoded frame, and shape-correct.
     try std.testing.expectEqualSlices(u8, wire.bytes(), got.bytes());
-    try std.testing.expectEqual(codec.dispatch.frameShape(codec_id), got.view().shape);
+    try std.testing.expectEqual(codec.dispatch.frameShape(codec_id).?, got.view().shape);
 
     // A word frame must be 8-aligned, or `decodeBody` over it would reject it.
-    if (codec.dispatch.frameShape(codec_id) == .word) {
+    if (codec.dispatch.frameShape(codec_id).? == .word) {
         try std.testing.expect(std.mem.isAligned(@intFromPtr(got.bytes().ptr), 8));
     }
     // The owned frame is a real frame: it decodes back to a body.

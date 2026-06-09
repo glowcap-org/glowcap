@@ -247,7 +247,7 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
     try std.testing.expectEqual(cap_export, cached.cached.far.import_id);
     try std.testing.expectEqual(model.ImportKind.object, cached.cached.far.kind);
 
-    // Pass Invariant Equality (ADR-0013): the repeat enliven returns a target
+    // Pass Invariant Equality (ADR-0012): the repeat enliven returns a target
     // equal to the first, and equal to the far-ref a handoff arrival of the same
     // import would land — same-session equality on (import_id, kind).
     try std.testing.expect(model.referencesEqual(enlivened, cached.cached));

@@ -38,6 +38,14 @@ fn isOpen(peer: *engine.Peer) bool {
     return peer.session_state.state == .open;
 }
 
+/// This boundary proof exercises the C endpoint + framing, and its `startSession`
+/// carries the stub zero signature — so the peers run with partner-signature
+/// verification off (a verifying peer would refuse the unsigned handshake). The
+/// keyed, verified handshake is proven in `pairing_test`.
+fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
+    return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+}
+
 const Step = enum { received, closed };
 
 /// One pump over a C endpoint: encode + write all queued outbound, then block
@@ -76,7 +84,7 @@ fn serveThread(args: *ServerArgs) void {
 }
 
 fn serveOnce(args: *ServerArgs) !void {
-    var peer = engine.Peer.initNegotiating(args.allocator);
+    var peer = stubNegotiatingPeer(args.allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
@@ -92,7 +100,7 @@ fn serveOnce(args: *ServerArgs) !void {
 }
 
 fn fetchOnce(conn: *c.PancakeTcpConn, allocator: std.mem.Allocator) !void {
-    var peer = engine.Peer.initNegotiating(allocator);
+    var peer = stubNegotiatingPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
 

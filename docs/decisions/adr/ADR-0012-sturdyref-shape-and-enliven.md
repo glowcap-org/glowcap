@@ -30,7 +30,7 @@ reusing the same `PeerLocator` that `op:start-session` and the handoff descripto
 
 ### The `sturdyref` feature gate
 
-`FeatureSet.sturdyref` is load-bearing, not advertised-and-ignored. Both reference-validation paths in [`src/session/mod.zig`](../../../src/session/mod.zig) refuse a `Reference.sturdy` with `Error.FeatureNotNegotiated` when the session did not negotiate the flag — on inbound decode and on outbound encode alike, so a peer cannot smuggle a sturdyref across a session that never agreed to speak them. `FeatureSet.stage3Default` turns `sturdyref` (and `equality`, consumed by [ADR-0013](ADR-0013-cross-session-distributed-equality.md)) on; the handshake `intersect` reduces the negotiated set to what both peers advertised.
+`FeatureSet.sturdyref` is load-bearing, not advertised-and-ignored. Both reference-validation paths in [`src/session/mod.zig`](../../../src/session/mod.zig) refuse a `Reference.sturdy` with `Error.FeatureNotNegotiated` when the session did not negotiate the flag — on inbound decode and on outbound encode alike, so a peer cannot smuggle a sturdyref across a session that never agreed to speak them. `FeatureSet.fullExceptStreaming` turns `sturdyref` (and `equality`, consumed by the Cross-session distributed equality section below) on; the handshake `intersect` reduces the negotiated set to what both peers advertised.
 
 ### Enliven over bootstrap-fetch
 
@@ -42,12 +42,15 @@ reusing the same `PeerLocator` that `op:start-session` and the handoff descripto
 
 The dedup state lives on the session ([`src/session/mod.zig`](../../../src/session/mod.zig)): `cacheSturdyrefEnlivenment` / `sturdyrefImportFor` / `sturdyrefKindFor` over a swissnum → `(import_id, kind)` cache, and `notePendingEnliven` / `finishPendingEnliven` over the in-flight markers. The cache is non-load-bearing — a miss costs one extra round-trip, never correctness — so it is bounded by `SessionLimits.max_sturdyref_cache_entries` and evicts the oldest entry on overflow rather than erroring.
 
+### Cross-session distributed equality
+
+This builds on the sturdyref dedup cache above. One session per peer pair is enforced by a caller-held `SessionRegistry` keyed on `PeerId`, consulted at the `negotiating → open` transition; a second open to a peer already held is a loud `Error.PeerAlreadyOpen`. With that invariant, in-memory structural `Reference` equality (`referencesEqual`) is the distributed-equality evidence for OCapN Pass Invariant Equality: two references naming the same target compare equal on `(import_id, kind)` regardless of which codec carried them, because the same target always lands in the same import row. The sturdyref dedup cache above supplies the sturdyref-vs-handoff collapse onto one import row. The `equality` feature gate means "this peer commits to session-pair uniqueness." No new wire field carries equality.
+
 ## Scope (what this does not decide)
 
 - **Sturdyref withdrawal.** There is no sturdyref-revocation channel; the `(peer, swissnum)` shape is unsigned and irrevocable. (Handoff-gift withdrawal is unrelated handoff state, [ADR-0009](ADR-0009-three-party-handoff-substrate.md).)
 - **Locator-URI parsing.** The `ocapn://…/s/<swiss-num>` URI form is not parsed; the core consumes the in-band Syrup record, not a URI string. URI interchange is an adapter concern.
 - **Dial-on-enliven.** Enliven requires an already-open session; opening one on miss is a dial/transport concern outside the no-I/O core.
-- **Sturdyref-vs-handoff far-ref collapse.** That two paths to one target reduce to one import row is [ADR-0013](ADR-0013-cross-session-distributed-equality.md), which builds on this cache.
 
 ## Alternatives Considered
 
@@ -64,7 +67,7 @@ The dedup state lives on the session ([`src/session/mod.zig`](../../../src/sessi
 
 ## Forward compatibility
 
-A future signed sturdyref grows additively as a wrapped Syrup record on the `v1_0` profile, mirroring the handoff signature-envelope pattern; the `pre_spec` profile refuses the extended form via the feature flag. The unsigned `(peer, swissnum)` shape and its structural equality are the substrate [ADR-0013](ADR-0013-cross-session-distributed-equality.md) binds its dedup sidecar to.
+A future signed sturdyref grows additively as a wrapped Syrup record on the `v1_0` profile, mirroring the handoff signature-envelope pattern; the `pre_spec` profile refuses the extended form via the feature flag. The unsigned `(peer, swissnum)` shape and its structural equality are the substrate the Cross-session distributed equality section above binds its dedup sidecar to.
 
 ## Notes
 

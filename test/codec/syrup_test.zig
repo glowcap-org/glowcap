@@ -14,6 +14,13 @@ fn repeatedByte(comptime len: usize, byte: u8) [len]u8 {
     return [_]u8{byte} ** len;
 }
 
+fn hexToOwned(allocator: std.mem.Allocator, comptime hex: []const u8) ![]u8 {
+    const out = try allocator.alloc(u8, hex.len / 2);
+    errdefer allocator.free(out);
+    _ = try std.fmt.hexToBytes(out, hex);
+    return out;
+}
+
 const fixture_recipient_key = repeatedByte(32, 0x42);
 const fixture_gifter_session = repeatedByte(32, 0xcc);
 const fixture_gifter_side = repeatedByte(32, 0x11);
@@ -109,6 +116,7 @@ fn freeTestHandoffGive(allocator: std.mem.Allocator, give: model.HandoffGive) vo
     allocator.free(give.gifter_side);
     allocator.free(give.gift_id);
     allocator.free(give.signature);
+    if (give.raw_signed) |raw| allocator.free(raw);
 }
 
 test "op:abort encodes to the Goblins-aligned Syrup byte shape" {
@@ -121,6 +129,30 @@ test "op:abort encodes to the Goblins-aligned Syrup byte shape" {
     defer frame.deinit();
 
     try std.testing.expectEqualSlices(u8, "<8'op:abort13\"shutting down>", frame.bytes());
+}
+
+test "signed handoff give keeps original signed payload bytes through decode" {
+    const allocator = std.testing.allocator;
+    const raw_payload = try hexToOwned(
+        allocator,
+        "3c313727646573633a68616e646f66662d676976655b3130277075626c69632d6b65795b33276563635b352763757276653727456432353531395d5b3527666c616773352765646473615d5b31277133323a8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c5d5d5d3c3130276f6361706e2d706565723136277463702d74657374696e672d6f6e6c7933226162637b3422686f737439223132372e302e302e313422706f7274352232323035357d3e33323a030303030303030303030303030303030303030303030303030303030303030333323a0606060606060606060606060606060606060606060606060606060606060606373a6d792d676966743e",
+    );
+    defer allocator.free(raw_payload);
+    const raw_receive = try hexToOwned(
+        allocator,
+        "3c313727646573633a7369672d656e76656c6f70653c323027646573633a68616e646f66662d7265636569766533323a040404040404040404040404040404040404040404040404040404040404040433323a0505050505050505050505050505050505050505050505050505050505050505302b3c313727646573633a7369672d656e76656c6f70653c313727646573633a68616e646f66662d676976655b3130277075626c69632d6b65795b33276563635b352763757276653727456432353531395d5b3527666c616773352765646473615d5b31277133323a8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c5d5d5d3c3130276f6361706e2d706565723136277463702d74657374696e672d6f6e6c7933226162637b3422686f737439223132372e302e302e313422706f7274352232323035357d3e33323a030303030303030303030303030303030303030303030303030303030303030333323a0606060606060606060606060606060606060606060606060606060606060606373a6d792d676966743e5b37277369672d76616c5b352765646473615b31277233323a000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f5d5b31277333323a202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f5d5d5d3e3e5b37277369672d76616c5b352765646473615b31277233323a3f3e3d3c3b3a393837363534333231302f2e2d2c2b2a292827262524232221205d5b31277333323a1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a090807060504030201005d5d5d3e",
+    );
+    defer allocator.free(raw_receive);
+
+    const decoded = try syrup.decodeBody(.{ .bytes = raw_receive, .shape = .byte });
+    const handoff = try decoded.handoff.toOwned(allocator);
+    defer pancake.model.owned.freeHandoff(allocator, handoff);
+    const give = handoff.receive.signed_give;
+
+    try std.testing.expect(give.raw_signed != null);
+    const signed_payload = try syrup.canonicalHandoffGiveSignedBytes(allocator, give);
+    defer allocator.free(signed_payload);
+    try std.testing.expectEqualSlices(u8, raw_payload, signed_payload);
 }
 
 test "op:abort with a typed kind encodes the wire label prefix" {
@@ -203,6 +235,45 @@ test "Syrup encodes an empty Set as the bare #$ markers and the neutral decode a
     const arg = try body.deliver.args.at(0);
     try std.testing.expect(arg == .set);
     try std.testing.expectEqual(@as(usize, 0), try arg.set.len());
+}
+
+test "Syrup decodes a start-session whose location carries non-empty hints" {
+    // A real netlayer (the OCapN conformance suite's `tcp-testing-only`) puts the
+    // address in the locator's hints map `{host …, port …}`. The decoder must
+    // consume it so the whole frame decodes — Goblins uses `#f` hints, so this
+    // shape was unexercised until an external peer sent a hinted locator.
+    const frame_bytes: []const u8 =
+        "<16'op:start-session3\"1.0" ++
+        "[10'public-key[3'ecc[1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
+        "<10'ocapn-peer3'tcp9\"127.0.0.1{4\"host9\"127.0.0.14\"port5\"52833}>" ++
+        "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
+    const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    const body = try syrup.decodeBody(view);
+    try std.testing.expect(body == .start_session);
+    try std.testing.expectEqualStrings("127.0.0.1", body.start_session.acceptable_location.designator);
+}
+
+test "Syrup encodes an error in argument position and the neutral decode reads it back" {
+    const allocator = std.testing.allocator;
+    const target = model.Reference{ .far = .{ .import_id = 7 } };
+    // A Goblins V1.0 resolver-callback `break` ships its `model.Error` as a
+    // deliver argument (`['break <error msg>]`); the encoder must be able to
+    // write what the decoder already reads — without this arm the refusal path
+    // could not cross the wire.
+    const args = [_]model.Argument{ .{ .symbol = "break" }, .{ .@"error" = .{ .message = "UnattestedCaller" } } };
+
+    var frame = try syrup.encodeMessage(allocator, .{ .deliver = .{ .target = target, .args = args[0..], .answer = null } });
+    defer frame.deinit();
+
+    const body = try syrup.decodeBody(frame.view());
+    try std.testing.expect(body == .deliver);
+    try std.testing.expectEqual(@as(usize, 2), try body.deliver.args.len());
+    const tag = try body.deliver.args.at(0);
+    try std.testing.expect(tag == .symbol);
+    try std.testing.expectEqualStrings("break", tag.symbol);
+    const err = try body.deliver.args.at(1);
+    try std.testing.expect(err == .@"error");
+    try std.testing.expectEqualStrings("UnattestedCaller", err.@"error".message);
 }
 
 test "Syrup canonicalizes nested Sets recursively, not just the outer one" {
@@ -563,7 +634,7 @@ test "Syrup encodes float64 as the canonical 'D' + big-endian binary64 wire shap
 
 test "Syrup round-trips float64 through decode, including NaN and signed zero" {
     const allocator = std.testing.allocator;
-    // `Object.is` bit-fidelity (ADR-0027): a NaN and a -0.0 must survive the wire
+    // `Object.is` bit-fidelity (ADR-0021): a NaN and a -0.0 must survive the wire
     // bit-for-bit, not be normalized. Round-trip each through encode → decodeBody.
     const cases = [_]f64{ 1.5, -0.0, 0.0, 3.141592653589793, std.math.nan(f64), std.math.inf(f64), -std.math.inf(f64) };
     for (cases) |value| {

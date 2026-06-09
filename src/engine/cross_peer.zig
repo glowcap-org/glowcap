@@ -15,6 +15,7 @@
 const std = @import("std");
 
 const model = @import("../model/mod.zig");
+const codec = @import("../codec/mod.zig");
 const engine = @import("mod.zig");
 
 const Peer = engine.Peer;
@@ -82,37 +83,64 @@ pub fn acceptingVerifier() SignatureVerifier {
     return .{ .context = &accepting_context, .verify_fn = alwaysAccept };
 }
 
-/// Gifter -> exporter (deposit) and gifter -> recipient (give).
+/// Run the gifter's two outbound legs: the deposit to the exporter and the give
+/// to the recipient.
 ///
-/// The exporter records the gift so a subsequent withdrawal can be authorized, then
-/// the gifter sends the signed handoff-give to the recipient, who surfaces it as
-/// a handoff event.
+/// The exporter records the gift — including the depositing gifter's session
+/// public key — so a subsequent withdrawal can verify the gifter's give
+/// certificate against it. The key comes from `gifter_key` when the caller threads
+/// one through; otherwise it is the partner key the exporter learned from the
+/// gifter-to-exporter handshake (`partnerSessionKey`), so a handshaked exporter
+/// records the right key with no argument. It is empty only when neither is known.
 pub fn deliverGive(
     gifter: *Peer,
     recipient: *Peer,
     exporter: *Peer,
     give: model.HandoffGive,
+    gifter_key: []const u8,
 ) !void {
-    try exporter.session_state.depositGift(give.gift_id, give.recipient_key);
+    const learned = if (gifter_key.len > 0)
+        gifter_key
+    else
+        exporter.session_state.partnerSessionKey() orelse "";
+    try exporter.session_state.depositGift(give.gift_id, give.recipient_key, learned);
     try gifter.sendCopying(.{ .handoff = .{ .give = give } });
     try pumpFrame(gifter, recipient);
 }
 
-/// Recipient -> exporter (withdraw).
+/// Run the recipient's withdraw leg to the exporter.
 ///
-/// The recipient's signature over the gift is checked at the boundary by the
-/// injected verifier, then the recipient sends the handoff-receive to the
-/// exporter, whose session authorizes the withdrawal against its gift table
-/// (gift existence, recipient match, handoff-count monotonicity).
+/// Before the recipient sends the handoff-receive and the exporter's session
+/// authorizes the withdrawal (gift existence, recipient match, handoff-count
+/// monotonicity), both certificates are checked at the boundary by the injected
+/// verifier — each over its *canonical signed bytes* (ADR-0009): the gifter's
+/// signature over the embedded `desc:handoff-give` record, and the recipient's
+/// signature over the `desc:handoff-receive` record. The signed domain is the
+/// whole envelope, not the gift-id field alone; verifying a single field would
+/// accept a signature lifted from any other envelope carrying that gift-id. A
+/// production verifier routes each payload to the right key (the gifter's
+/// session key for the give, the recipient key for the receive); the test seam
+/// (`acceptingVerifier`) is key-agnostic.
 pub fn withdrawGift(
     recipient: *Peer,
     exporter: *Peer,
     receive: model.HandoffReceive,
     verifier: SignatureVerifier,
 ) !void {
-    if (!verifier.verify(receive.signed_give.gift_id, receive.signature)) {
+    const allocator = exporter.allocator;
+
+    const give_signed = try codec.syrup.canonicalHandoffGiveSignedBytes(allocator, receive.signed_give);
+    defer allocator.free(give_signed);
+    if (!verifier.verify(give_signed, receive.signed_give.signature)) {
         return Error.SignatureRejected;
     }
+
+    const receive_signed = try codec.syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    defer allocator.free(receive_signed);
+    if (!verifier.verify(receive_signed, receive.signature)) {
+        return Error.SignatureRejected;
+    }
+
     try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
     try pumpFrame(recipient, exporter);
 }

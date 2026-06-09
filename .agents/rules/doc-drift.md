@@ -5,6 +5,10 @@ globs: **/*.md, src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, 
 
 # pancake — Doc Drift Prevention
 
+This rule keeps doc claims *true*. Its sibling, [doc-voice](doc-voice.md), keeps
+doc prose *readable* — written as dialog for a person, not as private shorthand.
+Run the two together whenever you touch a doc.
+
 Every doc surface that makes a state claim must satisfy one of:
 
 1. the claim matches current code;

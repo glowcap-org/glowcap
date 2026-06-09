@@ -9,10 +9,12 @@
 //! (Threaded, Uring, Kqueue, fibers), and this is the single spot where `Io`
 //! turns into syscalls.
 //!
-//! The transport is named `tcp-testing-only`, and that's honest: it's cleartext,
-//! no TLS. It's here to prove the one-parser framing end to end over a real
-//! socket. Real transports like TLS or QUIC/iroh would layer on top of the same
-//! two boundaries.
+//! The transport is named `tcp` — the symbol the OCapN conformance TCP netlayer
+//! (Goblins' `^tcp-netlayer`) matches on, so a pancake locator addresses and is
+//! addressed by a Goblins `tcp` peer. It is still cleartext, no TLS: the OCapN
+//! spec standardizes only `onion`, and `tcp` is the conformance/testing
+//! transport both sides speak. Real confidential transports (TLS, QUIC/iroh)
+//! layer on top of the same two boundaries.
 
 const std = @import("std");
 
@@ -26,8 +28,10 @@ const net = std.Io.net;
 pub const Connection = connection.Connection;
 pub const FrameStream = frame_stream.FrameStream;
 
-/// The honest transport name carried in a `model.PeerLocator` (cleartext TCP).
-pub const transport_name = "tcp-testing-only";
+/// The transport symbol carried in a `model.PeerLocator`. `tcp` is what the
+/// OCapN conformance TCP netlayer (and Goblins' `^tcp-netlayer`) matches on, so
+/// the two peers can address each other; the bytes are cleartext.
+pub const transport_name = "tcp";
 
 pub const Error = error{
     /// A host string (or a locator's `host:port` designator) was not a parseable
@@ -52,7 +56,7 @@ pub fn connectAddress(
 /// As [`connectAddress`], resolving `locator`'s `host:port` designator (the
 /// `acceptable-location` a peer advertises for reconnect). The locator's
 /// `transport` is expected to be [`transport_name`]; this is the adapter-level
-/// designator → address mapping.
+/// mapping from designator to address.
 pub fn connect(
     io: std.Io,
     peer: *engine.Peer,

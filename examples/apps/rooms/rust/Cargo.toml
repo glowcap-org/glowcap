@@ -1,0 +1,15 @@
+[package]
+name = "rooms-client"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "rooms-client"
+path = "client.rs"
+
+# The pancake binding, with its tokio async layer. Renamed to `pancake` so the
+# application reads against the library, not the dogfood crate's package name.
+[dependencies]
+pancake = { path = "../../../../bindings/rust", package = "pancake-rust-dogfood", features = ["async"] }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "time", "sync"] }

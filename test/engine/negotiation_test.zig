@@ -6,7 +6,7 @@ const negotiation = pancake.engine.negotiation;
 
 test "FeatureSet.intersect is the field-wise AND and is symmetric" {
     const a = model.FeatureSet.full();
-    const b = model.FeatureSet.stage2Default(); // no sturdyref / stream / equality
+    const b = model.FeatureSet.pipeliningAndHandoff(); // no sturdyref / stream / equality
 
     const ab = a.intersect(b);
     const ba = b.intersect(a);
@@ -34,19 +34,19 @@ test "negotiate picks the most-preferred shared codec and intersects features" {
     };
     const remote: negotiation.Offer = .{
         .codecs = &.{ .syrup, .capnp },
-        .features = model.FeatureSet.stage2Default(),
+        .features = model.FeatureSet.pipeliningAndHandoff(),
     };
 
     const n = negotiation.negotiate(local, remote).?;
     // Both sum to preference 1; the CodecId tie-break picks `capnp` (declared
     // first).
     try std.testing.expectEqual(negotiation.CodecId.capnp, n.chosen);
-    try std.testing.expectEqual(model.FeatureSet.stage2Default(), n.features);
+    try std.testing.expectEqual(model.FeatureSet.pipeliningAndHandoff(), n.features);
 }
 
 test "negotiate is symmetric under perspective swap" {
     const a: negotiation.Offer = .{ .codecs = &.{ .capnp, .syrup }, .features = model.FeatureSet.full() };
-    const b: negotiation.Offer = .{ .codecs = &.{.syrup}, .features = model.FeatureSet.stage3Default() };
+    const b: negotiation.Offer = .{ .codecs = &.{.syrup}, .features = model.FeatureSet.fullExceptStreaming() };
 
     const from_a = negotiation.negotiate(a, b).?;
     const from_b = negotiation.negotiate(b, a).?;

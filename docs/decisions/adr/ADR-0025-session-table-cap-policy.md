@@ -55,7 +55,7 @@ Two adjacent accumulators are bounded but do **not** project to
 
 - `max_sturdyref_cache_entries` (default 256) bounds the dedup cache for
   resolved sturdyref enlivenments. The cache is non-load-bearing per
-  [ADR-0013](ADR-0013-cross-session-distributed-equality.md) — a miss costs one
+  [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md) — a miss costs one
   extra bootstrap-fetch round-trip, not correctness — so an overflow evicts the
   oldest entry instead of erroring (a cap of 0 disables caching).
 - `max_local_deliveries` (default 4096) is enforced by the engine's resolution
@@ -109,9 +109,18 @@ Two adjacent accumulators are bounded but do **not** project to
   and the Goblins-aligned `op_abort_resource_exhausted.bin` fixture asserted in
   [`test/codec/syrup_test.zig`](../../../test/codec/syrup_test.zig).
 
+## Inbound nesting-depth cap
+
+Inbound argument-tree nesting is bounded by `SessionLimits.max_nesting_depth`
+(default 64). The recursive validate-and-install walk fails loud with
+`NestingTooDeep`, projected to a `resource_exhausted` abort, instead of overflowing
+the native stack. `view.toOwned` and `model.argumentsEqual` carry an independent
+fixed depth ceiling as a model-layer backstop, so an over-nested tree is refused
+even on the paths that do not run through session validation.
+
 ## Notes
 
 - [ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md) owns the abort
   taxonomy this ADR extends; [ADR-0007](ADR-0007-promise-pipelining-substrate.md)
-  owns `queue_cap`; [ADR-0013](ADR-0013-cross-session-distributed-equality.md)
+  owns `queue_cap`; [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md)
   owns the sturdyref cache's non-load-bearing status.

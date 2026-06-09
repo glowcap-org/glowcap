@@ -1,0 +1,13 @@
+[package]
+name = "tools-agent"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "tools-agent"
+path = "agent.rs"
+
+[dependencies]
+pancake = { path = "../../../../bindings/rust", package = "pancake-rust-dogfood", features = ["async"] }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "time", "sync"] }

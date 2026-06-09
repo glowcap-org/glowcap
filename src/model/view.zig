@@ -328,6 +328,10 @@ pub const PipelinePath = struct {
     }
 
     pub fn toOwned(self: PipelinePath, allocator: std.mem.Allocator) Error!model.PipelinePath {
+        return self.toOwnedDepth(allocator, 0);
+    }
+
+    fn toOwnedDepth(self: PipelinePath, allocator: std.mem.Allocator, depth: usize) Error!model.PipelinePath {
         const count = try self.len();
         if (count == 0) return .{};
         const ops = try allocator.alloc(model.PipelineOp, count);
@@ -337,7 +341,7 @@ pub const PipelinePath = struct {
         var it = self.iterator();
         while (try it.next()) |op| {
             if (initialized >= count) return error.MalformedView;
-            ops[initialized] = try op.toOwned(allocator);
+            ops[initialized] = try op.toOwnedDepth(allocator, depth);
             initialized += 1;
         }
         if (initialized != count) return error.MalformedView;
@@ -427,12 +431,16 @@ pub const Reference = union(enum) {
     }
 
     pub fn toOwned(self: Reference, allocator: std.mem.Allocator) Error!model.Reference {
+        return self.toOwnedDepth(allocator, 0);
+    }
+
+    fn toOwnedDepth(self: Reference, allocator: std.mem.Allocator, depth: usize) Error!model.Reference {
         return switch (self) {
             .near => |near| .{ .near = near },
             .far => |far| .{ .far = far },
             .promise => |promise| .{ .promise = .{
                 .answer_id = promise.answer_id,
-                .path = try promise.path.toOwned(allocator),
+                .path = try promise.path.toOwnedDepth(allocator, depth),
             } },
             .sturdy => |sturdy| blk: {
                 const peer = try sturdy.peer.toOwned(allocator);
@@ -496,7 +504,7 @@ pub const Argument = union(enum) {
         return switch (self) {
             .bytes => |bytes| .{ .bytes = try allocator.dupe(u8, bytes) },
             .symbol => |symbol| .{ .symbol = try allocator.dupe(u8, symbol) },
-            .reference => |reference| .{ .reference = try reference.toOwned(allocator) },
+            .reference => |reference| .{ .reference = try reference.toOwnedDepth(allocator, depth) },
             .@"error" => |err| .{ .@"error" = try err.toOwned(allocator) },
             .handoff => |handoff| blk: {
                 const boxed = try allocator.create(model.Handoff);
@@ -535,9 +543,17 @@ pub const PipelineOp = union(enum) {
     }
 
     pub fn toOwned(self: PipelineOp, allocator: std.mem.Allocator) Error!model.PipelineOp {
+        return self.toOwnedDepth(allocator, 0);
+    }
+
+    fn toOwnedDepth(self: PipelineOp, allocator: std.mem.Allocator, depth: usize) Error!model.PipelineOp {
         return switch (self) {
             .field => |field| .{ .field = try allocator.dupe(u8, field) },
-            .call => |args| .{ .call = try args.toOwnedSlice(allocator) },
+            // A call op's args are one nesting level deeper — increment rather than
+            // reset, so a promise→call→promise→call… tree is bounded by
+            // `max_owned_depth` like list/set/tagged nesting. Resetting to 0 here
+            // (the old `toOwnedSlice`) let such a tree recurse off the stack.
+            .call => |args| .{ .call = try args.toOwnedSliceDepth(allocator, depth + 1) },
         };
     }
 };
@@ -623,6 +639,7 @@ pub const HandoffGive = struct {
     gifter_side: []const u8,
     gift_id: []const u8,
     signature: Signature,
+    raw_signed: ?[]const u8 = null,
 
     pub fn fromOwned(owned: *const model.HandoffGive) HandoffGive {
         return .{
@@ -632,6 +649,7 @@ pub const HandoffGive = struct {
             .gifter_side = owned.gifter_side,
             .gift_id = owned.gift_id,
             .signature = .{ .raw = owned.signature },
+            .raw_signed = owned.raw_signed,
         };
     }
 
@@ -647,6 +665,8 @@ pub const HandoffGive = struct {
         const gift_id = try allocator.dupe(u8, self.gift_id);
         errdefer allocator.free(gift_id);
         const signature = try self.signature.toOwned(allocator);
+        errdefer allocator.free(signature);
+        const raw_signed = if (self.raw_signed) |raw| try allocator.dupe(u8, raw) else null;
         return .{
             .recipient_key = recipient_key,
             .exporter_location = exporter_location,
@@ -654,6 +674,7 @@ pub const HandoffGive = struct {
             .gifter_side = gifter_side,
             .gift_id = gift_id,
             .signature = signature,
+            .raw_signed = raw_signed,
         };
     }
 };
@@ -759,6 +780,14 @@ pub const StartSession = struct {
     session_pubkey: []const u8,
     acceptable_location: PeerLocatorView,
     acceptable_location_sig: Signature,
+    /// The exact `<ocapn-peer …>` location-record bytes as received, borrowed
+    /// from the decoded frame. A verifying peer checks `acceptable_location_sig`
+    /// over these bytes rather than a re-encode of `acceptable_location`, so a
+    /// signature stays verifiable even when the borrowed locator view does not
+    /// retain every hint. Empty when the producing path did not capture it (the
+    /// owned-fallback and non-Syrup projections); verification treats empty as
+    /// unverifiable rather than a pass.
+    acceptable_location_raw: []const u8 = &.{},
 };
 
 // ── Body sum type ────────────────────────────────────────────────────────────

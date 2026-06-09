@@ -2,7 +2,20 @@
 // module: drive OCapN with native values and typed events — no FFI in sight.
 // This is the consumer `zig build bindings` runs.
 
-import { AsyncConnection, abiVersion, Context, type Event, far, type HostAllocator, Peer } from "./pancake.ts";
+import {
+  type Argument,
+  AsyncConnection,
+  abiVersion,
+  Connection,
+  Context,
+  type Event,
+  far,
+  FarRef,
+  type HostAllocator,
+  Peer,
+  Ref,
+  Vat,
+} from "./pancake.ts";
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {
@@ -140,6 +153,149 @@ try {
     listener.close();
   }
   console.log("deno zig-smoke OK: drove OCapN async over Deno networking");
+}
+
+// A counter behavior reused by the actor tests: "add" adds args[0] to the
+// count and returns it, "get" reads it, anything else throws (a break).
+function counterBehavior(start: bigint): (verb: string, args: Argument[]) => Argument {
+  let count = start;
+  return (verb: string, args: Argument[]): Argument => {
+    if (verb === "add") {
+      const n = args[0];
+      count += typeof n === "bigint" ? n : BigInt(n as number);
+      return count;
+    }
+    if (verb === "get") return count;
+    throw new Error(`unknown verb ${verb}`);
+  };
+}
+
+// Actor layer: publish a counter actor at export 7 and drive it from a syrup
+// deliver. The leading symbol is the verb.
+{
+  const actorPeer = new Peer();
+  try {
+    const vat = new Vat(actorPeer);
+    vat.publish(7n, counterBehavior(10n));
+
+    // counter.add(5) with answer 11: <10'op:deliver<11'desc:export7+>[3'add5+]11+f>
+    actorPeer.feed(new TextEncoder().encode("<10'op:deliver<11'desc:export7+>[3'add5+]11+f>"));
+    const ev: Event | null = actorPeer.poll();
+    assert(ev?.kind === "deliver", `actor vat saw a deliver, got ${ev?.kind}`);
+    assert(vat.serve(ev!), "vat served the deliver to the published export");
+
+    actorPeer.step();
+    const reply = actorPeer.takeOutbound();
+    assert(reply !== null, "vat emitted a resolve frame");
+    const text = new TextDecoder().decode(reply!);
+    assert(text.includes("op:resolve"), `actor reply is an op:resolve, got ${text}`);
+    assert(text.includes("15+"), `actor reply fulfills the new count 15, got ${text}`);
+  } finally {
+    actorPeer.release();
+  }
+  console.log("deno zig-smoke OK: drove a published actor round-trip");
+}
+
+// Far-send round-trip across the local|far seam. Two fresh peers (no handshake):
+// peerB's vat publishes a counter at export 7; peerA's vat far-sends
+// counter.add(5) to far(7), gets a far vow, and registers an `on` listener.
+// Shuttle A's outbound to B, B serves the deliver (count 10 -> 15, resolves),
+// shuttle the resolve back, A serves it (fires the listener) -> captured 15.
+{
+  const peerA = new Peer();
+  const peerB = new Peer();
+  try {
+    const vatA = new Vat(peerA);
+    const vatB = new Vat(peerB);
+
+    // peerB hosts the counter; peerA holds it as an import it can far-send to.
+    vatB.publish(7n, counterBehavior(10n));
+    peerA.registerImport(7n);
+
+    // peerA: location-transparent send to a far ref returns a far vow.
+    const vow = vatA.send(new FarRef(far(7n)), "add", [5n]);
+    assert(vow.location === "far", "a far send returns a far vow");
+    let captured: bigint | null = null;
+    vatA.on(vow, (value: Argument) => {
+      captured = typeof value === "bigint" ? value : null;
+    });
+
+    // Shuttle A -> B: deliver.
+    peerA.step();
+    const toB = peerA.takeOutbound();
+    assert(toB !== null, "peerA emitted the far deliver");
+    peerB.feed(toB!);
+    const deliverEv = peerB.poll();
+    assert(deliverEv?.kind === "deliver", `peerB saw a deliver, got ${deliverEv?.kind}`);
+    assert(vatB.serve(deliverEv!), "vatB served the far deliver");
+
+    // Shuttle B -> A: resolve.
+    peerB.step();
+    const toA = peerB.takeOutbound();
+    assert(toA !== null, "peerB emitted the resolve");
+    peerA.feed(toA!);
+    const resolveEv = peerA.poll();
+    assert(resolveEv?.kind === "resolve", `peerA saw a resolve, got ${resolveEv?.kind}`);
+    assert(vatA.serve(resolveEv!), "vatA served the resolve, firing the far vow");
+
+    assert(captured === 15n, `far vow fired with the new count 15, got ${captured}`);
+  } finally {
+    peerA.release();
+    peerB.release();
+  }
+  console.log("deno zig-smoke OK: drove a far-send round-trip across the local|far seam");
+}
+
+// Connection surface: an outstanding `send` rejects when the wire drops instead
+// of hanging on a reply that can never arrive. The server reads the client's
+// deliver and then closes without answering; the client's awaited far `send`
+// must settle broken once `serve` sees the disconnect.
+{
+  const listener = Deno.listen({ port: 0 });
+  const port = (listener.addr as Deno.NetAddr).port;
+
+  async function server(): Promise<void> {
+    const tcp = await listener.accept();
+    // Complete the responder handshake (the client's `connect` handshakes), then
+    // read the client's deliver and drop the connection unanswered.
+    const peer = Peer.newNegotiating();
+    peer.registerExport(7n); // admit the client's deliver instead of aborting it
+    const ac = AsyncConnection.fromConn(peer, tcp);
+    const la = tcp.localAddr as Deno.NetAddr;
+    peer.startSessionKeyed({
+      transport: "tcp",
+      designator: `${la.hostname}:${la.port}`,
+      seed: crypto.getRandomValues(new Uint8Array(32)),
+      hintsEmptyFalse: true,
+    });
+    await ac.flush();
+    while (!peer.sessionIsOpen()) {
+      if ((await ac.nextEvent()) === null) return;
+    }
+    await ac.nextEvent(); // the client's deliver
+    ac.close();
+  }
+
+  async function client(): Promise<void> {
+    const conn = await Connection.connect("127.0.0.1", port);
+    conn.serve().catch(() => {}); // a disconnect ends the serve loop; expected here
+    conn.peer.registerImport(7n);
+    let rejected = false;
+    try {
+      await conn.send(new Ref(far(7n), null), "ping", []);
+    } catch (_err) {
+      rejected = true;
+    }
+    assert(rejected, "an outstanding send rejects when the connection drops");
+    conn.close();
+  }
+
+  try {
+    await Promise.all([server(), client()]);
+  } finally {
+    listener.close();
+  }
+  console.log("deno zig-smoke OK: an outstanding send rejects on disconnect");
 }
 
 console.log("deno zig-smoke OK: drove OCapN through the idiomatic pancake API");

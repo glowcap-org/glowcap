@@ -143,3 +143,60 @@ test "bootstrap fetch round-trips: prepare, send, partner resolves, match" {
     try std.testing.expectEqual(cap_export, position);
     model.freeReference(allocator, match.settled.fulfilled);
 }
+
+test "a pipelined call to an already-resolved inbound answer redirects to the resolved export" {
+    const allocator = std.testing.allocator;
+    var p1 = engine.Peer.init(allocator);
+    defer p1.deinit();
+    var p2 = engine.Peer.init(allocator);
+    defer p2.deinit();
+
+    try p2.session_state.registerExport(session.BOOTSTRAP_EXPORT_ID);
+    const cap_export = try p2.registerBootstrapCap("swiss");
+
+    // p1 fetches; p2 auto-serves and resolves the fetch answer to the cap export,
+    // keeping the resolution so a later pipelined call can redirect to it.
+    const prepared = try fetch.prepareFetchSwissnum(allocator, &p1.session_state, "swiss");
+    const fetch_answer = prepared.answer_id;
+    try p1.send(prepared.message);
+    _ = try p1.step();
+    try p2.feedInbound(p1.takeOutbound().?);
+    _ = try p2.step(); // surfaces the fetch deliver event and enqueues the resolve
+    {
+        var fetch_event = p2.pollEvent().?;
+        fetch_event.deinit();
+    }
+    _ = try p2.step(); // encode the resolve: p2's inbound answer is now resolved + stored
+    // Discard p2's outbound resolve so p1's outbound answer stays pending and p1
+    // can still pipeline against it.
+    if (p2.takeOutbound()) |outbound| {
+        var frame = outbound;
+        frame.deinit();
+    }
+
+    // p1 pipelines a call against the fetch answer — which is already resolved on
+    // p2's side. Before the redirect, this surfaced raw with its promise target;
+    // now p2 redirects it to the resolved export.
+    const call_answer: u64 = 77;
+    try p1.sendCopying(.{ .deliver = .{
+        .target = .{ .promise = .{ .answer_id = fetch_answer } },
+        .args = &.{.{ .bytes = "ping" }},
+        .answer = call_answer,
+        .resolve_me_desc = null,
+    } });
+    _ = try p1.step();
+    try p2.feedInbound(p1.takeOutbound().?);
+    _ = try p2.step();
+
+    var event = p2.pollEvent() orelse return error.NoRedirectedDeliver;
+    defer event.deinit();
+    try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
+    const deliver = (try event.view()).deliver;
+    const position: u64 = switch (deliver.target) {
+        .near => |near| near.export_id,
+        .far => |far| far.import_id,
+        else => return error.PipelinedTargetNotRedirected,
+    };
+    try std.testing.expectEqual(cap_export, position);
+    try std.testing.expectEqual(@as(?u64, call_answer), deliver.answer);
+}

@@ -1,0 +1,126 @@
+//! Codec neutrality, proven per message arm.
+//!
+//! pancake's whole reason to exist is that the session state machine is
+//! codec-neutral: a `Deliver` means the same thing whether Syrup or Cap'n Proto
+//! carried it. The scenario traces in `parity_test.zig` show that for two whole
+//! conversations; this proves it for *every message arm* by construction.
+//!
+//! For each message, we encode it through Syrup and through Cap'n Proto, decode
+//! each back to the codec-neutral model (the production `decodeBody` path,
+//! complete for every argument kind), and assert the two decoded models are
+//! structurally equal. Both codecs apply the same wire-perspective flip on decode
+//! (ADR-0010), so a faithful codec lands on the same model — a single
+//! `messagesEqual` per message witnesses that Syrup and Cap'n Proto are
+//! interchangeable for it.
+//!
+//! The corpus is the *shared* passable set — what both codecs carry the same way.
+//! A few shapes are deliberately codec-dialect-specific and excluded: an `error`
+//! or `handoff` *argument* (Cap'n Proto carries them, Syrup does not — errors
+//! live in `resolve:break`, handoffs in their own flow), a `sturdy` *deliver
+//! target* (you enliven a sturdyref, you don't deliver to one), and the
+//! promise/object *kind* of a `far` reference — OCapN's `desc:export` is kind-less
+//! by design (the receiver resolves the kind from its own export table), so Syrup
+//! drops it on the wire while Cap'n Proto carries it. Each is covered by its own
+//! per-codec round-trip test, not this shared-set equivalence.
+
+const std = @import("std");
+const pancake = @import("pancake");
+
+const model = pancake.model;
+const codec = pancake.codec;
+const messagesEqual = @import("../support/message_equality.zig").messagesEqual;
+
+const profile = model.WireProfile.pre_spec;
+
+/// Encode `message` through `codec_id` and decode it back to the owned,
+/// codec-neutral model. Caller owns the result (`model.freeMessage`).
+fn decodedVia(allocator: std.mem.Allocator, codec_id: model.CodecId, message: model.Message) !model.Message {
+    var wire = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, profile, message);
+    defer wire.deinit();
+    const body = try codec.dispatch.decodeBody(codec_id, wire.view());
+    return body.toOwned(allocator);
+}
+
+/// A message means the same thing through either codec.
+fn expectCodecEquivalent(message: model.Message) !void {
+    const allocator = std.testing.allocator;
+    const via_syrup = try decodedVia(allocator, .syrup, message);
+    defer model.freeMessage(allocator, via_syrup);
+    const via_capnp = try decodedVia(allocator, .capnp, message);
+    defer model.freeMessage(allocator, via_capnp);
+    try std.testing.expect(messagesEqual(via_syrup, via_capnp));
+}
+
+test "deliver arms are codec-equivalent across every target and argument kind" {
+    const call_args = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 } };
+
+    // The shared passable breadth in one deliver, plus three target shapes.
+    // (The handoff argument arm has its own codec-specific representation and is
+    // covered by the handoff message tests, not this shared-arg equivalence.)
+    try expectCodecEquivalent(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(4) },
+        .args = &.{
+            .{ .integer = -99 },
+            .{ .float64 = 1.5 },
+            .{ .boolean = true },
+            .{ .bytes = &.{ 1, 2, 3 } },
+            .{ .string = "hello" },
+            .{ .symbol = "run" },
+            .{ .keyword = "color" },
+            .{ .void = {} },
+            .{ .reference = .{ .far = model.FarRef.object(2) } },
+            .{ .list = &call_args },
+            .{ .set = &.{ .{ .integer = 3 }, .{ .integer = 1 }, .{ .integer = 2 } } },
+            .{ .tagged = .{ .tag = "point", .value = &call_args } },
+        },
+        .answer = 7,
+    } });
+
+    try expectCodecEquivalent(.{ .deliver = .{ .target = .{ .far = model.FarRef.object(3) }, .args = &.{} } });
+    try expectCodecEquivalent(.{ .deliver = .{
+        .target = .{ .promise = .{ .answer_id = 1, .path = .{ .ops = &.{} } } },
+        .args = &.{},
+    } });
+}
+
+test "resolve / gc / abort / listen / get / index arms are codec-equivalent" {
+    try expectCodecEquivalent(.{ .resolve = .{ .answer = 42, .resolution = .{ .fulfill = .{ .integer = -7 } } } });
+    try expectCodecEquivalent(.{ .resolve = .{
+        .answer = 2,
+        .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(6) } } },
+    } });
+    try expectCodecEquivalent(.{ .resolve = .{ .answer = 9, .resolution = .{ .break_ = .{ .message = "boom" } } } });
+
+    try expectCodecEquivalent(.{ .gc_export = .{ .positions = &.{ 2, 5, 8 }, .deltas = &.{ 1, 1, 3 } } });
+    try expectCodecEquivalent(.{ .gc_answer = .{ .positions = &.{ 1, 4, 9 } } });
+    try expectCodecEquivalent(.{ .gc_answer = .{ .positions = &.{} } });
+
+    try expectCodecEquivalent(.{ .abort = .{ .kind = .version_mismatch, .message = "expected ocapn-1.0" } });
+    try expectCodecEquivalent(.{ .abort = .{ .kind = .normal_shutdown, .message = "" } });
+
+    try expectCodecEquivalent(.{ .listen = .{
+        .target = .{ .promise = .{ .answer_id = 7, .path = .{ .ops = &.{} } } },
+        .listener = .{ .near = model.NearRef.object(2) },
+        .wants_partial = false,
+    } });
+
+    try expectCodecEquivalent(.{ .get = .{ .receiver = .{ .far = model.FarRef.object(5) }, .field = "value", .answer = 8 } });
+    try expectCodecEquivalent(.{ .index = .{ .receiver = .{ .far = model.FarRef.object(6) }, .index = -3, .answer = 9 } });
+}
+
+test "i64 boundary integers round-trip and stay codec-equivalent (regression: minInt magnitude is 2^63)" {
+    // minInt(i64) is written by Syrup as the unsigned magnitude 9223372036854775808
+    // (2^63) plus a `-` sign; parsing that magnitude as i64 overflowed, so Syrup
+    // used to reject a frame it had just encoded. Both codecs must now carry the
+    // full i64 range and agree on it.
+    try expectCodecEquivalent(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(1) },
+        .args = &.{
+            .{ .integer = std.math.minInt(i64) },
+            .{ .integer = std.math.maxInt(i64) },
+            .{ .integer = std.math.minInt(i64) + 1 },
+            .{ .integer = -1 },
+            .{ .integer = 0 },
+        },
+    } });
+}

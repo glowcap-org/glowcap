@@ -42,6 +42,10 @@ A `field` step has no `op:deliver` analog — OCapN is methodic, with no structu
 
 [`SessionLimits`](../../../src/session/mod.zig) caps each surface: `queue_cap` per pending answer (`QueueCapExceeded`), `max_listeners_per_target` (`ListenerCapExceeded`), `max_inbound_answers`, and `max_local_deliveries` for the chain of local deliveries one resolution can trigger. A promise resolving onto an answer already on the drain chain is a `ResolutionCycle` error, surfaced loudly instead of looping.
 
+### op:get and op:index
+
+The model also carries top-level `Get { receiver, field, answer }` and `Index { receiver, index, answer }` arms for the OCapN `op:get` / `op:index` wire shapes, and the Syrup codec encodes and decodes both on every profile. A `field` pipeline path-step is a Cap'n Proto-only operand that the Syrup decomposer and reference encoders reject loudly; Syrup does not translate it into `op:get`. Serving these ops against a local object model is not implemented in the engine — a received op surfaces an application event and records receipt, the boundary the actor layer later closes.
+
 ## Scope (what this does not decide)
 
 - **Syrup still decomposes multi-hop paths.** Cap'n Proto can carry a pipeline
@@ -52,7 +56,7 @@ A `field` step has no `op:deliver` analog — OCapN is methodic, with no structu
 - **Computing a resolved value against a local actor model is not implemented.** A drained call whose target resolved to a local export is re-targeted and surfaced as a synthesized `op:deliver` event ([`Peer.deliverDrainedCallLocally`](../../../src/engine/mod.zig)) for the application to dispatch; the engine runs no method itself.
 - **Export listeners are not implemented.** An `op:listen` on one of our own exports falls through to ordinary recv handling.
 - Listeners on third-party handoff-imported promises and their relayed resolutions — [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
-- The `op:resolve` ↔ V1.0 resolver-callback translation the drain trigger rides on — [ADR-0023](ADR-0023-nearref-kind-on-the-wire.md).
+- The `op:resolve` ↔ V1.0 resolver-callback translation the drain trigger rides on — [ADR-0010](ADR-0010-payload-descriptor-discriminator.md).
 
 ## Alternatives Considered
 

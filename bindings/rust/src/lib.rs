@@ -13,7 +13,21 @@ mod async_io;
 #[cfg(feature = "async")]
 pub use async_io::AsyncConnection;
 
+#[cfg(feature = "async")]
+mod connection;
+#[cfg(feature = "async")]
+pub use connection::{connect, Connection, Ref};
+
+pub mod actors;
+
 mod sys {
+    // The raw FFI mirror of the C ABI. It declares the full surface — every
+    // error code, reference kind, and argument tag `pancake.h` defines — so the
+    // safe wrapper above can reach for any of them. Not every constant is used
+    // yet (e.g. `ERR_CLOSED`, `REF_BROKEN` round out their enums), and that is
+    // expected of a `sys` layer, so dead code is allowed here and only here.
+    #![allow(dead_code)]
+
     use core::ffi::{c_int, c_uchar, c_uint, c_void};
 
     #[repr(C)]
@@ -172,6 +186,18 @@ mod sys {
             swissnum_len: usize,
             out_export_id: *mut u64,
         ) -> c_int;
+        pub fn pancake_peer_new_negotiating(peer: *mut *mut PancakePeer) -> c_int;
+        pub fn pancake_peer_start_session_keyed(
+            peer: *mut PancakePeer,
+            captp_version: c_uint,
+            transport: *const c_uchar,
+            transport_len: usize,
+            designator: *const c_uchar,
+            designator_len: usize,
+            hints_empty_false: c_uint,
+            seed: *const c_uchar,
+        ) -> c_int;
+        pub fn pancake_peer_session_is_open(peer: *mut PancakePeer) -> c_int;
 
         pub fn pancake_tcp_netlayer_new(out: *mut *mut PancakeTcpNetlayer) -> c_int;
         pub fn pancake_tcp_netlayer_new_in(
@@ -210,6 +236,7 @@ mod sys {
 
     pub const CODEC_SYRUP: c_uint = 0;
     pub const ERR_CLOSED: c_int = -8;
+    pub const ERR_BROKEN: c_int = -14;
 
     pub const OK: c_int = 0;
     pub const WOULD_BLOCK: c_int = -7;
@@ -243,24 +270,48 @@ mod sys {
     pub const RESOLUTION_BREAK: c_uint = 1;
 }
 
-/// A failed C ABI call, carrying the negative `PANCAKE_ERR_*` code.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Error(pub i32);
+/// A failed pancake call. It always carries the negative `PANCAKE_ERR_*` code;
+/// when a `send` was broken by the partner it also carries the break reason, so
+/// the reason a partner gave for refusing a call is not lost behind a code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Error {
+    code: i32,
+    detail: Option<String>,
+}
 
 impl Error {
-    /// The calling thread's diagnostic message for the most recent failure, if
-    /// the library recorded one. Read it right after the failing call — it is
-    /// thread-local and the next fallible call may overwrite it.
+    /// The negative `PANCAKE_ERR_*` code for this failure.
+    pub fn code(&self) -> i32 {
+        self.code
+    }
+
+    /// The diagnostic message for this failure. For a broken `send` it is the
+    /// partner's break reason, carried on the error itself. Otherwise it is the
+    /// calling thread's last recorded C ABI message, if the library set one —
+    /// read that right after the failing call, since it is thread-local and the
+    /// next fallible call may overwrite it. `None` when neither is set.
     pub fn message(&self) -> Option<String> {
-        last_error()
+        self.detail.clone().or_else(last_error)
+    }
+
+    fn from_code(code: i32) -> Error {
+        Error { code, detail: None }
+    }
+
+    /// A broken promise carrying the partner's reason: a `send`/`fetch` the
+    /// remote side refused, distinct from a fault in this peer or the transport.
+    /// Carries `PANCAKE_ERR_BROKEN` so a caller can tell a refusal apart from a
+    /// real failure by `code()`, with the reason on `detail`.
+    fn broken(message: String) -> Error {
+        Error { code: sys::ERR_BROKEN, detail: Some(message) }
     }
 }
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.message() {
-            Some(msg) => write!(f, "pancake error {}: {msg}", self.0),
-            None => write!(f, "pancake error {}", self.0),
+            Some(msg) => write!(f, "pancake error {}: {msg}", self.code),
+            None => write!(f, "pancake error {}", self.code),
         }
     }
 }
@@ -272,7 +323,7 @@ fn check(code: i32) -> Result<()> {
     if code == sys::OK {
         Ok(())
     } else {
-        Err(Error(code))
+        Err(Error::from_code(code))
     }
 }
 
@@ -364,7 +415,7 @@ impl Context {
         let rc = unsafe { sys::pancake_context_new_with_allocator(&c_allocator, &mut raw) };
         if rc != sys::OK {
             unsafe { drop(Box::from_raw(user_data)) };
-            return Err(Error(rc));
+            return Err(Error::from_code(rc));
         }
         Ok(Context { raw, allocator: user_data })
     }
@@ -405,7 +456,7 @@ impl Reference {
             Reference::Near { id, promise } => (sys::REF_NEAR, sub(promise), id),
             Reference::Far { id, promise } => (sys::REF_FAR, sub(promise), id),
             Reference::Promise { answer } => (sys::REF_PROMISE, 0, answer),
-            Reference::Sturdy | Reference::Broken => return Err(Error(-13)),
+            Reference::Sturdy | Reference::Broken => return Err(Error::from_code(-13)),
         };
         Ok(sys::PancakeReference { kind, sub_kind: sub, id })
     }
@@ -617,6 +668,50 @@ impl Peer {
         Ok(Peer { raw })
     }
 
+    /// A negotiating peer, awaiting the keyed `op:start-session` handshake — the
+    /// peer to drive when the partner requires it (a real Goblins vat). Pair it
+    /// with [`start_session_keyed`](Peer::start_session_keyed), then pump until
+    /// [`session_is_open`](Peer::session_is_open).
+    pub fn new_negotiating() -> Result<Peer> {
+        let mut raw: *mut sys::PancakePeer = core::ptr::null_mut();
+        check(unsafe { sys::pancake_peer_new_negotiating(&mut raw) })?;
+        Ok(Peer { raw })
+    }
+
+    /// Sign and queue a keyed `op:start-session` from this negotiating peer over
+    /// the canonical v1.0 wire. The 32-byte `seed` is the session key;
+    /// `transport`/`designator` form the locator the partner verifies, so they
+    /// must be what it expects — for a Goblins partner, `"tcp"` with
+    /// `hints_empty_false` true (an empty hints map encoded as `#f`). Flush it,
+    /// then pump until [`session_is_open`](Peer::session_is_open).
+    pub fn start_session_keyed(
+        &mut self,
+        seed: &[u8; 32],
+        transport: &str,
+        designator: &str,
+        hints_empty_false: bool,
+    ) -> Result<()> {
+        check(unsafe {
+            sys::pancake_peer_start_session_keyed(
+                self.raw,
+                0, // v1.0
+                transport.as_ptr(),
+                transport.len(),
+                designator.as_ptr(),
+                designator.len(),
+                u32::from(hints_empty_false),
+                seed.as_ptr(),
+            )
+        })
+    }
+
+    /// Whether the keyed handshake has completed and the session is open for
+    /// traffic. Pump the connection and poll this before sending application
+    /// messages.
+    pub fn session_is_open(&self) -> bool {
+        unsafe { sys::pancake_peer_session_is_open(self.raw) == 1 }
+    }
+
     /// Publish a local export so inbound deliveries to it surface as events.
     pub fn register_export(&mut self, id: u64) -> Result<()> {
         check(unsafe { sys::pancake_peer_register_export(self.raw, id) })
@@ -651,7 +746,7 @@ impl Peer {
         match rc {
             sys::OK => Ok(Some(consumed)),
             sys::WOULD_BLOCK => Ok(None),
-            _ => Err(Error(rc)),
+            _ => Err(Error::from_code(rc)),
         }
     }
 
@@ -672,7 +767,7 @@ impl Peer {
         if rc != sys::OK {
             // The descriptor was not adopted; reclaim the bytes ourselves.
             unsafe { release_owned_vec(&mut managed) };
-            return Err(Error(rc));
+            return Err(Error::from_code(rc));
         }
         Ok(())
     }
@@ -734,31 +829,33 @@ impl Peer {
         Some(out)
     }
 
-    /// Take the next application event as a typed [`Event`], or `None` when idle.
-    pub fn poll(&mut self) -> Option<Event> {
+    /// Take the next application event as a typed [`Event`], or `Ok(None)` when
+    /// idle. A typed-poll failure (re-decode or allocation failure between the
+    /// peek and the poll) surfaces as `Err`, never as a fabricated event.
+    pub fn poll(&mut self) -> Result<Option<Event>> {
         match unsafe { sys::pancake_peer_peek_event(self.raw) } {
-            sys::EVENT_DELIVER => Some(self.poll_deliver()),
-            sys::EVENT_RESOLVE => Some(self.poll_resolve()),
-            sys::WOULD_BLOCK => None,
-            _ => Some(self.poll_other()),
+            sys::EVENT_DELIVER => Ok(Some(self.poll_deliver()?)),
+            sys::EVENT_RESOLVE => Ok(Some(self.poll_resolve()?)),
+            sys::WOULD_BLOCK => Ok(None),
+            _ => Ok(Some(self.poll_other())),
         }
     }
 
-    fn poll_deliver(&mut self) -> Event {
+    fn poll_deliver(&mut self) -> Result<Event> {
         let mut d: sys::PancakeDeliver = unsafe { core::mem::zeroed() };
-        unsafe { sys::pancake_peer_poll_event_deliver(self.raw, &mut d) };
+        check(unsafe { sys::pancake_peer_poll_event_deliver(self.raw, &mut d) })?;
         let event = Event::Deliver {
             target: Reference::from_sys(&d.target),
             args: unsafe { args_from_sys(d.args, d.args_len) },
             answer: if d.has_answer != 0 { Some(d.answer) } else { None },
         };
         unsafe { sys::pancake_deliver_free(&mut d) };
-        event
+        Ok(event)
     }
 
-    fn poll_resolve(&mut self) -> Event {
+    fn poll_resolve(&mut self) -> Result<Event> {
         let mut r: sys::PancakeResolve = unsafe { core::mem::zeroed() };
-        unsafe { sys::pancake_peer_poll_event_resolve(self.raw, &mut r) };
+        check(unsafe { sys::pancake_peer_poll_event_resolve(self.raw, &mut r) })?;
         let resolution = if r.resolution_kind == sys::RESOLUTION_FULFILL {
             Resolution::Fulfill(unsafe { arg_from_sys(&r.fulfill) })
         } else {
@@ -772,7 +869,7 @@ impl Peer {
         };
         let event = Event::Resolve { answer: r.answer, resolution };
         unsafe { sys::pancake_resolve_free(&mut r) };
-        event
+        Ok(event)
     }
 
     fn poll_other(&mut self) -> Event {
@@ -909,7 +1006,7 @@ pub struct Conn {
 }
 
 impl Conn {
-    /// Block for one whole frame. `Err(Error(-8))` is a clean EOF.
+    /// Block for one whole frame. An error with `code() == -8` is a clean EOF.
     pub fn read_frame(&mut self) -> Result<Vec<u8>> {
         let mut frame: sys::PancakeManagedFrame = unsafe { core::mem::zeroed() };
         check(unsafe { sys::pancake_endpoint_tcp_read_frame(self.raw, &mut frame) })?;
@@ -961,7 +1058,7 @@ mod tests {
         let mut callee = Peer::new().unwrap();
         callee.register_export(7).unwrap();
         callee.feed(b"<10'op:deliver<11'desc:export7+>[5:hello]11+f>").unwrap();
-        match callee.poll().expect("a deliver event") {
+        match callee.poll().unwrap().expect("a deliver event") {
             Event::Deliver { target, args, answer } => {
                 assert_eq!(target, Reference::Near { id: 7, promise: false });
                 assert_eq!(answer, Some(11));
@@ -977,7 +1074,7 @@ mod tests {
         peer.register_export(7).unwrap();
         peer.feed(b"<10'op:deliver<11'desc:export7+>[#1+2+$<11'user-record5'Point[3+4+]><2'kw5'color>]11+f>")
             .unwrap();
-        match peer.poll().expect("a deliver") {
+        match peer.poll().unwrap().expect("a deliver") {
             Event::Deliver { args, .. } => {
                 assert_eq!(args.len(), 3);
                 assert_eq!(args[0], Argument::Set(vec![Argument::Integer(1), Argument::Integer(2)]));
@@ -998,14 +1095,14 @@ mod tests {
     fn surfaces_an_abort_as_a_typed_event() {
         let mut peer = Peer::new().unwrap();
         peer.feed(b"<8'op:abort3\"bye>").unwrap();
-        match peer.poll().expect("an abort event") {
+        match peer.poll().unwrap().expect("an abort event") {
             Event::Other { kind, frame } => {
                 assert_eq!(kind, 7); // PANCAKE_EVENT_ABORT
                 assert_eq!(frame, b"<8'op:abort3\"bye>");
             }
             other => panic!("expected abort, got {other:?}"),
         }
-        assert!(peer.poll().is_none());
+        assert!(peer.poll().unwrap().is_none());
     }
 
     #[test]
@@ -1034,7 +1131,7 @@ mod tests {
         let mut peer = Peer::new().unwrap();
         peer.register_export(7).unwrap();
         peer.feed(b"<10'op:deliver<11'desc:export7+>[5:hello]11+f>").unwrap();
-        let answer = match peer.poll().unwrap() {
+        let answer = match peer.poll().unwrap().unwrap() {
             Event::Deliver { answer, .. } => answer.unwrap(),
             other => panic!("expected deliver, got {other:?}"),
         };
@@ -1048,6 +1145,142 @@ mod tests {
     fn reports_a_nonzero_abi_version() {
         let (major, minor, patch) = abi_version();
         assert!(major + minor + patch > 0);
+    }
+
+    #[test]
+    fn hosts_an_actor_that_serves_a_delivered_call() {
+        use crate::actors::Vat;
+
+        let mut peer = Peer::new().unwrap();
+        let mut vat = Vat::over(&mut peer);
+
+        // Publish a counter at export 7 — a Rust closure, not a foreign callback.
+        let mut n: i64 = 10;
+        vat.publish(7, move |verb, args| match verb {
+            "add" => match args[0] {
+                Argument::Integer(x) => {
+                    n += x;
+                    Ok(Argument::Integer(n))
+                }
+                _ => Err("add expects an integer".into()),
+            },
+            other => Err(format!("no such method: {other}")),
+        })
+        .unwrap();
+
+        // A partner delivers counter.add(5) with answer 11.
+        vat.peer()
+            .unwrap()
+            .feed(b"<10'op:deliver<11'desc:export7+>[3'add5+]11+f>")
+            .unwrap();
+        let event = vat.peer().unwrap().poll().unwrap().expect("a deliver event");
+        assert!(vat.serve(&event).unwrap());
+
+        vat.peer().unwrap().step().unwrap();
+        let wire = vat.peer().unwrap().take_outbound().expect("a resolve frame");
+        let text = core::str::from_utf8(&wire).unwrap();
+        assert!(text.contains("op:resolve"));
+        // The reply carries the new count, 15.
+        assert!(text.contains("15+"));
+    }
+
+    #[test]
+    fn near_call_local_send_and_drive() {
+        use crate::actors::{Promise, Ref, Vat};
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        let mut vat = Vat::new();
+        let mut n: i64 = 0;
+        let counter = vat.spawn(move |verb, args| match verb {
+            "add" => match args[0] {
+                Argument::Integer(x) => {
+                    n += x;
+                    Ok(Argument::Integer(n))
+                }
+                _ => Err("add expects an integer".into()),
+            },
+            other => Err(format!("no such method: {other}")),
+        });
+
+        // Near-call is synchronous and local-only.
+        assert_eq!(vat.call(&counter, "add", &[Argument::Integer(3)]).unwrap(), Argument::Integer(3));
+
+        // Near-calling a far ref is illegal.
+        assert!(vat.call(&Ref::Far(Reference::far(5)), "add", &[]).is_err());
+
+        // An eventual send queues a turn; drive settles its promise.
+        let captured = Rc::new(Cell::new(0i64));
+        let sink = captured.clone();
+        let promise = vat.send(&counter, "add", &[Argument::Integer(4)]).unwrap();
+        assert!(matches!(promise, Promise::Local(_)));
+        vat.on(promise, move |resolution| {
+            if let Resolution::Fulfill(Argument::Integer(v)) = resolution {
+                sink.set(v);
+            }
+        });
+        vat.drive();
+        assert_eq!(captured.get(), 7); // 3 + 4
+    }
+
+    #[test]
+    fn far_send_routes_over_the_wire_and_settles_the_promise() {
+        use crate::actors::{Promise, Ref, Vat};
+        use std::cell::Cell;
+        use std::rc::Rc;
+
+        // PeerB publishes a counter at export 7.
+        let mut peer_b = Peer::new().unwrap();
+        let mut vat_b = Vat::over(&mut peer_b);
+        let mut n: i64 = 10;
+        vat_b
+            .publish(7, move |verb, args| match verb {
+                "add" => match args[0] {
+                    Argument::Integer(x) => {
+                        n += x;
+                        Ok(Argument::Integer(n))
+                    }
+                    _ => Err("add expects an integer".into()),
+                },
+                other => Err(format!("no such method: {other}")),
+            })
+            .unwrap();
+
+        // PeerA far-sends counter.add(5) and listens on the returned promise.
+        let mut peer_a = Peer::new().unwrap();
+        peer_a.register_import(7).unwrap();
+        let mut vat_a = Vat::over(&mut peer_a);
+        let captured = Rc::new(Cell::new(0i64));
+        let sink = captured.clone();
+        let promise = vat_a
+            .send(&Ref::Far(Reference::far(7)), "add", &[Argument::Integer(5)])
+            .unwrap();
+        assert!(matches!(promise, Promise::Far(_)));
+        vat_a.on(promise, move |resolution| {
+            if let Resolution::Fulfill(Argument::Integer(v)) = resolution {
+                sink.set(v);
+            }
+        });
+
+        // Shuttle A's outbound deliver to B.
+        vat_a.peer().unwrap().step().unwrap();
+        let to_b = vat_a.peer().unwrap().take_outbound().expect("A's deliver frame");
+        vat_b.peer().unwrap().feed(&to_b).unwrap();
+
+        // B serves the deliver: runs the counter (10 + 5 = 15) and resolves.
+        let deliver = vat_b.peer().unwrap().poll().unwrap().expect("a deliver event");
+        assert!(vat_b.serve(&deliver).unwrap());
+
+        // Shuttle B's outbound resolve back to A.
+        vat_b.peer().unwrap().step().unwrap();
+        let to_a = vat_b.peer().unwrap().take_outbound().expect("B's resolve frame");
+        vat_a.peer().unwrap().feed(&to_a).unwrap();
+
+        // A serves the resolve: fires the far promise's listener.
+        let resolve = vat_a.peer().unwrap().poll().unwrap().expect("a resolve event");
+        assert!(vat_a.serve(&resolve).unwrap());
+
+        assert_eq!(captured.get(), 15);
     }
 
     #[cfg(feature = "async")]
@@ -1120,7 +1353,7 @@ mod tests {
         // feed_owned transfers the bytes into the inbound queue; step applies them.
         peer.feed_owned(b"<10'op:deliver<11'desc:export7+>[5:hello]11+f>".to_vec()).unwrap();
         peer.step().unwrap();
-        match peer.poll().expect("a deliver event") {
+        match peer.poll().unwrap().expect("a deliver event") {
             Event::Deliver { target, .. } => assert_eq!(target, Reference::Near { id: 7, promise: false }),
             other => panic!("expected a deliver, got {other:?}"),
         }

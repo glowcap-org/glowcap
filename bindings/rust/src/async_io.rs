@@ -57,7 +57,7 @@ impl AsyncConnection {
     pub async fn next_event(&mut self) -> Result<Option<Event>> {
         loop {
             // A surfaced event takes priority.
-            if let Some(event) = self.peer.poll() {
+            if let Some(event) = self.peer.poll()? {
                 return Ok(Some(event));
             }
             // Flush anything the last dispatch queued (replies, aborts).
@@ -101,5 +101,5 @@ impl AsyncConnection {
 }
 
 fn io_err(_: std::io::Error) -> Error {
-    Error(-9) // PANCAKE_ERR_IO
+    Error::from_code(-9) // PANCAKE_ERR_IO
 }

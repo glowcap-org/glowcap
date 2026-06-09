@@ -3,7 +3,7 @@
 //! OCapN never puts an equality marker on the wire. So the way you tell that two
 //! references name the same thing is to compare their structure, and that's what
 //! this file does. It's the in-memory evidence behind distributed equality
-//! (ADR-0013), and the conformance tests assert on the values the session tables
+//! (ADR-0012), and the conformance tests assert on the values the session tables
 //! hold. Which codec or Syrup profile carried a value doesn't matter: the same
 //! two values compare equal either way.
 //!

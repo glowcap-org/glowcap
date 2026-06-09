@@ -35,7 +35,7 @@ The **Cap'n Proto** codec ([`src/codec/capnp/`](../../../src/codec/capnp/)) fill
 - The Goblins-canonical GC and abort wire shapes — [ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md).
 - Handoff crypto and three-party protocol — [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
 - The `op:start-session` substrate and bootstrap-fetch shape — [ADR-0006](ADR-0006-handshake-substrate-and-bootstrap-fetch.md).
-- Codec/feature selection at handshake time — [ADR-0013](ADR-0013-cross-session-distributed-equality.md) and [`src/engine/negotiation.zig`](../../../src/engine/negotiation.zig).
+- Codec/feature selection at handshake time — [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md) and [`src/engine/negotiation.zig`](../../../src/engine/negotiation.zig).
 
 ## Alternatives Considered
 
@@ -56,4 +56,4 @@ The Cap'n Proto codec fills the second-codec seam, so cross-codec semantic parit
 
 ## Notes
 
-[ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md) settles the Goblins-canonical GC/abort shapes inside the `v1_0` profile. [ADR-0021](ADR-0021-ocapn-value-tree-breadth.md) and [ADR-0023](ADR-0023-nearref-kind-on-the-wire.md) widen the model the codecs render; both are additive and bump no profile name.
+[ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md) settles the Goblins-canonical GC/abort shapes inside the `v1_0` profile. [ADR-0021](ADR-0021-ocapn-value-tree-breadth.md) and [ADR-0010](ADR-0010-payload-descriptor-discriminator.md) widen the model the codecs render; both are additive and bump no profile name.

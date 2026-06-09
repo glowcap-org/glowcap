@@ -27,8 +27,33 @@ scheduling live — all of it stays visible at the boundary that owns it.
 
 The conformance authority is OCapN behavior — as defined by Spritely Goblins on
 the wire and the OCapN test suite. The in-repo gate checks pancake's protocol
-scenarios and pancake-authored Syrup byte vectors against that intent. Live
-external-peer interop is outside the current gate. The package name is `pancake`.
+scenarios and pancake-authored Syrup byte vectors against that intent, and
+`zig build goblins-interop` adds a live conversation with a real Spritely Goblins
+vat as a sibling of the hermetic gate (it needs a Racket/Goblins runtime on
+PATH). The authority also runs *against* pancake directly: `zig build
+ocapn-conformance` points the upstream OCapN test suite at a pancake peer. The
+gate runs the suite modules pancake targets — `op:start-session`, `op:abort`,
+`op:deliver`, `op:listen`, `op:gc`, and third-party handoffs — and fails unless
+each module reports OK, so a regression in any of them turns the gate red. The
+valid keyed handshake opens, and a malformed handshake — an invalid location
+signature or an unrecognized version — is refused with a typed `op:abort` (the
+peer verifies the partner's signature against the claimed key, it does not trust
+it). The package name is `pancake`.
+
+## Vision
+
+pancake is headed toward being the most performant and most canonical OCapN
+implementation there is: an idiomatic Zig API, a C ABI any language binding can
+wrap natively, pluggable netlayers and codecs (use pancake's or bring your own, in
+Zig and every binding), and full bidirectional conversations between any pancake or
+binding peer and a real Spritely Goblins peer. Two framework-shaped drivers ride
+above the core. The actor layer — a Goblins-shaped `Vat` — is real in every
+binding: a runnable cross-language chat application (`zig build rooms`) joins Zig,
+Rust, Python, Racket, and Deno members to one capability-secure room at once, each
+calling the others back through capabilities it was handed. The second driver,
+`griddle`, a deterministic network simulator and fuzzer, is not implemented. The
+full north star, and the line between what ships today and what is still a target,
+lives in [`docs/vision.md`](docs/vision.md).
 
 ## On The Wire Today
 
@@ -52,8 +77,21 @@ Implemented Zig behavior includes:
 - **Third-party handoff.** Give and receive work end to end. The Syrup codec
   round-trips the handoff fixtures, the session owns a gift table with
   deposit/withdraw bookkeeping, signed-give consistency, and handoff-count replay
-  rejection, and `engine.cross_peer` routes the gifter → exporter → recipient
-  flow across peers with signature verification injected at the boundary.
+  rejection, and `engine.cross_peer` routes the flow from gifter to exporter to
+  recipient across peers, with signature verification injected at the boundary.
+  The session learns its partner's session key from the handshake, so the exporter
+  records the depositing gifter's real key with the gift and a withdrawal is
+  authorized under real Ed25519 by routing each certificate to its key — the give
+  to the learned gifter key, the receive to the recipient key the give names — and
+  a give signed by any other key is refused (ADR-0009). The gifter side ships its
+  signing primitives too. `engine.handoff_gifter.buildSignedGive` builds the signed
+  `desc:handoff-give` a gifter returns once it has deposited the gift, embedding the
+  exporter's verbatim `op:start-session` location so a peer matching the give's
+  location to the session matches it byte for byte. The session also learns the
+  partner's location designator from the handshake (`Session.partnerDesignator`) so
+  a host can route across both the gifter-to-exporter and gifter-to-recipient
+  sessions, while the I/O-bound enliven, fetch, and deposit choreography stays in
+  the host adapter.
 - **Promise pipelining.** Sessions own the inbound-answer table, listeners, and
   stored resolutions; `engine.pipeline` carries the pure transforms. A pipelined
   `op:deliver` against an unresolved answer queues and drains to the resolution
@@ -79,13 +117,13 @@ Implemented Zig behavior includes:
 - **Sturdyref enliven (initiator).** `engine.sturdyref` turns a persistent
   `(peer, swissnum)` sturdyref into a live `Reference` over the existing
   bootstrap-fetch: a feature-negotiated + open precondition gate, a session dedup
-  cache (swissnum → `(import_id, kind)`, kind preserved) that short-circuits a
-  repeat enliven with no wire traffic, and an in-flight marker that collapses a
+  cache that maps a swissnum to its `(import_id, kind)` (the kind is preserved) and
+  short-circuits a repeat enliven with no wire traffic, and an in-flight marker that collapses a
   concurrent enliven onto the outstanding answer. The wire loop is adapter-driven,
   exactly like `engine.fetch`.
 - **Distributed equality.** `model.referencesEqual` is the codec-neutral
   structural-equality predicate — the in-memory evidence for OCapN Pass Invariant
-  Equality (ADR-0013): two references that name the same target compare equal
+  Equality (ADR-0012): two references that name the same target compare equal
   regardless of which codec or profile carried them. `engine.SessionRegistry`
   enforces one session per `PeerId` (`PeerAlreadyOpen` on a duplicate open), so
   cross-session equality reduces to same-session equality on `(import_id, kind)`;
@@ -114,15 +152,132 @@ Implemented Zig behavior includes:
   the `*_in` constructors allocate a whole handle family — peers, netlayers, and
   every managed frame and buffer they own — through a context you supply (the
   library allocator by default, or host `alloc`/`free` callbacks), freed back
-  through the same context.
+  through the same context. The keyed `op:start-session` handshake is on the C
+  ABI too: `pancake_peer_new_negotiating` opens a handshake-ready peer, and
+  `pancake_peer_start_session_keyed` signs the canonical location bytes from a
+  32-byte seed and queues the start-session, so a binding reaches an open keyed
+  session (with a real Goblins vat) without re-implementing the crypto. The
+  library never generates entropy; the seed is the one place key material crosses
+  the boundary.
 - **Protocol oracle bridge.** `zig build oracle-check` enumerates shipped
   message arms, checks pancake-authored Syrup fixture parity across the upstream
   Syrup encoders, and runs engine scenarios
   including the multi-peer third-party handoff. `conformance` also drives a
-  deliver → resolve round-trip, a handshake → bootstrap-fetch auto-serve scenario
+  deliver-then-resolve round-trip, a handshake that auto-serves a bootstrap fetch
   (the ADR-0006 responder half), and a cross-mode parity check that proves the
   borrowed (`recvBorrowed`) and owned (`feedInbound` + `step`) inbound entry
   points run one dispatcher (byte-identical observable output).
+- **Actors.** `actors.Vat` is a Goblins-shaped layer above the engine. You spawn
+  local objects, call them synchronously with `$`, and eventual-send to them with
+  `<-` to get a `Promise` back; an object "becomes" by mutating its own state. A
+  peer-bound vat makes that same `<-` location-transparent — a local target runs a
+  turn, a far target leaves as an `op:deliver` over the peer — and `publish` /
+  `serve` host a local object at an export, so a partner's inbound deliver runs the
+  object's turn and resolves the answer. The layer is sync and owns no I/O
+  (ADR-0036). Every binding mirrors the same local|far seam in
+  its own idiom — the Racket one Goblins-faithful, the Rust, Python, and Deno ones
+  native to each language — and each proves a far-send round-trip in its dogfood
+  (ADR-0039).
+- **One application surface, every binding.** Each binding exposes the same small
+  surface — `connect`/`listen`, `fetch`/`publish`, `spawn`, `send`, `tell`,
+  `serve`, `close` — in its own idiom: Deno and Python return native
+  promises/coroutines, Rust returns an `impl Future` from a `!Send` `Connection`,
+  Racket keeps the Goblins verbs (`spawn`, `$`, `<-`, `<-np`, `on`). `send` awaits
+  a reply; `tell` is the fire-and-forget eventual-send. `connect` and `listen`
+  complete the keyed `op:start-session` handshake before they return, so the
+  session is an established OCapN session — the same handshake a real Goblins peer
+  requires, not a pre-opened shortcut. Each side verifies the partner's location
+  signature against the claimed key and refuses an unauthenticated handshake with
+  a typed `op:abort` — the secure default a negotiating peer carries, checked at
+  the engine boundary while the session core still runs no crypto. The session key
+  is a per-connection seed the binding draws at the I/O boundary; the sans-io core
+  never generates entropy.
+  A client `connect`s, `fetch`es a
+  server's capability by name (a swiss-number, not a slot number), `spawn`s a local
+  actor, and hands the server a reference to it; a returned `Ref` auto-marshals as
+  a capability argument. No export-position numbers, no manual flush, no
+  hand-rolled serve loop in application code. In native Zig the same surface is the
+  `driver.ConnectedVat` (`driver.connectTcp`), a transport-neutral driver above
+  both `actors` and `net_adapter` that keeps allocation, ownership, and I/O visible
+  (one `step()` per pump cycle) — the Zig promise kept at the application layer.
+  When a pump cycle finds the connection closed, the driver breaks every `send`
+  still waiting on a reply, so an outstanding call settles broken instead of
+  hanging on a reply that can never arrive. The Deno, Python, and Rust
+  `Connection`s break their pending sends the same way when their serve loop ends.
+  The raw `Peer`/`Vat`/`AsyncConnection` remain reachable (`conn.peer`) for
+  handoff, pipelining, and session control.
+- **Three real cross-language applications.** All three run a server and one
+  client per language over one OCapN wire, and assert the result. Every
+  connection is a keyed-handshake-established session — the client `connect` and
+  the server's accept both complete the `op:start-session` exchange — so the
+  wire is a real OCapN session, not a pre-opened one. That the same `connect` /
+  `fetch` / `send` surface is OCapN-conformant is proven against a real Goblins
+  vat, not just between pancake peers: `zig build deno-goblins-interop`,
+  `python-goblins-interop`, `rust-goblins-interop`, and `racket-goblins-interop`
+  each drive their binding's application surface through the keyed handshake,
+  fetch, and call against live Goblins. `zig build rooms`
+  is a chat room (real-time push through capability callbacks) joining Zig, Rust,
+  Python, Racket, and Deno. `zig build tasks` is a shared task board (CRUD with
+  promises and live updates) across the same five. `zig build tools` is an
+  AI-agent-harness showcase: a coordinator grants an agent attenuated and
+  revocable capabilities to tools, and a Zig, Rust, Python, Racket, and Deno agent
+  each proves delegation, attenuation, and revocation on the wire — coordinator
+  and agent in different languages. Each needs only `deno` (rooms/tasks/tools also
+  build a Zig client/agent); other-language participants join when their runtimes
+  are present. All run as siblings of the hermetic `check`. See
+  [`examples/apps/`](examples/apps/).
+- **Accountability application on pancake.** `zig build accountability` runs the
+  first real application on pancake's own runtime: KERI-anchored identity, a signed
+  Episode per capability invocation, a Merkle transparency log, and a host that
+  refuses to account for a caller it cannot attest — the refusal path that an
+  encode/decode asymmetry in the Syrup codec had blocked (fixed: the `.error`
+  argument arm is now exhaustive). Two native pancake peers complete an OCapN
+  handshake over a real loopback TCP socket, and every invocation produces a
+  verifiable Episode attributing the attested caller. The same Affordance is
+  reachable from Deno and Python callers over the C ABI (`libpancake.so`): same
+  application, three languages, each on a keyed-handshake-established OCapN
+  session — the host completes the responder half and the foreign callers
+  `connect` through the keyed `op:start-session` exchange, the same handshake the
+  application surface and a live Goblins peer use. A three-party handoff test
+  (`zig build accountability-three-party`) proves that after A introduces B to C,
+  C attributes B (the true caller), not A. Identity, Episodes, and the
+  transparency log stay entirely above pancake; the one core change was restoring
+  encode/decode symmetry in the codec. See
+  [`conformance/accountability-on-pancake/`](conformance/accountability-on-pancake/).
+- **Pluggable codecs.** Codecs resolve through an open comptime registry keyed by a
+  non-exhaustive `model.CodecId`. The built-ins are `syrup` and `capnp`; a Zig
+  consumer adds their own by declaring `pub const pancake_codecs` in the root
+  source file, and dispatch unrolls at comptime so the open set keeps the
+  zero-indirection of the former closed switch (ADR-0026).
+- **Pluggable transports.** The transport seam is a `*std.Io.Reader` /
+  `*std.Io.Writer` pair. `net_adapter.pumpOver` drives a peer over any such pair,
+  `net_adapter.tcp` is the built-in binding, and a non-stream transport drives the
+  peer directly through `Peer.recvStreamPrefix` / `takeOutbound` — the same path a
+  language binding uses over the C ABI. Bring-your-own netlayer is a tested
+  contract, not a deferred abstraction (ADR-0030).
+- **OCapN locator URIs.** `model.uri` parses and emits the out-of-band bootstrap
+  form — `ocapn://<designator>.<transport>?hints` for a peer,
+  `ocapn://<designator>.<transport>/s/<swiss-num>` for a sturdyref — against owned
+  `model.PeerLocator` / `model.SturdyRef`. The transport is the suffix after the
+  last `.`, hints are RFC 3986 query parameters, percent-encoding is `%XX`-only so
+  a base64 designator round-trips byte-for-byte, and the conformance peer's own URI
+  parses back to its parts. This is the format any netlayer address is shared in;
+  it is a core codec today, not yet wired into the bindings' `connect`/`fetch`.
+- **Live Goblins interop, both directions.** `zig build goblins-interop` proves a
+  real Spritely Goblins v0.18.0 conversation each way. As a client, pancake spawns
+  a Goblins vat, dials it over `net_adapter.tcp`, completes the keyed
+  `op:start-session` handshake while verifying Goblins' own Ed25519 signature,
+  bootstrap-fetches Goblins' echo capability, and calls it to a fulfilled
+  resolution (ADR-0035). As a listener, pancake binds a TCP listener and publishes
+  a vat actor behind a swiss-num; a real Goblins client dials in, enlivens the
+  actor, and calls it, and the actor's turn resolves the answer Goblins reads back
+  (ADR-0035). It needs `racket` plus the `goblins` collection on PATH, so it runs
+  as a sibling of the hermetic `check`, not inside it. Every binding reaches the
+  same live conversation over the C ABI: `zig build deno-goblins-interop`,
+  `python-goblins-interop`, `rust-goblins-interop`, and `racket-goblins-interop`
+  each drive their binding through the keyed handshake with a real Goblins vat,
+  then bootstrap-fetch its echo cap and call it. The keyed exchange runs from
+  every binding, not only from native Zig.
 - **Architecture gate.** `zig build arch-check` walks `src/**/*.zig`, parses the
   `@import` edges, and enforces the layer dependency DAG (codec-neutral session,
   no-`std.Io`-in-core, codecs own no authority) — a new top-level module with no
@@ -137,12 +292,22 @@ Implemented Zig behavior includes:
 
 A byte-stream netlayer ships (`net_adapter`): the active codec's own decoder
 finds frame boundaries (one parser, ADR-0029), a `Connection` folds it over
-`std.Io.Reader`/`Writer`, and `net_adapter.tcp` (`tcp-testing-only`, cleartext)
-proves a handshake-to-open + bootstrap-fetch round-trip over a real socket. The
-C ABI re-exposes it as blocking endpoint handles with a `last_error` boundary
+`std.Io.Reader`/`Writer`, and `net_adapter.tcp` (cleartext, transport symbol
+`tcp` so it can address a Goblins netlayer) proves a handshake-to-open +
+bootstrap-fetch round-trip over a real socket, and the same handshake plus a
+bootstrap fetch and a call to a fetched cap against a live Goblins vat (ADR-0035).
+The C ABI re-exposes it as blocking endpoint handles with a `last_error` boundary
 (ADR-0030). Still outside the shipped surface: production transports (TLS,
 QUIC/iroh), full-duplex backpressure, crossed-hellos, and the small-buffer /
-bounded-overflow read path — all deferred by name in ADR-0030.
+bounded-overflow read path — all deferred by name in ADR-0030. Against live
+Goblins, a pancake actor called by a real Goblins client is proven both as a
+settled call and as a pipelined enliven-and-call in one breath (ADR-0035), and a
+full three-party handoff is proven with pancake as the recipient: it enlivens a
+Goblins introducer, receives a Goblins-hosted cap by `desc:handoff-give`, dials
+the exporter directly, presents a signed `desc:handoff-receive`, and calls the
+withdrawn cap — the bytes going straight to the exporter (`zig build
+goblins-handoff`). Crossed hellos is the remaining live follow-on scenario, not
+yet proven.
 
 Sturdyref enliven ships its initiator half (`engine.sturdyref`); its
 responder half is the same inbound-`'fetch` serving path
@@ -170,7 +335,9 @@ session uses the stub-key path.
 
 ## Design Posture
 
-- Library first, not framework first.
+- Substrate first. The core is a library, not a framework. The framework-shaped
+  layers — a Goblins-style actor framework, a network simulator — belong *above*
+  the core as optional drivers, never inside it (see [`docs/vision.md`](docs/vision.md)).
 - Protocol semantics are fixed, correct, and interoperable.
 - Implementation overhead is aggressively minimized.
 - The canonical core stays deterministic, sync, and no-I/O.
@@ -215,6 +382,9 @@ zig build oracle-check
 zig build rust-dogfood
 zig build bindings
 zig build examples
+zig build rooms
+zig build tasks
+zig build tools
 zig build test
 zig build bench-frame-view
 zig build bench-codec
@@ -247,6 +417,42 @@ under `zig build examples` (and `zig build check`) — see
 - [`examples/zig/02_look_up_by_name.zig`](examples/zig/02_look_up_by_name.zig)
   fetches a capability through the bootstrap object by swiss-number — the server
   side is just `registerBootstrapCap`, and the engine answers the `'fetch`.
+- [`examples/zig/03_actor_far_send.zig`](examples/zig/03_actor_far_send.zig)
+  publishes an actor, far-sends to it across a paired session, and settles the
+  promise — the `actors.Vat` pattern every networked application builds on.
+
+Every binding exposes one small application surface — `connect`, `listen`,
+`fetch`, `publish`, `spawn`, `send`, `serve`, `close` — that reads the same in
+each language. A client connects, fetches a server's capability by name, spawns a
+local actor, and hands the server a reference to it; the server calls it back. No
+export-position numbers, no manual flush, no hand-rolled receive loop. In Deno:
+
+```typescript
+import { connect } from "./bindings/deno/pancake.ts";
+
+const conn = await connect("127.0.0.1", 9099);
+conn.serve().catch((e) => console.error(e));
+const board = await conn.fetch("board");          // a capability, by name
+const id = await conn.send(board, "add", ["buy groceries"]); // call it, get a reply
+```
+
+Three full applications run across every binding, one per domain capability
+networking is winning:
+
+- [`examples/apps/rooms/`](examples/apps/rooms/) — real-time. A capability-secure
+  chat room with a Deno server and one client per language (Zig, Rust, Python,
+  Racket, Deno). `zig build rooms` joins all five to one room over TCP and asserts
+  every member sees every message through capability callbacks.
+- [`examples/apps/tasks/`](examples/apps/tasks/) — services / CRUD with live
+  state. A shared task board, one client per language (Zig, Rust, Python, Racket,
+  Deno). `zig build tasks`: add a task, list, mark it done, confirm — promises as
+  request-response, structured data on the wire, live change notifications.
+- [`examples/apps/tools/`](examples/apps/tools/) — AI agent harnesses. A
+  coordinator hands an agent capabilities to tools, attenuated and revocable; a
+  Zig, Rust, Python, Racket, and Deno agent each proves delegation, attenuation,
+  and revocation over OCapN, with coordinator and agent in different languages.
+  Least authority by construction — the model AI tooling fakes with API keys and
+  allowlists.
 
 Lower-level library mechanics:
 
@@ -259,9 +465,14 @@ Lower-level library mechanics:
 ## Reference & Conformance
 
 - [`conformance/`](conformance/) — external conformance pressure: the OCapN
-  test suite (submodule), pancake's Spritely Goblins peer, the accountability
-  application + its `.data/` corpus, and the KERI/episode oracles. Initialize
-  the upstream submodules with `bash conformance/bootstrap-submodules.sh`.
+  test suite (submodule), pancake's Spritely Goblins peer, a pancake peer the
+  suite can be pointed at (`zig build ocapn-conformance`, which pancake passes
+  for `op:start-session` keyed-handshake conformance), the accountability applications
+  (on Goblins and on pancake) + their `.data/` corpora, and the KERI/episode
+  oracles. `accountability-on-pancake` is the first real application
+  on pancake's own runtime (run: `zig build accountability`; cross-seam:
+  `deno run ... deno/demo.ts`). Initialize the upstream submodules with
+  `bash conformance/bootstrap-submodules.sh`.
 - [`bindings/`](bindings/) — per-language consumers of the `libpancake` C ABI
   (rust, deno, python, racket), each dogfooding the ABI. Run with
   `zig build bindings`.

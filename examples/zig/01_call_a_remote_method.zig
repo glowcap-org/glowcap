@@ -30,8 +30,8 @@ pub fn main() !void {
 
     // The speaker hosts an object at export id 1; the phone holds it as import 1.
     // (Chapter 02 derives this from a bootstrap fetch instead of pre-wiring it.)
-    try speaker.session_state.registerExport(1);
-    try phone.session_state.registerImport(1);
+    try speaker.exportObject(1);
+    try phone.importObject(1);
 
     // The phone calls queue("Hot Knife"), tagging the call with answer 42. The
     // args are static, so `sendCopying` clones them (vs. `send`, which takes
@@ -52,7 +52,7 @@ pub fn main() !void {
 
     // The speaker hands back a receipt: a fresh local export (id 5), fulfilled to
     // the phone's answer 42. On V1.0 `step` encodes this as a resolver-callback.
-    try speaker.session_state.registerExport(5);
+    try speaker.exportObject(5);
     try speaker.sendCopying(.{ .resolve = .{
         .answer = 42,
         .resolution = .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(5) } } },

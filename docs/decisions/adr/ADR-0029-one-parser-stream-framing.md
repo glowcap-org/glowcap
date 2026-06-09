@@ -63,7 +63,7 @@ Because the decoder recurses lazily over nested containers, decode-time recursio
 is bounded by a fixed `max_decode_nesting` (512) in the Syrup decoder so a deeply
 nested untrusted prefix is rejected as `malformed` before it can overflow the
 native stack — the parse-stage analog of the session-level cap in
-[ADR-0028](ADR-0028-inbound-nesting-depth-cap.md).
+[ADR-0025](ADR-0025-session-table-cap-policy.md).
 
 ## Scope (what this does not decide)
 
@@ -101,5 +101,5 @@ native stack — the parse-stage analog of the session-level cap in
 
 - [ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md) and
   [ADR-0026](ADR-0026-hand-rolled-capnp-codec.md) own the self-delimiting wire
-  shapes this leans on; [ADR-0028](ADR-0028-inbound-nesting-depth-cap.md) owns the
+  shapes this leans on; [ADR-0025](ADR-0025-session-table-cap-policy.md) owns the
   session-level nesting cap the decode-time bound mirrors.

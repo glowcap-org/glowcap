@@ -37,8 +37,9 @@ with `Reader.fixed` / `Writer.fixed`, no socket required.
 
 **`tcp.zig` is the only `std.Io.net`-to-socket site.** It maps a locator's
 `host:port` designator to a `std.Io.net.Stream` and welds it to a borrowed peer;
-the host passes its chosen `std.Io` (Threaded / Uring / …). Transport name is
-`tcp-testing-only` — cleartext, honest naming.
+the host passes its chosen `std.Io` (Threaded / Uring / …). The transport name is
+`tcp` — cleartext; [ADR-0035](ADR-0035-live-goblins-interop.md) settled that symbol
+so a Goblins netlayer can address pancake.
 
 **The C ABI re-exposes blocking endpoint handles.** A host that owns the peer
 shuttles whole frames through `pancake_endpoint_tcp_*` (`read_frame ->
@@ -56,7 +57,7 @@ read buffer that has not yielded a frame is refused before an over-read. Slice 1
 sizes the read buffer to `max_frame_bytes` so any admissible frame fits whole —
 a documented loopback simplification, not the steady-state production shape.
 
-## Scope (what this defers, by name)
+## Scope (what this does not decide)
 
 - **Small-buffer + bounded-overflow.** A small fixed read buffer plus a bounded
   owned-accumulation path for frames larger than the buffer, so steady
@@ -102,6 +103,18 @@ a documented loopback simplification, not the steady-state production shape.
   ([`test/net_adapter/tcp_test.zig`](../../../test/net_adapter/tcp_test.zig)), and
   the C-ABI frame-seam loopback
   ([`test/c_abi/endpoint_loopback_test.zig`](../../../test/c_abi/endpoint_loopback_test.zig)).
+
+## Bring-your-own transport seam
+
+The transport seam is a `*std.Io.Reader` / `*std.Io.Writer` pair, named first-class.
+`net_adapter.pumpOver` (and `readFrameFrom` / `writeFrameTo`) drive a peer over any
+such pair, `tcp` is the built-in binding, and a non-stream transport such as a
+callback or datagram API drives the peer directly through
+`engine.Peer.recvStreamPrefix` and `takeOutbound` — the same path a language binding
+uses over the C ABI's `pancake_peer_recv_stream`. Bring-your-own netlayer is
+therefore a supported, tested contract rather than a deferred abstraction: any
+transport that yields a reader and writer, or that can hand the peer a byte prefix,
+runs a peer with no change to the core.
 
 ## Notes
 

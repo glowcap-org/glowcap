@@ -15,7 +15,9 @@
 (require ffi/unsafe
          ffi/unsafe/define
          racket/runtime-path
-         racket/tcp)
+         racket/tcp
+         racket/random
+         (for-syntax racket/base))
 
 (provide (struct-out near-ref) (struct-out far-ref) (struct-out promise-ref)
          (struct-out sturdy) (struct-out broken) (struct-out sym)
@@ -25,14 +27,16 @@
          (struct-out fulfill) (struct-out brk)
          abi-version last-error clear-last-error
          make-context make-context/allocator context-release!
-         make-peer make-peer/in peer-release!
+         make-peer make-peer/in make-peer/negotiating peer-release!
          peer-register-export! peer-register-import!
+         peer-start-session-keyed! peer-session-open?
          peer-feed! peer-feed-owned! peer-step! peer-send-deliver! peer-send-resolve!
          peer-take-outbound peer-poll peer-recv-stream!
          exn:fail:pancake?
          (struct-out async-connection)
          async-connect async-connection/ports
-         async-send-deliver! async-send-resolve! async-next-event)
+         async-send-deliver! async-send-resolve! async-next-event async-flush!
+         in-async-events)
 
 ;; ── Constants ────────────────────────────────────────────────────────────────
 (define OK 0)
@@ -49,7 +53,10 @@
 (define RESOLUTION-FULFILL 0) (define RESOLUTION-BREAK 1)
 
 ;; ── Raw FFI (private) ────────────────────────────────────────────────────────
-(define-runtime-path lib-path "../../zig-out/lib/libpancake.so")
+;; No extension: `ffi-lib` appends the platform-correct one (`.so`, `.dylib`,
+;; `.dll`) and tries the versioned variants, so this loads on Linux, macOS, and
+;; Windows from the one `zig build` output.
+(define-runtime-path lib-path "../../zig-out/lib/libpancake")
 (define lib (ffi-lib (path->string lib-path)))
 
 (define-cstruct _PancakeFrame ([bytes _pointer] [len _size] [shape _uint32]))
@@ -92,6 +99,10 @@
   (_fun _pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
 (define-pancake pancake_peer_feed_owned (_fun _pointer _PancakeManagedFrame-pointer -> _int32))
 (define-pancake pancake_peer_new (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
+(define-pancake pancake_peer_new_negotiating (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
+(define-pancake pancake_peer_start_session_keyed
+  (_fun _pointer _uint32 _pointer _size _pointer _size _uint32 _pointer -> _int32))
+(define-pancake pancake_peer_session_is_open (_fun _pointer -> _int32))
 (define-pancake pancake_peer_release (_fun _pointer -> _void))
 (define-pancake pancake_peer_feed_borrowed (_fun _pointer _PancakeFrame-pointer -> _int32))
 (define-pancake pancake_peer_step (_fun _pointer -> _int32))
@@ -325,6 +336,16 @@
   (register-finalizer p (lambda (q) (peer-release! q)))
   p)
 
+;; A negotiating peer, awaiting the keyed op:start-session handshake — the peer
+;; to drive when the partner requires it (a real Goblins vat). Pair it with
+;; `peer-start-session-keyed!`, then pump until `peer-session-open?`.
+(define (make-peer/negotiating)
+  (define-values (rc h) (pancake_peer_new_negotiating))
+  (check rc)
+  (define p (peer h))
+  (register-finalizer p (lambda (q) (peer-release! q)))
+  p)
+
 (define (peer-release! p)
   (when (peer-handle p)
     (pancake_peer_release (peer-handle p))
@@ -332,6 +353,35 @@
 
 (define (peer-register-export! p id) (check (pancake_peer_register_export (peer-handle p) id)))
 (define (peer-register-import! p id) (check (pancake_peer_register_import (peer-handle p) id)))
+
+;; Sign and queue a keyed op:start-session from a negotiating peer over the
+;; canonical v1.0 wire. `seed` is a 32-byte bytestring (the session key);
+;; `transport`/`designator` form the locator the partner verifies — for a Goblins
+;; partner, "tcp" with `hints-empty-false?` #t (an empty hints map encoded as
+;; `#f`). Flush it, then pump until `peer-session-open?`.
+(define (peer-start-session-keyed! p seed
+                                   #:designator designator
+                                   #:transport [transport "tcp"]
+                                   #:hints-empty-false? [hints-empty-false? #t])
+  (unless (= (bytes-length seed) 32)
+    (error 'peer-start-session-keyed! "a session seed must be 32 bytes; got ~a" (bytes-length seed)))
+  (define tb (string->bytes/utf-8 transport))
+  (define db (string->bytes/utf-8 designator))
+  (define tbuf (malloc (max (bytes-length tb) 1) 'atomic)) (memcpy tbuf tb (bytes-length tb))
+  (define dbuf (malloc (max (bytes-length db) 1) 'atomic)) (memcpy dbuf db (bytes-length db))
+  (define sbuf (malloc 32 'atomic)) (memcpy sbuf seed 32)
+  (check (pancake_peer_start_session_keyed
+          (peer-handle p) 0
+          tbuf (bytes-length tb)
+          dbuf (bytes-length db)
+          (if hints-empty-false? 1 0)
+          sbuf)))
+
+;; Whether the keyed handshake has completed and the session is open for traffic.
+(define (peer-session-open? p)
+  (define rc (pancake_peer_session_is_open (peer-handle p)))
+  (when (< rc 0) (check rc))
+  (= rc 1))
 
 (define (peer-feed! p frame)
   (define buf (malloc (max (bytes-length frame) 1) 'atomic))
@@ -420,7 +470,7 @@
 
 (define (poll-deliver p)
   (define d (make-PancakeDeliver (make-PancakeReference 0 0 0) #f 0 0 0 #f))
-  (pancake_peer_poll_event_deliver (peer-handle p) d)
+  (check (pancake_peer_poll_event_deliver (peer-handle p) d))
   (define ev (deliver-event (ref<-c (PancakeDeliver-target d))
                             (args<-c (PancakeDeliver-args d) (PancakeDeliver-args-len d))
                             (if (zero? (PancakeDeliver-has-answer d)) #f (PancakeDeliver-answer d))))
@@ -429,7 +479,7 @@
 
 (define (poll-resolve p)
   (define r (make-PancakeResolve 0 0 (make-PancakeArgument ARG-VOID 0 0 0.0 #f 0 (make-PancakeReference 0 0 0) #f 0) #f 0 #f))
-  (pancake_peer_poll_event_resolve (peer-handle p) r)
+  (check (pancake_peer_poll_event_resolve (peer-handle p) r))
   (define res
     (if (= (PancakeResolve-resolution-kind r) RESOLUTION-FULFILL)
         (fulfill (arg<-c (PancakeResolve-fulfill r)))
@@ -446,6 +496,287 @@
                           (bytes<-c (PancakeManagedFrame-bytes frame-mf) (PancakeManagedFrame-len frame-mf))))
   (pancake_event_release e)
   ev)
+
+;; ── Actors: Spritely Goblins for Racket, on the OCapN peer ────────────────────
+;; This is Goblins, faithful to its feel: you write an actor as a constructor
+;; `(define (^name bcom arg …) <behavior>)` that the vat calls once at spawn, and
+;; the behavior it returns is a procedure the vat invokes on each call. State
+;; lives in the constructor's closure; `bcom` ("become") swaps the behavior for
+;; the next turn. `methods` gives you a behavior that dispatches on a leading
+;; method symbol. You reach an actor three ways: `$` is the synchronous near-call
+;; (local actors only), `<-` is the location-transparent eventual-send that
+;; returns a promise (a "vow"), and `on` registers a one-shot listener on a vow.
+;;
+;; A vat is the turn loop. `spawn` makes a local actor; `<-` to a local actor
+;; queues a turn that `drive` runs, while `<-` to a `far-ref` becomes an
+;; `op:deliver` over the bound peer with a fresh answer, and the returned vow
+;; settles when the partner's resolution arrives. `publish!` exports a local
+;; actor so an inbound deliver runs it, and `vat-serve!` dispatches one polled
+;; peer event into the vat. A leading Racket method symbol marshals to an OCapN
+;; symbol on the wire, matching Goblins's `($ obj 'method …)`.
+(provide methods bcom?
+         (struct-out actor-ref) (struct-out local-vow)
+         current-vat make-vat with-vat vat-run
+         spawn $ <- <-np on
+         publish! vat-serve! drive break-far-vows!)
+
+;; A local actor reference: the vat that owns it and the actor's id within it.
+;; Carries no behavior itself — the behavior is mutable state the vat holds, so a
+;; reference stays valid across `bcom`.
+(struct actor-ref (vat id) #:transparent)
+
+;; A promise for a local eventual-send's result, settled during `drive`. (A far
+;; send's promise is a `promise-ref`, settled by an inbound `resolve-event`.)
+(struct local-vow (vat id) #:transparent)
+
+;; `bcom` is a capability the vat injects into a constructor, never a value a
+;; user can forge. `(bcom new-behavior)` swaps this actor's behavior for the next
+;; turn; `(bcom new-behavior result)` also returns `result` from the current
+;; turn. We tag the swap so the vat can recognize it on the way out of a turn.
+(struct become (behavior result) #:transparent)
+(define (bcom? x) (become? x))
+
+;; The vat that `spawn`/`$`/`<-`/`on` act in. Bound for the extent of a turn (and
+;; by `with-vat`/`vat-run`), the way Goblins binds its current syscaller.
+(define current-vat (make-parameter #f))
+
+(define (the-vat who)
+  (or (current-vat) (error who "no current vat — call inside (with-vat v …) or (vat-run v thunk)")))
+
+;; The turn loop. `cells` maps an actor id to a box holding its current behavior
+;; procedure; `next` hands out fresh ids; `queue` holds pending local sends;
+;; `listeners` maps a local vow id to its one-shot listener; `far-listeners` maps
+;; a far answer to its listener; `exports` maps a peer export id to a local actor
+;; id. `peer` is the bound peer (or #f for a pure-local vat), and `next-answer`
+;; allocates fresh answer positions for far sends.
+(struct vat (peer cells next queue listeners far-listeners exports next-answer) #:transparent)
+
+;; (make-vat #:peer p) — a vat, optionally bound to a peer for far sends and
+;; hosting. Far-send answers start at 1000 to stay clear of answers a partner
+;; allocates for its own calls.
+(define (make-vat #:peer [peer #f])
+  (vat peer (make-hasheqv) (box 1) (box '()) (make-hasheqv) (make-hasheqv) (make-hasheqv) (box 1000)))
+
+;; Run `thunk` with `v` as the current vat. `with-vat` is the macro form.
+(define (vat-run v thunk) (parameterize ([current-vat v]) (thunk)))
+(define-syntax-rule (with-vat v body ...) (vat-run v (lambda () body ...)))
+
+;; ── methods: a behavior that dispatches on a leading method symbol ────────────
+;; `(methods [(verb formal …) body …] …)` expands to a procedure of
+;; `(method . args)`. `($ obj 'set 5)` runs the `[(set new) …]` clause with
+;; `new` bound to 5. An unknown method raises, settling a far call as a break.
+(define-syntax (methods stx)
+  (syntax-case stx ()
+    [(_ [(verb formal ...) body ...] ...)
+     #'(lambda (method . actual)
+         (case method
+           [(verb) (apply (lambda (formal ...) body ...) actual)] ...
+           [else (error '$ "object has no method: ~a" method)]))]))
+
+;; ── spawn: construct a local actor in the current vat ─────────────────────────
+;; `(spawn ^name arg …)` calls the constructor once with an injected `bcom` plus
+;; `arg …`, stores the behavior it returns, and returns a local `actor-ref`.
+(define (spawn constructor . args)
+  (define v (the-vat 'spawn))
+  (define id (unbox (vat-next v)))
+  (set-box! (vat-next v) (add1 id))
+  (define cell (box #f))
+  (hash-set! (vat-cells v) id cell)
+  ;; `bcom` closes over this actor's cell. It only records the swap; the vat
+  ;; applies it after the turn returns, so a `bcom` mid-turn cannot tear the
+  ;; behavior out from under the call in flight.
+  (define (bcom new-behavior [result (void)]) (become new-behavior result))
+  (set-box! cell (apply constructor bcom args))
+  (actor-ref v id))
+
+;; ── $ : the synchronous near-call ─────────────────────────────────────────────
+;; `($ ref 'method arg …)` runs `ref`'s behavior now and returns its value.
+;; Legal only for a local actor in the current vat; a far ref must use `<-`,
+;; exactly as Goblins forbids `$` to a far ref. A `bcom` the behavior returns
+;; swaps the cell and yields the `bcom` result.
+(define ($ ref method . args)
+  (cond
+    [(actor-ref? ref) (run-turn ref method args)]
+    [(far-ref? ref) (error '$ "cannot near-call a far reference — use <-")]
+    [else (error '$ "not an actor reference: ~a" ref)]))
+
+;; Run one turn of a local actor: invoke its behavior, and if it returned a
+;; `bcom`, install the new behavior and yield the bcom's result.
+(define (run-turn ref method args)
+  (define v (actor-ref-vat ref))
+  (define cell (hash-ref (vat-cells v) (actor-ref-id ref)
+                         (lambda () (error '$ "no such actor: ~a" (actor-ref-id ref)))))
+  (define behavior (unbox cell))
+  (define result (parameterize ([current-vat v]) (apply behavior method args)))
+  (cond
+    [(become? result) (set-box! cell (become-behavior result)) (become-result result)]
+    [else result]))
+
+;; ── <- : the eventual-send (returns a vow) ────────────────────────────────────
+;; `(<- ref 'method arg …)` is location-transparent. To a local actor it queues
+;; a turn for `drive` and returns a `local-vow`. To a `far-ref` it sends an
+;; `op:deliver` over the bound peer with a fresh answer — marshalling the method
+;; symbol to an OCapN `(sym …)` ahead of the args — and returns a `promise-ref`
+;; backed by that answer.
+(define (<- ref method . args)
+  (cond
+    [(actor-ref? ref) (queue-local-send ref method args)]
+    [(far-ref? ref) (far-send ref method args #:answer? #t)]
+    [else (error '<- "not a reference: ~a" ref)]))
+
+;; `<-np` ("no promise") is the fire-and-forget eventual-send: deliver with no
+;; answer requested, return void. To a local actor it queues a promise-less turn.
+(define (<-np ref method . args)
+  (cond
+    [(actor-ref? ref) (queue-local-send ref method args) (void)]
+    [(far-ref? ref) (far-send ref method args #:answer? #f) (void)]
+    [else (error '<-np "not a reference: ~a" ref)]))
+
+(define (queue-local-send ref method args)
+  (define v (actor-ref-vat ref))
+  (define id (unbox (vat-next v)))
+  (set-box! (vat-next v) (add1 id))
+  (set-box! (vat-queue v) (cons (vector ref method args id) (unbox (vat-queue v))))
+  (local-vow v id))
+
+(define (far-send ref method args #:answer? answer?)
+  (define v (the-vat '<-))
+  (define p (vat-peer v))
+  (unless p (error '<- "this vat has no peer — far sends need (make-vat #:peer …)"))
+  (define answer (and answer? (let ([a (unbox (vat-next-answer v))])
+                                (set-box! (vat-next-answer v) (add1 a)) a)))
+  (peer-send-deliver! p ref (cons (sym (symbol->string method)) args) #:answer answer)
+  (and answer (promise-ref answer)))
+
+;; ── on : register a one-shot listener on a vow ────────────────────────────────
+;; `(on a-vow on-fulfilled #:catch on-broken #:finally on-finally #:promise? #t)`
+;; mirrors Goblins's `on`. The fulfilled handler is optional and positional; with
+;; `#:promise? #t` `on` returns a new vow that settles with the handler's result,
+;; so you can chain. A local vow fires during `drive`; a far vow (a `promise-ref`)
+;; fires when `vat-serve!` dispatches the matching `resolve-event`.
+(define (on a-vow [on-fulfilled #f]
+            #:catch [on-broken #f] #:finally [on-finally #f] #:promise? [promise? #f])
+  (define v (the-vat 'on))
+  (define chained (and promise? (let ([id (unbox (vat-next v))])
+                                  (set-box! (vat-next v) (add1 id))
+                                  (local-vow v id))))
+  ;; A listener is `(value broken?)`: `broken?` is #f on fulfill (value is the
+  ;; payload) and #t on break (value is the message). It runs the right handler,
+  ;; the finally, and — when chaining — settles the returned vow.
+  (define (listener value broken?)
+    (define outcome
+      (with-handlers ([(lambda (_) #t) (lambda (e) (cons 'broken (exn->message e)))])
+        (cond
+          [broken? (if on-broken (cons 'ok (on-broken value)) (cons 'broken value))]
+          [else (if on-fulfilled (cons 'ok (on-fulfilled value)) (cons 'ok value))])))
+    (when on-finally (on-finally))
+    (when chained
+      (if (eq? (car outcome) 'ok)
+          (settle-local v (local-vow-id chained) (cdr outcome) #f)
+          (settle-local v (local-vow-id chained) (cdr outcome) #t))))
+  (cond
+    [(local-vow? a-vow) (hash-set! (vat-listeners v) (local-vow-id a-vow) listener)]
+    [(promise-ref? a-vow) (hash-set! (vat-far-listeners v) (promise-ref-answer a-vow) listener)]
+    [else (error 'on "not a vow: ~a" a-vow)])
+  chained)
+
+(define (exn->message e) (if (exn? e) (exn-message e) (format "~a" e)))
+
+;; Fire a local vow's listener, if one is registered, and drop it (one-shot).
+(define (settle-local v id value broken?)
+  (define listener (hash-ref (vat-listeners v) id #f))
+  (when listener
+    (hash-remove! (vat-listeners v) id)
+    (listener value broken?)))
+
+;; ── drive: run queued local turns to quiescence ───────────────────────────────
+;; Each queued eventual-send runs its actor's turn; the vow settles with the
+;; value (or, on a raised exception, a break carrying the message) and its
+;; listener fires. Turns a turn queues run in the same drive (FIFO).
+(define (drive v)
+  (let loop ()
+    (define pending (reverse (unbox (vat-queue v))))
+    (unless (null? pending)
+      (set-box! (vat-queue v) '())
+      (for ([entry (in-list pending)])
+        (define ref (vector-ref entry 0))
+        (define method (vector-ref entry 1))
+        (define args (vector-ref entry 2))
+        (define vow-id (vector-ref entry 3))
+        (define-values (value broken?)
+          (with-handlers ([(lambda (_) #t) (lambda (e) (values (exn->message e) #t))])
+            (values (run-turn ref method args) #f)))
+        (settle-local v vow-id value broken?))
+      (loop))))
+
+;; ── publish! / vat-serve! : host a local actor on the peer ────────────────────
+;; `(publish! v actor export-id)` exports a local actor on the bound peer and
+;; binds the export to it, so an inbound deliver to that export runs the actor.
+(define (publish! v actor export-id)
+  (define p (or (vat-peer v) (error 'publish! "this vat has no peer")))
+  (unless (actor-ref? actor) (error 'publish! "can only publish a local actor reference"))
+  (peer-register-export! p export-id)
+  (hash-set! (vat-exports v) export-id (actor-ref-id actor)))
+
+;; Dispatch one polled peer event into the vat. A deliver to a published export
+;; unmarshals the leading OCapN symbol to a Racket method symbol, near-calls the
+;; actor, and settles the answer with `(fulfill reply)` (or `(brk message)` if
+;; the actor raised). A resolve whose answer matches a pending far vow fires that
+;; vow's listener. Returns #t when the event belonged to this vat, #f otherwise
+;; so the caller can handle it.
+(define (vat-serve! v event)
+  (cond
+    [(deliver-event? event) (serve-deliver v event)]
+    [(resolve-event? event) (serve-resolve v event)]
+    [else #f]))
+
+(define (serve-deliver v event)
+  (define target (deliver-event-target event))
+  (cond
+    [(not (near-ref? target)) #f]
+    [else
+     (define actor-id (hash-ref (vat-exports v) (near-ref-id target) #f))
+     (cond
+       [(not actor-id) #f]
+       [else
+        (define args (deliver-event-args event))
+        (define-values (method rest)
+          (if (and (pair? args) (sym? (car args)))
+              (values (string->symbol (sym-value (car args))) (cdr args))
+              (values 'call args)))
+        (define answer (deliver-event-answer event))
+        (define resolution
+          (with-handlers ([(lambda (_) #t) (lambda (e) (brk (exn->message e)))])
+            (fulfill (apply $ (actor-ref v actor-id) method rest))))
+        (when answer (peer-send-resolve! (vat-peer v) answer resolution))
+        #t])]))
+
+(define (serve-resolve v event)
+  (define answer (resolve-event-answer event))
+  (define listener (hash-ref (vat-far-listeners v) answer #f))
+  (cond
+    [(not listener) #f]
+    [else
+     (hash-remove! (vat-far-listeners v) answer)
+     (define res (resolve-event-resolution event))
+     (if (fulfill? res)
+         (listener (fulfill-value res) #f)
+         (listener (brk-message res) #t))
+     #t]))
+
+;; ── break-far-vows! : settle every outstanding far vow as broken ──────────────
+;; A far vow settles only when the partner's resolve arrives over the wire, so
+;; once the connection is gone those resolves can never come. A serve loop calls
+;; this on disconnect, so an `on` form's `#:catch` handler runs instead of a vow
+;; waiting forever. Local vows are untouched: they settle in `drive` and never
+;; wait on the wire.
+(define (break-far-vows! v message)
+  ;; Snapshot then clear before firing: a listener may register another far vow,
+  ;; and mutating the table mid-iteration would lose it.
+  (define pending (hash-values (vat-far-listeners v)))
+  (hash-clear! (vat-far-listeners v))
+  (for ([listener (in-list pending)])
+    (listener message #t)))
 
 ;; ── Blocking TCP endpoints ───────────────────────────────────────────────────
 (provide CODEC-SYRUP
@@ -564,6 +895,15 @@
       (loop)))
   (flush-output out))
 
+;; Flush whatever is already queued on the peer's outbound to the wire. A `<-`
+;; far-send only enqueues; the bytes leave when something pumps the peer.
+;; `async-next-event` pumps at the top of its loop, so a reply queued while
+;; serving an event leaves on the next turn. But work another green thread queues
+;; onto this peer — a server pushing a broadcast to a subscriber whose own thread
+;; is parked reading — would sit unsent until that thread woke. Call `async-flush!`
+;; right after such a cross-thread send to put the bytes on the wire now.
+(define (async-flush! conn) (async-pump-outbound! conn))
+
 ;; Queue a call to `target` and flush it to the wire. `answer` requests a reply.
 (define (async-send-deliver! conn target args #:answer [answer #f])
   (peer-send-deliver! (async-connection-peer conn) target args #:answer answer)
@@ -573,6 +913,13 @@
 (define (async-send-resolve! conn answer resolution)
   (peer-send-resolve! (async-connection-peer conn) answer resolution)
   (async-pump-outbound! conn))
+
+;; The connection as a sequence of events: `(for ([event (in-async-events conn)])
+;; …)`. It yields each event the peer surfaces and ends on a clean disconnect, so
+;; the idiomatic receive loop is a `for` over a sequence. (Same as calling
+;; `async-next-event` until it returns `eof`.)
+(define (in-async-events conn)
+  (in-producer (lambda () (async-next-event conn)) eof))
 
 ;; Await the next application event, driving the port as needed. Returns the
 ;; typed event struct, or `eof` on a clean end of stream.
@@ -605,3 +952,108 @@
              (set-async-connection-inbox!
               conn (bytes-append (async-connection-inbox conn) (subbytes buf 0 n)))
              (outer)])])])))
+
+;; ── Connection: the application surface ──────────────────────────────────────
+;; One object an application holds. It bundles the async connection and a vat, so
+;; a consumer never wires peer + vat + ports by hand. `connect`/`fetch`/`conn-spawn`/
+;; `conn-serve` are the surface; the Goblins verbs (`spawn`, `$`, `<-`, `on`,
+;; `bcom`, `methods`) are unchanged — you use them through the connection's vat.
+(provide (struct-out connection)
+         connect conn-vat conn-async conn-peer conn-spawn conn-publish
+         fetch conn-serve conn-tell connection-close!)
+
+(define BOOTSTRAP-POSITION 0)
+(define FIRST-SPAWN-POSITION 32)
+
+(struct connection (async vat [next #:mutable]))
+
+;; Complete the keyed op:start-session handshake over a negotiating peer: sign a
+;; tcp locator naming `designator` with a per-connection random session key,
+;; flush it, and pump until the partner's start-session opens the session.
+;; Entropy is generated here, at the I/O boundary, never in the sans-io core.
+(define (open-keyed-session! ac designator)
+  (define p (async-connection-peer ac))
+  (peer-start-session-keyed! p (crypto-random-bytes 32) #:designator designator)
+  (async-flush! ac)
+  (let loop ()
+    (unless (peer-session-open? p)
+      (when (eof-object? (async-next-event ac))
+        (error 'connect "connection closed during the OCapN handshake"))
+      (loop))))
+
+;; Dial host:port, complete the keyed OCapN handshake, and return a ready
+;; connection with its vat wired. The session is open (the op:start-session
+;; exchange has completed) before this returns — the same handshake a real
+;; Goblins peer requires.
+(define (connect host port)
+  (define-values (in out) (tcp-connect host port))
+  (define peer (make-peer/negotiating))
+  (define ac (async-connection/ports peer in out))
+  (define-values (local-host local-port _rh _rp) (tcp-addresses in #t))
+  (open-keyed-session! ac (format "~a:~a" local-host local-port))
+  (connection ac (make-vat #:peer peer) FIRST-SPAWN-POSITION))
+
+(define (conn-async c) (connection-async c))
+(define (conn-vat c) (connection-vat c))
+(define (conn-peer c) (async-connection-peer (connection-async c)))
+
+(define (connection-close! c)
+  (define ac (connection-async c))
+  (close-output-port (async-connection-out ac))
+  (close-input-port (async-connection-in ac)))
+
+;; Spawn a local actor at a fresh export position and return a near capability to
+;; hand a partner. `(conn-spawn c ^name arg …)` constructs like `spawn`.
+(define (conn-spawn c constructor . args)
+  (define pos (connection-next c))
+  (set-connection-next! c (add1 pos))
+  (define actor (with-vat (conn-vat c) (apply spawn constructor args)))
+  (publish! (conn-vat c) actor pos)
+  (near pos))
+
+;; Publish an actor fetchable by name (a swiss-number). Returns the near capability.
+(define (conn-publish c name constructor . args)
+  (define pos (peer-register-bootstrap-cap! (conn-peer c) (string->bytes/utf-8 name)))
+  (define actor (with-vat (conn-vat c) (apply spawn constructor args)))
+  (publish! (conn-vat c) actor pos)
+  (near pos))
+
+;; Fetch a partner's published capability by name. Drives the connection until
+;; the bootstrap-fetch resolves, then returns the far reference. Single-threaded:
+;; it pumps events itself, matching the rest of the Racket binding.
+(define (fetch c name)
+  (peer-register-import! (conn-peer c) BOOTSTRAP-POSITION)
+  (define result (box 'pending))
+  (with-vat (conn-vat c)
+    (define vow (<- (far BOOTSTRAP-POSITION) 'fetch (string->bytes/utf-8 name)))
+    (on vow
+        (lambda (ref) (set-box! result ref))
+        #:catch (lambda (msg) (set-box! result (cons 'broken msg)))))
+  (async-flush! (conn-async c))
+  (let loop ()
+    (define r (unbox result))
+    (cond
+      [(eq? r 'pending)
+       (define ev (async-next-event (conn-async c)))
+       (when (eof-object? ev) (error 'fetch "connection closed before \"~a\" resolved" name))
+       (vat-serve! (conn-vat c) ev)
+       (loop)]
+      [(and (pair? r) (eq? (car r) 'broken)) (error 'fetch "fetch \"~a\" broke: ~a" name (cdr r))]
+      [else r])))
+
+;; Fire-and-forget eventual-send (Goblins `<-np`): no answer is allocated and no
+;; reply comes back, so a notification or broadcast costs one deliver. Flushes.
+(define (conn-tell c target verb . args)
+  (with-vat (conn-vat c) (apply <-np target verb args))
+  (async-flush! (conn-async c)))
+
+;; Drive inbound events into the vat until the connection closes: serve each
+;; event (run published actors, settle far vows). A receive-style app reads from
+;; whatever its actors enqueue.
+(define (conn-serve c)
+  (for ([ev (in-async-events (conn-async c))])
+    (vat-serve! (conn-vat c) ev))
+  ;; The loop ends only when the connection closes. The wire is gone, so break
+  ;; any far vow still awaiting a reply rather than leaving it pending forever —
+  ;; the same disconnect guarantee the Deno and Python connections give.
+  (break-far-vows! (conn-vat c) "connection closed"))

@@ -26,7 +26,7 @@ const crypto = foundation.crypto;
 const Peer = engine.Peer;
 
 /// Iteration cap for [`shuttleUntilQuiescent`]. A canonical handshake settles
-/// in 2-3 iterations (send → deliver → quiesce); the generous cap surfaces a
+/// in 2-3 iterations (send, deliver, quiesce); the generous cap surfaces a
 /// non-terminating dispatcher bug as [`ShuttleOutcome.iter_cap_exceeded`] well
 /// before any test-level wall clock fires.
 const SHUTTLE_ITER_CAP: usize = 64;
@@ -39,7 +39,7 @@ pub const Error = error{
     /// `op:start-session` event for the keyed path to verify.
     MissingStartSessionEvent,
     /// The partner's `acceptable_location_sig` failed to verify against the
-    /// claimed `session_pubkey` over the canonical signed bytes (ADR-0015).
+    /// claimed `session_pubkey` over the canonical signed bytes (ADR-0006).
     /// Keyed path only.
     InvalidStartSessionSignature,
     /// The two offers share no codec — negotiation produced no session
@@ -151,9 +151,12 @@ fn pairedWithCodecAndFeatures(
     codec_id: model.CodecId,
     features: model.FeatureSet,
 ) !Pair {
-    var p1 = Peer.initNegotiatingWith(allocator, .{ .codec = codec_id, .features = features });
+    // The stub-key handshake below signs nothing (zero key + zero sig), and a
+    // Cap'n Proto session has no Syrup raw-locator capture, so partner-signature
+    // verification cannot apply here — the keyed fixture is `pairedWithKeys`.
+    var p1 = Peer.initNegotiatingWith(allocator, .{ .codec = codec_id, .features = features, .verify_partner_handshake = false });
     errdefer p1.deinit();
-    var p2 = Peer.initNegotiatingWith(allocator, .{ .codec = codec_id, .features = features });
+    var p2 = Peer.initNegotiatingWith(allocator, .{ .codec = codec_id, .features = features, .verify_partner_handshake = false });
     errdefer p2.deinit();
 
     const zero_pubkey = [_]u8{0} ** crypto.PEER_KEY_BYTES;
@@ -174,11 +177,12 @@ fn pairedWithCodecAndFeatures(
 
 /// Construct a paired pair and drive the handshake with real Ed25519 material
 /// derived from the two caller-supplied seeds (P1 crypto). Each side signs the
-/// canonical `<my-location $acceptable-location>` bytes (ADR-0015). As each
+/// canonical `<my-location $acceptable-location>` bytes (ADR-0006). As each
 /// peer's inbound `op:start-session` event is drained, the partner signature it
-/// carries is verified — against the *decoded* frame view (zero-copy), so the
-/// real encode → wire → decode round-trip is what gets checked, with no session
-/// storage. A verification failure returns [`Error.InvalidStartSessionSignature`].
+/// carries is verified against the *decoded* frame view (zero-copy), so what
+/// gets checked is the real round-trip from encoding through the wire to
+/// decoding, with no session storage. A verification failure returns
+/// [`Error.InvalidStartSessionSignature`].
 pub fn pairedWithKeys(
     allocator: std.mem.Allocator,
     p1_seed: [crypto.SEED_BYTES]u8,

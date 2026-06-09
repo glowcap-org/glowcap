@@ -10,8 +10,8 @@ natively. Current first-read state lives in `README.md`, `conformance/README.md`
 ## The line
 
 - **Infra dependencies (NOT brought):** the language toolchains/runtimes and
-  their regenerable caches (`.pixi/`, pixi env state). The devcontainer
-  provides these natively, so they do not travel.
+  their regenerable per-tool environment caches. The devcontainer provides
+  these natively, so they do not travel.
 - **Load-bearing reference content (brought):** everything else — the OCapN
   conformance suite, the Goblins peer, the Goblins source/spec mirrors, the
   accountability application and its persisted corpus, the KERI/episode

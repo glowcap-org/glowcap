@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Native entry point. Runs the keripy oracle via `uv` (devcontainer
-# provides uv/python) — no pixi/conda env. Verifies the KERI outputs under
+# Native entry point. Runs the keripy oracle via `uv` (the devcontainer
+# provides uv/python). Verifies the KERI outputs under
 # the sibling accountability-on-goblins/.data/ (or a pinned fixture via
 # --fixture <name>, e.g. sample-kel).
 set -euo pipefail

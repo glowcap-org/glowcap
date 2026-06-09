@@ -19,6 +19,12 @@ pub const ownedFromView = core.ownedFromView;
 pub const encodeMessage = core.encodeMessage;
 pub const encodeMessageForProfile = core.encodeMessageForProfile;
 pub const canonicalLocationSignedBytes = core.canonicalLocationSignedBytes;
+pub const canonicalLocationSignedBytesRaw = core.canonicalLocationSignedBytesRaw;
+pub const canonicalHandoffGiveSignedBytes = core.canonicalHandoffGiveSignedBytes;
+pub const canonicalHandoffReceiveSignedBytes = core.canonicalHandoffReceiveSignedBytes;
+pub const handoffGiveRecordBytesRawLocation = core.handoffGiveRecordBytesRawLocation;
+pub const wrapSignedHandoffGive = core.wrapSignedHandoffGive;
+pub const spanSignedHandoffGive = core.spanSignedHandoffGive;
 
 pub const AbortView = core.AbortView;
 pub const ArgumentListView = core.ArgumentListView;

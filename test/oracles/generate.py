@@ -542,7 +542,7 @@ def op_deliver_withdraw_gift() -> Record:
     return Record(Symbol("op:deliver"), (target, args, 99, False))
 
 
-# ── ADR-0011 / op:get + op:index field-projection ops ─────────────
+# ── ADR-0007 / op:get + op:index field-projection ops ─────────────
 #
 # Goblins's `(define-recordable-struct op:get (receiver-desc
 # field-name new-answer-pos))` and the parallel `op:index` at
@@ -557,7 +557,7 @@ def op_get() -> Record:
     receiver = sender's ``Reference::Far(import_id=7)`` → wire
     ``<desc:export 7>`` (target-position perspective flip per
     ADR-0010 § Decision 3). ``field-name`` is a Syrup *symbol* per
-    ADR-0011 § Decision 1 (the field name itself, not a string).
+    ADR-0007 § Decision 1 (the field name itself, not a string).
     ``new-answer-pos`` is the result-promise answer id the sender
     just allocated.
     """
@@ -570,14 +570,14 @@ def op_index() -> Record:
 
     receiver = sender's ``Reference::Far(import_id=7)`` → wire
     ``<desc:export 7>``. ``index`` is a Syrup positive integer per
-    ADR-0011 § Decision 1; ``new-answer-pos`` is the result-promise
+    ADR-0007 § Decision 1; ``new-answer-pos`` is the result-promise
     answer id.
     """
     target = Record(Symbol("desc:export"), (7,))
     return Record(Symbol("op:index"), (target, 5, 11))
 
 
-# ── ADR-0006 / ADR-0015 op:start-session handshake fixture ─────────
+# ── ADR-0006 op:start-session handshake fixture ─────────
 
 
 def op_start_session_v1_0() -> Record:
@@ -658,10 +658,10 @@ FIXTURES = {
     "op_handoff_give.bin": op_handoff_give,
     "op_handoff_receive.bin": op_handoff_receive,
     "op_deliver_withdraw_gift.bin": op_deliver_withdraw_gift,
-    # ADR-0011 op:get / op:index field-projection ops
+    # ADR-0007 op:get / op:index field-projection ops
     "op_get.bin": op_get,
     "op_index.bin": op_index,
-    # ADR-0006 / ADR-0015 op:start-session handshake (V1_0)
+    # ADR-0006 op:start-session handshake (V1_0)
     "op_start_session_v1_0.bin": op_start_session_v1_0,
     # ADR-0025 typed-abort wire kind
     "op_abort_resource_exhausted.bin": op_abort_resource_exhausted,

@@ -38,7 +38,7 @@ All ten `Message` arms and their shared sub-trees (`Reference`, the fourteen-arm
 
 The codec is selectable on a live session. `core.zig` also projects [`decodeBody`](../../../src/codec/capnp/core.zig) — the shared codec-neutral [`model.view.Body`](../../../src/model/view.zig) the engine dispatches on — directly over the frame's words, the sibling of Syrup's `decodeBody`. The unbounded sequences (`Args`, `PositionList`, `PipelinePath`) are reached through the same inline vtable backings the neutral view defines, with the `Ctx` scalars packing each list's word layout (element-0 index, section sizes, count); a nested `list` / `set` / `tagged` arm is itself another backing, so the projection stays borrowed with no per-node allocation. `encodeMessageForProfile` is the encode counterpart (profile-independent: the schema always carries `resolve_me_desc` / `wants_partial`, and the engine applies the V1.0 resolver-callback translation on the neutral model *before* encode, so that translation is codec-blind).
 
-Selection routes through the codec-dispatch seam ([`codec.dispatch`](../../../src/codec/dispatch.zig)), a `switch` on the [`model.CodecId`](../../../src/model/mod.zig) the session records from `negotiation.Negotiated.chosen`. Because the set of codecs is closed (Syrup, Cap'n Proto) and known at compile time, the seam is an exhaustive tagged-union dispatch rather than a runtime vtable — zero indirection, and a third codec is a compile error until every seam handles it. The session state machine and the V1.0 translation never name a codec, so they stay codec-blind (Invariants 1, 12, 14); the only codec-aware surface is the seam.
+Selection routes through the codec-dispatch seam ([`codec.dispatch`](../../../src/codec/dispatch.zig)), keyed on the [`model.CodecId`](../../../src/model/mod.zig) the session records from `negotiation.Negotiated.chosen`. Codecs resolve through an open comptime registry (see the Open codec registry section below), so resolution unrolls at compile time to zero-indirection dispatch while the codec set stays open to consumer-supplied codecs. The session state machine and the V1.0 translation never name a codec, so they stay codec-blind (Invariants 1, 12, 14); the only codec-aware surface is the seam.
 
 ## Scope (what this does not decide)
 
@@ -58,7 +58,20 @@ Selection routes through the codec-dispatch seam ([`codec.dispatch`](../../../sr
 - Cap'n Proto frames are word-shaped ([`FrameShape.word`](../../../src/foundation/frame.zig)); the builder allocates word-aligned storage so the frame satisfies the shape's alignment invariant.
 - Cap'n Proto carries typed values Syrup projects to strings (e.g. a typed `AbortKind` rather than Syrup's V1.0 abort wire string) — a concrete demonstration of codec neutrality.
 - The codec is both a standalone tested module (`pancake.codec.capnp`) and a live-session option negotiated per direct session; a pair offering `capnp` runs its entire handshake and traffic over word-shaped frames.
-- The codec-dispatch seam is the one place that names a codec. Adding a codec is: a `model.CodecId` arm, a `decodeBody` / `encodeMessageForProfile` pair, and two `switch` arms in `codec.dispatch` — the exhaustive switches flag every site that must grow.
+- The codec-dispatch seam is the one place that names a codec. A built-in codec is a `model.CodecId` value, a `decodeBody` / `encodeMessageForProfile` pair, and a registry `Spec`; a consumer adds their own the same way by declaring `pub const pancake_codecs` in their root (see the Open codec registry section below).
+
+## Open codec registry
+
+This supersedes the closed-set
+posture this ADR originally took. The hand-rolled Cap'n Proto strategy is unchanged;
+only the dispatch set opened up.
+
+Codecs resolve through an open comptime registry keyed by a non-exhaustive
+`model.CodecId`. The two built-ins, `syrup` and `capnp`, are the default set, and a
+Zig consumer adds their own by declaring `pub const pancake_codecs` in their root
+source file. Resolution unrolls at `comptime`, so dispatch keeps the zero-indirection
+of the former hand-written switch while the codec set is no longer closed. This is
+what makes "bring your own codec" a supported contract rather than a fork of pancake.
 
 ## Notes
 

@@ -144,7 +144,7 @@ re-deriving the contract that forces it.
   reads `*const Resolution`), leaving it in place for further late listeners; the
   stored resolution is freed once (on overwrite or on import GC co-eviction).
 - **Sturdyref enliven dedup — one swissnum dupe per cache / in-flight row
-  (ADR-0013).** `Session.cacheSturdyrefEnlivenment` and `notePendingEnliven` each
+  (ADR-0012).** `Session.cacheSturdyrefEnlivenment` and `notePendingEnliven` each
   `dupe` the swiss-number into a session-owned row; the resolved cache stores only
   the `(import_id, kind)` POD alongside it, never a clone of the enlivened
   reference. `engine.sturdyref.recordEnlivenment` *moves* the fulfilled

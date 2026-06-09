@@ -393,3 +393,32 @@ test "Cap'n Proto encodes a Set in canonical order, not model order" {
     try std.testing.expect(owned.deliver.args[0] == .set);
     try std.testing.expectEqual(@as(usize, 3), owned.deliver.args[0].set.len);
 }
+
+test "decodeOwned bounds nesting depth: an over-deep frame fails loud, never overflows the stack" {
+    const allocator = std.testing.allocator;
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // Build one argument nested in single-element lists `depth` deep — the shape a
+    // hostile peer would craft to drive the decoder's recursion off the stack. The
+    // encoder has no depth limit, so it produces exactly the over-deep frame the
+    // decoder must reject. 260 sits just past the decoder's bound (256).
+    var arg: model.Argument = .{ .void = {} };
+    var i: usize = 0;
+    while (i < 260) : (i += 1) {
+        const slice = try arena.alloc(model.Argument, 1);
+        slice[0] = arg;
+        arg = .{ .list = slice };
+    }
+    const args = [_]model.Argument{arg};
+    const message = model.Message{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(0) },
+        .args = &args,
+    } };
+
+    const frame = try capnp.encodeMessageForProfile(arena, .pre_spec, message);
+    // The bound fires with a typed error; the testing allocator also proves the
+    // rejection path freed every partial allocation (no leak on the error path).
+    try std.testing.expectError(error.MalformedFrame, capnp.decodeOwned(allocator, frame.view()));
+}

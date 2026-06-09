@@ -116,6 +116,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "pancake-zig-frame-view", .path = "examples/zig/frame_view.zig" },
         .{ .name = "pancake-ex-01-call-a-remote-method", .path = "examples/zig/01_call_a_remote_method.zig" },
         .{ .name = "pancake-ex-02-look-up-by-name", .path = "examples/zig/02_look_up_by_name.zig" },
+        .{ .name = "pancake-ex-03-actor-far-send", .path = "examples/zig/03_actor_far_send.zig" },
     };
     for (zig_examples) |ex| {
         const mod = b.createModule(.{
@@ -233,6 +234,257 @@ pub fn build(b: *std.Build) void {
     bindings_step.dependOn(&deno_dogfood.step);
     bindings_step.dependOn(&python_dogfood.step);
     bindings_step.dependOn(&racket_dogfood.step);
+
+    // Live interop proof against a real Spritely Goblins vat: a pancake peer
+    // dials the conformance Goblins host, completes the keyed op:start-session
+    // handshake, and bootstrap-fetches its echo cap. Needs `racket` + the
+    // `goblins` collection on PATH (like the binding dogfoods), so it is a
+    // sibling of `check`, not part of the hermetic gate. The driver spawns and
+    // tears down the Goblins vat itself.
+    const goblins_interop_mod = b.createModule(.{
+        .root_source_file = b.path("conformance/goblins_interop/driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    goblins_interop_mod.addImport("pancake", lib_mod);
+    const goblins_interop_exe = b.addExecutable(.{
+        .name = "pancake-goblins-interop",
+        .root_module = goblins_interop_mod,
+    });
+    const run_goblins_interop = b.addRunArtifact(goblins_interop_exe);
+    run_goblins_interop.setCwd(b.path("."));
+    run_goblins_interop.has_side_effects = true;
+    const goblins_interop_step = b.step("goblins-interop", "Live OCapN conversation against a real Goblins vat (needs racket + goblins)");
+    goblins_interop_step.dependOn(&run_goblins_interop.step);
+
+    // Live three-party handoff, pancake as recipient (needs racket + goblins).
+    const goblins_handoff_mod = b.createModule(.{
+        .root_source_file = b.path("conformance/goblins_interop/handoff_driver.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    goblins_handoff_mod.addImport("pancake", lib_mod);
+    const goblins_handoff_exe = b.addExecutable(.{
+        .name = "pancake-goblins-handoff",
+        .root_module = goblins_handoff_mod,
+    });
+    const run_goblins_handoff = b.addRunArtifact(goblins_handoff_exe);
+    run_goblins_handoff.setCwd(b.path("."));
+    run_goblins_handoff.has_side_effects = true;
+    const goblins_handoff_step = b.step("goblins-handoff", "Live three-party handoff vs Goblins, pancake as recipient (needs racket + goblins)");
+    goblins_handoff_step.dependOn(&run_goblins_handoff.step);
+
+    // Live interop proof for the Deno binding: a peer on the C ABI completes the
+    // keyed op:start-session handshake with a real Goblins vat, bootstrap-fetches
+    // its echo cap, and calls it — the binding↔live-Goblins keyed conversation,
+    // not just the in-Zig one. Needs `deno` + `racket` + the `goblins` collection
+    // on PATH, so it is a sibling of `check`. The script spawns and tears down the
+    // Goblins vat itself, and links the installed `libpancake`.
+    const deno_goblins_interop = b.addSystemCommand(&.{
+        "deno",                                       "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "conformance/goblins_interop/deno_client.ts",
+    });
+    deno_goblins_interop.step.dependOn(b.getInstallStep());
+    deno_goblins_interop.setCwd(b.path("."));
+    deno_goblins_interop.has_side_effects = true;
+    const deno_goblins_interop_step = b.step("deno-goblins-interop", "Live keyed OCapN conversation: Deno binding vs a real Goblins vat (needs deno + racket + goblins)");
+    deno_goblins_interop_step.dependOn(&deno_goblins_interop.step);
+
+    // The Python and Racket binding counterparts: same keyed conversation through
+    // the same C ABI, each idiomatic to its language. Siblings of `check`.
+    const python_goblins_interop = b.addSystemCommand(&.{ "python3", "conformance/goblins_interop/python_client.py" });
+    python_goblins_interop.step.dependOn(b.getInstallStep());
+    python_goblins_interop.setCwd(b.path("."));
+    python_goblins_interop.has_side_effects = true;
+    const python_goblins_interop_step = b.step("python-goblins-interop", "Live keyed OCapN conversation: Python binding vs a real Goblins vat (needs python3 + racket + goblins)");
+    python_goblins_interop_step.dependOn(&python_goblins_interop.step);
+
+    const racket_goblins_interop = b.addSystemCommand(&.{ "racket", "conformance/goblins_interop/racket_client.rkt" });
+    racket_goblins_interop.step.dependOn(b.getInstallStep());
+    racket_goblins_interop.setCwd(b.path("."));
+    racket_goblins_interop.has_side_effects = true;
+    const racket_goblins_interop_step = b.step("racket-goblins-interop", "Live keyed OCapN conversation: Racket binding vs a real Goblins vat (needs racket + goblins)");
+    racket_goblins_interop_step.dependOn(&racket_goblins_interop.step);
+
+    // The Rust binding drives the same keyed conversation from a feature-gated
+    // tokio example, so it links the installed `libpancake` and needs the async
+    // feature. A sibling of `check`, like the others.
+    const rust_goblins_interop = b.addSystemCommand(&.{
+        "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async", "--example", "goblins_interop",
+    });
+    rust_goblins_interop.step.dependOn(b.getInstallStep());
+    rust_goblins_interop.setCwd(b.path("."));
+    rust_goblins_interop.has_side_effects = true;
+    const rust_goblins_interop_step = b.step("rust-goblins-interop", "Live keyed OCapN conversation: Rust binding vs a real Goblins vat (needs cargo + racket + goblins)");
+    rust_goblins_interop_step.dependOn(&rust_goblins_interop.step);
+
+    // A pancake peer the upstream OCapN test suite can dial: it serves the
+    // canonical conformance swiss-nums over `tcp-testing-only`. The orchestrator
+    // `run-against-pancake.sh` starts it and runs the suite against it — pointing
+    // the external authority back at pancake. Not part of `check`; needs uv +
+    // the suite submodule.
+    const ocapn_peer_mod = b.createModule(.{
+        .root_source_file = b.path("conformance/ocapn-conformance/pancake_peer.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ocapn_peer_mod.addImport("pancake", lib_mod);
+    const ocapn_peer_exe = b.addExecutable(.{ .name = "pancake-ocapn-peer", .root_module = ocapn_peer_mod });
+    b.installArtifact(ocapn_peer_exe);
+    const ocapn_conformance = b.addSystemCommand(&.{ "bash", "conformance/ocapn-conformance/run-against-pancake.sh" });
+    ocapn_conformance.step.dependOn(b.getInstallStep());
+    ocapn_conformance.setCwd(b.path("."));
+    ocapn_conformance.has_side_effects = true;
+    const ocapn_conformance_step = b.step("ocapn-conformance", "Run the upstream OCapN test suite against a pancake peer (needs uv + the ocapn-conformance submodule)");
+    ocapn_conformance_step.dependOn(&ocapn_conformance.step);
+
+    // The rooms cross-language application demo: one Zig-built native client plus
+    // the Deno server and the Deno/Python/Racket/Rust clients, all joining one
+    // capability-secure chat room over TCP. It needs `deno` (which hosts the room
+    // and runs the orchestrator) and the Zig client, always built here. Python,
+    // Racket, and Rust each join only when their runtime is on PATH; the demo
+    // builds the Rust client itself when `cargo` is present and reports any
+    // language it skipped rather than failing. So it is a sibling step, not part of
+    // the hermetic gate. The orchestrator (`examples/apps/rooms/demo.ts`) starts the
+    // server, runs whichever clients are available, and asserts the all-to-all
+    // broadcast among them.
+    const rooms_client_mod = b.createModule(.{
+        .root_source_file = b.path("examples/apps/rooms/zig/client.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    rooms_client_mod.addImport("pancake", lib_mod);
+    const rooms_client_exe = b.addExecutable(.{
+        .name = "pancake-rooms-client",
+        .root_module = rooms_client_mod,
+    });
+
+    const rooms_demo = b.addSystemCommand(&.{
+        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "examples/apps/rooms/demo.ts",
+    });
+    rooms_demo.addArtifactArg(rooms_client_exe); // the Zig client's built path
+    rooms_demo.step.dependOn(b.getInstallStep());
+    rooms_demo.setCwd(b.path("."));
+    rooms_demo.has_side_effects = true;
+    const rooms_step = b.step("rooms", "Run the cross-language rooms chat demo (needs deno; joins python3/racket/cargo clients when present)");
+    rooms_step.dependOn(&rooms_demo.step);
+
+    // The tasks cross-language application demo: a capability-secure shared task
+    // board with CRUD operations and live change notifications through capability
+    // callbacks. One Zig-built native client plus the Deno server and
+    // Deno/Python/Rust clients, all managing tasks on one board over TCP. Like
+    // rooms, it needs `deno` (which hosts the board and runs the orchestrator)
+    // and the Zig client, always built here. Python and Rust join when their
+    // runtimes are on PATH. It is a sibling step, not part of the hermetic gate.
+    const tasks_client_mod = b.createModule(.{
+        .root_source_file = b.path("examples/apps/tasks/zig/client.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    tasks_client_mod.addImport("pancake", lib_mod);
+    const tasks_client_exe = b.addExecutable(.{
+        .name = "pancake-tasks-client",
+        .root_module = tasks_client_mod,
+    });
+
+    const tasks_demo = b.addSystemCommand(&.{
+        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "examples/apps/tasks/demo.ts",
+    });
+    tasks_demo.addArtifactArg(tasks_client_exe);
+    tasks_demo.step.dependOn(b.getInstallStep());
+    tasks_demo.setCwd(b.path("."));
+    tasks_demo.has_side_effects = true;
+    const tasks_step = b.step("tasks", "Run the cross-language tasks board demo (needs deno; joins python3/cargo clients when present)");
+    tasks_step.dependOn(&tasks_demo.step);
+
+    // The tools capability showcase: an AI-tool-harness shaped demo. A Deno
+    // coordinator hands an agent capabilities to tools — attenuated to read-only,
+    // and revocable — and each agent proves delegation, attenuation, and
+    // revocation over OCapN/TCP. The coordinator and agent are different languages
+    // on the wire, so the capability trio is real, not in-process. It needs `deno`
+    // (which hosts the coordinator and runs the orchestrator); the Python agent
+    // joins when python3 is on PATH. A sibling step, not part of the hermetic gate.
+    const tools_agent_mod = b.createModule(.{
+        .root_source_file = b.path("examples/apps/tools/zig/agent.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    tools_agent_mod.addImport("pancake", lib_mod);
+    const tools_agent_exe = b.addExecutable(.{
+        .name = "pancake-tools-agent",
+        .root_module = tools_agent_mod,
+    });
+
+    const tools_demo = b.addSystemCommand(&.{
+        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "examples/apps/tools/demo.ts",
+    });
+    tools_demo.addArtifactArg(tools_agent_exe); // the Zig agent's built path
+    tools_demo.step.dependOn(b.getInstallStep());
+    tools_demo.setCwd(b.path("."));
+    tools_demo.has_side_effects = true;
+    const tools_step = b.step("tools", "Run the cross-language tools capability showcase (needs deno; joins python3/racket/cargo agents when present)");
+    tools_step.dependOn(&tools_demo.step);
+
+    // accountability-on-pancake: a real worked application that runs ON pancake's
+    // own runtime. Two native pancake peers complete an OCapN handshake over a
+    // real loopback TCP socket; the host publishes an Affordance capability and
+    // the caller invokes it, and every invocation produces a signed,
+    // transparency-logged Episode attributing the attested caller. Identity
+    // (KERI), Episodes, and the transparency log all live above pancake — the app
+    // imports the `pancake` module and never reaches into the core. It is a
+    // sibling of `check` (it needs no extra runtime, but it is a worked example
+    // homed in `conformance/`, not part of the hermetic protocol gate). The app
+    // source lives in `conformance/accountability-on-pancake/`.
+    const accountability_mod = b.createModule(.{
+        .root_source_file = b.path("conformance/accountability-on-pancake/zig/main.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    accountability_mod.addImport("pancake", lib_mod);
+    const accountability_exe = b.addExecutable(.{
+        .name = "accountability-on-pancake",
+        .root_module = accountability_mod,
+    });
+    const run_accountability = b.addRunArtifact(accountability_exe);
+    run_accountability.setCwd(b.path("."));
+    run_accountability.has_side_effects = true;
+    const accountability_step = b.step("accountability", "Run the accountability application on pancake's own runtime over real TCP");
+    accountability_step.dependOn(&run_accountability.step);
+
+    // The standalone host for cross-language accountability: listens on an
+    // ephemeral port and serves one connection. The Deno/Python caller scripts
+    // start this, read the port, connect, and invoke.
+    const host_mod = b.createModule(.{
+        .root_source_file = b.path("conformance/accountability-on-pancake/zig/host.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    host_mod.addImport("pancake", lib_mod);
+    const host_exe = b.addExecutable(.{
+        .name = "accountability-host",
+        .root_module = host_mod,
+    });
+    b.installArtifact(host_exe);
+
+    // Three-party accountability test: proves that a handoff-introduced caller's
+    // Episode attributes the true caller, not the introducer. In-memory, protocol-
+    // level — the same test the Zig-native and cross-seam demos make over TCP.
+    const three_party_mod = b.createModule(.{
+        .root_source_file = b.path("conformance/accountability-on-pancake/zig/three_party_test.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    three_party_mod.addImport("pancake", lib_mod);
+    const three_party_test = b.addTest(.{
+        .name = "accountability-three-party",
+        .root_module = three_party_mod,
+    });
+    const run_three_party = b.addRunArtifact(three_party_test);
+    const three_party_step = b.step("accountability-three-party", "Run the three-party accountability attribution test");
+    three_party_step.dependOn(&run_three_party.step);
 
     const arch_check_step_inner = arch_check.create(b);
     const arch_check_step = b.step("arch-check", "Enforce the layer dependency DAG over src/");

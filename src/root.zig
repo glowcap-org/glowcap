@@ -14,10 +14,17 @@
 //!   checks every message against the protocol before it applies it.
 //! - `engine` is the `Peer` you actually hold and drive. It's synchronous and
 //!   does no I/O of its own: no sockets, no threads, no hidden scheduler.
+//! - `actors` is the Goblins-shaped layer above the engine: a `Vat` of local
+//!   objects with near-call and eventual-send, local or far over a bound peer. It
+//!   stays in the sync, no-I/O core and adds no protocol the engine lacks.
 //! - `c_abi` is the C interface, `libpancake` plus `pancake.h`. We keep it boring
 //!   on purpose.
 //! - `net_adapter` is the one place real I/O lives. It drives a `Peer` over a byte
 //!   stream and adds no protocol behavior of its own.
+//! - `driver` sits above both `actors` and `net_adapter`: a `ConnectedVat` that
+//!   binds a vat to a live connection, so a Zig app gets `connect`/`fetch`/
+//!   `spawn`/`send`/`step` instead of a hand-written pump loop. It composes; it
+//!   adds no protocol.
 //! - `conformance` runs fixed scenarios and hands back their wire bytes, so a
 //!   consumer can check that it behaves like everyone else.
 //!
@@ -33,6 +40,8 @@ pub const model = @import("model/mod.zig");
 pub const net_adapter = @import("net_adapter/mod.zig");
 pub const engine = @import("engine/mod.zig");
 pub const session = @import("session/mod.zig");
+pub const actors = @import("actors/mod.zig");
+pub const driver = @import("driver/mod.zig");
 
 comptime {
     _ = c_abi;

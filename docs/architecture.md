@@ -68,8 +68,9 @@ they do not add CapTP behavior.
 ## Netlayer (`net_adapter`)
 
 The netlayer is the one place `std.Io` enters; the arch gate
-(`tools/arch_check.zig`) keeps it out of the five core layers and admits
-`net_adapter` as a non-core layer imported only by `c_abi` and the public root.
+(`tools/arch_check.zig`) keeps it out of the six core layers (`foundation`,
+`model`, `codec`, `session`, `engine`, and `actors`) and admits `net_adapter` as
+a non-core layer imported by `c_abi`, the `driver` layer, and the public root.
 
 - **One parser (ADR-0029).** Stream frame boundaries are found by the active
   codec's own decoder (`codec.dispatch.decodePrefix`), which distinguishes
@@ -85,9 +86,24 @@ The netlayer is the one place `std.Io` enters; the arch gate
   without a socket. `net_adapter.tcp` is the only `std.Io.net`-to-socket site;
   `net_adapter.FrameStream` is the peer-less frame boundary the C ABI sits on.
 - **Bounded per-connection memory (ADR-0030).** Inbound frame size is capped by
-  `SessionLimits.max_frame_bytes` (`too_large` → `resource_exhausted` abort).
+  `SessionLimits.max_frame_bytes`, so an oversized frame is refused as `too_large`
+  and projected to a `resource_exhausted` abort.
   The small-buffer/bounded-overflow path, full-duplex backpressure, and
   crossed-hellos are deferred by name in ADR-0030.
+
+## Application surface (`driver`)
+
+The `driver` layer sits above both the actor turn loop and the netlayer, so it is
+the one place that may touch `std.Io` and the actor vat at once. `driver.ConnectedVat`
+binds an `actors.Vat` to a live `net_adapter.Connection` over one caller-owned
+`engine.Peer`, which spares a networked app from hand-writing the same
+open-pump-dispatch loop. It composes the core and hides nothing: every read and
+write is one explicit `ConnectedVat.step`, and the caller still owns the loop, the
+allocator, the buffers, and the peer. `connectTcp` names the transport once at the
+constructor, while the type itself stays transport-neutral, so a caller already
+holding a `Connection` over another stream uses `ConnectedVat.over` directly. This
+is the native-Zig face of the cross-binding application surface, and a consumer who
+outgrows it reaches the peer through `ConnectedVat.peer`.
 
 ## Session Representation
 
@@ -126,15 +142,15 @@ re-deriving them with linear scans.
   iterator is the shape the hot paths use.
 - **Bounded recursion (resilience).** The recursive argument-tree walks are
   depth-bounded by `SessionLimits.max_nesting_depth`, so an attacker-nested
-  inbound frame fails loud (`NestingTooDeep` → `resource_exhausted` abort)
-  instead of overflowing the native stack (ADR-0028). `view.toOwned` and
+  inbound frame fails loud instead of overflowing the native stack: the walk
+  raises `NestingTooDeep`, which projects to a `resource_exhausted` abort (ADR-0025). `view.toOwned` and
   `model.argumentsEqual` carry an independent fixed ceiling as a model-layer
   backstop.
 - **Structural state gate.** Inbound and outbound dispatch run an exhaustive
   `switch (session.state)` admission gate (`admitInState`) at the dispatch head,
   so a new state variant cannot silently inherit "admit everything"; the
   per-message validators hold only kind-specific rules.
-- **Float64 equality is `Object.is`, not IEEE `==`** (ADR-0027): every NaN is
+- **Float64 equality is `Object.is`, not IEEE `==`** (ADR-0021): every NaN is
   Equal to every other NaN and `+0.0` is distinct from `-0.0`, the
   Pass-Invariant-Equality axis Model.md requires.
 

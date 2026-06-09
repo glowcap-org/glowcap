@@ -17,7 +17,7 @@ wrappers and small Racket programs around that API.
 | `racket/tcp-demo.rkt` | Two Goblins peers over local TCP; exits after one roundtrip. |
 | `racket/three-vat-demo.rkt` | Three-party introduction over local TCP. |
 | `racket/seven-caps-peer.rkt` | Long-running peer registering the seven caps expected by the OCapN suite. |
-| `run.sh` | Native launcher using the devcontainer's `racket`; no pixi layer. |
+| `run.sh` | Native launcher using the devcontainer's `racket`. |
 
 ## Running
 

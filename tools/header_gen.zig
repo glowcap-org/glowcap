@@ -24,6 +24,7 @@ const error_consts = [_][]const u8{
     "PANCAKE_ERR_CLOSED",         "PANCAKE_ERR_IO",
     "PANCAKE_ERR_MALFORMED",      "PANCAKE_ERR_FRAME_TOO_LARGE",
     "PANCAKE_ERR_WRONG_EVENT",    "PANCAKE_ERR_UNSUPPORTED_VALUE",
+    "PANCAKE_ERR_BROKEN",
 };
 const discriminant_consts = [_][]const u8{
     "PANCAKE_CODEC_SYRUP",      "PANCAKE_CODEC_CAPNP",
@@ -287,6 +288,8 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try section(&b, gpa, "Peer lifecycle and frame I/O");
     try emitFn(&b, gpa, "pancake_peer_new", &.{"out_peer"}, "");
     try emitFn(&b, gpa, "pancake_peer_new_in", &.{ "context", "out_peer" }, "Create a peer whose allocations route through `context`.");
+    try emitFn(&b, gpa, "pancake_peer_new_negotiating", &.{"out_peer"}, "Create a peer that begins negotiating, awaiting the keyed op:start-session\nhandshake. Pair with pancake_peer_start_session_keyed to talk to a peer that\nrequires the handshake (a real Goblins vat).");
+    try emitFn(&b, gpa, "pancake_peer_new_negotiating_in", &.{ "context", "out_peer" }, "Negotiating counterpart of pancake_peer_new_in.");
     try emitFn(&b, gpa, "pancake_peer_release", &.{"peer"}, "");
     try emitFn(&b, gpa, "pancake_peer_feed_borrowed", &.{ "peer", "frame" }, "Dispatch a borrowed frame synchronously; the caller retains ownership.");
     try emitFn(&b, gpa, "pancake_peer_feed_owned", &.{ "peer", "frame" }, "Transfer a managed frame into the inbound queue for `pancake_peer_step`;\non success the caller's descriptor is cleared.");
@@ -299,13 +302,15 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_peer_register_bootstrap_cap", &.{ "peer", "swissnum", "swissnum_len", "out_export_id" }, "Expose a local capability behind `swissnum` for inbound bootstrap-fetch;\nwrites the allocated export id. `swissnum` is borrowed.");
     try emitFn(&b, gpa, "pancake_peer_register_export", &.{ "peer", "export_id" }, "Register a local export position so deliveries to it surface as events.");
     try emitFn(&b, gpa, "pancake_peer_register_import", &.{ "peer", "import_id" }, "Track a partner-hosted import this peer holds, so a _FAR send_deliver to it\nis admitted (e.g. the bootstrap import).");
+    try emitFn(&b, gpa, "pancake_peer_start_session_keyed", &.{ "peer", "captp_version", "transport", "transport_len", "designator", "designator_len", "hints_empty_false", "seed" }, "Sign and queue a keyed op:start-session for a negotiating peer. Derives the\nsession key from the 32-byte `seed`, signs the canonical location bytes for\nthe (transport, designator) locator, and enqueues the handshake frame. For a\nGoblins partner use transport \"tcp\" with `hints_empty_false` nonzero.\n`captp_version` is 0 for v1.0 or 1 for pre-spec. `seed` is borrowed.");
+    try emitFn(&b, gpa, "pancake_peer_session_is_open", &.{"peer"}, "Whether the session has completed the handshake and is open for traffic:\n1 when open, 0 when not, negative PANCAKE_ERR_* for a null peer.");
 
     try section(&b, gpa, "Typed OCapN driving surface");
     try emitDoc(&b, gpa,
         \\Construct a call and read a delivery as structured values without authoring
         \\a codec. Send borrows the C structs for the call (the clone owns the copy);
         \\receive projects views aliasing an internal arena, released by `*_free`.
-        \\These struct layouts are frozen ABI (ADR-0032).
+        \\These struct layouts are frozen ABI (ADR-0031).
     );
     try emitStruct(&b, gpa, c.PancakeReference, "PancakeReference", &.{
         "_NEAR export id, _FAR import id, or _PROMISE answer id.", "object/promise for near/far", "",

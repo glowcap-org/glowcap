@@ -8,6 +8,10 @@ alwaysApply: true
 pancake is a native Zig systems library for OCapN / CapTP. Keep the repository
 small, direct, and product-grade.
 
+The destination these values serve is [`docs/vision.md`](../../docs/vision.md). The
+values below are how that destination is protected in day-to-day work; read the
+vision itself when a tradeoff between them is unclear.
+
 ## Values
 
 - **Protocol evidence over implementation folklore.** OCapN behavior, Goblins
@@ -37,6 +41,11 @@ small, direct, and product-grade.
 
 Before adding setup, build, API, or documentation surface, ask:
 
+- Does this move toward [`docs/vision.md`](../../docs/vision.md), or at least hold a
+  line that protects it — rather than trading performance, the architecture, or
+  cross-binding interop for local convenience?
+- Does this keep framework-shaped ambition (actors, the simulator) *above* the
+  sans-io core instead of pushing authority or I/O down into it?
 - Does this make `zig build`, `zig build check`, or first use simpler?
 - Does this preserve plain `pancake` artifact names?
 - Can a C consumer understand the ABI without knowing Zig?

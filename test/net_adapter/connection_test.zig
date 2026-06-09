@@ -15,6 +15,14 @@ const net_adapter = pancake.net_adapter;
 const zero_pubkey = [_]u8{0} ** 32;
 const zero_sig = [_]u8{0} ** 64;
 
+/// These tests prove byte-stream framing, not handshake authentication, and the
+/// `op:start-session` they feed carries the stub zero signature — so the peers
+/// run with partner-signature verification off (a verifying peer would, rightly,
+/// refuse the unsigned handshake). The keyed path is covered in `pairing_test`.
+fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
+    return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+}
+
 /// Encode the stub-key `op:start-session` a negotiating peer admits. The caller
 /// owns the returned frame (it backs the inbound byte stream).
 fn startSessionFrame(allocator: std.mem.Allocator, designator: []const u8) !pancake.foundation.Frame {
@@ -35,7 +43,7 @@ fn startSessionFrame(allocator: std.mem.Allocator, designator: []const u8) !panc
 test "pumpOver frames one buffered frame, applies it, then reports graceful close" {
     const allocator = std.testing.allocator;
 
-    var peer = engine.Peer.initNegotiating(allocator);
+    var peer = stubNegotiatingPeer(allocator);
     defer peer.deinit();
 
     var frame = try startSessionFrame(allocator, "remote");
@@ -61,7 +69,7 @@ test "pumpOver frames one buffered frame, applies it, then reports graceful clos
 test "pumpOver frames each frame of a concatenation in order" {
     const allocator = std.testing.allocator;
 
-    var peer = engine.Peer.initNegotiating(allocator);
+    var peer = stubNegotiatingPeer(allocator);
     defer peer.deinit();
 
     var f1 = try startSessionFrame(allocator, "a");
@@ -91,7 +99,7 @@ test "pumpOver frames each frame of a concatenation in order" {
 test "pumpOver surfaces a mid-frame EOF as TruncatedFrame" {
     const allocator = std.testing.allocator;
 
-    var peer = engine.Peer.initNegotiating(allocator);
+    var peer = stubNegotiatingPeer(allocator);
     defer peer.deinit();
 
     var frame = try startSessionFrame(allocator, "remote");
@@ -118,7 +126,7 @@ test "pumpOver surfaces a mid-frame EOF as TruncatedFrame" {
 test "pumpOver surfaces structurally invalid bytes as MalformedFrame" {
     const allocator = std.testing.allocator;
 
-    var peer = engine.Peer.initNegotiating(allocator);
+    var peer = stubNegotiatingPeer(allocator);
     defer peer.deinit();
 
     var reader = std.Io.Reader.fixed("<7'op:foo>");
@@ -131,7 +139,7 @@ test "pumpOver surfaces structurally invalid bytes as MalformedFrame" {
 test "pumpOver surfaces an over-cap frame as FrameTooLarge" {
     const allocator = std.testing.allocator;
 
-    var peer = engine.Peer.initNegotiating(allocator);
+    var peer = stubNegotiatingPeer(allocator);
     defer peer.deinit();
     // A cap far below the start-session frame: cap-on-parse rejects it.
     peer.session_state.limits.max_frame_bytes = 8;
@@ -149,7 +157,7 @@ test "pumpOver surfaces an over-cap frame as FrameTooLarge" {
 test "pumpOver flushes the peer's queued outbound frames" {
     const allocator = std.testing.allocator;
 
-    var peer = engine.Peer.initNegotiating(allocator);
+    var peer = stubNegotiatingPeer(allocator);
     defer peer.deinit();
 
     // A negotiating peer may send its own op:start-session.

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Native entry point. Runs the upstream OCapN test suite via `uv` (the
-# devcontainer provides uv/python) — no pixi/conda env. The suite deps
+# devcontainer provides uv/python). The suite deps
 # (cryptography for Ed25519/gcrypt-shape primitives; stem for the onion
 # netlayer) are materialized per-invocation by uv.
 set -euo pipefail

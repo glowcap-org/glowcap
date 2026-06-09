@@ -1,6 +1,6 @@
 #lang racket/base
-;; goblins-tap-dialer.rkt — single-shot Goblins client that dials
-;; a remote OCapN sturdyref through the griddle TCP tap.
+;; goblins-tap-dialer.rkt — single-shot Goblins client that dials a
+;; remote OCapN sturdyref, enlivens it, and invokes it once.
 ;;
 ;; Usage:
 ;;   racket goblins-tap-dialer.rkt <port> <swiss-ascii> <message>
@@ -9,10 +9,8 @@
 ;; the given swiss-num (interpreted as ASCII bytes), invokes it with
 ;; one positional argument (`<message>`), prints the reply, exits.
 ;;
-;; Pair with `seven-caps-peer.rkt` listening on a different port
-;; with `griddle-tcp-tap` proxying between them — every byte of the
-;; CapTP exchange flows through the tap and shows up as
-;; BaseTimelineEvent JSON on the tap's stdout.
+;; Pair it with a peer listening on `<port>`; the dialer connects
+;; straight to that peer with no proxy in between.
 
 (require goblins
          goblins/vat

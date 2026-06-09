@@ -10,7 +10,17 @@ path = "src/lib.rs"
 [features]
 # Opt-in async I/O over tokio. The base binding stays dependency-free; the sync
 # `Peer` is sans-io and drives from any runtime, so async is purely additive.
-async = ["dep:tokio"]
+# `getrandom` supplies the per-connection session seed at the I/O boundary (the
+# sans-io core never generates entropy).
+async = ["dep:tokio", "dep:getrandom"]
 
 [dependencies]
-tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros"], optional = true }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "sync", "process", "time"], optional = true }
+getrandom = { version = "0.2", optional = true }
+
+# Live interop proof: a peer on the C ABI holds a keyed OCapN conversation with a
+# real Goblins vat. Run via `zig build rust-goblins-interop` (needs racket +
+# goblins); the async I/O surface it drives over is the `async` feature.
+[[example]]
+name = "goblins_interop"
+required-features = ["async"]

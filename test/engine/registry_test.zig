@@ -19,7 +19,7 @@ test "SessionRegistry admits distinct peers and refuses a duplicate" {
     try std.testing.expect(reg.contains(peerId(2)));
     try std.testing.expect(!reg.contains(peerId(3)));
 
-    // A second session to an already-open peer is a loud refusal (ADR-0013 § 1).
+    // A second session to an already-open peer is a loud refusal (ADR-0012 § 1).
     try std.testing.expectError(
         engine.registry.Error.PeerAlreadyOpen,
         reg.register(allocator, peerId(1)),

@@ -2,9 +2,9 @@
 //!
 //! A client asks the server's bootstrap object for a capability, naming it with a
 //! swiss-number. This is the spec-shaped way to do what chapter 01 did by
-//! pre-wiring. Notice the server never writes a fetch handler: it just registers a
-//! `swissnum -> cap` mapping, and the runtime answers the inbound `'fetch` for it
-//! on its own (ADR-0006, our side of the exchange).
+//! pre-wiring. Notice the server never writes a fetch handler: it just maps the
+//! swiss-number to a capability, and the runtime answers the inbound `'fetch` for
+//! it on its own (ADR-0006, our side of the exchange).
 //!
 //! On the client side, `fetch.prepareFetchSwissnum` builds the bootstrap-fetch
 //! deliver, plus, on V1.0, the resolver the answer comes back to. Then

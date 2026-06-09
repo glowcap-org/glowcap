@@ -85,9 +85,13 @@ pub fn readFrameFrom(
         if (r.bufferedLen() > 0) {
             switch (codec.dispatch.decodePrefix(codec_id, r.buffered(), max_frame_bytes)) {
                 .decoded => |decoded| {
+                    // `decodePrefix` above already accepted this codec, so its
+                    // shape is registered; a null here would mean the two
+                    // dispatchers disagree, which we classify as malformed.
+                    const shape = codec.dispatch.frameShape(codec_id) orelse return error.MalformedFrame;
                     const view: foundation.FrameView = .{
                         .bytes = r.buffered()[0..decoded.consumed],
-                        .shape = codec.dispatch.frameShape(codec_id),
+                        .shape = shape,
                     };
                     // The one shape-aware owned copy (8-aligned for `word`).
                     const frame = engine.ownedFrameFromView(allocator, view) catch |err| switch (err) {

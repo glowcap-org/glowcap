@@ -53,8 +53,8 @@ test "synthesizeListenerFire builds the break resolver-method call" {
     defer model.freeMessage(allocator, fire);
 
     try std.testing.expectEqualStrings("break", fire.deliver.args[0].symbol);
-    try std.testing.expect(fire.deliver.args[1] == .@"error");
-    try std.testing.expectEqualStrings("boom", fire.deliver.args[1].@"error".message);
+    try std.testing.expect(fire.deliver.args[1] == .symbol);
+    try std.testing.expectEqualStrings("boom", fire.deliver.args[1].symbol);
 }
 
 test "decomposeOutboundDeliver expands a single call step into one intermediate plus terminal" {

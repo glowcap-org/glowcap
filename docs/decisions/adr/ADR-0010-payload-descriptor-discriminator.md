@@ -35,7 +35,7 @@ The relabel is a fixed wire-tag↔variant map, not a lookup: the decoder never r
 
 ### The encoder is the mirror; the flip is an involution
 
-The encode side ([`src/codec/syrup/core.zig`](../../../src/codec/syrup/core.zig), and [ADR-0023](ADR-0023-nearref-kind-on-the-wire.md) for the kind dispatch) is the exact inverse: our `near` export → `<desc:import-object>` / `<desc:import-promise>` (dispatching on `NearKind`), our `far` import → `<desc:export>`, a `promise` → `<desc:answer>`. So a reference sent and echoed back swaps arms — that swap **is** the perspective change, not a round-trip bug. Two wire crossings restore the original arm, which is how the codec round-trip tests assert byte stability.
+The encode side ([`src/codec/syrup/core.zig`](../../../src/codec/syrup/core.zig); the kind dispatch is in the Encode-side kind dispatch section below) is the exact inverse: our `near` export → `<desc:import-object>` / `<desc:import-promise>` (dispatching on `NearKind`), our `far` import → `<desc:export>`, a `promise` → `<desc:answer>`. So a reference sent and echoed back swaps arms — that swap **is** the perspective change, not a round-trip bug. Two wire crossings restore the original arm, which is how the codec round-trip tests assert byte stability.
 
 ### The reference shape carries the wire tag
 
@@ -49,9 +49,12 @@ Because the codec already re-anchored the reference, [`src/session/mod.zig`](../
 
 A resolved import's `ImportKind` is preserved verbatim. The sturdyref enliven dedup cache in [`src/session/mod.zig`](../../../src/session/mod.zig) stores `(import_id, kind)`, so a cache-hit short-circuit reconstructs the `FarRef` with its wire-tag discriminator intact rather than collapsing it to `.object`.
 
+### Encode-side kind dispatch
+
+This is the encode-side mirror of the decode flip above. `NearRef` carries a `kind: NearKind { object, promise }` discriminant, and the Syrup payload-reference encoder dispatches on it: `.object` emits `<desc:import-object>` and `.promise` emits `<desc:import-promise>`. So a stateless codec renders a promise-shaped local export (a vow, a resolver-callback, or a handoff-imported promise) as a promise descriptor instead of always object. The default is `.object`, so ordinary call sites stay terse. This is an additive model widening with no profile-name bump.
+
 ## Scope (what this does not decide)
 
-- **Encode-side emission of `<desc:import-promise>`** for a promise-shaped local export — [ADR-0023](ADR-0023-nearref-kind-on-the-wire.md) owns the `NearKind` → wire-tag dispatch this ADR's decode mirrors.
 - **Promise-import bookkeeping.** The session has no concept of queuing against an import the way the inbound-answer table queues against an answer; `ImportKind.promise` on a decoded import is carried, not yet branched on.
 
 ## Alternatives Considered
@@ -75,4 +78,4 @@ A resolved import's `ImportKind` is preserved verbatim. The sturdyref enliven de
 
 ## Notes
 
-[ADR-0023](ADR-0023-nearref-kind-on-the-wire.md) is the encode-side counterpart: it dispatches `NearKind` onto the `import-object` / `import-promise` wire tags, which this ADR's decode flips back into an import's `ImportKind`. [ADR-0007](ADR-0007-promise-pipelining-substrate.md) owns `<desc:answer>` (pipelining against an answer-pos). [ADR-0011](ADR-0011-op-get-op-index.md) relies on this dispatch to reach an `op:get` / `op:index` receiver. [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md) and [ADR-0013](ADR-0013-cross-session-distributed-equality.md) consume the preserved far-kind through the enliven cache.
+[ADR-0007](ADR-0007-promise-pipelining-substrate.md) owns `<desc:answer>` (pipelining against an answer-pos) and relies on this dispatch to reach an `op:get` / `op:index` receiver. [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md) consumes the preserved far-kind through the enliven cache.

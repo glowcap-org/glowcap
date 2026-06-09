@@ -15,9 +15,9 @@ zig build check
 
 `zig build check` runs the Zig-hermetic gate: architecture checks, meta
 scaffolding checks, correctness tests, public examples, protocol/Goblins oracle
-checks, and benchmark smoke checks. Cross-language C ABI dogfood runs as sibling
-steps because it requires non-Zig runtimes on PATH. Use focused steps while
-iterating:
+checks, and benchmark smoke checks. Cross-language C ABI dogfood and the live
+Goblins interop run as sibling steps because they require non-Zig runtimes on
+PATH. Use focused steps while iterating:
 
 ```sh
 zig build test
@@ -25,6 +25,16 @@ zig build meta-check
 zig build oracle-check
 zig build rust-dogfood
 zig build bindings
+zig build goblins-interop   # live OCapN conversation vs a real Goblins vat, both directions (needs racket + goblins)
+zig build deno-goblins-interop   # live keyed conversation: Deno binding vs a real Goblins vat over the C ABI (needs deno + racket + goblins)
+zig build python-goblins-interop # live keyed conversation: Python binding vs a real Goblins vat (needs python3 + racket + goblins)
+zig build rust-goblins-interop   # live keyed conversation: Rust binding vs a real Goblins vat (needs cargo + racket + goblins)
+zig build racket-goblins-interop # live keyed conversation: Racket binding vs a real Goblins vat (needs racket + goblins)
+zig build goblins-handoff   # live three-party handoff vs Goblins, pancake as recipient (needs racket + goblins)
+zig build ocapn-conformance # run the upstream OCapN test suite against a pancake peer (needs uv + the ocapn-conformance submodule)
+zig build rooms             # cross-language rooms chat: Zig/Rust/Python/Racket/Deno in one room (needs deno; joins python3/racket/cargo clients when present)
+zig build tasks             # cross-language tasks board: Zig/Rust/Python/Deno on one board (needs deno; joins python3/cargo clients when present)
+zig build tools             # cross-language capability showcase: delegation/attenuation/revocation for AI agent harnesses (needs deno; joins python3 agent when present)
 zig build examples
 zig build bench-frame-view
 zig build bench-codec

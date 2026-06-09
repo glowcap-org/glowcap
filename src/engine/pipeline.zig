@@ -69,7 +69,7 @@ pub fn synthesizeListenerFire(
 
     const payload: model.Argument = switch (resolution) {
         .fulfill => |arg| try model.cloneArgument(allocator, arg),
-        .break_ => |err| try model.cloneArgument(allocator, .{ .@"error" = err }),
+        .break_ => |err| try model.cloneArgument(allocator, .{ .symbol = err.message }),
     };
     errdefer model.freeArgument(allocator, payload);
 

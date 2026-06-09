@@ -117,6 +117,18 @@ with `_new` are `_release` (`peer`, `context`, `managed_frame`, `event`,
   ([`examples/c/context_alloc.c`](../../../examples/c/context_alloc.c)), gated
   under `zig build check`.
 
+## Typed driving surface
+
+The C ABI carries a typed driving surface, so a non-Zig binding can drive OCapN
+directly — construct an `op:deliver` or `op:resolve`, and read a delivery or
+resolution as structured values — instead of only shuttling opaque frames. The
+outbound path marshals fixed-layout C structs (`PancakeReference` /
+`PancakeArgument`) into a model message through `Peer.sendCopying`, the named
+boundary copy. The inbound path materializes one event into a per-event arena and
+projects C views that alias it, released by a `*_free`. The struct layouts are frozen
+ABI. This is what lets a binding *drive* OCapN rather than relay frames it cannot
+read.
+
 ## Notes
 
 - [ADR-0030](ADR-0030-netlayer-connection-and-memory-posture.md) owns the netlayer

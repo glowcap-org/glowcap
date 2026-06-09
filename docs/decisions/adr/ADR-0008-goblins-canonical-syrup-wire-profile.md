@@ -75,4 +75,4 @@ The three wire shapes are final. A spec-level change to the abort reason reshape
 
 ## Notes
 
-[ADR-0003](ADR-0003-codec-interoperability-posture.md) owns the profile posture this shape sits inside. [ADR-0023](ADR-0023-nearref-kind-on-the-wire.md) and [ADR-0021](ADR-0021-ocapn-value-tree-breadth.md) widen the same Syrup profile additively without a name bump.
+[ADR-0003](ADR-0003-codec-interoperability-posture.md) owns the profile posture this shape sits inside. [ADR-0010](ADR-0010-payload-descriptor-discriminator.md) and [ADR-0021](ADR-0021-ocapn-value-tree-breadth.md) widen the same Syrup profile additively without a name bump.

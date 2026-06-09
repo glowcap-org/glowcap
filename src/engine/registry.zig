@@ -1,5 +1,5 @@
 //! Keeping it to one session per peer, which is the thing that makes cross-session
-//! equality work (ADR-0013).
+//! equality work (ADR-0012).
 //!
 //! Here's the trick behind distributed equality. If you never open a second
 //! session to a peer you already have one with, then "are these two references the
@@ -22,7 +22,7 @@ const foundation = @import("../foundation/mod.zig");
 pub const Error = error{
     /// `register` was called for a [`foundation.PeerId`] that already has an open
     /// session. The session-pair-uniqueness invariant
-    /// (ADR-0013 § Session-pair uniqueness in `SessionRegistry`) is
+    /// (ADR-0012 § Session-pair uniqueness in `SessionRegistry`) is
     /// a loud refusal, never a silent second session.
     PeerAlreadyOpen,
 };
@@ -39,7 +39,7 @@ pub const SessionRegistry = struct {
     }
 
     /// Record an open session to `peer`. Returns [`Error.PeerAlreadyOpen`] when
-    /// one already exists, enforcing session-pair uniqueness (ADR-0013).
+    /// one already exists, enforcing session-pair uniqueness (ADR-0012).
     pub fn register(self: *SessionRegistry, allocator: std.mem.Allocator, peer: foundation.PeerId) !void {
         if (self.contains(peer)) return Error.PeerAlreadyOpen;
         try self.peers.append(allocator, peer);

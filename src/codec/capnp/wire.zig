@@ -126,6 +126,17 @@ fn signExtend30(value: u30) i32 {
 /// Words are appended in segment order; pointers are back-patched with an
 /// offset computed from their own index. `finish` emits the framed bytes
 /// (segment table + segment) as a word-shaped [`foundation.Frame`].
+///
+/// Capacity precondition: the builder encodes a message that fits the wire
+/// format's structural limits — a segment under 2^32 words, list word-counts
+/// under 2^29, and composite element-counts under 2^30. Those bounds are what the
+/// pointer fields can express, and the length casts in `offsetTo`,
+/// `compositeTag`, `setListPtr`, and `finish` assume them. A `model.Message`
+/// reaching those limits is on the order of tens of gigabytes — not constructible
+/// in practice (it would exhaust memory first) and never produced by decode,
+/// which bounds an inbound frame to `max_frame_bytes`. The casts therefore name a
+/// precondition the local caller is responsible for, not an attacker-reachable
+/// path; the inbound side is bounds-checked separately in the decoder.
 pub const Builder = struct {
     words: std.ArrayList(u64) = .empty,
 
@@ -164,8 +175,8 @@ pub const Builder = struct {
         return encodeStructPointer(@bitCast(@as(u32, element_count)), data_words, ptr_words);
     }
 
-    /// Emit `segment-count − 1` (u32) ‖ `segment-0 size in words` (u32) ‖
-    /// segment words, as a word-shaped owned frame. The frame storage is
+    /// Emit `segment-count − 1` (u32), then `segment-0 size in words` (u32),
+    /// then the segment words, as a word-shaped owned frame. The frame storage is
     /// 8-byte aligned (allocated as words), satisfying `FrameShape.word`.
     pub fn finish(self: *Builder, allocator: std.mem.Allocator) !foundation.Frame {
         const seg = self.words.items;

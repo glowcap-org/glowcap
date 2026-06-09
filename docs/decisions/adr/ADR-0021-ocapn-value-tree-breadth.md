@@ -84,6 +84,14 @@ not fork on representability.
   pins the canonical `'D'` + big-endian binary64 bytes and round-trips NaN and
   signed zero bit-for-bit.
 
+## Float64 equality
+
+Float64 Pass-Invariant Equality uses `Object.is` semantics, not IEEE `==`: every NaN
+bit-pattern is Equal to every other NaN, and `+0.0` is not Equal to `-0.0`.
+`model.float64Equal` implements it by collapsing every NaN to one Equal class and
+otherwise comparing raw bits. This is the equality axis Model.md requires for the
+passable value tree, and it is what the `float64` round-trip test pins bit-for-bit.
+
 ## Notes
 
 - [ADR-0003](ADR-0003-codec-interoperability-posture.md) owns the

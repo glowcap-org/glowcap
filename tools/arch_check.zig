@@ -2,8 +2,11 @@
 //! edges, and asserts the layer dependency DAG plus the no-`std.Io`-in-core ban.
 //! Wired as the `zig build arch-check` step and into `zig build check`.
 //!
-//! The layering it enforces (matching `.agents/rules/architecture.md` § Layer
-//! Ownership):
+//! A simplified view of the core DAG (the full enforced edge set lives in the
+//! `allowedTargets` table below, and the authoritative layer ownership is
+//! `.agents/rules/architecture.md` § Layer Ownership — which also covers
+//! `actors` above `engine`, `net_adapter` as the one `std.Io` adapter over
+//! `engine`, and `driver` composing `actors` + `net_adapter`):
 //!
 //! ```text
 //! foundation ← model ← codec ← engine → (c_abi | conformance)
@@ -41,8 +44,9 @@ const ArchCheck = struct {
     step: Step,
 };
 
-/// Layers that must stay free of `std.Io` (the sync, no-I/O core).
-const core_layers = [_][]const u8{ "foundation", "model", "codec", "session", "engine" };
+/// Layers that must stay free of `std.Io` (the sync, no-I/O core). `actors`
+/// drives the engine as a pure turn loop — it owns no I/O, so it joins the ban.
+const core_layers = [_][]const u8{ "foundation", "model", "codec", "session", "engine", "actors" };
 
 /// One layer's allowed `@import` target layers (its own layer is always allowed
 /// — intra-layer imports). `null` for an unrecognized layer means "no rule;
@@ -60,12 +64,21 @@ fn allowedTargets(layer: []const u8) ?[]const []const u8 {
         // `net_adapter` (and the `model` codec id it threads through).
         .{ .layer = "c_abi", .targets = &.{ "foundation", "model", "engine", "net_adapter", "c_abi" } },
         .{ .layer = "conformance", .targets = &.{ "foundation", "model", "codec", "session", "engine", "conformance" } },
+        // The actor layer sits above the engine: a sync, no-I/O turn loop that
+        // drives a `engine.Peer` and binds local actors to its exports. It adds
+        // no CapTP semantics the engine lacks.
+        .{ .layer = "actors", .targets = &.{ "foundation", "model", "engine", "actors" } },
         // The byte-stream adapter is NOT a core layer (absent from `core_layers`
         // above), so it is the one place `std.Io` is allowed. It drives the
         // engine over a stream; it never reaches below `engine`'s authority.
         .{ .layer = "net_adapter", .targets = &.{ "foundation", "model", "codec", "session", "engine", "net_adapter" } },
+        // The driver sits above BOTH the actor turn loop and the I/O adapter: it
+        // binds an `actors.Vat` to a live `net_adapter.Connection`, so it is the
+        // one place that may import both, and it touches `std.Io` (so it is not a
+        // core layer). It adds no CapTP semantics — it only composes.
+        .{ .layer = "driver", .targets = &.{ "foundation", "model", "engine", "actors", "net_adapter", "driver" } },
         // The public aggregator at `src/root.zig` re-exports every layer.
-        .{ .layer = "<root>", .targets = &.{ "foundation", "model", "codec", "session", "engine", "c_abi", "conformance", "net_adapter" } },
+        .{ .layer = "<root>", .targets = &.{ "foundation", "model", "codec", "session", "engine", "c_abi", "conformance", "net_adapter", "actors", "driver" } },
     };
     for (rules) |rule| {
         if (std.mem.eql(u8, rule.layer, layer)) return rule.targets;

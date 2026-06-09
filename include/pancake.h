@@ -36,6 +36,7 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define PANCAKE_ERR_FRAME_TOO_LARGE -11
 #define PANCAKE_ERR_WRONG_EVENT -12
 #define PANCAKE_ERR_UNSUPPORTED_VALUE -13
+#define PANCAKE_ERR_BROKEN -14
 
 /* ── Discriminants ── */
 #define PANCAKE_CODEC_SYRUP 0u
@@ -135,6 +136,12 @@ void pancake_context_release(PancakeContext *context);
 int32_t pancake_peer_new(PancakePeer **out_peer);
 /* Create a peer whose allocations route through `context`. */
 int32_t pancake_peer_new_in(PancakeContext *context, PancakePeer **out_peer);
+/* Create a peer that begins negotiating, awaiting the keyed op:start-session
+   handshake. Pair with pancake_peer_start_session_keyed to talk to a peer that
+   requires the handshake (a real Goblins vat). */
+int32_t pancake_peer_new_negotiating(PancakePeer **out_peer);
+/* Negotiating counterpart of pancake_peer_new_in. */
+int32_t pancake_peer_new_negotiating_in(PancakeContext *context, PancakePeer **out_peer);
 void pancake_peer_release(PancakePeer *peer);
 /* Dispatch a borrowed frame synchronously; the caller retains ownership. */
 int32_t pancake_peer_feed_borrowed(PancakePeer *peer, const PancakeFrame *frame);
@@ -163,12 +170,21 @@ int32_t pancake_peer_register_export(PancakePeer *peer, uint64_t export_id);
 /* Track a partner-hosted import this peer holds, so a _FAR send_deliver to it
    is admitted (e.g. the bootstrap import). */
 int32_t pancake_peer_register_import(PancakePeer *peer, uint64_t import_id);
+/* Sign and queue a keyed op:start-session for a negotiating peer. Derives the
+   session key from the 32-byte `seed`, signs the canonical location bytes for
+   the (transport, designator) locator, and enqueues the handshake frame. For a
+   Goblins partner use transport "tcp" with `hints_empty_false` nonzero.
+   `captp_version` is 0 for v1.0 or 1 for pre-spec. `seed` is borrowed. */
+int32_t pancake_peer_start_session_keyed(PancakePeer *peer, uint32_t captp_version, const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, uint32_t hints_empty_false, const uint8_t *seed);
+/* Whether the session has completed the handshake and is open for traffic:
+   1 when open, 0 when not, negative PANCAKE_ERR_* for a null peer. */
+int32_t pancake_peer_session_is_open(PancakePeer *peer);
 
 /* ── Typed OCapN driving surface ── */
 /* Construct a call and read a delivery as structured values without authoring
    a codec. Send borrows the C structs for the call (the clone owns the copy);
    receive projects views aliasing an internal arena, released by `*_free`.
-   These struct layouts are frozen ABI (ADR-0032). */
+   These struct layouts are frozen ABI (ADR-0031). */
 typedef struct PancakeReference {
     /* _NEAR export id, _FAR import id, or _PROMISE answer id. */
     uint32_t kind;

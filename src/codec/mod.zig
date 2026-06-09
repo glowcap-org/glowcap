@@ -10,3 +10,6 @@
 pub const syrup = @import("syrup/mod.zig");
 pub const capnp = @import("capnp/mod.zig");
 pub const dispatch = @import("dispatch.zig");
+/// The open set of codecs this build speaks. Declare `pub const pancake_codecs`
+/// in your root source file to add your own (see [`registry.Spec`]).
+pub const registry = @import("registry.zig");

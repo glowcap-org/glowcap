@@ -81,9 +81,9 @@ sequenceDiagram
 
 ## DR-6 — op:get
 
-Projects one field out of a receiver's eventual fulfillment into a fresh
-promise. Breaks if the fulfillment has no such field, and inherits the
-receiver's rejection if the receiver breaks.
+`op:get` projects one field out of a receiver's eventual fulfillment into a
+fresh promise. It breaks if the fulfillment has no such field, and it inherits
+the receiver's rejection if the receiver breaks.
 
 ```mermaid
 sequenceDiagram
@@ -96,8 +96,8 @@ sequenceDiagram
 
 ## DR-7 — op:index
 
-The list-shaped sibling of `op:get`: projects one element by index. Out of
-range breaks the new answer.
+`op:index` is the list-shaped sibling of `op:get`: it projects one element by
+index. An index out of range breaks the new answer.
 
 ```mermaid
 sequenceDiagram

@@ -24,8 +24,8 @@
 ;;      through Alice, Bob would only ever see Alice's connection.
 ;;
 ;; This is the OCapN three-party-handoff test pancake will eventually
-;; participate in (post-Stage-0). For now: validates that the Goblins
-;; reference implementation actually does it.
+;; participate in. For now it validates that the Goblins reference
+;; implementation actually does it.
 
 (require goblins
          goblins/ocapn

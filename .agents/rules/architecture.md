@@ -45,6 +45,14 @@ not add CapTP semantics that the core lacks.
 - `codec`: encode/decode and borrowed semantic views.
 - `session`: validation and authoritative tables.
 - `engine`: caller-owned `Peer`, `step`, inbound dispatch, outbound drain.
+- `actors`: Goblins-shaped local objects — a sync, no-I/O `Vat` (spawn,
+  near-call `$`, eventual-send `<-`, promises) above the engine; adds no CapTP
+  semantics the engine lacks.
+- `net_adapter`: the one place `std.Io` enters — folds the one parser over a
+  stream and binds the TCP socket. Not part of the no-I/O core.
+- `driver`: the native application surface above both `actors` and `net_adapter`;
+  `ConnectedVat` binds a vat to a live `net_adapter.Connection` over a
+  caller-owned `engine.Peer`. Adds no CapTP semantics.
 - `c_abi`: C-shaped vocabulary only.
 
 If a change moves authority downward into codec/adapter code, stop and redesign.

@@ -1,11 +1,11 @@
 # conformance/
 
-External conformance pressure for pancake: the OCapN test suite, the
-Spritely Goblins peer pancake's interop dials, the worked accountability
-application, and the KERI/episode oracles that arbitrate it. Re-homed from
-the Rust workbench's `reference/` — the toolchains these need (Racket +
-Goblins, Python) are provided natively by [`../.devcontainer/`](../.devcontainer/),
-so nothing here depends on pixi or a vendored runtime.
+External conformance pressure for pancake. This directory holds the OCapN test
+suite, the Spritely Goblins peer pancake's interop dials, the worked
+accountability application, and the KERI and episode oracles that arbitrate it.
+The toolchains these need are Racket with Goblins and Python, and
+[`../.devcontainer/`](../.devcontainer/) provides them natively, so nothing here
+vendors its own runtime.
 
 ## First-time setup
 
@@ -25,9 +25,9 @@ bash conformance/bootstrap-submodules.sh
 | [`accountability-on-goblins/`](accountability-on-goblins/) | Accountability-emitting application on Goblins (KERI AIDs, signed Episodes, Merkle log) + its persisted `.data/` corpus. | (kernel/demos under `racket/`) |
 | [`keri-conformance/`](keri-conformance/) | keripy oracle that arbitrates the KERI primitives. | `bash conformance/keri-conformance/run.sh --fixture sample-kel` |
 | [`episode-audit/`](episode-audit/) | `audit.rkt` — verifies each Episode's signature chain against the KEL. | `bash conformance/episode-audit/run.sh` |
-| [`spritely-goblins/`](spritely-goblins/) | Goblins source (submodule) — wire-shape lookup, not compiled here. | — |
-| [`ocapn-spec/`](ocapn-spec/) | OCapN spec (submodule) — citations. | — |
-| [`syrup/`](syrup/) | Syrup spec (submodule) — citations. | — |
+| [`spritely-goblins/`](spritely-goblins/) | Goblins source (submodule), used for wire-shape lookup and not compiled here. | — |
+| [`ocapn-spec/`](ocapn-spec/) | OCapN spec (submodule), kept for citations. | — |
+| [`syrup/`](syrup/) | Syrup spec (submodule), kept for citations. | — |
 
 ## Posture
 
@@ -35,7 +35,7 @@ bash conformance/bootstrap-submodules.sh
   in place.
 - **Toolchains are native.** Racket + Goblins (with the crypto-lib atomic
   patch) and Python come from the devcontainer; the `run.sh` wrappers call
-  `racket` / `uv run` directly. There is no pixi layer.
+  `racket` / `uv run` directly.
 - **The canonical positive Syrup byte corpus lives at
   [`../test/oracles/goblins/`](../test/oracles/goblins/)** and is gated by
   `zig build oracle-check`; this directory is the live, process-level

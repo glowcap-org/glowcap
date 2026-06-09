@@ -72,6 +72,7 @@ test "C header return codes match the Zig c_abi source" {
     try expectConst(c.PANCAKE_ERR_FRAME_TOO_LARGE, cabi.PANCAKE_ERR_FRAME_TOO_LARGE);
     try expectConst(c.PANCAKE_ERR_WRONG_EVENT, cabi.PANCAKE_ERR_WRONG_EVENT);
     try expectConst(c.PANCAKE_ERR_UNSUPPORTED_VALUE, cabi.PANCAKE_ERR_UNSUPPORTED_VALUE);
+    try expectConst(c.PANCAKE_ERR_BROKEN, cabi.PANCAKE_ERR_BROKEN);
 }
 
 test "C header discriminants match the Zig c_abi source" {

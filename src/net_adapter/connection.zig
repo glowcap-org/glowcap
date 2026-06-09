@@ -7,8 +7,11 @@
 //! separate boundary scanner. A decoded frame is applied right away, the bytes it
 //! used are dropped, and the peer's outbound frames are streamed back.
 //!
-//! This is the one place `std.Io` shows up. The five core layers stay synchronous
-//! and I/O-free. The connection doesn't wrap a socket of its own; it just drives
+//! This is where `std.Io` enters the transport adapter. The five core layers
+//! (foundation, model, codec, session, engine) stay synchronous and I/O-free;
+//! the layers above `net_adapter` — `driver` and `c_abi` — also do host I/O and
+//! disclose it in their own headers.
+//! The connection doesn't wrap a socket of its own; it just drives
 //! the plain `std.Io.Reader` and `std.Io.Writer` a stream already gives you, so
 //! the same code handles TCP today and TLS or in-memory pipes tomorrow without
 //! changing. The actual socket lives behind `tcp.zig`, and the framing core
@@ -101,6 +104,31 @@ pub const Connection = struct {
     /// [`pumpOver`].
     pub fn pump(self: *Connection) PumpError!Progress {
         return pumpOver(self.peer, &self.reader.interface, &self.writer.interface);
+    }
+
+    /// Encode the peer's queued sends and flush them, without reading. The honest
+    /// counterpart to [`pump`] for a caller that has just enqueued outbound work
+    /// (a host orchestrating across connections) and wants it on the wire now,
+    /// rather than blocking on a read that may never come.
+    pub fn flush(self: *Connection) PumpError!void {
+        stepToIdle(self.peer) catch |err| {
+            _ = drainOutbound(self.peer, &self.writer.interface) catch 0;
+            return classifyApplyError(err);
+        };
+        _ = drainOutbound(self.peer, &self.writer.interface) catch return error.ConnectionLost;
+    }
+
+    /// Whether the read buffer already holds bytes (a possibly-partial frame). A
+    /// caller multiplexing reads with `poll` checks this before polling, since
+    /// buffered bytes are readable progress the OS poll will not report.
+    pub fn hasBufferedInbound(self: *Connection) bool {
+        return self.reader.interface.bufferedLen() > 0;
+    }
+
+    /// The underlying socket descriptor, for a host that multiplexes several
+    /// connections with `poll` rather than a thread-per-connection blocking read.
+    pub fn socketHandle(self: *const Connection) std.Io.net.Socket.Handle {
+        return self.reader.stream.socket.handle;
     }
 
     /// Pump until `pred(peer)` holds or the stream closes. The only blocking

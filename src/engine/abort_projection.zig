@@ -84,10 +84,17 @@ pub fn classify(err: anyerror) Classification {
                 .close = true,
             },
         },
-        // ── session: handshake version mismatch (non-closing) ────────
+        // ── session: handshake refusals (non-closing) ────────────────
+        // Both are decided before the session reaches `open`, so they emit the
+        // abort without tearing down an open session.
         error.CaptpVersionMismatch => .{ .domain = .session, .abort = .{
             .kind = .version_mismatch,
             .message = "op:start-session captp-version does not match this session's profile",
+            .close = false,
+        } },
+        error.InvalidStartSessionSignature => .{ .domain = .session, .abort = .{
+            .kind = .invalid_start_session_signature,
+            .message = "op:start-session location signature failed to verify",
             .close = false,
         } },
         error.QueueCapExceeded => .{ .domain = .session, .abort = .{

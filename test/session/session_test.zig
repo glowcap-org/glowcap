@@ -228,6 +228,27 @@ test "session validates gc export positions and deltas align" {
     }));
 }
 
+test "releaseUnsharedExport rolls back a freshly allocated export" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+
+    const first = try s.allocateExport();
+    const second = try s.allocateExport();
+    try std.testing.expect(s.hasExport(first));
+    try std.testing.expect(s.hasExport(second));
+
+    s.releaseUnsharedExport(second);
+    try std.testing.expect(s.hasExport(first));
+    try std.testing.expect(!s.hasExport(second));
+
+    // Ids are monotonic and never reused: the next allocation moves past the
+    // released id rather than handing it out again.
+    const third = try s.allocateExport();
+    try std.testing.expect(third != second);
+    try std.testing.expect(third > second);
+}
+
 test "session lifecycle includes negotiating open draining and closed" {
     const allocator = std.testing.allocator;
     var s = session.Session.initNegotiating(allocator);
@@ -461,6 +482,36 @@ test "wire-delta GC underflow is a loud error and leaves refcounts intact" {
     }));
 }
 
+test "re-sending an export retains its wire-delta so a matching gc-exports does not underflow" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerExport(7);
+    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(7));
+
+    // Introduce export 7 to the partner twice (two distinct outbound delivers,
+    // export 7 named as an argument each time). Each wire crossing must retain.
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = .{ .import_id = session.BOOTSTRAP_EXPORT_ID } },
+        .args = &.{.{ .reference = .{ .near = .{ .export_id = 7 } } }},
+        .answer = 1,
+    } });
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = .{ .import_id = session.BOOTSTRAP_EXPORT_ID } },
+        .args = &.{.{ .reference = .{ .near = .{ .export_id = 7 } } }},
+        .answer = 2,
+    } });
+    // Local baseline (1) plus the two wire references the partner now holds.
+    try std.testing.expectEqual(@as(u64, 3), s.exportRefcount(7));
+
+    // A conformant partner that received export 7 twice releases with delta 2.
+    // It must decrement cleanly — never underflow — and the export survives at
+    // its local baseline for re-export.
+    try s.recordRecv(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{2} } });
+    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(7));
+    try std.testing.expect(s.hasExport(7));
+}
+
 fn makeReceive(
     gift_id: []const u8,
     recipient_key: []const u8,
@@ -488,7 +539,7 @@ test "exporter deposits a gift and accepts a matching withdrawal" {
     var s = session.Session.init(allocator);
     defer s.deinit();
 
-    try s.depositGift("gift-1", "recipient-key");
+    try s.depositGift("gift-1", "recipient-key", "");
     try std.testing.expect(s.giftDeposited("gift-1"));
     try std.testing.expect(!s.giftWithdrawn("gift-1"));
 
@@ -511,7 +562,7 @@ test "exporter rejects withdrawal with a mismatched recipient key" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
-    try s.depositGift("gift-1", "recipient-key");
+    try s.depositGift("gift-1", "recipient-key", "");
 
     try std.testing.expectError(
         session.Error.InvalidGift,
@@ -524,8 +575,8 @@ test "exporter rejects a replayed or out-of-order handoff count" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
-    try s.depositGift("gift-1", "recipient-key");
-    try s.depositGift("gift-2", "recipient-key");
+    try s.depositGift("gift-1", "recipient-key", "");
+    try s.depositGift("gift-2", "recipient-key", "");
 
     try s.recordRecv(.{ .handoff = .{ .receive = makeReceive("gift-1", "recipient-key", "session-a", 2) } });
 
@@ -848,9 +899,10 @@ test "gc-answers prunes the outbound resolver link when the answer is released" 
     try s.installOutboundResolver(5, 1);
     try std.testing.expectEqual(@as(?u64, 5), s.answerForResolverExport(1));
 
-    // The partner releases the answer-pos it allocated for us; the resolver link
-    // is pruned alongside the answer entry.
-    try s.recordRecv(.{ .gc_answer = .{ .positions = &.{5} } });
+    // We allocated the question, so we are the side that GCs it: sending
+    // `op:gc-answers` for our own answer-pos releases the outbound answer and
+    // prunes the resolver link alongside it (CapTP spec § op:gc-answers).
+    try s.recordSend(.{ .gc_answer = .{ .positions = &.{5} } });
     try std.testing.expectEqual(@as(?u64, null), s.answerForResolverExport(1));
 }
 
@@ -875,10 +927,10 @@ test "deposited gifts are bounded by max_deposited_gifts (ADR-0025)" {
     defer s.deinit();
     s.limits.max_deposited_gifts = 1;
 
-    try s.depositGift("gift-a", "recipient");
+    try s.depositGift("gift-a", "recipient", "");
     try std.testing.expectError(
         session.Error.DepositedGiftCapExceeded,
-        s.depositGift("gift-b", "recipient"),
+        s.depositGift("gift-b", "recipient", ""),
     );
     try std.testing.expect(s.giftDeposited("gift-a"));
     try std.testing.expect(!s.giftDeposited("gift-b"));
@@ -894,8 +946,8 @@ test "seen-handoff-count rows are bounded by max_seen_handoff_counts (ADR-0025)"
     s.limits.max_seen_handoff_counts = 1;
 
     // Two gifts so two distinct receiving sessions can withdraw.
-    try s.depositGift("gift-a", "recipient");
-    try s.depositGift("gift-b", "recipient");
+    try s.depositGift("gift-a", "recipient", "");
+    try s.depositGift("gift-b", "recipient", "");
 
     const withdraw = struct {
         fn make(gift_id: []const u8, receiving_session: []const u8, count: u64) model.Message {
@@ -923,4 +975,39 @@ test "seen-handoff-count rows are bounded by max_seen_handoff_counts (ADR-0025)"
         session.Error.HandoffCountCapExceeded,
         s.recordRecv(withdraw.make("gift-b", "session-2", 1)),
     );
+}
+
+test "inbound resolve whose fulfill names an unheld near export is rejected like a deliver arg" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(5);
+
+    // We make an outbound call (answer 11) so the partner can resolve it.
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = .{ .import_id = 5 } },
+        .args = &.{},
+        .answer = 11,
+    } });
+
+    // The partner resolves answer 11 with a payload referencing near export 99,
+    // which we do not hold. The same near in a deliver arg is rejected, so the
+    // fulfill payload must be too — both share one argument-reference contract.
+    // Proven on the borrowed steady-state path and the owned retain path alike.
+    const bad = model.Message{ .resolve = .{
+        .answer = 11,
+        .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_id = 99 } } } },
+    } };
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&bad)));
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(bad));
+
+    // The same resolve naming a near export we do hold is accepted — the rule
+    // rejects only unheld references, it does not refuse every near.
+    try s.registerExport(99);
+    const good = model.Message{ .resolve = .{
+        .answer = 11,
+        .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_id = 99 } } } },
+    } };
+    try s.recordRecvView(model.view.Body.fromOwned(&good));
+    try std.testing.expectEqual(session.AnswerStatus.fulfilled, s.outboundAnswer(11).?.status);
 }

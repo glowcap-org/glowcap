@@ -64,6 +64,19 @@ pub const SlotTable = struct {
         if (!gop.found_existing) gop.value_ptr.* = 1;
     }
 
+    /// Retain one wire reference to `id`: insert at count 1, or increment an
+    /// already-live row. Used for partner-introduced imports where repeated
+    /// references in one or more messages must later be released by matching
+    /// `op:gc-exports` wire-deltas.
+    pub fn retain(self: *SlotTable, allocator: std.mem.Allocator, id: u64) !void {
+        const gop = try self.counts.getOrPut(allocator, id);
+        if (gop.found_existing) {
+            gop.value_ptr.* += 1;
+        } else {
+            gop.value_ptr.* = 1;
+        }
+    }
+
     /// Decrement `id` by `delta`, removing the row at zero. Underflow, or an
     /// unknown id with `delta > 0`, returns [`Error.GcUnderflow`].
     pub fn decrement(self: *SlotTable, id: u64, delta: u64) Error!void {

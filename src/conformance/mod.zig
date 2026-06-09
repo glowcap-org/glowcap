@@ -79,8 +79,8 @@ pub fn runDrivenAbort(allocator: std.mem.Allocator) ![]u8 {
     return out.toOwnedSlice(allocator);
 }
 
-/// A full deliver → resolve round-trip across an in-process paired session
-/// (ADR-0023 V1.0 resolver-callback translation under the hood): p1 asks p2's
+/// A full deliver-then-resolve round-trip across an in-process paired session
+/// (ADR-0010 V1.0 resolver-callback translation under the hood): p1 asks p2's
 /// bootstrap a question, p2 resolves it, and the resolution surfaces back at p1
 /// as a semantic `Resolve`. Broadens conformance past the abort axis onto the
 /// deliver / answer / resolve state machine. Runs on `codec`; the trace is
@@ -143,8 +143,8 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
     return out.toOwnedSlice(allocator);
 }
 
-/// Handshake → register a bootstrap cap on the responder → the initiator fetches
-/// it → the responder AUTO-resolves (no hand-rolled reply). The exporter-side
+/// The peers hand-shake, the responder registers a bootstrap cap, the initiator
+/// fetches it, and the responder auto-resolves with no hand-rolled reply. The exporter-side
 /// proof for ADR-0006's responder half: serving an inbound `'fetch` lives in the
 /// engine, not the test harness. The settlement rides back as a V1.0
 /// resolver-callback and surfaces at the initiator as a `fulfilled` outcome.
