@@ -2,29 +2,59 @@
 //
 // The raw Deno.dlopen FFI is private to this module. What you use is a `Peer`
 // class (disposable via `using`), discriminated-union value types, and typed
-// `Event` objects out of `poll`. Integers are `bigint`, floats are `number`.
+// `Event` objects out of `poll`. The default `Peer` negotiates an authenticated
+// session; raw direct-frame fixtures use `Peer.rawOpen`. Integers are `bigint`,
+// floats are `number`.
 //
-//   using peer = new Peer();
+//   using peer = Peer.rawOpen();
 //   peer.registerImport(5n);
 //   peer.sendDeliver(far(5n), [42n, new Uint8Array([1, 2])], 9n);
 //   peer.step();
 //   const frame = peer.takeOutbound();
 
-const OK = 0;
-const WOULD_BLOCK = -7;
-const FRAME_SHAPE_BYTE = 0;
-const EVENT_DELIVER = 1;
-const EVENT_RESOLVE = 2;
-
-const REF_NEAR = 0, REF_FAR = 1, REF_PROMISE = 2, REF_STURDY = 3, REF_BROKEN = 4;
-const REF_OBJECT = 0, REF_PROMISE_KIND = 1;
-const ARG_INTEGER = 0, ARG_FLOAT64 = 1, ARG_BOOLEAN = 2, ARG_BYTES = 3;
-const ARG_STRING = 4, ARG_SYMBOL = 5, ARG_VOID = 6, ARG_REFERENCE = 7, ARG_LIST = 8;
-const ARG_SET = 9, ARG_TAGGED = 10, ARG_KEYWORD = 11;
-const RESOLUTION_FULFILL = 0, RESOLUTION_BREAK = 1;
-
-const ARG_SIZE = 72; // sizeof(PancakeArgument), LP64
-const REF_SIZE = 16;
+import {
+  ARG_BOOLEAN,
+  ARG_BIG_INTEGER,
+  ARG_BYTES,
+  ARG_FLOAT64,
+  ARG_INTEGER,
+  ARG_KEYWORD,
+  INVALID_ARGUMENT,
+  ABORT_DOMAIN_CODEC,
+  ABORT_DOMAIN_SESSION,
+  ARG_LIST,
+  ARG_REFERENCE,
+  ARG_SET,
+  ARG_SIZE,
+  ARG_STRING,
+  ARG_SYMBOL,
+  ARG_TAGGED,
+  ARG_VOID,
+  BROKEN,
+  CAPTP_VERSION_PRE_SPEC,
+  CAPTP_VERSION_V1_0,
+  CLOSED,
+  CODEC_CAPNP,
+  CODEC_SYRUP,
+  EVENT_DELIVER,
+  EVENT_RESOLVE,
+  FRAME_SHAPE_BYTE,
+  HINTS_EMPTY_FALSE,
+  HINTS_EMPTY_MAP,
+  OK,
+  REF_BROKEN,
+  REF_FAR,
+  REF_NEAR,
+  REF_SUB_OBJECT,
+  REF_PROMISE,
+  REF_SUB_PROMISE,
+  REF_SIZE,
+  REF_STURDY,
+  RESOLUTION_BREAK,
+  RESOLUTION_FULFILL,
+  UNSUPPORTED_VALUE,
+  WOULD_BLOCK,
+} from "./constants.ts";
 
 // The dynamic library's name is platform-specific: `.dylib` on macOS, `.dll` on
 // Windows, `.so` elsewhere. `zig build` emits the right one into zig-out/lib.
@@ -39,16 +69,19 @@ const lib = Deno.dlopen(libPath, {
   pancake_abi_version: { parameters: ["buffer", "buffer", "buffer"], result: "void" },
   pancake_last_error: { parameters: ["buffer", "usize"], result: "usize" },
   pancake_clear_last_error: { parameters: [], result: "void" },
-  pancake_context_new_default: { parameters: ["buffer"], result: "i32" },
+  pancake_context_new: { parameters: ["buffer"], result: "i32" },
   pancake_context_new_with_allocator: { parameters: ["buffer", "buffer"], result: "i32" },
   pancake_context_release: { parameters: ["pointer"], result: "void" },
   pancake_peer_new_in: { parameters: ["pointer", "buffer"], result: "i32" },
+  pancake_peer_new_negotiated: { parameters: ["u32", "u32", "buffer"], result: "i32" },
+  pancake_peer_new_negotiated_in: { parameters: ["pointer", "u32", "u32", "buffer"], result: "i32" },
   pancake_tcp_netlayer_new_in: { parameters: ["pointer", "buffer"], result: "i32" },
   pancake_peer_feed_owned: { parameters: ["pointer", "buffer"], result: "i32" },
   pancake_peer_new: { parameters: ["buffer"], result: "i32" },
-  pancake_peer_new_negotiating: { parameters: ["buffer"], result: "i32" },
-  pancake_peer_start_session_keyed: {
-    parameters: ["pointer", "u32", "buffer", "usize", "buffer", "usize", "u32", "buffer"],
+  pancake_peer_new_raw_open: { parameters: ["buffer"], result: "i32" },
+  pancake_peer_new_raw_open_in: { parameters: ["pointer", "buffer"], result: "i32" },
+  pancake_peer_start_session: {
+    parameters: ["pointer", "buffer", "usize", "buffer", "usize", "u32", "buffer", "usize"],
     result: "i32",
   },
   pancake_peer_session_is_open: { parameters: ["pointer"], result: "i32" },
@@ -60,7 +93,10 @@ const lib = Deno.dlopen(libPath, {
   pancake_managed_frame_release: { parameters: ["buffer"], result: "void" },
   pancake_peer_poll_event: { parameters: ["pointer", "buffer"], result: "i32" },
   pancake_event_release: { parameters: ["buffer"], result: "void" },
+  pancake_peer_last_abort: { parameters: ["pointer", "buffer"], result: "i32" },
   pancake_peer_register_export: { parameters: ["pointer", "u64"], result: "i32" },
+  pancake_peer_next_export: { parameters: ["pointer", "buffer"], result: "i32" },
+  pancake_peer_next_answer: { parameters: ["pointer", "buffer"], result: "i32" },
   pancake_peer_register_import: { parameters: ["pointer", "u64"], result: "i32" },
   pancake_peer_peek_event: { parameters: ["pointer"], result: "i32" },
   pancake_peer_send_deliver: {
@@ -73,28 +109,62 @@ const lib = Deno.dlopen(libPath, {
   },
   pancake_peer_poll_event_deliver: { parameters: ["pointer", "buffer"], result: "i32" },
   pancake_peer_poll_event_resolve: { parameters: ["pointer", "buffer"], result: "i32" },
-  pancake_deliver_free: { parameters: ["buffer"], result: "void" },
-  pancake_resolve_free: { parameters: ["buffer"], result: "void" },
+  pancake_deliver_release: { parameters: ["buffer"], result: "void" },
+  pancake_resolve_release: { parameters: ["buffer"], result: "void" },
   pancake_peer_register_bootstrap_cap: { parameters: ["pointer", "buffer", "usize", "buffer"], result: "i32" },
+  pancake_peer_send_bootstrap_fetch: { parameters: ["pointer", "buffer", "usize", "buffer"], result: "i32" },
+  pancake_peer_codec: { parameters: ["pointer", "buffer"], result: "i32" },
+  pancake_peer_send_gc_export: { parameters: ["pointer", "buffer", "buffer", "usize"], result: "i32" },
+  pancake_peer_send_gc_answer: { parameters: ["pointer", "u64"], result: "i32" },
   pancake_tcp_netlayer_new: { parameters: ["buffer"], result: "i32" },
   pancake_tcp_netlayer_release: { parameters: ["pointer"], result: "void" },
-  pancake_endpoint_tcp_testing_connect: {
+  pancake_tcp_connect: {
     parameters: ["pointer", "buffer", "usize", "u16", "u32", "usize", "buffer"],
     result: "i32",
   },
-  pancake_endpoint_tcp_testing_listen: {
+  pancake_tcp_listen: {
     parameters: ["pointer", "buffer", "usize", "u16", "buffer"],
     result: "i32",
   },
-  pancake_endpoint_tcp_listener_port: { parameters: ["pointer", "buffer"], result: "i32" },
-  pancake_endpoint_tcp_testing_accept: { parameters: ["pointer", "u32", "usize", "buffer"], result: "i32" },
-  pancake_endpoint_tcp_read_frame: { parameters: ["pointer", "buffer"], result: "i32" },
-  pancake_endpoint_tcp_write_frame: { parameters: ["pointer", "buffer"], result: "i32" },
-  pancake_endpoint_tcp_conn_close: { parameters: ["pointer"], result: "void" },
-  pancake_endpoint_tcp_listener_close: { parameters: ["pointer"], result: "void" },
+  pancake_tcp_listener_port: { parameters: ["pointer", "buffer"], result: "i32" },
+  pancake_tcp_accept: { parameters: ["pointer", "u32", "usize", "buffer"], result: "i32" },
+  pancake_tcp_conn_read_frame: { parameters: ["pointer", "buffer"], result: "i32" },
+  pancake_tcp_conn_write_frame: { parameters: ["pointer", "buffer"], result: "i32" },
+  pancake_tcp_conn_release: { parameters: ["pointer"], result: "void" },
+  pancake_tcp_listener_release: { parameters: ["pointer"], result: "void" },
+  // OCapN locator URIs — core vocabulary in libpancake, so a TCP-only consumer
+  // reaches them without the iroh superset. The one grammar every binding shares.
+  pancake_uri_parse_peer: { parameters: ["buffer", "usize", "buffer"], result: "i32" },
+  pancake_uri_parse_sturdyref: { parameters: ["buffer", "usize", "buffer"], result: "i32" },
+  pancake_uri_format_peer: {
+    parameters: ["buffer", "usize", "buffer", "usize", "buffer", "buffer", "buffer", "buffer", "usize", "buffer", "usize", "buffer"],
+    result: "i32",
+  },
+  pancake_uri_format_sturdyref: {
+    parameters: ["buffer", "usize", "buffer", "usize", "buffer", "usize", "buffer", "buffer", "buffer", "buffer", "usize", "buffer", "usize", "buffer"],
+    result: "i32",
+  },
+  pancake_locator_transport: { parameters: ["pointer", "buffer", "buffer"], result: "i32" },
+  pancake_locator_designator: { parameters: ["pointer", "buffer", "buffer"], result: "i32" },
+  pancake_locator_swissnum: { parameters: ["pointer", "buffer", "buffer"], result: "i32" },
+  pancake_locator_hint: { parameters: ["pointer", "buffer", "usize", "buffer", "buffer"], result: "i32" },
+  pancake_locator_hint_count: { parameters: ["pointer", "buffer"], result: "i32" },
+  pancake_locator_hint_at: { parameters: ["pointer", "usize", "buffer", "buffer", "buffer", "buffer"], result: "i32" },
+  pancake_locator_release: { parameters: ["pointer"], result: "void" },
 });
 
 const s = lib.symbols;
+type Profile = "v1.0" | "pre-spec";
+
+function profileId(profile: Profile): number {
+  return profile === "pre-spec" ? CAPTP_VERSION_PRE_SPEC : CAPTP_VERSION_V1_0;
+}
+
+type Codec = "syrup" | "capnp";
+
+function codecId(codec: Codec): number {
+  return codec === "capnp" ? CODEC_CAPNP : CODEC_SYRUP;
+}
 
 // ── ABI version and per-thread last error ───────────────────────────────────
 
@@ -113,7 +183,9 @@ export function abiVersion(): [number, number, number] {
 export function lastError(): string | null {
   const len = Number(s.pancake_last_error(null, 0n));
   if (len === 0) return null;
-  const buf = new Uint8Array(len);
+  // The C side reserves one byte for a NUL and copies at most cap-1 message
+  // bytes, so allocate len + 1 to receive all len of them.
+  const buf = new Uint8Array(len + 1);
   const written = Number(s.pancake_last_error(buf, BigInt(buf.length)));
   return new TextDecoder().decode(buf.subarray(0, Math.min(written, buf.length)));
 }
@@ -123,14 +195,50 @@ export function clearLastError(): void {
   s.pancake_clear_last_error();
 }
 
+/** The typed cause of a peer's most recent local dispatch failure — the
+ * counterpart of the C ABI's `PancakeLastAbort`. `domain` names the layer that
+ * refused, `kind` the projected `op:abort` kind when one exists, `message` the
+ * static diagnostic, and `errorName` the originating error. */
+export interface AbortDetail {
+  domain: "codec" | "session" | "foreign";
+  kind: string | null;
+  message: string;
+  errorName: string;
+}
+
 export class PancakeError extends Error {
   /** The thread-local diagnostic captured when this error was raised, if any. */
   readonly detail: string | null;
-  constructor(public code: number) {
-    const detail = lastError();
-    super(detail ? `pancake error ${code}: ${detail}` : `pancake error ${code}`);
-    this.detail = detail;
+  /** The typed abort cause, attached when a peer refused an inbound frame. */
+  abort: AbortDetail | null = null;
+  constructor(public code: number, detail?: string) {
+    // For a code an FFI call returned, capture the thread-local message now.
+    // A client-side validation throw passes an explicit `detail` instead, so it
+    // never scrapes an unrelated thread-local left by some earlier call.
+    const d = detail ?? lastError();
+    super(d ? `pancake error ${code}: ${d}` : `pancake error ${code}`);
+    this.detail = d;
     this.name = "PancakeError";
+  }
+}
+
+/** A promise the partner broke — the typed rejection an awaited `send` (or any
+ * settled vow) produces. `reason` is the partner's break message. */
+export class VowBroken extends PancakeError {
+  constructor(public readonly reason: string) {
+    super(BROKEN, reason);
+    this.name = "VowBroken";
+  }
+}
+
+/** A `fetch` that settled, but not with a capability — the application-level
+ * outcome (the partner answered, and the answer was not a reference), distinct
+ * from a marshalling failure or a broken promise. `capabilityName` is the
+ * swiss-number the fetch asked for. */
+export class FetchFailed extends PancakeError {
+  constructor(public readonly capabilityName: string) {
+    super(BROKEN, `fetch("${capabilityName}") did not resolve to a capability`);
+    this.name = "FetchFailed";
   }
 }
 
@@ -218,12 +326,12 @@ function writeReference(dv: DataView, off: number, ref: Reference): void {
   switch (ref.kind) {
     case "near":
       kind = REF_NEAR;
-      sub = ref.promise ? REF_PROMISE_KIND : REF_OBJECT;
+      sub = ref.promise ? REF_SUB_PROMISE : REF_SUB_OBJECT;
       id = ref.id;
       break;
     case "far":
       kind = REF_FAR;
-      sub = ref.promise ? REF_PROMISE_KIND : REF_OBJECT;
+      sub = ref.promise ? REF_SUB_PROMISE : REF_SUB_OBJECT;
       id = ref.id;
       break;
     case "promise":
@@ -231,7 +339,7 @@ function writeReference(dv: DataView, off: number, ref: Reference): void {
       id = ref.answer;
       break;
     default:
-      throw new PancakeError(-13); // sturdy/broken not carried on send
+      throw new PancakeError(UNSUPPORTED_VALUE, "sturdy/broken ref not carried on send");
   }
   dv.setUint32(off, kind, true);
   dv.setUint32(off + 4, sub, true);
@@ -263,8 +371,16 @@ function encodeArg(dv: DataView, off: number, arg: Argument, keep: Uint8Array[])
     dv.setBigUint64(off + 32, BigInt(bytes.length), true);
   };
   if (typeof arg === "bigint") {
-    dv.setUint32(off, ARG_INTEGER, true);
-    dv.setBigInt64(off + 8, arg, true);
+    if (arg < -(2n ** 63n) || arg >= 2n ** 63n) {
+      // Outside the C ABI int64: ARG_BIG_INTEGER carries the canonical decimal
+      // digits in bytes/bytes_len and the sign in boolean (ADR-0049).
+      const negative = arg < 0n;
+      setBytes(ARG_BIG_INTEGER, new TextEncoder().encode((negative ? -arg : arg).toString()));
+      dv.setUint32(off + 4, negative ? 1 : 0, true);
+    } else {
+      dv.setUint32(off, ARG_INTEGER, true);
+      dv.setBigInt64(off + 8, arg, true);
+    }
   } else if (typeof arg === "number") {
     dv.setUint32(off, ARG_FLOAT64, true);
     dv.setFloat64(off + 16, arg, true);
@@ -292,7 +408,7 @@ function encodeArg(dv: DataView, off: number, arg: Argument, keep: Uint8Array[])
     setBytes(ARG_TAGGED, new TextEncoder().encode(arg.tag));
     writeItems(ARG_TAGGED, arg.value);
   } else {
-    throw new PancakeError(-13);
+    throw new PancakeError(UNSUPPORTED_VALUE, "unsupported argument value");
   }
 
   function writeItems(kind: number, items: Argument[]): void {
@@ -310,7 +426,7 @@ function readReference(view: Deno.UnsafePointerView, off: number): Reference {
   const kind = view.getUint32(off);
   const sub = view.getUint32(off + 4);
   const id = view.getBigUint64(off + 8);
-  const promise = sub === REF_PROMISE_KIND;
+  const promise = sub === REF_SUB_PROMISE;
   switch (kind) {
     case REF_NEAR:
       return { kind: "near", id, promise };
@@ -361,8 +477,14 @@ function readArg(view: Deno.UnsafePointerView, off: number): Argument {
       return new Kw(new TextDecoder().decode(readBytes(view.getBigUint64(off + 24), view.getBigUint64(off + 32))));
     case ARG_VOID:
       return null;
+    case ARG_BIG_INTEGER: {
+      // Canonical decimal digits + sign flag back to a native bigint (ADR-0049).
+      const digits = new TextDecoder().decode(readBytes(view.getBigUint64(off + 24), view.getBigUint64(off + 32)));
+      const magnitude = BigInt(digits);
+      return view.getUint32(off + 4) !== 0 ? -magnitude : magnitude;
+    }
     default:
-      throw new PancakeError(-3); // PANCAKE_ERR_INVALID_ARGUMENT: unrecognized arg kind
+      throw new PancakeError(INVALID_ARGUMENT, "unrecognized decoded argument kind");
   }
 }
 
@@ -415,7 +537,7 @@ export class Context {
   /** A context backed by the library-owned allocator. */
   static default(): Context {
     const out = new Uint8Array(8);
-    check(s.pancake_context_new_default(out));
+    check(s.pancake_context_new(out));
     return new Context(outPointer(out));
   }
 
@@ -507,8 +629,8 @@ export class Peer {
   // release callback runs. Per-peer so releasing one peer drops only its pins.
   #pinnedFrames = new Set<PinnedFrame>();
 
-  /** A peer using the library-owned allocator. Pass a `Context` to route its
-   * allocations through that context instead (prefer `Peer.newIn`). */
+  /** An authenticated v1.0 peer in the negotiating state. Use
+   * `Peer.negotiated(...)` to choose another profile or codec. */
   constructor(raw?: Deno.PointerValue) {
     if (raw !== undefined) {
       this.#raw = raw;
@@ -519,19 +641,40 @@ export class Peer {
     this.#raw = Deno.UnsafePointer.create(new DataView(out.buffer).getBigUint64(0, true));
   }
 
-  /** A peer whose allocations route through `context`; the context must outlive it. */
+  /** A negotiating peer whose allocations route through `context`; the context must outlive it. */
   static newIn(context: Context): Peer {
     const out = new Uint8Array(8);
     check(s.pancake_peer_new_in(context.pointer, out));
     return new Peer(outPointer(out));
   }
 
-  /** A negotiating peer, awaiting the keyed `op:start-session` handshake — the
-   * peer to drive when the partner requires it (a real Goblins vat). Pair it
-   * with `startSessionKeyed`, then pump the connection until `sessionIsOpen`. */
-  static newNegotiating(): Peer {
+  /** A negotiating peer carrying an out-of-band negotiated profile and codec.
+   * Both ends of a connection must construct with the same pair; the codec
+   * must match the one the connection's endpoint frames with. */
+  static negotiated(profile: Profile, codec: Codec = "syrup"): Peer {
     const out = new Uint8Array(8);
-    check(s.pancake_peer_new_negotiating(out));
+    check(s.pancake_peer_new_negotiated(profileId(profile), codecId(codec), out));
+    return new Peer(outPointer(out));
+  }
+
+  /** Context-backed counterpart of `Peer.negotiated`. */
+  static negotiatedIn(context: Context, profile: Profile, codec: Codec = "syrup"): Peer {
+    const out = new Uint8Array(8);
+    check(s.pancake_peer_new_negotiated_in(context.pointer, profileId(profile), codecId(codec), out));
+    return new Peer(outPointer(out));
+  }
+
+  /** Already-open peer for tests and low-level direct-frame fixtures. */
+  static rawOpen(): Peer {
+    const out = new Uint8Array(8);
+    check(s.pancake_peer_new_raw_open(out));
+    return new Peer(outPointer(out));
+  }
+
+  /** Context-backed counterpart of `Peer.rawOpen`. */
+  static rawOpenIn(context: Context): Peer {
+    const out = new Uint8Array(8);
+    check(s.pancake_peer_new_raw_open_in(context.pointer, out));
     return new Peer(outPointer(out));
   }
 
@@ -560,39 +703,59 @@ export class Peer {
     check(s.pancake_peer_register_export(this.#raw, id));
   }
 
+  /** Allocate and register the next free export position from the session's
+   * one export allocator — the counter that also mints bootstrap and resolver
+   * exports, so a spawned position can never alias one of them. */
+  nextExport(): bigint {
+    const out = new Uint8Array(8);
+    check(s.pancake_peer_next_export(this.#raw, out));
+    return new DataView(out.buffer).getBigUint64(0, true);
+  }
+
   registerImport(id: bigint): void {
     check(s.pancake_peer_register_import(this.#raw, id));
   }
 
-  /** Sign and queue a keyed `op:start-session` from this negotiating peer. The
-   * 32-byte `seed` is the session key; `transport`/`designator` form the locator
-   * the partner verifies, so they must be what it expects — for a Goblins
-   * partner, `"tcp"` with `hintsEmptyFalse` true (an empty hints map encoded as
-   * `#f`). `version` is the canonical `"v1.0"` (default) or `"pre-spec"`. Flush
-   * it with `step` + `takeOutbound`, then pump until `sessionIsOpen`. */
-  startSessionKeyed(opts: {
+  /** Allocate the next outbound answer position from the session's one answer
+   * allocator — the counter that backs every outbound question, so a
+   * privately-counted answer can never alias a live one. */
+  nextAnswer(): bigint {
+    const out = new Uint8Array(8);
+    check(s.pancake_peer_next_answer(this.#raw, out));
+    return new DataView(out.buffer).getBigUint64(0, true);
+  }
+
+  /** Sign and queue `op:start-session` from this negotiating peer. The
+   * handshake speaks the profile the peer was constructed with
+   * (`Peer.negotiated("pre-spec")` for upstream OCapN). The 32-byte `seed` is
+   * the session key (the library refuses any other length);
+   * `transport`/`designator` form the locator the partner verifies, so they
+   * must be what it expects — for a Goblins partner, `"tcp"` with
+   * `hintsEmptyFalse` true (Goblins emits the empty hints as the boolean
+   * `#f`). Flush it with `step` + `takeOutbound`, then pump until
+   * `sessionIsOpen`. */
+  startSession(opts: {
     transport: string;
     designator: string;
     seed: Uint8Array;
     hintsEmptyFalse?: boolean;
-    version?: "v1.0" | "pre-spec";
   }): void {
     if (opts.seed.length !== 32) throw new Error("a session seed must be 32 bytes");
     const transport = new TextEncoder().encode(opts.transport);
     const designator = new TextEncoder().encode(opts.designator);
-    check(s.pancake_peer_start_session_keyed(
+    check(s.pancake_peer_start_session(
       this.#raw,
-      opts.version === "pre-spec" ? 1 : 0,
       ab(transport),
       BigInt(transport.length),
       ab(designator),
       BigInt(designator.length),
-      (opts.hintsEmptyFalse ?? true) ? 1 : 0,
+      (opts.hintsEmptyFalse ?? true) ? HINTS_EMPTY_FALSE : HINTS_EMPTY_MAP,
       ab(opts.seed),
+      BigInt(opts.seed.length),
     ));
   }
 
-  /** Whether the keyed handshake has completed and the session is open for
+  /** Whether the authenticated handshake has completed and the session is open for
    * traffic. Pump the connection and poll this before sending application
    * messages. */
   sessionIsOpen(): boolean {
@@ -601,13 +764,55 @@ export class Peer {
     return rc === 1;
   }
 
+  /** The typed cause of this peer's most recent local dispatch failure, or
+   * null when none has been recorded. The per-call `PancakeError` code names
+   * the failure family; this names the member. Errors thrown by `feed`,
+   * `feedOwned`, and `recvStream` carry it already as `err.abort`. */
+  lastAbort(): AbortDetail | null {
+    // PancakeLastAbort { domain(0) u32; has_kind(4) u32; kind_name(8);
+    //   kind_name_len(16); message(24); message_len(32); error_name(40);
+    //   error_name_len(48) } = 56 bytes, LP64.
+    const buf = new Uint8Array(56);
+    const rc = s.pancake_peer_last_abort(this.#raw, buf);
+    if (rc === WOULD_BLOCK) return null;
+    check(rc);
+    const dv = new DataView(buf.buffer);
+    const text = (off: number): string =>
+      new TextDecoder().decode(readBytes(dv.getBigUint64(off, true), dv.getBigUint64(off + 8, true)));
+    const domainNum = dv.getUint32(0, true);
+    return {
+      domain: domainNum === ABORT_DOMAIN_CODEC
+        ? "codec"
+        : domainNum === ABORT_DOMAIN_SESSION
+        ? "session"
+        : "foreign",
+      kind: dv.getUint32(4, true) !== 0 ? text(8) : null,
+      message: text(24),
+      errorName: text(40),
+    };
+  }
+
+  // A PancakeError for a refused frame, carrying the typed abort cause. The
+  // error is constructed first so it captures the thread-local message before
+  // any later call clobbers it.
+  #dispatchError(code: number): PancakeError {
+    const err = new PancakeError(code);
+    try {
+      err.abort = this.lastAbort();
+    } catch {
+      // A peer that cannot report leaves the flat code on its own.
+    }
+    return err;
+  }
+
   feed(frame: Uint8Array): void {
     const f = new Uint8Array(24);
     const dv = new DataView(f.buffer);
     dv.setBigUint64(0, BigInt(Deno.UnsafePointer.value(Deno.UnsafePointer.of(ab(frame)))), true);
     dv.setBigUint64(8, BigInt(frame.length), true);
     dv.setUint32(16, FRAME_SHAPE_BYTE, true);
-    check(s.pancake_peer_feed_borrowed(this.#raw, f));
+    const rc = s.pancake_peer_feed_borrowed(this.#raw, f);
+    if (rc !== OK) throw this.#dispatchError(rc);
   }
 
   /** Frame and dispatch one whole frame out of a streaming buffer. `data` is a
@@ -620,7 +825,7 @@ export class Peer {
     const out = new Uint8Array(8);
     const rc = s.pancake_peer_recv_stream(this.#raw, ab(data), BigInt(data.length), ab(out));
     if (rc === WOULD_BLOCK) return null;
-    check(rc);
+    if (rc !== OK) throw this.#dispatchError(rc);
     return Number(new DataView(out.buffer).getBigUint64(0, true));
   }
 
@@ -663,10 +868,12 @@ export class Peer {
     const rc = s.pancake_peer_feed_owned(this.#raw, mf);
     if (rc !== OK) {
       // Not adopted: our descriptor still names our bytes; the library did not
-      // call release. Retire and reclaim ourselves before throwing.
+      // call release. Build the error (capturing the typed abort cause), then
+      // retire and reclaim ourselves before throwing.
+      const err = this.#dispatchError(rc);
       pin.retired = true;
       this.#sweepRetired();
-      throw new PancakeError(rc);
+      throw err;
     }
   }
 
@@ -692,6 +899,47 @@ export class Peer {
     const out = new Uint8Array(8);
     check(s.pancake_peer_register_bootstrap_cap(this.#raw, ab(swissnum), BigInt(swissnum.length), out));
     return new DataView(out.buffer).getBigUint64(0, true);
+  }
+
+  /** Queue the canonical bootstrap `fetch` for the capability published
+   * behind `name`, returning the answer position the partner's resolution
+   * arrives on (as a typed resolve event). Registers the bootstrap import and
+   * allocates the answer from the session's own counters. */
+  sendBootstrapFetch(name: Uint8Array): bigint {
+    const out = new Uint8Array(8);
+    check(s.pancake_peer_send_bootstrap_fetch(this.#raw, ab(name), BigInt(name.length), out));
+    return new DataView(out.buffer).getBigUint64(0, true);
+  }
+
+  /** The codec the session speaks (a `CODEC_*` value), so an opaque `other`
+   * frame drained after a typed-poll refusal can be interpreted. */
+  codec(): number {
+    const out = new Uint8Array(4);
+    check(s.pancake_peer_codec(this.#raw, out));
+    return new DataView(out.buffer).getUint32(0, true);
+  }
+
+  /** Queue an `op:gc-export` releasing wire-delta counts on imports this peer
+   * holds: `positions[i]` is released by `deltas[i]`. The arrays are parallel
+   * and must be non-empty and the same length. */
+  sendGcExport(positions: bigint[], deltas: bigint[]): void {
+    if (positions.length !== deltas.length) {
+      throw new PancakeError(INVALID_ARGUMENT, "positions and deltas must be the same length");
+    }
+    const pos = new Uint8Array(8 * positions.length);
+    const del = new Uint8Array(8 * deltas.length);
+    const posView = new DataView(pos.buffer);
+    const delView = new DataView(del.buffer);
+    for (let i = 0; i < positions.length; i++) {
+      posView.setBigUint64(8 * i, positions[i], true);
+      delView.setBigUint64(8 * i, deltas[i], true);
+    }
+    check(s.pancake_peer_send_gc_export(this.#raw, pos, del, BigInt(positions.length)));
+  }
+
+  /** Queue an `op:gc-answer` releasing an answer this peer no longer needs. */
+  sendGcAnswer(answer: bigint): void {
+    check(s.pancake_peer_send_gc_answer(this.#raw, answer));
   }
 
   sendDeliver(target: Reference, args: Argument[], answer: bigint | null = null): void {
@@ -721,7 +969,12 @@ export class Peer {
 
   takeOutbound(): Uint8Array | null {
     const frame = new Uint8Array(40);
-    if (s.pancake_peer_take_outbound(this.#raw, frame) !== OK) return null;
+    const rc = s.pancake_peer_take_outbound(this.#raw, frame);
+    if (rc === WOULD_BLOCK) return null;
+    // Any other non-OK code (e.g. an OOM after the frame was dequeued and freed)
+    // is a real failure: throw instead of silently dropping an outbound frame
+    // and ending the drain as if the queue were empty.
+    check(rc);
     const dv = new DataView(frame.buffer);
     const ptr = dv.getBigUint64(0, true);
     const len = dv.getBigUint64(8, true);
@@ -735,25 +988,41 @@ export class Peer {
     if (kind === EVENT_DELIVER) return this.#pollDeliver();
     if (kind === EVENT_RESOLVE) return this.#pollResolve();
     if (kind === WOULD_BLOCK) return null;
+    // A negative code is a peek failure (e.g. a released peer), not an event
+    // kind; fail closed rather than fabricating an `other` event with kind 0.
+    if (kind < 0) throw new PancakeError(kind);
     return this.#pollOther();
   }
 
   #pollDeliver(): Event {
     const buf = new Uint8Array(56);
-    check(s.pancake_peer_poll_event_deliver(this.#raw, buf));
+    const rc = s.pancake_peer_poll_event_deliver(this.#raw, buf);
+    if (rc === UNSUPPORTED_VALUE) {
+      // The typed projection cannot carry this deliver (e.g. a handoff
+      // argument). The event stays queued, so drain it as an opaque `other` —
+      // throwing here would peek the same event forever.
+      return this.#pollOther();
+    }
+    check(rc);
     const dv = new DataView(buf.buffer);
     const view = new Deno.UnsafePointerView(Deno.UnsafePointer.of(buf)!);
     const target = readReference(view, 0);
     const args = readArgArray(dv.getBigUint64(16, true), dv.getBigUint64(24, true));
     const hasAnswer = dv.getUint32(32, true) !== 0;
     const answer = dv.getBigUint64(40, true);
-    s.pancake_deliver_free(buf);
+    s.pancake_deliver_release(buf);
     return { kind: "deliver", target, args, answer: hasAnswer ? answer : null };
   }
 
   #pollResolve(): Event {
     const buf = new Uint8Array(ARG_SIZE + 48);
-    check(s.pancake_peer_poll_event_resolve(this.#raw, buf));
+    const rc = s.pancake_peer_poll_event_resolve(this.#raw, buf);
+    if (rc === UNSUPPORTED_VALUE) {
+      // Same leave-queued contract as #pollDeliver: drain the refused resolve
+      // as an opaque `other` so the loop survives.
+      return this.#pollOther();
+    }
+    check(rc);
     const dv = new DataView(buf.buffer);
     const view = new Deno.UnsafePointerView(Deno.UnsafePointer.of(buf)!);
     const answer = dv.getBigUint64(0, true);
@@ -766,13 +1035,13 @@ export class Peer {
       const len = dv.getBigUint64(16 + ARG_SIZE + 8, true);
       resolution = { break: new TextDecoder().decode(readBytes(ptr, len)) };
     }
-    s.pancake_resolve_free(buf);
+    s.pancake_resolve_release(buf);
     return { kind: "resolve", answer, resolution };
   }
 
   #pollOther(): Event {
     const buf = new Uint8Array(48);
-    s.pancake_peer_poll_event(this.#raw, buf);
+    check(s.pancake_peer_poll_event(this.#raw, buf));
     const dv = new DataView(buf.buffer);
     const eventKind = dv.getUint32(0, true);
     const ptr = dv.getBigUint64(8, true);
@@ -785,26 +1054,26 @@ export class Peer {
 
 // ── Actors ───────────────────────────────────────────────────────────────────
 
-// Goblins-shaped actors over the pancake peer, in native TypeScript. This is
-// pancake's Zig actor seam (`src/actors/vat.zig`) and the Goblins-faithful
-// Racket binding, expressed in TS: one unified `Ref` (local actor or far
-// partner object) and one `Vow` (local result or far wire-answer), with a
-// peer-aware `Vat` that routes between them.
+// Goblins-shaped actors over the pancake peer, in native TypeScript. This mirrors
+// pancake's Zig actor layer (`src/actors/vat.zig`) and the Goblins-faithful Racket
+// binding: one unified `Ref` for a local actor or far partner object, one `Vow`
+// for a local result or far wire answer, and a peer-aware `Vat` that routes
+// between them.
 //
-// An actor is a TS callback, not a wrapped C vat — the way `AsyncConnection`
-// is Deno networking rather than a foreign reactor. The vat holds local actors
-// (each a closure over a method verb and its arguments) and, when bound to a
-// peer, routes eventual-sends to far objects over the wire. A leading `Sym`
-// argument is the method verb (matching Goblins's `($ obj 'method arg …)`); the
-// rest are the call's arguments.
+// An actor is a TypeScript callback, not a wrapped C vat. Likewise,
+// `AsyncConnection` is Deno networking rather than a foreign reactor. The vat
+// holds local actors, each a closure over a method verb and its arguments. When it
+// is bound to a peer, it routes eventual-sends to far objects over the wire. A
+// leading `Sym` argument is the method verb, matching Goblins's
+// `($ obj 'method arg ...)`; the rest are the call's arguments.
 //
-// Two verbs, matching Goblins and the Zig seam:
-//   * `call` — the synchronous near-call (`$`): run a local actor's handler now
-//     and return its value. A far ref throws; near-call is local only.
-//   * `send` — the eventual send (`<-`): location-transparent. A local target
-//     queues a turn `drive` runs; a far target sends an `op:deliver` over the
-//     bound peer with a fresh answer. Either way it returns a `Vow` you observe
-//     with `on`.
+// Two verbs match Goblins and the Zig actor layer:
+//   * `call` is the synchronous near-call (`$`). It runs a local actor's handler
+//     immediately and returns its value. A far ref throws; near-call is local only.
+//   * `send` is the eventual send (`<-`). It is location-transparent: a local
+//     target queues a turn for `drive`, and a far target sends an `op:deliver`
+//     over the bound peer with a fresh answer. Either way it returns a `Vow` you
+//     observe with `on`.
 
 /** An actor behavior: handle a `(verb, args)` call, returning a reply. Throw to
  * signal a broken resolution; the thrown error's message becomes the break. */
@@ -815,13 +1084,13 @@ export type Behavior = (verb: string, args: Argument[]) => Argument;
  * a partner-hosted object the bound peer holds as an import. */
 type VatRef = LocalRef | FarRef;
 
-/** An actor living in this vat — `call`/`send` run its turns here. */
+/** An actor living in this vat. `call` and `send` run its turns here. */
 export class LocalRef {
   readonly location = "local" as const;
   constructor(public readonly id: number) {}
 }
 
-/** A partner-hosted object the bound peer holds as an import — `send` routes to
+/** A partner-hosted object the bound peer holds as an import. `send` routes to
  * it as an `op:deliver`; `call` (near) is illegal. */
 export class FarRef {
   readonly location = "far" as const;
@@ -839,18 +1108,18 @@ export type VowListener = {
 };
 
 /** A handle to the eventual result of a `Vat.send`. A `LocalVow` settles during
- * `drive`; a `FarVow` settles when the partner's `op:resolve` arrives and the
- * application hands it to `serve`. */
+ * `drive`; a `FarVow` settles when the peer surfaces the partner's resolution
+ * event and the application hands it to `serve`. */
 export type Vow = LocalVow | FarVow;
 
 // A vow is awaitable: `await vat.send(...)` resolves with the value, or rejects
-// with an Error carrying the break message. The promise is registered lazily, the
-// first time the vow is awaited (or `.then`'d), so a fire-and-forget send that no
-// one observes settles into nothing — no stray unhandled rejection. `vat.on` is
-// still here for the callback style.
+// with a typed `VowBroken` carrying the break message. The promise is registered
+// lazily, the first time the vow is awaited (or `.then`'d), so a fire-and-forget
+// send that no one observes settles into nothing — no stray unhandled rejection.
+// `vat.on` is still here for the callback style.
 function settle(vat: Vat, vow: Vow): Promise<Argument> {
   return new Promise<Argument>((resolve, reject) => {
-    vat.on(vow, (value) => resolve(value), (message) => reject(new Error(message)));
+    vat.on(vow, (value) => resolve(value), (message) => reject(new VowBroken(message)));
   });
 }
 
@@ -884,9 +1153,9 @@ export class FarVow {
  * local actors only; a peer-bound vat (`new Vat(peer)`) also routes far sends
  * over the wire and hosts published actors for inbound delivery via `serve`.
  *
- * The vat owns no I/O and no scheduler — you drive it. Around `serve` you
- * feed/step/takeOutbound on the peer yourself, exactly as the Zig seam expects
- * its caller to poll the peer and hand events in. */
+ * The vat owns no I/O and no scheduler; you drive it. Around `serve`, callers
+ * feed frames to the peer, step it, take outbound frames, and hand surfaced
+ * events back to the vat. */
 export class Vat {
   #peer: Peer | null;
   #actors = new Map<number, Behavior>();
@@ -896,12 +1165,8 @@ export class Vat {
   #exports = new Map<bigint, number>(); // export id -> local actor id
   #nextActor = 1;
   #nextVow = 1;
-  // Far-send answers start high to stay clear of the answers a partner
-  // allocates for its own calls; the C ABI has no allocateAnswer, so the vat
-  // tracks its own outbound-answer counter (matching the Racket binding).
-  #nextAnswer = 1000n;
 
-  /** A pure-local vat, or — given a peer — one that routes far sends and hosts
+  /** A pure-local vat, or, when given a peer, one that routes far sends and hosts
    * published actors. */
   constructor(peer?: Peer) {
     this.#peer = peer ?? null;
@@ -947,14 +1212,14 @@ export class Vat {
     }
     const peer = this.#peer;
     if (peer === null) throw new Error("this vat has no peer; far sends need new Vat(peer)");
-    const answer = this.#nextAnswer++;
+    const answer = peer.nextAnswer();
     const payload: Argument[] = verb.length > 0 ? [new Sym(verb), ...args] : args;
     peer.sendDeliver(ref.reference, payload, answer);
     return new FarVow(answer, this);
   }
 
   /** Register a one-shot listener on `vow`. A local vow fires during `drive`; a
-   * far vow fires when `serve` dispatches the matching `op:resolve`. */
+   * far vow fires when `serve` dispatches the matching typed resolve event. */
   on(vow: Vow, onFulfilled?: (value: Argument) => void, onBroken?: (message: string) => void): void {
     const listener: VowListener = { onFulfilled, onBroken };
     if (vow.location === "local") {
@@ -965,8 +1230,8 @@ export class Vat {
   }
 
   /** Break every outstanding far vow with `message`, firing each listener's
-   * `onBroken`. A far vow settles only when the partner's `op:resolve` arrives
-   * over the wire, so once the connection is gone those replies can never come.
+   * `onBroken`. A far vow settles only when the peer surfaces the partner's
+   * resolution, so once the connection is gone those replies can never come.
    * The connection driver calls this on disconnect, so an awaiting `send` rejects
    * instead of hanging forever. Local vows are untouched: they settle
    * synchronously in `drive` and never wait on the wire. */
@@ -1078,31 +1343,30 @@ function fire(listener: VowListener, settlement: Settlement): void {
 
 // ── Blocking TCP endpoints ───────────────────────────────────────────────────
 
-export const CODEC_SYRUP = 0;
-
 function outPointer(buf: Uint8Array): Deno.PointerValue {
   return Deno.UnsafePointer.create(new DataView(buf.buffer).getBigUint64(0, true));
 }
 
-/** A blocking TCP connection. Closed on `close` / `[Symbol.dispose]`. */
-export class Conn {
+/** A blocking TCP endpoint: the `pancake_tcp_*` frame shuttle, one
+ * layer below `Connection`. Closed on `close` / `[Symbol.dispose]`. */
+export class Endpoint {
   #raw: Deno.PointerValue;
   constructor(raw: Deno.PointerValue) {
     this.#raw = raw;
   }
   close(): void {
     if (this.#raw !== null) {
-      s.pancake_endpoint_tcp_conn_close(this.#raw);
+      s.pancake_tcp_conn_release(this.#raw);
       this.#raw = null;
     }
   }
   [Symbol.dispose](): void {
     this.close();
   }
-  /** Block for one whole frame. Throws PancakeError(-8) on clean EOF. */
+  /** Block for one whole frame. Throws PANCAKE_ERR_CLOSED on clean EOF. */
   readFrame(): Uint8Array {
     const mf = new Uint8Array(40);
-    check(s.pancake_endpoint_tcp_read_frame(this.#raw, mf));
+    check(s.pancake_tcp_conn_read_frame(this.#raw, mf));
     const dv = new DataView(mf.buffer);
     const out = readBytes(dv.getBigUint64(0, true), dv.getBigUint64(8, true)).slice();
     s.pancake_managed_frame_release(mf);
@@ -1114,7 +1378,7 @@ export class Conn {
     dv.setBigUint64(0, BigInt(Deno.UnsafePointer.value(Deno.UnsafePointer.of(ab(frame)))), true);
     dv.setBigUint64(8, BigInt(frame.length), true);
     dv.setUint32(16, FRAME_SHAPE_BYTE, true);
-    check(s.pancake_endpoint_tcp_write_frame(this.#raw, f));
+    check(s.pancake_tcp_conn_write_frame(this.#raw, f));
   }
 }
 
@@ -1126,7 +1390,7 @@ export class Listener {
   }
   close(): void {
     if (this.#raw !== null) {
-      s.pancake_endpoint_tcp_listener_close(this.#raw);
+      s.pancake_tcp_listener_release(this.#raw);
       this.#raw = null;
     }
   }
@@ -1135,13 +1399,13 @@ export class Listener {
   }
   port(): number {
     const out = new Uint8Array(2);
-    check(s.pancake_endpoint_tcp_listener_port(this.#raw, out));
+    check(s.pancake_tcp_listener_port(this.#raw, out));
     return new DataView(out.buffer).getUint16(0, true);
   }
-  accept(codec = CODEC_SYRUP, maxFrameBytes = 4096): Conn {
+  accept(codec: Codec = "syrup", maxFrameBytes = 4096): Endpoint {
     const out = new Uint8Array(8);
-    check(s.pancake_endpoint_tcp_testing_accept(this.#raw, codec, BigInt(maxFrameBytes), out));
-    return new Conn(outPointer(out));
+    check(s.pancake_tcp_accept(this.#raw, codecId(codec), BigInt(maxFrameBytes), out));
+    return new Endpoint(outPointer(out));
   }
 }
 
@@ -1177,14 +1441,225 @@ export class Netlayer {
   listen(host: string, port = 0): Listener {
     const h = new TextEncoder().encode(host);
     const out = new Uint8Array(8);
-    check(s.pancake_endpoint_tcp_testing_listen(this.#raw, h, BigInt(h.length), port, out));
+    check(s.pancake_tcp_listen(this.#raw, h, BigInt(h.length), port, out));
     return new Listener(outPointer(out));
   }
-  connect(host: string, port: number, codec = CODEC_SYRUP, maxFrameBytes = 4096): Conn {
+  connect(host: string, port: number, codec: Codec = "syrup", maxFrameBytes = 4096): Endpoint {
     const h = new TextEncoder().encode(host);
     const out = new Uint8Array(8);
-    check(s.pancake_endpoint_tcp_testing_connect(this.#raw, h, BigInt(h.length), port, codec, BigInt(maxFrameBytes), out));
-    return new Conn(outPointer(out));
+    check(s.pancake_tcp_connect(this.#raw, h, BigInt(h.length), port, codecId(codec), BigInt(maxFrameBytes), out));
+    return new Endpoint(outPointer(out));
+  }
+}
+
+// ── iroh transport (separate libpancake_iroh artifact) ──────────────────────
+//
+// iroh's encrypted-QUIC netlayer links the Rust sidecar, which ADR-0055 keeps
+// out of libpancake so the gate stays hermetic and the core stays pure Zig. So
+// it ships as its own optional superset library, loaded lazily here: a consumer
+// that never touches iroh never needs it built (it needs cargo: `zig build
+// iroh-abi`). The frame unit is identical to TCP's — one codec-self-delimited
+// CapTP message — so the same `AsyncConnection` pump drives a peer over it; only
+// the addressing differs (an endpoint id + direct-address hints, no host:port).
+
+const irohSymbolDefs = {
+  pancake_iroh_netlayer_new: { parameters: ["buffer", "usize", "u32", "buffer"], result: "i32" },
+  pancake_iroh_netlayer_close: { parameters: ["pointer"], result: "void" },
+  pancake_iroh_netlayer_release: { parameters: ["pointer"], result: "void" },
+  pancake_iroh_netlayer_node_id: { parameters: ["pointer", "buffer", "usize", "buffer"], result: "i32" },
+  pancake_iroh_netlayer_direct_addrs: { parameters: ["pointer", "buffer", "usize", "buffer"], result: "i32" },
+  // Blocking sidecar calls: nonblocking FFI so an accept loop or a parked read
+  // never stalls the Deno event loop.
+  pancake_iroh_netlayer_connect: {
+    parameters: ["pointer", "buffer", "usize", "buffer", "usize", "u32", "usize", "buffer"],
+    result: "i32",
+    nonblocking: true,
+  },
+  pancake_iroh_netlayer_accept: { parameters: ["pointer", "u32", "usize", "buffer"], result: "i32", nonblocking: true },
+  pancake_iroh_conn_read_frame: { parameters: ["pointer", "buffer"], result: "i32", nonblocking: true },
+  pancake_iroh_conn_write_frame: { parameters: ["pointer", "buffer"], result: "i32", nonblocking: true },
+  pancake_iroh_conn_release: { parameters: ["pointer"], result: "void" },
+} as const;
+
+const irohLibFile = Deno.build.os === "darwin"
+  ? "libpancake_iroh.dylib"
+  : Deno.build.os === "windows"
+  ? "pancake_iroh.dll"
+  : "libpancake_iroh.so";
+
+let irohSyms: Deno.DynamicLibrary<typeof irohSymbolDefs>["symbols"] | null = null;
+
+// Open the iroh ABI library on first use. It is optional — absent unless built
+// with cargo — so a clear error names how to produce it rather than a raw
+// dlopen failure.
+function irohS(): Deno.DynamicLibrary<typeof irohSymbolDefs>["symbols"] {
+  if (irohSyms !== null) return irohSyms;
+  const path = new URL(`../../zig-out/lib/${irohLibFile}`, import.meta.url).pathname;
+  try {
+    irohSyms = Deno.dlopen(path, irohSymbolDefs).symbols;
+  } catch (e) {
+    throw new Error(
+      `iroh transport unavailable: could not load ${irohLibFile} from zig-out/lib. ` +
+        "Build it with `zig build iroh-abi` (needs cargo). " +
+        (e instanceof Error ? e.message : String(e)),
+    );
+  }
+  return irohSyms;
+}
+
+// As `check`, but for iroh ABI calls: the iroh library carries its own
+// thread-local last-error, so pass an explicit detail rather than scraping
+// libpancake's unrelated one.
+function irohCheck(code: number): void {
+  if (code !== OK) throw new PancakeError(code, `iroh transport call failed (code ${code})`);
+}
+
+function readUsize(buf: Uint8Array): number {
+  return Number(new DataView(buf.buffer).getBigUint64(0, true));
+}
+
+/** How an iroh endpoint becomes reachable — a required, explicit posture with
+ * no default. The caller owns the reach/privacy tradeoff at every constructor:
+ * - `Direct`: dial by id + direct-address hints; relay-less, no discovery.
+ * - `Discovery`: n0 relays + DNS discovery; dial by id alone.
+ * - `DiscoveryNoRelay`: DNS discovery, no relays.
+ * - `LocalDiscovery`: in-process address book (tests / same process). */
+export enum Reachability {
+  Direct = 0,
+  Discovery = 1,
+  DiscoveryNoRelay = 2,
+  LocalDiscovery = 3,
+}
+
+/** A bound iroh QUIC endpoint plus the sidecar runtime driving it — the iroh
+ * sibling of the TCP `Netlayer`, but it is also its own listener (there is no
+ * host:port to bind, so `accept` lives here). Dial a partner by endpoint id +
+ * direct-address hints; `accept` blocks for an inbound dial. Release every
+ * `IrohConn` it mints before releasing it. */
+export class IrohNetlayer {
+  #raw: Deno.PointerValue;
+
+  /** Bind an endpoint. `reachability` is required — the caller owns the
+   * reach/privacy posture, there is no default. `secretSeed` is a 32-byte
+   * Ed25519 secret key for a stable id, or omitted for a fresh random key. */
+  constructor(reachability: Reachability, secretSeed?: Uint8Array) {
+    if (secretSeed !== undefined && secretSeed.length !== 32) {
+      throw new Error("an iroh secret seed must be 32 bytes");
+    }
+    const seed = secretSeed ?? new Uint8Array(0);
+    const out = new Uint8Array(8);
+    irohCheck(irohS().pancake_iroh_netlayer_new(ab(seed), BigInt(seed.length), reachability, out));
+    this.#raw = outPointer(out);
+  }
+
+  /** This endpoint's id — its Ed25519 public key as lowercase hex, the dialable
+   * designator a keyed locator signs and a partner passes to `connect`. */
+  nodeId(): string {
+    const cap = 64;
+    const out = new Uint8Array(cap);
+    const len = new Uint8Array(8);
+    irohCheck(irohS().pancake_iroh_netlayer_node_id(this.#raw, out, BigInt(cap), len));
+    return new TextDecoder().decode(out.subarray(0, readUsize(len)));
+  }
+
+  /** This endpoint's comma-separated direct socket addresses — the dialing hint
+   * a partner needs because the sidecar binds relay-less and lookup-less. Empty
+   * when the endpoint has no direct addresses yet. */
+  directAddresses(): string {
+    const cap = 1024;
+    const out = new Uint8Array(cap);
+    const len = new Uint8Array(8);
+    irohCheck(irohS().pancake_iroh_netlayer_direct_addrs(this.#raw, out, BigInt(cap), len));
+    return new TextDecoder().decode(out.subarray(0, readUsize(len)));
+  }
+
+  /** Dial a partner by endpoint id (`addrHints` its comma-separated
+   * direct-address list) and complete a framed connection. */
+  async connect(
+    nodeId: string,
+    addrHints: string,
+    codec: Codec = "syrup",
+    maxFrameBytes = 4096,
+  ): Promise<IrohConn> {
+    const id = new TextEncoder().encode(nodeId);
+    const hints = new TextEncoder().encode(addrHints);
+    const out = new Uint8Array(8);
+    irohCheck(
+      await irohS().pancake_iroh_netlayer_connect(
+        this.#raw,
+        ab(id),
+        BigInt(id.length),
+        ab(hints),
+        BigInt(hints.length),
+        codecId(codec),
+        BigInt(maxFrameBytes),
+        out,
+      ),
+    );
+    return new IrohConn(outPointer(out));
+  }
+
+  /** Block until a partner dials this endpoint, returning the framed
+   * connection. Rejects when the endpoint is closed (the shutdown lever). */
+  async accept(codec: Codec = "syrup", maxFrameBytes = 4096): Promise<IrohConn> {
+    const out = new Uint8Array(8);
+    irohCheck(await irohS().pancake_iroh_netlayer_accept(this.#raw, codecId(codec), BigInt(maxFrameBytes), out));
+    return new IrohConn(outPointer(out));
+  }
+
+  /** Close the endpoint without freeing the handle: a parked `accept` rejects
+   * and later dials fail. Idempotent — the shutdown lever for an accept loop on
+   * its own task. */
+  close(): void {
+    if (this.#raw !== null) irohS().pancake_iroh_netlayer_close(this.#raw);
+  }
+
+  release(): void {
+    if (this.#raw !== null) {
+      irohS().pancake_iroh_netlayer_release(this.#raw);
+      this.#raw = null;
+    }
+  }
+
+  [Symbol.dispose](): void {
+    this.release();
+  }
+}
+
+/** One iroh QUIC connection carrying one OCapN session, framed on the
+ * netlayer's codec — the iroh sibling of the TCP `Endpoint`. */
+export class IrohConn {
+  #raw: Deno.PointerValue;
+  constructor(raw: Deno.PointerValue) {
+    this.#raw = raw;
+  }
+
+  /** Block for one whole frame; `null` on a clean end of stream. */
+  async readFrame(): Promise<Uint8Array | null> {
+    const mf = new Uint8Array(40);
+    const code = await irohS().pancake_iroh_conn_read_frame(this.#raw, mf);
+    if (code === CLOSED) return null;
+    irohCheck(code);
+    const dv = new DataView(mf.buffer);
+    const out = readBytes(dv.getBigUint64(0, true), dv.getBigUint64(8, true)).slice();
+    s.pancake_managed_frame_release(mf);
+    return out;
+  }
+
+  async writeFrame(frame: Uint8Array): Promise<void> {
+    const f = new Uint8Array(24);
+    const dv = new DataView(f.buffer);
+    dv.setBigUint64(0, BigInt(Deno.UnsafePointer.value(Deno.UnsafePointer.of(ab(frame)))), true);
+    dv.setBigUint64(8, BigInt(frame.length), true);
+    dv.setUint32(16, FRAME_SHAPE_BYTE, true);
+    irohCheck(await irohS().pancake_iroh_conn_write_frame(this.#raw, f));
+  }
+
+  release(): void {
+    if (this.#raw !== null) {
+      irohS().pancake_iroh_conn_release(this.#raw);
+      this.#raw = null;
+    }
   }
 }
 
@@ -1200,36 +1675,182 @@ async function writeAll(conn: Deno.Conn, data: Uint8Array): Promise<void> {
   }
 }
 
-/** An OCapN/CapTP peer driven asynchronously over a Deno TCP connection.
- *
- * The sync `Peer` is sans-io: it never blocks and never owns a socket. This
- * class owns one peer and one `Deno.Conn` and drives the peer over it — reads
- * bytes, lets the peer frame and dispatch them (`Peer.recvStream`), writes the
- * peer's outbound frames back, and surfaces typed events. One `AsyncConnection`
- * owns one peer, so it lives on one task; the peer is a single-owner state
- * machine, never shared across tasks. */
-export class AsyncConnection {
-  #peer: Peer;
+/** The locator a keyed `op:start-session` signs for a transport. A dialer signs
+ * an empty designator (its identity is the random session key); a listener signs
+ * its own dialable designator. */
+interface KeyedLocator {
+  transport: string;
+  designator: string;
+  hintsEmptyFalse?: boolean;
+}
+
+/** What the `AsyncConnection` pump needs of a transport. A frame is one
+ * complete, codec-self-delimited CapTP message — the same unit `Peer.takeOutbound`
+ * yields and `Peer.feed`/`recvStream` consume — so a transport differs only in
+ * how it moves that unit, never in the pump that drives the peer over it. TCP
+ * buffers raw bytes and lets the peer frame them; iroh sources whole frames
+ * through the sidecar FFI. */
+interface FramePump {
+  /** The locator a keyed `op:start-session` signs for this transport. */
+  locator(): KeyedLocator;
+  /** Dispatch one already-buffered inbound frame into `peer` without blocking;
+   * true when one was dispatched (the caller loops). A stream transport frames
+   * its byte buffer here; a transport that delivers exactly one frame per
+   * `receive` returns false. */
+  dispatchBuffered(peer: Peer): boolean;
+  /** Block for more inbound and dispatch it into `peer`; resolve false on a
+   * clean end of stream. */
+  receive(peer: Peer): Promise<boolean>;
+  /** Write one whole outbound frame to the wire. */
+  writeFrame(frame: Uint8Array): Promise<void>;
+  close(): void;
+}
+
+/** The TCP pump: a raw `Deno.Conn` plus the inbound byte buffer the peer frames.
+ * The keyed locator signs the socket's own `host:port`, which a Goblins partner
+ * accepts as a true `tcp` locator. */
+class TcpPump implements FramePump {
   #conn: Deno.Conn;
-  #vat: Vat | null = null;
   // Inbound bytes read from the wire but not yet framed into whole frames.
   #inbox: Uint8Array = new Uint8Array(0);
 
-  private constructor(peer: Peer, conn: Deno.Conn) {
-    this.#peer = peer;
+  constructor(conn: Deno.Conn) {
     this.#conn = conn;
   }
 
-  /** Connect to `hostname:port` and wrap a fresh peer driven over the connection. */
+  locator(): KeyedLocator {
+    const la = this.#conn.localAddr as Deno.NetAddr;
+    return { transport: "tcp", designator: `${la.hostname}:${la.port}`, hintsEmptyFalse: true };
+  }
+
+  dispatchBuffered(peer: Peer): boolean {
+    if (this.#inbox.length === 0) return false;
+    const consumed = peer.recvStream(this.#inbox);
+    if (consumed === null) return false;
+    this.#inbox = this.#inbox.subarray(consumed);
+    return true;
+  }
+
+  async receive(_peer: Peer): Promise<boolean> {
+    const chunk = new Uint8Array(READ_CHUNK);
+    const n = await this.#conn.read(chunk);
+    if (n === null) return false; // clean EOF
+    this.#appendInbox(chunk.subarray(0, n));
+    return true;
+  }
+
+  async writeFrame(frame: Uint8Array): Promise<void> {
+    await writeAll(this.#conn, frame);
+  }
+
+  #appendInbox(bytes: Uint8Array): void {
+    if (this.#inbox.length === 0) {
+      // Copy out of the read buffer so the next read can reuse `chunk`.
+      this.#inbox = bytes.slice();
+      return;
+    }
+    const grown = new Uint8Array(this.#inbox.length + bytes.length);
+    grown.set(this.#inbox, 0);
+    grown.set(bytes, this.#inbox.length);
+    this.#inbox = grown;
+  }
+
+  close(): void {
+    try {
+      this.#conn.close();
+    } catch {
+      // Already closed.
+    }
+  }
+}
+
+/** The iroh pump: an `IrohConn` that delivers and accepts whole frames through
+ * the sidecar FFI. The keyed locator signs the `iroh` transport with the local
+ * endpoint id as designator (empty for a dialer, matching the Zig driver). When
+ * this pump minted its own dialing netlayer, it owns that netlayer's lifetime
+ * too; an accepted connection's netlayer belongs to the `IrohServer`. */
+class IrohPump implements FramePump {
+  #conn: IrohConn;
+  #designator: string;
+  #ownedNetlayer: IrohNetlayer | null;
+
+  constructor(conn: IrohConn, designator: string, ownedNetlayer: IrohNetlayer | null = null) {
+    this.#conn = conn;
+    this.#designator = designator;
+    this.#ownedNetlayer = ownedNetlayer;
+  }
+
+  locator(): KeyedLocator {
+    return { transport: "iroh", designator: this.#designator, hintsEmptyFalse: true };
+  }
+
+  dispatchBuffered(_peer: Peer): boolean {
+    // Each `receive` reads exactly one whole frame, so nothing is ever buffered
+    // ahead.
+    return false;
+  }
+
+  async receive(peer: Peer): Promise<boolean> {
+    const frame = await this.#conn.readFrame();
+    if (frame === null) return false; // clean EOF
+    peer.feed(frame);
+    return true;
+  }
+
+  async writeFrame(frame: Uint8Array): Promise<void> {
+    await this.#conn.writeFrame(frame);
+  }
+
+  close(): void {
+    this.#conn.release();
+    this.#ownedNetlayer?.release();
+  }
+}
+
+/** An OCapN/CapTP peer driven asynchronously over a transport `FramePump`.
+ *
+ * The sync `Peer` is sans-io: it never blocks and never owns a socket. This
+ * class owns one peer and one pump and drives the peer over it — sources whole
+ * frames (or raw bytes the peer frames), lets the peer dispatch them, writes the
+ * peer's outbound frames back, and surfaces typed events. The pump is the only
+ * thing that differs between transports (TCP today, iroh through the sidecar);
+ * the drive loop is identical. One `AsyncConnection` owns one peer, so it lives
+ * on one task; the peer is a single-owner state machine, never shared across
+ * tasks. This is the pump layer `Connection` builds on; an application usually
+ * holds a `Connection`. */
+export class AsyncConnection {
+  #peer: Peer;
+  #pump: FramePump;
+  #vat: Vat | null = null;
+
+  private constructor(peer: Peer, pump: FramePump) {
+    this.#peer = peer;
+    this.#pump = pump;
+  }
+
+  /** Connect to `hostname:port` and complete the keyed OCapN handshake. */
   static async connect(hostname: string, port: number): Promise<AsyncConnection> {
     const conn = await Deno.connect({ hostname, port });
-    return new AsyncConnection(new Peer(), conn);
+    const ac = new AsyncConnection(new Peer(), new TcpPump(conn));
+    await openKeyedSession(ac);
+    return ac;
   }
 
   /** Wrap an already-connected conn and a peer you have configured (registered
    * exports/imports, bootstrap caps, …). */
   static fromConn(peer: Peer, conn: Deno.Conn): AsyncConnection {
-    return new AsyncConnection(peer, conn);
+    return new AsyncConnection(peer, new TcpPump(conn));
+  }
+
+  /** Wrap a peer and an already-built frame pump — the transport-neutral
+   * constructor the iroh path uses. */
+  static fromPump(peer: Peer, pump: FramePump): AsyncConnection {
+    return new AsyncConnection(peer, pump);
+  }
+
+  /** The locator this connection's transport signs in its keyed start-session. */
+  get locator(): KeyedLocator {
+    return this.#pump.locator();
   }
 
   /** Borrow the owned peer — e.g. to register exports/imports before driving. */
@@ -1285,7 +1906,7 @@ export class AsyncConnection {
     }
   }
 
-  /** Await the next application event, driving the socket as needed. Returns
+  /** Await the next application event, driving the transport as needed. Returns
    * `null` on a clean end of stream. */
   async nextEvent(): Promise<Event | null> {
     for (;;) {
@@ -1294,54 +1915,39 @@ export class AsyncConnection {
       if (ev) return ev;
       // Flush anything the last dispatch queued (replies, aborts).
       await this.#pumpOutbound();
-      // Consume every whole frame already buffered; each may surface an event
+      // Dispatch every whole frame already buffered; each may surface an event
       // or queue outbound, so loop back to re-check.
-      if (this.#consumeBuffered()) continue;
-      // Need more bytes from the wire.
-      const chunk = new Uint8Array(READ_CHUNK);
-      const n = await this.#conn.read(chunk);
-      if (n === null) return null; // clean EOF
-      this.#appendInbox(chunk.subarray(0, n));
+      if (this.#pump.dispatchBuffered(this.#peer)) continue;
+      // Block for more inbound; a clean end of stream ends the loop.
+      if (!(await this.#pump.receive(this.#peer))) return null;
     }
   }
 
-  // Dispatch one buffered frame if a whole one is present. Returns true when a
-  // frame was consumed (loop again), false when more bytes are needed.
-  #consumeBuffered(): boolean {
-    if (this.#inbox.length === 0) return false;
-    const consumed = this.#peer.recvStream(this.#inbox);
-    if (consumed === null) return false;
-    this.#inbox = this.#inbox.subarray(consumed);
-    return true;
-  }
-
-  #appendInbox(bytes: Uint8Array): void {
-    if (this.#inbox.length === 0) {
-      // Copy out of the read buffer so the next read can reuse `chunk`.
-      this.#inbox = bytes.slice();
-      return;
+  /** Drive the keyed handshake without consuming application events. */
+  async driveUntilSessionOpen(): Promise<void> {
+    while (!this.#peer.sessionIsOpen()) {
+      await this.#pumpOutbound();
+      while (this.#pump.dispatchBuffered(this.#peer)) {
+        if (this.#peer.sessionIsOpen()) return;
+      }
+      if (this.#peer.sessionIsOpen()) return;
+      if (!(await this.#pump.receive(this.#peer))) {
+        throw new Error("connection closed during the OCapN handshake");
+      }
     }
-    const grown = new Uint8Array(this.#inbox.length + bytes.length);
-    grown.set(this.#inbox, 0);
-    grown.set(bytes, this.#inbox.length);
-    this.#inbox = grown;
   }
 
-  // Encode pending outbound work and write every queued frame to the socket.
+  // Encode pending outbound work and write every queued frame to the wire.
   async #pumpOutbound(): Promise<void> {
     this.#peer.step();
     let f: Uint8Array | null;
     while ((f = this.#peer.takeOutbound()) !== null) {
-      await writeAll(this.#conn, f);
+      await this.#pump.writeFrame(f);
     }
   }
 
   close(): void {
-    try {
-      this.#conn.close();
-    } catch {
-      // Already closed.
-    }
+    this.#pump.close();
     this.#peer.release();
   }
 
@@ -1355,18 +1961,10 @@ export class AsyncConnection {
 //
 // This is what an application holds. It composes a peer, a vat, and the async
 // I/O driver into one object, so a consumer never stitches those three together
-// by hand. The seven verbs — `connect`/`listen`, `fetch`/`publish`, `spawn`,
-// `send`, `serve`, `close` — are the whole common surface. The raw `Peer`,
+// by hand. The verbs — `connect`/`listen`, `fetch`/`publish`, `spawn`,
+// `send`, `tell`, `serve`, `close` — are the whole common surface. The raw `Peer`,
 // `Vat`, and `AsyncConnection` are still here for power users (reach `conn.peer`
 // for handoff/pipeline/session control), but no application needs them.
-
-/** The well-known bootstrap export every OCapN peer answers `fetch` on. */
-const BOOTSTRAP_POSITION = 0n;
-
-/** App-allocated export positions start clear of the bootstrap object (0) and a
- * band of low well-known slots, so a `spawn` never collides with the bootstrap
- * export. */
-const FIRST_SPAWN_POSITION = 32n;
 
 /** A capability — a reference to an object you can `send` to, wherever it lives.
  *
@@ -1401,18 +1999,26 @@ export type AppValue =
   | Tagged;
 
 // Lower an application value to the wire vocabulary: a `Ref` becomes its
-// underlying `Reference`; everything else passes through (recursing into lists).
+// underlying `Reference`; everything else passes through, recursing into
+// lists, set items, and a tagged record's value so a capability nested in any
+// of them marshals.
 function lowerArg(arg: AppValue): Argument {
   if (arg instanceof Ref) return arg.reference;
   if (Array.isArray(arg)) return arg.map(lowerArg);
+  if (arg instanceof PSet) return new PSet((arg.items as AppValue[]).map(lowerArg));
+  if (arg instanceof Tagged) return new Tagged(arg.tag, (arg.value as AppValue[]).map(lowerArg));
   return arg;
 }
 
 // Lift a decoded argument to the application vocabulary: a wire `Reference`
-// becomes a `Ref` the app can `send` to or pass on; lists recurse.
+// becomes a `Ref` the app can `send` to or pass on; lists, set items, and a
+// tagged record's value recurse, so a capability arrives as a `Ref` wherever
+// it is nested.
 function liftArg(arg: Argument): AppValue {
   if (isReference(arg)) return new Ref(arg);
   if (Array.isArray(arg)) return arg.map(liftArg);
+  if (arg instanceof PSet) return new PSet(arg.items.map(liftArg) as Argument[]);
+  if (arg instanceof Tagged) return new Tagged(arg.tag, arg.value.map(liftArg) as Argument[]);
   return arg;
 }
 
@@ -1421,27 +2027,22 @@ function liftArg(arg: Argument): AppValue {
 export type Actor = (verb: string, args: AppValue[]) => AppValue | void;
 
 // Complete the keyed `op:start-session` handshake over a negotiating peer: sign
-// a `tcp` locator naming `designator` (with a per-connection random session
-// key), flush it, and pump until the partner's start-session opens the session.
-// Entropy is generated here, at the I/O boundary, never in the sans-io core. The
-// locator is what a partner verifies; signing the socket's real local address
-// keeps it a true `tcp` locator, which a Goblins partner accepts.
-async function openKeyedSession(ac: AsyncConnection, designator: string): Promise<void> {
+// the transport's own locator (with a per-connection random session key), flush
+// it, and pump until the partner's start-session opens the session. Entropy is
+// generated here, at the I/O boundary, never in the sans-io core. The locator is
+// what a partner verifies; the pump provides it — a true `tcp` host:port a
+// Goblins partner accepts, or an `iroh` endpoint id.
+async function openKeyedSession(ac: AsyncConnection): Promise<void> {
+  const loc = ac.locator;
   const seed = crypto.getRandomValues(new Uint8Array(32));
-  ac.peer.startSessionKeyed({ transport: "tcp", designator, seed, hintsEmptyFalse: true });
+  ac.peer.startSession({
+    transport: loc.transport,
+    designator: loc.designator,
+    seed,
+    hintsEmptyFalse: loc.hintsEmptyFalse ?? true,
+  });
   await ac.flush();
-  while (!ac.peer.sessionIsOpen()) {
-    if ((await ac.nextEvent()) === null) {
-      throw new Error("connection closed during the OCapN handshake");
-    }
-  }
-}
-
-// The `host:port` of a socket's own end, the locator a peer signs in its keyed
-// start-session.
-function localDesignator(tcp: Deno.Conn): string {
-  const la = tcp.localAddr as Deno.NetAddr;
-  return `${la.hostname}:${la.port}`;
+  await ac.driveUntilSessionOpen();
 }
 
 /** A live connection to one OCapN partner — the one object an application holds.
@@ -1455,7 +2056,6 @@ function localDesignator(tcp: Deno.Conn): string {
 export class Connection {
   #ac: AsyncConnection;
   #vat: Vat;
-  #nextSpawn = FIRST_SPAWN_POSITION;
   #serving: Promise<void> | null = null;
   #closing = false;
 
@@ -1472,8 +2072,8 @@ export class Connection {
    * type.) */
   static async connect(host: string, port: number): Promise<Connection> {
     const tcp = await Deno.connect({ hostname: host, port });
-    const ac = AsyncConnection.fromConn(Peer.newNegotiating(), tcp);
-    await openKeyedSession(ac, localDesignator(tcp));
+    const ac = AsyncConnection.fromConn(new Peer(), tcp);
+    await openKeyedSession(ac);
     return new Connection(ac);
   }
 
@@ -1481,8 +2081,44 @@ export class Connection {
    * from the responder side (used by `listen`). Resolves once the session is
    * open. */
   static async accept(tcp: Deno.Conn): Promise<Connection> {
-    const ac = AsyncConnection.fromConn(Peer.newNegotiating(), tcp);
-    await openKeyedSession(ac, localDesignator(tcp));
+    const ac = AsyncConnection.fromConn(new Peer(), tcp);
+    await openKeyedSession(ac);
+    return new Connection(ac);
+  }
+
+  /** Dial an iroh partner by endpoint id and direct-address hints, complete the
+   * keyed OCapN handshake over the encrypted-QUIC transport, and return a ready
+   * connection — the iroh sibling of `connect`. The local endpoint is ephemeral
+   * (a fresh key) and released with the connection. `reachability` is required —
+   * the caller owns the dialer's reach posture, there is no default. Needs the
+   * iroh ABI library (`zig build iroh-abi`). */
+  static async connectIroh(
+    nodeId: string,
+    directAddresses: string,
+    reachability: Reachability,
+  ): Promise<Connection> {
+    const netlayer = new IrohNetlayer(reachability);
+    let conn: IrohConn;
+    try {
+      conn = await netlayer.connect(nodeId, directAddresses);
+    } catch (e) {
+      netlayer.release();
+      throw e;
+    }
+    // A dialer signs an empty designator (its identity is the session key),
+    // matching the Zig driver; the pump owns the ephemeral netlayer's lifetime.
+    const ac = AsyncConnection.fromPump(new Peer(), new IrohPump(conn, "", netlayer));
+    await openKeyedSession(ac);
+    return new Connection(ac);
+  }
+
+  /** Complete the responder handshake over an accepted iroh connection, signing
+   * the server's endpoint id as the locator designator (used by `IrohServer`).
+   * The accepted connection's netlayer belongs to the server, not this
+   * connection. */
+  static async acceptIroh(conn: IrohConn, localNodeId: string): Promise<Connection> {
+    const ac = AsyncConnection.fromPump(new Peer(), new IrohPump(conn, localNodeId));
+    await openKeyedSession(ac);
     return new Connection(ac);
   }
 
@@ -1494,9 +2130,11 @@ export class Connection {
 
   /** Spawn a local actor and return a capability to it. The `Ref` auto-marshals
    * when passed as a `send` argument, so handing a partner a callback is just
-   * `send(target, verb, [..., conn.spawn(behavior)])`. */
+   * `send(target, verb, [..., conn.spawn(behavior)])`. The position comes from
+   * the session's one export allocator, so it can never alias a bootstrap or
+   * resolver export. */
   spawn(behavior: Actor): Ref {
-    const position = this.#nextSpawn++;
+    const position = this.#ac.peer.nextExport();
     const local = this.#vat.publish(position, this.#wrap(behavior));
     return new Ref(near(position), local.id);
   }
@@ -1512,18 +2150,23 @@ export class Connection {
   }
 
   /** Fetch a partner's published capability by `name`. Returns a `Ref` you can
-   * `send` to. Requires `serve()` to be running so the resolution arrives. */
+   * `send` to. Drives the inbound loop itself, so a `fetch` straight after
+   * `connect` works without a separate `serve()` call (which stays the way to
+   * keep serving until close). Rejects with `VowBroken` when the partner
+   * breaks the fetch, and with `FetchFailed` when it fulfills with something
+   * that is not a capability. */
   async fetch(name: string): Promise<Ref> {
-    this.#ac.peer.registerImport(BOOTSTRAP_POSITION);
-    const swiss = new TextEncoder().encode(name);
-    const vow = this.#vat.send(new FarRef(far(BOOTSTRAP_POSITION)), "fetch", [swiss]);
+    this.serve(); // idempotent; the resolution arrives on the inbound loop
+    // The canonical fetch lives in the library: one call registers the
+    // bootstrap import, allocates the answer, and queues the deliver.
+    const answer = this.#ac.peer.sendBootstrapFetch(new TextEncoder().encode(name));
     // Subscribe before flushing: the resolution can land on the serve loop the
     // instant `flush` yields the event loop.
-    const settled = settle(this.#vat, vow);
+    const settled = settle(this.#vat, new FarVow(answer, this.#vat));
     await this.#ac.flush();
     const result = await settled;
     if (!isReference(result)) {
-      throw new Error(`fetch("${name}") did not resolve to a capability`);
+      throw new FetchFailed(name);
     }
     return new Ref(result, null);
   }
@@ -1531,12 +2174,13 @@ export class Connection {
   /** Call `verb(args)` on the capability `target` and await the reply. Flushes
    * the call to the wire immediately. `args` may contain `Ref`s. The returned
    * promise resolves with the reply (a `Ref` if the partner returned a
-   * capability) or rejects if the partner breaks it. */
+   * capability) or rejects with `VowBroken` if the partner breaks it. */
   async send(target: Ref, verb: string, args: AppValue[] = []): Promise<AppValue> {
     const wireArgs = args.map(lowerArg);
     const vatTarget: VatRef = target.localActorId !== null
       ? new LocalRef(target.localActorId)
       : new FarRef(target.reference);
+    if (!(vatTarget instanceof LocalRef)) this.serve(); // far reply arrives on the inbound loop
     const vow = this.#vat.send(vatTarget, verb, wireArgs);
     // Register the listener before any pump: a local `drive` settles the vow
     // synchronously, and a far reply can arrive on the serve loop the instant
@@ -1628,7 +2272,18 @@ export class Server {
 
   async *[Symbol.asyncIterator](): AsyncGenerator<Connection> {
     for await (const tcp of this.#listener) {
-      yield await Connection.accept(tcp);
+      // A handshake failure belongs to that one connection — a client that
+      // dialed and died, or a stray port probe. Throwing here would end the
+      // iteration, and ending a Deno.Listener's iteration closes the listener,
+      // so one rude caller would take the whole server down. Skip it instead;
+      // the listener keeps accepting.
+      let conn: Connection;
+      try {
+        conn = await Connection.accept(tcp);
+      } catch {
+        continue;
+      }
+      yield conn;
     }
   }
 
@@ -1648,4 +2303,248 @@ export function listen(host: string, port: number): Server {
  * for `Connection.connect`. */
 export function connect(host: string, port: number): Promise<Connection> {
   return Connection.connect(host, port);
+}
+
+// ── OCapN locator URIs ───────────────────────────────────────────────────────
+//
+// The `ocapn://<designator>.<transport>[?hints]` grammar is core OCapN
+// vocabulary, defined once in libpancake's `pancake_uri_*` / `pancake_locator_*`
+// surface (so no binding hand-rolls a percent codec). These helpers wrap that
+// FFI: parse copies every borrowed view into JS strings before releasing the
+// handle, and format renders through the same grammar.
+
+/** A parsed OCapN locator: the structured fields a `pancake_uri_parse_*` yields. */
+export interface Locator {
+  transport: string;
+  designator: string;
+  /** Empty for a peer URI; the swiss bytes for a sturdyref. */
+  swissnum: string;
+  hints: Map<string, string>;
+}
+
+// Read a (pointer, length) view pair the locator accessors fill, decoding the
+// borrowed bytes into a JS string. A zero length (or NULL pointer) is "".
+function readLocatorView(ptrBuf: Uint8Array<ArrayBuffer>, lenBuf: Uint8Array<ArrayBuffer>): string {
+  const len = Number(new DataView(lenBuf.buffer).getBigUint64(0, true));
+  if (len === 0) return "";
+  const ptr = Deno.UnsafePointer.create(new DataView(ptrBuf.buffer).getBigUint64(0, true));
+  if (ptr === null) return "";
+  return new TextDecoder().decode(new Uint8Array(new Deno.UnsafePointerView(ptr).getArrayBuffer(len)));
+}
+
+function readLocatorField(
+  fn: (loc: Deno.PointerValue, p: Uint8Array<ArrayBuffer>, l: Uint8Array<ArrayBuffer>) => number,
+  loc: Deno.PointerValue,
+): string {
+  const ptrBuf = new Uint8Array(8), lenBuf = new Uint8Array(8);
+  check(fn(loc, ab(ptrBuf), ab(lenBuf)));
+  return readLocatorView(ptrBuf, lenBuf);
+}
+
+/** Parse an `ocapn://` URI into its structured locator fields. `sturdyref`
+ * selects the `/s/<swiss>` grammar; the default reads a peer URI (empty
+ * swissnum). Throws `PancakeError` for a malformed URI. */
+export function parseLocator(uri: string, sturdyref = false): Locator {
+  const uriBytes = new TextEncoder().encode(uri);
+  const outLoc = new Uint8Array(8);
+  const rc = sturdyref
+    ? s.pancake_uri_parse_sturdyref(ab(uriBytes), BigInt(uriBytes.length), ab(outLoc))
+    : s.pancake_uri_parse_peer(ab(uriBytes), BigInt(uriBytes.length), ab(outLoc));
+  check(rc);
+  const loc = Deno.UnsafePointer.create(new DataView(outLoc.buffer).getBigUint64(0, true));
+  if (loc === null) throw new PancakeError(INVALID_ARGUMENT, `uri parse returned no locator: ${uri}`);
+  try {
+    const hints = new Map<string, string>();
+    const countBuf = new Uint8Array(8);
+    check(s.pancake_locator_hint_count(loc, ab(countBuf)));
+    const count = Number(new DataView(countBuf.buffer).getBigUint64(0, true));
+    for (let i = 0; i < count; i++) {
+      const kPtr = new Uint8Array(8), kLen = new Uint8Array(8), vPtr = new Uint8Array(8), vLen = new Uint8Array(8);
+      check(s.pancake_locator_hint_at(loc, BigInt(i), ab(kPtr), ab(kLen), ab(vPtr), ab(vLen)));
+      hints.set(readLocatorView(kPtr, kLen), readLocatorView(vPtr, vLen));
+    }
+    return {
+      transport: readLocatorField(s.pancake_locator_transport, loc),
+      designator: readLocatorField(s.pancake_locator_designator, loc),
+      swissnum: readLocatorField(s.pancake_locator_swissnum, loc),
+      hints,
+    };
+  } finally {
+    s.pancake_locator_release(loc);
+  }
+}
+
+/** Format a peer locator as an `ocapn://<designator>.<transport>[?hints]` URI
+ * through the core grammar. */
+export function formatPeerUri(transport: string, designator: string, hints: Map<string, string> = new Map()): string {
+  const enc = new TextEncoder();
+  const t = enc.encode(transport), d = enc.encode(designator);
+  const keys: Uint8Array<ArrayBuffer>[] = [], vals: Uint8Array<ArrayBuffer>[] = [];
+  for (const [k, v] of hints) {
+    keys.push(enc.encode(k));
+    vals.push(enc.encode(v));
+  }
+  const keyPtrs = pointerArray(keys), keyLens = lengthArray(keys);
+  const valPtrs = pointerArray(vals), valLens = lengthArray(vals);
+
+  // Size with a generous buffer; the call reports the exact length, so a
+  // too-small buffer is retried at the reported size.
+  let cap = 256;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const out = new Uint8Array(cap), outLen = new Uint8Array(8);
+    const rc = s.pancake_uri_format_peer(
+      ab(t), BigInt(t.length), ab(d), BigInt(d.length),
+      keyPtrs, keyLens, valPtrs, valLens, BigInt(keys.length),
+      ab(out), BigInt(cap), ab(outLen),
+    );
+    const need = Number(new DataView(outLen.buffer).getBigUint64(0, true));
+    if (rc === OK) return new TextDecoder().decode(out.subarray(0, need));
+    if (rc === INVALID_ARGUMENT && need > cap) {
+      cap = need;
+      continue;
+    }
+    check(rc);
+  }
+  throw new PancakeError(INVALID_ARGUMENT, `formatPeerUri: could not size buffer for ${transport}/${designator}`);
+}
+
+// Build a `const uint8_t **` array of pointers into the given byte buffers, and
+// the parallel `const size_t *` length array, for the format FFI. The buffers
+// must outlive the call (they do — they are locals of the caller above).
+function pointerArray(bufs: Uint8Array<ArrayBuffer>[]): Uint8Array<ArrayBuffer> {
+  const arr = new BigUint64Array(bufs.length);
+  for (let i = 0; i < bufs.length; i++) {
+    const ptr = Deno.UnsafePointer.of(bufs[i]);
+    arr[i] = ptr === null ? 0n : Deno.UnsafePointer.value(ptr);
+  }
+  return new Uint8Array(arr.buffer) as Uint8Array<ArrayBuffer>;
+}
+
+function lengthArray(bufs: Uint8Array<ArrayBuffer>[]): Uint8Array<ArrayBuffer> {
+  const arr = new BigUint64Array(bufs.length);
+  for (let i = 0; i < bufs.length; i++) arr[i] = BigInt(bufs[i].length);
+  return new Uint8Array(arr.buffer) as Uint8Array<ArrayBuffer>;
+}
+
+// ── iroh addressing + server ─────────────────────────────────────────────────
+
+/** A listening iroh endpoint. Iterate it for an accepted `Connection` per
+ * partner — `for await (const conn of listenIroh()) { ... }` — and read `uri`
+ * for the dialable address (endpoint id + direct-address hints) to hand a
+ * client. The iroh sibling of `Server`. */
+export class IrohServer {
+  #netlayer: IrohNetlayer;
+  #closed = false;
+  #nodeId: string;
+
+  constructor(netlayer: IrohNetlayer) {
+    this.#netlayer = netlayer;
+    this.#nodeId = netlayer.nodeId();
+  }
+
+  /** This endpoint's id — the keyed locator designator and the URI host. */
+  get nodeId(): string {
+    return this.#nodeId;
+  }
+
+  /** This endpoint's comma-separated direct-address hints. */
+  get directAddresses(): string {
+    return this.#netlayer.directAddresses();
+  }
+
+  /** The `ocapn://<nodeid>.iroh?direct-addresses=…` URI a partner dials. */
+  get uri(): string {
+    const hints = new Map<string, string>();
+    if (this.directAddresses.length > 0) hints.set("direct-addresses", this.directAddresses);
+    return formatPeerUri("iroh", this.#nodeId, hints);
+  }
+
+  async *[Symbol.asyncIterator](): AsyncGenerator<Connection> {
+    while (!this.#closed) {
+      let conn: IrohConn;
+      try {
+        conn = await this.#netlayer.accept();
+      } catch (e) {
+        // `close()` rejects a parked accept; that is a clean shutdown.
+        if (this.#closed) return;
+        throw e;
+      }
+      // A handshake failure belongs to that one connection (a partner that
+      // dialed and died), never the server — release it and keep accepting.
+      let connection: Connection;
+      try {
+        connection = await Connection.acceptIroh(conn, this.#nodeId);
+      } catch {
+        conn.release();
+        continue;
+      }
+      yield connection;
+    }
+  }
+
+  /** Stop accepting and release the endpoint. */
+  close(): void {
+    if (this.#closed) return;
+    this.#closed = true;
+    this.#netlayer.close();
+    this.#netlayer.release();
+  }
+
+  [Symbol.dispose](): void {
+    this.close();
+  }
+}
+
+/** Bind an iroh endpoint and return an `IrohServer` you iterate for each
+ * accepted `Connection`. `reachability` is required — the caller owns the reach
+ * posture, there is no default. `secretSeed` is a 32-byte Ed25519 secret key
+ * for a stable endpoint id, or omitted for a fresh random one. Needs the iroh
+ * ABI library (`zig build iroh-abi`). */
+export function listenIroh(reachability: Reachability, secretSeed?: Uint8Array): IrohServer {
+  return new IrohServer(new IrohNetlayer(reachability, secretSeed));
+}
+
+/** Dial an iroh partner by endpoint id and direct-address hints — the
+ * module-level shorthand for `Connection.connectIroh`. `reachability` is
+ * required; the caller owns the dialer's reach posture, there is no default. */
+export function connectIroh(
+  nodeId: string,
+  directAddresses: string,
+  reachability: Reachability,
+): Promise<Connection> {
+  return Connection.connectIroh(nodeId, directAddresses, reachability);
+}
+
+/** Dial a partner from its published `ocapn://` URI, dispatching on the
+ * locator's transport: `iroh` dials the endpoint id with its `direct-addresses`
+ * hints, `tcp` dials the `host:port` designator. The transport-agnostic entry
+ * point; a binding parses once and the core grammar decides the netlayer. An
+ * `iroh` URI requires `reachability` — the caller owns the dialer's reach
+ * posture, there is no default — and rejects the dial when it is absent. */
+export function connectUri(uri: string, reachability?: Reachability): Promise<Connection> {
+  const loc = parseLocator(uri);
+  switch (loc.transport) {
+    case "iroh": {
+      if (reachability === undefined) {
+        throw new PancakeError(INVALID_ARGUMENT, "connectUri: an iroh URI requires an explicit reachability");
+      }
+      return Connection.connectIroh(loc.designator, loc.hints.get("direct-addresses") ?? "", reachability);
+    }
+    case "tcp": {
+      const colon = loc.designator.lastIndexOf(":");
+      if (colon < 0) {
+        throw new PancakeError(INVALID_ARGUMENT, `tcp locator designator is not host:port: ${loc.designator}`);
+      }
+      return Connection.connect(loc.designator.slice(0, colon), Number(loc.designator.slice(colon + 1)));
+    }
+    default:
+      throw new PancakeError(INVALID_ARGUMENT, `connectUri: unsupported transport "${loc.transport}"`);
+  }
+}
+
+/** Dial an iroh partner from its published `ocapn://<nodeid>.iroh?…` URI — a
+ * thin wrapper over the transport-dispatching `connectUri`. `reachability` is
+ * required; the caller owns the dialer's reach posture, there is no default. */
+export function connectIrohUri(uri: string, reachability: Reachability): Promise<Connection> {
+  return connectUri(uri, reachability);
 }

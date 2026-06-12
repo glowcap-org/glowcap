@@ -3,9 +3,11 @@
 The raw ``ctypes`` FFI is private to this module. What you use is a :class:`Peer`
 (a context manager that releases itself), native Python values as arguments
 (``int``/``float``/``bool``/``bytes``/``str``/``list``, plus :class:`Symbol` and
-references), and typed :class:`Event` objects out of :meth:`Peer.poll`.
+references), and typed :class:`Event` objects out of :meth:`Peer.poll`. The
+default :class:`Peer` negotiates an authenticated session; raw direct-frame
+fixtures use :meth:`Peer.raw_open`.
 
-    with Peer() as peer:
+    with Peer.raw_open() as peer:
         peer.register_import(5)
         peer.send_deliver(Far(5), [42, b"hi"], answer=9)
         peer.step()
@@ -16,11 +18,17 @@ from __future__ import annotations
 
 import asyncio
 import ctypes
+import enum
 import pathlib
 import secrets
 import sys
 from dataclasses import dataclass, field
-from typing import Optional, Union
+from typing import NamedTuple, Optional, Union
+
+try:
+    from . import _pancake_constants as _abi
+except ImportError:  # imported as a loose module from bindings/python
+    import _pancake_constants as _abi
 
 # The dynamic library's name is platform-specific: `.dylib` on macOS, `.dll` on
 # Windows, `.so` elsewhere. `zig build` emits the right one into zig-out/lib.
@@ -31,20 +39,42 @@ _LIB_FILE = (
 )
 _LIB = pathlib.Path(__file__).resolve().parents[2] / "zig-out" / "lib" / _LIB_FILE
 
-_OK = 0
-_WOULD_BLOCK = -7
-_FRAME_SHAPE_BYTE = 0
-_EVENT_DELIVER = 1
-_EVENT_RESOLVE = 2
+_OK = _abi.OK
+_ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
+_WOULD_BLOCK = _abi.WOULD_BLOCK
+_ERR_CLOSED = _abi.ERR_CLOSED
+_ERR_UNSUPPORTED_VALUE = _abi.ERR_UNSUPPORTED_VALUE
+_FRAME_SHAPE_BYTE = _abi.FRAME_SHAPE_BYTE
+_EVENT_DELIVER = _abi.EVENT_DELIVER
+_EVENT_RESOLVE = _abi.EVENT_RESOLVE
 
-_REF_NEAR, _REF_FAR, _REF_PROMISE, _REF_STURDY, _REF_BROKEN = 0, 1, 2, 3, 4
-_REF_OBJECT, _REF_PROMISE_KIND = 0, 1
+_REF_NEAR, _REF_FAR, _REF_PROMISE, _REF_STURDY, _REF_BROKEN = (
+    _abi.REF_NEAR,
+    _abi.REF_FAR,
+    _abi.REF_PROMISE,
+    _abi.REF_STURDY,
+    _abi.REF_BROKEN,
+)
+_REF_SUB_OBJECT, _REF_SUB_PROMISE = _abi.REF_SUB_OBJECT, _abi.REF_SUB_PROMISE
 
-_ARG_INTEGER, _ARG_FLOAT64, _ARG_BOOLEAN, _ARG_BYTES = 0, 1, 2, 3
-_ARG_STRING, _ARG_SYMBOL, _ARG_VOID, _ARG_REFERENCE, _ARG_LIST = 4, 5, 6, 7, 8
-_ARG_SET, _ARG_TAGGED, _ARG_KEYWORD = 9, 10, 11
+_ARG_INTEGER, _ARG_FLOAT64, _ARG_BOOLEAN, _ARG_BYTES = (
+    _abi.ARG_INTEGER,
+    _abi.ARG_FLOAT64,
+    _abi.ARG_BOOLEAN,
+    _abi.ARG_BYTES,
+)
+_ARG_STRING, _ARG_SYMBOL, _ARG_VOID, _ARG_REFERENCE, _ARG_LIST = (
+    _abi.ARG_STRING,
+    _abi.ARG_SYMBOL,
+    _abi.ARG_VOID,
+    _abi.ARG_REFERENCE,
+    _abi.ARG_LIST,
+)
+_ARG_SET, _ARG_TAGGED, _ARG_KEYWORD = _abi.ARG_SET, _abi.ARG_TAGGED, _abi.ARG_KEYWORD
+_ARG_BIG_INTEGER = _abi.ARG_BIG_INTEGER
 
-_RESOLUTION_FULFILL, _RESOLUTION_BREAK = 0, 1
+_RESOLUTION_FULFILL, _RESOLUTION_BREAK = _abi.RESOLUTION_FULFILL, _abi.RESOLUTION_BREAK
+_HINTS_EMPTY_MAP, _HINTS_EMPTY_FALSE = _abi.HINTS_EMPTY_MAP, _abi.HINTS_EMPTY_FALSE
 
 
 # ── Raw ctypes layer (private) ───────────────────────────────────────────────
@@ -125,9 +155,23 @@ class _Resolve(ctypes.Structure):
     ]
 
 
+class _LastAbort(ctypes.Structure):
+    _fields_ = [
+        ("domain", ctypes.c_uint32),
+        ("has_kind", ctypes.c_uint32),
+        ("kind_name", ctypes.c_void_p),
+        ("kind_name_len", ctypes.c_size_t),
+        ("message", ctypes.c_void_p),
+        ("message_len", ctypes.c_size_t),
+        ("error_name", ctypes.c_void_p),
+        ("error_name_len", ctypes.c_size_t),
+    ]
+
+
 def _load():
     lib = ctypes.CDLL(str(_LIB))
     P = ctypes.c_void_p
+    size_p = ctypes.POINTER(ctypes.c_size_t)
     sigs = {
         "pancake_abi_version": (
             [ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32)],
@@ -135,14 +179,17 @@ def _load():
         ),
         "pancake_last_error": ([ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t], ctypes.c_size_t),
         "pancake_clear_last_error": ([], None),
-        "pancake_context_new_default": ([ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_context_new": ([ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_context_new_with_allocator": ([ctypes.POINTER(_Allocator), ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_context_release": ([P], None),
         "pancake_peer_new": ([ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_peer_new_in": ([P, ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_peer_new_negotiating": ([ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_peer_start_session_keyed": (
-            [P, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.c_void_p],
+        "pancake_peer_new_negotiated": ([ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_peer_new_negotiated_in": ([P, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_peer_new_raw_open": ([ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_peer_new_raw_open_in": ([P, ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_peer_start_session": (
+            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.c_void_p, ctypes.c_size_t],
             ctypes.c_int32,
         ),
         "pancake_peer_session_is_open": ([P], ctypes.c_int32),
@@ -155,7 +202,10 @@ def _load():
         "pancake_managed_frame_release": ([ctypes.POINTER(_ManagedFrame)], None),
         "pancake_peer_poll_event": ([P, ctypes.POINTER(_Event)], ctypes.c_int32),
         "pancake_event_release": ([ctypes.POINTER(_Event)], None),
+        "pancake_peer_last_abort": ([P, ctypes.POINTER(_LastAbort)], ctypes.c_int32),
         "pancake_peer_register_export": ([P, ctypes.c_uint64], ctypes.c_int32),
+        "pancake_peer_next_export": ([P, ctypes.POINTER(ctypes.c_uint64)], ctypes.c_int32),
+        "pancake_peer_next_answer": ([P, ctypes.POINTER(ctypes.c_uint64)], ctypes.c_int32),
         "pancake_peer_register_import": ([P, ctypes.c_uint64], ctypes.c_int32),
         "pancake_peer_peek_event": ([P], ctypes.c_int32),
         "pancake_peer_send_deliver": (
@@ -168,25 +218,58 @@ def _load():
         ),
         "pancake_peer_poll_event_deliver": ([P, ctypes.POINTER(_Deliver)], ctypes.c_int32),
         "pancake_peer_poll_event_resolve": ([P, ctypes.POINTER(_Resolve)], ctypes.c_int32),
-        "pancake_deliver_free": ([ctypes.POINTER(_Deliver)], None),
-        "pancake_resolve_free": ([ctypes.POINTER(_Resolve)], None),
+        "pancake_deliver_release": ([ctypes.POINTER(_Deliver)], None),
+        "pancake_resolve_release": ([ctypes.POINTER(_Resolve)], None),
         "pancake_peer_register_bootstrap_cap": ([P, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)], ctypes.c_int32),
+        "pancake_peer_send_bootstrap_fetch": ([P, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)], ctypes.c_int32),
+        "pancake_peer_codec": ([P, ctypes.POINTER(ctypes.c_uint32)], ctypes.c_int32),
+        "pancake_peer_send_gc_export": ([P, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t], ctypes.c_int32),
+        "pancake_peer_send_gc_answer": ([P, ctypes.c_uint64], ctypes.c_int32),
         "pancake_tcp_netlayer_new": ([ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_tcp_netlayer_new_in": ([P, ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_tcp_netlayer_release": ([P], None),
-        "pancake_endpoint_tcp_testing_connect": (
+        "pancake_tcp_connect": (
             [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint16, ctypes.c_uint32, ctypes.c_size_t, ctypes.POINTER(P)],
             ctypes.c_int32,
         ),
-        "pancake_endpoint_tcp_testing_listen": (
+        "pancake_tcp_listen": (
             [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint16, ctypes.POINTER(P)], ctypes.c_int32,
         ),
-        "pancake_endpoint_tcp_listener_port": ([P, ctypes.POINTER(ctypes.c_uint16)], ctypes.c_int32),
-        "pancake_endpoint_tcp_testing_accept": ([P, ctypes.c_uint32, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_endpoint_tcp_read_frame": ([P, ctypes.POINTER(_ManagedFrame)], ctypes.c_int32),
-        "pancake_endpoint_tcp_write_frame": ([P, ctypes.POINTER(_Frame)], ctypes.c_int32),
-        "pancake_endpoint_tcp_conn_close": ([P], None),
-        "pancake_endpoint_tcp_listener_close": ([P], None),
+        "pancake_tcp_listener_port": ([P, ctypes.POINTER(ctypes.c_uint16)], ctypes.c_int32),
+        "pancake_tcp_accept": ([P, ctypes.c_uint32, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_tcp_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame)], ctypes.c_int32),
+        "pancake_tcp_conn_write_frame": ([P, ctypes.POINTER(_Frame)], ctypes.c_int32),
+        "pancake_tcp_conn_release": ([P], None),
+        "pancake_tcp_listener_release": ([P], None),
+        # OCapN locator URIs — core libpancake vocabulary, so a TCP-only consumer
+        # reaches them without the iroh superset. One grammar, no hand-rolled
+        # percent codec. Verbs mint an opaque PancakeLocator; nouns read it.
+        "pancake_uri_parse_peer": ([ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_uri_parse_sturdyref": ([ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_uri_format_peer": (
+            [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
+             ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
+             ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)],
+            ctypes.c_int32,
+        ),
+        "pancake_uri_format_sturdyref": (
+            [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
+             ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
+             ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)],
+            ctypes.c_int32,
+        ),
+        "pancake_locator_transport": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
+        "pancake_locator_designator": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
+        "pancake_locator_swissnum": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
+        "pancake_locator_hint": (
+            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32,
+        ),
+        "pancake_locator_hint_count": ([P, size_p], ctypes.c_int32),
+        "pancake_locator_hint_at": (
+            [P, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p), size_p, ctypes.POINTER(ctypes.c_void_p), size_p],
+            ctypes.c_int32,
+        ),
+        "pancake_locator_release": ([P], None),
     }
     for name, (argtypes, restype) in sigs.items():
         fn = getattr(lib, name)
@@ -196,6 +279,77 @@ def _load():
 
 
 _lib = _load()
+
+
+# ── iroh transport (separate libpancake_iroh artifact, loaded lazily) ───────
+#
+# iroh's encrypted-QUIC netlayer links the Rust sidecar, which ADR-0055 keeps out
+# of libpancake so the gate stays hermetic and the core stays pure Zig. It ships
+# as its own optional superset library, loaded only on first iroh use, so a
+# consumer that never touches iroh never needs it built (it needs cargo:
+# `zig build iroh-abi`). The frame unit is identical to TCP's, so the same pump
+# drives a peer over it; only the addressing differs (an endpoint id +
+# direct-address hints, no host:port).
+
+_IROH_LIB_FILE = (
+    "libpancake_iroh.dylib" if sys.platform == "darwin"
+    else "pancake_iroh.dll" if sys.platform == "win32"
+    else "libpancake_iroh.so"
+)
+_IROH_LIB = pathlib.Path(__file__).resolve().parents[2] / "zig-out" / "lib" / _IROH_LIB_FILE
+
+
+def _load_iroh():
+    lib = ctypes.CDLL(str(_IROH_LIB))
+    P = ctypes.c_void_p
+    u8p = ctypes.POINTER(ctypes.c_uint8)
+    size_p = ctypes.POINTER(ctypes.c_size_t)
+    sigs = {
+        "pancake_iroh_netlayer_new": ([ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_iroh_netlayer_close": ([P], None),
+        "pancake_iroh_netlayer_release": ([P], None),
+        "pancake_iroh_netlayer_node_id": ([P, u8p, ctypes.c_size_t, size_p], ctypes.c_int32),
+        "pancake_iroh_netlayer_direct_addrs": ([P, u8p, ctypes.c_size_t, size_p], ctypes.c_int32),
+        "pancake_iroh_netlayer_connect": (
+            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.c_size_t, ctypes.POINTER(P)],
+            ctypes.c_int32,
+        ),
+        "pancake_iroh_netlayer_accept": ([P, ctypes.c_uint32, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_iroh_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame)], ctypes.c_int32),
+        "pancake_iroh_conn_write_frame": ([P, ctypes.POINTER(_Frame)], ctypes.c_int32),
+        "pancake_iroh_conn_release": ([P], None),
+    }
+    for name, (argtypes, restype) in sigs.items():
+        fn = getattr(lib, name)
+        fn.argtypes = argtypes
+        fn.restype = restype
+    return lib
+
+
+_iroh_lib_cache = None
+
+
+def _iroh():
+    """Open the iroh ABI library on first use. It is optional — absent unless
+    built with cargo — so a clear error names how to produce it rather than a raw
+    load failure."""
+    global _iroh_lib_cache
+    if _iroh_lib_cache is None:
+        try:
+            _iroh_lib_cache = _load_iroh()
+        except OSError as exc:
+            raise RuntimeError(
+                f"iroh transport unavailable: could not load {_IROH_LIB_FILE} from zig-out/lib. "
+                "Build it with `zig build iroh-abi` (needs cargo). " + str(exc)
+            ) from exc
+    return _iroh_lib_cache
+
+
+def _check_iroh(code: int) -> None:
+    # The iroh library carries its own thread-local last-error, so pass an
+    # explicit detail rather than scraping libpancake's unrelated one.
+    if code != _OK:
+        raise PancakeError(code, f"iroh transport call failed (code {code})")
 
 
 # ── Public value vocabulary ──────────────────────────────────────────────────
@@ -215,8 +369,10 @@ def last_error() -> Optional[str]:
     length = _lib.pancake_last_error(None, 0)
     if length == 0:
         return None
-    buf = (ctypes.c_uint8 * length)()
-    _lib.pancake_last_error(buf, length)
+    # The C side reserves one byte for a NUL and copies at most cap-1 message
+    # bytes, so allocate length + 1 to receive all `length` of them.
+    buf = (ctypes.c_uint8 * (length + 1))()
+    _lib.pancake_last_error(buf, length + 1)
     return bytes(buf[:length]).decode(errors="replace")
 
 
@@ -225,21 +381,38 @@ def clear_last_error() -> None:
     _lib.pancake_clear_last_error()
 
 
+@dataclass(frozen=True)
+class AbortDetail:
+    """The typed cause of a peer's most recent local dispatch failure — the
+    counterpart of the C ABI's ``PancakeLastAbort``. ``domain`` names the layer
+    that refused (``"codec"``, ``"session"``, or ``"foreign"``), ``kind`` the
+    projected ``op:abort`` kind when one exists, ``message`` the static
+    diagnostic, and ``error_name`` the originating error."""
+
+    domain: str
+    kind: Optional[str]
+    message: str
+    error_name: str
+
+
 class PancakeError(Exception):
     """A failed C ABI call, carrying the negative ``PANCAKE_ERR_*`` code.
 
     When a per-thread error message is available it is captured at raise time
     (the message is thread-local and may be overwritten by a later call) and
-    shown by ``str(err)``.
+    shown by ``str(err)``. When the failure was a refused inbound frame,
+    ``abort`` carries the typed :class:`AbortDetail` naming which layer refused
+    and why.
     """
 
-    def __init__(self, code: int, message: Optional[str] = None):
+    def __init__(self, code: int, message: Optional[str] = None, abort: Optional[AbortDetail] = None):
         if message:
             super().__init__(f"pancake error {code}: {message}")
         else:
             super().__init__(f"pancake error {code}")
         self.code = code
         self.message = message
+        self.abort = abort
 
 
 def _check(code: int) -> None:
@@ -352,14 +525,14 @@ Event = Union[Deliver, Resolve, Other]
 
 def _ref_to_c(ref: Reference) -> _Reference:
     if isinstance(ref, Near):
-        sub = _REF_PROMISE_KIND if ref.promise else _REF_OBJECT
+        sub = _REF_SUB_PROMISE if ref.promise else _REF_SUB_OBJECT
         return _Reference(_REF_NEAR, sub, ref.id)
     if isinstance(ref, Far):
-        sub = _REF_PROMISE_KIND if ref.promise else _REF_OBJECT
+        sub = _REF_SUB_PROMISE if ref.promise else _REF_SUB_OBJECT
         return _Reference(_REF_FAR, sub, ref.id)
     if isinstance(ref, Promise):
         return _Reference(_REF_PROMISE, 0, ref.answer)
-    raise PancakeError(-13)  # sturdy/broken not carried on send
+    raise PancakeError(_ERR_UNSUPPORTED_VALUE, "sturdy/broken ref not carried on send")
 
 
 def _arg_to_c(value: Argument, keepalive: list) -> _Argument:
@@ -367,7 +540,16 @@ def _arg_to_c(value: Argument, keepalive: list) -> _Argument:
     if isinstance(value, bool):  # before int — bool is an int subclass
         a.kind, a.boolean = _ARG_BOOLEAN, 1 if value else 0
     elif isinstance(value, int):
-        a.kind, a.integer = _ARG_INTEGER, value
+        # ctypes silently wraps an out-of-range int mod 2**64; OCapN integers are
+        # bignums, so refuse anything the C ABI int64 cannot carry rather than
+        # send a corrupted value.
+        if not (-(2**63) <= value < 2**63):
+            # Outside the C ABI int64: ARG_BIG_INTEGER carries the canonical
+            # decimal digits in bytes/bytes_len and the sign in boolean (ADR-0049).
+            _set_bytes(a, _ARG_BIG_INTEGER, str(abs(value)).encode(), keepalive)
+            a.boolean = 1 if value < 0 else 0
+        else:
+            a.kind, a.integer = _ARG_INTEGER, value
     elif isinstance(value, float):
         a.kind, a.float64 = _ARG_FLOAT64, value
     elif isinstance(value, Symbol):  # before str
@@ -393,7 +575,7 @@ def _arg_to_c(value: Argument, keepalive: list) -> _Argument:
         a.kind = _ARG_LIST
         a.items, a.items_len = _args_to_c(value, keepalive)
     else:
-        raise PancakeError(-13)
+        raise PancakeError(_ERR_UNSUPPORTED_VALUE, "unsupported argument value")
     return a
 
 
@@ -413,7 +595,7 @@ def _args_to_c(args: list, keepalive: list):
 
 
 def _ref_from_c(r: _Reference) -> Reference:
-    promise = r.sub_kind == _REF_PROMISE_KIND
+    promise = r.sub_kind == _REF_SUB_PROMISE
     if r.kind == _REF_NEAR:
         return Near(r.id, promise)
     if r.kind == _REF_FAR:
@@ -440,10 +622,14 @@ def _arg_from_c(a: _Argument) -> Argument:
         return a.boolean != 0
     if a.kind == _ARG_BYTES:
         return _bytes_from_c(a)
+    # Syrup strings/symbols are unchecked partner bytes; decode leniently so a
+    # hostile non-UTF-8 payload surfaces as a value (matching Rust's
+    # from_utf8_lossy and Deno's non-fatal TextDecoder) instead of crashing the
+    # poll with UnicodeDecodeError.
     if a.kind == _ARG_STRING:
-        return _bytes_from_c(a).decode()
+        return _bytes_from_c(a).decode(errors="replace")
     if a.kind == _ARG_SYMBOL:
-        return Symbol(_bytes_from_c(a).decode())
+        return Symbol(_bytes_from_c(a).decode(errors="replace"))
     if a.kind == _ARG_REFERENCE:
         return _ref_from_c(a.reference)
     if a.kind == _ARG_LIST:
@@ -451,12 +637,16 @@ def _arg_from_c(a: _Argument) -> Argument:
     if a.kind == _ARG_SET:
         return Set(_arg_from_c(a.items[i]) for i in range(a.items_len))
     if a.kind == _ARG_TAGGED:
-        return Tagged(_bytes_from_c(a).decode(), [_arg_from_c(a.items[i]) for i in range(a.items_len)])
+        return Tagged(_bytes_from_c(a).decode(errors="replace"), [_arg_from_c(a.items[i]) for i in range(a.items_len)])
     if a.kind == _ARG_KEYWORD:
-        return Keyword(_bytes_from_c(a).decode())
+        return Keyword(_bytes_from_c(a).decode(errors="replace"))
     if a.kind == _ARG_VOID:
         return None
-    raise PancakeError(-3)  # PANCAKE_ERR_INVALID_ARGUMENT: unrecognized arg kind
+    if a.kind == _ARG_BIG_INTEGER:
+        # Canonical decimal digits + sign flag back to a native int (ADR-0049).
+        magnitude = int(_bytes_from_c(a))
+        return -magnitude if a.boolean != 0 else magnitude
+    raise PancakeError(_ERR_INVALID_ARGUMENT, "unrecognized arg kind")
 
 
 # ── The allocation context ───────────────────────────────────────────────────
@@ -479,7 +669,7 @@ class Context:
 
     def __init__(self):
         out = ctypes.c_void_p()
-        _check(_lib.pancake_context_new_default(ctypes.byref(out)))
+        _check(_lib.pancake_context_new(ctypes.byref(out)))
         self._raw = out
         # No callbacks for the default-allocator path.
         self._callbacks: tuple = ()
@@ -540,33 +730,76 @@ class Context:
 _owned_frame_callbacks: dict = {}
 
 
-class Peer:
-    """An OCapN/CapTP peer. Use as a context manager, or call :meth:`release`."""
+def _version_id(version: str) -> int:
+    if version == "v1.0":
+        return _abi.CAPTP_VERSION_V1_0
+    if version == "pre-spec":
+        return _abi.CAPTP_VERSION_PRE_SPEC
+    raise ValueError(f"unknown OCapN profile {version!r}")
 
-    def __init__(self):
+
+def _codec_id(codec: str) -> int:
+    if codec == "syrup":
+        return _abi.CODEC_SYRUP
+    if codec == "capnp":
+        return _abi.CODEC_CAPNP
+    raise ValueError(f"unknown OCapN codec {codec!r}")
+
+
+class Peer:
+    """An authenticated OCapN/CapTP peer in the negotiating state.
+
+    Use :meth:`start_session` and drive frames until
+    :meth:`session_is_open` before application traffic. Raw already-open peers
+    are available only through :meth:`raw_open` for tests and low-level fixtures.
+    """
+
+    def __init__(self, version: str = "v1.0", codec: str = "syrup"):
         ptr = ctypes.c_void_p()
-        _check(_lib.pancake_peer_new(ctypes.byref(ptr)))
+        if version == "v1.0" and codec == "syrup":
+            _check(_lib.pancake_peer_new(ctypes.byref(ptr)))
+        else:
+            _check(_lib.pancake_peer_new_negotiated(_version_id(version), _codec_id(codec), ctypes.byref(ptr)))
         self._raw = ptr
+        # Library-allocator peer: no backing context to keep alive.
+        self._context: Optional["Context"] = None
 
     @classmethod
-    def new_in(cls, context: "Context") -> "Peer":
-        """Create a peer whose allocations route through ``context``. The context
-        must outlive the peer."""
+    def new_in(cls, context: "Context", version: str = "v1.0", codec: str = "syrup") -> "Peer":
+        """Create a negotiating peer whose allocations route through ``context``.
+        The context must outlive the peer."""
         self = cls.__new__(cls)
         ptr = ctypes.c_void_p()
-        _check(_lib.pancake_peer_new_in(context._raw, ctypes.byref(ptr)))
+        if version == "v1.0" and codec == "syrup":
+            _check(_lib.pancake_peer_new_in(context._raw, ctypes.byref(ptr)))
+        else:
+            _check(_lib.pancake_peer_new_negotiated_in(context._raw, _version_id(version), _codec_id(codec), ctypes.byref(ptr)))
         self._raw = ptr
+        # Hold a strong reference so the context cannot be GC-collected (and its
+        # allocator released) before this peer — CPython does not order
+        # finalizers by allocation dependency.
+        self._context = context
         return self
 
     @classmethod
-    def new_negotiating(cls) -> "Peer":
-        """A negotiating peer, awaiting the keyed ``op:start-session`` handshake —
-        the peer to drive when the partner requires it (a real Goblins vat). Pair
-        it with :meth:`start_session_keyed`, then pump until :meth:`session_is_open`."""
+    def raw_open(cls) -> "Peer":
+        """Create an already-open peer for tests and direct-frame fixtures."""
         self = cls.__new__(cls)
         ptr = ctypes.c_void_p()
-        _check(_lib.pancake_peer_new_negotiating(ctypes.byref(ptr)))
+        _check(_lib.pancake_peer_new_raw_open(ctypes.byref(ptr)))
         self._raw = ptr
+        self._context = None
+        return self
+
+    @classmethod
+    def raw_open_in(cls, context: "Context") -> "Peer":
+        """Context-backed counterpart of :meth:`raw_open`."""
+        self = cls.__new__(cls)
+        ptr = ctypes.c_void_p()
+        _check(_lib.pancake_peer_new_raw_open_in(context._raw, ctypes.byref(ptr)))
+        self._raw = ptr
+        # Keep the context alive at least as long as this peer (see new_in).
+        self._context = context
         return self
 
     def __enter__(self) -> "Peer":
@@ -583,42 +816,58 @@ class Peer:
     def __del__(self):
         self.release()
 
-    def register_export(self, export_id: int) -> None:
-        _check(_lib.pancake_peer_register_export(self._raw, export_id))
+    def register_export(self, export_position: int) -> None:
+        _check(_lib.pancake_peer_register_export(self._raw, export_position))
 
-    def register_import(self, import_id: int) -> None:
-        _check(_lib.pancake_peer_register_import(self._raw, import_id))
+    def next_export(self) -> int:
+        """Allocate and register the next free export position from the
+        session's one export allocator — the counter that also mints bootstrap
+        and resolver exports, so a spawned position can never alias one."""
+        out = ctypes.c_uint64()
+        _check(_lib.pancake_peer_next_export(self._raw, ctypes.byref(out)))
+        return out.value
 
-    def start_session_keyed(
+    def register_import(self, import_position: int) -> None:
+        _check(_lib.pancake_peer_register_import(self._raw, import_position))
+
+    def next_answer(self) -> int:
+        """Allocate the next outbound answer position from the session's one
+        answer allocator — the counter that backs every outbound question, so a
+        privately-counted answer can never alias a live one."""
+        out = ctypes.c_uint64()
+        _check(_lib.pancake_peer_next_answer(self._raw, ctypes.byref(out)))
+        return out.value
+
+    def start_session(
         self,
         seed: bytes,
         *,
         transport: str = "tcp",
         designator: str,
         hints_empty_false: bool = True,
-        version: str = "v1.0",
     ) -> None:
-        """Sign and queue a keyed ``op:start-session`` from this negotiating peer.
-        The 32-byte ``seed`` is the session key; ``transport``/``designator`` form
-        the locator the partner verifies, so they must be what it expects — for a
-        Goblins partner, ``"tcp"`` with ``hints_empty_false`` true (an empty hints
-        map encoded as ``#f``). ``version`` is ``"v1.0"`` or ``"pre-spec"``. Flush
-        it, then pump until :meth:`session_is_open`."""
+        """Sign and queue ``op:start-session`` from this negotiating peer. The
+        handshake speaks the profile the peer was constructed with
+        (``Peer("pre-spec")`` for upstream OCapN). The 32-byte ``seed`` is the
+        session key (the library refuses any other length);
+        ``transport``/``designator`` form the locator the partner verifies, so
+        they must be what it expects — for a Goblins partner, ``"tcp"`` with
+        ``hints_empty_false`` true (Goblins emits the empty hints as the
+        boolean ``#f``). Flush it, then pump until :meth:`session_is_open`."""
         if len(seed) != 32:
             raise ValueError("a session seed must be 32 bytes")
         transport_b = transport.encode()
         designator_b = designator.encode()
-        _check(_lib.pancake_peer_start_session_keyed(
+        _check(_lib.pancake_peer_start_session(
             self._raw,
-            1 if version == "pre-spec" else 0,
             transport_b, len(transport_b),
             designator_b, len(designator_b),
-            1 if hints_empty_false else 0,
-            seed,
+            _HINTS_EMPTY_FALSE if hints_empty_false else _HINTS_EMPTY_MAP,
+            seed, len(seed),
         ))
 
     def session_is_open(self) -> bool:
-        """Whether the keyed handshake has completed and the session is open for
+        """Whether the authenticated handshake has completed and the session is open for
         traffic. Pump the connection and poll this before sending application
         messages."""
         rc = _lib.pancake_peer_session_is_open(self._raw)
@@ -626,10 +875,50 @@ class Peer:
             raise PancakeError(rc)
         return rc == 1
 
+    def last_abort(self) -> Optional[AbortDetail]:
+        """The typed cause of this peer's most recent local dispatch failure,
+        or ``None`` when no failure has been recorded. The per-call
+        :class:`PancakeError` code names the failure family; this names the
+        member. Errors raised by :meth:`feed`, :meth:`feed_owned`, and
+        :meth:`recv_stream` carry it already as ``err.abort``."""
+        info = _LastAbort()
+        rc = _lib.pancake_peer_last_abort(self._raw, ctypes.byref(info))
+        if rc == _WOULD_BLOCK:
+            return None
+        _check(rc)
+
+        def text(ptr, length) -> str:
+            return ctypes.string_at(ptr, length).decode(errors="replace") if ptr and length else ""
+
+        domain = {
+            _abi.ABORT_DOMAIN_CODEC: "codec",
+            _abi.ABORT_DOMAIN_SESSION: "session",
+            _abi.ABORT_DOMAIN_FOREIGN: "foreign",
+        }.get(info.domain, str(info.domain))
+        return AbortDetail(
+            domain=domain,
+            kind=text(info.kind_name, info.kind_name_len) if info.has_kind else None,
+            message=text(info.message, info.message_len),
+            error_name=text(info.error_name, info.error_name_len),
+        )
+
+    def _dispatch_error(self, code: int) -> PancakeError:
+        """A :class:`PancakeError` for a refused frame, carrying the typed abort
+        cause. Captures the thread-local message first, before any later call
+        clobbers it."""
+        message = last_error()
+        try:
+            abort = self.last_abort()
+        except PancakeError:
+            abort = None
+        return PancakeError(code, message, abort=abort)
+
     def feed(self, frame: bytes) -> None:
         buf = ctypes.create_string_buffer(frame, len(frame))
         f = _Frame(ctypes.cast(buf, ctypes.c_void_p), len(frame), _FRAME_SHAPE_BYTE)
-        _check(_lib.pancake_peer_feed_borrowed(self._raw, ctypes.byref(f)))
+        rc = _lib.pancake_peer_feed_borrowed(self._raw, ctypes.byref(f))
+        if rc != _OK:
+            raise self._dispatch_error(rc)
 
     def feed_owned(self, frame: bytes) -> None:
         """Transfer owned frame bytes into the inbound queue for the next
@@ -665,7 +954,7 @@ class Peer:
         if rc != _OK:
             # The descriptor was not adopted; reclaim the bytes ourselves and
             # drop the callback. Capture the message before it is clobbered.
-            err = PancakeError(rc, last_error())
+            err = self._dispatch_error(rc)
             state.pop("buf", None)
             _owned_frame_callbacks.pop(id(release_cb), None)
             raise err
@@ -673,7 +962,7 @@ class Peer:
     def step(self) -> None:
         _check(_lib.pancake_peer_step(self._raw))
 
-    def recv_stream(self, data: bytes) -> Optional[int]:
+    def recv_stream(self, data: "Union[bytes, bytearray]") -> Optional[int]:
         """Frame and dispatch one whole frame out of a streamed read buffer.
 
         Returns the number of bytes consumed when a whole frame was framed and
@@ -682,6 +971,11 @@ class Peer:
         fatal framing or dispatch error (malformed, frame too large, …).
         """
         n = len(data)
+        # Copy into a C array (from_buffer_copy accepts a bytes or bytearray).
+        # A borrowed `from_buffer` view is deliberately avoided: it would keep a
+        # buffer export alive that blocks the caller's `del inbox[:consumed]`
+        # resize (BufferError). Accepting the bytearray directly already removes
+        # the redundant `bytes(inbox)` wrapper copy the drain loop used to make.
         buf = (ctypes.c_uint8 * n).from_buffer_copy(data) if n else (ctypes.c_uint8 * 0)()
         ptr = ctypes.cast(buf, ctypes.POINTER(ctypes.c_uint8))
         consumed = ctypes.c_size_t(0)
@@ -690,14 +984,48 @@ class Peer:
             return consumed.value
         if rc == _WOULD_BLOCK:
             return None
-        # Capture the thread-local message now, before any later call clobbers it.
-        raise PancakeError(rc, last_error())
+        # The error carries the thread-local message and the typed abort cause.
+        raise self._dispatch_error(rc)
 
     def register_bootstrap_cap(self, swissnum: bytes) -> int:
         buf = ctypes.create_string_buffer(swissnum, len(swissnum))
         out = ctypes.c_uint64()
         _check(_lib.pancake_peer_register_bootstrap_cap(self._raw, ctypes.cast(buf, ctypes.c_void_p), len(swissnum), ctypes.byref(out)))
         return out.value
+
+    def send_bootstrap_fetch(self, name: bytes) -> int:
+        """Queue the canonical bootstrap ``fetch`` for the capability published
+        behind ``name``, returning the answer position the partner's resolution
+        arrives on (as a :class:`Resolve` event). Registers the bootstrap
+        import and allocates the answer from the session's own counters."""
+        buf = ctypes.create_string_buffer(name, len(name))
+        out = ctypes.c_uint64()
+        _check(_lib.pancake_peer_send_bootstrap_fetch(self._raw, ctypes.cast(buf, ctypes.c_void_p), len(name), ctypes.byref(out)))
+        return out.value
+
+    def codec(self) -> int:
+        """The codec the session speaks (a ``CODEC_*`` value), so an opaque
+        :class:`Other` frame drained after a typed-poll refusal can be
+        interpreted."""
+        out = ctypes.c_uint32()
+        _check(_lib.pancake_peer_codec(self._raw, ctypes.byref(out)))
+        return out.value
+
+    def send_gc_export(self, positions: list, deltas: list) -> None:
+        """Queue an ``op:gc-export`` releasing wire-delta counts on imports
+        this peer holds: ``positions[i]`` is released by ``deltas[i]``. The
+        lists are parallel and must be non-empty and the same length."""
+        if len(positions) != len(deltas):
+            raise ValueError("positions and deltas must be the same length")
+        n = len(positions)
+        pos_arr = (ctypes.c_uint64 * n)(*positions)
+        delta_arr = (ctypes.c_uint64 * n)(*deltas)
+        _check(_lib.pancake_peer_send_gc_export(self._raw, pos_arr, delta_arr, n))
+
+    def send_gc_answer(self, answer: int) -> None:
+        """Queue an ``op:gc-answer`` releasing an answer this peer no longer
+        needs."""
+        _check(_lib.pancake_peer_send_gc_answer(self._raw, answer))
 
     def send_deliver(self, target: Reference, args: list, answer: Optional[int] = None) -> None:
         t = _ref_to_c(target)
@@ -729,8 +1057,14 @@ class Peer:
 
     def take_outbound(self) -> Optional[bytes]:
         frame = _ManagedFrame()
-        if _lib.pancake_peer_take_outbound(self._raw, ctypes.byref(frame)) != _OK:
+        rc = _lib.pancake_peer_take_outbound(self._raw, ctypes.byref(frame))
+        if rc == _WOULD_BLOCK:
             return None
+        # Any other non-OK code (e.g. an OOM after the frame was dequeued and
+        # then freed) is a real failure: surface it instead of silently dropping
+        # an outbound frame and ending the drain as if the queue were empty.
+        if rc != _OK:
+            raise PancakeError(rc, last_error())
         out = ctypes.string_at(frame.bytes, frame.len)
         _lib.pancake_managed_frame_release(ctypes.byref(frame))
         return out
@@ -743,34 +1077,53 @@ class Peer:
             return self._poll_resolve()
         if kind == _WOULD_BLOCK:
             return None
+        # A negative code is a peek failure (e.g. a released peer), not an event
+        # kind; fail closed rather than fabricating an Other with kind == -1.
+        if kind < 0:
+            raise PancakeError(kind, last_error())
         return self._poll_other()
 
-    def _poll_deliver(self) -> Deliver:
+    def _poll_deliver(self) -> Event:
         d = _Deliver()
-        _check(_lib.pancake_peer_poll_event_deliver(self._raw, ctypes.byref(d)))
-        event = Deliver(
-            target=_ref_from_c(d.target),
-            args=[_arg_from_c(d.args[i]) for i in range(d.args_len)],
-            answer=d.answer if d.has_answer else None,
-        )
-        _lib.pancake_deliver_free(ctypes.byref(d))
-        return event
+        rc = _lib.pancake_peer_poll_event_deliver(self._raw, ctypes.byref(d))
+        if rc == _ERR_UNSUPPORTED_VALUE:
+            # The typed projection cannot carry this deliver (e.g. a handoff
+            # argument). The event stays queued, so drain it as an opaque
+            # Other — raising here would peek the same event forever.
+            return self._poll_other()
+        _check(rc)
+        try:
+            return Deliver(
+                target=_ref_from_c(d.target),
+                args=[_arg_from_c(d.args[i]) for i in range(d.args_len)],
+                answer=d.answer if d.has_answer else None,
+            )
+        finally:
+            # Always free the C-owned arena, even if marshalling raises on a
+            # hostile payload — otherwise every bad frame leaks it.
+            _lib.pancake_deliver_release(ctypes.byref(d))
 
-    def _poll_resolve(self) -> Resolve:
+    def _poll_resolve(self) -> Event:
         r = _Resolve()
-        _check(_lib.pancake_peer_poll_event_resolve(self._raw, ctypes.byref(r)))
-        if r.resolution_kind == _RESOLUTION_FULFILL:
-            resolution: Resolution = Fulfill(_arg_from_c(r.fulfill))
-        else:
-            msg = ctypes.string_at(r.break_message, r.break_message_len).decode() if r.break_message else ""
-            resolution = Break(msg)
-        event = Resolve(answer=r.answer, resolution=resolution)
-        _lib.pancake_resolve_free(ctypes.byref(r))
-        return event
+        rc = _lib.pancake_peer_poll_event_resolve(self._raw, ctypes.byref(r))
+        if rc == _ERR_UNSUPPORTED_VALUE:
+            # Same leave-queued contract as _poll_deliver: drain the refused
+            # resolve as an opaque Other so the loop survives.
+            return self._poll_other()
+        _check(rc)
+        try:
+            if r.resolution_kind == _RESOLUTION_FULFILL:
+                resolution: Resolution = Fulfill(_arg_from_c(r.fulfill))
+            else:
+                msg = ctypes.string_at(r.break_message, r.break_message_len).decode(errors="replace") if r.break_message else ""
+                resolution = Break(msg)
+            return Resolve(answer=r.answer, resolution=resolution)
+        finally:
+            _lib.pancake_resolve_release(ctypes.byref(r))
 
     def _poll_other(self) -> Other:
         e = _Event()
-        _lib.pancake_peer_poll_event(self._raw, ctypes.byref(e))
+        _check(_lib.pancake_peer_poll_event(self._raw, ctypes.byref(e)))
         frame = ctypes.string_at(e.frame.bytes, e.frame.len) if e.frame.bytes else b""
         kind = e.kind
         _lib.pancake_event_release(ctypes.byref(e))
@@ -779,11 +1132,10 @@ class Peer:
 
 # ── Actors ───────────────────────────────────────────────────────────────────
 #
-# This is pancake's Goblins-shaped actor model in Python, the seam where the
-# actor layer meets the OCapN peer. It mirrors the Zig ``actors.vat`` and the
-# Racket binding's actor section in idiomatic Python: callables for behaviors,
-# exceptions for broken resolutions, dataclasses for the unified reference and
-# promise.
+# This is pancake's Goblins-shaped actor model in Python. It is where the actor
+# layer meets the OCapN peer. It mirrors the Zig ``actors.vat`` and the Racket
+# binding's actor section in idiomatic Python: callables for behaviors, exceptions
+# for broken resolutions, and dataclasses for the unified reference and promise.
 #
 # An actor is a callable ``behavior(verb, args) -> value``. It returns a reply
 # value, or raises to break the resolution. A :class:`Ref` names an object the
@@ -831,11 +1183,23 @@ class Ref:
             return self.near
         if self.far is not None:
             return self.far
-        raise PancakeError(-13, "this ref has no wire reference to marshal")
+        raise PancakeError(_ERR_UNSUPPORTED_VALUE, "this ref has no wire reference to marshal")
 
 
 class VowBroken(Exception):
     """Raised when an awaited vow settles broken; the message is the break reason."""
+
+
+class FetchFailed(Exception):
+    """Raised when a ``fetch`` settles, but not with a capability.
+
+    This is the application-level outcome — the partner answered, and the
+    answer was not a reference — distinct from a marshalling failure or a
+    broken promise. ``name`` is the swiss-number the fetch asked for."""
+
+    def __init__(self, name: str):
+        super().__init__(f'fetch("{name}") did not resolve to a capability')
+        self.name = name
 
 
 @dataclass(frozen=True)
@@ -890,18 +1254,14 @@ class Vat:
 
     A vat owns local actors (callables ``behavior(verb, args) -> value``), a
     queue of pending local eventual-sends, listeners for local and far vows, and
-    — when bound to a peer — an export map so inbound deliveries run published
-    actors. You drive it; it owns no I/O and no scheduler thread.
+    an export map when it is bound to a peer. That export map lets inbound
+    deliveries run published actors. You drive the vat; it owns no I/O and no
+    scheduler thread.
 
     A pure-local vat (``Vat()``) sends and drives over local actors only. A vat
     bound to a peer (``Vat(peer)``) also routes far sends out as ``op:deliver``
     and serves inbound peer events through :meth:`serve`.
     """
-
-    # Far sends allocate their own outbound answer positions (the C ABI has no
-    # answer allocator). Start high so they never collide with answers a test or
-    # an application picks by hand for inbound deliveries.
-    _FAR_ANSWER_BASE = 1000
 
     def __init__(self, peer: Optional[Peer] = None):
         self._peer = peer
@@ -912,7 +1272,6 @@ class Vat:
         self._queue: list = []  # pending local sends: (actor_id, verb, args, vow_id)
         self._next_actor = 1
         self._next_vow = 1
-        self._next_answer = self._FAR_ANSWER_BASE
 
     @property
     def peer(self) -> Optional[Peer]:
@@ -932,7 +1291,7 @@ class Vat:
         only :meth:`send` reaches one. Raises if no such actor exists, or
         propagates whatever the behavior itself raises."""
         if not ref.is_local:
-            raise PancakeError(-13, "cannot near-call a far ref; use send")
+            raise PancakeError(_ERR_UNSUPPORTED_VALUE, "cannot near-call a far ref; use send")
         behavior = self._actors.get(ref.local_id)
         if behavior is None:
             raise KeyError(f"no such actor: {ref.local_id}")
@@ -951,9 +1310,8 @@ class Vat:
             self._queue.append((ref.local_id, verb, rest, vow_id))
             return Vow(local_id=vow_id, vat=self)
         if self._peer is None:
-            raise PancakeError(-13, "this vat has no peer; far sends need Vat(peer)")
-        answer = self._next_answer
-        self._next_answer += 1
+            raise PancakeError(_ERR_UNSUPPORTED_VALUE, "this vat has no peer; far sends need Vat(peer)")
+        answer = self._peer.next_answer()
         payload = [Symbol(verb), *rest] if verb else rest
         self._peer.send_deliver(ref.far, payload, answer=answer)
         return Vow(answer=answer, vat=self)
@@ -1001,15 +1359,15 @@ class Vat:
             self._settle_local(vow_id, resolution)
         self._queue.clear()
 
-    def publish(self, export_id: int, behavior) -> Ref:
-        """Spawn ``behavior`` and publish it at ``export_id`` so a partner's
+    def publish(self, export_position: int, behavior) -> Ref:
+        """Spawn ``behavior`` and publish it at ``export_position`` so a partner's
         deliveries to that export run the actor (dispatched by :meth:`serve`).
         Requires a bound peer. Returns the new local :class:`Ref`."""
         if self._peer is None:
-            raise PancakeError(-13, "this vat has no peer; publish needs Vat(peer)")
+            raise PancakeError(_ERR_UNSUPPORTED_VALUE, "this vat has no peer; publish needs Vat(peer)")
         ref = self.spawn(behavior)
-        self._peer.register_export(export_id)
-        self._exports[export_id] = ref.local_id
+        self._peer.register_export(export_position)
+        self._exports[export_position] = ref.local_id
         return ref
 
     def serve(self, event: Event) -> bool:
@@ -1071,41 +1429,168 @@ class Vat:
 # ── Async driver ──────────────────────────────────────────────────────────────
 
 
-class AsyncConnection:
-    """An OCapN/CapTP peer driven asynchronously over an asyncio TCP stream.
+class _KeyedLocator(NamedTuple):
+    """The locator a keyed ``op:start-session`` signs for a transport: the
+    transport name, its designator, and whether empty hints encode as ``#f``."""
 
-    The sync :class:`Peer` is sans-io — it never blocks and never owns a socket.
-    This wraps an :class:`asyncio.StreamReader`/:class:`asyncio.StreamWriter`
-    pair and *drives* the peer over it: read bytes, let the peer frame and
-    dispatch them (:meth:`Peer.recv_stream`), write the peer's outbound frames
-    back, and surface events.
+    transport: str
+    designator: str
+    hints_empty_false: bool = True
 
-    The peer is a single-owner state machine: one ``AsyncConnection`` owns one
-    peer and must be driven from a single task. Use as an ``async with`` context
-    manager, or call :meth:`aclose`.
-    """
+
+class _FramePump:
+    """How one transport moves a frame — a complete, codec-self-delimited CapTP
+    message, the same unit :meth:`Peer.take_outbound` yields and
+    :meth:`Peer.feed`/:meth:`Peer.recv_stream` consume. A transport differs only
+    in how it moves that unit, never in the pump that drives the peer over it, so
+    :class:`AsyncConnection` holds a pump and is otherwise transport-blind."""
+
+    def locator(self) -> _KeyedLocator:
+        raise NotImplementedError
+
+    def dispatch_buffered(self, peer: Peer) -> bool:
+        """Frame and dispatch one already-buffered inbound frame without
+        blocking; ``True`` when one was dispatched (the caller loops). A
+        one-frame-per-receive transport buffers nothing and returns ``False``."""
+        raise NotImplementedError
+
+    async def receive(self, peer: Peer) -> bool:
+        """Block for more inbound and dispatch it; ``False`` on a clean EOF."""
+        raise NotImplementedError
+
+    async def write_frame(self, frame: bytes) -> None:
+        raise NotImplementedError
+
+    async def close(self) -> None:
+        raise NotImplementedError
+
+
+class _TcpPump(_FramePump):
+    """The TCP pump: an asyncio stream pair plus the inbound byte buffer the peer
+    frames. The keyed locator signs the socket's own ``host:port``, a true ``tcp``
+    locator a Goblins partner accepts."""
 
     _READ_CHUNK = 65536
 
-    def __init__(self, peer: Peer, reader: "asyncio.StreamReader", writer: "asyncio.StreamWriter"):
-        self._peer = peer
+    def __init__(self, reader: "asyncio.StreamReader", writer: "asyncio.StreamWriter"):
         self._reader = reader
         self._writer = writer
-        self._vat: Optional[Vat] = None
-        # Inbound bytes read from the wire but not yet framed into whole frames.
         self._inbox = bytearray()
+
+    def locator(self) -> _KeyedLocator:
+        host, port, *_ = self._writer.get_extra_info("sockname")
+        return _KeyedLocator("tcp", f"{host}:{port}")
+
+    def dispatch_buffered(self, peer: Peer) -> bool:
+        if not self._inbox:
+            return False
+        consumed = peer.recv_stream(self._inbox)
+        if consumed is None:
+            return False
+        del self._inbox[:consumed]
+        return True
+
+    async def receive(self, peer: Peer) -> bool:
+        chunk = await self._reader.read(self._READ_CHUNK)
+        if chunk == b"":
+            return False  # clean EOF
+        self._inbox.extend(chunk)
+        return True
+
+    async def write_frame(self, frame: bytes) -> None:
+        self._writer.write(frame)
+        await self._writer.drain()
+
+    async def close(self) -> None:
+        self._writer.close()
+        try:
+            await self._writer.wait_closed()
+        except (OSError, asyncio.CancelledError):
+            pass
+
+
+class _IrohPump(_FramePump):
+    """The iroh pump: an :class:`IrohConn` that delivers and accepts whole frames
+    through the sidecar FFI. Its calls block the calling thread (the sidecar runs
+    its own runtime), so each rides :func:`asyncio.to_thread` to keep the event
+    loop free. The keyed locator signs the ``iroh`` transport with the local
+    endpoint id as designator (empty for a dialer, matching the Zig driver). When
+    the pump minted its own dialing netlayer it owns that netlayer's lifetime
+    too."""
+
+    def __init__(self, conn: IrohConn, designator: str, owned_netlayer: "Optional[IrohNetlayer]" = None):
+        self._conn = conn
+        self._designator = designator
+        self._owned_netlayer = owned_netlayer
+
+    def locator(self) -> _KeyedLocator:
+        return _KeyedLocator("iroh", self._designator)
+
+    def dispatch_buffered(self, peer: Peer) -> bool:
+        # Each receive reads exactly one whole frame; nothing is buffered ahead.
+        return False
+
+    async def receive(self, peer: Peer) -> bool:
+        frame = await asyncio.to_thread(self._conn.read_frame)
+        if frame is None:
+            return False  # clean EOF
+        peer.feed(frame)
+        return True
+
+    async def write_frame(self, frame: bytes) -> None:
+        await asyncio.to_thread(self._conn.write_frame, frame)
+
+    async def close(self) -> None:
+        self._conn.release()
+        if self._owned_netlayer is not None:
+            self._owned_netlayer.release()
+
+
+class AsyncConnection:
+    """An OCapN/CapTP peer driven asynchronously over a transport pump.
+
+    The sync :class:`Peer` is sans-io — it never blocks and never owns a socket.
+    This owns one peer and one :class:`_FramePump` and *drives* the peer over it:
+    source whole frames (or raw bytes the peer frames), let the peer dispatch
+    them, write the peer's outbound frames back, and surface events. The pump is
+    the only thing that differs between transports (TCP today, iroh through the
+    sidecar); the drive loop is identical.
+
+    The peer is a single-owner state machine: one ``AsyncConnection`` owns one
+    peer and must be driven from a single task. Use as an ``async with`` context
+    manager, or call :meth:`aclose`. This is the pump layer :class:`Connection`
+    builds on; an application usually holds a :class:`Connection`.
+    """
+
+    def __init__(self, peer: Peer, pump: _FramePump):
+        self._peer = peer
+        self._pump = pump
+        self._vat: Optional[Vat] = None
 
     @classmethod
     async def connect(cls, host: str, port: int) -> "AsyncConnection":
-        """Connect to ``host:port`` and wrap a fresh peer driven over it."""
+        """Connect to ``host:port`` and complete the keyed OCapN handshake."""
         reader, writer = await asyncio.open_connection(host, port)
-        return cls(Peer(), reader, writer)
+        ac = cls(Peer(), _TcpPump(reader, writer))
+        await _open_keyed_session(ac)
+        return ac
 
     @classmethod
     def from_stream(cls, peer: Peer, reader: "asyncio.StreamReader", writer: "asyncio.StreamWriter") -> "AsyncConnection":
         """Wrap an already-connected stream pair and a peer you have configured
         (registered exports/imports, bootstrap caps, …)."""
-        return cls(peer, reader, writer)
+        return cls(peer, _TcpPump(reader, writer))
+
+    @classmethod
+    def from_pump(cls, peer: Peer, pump: _FramePump) -> "AsyncConnection":
+        """Wrap a peer and an already-built frame pump — the transport-neutral
+        constructor the iroh path uses."""
+        return cls(peer, pump)
+
+    @property
+    def locator(self) -> _KeyedLocator:
+        """The locator this connection's transport signs in its start-session."""
+        return self._pump.locator()
 
     @property
     def peer(self) -> Peer:
@@ -1159,7 +1644,7 @@ class AsyncConnection:
             event = await self.next_event()
 
     async def next_event(self) -> Optional[Event]:
-        """Await the next application event, driving the socket as needed.
+        """Await the next application event, driving the transport as needed.
         Returns ``None`` on a clean end of stream."""
         while True:
             # A surfaced event takes priority.
@@ -1168,39 +1653,40 @@ class AsyncConnection:
                 return event
             # Flush anything the last dispatch queued (replies, aborts).
             await self._pump_outbound()
-            # Consume every whole frame already buffered; each may surface an
+            # Dispatch every whole frame already buffered; each may surface an
             # event or queue outbound, so loop back to re-check.
             consumed_any = False
-            while True:
-                consumed = self._peer.recv_stream(bytes(self._inbox))
-                if consumed is None:
-                    break  # only a partial frame buffered — read more
-                del self._inbox[:consumed]
+            while self._pump.dispatch_buffered(self._peer):
                 consumed_any = True
             if consumed_any:
                 continue
-            # Need more bytes from the wire.
-            chunk = await self._reader.read(self._READ_CHUNK)
-            if chunk == b"":
+            # Need more from the wire.
+            if not await self._pump.receive(self._peer):
                 return None  # clean EOF
-            self._inbox.extend(chunk)
+
+    async def _drive_until_session_open(self) -> None:
+        """Pump handshake frames without consuming application events."""
+        while not self._peer.session_is_open():
+            await self._pump_outbound()
+            dispatched = False
+            while self._pump.dispatch_buffered(self._peer):
+                dispatched = True
+                if self._peer.session_is_open():
+                    return
+            if dispatched:
+                continue
+            if not await self._pump.receive(self._peer):
+                raise PancakeError(_ERR_CLOSED, "connection closed during the OCapN handshake")
 
     async def _pump_outbound(self) -> None:
         """Encode pending outbound work and write every queued frame, then flush."""
         self._peer.step()
         while (frame := self._peer.take_outbound()) is not None:
-            self._writer.write(frame)
-        await self._writer.drain()
+            await self._pump.write_frame(frame)
 
     async def aclose(self) -> None:
-        """Close the writer and release the owned peer."""
-        if self._writer is not None:
-            self._writer.close()
-            try:
-                await self._writer.wait_closed()
-            except (OSError, asyncio.CancelledError):
-                pass
-            self._writer = None
+        """Close the transport and release the owned peer."""
+        await self._pump.close()
         self._peer.release()
 
     async def __aenter__(self) -> "AsyncConnection":
@@ -1210,22 +1696,20 @@ class AsyncConnection:
         await self.aclose()
 
 
-CODEC_SYRUP = 0
-
-
 def _host_buf(host: str):
     data = host.encode()
     buf = ctypes.create_string_buffer(data, len(data))
     return buf, len(data)
 
 
-class Conn:
-    """A blocking TCP connection. Closed on release / context exit."""
+class Endpoint:
+    """A blocking TCP endpoint: the ``pancake_tcp_*`` frame shuttle,
+    one layer below :class:`Connection`. Closed on release / context exit."""
 
     def __init__(self, raw):
         self._raw = raw
 
-    def __enter__(self) -> "Conn":
+    def __enter__(self) -> "Endpoint":
         return self
 
     def __exit__(self, *exc) -> None:
@@ -1233,13 +1717,13 @@ class Conn:
 
     def close(self) -> None:
         if self._raw:
-            _lib.pancake_endpoint_tcp_conn_close(self._raw)
+            _lib.pancake_tcp_conn_release(self._raw)
             self._raw = None
 
     def read_frame(self) -> bytes:
-        """Block for one whole frame. Raises PancakeError(-8) on clean EOF."""
+        """Block for one whole frame. Raises PancakeError(ERR_CLOSED) on clean EOF."""
         frame = _ManagedFrame()
-        _check(_lib.pancake_endpoint_tcp_read_frame(self._raw, ctypes.byref(frame)))
+        _check(_lib.pancake_tcp_conn_read_frame(self._raw, ctypes.byref(frame)))
         out = ctypes.string_at(frame.bytes, frame.len)
         _lib.pancake_managed_frame_release(ctypes.byref(frame))
         return out
@@ -1247,7 +1731,7 @@ class Conn:
     def write_frame(self, frame: bytes) -> None:
         buf = ctypes.create_string_buffer(frame, len(frame))
         f = _Frame(ctypes.cast(buf, ctypes.c_void_p), len(frame), _FRAME_SHAPE_BYTE)
-        _check(_lib.pancake_endpoint_tcp_write_frame(self._raw, ctypes.byref(f)))
+        _check(_lib.pancake_tcp_conn_write_frame(self._raw, ctypes.byref(f)))
 
 
 class Listener:
@@ -1264,18 +1748,18 @@ class Listener:
 
     def close(self) -> None:
         if self._raw:
-            _lib.pancake_endpoint_tcp_listener_close(self._raw)
+            _lib.pancake_tcp_listener_release(self._raw)
             self._raw = None
 
     def port(self) -> int:
         out = ctypes.c_uint16()
-        _check(_lib.pancake_endpoint_tcp_listener_port(self._raw, ctypes.byref(out)))
+        _check(_lib.pancake_tcp_listener_port(self._raw, ctypes.byref(out)))
         return out.value
 
-    def accept(self, codec: int = CODEC_SYRUP, max_frame_bytes: int = 4096) -> Conn:
+    def accept(self, codec: str = "syrup", max_frame_bytes: int = 4096) -> Endpoint:
         out = ctypes.c_void_p()
-        _check(_lib.pancake_endpoint_tcp_testing_accept(self._raw, codec, max_frame_bytes, ctypes.byref(out)))
-        return Conn(out)
+        _check(_lib.pancake_tcp_accept(self._raw, _codec_id(codec), max_frame_bytes, ctypes.byref(out)))
+        return Endpoint(out)
 
 
 class Netlayer:
@@ -1285,6 +1769,7 @@ class Netlayer:
         out = ctypes.c_void_p()
         _check(_lib.pancake_tcp_netlayer_new(ctypes.byref(out)))
         self._raw = out
+        self._context: Optional["Context"] = None
 
     @classmethod
     def new_in(cls, context: "Context") -> "Netlayer":
@@ -1294,6 +1779,8 @@ class Netlayer:
         out = ctypes.c_void_p()
         _check(_lib.pancake_tcp_netlayer_new_in(context._raw, ctypes.byref(out)))
         self._raw = out
+        # Keep the context alive at least as long as this netlayer (see Peer.new_in).
+        self._context = context
         return self
 
     def __enter__(self) -> "Netlayer":
@@ -1310,14 +1797,135 @@ class Netlayer:
     def listen(self, host: str, port: int = 0) -> Listener:
         buf, n = _host_buf(host)
         out = ctypes.c_void_p()
-        _check(_lib.pancake_endpoint_tcp_testing_listen(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, port, ctypes.byref(out)))
+        _check(_lib.pancake_tcp_listen(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, port, ctypes.byref(out)))
         return Listener(out)
 
-    def connect(self, host: str, port: int, codec: int = CODEC_SYRUP, max_frame_bytes: int = 4096) -> Conn:
+    def connect(self, host: str, port: int, codec: str = "syrup", max_frame_bytes: int = 4096) -> Endpoint:
         buf, n = _host_buf(host)
         out = ctypes.c_void_p()
-        _check(_lib.pancake_endpoint_tcp_testing_connect(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, port, codec, max_frame_bytes, ctypes.byref(out)))
-        return Conn(out)
+        _check(_lib.pancake_tcp_connect(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, port, _codec_id(codec), max_frame_bytes, ctypes.byref(out)))
+        return Endpoint(out)
+
+
+class Reachability(enum.IntEnum):
+    """An iroh endpoint's addressing posture — how it dials partners and how it
+    is dialed. Every iroh constructor requires it explicitly; there is **no
+    default**, because the right posture is a deployment decision (relay-less vs
+    relayed, discovery vs none) and a hidden one would silently route — or refuse
+    to route — a partner's traffic.
+
+    ``DIRECT`` (0)
+        Dial by endpoint id plus direct-address hints; relay-less, no discovery.
+        A URI must carry ``direct-addresses``. This is the rooms demo's posture.
+    ``DISCOVERY`` (1)
+        Use the n0 relays and DNS discovery, so a partner is dialable by
+        endpoint id alone.
+    ``DISCOVERY_NO_RELAY`` (2)
+        Use DNS discovery, but no relays.
+    ``LOCAL_DISCOVERY`` (3)
+        Use an in-process address book — for tests and same-process peers.
+    """
+
+    DIRECT = 0
+    DISCOVERY = 1
+    DISCOVERY_NO_RELAY = 2
+    LOCAL_DISCOVERY = 3
+
+
+class IrohConn:
+    """One iroh QUIC connection carrying one OCapN session, framed on the
+    netlayer's codec — the iroh sibling of :class:`Endpoint`. Its calls block the
+    calling thread (the sidecar runs its own runtime), so the async iroh transport
+    drives them through :func:`asyncio.to_thread`."""
+
+    def __init__(self, raw):
+        self._raw = raw
+
+    def read_frame(self) -> "Optional[bytes]":
+        """Block for one whole frame; ``None`` on a clean end of stream."""
+        frame = _ManagedFrame()
+        rc = _iroh().pancake_iroh_conn_read_frame(self._raw, ctypes.byref(frame))
+        if rc == _ERR_CLOSED:
+            return None
+        _check_iroh(rc)
+        out = ctypes.string_at(frame.bytes, frame.len)
+        _lib.pancake_managed_frame_release(ctypes.byref(frame))
+        return out
+
+    def write_frame(self, frame: bytes) -> None:
+        buf = ctypes.create_string_buffer(frame, len(frame))
+        f = _Frame(ctypes.cast(buf, ctypes.c_void_p), len(frame), _FRAME_SHAPE_BYTE)
+        _check_iroh(_iroh().pancake_iroh_conn_write_frame(self._raw, ctypes.byref(f)))
+
+    def release(self) -> None:
+        if self._raw:
+            _iroh().pancake_iroh_conn_release(self._raw)
+            self._raw = None
+
+
+class IrohNetlayer:
+    """A bound iroh QUIC endpoint plus the sidecar runtime driving it — the iroh
+    sibling of :class:`Netlayer`, and its own listener (there is no host:port, so
+    :meth:`accept` lives here). Release every :class:`IrohConn` it mints before
+    releasing it.
+
+    ``reachability`` (a :class:`Reachability`) is required — it sets the
+    endpoint's addressing posture and has no default."""
+
+    def __init__(self, reachability: "Union[int, Reachability]", secret_seed: "Optional[bytes]" = None):
+        if secret_seed is not None and len(secret_seed) != 32:
+            raise ValueError("an iroh secret seed must be 32 bytes")
+        seed = secret_seed or b""
+        buf = ctypes.create_string_buffer(seed, len(seed)) if seed else None
+        out = ctypes.c_void_p()
+        _check_iroh(_iroh().pancake_iroh_netlayer_new(
+            ctypes.cast(buf, ctypes.c_void_p) if buf is not None else None, len(seed),
+            int(reachability), ctypes.byref(out),
+        ))
+        self._raw = out
+
+    def node_id(self) -> str:
+        """This endpoint's id — its Ed25519 public key as lowercase hex, the
+        dialable designator a keyed locator signs."""
+        cap = 64
+        out = (ctypes.c_uint8 * cap)()
+        n = ctypes.c_size_t()
+        _check_iroh(_iroh().pancake_iroh_netlayer_node_id(self._raw, out, cap, ctypes.byref(n)))
+        return bytes(out[: n.value]).decode()
+
+    def direct_addresses(self) -> str:
+        """This endpoint's comma-separated direct socket addresses — the dialing
+        hint a partner needs because the sidecar binds relay-less."""
+        cap = 1024
+        out = (ctypes.c_uint8 * cap)()
+        n = ctypes.c_size_t()
+        _check_iroh(_iroh().pancake_iroh_netlayer_direct_addrs(self._raw, out, cap, ctypes.byref(n)))
+        return bytes(out[: n.value]).decode()
+
+    def connect(self, node_id: str, addr_hints: str, codec: str = "syrup", max_frame_bytes: int = 4096) -> IrohConn:
+        """Dial a partner by endpoint id (``addr_hints`` its comma-separated
+        direct-address list) and complete a framed connection."""
+        id_b = node_id.encode()
+        hints_b = addr_hints.encode()
+        id_buf = ctypes.create_string_buffer(id_b, len(id_b))
+        hints_buf = ctypes.create_string_buffer(hints_b, len(hints_b))
+        out = ctypes.c_void_p()
+        _check_iroh(_iroh().pancake_iroh_netlayer_connect(
+            self._raw,
+            ctypes.cast(id_buf, ctypes.c_void_p), len(id_b),
+            ctypes.cast(hints_buf, ctypes.c_void_p), len(hints_b),
+            _codec_id(codec), max_frame_bytes, ctypes.byref(out),
+        ))
+        return IrohConn(out)
+
+    def close(self) -> None:
+        if self._raw:
+            _iroh().pancake_iroh_netlayer_close(self._raw)
+
+    def release(self) -> None:
+        if self._raw:
+            _iroh().pancake_iroh_netlayer_release(self._raw)
+            self._raw = None
 
 
 # ── Connection: the application surface ──────────────────────────────────────
@@ -1329,33 +1937,27 @@ class Netlayer:
 # :class:`Peer`, :class:`Vat`, and :class:`AsyncConnection` remain for power
 # users (reach ``conn.peer``), but no application needs them.
 
-_BOOTSTRAP_POSITION = 0
-_FIRST_SPAWN_POSITION = 32
-
-
 def _is_wire_reference(value: object) -> bool:
     return isinstance(value, (Near, Far, Promise, Sturdy, Broken))
 
 
-def _local_designator(writer: "asyncio.StreamWriter") -> str:
-    """The ``host:port`` of this socket's own end — the locator a peer signs in
-    its keyed start-session."""
-    host, port, *_ = writer.get_extra_info("sockname")
-    return f"{host}:{port}"
-
-
-async def _open_keyed_session(ac: "AsyncConnection", designator: str) -> None:
+async def _open_keyed_session(ac: "AsyncConnection") -> None:
     """Complete the keyed ``op:start-session`` handshake over a negotiating peer:
-    sign a ``tcp`` locator naming ``designator`` with a per-connection random
-    session key, flush it, and pump until the partner's start-session opens the
-    session. Entropy is generated here, at the I/O boundary, never in the sans-io
-    core. Signing the socket's real local address keeps the locator a true ``tcp``
-    locator, which a Goblins partner accepts."""
-    ac.peer.start_session_keyed(secrets.token_bytes(32), designator=designator)
+    sign the transport's locator with a per-connection random session key, flush
+    it, and pump until the partner's start-session opens the session. Entropy is
+    generated here, at the I/O boundary, never in the sans-io core. The locator
+    comes from the transport pump — the socket's real local address for ``tcp``
+    (a true locator a Goblins partner accepts), the local endpoint id for
+    ``iroh`` — so the signed locator always matches what the partner expects."""
+    loc = ac.locator
+    ac.peer.start_session(
+        secrets.token_bytes(32),
+        transport=loc.transport,
+        designator=loc.designator,
+        hints_empty_false=loc.hints_empty_false,
+    )
     await ac.flush()
-    while not ac.peer.session_is_open():
-        if await ac.next_event() is None:
-            raise PancakeError(-8, "connection closed during the OCapN handshake")
+    await ac._drive_until_session_open()
 
 
 class Connection:
@@ -1371,7 +1973,6 @@ class Connection:
     def __init__(self, ac: AsyncConnection):
         self._ac = ac
         self._vat = ac.vat()
-        self._next_spawn = _FIRST_SPAWN_POSITION
         self._serve_task: Optional[asyncio.Task] = None
         self._closing = False
 
@@ -1382,16 +1983,47 @@ class Connection:
         ``fetch``/``send`` rides an established session — the same handshake a
         real Goblins peer requires."""
         reader, writer = await asyncio.open_connection(host, port)
-        ac = AsyncConnection.from_stream(Peer.new_negotiating(), reader, writer)
-        await _open_keyed_session(ac, _local_designator(writer))
+        ac = AsyncConnection.from_stream(Peer(), reader, writer)
+        await _open_keyed_session(ac)
         return cls(ac)
 
     @classmethod
     async def _accept(cls, reader, writer) -> "Connection":
         """Wrap an accepted stream and complete the keyed handshake from the
         responder side. Resolves once the session is open."""
-        ac = AsyncConnection.from_stream(Peer.new_negotiating(), reader, writer)
-        await _open_keyed_session(ac, _local_designator(writer))
+        ac = AsyncConnection.from_stream(Peer(), reader, writer)
+        await _open_keyed_session(ac)
+        return cls(ac)
+
+    @classmethod
+    async def connect_iroh(cls, node_id: str, direct_addresses: str, reachability: "Union[int, Reachability]") -> "Connection":
+        """Dial an iroh partner by endpoint id and direct-address hints, complete
+        the keyed OCapN handshake over the encrypted-QUIC transport, and return a
+        ready connection — the iroh sibling of :meth:`connect`. The local
+        endpoint is ephemeral (a fresh key) and released with the connection.
+        ``reachability`` (a :class:`Reachability`) sets the ephemeral dialer's
+        posture and is required — there is no default. Needs the iroh ABI library
+        (``zig build iroh-abi``)."""
+        netlayer = IrohNetlayer(reachability)
+        try:
+            conn = await asyncio.to_thread(netlayer.connect, node_id, direct_addresses)
+        except BaseException:
+            netlayer.release()
+            raise
+        # A dialer signs an empty designator (its identity is the session key),
+        # matching the Zig driver; the pump owns the ephemeral netlayer's lifetime.
+        ac = AsyncConnection.from_pump(Peer(), _IrohPump(conn, "", netlayer))
+        await _open_keyed_session(ac)
+        return cls(ac)
+
+    @classmethod
+    async def _accept_iroh(cls, conn: IrohConn, local_node_id: str) -> "Connection":
+        """Complete the responder handshake over an accepted iroh connection,
+        signing the server's endpoint id as the locator designator (used by
+        :class:`IrohServer`). The accepted connection's netlayer belongs to the
+        server, not this connection."""
+        ac = AsyncConnection.from_pump(Peer(), _IrohPump(conn, local_node_id))
+        await _open_keyed_session(ac)
         return cls(ac)
 
     @property
@@ -1402,9 +2034,10 @@ class Connection:
 
     def spawn(self, behavior) -> Ref:
         """Spawn a local actor and return a capability to it. Pass the returned
-        :class:`Ref` as a ``send`` argument to hand a partner a callback."""
-        position = self._next_spawn
-        self._next_spawn += 1
+        :class:`Ref` as a ``send`` argument to hand a partner a callback. The
+        position comes from the session's one export allocator, so it can never
+        alias a bootstrap or resolver export."""
+        position = self._ac.peer.next_export()
         local = self._vat.publish(position, self._wrap(behavior))
         return Ref(local_id=local.local_id, near=Near(position))
 
@@ -1436,15 +2069,21 @@ class Connection:
         return future
 
     async def fetch(self, name: str) -> Ref:
-        """Fetch a partner's published capability by ``name``. Requires
-        :meth:`serve` to be running so the resolution arrives."""
-        self._ac.peer.register_import(_BOOTSTRAP_POSITION)
-        vow = self._vat.send(Ref.to(Far(_BOOTSTRAP_POSITION)), "fetch", [name.encode()])
-        future = self._settle(vow)
+        """Fetch a partner's published capability by ``name``. Starts the inbound
+        loop itself, so a ``fetch`` straight after ``connect`` works without a
+        separate :meth:`serve` call (which stays the way to keep serving).
+        Raises :class:`VowBroken` when the partner breaks the fetch, and
+        :class:`FetchFailed` when it fulfills with something that is not a
+        capability."""
+        self.serve()  # idempotent; the resolution arrives on the inbound loop
+        # The canonical fetch lives in the library: one call registers the
+        # bootstrap import, allocates the answer, and queues the deliver.
+        answer = self._ac.peer.send_bootstrap_fetch(name.encode())
+        future = self._settle(Vow(answer=answer, vat=self._vat))
         await self._ac.flush()
         result = await future
         if not _is_wire_reference(result):
-            raise PancakeError(-13, f'fetch("{name}") did not resolve to a capability')
+            raise FetchFailed(name)
         return Ref(far=result) if isinstance(result, Far) else Ref(near=result)
 
     async def send(self, target: Ref, verb: str, args: Optional[list] = None):
@@ -1452,6 +2091,8 @@ class Connection:
         Flushes immediately. ``args`` may contain :class:`Ref`s. Raises
         :class:`VowBroken` if the partner breaks the call."""
         wire_args = [self._lower(a) for a in (args or [])]
+        if target.local_id is None:
+            self.serve()  # far reply arrives on the inbound loop
         vow = self._vat.send(target, verb, wire_args)
         future = self._settle(vow)
         if target.local_id is not None:
@@ -1520,6 +2161,10 @@ class Connection:
     def _lower(value):
         if isinstance(value, Ref):
             return value._wire()
+        if isinstance(value, Set):  # before list — Set subclasses list
+            return Set(Connection._lower(v) for v in value)
+        if isinstance(value, Tagged):
+            return Tagged(value.tag, [Connection._lower(v) for v in value.value])
         if isinstance(value, list):
             return [Connection._lower(v) for v in value]
         return value
@@ -1530,6 +2175,10 @@ class Connection:
             return Ref(far=value)
         if isinstance(value, Near):
             return Ref(near=value)
+        if isinstance(value, Set):  # before list — Set subclasses list
+            return Set(Connection._lift(v) for v in value)
+        if isinstance(value, Tagged):
+            return Tagged(value.tag, [Connection._lift(v) for v in value.value])
         if isinstance(value, list):
             return [Connection._lift(v) for v in value]
         return value
@@ -1541,17 +2190,245 @@ async def connect(host: str, port: int) -> Connection:
     return await Connection.connect(host, port)
 
 
-async def listen(host: str, port: int):
-    """Accept connections: ``async for conn in listen(host, port): ...``. Each
+class Server:
+    """A listening server — one object an app holds, mirroring the Deno/Rust/Racket
+    servers. Async-iterable (``async for conn in server``), and ``.port`` surfaces
+    the bound port so binding an ephemeral port (``port=0``) and telling a partner
+    where to connect works the same as the other bindings."""
+
+    def __init__(self, server: asyncio.AbstractServer, queue: "asyncio.Queue"):
+        self._server = server
+        self._queue = queue
+
+    @property
+    def port(self) -> int:
+        """The kernel-chosen bound port (read it back after binding ``port=0``)."""
+        return self._server.sockets[0].getsockname()[1]
+
+    def close(self) -> None:
+        self._server.close()
+
+    def __aiter__(self) -> "Server":
+        return self
+
+    async def __anext__(self) -> "Connection":
+        reader, writer = await self._queue.get()
+        return await Connection._accept(reader, writer)
+
+
+async def listen(host: str, port: int = 0) -> Server:
+    """Bind a listening :class:`Server`. ``async for conn in await listen(host, 0)``
+    accepts each partner; ``server.port`` reads the bound ephemeral port. Each
     yielded :class:`Connection` is one accepted partner — publish capabilities on
     it and call :meth:`Connection.serve`."""
     queue: asyncio.Queue = asyncio.Queue()
     server = await asyncio.start_server(
         lambda r, w: queue.put_nowait((r, w)), host, port,
     )
+    return Server(server, queue)
+
+
+# ── OCapN locator URIs ───────────────────────────────────────────────────────
+#
+# The `ocapn://<designator>.<transport>[?hints]` grammar is core OCapN
+# vocabulary, defined once in libpancake's `pancake_uri_*` / `pancake_locator_*`
+# surface, so no binding hand-rolls a percent codec. `parse_locator` copies every
+# borrowed view into Python strings before releasing the handle; `format_peer_uri`
+# renders through the same grammar.
+
+
+class Locator(NamedTuple):
+    """A parsed OCapN locator: the fields a ``pancake_uri_parse_*`` yields.
+    ``swissnum`` is empty for a peer URI, the swiss bytes for a sturdyref."""
+
+    transport: str
+    designator: str
+    swissnum: str
+    hints: "dict[str, str]"
+
+
+def _read_view(ptr: ctypes.c_void_p, length: ctypes.c_size_t) -> str:
+    # Decode a borrowed (pointer, length) view a locator accessor filled. A zero
+    # length (or NULL pointer) is the empty string.
+    n = length.value
+    if n == 0 or not ptr.value:
+        return ""
+    return ctypes.string_at(ptr.value, n).decode("utf-8")
+
+
+def parse_locator(uri: str, *, sturdyref: bool = False) -> Locator:
+    """Parse an ``ocapn://`` URI into its structured locator fields through the
+    core grammar. ``sturdyref`` selects the ``/s/<swiss>`` form; the default reads
+    a peer URI. Raises :class:`PancakeError` for a malformed URI."""
+    raw = uri.encode("utf-8")
+    out = ctypes.c_void_p()
+    parse = _lib.pancake_uri_parse_sturdyref if sturdyref else _lib.pancake_uri_parse_peer
+    _check(parse(raw, len(raw), ctypes.byref(out)))
     try:
-        while True:
-            reader, writer = await queue.get()
-            yield await Connection._accept(reader, writer)
+        def field(accessor) -> str:
+            p = ctypes.c_void_p()
+            n = ctypes.c_size_t()
+            _check(accessor(out, ctypes.byref(p), ctypes.byref(n)))
+            return _read_view(p, n)
+
+        count = ctypes.c_size_t()
+        _check(_lib.pancake_locator_hint_count(out, ctypes.byref(count)))
+        hints: "dict[str, str]" = {}
+        for i in range(count.value):
+            kp = ctypes.c_void_p()
+            kn = ctypes.c_size_t()
+            vp = ctypes.c_void_p()
+            vn = ctypes.c_size_t()
+            _check(_lib.pancake_locator_hint_at(out, i, ctypes.byref(kp), ctypes.byref(kn), ctypes.byref(vp), ctypes.byref(vn)))
+            hints[_read_view(kp, kn)] = _read_view(vp, vn)
+        return Locator(
+            field(_lib.pancake_locator_transport),
+            field(_lib.pancake_locator_designator),
+            field(_lib.pancake_locator_swissnum),
+            hints,
+        )
     finally:
-        server.close()
+        _lib.pancake_locator_release(out)
+
+
+def format_peer_uri(transport: str, designator: str, hints: "Optional[dict[str, str]]" = None) -> str:
+    """Format a peer locator as an ``ocapn://<designator>.<transport>[?hints]``
+    URI through the core grammar."""
+    items = list((hints or {}).items())
+    t = transport.encode("utf-8")
+    d = designator.encode("utf-8")
+    keys = [k.encode("utf-8") for k, _ in items]
+    vals = [v.encode("utf-8") for _, v in items]
+    n = len(items)
+    if n:
+        key_arr = (ctypes.c_char_p * n)(*keys)
+        val_arr = (ctypes.c_char_p * n)(*vals)
+        key_lens = (ctypes.c_size_t * n)(*[len(k) for k in keys])
+        val_lens = (ctypes.c_size_t * n)(*[len(v) for v in vals])
+        key_ptr = ctypes.cast(key_arr, ctypes.c_void_p)
+        val_ptr = ctypes.cast(val_arr, ctypes.c_void_p)
+        key_len_ptr = ctypes.cast(key_lens, ctypes.c_void_p)
+        val_len_ptr = ctypes.cast(val_lens, ctypes.c_void_p)
+    else:
+        key_ptr = val_ptr = key_len_ptr = val_len_ptr = None
+
+    cap = 256
+    while True:
+        buf = ctypes.create_string_buffer(cap)
+        out_len = ctypes.c_size_t()
+        rc = _lib.pancake_uri_format_peer(
+            t, len(t), d, len(d),
+            key_ptr, key_len_ptr, val_ptr, val_len_ptr, n,
+            buf, cap, ctypes.byref(out_len),
+        )
+        need = out_len.value
+        if rc == _OK:
+            return buf.raw[:need].decode("utf-8")
+        if rc == _ERR_INVALID_ARGUMENT and need > cap:
+            cap = need
+            continue
+        _check(rc)
+
+
+class IrohServer:
+    """A listening iroh endpoint — the iroh sibling of :class:`Server`.
+    Async-iterable (``async for conn in server``) for an accepted
+    :class:`Connection` per partner; read :attr:`uri` for the dialable address
+    (endpoint id + direct-address hints) to hand a client. ``reachability`` (a
+    :class:`Reachability`) is required and sets the endpoint's addressing
+    posture — there is no default. Needs the iroh ABI library
+    (``zig build iroh-abi``)."""
+
+    def __init__(self, reachability: "Union[int, Reachability]", secret_seed: "Optional[bytes]" = None):
+        self._netlayer = IrohNetlayer(reachability, secret_seed)
+        self._node_id = self._netlayer.node_id()
+        self._closed = False
+
+    @property
+    def node_id(self) -> str:
+        """This endpoint's id — the keyed locator designator and the URI host."""
+        return self._node_id
+
+    @property
+    def direct_addresses(self) -> str:
+        """This endpoint's comma-separated direct-address hints."""
+        return self._netlayer.direct_addresses()
+
+    @property
+    def uri(self) -> str:
+        """The ``ocapn://<nodeid>.iroh?direct-addresses=…`` URI a partner dials."""
+        hints = {"direct-addresses": self.direct_addresses} if self.direct_addresses else None
+        return format_peer_uri("iroh", self._node_id, hints)
+
+    def __aiter__(self) -> "IrohServer":
+        return self
+
+    async def __anext__(self) -> "Connection":
+        while True:
+            if self._closed:
+                raise StopAsyncIteration
+            out = ctypes.c_void_p()
+            rc = await asyncio.to_thread(
+                _iroh().pancake_iroh_netlayer_accept,
+                self._netlayer._raw, _codec_id("syrup"), 4096, ctypes.byref(out),
+            )
+            if rc == _ERR_CLOSED or self._closed:
+                raise StopAsyncIteration
+            _check_iroh(rc)
+            conn = IrohConn(out)
+            # A handshake failure belongs to that one connection, never the
+            # server — release it and keep accepting.
+            try:
+                return await Connection._accept_iroh(conn, self._node_id)
+            except Exception:
+                conn.release()
+                continue
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._netlayer.close()
+        self._netlayer.release()
+
+
+def listen_iroh(reachability: "Union[int, Reachability]", secret_seed: "Optional[bytes]" = None) -> IrohServer:
+    """Bind an iroh endpoint and return an :class:`IrohServer` you iterate for
+    each accepted :class:`Connection`. ``reachability`` (a :class:`Reachability`)
+    is required and sets the endpoint's addressing posture — there is no default.
+    ``secret_seed`` is a 32-byte Ed25519 secret for a stable endpoint id, or
+    ``None`` for a fresh random one. Needs the iroh ABI library
+    (``zig build iroh-abi``)."""
+    return IrohServer(reachability, secret_seed)
+
+
+async def connect_iroh(node_id: str, direct_addresses: str, reachability: "Union[int, Reachability]") -> Connection:
+    """Dial an iroh partner by endpoint id and direct-address hints — the
+    module-level shorthand for :meth:`Connection.connect_iroh`. ``reachability``
+    (a :class:`Reachability`) is required and has no default."""
+    return await Connection.connect_iroh(node_id, direct_addresses, reachability)
+
+
+async def connect_uri(uri: str, reachability: "Union[int, Reachability]") -> Connection:
+    """Dial a partner from its published ``ocapn://`` URI, dispatching on the
+    locator's transport: ``iroh`` dials the endpoint id with its
+    ``direct-addresses`` hints, ``tcp`` dials the ``host:port`` designator. The
+    transport-agnostic entry point — parse once, the core grammar picks the
+    netlayer. ``reachability`` (a :class:`Reachability`) is required and sets the
+    iroh dialer's posture — there is no default; the ``tcp`` path ignores it."""
+    loc = parse_locator(uri)
+    if loc.transport == "iroh":
+        return await Connection.connect_iroh(loc.designator, loc.hints.get("direct-addresses", ""), reachability)
+    if loc.transport == "tcp":
+        host, sep, port = loc.designator.rpartition(":")
+        if not sep:
+            raise PancakeError(_ERR_INVALID_ARGUMENT, f"tcp locator designator is not host:port: {loc.designator}")
+        return await Connection.connect(host, int(port))
+    raise PancakeError(_ERR_INVALID_ARGUMENT, f'connect_uri: unsupported transport "{loc.transport}"')
+
+
+async def connect_iroh_uri(uri: str, reachability: "Union[int, Reachability]") -> Connection:
+    """Dial an iroh partner from its published ``ocapn://<nodeid>.iroh?…`` URI —
+    a thin wrapper over the transport-dispatching :func:`connect_uri`.
+    ``reachability`` (a :class:`Reachability`) is required and has no default."""
+    return await connect_uri(uri, reachability)

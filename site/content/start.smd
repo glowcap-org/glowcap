@@ -1,0 +1,104 @@
+---
+.title = "Start building",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+The quickest way to get a feel for pancake is to watch one program call another.
+So let us write the calling half, look at every line, and then point you at the
+[surface]($link.page('surfaces')) that matches your language. The client program here is not for show. The
+build compiles and runs it under `zig build examples`, which is what keeps it from
+drifting away from the library.
+
+## In Zig
+
+pancake is a [Zig](https://ziglang.org/) package, so the first step is to fetch it
+into your build:
+
+```sh
+zig fetch --save git+https://codeberg.org/jimisaacs/pancake
+```
+
+```zig
+const pancake = b.dependency("pancake", .{ .target = target, .optimize = optimize });
+exe.root_module.addImport("pancake", pancake.module("pancake"));
+```
+
+Now the client itself. A whole client is one object and a handful of verbs, and
+here is the entire round-trip:
+
+```zig
+const pancake = @import("pancake");
+
+const conn = try pancake.driver.connect(io, allocator, address, .{});
+defer conn.close();
+
+const greeter = try conn.fetch("greeter"); // a capability, by name
+var arena = std.heap.ArenaAllocator.init(allocator);
+defer arena.deinit();
+const settled = try conn.call(greeter, .{
+    .verb = "greet",
+    .args = &.{.{ .string = "world" }},
+}, arena.allocator());
+switch (settled) {
+    .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
+    .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
+}
+```
+
+Read it as four moves:
+
+1. **Connect.** `pancake.driver.connect` opens a session over a netlayer and hands
+   you one owning `Connection`. The `defer conn.close()` on the next line is the
+   only connection cleanup the program needs; the arena's `deinit` reclaims the
+   reply values.
+2. **Fetch a capability.** `conn.fetch("greeter")` asks the partner for the object it
+   published under the name `greeter`. What comes back is a capability, not a copy, so
+   from here on you are calling the partner's object, not your own.
+3. **Call it.** `conn.call` sends the `greet` method with one string argument. The
+   arena you pass in owns whatever the reply allocates, so you free the result by
+   dropping the arena rather than tracking each piece.
+4. **Switch on the outcome.** A call settles one of two ways. It is `fulfilled` with
+   a value, or it is `broken` with a reason, and the compiler makes you handle both.
+
+That snippet is checked verbatim by
+[`examples/zig/readme_quick_start.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/readme_quick_start.zig).
+The hosting half, the program that publishes `greeter` and answers the call, has the
+same shape, and
+[`examples/zig/01_connect_and_serve.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/01_connect_and_serve.zig)
+runs both halves together. From there the
+[example chapters](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/README.md)
+keep going down, from this application surface all the way to the raw engine, one
+`step` at a time.
+
+## From C, or any FFI host
+
+The same library is also a plain C ABI, and that is the door for everyone not
+writing Zig. If you are embedding pancake in a C program or binding it from another
+runtime, start with
+[consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md).
+It walks the build, the artifacts, the ownership rules, and a first complete program
+in one place. The C surface is deliberately boring, and that is the point. It is
+opaque handles, fixed-width return codes, `ptr + len` views, and explicit release
+functions, which is exactly what makes it pleasant to wrap.
+
+## In Rust, Deno, Python, or Racket
+
+If you write one of these four, a binding already did the wrapping for you. Each one
+consumes the C ABI as a genuine foreign-language consumer and then presents an
+idiomatic API on top, so you write the language you already know instead of foreign
+function calls. Start at the [bindings overview]($link.page('bindings')) for the
+shape they share, then jump to your language:
+[Rust]($link.page('bindings/rust')),
+[Deno]($link.page('bindings/deno')),
+[Python]($link.page('bindings/python')), or
+[Racket]($link.page('bindings/racket')).
+
+## Then go deeper
+
+Once a round-trip works, two paths open up. Read [the modules]($link.page('modules'))
+to see how the library is layered and where each responsibility lives. Or read
+[the concepts]($link.page('concepts')) first if capabilities, CapTP, and OCapN are
+new to you and you want the ideas before the API.

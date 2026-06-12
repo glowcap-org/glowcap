@@ -11,27 +11,18 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.model;
-const engine = pancake.engine;
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
 const tcp = pancake.net_adapter.tcp;
+const fetch_pump = @import("../support/fetch_pump.zig");
+const handshake = @import("../support/handshake.zig");
 
 const net = std.Io.net;
 
-const zero_pubkey = [_]u8{0} ** 32;
-const zero_sig = [_]u8{0} ** 64;
 const frame_cap = 4096;
 
 fn startSession(designator: []const u8) model.Message {
-    return .{ .start_session = .{
-        .captp_version = .v1_0,
-        .session_pubkey = .{ .bytes = &zero_pubkey },
-        .acceptable_location = .{
-            .transport = tcp.transport_name,
-            .designator = designator,
-            .hints = model.Hints.emptyMap(),
-        },
-        .acceptable_location_sig = .{ .bytes = &zero_sig },
-    } };
+    return handshake.startSession(tcp.transport_name, designator);
 }
 
 /// This loopback proof exercises transport + framing, and its `startSession`
@@ -40,10 +31,6 @@ fn startSession(designator: []const u8) model.Message {
 /// keyed, verified handshake is proven in `pairing_test`.
 fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
     return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-}
-
-fn isOpen(peer: *engine.Peer) bool {
-    return peer.session_state.state == .open;
 }
 
 const ServerError = anyerror;
@@ -103,54 +90,11 @@ fn fetchOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator) !
     defer conn.deinit();
 
     // 1. Handshake.
-    try peer.sendCopying(startSession("client"));
-    _ = try conn.runUntil(isOpen);
-    drainEvents(&peer);
+    try fetch_pump.handshakeToOpen(&peer, &conn, startSession("client"));
 
-    // 2. Fetch the published cap.
-    const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &peer.session_state, "thermostat");
-    try peer.send(prepared.message);
-
-    // 3. Pump until the settlement event arrives.
-    var settled = false;
-    while (!settled) {
-        const progress = try conn.pump();
-        while (peer.pollEvent()) |event_value| {
-            var event = event_value;
-            defer event.deinit();
-            const owned = try event.decodeOwned(allocator);
-            const match = try engine.fetch.tryMatchFetchOutcome(
-                allocator,
-                prepared.resolver_export,
-                prepared.answer_id,
-                owned,
-            );
-            switch (match) {
-                .settled => |outcome| switch (outcome) {
-                    .fulfilled => |reference| {
-                        model.freeReference(allocator, reference);
-                        settled = true;
-                    },
-                    .broken => |reason| {
-                        allocator.free(reason);
-                        return error.FetchBroke;
-                    },
-                    .malformed => return error.FetchMalformed,
-                },
-                .unrelated => |msg| model.freeMessage(allocator, msg),
-            }
-        }
-        if (progress == .closed) break;
-    }
-
-    try std.testing.expect(settled);
-}
-
-fn drainEvents(peer: *engine.Peer) void {
-    while (peer.pollEvent()) |event| {
-        var e = event;
-        e.deinit();
-    }
+    // 2. Fetch the published cap and pump until it settles fulfilled.
+    const reference = try fetch_pump.settleFetch(allocator, &peer, &conn, "thermostat");
+    model.freeReference(allocator, reference);
 }
 
 test "tcp loopback: handshake to open + bootstrap fetch round-trip" {

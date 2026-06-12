@@ -64,15 +64,19 @@ pub const Frame = struct {
     /// Take ownership of `storage` as it is, with no copy. Pass the alignment it
     /// was allocated with as `storage_alignment`, and `deinit` will free it with
     /// that same alignment, so a `word` frame's 8-byte allocation comes back
-    /// cleanly. If the bytes don't actually fit `shape`, you get
-    /// `Error.InvalidFrameShape`.
+    /// cleanly. Ownership transfers unconditionally: if the bytes don't actually
+    /// fit `shape`, the storage is freed right here and you get
+    /// `Error.InvalidFrameShape`. Either way, the caller owns nothing afterward.
     pub fn initOwned(
         allocator: std.mem.Allocator,
         storage: []u8,
         shape: FrameShape,
         storage_alignment: std.mem.Alignment,
     ) Error!Frame {
-        try validateShape(storage, shape);
+        validateShape(storage, shape) catch |err| {
+            freeStorage(allocator, storage, storage_alignment);
+            return err;
+        };
         return .{
             .storage = storage,
             .shape = shape,
@@ -87,15 +91,20 @@ pub const Frame = struct {
 
     /// Wrap storage that something else owns, like a host buffer, an mmap, or
     /// another runtime, without copying it. Instead of freeing, `deinit` calls
-    /// your `release` with `context`, and what that means is up to you. If the
-    /// bytes don't fit `shape`, you get `Error.InvalidFrameShape`.
+    /// your `release` with `context`, and what that means is up to you.
+    /// Ownership transfers unconditionally: if the bytes don't fit `shape`,
+    /// `release(context)` is called right here and you get
+    /// `Error.InvalidFrameShape`. Either way, the caller owns nothing afterward.
     pub fn initExternal(
         storage: []u8,
         shape: FrameShape,
         context: *anyopaque,
         release: ExternalReleaseFn,
     ) Error!Frame {
-        try validateShape(storage, shape);
+        validateShape(storage, shape) catch |err| {
+            release(context);
+            return err;
+        };
         return .{
             .storage = storage,
             .shape = shape,
@@ -104,13 +113,15 @@ pub const Frame = struct {
     }
 
     /// Let the storage go. An allocator-owned frame is freed with the alignment
-    /// it remembered. An external frame gets its `release` called. Do this
-    /// exactly once.
+    /// it remembered. An external frame gets its `release` called. The frame is
+    /// left undefined afterward, so a second `deinit` or a late read trips the
+    /// debug-mode poison instead of quietly using freed bytes.
     pub fn deinit(self: *Frame) void {
         switch (self.owner) {
             .allocator => |owner| freeStorage(owner.allocator, self.storage, owner.storage_alignment),
             .external => |owner| owner.release(owner.context),
         }
+        self.* = undefined;
     }
 
     /// Read the frame's bytes as a const slice. They're good for as long as the

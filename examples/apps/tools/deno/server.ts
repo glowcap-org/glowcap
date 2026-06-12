@@ -2,9 +2,10 @@
 //
 // It publishes a `tools` capability. An agent fetches it and asks for the tools a
 // task needs; the coordinator hands back capabilities — full, attenuated to
-// read-only, or revocable — and the agent calls them. The agent can reach exactly
-// what it was handed and nothing else: there is no ambient authority, so a
-// capability it was never given is unreachable, not merely forbidden.
+// read-only, or revocable — and the agent calls them. The agent holds exactly the
+// references it was handed: there is no ambient authority and no global directory
+// of tools to enumerate, so no reference the coordinator never sent it names a
+// capability it can reach.
 //
 // Read how the capability trio falls out of ordinary code:
 //   - delegation  — `grant` returns `conn.spawn(toolBehavior)`, a reference the

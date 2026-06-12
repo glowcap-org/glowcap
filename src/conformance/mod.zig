@@ -1,10 +1,10 @@
 //! Canonical CapTP scenario drivers — the observable-trace oracle.
 //!
-//! Each `run*` function drives a [`engine.Peer`] through one fixed protocol
+//! Each `run*` function drives a `engine.Peer` through one fixed protocol
 //! scenario (a Stage-0 abort, a driven deliver/resolve, a handshake-then-
 //! bootstrap-fetch, an inbound dispatch mode) and returns the resulting wire
 //! bytes. Those byte traces are the conformance evidence: the Zig oracle tests
-//! ([`test/conformance`], [`test/oracle`]) and the cross-language bindings'
+//! (`test/conformance`, `test/oracle`) and the cross-language bindings'
 //! scenario runners compare them for identical observable behavior. This is a
 //! public surface on purpose — it is how a consumer proves it produces the
 //! canonical trace — so it ships in `libpancake`, not under `test/`.
@@ -14,9 +14,9 @@
 
 const std = @import("std");
 
-const foundation = @import("../foundation/mod.zig");
-const model = @import("../model/mod.zig");
-const engine = @import("../engine/mod.zig");
+const foundation = @import("foundation");
+const model = @import("model");
+const engine = @import("engine");
 
 pub fn runStage0Abort(allocator: std.mem.Allocator) ![]u8 {
     var peer = engine.Peer.init(allocator);
@@ -97,7 +97,7 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
     // p1 imports p2's bootstrap export (id 0) and asks a question on answer 42.
     try pair.p1.session_state.registerImport(0);
     try pair.p1.sendCopying(.{ .deliver = .{
-        .target = .{ .far = .{ .import_id = 0 } },
+        .target = .{ .far = .{ .import_position = 0 } },
         .args = &.{.{ .bytes = "ping" }},
         .answer = 42,
     } });
@@ -158,8 +158,8 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
     errdefer out.deinit(allocator);
     try out.appendSlice(allocator, "scenario=handshake_bootstrap_fetch\n");
 
-    const export_id = try pair.p2.registerBootstrapCap("thermostat");
-    try appendTraceLine(allocator, &out, "p2=registered:swissnum=thermostat:export={d}\n", .{export_id});
+    const export_position = try pair.p2.registerBootstrapCap("thermostat");
+    try appendTraceLine(allocator, &out, "p2=registered:swissnum=thermostat:export={d}\n", .{export_position});
 
     const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &pair.p1.session_state, "thermostat");
     try pair.p1.send(prepared.message);
@@ -190,7 +190,7 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
         var settle = pair.p1.pollEvent().?;
         defer settle.deinit();
         const owned = try settle.decodeOwned(allocator);
-        const match = try engine.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer_id, owned);
+        const match = try engine.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer_position, owned);
         switch (match) {
             .settled => |outcome| switch (outcome) {
                 .fulfilled => |reference| {
@@ -199,8 +199,8 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
                     // it at p1 as the import it now holds. Trace its position
                     // (variant-agnostic) so the line is stable across codecs.
                     const position = switch (reference) {
-                        .far => |far| far.import_id,
-                        .near => |near| near.export_id,
+                        .far => |far| far.import_position,
+                        .near => |near| near.export_position,
                         else => return error.UnexpectedReferenceShape,
                     };
                     try appendTraceLine(allocator, &out, "p1=fulfilled:import={d}\n", .{position});
@@ -232,7 +232,7 @@ pub const InboundMode = enum { borrowed, owned };
 /// machinery, so a parity test asserts byte-identical traces — the load-bearing
 /// proof that the borrowed and owned entry points run one state machine, not
 /// two. The frame is a malformed one, so the trace also exercises the
-/// abort-projection path ([`engine.abort_projection`]) across both modes.
+/// abort-projection path (`engine.abort_projection`) across both modes.
 pub fn runInboundMode(allocator: std.mem.Allocator, mode: InboundMode) ![]u8 {
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
@@ -248,10 +248,8 @@ pub fn runInboundMode(allocator: std.mem.Allocator, mode: InboundMode) ![]u8 {
             },
             .owned => {
                 const storage = try allocator.dupe(u8, garbage);
-                const frame = foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1)) catch |e| {
-                    allocator.free(storage);
+                const frame = foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1)) catch |e|
                     break :err e;
-                };
                 try peer.feedInbound(frame);
                 _ = peer.step() catch |e| break :err e;
                 break :err null;

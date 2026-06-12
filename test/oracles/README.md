@@ -17,8 +17,11 @@ encoder** (`ocapn/syrup`). Neither generator imports or runs Spritely Goblins.
 - [`goblins/generate.rkt`](goblins/generate.rkt) — pancake's record shapes
   serialized via the **upstream Racket Syrup encoder** (`syrup/syrup`). It runs
   under the devcontainer's Racket and does not require `goblins/...`.
+  `zig build fixture-gen-check` reruns it and byte-compares the output against
+  the committed corpus, so generator/corpus drift fails loud.
 - [`generate.py`](generate.py) — the same pancake record shapes serialized via
-  the **upstream Python Syrup encoder** (`syrup.py`).
+  the **upstream Python Syrup encoder** (`syrup.py`), a by-hand cross-check
+  (the devcontainer does not install `syrup.py`).
 
 The two generators agreeing byte-for-byte proves only that the two upstream
 Syrup *serializers* agree on pancake's records — it does **not** establish that
@@ -27,6 +30,8 @@ from a live Goblins peer captured on the wire (see
 [`../../conformance/goblins-peer/`](../../conformance/goblins-peer/)) and the
 OCapN conformance suite, not from these generators.
 
-The Python encoder and the Racket encoder both render these exact bytes,
-verified byte-identical, so the corpus lives here once rather than in a
-separate directory per encoder.
+The Racket encoder is wired into `zig build fixture-gen-check`, which
+regenerates the corpus and diffs it against the committed bytes on every gate.
+The Python encoder rendered the same bytes in a one-time by-hand cross-check; it
+is not gated (the devcontainer does not install `syrup.py`). The corpus lives
+here once rather than in a separate directory per encoder.

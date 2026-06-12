@@ -33,32 +33,17 @@ inventory.
 
 ## API Constraints
 
-`get_symbols_overview` requires a **file path**, not a directory. Pass
-`src/foundation/frame.zig`, not `src/foundation`. Directory paths throw
-`ValueError`. To map a directory, list files first then call per-file.
-
-`find_symbol` uses `name_path_pattern` (suffix/glob matching).
-All other symbol tools — `find_referencing_symbols`, `rename_symbol`,
-`replace_symbol_body`, `insert_before_symbol`, `insert_after_symbol`,
-`safe_delete_symbol` — use `name_path` (exact match required).
+`get_symbols_overview` takes a file path, never a directory — to map a
+directory, list its files first and call per-file. `find_symbol` matches a
+`name_path_pattern`; every other symbol tool takes an exact `name_path`. The
+[serena skill](../skills/serena/SKILL.md) carries the full call shapes.
 
 ## Discipline
 
 Warm Serena early by calling `get_symbols_overview` on the file most relevant
-to the task:
-
-| Task focus | Warm with |
-| --- | --- |
-| General / unknown | `src/root.zig` |
-| Frame / FrameView ownership | `src/foundation/frame.zig` |
-| Session state / validate-apply | `src/session/mod.zig` |
-| Peer API / engine dispatch | `src/engine/mod.zig` |
-| Syrup encode/decode / views | `src/codec/syrup/core.zig` |
-| Model types / clone-free | `src/model/mod.zig` |
-| C ABI surface | `src/c_abi/mod.zig` |
-
-The first Serena call after a cold start can be slow (~10–15 s); assume cold
-start before assuming failure.
+to the task. The [serena skill](../skills/serena/SKILL.md) carries the
+warm-with table, the module map, cold-start timing, and ready-made calls —
+read it before the first call of a session.
 
 Use `depth=1` on a struct to map its children before deciding which bodies to
 read with `include_body=true`. Reading an entire large type (e.g. `Peer`,

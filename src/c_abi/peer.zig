@@ -6,13 +6,14 @@
 
 const std = @import("std");
 
-const foundation = @import("../foundation/mod.zig");
-const model = @import("../model/mod.zig");
-const engine = @import("../engine/mod.zig");
+const foundation = @import("foundation");
+const model = @import("model");
+const engine = @import("engine");
 
 const c = @import("mod.zig");
 const ctx = @import("context.zig");
 const frame = @import("frame.zig");
+const marshal = @import("marshal.zig");
 
 const PancakePeer = c.PancakePeer;
 const PancakeContext = c.PancakeContext;
@@ -23,6 +24,7 @@ const PancakeReference = c.PancakeReference;
 const PancakeArgument = c.PancakeArgument;
 const PancakeDeliver = c.PancakeDeliver;
 const PancakeResolve = c.PancakeResolve;
+const PancakeLastAbort = c.PancakeLastAbort;
 
 const feedErrorToCode = c.feedErrorToCode;
 
@@ -42,46 +44,87 @@ pub fn peerFromOpaque(peer: ?*PancakePeer) ?*engine.Peer {
     return @ptrCast(@alignCast(ptr));
 }
 
-pub export fn pancake_peer_new(out_peer: ?*?*PancakePeer) i32 {
-    const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    return peerNewIn(ctx.library_allocator, slot, false);
+fn peerFromOpaqueConst(peer: ?*const PancakePeer) ?*const engine.Peer {
+    const ptr = peer orelse return null;
+    return @ptrCast(@alignCast(ptr));
 }
 
-/// Create a peer whose every allocation — the peer object, session tables, and
-/// the managed frames it later hands out — routes through `context`. The peer is
-/// released with the same `pancake_peer_release`; it remembers its context's
-/// allocator, so the caller does not name it again.
+/// Create a peer that begins in the negotiating state and authenticates the
+/// partner's `op:start-session` by default. Real OCapN sessions start here:
+/// pair it with `pancake_peer_start_session`, pump the connection, and wait
+/// for `pancake_peer_session_is_open` before sending application traffic.
+pub export fn pancake_peer_new(out_peer: ?*?*PancakePeer) i32 {
+    const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
+    return peerNewIn(ctx.library_allocator, slot, true, model.WireProfile.v1_0, .syrup);
+}
+
+/// Context-backed counterpart of `pancake_peer_new`.
 pub export fn pancake_peer_new_in(context: ?*PancakeContext, out_peer: ?*?*PancakePeer) i32 {
     const c_ctx = ctx.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    return peerNewIn(c_ctx.allocator, slot, false);
+    return peerNewIn(c_ctx.allocator, slot, true, model.WireProfile.v1_0, .syrup);
 }
 
-/// Create a peer that begins in the negotiating state, awaiting the keyed
-/// `op:start-session` handshake. This is the peer a binding drives to talk to a
-/// peer that requires the handshake (a real Goblins vat): pair it with
-/// `pancake_peer_start_session_keyed` to sign and queue the local start-session,
-/// then pump the connection until `pancake_peer_session_is_open` reports true.
-pub export fn pancake_peer_new_negotiating(out_peer: ?*?*PancakePeer) i32 {
+/// Create a negotiating peer carrying an out-of-band negotiated profile and
+/// codec: `captp_version` is a `PANCAKE_CAPTP_VERSION_*` value (`_V1_0`, or
+/// `_PRE_SPEC` for the upstream OCapN prerelease profile) and `codec` is a
+/// `PANCAKE_CODEC_*` value. Both ends of a connection must construct with the
+/// same pair — `op:start-session` carries the profile but no codec operand, so
+/// codec agreement is the caller's, the same agreement the matching `codec`
+/// argument to `pancake_tcp_connect` / `pancake_tcp_accept` records.
+/// `pancake_peer_start_session` signs with the profile chosen here.
+pub export fn pancake_peer_new_negotiated(captp_version: u32, codec: u32, out_peer: ?*?*PancakePeer) i32 {
     const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    return peerNewIn(ctx.library_allocator, slot, true);
+    const profile = profileFromCaptpVersion(captp_version) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    const codec_id = c.codecFromC(codec) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    return peerNewIn(ctx.library_allocator, slot, true, profile, codec_id);
 }
 
-/// Negotiating counterpart of `pancake_peer_new_in`: a handshake-ready peer whose
-/// allocations route through `context`.
-pub export fn pancake_peer_new_negotiating_in(context: ?*PancakeContext, out_peer: ?*?*PancakePeer) i32 {
+/// Context-backed counterpart of `pancake_peer_new_negotiated`.
+pub export fn pancake_peer_new_negotiated_in(context: ?*PancakeContext, captp_version: u32, codec: u32, out_peer: ?*?*PancakePeer) i32 {
     const c_ctx = ctx.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    return peerNewIn(c_ctx.allocator, slot, true);
+    const profile = profileFromCaptpVersion(captp_version) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    const codec_id = c.codecFromC(codec) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    return peerNewIn(c_ctx.allocator, slot, true, profile, codec_id);
 }
 
-fn peerNewIn(alloc: std.mem.Allocator, slot: *?*PancakePeer, negotiating: bool) i32 {
+/// Create an already-open peer for low-level tests and harnesses that inject
+/// frames directly. This is a fixture surface; real OCapN connections should use
+/// `pancake_peer_new`.
+pub export fn pancake_peer_new_raw_open(out_peer: ?*?*PancakePeer) i32 {
+    const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
+    return peerNewIn(ctx.library_allocator, slot, false, model.WireProfile.v1_0, .syrup);
+}
+
+/// Context-backed counterpart of `pancake_peer_new_raw_open`.
+pub export fn pancake_peer_new_raw_open_in(context: ?*PancakeContext, out_peer: ?*?*PancakePeer) i32 {
+    const c_ctx = ctx.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
+    return peerNewIn(c_ctx.allocator, slot, false, model.WireProfile.v1_0, .syrup);
+}
+
+fn profileFromCaptpVersion(captp_version: u32) ?model.WireProfile {
+    return switch (captp_version) {
+        c.PANCAKE_CAPTP_VERSION_V1_0 => model.WireProfile.v1_0,
+        c.PANCAKE_CAPTP_VERSION_PRE_SPEC => model.WireProfile.pre_spec,
+        else => null,
+    };
+}
+
+fn peerNewIn(alloc: std.mem.Allocator, slot: *?*PancakePeer, negotiating: bool, wire_profile: model.WireProfile, codec: model.CodecId) i32 {
     const peer = alloc.create(engine.Peer) catch return PANCAKE_ERR_INTERNAL;
-    peer.* = if (negotiating) engine.Peer.initNegotiating(alloc) else engine.Peer.init(alloc);
+    peer.* = if (negotiating)
+        engine.Peer.initNegotiatingWith(alloc, .{ .wire_profile = wire_profile, .codec = codec })
+    else
+        engine.Peer.initRawOpenFixture(alloc);
     slot.* = @ptrCast(peer);
     return PANCAKE_OK;
 }
 
+/// Release a peer and everything it still owns: queued inbound frames,
+/// undrained outbound frames and events, and the session tables. Frames already
+/// taken out carry their own release and stay valid. Null is a no-op.
 pub export fn pancake_peer_release(peer: ?*PancakePeer) void {
     const ptr = peerFromOpaque(peer) orelse return;
     // The peer holds the allocator it was created with (`pancake_peer_new` or
@@ -97,7 +140,7 @@ pub export fn pancake_peer_feed_borrowed(peer: ?*PancakePeer, frame_in: ?*const 
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const borrowed = frame_in orelse return PANCAKE_ERR_NULL_POINTER;
     const bytes_ptr = borrowed.bytes orelse return PANCAKE_ERR_NULL_POINTER;
-    const shape = frame.frameShapeFromC(borrowed.shape) orelse return PANCAKE_ERR_CODEC;
+    const shape = frame.frameShapeFromC(borrowed.shape) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
 
     ptr.recvBorrowed(.{
         .bytes = bytes_ptr[0..borrowed.len],
@@ -107,33 +150,54 @@ pub export fn pancake_peer_feed_borrowed(peer: ?*PancakePeer, frame_in: ?*const 
 }
 
 /// Adopt an inbound managed frame, transferring ownership to the peer for queued
-/// dispatch. On success the caller's `frame` struct is nulled out (bytes/len/
-/// release cleared) so it is not released twice; the peer releases it later.
+/// dispatch. Ownership always transfers once `peer`, `frame`, and `frame->bytes`
+/// are non-null: on success or failure alike the frame is released through its
+/// own callback when the library is done with it, and the caller's struct is
+/// nulled out (bytes/len/release cleared) so a late
+/// `pancake_managed_frame_release` is the documented no-op. Only a
+/// `PANCAKE_ERR_NULL_POINTER` return leaves the caller owning the frame.
 pub export fn pancake_peer_feed_owned(peer: ?*PancakePeer, frame_in: ?*PancakeManagedFrame) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const managed = frame_in orelse return PANCAKE_ERR_NULL_POINTER;
     const bytes_ptr = managed.bytes orelse return PANCAKE_ERR_NULL_POINTER;
-    const shape = frame.frameShapeFromC(managed.shape) orelse return PANCAKE_ERR_CODEC;
+    const storage = bytes_ptr[0..managed.len];
+
+    const shape = frame.frameShapeFromC(managed.shape) orelse {
+        frame.pancake_managed_frame_release(managed);
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    };
 
     const alloc = ptr.allocator;
-    const payload = alloc.create(frame.AdoptedManagedFramePayload) catch return PANCAKE_ERR_INTERNAL;
-    var queued = false;
-    defer if (!queued) alloc.destroy(payload);
+    const payload = alloc.create(frame.AdoptedManagedFramePayload) catch {
+        frame.pancake_managed_frame_release(managed);
+        return PANCAKE_ERR_INTERNAL;
+    };
     payload.* = .{ .managed = managed.*, .allocator = alloc };
-
-    const owned = foundation.Frame.initExternal(
-        bytes_ptr[0..managed.len],
-        shape,
-        payload,
-        frame.releaseAdoptedManagedFrame,
-    ) catch return PANCAKE_ERR_CODEC;
-
-    ptr.feedInbound(owned) catch return PANCAKE_ERR_INTERNAL;
-    queued = true;
+    // The payload owns the descriptor from here; clear the caller's copy so a
+    // late release is a no-op.
     managed.bytes = null;
     managed.len = 0;
     managed.release = null;
     managed.private_data = null;
+
+    var owned = foundation.Frame.initExternal(
+        storage,
+        shape,
+        payload,
+        frame.releaseAdoptedManagedFrame,
+    ) catch {
+        // `initExternal` transfers unconditionally: it already disposed the
+        // storage through `releaseAdoptedManagedFrame`, which released the
+        // managed frame and destroyed `payload`. The refusal names the caller's
+        // fault — storage that does not satisfy the declared shape (a word
+        // frame needs an 8-aligned pointer and a length divisible by 8).
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    };
+
+    ptr.feedInbound(owned) catch {
+        owned.deinit();
+        return PANCAKE_ERR_INTERNAL;
+    };
     return PANCAKE_OK;
 }
 
@@ -159,9 +223,12 @@ pub export fn pancake_peer_recv_stream(
     out_consumed: ?*usize,
 ) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    const buf = bytes orelse return PANCAKE_ERR_NULL_POINTER;
     const consumed = out_consumed orelse return PANCAKE_ERR_NULL_POINTER;
     consumed.* = 0;
+    // An empty buffer is semantically an incomplete frame, not a bad pointer:
+    // report would-block before the null check so `(NULL, 0)` means "read more".
+    if (len == 0) return PANCAKE_ERR_WOULD_BLOCK;
+    const buf = bytes orelse return PANCAKE_ERR_NULL_POINTER;
 
     const outcome = ptr.recvStreamPrefix(buf[0..len]) catch |err| switch (err) {
         error.MalformedFrame => return PANCAKE_ERR_MALFORMED,
@@ -188,7 +255,8 @@ pub export fn pancake_peer_step(peer: ?*PancakePeer) i32 {
 
 /// Take the next outbound frame, writing an *owned* managed frame into
 /// `out_frame` that the caller must `release`. Returns `PANCAKE_ERR_WOULD_BLOCK`
-/// when the outbound queue is empty.
+/// when the outbound queue is empty. On `PANCAKE_ERR_INTERNAL` the dequeued
+/// frame could not be wrapped for C and was freed; it is not retrievable.
 pub export fn pancake_peer_take_outbound(peer: ?*PancakePeer, out_frame: ?*PancakeManagedFrame) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_frame orelse return PANCAKE_ERR_NULL_POINTER;
@@ -229,38 +297,51 @@ pub export fn pancake_peer_poll_event(peer: ?*PancakePeer, out_event: ?*PancakeE
 /// frame; flush it with `pancake_peer_step` + `pancake_peer_take_outbound`. The
 /// signed locator is what the partner verifies, so the designator and transport
 /// must be the ones it expects — for a Goblins partner, transport `"tcp"` with
-/// `hints_empty_false` nonzero (an empty hints map encoded as `#f`, the form
-/// Goblins re-encodes and checks). `captp_version` is 0 for the canonical v1.0
-/// wire or 1 for the pre-spec profile. The seed is the only place key material
-/// crosses the boundary; the library never generates entropy.
-pub export fn pancake_peer_start_session_keyed(
+/// `hints` set to `PANCAKE_HINTS_EMPTY_FALSE` (Goblins emits the boolean-false
+/// spelling of an empty hints map and re-encodes what it checks).
+/// `hints` selects the wire spelling of the locator's empty hints:
+/// `PANCAKE_HINTS_EMPTY_MAP` encodes `{}`, `PANCAKE_HINTS_EMPTY_FALSE` encodes
+/// `#f`; any other value is refused with `PANCAKE_ERR_INVALID_ARGUMENT`.
+/// The handshake speaks the profile the peer was constructed with
+/// (`pancake_peer_new` is v1.0, `pancake_peer_new_negotiated` chooses); the
+/// peer already knows it, so this call never re-takes it. The seed is the only
+/// place key material crosses the boundary; the library never generates
+/// entropy. `seed` is borrowed and `seed_len` must be 32; anything else is
+/// refused with `PANCAKE_ERR_INVALID_ARGUMENT`.
+pub export fn pancake_peer_start_session(
     peer: ?*PancakePeer,
-    captp_version: u32,
     transport: ?[*]const u8,
     transport_len: usize,
     designator: ?[*]const u8,
     designator_len: usize,
-    hints_empty_false: u32,
+    hints: u32,
     seed: ?[*]const u8,
+    seed_len: usize,
 ) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const transport_ptr = transport orelse return PANCAKE_ERR_NULL_POINTER;
     const designator_ptr = designator orelse return PANCAKE_ERR_NULL_POINTER;
     const seed_ptr = seed orelse return PANCAKE_ERR_NULL_POINTER;
+    if (seed_len != foundation.crypto.SEED_BYTES) return PANCAKE_ERR_INVALID_ARGUMENT;
 
-    const version: model.CaptpVersion = switch (captp_version) {
-        0 => .v1_0,
-        1 => .pre_spec,
+    // The peer's session already carries the negotiated profile; signing the
+    // handshake with anything else would be a mismatch foot-gun, so the version
+    // is read here rather than taken as a parameter.
+    const version: model.CaptpVersion = ptr.session_state.wire_profile.captp_version;
+
+    const hint_form: model.Hints = switch (hints) {
+        c.PANCAKE_HINTS_EMPTY_MAP => model.Hints.emptyMap(),
+        c.PANCAKE_HINTS_EMPTY_FALSE => model.Hints.emptyFalse(),
         else => return PANCAKE_ERR_INVALID_ARGUMENT,
     };
 
     const seed_bytes: [foundation.crypto.SEED_BYTES]u8 = seed_ptr[0..foundation.crypto.SEED_BYTES].*;
-    const secret = foundation.crypto.SecretKey.fromSeed(seed_bytes) catch return PANCAKE_ERR_INVALID_ARGUMENT;
+    const secret = foundation.crypto.SecretKey.fromSeed(seed_bytes);
 
     const locator: model.PeerLocator = .{
         .transport = transport_ptr[0..transport_len],
         .designator = designator_ptr[0..designator_len],
-        .hints = if (hints_empty_false != 0) model.Hints.emptyFalse() else model.Hints.emptyMap(),
+        .hints = hint_form,
     };
 
     ptr.sendKeyedStartSession(version, locator, secret) catch |err| return feedErrorToCode(err);
@@ -268,39 +349,148 @@ pub export fn pancake_peer_start_session_keyed(
 }
 
 /// Whether the peer's session has completed the `op:start-session` handshake and
-/// is open for traffic. Returns 1 when open, 0 when not, and a negative
-/// `PANCAKE_ERR_*` for a null peer. Pump the connection and poll this after a
-/// keyed start-session before sending application messages.
+/// is open for traffic. Returns 1 when open and 0 when not; a NULL peer has no
+/// open session, so it reports 0. Never negative, so `if (...is_open(peer))`
+/// reads correctly in C. Pump the connection and poll this after a keyed
+/// start-session before sending application messages.
 pub export fn pancake_peer_session_is_open(peer: ?*PancakePeer) i32 {
-    const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
+    const ptr = peerFromOpaque(peer) orelse return 0;
     return if (ptr.sessionIsOpen()) 1 else 0;
+}
+
+/// The codec the peer's session speaks, written into `out_codec` as a
+/// `PANCAKE_CODEC_*` value. Event frames and `take_outbound` frames are encoded
+/// in this codec, so a consumer that falls back to the opaque
+/// `pancake_peer_poll_event` (e.g. after a typed poll refused a value the C
+/// surface cannot carry) knows how to interpret the raw frame bytes.
+pub export fn pancake_peer_codec(peer: ?*const PancakePeer, out_codec: ?*u32) i32 {
+    const ptr = peerFromOpaqueConst(peer) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_codec orelse return PANCAKE_ERR_NULL_POINTER;
+    slot.* = switch (ptr.session_state.codec) {
+        .syrup => c.PANCAKE_CODEC_SYRUP,
+        .capnp => c.PANCAKE_CODEC_CAPNP,
+        // `CodecId` is non-exhaustive for forward compatibility; a session can
+        // only ever carry one of the two named codecs.
+        _ => return PANCAKE_ERR_INTERNAL,
+    };
+    return PANCAKE_OK;
 }
 
 // ── Bootstrap registration ───────────────────────────────────────────────────
 
 /// Expose a local capability behind `swissnum` for inbound bootstrap-fetch
-/// (ADR-0006 responder half). Writes the allocated export id into
-/// `out_export_id`. The swissnum bytes are borrowed for the call.
+/// (ADR-0006 responder half). Writes the allocated export position into
+/// `out_export_position`. The swissnum bytes are borrowed for the call.
 pub export fn pancake_peer_register_bootstrap_cap(
     peer: ?*PancakePeer,
     swissnum: ?[*]const u8,
     swissnum_len: usize,
-    out_export_id: ?*u64,
+    out_export_position: ?*u64,
 ) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out_export_id orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_export_position orelse return PANCAKE_ERR_NULL_POINTER;
     const swiss_ptr = swissnum orelse return PANCAKE_ERR_NULL_POINTER;
-    const export_id = ptr.registerBootstrapCap(swiss_ptr[0..swissnum_len]) catch |err|
+    const export_position = ptr.registerBootstrapCap(swiss_ptr[0..swissnum_len]) catch |err|
         return feedErrorToCode(err);
-    slot.* = export_id;
+    slot.* = export_position;
+    return PANCAKE_OK;
+}
+
+/// Ask the partner's bootstrap object for the capability published behind
+/// `name` (ADR-0006 requester half): registers the well-known bootstrap import
+/// if needed, allocates the answer from the session's one answer allocator, and
+/// queues the canonical `fetch` deliver. The question id is written into
+/// `out_answer`; the partner's resolution arrives as a
+/// `PANCAKE_EVENT_RESOLVE` keyed on it. `name` is borrowed for the call. Flush
+/// with `pancake_peer_step` + `pancake_peer_take_outbound`.
+pub export fn pancake_peer_send_bootstrap_fetch(
+    peer: ?*PancakePeer,
+    name: ?[*]const u8,
+    name_len: usize,
+    out_answer: ?*u64,
+) i32 {
+    const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_answer orelse return PANCAKE_ERR_NULL_POINTER;
+    const name_bytes = sliceFromC(name, name_len) catch |err| return marshalErrorToCode(err);
+
+    ptr.importObject(engine.BOOTSTRAP_POSITION) catch |err| return feedErrorToCode(err);
+    // The one definition of the bootstrap-fetch deliver shape lives in the
+    // engine; this surface only routes it.
+    const prepared = engine.fetch.prepareFetchSwissnum(ptr.allocator, &ptr.session_state, name_bytes) catch |err|
+        return feedErrorToCode(err);
+    if (prepared.message.deliver.resolve_me_desc != null) {
+        // On a V1.0 session the prepared deliver advertises its own resolver
+        // export; commit the answer-to-resolver link the engine's encode-time
+        // synthesis would have installed, so the partner's resolver-callback
+        // deliver projects back as a resolve event keyed on `out_answer`.
+        ptr.session_state.installOutboundResolver(prepared.answer_position, prepared.resolver_export) catch |err| {
+            model.freeMessage(ptr.allocator, prepared.message);
+            return feedErrorToCode(err);
+        };
+    }
+    ptr.send(prepared.message) catch |err| return feedErrorToCode(err);
+    slot.* = prepared.answer_position;
+    return PANCAKE_OK;
+}
+
+/// Read the typed cause of the peer's most recent local dispatch failure into
+/// `out`, the ABI counterpart of `engine.Peer.lastAbort`. Returns `PANCAKE_OK`
+/// when a failure has been recorded, or `PANCAKE_ERR_WOULD_BLOCK` when none has.
+/// The string views written into `out` are process-static; the caller reads
+/// them and never frees them. The flat per-feed return code names the failure
+/// family; this names the member (codec-vs-session domain, the abort kind).
+pub export fn pancake_peer_last_abort(peer: ?*PancakePeer, out: ?*PancakeLastAbort) i32 {
+    const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
+    const info = ptr.lastAbort() orelse return PANCAKE_ERR_WOULD_BLOCK;
+    slot.* = .{
+        .domain = switch (info.domain) {
+            .codec => c.PANCAKE_ABORT_DOMAIN_CODEC,
+            .session => c.PANCAKE_ABORT_DOMAIN_SESSION,
+            .foreign => c.PANCAKE_ABORT_DOMAIN_FOREIGN,
+        },
+        .has_kind = if (info.kind != null) 1 else 0,
+        .kind_name = if (info.kind) |k| k.wireName().ptr else null,
+        .kind_name_len = if (info.kind) |k| k.wireName().len else 0,
+        .message = info.message.ptr,
+        .message_len = info.message.len,
+        .error_name = info.error_name.ptr,
+        .error_name_len = info.error_name.len,
+    };
     return PANCAKE_OK;
 }
 
 /// Register a local export position so inbound deliveries targeting it surface as
 /// events. The bare-position sibling of `register_bootstrap_cap` (no swissnum).
-pub export fn pancake_peer_register_export(peer: ?*PancakePeer, export_id: u64) i32 {
+pub export fn pancake_peer_register_export(peer: ?*PancakePeer, export_position: u64) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    ptr.session_state.registerExport(export_id) catch |err| return feedErrorToCode(err);
+    ptr.session_state.registerExport(export_position) catch |err| return feedErrorToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Allocate the next free export position from the session's one export
+/// allocator and *register* it (unlike `pancake_peer_next_answer`, which only
+/// allocates), writing the position into `out_export_position`. A binding's
+/// `spawn` must take its position here: the same counter mints bootstrap and
+/// resolver exports, so a privately-counted position would eventually alias one
+/// of them.
+pub export fn pancake_peer_next_export(peer: ?*PancakePeer, out_export_position: ?*u64) i32 {
+    const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_export_position orelse return PANCAKE_ERR_NULL_POINTER;
+    slot.* = ptr.exportNextObject() catch |err| return feedErrorToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Allocate the next outbound answer position — the question id for a
+/// `send_deliver` that wants a reply — from the session's one answer allocator,
+/// writing it into `out_answer`. A binding's eventual-send must take its answer
+/// here: the same counter backs every outbound question on the session, so a
+/// privately-counted position would eventually alias a live answer and route
+/// the partner's `op:resolve` to the wrong caller.
+pub export fn pancake_peer_next_answer(peer: ?*PancakePeer, out_answer: ?*u64) i32 {
+    const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_answer orelse return PANCAKE_ERR_NULL_POINTER;
+    slot.* = ptr.allocateAnswer();
     return PANCAKE_OK;
 }
 
@@ -308,9 +498,9 @@ pub export fn pancake_peer_register_export(peer: ?*PancakePeer, export_id: u64) 
 /// `send_deliver` to it as a `_FAR` reference is admitted. Partner-allocated
 /// imports normally arrive through a resolution; this names a known one (e.g. the
 /// bootstrap import) directly.
-pub export fn pancake_peer_register_import(peer: ?*PancakePeer, import_id: u64) i32 {
+pub export fn pancake_peer_register_import(peer: ?*PancakePeer, import_position: u64) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    ptr.session_state.registerImport(import_id) catch |err| return feedErrorToCode(err);
+    ptr.session_state.registerImport(import_position) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
 
@@ -326,180 +516,19 @@ pub export fn pancake_peer_register_import(peer: ?*PancakePeer, import_id: u64) 
 // a per-event arena and projects C views whose byte pointers alias that arena;
 // the matching `*_free` releases it. The struct layouts are frozen ABI (ADR-0031).
 
-const zero_reference: PancakeReference = .{ .kind = c.PANCAKE_REF_BROKEN, .sub_kind = 0, .id = 0 };
-const zero_argument: PancakeArgument = .{
-    .kind = c.PANCAKE_ARG_VOID,
-    .boolean = 0,
-    .integer = 0,
-    .float64 = 0,
-    .bytes = null,
-    .bytes_len = 0,
-    .reference = zero_reference,
-    .items = null,
-    .items_len = 0,
-};
-
-const MarshalError = error{ UnsupportedValue, NullPointer, OutOfMemory };
-
-fn marshalErrorToCode(err: MarshalError) i32 {
-    return switch (err) {
-        error.UnsupportedValue => PANCAKE_ERR_UNSUPPORTED_VALUE,
-        error.NullPointer => PANCAKE_ERR_NULL_POINTER,
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
-    };
-}
-
-fn sliceFromC(ptr: ?[*]const u8, len: usize) MarshalError![]const u8 {
-    if (len == 0) return &.{};
-    const p = ptr orelse return error.NullPointer;
-    return p[0..len];
-}
-
-fn referenceFromC(c_ref: PancakeReference) MarshalError!model.Reference {
-    const promise_sub = c_ref.sub_kind == c.PANCAKE_REF_PROMISE_KIND;
-    return switch (c_ref.kind) {
-        c.PANCAKE_REF_NEAR => .{ .near = .{ .export_id = c_ref.id, .kind = if (promise_sub) .promise else .object } },
-        c.PANCAKE_REF_FAR => .{ .far = .{ .import_id = c_ref.id, .kind = if (promise_sub) .promise else .object } },
-        c.PANCAKE_REF_PROMISE => .{ .promise = .{ .answer_id = c_ref.id } },
-        else => error.UnsupportedValue,
-    };
-}
-
-/// Depth bound on a host-supplied argument tree. A foreign caller could nest
-/// `PancakeArgument` lists/sets/tagged values arbitrarily deep and overflow the
-/// native stack inside `argumentFromC`, exactly as a hostile wire frame could in
-/// the codec (bounded there). This caps the local-call encoder the same way. The
-/// value mirrors the session's default `max_nesting_depth` (64) so the C send
-/// path admits no deeper tree than an inbound deliver would; the session layer is
-/// not importable here, so the constant is restated rather than referenced.
-const max_marshal_depth: usize = 64;
-
-fn argumentFromC(arena: std.mem.Allocator, c_arg: PancakeArgument, depth: usize) MarshalError!model.Argument {
-    if (depth > max_marshal_depth) return error.UnsupportedValue;
-    const next = depth + 1;
-    return switch (c_arg.kind) {
-        c.PANCAKE_ARG_INTEGER => .{ .integer = c_arg.integer },
-        c.PANCAKE_ARG_FLOAT64 => .{ .float64 = c_arg.float64 },
-        c.PANCAKE_ARG_BOOLEAN => .{ .boolean = c_arg.boolean != 0 },
-        c.PANCAKE_ARG_BYTES => .{ .bytes = try sliceFromC(c_arg.bytes, c_arg.bytes_len) },
-        c.PANCAKE_ARG_STRING => .{ .string = try sliceFromC(c_arg.bytes, c_arg.bytes_len) },
-        c.PANCAKE_ARG_SYMBOL => .{ .symbol = try sliceFromC(c_arg.bytes, c_arg.bytes_len) },
-        c.PANCAKE_ARG_VOID => .{ .void = {} },
-        c.PANCAKE_ARG_REFERENCE => .{ .reference = try referenceFromC(c_arg.reference) },
-        c.PANCAKE_ARG_LIST => .{ .list = try argsFromC(arena, c_arg.items, c_arg.items_len, next) },
-        c.PANCAKE_ARG_SET => .{ .set = try argsFromC(arena, c_arg.items, c_arg.items_len, next) },
-        c.PANCAKE_ARG_TAGGED => .{ .tagged = .{
-            .tag = try sliceFromC(c_arg.bytes, c_arg.bytes_len),
-            .value = try argsFromC(arena, c_arg.items, c_arg.items_len, next),
-        } },
-        c.PANCAKE_ARG_KEYWORD => .{ .keyword = try sliceFromC(c_arg.bytes, c_arg.bytes_len) },
-        else => error.UnsupportedValue,
-    };
-}
-
-fn argsFromC(arena: std.mem.Allocator, items: ?[*]const PancakeArgument, len: usize, depth: usize) MarshalError![]const model.Argument {
-    if (len == 0) return &.{};
-    const p = items orelse return error.NullPointer;
-    const out = try arena.alloc(model.Argument, len);
-    for (0..len) |i| out[i] = try argumentFromC(arena, p[i], depth);
-    return out;
-}
-
-fn referenceToC(reference: model.Reference) PancakeReference {
-    return switch (reference) {
-        .near => |near| .{ .kind = c.PANCAKE_REF_NEAR, .sub_kind = if (near.kind == .promise) c.PANCAKE_REF_PROMISE_KIND else c.PANCAKE_REF_OBJECT, .id = near.export_id },
-        .far => |far| .{ .kind = c.PANCAKE_REF_FAR, .sub_kind = if (far.kind == .promise) c.PANCAKE_REF_PROMISE_KIND else c.PANCAKE_REF_OBJECT, .id = far.import_id },
-        .promise => |promise| .{ .kind = c.PANCAKE_REF_PROMISE, .sub_kind = 0, .id = promise.answer_id },
-        .sturdy => .{ .kind = c.PANCAKE_REF_STURDY, .sub_kind = 0, .id = 0 },
-        .broken => .{ .kind = c.PANCAKE_REF_BROKEN, .sub_kind = 0, .id = 0 },
-    };
-}
-
-fn argumentToC(arena: std.mem.Allocator, arg: model.Argument) MarshalError!PancakeArgument {
-    var c_arg = zero_argument;
-    switch (arg) {
-        .integer => |v| {
-            c_arg.kind = c.PANCAKE_ARG_INTEGER;
-            c_arg.integer = v;
-        },
-        .float64 => |v| {
-            c_arg.kind = c.PANCAKE_ARG_FLOAT64;
-            c_arg.float64 = v;
-        },
-        .boolean => |v| {
-            c_arg.kind = c.PANCAKE_ARG_BOOLEAN;
-            c_arg.boolean = if (v) 1 else 0;
-        },
-        .bytes => |b| {
-            c_arg.kind = c.PANCAKE_ARG_BYTES;
-            c_arg.bytes = b.ptr;
-            c_arg.bytes_len = b.len;
-        },
-        .string => |b| {
-            c_arg.kind = c.PANCAKE_ARG_STRING;
-            c_arg.bytes = b.ptr;
-            c_arg.bytes_len = b.len;
-        },
-        .symbol => |b| {
-            c_arg.kind = c.PANCAKE_ARG_SYMBOL;
-            c_arg.bytes = b.ptr;
-            c_arg.bytes_len = b.len;
-        },
-        .void => c_arg.kind = c.PANCAKE_ARG_VOID,
-        .reference => |r| {
-            c_arg.kind = c.PANCAKE_ARG_REFERENCE;
-            c_arg.reference = referenceToC(r);
-        },
-        .list => |items| {
-            c_arg.kind = c.PANCAKE_ARG_LIST;
-            const arr = try argsToC(arena, items);
-            c_arg.items = arr.ptr;
-            c_arg.items_len = arr.len;
-        },
-        .set => |items| {
-            c_arg.kind = c.PANCAKE_ARG_SET;
-            const arr = try argsToC(arena, items);
-            c_arg.items = arr.ptr;
-            c_arg.items_len = arr.len;
-        },
-        .tagged => |tagged| {
-            c_arg.kind = c.PANCAKE_ARG_TAGGED;
-            c_arg.bytes = tagged.tag.ptr;
-            c_arg.bytes_len = tagged.tag.len;
-            const arr = try argsToC(arena, tagged.value);
-            c_arg.items = arr.ptr;
-            c_arg.items_len = arr.len;
-        },
-        .keyword => |keyword| {
-            c_arg.kind = c.PANCAKE_ARG_KEYWORD;
-            c_arg.bytes = keyword.ptr;
-            c_arg.bytes_len = keyword.len;
-        },
-        else => return error.UnsupportedValue,
-    }
-    return c_arg;
-}
-
-fn argsToC(arena: std.mem.Allocator, args: []const model.Argument) MarshalError![]PancakeArgument {
-    const out = try arena.alloc(PancakeArgument, args.len);
-    for (args, 0..) |arg, i| out[i] = try argumentToC(arena, arg);
-    return out;
-}
-
-/// Allocate a heap-pinned arena (child = the peer's allocator) to own a received
-/// projection. `pancake_*_free` deinits and destroys it through that same child.
-fn newProjectionArena(alloc: std.mem.Allocator) ?*std.heap.ArenaAllocator {
-    const arena = alloc.create(std.heap.ArenaAllocator) catch return null;
-    arena.* = std.heap.ArenaAllocator.init(alloc);
-    return arena;
-}
-
-fn freeProjectionArena(owner: ?*anyopaque) void {
-    const arena: *std.heap.ArenaAllocator = @ptrCast(@alignCast(owner orelse return));
-    const child = arena.child_allocator;
-    arena.deinit();
-    child.destroy(arena);
-}
+const zero_reference = marshal.zero_reference;
+const zero_argument = marshal.zero_argument;
+const MarshalError = marshal.MarshalError;
+const marshalErrorToCode = marshal.marshalErrorToCode;
+const sliceFromC = marshal.sliceFromC;
+const referenceFromC = marshal.referenceFromC;
+const argumentFromC = marshal.argumentFromC;
+const argsFromC = marshal.argsFromC;
+const referenceToC = marshal.referenceToC;
+const argumentToC = marshal.argumentToC;
+const argsToC = marshal.argsToC;
+const newProjectionArena = marshal.newProjectionArena;
+const freeProjectionArena = marshal.freeProjectionArena;
 
 /// The kind of the next queued event without consuming it: a positive
 /// `PANCAKE_EVENT_*`, or `PANCAKE_ERR_WOULD_BLOCK` when the queue is empty. Route
@@ -515,9 +544,8 @@ pub export fn pancake_peer_peek_event(peer: ?*PancakePeer) i32 {
 /// are borrowed for the call (the clone owns the copy). `pancake_peer_step`
 /// encodes it; drain with `pancake_peer_take_outbound`.
 ///
-/// This surface does not carry a `resolve_me_desc` (the V1.0 inline resolver a
-/// deliver may name); the deliver is sent with none. A consumer that needs one
-/// is past what the typed C send expresses today.
+/// This surface does not expose `resolve_me_desc`; for V1.0 sessions, the engine
+/// synthesizes the resolver-callback descriptor for answered delivers.
 pub export fn pancake_peer_send_deliver(
     peer: ?*PancakePeer,
     target: ?*const PancakeReference,
@@ -564,7 +592,7 @@ pub export fn pancake_peer_send_resolve(
             const f = fulfill orelse return PANCAKE_ERR_NULL_POINTER;
             break :blk .{ .fulfill = argumentFromC(a, f.*, 0) catch |err| return marshalErrorToCode(err) };
         },
-        c.PANCAKE_RESOLUTION_BREAK => .{ .break_ = .{
+        c.PANCAKE_RESOLUTION_BREAK => .{ .@"break" = .{
             .message = sliceFromC(break_message, break_message_len) catch |err| return marshalErrorToCode(err),
         } },
         else => return PANCAKE_ERR_INVALID_ARGUMENT,
@@ -573,29 +601,75 @@ pub export fn pancake_peer_send_resolve(
     return PANCAKE_OK;
 }
 
+/// Construct and queue an `op:gc-export` releasing wire-delta counts on the
+/// partner's exports this peer imported (ADR-0008): `positions[i]` is released
+/// by `deltas[i]`, for `len` parallel entries. Both arrays are borrowed for the
+/// call; `len == 0` is refused with `PANCAKE_ERR_INVALID_ARGUMENT` (an empty
+/// release is a caller bug, not a message). `pancake_peer_step` encodes it.
+pub export fn pancake_peer_send_gc_export(
+    peer: ?*PancakePeer,
+    positions: ?[*]const u64,
+    deltas: ?[*]const u64,
+    len: usize,
+) i32 {
+    const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
+    if (len == 0) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const positions_ptr = positions orelse return PANCAKE_ERR_NULL_POINTER;
+    const deltas_ptr = deltas orelse return PANCAKE_ERR_NULL_POINTER;
+    ptr.sendCopying(.{ .gc_export = .{
+        .positions = positions_ptr[0..len],
+        .deltas = deltas_ptr[0..len],
+    } }) catch |err| return feedErrorToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Construct and queue an `op:gc-answer` releasing the answer position `answer`
+/// this peer no longer needs (ADR-0008). `pancake_peer_step` encodes it.
+pub export fn pancake_peer_send_gc_answer(peer: ?*PancakePeer, answer: u64) i32 {
+    const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
+    const positions = [_]u64{answer};
+    ptr.sendCopying(.{ .gc_answer = .{ .positions = positions[0..] } }) catch |err| return feedErrorToCode(err);
+    return PANCAKE_OK;
+}
+
 /// Take the next event as a structured `op:deliver`, writing it into `out`.
 /// Returns `_WRONG_EVENT` (event left queued) when the next event is not a
-/// deliver, `_WOULD_BLOCK` when none is queued. Release `out` with
-/// `pancake_deliver_free`.
+/// deliver, `_WOULD_BLOCK` when none is queued. `_UNSUPPORTED_VALUE` and decode
+/// failures also leave the event queued; drain it with the opaque
+/// `pancake_peer_poll_event` (interpreting the raw frame via
+/// `pancake_peer_codec`) or the queue never advances. Release `out` with
+/// `pancake_deliver_release`.
 pub export fn pancake_peer_poll_event_deliver(peer: ?*PancakePeer, out: ?*PancakeDeliver) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
     const next = ptr.peekEventKind() orelse return PANCAKE_ERR_WOULD_BLOCK;
     if (next != .deliver) return PANCAKE_ERR_WRONG_EVENT;
 
-    var event = ptr.pollEvent() orelse return PANCAKE_ERR_WOULD_BLOCK;
-    defer event.deinit();
-    const body = event.view() catch return PANCAKE_ERR_CODEC;
+    // Marshal from a borrowed peek first; consume the event only once the whole
+    // projection succeeds. An argument the C surface cannot represent (a handoff
+    // or error value) then leaves the deliver queued for the opaque `poll_event`
+    // fallback instead of dequeuing it into the void.
+    const peeked = ptr.peekEvent() orelse return PANCAKE_ERR_WOULD_BLOCK;
+    const body = peeked.view() catch return PANCAKE_ERR_CODEC;
 
     const arena = newProjectionArena(ptr.allocator) orelse return PANCAKE_ERR_INTERNAL;
-    errdefer freeProjectionArena(arena);
+    // The failure paths below return error *codes*, not Zig errors, so an
+    // errdefer would never fire — the success flag is what keeps a refused
+    // projection (e.g. a handoff argument routed to the opaque fallback) from
+    // leaking one arena per retry.
+    var projected = false;
+    defer if (!projected) freeProjectionArena(arena);
     const a = arena.allocator();
     // A malformed or over-nested body is a codec/session fault, not a host
     // internal error; classify it like every other decode failure.
     const owned = body.toOwned(a) catch |err| return feedErrorToCode(err);
     const deliver = owned.deliver;
     const args_c = argsToC(a, deliver.args) catch |err| return marshalErrorToCode(err);
+    projected = true;
 
+    // Projection succeeded — now consume and release the event.
+    var event = ptr.pollEvent().?;
+    event.deinit();
     slot.* = .{
         .target = referenceToC(deliver.target),
         .args = args_c.ptr,
@@ -608,57 +682,74 @@ pub export fn pancake_peer_poll_event_deliver(peer: ?*PancakePeer, out: ?*Pancak
 }
 
 /// Take the next event as a structured `op:resolve`. Same routing/return
-/// contract as `poll_event_deliver`. Release `out` with `pancake_resolve_free`.
+/// contract as `poll_event_deliver`: `_UNSUPPORTED_VALUE` and decode failures
+/// leave the event queued for the opaque `pancake_peer_poll_event`. Release
+/// `out` with `pancake_resolve_release`.
 pub export fn pancake_peer_poll_event_resolve(peer: ?*PancakePeer, out: ?*PancakeResolve) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
     const next = ptr.peekEventKind() orelse return PANCAKE_ERR_WOULD_BLOCK;
     if (next != .resolve) return PANCAKE_ERR_WRONG_EVENT;
 
-    var event = ptr.pollEvent() orelse return PANCAKE_ERR_WOULD_BLOCK;
-    defer event.deinit();
-    const body = event.view() catch return PANCAKE_ERR_CODEC;
+    // Marshal from a borrowed peek; consume only on full success, so a fulfill
+    // value the C surface cannot represent leaves the resolve queued for the
+    // opaque `poll_event` fallback rather than being dequeued and lost.
+    const peeked = ptr.peekEvent() orelse return PANCAKE_ERR_WOULD_BLOCK;
+    const body = peeked.view() catch return PANCAKE_ERR_CODEC;
 
     const arena = newProjectionArena(ptr.allocator) orelse return PANCAKE_ERR_INTERNAL;
-    errdefer freeProjectionArena(arena);
+    // Same success-flag discipline as `poll_event_deliver`: the error-code
+    // returns below are not Zig errors, so only this defer reclaims the arena
+    // on a refused projection.
+    var projected = false;
+    defer if (!projected) freeProjectionArena(arena);
     const a = arena.allocator();
     // A malformed or over-nested body is a codec/session fault, not a host
     // internal error; classify it like every other decode failure.
     const owned = body.toOwned(a) catch |err| return feedErrorToCode(err);
     const resolve = owned.resolve;
+    const fulfill_c: PancakeArgument = switch (resolve.resolution) {
+        .fulfill => |arg| argumentToC(a, arg) catch |err| return marshalErrorToCode(err),
+        .@"break" => zero_argument,
+    };
+    projected = true;
 
+    // Projection succeeded — now consume and release the event.
+    var event = ptr.pollEvent().?;
+    event.deinit();
     slot.* = .{
         .answer = resolve.answer,
         .resolution_kind = switch (resolve.resolution) {
             .fulfill => c.PANCAKE_RESOLUTION_FULFILL,
-            .break_ => c.PANCAKE_RESOLUTION_BREAK,
+            .@"break" => c.PANCAKE_RESOLUTION_BREAK,
         },
-        .fulfill = switch (resolve.resolution) {
-            .fulfill => |arg| argumentToC(a, arg) catch |err| return marshalErrorToCode(err),
-            .break_ => zero_argument,
-        },
+        .fulfill = fulfill_c,
         .break_message = switch (resolve.resolution) {
             .fulfill => null,
-            .break_ => |e| e.message.ptr,
+            .@"break" => |e| e.message.ptr,
         },
         .break_message_len = switch (resolve.resolution) {
             .fulfill => 0,
-            .break_ => |e| e.message.len,
+            .@"break" => |e| e.message.len,
         },
         .owner = @ptrCast(arena),
     };
     return PANCAKE_OK;
 }
 
-/// Release a `PancakeDeliver` projection exactly once; the descriptor is cleared.
-pub export fn pancake_deliver_free(deliver: ?*PancakeDeliver) void {
+/// Release a `PancakeDeliver` projection; the `args` views aliasing its arena
+/// die with it. Idempotent: the struct is cleared, so releasing again (or a
+/// zero-initialized struct) is a no-op.
+pub export fn pancake_deliver_release(deliver: ?*PancakeDeliver) void {
     const d = deliver orelse return;
     freeProjectionArena(d.owner);
     d.* = .{ .target = zero_reference, .args = null, .args_len = 0, .has_answer = 0, .answer = 0, .owner = null };
 }
 
-/// Release a `PancakeResolve` projection exactly once; the descriptor is cleared.
-pub export fn pancake_resolve_free(resolve: ?*PancakeResolve) void {
+/// Release a `PancakeResolve` projection; the `fulfill` and `break_message`
+/// views aliasing its arena die with it. Idempotent: the struct is cleared, so
+/// releasing again (or a zero-initialized struct) is a no-op.
+pub export fn pancake_resolve_release(resolve: ?*PancakeResolve) void {
     const r = resolve orelse return;
     freeProjectionArena(r.owner);
     r.* = .{ .answer = 0, .resolution_kind = 0, .fulfill = zero_argument, .break_message = null, .break_message_len = 0, .owner = null };

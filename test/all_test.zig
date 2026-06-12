@@ -1,4 +1,5 @@
 comptime {
+    _ = @import("api_surface_test.zig");
     _ = @import("foundation/frame_test.zig");
     _ = @import("foundation/id_test.zig");
     _ = @import("foundation/crypto_test.zig");
@@ -20,25 +21,44 @@ comptime {
     _ = @import("c_abi/context_test.zig");
     _ = @import("c_abi/typed_test.zig");
     _ = @import("c_abi/header_parity_test.zig");
+    _ = @import("c_abi/uri_test.zig");
     _ = @import("c_abi/handshake_test.zig");
     _ = @import("c_abi/endpoint_loopback_test.zig");
+    _ = @import("c_abi/inproc_loopback_test.zig");
     _ = @import("foundation/memory_endpoint_test.zig");
     _ = @import("net_adapter/connection_test.zig");
     _ = @import("net_adapter/frame_stream_test.zig");
+    _ = @import("net_adapter/netlayer_test.zig");
     _ = @import("net_adapter/tcp_parse_test.zig");
     _ = @import("net_adapter/tcp_test.zig");
+    if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        _ = @import("net_adapter/completion_loop_test.zig");
+    if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        _ = @import("net_adapter/completion_dialer_test.zig");
     _ = @import("session/session_test.zig");
     _ = @import("session/bootstrap_test.zig");
     _ = @import("engine/peer_test.zig");
     _ = @import("engine/alloc_budget_test.zig");
+    _ = @import("engine/footprint_budget_test.zig");
+    _ = @import("engine/completion_seam_test.zig");
     _ = @import("engine/negotiation_test.zig");
     _ = @import("engine/abort_projection_test.zig");
     _ = @import("engine/error_taxonomy_test.zig");
     _ = @import("engine/pipeline_test.zig");
+    _ = @import("engine/projection_test.zig");
     _ = @import("engine/fetch_test.zig");
     _ = @import("engine/bootstrap_test.zig");
     _ = @import("engine/sturdyref_test.zig");
     _ = @import("engine/registry_test.zig");
+    _ = @import("engine/gift_registry_test.zig");
     _ = @import("engine/cross_peer_test.zig");
     _ = @import("engine/pairing_test.zig");
+    _ = @import("driver/connected_vat_test.zig");
+    _ = @import("driver/gc_stateless_test.zig");
+    _ = @import("driver/pluggability_test.zig");
+    _ = @import("driver/inproc_netlayer_test.zig");
+    if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        _ = @import("driver/loop_host_test.zig");
+    if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        _ = @import("driver/loop_dialer_test.zig");
 }

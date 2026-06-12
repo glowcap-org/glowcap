@@ -1,7 +1,7 @@
 //! One-shot tasks client for the cross-language demo: connect, add a task,
 //! list, mark it done, list again, and exit.
 //!
-//!   cargo run --bin tasks-client -- 127.0.0.1 9099 rs-linus "buy groceries"
+//!   cargo run --bin tasks-client -- 127.0.0.1 9099 rs-barbara "buy groceries"
 
 mod board;
 

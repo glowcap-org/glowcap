@@ -14,8 +14,9 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const foundation = pancake.foundation;
-const model = pancake.model;
-const syrup = pancake.codec.syrup;
+const model = pancake.ocapn.model;
+const capnp = pancake.ocapn.codec.capnp;
+const syrup = pancake.ocapn.codec.syrup;
 
 /// Counts every backing allocation (fresh `alloc`, plus a `remap`/`resize` that
 /// grows an existing block), matching the inbound budget test's accounting.
@@ -55,7 +56,11 @@ const TotalCountingAllocator = struct {
     }
 };
 
-test "encoding a small deliver holds its outbound allocation budget" {
+fn expectEncodeBudget(
+    comptime name: []const u8,
+    expected_budget: usize,
+    encode: *const fn (std.mem.Allocator, model.Message) anyerror!foundation.Frame,
+) !void {
     var counter = TotalCountingAllocator{ .backing = std.testing.allocator };
     const gpa = counter.allocator();
 
@@ -63,7 +68,7 @@ test "encoding a small deliver holds its outbound allocation budget" {
     // — the outbound twin of the inbound budget test's frame.
     const message = model.Message{
         .deliver = .{
-            .target = .{ .far = .{ .import_id = 0 } },
+            .target = .{ .far = .{ .import_position = 0 } },
             .args = &.{.{ .bytes = "hello" }},
             .answer = 11,
         },
@@ -72,14 +77,14 @@ test "encoding a small deliver holds its outbound allocation budget" {
     // Warm up so any one-time backing growth is out of the measured window, then
     // measure a block of encodes.
     for (0..4) |_| {
-        var frame = try syrup.encodeMessage(gpa, message);
+        var frame = try encode(gpa, message);
         frame.deinit();
     }
 
     const turns = 16;
     counter.allocs = 0;
     for (0..turns) |_| {
-        var frame = try syrup.encodeMessage(gpa, message);
+        var frame = try encode(gpa, message);
         frame.deinit();
     }
 
@@ -89,6 +94,11 @@ test "encoding a small deliver holds its outbound allocation budget" {
     // The encoder builds the record into a growable buffer and hands it to an
     // owned `Frame`. This pins the per-encode allocation count so the outbound
     // half of the wire path is measured, not just timed by the codec benchmark.
-    const budget = 2;
-    try std.testing.expectEqual(@as(usize, budget), per_encode);
+    errdefer std.debug.print("{s} per_encode_allocs={d}\n", .{ name, per_encode });
+    try std.testing.expectEqual(@as(usize, expected_budget), per_encode);
+}
+
+test "encoding a small deliver holds its outbound allocation budget" {
+    try expectEncodeBudget("syrup", 2, syrup.encodeMessage);
+    try expectEncodeBudget("capnp", 2, capnp.encodeMessage);
 }

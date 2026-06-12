@@ -1,0 +1,24 @@
+# The project gates on the GitHub mirror, run in the canonical devcontainer
+# image via ci/gates.sh — the same script the Codeberg (.forgejo/workflows/)
+# wrapper runs. Origin is Codeberg; this exists because the mirror's hosted
+# runners are docker-capable and free.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Run the gates in the devcontainer
+        uses: devcontainers/ci@v0.3
+        with:
+          push: never
+          runCmd: bash ci/gates.sh

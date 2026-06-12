@@ -5,7 +5,10 @@
 //! active codec's own decoder finds the frame boundary as it decodes
 //! (`engine.Peer.recvStreamPrefix`). One parse does both jobs; there's no
 //! separate boundary scanner. A decoded frame is applied right away, the bytes it
-//! used are dropped, and the peer's outbound frames are streamed back.
+//! used are dropped, and the peer's outbound frames are streamed back. The read
+//! buffer sizes the steady state, not the largest admissible frame: a frame that
+//! outgrows it assembles in a bounded owned spill and is freed when it drains
+//! (ADR-0041).
 //!
 //! This is where `std.Io` enters the transport adapter. The five core layers
 //! (foundation, model, codec, session, engine) stay synchronous and I/O-free;
@@ -13,18 +16,18 @@
 //! disclose it in their own headers.
 //! The connection doesn't wrap a socket of its own; it just drives
 //! the plain `std.Io.Reader` and `std.Io.Writer` a stream already gives you, so
-//! the same code handles TCP today and TLS or in-memory pipes tomorrow without
-//! changing. The actual socket lives behind `tcp.zig`, and the framing core
+//! any stream that speaks those — the TCP socket, an in-memory pipe, a TLS
+//! wrapper — drives it unchanged. The actual socket lives behind `tcp.zig`, and the framing core
 //! (`pumpOver`) only ever sees a type-erased reader and writer, which is how we
 //! test it with `Reader.fixed` and `Writer.fixed` and no socket at all.
 
 const std = @import("std");
 
-const foundation = @import("../foundation/mod.zig");
-const engine = @import("../engine/mod.zig");
+const foundation = @import("foundation");
+const engine = @import("engine");
 const frame_stream = @import("frame_stream.zig");
 
-/// One unit of forward progress reported by [`pumpOver`] / [`Connection.pump`].
+/// One unit of forward progress reported by `pumpOver` / `Connection.pump`.
 pub const Progress = union(enum) {
     /// A read happened but no whole frame is available yet (need more bytes).
     idle,
@@ -41,7 +44,10 @@ pub const Progress = union(enum) {
 /// inbound frame is a *protocol abort*: the core has already projected the
 /// outbound `op:abort` (which the pump flushes best-effort) before the matching
 /// error surfaces here — the variant names what the partner did, not a transport
-/// fault. `ConnectionLost` / `TruncatedFrame` are the genuine transport faults;
+/// fault. The variant names only the failure family; the typed cause — abort
+/// kind, codec-vs-session domain, diagnostic — stays readable through
+/// `engine.Peer.lastAbort` on the peer the caller already holds.
+/// `ConnectionLost` / `TruncatedFrame` are the genuine transport faults;
 /// the concrete `ReadFailed` / `WriteFailed` cause is preserved on the
 /// `Stream.Reader` / `Stream.Writer` for a caller (or the C boundary) to surface.
 pub const PumpError = error{
@@ -52,87 +58,124 @@ pub const PumpError = error{
     TruncatedFrame,
     /// Inbound bytes are not a structurally valid frame (op:abort projected).
     MalformedFrame,
-    /// An inbound frame would exceed `SessionLimits.max_frame_bytes`, either by
-    /// its decoded length (cap-on-parse) or by filling the read buffer without
-    /// completing (op:abort projected).
+    /// An inbound frame would exceed `SessionLimits.max_frame_bytes`: its
+    /// scanned length crossed the cap during decode (op:abort projected), or —
+    /// the defensive mirror of that codec contract — its prefix reached the cap
+    /// still incomplete.
     FrameTooLarge,
     /// A structurally valid frame was refused by session authority (op:abort
     /// projected; the session is closing).
     ProtocolAbort,
 } || std.mem.Allocator.Error;
 
-/// A concrete byte-stream connection: a borrowed peer plus a stream's
-/// reader/writer. It does not own the peer (lifetime unchanged) and owns the
-/// stream only to close it on [`deinit`]. No generics, no comptime endpoint
-/// concept — every byte-stream transport already funnels through
-/// `std.Io.Reader` / `std.Io.Writer`.
+/// A type-erased handle to the concrete stream behind a `Connection`. The
+/// transport that produced the connection (e.g. `tcp`) owns the stream and
+/// supplies these two operations: close it (and free whatever the transport
+/// pinned to keep the reader/writer alive), and expose its pollable socket
+/// descriptor when it has one. A userspace transport with no fd returns null
+/// from `socketHandle` and multiplexes in its own loop.
+pub const TransportHandle = struct {
+    ctx: *anyopaque,
+    close_fn: *const fn (ctx: *anyopaque) void,
+    socket_handle_fn: *const fn (ctx: *anyopaque) ?std.Io.net.Socket.Handle,
+
+    pub fn close(self: TransportHandle) void {
+        self.close_fn(self.ctx);
+    }
+    pub fn socketHandle(self: TransportHandle) ?std.Io.net.Socket.Handle {
+        return self.socket_handle_fn(self.ctx);
+    }
+};
+
+/// A transport-neutral byte-stream connection: a borrowed peer plus a
+/// type-erased reader/writer pair and a handle to the transport behind them.
+///
+/// The connection holds `*std.Io.Reader` / `*std.Io.Writer` — the interfaces
+/// `pumpOver` already speaks — never a concrete socket type, so any transport
+/// that yields those interfaces drives it unchanged: TCP, the in-process pipe,
+/// and the iroh QUIC stream all do. The concrete stream object lives behind
+/// `TransportHandle`, owned by the transport that produced it (see
+/// `tcp`); the connection only borrows the interfaces and asks the handle to
+/// close the stream on `deinit`. It does not own the peer (lifetime
+/// unchanged).
+///
+/// Because the connection borrows the reader/writer interfaces rather than
+/// storing them inline, the transport must keep its concrete reader/writer at a
+/// stable address for the connection's life — `std.Io.Reader`'s vtable recovers
+/// that concrete reader from `&interface` by field offset, so a moved-away
+/// reader would dangle. The tcp transport pins its per-connection stream on the
+/// peer's allocator and frees it through the handle.
 pub const Connection = struct {
     peer: *engine.Peer,
-    reader: std.Io.net.Stream.Reader,
-    writer: std.Io.net.Stream.Writer,
+    r: *std.Io.Reader,
+    w: *std.Io.Writer,
+    transport: TransportHandle,
+    /// The host `std.Io` this connection runs on. Kept so the driver can draw
+    /// handshake entropy at the I/O boundary without reaching into the
+    /// transport's private stream; it is OS randomness, not transport state.
     io: std.Io,
+    /// Bounded overflow for an admissible frame larger than the read buffer
+    /// (see `frame_stream.Spill`); inactive and allocation-free while frames
+    /// fit the buffer. Allocates from the peer's allocator.
+    spill: frame_stream.Spill = .{},
 
-    /// Weld `peer` to `stream` over the caller's `read_buf` / `write_buf`. `io`
-    /// is named exactly once, here, and captured by the stream reader/writer.
-    ///
-    /// Slice-1 sizing: `read_buf` should be `peer.session_state.limits
-    /// .max_frame_bytes` so any admissible frame fits whole (a documented
-    /// loopback simplification; the small-buffer + bounded-overflow production
-    /// path is the named follow-up). `write_buf` may stay small — `writeAll`
-    /// streams a large frame straight through.
-    pub fn initStream(
+    /// Weld `peer` to a transport's already-built reader/writer interfaces and a
+    /// handle that closes the underlying stream. The transport (e.g. `tcp`)
+    /// owns the concrete stream behind `transport` and keeps `r` / `w` valid for
+    /// the connection's life.
+    pub fn init(
         io: std.Io,
         peer: *engine.Peer,
-        stream: std.Io.net.Stream,
-        read_buf: []u8,
-        write_buf: []u8,
+        r: *std.Io.Reader,
+        w: *std.Io.Writer,
+        transport: TransportHandle,
     ) Connection {
-        return .{
-            .peer = peer,
-            .reader = stream.reader(io, read_buf),
-            .writer = stream.writer(io, write_buf),
-            .io = io,
-        };
+        return .{ .peer = peer, .r = r, .w = w, .transport = transport, .io = io };
     }
 
-    /// Close the underlying stream. Does not touch the borrowed peer.
+    /// Close the underlying stream (via the transport handle) and free the spill.
+    /// Does not touch the borrowed peer.
     pub fn deinit(self: *Connection) void {
-        self.reader.stream.close(self.io);
+        self.spill.deinit(self.peer.allocator);
+        self.transport.close();
     }
 
     /// One blocking step of progress over the stream (the whole contract). See
-    /// [`pumpOver`].
+    /// `pumpOver`.
     pub fn pump(self: *Connection) PumpError!Progress {
-        return pumpOver(self.peer, &self.reader.interface, &self.writer.interface);
+        return pumpOver(self.peer, self.r, self.w, &self.spill);
     }
 
     /// Encode the peer's queued sends and flush them, without reading. The honest
-    /// counterpart to [`pump`] for a caller that has just enqueued outbound work
+    /// counterpart to `pump` for a caller that has just enqueued outbound work
     /// (a host orchestrating across connections) and wants it on the wire now,
     /// rather than blocking on a read that may never come.
     pub fn flush(self: *Connection) PumpError!void {
         stepToIdle(self.peer) catch |err| {
-            _ = drainOutbound(self.peer, &self.writer.interface) catch 0;
+            _ = drainOutbound(self.peer, self.w) catch 0;
             return classifyApplyError(err);
         };
-        _ = drainOutbound(self.peer, &self.writer.interface) catch return error.ConnectionLost;
+        _ = drainOutbound(self.peer, self.w) catch return error.ConnectionLost;
     }
 
-    /// Whether the read buffer already holds bytes (a possibly-partial frame). A
-    /// caller multiplexing reads with `poll` checks this before polling, since
-    /// buffered bytes are readable progress the OS poll will not report.
+    /// Whether the read buffer or the spill already holds bytes (a
+    /// possibly-partial frame). A caller multiplexing reads with `poll` checks
+    /// this before polling, since buffered bytes are readable progress the OS
+    /// poll will not report.
     pub fn hasBufferedInbound(self: *Connection) bool {
-        return self.reader.interface.bufferedLen() > 0;
+        return self.r.bufferedLen() > 0 or self.spill.isActive();
     }
 
-    /// The underlying socket descriptor, for a host that multiplexes several
-    /// connections with `poll` rather than a thread-per-connection blocking read.
-    pub fn socketHandle(self: *const Connection) std.Io.net.Socket.Handle {
-        return self.reader.stream.socket.handle;
+    /// The underlying socket descriptor for a host that multiplexes several
+    /// connections with `poll`, or null for a transport with no pollable fd (a
+    /// userspace transport multiplexes in its own loop). Provided by the
+    /// transport handle.
+    pub fn socketHandle(self: *const Connection) ?std.Io.net.Socket.Handle {
+        return self.transport.socketHandle();
     }
 
     /// Pump until `pred(peer)` holds or the stream closes. The only blocking
-    /// sugar; the honest primitive is [`pump`]. Returns the last `Progress`
+    /// sugar; the honest primitive is `pump`. Returns the last `Progress`
     /// (`.closed` if the stream ended first).
     pub fn runUntil(self: *Connection, pred: *const fn (*engine.Peer) bool) PumpError!Progress {
         if (pred(self.peer)) return .idle;
@@ -145,24 +188,35 @@ pub const Connection = struct {
 };
 
 /// The framing core, decoupled from sockets: drive one step of progress over a
-/// type-erased `*std.Io.Reader` / `*std.Io.Writer`. Proven with `Reader.fixed`
-/// and `Writer.fixed`; `Connection.pump` is the socket-backed caller.
+/// type-erased `*std.Io.Reader` / `*std.Io.Writer`, with `spill` as the bounded
+/// overflow for a frame larger than the read buffer. Proven with `Reader.fixed`
+/// / `std.testing.Reader` and `Writer.fixed`; `Connection.pump` is the
+/// socket-backed caller (its connection owns the spill).
 ///
 /// Order of operations (single fiber, blocking):
 ///   1. Encode the peer's queued sends and flush all outbound to the wire — the
 ///      handshake `op:start-session`, responses from a prior apply, or a
 ///      projected abort all leave this way.
-///   2. If the buffer already holds a whole frame, frame + validate + apply it
-///      (one parse) and drop its bytes; report `received`.
-///   3. Otherwise read more (`fillMore`), distinguishing graceful EOF (`closed`)
-///      from mid-frame EOF (`TruncatedFrame`) and guarding the buffer cap before
-///      a full buffer would force an over-read (`FrameTooLarge`).
+///   2. If the spill (when active) or the buffer holds a whole frame, frame +
+///      validate + apply it (one parse) and drop its bytes; report `received`.
+///   3. Otherwise read more, distinguishing graceful EOF (`closed`) from
+///      mid-frame EOF (`TruncatedFrame`); a read buffer full of one frame's
+///      prefix moves into the spill and keeps reading, bounded by
+///      `max_frame_bytes` (the codec's cap-during-scan plus the defensive
+///      mirror below).
 ///
-/// Backpressure / full-duplex is deferred by name: a single fiber that is
-/// mid-`writeAll` to a slow reader can head-of-line-block. Request/response
-/// traffic (handshake, fetch, deliver/resolve) is safe on one fiber; concurrent
-/// streaming wants split read/write fibers above this primitive.
-pub fn pumpOver(peer: *engine.Peer, r: *std.Io.Reader, w: *std.Io.Writer) PumpError!Progress {
+/// One fiber is the contract, not a deferral (ADR-0053): this pump serves
+/// cooperative request/response traffic (handshake, fetch, deliver/resolve),
+/// where each side drains the replies its own requests caused. A partner that
+/// streams without draining can head-of-line-block a fiber mid-`writeAll`;
+/// that workload rides the completion loop, whose bounded outbound queue and
+/// read parking (ADR-0042) exist for exactly it.
+pub fn pumpOver(
+    peer: *engine.Peer,
+    r: *std.Io.Reader,
+    w: *std.Io.Writer,
+    spill: *frame_stream.Spill,
+) PumpError!Progress {
     // 1. Encode queued sends, then flush everything outbound.
     stepToIdle(peer) catch |err| {
         _ = drainOutbound(peer, w) catch 0;
@@ -170,9 +224,12 @@ pub fn pumpOver(peer: *engine.Peer, r: *std.Io.Reader, w: *std.Io.Writer) PumpEr
     };
     const sent = drainOutbound(peer, w) catch return error.ConnectionLost;
 
-    // 2. Frame and apply one inbound message already buffered (one parse).
-    if (r.bufferedLen() > 0) {
-        const outcome = peer.recvStreamPrefix(r.buffered()) catch |err| {
+    // 2. Frame and apply one inbound message already buffered (one parse). The
+    //    spill, while active, is the in-flight frame's contiguous prefix; the
+    //    read buffer otherwise.
+    const supply = if (spill.isActive()) spill.bytes() else r.buffered();
+    if (supply.len > 0) {
+        const outcome = peer.recvStreamPrefix(supply) catch |err| {
             // The core projected an op:abort into outbound; flush it best-effort
             // so the partner sees the fail-loud close, then surface the cause.
             stepToIdle(peer) catch {};
@@ -181,20 +238,27 @@ pub fn pumpOver(peer: *engine.Peer, r: *std.Io.Reader, w: *std.Io.Writer) PumpEr
         };
         switch (outcome) {
             .consumed => |n| {
-                r.toss(n);
+                if (spill.isActive()) spill.consume(peer.allocator, n) else r.toss(n);
                 return .{ .received = n };
             },
-            .incomplete => {},
+            .incomplete => {
+                // Defensive mirror of the codec's cap-during-scan contract
+                // (ADR-0029): an incomplete prefix at or past the cap can never
+                // complete within it, so a codec that failed to refuse it fails
+                // closed here instead of growing the spill.
+                if (supply.len >= peer.session_state.limits.max_frame_bytes)
+                    return error.FrameTooLarge;
+            },
         }
     }
 
     // A flush with no inbound frame is still real progress.
     if (sent > 0) return .{ .sent = sent };
 
-    // 3. Need more bytes. The stream-edge classification (full-buffer cap,
+    // 3. Need more bytes. The stream-edge classification (spill hand-off,
     //    graceful vs mid-frame EOF, read fault) is the one shared with the
     //    peer-less frame transport, so the two cannot disagree on a boundary.
-    return switch (try frame_stream.fillStep(r)) {
+    return switch (try frame_stream.fillThroughSpill(r, spill, peer.allocator)) {
         .filled => .idle,
         .closed => .closed,
     };

@@ -13,16 +13,19 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const goblins_child = @import("goblins_child.zig");
 
-const model = pancake.model;
-const engine = pancake.engine;
-const codec = pancake.codec;
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
+const codec = pancake.ocapn.codec;
 const crypto = pancake.foundation.crypto;
 const tcp = pancake.net_adapter.tcp;
 
 const host = "127.0.0.1";
-const alice_port_str = "22110";
-const bob_port_str = "22111";
+/// Alice's and Bob's listening ports. `--port=N` (from
+/// `zig build goblins-handoff -Dport=N`) moves the pair to N and N+1 when the
+/// defaults are taken.
+const default_alice_port: u16 = 22110;
 const frame_cap: usize = 1 << 16;
 const host_script = "conformance/goblins-peer/racket/handoff-introducer-host.rkt";
 
@@ -30,9 +33,28 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const allocator = init.gpa;
 
-    const racket = "/usr/local/bin/racket";
+    var args = std.process.Args.Iterator.init(init.minimal.args);
+    _ = args.next(); // program name
+    var alice_port: u16 = default_alice_port;
+    while (args.next()) |arg| {
+        if (std.mem.startsWith(u8, arg, "--port=")) {
+            alice_port = std.fmt.parseInt(u16, arg["--port=".len..], 10) catch 0;
+            if (alice_port == 0 or alice_port == 65535) {
+                std.debug.print("goblins-handoff: --port must be an integer in 1..65534 (bob listens on port+1)\n", .{});
+                return error.BadPort;
+            }
+        } else {
+            std.debug.print("goblins-handoff: unknown argument '{s}'\n", .{arg});
+            return error.BadArgument;
+        }
+    }
+    var alice_port_buf: [8]u8 = undefined;
+    const alice_port_str = try std.fmt.bufPrint(&alice_port_buf, "{d}", .{alice_port});
+    var bob_port_buf: [8]u8 = undefined;
+    const bob_port_str = try std.fmt.bufPrint(&bob_port_buf, "{d}", .{alice_port + 1});
+
     var child = try std.process.spawn(io, .{
-        .argv = &.{ racket, host_script, alice_port_str, bob_port_str },
+        .argv = &.{ goblins_child.racket_path, host_script, alice_port_str, bob_port_str },
         .environ_map = init.environ_map,
         .stdout = .pipe,
         .stderr = .pipe,
@@ -40,15 +62,15 @@ pub fn main(init: std.process.Init) !void {
     var reaped = false;
     defer if (!reaped) child.kill(io);
 
-    const swiss = readIntroducerSwiss(io, allocator, &child) catch |err| {
+    const swiss = goblins_child.readPublishedSwiss(io, allocator, &child) catch |err| {
         std.debug.print("goblins-handoff: never saw the introducer readiness line: {s}\n", .{@errorName(err)});
-        dumpChildStderr(io, &child);
+        goblins_child.dumpChildStderr(io, "goblins-handoff", &child);
         return err;
     };
     defer allocator.free(swiss);
     std.debug.print("goblins-handoff: alice published introducer swiss={s} on {s}:{s}\n", .{ swiss, host, alice_port_str });
 
-    try recipientStep1(io, allocator, swiss);
+    try recipientStep1(io, allocator, swiss, alice_port_str);
 
     child.kill(io);
     reaped = true;
@@ -56,7 +78,7 @@ pub fn main(init: std.process.Init) !void {
 
 /// Step 1: dial Alice, enliven the introducer, call get-greeter, inspect what the
 /// introduction resolves to.
-fn recipientStep1(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8) !void {
+fn recipientStep1(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, alice_port_str: []const u8) !void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -66,32 +88,25 @@ fn recipientStep1(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8) !
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
+    var designator_buf: [64]u8 = undefined;
+    const alice_designator = try std.fmt.bufPrint(&designator_buf, "{s}:{s}", .{ host, alice_port_str });
     const dial: model.PeerLocator = .{
         .transport = tcp.transport_name,
-        .designator = host ++ ":" ++ alice_port_str,
+        .designator = alice_designator,
         .hints = model.Hints.emptyFalse(),
     };
     var conn = try tcp.connect(io, &peer, dial, read_buf, write_buf);
     defer conn.deinit();
 
-    // Keyed handshake (a `tcp`/`#f`-hints locator so Goblins verifies our signature).
-    const secret = try crypto.SecretKey.fromSeed([_]u8{0x5c} ** crypto.SEED_BYTES);
-    const pubkey = secret.publicKey();
-    const my_loc: model.PeerLocator = .{ .transport = "tcp", .designator = host ++ ":1", .hints = model.Hints.emptyFalse() };
-    const signed = try codec.syrup.canonicalLocationSignedBytes(allocator, my_loc);
-    defer allocator.free(signed);
-    const sig = crypto.sign(&secret, signed);
-    try peer.sendCopying(.{ .start_session = .{
-        .captp_version = .v1_0,
-        .session_pubkey = .{ .bytes = pubkey.asBytes() },
-        .acceptable_location = my_loc,
-        .acceptable_location_sig = .{ .bytes = sig.asBytes() },
-    } });
-    _ = try conn.runUntil(isOpen);
+    // Keyed handshake (a `tcp`/`#f`-hints locator so Goblins verifies our
+    // signature). The drawn secret is the recipient's identity for the whole
+    // handoff: the gift Alice deposits names this session key, so the later
+    // withdraw on Bob's session must sign with the same secret.
+    const secret = try goblins_child.openKeyedSession(io, &peer, &conn, host ++ ":1");
     std.debug.print("goblins-handoff: session open (pancake as recipient -> alice)\n", .{});
 
     // Enliven the introducer by its swiss-num.
-    const introducer = try fetchCap(allocator, &peer, &conn, swiss);
+    const introducer = try goblins_child.fetchCap(allocator, &peer, &conn, swiss);
     defer model.freeReference(allocator, introducer);
     std.debug.print("goblins-handoff: enlivened alice's introducer\n", .{});
 
@@ -133,7 +148,7 @@ fn recipientStep1(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8) !
                             std.debug.print("goblins-handoff: get-greeter resolved to a {s} (expected a handoff)\n", .{@tagName(arg)});
                         }
                     },
-                    .break_ => |b| std.debug.print("goblins-handoff: get-greeter BROKE: {s}\n", .{b.message}),
+                    .@"break" => |b| std.debug.print("goblins-handoff: get-greeter BROKE: {s}\n", .{b.message}),
                 }
             }
         }
@@ -145,7 +160,7 @@ fn recipientStep1(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8) !
     const give_bytes = raw_give orelse return error.NoHandoffGive;
 
     // The recipient withdraw: dial the exporter directly and present the receive.
-    try withdrawAndCall(io, allocator, designator, give_bytes);
+    try withdrawAndCall(io, allocator, secret, designator, give_bytes);
 }
 
 // Goblins session/side naming lives in the engine as the recipient-side handoff
@@ -158,7 +173,7 @@ const sessionName = engine.handoff_recipient.sessionName;
 /// `withdraw-gift`, and call the resulting greeter — bytes going directly to the
 /// exporter. Reuses the same key pancake used with the introducer, since the give's
 /// recipient-key is that session pubkey (Goblins captp.rkt:997).
-fn withdrawAndCall(io: std.Io, allocator: std.mem.Allocator, designator: []const u8, give_bytes: []const u8) !void {
+fn withdrawAndCall(io: std.Io, allocator: std.mem.Allocator, secret: crypto.SecretKey, designator: []const u8, give_bytes: []const u8) !void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -172,19 +187,10 @@ fn withdrawAndCall(io: std.Io, allocator: std.mem.Allocator, designator: []const
     var conn = try tcp.connect(io, &peer, dial, read_buf, write_buf);
     defer conn.deinit();
 
-    const secret = try crypto.SecretKey.fromSeed([_]u8{0x5c} ** crypto.SEED_BYTES);
+    // The same secret that keyed the Alice session: the deposited gift names
+    // that key as the recipient, so this session must present it.
     const pubkey = secret.publicKey();
-    const my_loc: model.PeerLocator = .{ .transport = "tcp", .designator = host ++ ":1", .hints = model.Hints.emptyFalse() };
-    const signed = try codec.syrup.canonicalLocationSignedBytes(allocator, my_loc);
-    defer allocator.free(signed);
-    const sig = crypto.sign(&secret, signed);
-    try peer.sendCopying(.{ .start_session = .{
-        .captp_version = .v1_0,
-        .session_pubkey = .{ .bytes = pubkey.asBytes() },
-        .acceptable_location = my_loc,
-        .acceptable_location_sig = .{ .bytes = sig.asBytes() },
-    } });
-    _ = try conn.runUntil(isOpen);
+    try goblins_child.openKeyedSessionWith(&peer, &conn, host ++ ":1", secret);
     std.debug.print("goblins-handoff: session open (pancake -> exporter {s})\n", .{designator});
 
     // Derive the Carol<->Bob session/side names the way Goblins does.
@@ -250,8 +256,20 @@ fn withdrawAndCall(io: std.Io, allocator: std.mem.Allocator, designator: []const
             if (body == .resolve and body.resolve.answer == call_answer) {
                 greeted = true;
                 switch (body.resolve.resolution) {
-                    .fulfill => |arg| std.debug.print("goblins-handoff: greeter replied: {s}\n", .{if (arg == .string) arg.string else "<non-string>"}),
-                    .break_ => |b| {
+                    // The greeter builds its reply around the caller's name:
+                    // assert the name we sent came back in the content, so the
+                    // handoff proves data integrity, not just choreography.
+                    .fulfill => |arg| {
+                        const reply: []const u8 = switch (arg) {
+                            .string, .bytes => |t| t,
+                            else => return error.GreeterWrongPayload,
+                        };
+                        if (std.mem.indexOf(u8, reply, "pancake-carol") == null) {
+                            return error.GreeterWrongPayload;
+                        }
+                        std.debug.print("goblins-handoff: greeter replied: {s}\n", .{reply});
+                    },
+                    .@"break" => |b| {
                         std.debug.print("goblins-handoff: greeter call broke: {s}\n", .{b.message});
                         return error.GreeterBroke;
                     },
@@ -269,7 +287,7 @@ fn withdrawAndCall(io: std.Io, allocator: std.mem.Allocator, designator: []const
 fn awaitResolution(allocator: std.mem.Allocator, peer: *engine.Peer, conn: anytype, id: u64) !?model.Reference {
     while (true) {
         const progress = conn.pump() catch |e| {
-            const buffered = conn.reader.interface.buffered();
+            const buffered = conn.r.buffered();
             std.debug.print("goblins-handoff: withdraw response pump error {s}; {} bytes goblins sent:\n", .{ @errorName(e), buffered.len });
             dumpFrameBytes(buffered);
             return e;
@@ -293,7 +311,7 @@ fn awaitResolution(allocator: std.mem.Allocator, peer: *engine.Peer, conn: anyty
                         const ref = ownedFulfillReference(owned) orelse return null;
                         return try model.cloneReference(allocator, ref);
                     },
-                    .break_ => |b| {
+                    .@"break" => |b| {
                         std.debug.print("goblins-handoff: answer {} broke: {s}\n", .{ id, b.message });
                         return null;
                     },
@@ -317,37 +335,6 @@ fn ownedFulfillReference(msg: model.Message) ?model.Reference {
     };
 }
 
-fn fetchCap(allocator: std.mem.Allocator, peer: *engine.Peer, conn: anytype, swiss: []const u8) !model.Reference {
-    const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &peer.session_state, swiss);
-    try peer.send(prepared.message);
-    while (true) {
-        const progress = try conn.pump();
-        while (peer.pollEvent()) |event_value| {
-            var event = event_value;
-            defer event.deinit();
-            const owned = try event.decodeOwned(allocator);
-            const match = try engine.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer_id, owned);
-            switch (match) {
-                .settled => |outcome| switch (outcome) {
-                    .fulfilled => |reference| return reference,
-                    .broken => |reason| {
-                        defer allocator.free(reason);
-                        std.debug.print("goblins-handoff: enliven broke: {s}\n", .{reason});
-                        return error.FetchBroke;
-                    },
-                    .malformed => return error.FetchMalformed,
-                },
-                .unrelated => |msg| model.freeMessage(allocator, msg),
-            }
-        }
-        if (progress == .closed) return error.FetchNeverSettled;
-    }
-}
-
-fn isOpen(peer: *engine.Peer) bool {
-    return peer.session_state.state == .open;
-}
-
 /// Print a frame as a Syrup-readable ascii rendering (printables verbatim,
 /// non-printables as `\xNN`), so we can see exactly which descriptor goblins
 /// emitted that pancake's decoder rejected.
@@ -369,38 +356,4 @@ fn dumpFrameBytes(bytes: []const u8) void {
         }
     }
     std.debug.print("goblins-handoff:   {s}\n", .{buf[0..w]});
-}
-
-fn readIntroducerSwiss(io: std.Io, allocator: std.mem.Allocator, child: *std.process.Child) ![]u8 {
-    const out = child.stdout orelse return error.NoChildStdout;
-    var rbuf: [8192]u8 = undefined;
-    var reader = out.readerStreaming(io, &rbuf);
-    while (true) {
-        const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
-            error.EndOfStream => return error.GoblinsExitedBeforeReady,
-            else => return err,
-        };
-        if (extractField(line, "\"swiss\":\"")) |swiss| return allocator.dupe(u8, swiss);
-    }
-}
-
-fn extractField(line: []const u8, needle: []const u8) ?[]const u8 {
-    const start = (std.mem.indexOf(u8, line, needle) orelse return null) + needle.len;
-    const rest = line[start..];
-    const end = std.mem.indexOfScalar(u8, rest, '"') orelse return null;
-    return rest[0..end];
-}
-
-fn dumpChildStderr(io: std.Io, child: *std.process.Child) void {
-    const err_file = child.stderr orelse return;
-    var buf: [4096]u8 = undefined;
-    var reader = err_file.readerStreaming(io, &buf);
-    std.debug.print("goblins-handoff: --- goblins stderr ---\n", .{});
-    var scratch: [1024]u8 = undefined;
-    while (true) {
-        const n = reader.interface.readSliceShort(&scratch) catch break;
-        if (n == 0) break;
-        std.debug.print("{s}", .{scratch[0..n]});
-    }
-    std.debug.print("\n--- end goblins stderr ---\n", .{});
 }

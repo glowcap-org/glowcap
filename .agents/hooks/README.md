@@ -2,11 +2,11 @@
 
 Canonical home for hook scripts that fire around agent file edits.
 
-| Surface | Canonical | Tool wiring |
-| --- | --- | --- |
-| Per-edit Zig format dispatch | [`format-edited-file.sh`](format-edited-file.sh) | Cursor: [`.cursor/hooks.json`](../../.cursor/hooks.json) `afterFileEdit`. Claude Code: [`.claude/settings.json`](../../.claude/settings.json) `hooks.PostToolUse` matcher `Edit\|Write\|MultiEdit`. |
+| Surface | Canonical |
+| --- | --- |
+| Per-edit Zig format dispatch | [`format-edited-file.sh`](format-edited-file.sh) |
 
 The script formats `*.zig` with `zig fmt`. Anything else is ignored. The script
 exits 0 even when formatting fails; `zig build check` stays the load-bearing
-gate. `zig build meta-check` verifies that Cursor and Claude both point at this
-canonical command.
+gate. Cursor and Claude point at this canonical command; `zig build meta-check`
+verifies the tool wiring.

@@ -1,0 +1,61 @@
+---
+.title = "Codecs",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+pancake is a *codec-neutral* CapTP core: the session reasons in messages, and a
+codec turns those messages into bytes and back (the
+[Concepts]($link.page('concepts')) page sets up that seam). Two ship today.
+[OCapN](https://github.com/ocapn/ocapn) settles the wire format as
+[Syrup](https://github.com/ocapn/syrup), and pancake speaks Syrup wherever the
+protocol calls for it; [Cap'n Proto](https://capnproto.org/) is the second codec, a
+fixed-width, word-aligned alternative to Syrup's variable-length byte records.
+
+[One message, two spellings. Syrup lays it out as variable-length byte records and Cap'n Proto as fixed 8-byte words; decode either and you get back the same message.]($image.siteAsset('diagram-codec.svg'))
+
+## What a codec is, and is not
+
+The session deals in messages, a deliver, a resolve, a promise, and never in
+bytes. A codec only reads and writes bytes; it never decides what a message *means*
+or whether it is *allowed*. That authority stays in the session, so changing codecs
+changes the wire and never the behavior. Decode the same message through either
+codec and you get the same borrowed view; encode through either and the bytes come
+back equivalent. A build check holds that line: the deliver/resolve and
+bootstrap-fetch scenarios produce identical observable traces on both codecs, even
+though the two wire encodings look nothing alike.
+
+## The two that ship
+
+| Codec | Wire shape | Trade | Reach for it when |
+| --- | --- | --- | --- |
+| Syrup | length-prefixed byte records | compact frames; Goblins-canonical | talking to Goblins, or when per-connection density matters |
+| Cap'n Proto | 8-byte-aligned words | fixed-offset fields, larger frames | two pancake peers, once you have measured the encode/decode trade |
+
+### Syrup
+
+The Goblins-canonical profile, and the format OCapN requires on the wire. It is
+what pancake speaks by default and what it speaks to any
+[Spritely Goblins](https://spritely.institute/goblins/) peer. Its records are
+variable-length, which keeps frames compact.
+
+### Cap'n Proto
+
+A second, hand-rolled codec, selectable on a live session. Its word-aligned frames
+are larger on the wire, with every field at a fixed offset. Both peers settle on it at
+handshake (`pairedWithCodec` in Zig, `pancake_peer_new_negotiated` over the C ABI, and
+the matching idiom in every binding), and from there the whole conversation rides it.
+Whether that shape pays off for your traffic is a measured question, not a claimed one:
+`zig build bench-codec` reports the current encode and decode ns/op and MB/s for both,
+and the [Performance]($link.page('performance')) page is where those numbers live.
+
+## Bring your own
+
+The set is open on purpose. The two pancake ships are the two it needs today, but
+the codec layer is a registry, not a fixed switch. A Zig consumer declares
+`pub const pancake_codecs` in the root source file, binds a wire id to an
+implementation, and the same core speaks it with no change to the session above. It
+all resolves at compile time, so a third codec costs the dispatch nothing the two
+built-ins did not.

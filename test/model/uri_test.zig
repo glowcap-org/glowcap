@@ -1,7 +1,7 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.model;
+const model = pancake.ocapn.model;
 const uri = model.uri;
 
 test "parses the conformance peer URI: designator, transport, and hints" {
@@ -32,7 +32,7 @@ test "parses a hintless peer URI as hints-absent" {
     try std.testing.expectEqualStrings("abcd", locator.designator);
     try std.testing.expectEqual(@as(usize, 0), locator.hints.entries.len);
     // No query → `#f` hints on the wire, not an empty map.
-    try std.testing.expect(locator.hints.empty_wire_was_false);
+    try std.testing.expectEqual(model.Hints.WireForm.boolean_false, locator.hints.wire_form);
 }
 
 test "a designator may itself contain dots; only the last dot splits the transport" {
@@ -136,6 +136,21 @@ test "rejects a non-ocapn scheme" {
 test "rejects an authority with no transport suffix" {
     const allocator = std.testing.allocator;
     try std.testing.expectError(uri.Error.MissingTransport, uri.parsePeer(allocator, "ocapn://no-dot-here"));
+}
+
+test "an escaped dot is data, never the transport delimiter" {
+    const allocator = std.testing.allocator;
+    // The netloc splits on its percent-encoded form. `%2E` decodes to `.`, but
+    // it must not become a structural delimiter: a netloc whose only dot is
+    // escaped has no transport suffix at all.
+    try std.testing.expectError(uri.Error.MissingTransport, uri.parsePeer(allocator, "ocapn://ab%2Etcp"));
+
+    // An escaped dot inside the designator survives as data; only the literal
+    // dot splits the transport.
+    const locator = try uri.parsePeer(allocator, "ocapn://a%2Eb.tcp");
+    defer uri.freePeer(allocator, locator);
+    try std.testing.expectEqualStrings("a.b", locator.designator);
+    try std.testing.expectEqualStrings("tcp", locator.transport);
 }
 
 test "truncated percent escape passes through as literal bytes" {

@@ -1,23 +1,25 @@
 //! Goblins-shaped actors over the pancake peer, in native Rust.
 //!
 //! The actor model is a language-native layer on the typed peer surface, not a
-//! wrapped C vat — a Rust actor is a Rust closure, the way an async connection is
-//! tokio, not a foreign callback. A [`Vat`] holds local actors (each a closure
-//! over a method verb and its arguments) and, when bound to a peer, routes sends
-//! to *remote* objects over the wire. A leading symbol argument is the method
-//! verb (matching Goblins's `($ obj 'method arg …)`); the rest are the call's
-//! arguments.
+//! wrapped C vat. A Rust actor is a Rust closure, the same way an async connection
+//! is tokio rather than a foreign callback. A [`Vat`] holds local actors, each a
+//! closure over a method verb and its arguments. When the vat is bound to a peer,
+//! it also routes sends to remote objects over the wire. A leading symbol
+//! argument is the method verb, matching Goblins's `($ obj 'method arg ...)`; the
+//! rest are the call's arguments.
 //!
-//! The unified [`Ref`] (local or far) and [`Promise`] (local or wire-answer) are
-//! the seam: an application sends to a ref without caring where it lives, and the
-//! vat routes. Two verbs mirror Goblins:
+//! The unified [`Ref`] can name a local actor or a far object, and a [`Promise`]
+//! can settle from a local turn or a wire answer. An application sends to a ref
+//! without caring where it lives; the vat chooses the route. Two verbs mirror
+//! Goblins:
 //!
-//!   * [`Vat::call`] — the synchronous near-call (`$`): run a local actor's
-//!     behavior now and return its value. Legal only for a local ref, exactly as
-//!     Goblins forbids `$` to a far ref.
-//!   * [`Vat::send`] — the eventual send (`<-`): location-transparent. To a local
-//!     ref it queues a turn; to a far ref it sends an `op:deliver` over the bound
-//!     peer. Either way it returns a [`Promise`] you observe with [`Vat::on`].
+//!   * [`Vat::call`] is the synchronous near-call (`$`). It runs a local actor's
+//!     behavior immediately and returns its value. It is legal only for a local
+//!     ref, exactly as Goblins forbids `$` to a far ref.
+//!   * [`Vat::send`] is the eventual send (`<-`). It is location-transparent: to a
+//!     local ref it queues a turn, and to a far ref it sends an `op:deliver` over
+//!     the bound peer. Either way it returns a [`Promise`] you observe with
+//!     [`Vat::on`].
 
 use crate::{Argument, Event, Peer, Reference, Resolution, Result};
 use std::collections::HashMap;
@@ -32,9 +34,9 @@ pub type Listener = Box<dyn FnOnce(Resolution)>;
 /// A reference the vat can eventual-send to, wherever the object lives.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Ref {
-    /// An actor in this vat — `call`/`send` run its turns here.
+    /// An actor in this vat. `call` and `send` run its turns here.
     Local(u64),
-    /// A partner-hosted object the bound peer holds — `send` routes to it as an
+    /// A partner-hosted object the bound peer holds. `send` routes to it as an
     /// `op:deliver`; `call` (near) is illegal.
     Far(Reference),
 }
@@ -64,20 +66,16 @@ struct Queued {
 /// through [`peer`](Vat::peer). The vat owns no I/O and no scheduler — it only
 /// enqueues onto the peer's outbound queue and dispatches its events.
 pub struct Vat<'a> {
-    peer: Option<&'a mut Peer>,
+    peer: Option<&'a mut Peer<'static>>,
     actors: HashMap<u64, Behavior>,
     queue: Vec<Queued>,
     listeners: HashMap<u64, Listener>,
-    /// Outbound answer position → listener for a far send's promise.
+    /// Listener for a far send's promise, keyed by outbound answer position.
     far_listeners: HashMap<u64, Listener>,
-    /// Export position → local actor id, for actors published on the peer.
+    /// Local actor id for each export position published on the peer.
     exports: HashMap<u64, u64>,
     next_actor: u64,
     next_promise: u64,
-    /// The next outbound answer position for a far send. Started high to stay
-    /// clear of a partner's answer positions (there is no `allocate_answer` in
-    /// the C ABI, so the vat tracks its own counter, like the Racket binding).
-    next_answer: u64,
 }
 
 impl Default for Vat<'_> {
@@ -98,13 +96,12 @@ impl<'a> Vat<'a> {
             exports: HashMap::new(),
             next_actor: 1,
             next_promise: 1,
-            next_answer: 1000,
         }
     }
 
     /// A vat bound to `peer`: far sends route to it, and [`publish`](Vat::publish)
     /// exports actors so inbound deliveries (via [`serve`](Vat::serve)) run them.
-    pub fn over(peer: &'a mut Peer) -> Vat<'a> {
+    pub fn over(peer: &'a mut Peer<'static>) -> Vat<'a> {
         let mut vat = Vat::new();
         vat.peer = Some(peer);
         vat
@@ -112,7 +109,7 @@ impl<'a> Vat<'a> {
 
     /// The peer this vat rides on — to feed/step/take_outbound around `serve`.
     /// Returns `None` for a pure-local vat.
-    pub fn peer(&mut self) -> Option<&mut Peer> {
+    pub fn peer(&mut self) -> Option<&mut Peer<'static>> {
         self.peer.as_deref_mut()
     }
 
@@ -159,8 +156,10 @@ impl<'a> Vat<'a> {
                 Ok(Promise::Local(promise))
             }
             Ref::Far(reference) => {
-                let answer = self.next_answer;
-                self.next_answer += 1;
+                // The answer comes from the peer's one outbound-answer
+                // allocator (`pancake_peer_next_answer`), so it can never
+                // alias another question on the session.
+                let answer = self.peer.as_deref_mut().expect("a far send needs a bound peer").next_answer()?;
                 let mut full = Vec::with_capacity(args.len() + 1);
                 // A non-empty verb leads as an OCapN symbol (Goblins's
                 // `($ obj 'method …)`); an empty verb is a positional call with no
@@ -191,19 +190,19 @@ impl<'a> Vat<'a> {
         }
     }
 
-    /// Publish an actor at `export_id` so a partner's deliveries to it run the
+    /// Publish an actor at `export_position` so a partner's deliveries to it run the
     /// behavior. Registers the export on the bound peer and binds it. Requires a
     /// bound peer.
     pub fn publish(
         &mut self,
-        export_id: u64,
+        export_position: u64,
         behavior: impl FnMut(&str, &[Argument]) -> std::result::Result<Argument, String> + 'static,
     ) -> Result<Ref> {
         let actor = self.spawn(behavior);
         let Ref::Local(local_id) = actor else { unreachable!("spawn returns a local ref") };
         let peer = self.peer.as_deref_mut().expect("publish needs a bound peer");
-        peer.register_export(export_id)?;
-        self.exports.insert(export_id, local_id);
+        peer.register_export(export_position)?;
+        self.exports.insert(export_position, local_id);
         Ok(actor)
     }
 
@@ -233,6 +232,19 @@ impl<'a> Vat<'a> {
         }
     }
 
+    /// Map a wire reference to a vat target, routing a `Near` export this vat
+    /// hosts to its local actor so a self-spawned cap resolves in-process rather
+    /// than going out on the wire to its own export. A reference this vat does not
+    /// host stays `Far`.
+    pub fn resolve_target(&self, reference: &Reference) -> Ref {
+        if let Reference::Near { id, .. } = reference {
+            if let Some(&local_id) = self.exports.get(id) {
+                return Ref::Local(local_id);
+            }
+        }
+        Ref::Far(reference.clone())
+    }
+
     /// Dispatch one inbound peer event. A deliver to a published export runs the
     /// actor (leading symbol = verb) and resolves the answer with its reply; a
     /// resolve for a pending far promise fires its listener. Returns whether the
@@ -246,11 +258,11 @@ impl<'a> Vat<'a> {
     }
 
     fn serve_deliver(&mut self, target: &Reference, args: &[Argument], answer: Option<u64>) -> Result<bool> {
-        let export_id = match target {
+        let export_position = match target {
             Reference::Near { id, .. } => *id,
             _ => return Ok(false),
         };
-        let actor = match self.exports.get(&export_id) {
+        let actor = match self.exports.get(&export_position) {
             Some(id) => *id,
             None => return Ok(false),
         };
@@ -279,6 +291,18 @@ impl<'a> Vat<'a> {
                 true
             }
             None => false,
+        }
+    }
+
+    /// Break every far vow still awaiting a partner's resolution, firing each
+    /// listener with `Break(message)`. The connection driver calls this when the
+    /// wire goes away, so an outstanding `send` settles as a break carrying the
+    /// reason rather than a bare transport error — the disconnect guarantee the
+    /// Deno, Python, and Racket connections also give.
+    pub fn break_far_vows(&mut self, message: &str) {
+        let broken = Resolution::Break(message.to_string());
+        for (_, listener) in self.far_listeners.drain() {
+            listener(broken.clone());
         }
     }
 }

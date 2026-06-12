@@ -1,0 +1,11 @@
+---
+.title = "Zig API Reference",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+The API reference is generated from the public `pancake` Zig module during
+`zig build site`. The generated autodoc artifact is installed at this route as
+part of the same build step.

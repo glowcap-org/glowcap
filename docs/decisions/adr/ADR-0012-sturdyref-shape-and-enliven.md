@@ -20,27 +20,29 @@ Engages the First Principles *session state is authoritative* (the feature gate 
 
 ### Typed shape and equality
 
-A sturdyref is structured, not opaque bytes. [`src/model/mod.zig`](../../../src/model/mod.zig) carries it as a `Reference.sturdy` arm over
+A sturdyref is structured, not opaque bytes. [`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig) carries it as a `Reference.sturdy` arm over
 
 ```zig
 pub const SturdyRef = struct { peer: PeerLocator, swissnum: []const u8 };
 ```
 
-reusing the same `PeerLocator` that `op:start-session` and the handoff descriptors carry. Equality is structural: [`src/model/equality.zig`](../../../src/model/equality.zig) `referencesEqual` compares the `.sturdy` arm field-wise — `peerLocatorsEqual` over `(transport, designator, hints)` and byte-equality on `swissnum`. Because it is structural on the codec-neutral value tree, two sturdyrefs naming the same target compare equal regardless of which codec or Syrup profile carried them (First Principle *codec-neutral semantics*).
+reusing the same `PeerLocator` that `op:start-session` and the handoff descriptors carry. Equality is structural: [`src/ocapn/model/equality.zig`](../../../src/ocapn/model/equality.zig) `referencesEqual` compares the `.sturdy` arm field-wise — `peerLocatorsEqual` over `(transport, designator, hints)` and byte-equality on `swissnum`. Because it is structural on the codec-neutral value tree, two sturdyrefs naming the same target compare equal regardless of which codec or Syrup profile carried them (First Principle *codec-neutral semantics*).
+
+**Amendment (2026-06-10).** The locator axis above over-counted. OCapN `Locators.md` (§ Peer object) is explicit: "the designator and transport are the only pieces of information which need to match" — two peer locators with the same designator and transport but different hints are the same peer. `peerLocatorsEqual` therefore compares `(transport, designator)` only, and sturdyref equality is `(transport, designator, swissnum)`; hints are connection advice, never identity.
 
 ### The `sturdyref` feature gate
 
-`FeatureSet.sturdyref` is load-bearing, not advertised-and-ignored. Both reference-validation paths in [`src/session/mod.zig`](../../../src/session/mod.zig) refuse a `Reference.sturdy` with `Error.FeatureNotNegotiated` when the session did not negotiate the flag — on inbound decode and on outbound encode alike, so a peer cannot smuggle a sturdyref across a session that never agreed to speak them. `FeatureSet.fullExceptStreaming` turns `sturdyref` (and `equality`, consumed by the Cross-session distributed equality section below) on; the handshake `intersect` reduces the negotiated set to what both peers advertised.
+`FeatureSet.sturdyref` is load-bearing, not advertised-and-ignored. Both reference-validation paths in [`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig) refuse a `Reference.sturdy` with `Error.FeatureNotNegotiated` when the session did not negotiate the flag — on inbound decode and on outbound encode alike, so a peer cannot smuggle a sturdyref across a session that never agreed to speak them. `FeatureSet.fullExceptStreaming` turns `sturdyref` (and `equality`, consumed by the Cross-session distributed equality section below) on; the handshake `intersect` reduces the negotiated set to what both peers advertised.
 
 ### Enliven over bootstrap-fetch
 
-[`src/engine/sturdyref.zig`](../../../src/engine/sturdyref.zig) adds only the enliven-specific halves the sync core owns; the wire loop is an adapter concern, exactly as for the bootstrap-fetch it rides.
+[`src/ocapn/engine/sturdyref.zig`](../../../src/ocapn/engine/sturdyref.zig) adds only the enliven-specific halves the sync core owns; the wire loop is an adapter concern, exactly as for the bootstrap-fetch it rides.
 
 - **Precondition.** `checkEnlivenPreconditions` requires the session to have negotiated `FeatureSet.sturdyref` (`Error.SturdyrefsNotNegotiated`) and to be `open` (`Error.SessionNotOpen`). Whether `sturdyref.peer` names this session's remote is a dial/adapter concern — the core tracks no remote locator and never dials.
 - **Dedup.** `prepareEnliven` resolves to one of three starts. A cache hit (`sturdyrefCacheHit`) rebuilds the cached `Reference.far` — kind preserved per [ADR-0010](ADR-0010-payload-descriptor-discriminator.md) — with no wire traffic. An in-flight match (`pendingEnlivenAnswer`) collapses a concurrent enliven for the same swiss-number onto the outstanding answer id. A miss issues a fresh bootstrap-fetch and records the in-flight marker (`notePendingEnliven`), releasing every allocation if the marker cannot be recorded.
 - **Settle.** `recordEnlivenment` clears the in-flight marker, then caches `(import_id, kind)` on a `fulfilled(Reference.far)` and returns the live reference. A non-`far` fulfillment, a `break`, or a malformed settlement releases any owned payload and fails with `Error.EnlivenmentBroke`.
 
-The dedup state lives on the session ([`src/session/mod.zig`](../../../src/session/mod.zig)): `cacheSturdyrefEnlivenment` / `sturdyrefImportFor` / `sturdyrefKindFor` over a swissnum → `(import_id, kind)` cache, and `notePendingEnliven` / `finishPendingEnliven` over the in-flight markers. The cache is non-load-bearing — a miss costs one extra round-trip, never correctness — so it is bounded by `SessionLimits.max_sturdyref_cache_entries` and evicts the oldest entry on overflow rather than erroring.
+The dedup state lives on the session ([`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig)): `cacheSturdyrefEnlivenment` / `sturdyrefImportFor` / `sturdyrefKindFor` over a swissnum → `(import_id, kind)` cache, and `notePendingEnliven` / `finishPendingEnliven` over the in-flight markers. The cache is non-load-bearing — a miss costs one extra round-trip, never correctness — so it is bounded by `SessionLimits.max_sturdyref_cache_entries` and evicts the oldest entry on overflow rather than erroring.
 
 ### Cross-session distributed equality
 
@@ -62,7 +64,7 @@ This builds on the sturdyref dedup cache above. One session per peer pair is enf
 
 - The model carries `SturdyRef { peer, swissnum }` as `Reference.sturdy`; `referencesEqual` compares it structurally.
 - The session refuses a sturdyref on a non-negotiated session (`Error.FeatureNotNegotiated`) and owns the dedup cache and in-flight markers.
-- `src/engine/sturdyref.zig` exposes the precondition / prepare / settle halves; the adapter drives the wire loop, as for bootstrap-fetch.
+- `src/ocapn/engine/sturdyref.zig` exposes the precondition / prepare / settle halves; the adapter drives the wire loop, as for bootstrap-fetch.
 - Enliven happy-path, cache-hit short-circuit, in-flight collapse, and the not-negotiated / broken refusals are conformance-bearing scenarios.
 
 ## Forward compatibility

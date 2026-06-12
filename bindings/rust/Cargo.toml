@@ -13,6 +13,11 @@ path = "src/lib.rs"
 # `getrandom` supplies the per-connection session seed at the I/O boundary (the
 # sans-io core never generates entropy).
 async = ["dep:tokio", "dep:getrandom"]
+# Opt-in iroh transport. Links the iroh public C ABI superset library
+# (`libpancake_iroh`, built by `zig build iroh-abi`, needs cargo) instead of
+# plain `libpancake`, and adds `Connection::connect_iroh` / `IrohServer` over the
+# encrypted-QUIC sidecar bridge (ADR-0055). Implies `async` (the driver it rides).
+iroh = ["async"]
 
 [dependencies]
 tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "sync", "process", "time"], optional = true }

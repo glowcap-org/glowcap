@@ -1,0 +1,39 @@
+---
+.title = "Python",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+The Python binding loads the installed shared `libpancake` through `ctypes` and
+presents a `Peer` in
+[`bindings/python/pancake.py`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/python/pancake.py).
+Wire values map to native Python values (integers, strings, bytes, lists, and the
+rest), so you rarely think about the FFI underneath.
+
+## Async
+
+The async surface is [`asyncio`](https://docs.python.org/3/library/asyncio.html). An
+`AsyncConnection` runs the peer over asyncio
+streams inside an `async with` block, you iterate events with
+`async for event in conn`, and you await a result with
+`await vat.send(ref, verb, args)`. One connection owns one peer and lives on one
+task, so the peer calls never block the event loop; only the socket awaits.
+
+## Actors
+
+The actor layer is a `Vat` over `behavior(verb, args)` callables. A local actor is
+an ordinary Python callable, and a leading symbol argument selects the method verb.
+
+## Dogfood and example
+
+```sh
+zig build python-dogfood    # the Python consumer against libpancake
+```
+
+The full surface lives in the
+[Python binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/python/README.md),
+and the
+[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/python/room_client.py)
+builds a small capability-secure room on this surface.

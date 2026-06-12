@@ -1,14 +1,15 @@
 // An agent, written on pancake actors in native Deno. It connects to the tools
-// coordinator and proves the three capability properties that make pancake the
-// obvious substrate for an AI agent harness:
+// coordinator and proves the three capability properties — delegation,
+// attenuation, revocation — over the wire:
 //
 //   1. delegation  — it is handed a capability to a tool and can call it.
 //   2. attenuation — a read-only file capability serves reads and refuses writes.
 //   3. revocation  — a revoked handle breaks on every subsequent call.
 //
-// And, by construction, least authority: the agent can reach exactly the
-// capabilities it was granted and nothing else — there is no ambient authority,
-// so a tool it was never handed is unreachable, not merely forbidden.
+// And, by construction, least authority: the agent holds exactly the references
+// it was granted — there is no ambient authority and no global directory of tools
+// to enumerate, so no reference the coordinator never sent it names a tool it can
+// reach.
 //
 //   deno run --allow-ffi --allow-read --allow-net agent.ts 127.0.0.1 9099 deno-agent
 

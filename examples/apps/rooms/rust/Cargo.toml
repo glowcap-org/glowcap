@@ -8,6 +8,12 @@ publish = false
 name = "rooms-client"
 path = "client.rs"
 
+[features]
+# Dial the room over iroh's encrypted QUIC (an `ocapn://…iroh` locator) in
+# addition to TCP, by turning on the binding's iroh transport. Off by default so
+# the TCP demo builds without cargo's iroh ABI superset.
+iroh = ["pancake/iroh"]
+
 # The pancake binding, with its tokio async layer. Renamed to `pancake` so the
 # application reads against the library, not the dogfood crate's package name.
 [dependencies]

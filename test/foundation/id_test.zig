@@ -10,6 +10,12 @@ test "peer ids are fixed 32-byte values" {
     try std.testing.expectEqualSlices(u8, &bytes, peer_id.asBytes());
 }
 
+test "peer ids and session ids are distinct types" {
+    // Each comptime name argument mints its own FixedId instantiation, so the
+    // compiler refuses a PeerId where a SessionId belongs.
+    comptime std.debug.assert(foundation.PeerId != foundation.SessionId);
+}
+
 test "session ids compare by value" {
     const a_bytes = [_]u8{0xaa} ** 32;
     const b_bytes = [_]u8{0xbb} ** 32;

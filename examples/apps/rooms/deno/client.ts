@@ -2,44 +2,56 @@
 //
 // It connects, fetches the room by name, publishes a local `inbox` actor, and
 // hands the room a capability to that inbox when it subscribes. From then on the
-// room calls the client back — the client never polls. It waits until the room is
-// full (it learns the head count from the room's own join announcements), posts
-// one line, and collects every member's line as the room pushes it back.
+// room calls the client back — the client never polls. It waits until everyone
+// it expects is in the room, posts one line, and collects each expected member's
+// line as the room pushes it back.
 //
-//   deno run --allow-ffi --allow-net client.ts 127.0.0.1 9099 alice "hi" 3
+//   deno run --allow-ffi --allow-net client.ts 127.0.0.1:9099 alice "hi" alice,bob,carol
 //
-// The last argument is how many members to expect; the client posts only once
-// that many have joined, so an all-to-all broadcast is deterministic no matter
-// what order the members connect in. It exits 0 once it has seen a line from
-// every member, and 1 on timeout.
+// The first argument is the locator: a `host:port` joins over TCP, an
+// `ocapn://<nodeid>.iroh?…` URI joins over iroh.
+//
+// The last argument is the roster: a comma-separated list of the member nicks to
+// expect (default: just you). The client posts only once every roster member is
+// present, so an all-to-all broadcast is deterministic no matter what order the
+// members connect in — it learns who is present from its welcome (which names
+// everyone already in the room) and from the room's join announcements. It exits
+// 0 once it has seen a line from every roster member, and 1 on timeout. Members
+// outside the roster (people already chatting in an attached room, say) are
+// printed but never counted, so a busy room cannot fake or break the assertion.
 
-import { connect } from "../../../../bindings/deno/pancake.ts";
+import { dial } from "./locator.ts";
 import { NOTIFY, POST, ROOM, SUBSCRIBE } from "./protocol.ts";
 
-/** The room announces each arrival as `<nick> joined (<count> here)`. Pull the
- * head count back out so a client can wait for the room to fill. */
-function rosterCount(from: string, text: string): number | null {
-  if (from !== "room") return null;
-  const m = text.match(/\((\d+) here\)/);
-  return m ? Number(m[1]) : null;
+/** The welcome ends with the nicks already present: `… in the room: a, b, c`. */
+function welcomeNames(text: string): string[] {
+  const m = text.match(/ in the room: (.+)$/);
+  return m ? m[1].split(", ") : [];
 }
 
-/** Run one client session: subscribe, wait for `expectMembers` to be present,
- * post `line`, and collect the chat line each member sends. Resolves with the
- * transcript of real chat lines (join announcements excluded). */
+/** The room announces each arrival as `<nick> joined (<count> here)`. */
+function joinedNick(text: string): string | null {
+  const m = text.match(/^(.+) joined \(\d+ here\)$/);
+  return m ? m[1] : null;
+}
+
+/** Run one client session: subscribe, wait for every roster member to be
+ * present, post `line`, and collect the chat line each roster member sends.
+ * Resolves with the transcript of real chat lines (join announcements
+ * excluded). */
 export async function runClient(
-  host: string,
-  port: number,
+  locator: string,
   nick: string,
   line: string,
-  expectMembers = 1,
+  roster: string[] = [nick],
   timeoutMs = 10000,
 ): Promise<string[]> {
-  const conn = await connect(host, port);
+  const conn = await dial(locator);
   conn.serve().catch(() => {});
 
   const chatLines: string[] = [];
-  let present = 0;
+  const present = new Set<string>();
+  const seen = new Set<string>();
   let posted = false;
   let finish!: () => void;
   const done = new Promise<void>((resolve) => {
@@ -49,7 +61,7 @@ export async function runClient(
   const room = await conn.fetch(ROOM);
 
   function maybePost(): void {
-    if (!posted && present >= expectMembers) {
+    if (!posted && roster.every((n) => present.has(n))) {
       posted = true;
       conn.send(room, POST, [line]).catch(() => {});
     }
@@ -62,19 +74,25 @@ export async function runClient(
     const from = typeof args[0] === "string" ? args[0] : "?";
     const text = typeof args[1] === "string" ? args[1] : "";
     console.log(`[${nick}] ${from}: ${text}`);
-    const count = rosterCount(from, text);
-    if (count !== null) {
-      present = Math.max(present, count);
-      maybePost();
+    if (from === "room") {
+      const joined = joinedNick(text);
+      if (joined !== null) present.add(joined);
     } else {
+      present.add(from); // a line is presence too
       chatLines.push(`${from}: ${text}`);
-      if (chatLines.length >= expectMembers) finish();
+      if (roster.includes(from)) {
+        seen.add(from);
+        if (seen.size >= roster.length) finish();
+      }
     }
+    maybePost();
     return null;
   });
 
-  // Subscribe, handing the room a capability to our inbox.
-  await conn.send(room, SUBSCRIBE, [nick, inbox]);
+  // Subscribe, handing the room a capability to our inbox. The welcome names
+  // everyone already present — the only way to learn about earlier arrivals.
+  const welcome = await conn.send(room, SUBSCRIBE, [nick, inbox]);
+  for (const n of welcomeNames(typeof welcome === "string" ? welcome : "")) present.add(n);
   maybePost();
 
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -88,20 +106,21 @@ export async function runClient(
     conn.close();
   }
 
-  if (chatLines.length < expectMembers) {
-    throw new Error(`${nick} saw ${chatLines.length}/${expectMembers} chat lines before timeout`);
+  if (seen.size < roster.length) {
+    const missing = roster.filter((n) => !seen.has(n)).join(", ");
+    throw new Error(`${nick} saw lines from ${seen.size}/${roster.length} members before timeout (missing: ${missing})`);
   }
   return chatLines;
 }
 
 if (import.meta.main) {
-  const [host, portStr, nick, line, expectStr] = Deno.args;
-  if (!host || !portStr || !nick || line === undefined) {
-    console.error("usage: client.ts <host> <port> <nick> <line> [expectMembers]");
+  const [locator, nick, line, rosterStr] = Deno.args;
+  if (!locator || !nick || line === undefined) {
+    console.error("usage: client.ts <locator> <nick> <line> [roster]   (locator: host:port or an ocapn://…iroh URI; roster: comma-separated nicks to expect; default just you)");
     Deno.exit(2);
   }
   try {
-    await runClient(host, Number(portStr), nick, line, Number(expectStr ?? "1"));
+    await runClient(locator, nick, line, rosterStr ? rosterStr.split(",") : [nick]);
     Deno.exit(0);
   } catch (err) {
     console.error(`client ${nick} failed: ${err instanceof Error ? err.message : err}`);

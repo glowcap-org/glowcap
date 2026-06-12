@@ -9,7 +9,7 @@ time, none of them aware of the others' languages.
 Run the whole thing with one command:
 
 ```sh
-zig build rooms
+zig build demo-rooms
 ```
 
 That starts a Deno-hosted room and joins one client per language to it over TCP.
@@ -21,9 +21,40 @@ The only runtime the demo requires is `deno`, which hosts the room and runs the
 orchestrator, plus the Zig client, which `zig build` always builds. Python,
 Racket, and Rust each join only when their runtime (`python3`, `racket`, `cargo`)
 is on PATH; the demo builds the Rust client itself when `cargo` is present, and it
-reports any language it skipped rather than failing. So `zig build rooms` runs on
+reports any language it skipped rather than failing. So `zig build demo-rooms` runs on
 whatever machine you have, with as many languages as you have installed. It is a
 sibling of `zig build check`, not part of the hermetic gate.
+
+By default the demo binds an ephemeral port. To put the room on a port you
+chose — one your container forwards, say — pin it with
+`zig build demo-rooms -Dport=9099`. To point the demo's clients at a room you
+already started yourself (the fixed-port server below, or the web UI's room),
+add attach mode: `zig build demo-rooms -Dport=9099 -Dattach=true` joins your
+server instead of spawning its own, and leaves it running when the demo ends.
+The room does not need to be empty or quiet: each client asserts the
+all-to-all broadcast against the demo's own member roster, so anyone already
+chatting in the room shows up in the transcripts but is never counted.
+
+### Over an encrypted transport
+
+The same cross-language room runs over [iroh](https://www.iroh.computer/)'s
+encrypted QUIC instead of cleartext TCP:
+
+```sh
+zig build demo-rooms-iroh
+```
+
+Nothing about the chat changes — the room's wire and behavior are identical, and
+the all-to-all proof is the same. Only addressing differs: instead of a
+`host:port`, the server announces an `ocapn://<nodeid>.iroh?direct-addresses=…`
+URI (its self-authenticating endpoint id plus dialable address hints), and every
+client dials that. Each language reaches iroh through the optional
+`libpancake_iroh` C ABI superset (the Rust sidecar behind
+[ADR-0055](../../../docs/decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)), so
+this step needs `cargo` as well as `deno`; a language still joins only when its
+runtime is present. It is a sibling of `zig build check`, never part of the
+hermetic gate. Discovery is relay-less with explicit hints — a loopback/LAN
+story, not public-internet dialing.
 
 ## Chat in it from your browser
 
@@ -37,6 +68,11 @@ deno run --allow-ffi --allow-read --allow-net --allow-run \
 That starts the room for you and serves a page at `http://localhost:8000`. Open it,
 pick a name, and chat. Each browser tab joins as its own member, so open a few — or
 chat from a tab while a terminal client or another language is in the same room.
+The page shows the room roster too: every member the room knows about, including
+Zig, Rust, Python, Racket, Deno, and browser members, appears as online or
+recently offline. Names are unique while they are live, ignoring case: the room
+grants one membership per nickname and releases that claim when the member
+leaves.
 
 A browser cannot speak raw TCP/OCapN, so `web.ts` sits in the middle: it serves the
 page, and for each tab it opens its own pancake membership in the room and bridges
@@ -66,16 +102,18 @@ deno run --allow-ffi --allow-read --allow-net \
 ```
 
 It prints `ROOMS-SERVER-LISTENING 9099`. Then open a terminal for each person and
-join with a nickname:
+join with a nickname — the first argument is the locator the server announced
+(`127.0.0.1:9099` for the TCP server above, or the `ocapn://…` URI an
+`ROOMS_TRANSPORT=iroh` server prints):
 
 ```sh
 deno run --allow-ffi --allow-read --allow-net \
-  examples/apps/rooms/deno/chat.ts 127.0.0.1 9099 alice
+  examples/apps/rooms/deno/chat.ts 127.0.0.1:9099 alice
 ```
 
 ```sh
 deno run --allow-ffi --allow-read --allow-net \
-  examples/apps/rooms/deno/chat.ts 127.0.0.1 9099 bob
+  examples/apps/rooms/deno/chat.ts 127.0.0.1:9099 bob
 ```
 
 Type a line and press enter to post it; lines from everyone else appear as they
@@ -86,13 +124,16 @@ and a single line to post, so you can drop one into a running room to say hello
 from another language — for example, while `alice` and `bob` are chatting in Deno:
 
 ```sh
-python3 examples/apps/rooms/python/client.py 127.0.0.1 9099 grace "hi from python" 1
-racket examples/apps/rooms/racket/client.rkt 127.0.0.1 9099 alan "hi from racket" 1
+python3 examples/apps/rooms/python/client.py 127.0.0.1:9099 grace "hi from python" grace
+racket examples/apps/rooms/racket/client.rkt 127.0.0.1:9099 alan "hi from racket" alan
 ```
 
-(The trailing `1` is how many members each one-shot client waits to hear from
-before it exits — `1` means "just post and go," so it does not block on a full
-room.)
+Each one-shot client takes the same transport-neutral locator as its first
+argument, so the same command line joins a TCP or an iroh room — pass the URI the
+iroh server announced instead of `host:port`. The trailing argument is the roster
+each one-shot client waits to hear from.
+Passing just its own nickname means "post and go," so it does not block on a full
+room.
 
 ## The idea: you call me, I call you back
 
@@ -113,6 +154,9 @@ That one move is the whole object-capability story made concrete:
   text. It does not take a "from" field, because the connection the post arrives
   on already tells the room which member is speaking. You cannot post as someone
   else, because you only hold your own capability.
+- **A name is a room-granted claim.** `subscribe(nick, inbox)` is where the room
+  decides whether the nickname is available. If it grants the claim, later
+  `post(text)` calls speak as that member until the connection leaves or closes.
 - **The room cannot tell the languages apart.** A Rust member and a Python member
   are the same shape on the wire. Interop is not a feature here; it is the absence
   of anything language-specific.
@@ -131,7 +175,7 @@ examples/apps/rooms/
 ├── racket/room-client.rkt + client.rkt  the same, in Racket
 ├── rust/room.rs + client.rs             the same, in Rust (its own crate)
 ├── zig/client.zig        the same in native Zig, over the real TCP netlayer
-└── demo.ts               the orchestrator `zig build rooms` runs
+└── demo.ts               the orchestrator `zig build demo-rooms` runs
 ```
 
 Each language has a `Room` client — the small layer that knows about OCapN

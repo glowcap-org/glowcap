@@ -8,10 +8,12 @@ bindings are gated.
 
 [`pancake.py`](pancake.py) is the idiomatic Python API over the C ABI. The raw
 `ctypes` FFI is private; what you use is a `Peer` context manager, native Python
-values as arguments, and typed event objects:
+values as arguments, and typed event objects. The default `Peer()` is a
+negotiating authenticated session; use `Peer.raw_open()` only for low-level
+fixtures that inject frames directly:
 
 ```python
-with Peer() as peer:
+with Peer.raw_open() as peer:
     peer.register_import(5)
     peer.send_deliver(Far(5), [42, b"hi"], answer=9)   # native int, bytes
     peer.step()

@@ -1,7 +1,18 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.model;
+const model = pancake.ocapn.model;
+
+test "value-tree types stay within their documented size budget" {
+    // The handoff arm of `Argument`/`Resolution` is boxed (`*Handoff`) precisely
+    // so the common arm sets the struct size; un-boxing it would balloon every
+    // element of a deliver's args (the memory rule's load-bearing-allocations
+    // budget). These bounds turn that budget into a gate — a regression here is
+    // the bench's printed `model_layout` numbers drifting silently.
+    try std.testing.expect(@sizeOf(model.Argument) <= 88);
+    try std.testing.expect(@sizeOf(model.Resolution) <= 96);
+    try std.testing.expect(@sizeOf(model.Reference) <= 80);
+}
 
 test "CapTP versions parse and render wire strings" {
     try std.testing.expectEqualStrings("1.0", model.CaptpVersion.v1_0.wireString());
@@ -13,15 +24,15 @@ test "CapTP versions parse and render wire strings" {
     try std.testing.expectEqual(@as(?model.CaptpVersion, null), model.CaptpVersion.fromWireString("2.0"));
 }
 
-test "wire profile constants carry CapTP version, canonical flag, and name" {
-    const goblins = model.WireProfile.v1_0;
-    try std.testing.expectEqual(model.CaptpVersion.v1_0, goblins.captp_version);
-    try std.testing.expect(goblins.flags.goblins_canonical);
-    try std.testing.expectEqualStrings("ocapn-v1.0", goblins.name());
+test "wire profile constants carry only protocol profile semantics" {
+    try std.testing.expect(!@hasField(model.WireProfile, "flags"));
+
+    const v1_0 = model.WireProfile.v1_0;
+    try std.testing.expectEqual(model.CaptpVersion.v1_0, v1_0.captp_version);
+    try std.testing.expectEqualStrings("ocapn-v1.0", v1_0.name());
 
     const pre_spec = model.WireProfile.pre_spec;
     try std.testing.expectEqual(model.CaptpVersion.pre_spec, pre_spec.captp_version);
-    try std.testing.expect(!pre_spec.flags.goblins_canonical);
     try std.testing.expectEqualStrings("pancake-pre-spec", pre_spec.name());
 }
 
@@ -54,30 +65,27 @@ test "abort kinds round-trip every variant through their wire names" {
     }
 }
 
-test "parseV1_0 splits a typed abort prefix into kind + message and falls back to other" {
-    const typed = model.AbortReason.parseV1_0("VersionMismatch: expected ocapn-1.0");
-    try std.testing.expectEqual(model.AbortKind.version_mismatch, typed.kind);
-    try std.testing.expectEqualStrings("expected ocapn-1.0", typed.message);
-
-    // An unrecognized label, or no "<label>: " prefix at all, is `other` carrying
-    // the whole string verbatim.
-    const freeform = model.AbortReason.parseV1_0("free-form");
-    try std.testing.expectEqual(model.AbortKind.other, freeform.kind);
-    try std.testing.expectEqualStrings("free-form", freeform.message);
-}
-
 test "near and far ref constructors set the wire-tag kind discriminant" {
-    try std.testing.expectEqual(model.NearKind.object, model.NearRef.object(1).kind);
-    try std.testing.expectEqual(model.NearKind.promise, model.NearRef.promise(1).kind);
-    try std.testing.expectEqual(model.ImportKind.object, model.FarRef.object(2).kind);
-    try std.testing.expectEqual(model.ImportKind.promise, model.FarRef.promise(2).kind);
+    try std.testing.expectEqual(model.RefKind.object, model.NearRef.object(1).kind);
+    try std.testing.expectEqual(model.RefKind.promise, model.NearRef.promise(1).kind);
+    try std.testing.expectEqual(model.RefKind.object, model.FarRef.object(2).kind);
+    try std.testing.expectEqual(model.RefKind.promise, model.FarRef.promise(2).kind);
 }
 
 test "protocol model arms map one-to-one onto Zig Message tags" {
     const oracle = @import("../oracle/protocol_oracle.zig");
 
-    try std.testing.expectEqual(oracle.message_arms.len, model.message_kinds.len);
-    for (oracle.message_arms, model.message_kinds) |oracle_arm, model_kind| {
-        try std.testing.expectEqualStrings(oracle_arm.name, model_kind.model_name);
+    // Truth derives from the `model.Message` union itself, not from a second
+    // hand list: a new union arm fails here until `message_kinds` carries its
+    // row, and a kinds row fails until the oracle registry carries its arm —
+    // so new protocol vocabulary cannot land without oracle pressure.
+    const fields = @typeInfo(model.Message).@"union".fields;
+    try std.testing.expectEqual(fields.len, model.message_kinds.len);
+    try std.testing.expectEqual(fields.len, oracle.message_arms.len);
+    inline for (fields, 0..) |field, i| {
+        if (comptime (i < model.message_kinds.len and i < oracle.message_arms.len)) {
+            try std.testing.expectEqualStrings(field.name, model.message_kinds[i].tag_name);
+            try std.testing.expectEqualStrings(model.message_kinds[i].model_name, oracle.message_arms[i].name);
+        }
     }
 }

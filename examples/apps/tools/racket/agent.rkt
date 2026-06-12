@@ -7,26 +7,12 @@
 
 (require "../../../../bindings/racket/pancake.rkt")
 
-;; Send a request and drive the connection until it settles, returning
-;; `(cons 'ok value)` or `(cons 'broken message)`. Single-threaded, matching the
-;; rest of the binding.
+;; `conn-send`, summarized for the checks below: `(cons 'ok value)` on a
+;; fulfilled reply, `(cons 'broken message)` on a broken one (revocation tests
+;; expect broken outcomes, so they are data here, not errors).
 (define (try-call c target verb . args)
-  (define result (box 'pending))
-  (with-vat (conn-vat c)
-    (define vow (apply <- target verb args))
-    (on vow
-        (lambda (v) (set-box! result (cons 'ok v)))
-        #:catch (lambda (m) (set-box! result (cons 'broken m)))))
-  (async-flush! (conn-async c))
-  (let loop ()
-    (define r (unbox result))
-    (cond
-      [(eq? r 'pending)
-       (define ev (async-next-event (conn-async c)))
-       (when (eof-object? ev) (error 'try-call "connection closed before ~a settled" verb))
-       (vat-serve! (conn-vat c) ev)
-       (loop)]
-      [else r])))
+  (with-handlers ([exn:fail? (lambda (e) (cons 'broken (exn-message e)))])
+    (cons 'ok (apply conn-send c target verb args))))
 
 (define (run host port nick)
   (define (check label ok)
@@ -35,7 +21,7 @@
     (unless ok (exit 1)))
 
   (define c (connect host port))
-  (define tools (fetch c "tools"))
+  (define tools (conn-fetch c "tools"))
 
   ;; 1. Delegation: get a clock capability and call it.
   (define clock (cdr (try-call c tools 'grant "clock")))

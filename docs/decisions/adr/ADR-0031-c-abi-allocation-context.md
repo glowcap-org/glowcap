@@ -34,7 +34,7 @@ introduced for the netlayer handle.
 
 **`PancakeContext` is the explicit owner of allocation policy for a handle
 family** ([`src/c_abi/mod.zig`](../../../src/c_abi/mod.zig)).
-`pancake_context_new_default` routes through the library allocator;
+`pancake_context_new` routes through the library allocator;
 `pancake_context_new_with_allocator` routes through host `alloc` / `free`
 callbacks. The `*_in` constructors (`pancake_peer_new_in`,
 `pancake_tcp_netlayer_new_in`) allocate from a context, and the simple

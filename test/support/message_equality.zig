@@ -9,7 +9,7 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.model;
+const model = pancake.ocapn.model;
 
 /// True when `a` and `b` are the same message arm carrying equal contents.
 pub fn messagesEqual(a: model.Message, b: model.Message) bool {
@@ -35,6 +35,8 @@ pub fn messagesEqual(a: model.Message, b: model.Message) bool {
             std.mem.eql(u8, x.field, b.get.field) and x.answer == b.get.answer,
         .index => |x| model.referencesEqual(x.receiver, b.index.receiver) and
             x.index == b.index.index and x.answer == b.index.answer,
+        .untag => |x| model.referencesEqual(x.receiver, b.untag.receiver) and
+            std.mem.eql(u8, x.tag, b.untag.tag) and x.answer == b.untag.answer,
         .start_session => |x| blk: {
             const y = b.start_session;
             break :blk x.captp_version == y.captp_version and
@@ -56,7 +58,7 @@ fn resolutionsEqual(a: model.Resolution, b: model.Resolution) bool {
     if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
     return switch (a) {
         .fulfill => |x| model.argumentsEqual(x, b.fulfill),
-        .break_ => |x| std.mem.eql(u8, x.message, b.break_.message),
+        .@"break" => |x| std.mem.eql(u8, x.message, b.@"break".message),
     };
 }
 

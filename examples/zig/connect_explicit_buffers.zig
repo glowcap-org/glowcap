@@ -1,0 +1,118 @@
+//! The buffer-explicit spelling of the application surface.
+//!
+//! Chapter 01 rides the owning `driver.Connection`, where one `frame_cap`
+//! option sizes the buffers and the session limit together. This example is
+//! the same conversation one layer down, where every allocation is visible at
+//! the call site: the caller owns the negotiating `engine.Peer` (and sets its
+//! frame limit), owns both read/write buffers, and passes all three to
+//! `driver.connectTcp` / `driver.acceptTcp`. The buffers size the steady
+//! state, not the largest admissible frame — an inbound frame that outgrows
+//! the read buffer assembles once in the connection's bounded spill, capped by
+//! the peer's `max_frame_bytes`. The reply is observed with the explicit
+//! promise idiom: `send` returns a promise, `on` registers a listener, and the
+//! caller pumps the socket one `step` at a time until it settles.
+//!
+//! Run: `zig build examples` (it also runs under `zig build check`).
+
+const std = @import("std");
+const pancake = @import("pancake");
+
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
+const actors = pancake.actors;
+const driver = pancake.driver;
+const tcp = pancake.net_adapter.tcp;
+
+const frame_cap: usize = 4096;
+
+/// The published actor: answers `greet(name)` with a greeting built in the
+/// turn's arena.
+const Greeter = struct {
+    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = self;
+        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
+        if (msg.args.len != 1) return error.BadInvocation;
+        const name = switch (msg.args[0]) {
+            .string => |s| s,
+            else => return error.BadInvocation,
+        };
+        return .{ .string = try std.fmt.allocPrint(turn.arena, "Hello, {s}", .{name}) };
+    }
+};
+
+/// The hosting half with the caller owning every piece: the peer, its frame
+/// limit, and both buffers. The keyed handshake completes inside `acceptTcp`.
+fn host(listener: *tcp.Listener, allocator: std.mem.Allocator) !void {
+    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .limits = .{ .max_frame_bytes = frame_cap } });
+    defer peer.deinit();
+    const read_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(read_buf);
+    const write_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(write_buf);
+
+    var vat = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf);
+    defer vat.deinit();
+
+    _ = try vat.publish("greeter", Greeter, .{});
+    try vat.serve();
+}
+
+/// The reply listener fires once, during the settling step, with a
+/// turn-borrowed resolution — copy out what must outlive it. Two bools are all
+/// this client keeps.
+const Reply = struct {
+    done: bool = false,
+    ok: bool = false,
+};
+
+fn onReply(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+    const reply: *Reply = @ptrCast(@alignCast(ctx.?));
+    reply.done = true;
+    reply.ok = switch (resolution) {
+        .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, "Hello, world"),
+        .broken => false,
+    };
+}
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var listener = try tcp.Listener.bind(io, .{ .ip4 = std.Io.net.Ip4Address.loopback(0) });
+    defer listener.deinit();
+
+    // The host serves on a concurrent fiber; the client drives this one.
+    var hosting = try io.concurrent(host, .{ &listener, allocator });
+
+    // The client's pieces, owned at the call site like the host's.
+    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .limits = .{ .max_frame_bytes = frame_cap } });
+    defer peer.deinit();
+    const read_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(read_buf);
+    const write_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(write_buf);
+
+    var conn = try driver.connectTcp(io, allocator, &peer, listener.localAddress(), read_buf, write_buf);
+    const greeter = try conn.fetch("greeter");
+
+    // The explicit promise idiom: send, listen, and pump until it settles.
+    var reply = Reply{};
+    const promise = try conn.send(greeter, .{
+        .verb = "greet",
+        .args = &.{.{ .string = "world" }},
+    });
+    try conn.on(promise, .{ .ctx = &reply, .func = onReply });
+    while (!reply.done) {
+        const progress = try conn.step();
+        if (progress == .closed) break;
+    }
+
+    // Closing the connection is what ends the host's serve.
+    conn.deinit();
+    try hosting.await(io);
+
+    if (!reply.done or !reply.ok) return error.UnexpectedReply;
+    std.debug.print("explicit buffers: the same greeter round-trip with every allocation at the call site\n", .{});
+}

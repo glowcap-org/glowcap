@@ -1,31 +1,21 @@
 #lang racket/base
-;; generate.rkt — Regenerate cross-implementation Syrup byte fixtures.
+;; generate.rkt — Regenerate the Syrup byte-fixture corpus.
 ;;
-;; Encodes the seven canonical pancake-codec-syrup wire vectors using
-;; the upstream Racket Syrup encoder
-;; (reference/implementations/syrup/upstream/impls/racket/syrup/) and
-;; writes one .bin file per vector to the directory passed on the
-;; command line.
+;; Each builder below hand-constructs the record structure pancake's Syrup
+;; codec produces for the corresponding `model.Message`, then serializes it
+;; through the upstream Racket Syrup encoder (the `syrup` collection the
+;; devcontainer installs) and writes one .bin per fixture to the directory
+;; passed on the command line. The Syrup grammar is small and unambiguous, so
+;; the reference encoder must reproduce the committed corpus byte-for-byte —
+;; `zig build fixture-gen-check` asserts exactly that, so generator/corpus
+;; drift fails loud instead of rotting silently.
 ;;
-;; The record structure each builder constructs mirrors what
-;; pancake-codec-syrup's encoder produces for the corresponding
-;; pancake_model::Message value (see
-;; crates/codec/pancake-codec-syrup/src/wire_vectors.rs for the side-by-side
-;; mapping). The Syrup grammar is small and unambiguous; encoding the
-;; same record structure through the Racket reference encoder must
-;; produce byte-identical output to the Python reference encoder under
-;; reference/tests/syrup-byte-fixtures/.
-;;
-;; Usage (inside the devcontainer — see
-;; reference/tests/syrup-byte-fixtures-goblins/run.sh):
+;; Usage (inside the devcontainer):
 ;;
 ;;   racket generate.rkt <out-dir>
 ;;
-;; The upstream Racket Syrup module is resolved via PLTCOLLECTS, which
-;; the sibling pixi task points at
-;; `reference/implementations/syrup/upstream/impls/racket/` so
-;; `(require syrup/syrup)` finds the submodule's encoder without
-;; bind-mounts or path edits.
+;; The Python sibling (`../generate.py`) encodes the same records through the
+;; upstream Python Syrup encoder as a by-hand cross-check.
 
 (require racket/cmdline
          racket/file
@@ -140,7 +130,7 @@
 ;; <op:deliver <desc:export 7> [b"hello"] 42 <desc:import-object 99>>.
 ;;
 ;; V1_0 Goblins-canonical resolver-callback shape per
-;; src/model/mod.zig (ADR-0003) and src/codec/syrup/core.zig
+;; src/ocapn/model/mod.zig (ADR-0003) and src/ocapn/codec/syrup/core.zig
 ;; § "Versioned wire shapes": the fourth `op:deliver` field carries the
 ;; partner-installable `<desc:import-object pos>` resolver descriptor
 ;; (Goblins encodes it via `marshall-local-refr!` in
@@ -150,7 +140,7 @@
 ;; shape-identical to the existing `op_deliver.bin` fixture. The break
 ;; reason is not always a `desc:error`: Goblins marshals a thrown
 ;; exception as a record, which pancake renders to the break message
-;; (see `resolutionFromResolverCallback` in src/engine/mod.zig).
+;; (see `resolutionFromResolverCallback` in src/ocapn/engine/mod.zig).
 (define (op-deliver-v1-0-with-resolve-me-desc)
   (record* 'op:deliver
            (record* 'desc:export 7)
@@ -245,6 +235,12 @@
 ;; D<8 bytes BE IEEE 754> — Racket double 1.5 per ADR-0021.
 (define (op-deliver-arg-float64)
   (op-deliver-one-arg 1.5))
+
+;; 2^100 — a Racket bignum, encoded by the upstream Syrup encoder as the
+;; canonical decimal digits. Pins pancake's `big_integer` arm (ADR-0049)
+;; against the same arbitrary-precision value Goblins would marshal.
+(define (op-deliver-arg-big-integer)
+  (op-deliver-one-arg 1267650600228229401496703205376))
 
 ;; <'user-record 'point (1 2)> — Goblins's user-record catch-all per
 ;; ADR-0021. Tagged.value is a Vec<Argument> so the model cell
@@ -372,23 +368,23 @@
 ;; carrying a fresh answer-pos for the result promise; pancake's
 ;; encoder produces the spec-canonical 3-operand shape.
 
-;; <op:get <desc:export 7> 'name 11+>.
+;; <op:get <desc:export 7> "name" 11+>.
 ;;
-;; receiver = sender's `Reference::Far(import_id=7)` → wire
+;; receiver = sender's `Reference::Far(import_position=7)` → wire
 ;; `<desc:export 7>` (target-position perspective flip per
-;; ADR-0010 § Decision 3). `field-name` is a Syrup symbol per
-;; ADR-0007 § Decision 1 (the field name itself, not a string).
+;; ADR-0010 § Decision 3). `field-name` is a Syrup *string* per
+;; CapTP § op:get (Goblins guards `string?` on receipt).
 ;; `new-answer-pos` is the result-promise answer id the sender
 ;; just allocated.
 (define (op-get)
   (record* 'op:get
            (record* 'desc:export 7)
-           'name
+           "name"
            11))
 
 ;; <op:index <desc:export 7> 5+ 11+>.
 ;;
-;; receiver = sender's `Reference::Far(import_id=7)` → wire
+;; receiver = sender's `Reference::Far(import_position=7)` → wire
 ;; `<desc:export 7>`. `index` is a Syrup positive integer per
 ;; ADR-0007 § Decision 1 (model field is `i64` with `0` admitted);
 ;; `new-answer-pos` is the result-promise answer id.
@@ -396,6 +392,18 @@
   (record* 'op:index
            (record* 'desc:export 7)
            5
+           11))
+
+;; <op:untag <desc:export 7> "cm" 11+>.
+;;
+;; receiver = sender's `Reference::Far(import_position=7)` → wire
+;; `<desc:export 7>`. `tag` is a Syrup *string* per CapTP § op:untag,
+;; matching op:get's field-name choice; `new-answer-pos` is the
+;; result-promise answer id.
+(define (op-untag)
+  (record* 'op:untag
+           (record* 'desc:export 7)
+           "cm"
            11))
 
 ;; ── ADR-0006 / op:start-session handshake fixture ──────────────────
@@ -430,20 +438,19 @@
 ;; Primitive-level coverage so the byte-shape verification doesn't
 ;; stop at the OCapN record layer. Each builder returns a Racket
 ;; value the upstream `syrup-encode` accepts directly. Mirrors the
-;; sibling Python generator at reference/tests/syrup-byte-fixtures/.
+;; sibling Python generator at `../generate.py`.
 
 (define (prim-string-hello) "hello")
 (define (prim-integer-pos-42) 42)
 (define (prim-integer-neg-7) -7)
+(define (prim-integer-big-neg) -1267650600228229401496703205376)
 (define (prim-list-of-ints) (list 1 2 3))
 (define (prim-set-of-ints) (set 1 2 3))
 (define (prim-dict-str-to-int) (hash "a" 1 "b" 2))
 
-;; Filename → record builder. Filenames match the wire-vector test
-;; names in crates/codec/pancake-codec-syrup/src/wire_vectors.rs (CapTP-record
-;; fixtures) and crates/codec/pancake-codec-syrup/tests/primitive_fixtures.rs
-;; (primitive fixtures, prefixed `prim_`) and the Python scenario at
-;; reference/tests/syrup-byte-fixtures/.
+;; Filename → record builder. Filenames match the fixture names
+;; `test/oracle/protocol_oracle.zig` embeds (CapTP-record fixtures, plus
+;; primitive fixtures prefixed `prim_`) and the Python sibling's table.
 (define FIXTURES
   (list (cons "op_abort.bin"                                   op-abort-shutting-down)
         (cons "op_abort_typed.bin"                             op-abort-typed)
@@ -474,14 +481,18 @@
         (cons "op_deliver_arg_tagged.bin"                      op-deliver-arg-tagged)
         (cons "op_deliver_arg_keyword.bin"                     op-deliver-arg-keyword)
         (cons "op_deliver_arg_set.bin"                         op-deliver-arg-set)
+        ;; ADR-0049 arbitrary-precision Integer
+        (cons "op_deliver_arg_big_integer.bin"                 op-deliver-arg-big-integer)
         ;; ADR-0007 op:get / op:index field-projection ops
         (cons "op_get.bin"                                     op-get)
         (cons "op_index.bin"                                   op-index)
+        (cons "op_untag.bin"                                   op-untag)
         ;; ADR-0006 op:start-session handshake (V1_0)
         (cons "op_start_session_v1_0.bin"                      op-start-session-v1-0)
         (cons "prim_string_hello.bin"                          prim-string-hello)
         (cons "prim_integer_pos_42.bin"                        prim-integer-pos-42)
         (cons "prim_integer_neg_7.bin"                         prim-integer-neg-7)
+        (cons "prim_integer_big_neg.bin"                       prim-integer-big-neg)
         (cons "prim_list_of_ints.bin"                          prim-list-of-ints)
         (cons "prim_set_of_ints.bin"                           prim-set-of-ints)
         (cons "prim_dict_str_to_int.bin"                       prim-dict-str-to-int)))

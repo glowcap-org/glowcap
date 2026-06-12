@@ -1,9 +1,20 @@
 .zig-cache/
 zig-out/
+# Zig extracts fetched packages into a `zig-pkg/` dir under the build root that
+# declares them; the site sub-build (site/build.zig) is the only build here with
+# dependencies, so this materializes at site/zig-pkg/. Generated, never committed.
+zig-pkg/
+# Zine's default output directory: `zig build site` renders into the install
+# prefix (zig-out/site), but a direct `zine`/`docs-serve` run writes the same
+# generated HTML to site/public/. Generated, never committed.
+site/public/
 bindings/rust/Cargo.lock
 bindings/rust/target/
 examples/apps/*/rust/Cargo.lock
 examples/apps/*/rust/target/
+# transports/iroh/Cargo.lock is deliberately committed (see its Cargo.toml):
+# the sidecar's external dependency tree must resolve identically everywhere.
+transports/iroh/target/
 
 # binding consumer caches
 **/__pycache__/
@@ -16,3 +27,6 @@ conformance/accountability-on-pancake/.data/
 
 # local scratch: reference clones, throwaway experiments (never committed)
 .local/
+
+# per-machine agent-harness settings, never committed
+.claude/settings.local.json

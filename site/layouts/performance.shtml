@@ -1,0 +1,18 @@
+<extend template="base.shtml">
+<head id="head">
+	<style>
+		.bench-legend { display: flex; gap: 1.5rem; justify-content: center; font-size: 0.9rem; color: var(--ink-soft); margin-top: 1.25rem; }
+		.bench-legend span { display: inline-flex; align-items: center; gap: 0.45rem; }
+		.bench-legend i { display: inline-block; width: 0.85rem; height: 0.85rem; border-radius: 3px; }
+		.bench-charts { display: flex; flex-wrap: wrap; gap: 1rem 2rem; justify-content: center; margin: 0.75rem 0 1.5rem; }
+		.bench-charts figure { flex: 1 1 320px; max-width: 400px; margin: 0; }
+		.bench-charts figcaption { font-size: 0.85rem; color: var(--ink-soft); margin-bottom: 0.4rem; }
+		.bench-charts svg { max-width: 100%; height: auto; }
+	</style>
+</head>
+<main id="content">
+	<article class="prose">
+		<h1 :text="$page.title"></h1>
+		<div :html="$page.content()"></div>
+	</article>
+</main>

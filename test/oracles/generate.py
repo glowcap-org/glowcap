@@ -1,25 +1,19 @@
 #!/usr/bin/env python3
-"""Regenerate cross-implementation Syrup byte fixtures.
+"""Regenerate the Syrup byte-fixture corpus through the upstream Python encoder.
 
-Encodes the seven canonical pancake-codec-syrup wire vectors using
-the upstream Python Syrup encoder
-(``reference/implementations/syrup/upstream/impls/python/syrup.py``)
-and writes one ``.bin`` file per vector to the directory passed on
-the command line.
+Each builder below hand-constructs the record structure pancake's Syrup codec
+produces for the corresponding ``model.Message``, then serializes it through
+the upstream Python Syrup encoder and writes one ``.bin`` per fixture to the
+directory passed on the command line. The Syrup grammar is small and
+unambiguous, so a different reference implementation encoding the same record
+must produce byte-identical output — the Racket sibling
+(``goblins/generate.rkt``) is the one ``zig build fixture-gen-check`` runs
+against the committed corpus.
 
-The record structure each function constructs mirrors what
-``pancake-codec-syrup``'s encoder produces for the corresponding
-``pancake_model::Message`` value (see
-``crates/codec/pancake-codec-syrup/src/wire_vectors.rs`` for the
-side-by-side mapping). The Syrup grammar is small and unambiguous;
-encoding the same record structure through a different
-implementation must produce byte-identical output.
+Requires the upstream ``syrup.py`` module on ``PYTHONPATH``; the devcontainer
+does not install it, so this generator is the cross-check you run by hand::
 
-Usage (inside the Docker image — see ``run.sh``)::
-
-    python3 generate.py /out
-
-``/out`` is the host-mounted directory that receives ``.bin`` files.
+    PYTHONPATH=/path/to/syrup/impls/python python3 generate.py /tmp/out
 """
 
 from __future__ import annotations
@@ -27,7 +21,6 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-# Bind-mounted by run.sh at /syrup; PYTHONPATH includes it.
 from syrup import Record, Symbol, syrup_encode  # type: ignore[import-not-found]
 
 
@@ -155,10 +148,8 @@ def op_listen_v1_0_wants_partial_true() -> Record:
 def op_deliver_v1_0_with_resolve_me_desc() -> Record:
     """``<op:deliver <desc:export 7> [b"hello"] 42 <desc:import-object 99>>``.
 
-    V1_0 Goblins-canonical resolver-callback shape per
-    ``crates/core/pancake-model/src/argument.rs`` (ADR-0003) and
-    ``crates/codec/pancake-codec-syrup/src/lib.rs`` § "Versioned wire
-    shapes": the fourth ``op:deliver`` field carries the
+    V1_0 Goblins-canonical resolver-callback shape (ADR-0003,
+    ADR-0010): the fourth ``op:deliver`` field carries the
     partner-installable ``<desc:import-object pos>`` resolver
     descriptor. A future ``op:deliver`` to that import carries the
     resolution ``('fulfill <ref>)`` or ``('break <error>)`` — that
@@ -299,6 +290,16 @@ def op_deliver_arg_void() -> Record:
     """
     void_record = Record(Symbol("void"), ())
     return _op_deliver_one_arg(void_record)
+
+
+def op_deliver_arg_big_integer() -> Record:
+    """``op:deliver`` carrying a Python int outside i64 (2^100).
+
+    ADR-0049: the upstream Syrup encoders render an arbitrary-precision
+    integer as its canonical decimal digits, the same bytes pancake's
+    ``big_integer`` arm carries.
+    """
+    return _op_deliver_one_arg(1267650600228229401496703205376)
 
 
 def op_deliver_arg_float64() -> Record:
@@ -546,35 +547,47 @@ def op_deliver_withdraw_gift() -> Record:
 #
 # Goblins's `(define-recordable-struct op:get (receiver-desc
 # field-name new-answer-pos))` and the parallel `op:index` at
-# `goblins/ocapn/captp.rkt:98-104`. Mirrors the Goblins-Racket fixture
-# builders in `../syrup-byte-fixtures-goblins/generate.rkt`; both
-# encoders must produce byte-identical output for the same record.
+# `goblins/ocapn/captp.rkt:98-104`. Mirrors the Racket fixture
+# builders in `goblins/generate.rkt`; both encoders must produce
+# byte-identical output for the same record.
 
 
 def op_get() -> Record:
-    """``<op:get <desc:export 7> 'name 11+>``.
+    """``<op:get <desc:export 7> "name" 11+>``.
 
-    receiver = sender's ``Reference::Far(import_id=7)`` → wire
+    receiver = sender's ``Reference::Far(import_position=7)`` → wire
     ``<desc:export 7>`` (target-position perspective flip per
-    ADR-0010 § Decision 3). ``field-name`` is a Syrup *symbol* per
-    ADR-0007 § Decision 1 (the field name itself, not a string).
+    ADR-0010 § Decision 3). ``field-name`` is a Syrup *String* per
+    CapTP § op:get (Goblins guards ``string?`` on receipt).
     ``new-answer-pos`` is the result-promise answer id the sender
     just allocated.
     """
     target = Record(Symbol("desc:export"), (7,))
-    return Record(Symbol("op:get"), (target, Symbol("name"), 11))
+    return Record(Symbol("op:get"), (target, "name", 11))
 
 
 def op_index() -> Record:
     """``<op:index <desc:export 7> 5+ 11+>``.
 
-    receiver = sender's ``Reference::Far(import_id=7)`` → wire
+    receiver = sender's ``Reference::Far(import_position=7)`` → wire
     ``<desc:export 7>``. ``index`` is a Syrup positive integer per
     ADR-0007 § Decision 1; ``new-answer-pos`` is the result-promise
     answer id.
     """
     target = Record(Symbol("desc:export"), (7,))
     return Record(Symbol("op:index"), (target, 5, 11))
+
+
+def op_untag() -> Record:
+    """``<op:untag <desc:export 7> "cm" 11+>``.
+
+    receiver = sender's ``Reference::Far(import_position=7)`` → wire
+    ``<desc:export 7>``. ``tag`` is a Syrup *String* per CapTP §
+    op:untag, matching op:get's field-name choice.
+    ``new-answer-pos`` is the result-promise answer id.
+    """
+    target = Record(Symbol("desc:export"), (7,))
+    return Record(Symbol("op:untag"), (target, "cm", 11))
 
 
 # ── ADR-0006 op:start-session handshake fixture ─────────
@@ -624,6 +637,10 @@ def prim_integer_neg_7() -> int:
     return -7
 
 
+def prim_integer_big_neg() -> int:
+    return -1267650600228229401496703205376
+
+
 def prim_list_of_ints() -> list:
     return [1, 2, 3]
 
@@ -636,10 +653,9 @@ def prim_dict_str_to_int() -> dict:
     return {"a": 1, "b": 2}
 
 
-# Filename → record builder. Filenames match the wire-vector test
-# names in crates/codec/pancake-codec-syrup/src/wire_vectors.rs (CapTP-record
-# fixtures) and crates/codec/pancake-codec-syrup/tests/primitive_fixtures.rs
-# (primitive fixtures, prefixed `prim_`).
+# Filename → record builder. Filenames match the fixture names
+# `test/oracle/protocol_oracle.zig` embeds (CapTP-record fixtures, plus
+# primitive fixtures prefixed `prim_`) and the Racket sibling's table.
 FIXTURES = {
     "op_abort.bin": op_abort_shutting_down,
     "op_abort_typed.bin": op_abort_typed,
@@ -661,6 +677,7 @@ FIXTURES = {
     # ADR-0007 op:get / op:index field-projection ops
     "op_get.bin": op_get,
     "op_index.bin": op_index,
+    "op_untag.bin": op_untag,
     # ADR-0006 op:start-session handshake (V1_0)
     "op_start_session_v1_0.bin": op_start_session_v1_0,
     # ADR-0025 typed-abort wire kind
@@ -672,12 +689,14 @@ FIXTURES = {
     # ADR-0021 widened `Argument` arms (op:deliver one-arg shape)
     "op_deliver_arg_void.bin": op_deliver_arg_void,
     "op_deliver_arg_float64.bin": op_deliver_arg_float64,
+    "op_deliver_arg_big_integer.bin": op_deliver_arg_big_integer,
     "op_deliver_arg_tagged.bin": op_deliver_arg_tagged,
     "op_deliver_arg_keyword.bin": op_deliver_arg_keyword,
     "op_deliver_arg_set.bin": op_deliver_arg_set,
     "prim_string_hello.bin": prim_string_hello,
     "prim_integer_pos_42.bin": prim_integer_pos_42,
     "prim_integer_neg_7.bin": prim_integer_neg_7,
+    "prim_integer_big_neg.bin": prim_integer_big_neg,
     "prim_list_of_ints.bin": prim_list_of_ints,
     "prim_set_of_ints.bin": prim_set_of_ints,
     "prim_dict_str_to_int.bin": prim_dict_str_to_int,

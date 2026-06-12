@@ -8,7 +8,7 @@ wire protocol and it does not introduce KERI into the Zig core.
 
 | Path | Role |
 | --- | --- |
-| `fixtures/sample-kel/` | Committed sample KEL and Episodes. |
+| [`fixtures/sample-kel/`](fixtures/sample-kel/) | Committed sample KEL and Episodes. |
 | `oracle/verify.py` | Python verifier for the fixture shape. |
 | `run.sh` | Thin launcher around the verifier. |
 

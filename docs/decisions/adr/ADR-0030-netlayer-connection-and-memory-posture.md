@@ -3,7 +3,7 @@ id: ADR-0030
 status: accepted
 date: 2026-06-05
 tags: [net_adapter, runtime, c_abi, resilience, memory, performance]
-decision: "The netlayer is a `net_adapter` layer outside the sync no-I/O core: it is the one place `std.Io` enters. A `Connection` folds the one parser (ADR-0029) over a type-erased `std.Io.Reader`/`Writer`; `tcp.zig` is the only `std.Io.net`-to-socket site; the C ABI re-exposes blocking endpoint handles over an explicit caller-owned netlayer handle (no hidden global runtime). Per-connection inbound memory is bounded by `SessionLimits.max_frame_bytes`. Slice-1 sizes the read buffer to that bound (whole-frame), and explicitly defers the small-buffer/bounded-overflow path, full-duplex backpressure, and crossed-hellos."
+decision: "The netlayer is a `net_adapter` layer outside the sync no-I/O core: it is the one place `std.Io` enters. A `Connection` folds the one parser (ADR-0029) over a type-erased `std.Io.Reader`/`Writer`; `tcp.zig` is the only `std.Io.net`-to-socket site; the C ABI re-exposes blocking endpoint handles over an explicit caller-owned netlayer handle (no hidden global runtime). Per-connection inbound memory is bounded by `SessionLimits.max_frame_bytes`. Slice-1 sizes the read buffer to that bound (whole-frame), and explicitly defers the small-buffer/bounded-overflow path and full-duplex backpressure."
 supersedes: []
 superseded_by: []
 ---
@@ -62,16 +62,21 @@ a documented loopback simplification, not the steady-state production shape.
 - **Small-buffer + bounded-overflow.** A small fixed read buffer plus a bounded
   owned-accumulation path for frames larger than the buffer, so steady
   per-connection memory stops scaling with `max_frame_bytes`. Out of slice 1
-  (loopback, few connections); add it when a many-connection server needs it.
+  (loopback, few connections); decided in
+  [ADR-0041](ADR-0041-bounded-inbound-spill.md).
 - **Full-duplex backpressure.** A single fiber mid-`writeAll` to a slow reader can
   head-of-line-block. Request/response traffic (handshake, fetch, deliver/resolve)
   is safe on one fiber; concurrent streaming wants split read/write fibers and a
-  bounded outbound queue *above* `pump`, not a change to it.
-- **Crossed-hellos.** Needs a small adapter registry keyed by
-  `(transport, designator)` with the bytewise Public-Identifier tie-break; the
-  core already owns only the `crossed_hellos` abort kind.
+  bounded outbound queue *above* `pump`, not a change to it. The loop half is
+  decided in [ADR-0042](ADR-0042-outbound-high-water-backpressure.md); the
+  blocking half is settled as a refusal in
+  [ADR-0053](ADR-0053-blocking-pump-single-fiber.md).
 - **TLS / QUIC / iroh / Tor and any background run loop.** Layer above the same
   `Connection` / `FrameStream` types.
+
+The remaining netlayer gaps are separate from crossed hellos. The crossed-hellos
+path lives at the driver/adapter seam: `driver.crossed_hellos` owns the registry
+and tie-break, and the engine/model layer owns only the typed abort projection.
 
 ## Alternatives Considered
 

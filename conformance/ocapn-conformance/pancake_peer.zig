@@ -1,25 +1,28 @@
 //! Thin conformance host: canonical swiss-nums over `tcp-testing-only`.
 //!
 //! Protocol policy (crossed-hellos, stateless GC, bootstrap handoff) lives in the
-//! library [`driver`] and [`engine`] layers. This file owns only the conformance
+//! library `driver` and `engine` layers. This file owns only the conformance
 //! actors and the small interceptors the suite requires (promise-resolver,
 //! sturdyref enlivener).
 
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.model;
-const engine = pancake.engine;
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const crypto = pancake.foundation.crypto;
 const net_adapter = pancake.net_adapter;
 const driver = pancake.driver;
-const codec = pancake.codec;
+const codec = pancake.ocapn.codec;
 const tcp = net_adapter.tcp;
 const net = std.Io.net;
 
 const host = "127.0.0.1";
-const port: u16 = 22055;
+/// The suite dials this fixed port; `--port=N` (threaded by
+/// `run-against-pancake.sh` from `zig build ocapn-conformance -Dport=N`)
+/// moves it when 22055 is taken.
+const default_port: u16 = 22055;
 const frame_cap: usize = 1 << 16;
 
 const CAR_FACTORY_BUILDER = "JadQ0++RzsD4M+40uLxTWVaVqM10DcBJ";
@@ -32,8 +35,19 @@ const SharedState = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
     listener: *tcp.Listener,
+    /// The `host:port` this peer signs its own locator with — runtime state
+    /// because `--port` can move the listening port off `default_port`.
+    local_designator: []const u8,
     registry: driver.crossed_hellos.Registry = .{},
+    /// One gift registry shared by every accepted connection's peer, so a gift
+    /// deposited on the gifter's session is withdrawable on the recipient's.
     handoff_gifts: engine.bootstrap.GiftRegistry = .{},
+    /// The registry carries no lock (the engine is externally synchronized), and
+    /// this host serves each connection on its own thread — so every pump that
+    /// can dispatch a `deposit-gift` / `withdraw-gift` on a peer sharing
+    /// `handoff_gifts` runs under this mutex. The host owns the threads and may
+    /// block, so the blocking io-aware `std.Io.Mutex` is the right tool here.
+    gift_mutex: std.Io.Mutex = .init,
     gifter: GifterHub = .{},
 };
 
@@ -249,8 +263,8 @@ const CarFactoryBuilder = struct {
         _ = self;
         _ = msg;
         const factory = try turn.spawn(CarFactory, .{});
-        const export_id = try publishLocal(turn, factory);
-        return .{ .reference = .{ .near = model.NearRef.object(export_id) } };
+        const export_position = try publishLocal(turn, factory);
+        return .{ .reference = .{ .near = model.NearRef.object(export_position) } };
     }
 };
 
@@ -275,8 +289,8 @@ const CarFactory = struct {
         };
         const response = std.fmt.allocPrint(turn.vat.allocator, "Vroom! I am a {s} {s} car!", .{ color, name }) catch return error.OutOfMemory;
         const car = try turn.spawn(Car, .{ .response = response });
-        const export_id = try publishLocal(turn, car);
-        return .{ .reference = .{ .near = model.NearRef.object(export_id) } };
+        const export_position = try publishLocal(turn, car);
+        return .{ .reference = .{ .near = model.NearRef.object(export_position) } };
     }
 };
 
@@ -298,13 +312,13 @@ const PromiseResolver = struct {
     pub fn handle(self: *PromiseResolver, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = msg;
         const peer = turn.vat.peer orelse return error.NotConnected;
-        const answer_id = try peer.session_state.allocateExport();
-        try peer.session_state.installInboundAnswer(answer_id);
+        const answer_position = try peer.session_state.allocateExport();
+        try peer.session_state.installInboundAnswer(answer_position);
         const resolver_export = try peer.session_state.allocateExport();
         try peer.session_state.registerExport(resolver_export);
-        try self.resolver_map.put(turn.vat.allocator, resolver_export, answer_id);
+        try self.resolver_map.put(turn.vat.allocator, resolver_export, answer_position);
         const pair = try turn.vat.allocator.alloc(model.Argument, 2);
-        pair[0] = .{ .reference = .{ .near = model.NearRef.promise(answer_id) } };
+        pair[0] = .{ .reference = .{ .near = model.NearRef.promise(answer_position) } };
         pair[1] = .{ .reference = .{ .near = model.NearRef.object(resolver_export) } };
         return .{ .list = pair };
     }
@@ -321,9 +335,9 @@ const Unimplemented = struct {
 
 fn publishLocal(turn: *actors.Turn, ref: actors.Ref) !u64 {
     const peer = turn.vat.peer orelse return error.NotConnected;
-    const export_id = try peer.session_state.allocateExport();
-    try turn.vat.publish(ref, export_id);
-    return export_id;
+    const export_position = try peer.session_state.allocateExport();
+    try turn.vat.bindExport(ref, export_position);
+    return export_position;
 }
 
 // ── Entry point ─────────────────────────────────────────────────────────────
@@ -332,12 +346,29 @@ pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
 
+    var args = std.process.Args.Iterator.init(init.minimal.args);
+    _ = args.next(); // program name
+    var port: u16 = default_port;
+    while (args.next()) |arg| {
+        if (std.mem.startsWith(u8, arg, "--port=")) {
+            port = std.fmt.parseInt(u16, arg["--port=".len..], 10) catch {
+                std.debug.print("pancake-ocapn-peer: --port must be an integer in 1..65535\n", .{});
+                return error.BadPort;
+            };
+        } else {
+            std.debug.print("pancake-ocapn-peer: unknown argument '{s}'\n", .{arg});
+            return error.BadArgument;
+        }
+    }
+
     const listen_addr = try tcp.parseHostPort(host, port);
     var listener = try tcp.Listener.bind(io, listen_addr);
     defer listener.deinit();
 
-    var shared = SharedState{ .allocator = allocator, .io = io, .listener = &listener };
-    defer shared.registry.deinit(allocator);
+    var designator_buf: [32]u8 = undefined;
+    const local_designator = try std.fmt.bufPrint(&designator_buf, "{s}:{d}", .{ host, port });
+    var shared = SharedState{ .allocator = allocator, .io = io, .listener = &listener, .local_designator = local_designator };
+    defer shared.registry.deinit(io, allocator);
     defer shared.handoff_gifts.deinit(allocator);
     defer shared.gifter.slots.deinit(allocator);
 
@@ -373,9 +404,8 @@ fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: net.Stream) v
     const allocator = shared.allocator;
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
-    peer.handoff_gifts = &shared.handoff_gifts;
     peer.session_state.limits.max_frame_bytes = frame_cap;
-    peer.session_state.next_export_id = 1;
+    peer.session_state.next_export_position = 1;
 
     _ = peer.registerBootstrapCap(ECHO) catch return;
     _ = peer.registerBootstrapCap(CAR_FACTORY_BUILDER) catch return;
@@ -388,7 +418,7 @@ fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: net.Stream) v
     const write_buf = allocator.alloc(u8, frame_cap) catch return;
     defer allocator.free(write_buf);
 
-    var conn = net_adapter.Connection.initStream(io, &peer, stream_in, read_buf, write_buf);
+    var conn = net_adapter.tcp.connectionOver(io, &peer, stream_in, read_buf, write_buf) catch return;
     defer conn.deinit();
 
     var resolver_map: std.AutoHashMapUnmanaged(u64, u64) = .{};
@@ -406,11 +436,11 @@ fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: net.Stream) v
     const resolver_id = peer.session_state.bootstrapLookup(PROMISE_RESOLVER) orelse 0;
     const enlivener_id = peer.session_state.bootstrapLookup(STURDYREF_ENLIVENER) orelse 0;
 
-    cv.vat.publish(cv.vat.spawn(Echo, .{}) catch return, echo_id) catch return;
-    cv.vat.publish(cv.vat.spawn(Greeter, .{}) catch return, greeter_id) catch return;
-    cv.vat.publish(cv.vat.spawn(CarFactoryBuilder, .{}) catch return, cfb_id) catch return;
-    cv.vat.publish(cv.vat.spawn(PromiseResolver, .{ .resolver_map = &resolver_map }) catch return, resolver_id) catch return;
-    cv.vat.publish(cv.vat.spawn(Unimplemented, .{}) catch return, enlivener_id) catch return;
+    cv.vat.bindExport(cv.vat.spawn(Echo, .{}) catch return, echo_id) catch return;
+    cv.vat.bindExport(cv.vat.spawn(Greeter, .{}) catch return, greeter_id) catch return;
+    cv.vat.bindExport(cv.vat.spawn(CarFactoryBuilder, .{}) catch return, cfb_id) catch return;
+    cv.vat.bindExport(cv.vat.spawn(PromiseResolver, .{ .resolver_map = &resolver_map }) catch return, resolver_id) catch return;
+    cv.vat.bindExport(cv.vat.spawn(Unimplemented, .{}) catch return, enlivener_id) catch return;
 
     // One session identity for this whole connection. A three-party handoff where
     // pancake is the recipient signs its `desc:handoff-receive` with this key,
@@ -418,15 +448,22 @@ fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: net.Stream) v
     // recipient key — so the handshake and the later withdraw must use the same
     // secret.
     var session_seed: [crypto.SEED_BYTES]u8 = undefined;
-    if (std.os.linux.getrandom(&session_seed, session_seed.len, 0) != session_seed.len) return;
-    const session_secret = crypto.SecretKey.fromSeed(session_seed) catch return;
+    io.randomSecure(&session_seed) catch return;
+    const session_secret = crypto.SecretKey.fromSeed(session_seed);
 
-    const local_designator = host ++ ":" ++ std.fmt.comptimePrint("{d}", .{port});
-    cv.respondKeyedSessionWithSecret(.{
+    const local_designator = shared.local_designator;
+    // The handshake pump must not hold the gift mutex: it blocks until the
+    // partner's hello arrives, which can be never (a crossed-hellos abort), and
+    // an unbounded hold would stall every other connection's dispatch. The peer
+    // therefore runs the handshake on its private registry and joins the shared
+    // one just below, before any bootstrap deliver can dispatch — non-handshake
+    // traffic is refused until the session is open.
+    cv.startKeyedSessionWithSecret(.{
         .transport = "tcp-testing-only",
         .designator = local_designator,
         .hints = model.Hints.emptyFalse(),
     }, session_secret) catch return;
+    peer.shared_gift_registry = &shared.handoff_gifts;
 
     // Register this connection in the gifter hub under its partner's designator,
     // so a gifter enliven arriving on another connection can route a fetch/deposit
@@ -456,7 +493,22 @@ fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: net.Stream) v
     };
 
     while (true) {
-        const progress = cv.stepReadable(50) catch return;
+        // Wait for readability *without* the gift mutex: an idle connection
+        // parked in its poll must never starve another connection's dispatch.
+        if (!cv.conn.hasBufferedInbound()) {
+            if (cv.conn.socketHandle()) |handle| {
+                var fds = [_]std.posix.pollfd{.{ .fd = handle, .events = std.posix.POLL.IN, .revents = 0 }};
+                _ = std.posix.poll(&fds, 20) catch return;
+            }
+        }
+        // The step can dispatch a deposit-gift / withdraw-gift against the
+        // shared registry, so the dispatch runs under the host's gift mutex; the
+        // zero timeout means the lock is held for work, never for waiting.
+        const progress = blk: {
+            shared.gift_mutex.lockUncancelable(shared.io);
+            defer shared.gift_mutex.unlock(shared.io);
+            break :blk cv.stepReadable(0) catch return;
+        };
         if (progress) |p| {
             if (p == .closed) return;
         }
@@ -499,12 +551,18 @@ fn gifterExportGive(cv: *driver.ConnectedVat, hook: *HookCtx, request: GifterReq
     var gifted: ?model.Reference = null;
     errdefer if (gifted) |g| model.freeReference(allocator, g);
     while (gifted == null) {
-        const progress = try cv.conn.pump();
+        // This pump dispatches inbound frames on a peer sharing the registry,
+        // so it holds the gift mutex like the serve loop's step.
+        const progress = blk: {
+            hook.shared.gift_mutex.lockUncancelable(hook.shared.io);
+            defer hook.shared.gift_mutex.unlock(hook.shared.io);
+            break :blk try cv.conn.pump();
+        };
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
             const owned = event.decodeOwned(allocator) catch continue;
-            const match = engine.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer_id, owned) catch continue;
+            const match = engine.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer_position, owned) catch continue;
             switch (match) {
                 .settled => |outcome| switch (outcome) {
                     .fulfilled => |reference| gifted = reference,
@@ -567,7 +625,7 @@ fn resolvePendingRecipient(cv: *driver.ConnectedVat, hook: *HookCtx) !void {
     const give_bytes = pending.result.give_bytes orelse {
         cv.peer.sendCopying(.{ .resolve = .{
             .answer = pending.answer,
-            .resolution = .{ .break_ = .{ .message = "gifter handoff failed" } },
+            .resolution = .{ .@"break" = .{ .message = "gifter handoff failed" } },
         } }) catch {};
         try cv.flush();
         return;
@@ -635,7 +693,7 @@ fn tryGifterEnliven(hook: *HookCtx, cv: *driver.ConnectedVat, event: *engine.Eve
         else => return false,
     };
     const target_id = switch (deliver.target) {
-        .near => |near| near.export_id,
+        .near => |near| near.export_position,
         else => return false,
     };
     if (target_id != hook.enlivener_export) return false;
@@ -648,10 +706,10 @@ fn tryGifterEnliven(hook: *HookCtx, cv: *driver.ConnectedVat, event: *engine.Eve
     // exact bytes (for the give's exporter location).
     const peer_start = std.mem.indexOf(u8, frame_bytes, "<10'ocapn-peer") orelse return false;
     var cursor = peer_start;
-    const locator = codec.syrup.core.readLocatorOwned(allocator, frame_bytes, &cursor) catch return false;
+    const locator = codec.syrup.readLocatorOwned(allocator, frame_bytes, &cursor) catch return false;
     defer model.freePeerLocator(allocator, locator);
     const exporter_loc_raw = frame_bytes[peer_start..cursor];
-    const swiss = codec.syrup.core.readBytes(frame_bytes, &cursor) catch return false;
+    const swiss = codec.syrup.readBytes(frame_bytes, &cursor) catch return false;
 
     const answer = enlivenAnswer(deliver, &cv.peer.session_state) orelse return false;
     const recipient_key = cv.peer.session_state.partnerSessionKey() orelse return false;
@@ -698,15 +756,15 @@ fn tryGifterEnliven(hook: *HookCtx, cv: *driver.ConnectedVat, event: *engine.Eve
 
 /// The virtual answer the engine installed for a V1.0 enliven deliver (no wire
 /// answer, only a `resolve_me_desc`), or null when neither is present.
-fn enlivenAnswer(deliver: model.view.Deliver, session: *const pancake.session.Session) ?u64 {
+fn enlivenAnswer(deliver: model.view.Deliver, session: *const pancake.ocapn.session.Session) ?u64 {
     if (deliver.answer) |a| return a;
     if (deliver.resolve_me_desc) |rmd| {
-        const import_id = switch (rmd) {
-            .far => |far| far.import_id,
-            .near => |near| near.export_id,
+        const import_position = switch (rmd) {
+            .far => |far| far.import_position,
+            .near => |near| near.export_position,
             else => return null,
         };
-        return session.answerForResolverImport(import_id);
+        return session.answerForResolverImport(import_position);
     }
     return null;
 }
@@ -718,7 +776,7 @@ fn tryHandoffGiveFromEvent(hook: *HookCtx, event: *engine.Event) bool {
         else => return false,
     };
     const target_id = switch (deliver.target) {
-        .near => |near| near.export_id,
+        .near => |near| near.export_position,
         else => return false,
     };
     if (target_id != hook.greeter_export) return false;
@@ -750,7 +808,7 @@ fn exporterDialTarget(allocator: std.mem.Allocator, give_bytes: []const u8) ?[]u
     const marker = "<10'ocapn-peer";
     const at = std.mem.indexOf(u8, give_bytes, marker) orelse return null;
     var cursor = at;
-    const locator = codec.syrup.core.readLocatorOwned(allocator, give_bytes, &cursor) catch return null;
+    const locator = codec.syrup.readLocatorOwned(allocator, give_bytes, &cursor) catch return null;
     defer model.freePeerLocator(allocator, locator);
 
     var dial_host: ?[]const u8 = null;
@@ -781,10 +839,10 @@ fn tryResolveFromEvent(
         else => return false,
     };
     const target_id = switch (deliver.target) {
-        .near => |near| near.export_id,
+        .near => |near| near.export_position,
         else => return false,
     };
-    const answer_id = resolver_map.get(target_id) orelse return false;
+    const answer_position = resolver_map.get(target_id) orelse return false;
     const arg_count = deliver.args.len() catch return false;
     if (arg_count < 2) return false;
     const verb = switch (deliver.args.at(0) catch return false) {
@@ -796,7 +854,7 @@ fn tryResolveFromEvent(
     const resolution: model.Resolution = if (std.mem.eql(u8, verb, "fulfill"))
         .{ .fulfill = owned_value }
     else if (std.mem.eql(u8, verb, "break"))
-        .{ .break_ = switch (owned_value) {
+        .{ .@"break" = switch (owned_value) {
             .@"error" => |e| e,
             .symbol => |sym| .{ .message = sym },
             .string => |str| .{ .message = str },
@@ -804,7 +862,7 @@ fn tryResolveFromEvent(
         } }
     else
         return false;
-    peer.sendCopying(.{ .resolve = .{ .answer = answer_id, .resolution = resolution } }) catch return false;
+    peer.sendCopying(.{ .resolve = .{ .answer = answer_position, .resolution = resolution } }) catch return false;
     return true;
 }
 
@@ -815,7 +873,7 @@ fn tryEnlivenFromEvent(hook: *HookCtx, peer: *engine.Peer, event: *engine.Event)
         else => return false,
     };
     const target_id = switch (deliver.target) {
-        .near => |near| near.export_id,
+        .near => |near| near.export_position,
         else => return false,
     };
     const enlivener_id = peer.session_state.bootstrapLookup(STURDYREF_ENLIVENER) orelse return false;
@@ -825,7 +883,7 @@ fn tryEnlivenFromEvent(hook: *HookCtx, peer: *engine.Peer, event: *engine.Event)
     const marker = "<10'ocapn-peer";
     const peer_start = std.mem.indexOf(u8, frame_bytes, marker) orelse return false;
     var loc_cursor = peer_start;
-    const owned_locator = codec.syrup.core.readLocatorOwned(hook.shared.allocator, frame_bytes, &loc_cursor) catch return false;
+    const owned_locator = codec.syrup.readLocatorOwned(hook.shared.allocator, frame_bytes, &loc_cursor) catch return false;
 
     hook.enliven_group.concurrent(hook.io, enlivenOutbound, .{ hook.shared, hook.io, owned_locator }) catch {
         model.freePeerLocator(hook.shared.allocator, owned_locator);
@@ -874,22 +932,22 @@ fn enlivenOutboundInner(shared: *SharedState, io: std.Io, locator: model.PeerLoc
     defer conn.deinit();
 
     var seed: [crypto.SEED_BYTES]u8 = undefined;
-    if (std.os.linux.getrandom(&seed, seed.len, 0) != seed.len) return error.HandshakeEntropyFailed;
-    const secret = try crypto.SecretKey.fromSeed(seed);
+    io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
+    const secret = crypto.SecretKey.fromSeed(seed);
     const local_pubkey = secret.publicKey();
     try peer.sendKeyedStartSession(.v1_0, .{
         .transport = "tcp-testing-only",
-        .designator = host ++ ":" ++ std.fmt.comptimePrint("{d}", .{port}),
+        .designator = shared.local_designator,
         .hints = model.Hints.emptyFalse(),
     }, secret);
     _ = conn.pump() catch return;
 
     const local_pid = crypto.derivePublicIdentifier(local_pubkey);
-    try shared.registry.registerOutbound(allocator, locator.designator, local_pid);
-    defer shared.registry.unregister(allocator, locator.designator);
+    try shared.registry.registerOutbound(io, allocator, locator.designator, local_pid);
+    defer shared.registry.unregister(io, allocator, locator.designator);
 
     while (true) {
-        if (shared.registry.shouldAbortOutbound(locator.designator)) {
+        if (shared.registry.shouldAbortOutbound(io, locator.designator)) {
             try driver.crossed_hellos.maybeAbortOutbound(&shared.registry, locator.designator, &peer, &conn);
             return;
         }

@@ -12,26 +12,16 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const c = pancake.c_abi;
-const model = pancake.model;
-const engine = pancake.engine;
+const c = @import("c_abi");
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
 const tcp = pancake.net_adapter.tcp;
+const handshake = @import("../support/handshake.zig");
 
-const zero_pubkey = [_]u8{0} ** 32;
-const zero_sig = [_]u8{0} ** 64;
 const frame_cap = 4096;
 
 fn startSession(designator: []const u8) model.Message {
-    return .{ .start_session = .{
-        .captp_version = .v1_0,
-        .session_pubkey = .{ .bytes = &zero_pubkey },
-        .acceptable_location = .{
-            .transport = tcp.transport_name,
-            .designator = designator,
-            .hints = model.Hints.emptyMap(),
-        },
-        .acceptable_location_sig = .{ .bytes = &zero_sig },
-    } };
+    return handshake.startSession(tcp.transport_name, designator);
 }
 
 fn isOpen(peer: *engine.Peer) bool {
@@ -57,11 +47,11 @@ fn pumpStep(peer: *engine.Peer, conn: *c.PancakeTcpConn) !Step {
         defer frame.deinit();
         const bytes = frame.bytes();
         var cf: c.PancakeFrame = .{ .bytes = bytes.ptr, .len = bytes.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
-        if (c.pancake_endpoint_tcp_write_frame(conn, &cf) != c.PANCAKE_OK) return error.WriteFailed;
+        if (c.pancake_tcp_conn_write_frame(conn, &cf) != c.PANCAKE_OK) return error.WriteFailed;
     }
 
     var mf: c.PancakeManagedFrame = undefined;
-    const rc = c.pancake_endpoint_tcp_read_frame(conn, &mf);
+    const rc = c.pancake_tcp_conn_read_frame(conn, &mf);
     if (rc == c.PANCAKE_ERR_CLOSED) return .closed;
     if (rc != c.PANCAKE_OK) return error.ReadFailed;
     defer c.pancake_managed_frame_release(&mf);
@@ -90,10 +80,10 @@ fn serveOnce(args: *ServerArgs) !void {
     _ = try peer.registerBootstrapCap("thermostat");
 
     var conn: ?*c.PancakeTcpConn = null;
-    if (c.pancake_endpoint_tcp_testing_accept(args.listener, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn) != c.PANCAKE_OK)
+    if (c.pancake_tcp_accept(args.listener, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn) != c.PANCAKE_OK)
         return error.AcceptFailed;
     const conn_ptr = conn orelse return error.AcceptNull;
-    defer c.pancake_endpoint_tcp_conn_close(conn_ptr);
+    defer c.pancake_tcp_conn_release(conn_ptr);
 
     try peer.sendCopying(startSession("server"));
     while ((try pumpStep(&peer, conn_ptr)) != .closed) {}
@@ -123,7 +113,7 @@ fn fetchOnce(conn: *c.PancakeTcpConn, allocator: std.mem.Allocator) !void {
             const match = try engine.fetch.tryMatchFetchOutcome(
                 allocator,
                 prepared.resolver_export,
-                prepared.answer_id,
+                prepared.answer_position,
                 owned,
             );
             switch (match) {
@@ -166,15 +156,15 @@ test "c-abi endpoint loopback: handshake to open + bootstrap fetch round-trip" {
     const host = "127.0.0.1";
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        c.pancake_endpoint_tcp_testing_listen(netlayer_ptr, host.ptr, host.len, 0, &listener),
+        c.pancake_tcp_listen(netlayer_ptr, host.ptr, host.len, 0, &listener),
     );
     const listener_ptr = listener.?;
-    defer c.pancake_endpoint_tcp_listener_close(listener_ptr);
+    defer c.pancake_tcp_listener_release(listener_ptr);
 
     var port: u16 = 0;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        c.pancake_endpoint_tcp_listener_port(listener_ptr, &port),
+        c.pancake_tcp_listener_port(listener_ptr, &port),
     );
     try std.testing.expect(port != 0);
 
@@ -182,14 +172,14 @@ test "c-abi endpoint loopback: handshake to open + bootstrap fetch round-trip" {
     const server_thread = try std.Thread.spawn(.{}, serveThread, .{&args});
 
     var conn: ?*c.PancakeTcpConn = null;
-    const connect_rc = c.pancake_endpoint_tcp_testing_connect(netlayer_ptr, host.ptr, host.len, port, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn);
+    const connect_rc = c.pancake_tcp_connect(netlayer_ptr, host.ptr, host.len, port, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn);
     try std.testing.expectEqual(c.PANCAKE_OK, connect_rc);
     const conn_ptr = conn.?;
 
     const client_result = fetchOnce(conn_ptr, allocator);
 
     // Closing the client lets the server observe EOF and finish.
-    c.pancake_endpoint_tcp_conn_close(conn_ptr);
+    c.pancake_tcp_conn_release(conn_ptr);
     server_thread.join();
 
     try client_result;
@@ -207,7 +197,7 @@ test "c-abi last_error records a cause on connect failure" {
 
     var conn: ?*c.PancakeTcpConn = null;
     const host = "not a valid ip";
-    const rc = c.pancake_endpoint_tcp_testing_connect(netlayer_ptr, host.ptr, host.len, 9, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn);
+    const rc = c.pancake_tcp_connect(netlayer_ptr, host.ptr, host.len, 9, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn);
     // A bad host string is an invalid argument, not a network fault.
     try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, rc);
 
@@ -229,17 +219,18 @@ test "c-abi endpoint rejects bad arguments distinctly from network faults" {
     // A zero frame cap is an invalid argument, not a codec selector problem.
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        c.pancake_endpoint_tcp_testing_connect(netlayer_ptr, host.ptr, host.len, 9, c.PANCAKE_CODEC_SYRUP, 0, &conn),
+        c.pancake_tcp_connect(netlayer_ptr, host.ptr, host.len, 9, c.PANCAKE_CODEC_SYRUP, 0, &conn),
     );
-    // An unknown codec selector is a codec problem.
+    // An unknown codec selector is an invalid argument, like every other
+    // out-of-range discriminant.
     try std.testing.expectEqual(
-        c.PANCAKE_ERR_CODEC,
-        c.pancake_endpoint_tcp_testing_connect(netlayer_ptr, host.ptr, host.len, 9, 999, frame_cap, &conn),
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        c.pancake_tcp_connect(netlayer_ptr, host.ptr, host.len, 9, 999, frame_cap, &conn),
     );
     // A null required pointer is a null-pointer error.
     try std.testing.expectEqual(
         c.PANCAKE_ERR_NULL_POINTER,
-        c.pancake_endpoint_tcp_testing_connect(null, host.ptr, host.len, 9, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn),
+        c.pancake_tcp_connect(null, host.ptr, host.len, 9, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn),
     );
 }
 

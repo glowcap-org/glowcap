@@ -23,7 +23,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bindings" / "pytho
 from pancake import connect  # noqa: E402
 
 HOST = "127.0.0.1"
+# The Goblins vat's fixed port; --port=N (from
+# `zig build python-goblins-interop -Dport=N`) moves it when 22097 is taken.
 PORT = 22097
+for _arg in sys.argv[1:]:
+    if _arg.startswith("--port="):
+        PORT = int(_arg.split("=", 1)[1], 10)
+    else:
+        print(f"python-goblins-interop: unknown argument '{_arg}'", file=sys.stderr)
+        raise SystemExit(2)
+if not 1 <= PORT <= 65535:
+    print("python-goblins-interop: --port must be an integer in 1..65535", file=sys.stderr)
+    raise SystemExit(2)
 RACKET = "/usr/local/bin/racket"
 HOST_SCRIPT = "conformance/goblins-peer/racket/goblins-host.rkt"
 

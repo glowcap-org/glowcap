@@ -1,0 +1,48 @@
+---
+.title = "Racket",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+The Racket binding loads the installed shared `libpancake` and presents a `peer`,
+native Racket values, and event structs in
+[`bindings/racket/pancake.rkt`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/racket/pancake.rkt).
+It is the reference shape for the whole binding family, because it reads the way a
+[Spritely Goblins](https://spritely.institute/goblins/) programmer expects.
+
+## A Goblins-faithful actor layer
+
+Racket keeps the Goblins verbs intact. You define an actor behavior with
+`(define (^name bcom arg ...) ...)`, declare its `methods`, and then `spawn` it. You
+call it near with `$`, send it eventually with `<-` or `<-np`, observe a promise
+with `on`, and become a new behavior with `bcom`, all inside `with-vat`. On top of
+that, `connect`, `conn-fetch`, and `conn-send` reach a partner, and
+`(accept (listen host port))` hands back the same `connection` that `connect`
+returns.
+
+> **Near-call (`$`) and eventual-send (`<-`)** — the two ways to invoke an object,
+> straight from the [E language](http://erights.org/). `$` calls a near object now
+> and returns its result, because it lives in your own vat. `<-` queues the call
+> for a later turn and hands back a promise (`<-np` when you do not need the
+> promise back), and it is the only way to reach across a session, since a
+> partner's object is never in your vat.
+
+## Async
+
+The async surface uses Racket's green threads and ports. An `async-connection` runs
+the peer over `tcp-connect` and `tcp-listen`, you read events as a sequence with
+`(in-async-events conn)`, and `(on vow handler)` fires when a promise settles.
+
+## Dogfood and example
+
+```sh
+zig build racket-dogfood    # the Racket consumer against libpancake
+```
+
+The full surface lives in the
+[Racket binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/racket/README.md),
+and the
+[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/racket/room-client.rkt)
+builds a small capability-secure room on this surface.

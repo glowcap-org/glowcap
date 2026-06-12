@@ -2,7 +2,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const foundation = pancake.foundation;
-const engine = pancake.engine;
+const engine = pancake.ocapn.engine;
 
 fn peerId(seed: u8) foundation.PeerId {
     return foundation.PeerId.fromBytes([_]u8{seed} ** 32);

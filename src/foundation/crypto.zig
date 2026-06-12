@@ -30,12 +30,9 @@ pub const PEER_KEY_BYTES: usize = 32;
 /// Width in bytes of an Ed25519 raw signature (`r || s`).
 pub const SIGNATURE_BYTES: usize = 64;
 
-/// Width in bytes of the 32-byte secret seed a [`SecretKey`] is reconstructed
+/// Width in bytes of the 32-byte secret seed a `SecretKey` is reconstructed
 /// from.
 pub const SEED_BYTES: usize = 32;
-
-/// Width in bytes of a `gift-id` per CapTP `desc:handoff-give`.
-pub const GIFT_ID_BYTES: usize = 32;
 
 /// The ways verification can go wrong. Signing and deriving a key from a good
 /// seed can't fail, so everything here is about checking someone else's bytes.
@@ -103,6 +100,15 @@ pub const Signature = struct {
         return .{ .bytes = out };
     }
 
+    /// Pull a fixed-size signature out of a borrowed wire slice (a raw `r || s`
+    /// signature field). Mirrors `PeerKey.fromSlice`: one 64-byte copy behind
+    /// the length check, so callers keep passing slices and map the typed error
+    /// to their own context.
+    pub fn fromSlice(bytes: []const u8) CryptoError!Signature {
+        if (bytes.len != SIGNATURE_BYTES) return CryptoError.MalformedSignature;
+        return .{ .bytes = bytes[0..SIGNATURE_BYTES].* };
+    }
+
     pub fn asBytes(self: *const Signature) []const u8 {
         return self.bytes[0..];
     }
@@ -115,14 +121,22 @@ pub const Signature = struct {
 /// randomness. If you need to carry the key across a boundary, `seed` hands the
 /// bytes back out. That's deliberately a named call, so copying key material
 /// never happens by accident.
+///
+/// A `SecretKey` does not zeroize itself, and the signing paths take it by value.
+/// Secret hygiene is the host's: the driver wipes the transient per-connection
+/// seed it draws, and a host holding a longer-lived secret wipes its own storage
+/// with `std.crypto.secureZero`. The core keeps no hidden copy.
 pub const SecretKey = struct {
     keypair: Ed25519.KeyPair,
 
     /// Rebuild a secret key from a 32-byte seed. Where the seed came from is on
     /// you; nothing here checks it.
-    pub fn fromSeed(seed_bytes: [SEED_BYTES]u8) CryptoError!SecretKey {
-        const keypair = Ed25519.KeyPair.generateDeterministic(seed_bytes) catch
-            return CryptoError.MalformedKey;
+    ///
+    /// This can't fail. Deterministic generation from any 32-byte seed always
+    /// yields a valid key pair, and the `unreachable` says exactly that: the
+    /// identity-element error underneath can't happen for a clamped Ed25519 seed.
+    pub fn fromSeed(seed_bytes: [SEED_BYTES]u8) SecretKey {
+        const keypair = Ed25519.KeyPair.generateDeterministic(seed_bytes) catch unreachable;
         return .{ .keypair = keypair };
     }
 

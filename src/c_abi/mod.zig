@@ -1,4 +1,4 @@
-//! The C ABI for `libpancake`. Deliberately boring.
+//! The C ABI for `libpancake`. It is deliberately boring.
 //!
 //! The thing that makes this layer easy to use is that ownership is right there in
 //! the type names, so you never have to dig through comments to find it. A
@@ -32,12 +32,15 @@
 
 const std = @import("std");
 
-const engine = @import("../engine/mod.zig");
+const engine = @import("engine");
+const model = @import("model");
 
 const context = @import("context.zig");
 const frame = @import("frame.zig");
 const peer = @import("peer.zig");
 const endpoint = @import("endpoint.zig");
+const inproc = @import("inproc.zig");
+const uri = @import("uri.zig");
 
 /// ABI version the library implements. While `major` is 0 the ABI is unstable
 /// (see `pancake.h`); the shared library's soname tracks `major`.
@@ -77,9 +80,13 @@ pub const PANCAKE_ERR_FRAME_TOO_LARGE: i32 = -11;
 /// A typed `poll_event_*` was called but the next event is a different kind.
 /// The event is left queued; route on `pancake_peer_peek_event` first.
 pub const PANCAKE_ERR_WRONG_EVENT: i32 = -12;
-/// A value handed across the typed surface uses a variant the C ABI does not yet
-/// carry (a `set`/`tagged`/`handoff`/`keyword` argument, or a `sturdy`/`broken`
-/// reference target). Refused loudly rather than dropped.
+/// A value *sent* across the typed surface uses a variant the C ABI cannot carry:
+/// a `handoff` argument, or a `sturdy`/`broken` reference target. Those are
+/// refused loudly with this code rather than marshalled wrong. (`set`, `tagged`,
+/// and `keyword` arguments do carry, both directions.) A *received* `sturdy` or
+/// `broken` reference is a separate case: it projects lossily — the kind is
+/// reported but its swissnum/detail is dropped — since the deliver was authored
+/// by the partner, not refused on this consumer's behalf.
 pub const PANCAKE_ERR_UNSUPPORTED_VALUE: i32 = -13;
 /// A promise the partner broke: a `send`/`fetch` the remote side refused with a
 /// reason, not a fault in this peer or the transport. No C ABI function *returns*
@@ -87,13 +94,42 @@ pub const PANCAKE_ERR_UNSUPPORTED_VALUE: i32 = -13;
 /// its message — but it is the shared code a binding surfaces when it turns that
 /// break into its own error type, so the reason is distinct from a real failure.
 pub const PANCAKE_ERR_BROKEN: i32 = -14;
+/// A lookup found nothing: the `pancake_locator_hint` key names no hint on the
+/// locator. Distinct from `_INVALID_ARGUMENT` (the request was malformed) — the
+/// request was well-formed, the thing asked for is simply absent.
+pub const PANCAKE_ERR_NOT_FOUND: i32 = -15;
 
-/// Codec selector for endpoint framing (the grammar that delimits frames).
+/// Codec selector: the wire grammar a peer's session speaks
+/// (`pancake_peer_new_negotiated`) and the framing an endpoint delimits
+/// frames with (`pancake_tcp_connect` / `pancake_tcp_accept`). The
+/// two must match — the endpoint splits the stream with the same grammar the
+/// session encodes in.
 pub const PANCAKE_CODEC_SYRUP: u32 = 0;
 pub const PANCAKE_CODEC_CAPNP: u32 = 1;
 
+/// Decode a `PANCAKE_CODEC_*` value, or null for anything outside the family.
+pub fn codecFromC(codec: u32) ?model.CodecId {
+    return switch (codec) {
+        PANCAKE_CODEC_SYRUP => .syrup,
+        PANCAKE_CODEC_CAPNP => .capnp,
+        else => null,
+    };
+}
+
+/// `captp_version` selector for `pancake_peer_new_negotiated`: the
+/// authenticated v1.0 profile, or PreSpec, the upstream OCapN prerelease
+/// profile.
+pub const PANCAKE_CAPTP_VERSION_V1_0: u32 = 0;
+pub const PANCAKE_CAPTP_VERSION_PRE_SPEC: u32 = 1;
+
 pub const PANCAKE_FRAME_SHAPE_BYTE: u32 = 0;
+/// Word-aligned frame storage: the pointer must be 8-byte aligned and the
+/// length divisible by 8. Anything else is refused with
+/// `PANCAKE_ERR_INVALID_ARGUMENT`.
 pub const PANCAKE_FRAME_SHAPE_WORD: u32 = 1;
+/// The no-event sentinel: `pancake_event_release` zeroes a released event's
+/// `kind` to this. Never returned by a successful poll.
+pub const PANCAKE_EVENT_NONE: u32 = 0;
 pub const PANCAKE_EVENT_DELIVER: u32 = 1;
 pub const PANCAKE_EVENT_RESOLVE: u32 = 2;
 pub const PANCAKE_EVENT_GC_EXPORT: u32 = 3;
@@ -104,6 +140,7 @@ pub const PANCAKE_EVENT_ABORT: u32 = 7;
 pub const PANCAKE_EVENT_LISTEN: u32 = 8;
 pub const PANCAKE_EVENT_GET: u32 = 9;
 pub const PANCAKE_EVENT_INDEX: u32 = 10;
+pub const PANCAKE_EVENT_UNTAG: u32 = 11;
 
 /// A frame whose bytes are *borrowed* from the C caller for the duration of one
 /// call. The engine reads them during the call and retains nothing; the caller
@@ -174,9 +211,12 @@ pub const PANCAKE_REF_STURDY: u32 = 3;
 pub const PANCAKE_REF_BROKEN: u32 = 4;
 
 /// `sub_kind` for a near/far reference: whether the position names an object or a
-/// promise (the `desc:import-object` vs `desc:import-promise` distinction).
-pub const PANCAKE_REF_OBJECT: u32 = 0;
-pub const PANCAKE_REF_PROMISE_KIND: u32 = 1;
+/// promise (the `desc:import-object` vs `desc:import-promise` distinction). The
+/// SUB names are their own namespace so a `kind` value (`PANCAKE_REF_PROMISE`)
+/// can never be mistaken for a `sub_kind` value or assigned to the wrong field
+/// unnoticed.
+pub const PANCAKE_REF_SUB_OBJECT: u32 = 0;
+pub const PANCAKE_REF_SUB_PROMISE: u32 = 1;
 
 pub const PANCAKE_ARG_INTEGER: u32 = 0;
 pub const PANCAKE_ARG_FLOAT64: u32 = 1;
@@ -192,12 +232,31 @@ pub const PANCAKE_ARG_LIST: u32 = 8;
 pub const PANCAKE_ARG_SET: u32 = 9;
 pub const PANCAKE_ARG_TAGGED: u32 = 10;
 pub const PANCAKE_ARG_KEYWORD: u32 = 11;
+/// An arbitrary-precision OCapN Integer outside `int64_t`: `bytes`/`bytes_len`
+/// carry the canonical decimal magnitude (ASCII digits, no leading zero) and
+/// `boolean` carries the sign (1 = negative). A magnitude that fits `int64_t`
+/// belongs in `PANCAKE_ARG_INTEGER` and is refused here.
+pub const PANCAKE_ARG_BIG_INTEGER: u32 = 12;
 
 pub const PANCAKE_RESOLUTION_FULFILL: u32 = 0;
 pub const PANCAKE_RESOLUTION_BREAK: u32 = 1;
 
+/// Wire spelling of the empty locator hints in `pancake_peer_start_session`.
+/// `_EMPTY_MAP` encodes the empty hints as `{}`; `_EMPTY_FALSE` encodes them as
+/// the boolean `#f`, the spelling Goblins emits and re-encodes when it checks a
+/// signed locator. The two are semantically the same empty hints, but a
+/// signature computed over one spelling does not verify over the other.
+pub const PANCAKE_HINTS_EMPTY_MAP: u32 = 0;
+pub const PANCAKE_HINTS_EMPTY_FALSE: u32 = 1;
+
+/// The well-known bootstrap export position every OCapN peer answers `fetch`
+/// on — the one authoritative value, surfaced from the engine so a consumer
+/// never re-derives the magic `0`.
+pub const PANCAKE_BOOTSTRAP_POSITION: u64 = engine.BOOTSTRAP_POSITION;
+
 /// A capability reference. `kind` selects the meaning of `id`: a `_NEAR` export
-/// id, a `_FAR` import id, or a `_PROMISE` answer id. `sub_kind` is the
+/// position, a `_FAR` import position, or a `_PROMISE` answer position.
+/// `sub_kind` is the
 /// object/promise distinction for near/far. `_STURDY` and `_BROKEN` carry no
 /// payload here (use the resolution's break message for a broken target).
 pub const PancakeReference = extern struct {
@@ -207,9 +266,14 @@ pub const PancakeReference = extern struct {
 };
 
 /// A passable argument value. `kind` selects which field is live. `bytes`/
-/// `bytes_len` carry `_BYTES`/`_STRING`/`_SYMBOL`; `items`/`items_len` carry a
-/// `_LIST`'s children. On a projected (received) value the pointers alias the
-/// owning arena and are valid until the matching `*_free`.
+/// `bytes_len` carry `_BYTES`/`_STRING`/`_SYMBOL`/`_KEYWORD`; `items`/
+/// `items_len` carry a `_LIST`'s or `_SET`'s elements. A `_TAGGED` uses both:
+/// the tag in `bytes`/`bytes_len` and the value list in `items`/`items_len`.
+/// A `_BIG_INTEGER` carries the canonical decimal magnitude in `bytes`/
+/// `bytes_len` (ASCII digits, no leading zero) and the sign in `boolean`
+/// (1 = negative); a magnitude that fits `int64_t` belongs in `_INTEGER` and
+/// is refused here. On a projected (received) value the pointers alias the
+/// owning arena and are valid until the matching `*_release`.
 pub const PancakeArgument = extern struct {
     kind: u32,
     boolean: u32,
@@ -223,7 +287,7 @@ pub const PancakeArgument = extern struct {
 };
 
 /// A received `op:deliver` projected to C. `args` aliases an internal arena;
-/// release the whole projection with `pancake_deliver_free` exactly once.
+/// release the whole projection with `pancake_deliver_release` exactly once.
 pub const PancakeDeliver = extern struct {
     target: PancakeReference,
     args: ?[*]const PancakeArgument,
@@ -234,7 +298,7 @@ pub const PancakeDeliver = extern struct {
 };
 
 /// A received `op:resolve` projected to C. `resolution_kind` selects `fulfill`
-/// (a value) or the `break_message` bytes. Release with `pancake_resolve_free`.
+/// (a value) or the `break_message` bytes. Release with `pancake_resolve_release`.
 pub const PancakeResolve = extern struct {
     answer: u64,
     resolution_kind: u32,
@@ -244,16 +308,55 @@ pub const PancakeResolve = extern struct {
     owner: ?*anyopaque,
 };
 
+/// `PancakeLastAbort.domain`: which layer classified the failure. Codec is a
+/// decode/encode malformation, session is a state-machine refusal, foreign is
+/// a host-internal failure (allocation, …).
+pub const PANCAKE_ABORT_DOMAIN_CODEC: u32 = 0;
+pub const PANCAKE_ABORT_DOMAIN_SESSION: u32 = 1;
+pub const PANCAKE_ABORT_DOMAIN_FOREIGN: u32 = 2;
+
+/// The typed cause of the peer's most recent local dispatch failure, projected
+/// to C — the ABI counterpart of `engine.Peer.lastAbort`. `domain` is a
+/// `PANCAKE_ABORT_DOMAIN_*` value. When `has_kind` is nonzero, `kind_name`
+/// is the wire name of the projected `op:abort` kind (e.g. "MalformedFrame");
+/// when zero, the failure projected no abort (a closed session, an allocation
+/// failure). All byte views are process-static — read them, never free them.
+pub const PancakeLastAbort = extern struct {
+    domain: u32,
+    has_kind: u32,
+    kind_name: ?[*]const u8,
+    kind_name_len: usize,
+    message: ?[*]const u8,
+    message_len: usize,
+    error_name: ?[*]const u8,
+    error_name_len: usize,
+};
+
 // ── TCP endpoint handles ─────────────────────────────────────────────────────
 
 pub const PancakeTcpNetlayer = opaque {};
 pub const PancakeTcpConn = opaque {};
 pub const PancakeTcpListener = opaque {};
 
+// ── In-process endpoint handles ──────────────────────────────────────────────
+
+pub const PancakeInprocNetlayer = opaque {};
+pub const PancakeInprocConn = opaque {};
+pub const PancakeInprocListener = opaque {};
+
+// ── OCapN locator handle ─────────────────────────────────────────────────────
+
+/// A parsed OCapN locator: the value a `pancake_uri_parse_*` returns, read
+/// through the `pancake_locator_*` accessors and freed with
+/// `pancake_locator_release`. One handle carries both a peer and a sturdyref (a
+/// sturdyref is a peer locator plus a swissnum), so a parsed peer reports a
+/// zero-length swissnum.
+pub const PancakeLocator = opaque {};
+
 // ── Shared error projection ──────────────────────────────────────────────────
 
 /// Classify an inbound-dispatch error into a C ABI return code. Derived from the
-/// single error taxonomy ([`engine.abort_projection.classify`]) so the C codes
+/// single error taxonomy (`engine.abort_projection.classify`) so the C codes
 /// cannot drift from the abort projection: codec/decode malformations report
 /// `CODEC`, session state-machine refusals (a partner protocol violation, a
 /// resource cap, an already-closed session) report `SESSION`, and host-internal
@@ -283,12 +386,13 @@ pub fn setLastError(comptime fmt: []const u8, args: anytype) void {
     last_error_len = written.len;
 }
 
-/// Copy the calling thread's last error message into `out_buf` (NUL-terminated
-/// if it fits), returning the full message length (which may exceed `cap`, in
-/// which case the copy was truncated). errno-style: meaningful only right after
-/// a call that returned a cause-bearing code (`_IO`, or the address-parse
-/// `_INVALID_ARGUMENT`); a later success does not clear it. Returns 0 when none
-/// is set.
+/// Copy the calling thread's last error message into `out_buf`. Copies at most
+/// `cap - 1` bytes and always NUL-terminates when `cap > 0`. Returns the full
+/// message length; to receive the whole message pass a buffer of that length
+/// plus one. `out_buf == NULL` or `cap == 0` queries the length. errno-style:
+/// meaningful only right after a call that returned a cause-bearing code
+/// (`_IO`, or the address-parse `_INVALID_ARGUMENT`); a later success does not
+/// clear it. Returns 0 when none is set.
 pub export fn pancake_last_error(out_buf: ?[*]u8, cap: usize) usize {
     const dest = out_buf orelse return last_error_len;
     if (cap == 0) return last_error_len;
@@ -310,7 +414,7 @@ pub export fn pancake_clear_last_error() void {
 // as members of the `c_abi` namespace so `tools/header_gen.zig`, which reflects
 // over `c_abi`, sees the full ABI from one root.
 
-pub const pancake_context_new_default = context.pancake_context_new_default;
+pub const pancake_context_new = context.pancake_context_new;
 pub const pancake_context_new_with_allocator = context.pancake_context_new_with_allocator;
 pub const pancake_context_release = context.pancake_context_release;
 
@@ -319,8 +423,10 @@ pub const pancake_event_release = frame.pancake_event_release;
 
 pub const pancake_peer_new = peer.pancake_peer_new;
 pub const pancake_peer_new_in = peer.pancake_peer_new_in;
-pub const pancake_peer_new_negotiating = peer.pancake_peer_new_negotiating;
-pub const pancake_peer_new_negotiating_in = peer.pancake_peer_new_negotiating_in;
+pub const pancake_peer_new_negotiated = peer.pancake_peer_new_negotiated;
+pub const pancake_peer_new_negotiated_in = peer.pancake_peer_new_negotiated_in;
+pub const pancake_peer_new_raw_open = peer.pancake_peer_new_raw_open;
+pub const pancake_peer_new_raw_open_in = peer.pancake_peer_new_raw_open_in;
 pub const pancake_peer_release = peer.pancake_peer_release;
 pub const pancake_peer_feed_borrowed = peer.pancake_peer_feed_borrowed;
 pub const pancake_peer_feed_owned = peer.pancake_peer_feed_owned;
@@ -328,30 +434,73 @@ pub const pancake_peer_recv_stream = peer.pancake_peer_recv_stream;
 pub const pancake_peer_step = peer.pancake_peer_step;
 pub const pancake_peer_take_outbound = peer.pancake_peer_take_outbound;
 pub const pancake_peer_poll_event = peer.pancake_peer_poll_event;
-pub const pancake_peer_start_session_keyed = peer.pancake_peer_start_session_keyed;
+pub const pancake_peer_start_session = peer.pancake_peer_start_session;
 pub const pancake_peer_session_is_open = peer.pancake_peer_session_is_open;
+pub const pancake_peer_codec = peer.pancake_peer_codec;
 pub const pancake_peer_register_bootstrap_cap = peer.pancake_peer_register_bootstrap_cap;
+pub const pancake_peer_send_bootstrap_fetch = peer.pancake_peer_send_bootstrap_fetch;
 pub const pancake_peer_register_export = peer.pancake_peer_register_export;
+pub const pancake_peer_next_export = peer.pancake_peer_next_export;
+pub const pancake_peer_next_answer = peer.pancake_peer_next_answer;
+pub const pancake_peer_last_abort = peer.pancake_peer_last_abort;
 pub const pancake_peer_register_import = peer.pancake_peer_register_import;
 pub const pancake_peer_peek_event = peer.pancake_peer_peek_event;
 pub const pancake_peer_send_deliver = peer.pancake_peer_send_deliver;
 pub const pancake_peer_send_resolve = peer.pancake_peer_send_resolve;
+pub const pancake_peer_send_gc_export = peer.pancake_peer_send_gc_export;
+pub const pancake_peer_send_gc_answer = peer.pancake_peer_send_gc_answer;
 pub const pancake_peer_poll_event_deliver = peer.pancake_peer_poll_event_deliver;
 pub const pancake_peer_poll_event_resolve = peer.pancake_peer_poll_event_resolve;
-pub const pancake_deliver_free = peer.pancake_deliver_free;
-pub const pancake_resolve_free = peer.pancake_resolve_free;
+pub const pancake_deliver_release = peer.pancake_deliver_release;
+pub const pancake_resolve_release = peer.pancake_resolve_release;
 
 pub const pancake_tcp_netlayer_new = endpoint.pancake_tcp_netlayer_new;
 pub const pancake_tcp_netlayer_new_in = endpoint.pancake_tcp_netlayer_new_in;
 pub const pancake_tcp_netlayer_release = endpoint.pancake_tcp_netlayer_release;
-pub const pancake_endpoint_tcp_testing_connect = endpoint.pancake_endpoint_tcp_testing_connect;
-pub const pancake_endpoint_tcp_testing_listen = endpoint.pancake_endpoint_tcp_testing_listen;
-pub const pancake_endpoint_tcp_listener_port = endpoint.pancake_endpoint_tcp_listener_port;
-pub const pancake_endpoint_tcp_testing_accept = endpoint.pancake_endpoint_tcp_testing_accept;
-pub const pancake_endpoint_tcp_read_frame = endpoint.pancake_endpoint_tcp_read_frame;
-pub const pancake_endpoint_tcp_write_frame = endpoint.pancake_endpoint_tcp_write_frame;
-pub const pancake_endpoint_tcp_conn_close = endpoint.pancake_endpoint_tcp_conn_close;
-pub const pancake_endpoint_tcp_listener_close = endpoint.pancake_endpoint_tcp_listener_close;
+pub const pancake_tcp_connect = endpoint.pancake_tcp_connect;
+pub const pancake_tcp_listen = endpoint.pancake_tcp_listen;
+pub const pancake_tcp_listener_port = endpoint.pancake_tcp_listener_port;
+pub const pancake_tcp_accept = endpoint.pancake_tcp_accept;
+pub const pancake_tcp_conn_read_frame = endpoint.pancake_tcp_conn_read_frame;
+pub const pancake_tcp_conn_write_frame = endpoint.pancake_tcp_conn_write_frame;
+pub const pancake_tcp_conn_release = endpoint.pancake_tcp_conn_release;
+pub const pancake_tcp_listener_release = endpoint.pancake_tcp_listener_release;
+
+pub const pancake_inproc_netlayer_new = inproc.pancake_inproc_netlayer_new;
+pub const pancake_inproc_netlayer_new_in = inproc.pancake_inproc_netlayer_new_in;
+pub const pancake_inproc_netlayer_release = inproc.pancake_inproc_netlayer_release;
+pub const pancake_inproc_connect = inproc.pancake_inproc_connect;
+pub const pancake_inproc_listen = inproc.pancake_inproc_listen;
+pub const pancake_inproc_accept = inproc.pancake_inproc_accept;
+pub const pancake_inproc_conn_read_frame = inproc.pancake_inproc_conn_read_frame;
+pub const pancake_inproc_conn_write_frame = inproc.pancake_inproc_conn_write_frame;
+pub const pancake_inproc_conn_release = inproc.pancake_inproc_conn_release;
+pub const pancake_inproc_listener_release = inproc.pancake_inproc_listener_release;
+
+pub const pancake_uri_parse_peer = uri.pancake_uri_parse_peer;
+pub const pancake_uri_parse_sturdyref = uri.pancake_uri_parse_sturdyref;
+pub const pancake_uri_format_peer = uri.pancake_uri_format_peer;
+pub const pancake_uri_format_sturdyref = uri.pancake_uri_format_sturdyref;
+pub const pancake_locator_transport = uri.pancake_locator_transport;
+pub const pancake_locator_designator = uri.pancake_locator_designator;
+pub const pancake_locator_swissnum = uri.pancake_locator_swissnum;
+pub const pancake_locator_hint = uri.pancake_locator_hint;
+pub const pancake_locator_hint_count = uri.pancake_locator_hint_count;
+pub const pancake_locator_hint_at = uri.pancake_locator_hint_at;
+pub const pancake_locator_release = uri.pancake_locator_release;
+
+// ── Shared helpers for the out-of-tree iroh C ABI ────────────────────────────
+//
+// The iroh transport's C ABI (`src/c_abi/iroh.zig`) is a separate artifact: it
+// links the Rust sidecar, so it must stay outside `libpancake`'s pure-Zig graph
+// (ADR-0055). It still speaks the same managed-frame vocabulary and last-error
+// boundary as the TCP endpoints, so these re-exports give that module the
+// handful of shared helpers without it reaching into `c_abi`'s sibling files
+// (which would compile a second copy of this root). None is a `pancake_*`
+// function, so the header generator's coverage guards do not see them.
+pub const tryManagedFrame = frame.tryManagedFrame;
+pub const library_allocator = context.library_allocator;
+pub const ctxFromOpaque = context.ctxFromOpaque;
 
 comptime {
     // Force the family files' `export fn`s into the compilation even if the
@@ -360,4 +509,6 @@ comptime {
     _ = frame;
     _ = peer;
     _ = endpoint;
+    _ = inproc;
+    _ = uri;
 }

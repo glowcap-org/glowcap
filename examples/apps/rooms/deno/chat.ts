@@ -4,19 +4,23 @@
 // type, until you press Ctrl-D. All the OCapN machinery lives in `room_client.ts`
 // (`Room`), so this file gets to read like a chat client and nothing else.
 //
-//   deno run --allow-ffi --allow-read --allow-net chat.ts 127.0.0.1 9099 alice
+//   deno run --allow-ffi --allow-read --allow-net chat.ts 127.0.0.1:9099 alice
 //
-// Open one terminal per person, all pointed at the same server, and chat.
+// The locator is transport-neutral: a `host:port` joins over TCP, an
+// `ocapn://<nodeid>.iroh?direct-addresses=…` URI joins over iroh (the room
+// prints it as its `ROOMS-SERVER-LISTENING` line in iroh mode). iroh dialing
+// needs `--unstable-ffi`. Open one terminal per person, all pointed at the same
+// server, and chat.
 
 import { Room } from "./room_client.ts";
 
-const [host, portStr, nick] = Deno.args;
-if (!host || !portStr || !nick) {
-  console.error("usage: chat.ts <host> <port> <nick>");
+const [locator, nick] = Deno.args;
+if (!locator || !nick) {
+  console.error("usage: chat.ts <locator> <nick>   (locator: host:port or an ocapn:// URI)");
   Deno.exit(2);
 }
 
-const room = await Room.join(host, Number(portStr), nick);
+const room = await Room.join(locator, nick);
 console.log(`(connected as "${nick}" — type a line and press enter; Ctrl-D to leave)`);
 
 // Show the room and read your typing at the same time; when either ends — the

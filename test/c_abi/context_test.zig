@@ -10,9 +10,9 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const c = pancake.c_abi;
-const model = pancake.model;
-const engine = pancake.engine;
+const c = @import("c_abi");
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
 
 const abort_frame = "<8'op:abort3\"bye>";
 const frame_cap = 4096;
@@ -53,7 +53,7 @@ const CountingHost = struct {
 };
 
 /// Build an external managed frame over caller-owned bytes whose `release`
-/// flips a flag — the same shape a `pancake_endpoint_tcp_read_frame` hands out,
+/// flips a flag — the same shape a `pancake_tcp_conn_read_frame` hands out,
 /// minus a backing allocation, so a test can feed it owned and watch it release.
 const ExternalFrame = struct {
     var released: bool = false;
@@ -80,7 +80,7 @@ const ExternalFrame = struct {
 
 test "default context creates and releases a peer" {
     var ctx: ?*c.PancakeContext = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_context_new_default(&ctx));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_context_new(&ctx));
     const ctx_ptr = ctx.?;
     defer c.pancake_context_release(ctx_ptr);
 
@@ -91,7 +91,7 @@ test "default context creates and releases a peer" {
 
 test "context constructors reject null arguments" {
     var ctx: ?*c.PancakeContext = null;
-    try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_context_new_default(null));
+    try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_context_new(null));
     try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_context_new_with_allocator(null, &ctx));
 
     // alloc/free are required; a spec missing either is a null-pointer error.
@@ -165,7 +165,7 @@ test "host context balances an outbound managed frame" {
     try std.testing.expect(host.balanced());
 }
 
-test "host context: feed_owned failure frees the adopted wrapper and returns ownership" {
+test "host context: feed_owned failure frees the adopted wrapper and consumes the frame" {
     var host = CountingHost{};
     const spec = host.spec();
 
@@ -178,16 +178,16 @@ test "host context: feed_owned failure frees the adopted wrapper and returns own
 
     // A word-shaped frame whose length is not a multiple of 8 is rejected by the
     // frame layer; the adopted wrapper allocated up front must be freed, and the
-    // caller keeps ownership of its managed frame.
+    // frame is consumed — released once through its own callback, with the
+    // caller's struct cleared so a late release is a no-op.
     var bytes = [_]u8{ 1, 2, 3 };
     var managed = ExternalFrame.make(bytes[0..]);
     managed.shape = c.PANCAKE_FRAME_SHAPE_WORD;
-    try std.testing.expectEqual(c.PANCAKE_ERR_CODEC, c.pancake_peer_feed_owned(peer, &managed));
-    try std.testing.expect(!ExternalFrame.released);
-    try std.testing.expect(managed.bytes != null);
+    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_peer_feed_owned(peer, &managed));
+    try std.testing.expect(ExternalFrame.released);
+    try std.testing.expect(managed.bytes == null);
 
     c.pancake_managed_frame_release(&managed);
-    try std.testing.expect(ExternalFrame.released);
 
     c.pancake_peer_release(peer);
     c.pancake_context_release(ctx_ptr);
@@ -267,10 +267,10 @@ test "host context stays balanced while session tables grow and rehash" {
     var i: u32 = 0;
     while (i < 64) : (i += 1) {
         const swiss = std.fmt.bufPrint(&buf, "cap-{d:0>4}", .{i}) catch unreachable;
-        var export_id: u64 = 0;
+        var export_position: u64 = 0;
         try std.testing.expectEqual(
             c.PANCAKE_OK,
-            c.pancake_peer_register_bootstrap_cap(peer, swiss.ptr, swiss.len, &export_id),
+            c.pancake_peer_register_bootstrap_cap(peer, swiss.ptr, swiss.len, &export_position),
         );
     }
 
@@ -293,13 +293,13 @@ fn acceptThread(args: *TcpArgs) void {
 
 fn acceptOnce(args: *TcpArgs) !void {
     var conn: ?*c.PancakeTcpConn = null;
-    if (c.pancake_endpoint_tcp_testing_accept(args.listener, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn) != c.PANCAKE_OK)
+    if (c.pancake_tcp_accept(args.listener, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn) != c.PANCAKE_OK)
         return error.AcceptFailed;
     const conn_ptr = conn orelse return error.AcceptNull;
-    defer c.pancake_endpoint_tcp_conn_close(conn_ptr);
+    defer c.pancake_tcp_conn_release(conn_ptr);
 
     var mf: c.PancakeManagedFrame = undefined;
-    if (c.pancake_endpoint_tcp_read_frame(conn_ptr, &mf) != c.PANCAKE_OK) return error.ReadFailed;
+    if (c.pancake_tcp_conn_read_frame(conn_ptr, &mf) != c.PANCAKE_OK) return error.ReadFailed;
     defer c.pancake_managed_frame_release(&mf);
 
     const bytes = (mf.bytes orelse return error.NullFrame)[0..mf.len];
@@ -322,12 +322,12 @@ test "host context balances a TCP netlayer, listener, connections, and a read fr
     var listener: ?*c.PancakeTcpListener = null;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        c.pancake_endpoint_tcp_testing_listen(netlayer_ptr, host_addr.ptr, host_addr.len, 0, &listener),
+        c.pancake_tcp_listen(netlayer_ptr, host_addr.ptr, host_addr.len, 0, &listener),
     );
     const listener_ptr = listener.?;
 
     var port: u16 = 0;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_endpoint_tcp_listener_port(listener_ptr, &port));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_tcp_listener_port(listener_ptr, &port));
     try std.testing.expect(port != 0);
 
     var args: TcpArgs = .{ .listener = listener_ptr };
@@ -336,16 +336,16 @@ test "host context balances a TCP netlayer, listener, connections, and a read fr
     var conn: ?*c.PancakeTcpConn = null;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        c.pancake_endpoint_tcp_testing_connect(netlayer_ptr, host_addr.ptr, host_addr.len, port, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn),
+        c.pancake_tcp_connect(netlayer_ptr, host_addr.ptr, host_addr.len, port, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn),
     );
     const conn_ptr = conn.?;
 
     var cf: c.PancakeFrame = .{ .bytes = abort_frame.ptr, .len = abort_frame.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
-    const write_rc = c.pancake_endpoint_tcp_write_frame(conn_ptr, &cf);
+    const write_rc = c.pancake_tcp_conn_write_frame(conn_ptr, &cf);
 
     thread.join();
-    c.pancake_endpoint_tcp_conn_close(conn_ptr);
-    c.pancake_endpoint_tcp_listener_close(listener_ptr);
+    c.pancake_tcp_conn_release(conn_ptr);
+    c.pancake_tcp_listener_release(listener_ptr);
     c.pancake_tcp_netlayer_release(netlayer_ptr);
     c.pancake_context_release(ctx_ptr);
 

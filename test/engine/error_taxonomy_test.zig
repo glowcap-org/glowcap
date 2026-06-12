@@ -1,19 +1,20 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const abort = pancake.engine.abort_projection;
+const abort = pancake.ocapn.engine.abort_projection;
 
-test "every codec / session / projection error classifies to a non-foreign domain" {
+test "every codec / session / engine / projection error classifies to a non-foreign domain" {
     // `classify` is the single source of truth for what a dispatch error means.
-    // A new codec/session/projection error variant that falls through to
+    // A new codec/session/engine/projection error variant that falls through to
     // `.foreign` (and thus the C ABI's INTERNAL code and no abort) fails the gate
     // here instead of silently mis-surfacing — this is the compile-checked boundary
     // that replaced the hand-maintained per-surface error tables.
     inline for (.{
-        pancake.session.Error,
-        pancake.codec.syrup.Error,
-        pancake.codec.capnp.Error,
-        pancake.model.view.ProjectError,
+        pancake.ocapn.session.Error,
+        pancake.ocapn.codec.syrup.Error,
+        pancake.ocapn.codec.capnp.Error,
+        pancake.ocapn.model.view.ProjectError,
+        pancake.ocapn.engine.EngineError,
     }) |ErrSet| {
         inline for (@typeInfo(ErrSet).error_set.?) |e| {
             // `OutOfMemory` is the one error a codec set carries (via
@@ -32,13 +33,13 @@ test "prior cross-surface drift now classifies consistently" {
     // abort projection called it resource_exhausted. One classifier, one answer.
     const nesting = abort.classify(error.NestingTooDeep);
     try std.testing.expectEqual(abort.Domain.session, nesting.domain);
-    try std.testing.expectEqual(pancake.model.AbortKind.resource_exhausted, nesting.abort.?.kind);
+    try std.testing.expectEqual(pancake.ocapn.model.AbortKind.resource_exhausted, nesting.abort.?.kind);
 
     // MalformedView fell through the abort projection's `else => null`, leaving
     // the partner with no op:abort. It is a codec decode failure.
     const view = abort.classify(error.MalformedView);
     try std.testing.expectEqual(abort.Domain.codec, view.domain);
-    try std.testing.expectEqual(pancake.model.AbortKind.malformed_frame, view.abort.?.kind);
+    try std.testing.expectEqual(pancake.ocapn.model.AbortKind.malformed_frame, view.abort.?.kind);
 
     // A handshake version mismatch is the one protocol error that does not close.
     const mismatch = abort.classify(error.CaptpVersionMismatch);
@@ -49,4 +50,11 @@ test "prior cross-surface drift now classifies consistently" {
     const oom = abort.classify(error.OutOfMemory);
     try std.testing.expectEqual(abort.Domain.foreign, oom.domain);
     try std.testing.expect(oom.abort == null);
+
+    // The engine's partner-drivable local-delivery bound is a resource cap,
+    // not a host bug: it projects resource_exhausted and closes.
+    const cap = abort.classify(error.LocalDeliveryCapExceeded);
+    try std.testing.expectEqual(abort.Domain.session, cap.domain);
+    try std.testing.expectEqual(pancake.ocapn.model.AbortKind.resource_exhausted, cap.abort.?.kind);
+    try std.testing.expect(cap.abort.?.close);
 }

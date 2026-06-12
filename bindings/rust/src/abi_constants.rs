@@ -1,0 +1,77 @@
+//! Private ABI constants mirrored from `pancake.h`.
+
+#![allow(dead_code)]
+
+use core::ffi::{c_int, c_uint};
+
+/// `codec` for `pancake_peer_new_negotiated` and the tcp endpoints; mirrors
+/// `PANCAKE_CODEC_*` in `pancake.h`.
+pub const CODEC_SYRUP: c_uint = 0;
+pub const CODEC_CAPNP: c_uint = 1;
+
+pub const ERR_NULL_POINTER: c_int = -1;
+pub const ERR_INVALID_HANDLE: c_int = -2;
+pub const ERR_INVALID_ARGUMENT: c_int = -3;
+pub const ERR_SESSION: c_int = -4;
+pub const ERR_CODEC: c_int = -5;
+pub const ERR_INTERNAL: c_int = -6;
+pub const ERR_CLOSED: c_int = -8;
+pub const ERR_IO: c_int = -9;
+pub const ERR_MALFORMED: c_int = -10;
+pub const ERR_FRAME_TOO_LARGE: c_int = -11;
+pub const ERR_WRONG_EVENT: c_int = -12;
+pub const ERR_UNSUPPORTED_VALUE: c_int = -13;
+pub const ERR_BROKEN: c_int = -14;
+pub const ERR_NOT_FOUND: c_int = -15;
+
+pub const OK: c_int = 0;
+pub const WOULD_BLOCK: c_int = -7;
+pub const FRAME_SHAPE_BYTE: c_uint = 0;
+
+pub const EVENT_NONE: c_int = 0;
+pub const EVENT_DELIVER: c_int = 1;
+pub const EVENT_RESOLVE: c_int = 2;
+
+pub const REF_NEAR: c_uint = 0;
+pub const REF_FAR: c_uint = 1;
+pub const REF_PROMISE: c_uint = 2;
+pub const REF_STURDY: c_uint = 3;
+pub const REF_BROKEN: c_uint = 4;
+pub const REF_SUB_OBJECT: c_uint = 0;
+pub const REF_SUB_PROMISE: c_uint = 1;
+
+pub const ARG_INTEGER: c_uint = 0;
+pub const ARG_FLOAT64: c_uint = 1;
+pub const ARG_BOOLEAN: c_uint = 2;
+pub const ARG_BYTES: c_uint = 3;
+pub const ARG_STRING: c_uint = 4;
+pub const ARG_SYMBOL: c_uint = 5;
+pub const ARG_VOID: c_uint = 6;
+pub const ARG_REFERENCE: c_uint = 7;
+pub const ARG_LIST: c_uint = 8;
+pub const ARG_SET: c_uint = 9;
+pub const ARG_TAGGED: c_uint = 10;
+pub const ARG_KEYWORD: c_uint = 11;
+pub const ARG_BIG_INTEGER: c_uint = 12;
+
+pub const RESOLUTION_FULFILL: c_uint = 0;
+pub const RESOLUTION_BREAK: c_uint = 1;
+
+/// Wire spelling of the empty locator hints in `pancake_peer_start_session`;
+/// mirrors `PANCAKE_HINTS_EMPTY_MAP` / `PANCAKE_HINTS_EMPTY_FALSE` in `pancake.h`.
+pub const HINTS_EMPTY_MAP: c_uint = 0;
+pub const HINTS_EMPTY_FALSE: c_uint = 1;
+
+/// The well-known bootstrap export position every OCapN peer answers `fetch`
+/// on; mirrors `PANCAKE_BOOTSTRAP_POSITION` in `pancake.h`.
+pub const BOOTSTRAP_POSITION: u64 = 0;
+
+/// `captp_version` for `pancake_peer_new_negotiated`; mirrors
+/// `PANCAKE_CAPTP_VERSION_*` in `pancake.h`.
+pub const CAPTP_VERSION_V1_0: c_uint = 0;
+pub const CAPTP_VERSION_PRE_SPEC: c_uint = 1;
+
+/// `PancakeLastAbort.domain`; mirrors `PANCAKE_ABORT_DOMAIN_*` in `pancake.h`.
+pub const ABORT_DOMAIN_CODEC: c_uint = 0;
+pub const ABORT_DOMAIN_SESSION: c_uint = 1;
+pub const ABORT_DOMAIN_FOREIGN: c_uint = 2;

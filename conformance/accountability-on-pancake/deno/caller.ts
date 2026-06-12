@@ -11,14 +11,7 @@
 //
 // Or driven by the demo.ts orchestrator, which starts the Zig host first.
 
-import {
-  type AppValue,
-  connect,
-  far,
-  Ref,
-} from "../../../bindings/deno/pancake.ts";
-
-const AFFORDANCE_EXPORT = 5n;
+import { type AppValue, connect } from "../../../bindings/deno/pancake.ts";
 
 function base64urlEncode(bytes: Uint8Array): string {
   let s = "";
@@ -43,9 +36,8 @@ async function main(): Promise<void> {
 
   // `connect` completes the keyed op:start-session handshake before returning.
   const conn = await connect("127.0.0.1", port);
-  conn.serve().catch(() => {}); // the host hanging up ends the serve loop
-  conn.peer.registerImport(AFFORDANCE_EXPORT);
-  const affordance = new Ref(far(AFFORDANCE_EXPORT), null);
+  // `fetch`/`send` drive the inbound loop themselves — no separate serve() call.
+  const affordance = await conn.fetch("affordance");
 
   // Generate an Ed25519 identity (above pancake, just like the Zig side).
   // `generateKey` is typed `CryptoKeyPair | CryptoKey`; an asymmetric algorithm

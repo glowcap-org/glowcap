@@ -1,0 +1,55 @@
+---
+.title = "Examples & demo apps",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+The surest way to trust a protocol is to watch it run. pancake ships runnable
+examples at two levels: short Zig chapters that peel the library one layer at a
+time, and full cross-language apps where a coordinator in one language talks to
+clients in four others over real [OCapN](https://github.com/ocapn/ocapn). Every one
+compiles and runs under the build, so the code on the page cannot drift from the
+library.
+
+## The Zig chapters
+
+They read top-down. Chapter 01 is the surface an application rides; each later
+chapter peels one layer beneath it, ending at the raw engine.
+
+| # | Chapter | What it shows |
+| --- | --- | --- |
+| 01 | [connect & serve](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/01_connect_and_serve.zig) | the application surface over a real TCP socket: listen, accept, publish by name, serve; connect, fetch, call, switch on the outcome |
+| 02 | [actor far-send](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/02_actor_far_send.zig) | the `Vat` pattern beneath a call: publish an actor, far-send to it, settle the promise |
+| 03 | [look up by name](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/03_look_up_by_name.zig) | the bootstrap fetch by swiss number that sits under fetch-by-name |
+| 04 | [call a remote method](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/04_call_a_remote_method.zig) | the raw engine: pair two peers and shuttle deliver and resolve one `step` at a time |
+
+`zig build examples` builds and runs them all, and they also run under
+`zig build check`. The
+[example chapters](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/README.md)
+carry the full source and a few lower-level mechanics besides.
+
+## The cross-language apps
+
+Each app is built on the same small surface (connect, fetch, publish, spawn, send,
+serve, close), written once per language, so the app reads the same in Zig and the
+four [bindings]($link.page('bindings')): Rust, Python, Racket, and Deno.
+
+| App | What it is | Run it |
+| --- | --- | --- |
+| [rooms](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/) | a capability-secure chat room, real-time | `zig build demo-rooms` |
+| [tasks](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tasks/) | a shared task board: CRUD plus live state | `zig build demo-tasks` |
+| [tools](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tools/) | a capability showcase for AI agent harnesses: delegation, attenuation, revocation | `zig build demo-tools` |
+| [accountability](https://codeberg.org/jimisaacs/pancake/src/branch/main/conformance/accountability-on-pancake/) | a signed-call accountability app over a real OCapN/TCP session | `zig build demo-accountability` |
+
+The `rooms`, `tasks`, and `tools` demos need only `deno` and the always-built Zig
+client; the Python, Racket, and Rust clients join when their runtimes are present
+and are skipped with a note otherwise. The `accountability` demo pairs a Zig host
+with Deno and Python callers. Each binds an ephemeral port by default; pin it with
+`-Dport`, or add `-Dattach=true` to join a server you already started. They run as
+siblings of `check`, not as part of the hermetic gate.
+
+Why an application at all? A protocol can pass every conformance scenario and still
+be miserable to build on. These apps are where the surface meets a real program, in
+five languages at once, and where the rough edges no fixture reaches show up.

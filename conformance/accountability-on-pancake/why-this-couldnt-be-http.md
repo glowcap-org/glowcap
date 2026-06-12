@@ -66,14 +66,14 @@ delegation is a direct consequence of that, not a feature layered on top.
 That is the bite OCapN can take out of HTTP: not raw speed, not a nicer RPC, but a
 class of guarantees — unforgeable attribution, per-recipient authority, delegation
 that is visible in the call — that HTTP's bearer-token shape cannot express, only
-approximate. This app is the smallest honest demonstration of it running on pancake.
+approximate. This app demonstrates it running on pancake.
 
-## Honest scope of *this* run
+## Scope of this run
 
 The two-party invocation, the attested refusal, and the verifiable Episodes are
 shipped and run from `zig build accountability`. The same Affordance is reached from
 **Deno** and **Python** callers over the C ABI — three languages, one OCapN wire. The
 **three-party handoff** attribution test (`zig build accountability-three-party`)
 proves in memory that B's Episode attributes B, not A, after a handoff. The
-over-TCP three-vat variant is the next frontier. This page states the structural
+over-TCP three-vat variant is not implemented. This page states the structural
 argument the shipped pieces already support.

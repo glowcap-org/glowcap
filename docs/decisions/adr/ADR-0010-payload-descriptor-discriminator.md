@@ -24,30 +24,30 @@ Engages the First Principles [*session state is authoritative*](../../../AGENTS.
 
 ### Table-blind decode flip
 
-`readReference` in [`src/codec/syrup/core.zig`](../../../src/codec/syrup/core.zig) maps each payload-position wire tag (the sender's perspective) to exactly one receiver-perspective model `Reference`, consulting no table:
+`readReference` in [`src/ocapn/codec/syrup/decode.zig`](../../../src/ocapn/codec/syrup/decode.zig) maps each payload-position wire tag (the sender's perspective) to exactly one receiver-perspective model `Reference`, consulting no table:
 
 - `<desc:export N>` → `.near` (`NearRef{ export_id = N, kind = .object }`) — the sender names *our* export.
 - `<desc:import-object N>` → `.far` (`FarRef{ import_id = N, kind = .object }`) — the sender offers one of *its* exports for us to import.
 - `<desc:import-promise N>` → `.far` (`FarRef{ import_id = N, kind = .promise }`).
 - `<desc:answer N>` → `.promise` (`PromiseRef{ answer_id = N }`).
 
-The relabel is a fixed wire-tag↔variant map, not a lookup: the decoder never reads or mutates a table, so the codec still owns no authority. The Cap'n Proto codec ([`src/codec/capnp/core.zig`](../../../src/codec/capnp/core.zig)) applies the identical flip on its own word-shaped wire (`RefKind.near` → `.far`, `RefKind.far` → `.near`), so a reference decoded from either codec means the same thing.
+The relabel is a fixed wire-tag↔variant map, not a lookup: the decoder never reads or mutates a table, so the codec still owns no authority. The Cap'n Proto codec ([`src/ocapn/codec/capnp/decode.zig`](../../../src/ocapn/codec/capnp/decode.zig)) applies the identical flip on its own word-shaped wire (`RefKind.near` → `.far`, `RefKind.far` → `.near`), so a reference decoded from either codec means the same thing.
 
 ### The encoder is the mirror; the flip is an involution
 
-The encode side ([`src/codec/syrup/core.zig`](../../../src/codec/syrup/core.zig); the kind dispatch is in the Encode-side kind dispatch section below) is the exact inverse: our `near` export → `<desc:import-object>` / `<desc:import-promise>` (dispatching on `NearKind`), our `far` import → `<desc:export>`, a `promise` → `<desc:answer>`. So a reference sent and echoed back swaps arms — that swap **is** the perspective change, not a round-trip bug. Two wire crossings restore the original arm, which is how the codec round-trip tests assert byte stability.
+The encode side ([`src/ocapn/codec/syrup/encode.zig`](../../../src/ocapn/codec/syrup/encode.zig); the kind dispatch is in the Encode-side kind dispatch section below) is the exact inverse: our `near` export → `<desc:import-object>` / `<desc:import-promise>` (dispatching on `NearKind`), our `far` import → `<desc:export>`, a `promise` → `<desc:answer>`. So a reference sent and echoed back swaps arms — that swap **is** the perspective change, not a round-trip bug. Two wire crossings restore the original arm, which is how the codec round-trip tests assert byte stability.
 
 ### The reference shape carries the wire tag
 
-[`src/model/mod.zig`](../../../src/model/mod.zig) gives `NearRef` a `kind: NearKind { object, promise }` and `FarRef` a symmetric `kind: ImportKind { object, promise }`, both defaulting `.object`. The decoder fills `ImportKind` from the `import-object` / `import-promise` tag, so the object-vs-promise distinction of an offered cap survives into the receiver's import. `<desc:export>` carries no object/promise signal — the receiver's session is the authority on its own export's kind — so a decoded `NearRef.kind` is `.object`.
+[`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig) gives `NearRef` a `kind: NearKind { object, promise }` and `FarRef` a symmetric `kind: ImportKind { object, promise }`, both defaulting `.object`. The decoder fills `ImportKind` from the `import-object` / `import-promise` tag, so the object-vs-promise distinction of an offered cap survives into the receiver's import. `<desc:export>` carries no object/promise signal — the receiver's session is the authority on its own export's kind — so a decoded `NearRef.kind` is `.object`.
 
 ### The session validates in the receiver's perspective
 
-Because the codec already re-anchored the reference, [`src/session/mod.zig`](../../../src/session/mod.zig) validates each arm against the table that arm names directly: an inbound `near` resolves against the **export** table (it is one of ours), an inbound `far` against the **import** table; the outbound path is the mirror (`near` → exports, `far` → imports). An inbound `far` that names a not-yet-held import is an *introduction* (a fresh cap the partner is handing us), so the session installs it rather than rejecting — see `installIntroducedImports`. The partner's bootstrap export is always reachable on an open session (ADR-0006). A genuine miss is `InvalidReference`; the codec mutates no table.
+Because the codec already re-anchored the reference, [`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig) validates each arm against the table that arm names directly: an inbound `near` resolves against the **export** table (it is one of ours), an inbound `far` against the **import** table; the outbound path is the mirror (`near` → exports, `far` → imports). An inbound `far` that names a not-yet-held import is an *introduction* (a fresh cap the partner is handing us), so the session installs it rather than rejecting — see `installIntroducedImports`. The partner's bootstrap export is always reachable on an open session (ADR-0006). A genuine miss is `InvalidReference`; the codec mutates no table.
 
 ### The far-kind is preserved across enliven
 
-A resolved import's `ImportKind` is preserved verbatim. The sturdyref enliven dedup cache in [`src/session/mod.zig`](../../../src/session/mod.zig) stores `(import_id, kind)`, so a cache-hit short-circuit reconstructs the `FarRef` with its wire-tag discriminator intact rather than collapsing it to `.object`.
+A resolved import's `ImportKind` is preserved verbatim. The sturdyref enliven dedup cache in [`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig) stores `(import_id, kind)`, so a cache-hit short-circuit reconstructs the `FarRef` with its wire-tag discriminator intact rather than collapsing it to `.object`.
 
 ### Encode-side kind dispatch
 

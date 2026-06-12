@@ -1,0 +1,41 @@
+<extend template="base.shtml">
+<head id="head">
+</head>
+<main id="content">
+	<header class="hero">
+		<img class="hero-mark" src="$site.asset('pancake-icon-256.png').link()" alt="A smiling stack of pancakes" width="160" height="160">
+		<div class="hero-copy">
+			<p class="hero-eyebrow">A codec-neutral CapTP core for OCapN</p>
+			<h1 :text="$page.title"></h1>
+			<p class="hero-tagline">Syrup where OCapN requires it. Owned frames or borrowed views wherever frames cross a boundary.</p>
+			<p class="hero-kicker">Because you can't have pancakes without syrup.</p>
+		</div>
+	</header>
+	<div class="prose" :html="$page.content()"></div>
+	<nav class="cards" aria-label="Where to go next">
+		<a class="card" href="$site.page('start').link()">
+			<h3>Start building</h3>
+			<p>Get to a working program in Zig, C, or your binding of choice.</p>
+		</a>
+		<a class="card" href="$site.page('modules').link()">
+			<h3>The modules</h3>
+			<p>Walk the layers, from the sans-io protocol core up to the netlayers.</p>
+		</a>
+		<a class="card" href="$site.page('bindings').link()">
+			<h3>Bindings</h3>
+			<p>The same library in Rust, Deno, Python, and Racket.</p>
+		</a>
+		<a class="card" href="$site.page('concepts').link()">
+			<h3>Concepts</h3>
+			<p>Capabilities, CapTP, and OCapN — what they are and why they hold.</p>
+		</a>
+		<a class="card" href="$site.page('reference').link()">
+			<h3>API reference</h3>
+			<p>The generated Zig API and the C header, straight from the code.</p>
+		</a>
+		<a class="card" href="$site.page('project').link()">
+			<h3>Project &amp; status</h3>
+			<p>What ships today, where the edges are, and where this is going.</p>
+		</a>
+	</nav>
+</main>

@@ -15,6 +15,7 @@ pub const message_arms = [_]MessageArm{
     .{ .name = "Listen" },
     .{ .name = "Get" },
     .{ .name = "Index" },
+    .{ .name = "Untag" },
 };
 
 pub const GoblinsFixture = struct {
@@ -36,6 +37,8 @@ pub const goblins_fixtures = [_]GoblinsFixture{
     fixture("op_abort_resource_exhausted.bin"),
     fixture("op_abort_typed.bin"),
     fixture("op_deliver.bin"),
+    fixture("op_deliver_arg_big_integer.bin"),
+    fixture("op_deliver_arg_float64.bin"),
     fixture("op_deliver_arg_keyword.bin"),
     fixture("op_deliver_arg_set.bin"),
     fixture("op_deliver_arg_tagged.bin"),
@@ -57,7 +60,9 @@ pub const goblins_fixtures = [_]GoblinsFixture{
     fixture("op_resolve_fulfill_near.bin"),
     fixture("op_resolve_fulfill_promise.bin"),
     fixture("op_start_session_v1_0.bin"),
+    fixture("op_untag.bin"),
     fixture("prim_dict_str_to_int.bin"),
+    fixture("prim_integer_big_neg.bin"),
     fixture("prim_integer_neg_7.bin"),
     fixture("prim_integer_pos_42.bin"),
     fixture("prim_list_of_ints.bin"),

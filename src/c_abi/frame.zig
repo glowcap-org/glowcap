@@ -5,8 +5,8 @@
 
 const std = @import("std");
 
-const foundation = @import("../foundation/mod.zig");
-const engine = @import("../engine/mod.zig");
+const foundation = @import("foundation");
+const engine = @import("engine");
 
 const c = @import("mod.zig");
 
@@ -67,6 +67,7 @@ pub fn eventKindToC(kind: engine.EventKind) u32 {
         .listen => c.PANCAKE_EVENT_LISTEN,
         .get => c.PANCAKE_EVENT_GET,
         .index => c.PANCAKE_EVENT_INDEX,
+        .untag => c.PANCAKE_EVENT_UNTAG,
     };
 }
 

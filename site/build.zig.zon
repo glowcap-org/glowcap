@@ -1,0 +1,24 @@
+.{
+    .name = .pancake_site,
+    .version = "0.1.0",
+    .fingerprint = 0x5b882ff097f3ffa8,
+    .minimum_zig_version = "0.16.0",
+    .dependencies = .{
+        // Zine's Zig-0.16 support lives on an untagged `main` commit (the last
+        // tagged release, v0.11.2, predates the 0.16 std rename and won't
+        // compile here). Pin it as a GitHub source tarball, not `git+…#<sha>`:
+        // Zig's build-time git fetch of an untagged commit returns an incomplete
+        // tree on a cold cache (no manifest → no `zine` module), while the
+        // tarball is a plain HTTP download of the whole tree that resolves the
+        // same in `zig fetch`, `zig build`, and cold CI. Do not "simplify" this
+        // back to a git ref.
+        .zine = .{
+            .url = "https://github.com/kristoff-it/zine/archive/a16c9f1d3f3166337da47fda2de0f4addc719b92.tar.gz",
+            .hash = "zine-0.11.2-ou6nIARkLQF8Kl5xN7pmSCun5lNjZvJOpQaug8--F2m2",
+        },
+    },
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+    },
+}

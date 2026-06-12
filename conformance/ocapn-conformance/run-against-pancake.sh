@@ -7,9 +7,11 @@
 # pancake; it reports the real per-test verdict.
 #
 # Usage:
-#   bash conformance/ocapn-conformance/run-against-pancake.sh [all|test-module]
+#   bash conformance/ocapn-conformance/run-against-pancake.sh [all|test-module] [--port=N]
 # Default is `all`: every upstream module pancake currently targets, each with a
 # 5s cap. Pass one module (e.g. `tests.op_deliver`) to probe one surface.
+# --port=N (threaded from `zig build ocapn-conformance -Dport=N`) moves the
+# peer off its default 22055 when that port is taken.
 set -uo pipefail
 cd "$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
 
@@ -24,17 +26,24 @@ if [ -z "${UV_PYTHON_INSTALL_DIR:-}" ] || [ ! -w "$UV_PYTHON_INSTALL_DIR" ]; the
 fi
 
 PEER=zig-out/bin/pancake-ocapn-peer
-URL='ocapn://JadQ0++RzsD4M+40uLxTWVaVqM10DcBJ.tcp-testing-only?host=127.0.0.1&port=22055'
-MODULE="${1:-all}"
+PORT=22055
+MODULE=all
+for arg in "$@"; do
+  case "$arg" in
+    --port=*) PORT="${arg#--port=}" ;;
+    *) MODULE="$arg" ;;
+  esac
+done
+URL="ocapn://JadQ0++RzsD4M+40uLxTWVaVqM10DcBJ.tcp-testing-only?host=127.0.0.1&port=$PORT"
 LOG="$(mktemp)"
 FILTER='Download|Built|Installed|Building|Audited|Resolved|Prepared|Updating'
 
 if [ ! -x "$PEER" ]; then
-  echo "ocapn-conformance: $PEER not built — run 'zig build' first" >&2
+  echo "ocapn-conformance: $PEER not built — run 'zig build ocapn-conformance' (it installs the peer before running the suite)" >&2
   exit 1
 fi
 
-"$PEER" >"$LOG" 2>&1 &
+"$PEER" "--port=$PORT" >"$LOG" 2>&1 &
 PEER_PID=$!
 trap 'kill "$PEER_PID" 2>/dev/null; rm -f "$LOG"' EXIT
 

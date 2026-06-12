@@ -16,7 +16,7 @@ fn hex32(comptime s: []const u8) [32]u8 {
 }
 
 test "sign then verify roundtrips" {
-    const secret = try SecretKey.fromSeed(SEED_A);
+    const secret = SecretKey.fromSeed(SEED_A);
     const pubkey = secret.publicKey();
     const payload = "the quick brown fox jumps over the lazy dog";
     const sig = crypto.sign(&secret, payload);
@@ -24,7 +24,7 @@ test "sign then verify roundtrips" {
 }
 
 test "verify rejects tampered payload" {
-    const secret = try SecretKey.fromSeed(SEED_A);
+    const secret = SecretKey.fromSeed(SEED_A);
     const sig = crypto.sign(&secret, "original payload");
     try std.testing.expectError(
         CryptoError.InvalidSignature,
@@ -33,8 +33,8 @@ test "verify rejects tampered payload" {
 }
 
 test "verify rejects wrong pubkey" {
-    const secret_a = try SecretKey.fromSeed(SEED_A);
-    const secret_b = try SecretKey.fromSeed(SEED_B);
+    const secret_a = SecretKey.fromSeed(SEED_A);
+    const secret_b = SecretKey.fromSeed(SEED_B);
     const payload = "hello";
     const sig = crypto.sign(&secret_a, payload);
     try std.testing.expectError(
@@ -44,7 +44,7 @@ test "verify rejects wrong pubkey" {
 }
 
 test "verify rejects bit-flipped signature" {
-    const secret = try SecretKey.fromSeed(SEED_A);
+    const secret = SecretKey.fromSeed(SEED_A);
     const payload = "hello";
     var sig = crypto.sign(&secret, payload);
     sig.bytes[0] ^= 0x01;
@@ -62,14 +62,14 @@ test "verify with arbitrary bytes returns typed error, never panics" {
 }
 
 test "secret key seed round-trips to the same public key" {
-    const secret = try SecretKey.fromSeed(SEED_A);
+    const secret = SecretKey.fromSeed(SEED_A);
     const seed = secret.seed();
-    const reconstructed = try SecretKey.fromSeed(seed);
+    const reconstructed = SecretKey.fromSeed(seed);
     try std.testing.expect(secret.publicKey().eql(reconstructed.publicKey()));
 }
 
 test "public key for fixed seed matches known answer" {
-    const secret = try SecretKey.fromSeed(SEED_A);
+    const secret = SecretKey.fromSeed(SEED_A);
     try std.testing.expectEqualSlices(
         u8,
         &hex32("ea4a6c63e29c520abef5507b132ec5f9954776aebebe7b92421eea691446d22c"),
@@ -81,7 +81,7 @@ test "derivePublicIdentifier matches externally-computed SHA256 double-hash" {
     // Known answer computed independently (Node crypto) over the OCapN gcrypt
     // s-expression for the fixed-seed public key — cross-checks the hand-rolled
     // Syrup canonical encoding and the double-SHA256 against a second toolchain.
-    const secret = try SecretKey.fromSeed(SEED_A);
+    const secret = SecretKey.fromSeed(SEED_A);
     const peer_id = crypto.derivePublicIdentifier(secret.publicKey());
     try std.testing.expectEqualSlices(
         u8,
@@ -91,8 +91,8 @@ test "derivePublicIdentifier matches externally-computed SHA256 double-hash" {
 }
 
 test "derivePublicIdentifier is deterministic and key-dependent" {
-    const key_a = (try SecretKey.fromSeed(SEED_A)).publicKey();
-    const key_b = (try SecretKey.fromSeed(SEED_B)).publicKey();
+    const key_a = (SecretKey.fromSeed(SEED_A)).publicKey();
+    const key_b = (SecretKey.fromSeed(SEED_B)).publicKey();
     try std.testing.expect(
         crypto.derivePublicIdentifier(key_a).eql(crypto.derivePublicIdentifier(key_a)),
     );
@@ -102,8 +102,8 @@ test "derivePublicIdentifier is deterministic and key-dependent" {
 }
 
 test "deriveSessionId matches externally-computed known answer" {
-    const key_a = (try SecretKey.fromSeed(SEED_A)).publicKey();
-    const key_b = (try SecretKey.fromSeed(SEED_B)).publicKey();
+    const key_a = (SecretKey.fromSeed(SEED_A)).publicKey();
+    const key_b = (SecretKey.fromSeed(SEED_B)).publicKey();
     const session = crypto.deriveSessionId(key_a, key_b);
     try std.testing.expectEqualSlices(
         u8,
@@ -113,16 +113,16 @@ test "deriveSessionId matches externally-computed known answer" {
 }
 
 test "deriveSessionId is symmetric in peer order" {
-    const key_a = (try SecretKey.fromSeed(SEED_A)).publicKey();
-    const key_b = (try SecretKey.fromSeed(SEED_B)).publicKey();
+    const key_a = (SecretKey.fromSeed(SEED_A)).publicKey();
+    const key_b = (SecretKey.fromSeed(SEED_B)).publicKey();
     try std.testing.expect(
         crypto.deriveSessionId(key_a, key_b).eql(crypto.deriveSessionId(key_b, key_a)),
     );
 }
 
 test "deriveSessionId differs from either constituent peer id" {
-    const key_a = (try SecretKey.fromSeed(SEED_A)).publicKey();
-    const key_b = (try SecretKey.fromSeed(SEED_B)).publicKey();
+    const key_a = (SecretKey.fromSeed(SEED_A)).publicKey();
+    const key_b = (SecretKey.fromSeed(SEED_B)).publicKey();
     const session = crypto.deriveSessionId(key_a, key_b);
     try std.testing.expect(!session.eql(blk: {
         const pid = crypto.derivePublicIdentifier(key_a);

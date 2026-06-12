@@ -4,43 +4,64 @@ Runnable CapTP/OCapN walkthroughs. Each program carries its narrative in a `//!`
 header and runs under `zig build examples` (and `zig build check`), so the prose
 and the API calls can't drift from each other.
 
+The chapters read top-down: chapter 01 is the surface an application rides, and
+each later chapter peels one layer beneath it, ending at the raw engine.
+
 | # | Program | What it does |
 | --- | --- | --- |
-| 01 | [`zig/01_call_a_remote_method.zig`](zig/01_call_a_remote_method.zig) | Pair two peers; one calls a method on the other and reads the answer. |
-| 02 | [`zig/02_look_up_by_name.zig`](zig/02_look_up_by_name.zig) | Fetch a capability through the bootstrap object using a swiss-number (the server side is just `registerBootstrapCap` — the engine answers the `'fetch`). |
-| 03 | [`zig/03_actor_far_send.zig`](zig/03_actor_far_send.zig) | Publish an actor, far-send to it across a paired session, and settle the promise. The `actors.Vat` pattern every networked application builds on. |
+| 01 | [`zig/01_connect_and_serve.zig`](zig/01_connect_and_serve.zig) | The application surface over a real TCP socket: the host `listen`s, accepts, publishes by name, and `serve`s; the client `connect`s, fetches by name, `call`s, and switches on the settled outcome. One owning `driver.Connection` per side. |
+| 02 | [`zig/02_actor_far_send.zig`](zig/02_actor_far_send.zig) | Publish an actor, far-send to it across a paired session, and settle the promise. The `actors.Vat` pattern beneath chapter 01's `call`, and the one every networked application builds on. |
+| 03 | [`zig/03_look_up_by_name.zig`](zig/03_look_up_by_name.zig) | Fetch a capability through the bootstrap object using a swiss number — the machinery beneath fetch-by-name (the server side is one `registerBootstrapCap` call; the engine answers the `'fetch`). |
+| 04 | [`zig/04_call_a_remote_method.zig`](zig/04_call_a_remote_method.zig) | The raw engine: pair two peers, export and import by hand, and shuttle the deliver and resolve frames one explicit `step` at a time. |
 
-Full applications across every binding, each built on the same small surface —
-`connect`, `fetch`, `publish`, `spawn`, `send`, `serve`, `close` — that reads the
-same in every language:
+Full applications run in every binding, each built on the same small surface —
+`connect`, `listen`, `fetch`, `publish`, `spawn`, `send`, `tell`, `serve`,
+`close` — and that surface reads the same in every language:
 
 - [`apps/rooms/`](apps/rooms/) — a capability-secure chat room (real-time). A Deno
-  server and one client per language (Zig, Rust, Python, Racket, Deno). `zig build
-  rooms` joins one room over TCP and checks every member sees every message. It
+  server and one client per language (Zig, Rust, Python, Racket, Deno).
+  `zig build demo-rooms` joins one room over TCP and checks every member sees
+  every message. It
   needs only `deno` and the always-built Zig client; the Python, Racket, and Rust
   clients join when their runtimes are present and are skipped with a note
-  otherwise. A sibling of `check`, not part of the hermetic gate.
+  otherwise. It runs as a sibling of `check`, not as part of the hermetic gate.
 - [`apps/tasks/`](apps/tasks/) — a capability-secure shared task board (CRUD +
   live state). A Deno server and one client per language (Zig, Rust, Python,
-  Racket, Deno). `zig build tasks` runs each client against one board: add a task,
-  list, mark it done, confirm. Request-response as promises, structured data over
-  the wire, and live change notifications through capability callbacks. Same
-  runtime requirements as rooms.
+  Racket, Deno). `zig build demo-tasks` runs each client against one board: add a task,
+  list, mark it done, confirm. It exercises request-response as promises,
+  structured data over the wire, and live change notifications through
+  capability callbacks, with the same runtime requirements as rooms.
 - [`apps/tools/`](apps/tools/) — the capability showcase (AI agent harness). A Deno
   coordinator hands an agent capabilities to tools — attenuated to read-only, and
   revocable — and an agent in each language (Zig, Rust, Python, Racket, Deno)
-  proves delegation, attenuation, and revocation over OCapN. `zig build tools` runs
+  proves delegation, attenuation, and revocation over OCapN. `zig build demo-tools` runs
   each available agent against the coordinator; coordinator and agent are different
   languages on the wire, so the capability trio is real, not in-process.
 
-A client in each is published the same way: a client `fetch`es the server's
-capability by name, `spawn`s a local actor (an inbox/watcher), and hands the
-server a reference to it — no export-position numbers, no manual flush, no
-hand-rolled serve loop.
+Each demo binds an ephemeral port by default. Pin the port with `-Dport`
+(`zig build demo-rooms -Dport=9099`), or add `-Dattach=true` to join a server
+you already started on that port instead of spawning one — each app's README
+shows the standalone server command the attach mode pairs with.
+
+Each client is built the same way: it `fetch`es the server's capability by
+name, `spawn`s a local actor (an inbox/watcher), and hands the server a
+reference to it — no export-position numbers, no manual flush, no hand-rolled
+serve loop.
 
 Lower-level library mechanics:
 
+- [`zig/readme_quick_start.zig`](zig/readme_quick_start.zig) — the README's
+  Quick Start snippet, runnable: its `client` function is the snippet verbatim,
+  paired with the minimal greeter host the snippet needs.
+- [`zig/connect_explicit_buffers.zig`](zig/connect_explicit_buffers.zig) — chapter
+  01 one layer down: the caller owns the peer, its frame limit, and both buffers
+  (`connectTcp` / `acceptTcp`), and observes the reply through the explicit
+  promise idiom (`send`, `on`, `step`).
 - [`zig/frame_view.zig`](zig/frame_view.zig) — moving an owned `Frame` into a borrowed `FrameView`.
 - [`c/frame_view.c`](c/frame_view.c) — the same over the C ABI.
 - [`c/context_alloc.c`](c/context_alloc.c) — C-owned allocation policy through
   `PancakeContext`.
+- [`c/echo_peer.c`](c/echo_peer.c) — a complete in-process event loop in pure C:
+  two peers exchange frames through memory, the client fetches a published
+  capability with `pancake_peer_send_bootstrap_fetch`, calls it, and reads the
+  typed reply.

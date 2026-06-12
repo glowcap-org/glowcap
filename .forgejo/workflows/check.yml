@@ -1,0 +1,24 @@
+# The project gates on Codeberg (Forgejo Actions), run in the canonical
+# devcontainer image via ci/gates.sh. Needs Actions enabled on the repository
+# and a docker-capable runner; the action ref is fully qualified because
+# Forgejo resolves bare refs against its own actions host.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  gates:
+    runs-on: docker
+    steps:
+      - uses: https://github.com/actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Run the gates in the devcontainer
+        uses: https://github.com/devcontainers/ci@v0.3
+        with:
+          push: never
+          runCmd: bash ci/gates.sh

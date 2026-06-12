@@ -1,0 +1,31 @@
+---
+.title = "pancake",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "index.shtml",
+.draft = false,
+---
+
+pancake lets two programs talk the way well-behaved objects do. One side hands the
+other an unforgeable reference to an object, and the other side calls methods on it
+across the network. The rule is the one you already trust in local code. If you hold
+the reference you can use it, and if you do not, there is nothing to forge. That is
+what [OCapN](https://github.com/ocapn/ocapn), the open object-capability network
+protocol, is for, and pancake is a small [Zig](https://ziglang.org/) library that
+speaks it.
+
+[Their program hands yours a reference to an object called "greeter." Holding that reference is the whole permission to call it.]($image.siteAsset('diagram-capability.svg'))
+
+Everything else in pancake is in service of keeping that promise honest. The protocol
+core is deterministic and synchronous and does no I/O of its own, so the sockets and
+the scheduling live in adapters stacked above it. Nothing important hides either.
+Where a frame is owned or borrowed, where a copy happens, and which wire format is on
+the line all stay visible at the boundary that owns them.
+
+You can reach the same library three ways. It is a Zig package you import directly,
+it is a plain C ABI you can call from anything, and it is four language bindings that
+each feel native in Rust, Deno, Python, and Racket.
+
+This site is the front door. The deep documentation lives next to the source, so a
+claim about the code travels in the same change as the code itself. Pick a path
+below, or wander the modules from the sidebar.

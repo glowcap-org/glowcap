@@ -4,9 +4,10 @@
 //
 // The whole point: a coordinator holds tools and grants an agent exactly the
 // authority a task needs — attenuated to read-only where appropriate, revocable
-// when the task is done. The agent can call what it was handed and nothing else,
-// because there is no ambient authority to escalate to. This is the model AI
-// agent harnesses need and currently fake with API keys and allowlists.
+// when the task is done. The agent calls what it was handed, and there is no
+// ambient authority to escalate through — no global directory of tools to
+// enumerate. AI agent harnesses typically approximate this with API keys and
+// allowlists.
 
 /** The name the coordinator publishes itself under and the agent fetches it by. */
 export const TOOLS = "tools";

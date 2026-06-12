@@ -13,8 +13,8 @@
 //!
 //! Two real `engine.Peer`s talk over a 127.0.0.1 socket pair on a
 //! `std.Io.Threaded` backend — the host accepts on a concurrent fiber, the caller
-//! drives this one. The host publishes the Affordance at an export; the caller
-//! imports it and eventual-sends an `invoke`. Attribution is not a trusted
+//! drives this one. The host publishes the Affordance by name; the caller fetches
+//! it and eventual-sends an `invoke`. Attribution is not a trusted
 //! header: the caller signs the request with its KERI key, and the host refuses
 //! to account for an invocation it cannot attest. That signed attribution is the
 //! thing an ambient-authority HTTP call structurally cannot produce — see
@@ -28,39 +28,16 @@ const episode = @import("episode.zig");
 const accountable = @import("accountable.zig");
 const log = @import("log.zig");
 
-const model = pancake.model;
-const engine = pancake.engine;
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
+const driver = pancake.driver;
 const tcp = pancake.net_adapter.tcp;
-const crypto = pancake.foundation.crypto;
 const net = std.Io.net;
 
-const AFFORDANCE_EXPORT: u64 = 5;
+const AFFORDANCE_NAME = "affordance";
 const frame_cap: usize = 1 << 16;
 const data_root = "conformance/accountability-on-pancake/.data";
-
-/// Queue a keyed `op:start-session` over a fresh random session key, signing a
-/// `tcp` locator with `designator`. Entropy is drawn here at the I/O boundary,
-/// never in the no-I/O core. Both peers verify the partner's signature (the
-/// `initNegotiating` default), so the conversation opens only on an authenticated
-/// handshake. These session keys are pancake's wire identity, distinct from the
-/// application's KERI identity, which lives above pancake and carries the
-/// accountability claims.
-fn sendKeyedHello(peer: *engine.Peer, designator: []const u8) !void {
-    var seed: [crypto.SEED_BYTES]u8 = undefined;
-    if (std.os.linux.getrandom(&seed, seed.len, 0) != seed.len) return error.HandshakeEntropyFailed;
-    const secret = crypto.SecretKey.fromSeed(seed) catch return error.HandshakeEntropyFailed;
-    const locator: model.PeerLocator = .{
-        .transport = tcp.transport_name,
-        .designator = designator,
-        .hints = model.Hints.emptyFalse(),
-    };
-    try peer.sendKeyedStartSession(.v1_0, locator, secret);
-}
-
-fn isOpen(peer: *engine.Peer) bool {
-    return peer.session_state.state == .open;
-}
 
 /// The signed preimage that binds a caller to a request. The caller signs it; the
 /// host verifies it before attributing an Episode.
@@ -130,8 +107,8 @@ const HostArgs = struct {
     last_subject: *[identity.SAID_LEN]u8,
 };
 
-/// Accept one connection, publish the Affordance, and serve invocations until
-/// the caller closes (graceful EOF).
+/// Accept one connection, publish the Affordance by name, and serve invocations
+/// until the caller leaves.
 fn hostServe(args: HostArgs) !void {
     const allocator = args.allocator;
     var peer = engine.Peer.initNegotiating(allocator);
@@ -143,78 +120,34 @@ fn hostServe(args: HostArgs) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var conn = try args.listener.accept(&peer, read_buf, write_buf);
-    defer conn.deinit();
-
-    var vat = actors.Vat.initOver(allocator, &peer);
+    var vat = try driver.acceptTcp(allocator, &peer, args.listener, read_buf, write_buf);
     defer vat.deinit();
-    const affordance = try vat.spawn(Affordance, .{
+
+    _ = try vat.publish(AFFORDANCE_NAME, Affordance, .{
         .store = args.store,
         .served = args.served,
         .last_subject = args.last_subject,
     });
-    try vat.publish(affordance, AFFORDANCE_EXPORT);
 
-    try sendKeyedHello(&peer, "host");
-
-    while (true) {
-        const progress = conn.pump() catch |err| switch (err) {
-            error.ConnectionLost, error.TruncatedFrame => break,
-            else => return err,
-        };
-        while (peer.pollEvent()) |event_value| {
-            var event = event_value;
-            defer event.deinit();
-            _ = vat.serve(&event) catch {};
-        }
-        if (progress == .closed) break;
-    }
-}
-
-/// What the caller's resolve listener captures from the far promise.
-const CallerOutcome = struct {
-    done: bool = false,
-    ok: bool = false,
-    result: [256]u8 = undefined,
-    result_len: usize = 0,
-};
-
-fn onResolve(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-    const out: *CallerOutcome = @ptrCast(@alignCast(ctx.?));
-    out.done = true;
-    switch (resolution) {
-        .fulfilled => |arg| {
-            out.ok = true;
-            if (strArg(arg)) |s| {
-                const n = @min(s.len, out.result.len);
-                @memcpy(out.result[0..n], s[0..n]);
-                out.result_len = n;
-            }
-        },
-        .broken => |reason| {
-            out.ok = false;
-            const n = @min(reason.len, out.result.len);
-            @memcpy(out.result[0..n], reason[0..n]);
-            out.result_len = n;
-        },
-    }
+    try vat.serve();
 }
 
 fn banner(step: u8, msg: []const u8) void {
     std.debug.print("[{d}/8] {s}\n", .{ step, msg });
 }
 
-/// Drive one capability invocation to its resolution over the live session.
+/// Drive one capability invocation to its settled outcome over the live
+/// session (the driver's `call` materializes both arms into `arena`).
 /// `tamper` corrupts the signature so the host refuses to attest it — the path
 /// that must surface as a clean broken promise, not a crash or a silent success.
 fn invoke(
-    vat: *actors.Vat,
-    peer: *engine.Peer,
-    conn: *tcp.Connection,
+    cv: *driver.ConnectedVat,
+    affordance: actors.Ref,
     caller: *const identity.Identity,
     request: []const u8,
     tamper: bool,
-) !CallerOutcome {
+    arena: std.mem.Allocator,
+) !driver.Settled {
     var att_buf: [512]u8 = undefined;
     const att = attestation(&att_buf, request);
     var sig = caller.current.sign(att);
@@ -226,9 +159,7 @@ fn invoke(
     verkey_b64[0] = 'D';
     _ = std.base64.url_safe_no_pad.Encoder.encode(verkey_b64[1..], &caller.current.verkey());
 
-    const affordance_ref: actors.Ref = .{ .far = model.FarRef.object(AFFORDANCE_EXPORT) };
-    var outcome = CallerOutcome{};
-    const promise = try vat.send(affordance_ref, .{
+    return cv.call(affordance, .{
         .verb = "invoke",
         .args = &.{
             .{ .string = caller.aidSlice() },
@@ -236,23 +167,7 @@ fn invoke(
             .{ .string = request },
             .{ .string = sig_enc },
         },
-    });
-    try vat.on(promise, .{ .ctx = &outcome, .func = onResolve });
-
-    var spins: usize = 0;
-    while (!outcome.done and spins < 10_000) : (spins += 1) {
-        const progress = conn.pump() catch |err| {
-            std.debug.print("      caller pump error: {s}\n", .{@errorName(err)});
-            break;
-        };
-        while (peer.pollEvent()) |event_value| {
-            var event = event_value;
-            defer event.deinit();
-            _ = vat.serve(&event) catch {};
-        }
-        if (progress == .closed) break;
-    }
-    return outcome;
+    }, arena);
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -298,29 +213,20 @@ pub fn main(init: std.process.Init) !void {
         .last_subject = &last_subject,
     }});
 
-    // Caller side.
+    // Caller side. `connectTcp` completes the keyed handshake before returning.
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
-    try peer.importObject(AFFORDANCE_EXPORT);
 
     const read_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(read_buf);
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var conn = try tcp.connectAddress(io, &peer, address, read_buf, write_buf);
-
-    var vat = actors.Vat.initOver(allocator, &peer);
-    defer vat.deinit();
-
-    try sendKeyedHello(&peer, "caller");
-    _ = try conn.runUntil(isOpen);
-    while (peer.pollEvent()) |ev| {
-        var e = ev;
-        e.deinit();
-    }
+    var cv = try driver.connectTcp(io, allocator, &peer, address, read_buf, write_buf);
     std.debug.print("      session open over TCP {f}\n", .{address});
+
+    const affordance = try cv.fetch(AFFORDANCE_NAME);
 
     // ---- The invocation, accounted on both sides ------------------------------
     const request = "read-thermostat";
@@ -330,38 +236,47 @@ pub fn main(init: std.process.Init) !void {
     // first, exactly as the documented seam requires.
     _ = try caller_store.record(.attempt, caller_id.aidSlice(), "demo", request);
 
-    const outcome = try invoke(&vat, &peer, &conn, &caller_id, request, false);
-    if (!outcome.ok) {
-        std.debug.print("      invocation did not resolve fulfilled (done={}, reason='{s}')\n", .{ outcome.done, outcome.result[0..outcome.result_len] });
-        conn.deinit();
-        _ = host_future.await(io) catch |err| std.debug.print("      host fiber error: {s}\n", .{@errorName(err)});
-        std.process.exit(1);
-    }
+    var call_arena = std.heap.ArenaAllocator.init(allocator);
+    defer call_arena.deinit();
+
+    const outcome = try invoke(&cv, affordance, &caller_id, request, false, call_arena.allocator());
+    const result: []const u8 = switch (outcome) {
+        .fulfilled => |arg| strArg(arg) orelse "",
+        .broken => |reason| {
+            std.debug.print("      invocation did not resolve fulfilled (reason='{s}')\n", .{reason});
+            cv.deinit();
+            _ = host_future.await(io) catch |err| std.debug.print("      host fiber error: {s}\n", .{@errorName(err)});
+            std.process.exit(1);
+        },
+    };
 
     banner(5, "Host verifies the attestation and resolves the invocation");
-    std.debug.print("      result: {s}\n", .{outcome.result[0..outcome.result_len]});
-    _ = try caller_store.record(.outcome, caller_id.aidSlice(), "demo", outcome.result[0..outcome.result_len]);
+    std.debug.print("      result: {s}\n", .{result});
+    _ = try caller_store.record(.outcome, caller_id.aidSlice(), "demo", result);
 
     banner(6, "A caller it cannot attest is refused — a clean broken promise, no Episode");
     // Same caller, same request, but a corrupted signature: the host must refuse
     // to account for what it cannot attribute. The refusal travels back as a
     // broken promise (not a session abort), and the host writes no Episode for it.
     const served_before = served;
-    const refused = try invoke(&vat, &peer, &conn, &caller_id, request, true);
-    if (refused.ok or !refused.done) {
-        std.debug.print("      a tampered invocation was NOT refused (ok={}, done={})\n", .{ refused.ok, refused.done });
-        conn.deinit();
-        _ = host_future.await(io) catch {};
-        std.process.exit(1);
-    }
+    const refused = try invoke(&cv, affordance, &caller_id, request, true, call_arena.allocator());
+    const refusal_reason: []const u8 = switch (refused) {
+        .broken => |reason| reason,
+        .fulfilled => {
+            std.debug.print("      a tampered invocation was NOT refused\n", .{});
+            cv.deinit();
+            _ = host_future.await(io) catch {};
+            std.process.exit(1);
+        },
+    };
     if (served != served_before) {
         std.debug.print("      host accounted for an unattested invocation\n", .{});
         std.process.exit(1);
     }
-    std.debug.print("      refused: {s}\n", .{refused.result[0..refused.result_len]});
+    std.debug.print("      refused: {s}\n", .{refusal_reason});
 
     // Let the host observe EOF and finish.
-    conn.deinit();
+    cv.deinit();
     _ = host_future.await(io) catch |err| {
         std.debug.print("      host fiber error: {s}\n", .{@errorName(err)});
         std.process.exit(1);

@@ -1,16 +1,36 @@
 // Cross-language tools showcase orchestrator.
 //
 // Starts the Deno tools coordinator, then runs one agent per available language
-// — Deno always, plus Python when python3 is on PATH — against it. Each agent
+// against it: Zig and Deno always, plus Python (python3), Racket (racket), and
+// Rust (cargo) when each is on PATH. Each agent
 // proves the capability trio (delegation, attenuation, revocation) over OCapN/TCP.
 // The coordinator and the agent are different languages on the wire, so the
 // capability passing, attenuation, and revocation are real, not in-process.
 //
-// Run by `zig build tools`, which passes the built Zig agent's path as argv[0].
+// Run by `zig build demo-tools`, which passes the built Zig agent's path as argv[0].
+// `--port=N` (from `-Dport`) pins the coordinator's port instead of an ephemeral
+// one; `--attach` (from `-Dattach`, requires `--port`) runs the agents against a
+// coordinator you already started on that port instead of spawning one.
 
-const ZIG_AGENT = Deno.args[0];
+const positional: string[] = [];
+let pinPort = 0;
+let attach = false;
+for (const a of Deno.args) {
+  if (a === "--attach") attach = true;
+  else if (a.startsWith("--port=")) pinPort = Number(a.slice("--port=".length));
+  else positional.push(a);
+}
+const ZIG_AGENT = positional[0];
 if (!ZIG_AGENT) {
-  console.error("demo.ts: missing the Zig agent path (run via `zig build tools`)");
+  console.error("demo.ts: missing the Zig agent path (run via `zig build demo-tools`)");
+  Deno.exit(2);
+}
+if (!Number.isInteger(pinPort) || pinPort < 0 || pinPort > 65535) {
+  console.error("demo.ts: --port must be an integer in 1..65535");
+  Deno.exit(2);
+}
+if (attach && pinPort === 0) {
+  console.error("demo.ts: --attach requires --port (there is no coordinator to join without one)");
   Deno.exit(2);
 }
 
@@ -75,13 +95,15 @@ async function roster(): Promise<{ agents: Agent[]; skipped: string[] }> {
     });
   } else skipped.push("racket (no racket on PATH)");
 
-  if (await onPath("cargo") && await buildRust()) {
+  if (await onPath("cargo")) {
+    if (await buildRust()) {
     agents.push({
       name: "rust",
       cmd: `${ROOT}/examples/apps/tools/rust/target/debug/tools-agent`,
       argv: (p) => ["127.0.0.1", String(p), "rs-agent"],
     });
-  } else if (!(await onPath("cargo"))) skipped.push("rust (no cargo on PATH)");
+    } else skipped.push("rust (cargo build failed)");
+  } else skipped.push("rust (no cargo on PATH)");
 
   return { agents, skipped };
 }
@@ -119,8 +141,10 @@ async function runAgent(a: Agent, port: number) {
 const { agents, skipped } = await roster();
 for (const s of skipped) console.log(`tools demo: skipping ${s}`);
 
-const server = new Deno.Command("deno", {
-  args: [...DENO_FLAGS, `${ROOT}/examples/apps/tools/deno/server.ts`, "0"],
+// With --attach the coordinator is yours, already running; otherwise spawn one
+// on the pinned port (or 0, which binds an ephemeral port and announces it).
+const server = attach ? null : new Deno.Command("deno", {
+  args: [...DENO_FLAGS, `${ROOT}/examples/apps/tools/deno/server.ts`, String(pinPort)],
   stdout: "piped",
   stderr: "inherit",
   cwd: ROOT,
@@ -128,7 +152,9 @@ const server = new Deno.Command("deno", {
 
 let failed = false;
 try {
-  const port = await readPort(server);
+  // No liveness probe in attach mode: on loopback a missing coordinator refuses
+  // each agent's connect immediately, which is already a loud, fast failure.
+  const port = server ? await readPort(server) : pinPort;
   console.log(`tools demo: coordinator on 127.0.0.1:${port}; running ${agents.length} agent(s) (${agents.map((a) => a.name).join(", ")})\n`);
 
   for (const a of agents) {
@@ -147,10 +173,13 @@ try {
     if (skipped.length > 0) console.log(`(skipped: ${skipped.join("; ")})`);
   }
 } finally {
-  try {
-    server.kill("SIGTERM");
-  } catch { /* already gone */ }
-  await server.status;
+  // An attached coordinator belongs to whoever started it; only a spawned one dies here.
+  if (server) {
+    try {
+      server.kill("SIGTERM");
+    } catch { /* already gone */ }
+    await server.status;
+  }
 }
 
 Deno.exit(failed ? 1 : 0);

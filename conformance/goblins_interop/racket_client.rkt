@@ -17,7 +17,22 @@
          "../../bindings/racket/pancake.rkt")
 
 (define HOST "127.0.0.1")
-(define PORT 22095)
+;; The Goblins vat's fixed port; --port=N (from
+;; `zig build racket-goblins-interop -Dport=N`) moves it when 22095 is taken.
+(define PORT
+  (let loop ([args (vector->list (current-command-line-arguments))])
+    (cond
+      [(null? args) 22095]
+      [(regexp-match #px"^--port=(\\d+)$" (car args))
+       => (lambda (m)
+            (define p (string->number (cadr m)))
+            (unless (<= 1 p 65535)
+              (eprintf "racket-goblins-interop: --port must be an integer in 1..65535\n")
+              (exit 2))
+            p)]
+      [else
+       (eprintf "racket-goblins-interop: unknown argument ~a\n" (car args))
+       (exit 2)])))
 (define RACKET "/usr/local/bin/racket")
 (define HOST-SCRIPT "conformance/goblins-peer/racket/goblins-host.rkt")
 
@@ -57,7 +72,7 @@
   (define conn (connect HOST PORT))
   (printf "racket-goblins-interop: session open, keyed start-session accepted by goblins\n")
 
-  (define echo (fetch conn swiss))
+  (define echo (conn-fetch conn swiss))
   (printf "racket-goblins-interop: fetched goblins echo cap, calling it\n")
 
   ;; Call echo positionally — Goblins invokes a cap with no method symbol.

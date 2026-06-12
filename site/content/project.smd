@@ -1,0 +1,48 @@
+---
+.title = "Project & status",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+This is where pancake stands: what runs today, where the edges are, and where the
+project is going. The code is the truth about the present. The documents linked
+below argue the direction without ever pretending unfinished work has already
+landed.
+
+## What ships today
+
+[What ships today](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/shipped.md)
+is the gated inventory of implemented behavior: the wire operation surface, both
+codecs, three netlayers, the actor layer, third-party handoffs, and live
+[Goblins](https://spritely.institute/goblins/) interop from every binding. Each claim there is held by a gate, a scenario, or a
+live interop run, and a claim that stops matching the tree is treated as a bug.
+
+## Where the edges are
+
+[The boundaries](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/boundaries.md)
+name where the implemented surface ends, plainly: transport is cleartext TCP with
+encryption riding the separate iroh artifact, bootstrap registrations live for the
+process, the OCapN Null fails closed, and the `griddle` network simulator is not
+built yet. Reading the edges is the surest way to know what you can rely on.
+
+## Where it is going
+
+Three documents carry the direction. The
+[vision](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/vision.md) is the
+goal: to be the most performant OCapN implementation there is, fully canonical
+and proven by interop, with that performance held to a measured contract rather than
+asserted. The
+[ladder](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/ladder.md) is the
+ordered route to 1.0 with each rung's standing, and the
+[roadmap](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/roadmap.md) is the
+concrete remaining work.
+
+## Why the boundaries sit where they do
+
+The [decision records](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/README.md)
+are the accepted ADRs: the netlayer contract, the one-parser framing, the C ABI
+allocation context, the iroh sidecar, and the rest. When a boundary moves, a
+superseding record explains the move rather than leaving the old reasoning to
+mislead.

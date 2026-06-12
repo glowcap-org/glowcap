@@ -1,12 +1,12 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.model;
-const engine = pancake.engine;
-const session = pancake.session;
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
+const session = pancake.ocapn.session;
 const crypto = pancake.foundation.crypto;
-const syrup = pancake.codec.syrup;
-const cross_peer = engine.cross_peer;
+const syrup = pancake.ocapn.codec.syrup;
+const cross_peer = @import("../support/cross_peer.zig");
 
 fn repeated(comptime n: usize, byte: u8) [n]u8 {
     return [_]u8{byte} ** n;
@@ -44,14 +44,12 @@ fn receiveWith(gift_id: []const u8, count: u64, signature: []const u8) model.Han
 }
 
 const RejectingVerifier = struct {
-    var context: u8 = 0;
-
-    fn verify(_: *anyopaque, _: []const u8, _: []const u8) bool {
+    fn verify(_: ?*anyopaque, _: []const u8, _: []const u8) bool {
         return false;
     }
 
     fn make() cross_peer.SignatureVerifier {
-        return .{ .context = &context, .verify_fn = verify };
+        return .{ .context = null, .verify_fn = verify };
     }
 };
 
@@ -64,8 +62,8 @@ const RoutingVerifier = struct {
     gifter_key: crypto.PeerKey,
     recipient_key: crypto.PeerKey,
 
-    fn verify(ctx: *anyopaque, payload: []const u8, signature: []const u8) bool {
-        const self: *RoutingVerifier = @ptrCast(@alignCast(ctx));
+    fn verify(ctx: ?*anyopaque, payload: []const u8, signature: []const u8) bool {
+        const self: *RoutingVerifier = @ptrCast(@alignCast(ctx.?));
         const label_at = std.mem.indexOf(u8, payload, "desc:handoff-") orelse return false;
         const key = if (std.mem.startsWith(u8, payload[label_at..], "desc:handoff-receive"))
             self.recipient_key
@@ -111,8 +109,8 @@ test "third-party handoff authorizes a withdrawal under real Ed25519 with keys r
     const allocator = std.testing.allocator;
 
     // Real keys: the gifter signs the give, the recipient signs the receive.
-    const gifter_secret = try crypto.SecretKey.fromSeed(repeated(32, 0x51));
-    const recipient_secret = try crypto.SecretKey.fromSeed(repeated(32, 0x52));
+    const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x51));
+    const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x52));
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
 
@@ -154,21 +152,170 @@ test "third-party handoff authorizes a withdrawal under real Ed25519 with keys r
     // The exporter builds its verifier from the key it stored at deposit (the
     // gifter's) and the recipient key carried in the give — no key conjured at
     // verify time. Both certificates verify, so the withdrawal is authorized.
-    const stored_gifter = exporter.session_state.giftGifterKey(gift_id_a[0..]).?;
+    const stored_gifter = exporter.giftRegistry().giftGifterKey(gift_id_a[0..]).?;
     var verifier_ctx: RoutingVerifier = .{
         .gifter_key = try crypto.PeerKey.fromSlice(stored_gifter),
         .recipient_key = try crypto.PeerKey.fromSlice(give.recipient_key),
     };
     try cross_peer.withdrawGift(&recipient_to_exporter, &exporter, receive, verifier_ctx.make());
-    try std.testing.expect(exporter.session_state.giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+}
+
+test "withdraw fulfills with the deposited capability, and a re-deposit replaces the first" {
+    const allocator = std.testing.allocator;
+
+    // Real keys: the gifter signs the give, the recipient signs the receive.
+    const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x71));
+    const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x72));
+    const gifter_pub = gifter_secret.publicKey();
+    const recipient_pub = recipient_secret.publicKey();
+
+    var give_signed: []u8 = undefined;
+    var give_sig: crypto.Signature = undefined;
+    const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
+    defer allocator.free(give_signed);
+
+    var receive: model.HandoffReceive = .{
+        .receiving_session = receiving_session[0..],
+        .receiving_side = receiving_side[0..],
+        .handoff_count = 1,
+        .signed_give = give,
+        .signature = "",
+    };
+    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    defer allocator.free(receive_signed);
+    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
+    receive.signature = receive_sig.asBytes();
+
+    var peer = engine.Peer.init(allocator);
+    defer peer.deinit();
+
+    // Deposit the capability the exporter will hand back, keyed under the
+    // gifter's session pubkey, on the peer's own gift registry.
+    const deposited = model.Reference{ .far = .{ .import_position = 9 } };
+    try peer.giftRegistry().depositOwned(
+        allocator,
+        peer.session_state.limits,
+        gift_id_a[0..],
+        deposited,
+        gifter_pub.asBytes(),
+    );
+
+    // A second deposit of the same gift id replaces the first (the registry's
+    // re-deposit contract): the withdraw below must yield this reference, not
+    // the import-9 one.
+    const redeposited = model.Reference{ .far = .{ .import_position = 10 } };
+    try peer.giftRegistry().depositOwned(
+        allocator,
+        peer.session_state.limits,
+        gift_id_a[0..],
+        redeposited,
+        gifter_pub.asBytes(),
+    );
+
+    // Withdraw it. `resolveForWithdraw` reads the gifted cap *after*
+    // `applyWithdraw` marks the row withdrawn, which is why `giftedCap` does not
+    // filter by the withdrawn flag — otherwise the resolution would break with
+    // "gift not deposited" instead of fulfilling with the deposited reference.
+    const handoff = model.Handoff{ .receive = receive };
+    const view_handoff = model.view.Handoff.fromOwned(&handoff);
+    const resolution_msg = switch (try engine.bootstrap.resolveForWithdraw(allocator, &peer.session_state, peer.giftRegistry(), .{
+        .receive = view_handoff.receive,
+        .answer = 5,
+    })) {
+        .settled => |msg| msg,
+        .awaiting_deposit => return error.TestUnexpectedPending,
+    };
+    defer model.freeMessage(allocator, resolution_msg);
+
+    try std.testing.expectEqual(@as(u64, 5), resolution_msg.resolve.answer);
+    const fulfilled = switch (resolution_msg.resolve.resolution) {
+        .fulfill => |arg| arg,
+        .@"break" => return error.TestUnexpectedBreak,
+    };
+    try std.testing.expectEqual(@as(u64, 10), fulfilled.reference.far.import_position);
+    try std.testing.expect(peer.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+}
+
+test "a withdraw that arrives before its deposit parks and settles once the gift lands" {
+    const allocator = std.testing.allocator;
+
+    const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x61));
+    const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x62));
+    const gifter_pub = gifter_secret.publicKey();
+    const recipient_pub = recipient_secret.publicKey();
+
+    var give_signed: []u8 = undefined;
+    var give_sig: crypto.Signature = undefined;
+    const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
+    defer allocator.free(give_signed);
+
+    var receive: model.HandoffReceive = .{
+        .receiving_session = receiving_session[0..],
+        .receiving_side = receiving_side[0..],
+        .handoff_count = 1,
+        .signed_give = give,
+        .signature = "",
+    };
+    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    defer allocator.free(receive_signed);
+    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
+    receive.signature = receive_sig.asBytes();
+
+    // PreSpec carries a wire `op:resolve`, so the settled answer is observable
+    // as one outbound frame without the V1.0 resolver-callback choreography.
+    var exporter = engine.Peer.initWithSession(allocator, session.Session.initWith(allocator, .{
+        .wire_profile = model.WireProfile.pre_spec,
+    }));
+    defer exporter.deinit();
+    try exporter.session_state.transitionToOpen();
+
+    // The withdraw arrives on the wire before any deposit: `deposit-gift` and
+    // `withdraw-gift` travel on different sessions, so this order is legal.
+    var handoff_arg = model.Handoff{ .receive = receive };
+    const frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(0) },
+        .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff_arg } },
+        .answer = 1,
+    } });
+    try exporter.feedInbound(frame);
+    while ((try exporter.step()) != .idle) {}
+    while (exporter.pollEvent()) |event_value| {
+        var event = event_value;
+        event.deinit();
+    }
+
+    // Not refused, parked: no answer left the peer and the entry is held.
+    try std.testing.expect(exporter.takeOutbound() == null);
+    try std.testing.expectEqual(@as(usize, 1), exporter.pending_withdraws.items.len);
+    try std.testing.expect(!exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+
+    // The deposit lands on the vat's registry (in production, via the gifter's
+    // session to this same vat).
+    const deposited = model.Reference{ .far = .{ .import_position = 9 } };
+    try exporter.giftRegistry().depositOwned(
+        allocator,
+        exporter.session_state.limits,
+        gift_id_a[0..],
+        deposited,
+        gifter_pub.asBytes(),
+    );
+
+    // The next steps settle the parked withdraw: signature-verified, applied,
+    // and answered with the deposited capability.
+    while ((try exporter.step()) != .idle) {}
+    var settled = exporter.takeOutbound() orelse return error.TestNoSettlement;
+    defer settled.deinit();
+    try std.testing.expectEqual(@as(usize, 0), exporter.pending_withdraws.items.len);
+    try std.testing.expect(exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
 }
 
 test "third-party handoff rejects a give signed by a key other than the recorded gifter" {
     const allocator = std.testing.allocator;
 
-    const gifter_secret = try crypto.SecretKey.fromSeed(repeated(32, 0x51));
-    const forger_secret = try crypto.SecretKey.fromSeed(repeated(32, 0x99));
-    const recipient_secret = try crypto.SecretKey.fromSeed(repeated(32, 0x52));
+    const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x51));
+    const forger_secret = crypto.SecretKey.fromSeed(repeated(32, 0x99));
+    const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x52));
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
 
@@ -206,7 +353,7 @@ test "third-party handoff rejects a give signed by a key other than the recorded
         defer event.deinit();
     }
 
-    const stored_gifter = exporter.session_state.giftGifterKey(gift_id_a[0..]).?;
+    const stored_gifter = exporter.giftRegistry().giftGifterKey(gift_id_a[0..]).?;
     var verifier_ctx: RoutingVerifier = .{
         .gifter_key = try crypto.PeerKey.fromSlice(stored_gifter),
         .recipient_key = try crypto.PeerKey.fromSlice(give.recipient_key),
@@ -217,7 +364,7 @@ test "third-party handoff rejects a give signed by a key other than the recorded
         cross_peer.Error.SignatureRejected,
         cross_peer.withdrawGift(&recipient_to_exporter, &exporter, receive, verifier_ctx.make()),
     );
-    try std.testing.expect(!exporter.session_state.giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(!exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
 }
 
 test "third-party handoff routes a give and authorizes a withdrawal across peers" {
@@ -238,8 +385,8 @@ test "third-party handoff routes a give and authorizes a withdrawal across peers
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.handoff, event.kind());
     }
-    try std.testing.expect(exporter.session_state.giftDeposited(gift_id_a[0..]));
-    try std.testing.expect(!exporter.session_state.giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(exporter.giftRegistry().giftDeposited(gift_id_a[0..]));
+    try std.testing.expect(!exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
 
     try cross_peer.withdrawGift(
         &recipient_to_exporter,
@@ -253,7 +400,7 @@ test "third-party handoff routes a give and authorizes a withdrawal across peers
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.handoff, event.kind());
     }
-    try std.testing.expect(exporter.session_state.giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
 }
 
 test "third-party handoff rejects a replayed handoff count across peers" {
@@ -283,7 +430,7 @@ test "third-party handoff rejects a replayed handoff count across peers" {
         receiveWith(gift_id_b[0..], 1, receive_signature[0..]),
         cross_peer.acceptingVerifier(),
     ));
-    try std.testing.expect(!exporter.session_state.giftWithdrawn(gift_id_b[0..]));
+    try std.testing.expect(!exporter.giftRegistry().giftWithdrawn(gift_id_b[0..]));
 }
 
 test "third-party handoff rejects a withdrawal whose signature fails verification" {
@@ -305,7 +452,7 @@ test "third-party handoff rejects a withdrawal whose signature fails verificatio
         receiveWith(gift_id_a[0..], 1, receive_signature[0..]),
         RejectingVerifier.make(),
     ));
-    try std.testing.expect(!exporter.session_state.giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(!exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
 }
 
 test "the exporter authorizes a withdrawal against the gifter key it learned from the handshake" {
@@ -314,8 +461,8 @@ test "the exporter authorizes a withdrawal against the gifter key it learned fro
 
     const gifter_seed = repeated(32, 0x51);
     const exporter_seed = repeated(32, 0x53);
-    const gifter_secret = try crypto.SecretKey.fromSeed(gifter_seed);
-    const recipient_secret = try crypto.SecretKey.fromSeed(repeated(32, 0x52));
+    const gifter_secret = crypto.SecretKey.fromSeed(gifter_seed);
+    const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x52));
     const gifter_pub = gifter_secret.publicKey();
     const recipient_pub = recipient_secret.publicKey();
 
@@ -357,15 +504,15 @@ test "the exporter authorizes a withdrawal against the gifter key it learned fro
 
     // The exporter recorded exactly the gifter's real session key, learned at
     // handshake — proof the key flowed from the session, not the call site.
-    try std.testing.expectEqualSlices(u8, gifter_pub.asBytes(), gx.p2.session_state.giftGifterKey(gift_id_a[0..]).?);
+    try std.testing.expectEqualSlices(u8, gifter_pub.asBytes(), gx.p2.giftRegistry().giftGifterKey(gift_id_a[0..]).?);
 
-    const stored_gifter = gx.p2.session_state.giftGifterKey(gift_id_a[0..]).?;
+    const stored_gifter = gx.p2.giftRegistry().giftGifterKey(gift_id_a[0..]).?;
     var verifier_ctx: RoutingVerifier = .{
         .gifter_key = try crypto.PeerKey.fromSlice(stored_gifter),
         .recipient_key = try crypto.PeerKey.fromSlice(give.recipient_key),
     };
     try cross_peer.withdrawGift(&recipient_to_exporter, &gx.p2, receive, verifier_ctx.make());
-    try std.testing.expect(gx.p2.session_state.giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(gx.p2.giftRegistry().giftWithdrawn(gift_id_a[0..]));
 }
 
 test "canonical handoff-give bytes are a stable Ed25519 signing domain an embedder can verify" {
@@ -380,7 +527,7 @@ test "canonical handoff-give bytes are a stable Ed25519 signing domain an embedd
     const signed = try syrup.canonicalHandoffGiveSignedBytes(allocator, give);
     defer allocator.free(signed);
 
-    const secret = try crypto.SecretKey.fromSeed(repeated(32, 0x07));
+    const secret = crypto.SecretKey.fromSeed(repeated(32, 0x07));
     const sig = crypto.sign(&secret, signed);
     try crypto.verify(secret.publicKey(), signed, sig);
 

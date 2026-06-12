@@ -7,10 +7,12 @@ for the shipped C ABI surface and how the bindings are gated.
 
 [`pancake.rkt`](pancake.rkt) is the idiomatic Racket API over the C ABI. The raw
 `ffi/unsafe` layer is private; what you use is a `peer` you create and release,
-native Racket values as arguments, and event structs out of `peer-poll`:
+native Racket values as arguments, and event structs out of `peer-poll`. The
+default `(make-peer)` is a negotiating authenticated session; use
+`(make-peer/raw-open)` only for low-level fixtures that inject frames directly:
 
 ```racket
-(define p (make-peer))
+(define p (make-peer/raw-open))
 (peer-register-import! p 5)
 (peer-send-deliver! p (far 5) (list 42 #"hi") #:answer 9)   ; native int, bytes
 (peer-step! p)

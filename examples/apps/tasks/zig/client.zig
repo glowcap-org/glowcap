@@ -2,10 +2,11 @@
 //! language, this runs on the same core every binding wraps, and it drives the
 //! real TCP netlayer.
 //!
-//! On the new driver surface: `connectTcp`, `fetch` the board by name, `spawn` a
-//! watcher, then add a task, list, mark it done, list again to confirm, and exit.
-//! The pump/poll/serve loop is one `step()`; allocation, ownership, and I/O stay
-//! visible. The same sequence every other language's one-shot client runs.
+//! On the driver surface this reads like the other languages: one owning
+//! `driver.connect`, `fetch` the board by
+//! name, `spawn` a watcher, then add a task, list, mark it done, list again to
+//! confirm, and exit. The pump/poll/serve loop is one `step()`, still owned by
+//! the caller. This is the same sequence every other language's one-shot client runs.
 //!
 //!   pancake-tasks-client <port> <nick> <task-text>
 //!
@@ -16,8 +17,7 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.model;
-const engine = pancake.engine;
+const model = pancake.ocapn.model;
 const actors = pancake.actors;
 const driver = pancake.driver;
 const tcp = pancake.net_adapter.tcp;
@@ -159,26 +159,18 @@ pub fn main(init: std.process.Init) !void {
 
     var state = State{ .nick = nick };
 
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
     const address = try tcp.parseHostPort(host_addr, port);
-    var conn = try driver.connectTcp(io, allocator, &peer, address, read_buf, write_buf);
-    defer conn.deinit();
+    var conn = try driver.connect(io, allocator, address, .{ .frame_cap = frame_cap });
+    defer conn.close();
 
     const board = try conn.fetch("board");
     const watcher = try conn.spawn(Watcher, .{});
 
-    // Watch the board (fire-and-forget — we only need the round-trip below).
-    _ = try conn.send(board, .{
+    // Watch the board — fire-and-forget, so `tell`: one deliver, no answer
+    // minted (the round-trip below is what the client asserts on).
+    try conn.tell(board, .{
         .verb = "watch",
-        .args = &.{.{ .reference = watcher.nearRef() }},
+        .args = &.{watcher.arg()},
     });
 
     var text_buf: [256]u8 = undefined;

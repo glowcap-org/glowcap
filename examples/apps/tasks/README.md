@@ -9,7 +9,7 @@ board at the same time, none of them aware of the others' languages.
 Run the whole thing with one command:
 
 ```sh
-zig build tasks
+zig build demo-tasks
 ```
 
 That starts a Deno-hosted board and runs one client per available language.
@@ -18,10 +18,16 @@ change. When they all succeed you will see a transcript per language and a final
 line saying every client completed a round trip.
 
 The only runtime the demo requires is `deno`, which hosts the board and runs the
-orchestrator, plus the Zig client, which `zig build` always builds. Python and
-Rust each join only when their runtime (`python3`, `cargo`) is on PATH; the demo
-reports any language it skipped rather than failing. It is a sibling of
-`zig build check`, not part of the hermetic gate.
+orchestrator, plus the Zig client, which `zig build` always builds. Python,
+Racket, and Rust each join only when their runtime (`python3`, `racket`, `cargo`)
+is on PATH; the demo reports any language it skipped rather than failing. It is a
+sibling of `zig build check`, not part of the hermetic gate.
+
+By default the demo binds an ephemeral port; pin it with
+`zig build demo-tasks -Dport=9099`. To run the demo's clients against a board
+you already started yourself (the fixed-port server below), add attach mode:
+`zig build demo-tasks -Dport=9099 -Dattach=true` joins your server instead of
+spawning its own, and leaves it running when the demo ends.
 
 ## Use it interactively
 
@@ -103,7 +109,7 @@ examples/apps/tasks/
 ├── racket/task-client.rkt + client.rkt  the same, in Racket
 ├── rust/board.rs + client.rs            the same, in Rust (its own crate)
 ├── zig/client.zig         the same in native Zig, on the connection driver
-└── demo.ts                the orchestrator `zig build tasks` runs
+└── demo.ts                the orchestrator `zig build demo-tasks` runs
 ```
 
 Each language has a `TaskBoard` client — the small layer that knows about OCapN
@@ -115,6 +121,7 @@ thin app on top of it. The app reads the same in every language because each
 | --- | --- | --- | --- |
 | Deno | `await board.add(text)` | `await board.list()` | `await board.done(id)` |
 | Python | `await board.add(text)` | `await board.list()` | `await board.done(id)` |
+| Racket | `(board-add b text)` | `(board-list b)` | `(board-done b id)` |
 | Rust | `board.add(text).await?` | `board.list().await?` | `board.done(id).await?` |
 
 Reading any two side by side shows how little the actor model changes from

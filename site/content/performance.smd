@@ -1,0 +1,156 @@
+---
+.title = "Performance & benchmarks",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "performance.shtml",
+.draft = false,
+---
+
+pancake treats performance as a public contract, but it enforces that contract two
+different ways, and the difference is the whole point of this page. Where a cost can be
+pinned to an exact number, a build gate holds the number. Where it cannot, because wall-clock
+throughput moves with your CPU, your build mode, and your traffic, pancake reports the
+figure instead of asserting it, and never lets an adjective stand in for a measurement.
+So there are no "N times faster" claims anywhere else on this site; the place a speed
+number is allowed to live is a benchmark you can run, and that is this page.
+
+## What the build gates
+
+These are not benchmarks. They are assertions that fail `zig build check` if they drift.
+
+- **One allocation per delivery.** A steady-state `op:deliver` to a live export costs
+  exactly one heap allocation: the owned-frame copy the event model requires. The
+  alloc-budget test gates that with a `== 1` assertion, so a stray allocation on the hot
+  path breaks the build instead of slipping into a release.
+- **Per-connection footprint.** A footprint budget test holds the protocol state one
+  idle connection keeps under a low, fixed ceiling (about two kilobytes), because a
+  single node is meant to carry on the order of half a million live sessions and memory
+  is the binding constraint. The
+  [ladder](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/ladder.md) owns
+  the exact ceiling and the arithmetic behind it.
+
+## What the benchmarks report
+
+These print numbers; they do not gate them. No test asserts a wall-clock bound, because
+an honest one needs a stable, release-pinned harness that does not exist yet.
+
+| Benchmark | Measures | Run it |
+| --- | --- | --- |
+| codec | encode and decode ns/op and MB/s for both codecs, plus steady-state dispatch | `zig build bench-codec` |
+| peer scaling | the marginal heap one more connection costs, extrapolated to 500k | `zig build bench-peer-scaling` |
+| frame view | the owned-`Frame` to borrowed-`FrameView` path | `zig build bench-frame-view` |
+
+`bench-peer-scaling` writes a report under `zig-out/bench-reports/` with the
+per-connection footprint and how many connections fit in common RAM sizes.
+
+## How to read the numbers
+
+Two cautions, both straight from the harnesses:
+
+- **Build mode dominates.** Under `zig build check` the benchmarks run in Debug, where
+  throughput is roughly an order of magnitude below `ReleaseFast`. Read the printed
+  `mode=` field. Debug numbers are for catching a regression against the previous Debug
+  run; for absolute figures, run with `-Doptimize=ReleaseFast`.
+- **Footprint is core state, not socket RSS.** The peer-scaling number is the sans-io
+  core's heap, which is the dominant per-connection cost once read buffers come from a
+  shared pool rather than per-connection. Real socket-level RSS and syscall rate under a
+  live 500k load still need a measurement pancake has not run, and it says so plainly.
+
+## The codec trade, specifically
+
+[Syrup]($link.page('codecs')) packs a message into compact, variable-length byte
+records; Cap'n Proto lays the same message out as larger, fixed-width words with every
+field at a known offset. Which one wins on encode and decode, and by how much, is
+exactly what `bench-codec` exists to answer, so this page will not put a multiplier on
+it. Run the benchmark on the hardware you care about.
+
+## A measured look: the same app on pancake and Goblins
+
+*Run on 2026-06-12, in the project devcontainer: aarch64 Linux (linuxkit 6.12), 16 logical
+CPUs, 8 GiB RAM, Racket v9.2 CS, Spritely Goblins v0.18.0, and `libpancake` built by Zig
+0.16.0.*
+
+pancake's Racket binding and [Spritely Goblins](https://spritely.institute/goblins/) both
+speak OCapN, so one Racket application runs unchanged on either and can be timed head to
+head. That is all `zig build bench-goblins` does: one application source per substrate,
+four workloads — an echo, a capability registry, a mint and purse, and a task board —
+driven identically with synchronous round-trips and no promise pipelining on either side,
+over real loopback TCP with `TCP_NODELAY` set on both ends. Each run warms the path, forces
+a collection, and samples the live set, so the only thing that differs between the two
+columns is the substrate underneath. The
+[suite README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bench/goblins/README.md)
+writes that fairness model down in full.
+
+These are one person's numbers, measured this way, on the machine named above. The honest
+move is to measure your own: `zig build bench-goblins` — it needs `racket` and the `goblins`
+collection on `PATH`; append `-- --smoke` for a fast pass. Per-connection memory is in the
+harness output but left off here, since at this scale it is swamped by allocator and GC
+accounting.
+
+| suite | Goblins p50 (ms) | pancake p50 (ms) | Goblins req/s | pancake req/s |
+| --- | --- | --- | --- | --- |
+| echo | 0.36 | 0.06 | 2077 | 15117 |
+| registry | 0.66 | 0.12 | 1176 | 8118 |
+| mint | 0.73 | 0.11 | 1145 | 8205 |
+| taskboard | 1.35 | 0.23 | 614 | 2430 |
+
+```=html
+<div class="bench-legend">
+<span><i style="background:#257f88"></i>Goblins</span>
+<span><i style="background:#c76f18"></i>pancake</span>
+</div>
+<div class="bench-charts">
+<figure>
+<figcaption><strong>Latency — p50 ms, lower is better.</strong></figcaption>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 210" font-family="system-ui,-apple-system,sans-serif" role="img">
+<line x1="6" y1="184" x2="374" y2="184" stroke="#3a3027" stroke-width="1.2"/>
+<rect x="23.0" y="139.5" width="26" height="44.5" fill="#257f88" rx="2"/>
+<text x="36.0" y="136.5" text-anchor="middle" font-size="8.5" fill="#3a3027">0.36</text>
+<rect x="55.0" y="177.1" width="26" height="6.9" fill="#c76f18" rx="2"/>
+<text x="68.0" y="174.1" text-anchor="middle" font-size="8.5" fill="#3a3027">0.06</text>
+<text x="52.0" y="200.0" text-anchor="middle" font-size="11" fill="#6b5d4d">echo</text>
+<rect x="115.0" y="102.4" width="26" height="81.6" fill="#257f88" rx="2"/>
+<text x="128.0" y="99.4" text-anchor="middle" font-size="8.5" fill="#3a3027">0.66</text>
+<rect x="147.0" y="169.7" width="26" height="14.3" fill="#c76f18" rx="2"/>
+<text x="160.0" y="166.7" text-anchor="middle" font-size="8.5" fill="#3a3027">0.12</text>
+<text x="144.0" y="200.0" text-anchor="middle" font-size="11" fill="#6b5d4d">registry</text>
+<rect x="207.0" y="94.1" width="26" height="89.9" fill="#257f88" rx="2"/>
+<text x="220.0" y="91.1" text-anchor="middle" font-size="8.5" fill="#3a3027">0.73</text>
+<rect x="239.0" y="170.0" width="26" height="14.0" fill="#c76f18" rx="2"/>
+<text x="252.0" y="167.0" text-anchor="middle" font-size="8.5" fill="#3a3027">0.11</text>
+<text x="236.0" y="200.0" text-anchor="middle" font-size="11" fill="#6b5d4d">mint</text>
+<rect x="299.0" y="18.0" width="26" height="166.0" fill="#257f88" rx="2"/>
+<text x="312.0" y="15.0" text-anchor="middle" font-size="8.5" fill="#3a3027">1.35</text>
+<rect x="331.0" y="155.2" width="26" height="28.8" fill="#c76f18" rx="2"/>
+<text x="344.0" y="152.2" text-anchor="middle" font-size="8.5" fill="#3a3027">0.23</text>
+<text x="328.0" y="200.0" text-anchor="middle" font-size="11" fill="#6b5d4d">taskboard</text>
+</svg>
+</figure>
+<figure>
+<figcaption><strong>Throughput — req/s, higher is better.</strong></figcaption>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 380 210" font-family="system-ui,-apple-system,sans-serif" role="img">
+<line x1="6" y1="184" x2="374" y2="184" stroke="#3a3027" stroke-width="1.2"/>
+<rect x="23.0" y="161.2" width="26" height="22.8" fill="#257f88" rx="2"/>
+<text x="36.0" y="158.2" text-anchor="middle" font-size="8.5" fill="#3a3027">2077</text>
+<rect x="55.0" y="18.0" width="26" height="166.0" fill="#c76f18" rx="2"/>
+<text x="68.0" y="15.0" text-anchor="middle" font-size="8.5" fill="#3a3027">15117</text>
+<text x="52.0" y="200.0" text-anchor="middle" font-size="11" fill="#6b5d4d">echo</text>
+<rect x="115.0" y="171.1" width="26" height="12.9" fill="#257f88" rx="2"/>
+<text x="128.0" y="168.1" text-anchor="middle" font-size="8.5" fill="#3a3027">1176</text>
+<rect x="147.0" y="94.9" width="26" height="89.1" fill="#c76f18" rx="2"/>
+<text x="160.0" y="91.9" text-anchor="middle" font-size="8.5" fill="#3a3027">8118</text>
+<text x="144.0" y="200.0" text-anchor="middle" font-size="11" fill="#6b5d4d">registry</text>
+<rect x="207.0" y="171.4" width="26" height="12.6" fill="#257f88" rx="2"/>
+<text x="220.0" y="168.4" text-anchor="middle" font-size="8.5" fill="#3a3027">1145</text>
+<rect x="239.0" y="94.9" width="26" height="89.1" fill="#c76f18" rx="2"/>
+<text x="252.0" y="91.9" text-anchor="middle" font-size="8.5" fill="#3a3027">8205</text>
+<text x="236.0" y="200.0" text-anchor="middle" font-size="11" fill="#6b5d4d">mint</text>
+<rect x="299.0" y="177.3" width="26" height="6.7" fill="#257f88" rx="2"/>
+<text x="312.0" y="174.3" text-anchor="middle" font-size="8.5" fill="#3a3027">614</text>
+<rect x="331.0" y="157.3" width="26" height="26.7" fill="#c76f18" rx="2"/>
+<text x="344.0" y="154.3" text-anchor="middle" font-size="8.5" fill="#3a3027">2430</text>
+<text x="328.0" y="200.0" text-anchor="middle" font-size="11" fill="#6b5d4d">taskboard</text>
+</svg>
+</figure>
+</div>
+```

@@ -7,18 +7,21 @@
 
 const std = @import("std");
 
-const foundation = @import("../foundation/mod.zig");
-const model = @import("../model/mod.zig");
-const engine = @import("../engine/mod.zig");
+const foundation = @import("foundation");
+const model = @import("model");
+const engine = @import("engine");
 const crypto = foundation.crypto;
-const net_adapter = @import("../net_adapter/mod.zig");
+const net_adapter = @import("net_adapter");
 
 pub const Result = struct { abort_inbound: bool };
 
 /// Tracks outbound sessions keyed by partner locator designator so an inbound
-/// `op:start-session` from the same peer can be compared. Caller-owned.
+/// `op:start-session` from the same peer can be compared. Caller-owned. The
+/// registry is shared across connections that may run on separate threads, so
+/// every method locks the io-aware blocking `std.Io.Mutex`; the caller's `io`
+/// is what drives the wait, never a busy spin.
 pub const Registry = struct {
-    mutex: std.atomic.Mutex = .unlocked,
+    mutex: std.Io.Mutex = .init,
     entries: std.ArrayList(Entry) = .empty,
 
     const Entry = struct {
@@ -27,20 +30,19 @@ pub const Registry = struct {
         should_abort: bool = false,
     };
 
-    fn spinLock(self: *Registry) void {
-        while (!self.mutex.tryLock()) std.atomic.spinLoopHint();
-    }
-
-    pub fn registerOutbound(self: *Registry, allocator: std.mem.Allocator, partner_designator: []const u8, our_pid: foundation.PeerId) !void {
-        self.spinLock();
-        defer self.mutex.unlock();
+    pub fn registerOutbound(self: *Registry, io: std.Io, allocator: std.mem.Allocator, partner_designator: []const u8, our_pid: foundation.PeerId) !void {
+        // Dupe before taking the lock: the allocation can block or fail, and
+        // neither belongs inside the critical section.
         const owned = try allocator.dupe(u8, partner_designator);
+        errdefer allocator.free(owned);
+        self.mutex.lockUncancelable(io);
+        defer self.mutex.unlock(io);
         try self.entries.append(allocator, .{ .partner_designator = owned, .our_pid = our_pid });
     }
 
-    pub fn checkInbound(self: *Registry, partner_designator: []const u8, inbound_partner_pid: foundation.PeerId) ?Result {
-        self.spinLock();
-        defer self.mutex.unlock();
+    pub fn checkInbound(self: *Registry, io: std.Io, partner_designator: []const u8, inbound_partner_pid: foundation.PeerId) ?Result {
+        self.mutex.lockUncancelable(io);
+        defer self.mutex.unlock(io);
         for (self.entries.items) |*entry| {
             if (std.mem.eql(u8, entry.partner_designator, partner_designator)) {
                 const order = std.mem.order(u8, &entry.our_pid.bytes, &inbound_partner_pid.bytes);
@@ -52,18 +54,18 @@ pub const Registry = struct {
         return null;
     }
 
-    pub fn shouldAbortOutbound(self: *Registry, partner_designator: []const u8) bool {
-        self.spinLock();
-        defer self.mutex.unlock();
+    pub fn shouldAbortOutbound(self: *Registry, io: std.Io, partner_designator: []const u8) bool {
+        self.mutex.lockUncancelable(io);
+        defer self.mutex.unlock(io);
         for (self.entries.items) |entry| {
             if (std.mem.eql(u8, entry.partner_designator, partner_designator)) return entry.should_abort;
         }
         return false;
     }
 
-    pub fn unregister(self: *Registry, allocator: std.mem.Allocator, partner_designator: []const u8) void {
-        self.spinLock();
-        defer self.mutex.unlock();
+    pub fn unregister(self: *Registry, io: std.Io, allocator: std.mem.Allocator, partner_designator: []const u8) void {
+        self.mutex.lockUncancelable(io);
+        defer self.mutex.unlock(io);
         var i: usize = 0;
         while (i < self.entries.items.len) {
             if (std.mem.eql(u8, self.entries.items[i].partner_designator, partner_designator)) {
@@ -73,9 +75,9 @@ pub const Registry = struct {
         }
     }
 
-    pub fn deinit(self: *Registry, allocator: std.mem.Allocator) void {
-        self.spinLock();
-        defer self.mutex.unlock();
+    pub fn deinit(self: *Registry, io: std.Io, allocator: std.mem.Allocator) void {
+        self.mutex.lockUncancelable(io);
+        defer self.mutex.unlock(io);
         for (self.entries.items) |entry| allocator.free(entry.partner_designator);
         self.entries.deinit(allocator);
     }
@@ -96,7 +98,7 @@ pub fn maybeAbortInbound(
     };
     const partner_key = crypto.PeerKey.fromSlice(ss.session_pubkey) catch return;
     const partner_pid = crypto.derivePublicIdentifier(partner_key);
-    const result = registry.checkInbound(ss.acceptable_location.designator, partner_pid) orelse return;
+    const result = registry.checkInbound(conn.io, ss.acceptable_location.designator, partner_pid) orelse return;
     if (result.abort_inbound) {
         try peer.sendCopying(.{ .abort = .{
             .kind = .crossed_hellos,
@@ -114,7 +116,7 @@ pub fn maybeAbortOutbound(
     peer: *engine.Peer,
     conn: *net_adapter.Connection,
 ) !void {
-    if (!registry.shouldAbortOutbound(partner_designator)) return;
+    if (!registry.shouldAbortOutbound(conn.io, partner_designator)) return;
     try peer.sendCopying(.{ .abort = .{
         .kind = .crossed_hellos,
         .message = "crossed hellos: aborting lower-keyed outbound session",

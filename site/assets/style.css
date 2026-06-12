@@ -1,0 +1,768 @@
+/* pancake site — a warm, two-column documentation surface. The palette is
+   pulled from the hero art: cream paper, cocoa ink, an amber accent, and a
+   teal that plays against it. */
+
+:root {
+  --ink: #3a3027;
+  --ink-soft: #6b5d4d;
+  --paper: #fff3df;
+  --paper-raised: #fff9ee;
+  --accent: #c76f18;
+  --accent-deep: #a4560c;
+  --teal: #257f88;
+  --teal-deep: #1b5f66;
+  --rule: #e7d4b7;
+  --code-bg: #f5e6ce;
+  --shadow: 0 1px 2px rgba(58, 48, 39, 0.06), 0 8px 24px rgba(58, 48, 39, 0.08);
+  --sidebar-w: 16rem;
+  --content-max: 60rem;
+  /* The teal four-point twinkle from the pancake art, lifted out as a reusable
+     flourish. Same concave-diamond star the mascot is dusted with, so the body
+     of the page carries the front door's spark. */
+  --sparkle: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M8 0.6 Q8.9 6.5 15.4 8 Q8.9 9.5 8 15.4 Q7.1 9.5 0.6 8 Q7.1 6.5 8 0.6 Z' fill='%23257f88'/%3E%3C/svg%3E");
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.65;
+  color: var(--ink);
+  background: var(--paper);
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  /* A flex column so a short page still drops its footer to the bottom edge
+     instead of leaving a ragged band of empty paper mid-page. */
+  display: flex;
+  flex-direction: column;
+  /* A whisper of warmth at the top edge, fading into flat paper. */
+  background:
+    radial-gradient(120% 60% at 50% -10%, color-mix(in srgb, var(--accent) 9%, var(--paper)) 0%, var(--paper) 60%) no-repeat;
+}
+
+.shell {
+  flex: 1 0 auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+}
+
+/* The amber hairline that runs the full width above everything. */
+body::before {
+  content: "";
+  display: block;
+  height: 4px;
+  background: linear-gradient(90deg, var(--accent) 0%, var(--teal) 100%);
+}
+
+a {
+  color: var(--accent-deep);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+a:focus-visible,
+.card:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -999px;
+}
+
+.skip-link:focus {
+  left: 1rem;
+  top: 0.5rem;
+  z-index: 10;
+  background: var(--paper-raised);
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.site-header {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem clamp(1rem, 4vw, 2.5rem);
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--rule);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 1.15rem;
+}
+
+.brand:hover {
+  text-decoration: none;
+}
+
+.brand-mark {
+  display: block;
+  flex: none;
+  width: 26px;
+  height: 26px;
+}
+
+.top-nav {
+  display: flex;
+  gap: 1.1rem;
+  font-size: 0.95rem;
+  flex-wrap: wrap;
+}
+
+.top-nav a {
+  color: var(--ink-soft);
+}
+
+/* ── Shell: sidebar + content ────────────────────────────────────────────── */
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+  gap: clamp(1.25rem, 2.5vw, 2rem);
+  max-width: 84rem;
+  margin: 0 auto;
+  padding: 0 clamp(1rem, 4vw, 2.5rem);
+}
+
+.sidebar {
+  align-self: start;
+  position: sticky;
+  top: 4.2rem;
+  max-height: calc(100vh - 5rem);
+  overflow-y: auto;
+  padding: 1.6rem 0;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.nav-heading {
+  margin: 1.1rem 0 0.35rem;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.nav-heading:first-child {
+  margin-top: 0;
+}
+
+.nav-link,
+.nav-sub a {
+  display: block;
+  padding: 0.32rem 0.7rem;
+  border-radius: 7px;
+  color: var(--ink);
+  border-left: 2px solid transparent;
+}
+
+.nav-link:hover,
+.nav-sub a:hover {
+  text-decoration: none;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.nav-sub {
+  display: flex;
+  flex-direction: column;
+  margin: 0.1rem 0 0.2rem 0.5rem;
+  padding-left: 0.55rem;
+  border-left: 1px solid var(--rule);
+  font-size: 0.92rem;
+}
+
+.nav-sub a {
+  color: var(--ink-soft);
+  padding-top: 0.26rem;
+  padding-bottom: 0.26rem;
+}
+
+.is-current {
+  background: color-mix(in srgb, var(--teal) 14%, transparent);
+  border-left-color: var(--teal);
+  font-weight: 600;
+  color: var(--teal-deep);
+}
+
+.nav-sub a.is-current {
+  background: color-mix(in srgb, var(--teal) 12%, transparent);
+  color: var(--teal-deep);
+}
+
+/* ── Content / prose ─────────────────────────────────────────────────────── */
+
+#content {
+  padding: 2rem 0 3rem;
+  min-width: 0;
+}
+
+.prose {
+  max-width: var(--content-max);
+}
+
+.prose > :first-child {
+  margin-top: 0;
+}
+
+h1, h2, h3, h4 {
+  line-height: 1.2;
+  color: var(--ink);
+  /* Keep an in-page anchor from landing under the sticky header. */
+  scroll-margin-top: 4.5rem;
+  /* A heading is short text, so balance its lines instead of letting a lone
+     word drop to a second row. */
+  text-wrap: balance;
+}
+
+h1 {
+  color: var(--teal-deep);
+  font-size: clamp(2rem, 5vw, 2.9rem);
+  margin: 0 0 0.6rem;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  color: var(--accent-deep);
+  font-size: 1.5rem;
+  margin: 2.2rem 0 0.8rem;
+}
+
+/* Section flourish: each h2 opens with the pancake's teal twinkle, so the body
+   reads as a series of marked sections rather than a flat wall of headings. */
+.prose h2::before {
+  content: "";
+  display: inline-block;
+  width: 0.72em;
+  height: 0.72em;
+  margin-right: 0.5em;
+  vertical-align: -0.04em;
+  background: var(--sparkle) center / contain no-repeat;
+}
+
+h3 {
+  font-size: 1.15rem;
+  margin: 1.8rem 0 0.5rem;
+}
+
+p, li {
+  color: var(--ink);
+  /* Tune the last lines of body copy so a paragraph or list item never strands
+     a single word on a line of its own. `pretty` only touches the tail, so the
+     rag of the rest is left alone; browsers without it fall back to normal. */
+  text-wrap: pretty;
+}
+
+/* Lists: an accent marker and a little room to breathe, so a bulleted or
+   numbered run reads as a tidy list rather than crowded paragraphs. */
+.prose ul,
+.prose ol {
+  padding-left: 1.4rem;
+  margin: 1rem 0;
+}
+
+.prose li {
+  margin: 0.35rem 0;
+}
+
+.prose li::marker {
+  color: var(--accent);
+}
+
+/* Diagrams. SuperMD renders a captioned image as a figure, and these are the
+   hand-drawn SVGs that sit inside the prose. The card framing tells a reader
+   "this is a picture of the idea," distinct from the clickable route cards. */
+.prose figure {
+  margin: 1.75rem 0;
+  padding: 1.1rem 1.1rem 0.5rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+}
+
+.prose figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  margin: 0 auto;
+}
+
+.prose figcaption {
+  margin-top: 0.7rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  text-align: center;
+  /* Even the lines out so a short centered caption never strands a lone word
+     on a line of its own. */
+  text-wrap: balance;
+}
+
+/* Raster illustrations (the README art) are pictures, not diagrams, so they
+   drop the card frame and sit centered. The figure stays wide enough for the
+   caption to read as a sentence or two rather than a cramped column, while the
+   image itself stays modest. */
+.prose figure:has(img[src$=".png"]) {
+  max-width: 32rem;
+  margin-left: auto;
+  margin-right: auto;
+  padding: 0;
+  background: none;
+  border: none;
+}
+
+.prose figure:has(img[src$=".png"]) img {
+  width: auto;
+  max-width: 18rem;
+  border-radius: 14px;
+}
+
+code {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  font-size: 0.9em;
+  background: var(--code-bg);
+  padding: 0.1em 0.34em;
+  border-radius: 4px;
+  /* Protocol tokens (`op:start-session`, `ocapn-sturdyref`) are single names;
+     keep the hyphen from being a line-break opportunity that splits one. */
+  white-space: nowrap;
+}
+
+pre {
+  background: var(--code-bg);
+  padding: 0.9rem 1.1rem;
+  border-radius: 9px;
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  box-shadow: var(--shadow);
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  font-size: 0.86em;
+  /* Block code follows its `pre` parent (preserve + scroll), not the inline
+     nowrap above, so multi-line listings stay multi-line. */
+  white-space: pre;
+}
+
+/* ── Syntax highlighting ─────────────────────────────────────────────────────
+   Zine tokenizes fenced code with TreeSitter and emits scope classes — a single
+   token can carry several (an identifier arrives as `constant variable type
+   variable`). We color only the scopes that carry meaning: keywords, strings,
+   comments, calls, numbers. Identifiers stay at ink, so a Zig sample reads in
+   color instead of turning to confetti. The palette is the site's own — plum
+   for keywords (a nod to the Goblins mascot), teal for calls, an olive string,
+   amber escapes and literals. Rules are ordered so a more specific scope (escape
+   over string) wins on tokens that carry both. */
+pre code .keyword,
+pre code .keyword_conditional,
+pre code .keyword_exception,
+pre code .keyword_repeat,
+pre code .keyword_return,
+pre code .keyword_operator,
+pre code .keyword_import,
+pre code .function_builtin {
+  color: #98499f;
+}
+
+pre code .function_call,
+pre code .function {
+  color: var(--teal-deep);
+}
+
+pre code .string {
+  color: #5d7f33;
+}
+
+pre code .number,
+pre code .boolean,
+pre code .constant_builtin {
+  color: #b5651d;
+}
+
+pre code .string_escape {
+  color: #b5651d;
+}
+
+pre code .comment {
+  color: #9a8567;
+  font-style: italic;
+}
+
+pre code .operator,
+pre code .punctuation_delimiter,
+pre code .punctuation_bracket {
+  color: #8a7862;
+}
+
+/* Jargon callouts. A short aside that defines a term from the object-capability
+   and CapTP world — swiss-num, vat, promise pipelining — that a reader new to
+   ocaps will not have met. Each is authored as a blockquote led by the bold term
+   it defines, so the markup stays plain Markdown while the term reads as the
+   callout's label. */
+blockquote {
+  margin: 1.5rem 0;
+  padding: 0.85rem 1.1rem 0.85rem 1.2rem;
+  border-left: 3px solid var(--teal);
+  background: color-mix(in srgb, var(--teal) 7%, transparent);
+  border-radius: 0 9px 9px 0;
+  color: var(--ink);
+}
+
+.prose blockquote p {
+  margin: 0.5rem 0;
+}
+
+.prose blockquote p:first-child {
+  margin-top: 0;
+}
+
+.prose blockquote p:last-child {
+  margin-bottom: 0;
+}
+
+/* The defined term leads the callout, lifted into the core teal and marked with
+   the page's twinkle, so a jargon aside is recognizable at a glance. A blockquote
+   that does not open with a bold term simply gets no twinkle. */
+.prose blockquote > p:first-child > strong:first-child {
+  color: var(--teal-deep);
+}
+
+.prose blockquote > p:first-child > strong:first-child::before {
+  content: "";
+  display: inline-block;
+  width: 0.72em;
+  height: 0.72em;
+  margin-right: 0.45em;
+  vertical-align: -0.04em;
+  background: var(--sparkle) center / contain no-repeat;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.94em;
+  margin: 1.2rem 0;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--rule);
+  vertical-align: top;
+  /* Balance a multi-line value cell so it never leaves one trailing word
+     alone on its own row. */
+  text-wrap: balance;
+}
+
+/* The first column of a doc table is the key — a codec, transport, surface, or
+   binding name — and reads best whole. Keep it on one line; the value columns
+   beside it do the wrapping. */
+.prose th:first-child,
+.prose td:first-child {
+  white-space: nowrap;
+}
+
+th {
+  color: var(--teal-deep);
+  font-weight: 700;
+}
+
+tbody tr:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+hr {
+  border: none;
+  border-top: 1px solid var(--rule);
+  margin: 2rem 0;
+}
+
+/* The landing hero: the pancake mascot beside the wordmark and a one-line
+   promise. The mark is the README icon, reused so the front door matches the
+   project's own face. */
+.hero {
+  display: flex;
+  align-items: center;
+  gap: clamp(1rem, 3vw, 2.2rem);
+  margin: 0.5rem 0 2.25rem;
+  padding-bottom: 1.75rem;
+  border-bottom: 1px solid var(--rule);
+}
+
+.hero-mark {
+  flex: none;
+  width: clamp(96px, 17vw, 150px);
+  height: auto;
+  filter: drop-shadow(0 6px 16px rgba(58, 48, 39, 0.16));
+}
+
+.hero-copy {
+  min-width: 0;
+}
+
+.hero-eyebrow {
+  margin: 0 0 0.15rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-deep);
+}
+
+.hero h1 {
+  margin: 0 0 0.5rem;
+  font-size: clamp(2.4rem, 6vw, 3.4rem);
+}
+
+.hero-tagline {
+  margin: 0;
+  font-size: 1.15rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  /* Even the two lines out so a short word like "boundary." can't strand
+     itself on a line of its own. */
+  text-wrap: balance;
+}
+
+/* The README's closing line, carried through as a light, playful kicker, with a
+   trailing twinkle to land the wink. */
+.hero-kicker {
+  margin: 0.5rem 0 0;
+  font-size: 0.95rem;
+  font-style: italic;
+  color: var(--accent-deep);
+}
+
+.hero-kicker::after {
+  content: "";
+  display: inline-block;
+  width: 0.8em;
+  height: 0.8em;
+  margin-left: 0.4em;
+  vertical-align: -0.08em;
+  background: var(--sparkle) center / contain no-repeat;
+}
+
+@media (max-width: 38rem) {
+  .hero {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+}
+
+/* ── Pizazz: lead paragraph, cards, the module stack ─────────────────────── */
+
+/* A larger opening line: the first paragraph after the hero on the landing. */
+.lead {
+  font-size: 1.2rem;
+  color: var(--ink-soft);
+  /* A one- or two-line opener: balance it rather than tune only the tail. */
+  text-wrap: balance;
+}
+
+/* Route cards: a responsive grid a content page builds with a fenced block of
+   links. Authored in SuperMD as an HTML block. */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: block;
+  padding: 1.1rem 1.2rem;
+  background: var(--paper-raised);
+  border: 1px solid var(--rule);
+  border-radius: 11px;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.card:hover {
+  text-decoration: none;
+  transform: translateY(-2px);
+  border-color: var(--accent);
+}
+
+.card h3 {
+  margin: 0 0 0.3rem;
+  color: var(--accent-deep);
+}
+
+.card p {
+  margin: 0;
+  font-size: 0.94rem;
+  color: var(--ink-soft);
+}
+
+/* The module stack: one connected panel of layers resting on layers, the way
+   the architecture composes. It is deliberately not card-shaped — the route
+   cards lift and link, this is a diagram that sits still and reads top to
+   bottom, so a colored left edge marks each band instead of a raised tile. */
+.stack {
+  margin: 1.5rem 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--rule);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.layer {
+  padding: 0.7rem 1rem;
+  border-bottom: 1px solid var(--rule);
+  border-left: 4px solid transparent;
+  background: var(--paper-raised);
+}
+
+.layer:last-child {
+  border-bottom: none;
+}
+
+.layer strong {
+  color: var(--teal-deep);
+}
+
+.layer.is-core {
+  background: color-mix(in srgb, var(--teal) 8%, var(--paper-raised));
+  border-left-color: var(--teal);
+}
+
+.layer.is-adapter {
+  background: color-mix(in srgb, var(--accent) 8%, var(--paper-raised));
+  border-left-color: var(--accent);
+}
+
+.layer small {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 0.86rem;
+  /* Same widow control as body copy — these read as sentences, not labels. */
+  text-wrap: pretty;
+}
+
+.tag {
+  display: inline-block;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.tag-core {
+  color: var(--teal-deep);
+  background: color-mix(in srgb, var(--teal) 18%, transparent);
+}
+
+.tag-adapter {
+  color: var(--accent-deep);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+
+.site-footer {
+  flex: none;
+  width: 100%;
+  max-width: 84rem;
+  margin: 0 auto;
+  padding: 1rem clamp(1rem, 4vw, 2.5rem) 2.5rem;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ── Narrow screens: the sidebar folds to a horizontal strip on top ──────── */
+
+@media (max-width: 52rem) {
+  .shell {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .sidebar {
+    position: static;
+    max-height: none;
+    overflow: visible;
+    padding: 1rem 0 0.5rem;
+    border-bottom: 1px solid var(--rule);
+    margin-bottom: 0.5rem;
+  }
+
+  .nav {
+    flex-flow: row wrap;
+    gap: 0.3rem 0.5rem;
+    align-items: center;
+  }
+
+  .nav-heading {
+    width: 100%;
+    margin: 0.5rem 0 0;
+  }
+
+  .nav-sub {
+    flex-flow: row wrap;
+    margin: 0;
+    border-left: none;
+    padding-left: 0;
+    gap: 0.3rem;
+  }
+
+  #content {
+    padding-top: 1rem;
+  }
+}

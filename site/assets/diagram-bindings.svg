@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 300" width="720" height="300" role="img" aria-label="One C ABI surface sits at the center, and the Rust, Deno, Python, and Racket bindings each wrap it as a native consumer.">
+  <style>
+    text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .name { font-size: 15px; font-weight: 700; }
+    .sub { font-size: 12.5px; fill: #6b5d4d; }
+    .core { font-size: 16px; font-weight: 700; }
+  </style>
+
+  <g stroke="#d8c19a" stroke-width="2.5" stroke-linecap="round">
+    <line x1="295" y1="132" x2="215" y2="109"></line>
+    <line x1="425" y1="132" x2="505" y2="109"></line>
+    <line x1="295" y1="168" x2="215" y2="191"></line>
+    <line x1="425" y1="168" x2="505" y2="191"></line>
+  </g>
+
+  <rect x="300" y="124" width="120" height="52" rx="13" fill="#eef6f1" stroke="#257f88" stroke-width="1.4"></rect>
+  <text x="360" y="146" text-anchor="middle" class="core" fill="#1b5f66">libpancake</text>
+  <text x="360" y="165" text-anchor="middle" class="sub">one C ABI</text>
+
+  <rect x="40" y="58" width="170" height="52" rx="12" fill="#fff9ee" stroke="#c76f18" stroke-width="1.4"></rect>
+  <text x="125" y="81" text-anchor="middle" class="name" fill="#a4560c">Rust</text>
+  <text x="125" y="99" text-anchor="middle" class="sub">typed enums</text>
+
+  <rect x="510" y="58" width="170" height="52" rx="12" fill="#fff9ee" stroke="#c76f18" stroke-width="1.4"></rect>
+  <text x="595" y="81" text-anchor="middle" class="name" fill="#a4560c">Deno</text>
+  <text x="595" y="99" text-anchor="middle" class="sub">native promises</text>
+
+  <rect x="40" y="190" width="170" height="52" rx="12" fill="#fff9ee" stroke="#c76f18" stroke-width="1.4"></rect>
+  <text x="125" y="213" text-anchor="middle" class="name" fill="#a4560c">Python</text>
+  <text x="125" y="231" text-anchor="middle" class="sub">asyncio</text>
+
+  <rect x="510" y="190" width="170" height="52" rx="12" fill="#fff9ee" stroke="#c76f18" stroke-width="1.4"></rect>
+  <text x="595" y="213" text-anchor="middle" class="name" fill="#a4560c">Racket</text>
+  <text x="595" y="231" text-anchor="middle" class="sub">Goblins-faithful</text>
+</svg>

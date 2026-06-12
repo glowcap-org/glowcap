@@ -5,19 +5,20 @@
 //! (the introducer). The capability that B reaches C through is distinct from
 //! A's — so "who called" is answered by the reference itself.
 //!
-//! This is the in-memory protocol-level proof. It uses the `cross_peer`
-//! handoff machinery (ADR-0009) and the accountability application's Episode +
-//! Identity layers, wired through `actors.Vat` on each peer.
+//! This is the in-memory protocol-level proof. The host application owns the
+//! handoff routing itself (ADR-0009) — the engine keeps the
+//! `cross_peer.SignatureVerifier` seam and the gift registry — and wires the
+//! accountability Episode + Identity layers through `actors.Vat` on each peer.
 
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.model;
-const engine = pancake.engine;
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const cross_peer = engine.cross_peer;
 const crypto = pancake.foundation.crypto;
-const syrup = pancake.codec.syrup;
+const syrup = pancake.ocapn.codec.syrup;
 
 const identity = @import("identity.zig");
 const episode = @import("episode.zig");
@@ -96,6 +97,109 @@ fn drainEvents(peer: *engine.Peer) void {
     }
 }
 
+// --- Host-side handoff routing (ADR-0009) -------------------------------
+//
+// A `Peer` owns one direct session, so routing the give and withdraw legs
+// across the gifter, recipient, and exporter sessions is the host's job —
+// exactly what this application does here. The engine supplies the seams
+// (`cross_peer.SignatureVerifier`, the gift registry); the frames move by
+// this wiring.
+
+const RoutingError = error{
+    SignatureRejected,
+    NoOutboundFrame,
+};
+
+/// Encode the `from` peer's single pending message and dispatch it on `to`.
+fn pumpFrame(from: *engine.Peer, to: *engine.Peer) !void {
+    _ = try from.step();
+    const frame = from.takeOutbound() orelse return RoutingError.NoOutboundFrame;
+    try to.feedInbound(frame);
+    _ = try to.step();
+}
+
+/// The gifter's two outbound legs: deposit the gift (with the gifter's session
+/// key as provenance) on the exporter, then deliver the signed give to the
+/// recipient.
+fn deliverGive(
+    gifter_peer: *engine.Peer,
+    recipient: *engine.Peer,
+    exporter_peer: *engine.Peer,
+    give: model.HandoffGive,
+    gifter_key: []const u8,
+) !void {
+    try exporter_peer.giftRegistry().deposit(
+        exporter_peer.allocator,
+        exporter_peer.session_state.limits,
+        give.gift_id,
+        give.recipient_key,
+        gifter_key,
+    );
+    try gifter_peer.sendCopying(.{ .handoff = .{ .give = give } });
+    try pumpFrame(gifter_peer, recipient);
+}
+
+/// The recipient's withdraw leg: verify both certificates over their canonical
+/// signed bytes through the injected verifier, authorize the withdrawal against
+/// the exporter's gift registry, then send the receive to the exporter.
+fn withdrawGift(
+    recipient: *engine.Peer,
+    exporter_peer: *engine.Peer,
+    receive: model.HandoffReceive,
+    verifier: cross_peer.SignatureVerifier,
+) !void {
+    const allocator = exporter_peer.allocator;
+
+    const give_signed = try syrup.canonicalHandoffGiveSignedBytes(allocator, receive.signed_give);
+    defer allocator.free(give_signed);
+    if (!verifier.verify(give_signed, receive.signed_give.signature)) {
+        return RoutingError.SignatureRejected;
+    }
+
+    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    defer allocator.free(receive_signed);
+    if (!verifier.verify(receive_signed, receive.signature)) {
+        return RoutingError.SignatureRejected;
+    }
+
+    const registry = exporter_peer.giftRegistry();
+    try registry.validateWithdraw(receive);
+    try registry.applyWithdraw(exporter_peer.allocator, exporter_peer.session_state.limits, receive);
+
+    try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
+    try pumpFrame(recipient, exporter_peer);
+}
+
+/// A real Ed25519 verifier that routes each handoff certificate to the right key
+/// (ADR-0009): a `desc:handoff-receive` payload is checked against the recipient
+/// key, and the embedded `desc:handoff-give` against the gifter's session key. The
+/// exporter builds it from the gifter key it stored at deposit and the recipient
+/// key the give names — no key is conjured at verify time. This is the production
+/// shape, not a key-agnostic accept-all verifier: a forged or
+/// mismatched certificate is rejected here, so the withdrawal that re-targets B's
+/// session is itself attested, not merely asserted.
+const RoutingVerifier = struct {
+    gifter_key: crypto.PeerKey,
+    recipient_key: crypto.PeerKey,
+
+    fn verify(ctx: ?*anyopaque, payload: []const u8, signature: []const u8) bool {
+        const self: *RoutingVerifier = @ptrCast(@alignCast(ctx.?));
+        const label_at = std.mem.indexOf(u8, payload, "desc:handoff-") orelse return false;
+        const key = if (std.mem.startsWith(u8, payload[label_at..], "desc:handoff-receive"))
+            self.recipient_key
+        else
+            self.gifter_key;
+        if (signature.len != crypto.SIGNATURE_BYTES) return false;
+        const sig = crypto.Signature.fromBytes(signature[0..crypto.SIGNATURE_BYTES].*);
+        crypto.verify(key, payload, sig) catch return false;
+        return true;
+    }
+
+    fn make(self: *RoutingVerifier) cross_peer.SignatureVerifier {
+        return .{ .context = self, .verify_fn = verify };
+    }
+};
+
 test "three-party handoff: C attributes B (the true caller), not A (the introducer)" {
     const allocator = std.testing.allocator;
 
@@ -138,34 +242,59 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
         .last_subject = &last_subject,
         .served = &served,
     });
-    try c_vat.publish(aff, AFFORDANCE_EXPORT);
+    try c_vat.bindExport(aff, AFFORDANCE_EXPORT);
 
-    // --- Three-party handoff: A introduces B to C ---
+    // --- Three-party handoff: A introduces B to C, under real certificates ---
+    // A (gifter) and B (recipient) hold real Ed25519 session keys. A signs the
+    // give; B signs the receive that embeds it. Nothing here is a placeholder
+    // signature, so C authorizes the withdrawal only because the certificates
+    // actually verify.
+    const gifter_secret = crypto.SecretKey.fromSeed([_]u8{0x51} ** 32);
+    const recipient_secret = crypto.SecretKey.fromSeed([_]u8{0x52} ** 32);
+    const gifter_pub = gifter_secret.publicKey();
+    const recipient_pub = recipient_secret.publicKey();
+
     const gift_id = [_]u8{0x42} ** 32;
-    const recipient_key = [_]u8{0x52} ** 32;
-    const give: model.HandoffGive = .{
-        .recipient_key = &recipient_key,
+    var give: model.HandoffGive = .{
+        .recipient_key = recipient_pub.asBytes(),
         .exporter_location = "memory:C",
         .gifter_exporter_session = &([_]u8{0} ** 32),
         .gifter_side = &([_]u8{0} ** 32),
         .gift_id = &gift_id,
-        .signature = &([_]u8{0xaa} ** 64),
+        .signature = "",
     };
+    const give_signed = try syrup.canonicalHandoffGiveSignedBytes(allocator, give);
+    defer allocator.free(give_signed);
+    const give_sig = crypto.sign(&gifter_secret, give_signed);
+    give.signature = give_sig.asBytes();
 
-    // A deposits the gift on C and delivers the give certificate to B.
-    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, give, "");
+    // A deposits the gift on C with its real session key, and delivers the give
+    // certificate to B. C records the gifter key alongside the gift.
+    try deliverGive(&gifter, &recipient_from_gifter, &exporter, give, gifter_pub.asBytes());
     drainEvents(&recipient_from_gifter);
     drainEvents(&exporter);
 
-    // B withdraws the gift from C.
-    const receive: model.HandoffReceive = .{
+    // B builds the receive over the signed give and signs it with its own key.
+    var receive: model.HandoffReceive = .{
         .receiving_session = &([_]u8{0xdd} ** 32),
         .receiving_side = &([_]u8{0x22} ** 32),
         .handoff_count = 1,
         .signed_give = give,
-        .signature = &([_]u8{0xbb} ** 64),
+        .signature = "",
     };
-    try cross_peer.withdrawGift(&recipient_to_exporter, &exporter, receive, cross_peer.acceptingVerifier());
+    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    defer allocator.free(receive_signed);
+    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
+    receive.signature = receive_sig.asBytes();
+
+    // C verifies both certificates with keys routed per ADR-0009 — the gifter key
+    // it stored at deposit, and the recipient key the give names — then authorizes
+    // the withdrawal. A forged certificate would be rejected before B is admitted.
+    var verifier_ctx: RoutingVerifier = .{
+        .gifter_key = try crypto.PeerKey.fromSlice(exporter.giftRegistry().giftGifterKey(&gift_id).?),
+        .recipient_key = try crypto.PeerKey.fromSlice(give.recipient_key),
+    };
+    try withdrawGift(&recipient_to_exporter, &exporter, receive, verifier_ctx.make());
     drainEvents(&exporter);
 
     // After withdrawal, B can reach C directly. B's Vat sends to C's export.

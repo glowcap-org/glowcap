@@ -8,7 +8,7 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.model;
+const model = pancake.ocapn.model;
 const view = model.view;
 const messagesEqual = @import("../support/message_equality.zig").messagesEqual;
 
@@ -38,7 +38,7 @@ test "deliver with nested args, promise path target, and resolve_me_desc round-t
         .{ .tagged = .{ .tag = "rec", .value = &inner } },
     };
     try expectRoundTrip(.{ .deliver = .{
-        .target = .{ .promise = .{ .answer_id = 9, .path = .{ .ops = &ops } } },
+        .target = .{ .promise = .{ .answer_position = 9, .path = .{ .ops = &ops } } },
         .args = &args,
         .answer = 11,
         .resolve_me_desc = .{ .near = model.NearRef.promise(4) },
@@ -55,7 +55,7 @@ test "resolve fulfill with a reference payload round-trips" {
 test "resolve break round-trips" {
     try expectRoundTrip(.{ .resolve = .{
         .answer = 1,
-        .resolution = .{ .break_ = .{ .message = "boom" } },
+        .resolution = .{ .@"break" = .{ .message = "boom" } },
     } });
 }
 
@@ -132,7 +132,7 @@ test "toOwned bounds nesting through promise pipeline-path call ops, not just li
         call_args[0] = arg;
         const ops = try arena.alloc(model.PipelineOp, 1);
         ops[0] = .{ .call = call_args };
-        arg = .{ .reference = .{ .promise = .{ .answer_id = 1, .path = .{ .ops = ops } } } };
+        arg = .{ .reference = .{ .promise = .{ .answer_position = 1, .path = .{ .ops = ops } } } };
     }
 
     const args = [_]model.Argument{arg};
@@ -146,4 +146,21 @@ test "toOwned bounds nesting through promise pipeline-path call ops, not just li
     // proves the rejection path leaks nothing.
     const body = view.Body.fromOwned(&message);
     try std.testing.expectError(error.MalformedView, body.toOwned(allocator));
+}
+
+test "ExporterLocation.toOwned refuses a transport containing ':'" {
+    // The flattened `transport:designator` form splits back on the first ':',
+    // so a transport carrying one would re-split into a different locator.
+    const ambiguous = view.ExporterLocation{
+        .locator = .{ .transport = "tcp:extra", .designator = "host" },
+    };
+    try std.testing.expectError(error.MalformedView, ambiguous.toOwned(std.testing.allocator));
+
+    // A colon-free transport still flattens, colon-bearing designator and all.
+    const valid = view.ExporterLocation{
+        .locator = .{ .transport = "tcp", .designator = "host:9045" },
+    };
+    const owned = try valid.toOwned(std.testing.allocator);
+    defer std.testing.allocator.free(owned);
+    try std.testing.expectEqualStrings("tcp:host:9045", owned);
 }

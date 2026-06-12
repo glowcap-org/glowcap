@@ -2,8 +2,8 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const foundation = pancake.foundation;
-const engine = pancake.engine;
-const model = pancake.model;
+const engine = pancake.ocapn.engine;
+const model = pancake.ocapn.model;
 
 /// Counts every backing allocation (fresh `alloc`, plus a growing
 /// `remap`/`resize`) so the wire-path measurement reflects real heap traffic.
@@ -46,8 +46,8 @@ const TotalCountingAllocator = struct {
 const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
 
 /// Print the steady-state heap traffic of one inbound `op:deliver` to a live
-/// local export. Mirrors `test/engine/alloc_budget_test.zig`; the rewrite
-/// drives this number down (Phase 5 removes the validation materialization).
+/// local export. Mirrors `test/engine/alloc_budget_test.zig`; the current budget
+/// is the retained event frame, not validation materialization.
 fn reportWirePathBudget(backing: std.mem.Allocator) !void {
     var counter = TotalCountingAllocator{ .backing = backing };
     var peer = engine.Peer.init(counter.allocator());

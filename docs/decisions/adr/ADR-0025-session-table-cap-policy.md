@@ -29,7 +29,7 @@ loud rather than absorb the overflow.
 ## Decision
 
 Each partner-driven accumulator in
-[`src/session/mod.zig`](../../../src/session/mod.zig) is bounded by a field on
+[`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig) is bounded by a field on
 `SessionLimits`. A fresh insert past the cap returns a typed `*CapExceeded`
 error; refreshing an existing row never trips a cap. The five
 resource-exhaustion caps each project to one wire kind, `resource_exhausted`:
@@ -43,10 +43,10 @@ resource-exhaustion caps each project to one wire kind, `resource_exhausted`:
 | `max_deposited_gifts` | 65 536 | `DepositedGiftCapExceeded` |
 
 `AbortKind.resource_exhausted` (`"ResourceExhausted"` on the wire) is a distinct
-kind in [`src/model/mod.zig`](../../../src/model/mod.zig): the partner's traffic
+kind in [`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig): the partner's traffic
 is well-formed but exceeds the resource budget, so the observable contract ("back
 off") differs from `protocol_error`. The projection in
-[`src/engine/abort_projection.zig`](../../../src/engine/abort_projection.zig)
+[`src/ocapn/engine/abort_projection.zig`](../../../src/ocapn/engine/abort_projection.zig)
 maps all five typed errors to a `resource_exhausted` abort with `close = true`;
 the engine emits the abort before surfacing the typed error.
 

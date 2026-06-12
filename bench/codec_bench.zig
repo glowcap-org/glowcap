@@ -2,26 +2,32 @@
 //! does not time: codec encode/decode and steady-state inbound dispatch, plus a
 //! sparse partner-position table-population check.
 //!
-//! "Performance is a public contract" — the alloc-budget test fixes the *count*
-//! (one allocation per steady-state turn); this fixes the *time*. It reports
-//! ns/op and MB/s so a regression in the codec or the session tables is a
-//! visible number, not a discovery under a profiler. Smoke-run under
-//! `zig build check`; run directly for the numbers.
+//! Performance is a public contract, but the two halves of that contract are
+//! enforced differently. The alloc-budget test gates the count with a `== 1`
+//! assertion that fails the build. This benchmark reports ns/op and MB/s as
+//! visible numbers, not as a gated threshold. No test asserts a wall-clock bound.
+//! Under `zig build check` it runs in Debug, the default optimize mode, where the
+//! numbers are roughly an order of magnitude slower than ReleaseFast. Read the
+//! printed `mode=` field: Debug numbers track regressions relative to each other,
+//! not absolute throughput. Run directly with `-Doptimize=ReleaseFast` for the
+//! real figures. A gated, release-pinned wall-clock threshold needs a stable
+//! benchmark harness.
 //!
-//! Timing rides a `std.Io` monotonic clock (`.awake`): a benchmark *is* an
-//! adapter-shaped program, so naming `std.Io` here is honest — it never touches
-//! the sync no-I/O core it measures.
+//! Timing rides a `std.Io` monotonic clock (`.awake`). A benchmark is an
+//! adapter-shaped program, so it may name `std.Io`; the clock stays in the
+//! harness and never enters the sync no-I/O core being measured.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const pancake = @import("pancake");
 
-const codec = pancake.codec;
-const model = pancake.model;
-const engine = pancake.engine;
+const codec = pancake.ocapn.codec;
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
 const foundation = pancake.foundation;
 
 /// A representative outbound call: a method invocation on an imported object
-/// carrying a small mixed-type argument list and an answer position — the
+/// carrying a small mixed-type argument list and an answer position. This is the
 /// common `op:deliver` the hot path encodes and decodes.
 const bench_args = [_]model.Argument{
     .{ .symbol = "greet" },
@@ -149,8 +155,8 @@ fn report(op: []const u8, codec_id: model.CodecId, iters: usize, frame_len: usiz
     const total_bytes: f64 = @floatFromInt(iters * frame_len);
     const mb_per_sec: f64 = (total_bytes / 1_000_000.0) / (elapsed_ns / 1_000_000_000.0);
     std.debug.print(
-        "{s} codec={s} iters={d} frame_bytes={d} ns_per_op={d:.1} mb_per_sec={d:.0}\n",
-        .{ op, @tagName(codec_id), iters, frame_len, ns_per, mb_per_sec },
+        "{s} codec={s} iters={d} frame_bytes={d} ns_per_op={d:.1} mb_per_sec={d:.0} mode={s}\n",
+        .{ op, @tagName(codec_id), iters, frame_len, ns_per, mb_per_sec, @tagName(builtin.mode) },
     );
 }
 

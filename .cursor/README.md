@@ -1,6 +1,7 @@
 # pancake — Cursor Overlay
 
-This directory is a Cursor-shaped overlay over [`.agents/`](../.agents/).
+This directory is a Cursor-shaped overlay over [`.agents/`](../.agents/), where
+the canonical agent guidance lives.
 
 - `rules/*.mdc` exposes canonical rules from `.agents/rules/` in Cursor's rule
   format.

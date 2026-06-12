@@ -1,14 +1,14 @@
 const std = @import("std");
 const pancake = @import("pancake");
-const session = pancake.session;
+const session = pancake.ocapn.session;
 
 test "registerBootstrapCap maps a swissnum to a fresh export; lookup round-trips" {
     var s = session.Session.init(std.testing.allocator);
     defer s.deinit();
 
-    const export_id = try s.registerBootstrapCap("thermostat");
-    try std.testing.expect(s.hasExport(export_id));
-    try std.testing.expectEqual(@as(?u64, export_id), s.bootstrapLookup("thermostat"));
+    const export_position = try s.registerBootstrapCap("thermostat");
+    try std.testing.expect(s.hasExport(export_position));
+    try std.testing.expectEqual(@as(?u64, export_position), s.bootstrapLookup("thermostat"));
     try std.testing.expectEqual(@as(?u64, null), s.bootstrapLookup("unknown"));
 }
 

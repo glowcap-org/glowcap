@@ -8,14 +8,16 @@ is not part of pancake's protocol core.
 ## Why It Lives Here
 
 This application is external conformance pressure for the kind of host software
-pancake should eventually support. It exercises three concerns above CapTP:
+pancake supports; the sibling
+[`accountability-on-pancake/`](../accountability-on-pancake/) runs the same
+shape on pancake itself. It exercises three concerns above CapTP:
 
 1. networked capability invocation;
 2. identity material bound to a peer;
 3. an observation point that emits a signed Episode for each invocation.
 
-The current implementation uses Goblins for the runtime. Pancake's core remains
-codec-neutral CapTP; any accountability adapter for pancake would wrap the
+This implementation uses Goblins for the runtime. Pancake's core remains
+codec-neutral CapTP; the pancake port in `accountability-on-pancake/` wraps the
 caller-owned `Peer` boundary rather than pushing Episode/KERI vocabulary into the
 protocol core.
 
@@ -29,7 +31,7 @@ protocol core.
 | `racket/identity.rkt` | KERI primitives in Racket. |
 | `racket/episode.rkt` | Episode emission. |
 | `racket/log.rkt` | Local transparency log. |
-| `racket/doc/KERNEL.md` | Human-readable kernel walkthrough. |
+| [`racket/doc/KERNEL.md`](racket/doc/KERNEL.md) | Human-readable kernel walkthrough. |
 
 ## Generated State
 

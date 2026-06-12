@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 30 760 290" width="760" height="290" role="img" aria-label="One message can be written on the wire two ways: Syrup as variable-length byte records, or Cap'n Proto as fixed 8-byte words. They look nothing alike, but either one decodes back to the same message view.">
+  <defs>
+    <marker id="codec-amber" viewBox="0 0 10 10" refX="7.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#a4560c"></path>
+    </marker>
+    <marker id="codec-teal" viewBox="0 0 10 10" refX="7.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0L10 5L0 10z" fill="#1b5f66"></path>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .head { font-size: 16px; font-weight: 700; }
+    .chip { font-size: 15px; font-weight: 700; }
+    .sub { font-size: 13px; fill: #6b5d4d; }
+  </style>
+
+  <rect x="70" y="44" width="270" height="146" rx="16" fill="#fdf4e3" stroke="#ead9bb"></rect>
+  <text x="96" y="78" class="head" fill="#a4560c">Syrup</text>
+  <text x="96" y="99" class="sub">byte records, variable length</text>
+  <rect x="96" y="120" width="34" height="34" rx="5" fill="#ffffff" stroke="#c76f18" stroke-width="1.5"></rect>
+  <rect x="138" y="120" width="52" height="34" rx="5" fill="#ffffff" stroke="#c76f18" stroke-width="1.5"></rect>
+  <rect x="198" y="120" width="26" height="34" rx="5" fill="#ffffff" stroke="#c76f18" stroke-width="1.5"></rect>
+  <rect x="232" y="120" width="44" height="34" rx="5" fill="#ffffff" stroke="#c76f18" stroke-width="1.5"></rect>
+  <rect x="284" y="120" width="30" height="34" rx="5" fill="#ffffff" stroke="#c76f18" stroke-width="1.5"></rect>
+
+  <rect x="420" y="44" width="270" height="146" rx="16" fill="#edf5f3" stroke="#cfe4e1"></rect>
+  <text x="446" y="78" class="head" fill="#1b5f66">Cap'n Proto</text>
+  <text x="446" y="99" class="sub">8-byte words, fixed</text>
+  <rect x="446" y="120" width="20" height="34" rx="4" fill="#ffffff" stroke="#257f88" stroke-width="1.5"></rect>
+  <rect x="471" y="120" width="20" height="34" rx="4" fill="#ffffff" stroke="#257f88" stroke-width="1.5"></rect>
+  <rect x="496" y="120" width="20" height="34" rx="4" fill="#ffffff" stroke="#257f88" stroke-width="1.5"></rect>
+  <rect x="521" y="120" width="20" height="34" rx="4" fill="#ffffff" stroke="#257f88" stroke-width="1.5"></rect>
+  <rect x="554" y="120" width="20" height="34" rx="4" fill="#ffffff" stroke="#257f88" stroke-width="1.5"></rect>
+  <rect x="579" y="120" width="20" height="34" rx="4" fill="#ffffff" stroke="#257f88" stroke-width="1.5"></rect>
+  <rect x="604" y="120" width="20" height="34" rx="4" fill="#ffffff" stroke="#257f88" stroke-width="1.5"></rect>
+  <rect x="629" y="120" width="20" height="34" rx="4" fill="#ffffff" stroke="#257f88" stroke-width="1.5"></rect>
+
+  <path d="M200 190 C 232 228, 312 228, 346 250" fill="none" stroke="#a4560c" stroke-width="2" marker-end="url(#codec-amber)"></path>
+  <path d="M558 190 C 526 228, 448 228, 414 250" fill="none" stroke="#1b5f66" stroke-width="2" marker-end="url(#codec-teal)"></path>
+  <text x="380" y="224" text-anchor="middle" class="sub">decode either one</text>
+
+  <rect x="275" y="250" width="210" height="60" rx="14" fill="#fff9ee" stroke="#8a7a63" stroke-width="1.8"></rect>
+  <text x="380" y="280" text-anchor="middle" class="chip" fill="#3a3128">the same message</text>
+  <text x="380" y="300" text-anchor="middle" class="sub">one borrowed view</text>
+</svg>

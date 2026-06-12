@@ -48,11 +48,13 @@ The same `goblins-interop` step also runs the reverse direction. A listener brac
 
 This proves, over a live socket and in both directions, the keyed handshake,
 signature verification, bootstrap fetch, a deliver to a fetched cap resolving
-fulfilled, and a published actor a Goblins client enlivens and calls. It does not yet exercise,
-against live Goblins: three-party handoffs with real signature verification;
-crossed hellos; or promise pipelining. Each is a follow-on live scenario, tracked
-as work, not deferred by policy. The transport remains cleartext `tcp` — a
-confidential transport (TLS) is a separate netlayer slice.
+fulfilled, and a published actor a Goblins client enlivens and calls. The current
+`goblins-interop` driver also proves the inbound pipelined enliven-and-call path,
+and the sibling `zig build goblins-handoff` step proves recipient-side
+three-party handoff against a live Goblins introducer and exporter. Crossed
+hellos is exercised by the upstream OCapN suite rather than by the live Goblins
+driver. The transport remains cleartext `tcp`; a confidential transport (TLS) is
+a separate netlayer slice.
 
 ## Alternatives Considered
 

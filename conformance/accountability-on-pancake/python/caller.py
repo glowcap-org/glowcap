@@ -21,9 +21,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "bindings" / "python"))
 
 from nacl.signing import SigningKey  # noqa: E402
-from pancake import Far, Ref, VowBroken, connect  # noqa: E402
-
-AFFORDANCE_EXPORT = 5
+from pancake import VowBroken, connect  # noqa: E402
 
 
 def b64url(data: bytes) -> str:
@@ -36,9 +34,8 @@ async def run(port: int) -> None:
 
     # `connect` completes the keyed op:start-session handshake before returning.
     conn = await connect("127.0.0.1", port)
-    conn.serve()  # the host hanging up ends the serve task
-    conn.peer.register_import(AFFORDANCE_EXPORT)
-    affordance = Ref.to(Far(AFFORDANCE_EXPORT))
+    # `fetch`/`send` drive the inbound loop themselves — no separate serve() call.
+    affordance = await conn.fetch("affordance")
 
     # Generate an Ed25519 identity (above pancake, like the Zig/Deno sides).
     signing_key = SigningKey.generate()

@@ -1,6 +1,6 @@
 ---
 description: "Zig pancake resilience posture for attacker-controlled bytes and layer ownership."
-globs: src/codec/**/*.zig, src/engine/**/*.zig, src/session/**/*.zig, src/c_abi/**/*.zig, test/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h
+globs: src/ocapn/codec/**/*.zig, src/ocapn/engine/**/*.zig, src/ocapn/session/**/*.zig, src/net_adapter/**/*.zig, src/c_abi/**/*.zig, test/**/*.zig, examples/**/*.zig, examples/**/*.c, include/**/*.h
 ---
 
 # pancake — Resilience
@@ -17,7 +17,9 @@ complete.
 - Decode/session failures project through engine events and abort behavior.
 - Application rate limits, authorization, and deadlines belong above pancake.
 
-Concern not listed? Do layer analysis before patching.
+Concern not listed? Give it to the layer that owns the decision — the
+[architecture rule](architecture.md)'s Layer Ownership list is the map — never
+to the layer where the symptom appeared.
 
 ## Anti-Patterns
 

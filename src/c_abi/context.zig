@@ -2,7 +2,7 @@
 //! `PancakeContext` that routes a handle family through host callbacks.
 //!
 //! `PancakeContext` is the explicit owner of allocation policy for a family of
-//! handles. `pancake_context_new_default` routes through `library_allocator`;
+//! handles. `pancake_context_new` routes through `library_allocator`;
 //! `pancake_context_new_with_allocator` routes every allocation through host
 //! callbacks. Handles created *in* a context (`pancake_peer_new_in`,
 //! `pancake_tcp_netlayer_new_in`) and everything they own — managed outbound and
@@ -101,7 +101,7 @@ pub const Context = struct {
 
 /// Create a context that allocates through the library-owned allocator. Release
 /// it with `pancake_context_release` after releasing every handle created in it.
-pub export fn pancake_context_new_default(out_context: ?*?*PancakeContext) i32 {
+pub export fn pancake_context_new(out_context: ?*?*PancakeContext) i32 {
     const slot = out_context orelse return PANCAKE_ERR_NULL_POINTER;
     const ctx = library_allocator.create(Context) catch return PANCAKE_ERR_INTERNAL;
     ctx.* = .{ .allocator = library_allocator, .backing = .library, .host = undefined };
@@ -112,7 +112,10 @@ pub export fn pancake_context_new_default(out_context: ?*?*PancakeContext) i32 {
 /// Create a context that routes every allocation in its handle family through
 /// the host callbacks in `spec` (`alloc` and `free` required). The context
 /// object itself is allocated through `spec.alloc`, so a later
-/// `pancake_context_release` returns it through `spec.free`.
+/// `pancake_context_release` returns it through `spec.free`. The context stores
+/// the callbacks and `user_data` themselves, not a copy of what they point at:
+/// both must stay valid until `pancake_context_release`, or every later
+/// allocation through the context's handles is undefined behavior.
 pub export fn pancake_context_new_with_allocator(spec: ?*const PancakeAllocator, out_context: ?*?*PancakeContext) i32 {
     const slot = out_context orelse return PANCAKE_ERR_NULL_POINTER;
     const s = spec orelse return PANCAKE_ERR_NULL_POINTER;
@@ -139,6 +142,9 @@ pub export fn pancake_context_new_with_allocator(spec: ?*const PancakeAllocator,
 /// Release a context, freeing the context object through its own policy. Every
 /// handle created in the context must already be released; the context's
 /// allocator outlives those handles by contract, not by reference counting.
+/// Releasing while a handle is still live leaves that handle's allocator
+/// pointing into freed context memory, so its next allocation or release is
+/// undefined behavior — there is no runtime check.
 pub export fn pancake_context_release(context: ?*PancakeContext) void {
     const ctx = ctxFromOpaque(context) orelse return;
     switch (ctx.backing) {

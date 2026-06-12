@@ -31,7 +31,7 @@ information.
 
 The codec decoder *is* the framer. Each codec exposes
 `decodePrefix(bytes, max_frame_bytes) -> framing.Prefix` over the buffered
-stream prefix ([`src/codec/framing.zig`](../../../src/codec/framing.zig)):
+stream prefix ([`src/ocapn/codec/framing.zig`](../../../src/ocapn/codec/framing.zig)):
 
 - `decoded{ body, consumed }` — a whole frame is present; `consumed` is its
   exact byte length (the boundary), `body` the borrowed view.
@@ -72,7 +72,7 @@ native stack — the parse-stage analog of the session-level cap in
 - **Per-connection memory.** The buffer sizing and the bounded-overflow follow-up
   are [ADR-0030](ADR-0030-netlayer-connection-and-memory-posture.md).
 - **Abort projection.** Mapping `malformed` / `too_large` to abort kinds is owned
-  by [`abort_projection`](../../../src/engine/abort_projection.zig) /
+  by [`abort_projection`](../../../src/ocapn/engine/abort_projection.zig) /
   [ADR-0025](ADR-0025-session-table-cap-policy.md).
 
 ## Alternatives Considered

@@ -67,8 +67,10 @@ lifetime are decided in the section below.
   tables + promise wiring is the footgun the layer removes.
 - **Actors as `*anyopaque` + a registered C-style behavior fn pointer as the
   primary Zig API.** Rejected for the Zig surface: comptime-typed `spawn` is safer
-  and idiomatic; the erased fn-pointer shape is the right *C ABI* projection, a
-  later slice, not the native API.
+  and idiomatic. (The C ABI projection this left open was later settled the other
+  way by [ADR-0039](ADR-0039-binding-actor-idioms.md): bindings implement actors
+  natively over the typed peer surface, so no erased-fn-pointer C actor ABI is
+  planned.)
 
 ## Consequences
 

@@ -1,0 +1,85 @@
+---
+.title = "Bindings",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+pancake ships one library and four ways to hold it from another language, one of the
+three consumption [surfaces]($link.page('surfaces')). Each binding loads the installed
+`libpancake` and presents an idiomatic API on top, so
+what you write is Rust, TypeScript, Python, or Racket rather than foreign function
+calls. Every binding earns its keep a second way too. It is a *dogfood*, which means
+it drives a real OCapN round-trip through the C ABI on every build. If the wire shape
+or the ABI ever regresses, an actual foreign-language consumer catches it, not a Zig
+test pretending to be one.
+
+[All four bindings wrap the same C ABI. The shared surface is what lets an app read the same way in every language.]($image.siteAsset('diagram-bindings.svg'))
+
+## One surface, four idioms
+
+An application holds one object, a `Connection`, and uses one small vocabulary. That
+vocabulary is the small set of application verbs that the
+[bindings contract](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/README.md)
+enumerates and defines. The contract is the authoritative description of the surface
+and the value model beneath it, and this section is the friendlier per-language tour.
+
+The shape is uniform on purpose. You fetch a [capability]($link.page('concepts')) by
+name, spawn a local object, and hand a partner a reference to it, and then the partner
+calls it back.
+There is no export-position bookkeeping, no manual flush, and no hand-rolled receive
+loop anywhere in your code. A capability is a `Ref`, and a `Ref` marshals itself to
+the right wire reference when you pass it as an argument. That one move is why
+delegation, attenuation, and revocation are ordinary `spawn` and `send` code instead
+of special APIs.
+
+> **Ref** — the binding's word for a capability in hand: a live reference to an
+> object, yours or a partner's. Holding one is the right to call that object, and
+> the only way to get one is to be given it. Passing a `Ref` as an argument is how
+> that authority moves between peers.
+
+| Binding | Idiomatic entry | Async idiom | Actor idiom |
+| --- | --- | --- | --- |
+| [Rust]($link.page('bindings/rust')) | `Peer`, typed enums | tokio (opt-in `async`) | `Vat` over closures |
+| [Deno]($link.page('bindings/deno')) | `Peer` class | native promises | `Vat` over callbacks |
+| [Python]($link.page('bindings/python')) | `Peer`, native values | `asyncio` | `Vat` over callables |
+| [Racket]($link.page('bindings/racket')) | `peer`, event structs | green threads + ports | Goblins-faithful |
+
+## Sync, async, and the actor layer
+
+Each binding gives you three levels, and you stay at the one your app actually needs.
+The synchronous peer drives frames directly. The async connection runs that same
+sans-io peer over the language's own non-blocking sockets, with no thread per call and
+no blocking netlayer anywhere in that path. The actor layer is the Goblins-shaped top,
+where a `Vat` holds local actors and an eventual-send to a partner-hosted reference
+travels over the wire and settles a promise. Racket's layer is the reference shape for
+all of this, because it reads the way a
+[Spritely Goblins](https://spritely.institute/goblins/) programmer already expects.
+
+> **Vat** — a single-threaded home for your local objects, the unit Spritely
+> Goblins and the wider ocap world organize around. Each call into a vat runs to
+> completion as one *turn* before the next begins, so an actor never sees a
+> half-finished state. You reason about it like a single thread, whatever
+> language the binding wraps it in.
+
+## Encryption rides a separate artifact
+
+`libpancake` itself carries cleartext TCP and no TLS. Encrypted transport reaches
+the bindings as [iroh](https://www.iroh.computer/)'s QUIC through a *separate optional
+library*, `libpancake_iroh`, which adds `connect_iroh` and `listen_iroh` alongside the
+TCP
+verbs. Keeping it out of the base library is what keeps the core pure Zig. The only
+difference a consumer sees is addressing: a peer is reached by its self-authenticating
+endpoint id and address hints carried in an `ocapn://` URI, not a `host:port`.
+
+## Run them
+
+```sh
+zig build bindings        # rust + deno + python + racket dogfoods
+zig build rust-dogfood    # just the Rust consumer
+```
+
+These need `cargo`, `deno`, `python3`, and `racket` on PATH. The
+[devcontainer](https://codeberg.org/jimisaacs/pancake/src/branch/main/.devcontainer/)
+provides all four.

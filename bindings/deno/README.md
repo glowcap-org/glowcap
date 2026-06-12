@@ -8,11 +8,12 @@ surface and how the bindings are gated.
 
 [`pancake.ts`](pancake.ts) is the idiomatic Deno API over the C ABI. The raw
 `Deno.dlopen` FFI is private; what you use is a `Peer` class (disposable),
-discriminated-union value types, and typed events. Integers are `bigint`, floats
-are `number`:
+discriminated-union value types, and typed events. The default `new Peer()` is a
+negotiating authenticated session; use `Peer.rawOpen()` only for low-level
+fixtures that inject frames directly. Integers are `bigint`, floats are `number`:
 
 ```ts
-using peer = new Peer();
+using peer = Peer.rawOpen();
 peer.registerImport(5n);
 peer.sendDeliver(far(5n), [42n, new Uint8Array([1, 2])], 9n);
 peer.step();

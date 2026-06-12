@@ -12,7 +12,7 @@ keys, allowlists, and middleware. In pancake it is one `spawn` away.
 Run it:
 
 ```sh
-zig build tools
+zig build demo-tools
 ```
 
 That starts a Deno coordinator and runs one agent per available language against
@@ -21,6 +21,12 @@ runtimes are on PATH. The coordinator and the agent are different languages on t
 wire, so the capability passing, attenuation, and revocation are real — not
 in-process tricks. Each agent prints `ok` for every property and exits non-zero if
 any fails.
+
+By default the demo binds an ephemeral port; pin it with
+`zig build demo-tools -Dport=9099`. To run the agents against a coordinator you
+already started yourself, add attach mode:
+`zig build demo-tools -Dport=9099 -Dattach=true` joins your coordinator instead
+of spawning one, and leaves it running when the demo ends.
 
 ## The three properties, and why they are ordinary code
 
@@ -40,7 +46,7 @@ if (verb === GRANT) return conn.spawn(toolFor(name));
 ```typescript
 // agent
 const clock = await conn.send(tools, "grant", ["clock"]);
-const now = await conn.send(clock, "now"); // it just works — clock is a capability
+const now = await conn.send(clock, "now"); // an ordinary call — clock is a capability
 ```
 
 The agent received a reference it can call. It did not receive a URL, a token, or
@@ -58,7 +64,7 @@ function readOnly(tool) {
 ```
 
 The agent gets `grant("files-readonly")`, reads successfully, and its write breaks.
-There is no "permission" field anywhere — the attenuated capability simply cannot
+There is no "permission" field anywhere — the attenuated capability cannot
 express a write.
 
 ### Revocation — a forwarder you can switch off
@@ -80,10 +86,11 @@ of who-can-do-what.
 ### Least authority, by construction
 
 The fourth property is the one you cannot show with a positive assertion: the
-agent can reach *exactly* the capabilities it was granted. There is no ambient
-authority — no global namespace, no "list all tools" it can call, no way to forge
-a reference. A tool it was never handed is unreachable, not merely forbidden. That
-is the property that makes a capability harness safe to point an LLM at.
+agent holds *exactly* the references it was granted. There is no ambient
+authority — no global namespace, no "list all tools" it can call, no directory to
+walk. Export positions are private to a connection, not names in a shared space,
+so no reference the coordinator never sent the agent points to a tool. That is the
+property that makes a capability harness safe to point an LLM at.
 
 ## Why this matters for AI
 
@@ -112,5 +119,5 @@ examples/apps/tools/
 ├── racket/agent.rkt   the same agent, in Racket
 ├── rust/agent.rs      the same agent, in Rust (its own crate)
 ├── zig/agent.zig      the same agent, in native Zig, on the connection driver
-└── demo.ts            the orchestrator `zig build tools` runs
+└── demo.ts            the orchestrator `zig build demo-tools` runs
 ```

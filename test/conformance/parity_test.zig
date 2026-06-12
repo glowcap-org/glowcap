@@ -1,11 +1,11 @@
 const std = @import("std");
-const pancake = @import("pancake");
+const conformance = @import("conformance");
 
 test "stage0 abort scenario matches oracle trace" {
     const allocator = std.testing.allocator;
     const expected = @embedFile("../oracles/stage0_abort.trace");
 
-    const actual = try pancake.conformance.runStage0Abort(allocator);
+    const actual = try conformance.runStage0Abort(allocator);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(expected, actual);
@@ -14,7 +14,7 @@ test "stage0 abort scenario matches oracle trace" {
 test "driven runner transfers outbound frame between peers" {
     const allocator = std.testing.allocator;
 
-    const actual = try pancake.conformance.runDrivenAbort(allocator);
+    const actual = try conformance.runDrivenAbort(allocator);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(
@@ -26,7 +26,7 @@ test "driven runner transfers outbound frame between peers" {
 test "driven deliver/resolve round-trips a question across paired peers" {
     const allocator = std.testing.allocator;
 
-    const actual = try pancake.conformance.runDrivenDeliverResolve(allocator, .syrup);
+    const actual = try conformance.runDrivenDeliverResolve(allocator, .syrup);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(
@@ -42,7 +42,7 @@ test "driven deliver/resolve round-trips a question across paired peers" {
 test "handshake then bootstrap-fetch auto-serves the registered cap" {
     const allocator = std.testing.allocator;
 
-    const actual = try pancake.conformance.runHandshakeThenBootstrapFetch(allocator, .syrup);
+    const actual = try conformance.runHandshakeThenBootstrapFetch(allocator, .syrup);
     defer allocator.free(actual);
 
     try std.testing.expectEqualStrings(
@@ -56,16 +56,16 @@ test "handshake then bootstrap-fetch auto-serves the registered cap" {
     );
 }
 
-// Cross-codec semantic parity (Invariant 8's two-codec requirement): a scenario
-// driven over Syrup and over Cap'n Proto must produce byte-identical semantic
-// traces. The session state machine is codec-neutral; the codec only decides
+// Cross-codec semantic parity — a feature in one codec without the other is
+// incomplete: a scenario driven over Syrup and over Cap'n Proto must produce
+// byte-identical semantic traces. The session state machine is codec-neutral; the codec only decides
 // wire bytes, so the observable trace cannot depend on which codec carried it.
 test "deliver/resolve trace is identical on Syrup and Cap'n Proto" {
     const allocator = std.testing.allocator;
 
-    const syrup = try pancake.conformance.runDrivenDeliverResolve(allocator, .syrup);
+    const syrup = try conformance.runDrivenDeliverResolve(allocator, .syrup);
     defer allocator.free(syrup);
-    const capnp = try pancake.conformance.runDrivenDeliverResolve(allocator, .capnp);
+    const capnp = try conformance.runDrivenDeliverResolve(allocator, .capnp);
     defer allocator.free(capnp);
 
     try std.testing.expectEqualStrings(syrup, capnp);
@@ -74,9 +74,9 @@ test "deliver/resolve trace is identical on Syrup and Cap'n Proto" {
 test "bootstrap-fetch trace is identical on Syrup and Cap'n Proto" {
     const allocator = std.testing.allocator;
 
-    const syrup = try pancake.conformance.runHandshakeThenBootstrapFetch(allocator, .syrup);
+    const syrup = try conformance.runHandshakeThenBootstrapFetch(allocator, .syrup);
     defer allocator.free(syrup);
-    const capnp = try pancake.conformance.runHandshakeThenBootstrapFetch(allocator, .capnp);
+    const capnp = try conformance.runHandshakeThenBootstrapFetch(allocator, .capnp);
     defer allocator.free(capnp);
 
     try std.testing.expectEqualStrings(syrup, capnp);
@@ -85,12 +85,12 @@ test "bootstrap-fetch trace is identical on Syrup and Cap'n Proto" {
 test "inbound dispatch is identical across the borrowed and owned entry points" {
     const allocator = std.testing.allocator;
 
-    // Invariant 14: both inbound entries converge on one dispatcher, so the same
-    // frame must produce byte-identical observable output (events, outbound,
-    // session state) regardless of which entry carried it.
-    const borrowed = try pancake.conformance.runInboundMode(allocator, .borrowed);
+    // Both inbound entries converge on one dispatcher, so the same frame must
+    // produce byte-identical observable output (events, outbound, session
+    // state) regardless of which entry carried it.
+    const borrowed = try conformance.runInboundMode(allocator, .borrowed);
     defer allocator.free(borrowed);
-    const owned = try pancake.conformance.runInboundMode(allocator, .owned);
+    const owned = try conformance.runInboundMode(allocator, .owned);
     defer allocator.free(owned);
 
     try std.testing.expectEqualStrings(borrowed, owned);

@@ -1,8 +1,8 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.model;
-const capnp = pancake.codec.capnp;
+const model = pancake.ocapn.model;
+const capnp = pancake.ocapn.codec.capnp;
 const wire = capnp.wire;
 
 test "struct pointer round-trips offset and section sizes (both signs)" {
@@ -51,7 +51,7 @@ test "decodeBody projects the neutral view with lazy capnp backings (nested args
     const nested = [_]model.Argument{ .{ .symbol = "sym" }, .{ .integer = 7 } };
     const args = [_]model.Argument{ .{ .bytes = "ping" }, .{ .list = &nested } };
     const original = model.Message{ .deliver = .{
-        .target = .{ .far = .{ .import_id = 9 } },
+        .target = .{ .far = .{ .import_position = 9 } },
         .args = &args,
         .answer = 5,
         .resolve_me_desc = null,
@@ -62,7 +62,7 @@ test "decodeBody projects the neutral view with lazy capnp backings (nested args
 
     const body = try capnp.decodeBody(frame.view());
     // Wire `far` (sender's import) flips to a `near` export on decode (ADR-0010).
-    try std.testing.expectEqual(@as(u64, 9), body.deliver.target.near.export_id);
+    try std.testing.expectEqual(@as(u64, 9), body.deliver.target.near.export_position);
     try std.testing.expectEqual(@as(?u64, 5), body.deliver.answer);
 
     try std.testing.expectEqual(@as(usize, 2), try body.deliver.args.len());
@@ -72,6 +72,121 @@ test "decodeBody projects the neutral view with lazy capnp backings (nested args
     try std.testing.expectEqual(@as(usize, 2), try inner.len());
     try std.testing.expectEqualSlices(u8, "sym", (try inner.at(0)).symbol);
     try std.testing.expectEqual(@as(i64, 7), (try inner.at(1)).integer);
+}
+
+test "a Struct argument round-trips through the Cap'n Proto codec" {
+    const allocator = std.testing.allocator;
+
+    // Two heterogeneous entries built in non-canonical order; the codec carries a
+    // struct as a composite list of (key text, value Argument) entry structs and
+    // emits them in canonical key order (ADR-0046).
+    const entries = [_]model.StructEntry{
+        .{ .key = "name", .value = .{ .string = "tabby" } },
+        .{ .key = "age", .value = .{ .integer = 12 } },
+    };
+    const args = [_]model.Argument{.{ .@"struct" = entries[0..] }};
+    const original = model.Message{ .deliver = .{
+        .target = .{ .far = .{ .import_position = 7 } },
+        .args = &args,
+        .answer = 3,
+        .resolve_me_desc = null,
+    } };
+
+    var frame = try capnp.encodeMessage(allocator, original);
+    defer frame.deinit();
+
+    // Owned round-trip: decode and compare with order-independent struct equality.
+    const decoded = try capnp.decodeOwned(allocator, frame.view());
+    defer model.freeMessage(allocator, decoded);
+    try std.testing.expect(decoded.deliver.args[0] == .@"struct");
+    try std.testing.expect(model.equality.argumentsEqual(args[0], decoded.deliver.args[0]));
+
+    // Borrowed view: the lazy StructEntries backing walks (key, value) pairs.
+    const body = try capnp.decodeBody(frame.view());
+    const arg = try body.deliver.args.at(0);
+    try std.testing.expect(arg == .@"struct");
+    try std.testing.expectEqual(@as(usize, 2), try arg.@"struct".len());
+    // Canonical order: "age" sorts before "name".
+    const first = try arg.@"struct".at(0);
+    try std.testing.expectEqualStrings("age", first.key);
+    try std.testing.expectEqual(@as(i64, 12), first.value.integer);
+}
+
+test "a Struct with duplicate keys is refused on the live view path" {
+    const allocator = std.testing.allocator;
+
+    // Encode a well-formed two-key struct, then patch the second key's bytes to
+    // repeat the first — the duplicate-key frame a hostile peer would send,
+    // word-shaped like every Cap'n Proto frame. Each key must be non-Equal to
+    // every other within a Struct (ADR-0046 / Model.md § Struct), so the codec
+    // refuses the frame at the parse boundary, on the same projection the
+    // engine dispatches (`decodeBody`) — not only in an owned re-walk.
+    const entries = [_]model.StructEntry{
+        .{ .key = "k1", .value = .{ .integer = 1 } },
+        .{ .key = "k2", .value = .{ .integer = 2 } },
+    };
+    const args = [_]model.Argument{.{ .@"struct" = entries[0..] }};
+    var frame = try capnp.encodeMessage(allocator, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &args,
+        .answer = 3,
+        .resolve_me_desc = null,
+    } });
+    defer frame.deinit();
+
+    const buf = try allocator.dupe(u8, frame.bytes());
+    defer allocator.free(buf);
+    const second_key = std.mem.indexOf(u8, buf, "k2") orelse return error.TestUnexpectedResult;
+    @memcpy(buf[second_key .. second_key + 2], "k1");
+    const view = pancake.foundation.FrameView{ .bytes = buf, .shape = .word };
+
+    // Framing stays lazy (the header delimits the frame), so the body projects;
+    // the refusal fires the moment the struct argument itself is projected.
+    const body = try capnp.decodeBody(view);
+    try std.testing.expectError(error.MalformedView, body.deliver.args.at(0));
+    try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, view));
+}
+
+test "a big integer argument round-trips through the Cap'n Proto codec" {
+    const allocator = std.testing.allocator;
+
+    // 2^128: sign on the discriminant word's bit 16, canonical decimal digits
+    // as the data field (ADR-0049).
+    const big = model.Argument{ .big_integer = .{
+        .negative = true,
+        .digits = "340282366920938463463374607431768211456",
+    } };
+    const args = [_]model.Argument{big};
+    const original = model.Message{ .deliver = .{
+        .target = .{ .far = .{ .import_position = 7 } },
+        .args = &args,
+        .answer = 3,
+        .resolve_me_desc = null,
+    } };
+
+    var frame = try capnp.encodeMessage(allocator, original);
+    defer frame.deinit();
+
+    const decoded = try capnp.decodeOwned(allocator, frame.view());
+    defer model.freeMessage(allocator, decoded);
+    try std.testing.expect(model.equality.argumentsEqual(big, decoded.deliver.args[0]));
+
+    // Borrowed view: the digits borrow the frame's data bytes.
+    const body = try capnp.decodeBody(frame.view());
+    const arg = try body.deliver.args.at(0);
+    try std.testing.expect(arg == .big_integer);
+    try std.testing.expect(arg.big_integer.negative);
+    try std.testing.expectEqualStrings("340282366920938463463374607431768211456", arg.big_integer.digits);
+
+    // Symmetric refusal: a magnitude that belongs to the `integer` arm is
+    // refused at encode, never rendered.
+    const small = model.Message{ .deliver = .{
+        .target = .{ .far = .{ .import_position = 7 } },
+        .args = &.{.{ .big_integer = .{ .negative = false, .digits = "7" } }},
+        .answer = 3,
+        .resolve_me_desc = null,
+    } };
+    try std.testing.expectError(error.UnsupportedArgument, capnp.encodeMessage(allocator, small));
 }
 
 test "decodeBody projects a PositionList backing for gc-exports" {
@@ -87,7 +202,7 @@ test "decodeBody projects a PositionList backing for gc-exports" {
     try std.testing.expectEqual(@as(u64, 2), try body.gc_export.deltas.at(2));
 }
 
-test "decodeView projects the body over borrowed frame bytes; toOwned materializes" {
+test "decodeMessageView projects the body over borrowed frame bytes; toOwned materializes" {
     const allocator = std.testing.allocator;
 
     const original = model.Message{ .gc_answer = .{ .positions = &.{ 7, 11, 13 } } };
@@ -95,7 +210,7 @@ test "decodeView projects the body over borrowed frame bytes; toOwned materializ
     var frame = try capnp.encodeMessage(allocator, original);
     defer frame.deinit();
 
-    const view = try capnp.decodeView(frame.view());
+    const view = try capnp.decodeMessageView(frame.view());
     try std.testing.expectEqual(capnp.Kind.gc_answer, view.kind);
 
     const decoded = try view.toOwned(allocator);
@@ -120,9 +235,9 @@ test "empty position list round-trips" {
 /// Verify a message survives the wire intact. The codec flips reference
 /// perspective on every crossing (ADR-0010): an encoded model `near` (our
 /// export) decodes to a `far` import, and vice versa. The flip is an
-/// involution, so two encode→decode crossings restore the original
+/// involution, so two encode-decode crossings restore the original
 /// perspective — the bytes after the second crossing equal the first encoding
-/// iff every field `decodeOwned` touches survived both crossings. Because the
+/// exactly when every field `decodeOwned` touches survived both crossings. Because the
 /// encoder renders every model field, that byte-equality proves faithful
 /// reconstruction.
 fn expectRoundTrip(message: model.Message) !void {
@@ -150,13 +265,37 @@ test "abort round-trips with typed kind and message" {
     try expectRoundTrip(.{ .abort = .{ .kind = .normal_shutdown, .message = "" } });
 }
 
+test "Cap'n Proto refuses to encode a locator carrying hint entries instead of dropping them" {
+    // The layout carries only the two empty hint spellings. Dropping entries
+    // silently would put a different locator on the wire than the caller named,
+    // so a hint-carrying locator must fail loud.
+    const pubkey = [_]u8{0xaa} ** 32;
+    const sig = [_]u8{0xcc} ** 64;
+    const entries = [_]model.HintEntry{
+        .{ .name = "host", .value = .{ .string = "127.0.0.1" } },
+    };
+
+    try std.testing.expectError(capnp.Error.UnsupportedArgument, capnp.encodeMessage(std.testing.allocator, .{
+        .start_session = .{
+            .captp_version = .v1_0,
+            .session_pubkey = .{ .bytes = pubkey[0..] },
+            .acceptable_location = .{
+                .transport = "tcp",
+                .designator = "127.0.0.1:9001",
+                .hints = .{ .entries = &entries },
+            },
+            .acceptable_location_sig = .{ .bytes = sig[0..] },
+        },
+    }));
+}
+
 test "gc-export round-trips parallel position/delta lists" {
     try expectRoundTrip(.{ .gc_export = .{ .positions = &.{ 2, 5, 8 }, .deltas = &.{ 1, 1, 3 } } });
 }
 
 test "resolve round-trips fulfill and break" {
     try expectRoundTrip(.{ .resolve = .{ .answer = 42, .resolution = .{ .fulfill = .{ .integer = -7 } } } });
-    try expectRoundTrip(.{ .resolve = .{ .answer = 9, .resolution = .{ .break_ = .{ .message = "boom" } } } });
+    try expectRoundTrip(.{ .resolve = .{ .answer = 9, .resolution = .{ .@"break" = .{ .message = "boom" } } } });
 }
 
 test "reference arms round-trip through deliver target" {
@@ -172,7 +311,7 @@ test "deliver round-trips args, answer, and a promise target with pipeline path"
     const call_args = [_]model.Argument{.{ .string = "ping" }};
     const path_ops = [_]model.PipelineOp{ .{ .field = "field" }, .{ .call = &call_args } };
     try expectRoundTrip(.{ .deliver = .{
-        .target = .{ .promise = .{ .answer_id = 1, .path = .{ .ops = &path_ops } } },
+        .target = .{ .promise = .{ .answer_position = 1, .path = .{ .ops = &path_ops } } },
         .args = &.{
             .{ .bytes = &.{ 1, 2, 3 } },
             .{ .symbol = "run" },
@@ -194,6 +333,7 @@ test "listen, get, and index round-trip" {
     } });
     try expectRoundTrip(.{ .get = .{ .receiver = .{ .far = model.FarRef.object(5) }, .field = "value", .answer = 8 } });
     try expectRoundTrip(.{ .index = .{ .receiver = .{ .far = model.FarRef.object(6) }, .index = -3, .answer = 9 } });
+    try expectRoundTrip(.{ .untag = .{ .receiver = .{ .far = model.FarRef.object(5) }, .tag = "cm", .answer = 8 } });
 }
 
 test "start-session round-trips the four-operand handshake" {
@@ -299,7 +439,7 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
             .resolve_me_desc = .{ .near = model.NearRef.promise(3) },
         } },
         .{ .deliver = .{
-            .target = .{ .promise = .{ .answer_id = 1, .path = .{ .ops = &path_ops } } },
+            .target = .{ .promise = .{ .answer_position = 1, .path = .{ .ops = &path_ops } } },
             .args = &.{},
         } },
         .{ .deliver = .{
@@ -309,7 +449,7 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
             } },
             .args = &.{},
         } },
-        .{ .resolve = .{ .answer = 9, .resolution = .{ .break_ = .{ .message = "boom" } } } },
+        .{ .resolve = .{ .answer = 9, .resolution = .{ .@"break" = .{ .message = "boom" } } } },
         .{ .resolve = .{ .answer = 2, .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(6) } } } } },
         .{ .gc_export = .{ .positions = &.{ 2, 5, 8 }, .deltas = &.{ 1, 1, 3 } } },
         .{ .abort = .{ .kind = .version_mismatch, .message = "expected ocapn-1.0" } },
@@ -320,6 +460,7 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
         } },
         .{ .get = .{ .receiver = .{ .far = model.FarRef.object(5) }, .field = "value", .answer = 8 } },
         .{ .index = .{ .receiver = .{ .far = model.FarRef.object(6) }, .index = -3, .answer = 9 } },
+        .{ .untag = .{ .receiver = .{ .far = model.FarRef.object(5) }, .tag = "cm", .answer = 8 } },
         .{ .start_session = .{
             .captp_version = .v1_0,
             .session_pubkey = .{ .bytes = &([_]u8{0xab} ** 32) },
@@ -355,7 +496,7 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
                     model.freeMessage(allocator, decoded);
                 } else |_| {}
 
-                if (capnp.decodeView(view)) |v| {
+                if (capnp.decodeMessageView(view)) |v| {
                     if (v.toOwned(allocator)) |owned| {
                         model.freeMessage(allocator, owned);
                     } else |_| {}
@@ -403,7 +544,9 @@ test "decodeOwned bounds nesting depth: an over-deep frame fails loud, never ove
     // Build one argument nested in single-element lists `depth` deep — the shape a
     // hostile peer would craft to drive the decoder's recursion off the stack. The
     // encoder has no depth limit, so it produces exactly the over-deep frame the
-    // decoder must reject. 260 sits just past the decoder's bound (256).
+    // decoder must reject. 260 sits just past the shared view materializer's bound
+    // (`model.view.max_owned_depth`, 256), which is the one owned path now that
+    // `decodeOwned` is `decodeBody` + `toOwned`.
     var arg: model.Argument = .{ .void = {} };
     var i: usize = 0;
     while (i < 260) : (i += 1) {
@@ -420,5 +563,5 @@ test "decodeOwned bounds nesting depth: an over-deep frame fails loud, never ove
     const frame = try capnp.encodeMessageForProfile(arena, .pre_spec, message);
     // The bound fires with a typed error; the testing allocator also proves the
     // rejection path freed every partial allocation (no leak on the error path).
-    try std.testing.expectError(error.MalformedFrame, capnp.decodeOwned(allocator, frame.view()));
+    try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, frame.view()));
 }

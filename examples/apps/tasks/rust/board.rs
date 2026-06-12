@@ -1,6 +1,6 @@
 //! A small, friendly client for the tasks board, built on pancake actors.
 //!
-//! On the new connection API this is barely a layer: connect, fetch the board by
+//! On the connection API this is barely a layer: connect, fetch the board by
 //! name, publish a watcher, and call `add`/`done`/`list`. The pancake
 //! `Connection` owns the peer on a background task, so the application above sees
 //! only the board methods.
@@ -63,12 +63,15 @@ impl Board {
 
         // Watch the board so changes are pushed to us (we ignore the updates in
         // this one-shot client, but it exercises the capability callback).
-        let watcher = conn.spawn(|verb, _args| {
-            if verb != "update" {
-                return Err(format!("watcher has no method {verb}"));
-            }
-            Ok(Argument::Void)
-        });
+        let watcher = conn
+            .spawn(|verb, _args| {
+                if verb != "update" {
+                    return Err(format!("watcher has no method {verb}"));
+                }
+                Ok(Argument::Void)
+            })
+            .await
+            .map_err(|e| format!("spawn watcher: {e:?}"))?;
         conn.send(&board, "watch", &[(&watcher).into()])
             .await
             .map_err(|e| format!("watch: {e:?}"))?;

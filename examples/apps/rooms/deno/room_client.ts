@@ -1,17 +1,25 @@
 // A small, friendly client for the rooms chat, built on pancake actors.
 //
-// This is the layer that knows about OCapN — and on the new connection API it is
+// This is the layer that knows about OCapN — and on the connection API it is
 // barely a layer at all: connect, fetch the room by name, spawn an inbox the room
 // can call back, subscribe by handing it that capability, and surface the room's
 // callbacks as a stream. Everything above it — the terminal client, the web UI —
 // reads like an app, not like a protocol.
 //
-//   const room = await Room.join("127.0.0.1", 9099, "alice");
+//   const room = await Room.join("127.0.0.1:9099", "alice");
 //   room.say("hello");
 //   for await (const msg of room.messages) console.log(msg.from, msg.text);
 //   await room.leave();
+//
+// The locator carries the transport: a `host:port` joins over TCP, an
+// `ocapn://<nodeid>.iroh?…` URI joins over iroh — `Room.join` dials whichever
+// the string names.
 
-import { connect, type Connection, type Ref } from "../../../../bindings/deno/pancake.ts";
+import {
+  type Connection,
+  type Ref,
+} from "../../../../bindings/deno/pancake.ts";
+import { dial } from "./locator.ts";
 import { NOTIFY, POST, ROOM, SUBSCRIBE } from "./protocol.ts";
 
 /** One line in the room. `system` is true for the room's own announcements (a
@@ -45,11 +53,11 @@ export class Room {
     });
   }
 
-  /** Join the room at `host:port` as `nick`: connect, fetch the room by name,
-   * publish an inbox the room can call back, and subscribe by handing it that
-   * capability. */
-  static async join(host: string, port: number, nick: string): Promise<Room> {
-    const conn = await connect(host, port);
+  /** Join the room at `locator` (a `host:port` for TCP or an `ocapn://…iroh?…`
+   * URI for iroh) as `nick`: connect, fetch the room by name, publish an inbox
+   * the room can call back, and subscribe by handing it that capability. */
+  static async join(locator: string, nick: string): Promise<Room> {
+    const conn = await dial(locator);
     // Start the inbound loop before fetching, so the fetch's resolution arrives.
     conn.serve().catch(() => {});
     const room = await conn.fetch(ROOM);
@@ -68,8 +76,15 @@ export class Room {
     conn.serve().finally(() => self.#endStream());
 
     // Subscribe, handing the room a capability to our inbox. The welcome it
-    // returns is our first line.
-    const welcome = await conn.send(room, SUBSCRIBE, [nick, inbox]);
+    // returns is our first line. A rejected claim must release the connection we
+    // opened before surfacing the broken vow to the caller.
+    const welcome = await conn.send(room, SUBSCRIBE, [nick, inbox]).catch(
+      async (err) => {
+        conn.close();
+        await conn.serve().catch(() => {});
+        throw err;
+      },
+    );
     self.#emit("room", typeof welcome === "string" ? welcome : "joined");
     return self;
   }

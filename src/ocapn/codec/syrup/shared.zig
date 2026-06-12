@@ -1,0 +1,61 @@
+//! The types both halves of the Syrup codec share: the `Error` and
+//! `WalkError` sets.
+//!
+//! Syrup is the byte-record format, the self-delimiting alternative to Cap'n
+//! Proto. It carries the same `model.Message` tree as length-prefixed records
+//! (`<...>`), lists (`[...]`), symbols, strings, and integers. The encode half
+//! lives in `encode` (`encodeMessage` and the `write*` primitives beneath it)
+//! and the decode half lives in `decode` (`decodeBody`, `decodePrefix`, which
+//! doubles as the stream framer per ADR-0029, and `decodeOwned`, which is
+//! `decodeBody` followed by `model.view.Body.toOwned`). Both halves come out
+//! through the `syrup` barrel in `mod.zig`, and `codec.capnp` is the
+//! word-aligned counterpart with the same decode/encode/shared split.
+//!
+//! As everywhere in the codec layer, this only describes and routes bytes. It
+//! holds no session authority. Every frame the decoder reads is potentially
+//! hostile, so the length math on each prefix is checked and the recursive
+//! readers stop at a fixed nesting bound, which means a deeply nested frame fails
+//! loudly instead of running off the stack.
+
+const std = @import("std");
+
+const foundation = @import("foundation");
+
+pub const Error = error{
+    InvalidFrameShape,
+    MalformedFrame,
+    UnsupportedArgument,
+    UnsupportedMessage,
+    UnsupportedReference,
+    /// The buffer ends inside a message — a leaf reader ran past the available
+    /// bytes. This is an internal framing signal, not a public decode failure:
+    /// the whole-frame `decodeBody` folds it into `MalformedFrame` (a frame
+    /// must be complete), while the streaming `decodePrefix` surfaces it as
+    /// `.incomplete` so the caller reads more bytes. No structurally-valid
+    /// frame ever yields it from `decodeBody`.
+    Incomplete,
+    /// The in-flight message cannot fit inside the streaming byte cap — a
+    /// length prefix declared a body past `max_frame_bytes`, or the decode walk
+    /// crossed it. Like `Incomplete`, this is an internal framing signal: only
+    /// `decodePrefix` can raise it (it threads the cap into the walk per
+    /// ADR-0029) and it surfaces as the `.too_large` verdict; whole-frame entry
+    /// points decode uncapped and never yield it.
+    FrameTooLarge,
+};
+
+/// The error set of the mutually-recursive encode/decode walkers — the encoder
+/// cycle, where `writeArgument`, `writeArgumentList`, and `writeCanonicalSet`
+/// call one another, and the handoff readers. Zig cannot infer an error set
+/// around a recursive cycle, so
+/// these would otherwise have to fall back to the fully-erased error set and lose
+/// exhaustiveness at every call site. Naming the union — the codec's structural
+/// `Error`, the allocator's `OutOfMemory`, and `NoSpaceLeft` from the
+/// fixed-buffer length-prefix formatter the encoders use — keeps them precisely
+/// typed. (`NoSpaceLeft` is unreachable in practice: the buffer is sized for the
+/// widest integer; it is named here only because the formatter's type carries it.)
+pub const WalkError = Error || std.mem.Allocator.Error || error{NoSpaceLeft};
+
+/// The public encode entry points' error set: the recursive walk's `WalkError`
+/// plus the frame constructor's shape refusal — the same named-set posture as
+/// `capnp.EncodeError`.
+pub const EncodeError = WalkError || foundation.Frame.Error;

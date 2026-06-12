@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head id="head">
+		<meta charset="utf-8">
+		<meta name="viewport" content="initial-scale=1, width=device-width">
+		<title :text="$site.title"></title>
+		<meta name="description" content="pancake is a codec-neutral CapTP core for OCapN, written in Zig and consumed from Zig, C, and four language bindings.">
+		<link rel="icon" type="image/svg+xml" href="$site.asset('favicon.svg').link()">
+		<link type="text/css" rel="stylesheet" href="$site.asset('style.css').link()">
+		<super>
+	</head>
+	<body id="body">
+		<a class="skip-link" href="#content">Skip to content</a>
+		<header class="site-header">
+			<a class="brand" href="$site.page('').link()">
+				<img class="brand-mark" src="$site.asset('favicon.svg').link()" alt="" width="26" height="26">
+				<span class="brand-name">pancake</span>
+			</a>
+			<nav class="top-nav" aria-label="Site">
+				<a href="$site.page('reference').link()">API reference</a>
+				<a href="https://codeberg.org/jimisaacs/pancake">Source</a>
+			</nav>
+		</header>
+		<div class="shell">
+			<aside class="sidebar">
+				<nav class="nav" aria-label="Documentation">
+					<span class="nav-heading">Build</span>
+					<a class="$site.page('start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('start').link()">Start building</a>
+					<a class="$site.page('examples').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('examples').link()">Examples &amp; demo apps</a>
+					<span class="nav-heading">Explore</span>
+					<a class="$site.page('concepts').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('concepts').link()">Concepts</a>
+					<a class="$site.page('codecs').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('codecs').link()">Codecs</a>
+					<a class="$site.page('transports').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('transports').link()">Transports</a>
+					<a class="$site.page('modules').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('modules').link()">The modules</a>
+					<span class="nav-heading">Consume</span>
+					<a class="$site.page('surfaces').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('surfaces').link()">Surfaces</a>
+					<a class="$site.page('bindings').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('bindings').link()">Bindings</a>
+					<div class="nav-sub">
+						<a class="$site.page('bindings/rust').isCurrent().then('is-current', '')" href="$site.page('bindings/rust').link()">Rust</a>
+						<a class="$site.page('bindings/deno').isCurrent().then('is-current', '')" href="$site.page('bindings/deno').link()">Deno</a>
+						<a class="$site.page('bindings/python').isCurrent().then('is-current', '')" href="$site.page('bindings/python').link()">Python</a>
+						<a class="$site.page('bindings/racket').isCurrent().then('is-current', '')" href="$site.page('bindings/racket').link()">Racket</a>
+					</div>
+					<span class="nav-heading">Know</span>
+					<a class="$site.page('protocol').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('protocol').link()">Protocol cheatsheet</a>
+					<a class="$site.page('reference').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('reference').link()">API reference</a>
+					<a class="$site.page('reference/api').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('reference/api').link()">Zig API (autodoc)</a>
+					<a class="$site.page('performance').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('performance').link()">Performance</a>
+					<a class="$site.page('project').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('project').link()">Project &amp; status</a>
+				</nav>
+			</aside>
+			<main id="content">
+				<super>
+			</main>
+		</div>
+		<footer class="site-footer">
+			<hr>
+			<p>
+				pancake is licensed Apache-2.0 ·
+				<a href="https://codeberg.org/jimisaacs/pancake">Codeberg</a>
+			</p>
+		</footer>
+	</body>
+</html>

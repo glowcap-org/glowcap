@@ -1,0 +1,8 @@
+Site {
+    .title = "pancake",
+    .host_url = "https://jimisaacs.codeberg.page",
+    .url_path_prefix = "pancake",
+    .content_dir_path = "content",
+    .layouts_dir_path = "layouts",
+    .assets_dir_path = "assets",
+}

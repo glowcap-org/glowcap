@@ -1,11 +1,11 @@
 """A small, friendly client for the rooms chat, built on pancake actors.
 
-On the new connection API this is barely a layer: connect, fetch the room by
+On the connection API this is barely a layer: connect, fetch the room by
 name, spawn an inbox the room can call back, subscribe by handing it that
 capability, and surface the room's callbacks as a stream. Everything above it
 reads like an app.
 
-    room = await Room.join("127.0.0.1", 9099, "alice")
+    room = await Room.join("127.0.0.1:9099", "alice")
     await room.say("hello")
     async for msg in room:
         print(msg.sender, msg.text)
@@ -23,10 +23,23 @@ from typing import Optional
 # The idiomatic binding lives in bindings/python; add it to the path.
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[4] / "bindings" / "python"))
 
-from pancake import Connection, connect  # noqa: E402
+from pancake import Connection, Reachability, connect, connect_iroh_uri  # noqa: E402
 
 ROOM = "room"
 SUBSCRIBE, POST, NOTIFY = "subscribe", "post", "notify"
+
+
+async def _dial(locator: str) -> Connection:
+    """Dial a transport-neutral rooms locator: an ``ocapn://`` URI goes over iroh,
+    a bare ``host:port`` over TCP. The room's wire is identical either way; only
+    how a member reaches it differs. The rooms URI carries direct-address hints,
+    so the iroh dial uses the explicit ``Reachability.DIRECT`` posture."""
+    if "://" in locator:
+        return await connect_iroh_uri(locator, Reachability.DIRECT)
+    colon = locator.rfind(":")
+    if colon < 0:
+        raise ValueError(f"rooms locator is neither host:port nor an ocapn:// URI: {locator}")
+    return await connect(locator[:colon], int(locator[colon + 1:]))
 
 
 @dataclass
@@ -50,8 +63,8 @@ class Room:
         self._leaving = False
 
     @classmethod
-    async def join(cls, host: str, port: int, nick: str) -> "Room":
-        conn = await connect(host, port)
+    async def join(cls, locator: str, nick: str) -> "Room":
+        conn = await _dial(locator)
         conn.serve()  # start the inbound loop before fetching
         room = await conn.fetch(ROOM)
         self = cls(conn, room)

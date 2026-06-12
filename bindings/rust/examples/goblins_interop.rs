@@ -17,35 +17,49 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 
 const HOST: &str = "127.0.0.1";
-const PORT: u16 = 22096;
+/// The Goblins vat's fixed port; `--port=N` (from
+/// `zig build rust-goblins-interop -Dport=N`) moves it when 22096 is taken.
+const DEFAULT_PORT: u16 = 22096;
 const RACKET: &str = "/usr/local/bin/racket";
 const HOST_SCRIPT: &str = "conformance/goblins-peer/racket/goblins-host.rkt";
 
 type Fail = Box<dyn std::error::Error>;
 
+fn parse_port() -> Result<u16, Fail> {
+    let mut port = DEFAULT_PORT;
+    for arg in std::env::args().skip(1) {
+        match arg.strip_prefix("--port=") {
+            Some(text) => port = text.parse()?,
+            None => return Err(format!("unknown argument '{arg}'").into()),
+        }
+    }
+    Ok(port)
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
+    let port = parse_port()?;
     let mut child = Command::new(RACKET)
-        .args([HOST_SCRIPT, HOST, &PORT.to_string()])
+        .args([HOST_SCRIPT, HOST, &port.to_string()])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()?;
 
     let swiss = read_swiss(&mut child).await?;
-    println!("rust-goblins-interop: goblins published echo swiss={swiss} on {HOST}:{PORT}");
+    println!("rust-goblins-interop: goblins published echo swiss={swiss} on {HOST}:{port}");
 
     // The `Connection` is `!Send`, so it lives on a `LocalSet`.
     let local = tokio::task::LocalSet::new();
-    let result = local.run_until(converse(swiss)).await;
+    let result = local.run_until(converse(swiss, port)).await;
     let _ = child.kill().await;
     result
 }
 
-async fn converse(swiss: String) -> Result<(), Fail> {
+async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
     // `connect` completes the keyed handshake; reaching the fetch means Goblins
     // accepted our signed start-session and we accepted its.
-    let conn = connect((HOST, PORT)).await?;
+    let conn = connect((HOST, port)).await?;
     println!("rust-goblins-interop: session open, keyed start-session accepted by goblins");
 
     let echo = conn.fetch(&swiss).await?;

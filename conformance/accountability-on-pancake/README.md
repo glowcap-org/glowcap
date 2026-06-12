@@ -1,6 +1,6 @@
 # conformance/accountability-on-pancake
 
-The accountability worked example, moved onto pancake as its CapTP runtime. Same
+The accountability worked example, moved onto pancake as its CapTP substrate. Same
 shape as `accountability-on-goblins` — KERI-anchored identity, a signed Episode
 per capability invocation, a Merkle transparency log — but the wire underneath is
 pancake's own `engine.Peer`, not Goblins.
@@ -56,8 +56,8 @@ The run walks eight steps and asserts each:
 | `deno/caller.ts` | Deno caller: signs with Ed25519, invokes the Zig host over OCapN/TCP. |
 | `deno/demo.ts` | Cross-seam orchestrator: starts the Zig host, runs Deno + Python callers. |
 | `python/caller.py` | Python caller: signs with PyNaCl Ed25519, invokes the Zig host. |
-| `why-this-couldnt-be-http.md` | Why the three-party accountability story needs OCapN, not HTTP. |
-| `FRICTION.md` | Every place pancake was harder to build on than it should be. |
+| [`why-this-couldnt-be-http.md`](why-this-couldnt-be-http.md) | Why the three-party accountability story needs OCapN, not HTTP. |
+| [`FRICTION.md`](FRICTION.md) | Every place pancake was harder to build on than it should be. |
 
 ## Generated State
 
@@ -74,7 +74,7 @@ time. It is generated state (gitignored), never committed.
   its own `zig build accountability` step. It needs no runtime beyond Zig.
 - Editable worked example: change it when it stops teaching the right boundary.
 
-## Cross-language (Zig host + Deno caller)
+## Cross-language (Zig host + Deno and Python callers)
 
 The same Affordance that runs natively in Zig is reachable from a Deno caller
 over the real C ABI (`libpancake.so`):
@@ -85,12 +85,17 @@ deno run --allow-ffi --allow-read --allow-net --allow-run \
   conformance/accountability-on-pancake/deno/demo.ts
 ```
 
+`zig build demo-accountability` runs the same flow with the host's built path
+threaded for you. The hosts bind ephemeral ports by default;
+`zig build demo-accountability -Dport=9099` pins the port, rebinding it for
+each caller's fresh host. Attach mode is rejected here: a host serves exactly
+one caller and exits, so there is no long-lived server to join.
+
 The demo starts a fresh Zig host for each caller, connects from Deno and Python,
 generates an Ed25519 identity (Web Crypto / PyNaCl), signs the request, and
 invokes. The host verifies the signature and returns `ack:read-thermostat`. A
 tampered signature is refused as a broken promise (`UnattestedCaller`). Same
-application, three languages, over real OCapN/TCP — the "versatile" story made
-literal.
+application, three languages, over real OCapN/TCP.
 
 ## Three-party introduction (in-memory protocol proof)
 
@@ -98,7 +103,7 @@ literal.
 zig build accountability-three-party
 ```
 
-Proves the headline claim: when A introduces B to C via a three-party handoff
+Proves the central claim: when A introduces B to C via a three-party handoff
 (ADR-0009), C's Affordance attributes **B** (the true caller), not A (the
 introducer). Uses the `cross_peer` handoff machinery, the accountability
 application's KERI attestation, and `actors.Vat` on each peer.

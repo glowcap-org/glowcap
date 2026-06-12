@@ -1,22 +1,40 @@
 #lang racket/base
 ;; A small, friendly client for the rooms chat, built on pancake actors.
 ;;
-;; On the new connection API this is barely a layer: connect, fetch the room by
+;; On the connection API this is barely a layer: connect, fetch the room by
 ;; name, spawn an inbox the room can call back, subscribe by handing it that
 ;; capability, and turn the room's callbacks into a sequence of messages.
 ;; Everything above it reads like an app:
 ;;
-;;   (define room (room-join "127.0.0.1" 9099 "alice"))
+;;   (define room (room-join "127.0.0.1:9099" "alice"))
 ;;   (room-say room "hello")
 ;;   (for ([msg (in-room room)]) (printf "~a: ~a\n" (message-sender msg) (message-text msg)))
 ;;   (room-leave room)
 ;;
-;; The Goblins verbs (`spawn`, `<-`, `on`, `methods`) are unchanged; `connect`
-;; and `fetch` replace the peer/vat/import plumbing the old version wired by hand.
+;; The Goblins verbs (`spawn`, `<-`, `on`, `methods`) work as they do in
+;; Goblins; `connect` and `conn-fetch` do the peer/vat/import plumbing.
 
-(require "../../../../bindings/racket/pancake.rkt")
+(require "../../../../bindings/racket/pancake.rkt" racket/string)
 (provide room-join room-say room-leave in-room room-next
          (struct-out message))
+
+;; Dial a transport-neutral rooms locator: an `ocapn://` URI goes over iroh, a
+;; bare `host:port` over TCP. The room's wire is identical either way; only how a
+;; member reaches it differs.
+(define (dial locator)
+  (cond
+    ;; Rooms URIs carry direct-addresses, so dial with the explicit Direct
+    ;; posture — reachability is required, never defaulted.
+    [(string-contains? locator "://") (connect-iroh-uri IROH-REACH-DIRECT locator)]
+    [else
+     (define colon (let loop ([i (- (string-length locator) 1)])
+                     (cond [(< i 0) #f]
+                           [(char=? (string-ref locator i) #\:) i]
+                           [else (loop (- i 1))])))
+     (unless colon
+       (error 'room-join "rooms locator is neither host:port nor an ocapn:// URI: ~a" locator))
+     (connect (substring locator 0 colon)
+              (string->number (substring locator (+ colon 1))))]))
 
 ;; One line in the room. `system?` is #t for the room's own announcements (a
 ;; member joining, your welcome); otherwise `sender` is who said it.
@@ -31,9 +49,9 @@
 
 ;; Join the room: connect, fetch the room by name, publish an inbox the room can
 ;; call back, and subscribe by handing it that capability.
-(define (room-join host port nick)
-  (define c (connect host port))
-  (define the-room (fetch c "room"))
+(define (room-join locator nick)
+  (define c (dial locator))
+  (define the-room (conn-fetch c "room"))
   (define a-room (room c the-room '()))
   ;; The room calls this inbox back with every line; enqueue each one.
   (define inbox

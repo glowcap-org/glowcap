@@ -1,0 +1,70 @@
+---
+.title = "Surfaces",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+pancake is one library you can hold three ways. It is a [Zig](https://ziglang.org/)
+package you import directly, a plain C ABI you can call from any FFI host, and four
+language bindings
+that wrap that C ABI in a native idiom. Same core underneath, and the surface you pick
+never changes the bytes a session puts on the wire, so you choose whichever matches the
+language you are writing in.
+
+[One library, held three ways. Zig imports the core directly; C and FFI hosts call the C ABI; the four bindings wrap that same C ABI. One core underneath all of them, so the surface never changes what a session puts on the wire.]($image.siteAsset('diagram-surfaces.svg'))
+
+| Surface | You write | Reach for it when |
+| --- | --- | --- |
+| [Zig package]($link.page('start')) | Zig | you are in Zig, or want the full engine and its types |
+| C ABI | C, or any FFI host | you are embedding in C, or wrapping from a runtime with no binding yet |
+| [Bindings]($link.page('bindings')) | Rust, Deno, Python, Racket | you are in one of those four languages |
+
+## The Zig package
+
+`zig fetch --save git+https://codeberg.org/jimisaacs/pancake`, import `pancake`,
+and you have the application surface, the owning `Connection` and its small verb
+vocabulary, plus everything beneath it, down to the raw engine. The
+[Start building]($link.page('start')) page walks a first round-trip line by line,
+and the [examples](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/README.md)
+read top-down from that surface to the engine, one `step` at a time. The exact
+declarations you import, with their ownership and lifetime notes, are the generated
+[Zig API reference]($link.page('reference/api')).
+
+## The C ABI
+
+The same code compiles to `libpancake.a` and `libpancake.so` with a single header,
+`pancake.h`. The surface is deliberately boring: opaque handles, fixed-width return
+codes, `ptr + len` views, callbacks, and explicit release functions. That is what
+lets a consumer wrap it well without knowing any Zig. The header is generated from
+the same Zig declarations the library compiles, so it can never silently disagree
+with the binary, and the optional iroh transport adds `pancake_iroh.h` as a superset.
+[Consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md)
+walks the build, the artifacts, the ownership rules, and a first complete program.
+
+## The bindings
+
+A binding already did the C wrapping and presents an idiomatic API, so you write
+the language you already know. Each one is also a *dogfood*: it drives a real OCapN
+round-trip through the C ABI on every build, so a wire-shape or ABI regression is
+caught by an actual foreign-language consumer, not a Zig test pretending to be one.
+The [Bindings]($link.page('bindings')) page has the shared shape and the per-language
+tours.
+
+## One library, one build, one engine
+
+There is no separate "C build" or "Zig build" of the protocol. The bindings call
+the same C ABI that wraps the same Zig core, so the surface never changes behavior or
+the bytes on the wire: a Zig peer, a C consumer, and a peer written against any binding
+hold the same OCapN conversation, byte for byte. What a session does *negotiate*, its
+codec and CapTP version, is settled per session against whoever answers, not by which
+surface you built on, so one instance can run many sessions speaking different codecs at
+once; the [Concepts]($link.page('concepts')) page walks that handshake. The surfaces
+also come from one build: every artifact above is produced by `zig build`, and the
+single command `zig build check` proves the whole tree at once: the gate, examples,
+dogfoods, and interop. The full step catalog lives in
+[the execution model](https://codeberg.org/jimisaacs/pancake/src/branch/main/.agents/rules/cli.md).
+
+The one place the surfaces diverge is encryption: iroh rides a separate optional
+artifact, which the [Transports]($link.page('transports')) page covers.

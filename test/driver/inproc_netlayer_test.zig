@@ -1,0 +1,249 @@
+//! The in-process netlayer, driven through the contract.
+//!
+//! This is the second real resident proving the netlayer contract generalizes.
+//! Unlike the `x-loopback` test transport (which rides tcp under the hood), the
+//! `inproc` netlayer has no sockets and no file descriptors: dial and accept
+//! rendezvous by designator on an in-process switchboard, and the bytes flow over
+//! in-process pipes. The driver dials and hosts it through the same transport-
+//! neutral `connectVia` / `acceptVia` with the same verified keyed handshake it
+//! uses for tcp, and neither the driver nor the core was edited to add it. A full
+//! OCapN conversation — keyed `op:start-session`, bootstrap fetch, deliver, and
+//! the fulfilled reply — round-trips entirely in process.
+
+const std = @import("std");
+const pancake = @import("pancake");
+
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
+const actors = pancake.actors;
+const driver = pancake.driver;
+const net_adapter = pancake.net_adapter;
+const inproc = net_adapter.inproc;
+
+const frame_cap = 4096;
+const node_designator = "greeter-node";
+
+const Greeter = struct {
+    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = self;
+        _ = turn;
+        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
+        return .{ .string = "hello over inproc" };
+    }
+};
+
+const ReplyState = struct {
+    done: bool = false,
+    ok: bool = false,
+};
+
+fn onGreeting(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+    const state: *ReplyState = @ptrCast(@alignCast(ctx.?));
+    state.done = true;
+    state.ok = switch (resolution) {
+        .fulfilled => |arg| switch (arg) {
+            .string => |text| std.mem.eql(u8, text, "hello over inproc"),
+            else => false,
+        },
+        .broken => false,
+    };
+}
+
+/// Accept one partner over the bound in-process listener, publish the greeter, and
+/// serve until the client leaves. The listener is bound by the test body before
+/// the client dials, so there is no accept-before-bind race.
+fn hostOnce(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerror!void {
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    peer.session_state.limits.max_frame_bytes = frame_cap;
+
+    const read_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(read_buf);
+    const write_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(write_buf);
+
+    var cv = try driver.acceptVia(listener, allocator, &peer, read_buf, write_buf);
+    defer cv.deinit();
+
+    _ = try cv.publish("greeter", Greeter, .{});
+    try cv.serve();
+}
+
+/// Dial the in-process node by designator through `connectVia`, fetch the greeter,
+/// call it, and assert the reply.
+fn callOnce(network: *inproc.Network, allocator: std.mem.Allocator) !void {
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    peer.session_state.limits.max_frame_bytes = frame_cap;
+
+    const read_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(read_buf);
+    const write_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(write_buf);
+
+    const residents = [_]net_adapter.Netlayer{network.netlayer()};
+    const registry = net_adapter.NetlayerRegistry{ .entries = &residents };
+    var cv = try driver.connectVia(registry, allocator, &peer, .{
+        .transport = inproc.transport_name,
+        .designator = node_designator,
+        .hints = model.Hints.emptyFalse(),
+    }, read_buf, write_buf);
+    defer cv.deinit();
+
+    const greeter = try cv.fetch("greeter");
+    const promise = try cv.send(greeter, .{ .verb = "greet", .args = &.{.{ .string = "pancake" }} });
+    var state = ReplyState{};
+    try cv.on(promise, .{ .ctx = &state, .func = onGreeting });
+    while (!state.done) {
+        const progress = try cv.step();
+        if (progress == .closed) break;
+    }
+    try std.testing.expect(state.done and state.ok);
+}
+
+test "inproc netlayer: full keyed handshake + fetch + call round-trips with no socket" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var network = inproc.Network.init(allocator, io);
+    defer network.deinit();
+
+    // Bind the listener before the client dials, so the switchboard has the node.
+    const listener = try network.netlayer().listen(allocator, .{ .designator = node_designator });
+    defer listener.close();
+
+    var host_future = try io.concurrent(hostOnce, .{ listener, allocator });
+    const client_result = callOnce(&network, allocator);
+    const host_result = host_future.await(io);
+    try client_result;
+    try host_result;
+}
+
+test "inproc netlayer: dialing an unbound designator fails closed" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var network = inproc.Network.init(allocator, io);
+    defer network.deinit();
+
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    var read_buf: [256]u8 = undefined;
+    var write_buf: [256]u8 = undefined;
+
+    const residents = [_]net_adapter.Netlayer{network.netlayer()};
+    const registry = net_adapter.NetlayerRegistry{ .entries = &residents };
+    try std.testing.expectError(error.ConnectionLost, driver.connectVia(registry, allocator, &peer, .{
+        .transport = inproc.transport_name,
+        .designator = "no-such-node",
+        .hints = model.Hints.emptyFalse(),
+    }, &read_buf, &write_buf));
+}
+
+/// Park an accept on the listener and expect the clean closed verdict: the
+/// listener was closed with nothing pending, so accept reports the partner-less
+/// close as `error.ConnectionLost`.
+fn acceptUntilClosed(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerror!void {
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    var read_buf: [256]u8 = undefined;
+    var write_buf: [256]u8 = undefined;
+    try std.testing.expectError(
+        error.ConnectionLost,
+        listener.accept(&peer, .{ .read = &read_buf, .write = &write_buf }),
+    );
+}
+
+test "inproc netlayer: closing the listener wakes a parked accept cleanly" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var network = inproc.Network.init(allocator, io);
+    defer network.deinit();
+
+    const listener = try network.netlayer().listen(allocator, .{ .designator = "close-me" });
+
+    // Park an accept on its own fiber, give it time to reach the wait, then
+    // close the listener out from under it. The woken accepter must observe
+    // the close and return before the listener frees its mutex and pending
+    // list — the waiter accounting in the close path is what makes that safe.
+    var accept_future = try io.concurrent(acceptUntilClosed, .{ listener, allocator });
+    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
+    listener.close();
+    try accept_future.await(io);
+}
+
+/// One racing dial: either it wins (a connection comes back, whose pipes the
+/// close has already EOF'd, so it is torn down immediately) or the close wins
+/// and the dial fails closed with `ConnectionLost`. Anything else — in
+/// particular touching the listener after `close` freed it — is the race this
+/// test exists to catch.
+fn dialAgainstClose(network: *inproc.Network, allocator: std.mem.Allocator) anyerror!void {
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    var read_buf: [256]u8 = undefined;
+    var write_buf: [256]u8 = undefined;
+
+    var conn = network.netlayer().dial(&peer, .{
+        .transport = inproc.transport_name,
+        .designator = "race-me",
+        .hints = model.Hints.emptyFalse(),
+    }, .{ .read = &read_buf, .write = &write_buf }) catch |err| switch (err) {
+        error.ConnectionLost => return, // the close won
+        else => return err,
+    };
+    conn.deinit();
+}
+
+test "inproc netlayer: closing the listener races concurrent dials without touching freed state" {
+    const allocator = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var network = inproc.Network.init(allocator, io);
+    defer network.deinit();
+
+    const listener = try network.netlayer().listen(allocator, .{ .designator = "race-me" });
+
+    // Fire a burst of dials and close the listener while they are in flight.
+    // The dial path pins the listener between the registry lookup and the
+    // enqueue, and `listenerClose` waits the pins out between unregister and
+    // its frees, so every dial lands on live state: it is accepted into the
+    // pending sweep, refused by the closed flag, or never finds the listener
+    // at all.
+    const dials = 8;
+    var futures: [dials]std.Io.Future(anyerror!void) = undefined;
+    for (&futures) |*f| f.* = try io.concurrent(dialAgainstClose, .{ &network, allocator });
+    listener.close();
+    var first_err: ?anyerror = null;
+    for (&futures) |*f| f.await(io) catch |err| {
+        if (first_err == null) first_err = err;
+    };
+    if (first_err) |err| return err;
+
+    // The listener is gone from the switchboard: a late dial fails closed.
+    try std.testing.expectError(error.ConnectionLost, dialAgainstCloseDirect(&network, allocator));
+}
+
+/// As `dialAgainstClose`, but surfacing `ConnectionLost` to the caller so the
+/// post-close assertion can demand it.
+fn dialAgainstCloseDirect(network: *inproc.Network, allocator: std.mem.Allocator) anyerror!void {
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    var read_buf: [256]u8 = undefined;
+    var write_buf: [256]u8 = undefined;
+    var conn = try network.netlayer().dial(&peer, .{
+        .transport = inproc.transport_name,
+        .designator = "race-me",
+        .hints = model.Hints.emptyFalse(),
+    }, .{ .read = &read_buf, .write = &write_buf });
+    conn.deinit();
+}

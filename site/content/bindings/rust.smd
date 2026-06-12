@@ -1,0 +1,41 @@
+---
+.title = "Rust",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+The Rust binding links the installed static `libpancake` directly and presents a
+typed API in
+[`bindings/rust/src/lib.rs`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/rust/src/lib.rs).
+You work with a `Peer` and Rust enums for `Reference`, `Argument`, and `Event`, so
+the wire's value tree arrives as ordinary Rust values you can match on.
+
+## Async
+
+The async surface is [tokio](https://tokio.rs/), behind an opt-in `async` feature. An `AsyncConnection`
+runs the sans-io peer over a `tokio::net::TcpStream`. Because the peer is a
+single-owner state machine, the `Connection` is `!Send`: you create and use it on
+one task inside a `LocalSet`, which keeps the peer calls synchronous and lets only the
+socket reads and writes await. A `tell` returns once the deliver is queued on that
+driver task, and the task flushes it.
+
+## Actors
+
+The actor layer is an `actors::Vat` over `FnMut(&str, &[Argument])` closures. A
+local actor is a Rust closure, not a foreign callback, and a leading symbol
+argument is the method verb. An eventual-send to a partner-hosted reference travels
+the wire and settles through `Vat::send(...).await`.
+
+## Dogfood and example
+
+```sh
+zig build rust-dogfood    # cargo test against libpancake, sync + async
+```
+
+The full surface lives in the
+[Rust binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/rust/README.md),
+and the
+[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/rust/client.rs)
+builds a small capability-secure room on this surface.

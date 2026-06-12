@@ -1,0 +1,199 @@
+//! The netlayer contract proves that a transport the core never heard of can
+//! still drive the driver.
+//!
+//! `LoopbackResident` is a netlayer defined entirely here, in test code, under
+//! the transport symbol `x-loopback`. That symbol appears nowhere in `src/`. The
+//! test drives it end to end through the driver's transport-neutral `connectVia`
+//! and `acceptVia` with the real verified keyed handshake: bind, accept, dial,
+//! fetch a published actor, call it, and read the reply. Nothing in `src/driver`,
+//! `src/net_adapter`, or the core was edited to add it. The resident registers,
+//! and the driver dispatches on its symbol. That demonstrates the pluggability the
+//! vision claims: a QUIC/iroh resident slots in the same way.
+//!
+//! The resident's bytes ride tcp under the hood. This is a loopback proof, not a
+//! new wire protocol. The driver reaches it only through the contract vtable under
+//! an arbitrary symbol, which is the same boundary an external transport author
+//! uses.
+
+const std = @import("std");
+const pancake = @import("pancake");
+
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
+const actors = pancake.actors;
+const driver = pancake.driver;
+const net_adapter = pancake.net_adapter;
+const tcp = net_adapter.tcp;
+
+const net = std.Io.net;
+const frame_cap = 4096;
+
+/// A netlayer resident defined outside the core, under a fabricated transport
+/// symbol. Its dial and listen operations ride tcp's public API; the point is
+/// that the driver reaches it only through the contract.
+const LoopbackResident = struct {
+    io: std.Io,
+
+    const transport = "x-loopback";
+
+    fn netlayer(self: *LoopbackResident) net_adapter.Netlayer {
+        return .{ .ctx = self, .vtable = &vtable };
+    }
+
+    const vtable: net_adapter.Netlayer.VTable = .{
+        .transport_name = transport,
+        .dial = dial,
+        .listen = listen,
+    };
+
+    fn dial(
+        ctx: *anyopaque,
+        peer: *engine.Peer,
+        locator: model.PeerLocator,
+        bufs: net_adapter.Buffers,
+    ) net_adapter.DialError!net_adapter.Connection {
+        const self: *LoopbackResident = @ptrCast(@alignCast(ctx));
+        const address = tcp.parseDesignator(locator.designator) catch return error.InvalidAddress;
+        return tcp.connectAddress(self.io, peer, address, bufs.read, bufs.write) catch |err| switch (err) {
+            error.OutOfMemory => error.OutOfMemory,
+            else => error.ConnectionLost,
+        };
+    }
+
+    fn listen(
+        ctx: *anyopaque,
+        allocator: std.mem.Allocator,
+        config: net_adapter.ListenConfig,
+    ) net_adapter.ListenError!net_adapter.Listener {
+        const self: *LoopbackResident = @ptrCast(@alignCast(ctx));
+        const address = tcp.parseDesignator(config.designator) catch return error.InvalidAddress;
+        const box = allocator.create(ListenerBox) catch return error.OutOfMemory;
+        errdefer allocator.destroy(box);
+        box.* = .{
+            .listener = tcp.Listener.bind(self.io, address) catch return error.BindFailed,
+            .allocator = allocator,
+        };
+        return .{ .ctx = box, .vtable = &listener_vtable };
+    }
+
+    const ListenerBox = struct {
+        listener: tcp.Listener,
+        allocator: std.mem.Allocator,
+    };
+
+    const listener_vtable: net_adapter.Listener.VTable = .{
+        .transport_name = transport,
+        .accept = accept,
+        .localDesignator = localDesignator,
+        .close = close,
+    };
+
+    fn accept(ctx: *anyopaque, peer: *engine.Peer, bufs: net_adapter.Buffers) net_adapter.AcceptError!net_adapter.Connection {
+        const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+        return box.listener.accept(peer, bufs.read, bufs.write) catch |err| switch (err) {
+            error.OutOfMemory => error.OutOfMemory,
+            else => error.ConnectionLost,
+        };
+    }
+
+    fn localDesignator(ctx: *anyopaque, out: []u8) []const u8 {
+        const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+        return std.fmt.bufPrint(out, "{f}", .{box.listener.localAddress()}) catch out[0..0];
+    }
+
+    fn close(ctx: *anyopaque) void {
+        const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+        box.listener.deinit();
+        box.allocator.destroy(box);
+    }
+};
+
+/// The published actor: answers `greet` with a static greeting.
+const Greeter = struct {
+    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = self;
+        _ = turn;
+        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
+        return .{ .string = "hello over x-loopback" };
+    }
+};
+
+/// Host: accept one partner through `acceptVia`, publish the greeter, serve.
+fn hostOnce(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerror!void {
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    peer.session_state.limits.max_frame_bytes = frame_cap;
+
+    const read_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(read_buf);
+    const write_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(write_buf);
+
+    var cv = try driver.acceptVia(listener, allocator, &peer, read_buf, write_buf);
+    defer cv.deinit();
+
+    _ = try cv.publish("greeter", Greeter, .{});
+    try cv.serve();
+}
+
+/// Client: dial through `connectVia` on the `x-loopback` symbol, fetch, call.
+fn callOnce(registry: net_adapter.NetlayerRegistry, designator: []const u8, allocator: std.mem.Allocator) !void {
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    peer.session_state.limits.max_frame_bytes = frame_cap;
+
+    const read_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(read_buf);
+    const write_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(write_buf);
+
+    const locator: model.PeerLocator = .{
+        .transport = "x-loopback",
+        .designator = designator,
+        .hints = model.Hints.emptyFalse(),
+    };
+    var cv = try driver.connectVia(registry, allocator, &peer, locator, read_buf, write_buf);
+    defer cv.deinit();
+
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+
+    const greeter = try cv.fetch("greeter");
+    const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena_state.allocator());
+    switch (settled) {
+        .fulfilled => |arg| {
+            try std.testing.expect(arg == .string);
+            try std.testing.expectEqualStrings("hello over x-loopback", arg.string);
+        },
+        .broken => return error.CallBroke,
+    }
+}
+
+test "netlayer pluggability: an out-of-core transport dials and hosts through the driver" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // Register the test-defined transport. The driver dispatches on its symbol.
+    var resident = LoopbackResident{ .io = io };
+    const entries = [_]net_adapter.Netlayer{resident.netlayer()};
+    const registry = net_adapter.NetlayerRegistry{ .entries = &entries };
+
+    var listener = try registry.resolve("x-loopback").?.listen(allocator, .{
+        .designator = "127.0.0.1:0",
+        .hints = model.Hints.emptyFalse(),
+    });
+    defer listener.close();
+
+    var designator_buf: [64]u8 = undefined;
+    const designator = listener.localDesignator(&designator_buf);
+
+    var host_future = try io.concurrent(hostOnce, .{ listener, allocator });
+    const client_result = callOnce(registry, designator, allocator);
+    const host_result = host_future.await(io);
+
+    try client_result;
+    try host_result;
+}

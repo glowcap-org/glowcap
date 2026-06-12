@@ -22,5 +22,5 @@ bash conformance/episode-audit/run.sh
 
 - The audit reads generated output from
   `conformance/accountability-on-goblins/.data/`.
-- `Episode` is host/application evidence. Keep it outside the Zig protocol core
-  unless a future adapter explicitly owns that layer.
+- `Episode` is host/application evidence. Keep it outside the Zig protocol core;
+  no pancake layer owns Episode vocabulary.

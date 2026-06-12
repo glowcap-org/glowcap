@@ -1,6 +1,6 @@
 // A small, friendly client for the tasks board, built on pancake actors.
 //
-// On the new connection API this is barely a layer: connect, fetch the board by
+// On the connection API this is barely a layer: connect, fetch the board by
 // name, publish a watcher the board can call back, and surface its updates as a
 // stream. Everything above it reads like an app, not like a protocol.
 //

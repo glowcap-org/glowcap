@@ -1,15 +1,33 @@
 // Cross-language accountability demo: Zig host + Deno caller + Python caller.
 //
 // Starts the Zig host binary (accountability-host), reads the port it prints,
-// then runs each available caller against a fresh host. Both exit 0 iff:
+// then runs each available caller against a fresh host. Both exit 0 exactly when:
 //   - The legitimate invocation resolved with an ack, and
 //   - The tampered invocation was refused as a broken promise.
 //
-// Run it with:
-//   deno run --allow-ffi --allow-read --allow-net --allow-run demo.ts
+// Run it with `zig build demo-accountability`, which passes the built host
+// binary's path as argv[0]. Run by hand, it falls back to the installed host
+// under zig-out/bin. `--port=N` (from `-Dport`) pins the hosts' port instead of
+// an ephemeral one; each caller still gets a fresh host, rebound on the same
+// port. `--attach` is rejected: a host serves exactly one caller and exits, so
+// there is no long-lived server to join.
+
+const positional: string[] = [];
+let pinPort = 0;
+for (const a of Deno.args) {
+  if (a === "--attach") {
+    console.error("demo.ts: --attach is not supported here — each caller needs a fresh host (drop -Dattach)");
+    Deno.exit(2);
+  } else if (a.startsWith("--port=")) pinPort = Number(a.slice("--port=".length));
+  else positional.push(a);
+}
+if (!Number.isInteger(pinPort) || pinPort < 0 || pinPort > 65535) {
+  console.error("demo.ts: --port must be an integer in 1..65535");
+  Deno.exit(2);
+}
 
 const ROOT = new URL("../../..", import.meta.url).pathname;
-const HOST_BIN = `${ROOT}/zig-out/bin/accountability-host`;
+const HOST_BIN = positional[0] ?? `${ROOT}/zig-out/bin/accountability-host`;
 const DENO_CALLER = new URL("./caller.ts", import.meta.url).pathname;
 const PYTHON_CALLER = `${ROOT}/conformance/accountability-on-pancake/python/caller.py`;
 
@@ -81,6 +99,7 @@ let failed = false;
 for (const caller of callers) {
   // Each caller gets its own fresh host so the session is clean.
   const host = new Deno.Command(HOST_BIN, {
+    args: pinPort > 0 ? [`--port=${pinPort}`] : [],
     cwd: ROOT,
     stdout: "piped",
     stderr: "piped",

@@ -1,11 +1,13 @@
 //! Standalone host for the accountability-on-pancake application.
 //!
-//! Listens on 127.0.0.1:0 (ephemeral port), prints the port on stdout
-//! so a foreign caller can connect, then serves one connection:
-//! publishes the Affordance, processes invocations, and exits on EOF.
+//! Listens on 127.0.0.1 — an ephemeral port by default, or the one named by
+//! `--port=N` — prints the port so a foreign caller can connect, then serves
+//! one connection: publishes the Affordance under the name "affordance",
+//! processes invocations, and exits when the caller leaves.
 //!
 //! The cross-seam demo script starts this, reads the port, and points
-//! its Deno/Python/Racket caller at it.
+//! its Deno or Python caller at it; the caller fetches the Affordance
+//! by name.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -14,13 +16,14 @@ const identity = @import("identity.zig");
 const episode = @import("episode.zig");
 const accountable = @import("accountable.zig");
 
-const model = pancake.model;
-const engine = pancake.engine;
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
+const driver = pancake.driver;
 const tcp = pancake.net_adapter.tcp;
 const net = std.Io.net;
 
-const AFFORDANCE_EXPORT: u64 = 5;
+const AFFORDANCE_NAME = "affordance";
 const frame_cap: usize = 1 << 16;
 const data_root = "conformance/accountability-on-pancake/.data";
 
@@ -86,7 +89,22 @@ pub fn main(init: std.process.Init) !void {
     var store = try accountable.Store.init(allocator, io, &host_id, data_root ++ "/host");
     defer store.deinit();
 
-    var listener = try tcp.Listener.bind(io, .{ .ip4 = net.Ip4Address.loopback(0) });
+    var args = std.process.Args.Iterator.init(init.minimal.args);
+    _ = args.next(); // program name
+    var bind_port: u16 = 0;
+    while (args.next()) |arg| {
+        if (std.mem.startsWith(u8, arg, "--port=")) {
+            bind_port = std.fmt.parseInt(u16, arg["--port=".len..], 10) catch {
+                std.debug.print("accountability-host: --port must be an integer in 1..65535\n", .{});
+                return error.BadPort;
+            };
+        } else {
+            std.debug.print("accountability-host: unknown argument '{s}'\n", .{arg});
+            return error.BadArgument;
+        }
+    }
+
+    var listener = try tcp.Listener.bind(io, .{ .ip4 = net.Ip4Address.loopback(bind_port) });
     defer listener.deinit();
     const address = listener.localAddress();
     const port: u16 = switch (address) {
@@ -112,45 +130,15 @@ pub fn main(init: std.process.Init) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var conn = try listener.accept(&peer, read_buf, write_buf);
-    defer conn.deinit();
-
-    // Responder half of the keyed handshake: sign a `tcp` locator with a random
-    // session seed (entropy at the I/O boundary, never in the core) and pump
-    // until the caller's start-session opens the session.
-    var seed: [pancake.foundation.crypto.SEED_BYTES]u8 = undefined;
-    if (std.os.linux.getrandom(&seed, seed.len, 0) != seed.len) return error.HandshakeEntropyFailed;
-    const secret = try pancake.foundation.crypto.SecretKey.fromSeed(seed);
-    try peer.sendKeyedStartSession(.v1_0, .{
-        .transport = "tcp",
-        .designator = "127.0.0.1:0",
-        .hints = model.Hints.emptyFalse(),
-    }, secret);
-    while (!peer.sessionIsOpen()) {
-        const progress = conn.pump() catch break;
-        if (progress == .closed) break;
-    }
-
-    var vat = actors.Vat.initOver(allocator, &peer);
+    var vat = try driver.acceptTcp(allocator, &peer, &listener, read_buf, write_buf);
     defer vat.deinit();
-    const affordance = try vat.spawn(Affordance, .{
+
+    _ = try vat.publish(AFFORDANCE_NAME, Affordance, .{
         .store = &store,
         .served = &served,
     });
-    try vat.publish(affordance, AFFORDANCE_EXPORT);
 
-    while (true) {
-        const progress = conn.pump() catch |err| switch (err) {
-            error.ConnectionLost, error.TruncatedFrame => break,
-            else => return err,
-        };
-        while (peer.pollEvent()) |event_value| {
-            var event = event_value;
-            defer event.deinit();
-            _ = vat.serve(&event) catch {};
-        }
-        if (progress == .closed) break;
-    }
+    try vat.serve();
 
     std.debug.print("ACCOUNTABILITY-HOST-SERVED {d}\n", .{served});
 }

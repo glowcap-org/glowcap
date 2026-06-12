@@ -18,10 +18,10 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.model;
-const syrup = pancake.codec.syrup;
-const capnp = pancake.codec.capnp;
-const dispatch = pancake.codec.dispatch;
+const model = pancake.ocapn.model;
+const syrup = pancake.ocapn.codec.syrup;
+const capnp = pancake.ocapn.codec.capnp;
+const dispatch = pancake.ocapn.codec.dispatch;
 
 const big_max: usize = 1 << 20;
 
@@ -50,10 +50,14 @@ fn encodeSyrup(allocator: std.mem.Allocator, message: model.Message) !pancake.fo
     return syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, message);
 }
 
+fn encodeSyrupPreSpec(allocator: std.mem.Allocator, message: model.Message) !pancake.foundation.Frame {
+    return syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, message);
+}
+
 test "syrup decodePrefix: every byte split of a valid frame is incomplete until complete" {
     const allocator = std.testing.allocator;
 
-    const target = model.Reference{ .far = .{ .import_id = 7 } };
+    const target = model.Reference{ .far = .{ .import_position = 7 } };
     const nested = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 } };
     const deliver_args = [_]model.Argument{
         .{ .bytes = "hello" },
@@ -81,7 +85,7 @@ test "syrup decodePrefix: every byte split of a valid frame is incomplete until 
         .args = &.{},
         .answer = null,
     } }));
-    try frames.append(allocator, try encodeSyrup(allocator, .{
+    try frames.append(allocator, try encodeSyrupPreSpec(allocator, .{
         .resolve = .{ .answer = 3, .resolution = .{ .fulfill = .{ .bytes = "ok" } } },
     }));
     try frames.append(allocator, try encodeSyrup(allocator, .{
@@ -145,6 +149,42 @@ test "syrup decodePrefix: a frame past max_frame_bytes is too_large" {
     // succeeds structurally, but consumed exceeds the cap).
     try std.testing.expect(syrup.decodePrefix(frame.bytes(), frame.bytes().len) == .decoded);
     try std.testing.expect(syrup.decodePrefix(frame.bytes(), frame.bytes().len - 1) == .too_large);
+}
+
+test "syrup decodePrefix: an incomplete prefix past max_frame_bytes is too_large, never incomplete" {
+    const allocator = std.testing.allocator;
+    var frame = try encodeSyrup(allocator, .{ .gc_answer = .{ .positions = &.{ 1, 2, 3, 4 } } });
+    defer frame.deinit();
+
+    // A still-arriving frame must be refused the moment its scanned length
+    // crosses the cap (ADR-0029) — it can never complete within the cap, and
+    // an `incomplete` verdict there would let a streaming caller buffer past
+    // the bound (the contract the netlayer spill's boundedness leans on,
+    // ADR-0041). At a prefix of exactly the cap the scanner cannot yet know,
+    // so `incomplete` is admissible there and the adapters keep the mirror
+    // check; strictly past it the verdict must be `too_large`.
+    const bytes = frame.bytes();
+    const cap = bytes.len - 4;
+    var k: usize = cap + 1;
+    while (k < bytes.len) : (k += 1) {
+        try std.testing.expect(syrup.decodePrefix(bytes[0..k], cap) == .too_large);
+    }
+}
+
+test "capnp decodePrefix: an incomplete prefix declaring a body past max_frame_bytes is too_large" {
+    const allocator = std.testing.allocator;
+    var frame = try capnp.encodeMessage(allocator, .{ .gc_answer = .{ .positions = &.{ 7, 11, 13 } } });
+    defer frame.deinit();
+
+    // The single-segment header declares the whole frame's length, so the
+    // refusal lands as soon as the header is readable — long before the body
+    // arrives.
+    const bytes = frame.bytes();
+    const cap = bytes.len - 1;
+    var k: usize = 8;
+    while (k < bytes.len) : (k += 1) {
+        try std.testing.expect(capnp.decodePrefix(bytes[0..k], cap) == .too_large);
+    }
 }
 
 /// `<op:deliver>` to `<desc:export 0>` whose args are `depth`-deep empty lists,

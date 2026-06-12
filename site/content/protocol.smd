@@ -1,0 +1,72 @@
+---
+.title = "Protocol cheatsheet",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+Every conversation pancake has on the wire is built from a small, fixed vocabulary,
+defined by the
+[OCapN specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications):
+the CapTP messages, the descriptors they carry, and the locators that say where a peer
+lives. This page is the one-glance map of it: what each part is for, in a sentence. For
+the why behind them, [Concepts]($link.page('concepts')) tells the story and the
+[protocol diagrams](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/README.md)
+draw the flows. Here we just name the parts.
+
+The list is not decorative, and it is not hand-kept. A build check pins every entry on
+this page to the labels the Syrup codec actually reads and writes, so if the protocol
+surface ever grows a label or drops one, this page has to move with it or the gate
+goes red.
+
+## Operations
+
+An operation (`op:...`) is a message that does something in the session: it opens the
+session, makes a call, settles a promise, or tears the whole thing down.
+
+| Message | What it does |
+| --- | --- |
+| `op:start-session` | Opens a session. Each side announces its location and the keys that bind the connection. |
+| `op:deliver` | Calls a method on a reference and registers an answer, so the caller holds a promise the instant the call goes out. |
+| `op:resolve` | Settles a promise to its final value, or to a break if the call failed. |
+| `op:listen` | Subscribes to a promise's resolution, so a waiter is told the answer the moment it lands. |
+| `op:abort` | Ends the session with a typed reason. The connection is finished. |
+| `op:get` | Projects a named field off an answer without waiting for the whole result to settle. |
+| `op:index` | Projects a positional element off an answer. |
+| `op:untag` | Unwraps a tagged value projected off an answer. |
+| `op:gc-exports` | Tells the peer that some exported references are no longer held, so it can drop them. |
+| `op:gc-answers` | Tells the peer that some answers are no longer needed, so it can release them. |
+
+## Reference descriptors
+
+A descriptor (`desc:...`) is not a message on its own. It is how a reference or a
+handoff rides *inside* a message, naming what a slot in the conversation points at.
+
+| Descriptor | What it names |
+| --- | --- |
+| `desc:export` | A reference to an object the sender exports for the other side to call. |
+| `desc:answer` | A reference to a pending answer from an earlier `op:deliver`, the target of promise pipelining. |
+| `desc:import-object` | The receiver's side of a `desc:export`: the same object, as the importer sees it. |
+| `desc:import-promise` | The receiver's side of a promised reference, settled later by an `op:resolve`. |
+| `desc:handoff-give` | The gifter's half of a three-party introduction: "go meet this peer, on my word." |
+| `desc:handoff-receive` | The recipient's half of that introduction, redeemed with the third party. |
+| `desc:sig-envelope` | A signed wrapper that makes a handoff unforgeable as it crosses between the three parties. |
+
+## Locators
+
+A locator (`ocapn-...`) is not a message either, and not a reference. It is an
+*address*: where a peer lives, and, for a sturdyref, which object to ask it for. A
+locator rides inside `op:start-session` as the location each side announces, and
+travels as an argument when one peer hands another a long-lived reference to enliven
+later. The `ocapn://` URI you paste into a config is one of these records, in text.
+
+| Locator | What it addresses |
+| --- | --- |
+| `ocapn-peer` | A peer's location: its transport (`tcp`, `iroh`), the designator to reach it at, and any connection hints. An `ocapn://<designator>.<transport>` URI is this record. |
+| `ocapn-sturdyref` | A peer location plus a swiss number: a restorable, long-lived reference to one object, the thing an `ocapn://…/s/<swiss>` URI names. |
+
+If a name here is new, do not start with the table. Start with
+[Concepts]($link.page('concepts')), which introduces capabilities, promises, and the
+three-party handoff before any of these labels appear. The
+[Transports]($link.page('transports')) page covers the netlayers a locator can name.

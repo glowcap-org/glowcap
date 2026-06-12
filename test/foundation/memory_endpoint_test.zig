@@ -13,10 +13,7 @@ test "memory endpoint transfers owned frames without copying" {
 
     const storage = try allocator.dupe(u8, "abc");
     const storage_ptr = @intFromPtr(storage.ptr);
-    const frame = foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1)) catch |err| {
-        allocator.free(storage);
-        return err;
-    };
+    const frame = try foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1));
 
     try endpoint.writeFrameOwned(io, frame);
 

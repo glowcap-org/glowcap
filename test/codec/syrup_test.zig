@@ -1,9 +1,10 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
-const model = pancake.model;
-const syrup = pancake.codec.syrup;
+const model = pancake.ocapn.model;
+const syrup = pancake.ocapn.codec.syrup;
 const protocol_oracle = @import("../oracle/protocol_oracle.zig");
+const handoff_fixtures = @import("../support/handoff_fixtures.zig");
 
 fn expectFixtureBytes(name: []const u8, frame: pancake.foundation.Frame) !void {
     const fixture = protocol_oracle.fixtureByName(name).?;
@@ -21,32 +22,13 @@ fn hexToOwned(allocator: std.mem.Allocator, comptime hex: []const u8) ![]u8 {
     return out;
 }
 
-const fixture_recipient_key = repeatedByte(32, 0x42);
-const fixture_gifter_session = repeatedByte(32, 0xcc);
-const fixture_gifter_side = repeatedByte(32, 0x11);
-const fixture_gift_id = repeatedByte(32, 0x01);
-const fixture_give_signature = repeatedByte(64, 0xaa);
-const fixture_receiving_session = repeatedByte(32, 0xdd);
-const fixture_receiving_side = repeatedByte(32, 0x22);
-const fixture_receive_signature = repeatedByte(64, 0xbb);
-
-test "Syrup exposes codec descriptor and admitted messages by profile" {
-    const descriptor = syrup.descriptor;
-
-    try std.testing.expectEqualStrings("syrup", descriptor.name);
-    try std.testing.expectEqual(pancake.foundation.FrameShape.byte, descriptor.frame_shape);
-    try std.testing.expect(descriptor.supportsProfile(model.WireProfile.pre_spec));
-    try std.testing.expect(descriptor.supportsProfile(model.WireProfile.v1_0));
-    try std.testing.expect(!descriptor.supportsProfile(.{ .captp_version = .v1_0 }));
-
-    const pre_spec = descriptor.admittedMessages(model.WireProfile.pre_spec);
-    try std.testing.expect(syrup.admits(pre_spec, .deliver));
-    try std.testing.expect(syrup.admits(pre_spec, .resolve));
-    try std.testing.expect(!syrup.admits(pre_spec, .start_session));
-
-    const v1_0 = descriptor.admittedMessages(model.WireProfile.v1_0);
-    try std.testing.expect(syrup.admits(v1_0, .start_session));
-    try std.testing.expect(syrup.admits(v1_0, .handoff));
+test "Syrup refuses raw op:resolve for the v1.0 profile" {
+    try std.testing.expectError(syrup.Error.UnsupportedMessage, syrup.encodeMessageForProfile(std.testing.allocator, model.WireProfile.v1_0, .{
+        .resolve = .{
+            .answer = 7,
+            .resolution = .{ .fulfill = .{ .integer = 1 } },
+        },
+    }));
 }
 
 test "Syrup locator encoding uses typed locator and preserves empty false hints" {
@@ -72,51 +54,32 @@ test "Syrup locator encoding uses typed locator and preserves empty false hints"
     try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "exporter") != null);
     try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "f>") != null);
 
-    const decoded = try syrup.decodeView(frame.view());
-    try std.testing.expect(decoded.start_session.acceptable_location.hints.empty_wire_was_false);
+    const decoded = try syrup.decodeBody(frame.view());
+    try std.testing.expectEqual(model.Hints.WireForm.boolean_false, decoded.start_session.acceptable_location.hints.wire_form);
 }
 
-fn fixtureGive() model.HandoffGive {
-    return .{
-        .recipient_key = fixture_recipient_key[0..],
-        .exporter_location = "memory:exporter",
-        .gifter_exporter_session = fixture_gifter_session[0..],
-        .gifter_side = fixture_gifter_side[0..],
-        .gift_id = fixture_gift_id[0..],
-        .signature = fixture_give_signature[0..],
+test "Syrup refuses to encode a locator carrying hint entries instead of dropping them" {
+    // The encoder renders only the two empty hint spellings. Dropping entries
+    // silently would change the locator (and the location-signature bytes), so
+    // a hint-carrying locator must fail loud.
+    const pubkey = repeatedByte(32, 0xaa);
+    const sig = repeatedByte(64, 0xcc);
+    const entries = [_]model.HintEntry{
+        .{ .name = "host", .value = .{ .string = "127.0.0.1" } },
     };
-}
 
-fn fixtureReceive() model.HandoffReceive {
-    return .{
-        .receiving_session = fixture_receiving_session[0..],
-        .receiving_side = fixture_receiving_side[0..],
-        .handoff_count = 1,
-        .signed_give = fixtureGive(),
-        .signature = fixture_receive_signature[0..],
-    };
-}
-
-fn freeTestHandoff(allocator: std.mem.Allocator, handoff: model.Handoff) void {
-    switch (handoff) {
-        .give => |give| freeTestHandoffGive(allocator, give),
-        .receive => |receive| {
-            allocator.free(receive.receiving_session);
-            allocator.free(receive.receiving_side);
-            freeTestHandoffGive(allocator, receive.signed_give);
-            allocator.free(receive.signature);
+    try std.testing.expectError(syrup.Error.UnsupportedArgument, syrup.encodeMessageForProfile(std.testing.allocator, model.WireProfile.v1_0, .{
+        .start_session = .{
+            .captp_version = .v1_0,
+            .session_pubkey = .{ .bytes = pubkey[0..] },
+            .acceptable_location = .{
+                .transport = "tcp",
+                .designator = "127.0.0.1:9001",
+                .hints = .{ .entries = &entries },
+            },
+            .acceptable_location_sig = .{ .bytes = sig[0..] },
         },
-    }
-}
-
-fn freeTestHandoffGive(allocator: std.mem.Allocator, give: model.HandoffGive) void {
-    allocator.free(give.recipient_key);
-    allocator.free(give.exporter_location);
-    allocator.free(give.gifter_exporter_session);
-    allocator.free(give.gifter_side);
-    allocator.free(give.gift_id);
-    allocator.free(give.signature);
-    if (give.raw_signed) |raw| allocator.free(raw);
+    }));
 }
 
 test "op:abort encodes to the Goblins-aligned Syrup byte shape" {
@@ -146,7 +109,7 @@ test "signed handoff give keeps original signed payload bytes through decode" {
 
     const decoded = try syrup.decodeBody(.{ .bytes = raw_receive, .shape = .byte });
     const handoff = try decoded.handoff.toOwned(allocator);
-    defer pancake.model.owned.freeHandoff(allocator, handoff);
+    defer pancake.ocapn.model.owned.freeHandoff(allocator, handoff);
     const give = handoff.receive.signed_give;
 
     try std.testing.expect(give.raw_signed != null);
@@ -166,13 +129,14 @@ test "op:abort with a typed kind encodes the wire label prefix" {
 
     // The encoder derives the label from the kind discriminant (kind.wireName())
     // and builds "<label>: <message>" at encode time — general across kinds and
-    // symmetric with parseV1_0, with no per-message special case.
+    // symmetric with the decoder's abort-prefix parse, with no per-message
+    // special case.
     try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "VersionMismatch: expected ocapn-1.0") != null);
 }
 
 test "minimal op:deliver encodes to the PreSpec Syrup byte shape" {
     const allocator = std.testing.allocator;
-    const target = model.Reference{ .far = .{ .import_id = 7 } };
+    const target = model.Reference{ .far = .{ .import_position = 7 } };
     const args = [_]model.Argument{.{ .bytes = "hello" }};
     const message = model.Message{
         .deliver = .{
@@ -194,7 +158,7 @@ test "minimal op:deliver encodes to the PreSpec Syrup byte shape" {
 
 test "Syrup encodes a Set in canonical encoded-byte order, not model order" {
     const allocator = std.testing.allocator;
-    const target = model.Reference{ .far = .{ .import_id = 7 } };
+    const target = model.Reference{ .far = .{ .import_position = 7 } };
 
     // The same three-element set, built in two different model orders.
     const set_a = [_]model.Argument{ .{ .integer = 3 }, .{ .integer = 1 }, .{ .integer = 2 } };
@@ -218,7 +182,7 @@ test "Syrup encodes a Set in canonical encoded-byte order, not model order" {
 
 test "Syrup encodes an empty Set as the bare #$ markers and the neutral decode accepts it" {
     const allocator = std.testing.allocator;
-    const target = model.Reference{ .far = .{ .import_id = 7 } };
+    const target = model.Reference{ .far = .{ .import_position = 7 } };
     const empty: [0]model.Argument = .{};
     const args = [_]model.Argument{.{ .set = empty[0..] }};
 
@@ -244,7 +208,7 @@ test "Syrup decodes a start-session whose location carries non-empty hints" {
     // shape was unexercised until an external peer sent a hinted locator.
     const frame_bytes: []const u8 =
         "<16'op:start-session3\"1.0" ++
-        "[10'public-key[3'ecc[1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
+        "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
         "<10'ocapn-peer3'tcp9\"127.0.0.1{4\"host9\"127.0.0.14\"port5\"52833}>" ++
         "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
     const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
@@ -255,8 +219,8 @@ test "Syrup decodes a start-session whose location carries non-empty hints" {
 
 test "Syrup encodes an error in argument position and the neutral decode reads it back" {
     const allocator = std.testing.allocator;
-    const target = model.Reference{ .far = .{ .import_id = 7 } };
-    // A Goblins V1.0 resolver-callback `break` ships its `model.Error` as a
+    const target = model.Reference{ .far = .{ .import_position = 7 } };
+    // A Goblins V1.0 resolver-callback `break` ships its `model.BreakReason` as a
     // deliver argument (`['break <error msg>]`); the encoder must be able to
     // write what the decoder already reads — without this arm the refusal path
     // could not cross the wire.
@@ -278,7 +242,7 @@ test "Syrup encodes an error in argument position and the neutral decode reads i
 
 test "Syrup canonicalizes nested Sets recursively, not just the outer one" {
     const allocator = std.testing.allocator;
-    const target = model.Reference{ .far = .{ .import_id = 7 } };
+    const target = model.Reference{ .far = .{ .import_position = 7 } };
 
     // The set { {1,2}, {3,4} } built two ways: the outer elements in different
     // order, and each inner set in different order. Canonical encoding has to
@@ -300,9 +264,274 @@ test "Syrup canonicalizes nested Sets recursively, not just the outer one" {
     try std.testing.expectEqualSlices(u8, frame_a.bytes(), frame_b.bytes());
 }
 
+test "a deliver carrying a Struct (dictionary) argument decodes to the struct arm" {
+    // OCapN's Struct passable rides Syrup as a dictionary `{ key value … }`
+    // (ADR-0046). `{1"a1"b}` is the one-entry struct {"a": "b"}.
+    const frame = "<10'op:deliver<11'desc:export7+>[{1\"a1\"b}]42+f>";
+    const body = try syrup.decodeBody(.{ .bytes = frame, .shape = .byte });
+    try std.testing.expect(body == .deliver);
+    const arg = try body.deliver.args.at(0);
+    try std.testing.expect(arg == .@"struct");
+    try std.testing.expectEqual(@as(usize, 1), try arg.@"struct".len());
+    const entry = try arg.@"struct".at(0);
+    try std.testing.expectEqualStrings("a", entry.key);
+    try std.testing.expect(entry.value == .string);
+    try std.testing.expectEqualStrings("b", entry.value.string);
+}
+
+test "a Struct argument round-trips through Syrup in canonical key order" {
+    const allocator = std.testing.allocator;
+    const target = model.Reference{ .far = .{ .import_position = 7 } };
+
+    // Two entries built in non-canonical order; canonical encode sorts by the
+    // fully-encoded key, so "a" precedes "bb" on the wire regardless of input order.
+    const entries = [_]model.StructEntry{
+        .{ .key = "bb", .value = .{ .integer = 2 } },
+        .{ .key = "a", .value = .{ .string = "x" } },
+    };
+    const args = [_]model.Argument{.{ .@"struct" = entries[0..] }};
+    var frame = try syrup.encodeMessage(allocator, .{ .deliver = .{ .target = target, .args = args[0..] } });
+    defer frame.deinit();
+
+    // Canonical order puts the shorter-encoded key first: 1"a"… before 2"bb"….
+    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "{1\"a") != null);
+
+    const decoded = try syrup.decodeOwned(allocator, frame.view());
+    defer model.freeMessage(allocator, decoded);
+    const decoded_arg = decoded.deliver.args[0];
+    try std.testing.expect(decoded_arg == .@"struct");
+    try std.testing.expect(model.equality.argumentsEqual(args[0], decoded_arg));
+}
+
+test "a Struct with a non-String key is refused" {
+    // OCapN Struct keys must be Strings (Model.md § Struct). An integer key
+    // (`42+`) is refused at the codec boundary, fail-closed.
+    const frame = "<10'op:deliver<11'desc:export7+>[{42+1\"b}]42+f>";
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.decodeBody(.{ .bytes = frame, .shape = .byte }),
+    );
+}
+
+test "a Struct with duplicate keys is refused" {
+    // Each key must be non-Equal to every other within a Struct. `{"a":"b","a":"c"}`
+    // repeats "a" and is refused at decode.
+    const frame = "<10'op:deliver<11'desc:export7+>[{1\"a1\"b1\"a1\"c}]42+f>";
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.decodeBody(.{ .bytes = frame, .shape = .byte }),
+    );
+}
+
+test "a Struct with keys out of canonical order is refused" {
+    // Canonical Syrup orders dictionary entries by the fully-encoded key,
+    // lowest octets first (conformance/syrup/upstream/draft-specification.md
+    // § Sorting Algorithm), and every encoder pancake faces emits that order:
+    // the upstream Racket Syrup encoder Goblins and the fixture generator use
+    // (impls/racket/syrup/syrup.rkt), the upstream conformance suite's Python
+    // encoder (contrib/syrup.py), and pancake's own writeStruct (ADR-0046).
+    // `{1"b…1"a…}` spells the same struct as `{1"a…1"b…}`, so a lenient read
+    // would admit two wire spellings of one message — refused like a
+    // non-canonical length digit. The ascending-key check is also what refuses
+    // duplicates in O(1) per key: a repeated key is never strictly ascending.
+    const frame = "<10'op:deliver<11'desc:export7+>[{1\"b2+1\"a1+}]42+f>";
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.decodeBody(.{ .bytes = frame, .shape = .byte }),
+    );
+}
+
+test "Struct key order compares the fully-encoded key, not the raw key bytes" {
+    // "b" encodes as `1"b` and "aa" as `2"aa`; bytewise `1"b` < `2"aa`, so the
+    // canonical wire order is "b" before "aa" even though the raw key bytes
+    // sort the other way. The committed fixture corpus is generated by the
+    // upstream Racket encoder, which sorts exactly this way
+    // (conformance/syrup/upstream/impls/racket/syrup/syrup.rkt: "We sort by
+    // the key being fully encoded").
+    const canonical = "<10'op:deliver<11'desc:export7+>[{1\"b1+2\"aa2+}]42+f>";
+    const body = try syrup.decodeBody(.{ .bytes = canonical, .shape = .byte });
+    try std.testing.expect(body == .deliver);
+    const arg = try body.deliver.args.at(0);
+    try std.testing.expect(arg == .@"struct");
+    try std.testing.expectEqual(@as(usize, 2), try arg.@"struct".len());
+
+    const raw_byte_order = "<10'op:deliver<11'desc:export7+>[{2\"aa2+1\"b1+}]42+f>";
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.decodeBody(.{ .bytes = raw_byte_order, .shape = .byte }),
+    );
+}
+
+test "a single collection wider than the decode element cap is refused" {
+    // Collection width is attacker-controlled, and every later walk over a
+    // collection — the lazy view's len/at, session validation, owned
+    // materialization — is linear in the element count. The codec caps a
+    // single list / set / struct at 1 << 20 elements
+    // (`max_collection_elements` in syrup/decode.zig, the width sibling of
+    // `max_decode_nesting`) and refuses past it during the slice walk, before
+    // any of those walks run. The cap sits just above what the default
+    // streaming byte cap can carry, so it binds the uncapped whole-frame
+    // entry points exercised here; on the streaming path with default limits
+    // the byte cap's FRAME_TOO_LARGE fires first (ADR-0041, pinned by the
+    // C ABI recv_stream tests). Ordinary CapTP traffic carries a handful of
+    // arguments per deliver, so a compliant frame never sees the cap.
+    const allocator = std.testing.allocator;
+    const cap = 1 << 20;
+    const prefix = "<10'op:deliver<11'desc:export7+>[";
+    const suffix = "]42+f>";
+
+    // A list one past the cap is refused…
+    {
+        var bytes: std.ArrayList(u8) = .empty;
+        defer bytes.deinit(allocator);
+        try bytes.appendSlice(allocator, prefix);
+        try bytes.append(allocator, '[');
+        for (0..cap + 1) |_| try bytes.appendSlice(allocator, "0+");
+        try bytes.append(allocator, ']');
+        try bytes.appendSlice(allocator, suffix);
+        try std.testing.expectError(
+            syrup.Error.MalformedFrame,
+            syrup.decodeBody(.{ .bytes = bytes.items, .shape = .byte }),
+        );
+    }
+    // …and a list exactly at the cap still decodes.
+    {
+        var bytes: std.ArrayList(u8) = .empty;
+        defer bytes.deinit(allocator);
+        try bytes.appendSlice(allocator, prefix);
+        try bytes.append(allocator, '[');
+        for (0..cap) |_| try bytes.appendSlice(allocator, "0+");
+        try bytes.append(allocator, ']');
+        try bytes.appendSlice(allocator, suffix);
+        const body = try syrup.decodeBody(.{ .bytes = bytes.items, .shape = .byte });
+        const arg = try body.deliver.args.at(0);
+        try std.testing.expect(arg == .list);
+    }
+    // A set one past the cap is refused.
+    {
+        var bytes: std.ArrayList(u8) = .empty;
+        defer bytes.deinit(allocator);
+        try bytes.appendSlice(allocator, prefix);
+        try bytes.append(allocator, '#');
+        for (0..cap + 1) |_| try bytes.appendSlice(allocator, "0+");
+        try bytes.append(allocator, '$');
+        try bytes.appendSlice(allocator, suffix);
+        try std.testing.expectError(
+            syrup.Error.MalformedFrame,
+            syrup.decodeBody(.{ .bytes = bytes.items, .shape = .byte }),
+        );
+    }
+    // A struct one past the cap is refused even with canonically sorted keys.
+    {
+        var bytes: std.ArrayList(u8) = .empty;
+        defer bytes.deinit(allocator);
+        try bytes.appendSlice(allocator, prefix);
+        try bytes.append(allocator, '{');
+        var key_buf: [16]u8 = undefined;
+        for (0..cap + 1) |i| {
+            // Fixed-width decimal keys: raw ascending order is encoded
+            // ascending order, so only the entry count trips the refusal.
+            const entry = try std.fmt.bufPrint(&key_buf, "8\"k{d:0>7}0+", .{i});
+            try bytes.appendSlice(allocator, entry);
+        }
+        try bytes.append(allocator, '}');
+        try bytes.appendSlice(allocator, suffix);
+        try std.testing.expectError(
+            syrup.Error.MalformedFrame,
+            syrup.decodeBody(.{ .bytes = bytes.items, .shape = .byte }),
+        );
+    }
+}
+
+test "an integer argument outside i64 decodes as a canonical big_integer" {
+    // The OCapN Integer is arbitrary-precision (Model.md § Integer). A magnitude
+    // one past i64 max / min decodes as the `big_integer` arm carrying the
+    // canonical decimal digits, with the sign on the arm — never truncated and
+    // never refused.
+    const allocator = std.testing.allocator;
+    // 9223372036854775808 = 2^63, one past i64 max (max is …807).
+    const over_max = "<10'op:deliver<11'desc:export7+>[9223372036854775808+]42+f>";
+    const over = try syrup.decodeOwned(allocator, .{ .bytes = over_max, .shape = .byte });
+    defer model.freeMessage(allocator, over);
+    {
+        const arg = over.deliver.args[0];
+        try std.testing.expect(arg == .big_integer);
+        try std.testing.expect(!arg.big_integer.negative);
+        try std.testing.expectEqualStrings("9223372036854775808", arg.big_integer.digits);
+    }
+    // 9223372036854775809 with a minus is one past i64 min (min is -…808).
+    const under_min = "<10'op:deliver<11'desc:export7+>[9223372036854775809-]42+f>";
+    const under = try syrup.decodeOwned(allocator, .{ .bytes = under_min, .shape = .byte });
+    defer model.freeMessage(allocator, under);
+    {
+        const arg = under.deliver.args[0];
+        try std.testing.expect(arg == .big_integer);
+        try std.testing.expect(arg.big_integer.negative);
+        try std.testing.expectEqualStrings("9223372036854775809", arg.big_integer.digits);
+    }
+}
+
+test "the i64 boundary values stay on the integer fast path" {
+    // The arm split is canonical: a value representable as i64 — including both
+    // exact bounds — decodes as `integer`, so the two arms never spell one
+    // arithmetic value and big-integer equality stays bytewise.
+    const max_frame = "<10'op:deliver<11'desc:export7+>[9223372036854775807+]42+f>";
+    const max_body = try syrup.decodeBody(.{ .bytes = max_frame, .shape = .byte });
+    const max_arg = try max_body.deliver.args.at(0);
+    try std.testing.expect(max_arg == .integer);
+    try std.testing.expectEqual(@as(i64, std.math.maxInt(i64)), max_arg.integer);
+
+    const min_frame = "<10'op:deliver<11'desc:export7+>[9223372036854775808-]42+f>";
+    const min_body = try syrup.decodeBody(.{ .bytes = min_frame, .shape = .byte });
+    const min_arg = try min_body.deliver.args.at(0);
+    try std.testing.expect(min_arg == .integer);
+    try std.testing.expectEqual(@as(i64, std.math.minInt(i64)), min_arg.integer);
+}
+
+test "a big integer round-trips through encode and non-canonical forms are refused" {
+    const allocator = std.testing.allocator;
+    // Round-trip: model -> wire -> model, negative sign, magnitude past u64 too.
+    const big = model.Argument{
+        .big_integer = .{
+            .negative = true,
+            .digits = "340282366920938463463374607431768211456", // 2^128
+        },
+    };
+    const message = model.Message{ .deliver = .{
+        .target = .{ .far = .{ .import_position = 7 } },
+        .args = &.{big},
+        .answer = 42,
+    } };
+    var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, message);
+    defer frame.deinit();
+    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "340282366920938463463374607431768211456-") != null);
+    const round = try syrup.decodeOwned(allocator, frame.view());
+    defer model.freeMessage(allocator, round);
+    try std.testing.expect(model.argumentsEqual(big, round.deliver.args[0]));
+
+    // A leading zero is non-canonical Syrup whatever the magnitude; refused.
+    const padded = "<10'op:deliver<11'desc:export7+>[09223372036854775808+]42+f>";
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.decodeOwned(allocator, .{ .bytes = padded, .shape = .byte }),
+    );
+
+    // Encode refuses a hand-built non-canonical value symmetrically (ADR-0003):
+    // this magnitude belongs to the `integer` arm, so it never reaches the wire.
+    const small = model.Message{ .deliver = .{
+        .target = .{ .far = .{ .import_position = 7 } },
+        .args = &.{.{ .big_integer = .{ .negative = false, .digits = "7" } }},
+        .answer = 42,
+    } };
+    try std.testing.expectError(
+        syrup.Error.UnsupportedArgument,
+        syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, small),
+    );
+}
+
 test "a no-answer deliver encodes as a single op:deliver, never op:deliver-only" {
     const allocator = std.testing.allocator;
-    const target = model.Reference{ .far = .{ .import_id = 7 } };
+    const target = model.Reference{ .far = .{ .import_position = 7 } };
     const args = [_]model.Argument{.{ .bytes = "hello" }};
     const message = model.Message{ .deliver = .{ .target = target, .args = args[0..], .answer = null } };
 
@@ -333,7 +562,7 @@ test "neutral Args iterator walks the codec backing in one forward pass" {
         .{ .boolean = true },
     };
     const message = model.Message{ .deliver = .{
-        .target = .{ .far = .{ .import_id = 7 } },
+        .target = .{ .far = .{ .import_position = 7 } },
         .args = args[0..],
         .answer = 42,
     } };
@@ -379,7 +608,7 @@ test "op:abort fixture decodes as a borrowed view" {
         .shape = .byte,
     };
 
-    const decoded = try syrup.decodeView(frame);
+    const decoded = try syrup.decodeBody(frame);
 
     try std.testing.expectEqual(model.AbortKind.other, decoded.abort.kind);
     try std.testing.expectEqualStrings("shutting down", decoded.abort.message);
@@ -393,18 +622,33 @@ test "typed op:abort fixture decodes without copying message bytes" {
         .shape = .byte,
     };
 
-    const decoded = try syrup.decodeView(frame);
+    const decoded = try syrup.decodeBody(frame);
 
     try std.testing.expectEqual(model.AbortKind.version_mismatch, decoded.abort.kind);
     try std.testing.expectEqualStrings("peer requested 2.0", decoded.abort.message);
 }
 
-test "decodeView exposes borrowed GC position lists" {
+test "op:abort with an unrecognized label prefix stays other, message verbatim" {
+    // The decoder recovers a kind only from labels the model names; a peer's
+    // free-form "<Word>: ..." message must not lose its prefix to a label that
+    // matches nothing.
+    const frame = pancake.foundation.FrameView{
+        .bytes = "<8'op:abort14\"Bogus: message>",
+        .shape = .byte,
+    };
+
+    const decoded = try syrup.decodeBody(frame);
+
+    try std.testing.expectEqual(model.AbortKind.other, decoded.abort.kind);
+    try std.testing.expectEqualStrings("Bogus: message", decoded.abort.message);
+}
+
+test "decodeBody exposes borrowed GC position lists" {
     {
         const fixture = protocol_oracle.fixtureByName("op_gc_exports.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
-        try std.testing.expectEqual(@as(usize, 2), try decoded.gc_export.positions.count());
+        try std.testing.expectEqual(@as(usize, 2), try decoded.gc_export.positions.len());
         try std.testing.expectEqual(@as(u64, 3), try decoded.gc_export.positions.at(0));
         try std.testing.expectEqual(@as(u64, 7), try decoded.gc_export.positions.at(1));
         try std.testing.expectEqual(@as(u64, 1), try decoded.gc_export.deltas.at(0));
@@ -413,26 +657,26 @@ test "decodeView exposes borrowed GC position lists" {
 
     {
         const fixture = protocol_oracle.fixtureByName("op_gc_answers.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
-        try std.testing.expectEqual(@as(usize, 2), try decoded.gc_answer.positions.count());
+        try std.testing.expectEqual(@as(usize, 2), try decoded.gc_answer.positions.len());
         try std.testing.expectEqual(@as(u64, 11), try decoded.gc_answer.positions.at(0));
         try std.testing.expectEqual(@as(u64, 13), try decoded.gc_answer.positions.at(1));
     }
 }
 
-test "decodeView exposes borrowed views for deliver, get, index, listen, and resolve" {
+test "decodeBody exposes borrowed views for deliver, get, index, listen, and resolve" {
     // The decoder lifts each payload/target descriptor into the receiver's
-    // perspective (ADR-0010 flip): `<desc:export N>` → `.near{export_id=N}` and
-    // `<desc:import-object N>` → `.far{import_id=N}`. The fixture-name `_far` /
+    // perspective (ADR-0010 flip): `<desc:export N>` → `.near{export_position=N}` and
+    // `<desc:import-object N>` → `.far{import_position=N}`. The fixture-name `_far` /
     // `_near` labels predate the flip and now describe the wire descriptor's
     // historical model arm, not the decoded one.
     {
         const fixture = protocol_oracle.fixtureByName("op_deliver.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
-        try std.testing.expectEqual(@as(u64, 7), decoded.deliver.target.near.export_id);
-        try std.testing.expectEqual(@as(usize, 1), try decoded.deliver.args.count());
+        try std.testing.expectEqual(@as(u64, 7), decoded.deliver.target.near.export_position);
+        try std.testing.expectEqual(@as(usize, 1), try decoded.deliver.args.len());
         try std.testing.expectEqualStrings("hello", (try decoded.deliver.args.at(0)).bytes);
         try std.testing.expectEqual(@as(u64, 42), decoded.deliver.answer.?);
         try std.testing.expect(decoded.deliver.resolve_me_desc == null);
@@ -440,91 +684,106 @@ test "decodeView exposes borrowed views for deliver, get, index, listen, and res
 
     {
         const fixture = protocol_oracle.fixtureByName("op_get.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
-        try std.testing.expectEqual(@as(u64, 7), decoded.get.receiver.near.export_id);
+        try std.testing.expectEqual(@as(u64, 7), decoded.get.receiver.near.export_position);
         try std.testing.expectEqualStrings("name", decoded.get.field);
         try std.testing.expectEqual(@as(u64, 11), decoded.get.answer);
     }
 
     {
         const fixture = protocol_oracle.fixtureByName("op_index.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
-        try std.testing.expectEqual(@as(u64, 7), decoded.index.receiver.near.export_id);
+        try std.testing.expectEqual(@as(u64, 7), decoded.index.receiver.near.export_position);
         try std.testing.expectEqual(@as(i64, 5), decoded.index.index);
         try std.testing.expectEqual(@as(u64, 11), decoded.index.answer);
     }
 
     {
-        const fixture = protocol_oracle.fixtureByName("op_listen_promise_target.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const fixture = protocol_oracle.fixtureByName("op_untag.bin").?;
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
-        try std.testing.expectEqual(@as(u64, 7), decoded.listen.target.promise.answer_id);
-        try std.testing.expectEqual(@as(u64, 9), decoded.listen.listener.far.import_id);
+        try std.testing.expectEqual(@as(u64, 7), decoded.untag.receiver.near.export_position);
+        try std.testing.expectEqualStrings("cm", decoded.untag.tag);
+        try std.testing.expectEqual(@as(u64, 11), decoded.untag.answer);
+    }
+
+    {
+        const fixture = protocol_oracle.fixtureByName("op_listen_promise_target.bin").?;
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
+
+        try std.testing.expectEqual(@as(u64, 7), decoded.listen.target.promise.answer_position);
+        try std.testing.expectEqual(@as(u64, 9), decoded.listen.listener.far.import_position);
         try std.testing.expect(!decoded.listen.wants_partial);
     }
 
     {
         const fixture = protocol_oracle.fixtureByName("op_resolve_break.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
         try std.testing.expectEqual(@as(u64, 42), decoded.resolve.answer);
-        try std.testing.expectEqualStrings("target unreachable", decoded.resolve.resolution.break_.message);
+        try std.testing.expectEqualStrings("target unreachable", decoded.resolve.resolution.@"break".message);
     }
 
     {
         const fixture = protocol_oracle.fixtureByName("op_resolve_fulfill_far.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
         try std.testing.expectEqual(@as(u64, 7), decoded.resolve.answer);
         // `<desc:export 5>` lifts to `.near` post-flip (fixture name predates it).
-        try std.testing.expectEqual(@as(u64, 5), decoded.resolve.resolution.fulfill.reference.near.export_id);
+        try std.testing.expectEqual(@as(u64, 5), decoded.resolve.resolution.fulfill.reference.near.export_position);
     }
 
     {
         const fixture = protocol_oracle.fixtureByName("op_resolve_fulfill_near.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
         // `<desc:import-object 9>` lifts to `.far` post-flip.
-        try std.testing.expectEqual(@as(u64, 9), decoded.resolve.resolution.fulfill.reference.far.import_id);
+        try std.testing.expectEqual(@as(u64, 9), decoded.resolve.resolution.fulfill.reference.far.import_position);
     }
 
     {
         const fixture = protocol_oracle.fixtureByName("op_resolve_fulfill_promise.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
-        try std.testing.expectEqual(@as(u64, 11), decoded.resolve.resolution.fulfill.reference.promise.answer_id);
+        try std.testing.expectEqual(@as(u64, 11), decoded.resolve.resolution.fulfill.reference.promise.answer_position);
     }
 }
 
-test "decodeView exposes borrowed views for start-session and handoff" {
+test "decodeBody exposes borrowed views for start-session and handoff" {
     {
         const fixture = protocol_oracle.fixtureByName("op_start_session_v1_0.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
         try std.testing.expectEqual(model.CaptpVersion.v1_0, decoded.start_session.captp_version);
-        try std.testing.expectEqual(@as(usize, 32), decoded.start_session.session_pubkey.bytes.len);
+        try std.testing.expectEqual(@as(usize, 32), decoded.start_session.session_pubkey.len);
         try std.testing.expectEqualStrings("memory", decoded.start_session.acceptable_location.transport);
         try std.testing.expectEqualStrings("exporter", decoded.start_session.acceptable_location.designator);
-        try std.testing.expectEqual(@as(usize, 64), decoded.start_session.acceptable_location_sig.len());
+        const sig = decoded.start_session.acceptable_location_sig.halves;
+        try std.testing.expectEqual(@as(usize, 64), sig.r.len + sig.s.len);
     }
 
     {
         const fixture = protocol_oracle.fixtureByName("op_handoff_give.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
-        try std.testing.expectEqualStrings("desc:sig-envelope", decoded.handoff.envelope_tag);
-        try std.testing.expectEqualStrings("desc:handoff-give", decoded.handoff.payload_tag);
-        try std.testing.expectEqual(@as(usize, fixture.bytes().len), decoded.handoff.bytes.len);
+        // A top-level give decodes to the `.give` arm, with `raw_signed`
+        // spanning the exact envelope bytes a verifier checks.
+        try std.testing.expectEqual(
+            @as(usize, fixture.bytes().len),
+            decoded.handoff.give.raw_signed.?.len,
+        );
     }
 
     {
         const fixture = protocol_oracle.fixtureByName("op_handoff_receive.bin").?;
-        const decoded = try syrup.decodeView(.{ .bytes = fixture.bytes(), .shape = .byte });
+        const decoded = try syrup.decodeBody(.{ .bytes = fixture.bytes(), .shape = .byte });
 
-        try std.testing.expectEqualStrings("desc:sig-envelope", decoded.handoff.envelope_tag);
-        try std.testing.expectEqualStrings("desc:handoff-receive", decoded.handoff.payload_tag);
+        // A receive nests its signed give, whose raw envelope bytes are kept
+        // for signature verification.
+        try std.testing.expect(decoded.handoff == .receive);
+        try std.testing.expect(decoded.handoff.receive.signed_give.raw_signed != null);
     }
 }
 
@@ -558,26 +817,26 @@ test "decodeOwned materializes handoff give and receive fixtures" {
     {
         const fixture = protocol_oracle.fixtureByName("op_handoff_give.bin").?;
         const decoded = try syrup.decodeOwned(allocator, .{ .bytes = fixture.bytes(), .shape = .byte });
-        defer freeTestHandoff(allocator, decoded.handoff);
+        defer handoff_fixtures.freeHandoff(allocator, decoded.handoff);
 
-        try std.testing.expectEqualStrings(fixture_recipient_key[0..], decoded.handoff.give.recipient_key);
+        try std.testing.expectEqualStrings(handoff_fixtures.recipient_key[0..], decoded.handoff.give.recipient_key);
         try std.testing.expectEqualStrings("memory:exporter", decoded.handoff.give.exporter_location);
-        try std.testing.expectEqualStrings(fixture_gifter_session[0..], decoded.handoff.give.gifter_exporter_session);
-        try std.testing.expectEqualStrings(fixture_gifter_side[0..], decoded.handoff.give.gifter_side);
-        try std.testing.expectEqualStrings(fixture_gift_id[0..], decoded.handoff.give.gift_id);
-        try std.testing.expectEqualStrings(fixture_give_signature[0..], decoded.handoff.give.signature);
+        try std.testing.expectEqualStrings(handoff_fixtures.gifter_session[0..], decoded.handoff.give.gifter_exporter_session);
+        try std.testing.expectEqualStrings(handoff_fixtures.gifter_side[0..], decoded.handoff.give.gifter_side);
+        try std.testing.expectEqualStrings(handoff_fixtures.gift_id[0..], decoded.handoff.give.gift_id);
+        try std.testing.expectEqualStrings(handoff_fixtures.give_signature[0..], decoded.handoff.give.signature);
     }
 
     {
         const fixture = protocol_oracle.fixtureByName("op_handoff_receive.bin").?;
         const decoded = try syrup.decodeOwned(allocator, .{ .bytes = fixture.bytes(), .shape = .byte });
-        defer freeTestHandoff(allocator, decoded.handoff);
+        defer handoff_fixtures.freeHandoff(allocator, decoded.handoff);
 
-        try std.testing.expectEqualStrings(fixture_receiving_session[0..], decoded.handoff.receive.receiving_session);
-        try std.testing.expectEqualStrings(fixture_receiving_side[0..], decoded.handoff.receive.receiving_side);
+        try std.testing.expectEqualStrings(handoff_fixtures.receiving_session[0..], decoded.handoff.receive.receiving_session);
+        try std.testing.expectEqualStrings(handoff_fixtures.receiving_side[0..], decoded.handoff.receive.receiving_side);
         try std.testing.expectEqual(@as(u64, 1), decoded.handoff.receive.handoff_count);
-        try std.testing.expectEqualStrings(fixture_recipient_key[0..], decoded.handoff.receive.signed_give.recipient_key);
-        try std.testing.expectEqualStrings(fixture_receive_signature[0..], decoded.handoff.receive.signature);
+        try std.testing.expectEqualStrings(handoff_fixtures.recipient_key[0..], decoded.handoff.receive.signed_give.recipient_key);
+        try std.testing.expectEqualStrings(handoff_fixtures.receive_signature[0..], decoded.handoff.receive.signature);
     }
 }
 
@@ -587,7 +846,7 @@ test "Syrup decode rejects non-byte frame shape" {
         .shape = .word,
     };
 
-    try std.testing.expectError(syrup.Error.InvalidFrameShape, syrup.decodeView(frame));
+    try std.testing.expectError(syrup.Error.InvalidFrameShape, syrup.decodeBody(frame));
 }
 
 test "Syrup decode rejects malformed parser boundary cases" {
@@ -607,7 +866,7 @@ test "Syrup decode rejects malformed parser boundary cases" {
     for (cases) |bytes| {
         try std.testing.expectError(
             bytes.expected,
-            syrup.decodeView(.{ .bytes = bytes.bytes, .shape = .byte }),
+            syrup.decodeBody(.{ .bytes = bytes.bytes, .shape = .byte }),
         );
     }
 }
@@ -619,17 +878,81 @@ test "Syrup encodes float64 as the canonical 'D' + big-endian binary64 wire shap
     // contract a Goblins peer emitting a float over Syrup expects.
     const args = [_]model.Argument{.{ .float64 = 1.5 }};
     var frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
-        .target = .{ .far = .{ .import_id = 7 } },
+        .target = .{ .far = .{ .import_position = 7 } },
         .args = args[0..],
         .answer = 42,
     } });
     defer frame.deinit();
 
-    try std.testing.expectEqualSlices(
-        u8,
-        "<10'op:deliver<11'desc:export7+>[D\x3f\xf8\x00\x00\x00\x00\x00\x00]42+f>",
-        frame.bytes(),
-    );
+    // Pin against the Goblins/Python-generated reference frame rather than a
+    // hand-typed duplicate, so the cross-impl fixture is actually load-bearing.
+    try expectFixtureBytes("op_deliver_arg_float64.bin", frame);
+}
+
+test "Syrup carries a big integer argument byte-identical to the upstream Racket encoder" {
+    const allocator = std.testing.allocator;
+    // The fixture is a Racket bignum (2^100) serialized by the upstream Syrup
+    // encoder; pancake's `big_integer` arm must produce the same frame, and
+    // decode the fixture back to the same model value (ADR-0049).
+    const big = model.Argument{ .big_integer = .{
+        .negative = false,
+        .digits = "1267650600228229401496703205376",
+    } };
+    const args = [_]model.Argument{big};
+    var frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
+        .target = .{ .far = .{ .import_position = 7 } },
+        .args = args[0..],
+        .answer = 42,
+    } });
+    defer frame.deinit();
+    try expectFixtureBytes("op_deliver_arg_big_integer.bin", frame);
+
+    const fixture = protocol_oracle.fixtureByName("op_deliver_arg_big_integer.bin").?;
+    const round = try syrup.decodeOwned(allocator, .{ .bytes = fixture.bytes(), .shape = .byte });
+    defer model.freeMessage(allocator, round);
+    try std.testing.expect(model.argumentsEqual(big, round.deliver.args[0]));
+}
+
+test "Syrup encodes bare primitives byte-for-byte against the Goblins reference fixtures" {
+    const allocator = std.testing.allocator;
+    // Each `prim_*.bin` is a bare Syrup value generated by Goblins/Python. The
+    // pancake encoder only emits whole op-records, so encode each as the sole
+    // argument of an `op:deliver` and slice the primitive sub-bytes back out:
+    // the framing around the argument list is the fixed prefix and suffix below.
+    const prefix = "<10'op:deliver<11'desc:export7+>[";
+    const suffix = "]42+f>";
+    const cases = .{
+        .{ "prim_integer_pos_42.bin", model.Argument{ .integer = 42 } },
+        .{ "prim_integer_neg_7.bin", model.Argument{ .integer = -7 } },
+        // 2^100 negated: a Racket bignum on the upstream side, pancake's
+        // `big_integer` arm on this side (ADR-0049).
+        .{ "prim_integer_big_neg.bin", model.Argument{ .big_integer = .{
+            .negative = true,
+            .digits = "1267650600228229401496703205376",
+        } } },
+        .{ "prim_string_hello.bin", model.Argument{ .string = "hello" } },
+        .{ "prim_list_of_ints.bin", model.Argument{ .list = &.{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } } } },
+        .{ "prim_set_of_ints.bin", model.Argument{ .set = &.{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } } } },
+        // Racket `(hash "a" 1 "b" 2)` upstream, pancake's Struct arm here —
+        // canonical key order on encode makes the bytes deterministic (ADR-0046).
+        .{ "prim_dict_str_to_int.bin", model.Argument{ .@"struct" = &.{
+            .{ .key = "a", .value = .{ .integer = 1 } },
+            .{ .key = "b", .value = .{ .integer = 2 } },
+        } } },
+    };
+    inline for (cases) |case| {
+        const args = [_]model.Argument{case[1]};
+        var frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
+            .target = .{ .far = .{ .import_position = 7 } },
+            .args = args[0..],
+            .answer = 42,
+        } });
+        defer frame.deinit();
+        const bytes = frame.bytes();
+        const inner = bytes[prefix.len .. bytes.len - suffix.len];
+        const fixture = protocol_oracle.fixtureByName(case[0]).?;
+        try std.testing.expectEqualSlices(u8, fixture.bytes(), inner);
+    }
 }
 
 test "Syrup round-trips float64 through decode, including NaN and signed zero" {
@@ -640,7 +963,7 @@ test "Syrup round-trips float64 through decode, including NaN and signed zero" {
     for (cases) |value| {
         const args = [_]model.Argument{.{ .float64 = value }};
         var frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
-            .target = .{ .far = .{ .import_id = 7 } },
+            .target = .{ .far = .{ .import_position = 7 } },
             .args = args[0..],
             .answer = 42,
         } });
@@ -653,20 +976,23 @@ test "Syrup round-trips float64 through decode, including NaN and signed zero" {
     }
 }
 
-test "Syrup decodeOwned rejects a handoff with an unsupported payload tag" {
+test "Syrup decode rejects a handoff with an unsupported payload tag" {
     const allocator = std.testing.allocator;
     const original = protocol_oracle.fixtureByName("op_handoff_give.bin").?.bytes();
     const buffer = try allocator.dupe(u8, original);
     defer allocator.free(buffer);
 
     // Corrupt the payload tag in place, keeping its length so the envelope stays
-    // structurally valid: decodeView accepts it, but the handoff materializer
-    // must refuse an unknown payload.
+    // structurally valid. One decode vocabulary: the borrowed view and the owned
+    // materializer refuse the unknown payload identically.
     const tag = "desc:handoff-give";
     const idx = std.mem.indexOf(u8, buffer, tag).?;
     buffer[idx + tag.len - 1] = 'X';
 
-    _ = try syrup.decodeView(.{ .bytes = buffer, .shape = .byte });
+    try std.testing.expectError(
+        syrup.Error.UnsupportedMessage,
+        syrup.decodeBody(.{ .bytes = buffer, .shape = .byte }),
+    );
     try std.testing.expectError(
         syrup.Error.UnsupportedMessage,
         syrup.decodeOwned(allocator, .{ .bytes = buffer, .shape = .byte }),
@@ -680,7 +1006,7 @@ test "Syrup decode rejects a truncated handoff envelope" {
 
     try std.testing.expectError(
         syrup.Error.MalformedFrame,
-        syrup.decodeView(.{ .bytes = truncated, .shape = .byte }),
+        syrup.decodeBody(.{ .bytes = truncated, .shape = .byte }),
     );
     try std.testing.expectError(
         syrup.Error.MalformedFrame,
@@ -696,7 +1022,7 @@ test "Syrup decode rejects a truncated handoff envelope" {
 // parallel lists, start-session, and both handoff envelopes.
 test "Syrup: corrupting any byte of a frame stays total: typed error or message, never a panic" {
     const allocator = std.testing.allocator;
-    var handoff_arg = model.Handoff{ .give = fixtureGive() };
+    var handoff_arg = model.Handoff{ .give = handoff_fixtures.give() };
 
     const messages = [_]model.Message{
         .{ .deliver = .{
@@ -708,7 +1034,7 @@ test "Syrup: corrupting any byte of a frame stays total: typed error or message,
             },
             .answer = 7,
         } },
-        .{ .resolve = .{ .answer = 9, .resolution = .{ .break_ = .{ .message = "boom" } } } },
+        .{ .resolve = .{ .answer = 9, .resolution = .{ .@"break" = .{ .message = "boom" } } } },
         .{ .resolve = .{ .answer = 2, .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(6) } } } } },
         .{ .gc_export = .{ .positions = &.{ 2, 5, 8 }, .deltas = &.{ 1, 1, 3 } } },
         .{ .gc_answer = .{ .positions = &.{ 1, 4, 9 } } },
@@ -720,18 +1046,20 @@ test "Syrup: corrupting any byte of a frame stays total: typed error or message,
         } },
         .{ .get = .{ .receiver = .{ .far = model.FarRef.object(5) }, .field = "value", .answer = 8 } },
         .{ .index = .{ .receiver = .{ .far = model.FarRef.object(6) }, .index = -3, .answer = 9 } },
+        .{ .untag = .{ .receiver = .{ .far = model.FarRef.object(5) }, .tag = "cm", .answer = 8 } },
         .{ .start_session = .{
             .captp_version = .v1_0,
             .session_pubkey = .{ .bytes = &([_]u8{0xab} ** 32) },
             .acceptable_location = .{ .transport = "tcp", .designator = "1.2.3.4:5" },
             .acceptable_location_sig = .{ .bytes = &([_]u8{0xcd} ** 64) },
         } },
-        .{ .handoff = .{ .give = fixtureGive() } },
-        .{ .handoff = .{ .receive = fixtureReceive() } },
+        .{ .handoff = .{ .give = handoff_fixtures.give() } },
+        .{ .handoff = .{ .receive = handoff_fixtures.receive() } },
     };
 
     for (messages) |message| {
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, message);
+        const profile = if (message == .resolve) model.WireProfile.pre_spec else model.WireProfile.v1_0;
+        var frame = try syrup.encodeMessageForProfile(allocator, profile, message);
         defer frame.deinit();
 
         const original = try allocator.dupe(u8, frame.bytes());
@@ -769,7 +1097,7 @@ test "Syrup encoder matches core Goblins operation fixtures" {
     const allocator = std.testing.allocator;
 
     {
-        var frame = try syrup.encodeMessage(allocator, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
             .abort = .{ .kind = .other, .message = "shutting down" },
         });
         defer frame.deinit();
@@ -778,9 +1106,9 @@ test "Syrup encoder matches core Goblins operation fixtures" {
 
     {
         const args = [_]model.Argument{.{ .bytes = "hello" }};
-        var frame = try syrup.encodeMessage(allocator, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
             .deliver = .{
-                .target = .{ .far = .{ .import_id = 7 } },
+                .target = .{ .far = .{ .import_position = 7 } },
                 .args = args[0..],
                 .answer = 42,
             },
@@ -790,7 +1118,7 @@ test "Syrup encoder matches core Goblins operation fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessage(allocator, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
             .gc_export = .{
                 .positions = &.{ 3, 7 },
                 .deltas = &.{ 1, 2 },
@@ -801,7 +1129,7 @@ test "Syrup encoder matches core Goblins operation fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessage(allocator, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
             .gc_answer = .{ .positions = &.{ 11, 13 } },
         });
         defer frame.deinit();
@@ -811,7 +1139,7 @@ test "Syrup encoder matches core Goblins operation fixtures" {
     {
         var frame = try syrup.encodeMessage(allocator, .{
             .get = .{
-                .receiver = .{ .far = .{ .import_id = 7 } },
+                .receiver = .{ .far = .{ .import_position = 7 } },
                 .field = "name",
                 .answer = 11,
             },
@@ -823,7 +1151,7 @@ test "Syrup encoder matches core Goblins operation fixtures" {
     {
         var frame = try syrup.encodeMessage(allocator, .{
             .index = .{
-                .receiver = .{ .far = .{ .import_id = 7 } },
+                .receiver = .{ .far = .{ .import_position = 7 } },
                 .index = 5,
                 .answer = 11,
             },
@@ -834,9 +1162,21 @@ test "Syrup encoder matches core Goblins operation fixtures" {
 
     {
         var frame = try syrup.encodeMessage(allocator, .{
+            .untag = .{
+                .receiver = .{ .far = .{ .import_position = 7 } },
+                .tag = "cm",
+                .answer = 11,
+            },
+        });
+        defer frame.deinit();
+        try expectFixtureBytes("op_untag.bin", frame);
+    }
+
+    {
+        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
             .resolve = .{
                 .answer = 42,
-                .resolution = .{ .break_ = .{ .message = "target unreachable" } },
+                .resolution = .{ .@"break" = .{ .message = "target unreachable" } },
             },
         });
         defer frame.deinit();
@@ -848,10 +1188,10 @@ test "Syrup encoder matches reference and rich argument fixtures" {
     const allocator = std.testing.allocator;
 
     {
-        var frame = try syrup.encodeMessage(allocator, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
             .resolve = .{
                 .answer = 7,
-                .resolution = .{ .fulfill = .{ .reference = .{ .far = .{ .import_id = 5 } } } },
+                .resolution = .{ .fulfill = .{ .reference = .{ .far = .{ .import_position = 5 } } } },
             },
         });
         defer frame.deinit();
@@ -859,10 +1199,10 @@ test "Syrup encoder matches reference and rich argument fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessage(allocator, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
             .resolve = .{
                 .answer = 7,
-                .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_id = 9 } } } },
+                .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = 9 } } } },
             },
         });
         defer frame.deinit();
@@ -870,10 +1210,10 @@ test "Syrup encoder matches reference and rich argument fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessage(allocator, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
             .resolve = .{
                 .answer = 7,
-                .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_id = 11 } } } },
+                .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = 11 } } } },
             },
         });
         defer frame.deinit();
@@ -881,10 +1221,10 @@ test "Syrup encoder matches reference and rich argument fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessage(allocator, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
             .listen = .{
-                .target = .{ .promise = .{ .answer_id = 7 } },
-                .listener = .{ .near = .{ .export_id = 9 } },
+                .target = .{ .promise = .{ .answer_position = 7 } },
+                .listener = .{ .near = .{ .export_position = 9 } },
                 .wants_partial = false,
             },
         });
@@ -893,10 +1233,10 @@ test "Syrup encoder matches reference and rich argument fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessage(allocator, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
             .listen = .{
-                .target = .{ .far = .{ .import_id = 5 } },
-                .listener = .{ .near = .{ .export_id = 9 } },
+                .target = .{ .far = .{ .import_position = 5 } },
+                .listener = .{ .near = .{ .export_position = 9 } },
                 .wants_partial = false,
             },
         });
@@ -908,7 +1248,7 @@ test "Syrup encoder matches reference and rich argument fixtures" {
         const args = [_]model.Argument{.{ .void = {} }};
         var frame = try syrup.encodeMessage(allocator, .{
             .deliver = .{
-                .target = .{ .far = .{ .import_id = 7 } },
+                .target = .{ .far = .{ .import_position = 7 } },
                 .args = args[0..],
                 .answer = 42,
             },
@@ -922,7 +1262,7 @@ test "Syrup encoder matches reference and rich argument fixtures" {
         const args = [_]model.Argument{.{ .tagged = .{ .tag = "point", .value = values[0..] } }};
         var frame = try syrup.encodeMessage(allocator, .{
             .deliver = .{
-                .target = .{ .far = .{ .import_id = 7 } },
+                .target = .{ .far = .{ .import_position = 7 } },
                 .args = args[0..],
                 .answer = 42,
             },
@@ -935,7 +1275,7 @@ test "Syrup encoder matches reference and rich argument fixtures" {
         const args = [_]model.Argument{.{ .keyword = "name" }};
         var frame = try syrup.encodeMessage(allocator, .{
             .deliver = .{
-                .target = .{ .far = .{ .import_id = 7 } },
+                .target = .{ .far = .{ .import_position = 7 } },
                 .args = args[0..],
                 .answer = 42,
             },
@@ -949,7 +1289,7 @@ test "Syrup encoder matches reference and rich argument fixtures" {
         const args = [_]model.Argument{.{ .set = values[0..] }};
         var frame = try syrup.encodeMessage(allocator, .{
             .deliver = .{
-                .target = .{ .far = .{ .import_id = 7 } },
+                .target = .{ .far = .{ .import_position = 7 } },
                 .args = args[0..],
                 .answer = 42,
             },
@@ -1001,8 +1341,8 @@ test "Syrup encoder matches V1_0 listen and deliver fixture batch" {
     {
         var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
             .listen = .{
-                .target = .{ .promise = .{ .answer_id = 7 } },
-                .listener = .{ .near = .{ .export_id = 9 } },
+                .target = .{ .promise = .{ .answer_position = 7 } },
+                .listener = .{ .near = .{ .export_position = 9 } },
                 .wants_partial = false,
             },
         });
@@ -1013,8 +1353,8 @@ test "Syrup encoder matches V1_0 listen and deliver fixture batch" {
     {
         var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
             .listen = .{
-                .target = .{ .promise = .{ .answer_id = 7 } },
-                .listener = .{ .near = .{ .export_id = 9 } },
+                .target = .{ .promise = .{ .answer_position = 7 } },
+                .listener = .{ .near = .{ .export_position = 9 } },
                 .wants_partial = true,
             },
         });
@@ -1026,10 +1366,10 @@ test "Syrup encoder matches V1_0 listen and deliver fixture batch" {
         const args = [_]model.Argument{.{ .bytes = "hello" }};
         var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
             .deliver = .{
-                .target = .{ .far = .{ .import_id = 7 } },
+                .target = .{ .far = .{ .import_position = 7 } },
                 .args = args[0..],
                 .answer = 42,
-                .resolve_me_desc = .{ .near = .{ .export_id = 99 } },
+                .resolve_me_desc = .{ .near = .{ .export_position = 99 } },
             },
         });
         defer frame.deinit();
@@ -1064,7 +1404,7 @@ test "Syrup encoder matches handoff fixture batch" {
 
     {
         var frame = try syrup.encodeMessage(allocator, .{
-            .handoff = .{ .give = fixtureGive() },
+            .handoff = .{ .give = handoff_fixtures.give() },
         });
         defer frame.deinit();
         try expectFixtureBytes("op_handoff_give.bin", frame);
@@ -1072,21 +1412,21 @@ test "Syrup encoder matches handoff fixture batch" {
 
     {
         var frame = try syrup.encodeMessage(allocator, .{
-            .handoff = .{ .receive = fixtureReceive() },
+            .handoff = .{ .receive = handoff_fixtures.receive() },
         });
         defer frame.deinit();
         try expectFixtureBytes("op_handoff_receive.bin", frame);
     }
 
     {
-        var handoff_arg = model.Handoff{ .receive = fixtureReceive() };
+        var handoff_arg = model.Handoff{ .receive = handoff_fixtures.receive() };
         const args = [_]model.Argument{
             .{ .symbol = "withdraw-gift" },
             .{ .handoff = &handoff_arg },
         };
         var frame = try syrup.encodeMessage(allocator, .{
             .deliver = .{
-                .target = .{ .far = .{ .import_id = 0 } },
+                .target = .{ .far = .{ .import_position = 0 } },
                 .args = args[0..],
                 .answer = 99,
             },
@@ -1112,7 +1452,7 @@ test "Syrup near-promise payload encodes desc:import-promise and round-trips kin
     const args = [_]model.Argument{.{ .reference = .{ .near = model.NearRef.promise(7) } }};
     var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
         .deliver = .{
-            .target = .{ .far = .{ .import_id = 1 } },
+            .target = .{ .far = .{ .import_position = 1 } },
             .args = args[0..],
             .answer = null,
         },
@@ -1124,11 +1464,11 @@ test "Syrup near-promise payload encodes desc:import-promise and round-trips kin
 
     // A sender's promise-shaped `Near` export encodes `<desc:import-promise>` and
     // decodes on the receiver as a promise-shaped `Far` import (ADR-0010 flip);
-    // the object/promise kind rides the wire tag and survives into `ImportKind`.
+    // the object/promise kind rides the wire tag and survives into `RefKind`.
     const decoded = try syrup.decodeOwned(allocator, frame.view());
     defer allocator.free(decoded.deliver.args);
-    try std.testing.expectEqual(model.ImportKind.promise, decoded.deliver.args[0].reference.far.kind);
-    try std.testing.expectEqual(@as(u64, 7), decoded.deliver.args[0].reference.far.import_id);
+    try std.testing.expectEqual(model.RefKind.promise, decoded.deliver.args[0].reference.far.kind);
+    try std.testing.expectEqual(@as(u64, 7), decoded.deliver.args[0].reference.far.import_position);
 }
 
 // ── Codec-neutral view projection round-trips ────────────────────────────────
@@ -1188,7 +1528,7 @@ test "neutral view projects every Syrup-encodable argument arm" {
     // import promise-kind is intentionally not on the wire (`Far`→`<desc:export>`
     // drops it), covered separately by the desc:import-promise kind test above.
     try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .deliver = .{
-        .target = .{ .promise = .{ .answer_id = 7 } },
+        .target = .{ .promise = .{ .answer_position = 7 } },
         .args = args[0..],
         .answer = 42,
     } });
@@ -1198,7 +1538,7 @@ test "neutral view round-trips deliver with promise target and resolver-callback
     const args = [_]model.Argument{ .{ .symbol = "fulfill" }, .{ .reference = .{ .near = model.NearRef.object(3) } } };
     try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{
         .deliver = .{
-            .target = .{ .promise = .{ .answer_id = 5 } },
+            .target = .{ .promise = .{ .answer_position = 5 } },
             .args = args[0..],
             .answer = 8,
             // Object-kind resolver desc: the promise-kind on a decoded `Far` import
@@ -1210,13 +1550,13 @@ test "neutral view round-trips deliver with promise target and resolver-callback
 }
 
 test "neutral view round-trips resolve, gc, abort, listen, get, index" {
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .resolve = .{
+    try expectBodyByteRoundTrip(model.WireProfile.pre_spec, .{ .resolve = .{
         .answer = 1,
         .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(2) } } },
     } });
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .resolve = .{
+    try expectBodyByteRoundTrip(model.WireProfile.pre_spec, .{ .resolve = .{
         .answer = 1,
-        .resolution = .{ .break_ = .{ .message = "boom" } },
+        .resolution = .{ .@"break" = .{ .message = "boom" } },
     } });
     const positions = [_]u64{ 5, 6, 7 };
     const deltas = [_]u64{ 1, 1, 2 };
@@ -1227,12 +1567,12 @@ test "neutral view round-trips resolve, gc, abort, listen, get, index" {
     // `Near` target (see `expectBodyByteRoundTrip`). Far-receiver decoding for
     // listen/get/index is covered by the oracle-fixture tests.
     try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .listen = .{
-        .target = .{ .promise = .{ .answer_id = 7 } },
+        .target = .{ .promise = .{ .answer_position = 7 } },
         .listener = .{ .near = model.NearRef.object(9) },
         .wants_partial = true,
     } });
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .get = .{ .receiver = .{ .promise = .{ .answer_id = 2 } }, .field = "name", .answer = 3 } });
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .index = .{ .receiver = .{ .promise = .{ .answer_id = 2 } }, .index = 5, .answer = 4 } });
+    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .get = .{ .receiver = .{ .promise = .{ .answer_position = 2 } }, .field = "name", .answer = 3 } });
+    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .index = .{ .receiver = .{ .promise = .{ .answer_position = 2 } }, .index = 5, .answer = 4 } });
 }
 
 test "neutral view round-trips start_session and handoff (deferred sig/locator joins)" {
@@ -1244,6 +1584,45 @@ test "neutral view round-trips start_session and handoff (deferred sig/locator j
         .acceptable_location = .{ .transport = "memory", .designator = "exporter" },
         .acceptable_location_sig = .{ .bytes = sig[0..] },
     } });
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .handoff = .{ .give = fixtureGive() } });
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .handoff = .{ .receive = fixtureReceive() } });
+    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .handoff = .{ .give = handoff_fixtures.give() } });
+    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .handoff = .{ .receive = handoff_fixtures.receive() } });
+}
+
+test "Syrup decode refuses non-canonical digit spellings" {
+    // Canonical Syrup has exactly one wire spelling per value: `0+` is the only
+    // zero, and no digit run carries a superfluous leading zero. A lenient read
+    // would let one message arrive as several different byte strings, voiding
+    // the byte-level canonicality that signed records and byte-keyed tables
+    // lean on.
+    const cases = [_][]const u8{
+        "<8'op:abort013\"shutting down>", // leading-zero string length
+        "<10'op:deliver<11'desc:export07+>[]42+f>", // leading-zero position
+        "<10'op:deliver<11'desc:export7+>[00+]42+f>", // leading-zero integer magnitude
+        "<10'op:deliver<11'desc:export7+>[0-]42+f>", // negative zero
+    };
+    for (cases) |bytes| {
+        try std.testing.expectError(
+            syrup.Error.MalformedFrame,
+            syrup.decodeBody(.{ .bytes = bytes, .shape = .byte }),
+        );
+    }
+
+    // The canonical zero still decodes.
+    const decoded = try syrup.decodeBody(.{
+        .bytes = "<10'op:deliver<11'desc:export7+>[0+]42+f>",
+        .shape = .byte,
+    });
+    try std.testing.expectEqual(@as(i64, 0), (try decoded.deliver.args.at(0)).integer);
+}
+
+test "Syrup refuses a flattened exporter location with no transport/designator boundary" {
+    // `desc:handoff-give` re-splits the flattened `transport:designator` form
+    // on its first ':'. A location with no ':' has no boundary at all, so the
+    // encoder refuses the value instead of guessing one.
+    var boundaryless = handoff_fixtures.give();
+    boundaryless.exporter_location = "nocolon";
+
+    try std.testing.expectError(syrup.Error.UnsupportedArgument, syrup.encodeMessage(std.testing.allocator, .{
+        .handoff = .{ .give = boundaryless },
+    }));
 }

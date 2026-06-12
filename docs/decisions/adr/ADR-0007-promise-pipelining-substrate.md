@@ -12,7 +12,7 @@ superseded_by: []
 
 ## Context
 
-A caller can address an `op:deliver` at a promise — an answer the partner has not resolved yet — instead of a settled capability. OCapN's wire target for that case is `<desc:answer answer-pos>`, a single positive integer (CapTP Specification.md § desc:answer): the descriptor carries no pipeline path, and chained pipelining is chained `op:deliver` messages, not a multi-step path embedded in one frame. [`src/model/mod.zig`](../../../src/model/mod.zig) still models a `PipelinePath` of `PipelineOp` steps on `PromiseRef`, because the path is application-level structure the engine must carry even though Syrup has no operand for it.
+A caller can address an `op:deliver` at a promise — an answer the partner has not resolved yet — instead of a settled capability. OCapN's wire target for that case is `<desc:answer answer-pos>`, a single positive integer (CapTP Specification.md § desc:answer): the descriptor carries no pipeline path, and chained pipelining is chained `op:deliver` messages, not a multi-step path embedded in one frame. [`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig) still models a `PipelinePath` of `PipelineOp` steps on `PromiseRef`, because the path is application-level structure the engine must carry even though Syrup has no operand for it.
 
 Two questions follow. Where does a call queued against an unresolved answer live, and how does it drain when the answer settles? And how does a promise target carrying a non-empty path reach the wire when the only implemented codec — Syrup — has no path operand?
 
@@ -24,23 +24,23 @@ Engages the First Principles [*session state is authoritative*](../../../AGENTS.
 
 ### Queue ownership and drain
 
-The inbound answer table owns pipelining state. [`AnswerEntry`](../../../src/session/mod.zig) carries a FIFO `queue` of owned `op:deliver` messages, a `listeners` list, and the stored `resolution`. An inbound `op:deliver` whose target is a still-`pending` answer is held there ([`Session.enqueuePipelinedCall`](../../../src/session/mod.zig)) and surfaces no application event; [`Peer.maybeEnqueuePipelinedCall`](../../../src/engine/mod.zig) makes that decision at dispatch time.
+The inbound answer table owns pipelining state. [`AnswerEntry`](../../../src/ocapn/session/mod.zig) carries a FIFO `queue` of owned `op:deliver` messages, a `listeners` list, and the stored `resolution`. An inbound `op:deliver` whose target is a still-`pending` answer is held there ([`Session.enqueuePipelinedCall`](../../../src/ocapn/session/mod.zig)) and surfaces no application event; [`Peer.maybeEnqueuePipelinedCall`](../../../src/ocapn/engine/mod.zig) makes that decision at dispatch time.
 
-When a `Peer` sends `op:resolve` for that answer, `step` drains the queue ([`Peer.drainPipelinedCalls`](../../../src/engine/mod.zig)) and then fires the listeners — calls first, since a drained call may settle further answers. Each queued call dispatches against the resolution ([`Peer.dispatchDrainedCall`](../../../src/engine/mod.zig)): a `far` resolution forwards the call on the wire (target rewritten via [`pipeline.rewriteDeliverTarget`](../../../src/engine/pipeline.zig)); a `near` resolution delivers locally; another promise re-queues against it with cycle detection; every other shape drops the call.
+When a `Peer` sends `op:resolve` for that answer, `step` drains the queue ([`Peer.drainPipelinedCalls`](../../../src/ocapn/engine/mod.zig)) and then fires the listeners — calls first, since a drained call may settle further answers. Each queued call dispatches against the resolution ([`Peer.dispatchDrainedCall`](../../../src/ocapn/engine/mod.zig)): a `far` resolution forwards the call on the wire (target rewritten via [`pipeline.rewriteDeliverTarget`](../../../src/ocapn/engine/pipeline.zig)); a `near` resolution delivers locally; another promise re-queues against it with cycle detection; every other shape drops the call.
 
 ### Listener fire matrix
 
-[`pipeline.classifyListenerDrain`](../../../src/engine/pipeline.zig) decides each listener's fate against the resolution and its `wants_partial` flag. A `Fulfill(Promise(_))` resolution re-anchors the listener on the next answer — firing the partial first only when `wants_partial` — while every other resolution fires the listener once via [`pipeline.synthesizeListenerFire`](../../../src/engine/pipeline.zig), which builds the resolver-method `op:deliver` (`[Symbol("fulfill"), payload]` or `[Symbol("break"), <error>]`). Drain order is arrival order: FIFO matches Goblins's promise-queue draining and the transitive forwarding the OCapN spec describes (Model.md § Promise).
+[`pipeline.classifyListenerDrain`](../../../src/ocapn/engine/pipeline.zig) decides each listener's fate against the resolution and its `wants_partial` flag. A `Fulfill(Promise(_))` resolution re-anchors the listener on the next answer — firing the partial first only when `wants_partial` — while every other resolution fires the listener once via [`pipeline.synthesizeListenerFire`](../../../src/ocapn/engine/pipeline.zig), which builds the resolver-method `op:deliver` (`[Symbol("fulfill"), payload]` or `[Symbol("break"), <error>]`). Drain order is arrival order: FIFO matches Goblins's promise-queue draining and the transitive forwarding the OCapN spec describes (Model.md § Promise).
 
 ### Multi-hop decomposition at the sender
 
-`desc:answer` carries no path operand, so a `Message.deliver` whose target is a promise with a non-empty `PipelinePath` has no single-frame Syrup shape. [`Peer.send`](../../../src/engine/mod.zig) detects this (`target == .promise` and `!path.isEmpty()`) and routes to `sendDecomposedPipeline`, which calls [`pipeline.decomposeOutboundDeliver`](../../../src/engine/pipeline.zig): each `call` step becomes its own flat `op:deliver` against a freshly allocated intermediate answer, and the caller's outer deliver chains against the last. Each link is recorded and enqueued through the same send path, so every `desc:answer` that reaches the wire is flat and every queued inbound call carries an empty path.
+`desc:answer` carries no path operand, so a `Message.deliver` whose target is a promise with a non-empty `PipelinePath` has no single-frame Syrup shape. [`Peer.send`](../../../src/ocapn/engine/mod.zig) detects this (`target == .promise` and `!path.isEmpty()`) and routes to `sendDecomposedPipeline`, which calls [`pipeline.decomposeOutboundDeliver`](../../../src/ocapn/engine/pipeline.zig): each `call` step becomes its own flat `op:deliver` against a freshly allocated intermediate answer, and the caller's outer deliver chains against the last. Each link is recorded and enqueued through the same send path, so every `desc:answer` that reaches the wire is flat and every queued inbound call carries an empty path.
 
 A `field` step has no `op:deliver` analog — OCapN is methodic, with no structural-navigation shape — so the decomposer rejects it loudly with `UnsupportedPipelineOp` rather than dropping a step.
 
 ### Bounds
 
-[`SessionLimits`](../../../src/session/mod.zig) caps each surface: `queue_cap` per pending answer (`QueueCapExceeded`), `max_listeners_per_target` (`ListenerCapExceeded`), `max_inbound_answers`, and `max_local_deliveries` for the chain of local deliveries one resolution can trigger. A promise resolving onto an answer already on the drain chain is a `ResolutionCycle` error, surfaced loudly instead of looping.
+[`SessionLimits`](../../../src/ocapn/session/mod.zig) caps each surface: `queue_cap` per pending answer (`QueueCapExceeded`), `max_listeners_per_target` (`ListenerCapExceeded`), `max_inbound_answers`, and `max_local_deliveries` for the chain of local deliveries one resolution can trigger. A promise resolving onto an answer already on the drain chain is a `ResolutionCycle` error, surfaced loudly instead of looping.
 
 ### op:get and op:index
 
@@ -53,7 +53,7 @@ The model also carries top-level `Get { receiver, field, answer }` and `Index { 
   Syrup has no equivalent operand, so multi-hop Syrup sends decompose through
   chained `op:deliver` frames. Codec posture:
   [ADR-0003](ADR-0003-codec-interoperability-posture.md).
-- **Computing a resolved value against a local actor model is not implemented.** A drained call whose target resolved to a local export is re-targeted and surfaced as a synthesized `op:deliver` event ([`Peer.deliverDrainedCallLocally`](../../../src/engine/mod.zig)) for the application to dispatch; the engine runs no method itself.
+- **Computing a resolved value against a local actor model is not implemented.** A drained call whose target resolved to a local export is re-targeted and surfaced as a synthesized `op:deliver` event ([`Peer.deliverDrainedCallLocally`](../../../src/ocapn/engine/mod.zig)) for the application to dispatch; the engine runs no method itself.
 - **Export listeners are not implemented.** An `op:listen` on one of our own exports falls through to ordinary recv handling.
 - Listeners on third-party handoff-imported promises and their relayed resolutions — [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
 - The `op:resolve` ↔ V1.0 resolver-callback translation the drain trigger rides on — [ADR-0010](ADR-0010-payload-descriptor-discriminator.md).
@@ -62,7 +62,7 @@ The model also carries top-level `Get { receiver, field, answer }` and `Index { 
 
 - **Decompose multi-hop on every codec for wire uniformity.** No competing codec exists to unify, and `decomposeOutboundDeliver` already produces the spec-canonical chained `op:deliver`. The reserved Cap'n Proto slot keeps native single-frame pipelining available when it lands.
 - **Drop `PipelineOp.field` from the model.** Rejected: the gap is per-codec, not per-model. The model admits `field`; the Syrup path rejects it loudly so a structural step is never silently lost.
-- **Own the queue in the engine.** Rejected: session state is authoritative. The engine drains through accessors that transfer ownership ([`Session.takePipelinedCalls`](../../../src/session/mod.zig)); it holds no parallel queue.
+- **Own the queue in the engine.** Rejected: session state is authoritative. The engine drains through accessors that transfer ownership ([`Session.takePipelinedCalls`](../../../src/ocapn/session/mod.zig)); it holds no parallel queue.
 - **Saturating or silent handling of queue overflow and resolution cycles.** Rejected: an unbounded queue or a forwarding loop is a partner-or-protocol fault, surfaced as `QueueCapExceeded` / `ResolutionCycle`.
 
 ## Consequences
@@ -77,4 +77,4 @@ A pipeline path reaches the wire only by decomposition. The reserved Cap'n Proto
 
 ## Notes
 
-[ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md) settles the GC shapes that release answer rows (the `count` on [`AnswerEntry`](../../../src/session/mod.zig)). [ADR-0009](ADR-0009-three-party-handoff-substrate.md) extends listener installation to handoff-imported promises.
+[ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md) settles the GC shapes that release answer rows (the `count` on [`AnswerEntry`](../../../src/ocapn/session/mod.zig)). [ADR-0009](ADR-0009-three-party-handoff-substrate.md) extends listener installation to handoff-imported promises.

@@ -14,7 +14,16 @@
 import { connect } from "../../bindings/deno/pancake.ts";
 
 const HOST = "127.0.0.1";
-const PORT = 22098;
+// The Goblins vat's fixed port; `--port=N` (from
+// `zig build deno-goblins-interop -Dport=N`) moves it when 22098 is taken.
+let PORT = 22098;
+for (const a of Deno.args) {
+  if (a.startsWith("--port=")) PORT = Number(a.slice("--port=".length));
+  else fail(`unknown argument '${a}'`);
+}
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
+  fail("--port must be an integer in 1..65535");
+}
 const RACKET = "/usr/local/bin/racket";
 const HOST_SCRIPT = "conformance/goblins-peer/racket/goblins-host.rkt";
 

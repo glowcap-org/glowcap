@@ -1,101 +1,93 @@
-//! Architecture gate — walks `src/**/*.zig`, parses each file's `@import("…")`
-//! edges, and asserts the layer dependency DAG plus the no-`std.Io`-in-core ban.
+//! Architecture gate — checks the layer table against the source tree.
+//!
+//! The layer dependency DAG itself is enforced by the compiler: each `src/`
+//! layer is an internal build.zig module with an explicit one-way import table
+//! (`layer_table` in build.zig — ADR-0040, and ADR-0048 for the sibling-codec
+//! modules below the codec layer), so a cross-layer reach is a compile error —
+//! a layer cannot even name a file outside its module root. This gate receives
+//! that same table and walks `src/**/*.zig` to hold what the compiler alone
+//! does not:
+//!
+//!   * every granted edge is alive — a layer whose files never `@import` a
+//!     granted module name fails the gate, so the table carries the edges the
+//!     code uses, never a wider silent allowance (ADR-0040);
+//!   * every file belongs to a declared layer — under a module graph an
+//!     unwired directory is silently-dead code, so an unclaimed file fails
+//!     loud instead;
+//!   * core layers (the sync, no-I/O core) carry no `std.Io`, sockets,
+//!     filesystem handles, threads, or schedulers — with the one sanctioned
+//!     GiftRegistry atomic (ADR-0009);
+//!   * portable code names no platform syscall namespace (`std.os.linux` /
+//!     `std.os.windows`) — only platform-gated backends may;
+//!   * no production module names `std.testing` — test vocabulary and the
+//!     copy helpers it anchors live under `test/`, never in `src/`.
+//!
 //! Wired as the `zig build arch-check` step and into `zig build check`.
-//!
-//! A simplified view of the core DAG (the full enforced edge set lives in the
-//! `allowedTargets` table below, and the authoritative layer ownership is
-//! `.agents/rules/architecture.md` § Layer Ownership — which also covers
-//! `actors` above `engine`, `net_adapter` as the one `std.Io` adapter over
-//! `engine`, and `driver` composing `actors` + `net_adapter`):
-//!
-//! ```text
-//! foundation ← model ← codec ← engine → (c_abi | conformance)
-//!                          ↖ session ↗
-//! ```
-//!
-//! The load-bearing edges, beyond "lower layers don't import higher ones":
-//!   * `session` is codec-neutral — it MUST NOT import `codec` or `engine`
-//!     (authority lives in the session, never reached through a codec).
-//!   * `codec` parses/renders only — it MUST NOT import `session` or `engine`.
-//!   * `model` is pure semantic data — it imports nothing above `foundation`.
-//!   * core protocol modules (foundation/model/codec/session/engine) carry no
-//!     `std.Io` — the sync, no-I/O core boundary (Invariant 13 analog).
-//!
-//! A new top-level `src/<dir>/` with no rule here fails the gate loudly: adding
-//! a module is a deliberate act that must declare its allowed dependencies.
 
 const std = @import("std");
 const Build = std.Build;
 const Step = Build.Step;
 
-/// Create the `arch-check` build step.
-pub fn create(b: *Build) *Step {
+/// One row of the layer DAG. The authoritative table is `layer_table` in
+/// build.zig: build graphs are generated from it and this gate verifies it.
+pub const LayerSpec = struct {
+    /// Module/import name — internal vocabulary (ADR-0040).
+    name: []const u8,
+    /// The `src/`-relative file set: a directory prefix ending in `/`, or an
+    /// exact `.zig` path for a single-file module. The longest matching prefix
+    /// claims a file, so a nested module's files never count as its parent's.
+    prefix: []const u8,
+    /// The modules this layer may import — the one-way edge table.
+    imports: []const []const u8,
+    /// True for the sync, no-I/O core: bans `std.Io`, `std.net`,
+    /// `std.fs.File`, `std.Thread`, and (one sanctioned exception) `std.atomic`.
+    core: bool,
+};
+
+/// Create the `arch-check` build step over the authoritative layer table.
+pub fn create(b: *Build, table: []const LayerSpec) *Step {
     const wrapper = b.allocator.create(ArchCheck) catch @panic("OOM");
-    wrapper.* = .{ .step = Step.init(.{
-        .id = .custom,
-        .name = "arch-check",
-        .owner = b,
-        .makeFn = make,
-    }) };
+    wrapper.* = .{
+        .step = Step.init(.{
+            .id = .custom,
+            .name = "arch-check",
+            .owner = b,
+            .makeFn = make,
+        }),
+        .table = table,
+    };
     return &wrapper.step;
 }
 
 const ArchCheck = struct {
     step: Step,
+    table: []const LayerSpec,
 };
-
-/// Layers that must stay free of `std.Io` (the sync, no-I/O core). `actors`
-/// drives the engine as a pure turn loop — it owns no I/O, so it joins the ban.
-const core_layers = [_][]const u8{ "foundation", "model", "codec", "session", "engine", "actors" };
-
-/// One layer's allowed `@import` target layers (its own layer is always allowed
-/// — intra-layer imports). `null` for an unrecognized layer means "no rule;
-/// fail loudly so a new module declares its dependencies."
-fn allowedTargets(layer: []const u8) ?[]const []const u8 {
-    const Rule = struct { layer: []const u8, targets: []const []const u8 };
-    const rules = [_]Rule{
-        .{ .layer = "foundation", .targets = &.{"foundation"} },
-        .{ .layer = "model", .targets = &.{ "foundation", "model" } },
-        .{ .layer = "codec", .targets = &.{ "foundation", "model", "codec" } },
-        .{ .layer = "session", .targets = &.{ "foundation", "model", "session" } },
-        .{ .layer = "engine", .targets = &.{ "foundation", "model", "codec", "session", "engine" } },
-        // `c_abi` also re-exposes the byte-stream adapter as blocking endpoint
-        // handles (the host-driven netlayer seam), so it may import
-        // `net_adapter` (and the `model` codec id it threads through).
-        .{ .layer = "c_abi", .targets = &.{ "foundation", "model", "engine", "net_adapter", "c_abi" } },
-        .{ .layer = "conformance", .targets = &.{ "foundation", "model", "codec", "session", "engine", "conformance" } },
-        // The actor layer sits above the engine: a sync, no-I/O turn loop that
-        // drives a `engine.Peer` and binds local actors to its exports. It adds
-        // no CapTP semantics the engine lacks.
-        .{ .layer = "actors", .targets = &.{ "foundation", "model", "engine", "actors" } },
-        // The byte-stream adapter is NOT a core layer (absent from `core_layers`
-        // above), so it is the one place `std.Io` is allowed. It drives the
-        // engine over a stream; it never reaches below `engine`'s authority.
-        .{ .layer = "net_adapter", .targets = &.{ "foundation", "model", "codec", "session", "engine", "net_adapter" } },
-        // The driver sits above BOTH the actor turn loop and the I/O adapter: it
-        // binds an `actors.Vat` to a live `net_adapter.Connection`, so it is the
-        // one place that may import both, and it touches `std.Io` (so it is not a
-        // core layer). It adds no CapTP semantics — it only composes.
-        .{ .layer = "driver", .targets = &.{ "foundation", "model", "engine", "actors", "net_adapter", "driver" } },
-        // The public aggregator at `src/root.zig` re-exports every layer.
-        .{ .layer = "<root>", .targets = &.{ "foundation", "model", "codec", "session", "engine", "c_abi", "conformance", "net_adapter", "actors", "driver" } },
-    };
-    for (rules) |rule| {
-        if (std.mem.eql(u8, rule.layer, layer)) return rule.targets;
-    }
-    return null;
-}
 
 fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     const b = step.owner;
     const io = b.graph.io;
     const gpa = options.gpa;
+    const check: *ArchCheck = @fieldParentPtr("step", step);
+    const table = check.table;
 
     var src_dir = try b.build_root.handle.openDir(io, "src", .{ .iterate = true });
     defer src_dir.close(io);
 
     var violations: std.ArrayList([]const u8) = .empty;
     defer violations.deinit(gpa);
+
+    // One liveness flag per granted edge, set when any of the layer's files
+    // names the edge in an `@import`.
+    const live = try gpa.alloc([]bool, table.len);
+    defer {
+        for (live) |row| gpa.free(row);
+        gpa.free(live);
+    }
+    for (table, 0..) |spec, i| {
+        live[i] = try gpa.alloc(bool, spec.imports.len);
+        @memset(live[i], false);
+    }
 
     var walker = try src_dir.walk(gpa);
     defer walker.deinit();
@@ -109,42 +101,111 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
 
         // OS path separator is '/' on the platforms this gate runs.
         const file_path = entry.path;
-        const layer = layerOf(file_path);
 
-        const targets = allowedTargets(layer) orelse {
+        const layer_index = layerIndexOf(table, file_path) orelse {
             try violations.append(gpa, try std.fmt.allocPrint(
                 gpa,
-                "{s}: top-level module '{s}/' has no arch rule — add one to tools/arch_check.zig",
-                .{ file_path, layer },
+                "{s}: no layer in build.zig's layer_table claims this file — declare its module or move it",
+                .{file_path},
             ));
             continue;
         };
+        const spec = table[layer_index];
 
-        // No-std.Io-in-core ban.
-        if (isCoreLayer(layer) and std.mem.indexOf(u8, contents, "std.Io") != null) {
+        // Edge liveness: record every granted module name this file imports.
+        for (spec.imports, live[layer_index]) |edge, *seen| {
+            if (seen.*) continue;
+            const needle = try std.fmt.allocPrint(gpa, "@import(\"{s}\")", .{edge});
+            defer gpa.free(needle);
+            if (std.mem.indexOf(u8, contents, needle) != null) seen.* = true;
+        }
+
+        // No-I/O-in-core ban. `std.Io` is the I/O seam, but the core must also
+        // not reach a socket or the filesystem directly — `std.net` and
+        // `std.fs.File` are I/O the adapters own, so a core layer touching them
+        // is the same boundary violation by another name.
+        for ([_][]const u8{ "std.Io", "std.net", "std.fs.File" }) |needle| {
+            if (spec.core and std.mem.indexOf(u8, contents, needle) != null) {
+                try violations.append(gpa, try std.fmt.allocPrint(
+                    gpa,
+                    "{s}: core layer '{s}' references {s} — the core stays sync and no-I/O",
+                    .{ file_path, spec.name, needle },
+                ));
+            }
+        }
+
+        // No-scheduler / no-threading-in-core ban. The Core Boundary
+        // (docs/architecture.md) forbids background tasks and hidden schedulers,
+        // not only std.Io. `std.Thread` is never allowed in a core layer. The one
+        // sanctioned `std.atomic` is the engine's GiftRegistry table lock, which
+        // guards a host-shared gift table without pulling in std.Io (ADR-0009);
+        // it is allowlisted by path so any other core atomic still fails loud.
+        const allows_atomic = std.mem.endsWith(u8, file_path, "engine/bootstrap.zig");
+        if (spec.core and std.mem.indexOf(u8, contents, "std.Thread") != null) {
             try violations.append(gpa, try std.fmt.allocPrint(
                 gpa,
-                "{s}: core layer '{s}' references std.Io — the core stays sync and no-I/O",
-                .{ file_path, layer },
+                "{s}: core layer '{s}' references std.Thread — the core owns no threads or scheduler",
+                .{ file_path, spec.name },
+            ));
+        }
+        if (spec.core and !allows_atomic and std.mem.indexOf(u8, contents, "std.atomic") != null) {
+            try violations.append(gpa, try std.fmt.allocPrint(
+                gpa,
+                "{s}: core layer '{s}' references std.atomic — concurrency primitives belong in adapters; only the GiftRegistry lock in engine/bootstrap.zig is sanctioned",
+                .{ file_path, spec.name },
             ));
         }
 
-        // Import-edge DAG.
-        var rest = contents;
-        while (std.mem.indexOf(u8, rest, "@import(\"")) |start| {
-            const after = rest[start + "@import(\"".len ..];
-            const end = std.mem.indexOfScalar(u8, after, '"') orelse break;
-            const target = after[0..end];
-            rest = after[end..];
+        // Test-vocabulary ban, repo-wide over src/. `std.testing` (and the
+        // test/support copy helpers it anchors) belongs under test/, never in
+        // a production module — the memory rule's "copy helpers belong in
+        // test/support" line, held mechanically. Comment lines are skipped so
+        // prose may name the symbol.
+        {
+            var line_no: usize = 1;
+            var lines = std.mem.splitScalar(u8, contents, '\n');
+            while (lines.next()) |line| : (line_no += 1) {
+                const trimmed = std.mem.trimStart(u8, line, " \t");
+                if (std.mem.startsWith(u8, trimmed, "//")) continue;
+                if (std.mem.indexOf(u8, line, "std.testing") != null) {
+                    try violations.append(gpa, try std.fmt.allocPrint(
+                        gpa,
+                        "{s}:{d}: references std.testing — test vocabulary lives under test/, never in src/ production code",
+                        .{ file_path, line_no },
+                    ));
+                }
+            }
+        }
 
-            if (!std.mem.endsWith(u8, target, ".zig")) continue; // std / package import
-            const target_layer = resolveTargetLayer(file_path, target) orelse continue;
+        // Platform-syscall-namespace ban. Portable code reaches the OS through
+        // `std.posix` / `std.crypto`, which select the platform underneath; a
+        // direct `std.os.linux` / `std.os.windows` reference compiles on one OS
+        // and breaks every other build. Only a platform-gated completion
+        // backend may name its own OS — `net_adapter/uring.zig` is imported
+        // behind an `os.tag == .linux` check. A new platform backend allowlists
+        // itself here in the same change that gates its import.
+        const platform_gated = std.mem.endsWith(u8, file_path, "net_adapter/uring.zig");
+        if (!platform_gated and
+            (std.mem.indexOf(u8, contents, "std.os.linux") != null or
+                std.mem.indexOf(u8, contents, "std.os.windows") != null))
+        {
+            try violations.append(gpa, try std.fmt.allocPrint(
+                gpa,
+                "{s}: names a platform syscall namespace (std.os.linux / std.os.windows) — portable code uses std.posix; platform-gated backends are allowlisted in tools/arch_check.zig",
+                .{file_path},
+            ));
+        }
+    }
 
-            if (!containsLayer(targets, target_layer)) {
+    // Dead-edge ban: a granted import no file in the layer names is a silent
+    // standing allowance — the exact hole the one-way tables exist to close.
+    for (table, live) |spec, row| {
+        for (spec.imports, row) |edge, seen| {
+            if (!seen) {
                 try violations.append(gpa, try std.fmt.allocPrint(
                     gpa,
-                    "{s}: layer '{s}' may not import layer '{s}' (via @import(\"{s}\"))",
-                    .{ file_path, layer, target_layer, target },
+                    "layer '{s}' grants edge '{s}' but no file under src/{s} imports it — remove the edge from build.zig's layer_table",
+                    .{ spec.name, edge, spec.prefix },
                 ));
             }
         }
@@ -152,64 +213,25 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
 
     if (violations.items.len != 0) {
         for (violations.items) |msg| std.debug.print("arch-check: {s}\n", .{msg});
-        return step.fail("arch-check found {d} layering violation(s)", .{violations.items.len});
+        return step.fail("arch-check found {d} violation(s)", .{violations.items.len});
     }
 }
 
-/// The layer a source file belongs to: the first path component, or `<root>`
-/// for a file directly under `src/` (e.g. `root.zig`).
-fn layerOf(file_path: []const u8) []const u8 {
-    const sep = std.mem.indexOfScalar(u8, file_path, '/') orelse return "<root>";
-    return file_path[0..sep];
-}
-
-fn isCoreLayer(layer: []const u8) bool {
-    for (core_layers) |core| {
-        if (std.mem.eql(u8, core, layer)) return true;
-    }
-    return false;
-}
-
-fn containsLayer(targets: []const []const u8, layer: []const u8) bool {
-    for (targets) |t| {
-        if (std.mem.eql(u8, t, layer)) return true;
-    }
-    return false;
-}
-
-/// Resolve an `@import` target (relative to the importing file's directory) to
-/// the layer it lands in, or `null` if it escapes `src/` (which never happens
-/// for the core tree, so it is simply ignored).
-fn resolveTargetLayer(file_path: []const u8, target: []const u8) ?[]const u8 {
-    // Component stack of the file's directory, then walked by the target path.
-    var stack: [32][]const u8 = undefined;
-    var depth: usize = 0;
-
-    // Seed with the importing file's directory components (drop the basename).
-    const dir_end = std.mem.lastIndexOfScalar(u8, file_path, '/') orelse 0;
-    if (dir_end != 0) {
-        var it = std.mem.splitScalar(u8, file_path[0..dir_end], '/');
-        while (it.next()) |component| {
-            if (component.len == 0) continue;
-            if (depth >= stack.len) return null;
-            stack[depth] = component;
-            depth += 1;
+/// The table row that claims `file_path` (relative to `src/`): the longest
+/// matching prefix wins, so `ocapn/codec/syrup/decode.zig` belongs to `syrup`,
+/// not `codec`, and an exact single-file row claims only itself.
+fn layerIndexOf(table: []const LayerSpec, file_path: []const u8) ?usize {
+    var best: ?usize = null;
+    var best_len: usize = 0;
+    for (table, 0..) |spec, i| {
+        const matches = if (std.mem.endsWith(u8, spec.prefix, ".zig"))
+            std.mem.eql(u8, file_path, spec.prefix)
+        else
+            std.mem.startsWith(u8, file_path, spec.prefix);
+        if (matches and spec.prefix.len > best_len) {
+            best = i;
+            best_len = spec.prefix.len;
         }
     }
-
-    var it = std.mem.splitScalar(u8, target, '/');
-    while (it.next()) |component| {
-        if (component.len == 0 or std.mem.eql(u8, component, ".")) continue;
-        if (std.mem.eql(u8, component, "..")) {
-            if (depth == 0) return null; // escapes src/
-            depth -= 1;
-            continue;
-        }
-        if (depth >= stack.len) return null;
-        stack[depth] = component;
-        depth += 1;
-    }
-
-    if (depth == 0) return null;
-    return stack[0];
+    return best;
 }

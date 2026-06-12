@@ -24,13 +24,13 @@ must be a loud, typed boundary, not a silent drop or a panic.
 
 ## Decision
 
-The `Argument` union in [`src/model/mod.zig`](../../../src/model/mod.zig) carries
+The `Argument` union in [`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig) carries
 the passable value tree as 14 variants: `bytes`, `symbol`, `reference`, `error`,
 `handoff`, `string`, `integer`, `boolean`, `list`, `void`, `float64`, `set`,
 `tagged`, and `keyword`. Every value Goblins can marshal therefore has a model
 home, so decoding never forces a crash.
 
-The Syrup codec in [`src/codec/syrup/core.zig`](../../../src/codec/syrup/core.zig)
+The Syrup codec in [`src/ocapn/codec/syrup/decode.zig`](../../../src/ocapn/codec/syrup/decode.zig)
 renders and lifts every modeled positional passable:
 
 - `writeArgument` encodes `bytes`, `symbol`, `reference`, `string`, `handoff`,
@@ -46,7 +46,7 @@ renders and lifts every modeled positional passable:
 Refusal is loud at both edges. An outbound value the encoder cannot render
 surfaces `UnsupportedArgument` to the application; an inbound value the decoder
 cannot lift projects to a `protocol_error` `op:abort`
-([`src/engine/abort_projection.zig`](../../../src/engine/abort_projection.zig))
+([`src/ocapn/engine/abort_projection.zig`](../../../src/ocapn/engine/abort_projection.zig))
 that closes the session. This is the symmetric-refusal contract from
 [ADR-0003](ADR-0003-codec-interoperability-posture.md): a value the model admits
 but a codec cannot carry is refused, never dropped, so cross-codec behavior does

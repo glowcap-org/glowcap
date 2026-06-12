@@ -3,9 +3,11 @@
 ;;
 ;; Spawns one or more Goblins vats, each on its own real-OS TCP
 ;; port, each registering an `^echo` cap at the canonical OCapN
-;; conformance-suite echo swiss-num. Emits machine-readable NDJSON
+;; conformance-suite echo swiss-num and a `^record` cap (returns a
+;; string-keyed hash, i.e. an OCapN Struct) behind a fixed swiss-num
+;; for the driver's `op:get` leg. Emits machine-readable NDJSON
 ;; readiness events to stdout (one `vat-ready` + one
-;; `cap-published` line per vat), then sleeps until killed.
+;; `cap-published` line per cap per vat), then sleeps until killed.
 ;;
 ;; Usage:
 ;;   racket goblins-host.rkt <bind-host> <bind-port>            ; one vat
@@ -53,6 +55,23 @@
 (define (^echo _bcom)
   (lambda args
     args))
+
+;; Swiss-num for the record cap the interop driver's `op:get` leg
+;; fetches. The driver hardcodes the same constant (the way the
+;; listener scenarios fix their actor swiss-num) instead of parsing a
+;; second NDJSON line, so the echo `cap-published` line stays the
+;; first `swiss` line every interop client parses.
+(define RECORD-SWISS-NUM
+  (string->bytes/latin-1 "pancakeRecordSwissnumABCDEF12345"))
+
+;; Record behavior — returns an OCapN Struct (a string-keyed Racket
+;; hash) carrying its argument, so a partner can pipeline `op:get`
+;; against the call's answer and have a named field resolve out of it
+;; (captp.rkt answers an inbound op:get with a `hash-ref` vow).
+(define (^record _bcom)
+  (lambda (name)
+    (hash "kind" "record"
+          "name" name)))
 
 ;; ─── CLI ─────────────────────────────────────────────────────────
 
@@ -125,6 +144,8 @@
      (define nonce-registry ($ mycapn 'get-registry))
      (define echo (spawn ^echo))
      ($ nonce-registry 'register echo ECHO-SWISS-NUM)
+     (define record (spawn ^record))
+     ($ nonce-registry 'register record RECORD-SWISS-NUM)
      (on (<- tcp-netlayer 'our-location)
          (lambda (_location)
            (emit-ndjson
@@ -135,7 +156,14 @@
             `(("event" . "cap-published")
               ("vat" . ,vat-id)
               ("name" . "echo")
-              ("swiss" . ,(bytes->string/latin-1 ECHO-SWISS-NUM)))))))))
+              ("swiss" . ,(bytes->string/latin-1 ECHO-SWISS-NUM))))
+           ;; Emitted after echo's line on purpose: every interop
+           ;; client takes the first `swiss` line as the echo cap.
+           (emit-ndjson
+            `(("event" . "cap-published")
+              ("vat" . ,vat-id)
+              ("name" . "record")
+              ("swiss" . ,(bytes->string/latin-1 RECORD-SWISS-NUM)))))))))
 
 ;; ─── Boot all vats ───────────────────────────────────────────────
 

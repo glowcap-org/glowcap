@@ -1,0 +1,50 @@
+# Build the documentation site on Codeberg and publish the exact
+# `zig build site` artifact to the pages branch.
+name: pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  pages:
+    runs-on: docker
+    steps:
+      - uses: https://github.com/actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Build the site in the devcontainer
+        uses: https://github.com/devcontainers/ci@v0.3
+        with:
+          push: never
+          runCmd: zig build site
+
+      - name: Publish to the pages branch
+        env:
+          GIT_AUTHOR_NAME: pancake pages
+          GIT_AUTHOR_EMAIL: pages@codeberg.org
+          GIT_COMMITTER_NAME: pancake pages
+          GIT_COMMITTER_EMAIL: pages@codeberg.org
+        run: |
+          set -eu
+          worktree="$(mktemp -d)"
+          cp -R zig-out/site/. "$worktree/"
+          git fetch origin pages || true
+          if git show-ref --verify --quiet refs/remotes/origin/pages; then
+            git switch --force-create pages origin/pages
+          else
+            git switch --orphan pages
+          fi
+          git rm -rf .
+          cp -R "$worktree"/. .
+          touch .nojekyll
+          git add .
+          if git diff --cached --quiet; then
+            echo "pages branch already matches zig-out/site"
+            exit 0
+          fi
+          git commit -m "Publish documentation site"
+          git push origin pages

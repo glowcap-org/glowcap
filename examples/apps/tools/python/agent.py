@@ -1,7 +1,6 @@
 """An agent, written on pancake actors in native Python. It connects to the tools
 coordinator (which may be written in any language) and proves the three
-capability properties that make pancake the obvious substrate for an AI agent
-harness: delegation, attenuation, and revocation — across the wire.
+capability properties — delegation, attenuation, revocation — over the wire.
 
     python3 agent.py 127.0.0.1 9099 py-agent
 """

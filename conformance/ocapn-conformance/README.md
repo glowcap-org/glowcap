@@ -43,49 +43,34 @@ The suite can be pointed at a *pancake* peer, not only Goblins.
 suite against it:
 
 ```sh
-zig build ocapn-conformance              # default: tests.op_start_session
-bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_deliver  # other modules
+zig build ocapn-conformance              # default: all targeted modules
+zig build ocapn-conformance -Dport=23055 # move the peer off 22055 when that port is taken
+bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_deliver  # one module
 ```
 
-Against the external authority, pancake passes the suite's `op:start-session`
-conformance:
+Against the external authority, pancake passes the targeted upstream modules the
+wrapper runs:
 
-- **Valid keyed handshake.** pancake answers a valid start-session, and the suite
-  parses pancake's own start-session (version, gcrypt public key, signed `tcp`
-  locator).
-- **Partner signature verification.** A negotiating peer verifies the partner's
-  handshake by default (`Peer.verify_partner_handshake`, which
-  `initNegotiating` enables — the same secure default the bindings and driver
-  inherit), so an `op:start-session` whose location signature does not verify
-  against the claimed key is refused with an `InvalidStartSessionSignature`
-  `op:abort` — partner signatures are checked, not trusted. The check runs at the
-  engine boundary over the *exact received* location bytes
-  (`acceptable_location_raw`), so a locator's hints stay covered even though the
-  borrowed decode does not retain them; the session core still runs no crypto.
-- **Invalid version.** An unrecognized captp-version is refused with an
-  `op:abort`.
+| Module | What it exercises |
+| --- | --- |
+| `tests.op_start_session` | Valid keyed handshakes, invalid signature/version aborts, and crossed-hellos resolution. |
+| `tests.op_abort` | Aborting before a session is fully established. |
+| `tests.op_deliver` | Deliveries with and without answers, promise pipelining, and broken-promise propagation. |
+| `tests.op_listen` | Listening to pending and already-settled promises. |
+| `tests.op_gc` | Answer and export garbage-collection messages. |
+| `tests.third_party_handoffs` | Handoff-give and handoff-receive flows, including wait-before-deposit. |
 
-`zig build ocapn-conformance` pins all three — the valid handshake through the
-suite module, and the two abort cases through `handshake_abort_probe.py` (which
-drives the suite's own netlayer + message types). It fails loudly on a
-regression.
+`handshake_abort_probe.py` remains a focused diagnostic for malformed handshake
+cases if a suite regression needs isolating. It is not part of the default
+`zig build ocapn-conformance` path.
 
-One scenario the suite checks is a named, not-yet-implemented gap, so the step
-does not assert it:
-
-- **Crossed-hellos mitigation.** Simultaneous mutual connection attempts are not
-  detected. (These cases also sort before the abort cases in the suite module and
-  block on its receive timeout, which is why the abort cases are driven by the
-  probe rather than the module run.)
-
-A note on history: decoding a locator's hints map was the bug that hid the
-signature behavior. The suite's `tcp-testing-only` netlayer puts the address in
-the locator hints (`{host …, port …}`); pancake's Syrup codec rejected any
-non-empty hints, so it aborted the handshake before reaching the signature —
-making the invalid-version and invalid-signature tests pass for the wrong reason.
-The codec now consumes a non-empty hints map (Goblins uses `#f` hints, which is
-why this went unseen), and verification reads the captured raw bytes, so the
-suite's verdict is honest.
+Two details keep the suite's verdict honest. The Syrup codec consumes a
+non-empty hints map, because the suite's `tcp-testing-only` netlayer carries the
+address in the locator hints (`{host …, port …}`) — a peer that rejected
+non-empty hints would abort the handshake before any signature was checked,
+passing the invalid-version and invalid-signature tests for the wrong reason.
+And signature verification reads the captured raw locator bytes, never a
+re-encode of them.
 
 ## What This Proves
 

@@ -22,7 +22,7 @@ Engages the First Principles *session state is authoritative* (counts live in th
 
 ### Split GC wire shapes
 
-`op:gc-exports` is two **parallel** lists — `position-list[i]` is the export id, `delta-list[i]` is the count of references to it the sender has dropped since its last `op:gc-exports` for that id. The receiver decrements its export count by the delta; at zero the export is collected. `op:gc-answers` is a single position list — promises are single-reference per answer-pos, so "done with N" needs no delta, and a gc'd answer-pos becomes reusable. The model mirrors the wire ([`src/model/mod.zig`](../../../src/model/mod.zig)):
+`op:gc-exports` is two **parallel** lists — `position-list[i]` is the export id, `delta-list[i]` is the count of references to it the sender has dropped since its last `op:gc-exports` for that id. The receiver decrements its export count by the delta; at zero the export is collected. `op:gc-answers` is a single position list — promises are single-reference per answer-pos, so "done with N" needs no delta, and a gc'd answer-pos becomes reusable. The model mirrors the wire ([`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig)):
 
 ```zig
 pub const GcExport = struct { positions: []const u64, deltas: []const u64 };
@@ -33,16 +33,16 @@ There is no `op:release` arm at any layer.
 
 ### Wire-delta reference counting
 
-The import, export, and answer tables in [`src/session/mod.zig`](../../../src/session/mod.zig) carry a wire-delta count. Applying `op:gc-exports` validates then applies atomically: a `positions`/`deltas` length mismatch and a count underflow are both loud errors (`GcUnderflow` and siblings), surfaced — never saturating-subtracted. Underflow is a peer-or-protocol bug; absorbing it would hide the bug class. This is the behavior the C ABI dogfood pins: a fresh peer fed `op:gc-answers` for an answer-pos it never owned rejects the frame and projects an abort.
+The import, export, and answer tables in [`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig) carry a wire-delta count. Applying `op:gc-exports` validates then applies atomically: a `positions`/`deltas` length mismatch and a count underflow are both loud errors (`GcUnderflow` and siblings), surfaced — never saturating-subtracted. Underflow is a peer-or-protocol bug; absorbing it would hide the bug class. This is the behavior the C ABI dogfood pins: a fresh peer fed `op:gc-answers` for an answer-pos it never owned rejects the frame and projects an abort.
 
 ### Typed abort taxonomy
 
 `AbortReason { kind: AbortKind, message: []const u8 }` carries a `non_exhaustive`-style `AbortKind` enum. Projection per profile:
 
 - **`pre_spec`:** carries both kind and message; a pancake↔pancake session routes on the kind.
-- **`v1_0`:** emits the single-string `<op:abort message>` the spec requires. The kind rides as a discoverable prefix — `"<KindName>: <message>"` — which `AbortReason.parseV1_0` matches back to a kind, falling to `.other` when no prefix matches. Spec-strict on the wire, typed within pancake.
+- **`v1_0`:** emits the single-string `<op:abort message>` the spec requires. The kind rides as a discoverable prefix — `"<KindName>: <message>"` — which the Syrup decoder matches back to a kind, falling to `.other` when no prefix matches. The wire-string format is the codec's in both directions; the model carries only the typed `AbortReason`. Spec-strict on the wire, typed within pancake.
 
-The taxonomy spans the conditions the protocol core originates (`protocol_error`, `malformed_frame`, the `*_not_negotiated` family, `resource_exhausted`, `version_mismatch`, `invalid_start_session_signature`, `invalid_handoff_signature`, `handoff_replay`) **and** the connection-lifecycle conditions an adapter detects (`connection_lost`, `graceful_shutdown`, `crossed_hellos`, `timeout`). The no-I/O core does not detect a lost socket or a crossed-hellos collision — those are dial/transport concerns an adapter owns — but the kind and its wire projection live here so an adapter can project a *typed* abort through the one shared projection path rather than inventing its own wire shape. [`src/engine/abort_projection.zig`](../../../src/engine/abort_projection.zig) maps a rejected inbound frame (codec-malformed or session-refused) to the typed `op:abort` before the error surfaces.
+The taxonomy spans the conditions the protocol core originates (`protocol_error`, `malformed_frame`, the `*_not_negotiated` family, `resource_exhausted`, `version_mismatch`, `invalid_start_session_signature`, `invalid_handoff_signature`, `handoff_replay`) **and** the connection-lifecycle conditions an adapter detects (`connection_lost`, `graceful_shutdown`, `crossed_hellos`, `timeout`). The no-I/O core does not detect a lost socket or a crossed-hellos collision — those are dial/transport concerns an adapter owns — but the kind and its wire projection live here so an adapter can project a *typed* abort through the one shared projection path rather than inventing its own wire shape. [`src/ocapn/engine/abort_projection.zig`](../../../src/ocapn/engine/abort_projection.zig) maps a rejected inbound frame (codec-malformed or session-refused) to the typed `op:abort` before the error surfaces.
 
 ## Scope (what this does not decide)
 
@@ -67,7 +67,8 @@ The taxonomy spans the conditions the protocol core originates (`protocol_error`
 - The model carries `GcExport`, `GcAnswer`, `AbortKind`, and `AbortReason`; there is no release arm to remove because the Zig tree never shipped one.
 - The session tables own the counts; `op:gc-exports` / `op:gc-answers` dispatch validates-then-applies and fails loud on underflow / length mismatch.
 - A `wire_delta` feature gate refuses the GC shapes on a session that did not negotiate them (`wire_delta_not_negotiated`).
-- The `op:gc-exports`, `op:gc-answers`, and `op:abort` byte shapes are checked against Goblins-emitted Syrup fixtures under `zig build oracle-check`.
+- The `op:gc-exports`, `op:gc-answers`, and `op:abort` byte shapes are checked
+  against the in-tree Syrup oracle fixtures under `zig build oracle-check`.
 
 ## Forward compatibility
 

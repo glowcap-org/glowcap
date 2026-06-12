@@ -1,10 +1,10 @@
 #lang racket/base
 ;; A small, friendly client for the tasks board, built on pancake actors.
 ;;
-;; On the new connection API this is barely a layer: connect, fetch the board by
+;; On the connection API this is barely a layer: connect, fetch the board by
 ;; name, publish a watcher, and call add/done/list. The Goblins verbs (`spawn`,
-;; `<-`, `on`, `methods`) are unchanged; `connect` and `fetch` replace the
-;; peer/vat/import plumbing.
+;; `<-`, `on`, `methods`) work as they do in Goblins; `connect`, `conn-fetch`,
+;; and `conn-send` do the peer/vat/import plumbing.
 ;;
 ;;   (define b (board-join "127.0.0.1" 9099))
 ;;   (define id (board-add b "buy groceries"))
@@ -24,33 +24,16 @@
 ;; can call back (we ignore its updates in this one-shot client).
 (define (board-join host port)
   (define c (connect host port))
-  (define the-board (fetch c "board"))
+  (define the-board (conn-fetch c "board"))
   (define a-board (board c the-board))
   (define watcher (conn-spawn c (lambda (bcom) (methods [(update tasks) (void)]))))
   (board-call a-board 'watch watcher)
   a-board)
 
 ;; Send a request to the board and drive the connection until it settles,
-;; returning the reply value. Single-threaded, matching the rest of the binding.
+;; returning the reply value — `conn-send` aimed at the board.
 (define (board-call a-board verb . args)
-  (define c (board-conn a-board))
-  (define result (box 'pending))
-  (with-vat (conn-vat c)
-    (define vow (apply <- (board-far a-board) verb args))
-    (on vow
-        (lambda (v) (set-box! result (cons 'ok v)))
-        #:catch (lambda (m) (set-box! result (cons 'err m)))))
-  (async-flush! (conn-async c))
-  (let loop ()
-    (define r (unbox result))
-    (cond
-      [(eq? r 'pending)
-       (define ev (async-next-event (conn-async c)))
-       (when (eof-object? ev) (error 'board-call "connection closed before ~a settled" verb))
-       (vat-serve! (conn-vat c) ev)
-       (loop)]
-      [(eq? (car r) 'err) (error 'board-call "~a broke: ~a" verb (cdr r))]
-      [else (cdr r)])))
+  (apply conn-send (board-conn a-board) (board-far a-board) verb args))
 
 ;; Add a task; returns its id.
 (define (board-add a-board text) (board-call a-board 'add text))

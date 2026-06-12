@@ -1,0 +1,79 @@
+---
+.title = "The modules",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "modules.shtml",
+.draft = false,
+---
+
+The nice thing about this layering is that you do not have to keep it in your head.
+The build keeps it for you. Each layer is its own module with a one-way import table,
+so a reach across layers is a compile error, not a comment a reviewer has to catch.
+The diagram above is the map you read first, and the
+[architecture](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/architecture.md)
+is the authoritative account of every layer once you want the full detail.
+
+## The protocol core
+
+The core owns the protocol and nothing else. It is synchronous, holds no sockets, and
+starts no background work. That restraint is exactly what lets it be tested
+deterministically and dropped into any host without dragging a runtime along.
+
+- **foundation** owns the primitives every other layer shares. A `Frame` has one
+  visible owner, a `FrameView` borrows bytes for a bounded scope, and IDs are plain
+  values.
+- **model** is the codec-neutral CapTP vocabulary: references, answers, arguments,
+  and resolutions, all defined independently of the bytes that carried them.
+- **codec** turns model values into wire bytes and back.
+  [Syrup](https://github.com/ocapn/syrup) is the Goblins-canonical profile and
+  [Cap'n Proto](https://capnproto.org/) is the second codec; the
+  [Codecs]($link.page('codecs')) page covers both. Sibling codecs cannot import each
+  other, so neither can quietly grow a dependency on the other's shape.
+- **session** is the authority. It owns the import, export, answer, and release
+  tables, and it decides what is valid. A codec only parses and renders. It never
+  gets to decide whether a reference or a release is allowed.
+- **engine** is the caller-owned `Peer`. You feed it inbound frames, call `step`,
+  drain the outbound frames, and read the events. It dispatches a session and does
+  nothing more.
+
+## Above the core
+
+The framework-shaped pieces sit on top of the core, never inside it.
+
+- **actors** is a Goblins-shaped `Vat`. You spawn a local object, call it near with
+  `$`, send it eventually with `<-`, and observe the promise that comes back. It
+  adds no protocol semantics the engine lacks; it is the friendlier face on top of
+  the substrate.
+- **net_adapter** is the one place `std.Io` is allowed in. A netlayer is a contract
+  the core dispatches against rather than a privileged built-in, so a transport is a
+  resident you register. Three ship today: cleartext TCP, an in-process switchboard
+  for whole conversations inside one process, and [iroh](https://www.iroh.computer/)'s
+  encrypted QUIC as a separate optional artifact. The
+  [Transports]($link.page('transports')) page walks all three.
+
+> **Vat** — one single-threaded container of objects, the unit Spritely Goblins and
+> the wider ocap world organize around. Every call into a vat runs as one *turn*,
+> start to finish, before the next begins, so an object never sees a half-applied
+> state and you reason about it the way you reason about a single thread.
+
+> **Near-call (`$`) and eventual-send (`<-`)** — two ways to invoke an object,
+> borrowed from the E language. A near-call runs now and returns the result, because
+> the object lives in your own vat. An eventual-send queues the call for a later turn
+> and hands back a promise; it is also the only way to call across a session, since a
+> partner's object is never in your vat.
+
+## The surfaces
+
+Two surfaces carry pancake out to the people building on it, and the
+[Surfaces]($link.page('surfaces')) page is the consumer's-eye view of both.
+
+- **c_abi** is the boring public surface, and boring is the compliment. It is opaque
+  handles, fixed-width return codes, `ptr + len` views, callbacks, and explicit
+  release, so a consumer can wrap it well without knowing any Zig.
+- **driver** is the native application surface. It binds an actor vat to a live
+  connection over one peer, so a networked app holds one owning `Connection` and a
+  small vocabulary of verbs instead of hand-writing an open-pump-dispatch loop.
+
+The [bindings]($link.page('bindings')) are that same application surface once more, in
+Rust, Deno, Python, and Racket. Each consumes the C ABI and presents it in its own
+idiom, which is why an app reads like an app no matter the language.

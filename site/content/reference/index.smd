@@ -1,0 +1,28 @@
+---
+.title = "API reference",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+This is the exact, machine-generated API: both halves of it produced from the same
+Zig declarations the library compiles, so neither can drift away from the code it
+describes. For *which* surface to reach for and how to start, see
+[Surfaces]($link.page('surfaces')); this page is the lookup.
+
+## The Zig API
+
+The [Zig API reference]($link.page('reference/api')) is generated from the public
+`pancake` module on every site build. It is the exact surface a Zig consumer imports,
+with the ownership and lifetime notes attached to the declarations that carry them.
+
+## The C ABI
+
+The C surface is
+[`pancake.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake.h),
+generated from the same Zig declarations, so the header and the library can never
+silently disagree. The optional iroh transport adds
+[`pancake_iroh.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_iroh.h)
+as a superset. For the route from a build to a first complete C program, read
+[consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md).
