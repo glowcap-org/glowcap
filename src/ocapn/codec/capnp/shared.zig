@@ -6,6 +6,8 @@
 
 const std = @import("std");
 
+const model = @import("model");
+
 pub const wire = @import("wire.zig");
 
 /// The structural decode error set. The borrowed decode path never allocates,
@@ -26,7 +28,10 @@ pub const Error = error{
 /// failure the builder can hit while it grows the segment.
 pub const EncodeError = Error || std.mem.Allocator.Error;
 
-/// Union discriminant for the `model.Message` body.
+/// Union discriminant for the `model.Message` body. The explicit values are the
+/// Cap'n Proto wire ids and must stay stable; the comptime mirror below binds
+/// the *set* to `model.Message` so a new arm cannot land without a wire id,
+/// while leaving the id itself an explicit wire-contract choice.
 pub const Kind = enum(u16) {
     deliver = 0,
     resolve = 1,
@@ -40,6 +45,10 @@ pub const Kind = enum(u16) {
     index = 9,
     untag = 10,
 };
+
+comptime {
+    model.assertMirrorsMessageKinds(Kind);
+}
 
 pub const RefKind = enum(u16) { near = 0, far = 1, promise = 2, sturdy = 3 };
 pub const ArgKind = enum(u16) {
@@ -102,7 +111,7 @@ pub fn readerFromFrame(bytes: []const u8) Error!Reader {
 
 /// Bounds-checked, segment-relative word reader over a framed message. Segment
 /// index `i` is frame word `i + 1` (frame word 0 is the segment table). Holds
-/// only a borrow of the frame bytes -- copying nothing. Construct through
+/// only a borrow of the frame bytes — copying nothing. Construct through
 /// `readerFromFrame`, which validates the segment header first.
 pub const Reader = struct {
     bytes: []const u8,

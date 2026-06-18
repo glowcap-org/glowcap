@@ -25,7 +25,6 @@ fn expectRoundTrip(message: model.Message) !void {
     try std.testing.expect(messagesEqual(message, owned));
 }
 
-
 test "deliver with nested args, promise path target, and resolve_me_desc round-trips" {
     const inner = [_]model.Argument{ .{ .integer = 7 }, .{ .boolean = true } };
     const call_args = [_]model.Argument{.{ .string = "hi" }};

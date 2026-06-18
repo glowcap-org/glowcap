@@ -21,7 +21,7 @@ const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
-const tcp = pancake.net_adapter.tcp;
+const tcp = pancake.net.tcp;
 
 const frame_cap: usize = 4096;
 
@@ -83,10 +83,8 @@ pub fn main(init: std.process.Init) !void {
     var listener = try tcp.Listener.bind(io, .{ .ip4 = std.Io.net.Ip4Address.loopback(0) });
     defer listener.deinit();
 
-    // The host serves on a concurrent fiber; the client drives this one.
     var hosting = try io.concurrent(host, .{ &listener, allocator });
 
-    // The client's pieces, owned at the call site like the host's.
     var peer = engine.Peer.initNegotiatingWith(allocator, .{ .limits = .{ .max_frame_bytes = frame_cap } });
     defer peer.deinit();
     const read_buf = try allocator.alloc(u8, frame_cap);
@@ -97,7 +95,6 @@ pub fn main(init: std.process.Init) !void {
     var conn = try driver.connectTcp(io, allocator, &peer, listener.localAddress(), read_buf, write_buf);
     const greeter = try conn.fetch("greeter");
 
-    // The explicit promise idiom: send, listen, and pump until it settles.
     var reply = Reply{};
     const promise = try conn.send(greeter, .{
         .verb = "greet",
@@ -109,7 +106,6 @@ pub fn main(init: std.process.Init) !void {
         if (progress == .closed) break;
     }
 
-    // Closing the connection is what ends the host's serve.
     conn.deinit();
     try hosting.await(io);
 

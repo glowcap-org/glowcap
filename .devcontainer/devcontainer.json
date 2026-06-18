@@ -1,64 +1,64 @@
 // pancake-zig — paths in containerEnv must match .devcontainer/pins.sh
 {
-	"name": "pancake-zig",
-	"build": {
-		"dockerfile": "Dockerfile",
-		"context": ".."
-	},
-	"features": {
-		"ghcr.io/devcontainers/features/common-utils:2": {
-			"installZsh": true,
-			"username": "vscode",
-			"userUid": "automatic",
-			"userGid": "automatic"
-		}
-	},
-	"remoteUser": "vscode",
-	"runArgs": [
-		"--cap-add=SYS_PTRACE",
-		"--security-opt=seccomp=unconfined"
-	],
-	"containerEnv": {
-		"BUN_INSTALL_CACHE_DIR": "/home/vscode/.cache/bun/install",
-		"CARGO_HOME": "/home/vscode/.cargo",
-		"CARGO_TERM_COLOR": "always",
-		"DENO_DIR": "/home/vscode/.cache/deno",
-		"npm_config_cache": "/home/vscode/.cache/npm",
-		"PIP_CACHE_DIR": "/home/vscode/.cache/pip",
-		"PLTUSERHOME": "/opt/pancake-racket-userhome",
-		"RUSTUP_HOME": "/usr/local/rustup",
-		"ZIG_GLOBAL_CACHE_DIR": "/home/vscode/.cache/zig"
-	},
-	"mounts": [
-		"source=pancake-zig-bun-cache,target=/home/vscode/.cache/bun,type=volume",
-		"source=pancake-zig-cargo-home,target=/home/vscode/.cargo,type=volume",
-		"source=pancake-zig-deno-cache,target=/home/vscode/.cache/deno,type=volume",
-		"source=pancake-zig-npm-cache,target=/home/vscode/.cache/npm,type=volume",
-		"source=pancake-zig-pip-cache,target=/home/vscode/.cache/pip,type=volume",
-		"source=pancake-zig-zig-cache,target=/home/vscode/.cache/zig,type=volume"
-	],
-	"postCreateCommand": "bash .devcontainer/post-create.sh",
-	"customizations": {
-		"vscode": {
-			"extensions": [
-				"ziglang.vscode-zig",
-				"vadimcn.vscode-lldb",
-				"rust-lang.rust-analyzer",
-				"denoland.vscode-deno",
-				"ms-python.python"
-			],
-			"settings": {
-				"deno.enable": true,
-				"zig.path": "zig",
-				"zls.enable": true,
-				"zls.path": "zls",
-				"files.watcherExclude": {
-					"**/.cache/**": true,
-					"**/.zig-cache/**": true,
-					"**/rust-dogfood/target/**": true,
-					"**/zig-out/**": true
-				}
-			}
-		}
-	}
+  "name": "pancake-zig",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "username": "vscode",
+      "userUid": "automatic",
+      "userGid": "automatic"
+    }
+  },
+  "remoteUser": "vscode",
+  "runArgs": [
+    "--cap-add=SYS_PTRACE",
+    "--security-opt=seccomp=unconfined"
+  ],
+  "containerEnv": {
+    "BUN_INSTALL_CACHE_DIR": "/home/vscode/.cache/bun/install",
+    "CARGO_HOME": "/home/vscode/.cargo",
+    "CARGO_TERM_COLOR": "always",
+    "DENO_DIR": "/home/vscode/.cache/deno",
+    "npm_config_cache": "/home/vscode/.cache/npm",
+    "PIP_CACHE_DIR": "/home/vscode/.cache/pip",
+    "PLTUSERHOME": "/opt/pancake-racket-userhome",
+    "RUSTUP_HOME": "/usr/local/rustup",
+    "ZIG_GLOBAL_CACHE_DIR": "/home/vscode/.cache/zig"
+  },
+  "mounts": [
+    "source=pancake-zig-bun-cache,target=/home/vscode/.cache/bun,type=volume",
+    "source=pancake-zig-cargo-home,target=/home/vscode/.cargo,type=volume",
+    "source=pancake-zig-deno-cache,target=/home/vscode/.cache/deno,type=volume",
+    "source=pancake-zig-npm-cache,target=/home/vscode/.cache/npm,type=volume",
+    "source=pancake-zig-pip-cache,target=/home/vscode/.cache/pip,type=volume",
+    "source=pancake-zig-zig-cache,target=/home/vscode/.cache/zig,type=volume"
+  ],
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ziglang.vscode-zig",
+        "vadimcn.vscode-lldb",
+        "rust-lang.rust-analyzer",
+        "denoland.vscode-deno",
+        "ms-python.python"
+      ],
+      "settings": {
+        "deno.enable": true,
+        "zig.path": "zig",
+        "zls.enable": true,
+        "zls.path": "zls",
+        "files.watcherExclude": {
+          "**/.cache/**": true,
+          "**/.zig-cache/**": true,
+          "**/rust-dogfood/target/**": true,
+          "**/zig-out/**": true
+        }
+      }
+    }
+  }
 }

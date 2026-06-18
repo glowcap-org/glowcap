@@ -34,11 +34,12 @@ carry the full source and a few lower-level mechanics besides.
 
 Each app is built on the same small surface (connect, fetch, publish, spawn, send,
 serve, close), written once per language, so the app reads the same in Zig and the
-four [bindings]($link.page('bindings')): Rust, Python, Racket, and Deno.
+four [bindings]($link.page('bindings')): Rust, Python, Racket, and TypeScript.
 
 | App | What it is | Run it |
 | --- | --- | --- |
 | [rooms](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/) | a capability-secure chat room, real-time | `zig build demo-rooms` |
+| [rooms over iroh](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/) | the same chat over encrypted QUIC | `zig build demo-rooms-iroh` (needs cargo) |
 | [tasks](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tasks/) | a shared task board: CRUD plus live state | `zig build demo-tasks` |
 | [tools](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tools/) | a capability showcase for AI agent harnesses: delegation, attenuation, revocation | `zig build demo-tools` |
 | [accountability](https://codeberg.org/jimisaacs/pancake/src/branch/main/conformance/accountability-on-pancake/) | a signed-call accountability app over a real OCapN/TCP session | `zig build demo-accountability` |
@@ -49,6 +50,14 @@ and are skipped with a note otherwise. The `accountability` demo pairs a Zig hos
 with Deno and Python callers. Each binds an ephemeral port by default; pin it with
 `-Dport`, or add `-Dattach=true` to join a server you already started. They run as
 siblings of `check`, not as part of the hermetic gate.
+
+The `rooms over iroh` variant is the one to watch. It runs the same five-language
+chat, but the coordinator and clients reach each other over an encrypted
+[iroh]($link.page('transports/iroh')) channel instead of a local TCP port: each peer
+is addressed by a self-authenticating node id, and the bytes on the wire are keyed
+QUIC. It is the clearest demonstration that the encrypted, peer-to-peer transport is
+a drop-in under the same application surface — the app code does not change, only the
+address does. It needs `cargo` for the iroh sidecar.
 
 Why an application at all? A protocol can pass every conformance scenario and still
 be miserable to build on. These apps are where the surface meets a real program, in

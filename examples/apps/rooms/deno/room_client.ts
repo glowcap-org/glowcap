@@ -1,120 +1,217 @@
 // A small, friendly client for the rooms chat, built on pancake actors.
 //
 // This is the layer that knows about OCapN — and on the connection API it is
-// barely a layer at all: connect, fetch the room by name, spawn an inbox the room
-// can call back, subscribe by handing it that capability, and surface the room's
-// callbacks as a stream. Everything above it — the terminal client, the web UI —
-// reads like an app, not like a protocol.
+// barely a layer at all: connect, fetch the directory by name, ask it to open or
+// enter a room (which hands back a live reference to that room), spawn an inbox
+// the room can call back, subscribe by handing it that capability, and surface
+// the room's callbacks as a stream. Everything above it — the terminal client,
+// the web UI — reads like an app, not like a protocol.
 //
-//   const room = await Room.join("127.0.0.1:9099", "alice");
+//   const dir = await Directory.connect("127.0.0.1:9099");
+//   const room = await Room.subscribe(dir.conn, await dir.enter("general"), "alice");
 //   room.say("hello");
 //   for await (const msg of room.messages) console.log(msg.from, msg.text);
-//   await room.leave();
+//   await room.leave();   // drop this room (keeps the connection)
+//   await dir.close();    // end the session
 //
-// The locator carries the transport: a `host:port` joins over TCP, an
-// `ocapn://<nodeid>.iroh?…` URI joins over iroh — `Room.join` dials whichever
-// the string names.
+// `Directory.open` and `enter` mirror the wire one-to-one — strict, each errors
+// on the wrong precondition. The friendly "enter, opening it if new" behavior is
+// a CLI convenience and lives in the apps (`enter_room.ts`), not here. The room
+// name is the directory's lookup key; the room itself is the capability the
+// directory returns.
 
-import {
-  type Connection,
-  type Ref,
-} from "../../../../bindings/deno/pancake.ts";
+import { type AppValue, type Connection, type Ref } from "@pancake/stack";
 import { dial } from "./locator.ts";
-import { NOTIFY, POST, ROOM, SUBSCRIBE } from "./protocol.ts";
+import { DIRECTORY, ENTER, LEAVE, LIST, NOTIFY, OPEN, POST, SUBSCRIBE, WATCH } from "./protocol.ts";
+
+/** One live room in the directory: its name and how many people are in it. */
+export interface RoomInfo {
+	name: string;
+	count: number;
+}
+
+/** A change to the live room list, pushed to a `watch` observer: a room
+ * `opened` (its first member arrived), `closed` (its last left), or its member
+ * `count` changed. */
+export interface RoomEvent {
+	kind: "opened" | "closed" | "count";
+	name: string;
+	count: number;
+}
+
+/** Parse the wire shape of `list`/`watch` — a list of `[name, count]` pairs,
+ * counts arriving as `bigint` — into `RoomInfo`s. */
+function parseRooms(raw: AppValue): RoomInfo[] {
+	if (!Array.isArray(raw)) return [];
+	const out: RoomInfo[] = [];
+	for (const item of raw) {
+		if (Array.isArray(item) && item.length >= 2) {
+			out.push({ name: String(item[0]), count: Number(item[1]) });
+		}
+	}
+	return out;
+}
+
+/** The directory of rooms: the server's one published object. Connect to it,
+ * then `open` a new room or `enter` an existing one — each returns a reference
+ * to that room. Both mirror the wire: `open` rejects if the name is taken,
+ * `enter` rejects if there is no such room. `list` and `watch` are discovery:
+ * the rooms that have people in them, as a snapshot or a live feed. The
+ * directory owns the connection; close it with `close` when the session ends. */
+export class Directory {
+	readonly conn: Connection;
+	#directory: Ref;
+
+	private constructor(conn: Connection, directory: Ref) {
+		this.conn = conn;
+		this.#directory = directory;
+	}
+
+	/** Dial `locator`, start serving, and fetch the directory by name. */
+	static async connect(locator: string): Promise<Directory> {
+		const conn = await dial(locator);
+		// Start the inbound loop before fetching, so the fetch's resolution arrives.
+		conn.serve().catch(() => {});
+		const directory = await conn.fetch(DIRECTORY);
+		return new Directory(conn, directory);
+	}
+
+	/** Create a new room and return a reference to it. Rejects if the name is
+	 * taken. */
+	open(name: string): Promise<Ref> {
+		return this.conn.send(this.#directory, OPEN, [name]) as Promise<Ref>;
+	}
+
+	/** Return a reference to an existing room. Rejects if there is no such room. */
+	enter(name: string): Promise<Ref> {
+		return this.conn.send(this.#directory, ENTER, [name]) as Promise<Ref>;
+	}
+
+	/** The live rooms right now — the ones with people in them. */
+	async list(): Promise<RoomInfo[]> {
+		return parseRooms(
+			await this.conn.send(this.#directory, LIST, []) as AppValue,
+		);
+	}
+
+	/** Follow the live room list: spawn an observer the directory calls back with
+	 * each change, register it, and return the current snapshot as a baseline.
+	 * `onEvent` then fires on every open/close/count change. */
+	async watch(onEvent: (event: RoomEvent) => void): Promise<RoomInfo[]> {
+		const observer = this.conn.spawn((verb, args) => {
+			if (verb !== NOTIFY) throw new Error(`watch inbox has no method ${verb}`);
+			onEvent({
+				kind: (typeof args[0] === "string" ? args[0] : "count") as RoomEvent[
+					"kind"
+				],
+				name: typeof args[1] === "string" ? args[1] : "",
+				count: Number(args[2] ?? 0),
+			});
+			return null;
+		});
+		return parseRooms(
+			await this.conn.send(this.#directory, WATCH, [observer]) as AppValue,
+		);
+	}
+
+	/** Close the connection, ending every room's `messages` stream. */
+	async close(): Promise<void> {
+		this.conn.close();
+		await this.conn.serve().catch(() => {});
+	}
+}
 
 /** One line in the room. `system` is true for the room's own announcements (a
  * member joining, your welcome); otherwise `from` is the member who said it. */
 export interface Message {
-  from: string;
-  text: string;
-  system: boolean;
+	from: string;
+	text: string;
+	system: boolean;
 }
 
-/** A membership in a chat room. Get one with `Room.join`, read `messages`, call
+/** A membership in a chat room. Get one with `Room.subscribe` (the app's
+ * `joinRoom` in `enter_room.ts` is the friendly wrapper), read `messages`, call
  * `say`, and `leave` when you are done. */
 export class Room {
-  #conn: Connection;
-  #room: Ref;
-  // Captured synchronously by the ReadableStream `start` callback.
-  #lines!: ReadableStreamDefaultController<Message>;
-  #leaving = false;
+	#conn: Connection;
+	#room: Ref;
+	// Captured synchronously by the ReadableStream `start` callback.
+	#lines!: ReadableStreamDefaultController<Message>;
+	#leaving = false;
 
-  /** The lines the room sends you, in order, as an async stream. The stream ends
-   * when you `leave` or the room hangs up. */
-  readonly messages: ReadableStream<Message>;
+	/** The lines the room sends you, in order, as an async stream. The stream ends
+	 * when you `leave` or the room hangs up. */
+	readonly messages: ReadableStream<Message>;
 
-  private constructor(conn: Connection, room: Ref) {
-    this.#conn = conn;
-    this.#room = room;
-    this.messages = new ReadableStream<Message>({
-      start: (controller) => {
-        this.#lines = controller;
-      },
-    });
-  }
+	private constructor(conn: Connection, room: Ref) {
+		this.#conn = conn;
+		this.#room = room;
+		this.messages = new ReadableStream<Message>({
+			start: (controller) => {
+				this.#lines = controller;
+			},
+		});
+	}
 
-  /** Join the room at `locator` (a `host:port` for TCP or an `ocapn://…iroh?…`
-   * URI for iroh) as `nick`: connect, fetch the room by name, publish an inbox
-   * the room can call back, and subscribe by handing it that capability. */
-  static async join(locator: string, nick: string): Promise<Room> {
-    const conn = await dial(locator);
-    // Start the inbound loop before fetching, so the fetch's resolution arrives.
-    conn.serve().catch(() => {});
-    const room = await conn.fetch(ROOM);
-    const self = new Room(conn, room);
+	/** Subscribe to a room you already hold a reference to, on an open connection.
+	 * Publishes the inbox, hands the room that capability, and surfaces the
+	 * room's callbacks on `messages`. */
+	static async subscribe(
+		conn: Connection,
+		roomRef: Ref,
+		nick: string,
+	): Promise<Room> {
+		const self = new Room(conn, roomRef);
 
-    // The room calls this back with every line; surface it on `messages`.
-    const inbox = conn.spawn((verb, args) => {
-      if (verb !== NOTIFY) throw new Error(`inbox has no method ${verb}`);
-      const from = typeof args[0] === "string" ? args[0] : "?";
-      const text = typeof args[1] === "string" ? args[1] : "";
-      self.#emit(from, text);
-      return null;
-    });
+		// The room calls this back with every line; surface it on `messages`.
+		const inbox = conn.spawn((verb, args) => {
+			if (verb !== NOTIFY) throw new Error(`inbox has no method ${verb}`);
+			const from = typeof args[0] === "string" ? args[0] : "?";
+			const text = typeof args[1] === "string" ? args[1] : "";
+			self.#emit(from, text);
+			return null;
+		});
 
-    // End the message stream when the connection closes.
-    conn.serve().finally(() => self.#endStream());
+		// End the message stream when the connection closes.
+		conn.serve().finally(() => self.#endStream());
 
-    // Subscribe, handing the room a capability to our inbox. The welcome it
-    // returns is our first line. A rejected claim must release the connection we
-    // opened before surfacing the broken vow to the caller.
-    const welcome = await conn.send(room, SUBSCRIBE, [nick, inbox]).catch(
-      async (err) => {
-        conn.close();
-        await conn.serve().catch(() => {});
-        throw err;
-      },
-    );
-    self.#emit("room", typeof welcome === "string" ? welcome : "joined");
-    return self;
-  }
+		// Subscribe, handing the room a capability to our inbox. The welcome it
+		// returns is our first line. A rejected claim (e.g. the nickname is taken)
+		// propagates; the connection stays open — the directory owns it, and the
+		// caller may try another room or close the session itself.
+		const welcome = await conn.send(roomRef, SUBSCRIBE, [nick, inbox]);
+		self.#emit("room", typeof welcome === "string" ? welcome : "joined");
+		return self;
+	}
 
-  /** Say a line to everyone in the room. */
-  async say(text: string): Promise<void> {
-    await this.#conn.send(this.#room, POST, [text]);
-  }
+	/** Say a line to everyone in the room. */
+	async say(text: string): Promise<void> {
+		await this.#conn.send(this.#room, POST, [text]);
+	}
 
-  /** Leave the room and release the connection. */
-  async leave(): Promise<void> {
-    this.#leaving = true;
-    this.#conn.close();
-    await this.#conn.serve().catch(() => {});
-  }
+	/** Leave this room — drop the membership and end the `messages` stream —
+	 * without closing the connection, so the same connection can enter another
+	 * room. Close the connection itself with `Directory.close`. */
+	async leave(): Promise<void> {
+		this.#leaving = true;
+		await this.#conn.send(this.#room, LEAVE, []).catch(() => {});
+		this.#endStream();
+	}
 
-  #emit(from: string, text: string): void {
-    try {
-      this.#lines.enqueue({ from, text, system: from === "room" });
-    } catch {
-      // The stream is already closed (we have left) — drop the late line.
-    }
-  }
+	#emit(from: string, text: string): void {
+		try {
+			this.#lines.enqueue({ from, text, system: from === "room" });
+		} catch {
+			// The stream is already closed (we have left) — drop the late line.
+		}
+	}
 
-  #endStream(): void {
-    if (!this.#leaving) console.error("rooms: the room closed the connection");
-    try {
-      this.#lines.close();
-    } catch {
-      // Already closed.
-    }
-  }
+	#endStream(): void {
+		if (!this.#leaving) console.error("rooms: the room closed the connection");
+		try {
+			this.#lines.close();
+		} catch {
+			// Already closed.
+		}
+	}
 }

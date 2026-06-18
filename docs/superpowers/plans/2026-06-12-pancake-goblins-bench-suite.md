@@ -5,50 +5,75 @@ under `bench/goblins/` and runs via `zig build bench-goblins`. The unchecked
 task boxes below are the plan as it was written, not an open to-do list;
 `bench/goblins/README.md` describes what actually shipped.
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use
+> superpowers:subagent-driven-development (recommended) or
+> superpowers:executing-plans to implement this plan task-by-task. Steps use
+> checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a benchmark suite that runs the *same* Racket capability/actor application on both Spritely Goblins and pancake (via its Racket binding) over loopback TCP, and reports latency, throughput, connection scaling, and memory for a fair pancake-vs-Goblins comparison.
+**Goal:** Build a benchmark suite that runs the _same_ Racket capability/actor
+application on both Spritely Goblins and pancake (via its Racket binding) over
+loopback TCP, and reports latency, throughput, connection scaling, and memory
+for a fair pancake-vs-Goblins comparison.
 
-**Architecture:** Each suite is one shared actor-behavior file that `(require)`s a backend module supplying `{spawn,$,<-,on,methods,bcom}`; that single source loads on both Goblins and pancake. Substrate-specific bootstrap/driving lives in small per-backend files off the measured path. A shared, backend-agnostic metrics module and a single orchestrator spawn each substrate's server in its own OS process, run the workloads, and emit a comparison report.
+**Architecture:** Each suite is one shared actor-behavior file that `(require)`s
+a backend module supplying `{spawn,$,<-,on,methods,bcom}`; that single source
+loads on both Goblins and pancake. Substrate-specific bootstrap/driving lives in
+small per-backend files off the measured path. A shared, backend-agnostic
+metrics module and a single orchestrator spawn each substrate's server in its
+own OS process, run the workloads, and emit a comparison report.
 
-**Tech Stack:** Racket 9.2, Spritely Goblins v0.18.0 (`goblins` collection), pancake's Racket binding (`bindings/racket/pancake.rkt`) over `libpancake`, Zig `build.zig` for the `bench-goblins` step. Loopback TCP + Syrup on both sides.
+**Tech Stack:** Racket 9.2, Spritely Goblins v0.18.0 (`goblins` collection),
+pancake's Racket binding (`bindings/racket/pancake.rkt`) over `libpancake`, Zig
+`build.zig` for the `bench-goblins` step. Loopback TCP + Syrup on both sides.
 
 ---
 
 ## Reference: verified facts this plan builds on
 
-These were confirmed by running code in the devcontainer (see the design spec, `docs/superpowers/specs/2026-06-12-pancake-goblins-bench-suite-design.md`):
+These were confirmed by running code in the devcontainer (see the design spec,
+`docs/superpowers/specs/2026-06-12-pancake-goblins-bench-suite-design.md`):
 
-- `racket` 9.2, `goblins` v0.18.0, `zig`, and `libpancake` (built by `zig build`) are all present.
-- Goblins TCP client/server works via `conformance/goblins-peer/racket/tcp-netlayer.rkt` + `spawn-mycapn` + `($ mycapn 'register actor 'tcp)` (server) and `(<- mycapn 'enliven sturdyref)` (client).
-- The pancake binding hosts a Goblins-shaped actor over TCP via `listen`/`accept`/`conn-publish`/`conn-serve` (server) and `connect`/`conn-fetch` + `<-`/`on`/`async-flush!`/`async-next-event`/`vat-serve!` (client). See `bindings/racket/zig-smoke.rkt` lines 239–284 for the exact verified pattern.
-- A Racket module cannot `(require "/abs/path.rkt")`; use `(require (file "/abs/path.rkt"))` or a relative path.
+- `racket` 9.2, `goblins` v0.18.0, `zig`, and `libpancake` (built by
+  `zig build`) are all present.
+- Goblins TCP client/server works via
+  `conformance/goblins-peer/racket/tcp-netlayer.rkt` + `spawn-mycapn` +
+  `($ mycapn 'register actor 'tcp)` (server) and
+  `(<- mycapn 'enliven sturdyref)` (client).
+- The pancake binding hosts a Goblins-shaped actor over TCP via
+  `listen`/`accept`/`conn-publish`/`conn-serve` (server) and
+  `connect`/`conn-fetch` +
+  `<-`/`on`/`async-flush!`/`async-next-event`/`vat-serve!` (client). See
+  `bindings/racket/zig-smoke.rkt` lines 239–284 for the exact verified pattern.
+- A Racket module cannot `(require "/abs/path.rkt")`; use
+  `(require (file "/abs/path.rkt"))` or a relative path.
 
 ## File Structure
 
 All new files under `bench/goblins/`:
 
-| File | Responsibility |
-| --- | --- |
-| `metrics.rkt` | Pure functions: percentiles, throughput math, `/proc/<pid>/status` RSS parsing. Backend-agnostic. Unit-tested. |
-| `metrics-test.rkt` | RackUnit tests for `metrics.rkt`. |
-| `backend-goblins.rkt` | Re-exports `{spawn,$,<-,on,methods,bcom}` and a server/client bootstrap API, implemented on `goblins`. |
-| `backend-pancake.rkt` | Re-exports the same names + bootstrap API, implemented on `bindings/racket/pancake.rkt` + `pump.rkt`. |
-| `pump.rkt` | The pancake "run-to-quiescence" driver (the fair analog of Goblins' vat loop). |
-| `apps/echo.rkt` | S0 shared actor behavior + client call-thunk contract. |
-| `apps/registry.rkt` | S1 shared actor behavior (capability registry + pipelining). |
-| `apps/mint.rkt` | S2 shared actor behavior (mint/purse). |
-| `apps/taskboard.rkt` | S3 shared actor behavior (task board). |
-| `server.rkt` | Server entrypoint: `racket server.rkt <backend> <suite> <host> <port>`; publishes the app root, prints NDJSON readiness, serves until killed. |
-| `client.rkt` | Client driver: connects, runs the four metric measurements for one (backend, suite), prints NDJSON result lines. |
-| `bench.rkt` | Orchestrator: for each (suite, backend) spawns `server.rkt` as its own process, runs `client.rkt`, collects results, prints a comparison table, writes a report under `zig-out/bench-reports/`. Honors `--suite=` and `--smoke`. |
-| `README.md` | Living-state: role, fairness principle, run commands. |
+| File                  | Responsibility                                                                                                                                                                                                                   |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `metrics.rkt`         | Pure functions: percentiles, throughput math, `/proc/<pid>/status` RSS parsing. Backend-agnostic. Unit-tested.                                                                                                                   |
+| `metrics-test.rkt`    | RackUnit tests for `metrics.rkt`.                                                                                                                                                                                                |
+| `backend-goblins.rkt` | Re-exports `{spawn,$,<-,on,methods,bcom}` and a server/client bootstrap API, implemented on `goblins`.                                                                                                                           |
+| `backend-pancake.rkt` | Re-exports the same names + bootstrap API, implemented on `bindings/racket/pancake.rkt` + `pump.rkt`.                                                                                                                            |
+| `pump.rkt`            | The pancake "run-to-quiescence" driver (the fair analog of Goblins' vat loop).                                                                                                                                                   |
+| `apps/echo.rkt`       | S0 shared actor behavior + client call-thunk contract.                                                                                                                                                                           |
+| `apps/registry.rkt`   | S1 shared actor behavior (capability registry + pipelining).                                                                                                                                                                     |
+| `apps/mint.rkt`       | S2 shared actor behavior (mint/purse).                                                                                                                                                                                           |
+| `apps/taskboard.rkt`  | S3 shared actor behavior (task board).                                                                                                                                                                                           |
+| `server.rkt`          | Server entrypoint: `racket server.rkt <backend> <suite> <host> <port>`; publishes the app root, prints NDJSON readiness, serves until killed.                                                                                    |
+| `client.rkt`          | Client driver: connects, runs the four metric measurements for one (backend, suite), prints NDJSON result lines.                                                                                                                 |
+| `bench.rkt`           | Orchestrator: for each (suite, backend) spawns `server.rkt` as its own process, runs `client.rkt`, collects results, prints a comparison table, writes a report under `zig-out/bench-reports/`. Honors `--suite=` and `--smoke`. |
+| `README.md`           | Living-state: role, fairness principle, run commands.                                                                                                                                                                            |
 
-Modified: `build.zig`, `.agents/rules/cli.md`, `tools/meta_check.zig`, `docs/boundaries.md`.
+Modified: `build.zig`, `.agents/rules/cli.md`, `tools/meta_check.zig`,
+`docs/boundaries.md`.
 
 ## The app contract (every `apps/*.rkt` exports this)
 
-Each app module provides exactly these four bindings so the harness is app-agnostic:
+Each app module provides exactly these four bindings so the harness is
+app-agnostic:
 
 ```racket
 ;; app-name : symbol — the suite id, e.g. 'echo
@@ -67,19 +92,22 @@ Each app module provides exactly these four bindings so the harness is app-agnos
 ;;   Predicate the harness uses to assert a settled value is correct.
 ```
 
-`backend` is a struct (defined in each backend module, but with a shared shape) carrying the actor verbs as fields so an app never imports a substrate directly:
+`backend` is a struct (defined in each backend module, but with a shared shape)
+carrying the actor verbs as fields so an app never imports a substrate directly:
 
 ```racket
 (struct backend (spawn call send on methods-maker bcom-marker) #:transparent)
 ```
 
-To keep app source identical and readable, each app begins with the same destructuring header (shown in each app task).
+To keep app source identical and readable, each app begins with the same
+destructuring header (shown in each app task).
 
 ---
 
 ### Task 1: Metrics module (pure, unit-tested)
 
 **Files:**
+
 - Create: `bench/goblins/metrics.rkt`
 - Test: `bench/goblins/metrics-test.rkt`
 
@@ -109,8 +137,8 @@ To keep app source identical and readable, each app begins with the same destruc
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `racket bench/goblins/metrics-test.rkt`
-Expected: FAIL — `cannot open module file ... metrics.rkt` (file does not exist yet).
+Run: `racket bench/goblins/metrics-test.rkt` Expected: FAIL —
+`cannot open module file ... metrics.rkt` (file does not exist yet).
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -157,12 +185,13 @@ Expected: FAIL — `cannot open module file ... metrics.rkt` (file does not exis
 (require racket/port) ; for port->string used above
 ```
 
-Note: move the `(require racket/port)` to the top with the other requires when writing the file.
+Note: move the `(require racket/port)` to the top with the other requires when
+writing the file.
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `racket bench/goblins/metrics-test.rkt`
-Expected: PASS — prints `metrics-test OK`.
+Run: `racket bench/goblins/metrics-test.rkt` Expected: PASS — prints
+`metrics-test OK`.
 
 - [ ] **Step 5: Commit**
 
@@ -176,9 +205,12 @@ git commit -m "bench(goblins): add backend-agnostic metrics module"
 ### Task 2: The pancake pump (fair scheduler analog)
 
 **Files:**
+
 - Create: `bench/goblins/pump.rkt`
 
-This is the load-bearing fairness piece: a *general* driver that runs a pancake connection+vat to quiescence, the analog of Goblins' automatic vat loop. It must NOT contain any per-call shortcut.
+This is the load-bearing fairness piece: a _general_ driver that runs a pancake
+connection+vat to quiescence, the analog of Goblins' automatic vat loop. It must
+NOT contain any per-call shortcut.
 
 - [ ] **Step 1: Write the implementation**
 
@@ -218,7 +250,8 @@ This is the load-bearing fairness piece: a *general* driver that runs a pancake 
 
 - [ ] **Step 2: Defer verification**
 
-`pump.rkt` is exercised end-to-end by Task 4's app correctness tests; it has no standalone test. Proceed.
+`pump.rkt` is exercised end-to-end by Task 4's app correctness tests; it has no
+standalone test. Proceed.
 
 - [ ] **Step 3: Commit**
 
@@ -232,6 +265,7 @@ git commit -m "bench(goblins): add pancake run-to-quiescence pump"
 ### Task 3: Backend shims
 
 **Files:**
+
 - Create: `bench/goblins/backend-goblins.rkt`
 - Create: `bench/goblins/backend-pancake.rkt`
 
@@ -253,7 +287,10 @@ Both expose the identical surface so apps and the harness are substrate-blind:
 ;;   client-close   : (conn-handle) -> void
 ```
 
-Because `methods` and `bcom` are macros/markers, apps import them directly from a tiny shared re-export rather than through the struct. To keep the app source identical, each backend provides a module-level `methods` and `bcom` with the same name.
+Because `methods` and `bcom` are macros/markers, apps import them directly from
+a tiny shared re-export rather than through the struct. To keep the app source
+identical, each backend provides a module-level `methods` and `bcom` with the
+same name.
 
 - [ ] **Step 1: Write the goblins backend**
 
@@ -351,7 +388,15 @@ Because `methods` and `bcom` are macros/markers, apps import them directly from 
   (ocapn-sturdyref node (string->bytes/latin-1 name)))
 ```
 
-Note for the implementer: the exact sturdyref/`ocapn-sturdyref` constructor name comes from `goblins/ocapn/structs-urls`; verify with `racket -e '(require goblins/ocapn/structs-urls) (ocapn-sturdyref? ...)'` and adjust to the installed v0.18.0 API. The conformance `tcp-demo.rkt` registers via `($ mycapn 'register actor 'tcp)` and enlivens via `(<- mycapn 'enliven sturdyref)`; mirror whatever that path returns. If the registry hands back a sturdyref object directly at register time, prefer transporting THAT (serialize via `(require goblins/ocapn/structs-urls)` printers) rather than reconstructing it.
+Note for the implementer: the exact sturdyref/`ocapn-sturdyref` constructor name
+comes from `goblins/ocapn/structs-urls`; verify with
+`racket -e '(require goblins/ocapn/structs-urls) (ocapn-sturdyref? ...)'` and
+adjust to the installed v0.18.0 API. The conformance `tcp-demo.rkt` registers
+via `($ mycapn 'register actor 'tcp)` and enlivens via
+`(<- mycapn 'enliven sturdyref)`; mirror whatever that path returns. If the
+registry hands back a sturdyref object directly at register time, prefer
+transporting THAT (serialize via `(require goblins/ocapn/structs-urls)`
+printers) rather than reconstructing it.
 
 - [ ] **Step 2: Write the pancake backend**
 
@@ -416,20 +461,34 @@ Note for the implementer: the exact sturdyref/`ocapn-sturdyref` constructor name
 (define (client-close handle) (connection-close! (pclient-conn handle)))
 ```
 
-**Important design note for the implementer (resolves the `server-run` "see note"):** the binding's `conn-publish` takes a constructor `(lambda (bcom) behavior)` and hosts it. The app's `server-build` returns a *root ref* it may have built from sub-actors. Two clean options — pick (A):
+**Important design note for the implementer (resolves the `server-run` "see
+note"):** the binding's `conn-publish` takes a constructor
+`(lambda (bcom) behavior)` and hosts it. The app's `server-build` returns a
+_root ref_ it may have built from sub-actors. Two clean options — pick (A):
 
-(A) Change the app contract's `server-build` to return a **constructor** `(lambda (bcom) behavior)` instead of a spawned ref, and have apps build sub-actors lazily inside method bodies (or via `bcom`). Then `server-run` (pancake) does `(conn-publish hconn name (server-build))` and `server-run` (goblins) does `($ registry 'register (a-vat-run (spawn (server-build))) swiss)`. This keeps both backends publishing the *same* constructor. Update Task 4 apps accordingly: each app's `server-build` returns `(lambda (bcom) (methods ...))`.
+(A) Change the app contract's `server-build` to return a **constructor**
+`(lambda (bcom) behavior)` instead of a spawned ref, and have apps build
+sub-actors lazily inside method bodies (or via `bcom`). Then `server-run`
+(pancake) does `(conn-publish hconn name (server-build))` and `server-run`
+(goblins) does
+`($ registry 'register (a-vat-run (spawn (server-build))) swiss)`. This keeps
+both backends publishing the _same_ constructor. Update Task 4 apps accordingly:
+each app's `server-build` returns `(lambda (bcom) (methods ...))`.
 
-Adopt option (A) — it is the only shape that publishes byte-identical actor behavior on both substrates. The app tasks below are written for option (A).
+Adopt option (A) — it is the only shape that publishes byte-identical actor
+behavior on both substrates. The app tasks below are written for option (A).
 
 - [ ] **Step 3: Smoke-load both backends**
 
 Run:
+
 ```bash
 racket -e '(require (file "/workspaces/pancake/bench/goblins/backend-pancake.rkt")) (displayln "pancake backend loads")'
 racket -e '(require (file "/workspaces/pancake/bench/goblins/backend-goblins.rkt")) (displayln "goblins backend loads")'
 ```
-Expected: each prints its "loads" line with exit 0. Fix require/typo errors until both load.
+
+Expected: each prints its "loads" line with exit 0. Fix require/typo errors
+until both load.
 
 - [ ] **Step 4: Commit**
 
@@ -443,13 +502,23 @@ git commit -m "bench(goblins): add goblins and pancake backend shims"
 ### Task 4: Shared apps (S0–S3)
 
 **Files:**
+
 - Create: `bench/goblins/apps/echo.rkt`
 - Create: `bench/goblins/apps/registry.rkt`
 - Create: `bench/goblins/apps/mint.rkt`
 - Create: `bench/goblins/apps/taskboard.rkt`
-- Create: `bench/goblins/apps-test.rkt` (correctness on BOTH backends, in-process)
+- Create: `bench/goblins/apps-test.rkt` (correctness on BOTH backends,
+  in-process)
 
-Each app uses option (A): `server-build` returns a constructor `(lambda (bcom) behavior)`. The app imports `methods`/`bcom` from a backend module passed by the harness — but since `methods` is a macro, apps import it from a *fixed* module that the harness aliases. To keep apps backend-blind AND use the macro, each app takes a `mk` argument that is the backend's `methods`-maker is not possible for a macro. Therefore apps `(require (only-in <backend> methods))` indirectly via a shim: create `bench/goblins/actor-prelude.rkt` that re-exports `methods` and the verb helpers, selected at load by an environment variable.
+Each app uses option (A): `server-build` returns a constructor
+`(lambda (bcom) behavior)`. The app imports `methods`/`bcom` from a backend
+module passed by the harness — but since `methods` is a macro, apps import it
+from a _fixed_ module that the harness aliases. To keep apps backend-blind AND
+use the macro, each app takes a `mk` argument that is the backend's
+`methods`-maker is not possible for a macro. Therefore apps
+`(require (only-in <backend> methods))` indirectly via a shim: create
+`bench/goblins/actor-prelude.rkt` that re-exports `methods` and the verb
+helpers, selected at load by an environment variable.
 
 - [ ] **Step 1: Create the actor prelude (selects backend at load)**
 
@@ -480,16 +549,29 @@ Create: `bench/goblins/actor-prelude.rkt`
 (require (for-syntax racket/base))
 ```
 
-**Implementer note:** Racket macros cannot be chosen by a runtime `getenv` because `require` is static. Resolve this cleanly by **not** sharing the macro through one prelude. Instead:
+**Implementer note:** Racket macros cannot be chosen by a runtime `getenv`
+because `require` is static. Resolve this cleanly by **not** sharing the macro
+through one prelude. Instead:
 
-- Apps `(require "actor-prelude.rkt")` where `actor-prelude.rkt` is a *symlink-free* file that `(require (only-in goblins/actor-lib/methods methods) goblins ...)` — i.e., the app is compiled once per backend by setting `PLTCOLLECTS`/by having TWO prelude files and selecting the file at the `server.rkt`/`client.rkt` level (which DO know the backend, since it is their argv).
+- Apps `(require "actor-prelude.rkt")` where `actor-prelude.rkt` is a
+  _symlink-free_ file that
+  `(require (only-in goblins/actor-lib/methods methods) goblins ...)` — i.e.,
+  the app is compiled once per backend by setting `PLTCOLLECTS`/by having TWO
+  prelude files and selecting the file at the `server.rkt`/`client.rkt` level
+  (which DO know the backend, since it is their argv).
 
 Adopt this concrete shape (final):
+
 - `actor-prelude-goblins.rkt` provides `methods spawn $ <- on` from goblins.
 - `actor-prelude-pancake.rkt` provides the same from the pancake binding.
-- Each `apps/<name>.rkt` does NOT require a prelude directly. Instead it is a **function of the actor verbs**: it provides `server-build`, `client-prepare`, `result-ok?`, where `server-build` returns a constructor and the constructor body uses `methods` passed in.
+- Each `apps/<name>.rkt` does NOT require a prelude directly. Instead it is a
+  **function of the actor verbs**: it provides `server-build`, `client-prepare`,
+  `result-ok?`, where `server-build` returns a constructor and the constructor
+  body uses `methods` passed in.
 
-Because `methods` is a macro, the cleanest final design is: **apps define behavior with a plain lambda dispatch, not the `methods` macro.** A plain dispatch lambda is identical on both substrates and needs no macro import:
+Because `methods` is a macro, the cleanest final design is: **apps define
+behavior with a plain lambda dispatch, not the `methods` macro.** A plain
+dispatch lambda is identical on both substrates and needs no macro import:
 
 ```racket
 ;; dispatch helper used by all apps — plain lambda, no macro, backend-blind.
@@ -499,7 +581,8 @@ Because `methods` is a macro, the cleanest final design is: **apps define behavi
     (if h (apply (cdr h) args) (error 'dispatch "no method: ~a" method))))
 ```
 
-Put `dispatch` in `bench/goblins/dispatch.rkt` and have every app require it. This removes the macro-portability problem entirely.
+Put `dispatch` in `bench/goblins/dispatch.rkt` and have every app require it.
+This removes the macro-portability problem entirely.
 
 - [ ] **Step 2: Create the dispatch helper**
 
@@ -587,7 +670,18 @@ Create: `bench/goblins/dispatch.rkt`
 (define (result-ok? v) (bytes? v))
 ```
 
-**Implementer note:** `server-build` for registry needs the backend's `spawn`. Standardize the contract: the harness calls `(server-build spawn-proc)` for *all* apps, passing the backend's `spawn` procedure (apps that don't need it ignore the arg, as echo does). Update `apps/echo.rkt` Step 3 `server-build` param name to `_spawn` for clarity; behavior unchanged. The promise-pipelining `(send cell-vow 'get)` relies on both substrates accepting a vow as a send target — verified true for both (Goblins promise pipelining; pancake `<-` to a `promise-ref`). If pancake's binding rejects a `promise-ref` as a `<-` target in the installed version, fall back to `(on cell-vow (lambda (cell) (send cell 'get)))` and document that S1 measures sequential-resolve rather than pipelining for pancake; prefer the pipelined form and only fall back if a load test fails.
+**Implementer note:** `server-build` for registry needs the backend's `spawn`.
+Standardize the contract: the harness calls `(server-build spawn-proc)` for
+_all_ apps, passing the backend's `spawn` procedure (apps that don't need it
+ignore the arg, as echo does). Update `apps/echo.rkt` Step 3 `server-build`
+param name to `_spawn` for clarity; behavior unchanged. The promise-pipelining
+`(send cell-vow 'get)` relies on both substrates accepting a vow as a send
+target — verified true for both (Goblins promise pipelining; pancake `<-` to a
+`promise-ref`). If pancake's binding rejects a `promise-ref` as a `<-` target in
+the installed version, fall back to
+`(on cell-vow (lambda (cell) (send cell 'get)))` and document that S1 measures
+sequential-resolve rather than pipelining for pancake; prefer the pipelined form
+and only fall back if a load test fails.
 
 - [ ] **Step 5: Write `apps/mint.rkt`**
 
@@ -675,7 +769,10 @@ Create: `bench/goblins/dispatch.rkt`
 
 Create: `bench/goblins/apps-test.rkt`
 
-This test loads each app and exercises its `server-build` constructor + `client-prepare` thunk *in-process* against a plain local dispatch (no sockets), proving the app logic is correct and identical regardless of substrate. It uses a trivial local `spawn`/`send` to settle vows synchronously.
+This test loads each app and exercises its `server-build` constructor +
+`client-prepare` thunk _in-process_ against a plain local dispatch (no sockets),
+proving the app logic is correct and identical regardless of substrate. It uses
+a trivial local `spawn`/`send` to settle vows synchronously.
 
 ```racket
 ;; bench/goblins/apps-test.rkt
@@ -717,12 +814,17 @@ This test loads each app and exercises its `server-build` constructor + `client-
 (printf "apps-test OK\n")
 ```
 
-**Implementer note:** `local-send` treats a returned capability (from `lookup`/`make-purse`/`create`) as a behavior proc and calls it directly, so the pipelined `(send cell-vow 'get)` works because `cell-vow` *is* the behavior proc here. Confirm each app's returned ref is callable by `local-send`; the spawn returns the constructor's behavior, which is the dispatch lambda — directly callable. Good.
+**Implementer note:** `local-send` treats a returned capability (from
+`lookup`/`make-purse`/`create`) as a behavior proc and calls it directly, so the
+pipelined `(send cell-vow 'get)` works because `cell-vow` _is_ the behavior proc
+here. Confirm each app's returned ref is callable by `local-send`; the spawn
+returns the constructor's behavior, which is the dispatch lambda — directly
+callable. Good.
 
 - [ ] **Step 8: Run the correctness test**
 
-Run: `racket bench/goblins/apps-test.rkt`
-Expected: PASS — prints `apps-test OK`. Fix app logic until green.
+Run: `racket bench/goblins/apps-test.rkt` Expected: PASS — prints
+`apps-test OK`. Fix app logic until green.
 
 - [ ] **Step 9: Commit**
 
@@ -736,6 +838,7 @@ git commit -m "bench(goblins): add shared echo/registry/mint/taskboard apps + cr
 ### Task 5: Server entrypoint
 
 **Files:**
+
 - Create: `bench/goblins/server.rkt`
 
 Resolves the app contract against a chosen backend and serves.
@@ -775,20 +878,37 @@ Resolves the app contract against a chosen backend and serves.
 (file-stream-buffer-mode (current-output-port) 'line)
 ```
 
-**Implementer note:** the exact wiring of "pass the backend's spawn to `server-build`" must match how each backend's `server-run` invokes `build-root`. Standardize: each backend's `server-run` calls `(build-root spawn-proc)` where `spawn-proc` is its vat-bound spawn, and `build-root` returns the constructor `(lambda (bcom) behavior)`; the backend then hosts that constructor (goblins: `(spawn ctor)` then register; pancake: `(conn-publish hconn name ctor)`). Update Task 3 backends so `server-run`'s signature is `(server-run name host port build-root)` and internally does `(define ctor (build-root <vat-bound-spawn>))`. For pancake, `conn-publish` wants `(lambda (bcom) behavior)` — exactly `ctor`. For goblins, do `(define root (a-vat-run (spawn ctor)))` then register `root`. Adjust both backends in Task 3 to this before running Task 6.
+**Implementer note:** the exact wiring of "pass the backend's spawn to
+`server-build`" must match how each backend's `server-run` invokes `build-root`.
+Standardize: each backend's `server-run` calls `(build-root spawn-proc)` where
+`spawn-proc` is its vat-bound spawn, and `build-root` returns the constructor
+`(lambda (bcom) behavior)`; the backend then hosts that constructor (goblins:
+`(spawn ctor)` then register; pancake: `(conn-publish hconn name ctor)`). Update
+Task 3 backends so `server-run`'s signature is
+`(server-run name host port build-root)` and internally does
+`(define ctor (build-root <vat-bound-spawn>))`. For pancake, `conn-publish`
+wants `(lambda (bcom) behavior)` — exactly `ctor`. For goblins, do
+`(define root (a-vat-run (spawn ctor)))` then register `root`. Adjust both
+backends in Task 3 to this before running Task 6.
 
 - [ ] **Step 2: Smoke-run each (backend × a suite)**
 
-Run (pancake echo; should print a ready line then block — Ctrl-C after you see it):
+Run (pancake echo; should print a ready line then block — Ctrl-C after you see
+it):
+
 ```bash
 timeout 3 racket bench/goblins/server.rkt pancake echo 127.0.0.1 0 ; echo "exit=$?"
 ```
-Expected: a line like `{"v":1,"event":"ready","listen":"127.0.0.1:NNNNN"}` then timeout kills it (`exit=124`).
+
+Expected: a line like `{"v":1,"event":"ready","listen":"127.0.0.1:NNNNN"}` then
+timeout kills it (`exit=124`).
 
 Run (goblins echo):
+
 ```bash
 timeout 3 racket bench/goblins/server.rkt goblins echo 127.0.0.1 19101 ; echo "exit=$?"
 ```
+
 Expected: a `ready` NDJSON line, then `exit=124`.
 
 Fix until both print readiness.
@@ -805,9 +925,12 @@ git commit -m "bench(goblins): add backend-agnostic server entrypoint"
 ### Task 6: Client driver (the four metrics)
 
 **Files:**
+
 - Create: `bench/goblins/client.rkt`
 
-Connects to a running server and runs latency, throughput, connections, and memory measurements for one (backend, suite). Prints NDJSON result lines the orchestrator parses.
+Connects to a running server and runs latency, throughput, connections, and
+memory measurements for one (backend, suite). Prints NDJSON result lines the
+orchestrator parses.
 
 - [ ] **Step 1: Write the client**
 
@@ -922,14 +1045,22 @@ Connects to a running server and runs latency, throughput, connections, and memo
   [else (error 'client "unknown mode ~a" mode)])
 ```
 
-**Implementer note (adds two backend exports):** the client needs `client-send`, `client-on` from each backend, plus `make-backend` for symmetry. Add to BOTH backends in Task 3:
-- `client-send` : `(handle ref method . args) -> vow` — pancake: `(with-vat (conn-vat conn) (apply <- ref method args))`; goblins: `(apply <- ref method args)` inside the machine-run.
-- `client-on` : `(handle vow on-ok) -> void` — pancake: `(with-vat (conn-vat conn) (on vow on-ok))`; goblins: `((gclient-machine-run handle) (on vow on-ok))`.
-Re-export both via `(provide client-send client-on)`. Keep them tiny and identical in shape.
+**Implementer note (adds two backend exports):** the client needs `client-send`,
+`client-on` from each backend, plus `make-backend` for symmetry. Add to BOTH
+backends in Task 3:
+
+- `client-send` : `(handle ref method . args) -> vow` — pancake:
+  `(with-vat (conn-vat conn) (apply <- ref method args))`; goblins:
+  `(apply <- ref method args)` inside the machine-run.
+- `client-on` : `(handle vow on-ok) -> void` — pancake:
+  `(with-vat (conn-vat conn) (on vow on-ok))`; goblins:
+  `((gclient-machine-run handle) (on vow on-ok))`. Re-export both via
+  `(provide client-send client-on)`. Keep them tiny and identical in shape.
 
 - [ ] **Step 2: End-to-end live test (pancake echo latency)**
 
 Start a server in the background, run the client, then kill the server:
+
 ```bash
 zig build   # ensure libpancake is current
 racket bench/goblins/server.rkt pancake echo 127.0.0.1 19111 &
@@ -937,6 +1068,7 @@ SRV=$!; sleep 1
 racket bench/goblins/client.rkt pancake echo 127.0.0.1 19111 latency 500
 kill $SRV 2>/dev/null
 ```
+
 Expected: a `{"metric":"latency",...,"p50_ms":...}` NDJSON line, exit 0.
 
 - [ ] **Step 3: End-to-end live test (goblins echo latency)**
@@ -947,7 +1079,11 @@ SRV=$!; sleep 1
 racket bench/goblins/client.rkt goblins echo 127.0.0.1 19121 latency 500
 kill $SRV 2>/dev/null
 ```
-Expected: a `{"metric":"latency",...}` line for goblins. If goblins enliven/sturdyref wiring fails, fix `backend-goblins.rkt` `client-fetch`/`current-server-node` against the installed API (use `tcp-demo.rkt` as the working reference) until this line prints.
+
+Expected: a `{"metric":"latency",...}` line for goblins. If goblins
+enliven/sturdyref wiring fails, fix `backend-goblins.rkt`
+`client-fetch`/`current-server-node` against the installed API (use
+`tcp-demo.rkt` as the working reference) until this line prints.
 
 - [ ] **Step 4: Commit**
 
@@ -961,9 +1097,12 @@ git commit -m "bench(goblins): add client driver for latency/throughput/connecti
 ### Task 7: Orchestrator
 
 **Files:**
+
 - Create: `bench/goblins/bench.rkt`
 
-Spawns each (suite × backend) server as its own process, runs the client measurements, samples server RSS for the memory metric, prints a comparison table, and writes a report.
+Spawns each (suite × backend) server as its own process, runs the client
+measurements, samples server RSS for the memory metric, prints a comparison
+table, and writes a report.
 
 - [ ] **Step 1: Write the orchestrator**
 
@@ -1086,7 +1225,10 @@ Spawns each (suite × backend) server as its own process, runs the client measur
 zig build
 racket bench/goblins/bench.rkt --smoke --suite=echo
 ```
-Expected: prints `running echo / goblins ...`, `running echo / pancake ...`, then a comparison block for `echo` with non-`-` numbers on both rows, then a "report written to ..." line. Fix wiring until both backends report.
+
+Expected: prints `running echo / goblins ...`, `running echo / pancake ...`,
+then a comparison block for `echo` with non-`-` numbers on both rows, then a
+"report written to ..." line. Fix wiring until both backends report.
 
 - [ ] **Step 3: Run full echo + registry**
 
@@ -1094,7 +1236,9 @@ Expected: prints `running echo / goblins ...`, `running echo / pancake ...`, the
 racket bench/goblins/bench.rkt --suite=echo
 racket bench/goblins/bench.rkt --suite=registry
 ```
-Expected: full-count comparison blocks; both backends populated. Investigate any `-` (means that backend's measurement failed).
+
+Expected: full-count comparison blocks; both backends populated. Investigate any
+`-` (means that backend's measurement failed).
 
 - [ ] **Step 4: Commit**
 
@@ -1108,15 +1252,17 @@ git commit -m "bench(goblins): add orchestrator with comparison report"
 ### Task 8: Build integration
 
 **Files:**
-- Modify: `build.zig` (add `-Dbench-suite`/`-Dbench-smoke` options near line 196; add the step near the goblins-interop block, ~line 570)
+
+- Modify: `build.zig` (add `-Dbench-suite`/`-Dbench-smoke` options near line
+  196; add the step near the goblins-interop block, ~line 570)
 
 - [ ] **Step 1: Add the options**
 
 After the `pin_port`/`attach` options (around `build.zig:197`), add:
 
 ```zig
-    const bench_suite = b.option([]const u8, "bench-suite", "Select a bench-goblins suite (echo|registry|mint|taskboard|all; default all)");
-    const bench_smoke = b.option(bool, "bench-smoke", "Run bench-goblins with tiny smoke counts") orelse false;
+const bench_suite = b.option([]const u8, "bench-suite", "Select a bench-goblins suite (echo|registry|mint|taskboard|all; default all)");
+const bench_smoke = b.option(bool, "bench-smoke", "Run bench-goblins with tiny smoke counts") orelse false;
 ```
 
 - [ ] **Step 2: Add the step**
@@ -1124,24 +1270,26 @@ After the `pin_port`/`attach` options (around `build.zig:197`), add:
 After the `goblins_clients` loop (around `build.zig:570`), add:
 
 ```zig
-    // Cross-implementation benchmark suite: the SAME Racket actor application run
-    // on both Spritely Goblins and pancake (via the Racket binding) over loopback
-    // TCP, reporting latency, throughput, connection setup, and per-connection
-    // memory. Needs `racket` + the `goblins` collection on PATH, so it is a
-    // sibling of `check`, never part of the hermetic gate. Numbers are reported,
-    // never gated on wall-clock (matching the other benches).
-    const run_bench_goblins = addInstalledSystemRun(b, &.{ "racket", "bench/goblins/bench.rkt" });
-    if (bench_smoke) run_bench_goblins.addArg("--smoke");
-    if (bench_suite) |s| run_bench_goblins.addArg(b.fmt("--suite={s}", .{s}));
-    if (pin_port) |p| run_bench_goblins.addArg(b.fmt("--port={d}", .{p}));
-    const bench_goblins_step = b.step("bench-goblins", "Cross-impl benchmark: same Racket app on Goblins vs pancake (needs racket + goblins)");
-    bench_goblins_step.dependOn(&run_bench_goblins.step);
+// Cross-implementation benchmark suite: the SAME Racket actor application run
+// on both Spritely Goblins and pancake (via the Racket binding) over loopback
+// TCP, reporting latency, throughput, connection setup, and per-connection
+// memory. Needs `racket` + the `goblins` collection on PATH, so it is a
+// sibling of `check`, never part of the hermetic gate. Numbers are reported,
+// never gated on wall-clock (matching the other benches).
+const run_bench_goblins = addInstalledSystemRun(b, &.{ "racket", "bench/goblins/bench.rkt" });
+if (bench_smoke) run_bench_goblins.addArg("--smoke");
+if (bench_suite) |s| run_bench_goblins.addArg(b.fmt("--suite={s}", .{s}));
+if (pin_port) |p| run_bench_goblins.addArg(b.fmt("--port={d}", .{p}));
+const bench_goblins_step = b.step("bench-goblins", "Cross-impl benchmark: same Racket app on Goblins vs pancake (needs racket + goblins)");
+bench_goblins_step.dependOn(&run_bench_goblins.step);
 ```
 
 - [ ] **Step 3: Verify the step is registered and runs**
 
-Run: `zig build bench-goblins -Dbench-smoke=true -Dbench-suite=echo 2>&1 | tail -20`
-Expected: builds libpancake, runs the orchestrator, prints the echo comparison + "report written" line, exit 0.
+Run:
+`zig build bench-goblins -Dbench-smoke=true -Dbench-suite=echo 2>&1 | tail -20`
+Expected: builds libpancake, runs the orchestrator, prints the echo comparison +
+"report written" line, exit 0.
 
 - [ ] **Step 4: Commit**
 
@@ -1155,17 +1303,21 @@ git commit -m "build: add zig build bench-goblins (cross-impl bench, sibling of 
 ### Task 9: Docs + meta-check
 
 **Files:**
+
 - Create: `bench/goblins/README.md`
-- Modify: `.agents/rules/cli.md` (add the `bench-goblins` line to the command inventory)
-- Modify: `tools/meta_check.zig` (register the README as a living-state surface if it tracks per-file living-state; confirm the build-step-doc check passes)
-- Modify: `docs/boundaries.md` (note the cross-impl comparison exists and is reported, not gated)
+- Modify: `.agents/rules/cli.md` (add the `bench-goblins` line to the command
+  inventory)
+- Modify: `tools/meta_check.zig` (register the README as a living-state surface
+  if it tracks per-file living-state; confirm the build-step-doc check passes)
+- Modify: `docs/boundaries.md` (note the cross-impl comparison exists and is
+  reported, not gated)
 
 - [ ] **Step 1: Write the README**
 
-```markdown
+````markdown
 # bench/goblins
 
-The cross-implementation benchmark suite. It runs the *same* Racket
+The cross-implementation benchmark suite. It runs the _same_ Racket
 capability/actor application on both Spritely Goblins and pancake (through the
 Racket binding over `libpancake`), across loopback TCP, and reports latency,
 throughput, connection setup, and per-connection memory.
@@ -1174,11 +1326,11 @@ throughput, connection setup, and per-connection memory.
 
 One application source per suite (`apps/*.rkt`) loads unchanged on both
 substrates. Both run the same programming model (eventual-send plus promise
-observers) and the same driving model: Goblins drains turns through its vat loop;
-pancake drains through the general `pump.rkt`, never a per-message fast path. The
-only intended difference is the substrate — pancake's compiled Zig protocol core
-versus Goblins' native Racket runtime. Numbers are reported, never gated on
-wall-clock.
+observers) and the same driving model: Goblins drains turns through its vat
+loop; pancake drains through the general `pump.rkt`, never a per-message fast
+path. The only intended difference is the substrate — pancake's compiled Zig
+protocol core versus Goblins' native Racket runtime. Numbers are reported, never
+gated on wall-clock.
 
 ## Suites
 
@@ -1194,18 +1346,20 @@ zig build bench-goblins                      # all suites, full counts
 zig build bench-goblins -Dbench-suite=echo   # one suite
 zig build bench-goblins -Dbench-smoke=true   # tiny counts (liveness)
 ```
+````
 
 Reports are written under `zig-out/bench-reports/`.
-```
 
+```
 - [ ] **Step 2: Add the cli rule line**
 
 In `.agents/rules/cli.md`, in the `zig build` command inventory list, add (keep alphabetical/grouped with the other bench lines):
-
-```
-zig build bench-goblins # cross-impl benchmark: same Racket app on Goblins vs pancake (needs racket + goblins)
 ```
 
+zig build bench-goblins # cross-impl benchmark: same Racket app on Goblins vs
+pancake (needs racket + goblins)
+
+```
 - [ ] **Step 3: Run meta-check**
 
 Run: `zig build meta-check 2>&1 | tail -20`
@@ -1214,19 +1368,19 @@ Expected: PASS. The meta-check enforces that every documented `zig build` step i
 - [ ] **Step 4: Note the boundary in docs/boundaries.md**
 
 Find the benchmark paragraph in `docs/boundaries.md` (it mentions `zig build bench-codec` and `zig build bench-peer-scaling`) and add one sentence:
-
 ```
+
 `zig build bench-goblins` reports the same Racket application's latency,
 throughput, connection setup, and per-connection memory on Goblins versus
 pancake; like the other benches its numbers are reported, not gated.
-```
 
+````
 - [ ] **Step 5: Commit**
 
 ```bash
 git add bench/goblins/README.md .agents/rules/cli.md tools/meta_check.zig docs/boundaries.md
 git commit -m "docs: document the cross-impl bench suite + wire meta-check"
-```
+````
 
 ---
 
@@ -1234,18 +1388,19 @@ git commit -m "docs: document the cross-impl bench suite + wire meta-check"
 
 - [ ] **Step 1: Run the hermetic gate (must be unaffected)**
 
-Run: `zig build check 2>&1 | tail -20`
-Expected: PASS. The bench suite is a sibling step, so `check` must not run it and must not regress.
+Run: `zig build check 2>&1 | tail -20` Expected: PASS. The bench suite is a
+sibling step, so `check` must not run it and must not regress.
 
 - [ ] **Step 2: Run the full bench suite once**
 
-Run: `zig build bench-goblins 2>&1 | tail -40`
-Expected: comparison blocks for all four suites, both backends populated, a report written under `zig-out/bench-reports/`.
+Run: `zig build bench-goblins 2>&1 | tail -40` Expected: comparison blocks for
+all four suites, both backends populated, a report written under
+`zig-out/bench-reports/`.
 
 - [ ] **Step 3: Run the smoke path (future liveness hook)**
 
-Run: `zig build bench-goblins -Dbench-smoke=true 2>&1 | tail -20`
-Expected: same shape, tiny counts, completes in a few seconds.
+Run: `zig build bench-goblins -Dbench-smoke=true 2>&1 | tail -20` Expected: same
+shape, tiny counts, completes in a few seconds.
 
 - [ ] **Step 4: Final commit (if anything changed during verification)**
 
@@ -1259,17 +1414,43 @@ git commit -m "bench(goblins): final verification fixes"
 ## Self-Review
 
 **Spec coverage:**
+
 - Verified foundation → Task 0 reference section + live tests in Tasks 5/6.
-- Fairness principle (one app source, same programming + driving model, general pump) → Task 2 (`pump.rkt`), Task 4 (shared `apps/`), Task 3 (backends symmetric). 
+- Fairness principle (one app source, same programming + driving model, general
+  pump) → Task 2 (`pump.rkt`), Task 4 (shared `apps/`), Task 3 (backends
+  symmetric).
 - Three suites + echo baseline → Task 4 (echo/registry/mint/taskboard).
-- Four metrics → Task 6 (latency/throughput/connections) + Task 7 (memory via RSS sampling).
-- Separate-process memory attribution → Task 7 (`subprocess` server + `rss-kb-of-pid`).
+- Four metrics → Task 6 (latency/throughput/connections) + Task 7 (memory via
+  RSS sampling).
+- Separate-process memory attribution → Task 7 (`subprocess` server +
+  `rss-kb-of-pid`).
 - Build step, sibling of check, `--smoke`, suite select → Task 8.
 - Docs + meta-check living-state → Task 9.
-- Out-of-scope boundaries (no full Goblins lib, no wall-clock gate, loopback only) → respected; not implemented.
+- Out-of-scope boundaries (no full Goblins lib, no wall-clock gate, loopback
+  only) → respected; not implemented.
 
-**Placeholder scan:** The macro-portability and backend-spawn wiring carried real "implementer notes" with the concrete resolution (use `dispatch.rkt` not the `methods` macro; option (A) constructor contract; add `client-send`/`client-on` to backends). These are decisions, not TBDs. The Goblins sturdyref/enliven exact constructor is flagged to verify against the installed v0.18.0 API using `tcp-demo.rkt` as the working reference — this is necessary because the installed API is the authority, and Task 6 Step 3 is the gate that forces it correct.
+**Placeholder scan:** The macro-portability and backend-spawn wiring carried
+real "implementer notes" with the concrete resolution (use `dispatch.rkt` not
+the `methods` macro; option (A) constructor contract; add
+`client-send`/`client-on` to backends). These are decisions, not TBDs. The
+Goblins sturdyref/enliven exact constructor is flagged to verify against the
+installed v0.18.0 API using `tcp-demo.rkt` as the working reference — this is
+necessary because the installed API is the authority, and Task 6 Step 3 is the
+gate that forces it correct.
 
-**Type consistency:** `server-build` takes the backend spawn proc and returns a constructor `(lambda (bcom) behavior)` in every app and both backends (option A, fixed in Task 3/5 notes). `client-prepare` takes a `send` proc + root-cap and returns `(-> i vow)` in every app. `result-ok?` is `(-> any boolean)` everywhere. Backends export the same names: `make-backend`, `server-run`, `client-connect`, `client-fetch`, `client-pump`, `client-close`, `client-send`, `client-on`, `methods`, `bcom`. Metrics: `percentile`, `throughput-rps`, `rss-kb-of-status`, `rss-kb-of-pid`, `mean` — used consistently in client + orchestrator.
+**Type consistency:** `server-build` takes the backend spawn proc and returns a
+constructor `(lambda (bcom) behavior)` in every app and both backends (option A,
+fixed in Task 3/5 notes). `client-prepare` takes a `send` proc + root-cap and
+returns `(-> i vow)` in every app. `result-ok?` is `(-> any boolean)`
+everywhere. Backends export the same names: `make-backend`, `server-run`,
+`client-connect`, `client-fetch`, `client-pump`, `client-close`, `client-send`,
+`client-on`, `methods`, `bcom`. Metrics: `percentile`, `throughput-rps`,
+`rss-kb-of-status`, `rss-kb-of-pid`, `mean` — used consistently in client +
+orchestrator.
 
-**Known risk carried into execution:** the Goblins client `enliven`/sturdyref transport is the one place the installed API must be matched empirically (Task 6 Step 3). If reconstructing the sturdyref proves fiddly, the robust alternative is to have the Goblins server print its full sturdyref string in the readiness NDJSON and have the Goblins client parse + `string->ocapn-sturdyref` it — add that field to `server-run` (goblins) and `client-fetch` (goblins) if needed.
+**Known risk carried into execution:** the Goblins client `enliven`/sturdyref
+transport is the one place the installed API must be matched empirically (Task 6
+Step 3). If reconstructing the sturdyref proves fiddly, the robust alternative
+is to have the Goblins server print its full sturdyref string in the readiness
+NDJSON and have the Goblins client parse + `string->ocapn-sturdyref` it — add
+that field to `server-run` (goblins) and `client-fetch` (goblins) if needed.

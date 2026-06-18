@@ -185,6 +185,116 @@ test "C ABI send_deliver constructs a real op:deliver carrying typed args" {
     try std.testing.expect(std.mem.indexOf(u8, wire, "2:hi") != null);
 }
 
+test "C ABI send_get/index/untag construct real projection ops on the wire" {
+    var peer: ?*c.PancakePeer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&peer));
+    defer c.pancake_peer_release(peer);
+    // A projection names a receiver like a deliver target; register the import.
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_import(peer, 5));
+    const receiver = farRef(5);
+
+    // op:get against a held far receiver carries the String field and answer.
+    var get_answer: u64 = 0;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_answer(peer, &get_answer));
+    try std.testing.expectEqual(
+        c.PANCAKE_OK,
+        c.pancake_peer_send_get(peer, &receiver, "name", "name".len, get_answer),
+    );
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_step(peer));
+    var f1: c.PancakeManagedFrame = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_take_outbound(peer, &f1));
+    defer c.pancake_managed_frame_release(&f1);
+    const w1 = f1.bytes.?[0..f1.len];
+    try std.testing.expect(std.mem.startsWith(u8, w1, "<6'op:get"));
+    try std.testing.expect(std.mem.indexOf(u8, w1, "4\"name") != null); // field is a String
+    // V1.0 has no pushed op:resolve, so the projection trails an op:listen that
+    // carries the projected answer's resolution back through a resolver export.
+    try expectProjectionListener(peer);
+
+    // op:index against the same receiver carries the (signed) element index.
+    var index_answer: u64 = 0;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_answer(peer, &index_answer));
+    try std.testing.expectEqual(
+        c.PANCAKE_OK,
+        c.pancake_peer_send_index(peer, &receiver, 2, index_answer),
+    );
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_step(peer));
+    var f2: c.PancakeManagedFrame = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_take_outbound(peer, &f2));
+    defer c.pancake_managed_frame_release(&f2);
+    const w2 = f2.bytes.?[0..f2.len];
+    try std.testing.expect(std.mem.startsWith(u8, w2, "<8'op:index"));
+    try std.testing.expect(std.mem.indexOf(u8, w2, "2+") != null); // index 2
+    try expectProjectionListener(peer);
+
+    // op:untag against the same receiver carries the expected tag as a String.
+    var untag_answer: u64 = 0;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_answer(peer, &untag_answer));
+    try std.testing.expectEqual(
+        c.PANCAKE_OK,
+        c.pancake_peer_send_untag(peer, &receiver, "Point", "Point".len, untag_answer),
+    );
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_step(peer));
+    var f3: c.PancakeManagedFrame = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_take_outbound(peer, &f3));
+    defer c.pancake_managed_frame_release(&f3);
+    const w3 = f3.bytes.?[0..f3.len];
+    try std.testing.expect(std.mem.startsWith(u8, w3, "<8'op:untag"));
+    try std.testing.expect(std.mem.indexOf(u8, w3, "5\"Point") != null); // tag is a String
+    try expectProjectionListener(peer);
+
+    // Pipelined: a projection against a promise receiver (an unresolved answer)
+    // rides a desc:answer target — the promise.get(...) shape on the wire.
+    const promise_receiver = c.PancakeReference{
+        .kind = c.PANCAKE_REF_PROMISE,
+        .sub_kind = c.PANCAKE_REF_SUB_OBJECT,
+        .id = get_answer,
+    };
+    var pipe_answer: u64 = 0;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_answer(peer, &pipe_answer));
+    try std.testing.expectEqual(
+        c.PANCAKE_OK,
+        c.pancake_peer_send_get(peer, &promise_receiver, "rows", "rows".len, pipe_answer),
+    );
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_step(peer));
+    var f4: c.PancakeManagedFrame = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_take_outbound(peer, &f4));
+    defer c.pancake_managed_frame_release(&f4);
+    const w4 = f4.bytes.?[0..f4.len];
+    try std.testing.expect(std.mem.startsWith(u8, w4, "<6'op:get"));
+    try std.testing.expect(std.mem.indexOf(u8, w4, "desc:answer") != null);
+    try expectProjectionListener(peer);
+}
+
+/// Drain and assert the `op:listen` the engine emits after a projection under a
+/// V1.0 session: it is the carrier that brings the projected answer's
+/// resolution back (V1.0 has no pushed `op:resolve`).
+fn expectProjectionListener(peer: ?*c.PancakePeer) !void {
+    var frame: c.PancakeManagedFrame = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_take_outbound(peer, &frame));
+    defer c.pancake_managed_frame_release(&frame);
+    const wire = frame.bytes.?[0..frame.len];
+    try std.testing.expect(std.mem.startsWith(u8, wire, "<9'op:listen"));
+}
+
+test "C ABI send projection refuses a null receiver" {
+    var peer: ?*c.PancakePeer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&peer));
+    defer c.pancake_peer_release(peer);
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        c.pancake_peer_send_get(peer, null, "name", "name".len, 1),
+    );
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        c.pancake_peer_send_index(peer, null, 0, 1),
+    );
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_NULL_POINTER,
+        c.pancake_peer_send_untag(peer, null, "Point", "Point".len, 1),
+    );
+}
+
 test "C ABI poll_event_deliver reads an inbound delivery's target, args, and answer" {
     var peer: ?*c.PancakePeer = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&peer));
@@ -339,6 +449,97 @@ test "C ABI typed poll leaves a handoff deliver queued and the opaque poll drain
     try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, c.pancake_peer_peek_event(receiver));
 }
 
+test "C ABI resolve fulfilled with a handoff give projects to PANCAKE_RESOLUTION_HANDOFF" {
+    // The recipient half of a three-party handoff: an answer the recipient asked
+    // resolves not to a value but to a `desc:handoff-give` it must redeem. The
+    // typed resolve poll projects it as `PANCAKE_RESOLUTION_HANDOFF`, surfacing
+    // the verbatim give (for pancake_peer_send_withdraw_gift) and the exporter's
+    // dialable locator — the binding never sees the opaque frame.
+    const model = pancake.ocapn.model;
+    const engine = pancake.ocapn.engine;
+
+    // Receiver (C) calls a partner-hosted object with an answer, recording an
+    // outbound answer the partner can resolve. A plain export (not bootstrap)
+    // keeps the partner from auto-answering, so the give-resolution is ours.
+    var receiver: ?*c.PancakePeer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&receiver));
+    defer c.pancake_peer_release(receiver);
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_import(receiver, 9));
+
+    var answer: u64 = 0;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_answer(receiver, &answer));
+    const target = farRef(9);
+    const args = [_]c.PancakeArgument{argBytes("get-greeter")};
+    try std.testing.expectEqual(
+        c.PANCAKE_OK,
+        c.pancake_peer_send_deliver(receiver, &target, &args, args.len, 1, answer),
+    );
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_step(receiver));
+    var question: c.PancakeManagedFrame = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_take_outbound(receiver, &question));
+    defer c.pancake_managed_frame_release(&question);
+
+    // A native partner hosts object 9, receives the call, and resolves the answer
+    // to a give — gifter origination the C ABI cannot yet do, so a Zig peer
+    // stands in. The flat `transport:designator` exporter location round-trips to
+    // a parsed locator the projection formats as an `ocapn://` URI.
+    var sender = engine.Peer.initRawOpenFixture(std.testing.allocator);
+    defer sender.deinit();
+    try sender.exportObject(9);
+    try sender.recvBorrowed(.{ .bytes = question.bytes.?[0..question.len], .shape = .byte });
+    _ = try sender.step();
+
+    var handoff = model.Handoff{ .give = .{
+        .recipient_key = &([_]u8{0x42} ** 32),
+        .exporter_location = "tcp:127.0.0.1:9099",
+        .gifter_exporter_session = &([_]u8{0xcc} ** 32),
+        .gifter_side = &([_]u8{0x11} ** 32),
+        .gift_id = &([_]u8{0x01} ** 32),
+        .signature = &([_]u8{0xaa} ** 64),
+    } };
+    try sender.sendCopying(.{ .resolve = .{
+        .answer = answer,
+        .resolution = .{ .fulfill = .{ .handoff = &handoff } },
+    } });
+    _ = try sender.step();
+    var rframe = sender.takeOutbound().?;
+    defer rframe.deinit();
+    const rwire = rframe.bytes();
+
+    const borrowed = c.PancakeFrame{ .bytes = rwire.ptr, .len = rwire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(receiver, &borrowed));
+
+    try std.testing.expectEqual(@as(i32, @intCast(c.PANCAKE_EVENT_RESOLVE)), c.pancake_peer_peek_event(receiver));
+    var resolve: c.PancakeResolve = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event_resolve(receiver, &resolve));
+    defer c.pancake_resolve_release(&resolve);
+
+    try std.testing.expectEqual(answer, resolve.answer);
+    try std.testing.expectEqual(c.PANCAKE_RESOLUTION_HANDOFF, resolve.resolution_kind);
+
+    const give = resolve.handoff;
+    try std.testing.expect(give.give != null);
+    const give_bytes = give.give.?[0..give.give_len];
+    // The verbatim signed envelope the binding relays to the exporter.
+    try std.testing.expect(std.mem.indexOf(u8, give_bytes, "desc:sig-envelope") != null);
+    try std.testing.expect(std.mem.indexOf(u8, give_bytes, "desc:handoff-give") != null);
+    try std.testing.expect(give.exporter_locator != null);
+    // Formatted through the core URI grammar, so the designator's `:` is
+    // percent-encoded — the locator round-trips through `pancake_uri_parse_peer`.
+    try std.testing.expectEqualStrings(
+        "ocapn://127.0.0.1%3A9099.tcp",
+        give.exporter_locator.?[0..give.exporter_locator_len],
+    );
+    try std.testing.expectEqualSlices(
+        u8,
+        &([_]u8{0x42} ** 32),
+        give.recipient_key.?[0..give.recipient_key_len],
+    );
+
+    // The event was consumed: the loop advanced.
+    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, c.pancake_peer_peek_event(receiver));
+}
+
 test "C ABI send_bootstrap_fetch queues the canonical fetch deliver" {
     var peer: ?*c.PancakePeer = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&peer));
@@ -371,6 +572,118 @@ test "C ABI send_bootstrap_fetch queues the canonical fetch deliver" {
         c.pancake_peer_send_bootstrap_fetch(peer, name.ptr, name.len, &second),
     );
     try std.testing.expect(second != answer);
+}
+
+fn pumpFrames(from: ?*c.PancakePeer, to: ?*c.PancakePeer) !void {
+    while (true) {
+        var frame: c.PancakeManagedFrame = undefined;
+        const rc = c.pancake_peer_take_outbound(from, &frame);
+        if (rc == c.PANCAKE_ERR_WOULD_BLOCK) break;
+        try std.testing.expectEqual(c.PANCAKE_OK, rc);
+        defer c.pancake_managed_frame_release(&frame);
+        const borrowed = c.PancakeFrame{ .bytes = frame.bytes, .len = frame.len, .shape = frame.shape };
+        try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(to, &borrowed));
+    }
+}
+
+fn drainEvents(peer: ?*c.PancakePeer) void {
+    while (true) {
+        var event: c.PancakeEvent = undefined;
+        if (c.pancake_peer_poll_event(peer, &event) != c.PANCAKE_OK) break;
+        c.pancake_event_release(&event);
+    }
+}
+
+test "C ABI enliven round-trips over the wire, then a repeat enliven hits the cache" {
+    // The requester half of sturdyref enliven over the C ABI (ADR-0012): a fresh
+    // enliven queues a bootstrap-fetch, the partner auto-serves the swissnum, and
+    // `record_enlivenment` caches the far import so a repeat short-circuits with
+    // no wire traffic. Two raw-open peers stand in for a keyed session: both
+    // carry the full feature set, so the sturdyref precondition holds.
+    var requester: ?*c.PancakePeer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&requester));
+    defer c.pancake_peer_release(requester);
+    var responder: ?*c.PancakePeer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&responder));
+    defer c.pancake_peer_release(responder);
+
+    // The responder hosts its bootstrap object (export 0) and publishes a cap
+    // behind "swiss"; the auto-serve fulfills the inbound fetch from that table.
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_export(responder, c.PANCAKE_BOOTSTRAP_POSITION));
+    var cap_export: u64 = 0;
+    const swiss = "swiss";
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_bootstrap_cap(responder, swiss.ptr, swiss.len, &cap_export));
+
+    var start: c.PancakeEnlivenStart = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_prepare_enliven(requester, swiss.ptr, swiss.len, &start));
+    try std.testing.expectEqual(c.PANCAKE_ENLIVEN_FRESH, start.status);
+    const answer = start.answer;
+
+    // Drive the bootstrap-fetch to settlement: the requester emits the fetch, the
+    // responder auto-serves it (a deliver event plus a synthesized resolve), and
+    // the resolve lands back on the requester as a fulfilled far reference.
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_step(requester));
+    try pumpFrames(requester, responder);
+    drainEvents(responder);
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_step(responder));
+    try pumpFrames(responder, requester);
+
+    var resolve: c.PancakeResolve = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event_resolve(requester, &resolve));
+    defer c.pancake_resolve_release(&resolve);
+    try std.testing.expectEqual(answer, resolve.answer);
+    try std.testing.expectEqual(c.PANCAKE_RESOLUTION_FULFILL, resolve.resolution_kind);
+    try std.testing.expectEqual(c.PANCAKE_ARG_REFERENCE, resolve.fulfill.kind);
+    const enlivened = resolve.fulfill.reference;
+    try std.testing.expectEqual(c.PANCAKE_REF_FAR, enlivened.kind);
+    try std.testing.expectEqual(cap_export, enlivened.id);
+
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_record_enlivenment(
+        requester,
+        swiss.ptr,
+        swiss.len,
+        c.PANCAKE_ENLIVEN_OUTCOME_FULFILLED,
+        enlivened.id,
+        enlivened.sub_kind,
+    ));
+
+    // A repeat enliven now short-circuits to the cached far reference: no wire.
+    var cached: c.PancakeEnlivenStart = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_prepare_enliven(requester, swiss.ptr, swiss.len, &cached));
+    try std.testing.expectEqual(c.PANCAKE_ENLIVEN_CACHED, cached.status);
+    try std.testing.expectEqual(cap_export, cached.import_position);
+    try std.testing.expectEqual(enlivened.sub_kind, cached.kind);
+    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, c.pancake_peer_peek_event(requester));
+}
+
+test "C ABI prepare_enliven collapses a concurrent enliven and clears a broken marker" {
+    var requester: ?*c.PancakePeer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&requester));
+    defer c.pancake_peer_release(requester);
+
+    const swiss = "swiss";
+    var first: c.PancakeEnlivenStart = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_prepare_enliven(requester, swiss.ptr, swiss.len, &first));
+    try std.testing.expectEqual(c.PANCAKE_ENLIVEN_FRESH, first.status);
+
+    // A second enliven for the same swissnum collapses onto the outstanding answer.
+    var second: c.PancakeEnlivenStart = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_prepare_enliven(requester, swiss.ptr, swiss.len, &second));
+    try std.testing.expectEqual(c.PANCAKE_ENLIVEN_IN_FLIGHT, second.status);
+    try std.testing.expectEqual(first.answer, second.answer);
+
+    // A broken settlement clears the in-flight marker, so a later enliven is fresh.
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_record_enlivenment(
+        requester,
+        swiss.ptr,
+        swiss.len,
+        c.PANCAKE_ENLIVEN_OUTCOME_BROKEN,
+        0,
+        0,
+    ));
+    var third: c.PancakeEnlivenStart = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_prepare_enliven(requester, swiss.ptr, swiss.len, &third));
+    try std.testing.expectEqual(c.PANCAKE_ENLIVEN_FRESH, third.status);
 }
 
 test "C ABI gc verbs queue op:gc-export and op:gc-answer" {

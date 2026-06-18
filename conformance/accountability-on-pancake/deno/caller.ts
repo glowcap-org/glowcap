@@ -11,83 +11,104 @@
 //
 // Or driven by the demo.ts orchestrator, which starts the Zig host first.
 
-import { type AppValue, connect } from "../../../bindings/deno/pancake.ts";
+import { type AppValue, connect, tcpLocator } from "@pancake/stack";
 
 function base64urlEncode(bytes: Uint8Array): string {
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+	let s = "";
+	for (const b of bytes) s += String.fromCharCode(b);
+	return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function fail(msg: string): never {
-  console.error(`FAIL: ${msg}`);
-  Deno.exit(1);
+	console.error(`FAIL: ${msg}`);
+	Deno.exit(1);
 }
 
 async function main(): Promise<void> {
-  const port = Number(Deno.args[0]);
-  if (!port) {
-    console.error("usage: caller.ts <port>");
-    Deno.exit(2);
-  }
+	const port = Number(Deno.args[0]);
+	if (!port) {
+		console.error("usage: caller.ts <port>");
+		Deno.exit(2);
+	}
 
-  console.log("accountability-on-pancake deno caller");
-  console.log(`  connecting to 127.0.0.1:${port}…`);
+	console.log("accountability-on-pancake deno caller");
+	console.log(`  connecting to 127.0.0.1:${port}…`);
 
-  // `connect` completes the keyed op:start-session handshake before returning.
-  const conn = await connect("127.0.0.1", port);
-  // `fetch`/`send` drive the inbound loop themselves — no separate serve() call.
-  const affordance = await conn.fetch("affordance");
+	// `connect` completes the keyed op:start-session handshake before returning.
+	const conn = await connect(tcpLocator("127.0.0.1", port));
+	// `fetch`/`send` drive the inbound loop themselves — no separate serve() call.
+	const affordance = await conn.fetch("affordance");
 
-  // Generate an Ed25519 identity (above pancake, just like the Zig side).
-  // `generateKey` is typed `CryptoKeyPair | CryptoKey`; an asymmetric algorithm
-  // always yields a pair.
-  const keyPair = await crypto.subtle.generateKey("Ed25519", true, ["sign", "verify"]) as CryptoKeyPair;
-  const pubRaw = new Uint8Array(await crypto.subtle.exportKey("raw", keyPair.publicKey));
-  const subject = "E" + base64urlEncode(pubRaw);
-  const verkey = "D" + base64urlEncode(pubRaw);
+	// Generate an Ed25519 identity (above pancake, just like the Zig side).
+	// `generateKey` is typed `CryptoKeyPair | CryptoKey`; an asymmetric algorithm
+	// always yields a pair.
+	const keyPair = await crypto.subtle.generateKey("Ed25519", true, [
+		"sign",
+		"verify",
+	]) as CryptoKeyPair;
+	const pubRaw = new Uint8Array(
+		await crypto.subtle.exportKey("raw", keyPair.publicKey),
+	);
+	const subject = "E" + base64urlEncode(pubRaw);
+	const verkey = "D" + base64urlEncode(pubRaw);
 
-  console.log(`  subject (AID): ${subject}`);
+	console.log(`  subject (AID): ${subject}`);
 
-  // --- Legitimate invocation -------------------------------------------------
-  const request = "read-thermostat";
-  const preimage = new TextEncoder().encode(`invoke|${request}`);
-  const sigRaw = new Uint8Array(await crypto.subtle.sign("Ed25519", keyPair.privateKey, preimage));
-  const sigB64 = base64urlEncode(sigRaw);
+	// --- Legitimate invocation -------------------------------------------------
+	const request = "read-thermostat";
+	const preimage = new TextEncoder().encode(`invoke|${request}`);
+	const sigRaw = new Uint8Array(
+		await crypto.subtle.sign("Ed25519", keyPair.privateKey, preimage),
+	);
+	const sigB64 = base64urlEncode(sigRaw);
 
-  console.log("  sending legitimate invoke…");
-  let result: AppValue;
-  try {
-    result = await conn.send(affordance, "invoke", [subject, verkey, request, sigB64]);
-  } catch (err) {
-    fail(`legitimate invoke broke: ${err instanceof Error ? err.message : err}`);
-  }
+	console.log("  sending legitimate invoke…");
+	let result: AppValue;
+	try {
+		result = await conn.send(affordance, "invoke", [
+			subject,
+			verkey,
+			request,
+			sigB64,
+		]);
+	} catch (err) {
+		fail(
+			`legitimate invoke broke: ${err instanceof Error ? err.message : err}`,
+		);
+	}
 
-  if (typeof result! !== "string" || !result!.startsWith("ack:")) {
-    fail(`unexpected result: ${result!}`);
-  }
-  console.log(`  result: ${result!}`);
+	if (typeof result! !== "string" || !result!.startsWith("ack:")) {
+		fail(`unexpected result: ${result!}`);
+	}
+	console.log(`  result: ${result!}`);
 
-  // --- Tampered invocation (should be refused) -------------------------------
-  console.log("  sending tampered invoke (should be refused)…");
-  const badSig = new Uint8Array(sigRaw);
-  badSig[0] ^= 0xff;
-  const badSigB64 = base64urlEncode(badSig);
+	// --- Tampered invocation (should be refused) -------------------------------
+	console.log("  sending tampered invoke (should be refused)…");
+	const badSig = new Uint8Array(sigRaw);
+	badSig[0] ^= 0xff;
+	const badSigB64 = base64urlEncode(badSig);
 
-  let refused = false;
-  let breakMsg = "";
-  try {
-    await conn.send(affordance, "invoke", [subject, verkey, request, badSigB64]);
-  } catch (err) {
-    refused = true;
-    breakMsg = err instanceof Error ? err.message : String(err);
-  }
+	let refused = false;
+	let breakMsg = "";
+	try {
+		await conn.send(affordance, "invoke", [
+			subject,
+			verkey,
+			request,
+			badSigB64,
+		]);
+	} catch (err) {
+		refused = true;
+		breakMsg = err instanceof Error ? err.message : String(err);
+	}
 
-  if (!refused) fail("tampered invoke was NOT refused");
-  console.log(`  correctly refused: ${breakMsg}`);
+	if (!refused) fail("tampered invoke was NOT refused");
+	console.log(`  correctly refused: ${breakMsg}`);
 
-  conn.close();
-  console.log("\naccountability-on-pancake deno caller OK: same application, two languages.");
+	conn.close();
+	console.log(
+		"\naccountability-on-pancake deno caller OK: same application, two languages.",
+	);
 }
 
 await main();

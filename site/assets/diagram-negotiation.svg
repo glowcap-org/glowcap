@@ -1,43 +1,185 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 372" width="760" height="372" role="img" aria-label="How two peers settle a version and codec. Each peer brings a preference-ordered menu: the CapTP versions and codecs it can speak, best first. Each side sees both menus, in hand when the peers share a process, or carried as a hint on the partner's ocapn locator over a network, and both run the same rule, keeping the most-preferred version and codec the two share. The result, here pancake-pre-spec over Cap'n Proto, is what op:start-session carries, with no extra round trip. If the two menus share no version or codec, no session opens.">
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 760 372"
+  width="760"
+  height="372"
+  role="img"
+  aria-label="How two peers settle a version and codec. Each peer brings a preference-ordered menu: the CapTP versions and codecs it can speak, best first. Each side sees both menus, in hand when the peers share a process, or carried as a hint on the partner's ocapn locator over a network, and both run the same rule, keeping the most-preferred version and codec the two share. The result, here pancake-pre-spec over Cap'n Proto, is what op:start-session carries, with no extra round trip. If the two menus share no version or codec, no session opens."
+>
   <defs>
-    <marker id="neg-amber" viewBox="0 0 10 10" refX="7.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker
+      id="neg-amber"
+      viewBox="0 0 10 10"
+      refX="7.5"
+      refY="5"
+      markerWidth="7"
+      markerHeight="7"
+      orient="auto-start-reverse"
+    >
       <path d="M0 0L10 5L0 10z" fill="#a4560c"></path>
     </marker>
-    <marker id="neg-teal" viewBox="0 0 10 10" refX="7.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker
+      id="neg-teal"
+      viewBox="0 0 10 10"
+      refX="7.5"
+      refY="5"
+      markerWidth="7"
+      markerHeight="7"
+      orient="auto-start-reverse"
+    >
       <path d="M0 0L10 5L0 10z" fill="#1b5f66"></path>
     </marker>
   </defs>
-  <style>
-    text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  <style>text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
     .node { font-size: 14px; font-weight: 700; }
     .label { font-size: 12.5px; }
     .small { font-size: 11.5px; }
     .muted { fill: #6b5d4d; }
-    .result { font-size: 14px; font-weight: 700; }
-  </style>
+    .result { font-size: 14px; font-weight: 700; }</style>
 
-  <rect x="24" y="24" width="320" height="96" rx="13" fill="#fff9ee" stroke="#c76f18"></rect>
-  <text x="184" y="52" text-anchor="middle" class="node" fill="#a4560c">pancake A</text>
-  <text x="184" y="78" text-anchor="middle" class="label muted">versions: pancake-pre-spec &#183; 1.0</text>
-  <text x="184" y="100" text-anchor="middle" class="label muted">codecs: Cap'n Proto &#183; Syrup</text>
-  <text x="184" y="150" text-anchor="middle" class="small muted">its menu, best first</text>
+  <rect
+    x="24"
+    y="24"
+    width="320"
+    height="96"
+    rx="13"
+    fill="#fff9ee"
+    stroke="#c76f18"
+  >
+  </rect>
+  <text
+    x="184"
+    y="52"
+    text-anchor="middle"
+    class="node"
+    fill="#a4560c"
+  >pancake A</text>
+  <text
+    x="184"
+    y="78"
+    text-anchor="middle"
+    class="label muted"
+  >versions: pancake-pre-spec &#183; 1.0</text>
+  <text
+    x="184"
+    y="100"
+    text-anchor="middle"
+    class="label muted"
+  >codecs: Cap'n Proto &#183; Syrup</text>
+  <text
+    x="184"
+    y="150"
+    text-anchor="middle"
+    class="small muted"
+  >its menu, best first</text>
 
-  <rect x="416" y="24" width="320" height="96" rx="13" fill="#fff9ee" stroke="#c76f18"></rect>
-  <text x="576" y="52" text-anchor="middle" class="node" fill="#a4560c">pancake B</text>
-  <text x="576" y="78" text-anchor="middle" class="label muted">versions: pancake-pre-spec &#183; 1.0</text>
-  <text x="576" y="100" text-anchor="middle" class="label muted">codecs: Cap'n Proto &#183; Syrup</text>
-  <text x="576" y="150" text-anchor="middle" class="small muted">in hand, or a hint on its locator</text>
+  <rect
+    x="416"
+    y="24"
+    width="320"
+    height="96"
+    rx="13"
+    fill="#fff9ee"
+    stroke="#c76f18"
+  >
+  </rect>
+  <text
+    x="576"
+    y="52"
+    text-anchor="middle"
+    class="node"
+    fill="#a4560c"
+  >pancake B</text>
+  <text
+    x="576"
+    y="78"
+    text-anchor="middle"
+    class="label muted"
+  >versions: pancake-pre-spec &#183; 1.0</text>
+  <text
+    x="576"
+    y="100"
+    text-anchor="middle"
+    class="label muted"
+  >codecs: Cap'n Proto &#183; Syrup</text>
+  <text
+    x="576"
+    y="150"
+    text-anchor="middle"
+    class="small muted"
+  >in hand, or a hint on its locator</text>
 
-  <path d="M184 164 C 184 186 250 194 300 202" fill="none" stroke="#a4560c" stroke-width="2" marker-end="url(#neg-amber)"></path>
-  <path d="M576 164 C 576 186 510 194 460 202" fill="none" stroke="#a4560c" stroke-width="2" marker-end="url(#neg-amber)"></path>
+  <path
+    d="M184 164 C 184 186 250 194 300 202"
+    fill="none"
+    stroke="#a4560c"
+    stroke-width="2"
+    marker-end="url(#neg-amber)"
+  >
+  </path>
+  <path
+    d="M576 164 C 576 186 510 194 460 202"
+    fill="none"
+    stroke="#a4560c"
+    stroke-width="2"
+    marker-end="url(#neg-amber)"
+  >
+  </path>
 
-  <rect x="248" y="204" width="264" height="64" rx="12" fill="#eef6f1" stroke="#257f88"></rect>
-  <text x="380" y="234" text-anchor="middle" class="node" fill="#1b5f66">both run the same rule</text>
-  <text x="380" y="255" text-anchor="middle" class="label muted">keep what both share, best first</text>
+  <rect
+    x="248"
+    y="204"
+    width="264"
+    height="64"
+    rx="12"
+    fill="#eef6f1"
+    stroke="#257f88"
+  >
+  </rect>
+  <text
+    x="380"
+    y="234"
+    text-anchor="middle"
+    class="node"
+    fill="#1b5f66"
+  >both run the same rule</text>
+  <text
+    x="380"
+    y="255"
+    text-anchor="middle"
+    class="label muted"
+  >keep what both share, best first</text>
 
-  <path d="M380 268 L 380 298" fill="none" stroke="#1b5f66" stroke-width="2" marker-end="url(#neg-teal)"></path>
+  <path
+    d="M380 268 L 380 298"
+    fill="none"
+    stroke="#1b5f66"
+    stroke-width="2"
+    marker-end="url(#neg-teal)"
+  >
+  </path>
 
-  <rect x="192" y="300" width="376" height="66" rx="12" fill="#e3f0ee" stroke="#257f88"></rect>
-  <text x="380" y="330" text-anchor="middle" class="result" fill="#1b5f66">pancake-pre-spec &#183; Cap'n Proto</text>
-  <text x="380" y="352" text-anchor="middle" class="label muted">op:start-session carries the result</text>
+  <rect
+    x="192"
+    y="300"
+    width="376"
+    height="66"
+    rx="12"
+    fill="#e3f0ee"
+    stroke="#257f88"
+  >
+  </rect>
+  <text
+    x="380"
+    y="330"
+    text-anchor="middle"
+    class="result"
+    fill="#1b5f66"
+  >pancake-pre-spec &#183; Cap'n Proto</text>
+  <text
+    x="380"
+    y="352"
+    text-anchor="middle"
+    class="label muted"
+  >op:start-session carries the result</text>
 </svg>

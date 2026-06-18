@@ -9,16 +9,21 @@
 (provide render-markdown render-svg-bars BACKENDS)
 
 ;; Palette lifted from the site (assets/style.css) so charts drop into the docs
-;; without a second theme: pancake in the accent amber, Goblins in teal.
+;; without a second theme: pancake in the accent amber, Goblins in teal, and
+;; pancake-with-time-travel in green (the same green the site uses for pancake's
+;; persistent/functional series).
 (define GOBLINS-COLOR "#257f88")
 (define PANCAKE-COLOR "#c76f18")
+(define PANCAKE-TT-COLOR "#4f8a5b")
 (define INK "#3a3027")
 (define INK-SOFT "#6b5d4d")
 (define PAPER "#fff9ee")
 (define RULE "#e7d4b7")
 
-(define BACKENDS '("goblins" "pancake"))
-(define COLORS (list GOBLINS-COLOR PANCAKE-COLOR))
+;; The three measured series, in chart order. `pancake-tt` is the pancake binding
+;; with time-travel on for every actor.
+(define BACKENDS '("goblins" "pancake" "pancake-tt"))
+(define COLORS (list GOBLINS-COLOR PANCAKE-COLOR PANCAKE-TT-COLOR))
 
 (define (esc s)
   (regexp-replaces (format "~a" s) '((#rx"&" "\\&amp;") (#rx"<" "\\&lt;") (#rx">" "\\&gt;"))))
@@ -32,7 +37,7 @@
 (define (numof results suite backend key)
   (or (string->number (or (field results suite backend key) "")) 0))
 
-;; ── SVG: grouped bars, two series (goblins, pancake) per suite ────────────────
+;; Grouped bars: one bar per backend in `BACKENDS`, per suite.
 ;; value-of : (suite backend) -> real ; fmt : real -> string for the bar labels.
 (define (render-svg-bars title y-label suites value-of fmt)
   (define W 760) (define H 430)
@@ -40,10 +45,14 @@
   (define pw (- W ml mr)) (define ph (- H mt mb))
   (define x0 ml) (define y1 (+ mt ph))
   (define n (length suites))
+  (define nb (length BACKENDS))
   (define vals (for*/list ([s (in-list suites)] [b (in-list BACKENDS)]) (value-of s b)))
   (define maxv (apply max 0.0001 vals))
   (define gw (/ pw (max 1 n)))
-  (define bw (* gw 0.30))
+  ;; The grouped bars span ~70% of each group's slot, split evenly across backends.
+  (define band (* gw 0.70))
+  (define slot (/ band nb))
+  (define bw (* slot 0.86))
   (define (bar-y v) (- y1 (* (/ v maxv) ph)))
   (define out (open-output-string))
   (define (o . xs) (for ([x (in-list xs)]) (display x out)) (newline out))
@@ -60,18 +69,19 @@
   (o "<text x=\"" (- x0 8) "\" y=\"" (+ y1 4) "\" text-anchor=\"end\" font-size=\"11\" fill=\"" INK-SOFT "\">0</text>")
   (for ([s (in-list suites)] [i (in-naturals)])
     (define cx (+ x0 (* gw (+ i 0.5))))
+    (define band-left (- cx (/ band 2)))
     (for ([b (in-list BACKENDS)] [c (in-list COLORS)] [j (in-naturals)])
       (define v (value-of s b))
-      (define bx (if (= j 0) (- cx bw 3) (+ cx 3)))
+      (define bx (+ band-left (* j slot) (/ (- slot bw) 2)))
       (define by (bar-y v))
       (o "<rect x=\"" (exact->inexact bx) "\" y=\"" (exact->inexact by) "\" width=\"" (exact->inexact bw)
          "\" height=\"" (exact->inexact (max 0 (- y1 by))) "\" fill=\"" c "\" rx=\"2\"/>")
       (o "<text x=\"" (exact->inexact (+ bx (/ bw 2))) "\" y=\"" (exact->inexact (- by 4))
-         "\" text-anchor=\"middle\" font-size=\"10\" fill=\"" INK "\">" (fmt v) "</text>"))
+         "\" text-anchor=\"middle\" font-size=\"9\" fill=\"" INK "\">" (fmt v) "</text>"))
     (o "<text x=\"" (exact->inexact cx) "\" y=\"" (+ y1 18) "\" text-anchor=\"middle\" font-size=\"12\" fill=\"" INK "\">" (esc s) "</text>"))
   (define ly (+ y1 44))
   (for ([b (in-list BACKENDS)] [c (in-list COLORS)] [k (in-naturals)])
-    (define lx (+ x0 (* k 140)))
+    (define lx (+ x0 (* k 200)))
     (o "<rect x=\"" lx "\" y=\"" (- ly 11) "\" width=\"13\" height=\"13\" fill=\"" c "\" rx=\"2\"/>")
     (o "<text x=\"" (+ lx 19) "\" y=\"" ly "\" font-size=\"13\" fill=\"" INK "\">" b "</text>"))
   (o "</svg>")
@@ -93,18 +103,17 @@
    "\n"))
 
 ;; Mermaid xychart-beta renders grouped bars but has no per-series legend, so the
-;; series order (goblins first, pancake second) is named in the title.
+;; series order is named in the title (one bar per backend, in `BACKENDS` order).
 (define (mermaid-chart title y-label suites results key)
   (define (series b)
     (string-join (for/list ([s (in-list suites)]) (number->string (numof results s b key))) ", "))
   (string-append
    "```mermaid\n"
    "xychart-beta\n"
-   (format "    title \"~a — bar 1: goblins, bar 2: pancake\"\n" title)
+   (format "    title \"~a — bars in order: ~a\"\n" title (string-join BACKENDS ", "))
    (format "    x-axis [~a]\n" (string-join suites ", "))
    (format "    y-axis \"~a\"\n" y-label)
-   (format "    bar [~a]\n" (series "goblins"))
-   (format "    bar [~a]\n" (series "pancake"))
+   (apply string-append (for/list ([b (in-list BACKENDS)]) (format "    bar [~a]\n" (series b))))
    "```\n"))
 
 (define (render-markdown suites results mode lat-n tput-n conns svg-files)

@@ -10,102 +10,102 @@
 //   for await (const tasks of board.updates) console.log(tasks);
 //   await board.leave();
 
-import { type AppValue, connect, type Connection, type Ref } from "../../../../bindings/deno/pancake.ts";
+import { type AppValue, connect, type Connection, type Ref, tcpLocator } from "@pancake/stack";
 import { ADD, BOARD, DONE, LIST, UPDATE, WATCH } from "./protocol.ts";
 
 export interface Task {
-  id: number;
-  text: string;
-  completed: boolean;
+	id: number;
+	text: string;
+	completed: boolean;
 }
 
 function parseSnapshot(raw: AppValue): Task[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((entry) => {
-    if (!Array.isArray(entry) || entry.length < 3) {
-      return { id: 0, text: "?", completed: false };
-    }
-    return {
-      id: typeof entry[0] === "bigint" ? Number(entry[0]) : Number(entry[0]),
-      text: String(entry[1]),
-      completed: Boolean(entry[2]),
-    };
-  });
+	if (!Array.isArray(raw)) return [];
+	return raw.map((entry) => {
+		if (!Array.isArray(entry) || entry.length < 3) {
+			return { id: 0, text: "?", completed: false };
+		}
+		return {
+			id: typeof entry[0] === "bigint" ? Number(entry[0]) : Number(entry[0]),
+			text: String(entry[1]),
+			completed: Boolean(entry[2]),
+		};
+	});
 }
 
 export class TaskBoard {
-  #conn: Connection;
-  #board: Ref;
-  #snapshots!: ReadableStreamDefaultController<Task[]>;
-  #leaving = false;
+	#conn: Connection;
+	#board: Ref;
+	#snapshots!: ReadableStreamDefaultController<Task[]>;
+	#leaving = false;
 
-  /** A stream of task-list snapshots: every change pushes the full current
-   * state. Ends when you `leave` or the board hangs up. */
-  readonly updates: ReadableStream<Task[]>;
+	/** A stream of task-list snapshots: every change pushes the full current
+	 * state. Ends when you `leave` or the board hangs up. */
+	readonly updates: ReadableStream<Task[]>;
 
-  private constructor(conn: Connection, board: Ref) {
-    this.#conn = conn;
-    this.#board = board;
-    this.updates = new ReadableStream<Task[]>({
-      start: (controller) => {
-        this.#snapshots = controller;
-      },
-    });
-  }
+	private constructor(conn: Connection, board: Ref) {
+		this.#conn = conn;
+		this.#board = board;
+		this.updates = new ReadableStream<Task[]>({
+			start: (controller) => {
+				this.#snapshots = controller;
+			},
+		});
+	}
 
-  static async join(host: string, port: number): Promise<TaskBoard> {
-    const conn = await connect(host, port);
-    conn.serve().catch(() => {});
-    const board = await conn.fetch(BOARD);
-    const self = new TaskBoard(conn, board);
+	static async join(host: string, port: number): Promise<TaskBoard> {
+		const conn = await connect(tcpLocator(host, port));
+		conn.serve().catch(() => {});
+		const board = await conn.fetch(BOARD);
+		const self = new TaskBoard(conn, board);
 
-    const watcher = conn.spawn((verb, args) => {
-      if (verb !== UPDATE) throw new Error(`watcher has no method ${verb}`);
-      self.#push(args[0]);
-      return null;
-    });
+		const watcher = conn.spawn((verb, args) => {
+			if (verb !== UPDATE) throw new Error(`watcher has no method ${verb}`);
+			self.#push(args[0]);
+			return null;
+		});
 
-    conn.serve().finally(() => self.#endStream());
-    await conn.send(board, WATCH, [watcher]);
-    return self;
-  }
+		conn.serve().finally(() => self.#endStream());
+		await conn.send(board, WATCH, [watcher]);
+		return self;
+	}
 
-  /** Add a task. Returns the new task's ID. */
-  async add(text: string): Promise<number> {
-    const result = await this.#conn.send(this.#board, ADD, [text]);
-    return typeof result === "bigint" ? Number(result) : 0;
-  }
+	/** Add a task. Returns the new task's ID. */
+	async add(text: string): Promise<number> {
+		const result = await this.#conn.send(this.#board, ADD, [text]);
+		return typeof result === "bigint" ? Number(result) : 0;
+	}
 
-  /** Mark a task as completed. */
-  async done(id: number): Promise<void> {
-    await this.#conn.send(this.#board, DONE, [BigInt(id)]);
-  }
+	/** Mark a task as completed. */
+	async done(id: number): Promise<void> {
+		await this.#conn.send(this.#board, DONE, [BigInt(id)]);
+	}
 
-  /** Get the current task list (a one-shot query). */
-  async list(): Promise<Task[]> {
-    return parseSnapshot(await this.#conn.send(this.#board, LIST, []));
-  }
+	/** Get the current task list (a one-shot query). */
+	async list(): Promise<Task[]> {
+		return parseSnapshot(await this.#conn.send(this.#board, LIST, []));
+	}
 
-  async leave(): Promise<void> {
-    this.#leaving = true;
-    this.#conn.close();
-    await this.#conn.serve().catch(() => {});
-  }
+	async leave(): Promise<void> {
+		this.#leaving = true;
+		this.#conn.close();
+		await this.#conn.serve().catch(() => {});
+	}
 
-  #push(raw: AppValue): void {
-    try {
-      this.#snapshots.enqueue(parseSnapshot(raw));
-    } catch {
-      // stream already closed
-    }
-  }
+	#push(raw: AppValue): void {
+		try {
+			this.#snapshots.enqueue(parseSnapshot(raw));
+		} catch {
+			// stream already closed
+		}
+	}
 
-  #endStream(): void {
-    if (!this.#leaving) console.error("tasks: the board closed the connection");
-    try {
-      this.#snapshots.close();
-    } catch {
-      // already closed
-    }
-  }
+	#endStream(): void {
+		if (!this.#leaving) console.error("tasks: the board closed the connection");
+		try {
+			this.#snapshots.close();
+		} catch {
+			// already closed
+		}
+	}
 }

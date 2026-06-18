@@ -65,6 +65,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try checkDocumentedBuildSteps(step, io, gpa, root, &violations);
     try checkAbiVersionLockstep(io, gpa, root, &violations);
     try checkAbiFreeingVerb(io, gpa, root, &violations);
+    try checkCAbiSurfaceShape(io, gpa, root, &violations);
     try checkBindingConstants(io, gpa, root, &violations);
     try checkBindingMagicErrorCodes(io, gpa, root, &violations);
     try checkIrohSidecarAbi(io, gpa, root, &violations);
@@ -1254,9 +1255,10 @@ fn checkRuleFrontmatter(
 /// The architecture rule's Layer Ownership list is the map a cold agent uses to
 /// place code, so it is held to `src/` in both directions. Forward: every
 /// bulleted layer resolves to a real `src/` directory. Reverse: every top-level
-/// directory under `src/`, and every protocol layer under `src/ocapn/`, has a
-/// bullet — a layer that ships unnamed is unplaceable, which is how
-/// `src/conformance` once went missing from the map.
+/// directory under `src/`, and every immediate child of a grouping directory
+/// (`src/ocapn`, `src/c_abi` — see `checkGroupingChildren`), has a bullet — a
+/// layer that ships unnamed is unplaceable, which is how `src/conformance` once
+/// went missing from the map.
 fn checkLayerOwnership(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -1302,20 +1304,56 @@ fn checkLayerOwnership(
         if (!named.contains(entry.name)) {
             try appendViolation(gpa, violations, "{s}: `src/{s}` has no Layer Ownership bullet", .{ rule_path, entry.name });
         }
+        // A grouping directory (`src/ocapn`, `src/c_abi`) holds a family of
+        // layers rather than being one; hold each immediate child too.
+        try checkGroupingChildren(io, gpa, root, entry.name, &named, violations, rule_path);
     }
+}
 
-    var ocapn = root.openDir(io, "src/ocapn", .{ .iterate = true }) catch |err| {
-        try appendViolation(gpa, violations, "src/ocapn: failed to open for layer-ownership check with {s}", .{@errorName(err)});
-        return;
-    };
-    defer ocapn.close(io);
-    var ocapn_it = ocapn.iterate();
-    while (ocapn_it.next(io) catch null) |entry| {
-        if (entry.kind != .directory) continue;
+/// A grouping directory under `src/` — one with no direct `.zig` file, only
+/// subdirectories (`src/ocapn`, `src/c_abi`) — is a family of layers, not a
+/// layer itself. Each immediate child is its own layer, so it must carry a
+/// `<group>/<child>` Layer Ownership bullet; an unnamed sub-layer is
+/// unplaceable, exactly how `src/conformance` once went missing from the map.
+/// A directory with its own `.zig` files is a layer (its files belong to it),
+/// so it is skipped here. Recursion is one level: a child that is itself a
+/// grouping dir (e.g. `ocapn/codec` over `syrup`/`capnp`) keeps its sub-layers
+/// in `layer_table`, not in the placement map.
+fn checkGroupingChildren(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    group: []const u8,
+    named: *const std.StringHashMap(void),
+    violations: *std.ArrayList([]const u8),
+    rule_path: []const u8,
+) !void {
+    var path_buf: [160]u8 = undefined;
+    const group_path = std.fmt.bufPrint(&path_buf, "src/{s}", .{group}) catch return;
+    var dir = root.openDir(io, group_path, .{ .iterate = true }) catch return;
+    defer dir.close(io);
+
+    var subdirs: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (subdirs.items) |s| gpa.free(s);
+        subdirs.deinit(gpa);
+    }
+    var has_zig = false;
+    var it = dir.iterate();
+    while (it.next(io) catch null) |entry| {
+        if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".zig")) {
+            has_zig = true;
+        } else if (entry.kind == .directory) {
+            try subdirs.append(gpa, try gpa.dupe(u8, entry.name));
+        }
+    }
+    if (has_zig) return;
+
+    for (subdirs.items) |sub| {
         var needle_buf: [160]u8 = undefined;
-        const needle = std.fmt.bufPrint(&needle_buf, "ocapn/{s}", .{entry.name}) catch continue;
+        const needle = std.fmt.bufPrint(&needle_buf, "{s}/{s}", .{ group, sub }) catch continue;
         if (!named.contains(needle)) {
-            try appendViolation(gpa, violations, "{s}: `src/ocapn/{s}` has no Layer Ownership bullet", .{ rule_path, entry.name });
+            try appendViolation(gpa, violations, "{s}: `src/{s}/{s}` has no Layer Ownership bullet", .{ rule_path, group, sub });
         }
     }
 }
@@ -1772,9 +1810,9 @@ const ConstantsFile = struct {
 
 const binding_constants_files = [_]ConstantsFile{
     .{ .path = "bindings/rust/src/abi_constants.rs" },
-    .{ .path = "bindings/python/_pancake_constants.py" },
-    .{ .path = "bindings/deno/constants.ts" },
-    .{ .path = "bindings/racket/constants.rkt", .racket = true },
+    .{ .path = "bindings/python/pancake/_constants.py" },
+    .{ .path = "bindings/ts/stack/internal/constants.ts" },
+    .{ .path = "bindings/racket/private/constants.rkt", .racket = true },
 };
 
 fn parseLeadingInt(s: []const u8) ?i64 {
@@ -1800,8 +1838,8 @@ fn firstIntIn(s: []const u8) ?i64 {
 }
 
 /// The ABI version triple is stated four times: `abi_version` in `build.zig`,
-/// `.version` in `build.zig.zon`, `PANCAKE_VERSION_*` in `src/c_abi/mod.zig`,
-/// and the generated `#define PANCAKE_VERSION_*` macros in `include/pancake.h`.
+/// `.version` in `build.zig.zon`, `PANCAKE_VERSION_*` in `src/c_abi/ocapn/mod.zig`,
+/// and the generated `#define PANCAKE_VERSION_*` macros in `include/pancake_ocapn.h`.
 /// This parses all four and holds them in lockstep, so bumping one surface
 /// without the others fails the gate instead of shipping a package whose zon
 /// version disagrees with the soname it installs.
@@ -1820,12 +1858,12 @@ fn checkAbiVersionLockstep(
         anchor: ?[]const u8 = null,
     }{
         .{ .path = "build.zig", .keys = .{ ".major =", ".minor =", ".patch =" }, .anchor = "const abi_version" },
-        .{ .path = "src/c_abi/mod.zig", .keys = .{
+        .{ .path = "src/c_abi/ocapn/mod.zig", .keys = .{
             "PANCAKE_VERSION_MAJOR: u32 =",
             "PANCAKE_VERSION_MINOR: u32 =",
             "PANCAKE_VERSION_PATCH: u32 =",
         } },
-        .{ .path = "include/pancake.h", .keys = .{
+        .{ .path = "include/pancake_ocapn.h", .keys = .{
             "#define PANCAKE_VERSION_MAJOR",
             "#define PANCAKE_VERSION_MINOR",
             "#define PANCAKE_VERSION_PATCH",
@@ -1914,7 +1952,12 @@ fn checkAbiFreeingVerb(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const headers = [_][]const u8{ "include/pancake.h", "include/pancake_iroh.h" };
+    const headers = [_][]const u8{
+        "include/pancake_ocapn.h",
+        "include/pancake_net_transport_tcp.h",
+        "include/pancake_net_transport_inproc.h",
+        "include/pancake_net_transport_iroh.h",
+    };
     for (headers) |path| {
         const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for ABI freeing-verb check with {s}", .{ path, @errorName(err) });
@@ -1962,9 +2005,128 @@ fn checkAbiFreeingVerb(
     }
 }
 
+/// The minimality bar from ADR-0059: a clean C ABI is not only correctly
+/// represented (ADR-0059) but minimally shaped — one spelling per concept, no
+/// accidental variation. This holds the two structural invariants a careless
+/// addition would break (the close/release verb is held separately by
+/// `checkAbiFreeingVerb`):
+///   - constructor-twin completeness: every `*_new` that uses the library
+///     allocator has exactly one allocator-aware twin (`*_new_in`, or
+///     `*_new_with_allocator` for the context root), and every twin has its base;
+///   - one error channel per archive: exactly one `last_error`/`clear_last_error`
+///     pair per family — the ocapn root, `tcp`, `inproc`, `iroh` — and no other
+///     error-reporting spelling.
+fn checkCAbiSurfaceShape(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const headers = [_][]const u8{
+        "include/pancake_ocapn.h",
+        "include/pancake_net_transport_tcp.h",
+        "include/pancake_net_transport_inproc.h",
+        "include/pancake_net_transport_iroh.h",
+    };
+    const ret_types = [_][]const u8{ "void ", "int32_t ", "size_t ", "intptr_t " };
+
+    // Collect every exported function name. The name slices reference the header
+    // contents, so keep the buffers alive for the whole check.
+    var contents_buffers: std.ArrayList([]u8) = .empty;
+    defer {
+        for (contents_buffers.items) |buf| gpa.free(buf);
+        contents_buffers.deinit(gpa);
+    }
+    var names: std.ArrayList([]const u8) = .empty;
+    defer names.deinit(gpa);
+    var name_set = std.StringHashMap(void).init(gpa);
+    defer name_set.deinit();
+
+    for (headers) |path| {
+        const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for ABI surface-shape check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        try contents_buffers.append(gpa, contents);
+
+        var it = std.mem.splitScalar(u8, contents, '\n');
+        while (it.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, " \t");
+            var matched = false;
+            for (ret_types) |rt| {
+                if (std.mem.startsWith(u8, trimmed, rt)) matched = true;
+            }
+            if (!matched) continue;
+            const space = std.mem.indexOfScalar(u8, trimmed, ' ') orelse continue;
+            const open = std.mem.indexOfScalar(u8, trimmed, '(') orelse continue;
+            if (open <= space + 1) continue;
+            const name = trimmed[space + 1 .. open];
+            if (!std.mem.startsWith(u8, name, "pancake_")) continue;
+            if (name_set.contains(name)) continue;
+            try name_set.put(name, {});
+            try names.append(gpa, name);
+        }
+    }
+
+    // Invariant 1 — constructor-twin completeness.
+    for (names.items) |name| {
+        if (std.mem.endsWith(u8, name, "_in")) {
+            const base = name[0 .. name.len - "_in".len];
+            if (!name_set.contains(base)) {
+                try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} has no base constructor {s}; an `_in` twin must pair a library-allocator base", .{ name, base });
+            }
+        } else if (std.mem.endsWith(u8, name, "_new_with_allocator")) {
+            const base = name[0 .. name.len - "_with_allocator".len];
+            if (!name_set.contains(base)) {
+                try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} has no base constructor {s}", .{ name, base });
+            }
+        } else if (std.mem.indexOf(u8, name, "_new") != null) {
+            const twin_in = try std.fmt.allocPrint(gpa, "{s}_in", .{name});
+            defer gpa.free(twin_in);
+            const twin_alloc = try std.fmt.allocPrint(gpa, "{s}_with_allocator", .{name});
+            defer gpa.free(twin_alloc);
+            if (!name_set.contains(twin_in) and !name_set.contains(twin_alloc)) {
+                try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} has no allocator-aware twin ({s}_in or {s}_with_allocator); allocation policy is one axis spelled one way", .{ name, name, name });
+            }
+        }
+    }
+
+    // Invariant 2 — one error channel per archive, no extra spelling.
+    const allowed_error_families = [_][]const u8{ "", "tcp", "inproc", "iroh" };
+    for (names.items) |name| {
+        if (!std.mem.endsWith(u8, name, "_last_error")) continue;
+        if (std.mem.endsWith(u8, name, "_clear_last_error")) continue;
+        const head = name[0 .. name.len - "_last_error".len];
+        var family: []const u8 = undefined;
+        if (std.mem.eql(u8, head, "pancake")) {
+            family = "";
+        } else if (std.mem.startsWith(u8, head, "pancake_")) {
+            family = head["pancake_".len..];
+        } else continue;
+
+        var family_ok = false;
+        for (allowed_error_families) |f| {
+            if (std.mem.eql(u8, f, family)) family_ok = true;
+        }
+        if (!family_ok) {
+            try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} introduces an error channel for unexpected family `{s}`; the error channels are the ocapn root, tcp, inproc, iroh", .{ name, family });
+            continue;
+        }
+        const clear = if (family.len == 0)
+            try std.fmt.allocPrint(gpa, "pancake_clear_last_error", .{})
+        else
+            try std.fmt.allocPrint(gpa, "pancake_{s}_clear_last_error", .{family});
+        defer gpa.free(clear);
+        if (!name_set.contains(clear)) {
+            try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} has no matching {s}; an error channel is a last_error/clear_last_error pair", .{ name, clear });
+        }
+    }
+}
+
 /// Every per-binding ABI constant mirror restates discriminants and return codes
-/// from `include/pancake.h` by hand. The header itself cannot drift (the parity
-/// test reflects it from the Zig c_abi source), but the four mirror files can.
+/// from `include/pancake_ocapn.h` by hand. The header itself cannot drift (the
+/// parity test reflects it from the Zig c_abi source), but the four mirror files
+/// can.
 /// This parses each mirror's numeric values and asserts they match the matching
 /// `#define PANCAKE_…` value, so a hand-edit that desyncs a constant fails the
 /// gate instead of waiting for a live conversation to touch it.
@@ -1974,8 +2136,8 @@ fn checkBindingConstants(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const header = root.readFileAlloc(io, "include/pancake.h", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "include/pancake.h: failed to read for constant-mirror check with {s}", .{@errorName(err)});
+    const header = root.readFileAlloc(io, "include/pancake_ocapn.h", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "include/pancake_ocapn.h: failed to read for constant-mirror check with {s}", .{@errorName(err)});
         return;
     };
     defer gpa.free(header);
@@ -2057,14 +2219,14 @@ fn compareConstant(
     for (raw_name, 0..) |c, i| name[i] = if (c == '-') '_' else std.ascii.toUpper(c);
     const expected = header_vals.get(name) orelse return; // no header counterpart (e.g. struct sizes)
     if (expected != value) {
-        try appendViolation(gpa, violations, "{s}: constant {s} = {d} drifts from include/pancake.h PANCAKE_{s} = {d}", .{ path, raw_name, value, name, expected });
+        try appendViolation(gpa, violations, "{s}: constant {s} = {d} drifts from include/pancake_ocapn.h PANCAKE_{s} = {d}", .{ path, raw_name, value, name, expected });
     }
 }
 
 /// The per-binding spellings of "raise this ABI error code". A numeric literal
 /// at one of these sites bypasses the constant mirror that
 /// `checkBindingConstants` keeps honest, so the code can drift from
-/// `pancake.h` without any gate noticing. Error sites must name the mirrored
+/// `pancake_ocapn.h` without any gate noticing. Error sites must name the mirrored
 /// constant; the literal lives in the constants file alone.
 const binding_error_raise_patterns = [_][]const u8{
     "from_code(-", // Rust: Error::from_code(sys::ERR_…)
@@ -2121,7 +2283,7 @@ fn checkBindingMagicErrorCodes(
 /// The iroh sidecar C ABI is spelled three times by hand — the Rust
 /// definitions (`transports/iroh/src/lib.rs`), the C header
 /// (`transports/iroh/include/pancake_iroh_sidecar.h`), and the Zig resident's
-/// externs (`src/net_adapter/iroh.zig`) — and the hermetic gate never links
+/// externs (`src/net/transport/iroh.zig`) — and the hermetic gate never links
 /// them, so a
 /// drifted spelling would surface only as a crash in the cargo-equipped
 /// `iroh-interop` run, or not at all for a silent width change. The coarse
@@ -2274,7 +2436,7 @@ fn checkIrohSidecarAbi(
     const surfaces = [_]struct { path: []const u8, anchor: ?[]const u8, ret_end: u8 }{
         .{ .path = "transports/iroh/src/lib.rs", .anchor = "pub extern \"C\" fn ", .ret_end = '{' },
         .{ .path = "transports/iroh/include/pancake_iroh_sidecar.h", .anchor = null, .ret_end = ';' },
-        .{ .path = "src/net_adapter/iroh.zig", .anchor = "extern fn ", .ret_end = ';' },
+        .{ .path = "src/net/transport/iroh.zig", .anchor = "extern fn ", .ret_end = ';' },
     };
     var maps: [surfaces.len]std.StringHashMap([]const u8) = undefined;
     for (surfaces, 0..) |surface, idx| {
@@ -2408,7 +2570,7 @@ const application_surface_files = [_][]const u8{
 
 /// Whether `verb` appears as an inline-code token in `contents`, tolerating the
 /// three ways the surfaces write it: bare (`connect`), as a call
-/// (`connect(host, port)`), or as a method on a receiver (`conn.tell(ref, …)`).
+/// (`connect(locator)`), or as a method on a receiver (`conn.tell(ref, …)`).
 /// A trailing `(…)` and a leading `recv.` are stripped before comparison.
 fn mentionsVerbInCode(contents: []const u8, verb: []const u8) bool {
     var i: usize = 0;
@@ -2449,9 +2611,11 @@ fn checkApplicationSurfaceVerbs(
     }
 }
 
-/// Gate that every numbered Zig example chapter (`examples/zig/NN_*.zig`) has an
-/// index row in `examples/README.md`. A new chapter can otherwise ship
-/// undiscoverable; the index and the directory must agree.
+/// Gate that every numbered Zig example chapter (`examples/zig/NN_*.zig`) and
+/// every C example source (`examples/c/*.c`) the build compiles has an index row
+/// in `examples/README.md`. A new chapter or C program can otherwise ship
+/// undiscoverable; the index and the directories must agree. (The C arm is what
+/// would have caught `compose_transports.c` shipping unindexed.)
 fn checkExampleIndex(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -2482,6 +2646,27 @@ fn checkExampleIndex(
         const needle = std.fmt.bufPrint(&needle_buf, "zig/{s}", .{entry.name}) catch continue;
         if (std.mem.indexOf(u8, index, needle) == null) {
             try appendViolation(gpa, violations, "examples/README.md: missing index row for example chapter `{s}`", .{entry.name});
+        }
+    }
+
+    // Every C example source is a first-class built program (`build.zig` compiles
+    // and runs each under `zig build examples`), so each must be discoverable from
+    // the index too.
+    var c_dir = root.openDir(io, "examples/c", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "examples/c: failed to open with {s}", .{@errorName(err)});
+        return;
+    };
+    defer c_dir.close(io);
+
+    var c_it = c_dir.iterate();
+    while (c_it.next(io) catch null) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".c")) continue;
+
+        var needle_buf: [128]u8 = undefined;
+        const needle = std.fmt.bufPrint(&needle_buf, "c/{s}", .{entry.name}) catch continue;
+        if (std.mem.indexOf(u8, index, needle) == null) {
+            try appendViolation(gpa, violations, "examples/README.md: missing index row for C example `{s}`", .{entry.name});
         }
     }
 }
@@ -2679,9 +2864,11 @@ fn collectMarkdownDocsUnder(
 }
 
 fn collectBuildSteps(gpa: std.mem.Allocator, build_zig: []const u8, steps: *std.StringHashMap(void)) !void {
-    // Steps are declared two ways: directly as `b.step("name", …)`, and
-    // table-driven as `.step_name = "name"` rows later passed to `b.step`.
-    const patterns = [_][]const u8{ "b.step(\"", ".step_name = \"" };
+    // Steps are declared three ways: directly as `b.step("name", …)`,
+    // table-driven as `.step_name = "name"` rows later passed to `b.step`, and
+    // header-gen rows that carry a check/write pair as `.check_step_name` /
+    // `.write_step_name`, each also passed to `b.step`.
+    const patterns = [_][]const u8{ "b.step(\"", ".step_name = \"", ".check_step_name = \"", ".write_step_name = \"" };
     for (patterns) |pattern| {
         var rest = build_zig;
         while (std.mem.indexOf(u8, rest, pattern)) |start| {

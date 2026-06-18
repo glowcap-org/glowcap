@@ -7,8 +7,8 @@
 //! runs before its own pre-apply steps (`validatePipelinedDeliver`,
 //! `validateInboundListen`). Everything else is module-local: the per-kind
 //! rules and the reference / argument walkers are implementation detail of
-//! this file, called directly (`validateTargetReference(self, ref)`), not
-//! methods on `Session`. Validators never mutate authority; they only decide
+//! this file, called directly (`validateReference(self, ref, .held_import)`),
+//! not methods on `Session`. Validators never mutate authority; they only decide
 //! whether a message is well-formed and permitted given the current tables and
 //! negotiated features, handing back a typed `Error` (or the borrowed-view
 //! projection errors in `RecvViewError`) on a violation. The matching
@@ -74,8 +74,8 @@ fn validateStartSession(
 /// call this same body, so the engine pre-step and the recv path cannot drift.
 pub fn validateInboundListen(self: *Session, listen: anytype) RecvViewError!void {
     if (!self.features.pipelining) return Error.FeatureNotNegotiated;
-    try validateTargetReference(self, listen.target);
-    try validateArgumentReference(self, listen.listener);
+    try validateReference(self, listen.target, .held_import);
+    try validateReference(self, listen.listener, .introduction);
 }
 
 /// Validate an inbound `op:resolve`. The answer must be one we allocated
@@ -85,7 +85,13 @@ pub fn validateInboundListen(self: *Session, listen: anytype) RecvViewError!void
 /// introduction, and the payload tree may not nest past `max_nesting_depth`.
 /// Without this, a fulfill carrying a `near` to a non-existent export would
 /// be accepted while the identical reference in a deliver arg is rejected.
-fn validateInboundResolve(self: *Session, resolve: anytype) RecvViewError!void {
+///
+/// Public because the engine's V1.0 resolver-callback translation
+/// (`Session.recordResolverCallbackResolve`) validates a synthesized resolve
+/// with this exact body — minus the wire-`op:resolve` refusal in
+/// `validateRecvView` — so the synthesized and canonical resolve paths cannot
+/// drift.
+pub fn validateInboundResolve(self: *Session, resolve: anytype) RecvViewError!void {
     const entry = self.outbound_answers.getPtr(resolve.answer) orelse
         return Error.InvalidReference;
     // An answer resolves exactly once. A second `op:resolve` for an
@@ -122,7 +128,7 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
             if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
             try session.validateGcExport(gc_export);
             // Our import 0 is the partner's pinned bootstrap — always reachable
-            // without a table row (`validateOutboundReference`) and outside
+            // without a table row (`validateReference` with `.held_import`) and outside
             // wire-delta accounting — so releasing it is releasing an id the
             // table never holds. Refuse loudly rather than put a bootstrap
             // release on the wire (a partner that does account it, the way
@@ -137,16 +143,16 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
         .gc_answer => |gc_answer| {
             if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
             // The deliverer that allocated an answer-pos sends
-            // `op:gc-answers` once it no longer needs the result, so an
-            // outbound gc-answers releases a question we asked and decrements
+            // `op:gc-answers` when it releases the question, so an outbound
+            // gc-answers releases a question we asked and decrements
             // our outbound answers (CapTP spec § op:gc-answers; Goblins sends
             // `cmd-send-gc-answer` from its question will-handler).
             try session.checkGcAnswerDecrement(self.allocator, &self.outbound_answers, gc_answer.positions);
         },
         .listen => |listen| {
             if (!self.features.pipelining) return Error.FeatureNotNegotiated;
-            try validateOutboundReference(self, listen.target);
-            try validateOutboundReference(self, listen.listener);
+            try validateReference(self, listen.target, .held_import);
+            try validateReference(self, listen.listener, .held_import);
         },
         .handoff => |handoff| {
             if (!self.features.handoff) return Error.FeatureNotNegotiated;
@@ -154,11 +160,15 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
         },
         // `op:get` / `op:index` / `op:untag` name a receiver like a deliver
         // target: it must be something we hold (ADR-0050).
-        .get => |get| try validateOutboundReference(self, get.receiver),
-        .index => |index| try validateOutboundReference(self, index.receiver),
-        .untag => |untag| try validateOutboundReference(self, untag.receiver),
-        // abort carries no send-side validation.
-        else => {},
+        .get => |get| try validateReference(self, get.receiver, .held_import),
+        .index => |index| try validateReference(self, index.receiver, .held_import),
+        .untag => |untag| try validateReference(self, untag.receiver, .held_import),
+        // `op:abort` carries no send-side validation. Listing the remaining
+        // no-op kinds explicitly (rather than `else`) makes a new
+        // `model.Message` kind fail to compile until its send-side validation
+        // is classified here — the silent-drop that produced the wire-delta
+        // bug cannot recur.
+        .abort => {},
     }
 }
 
@@ -196,9 +206,9 @@ pub fn validateRecv(self: *Session, message: model.Message) !void {
         // Without this an inbound projection op with an unheld export/import id
         // would surface to the application unvalidated, an authority gap versus
         // deliver and listen.
-        .get => |get| try validateTargetReference(self, get.receiver),
-        .index => |index| try validateTargetReference(self, index.receiver),
-        .untag => |untag| try validateTargetReference(self, untag.receiver),
+        .get => |get| try validateReference(self, get.receiver, .held_import),
+        .index => |index| try validateReference(self, index.receiver, .held_import),
+        .untag => |untag| try validateReference(self, untag.receiver, .held_import),
         .handoff => |handoff| {
             if (!self.features.handoff) return Error.FeatureNotNegotiated;
             // Well-formedness only. Withdrawal authority (the vat-scoped
@@ -215,9 +225,9 @@ pub fn validateRecv(self: *Session, message: model.Message) !void {
 }
 
 fn validateOutboundDeliver(self: *Session, deliver: model.Deliver) !void {
-    try validateOutboundReference(self, deliver.target);
+    try validateReference(self, deliver.target, .held_import);
     if (deliver.resolve_me_desc) |reference| {
-        try validateOutboundReference(self, reference);
+        try validateReference(self, reference, .held_import);
     }
     try validateArguments(self, deliver.args);
 }
@@ -268,9 +278,9 @@ fn validateInboundDeliverAny(self: *Session, deliver: anytype) RecvViewError!voi
         // collide with a virtual allocation, so it is refused loudly.
         if (answer >= VIRTUAL_INBOUND_ANSWER_BASE) return Error.InvalidReference;
     }
-    try validateTargetReference(self, deliver.target);
+    try validateReference(self, deliver.target, .held_import);
     if (deliver.resolve_me_desc) |reference| {
-        try validateTargetReference(self, reference);
+        try validateReference(self, reference, .held_import);
     }
     var new_imports: ProspectiveImports = .{};
     defer new_imports.deinit(self.allocator);
@@ -278,7 +288,7 @@ fn validateInboundDeliverAny(self: *Session, deliver: anytype) RecvViewError!voi
 }
 
 /// Validate a pipelined inbound deliver — one whose target is a still-pending
-/// answer the engine queues rather than surfacing now. It gets the *same*
+/// answer the engine queues rather than dispatching immediately. It gets the *same*
 /// reference, argument, depth, and answer-pos validation a directly-delivered
 /// call gets, so a malformed-reference or over-deep pipelined call is rejected
 /// exactly like its direct twin instead of slipping past validation onto the
@@ -288,32 +298,37 @@ pub fn validatePipelinedDeliver(self: *Session, deliver: anytype) RecvViewError!
     try validateInboundDeliverAny(self, deliver);
 }
 
-/// A reference in *target position* — a deliver target, a `resolve_me_desc`,
-/// or a `listen` target/listener. Post perspective-flip (ADR-0010) a decoded
-/// `near` names one of our exports and a decoded `far` names an import we
-/// already hold (the bootstrap import 0 is implicitly held). An unheld `far`
-/// here is the partner naming a capability that does not exist for us and is
-/// rejected — distinct from `validateArgumentReference`, where a `far` is a
-/// fresh introduction.
-fn validateTargetReference(self: *Session, reference: anytype) Error!void {
-    switch (reference) {
-        .near => |near| if (!self.exports.contains(near.export_position)) return Error.InvalidReference,
-        .far => |far| if (far.import_position != BOOTSTRAP_POSITION and
-            !self.imports.contains(far.import_position))
-            return Error.InvalidReference,
-        .promise, .broken => {},
-        .sturdy => if (!self.features.sturdyref) return Error.FeatureNotNegotiated,
-    }
-}
+/// How the one reference validator treats a `far`. Everything else about a
+/// reference is position-independent — a `near` always names one of our exports
+/// and must be held, `promise`/`broken` are always acceptable, and a `sturdy`
+/// always requires the negotiated sturdyref feature — so the `far` arm is the
+/// only axis a position varies on.
+const FarPolicy = enum {
+    /// The `far` names an import we must already hold: a deliver/listen target,
+    /// a projection receiver, or any reference we put on the wire ourselves.
+    /// The bootstrap import (0) is implicitly held (ADR-0006). An unheld `far`
+    /// here names a capability that does not exist for this session.
+    held_import,
+    /// The `far` is a fresh introduction — the partner handing us a new
+    /// `<desc:import-object>` in argument or fulfill-payload position — accepted
+    /// here and installed in apply.
+    introduction,
+};
 
-/// A reference in *argument position* (a deliver's args or a resolution's
-/// fulfill payload). A `near` names one of our exports and must be held; a
-/// `far` is the partner *introducing* an import to us (a valid new
-/// `<desc:import-object>`), accepted here and installed in apply.
-fn validateArgumentReference(self: *Session, reference: anytype) Error!void {
+/// The one reference-position validator. Post perspective-flip (ADR-0010) a
+/// decoded `near` names one of our exports; only the `far` arm varies, by
+/// `far_policy`. Dual-shape over the borrowed view reference and the owned
+/// `model.Reference`, like the argument walkers that call it.
+fn validateReference(self: *Session, reference: anytype, comptime far_policy: FarPolicy) Error!void {
     switch (reference) {
         .near => |near| if (!self.exports.contains(near.export_position)) return Error.InvalidReference,
-        .far, .promise, .broken => {},
+        .far => |far| switch (far_policy) {
+            .held_import => if (far.import_position != BOOTSTRAP_POSITION and
+                !self.imports.contains(far.import_position))
+                return Error.InvalidReference,
+            .introduction => {},
+        },
+        .promise, .broken => {},
         .sturdy => if (!self.features.sturdyref) return Error.FeatureNotNegotiated,
     }
 }
@@ -343,7 +358,7 @@ fn validateInboundArgument(
 ) RecvViewError!void {
     switch (arg) {
         .reference => |reference| {
-            try validateArgumentReference(self, reference);
+            try validateReference(self, reference, .introduction);
             if (reference == .far) try new_imports.noteFar(self, reference.far.import_position);
         },
         .list, .set => |items| try validateInboundArguments(self, items, depth + 1, new_imports),
@@ -375,22 +390,6 @@ fn validateInboundStructEntries(
     }
 }
 
-fn validateOutboundReference(self: *Session, reference: model.Reference) !void {
-    switch (reference) {
-        // The partner's bootstrap (import 0) is always reachable on an open
-        // session (ADR-0006) — symmetric with our own bootstrap export, which
-        // `transitionToOpen` installs — so a far ref to it needs no prior
-        // import-table entry. This is the outbound bootstrap-fetch /
-        // sturdyref-enliven send target; every other import must be held.
-        .far => |far| if (far.import_position != BOOTSTRAP_POSITION and
-            !self.imports.contains(far.import_position))
-            return Error.InvalidReference,
-        .near => |near| if (!self.exports.contains(near.export_position)) return Error.InvalidReference,
-        .promise, .broken => {},
-        .sturdy => if (!self.features.sturdyref) return Error.FeatureNotNegotiated,
-    }
-}
-
 fn validateArguments(self: *Session, args: []const model.Argument) Error!void {
     for (args) |arg| {
         try validateArgument(self, arg);
@@ -399,7 +398,7 @@ fn validateArguments(self: *Session, args: []const model.Argument) Error!void {
 
 fn validateArgument(self: *Session, arg: model.Argument) Error!void {
     switch (arg) {
-        .reference => |reference| try validateOutboundReference(self, reference),
+        .reference => |reference| try validateReference(self, reference, .held_import),
         .list => |items| try validateArguments(self, items),
         .set => |items| try validateArguments(self, items),
         .tagged => |tagged| try validateArguments(self, tagged.value),

@@ -1,17 +1,19 @@
 #lang racket/base
 ;; A rooms chat client, written on pancake actors in native Racket.
 ;;
-;; It joins the room, waits until everyone it expects is present, posts one
-;; line, and collects each expected member's line as the room pushes it back.
-;; All the OCapN machinery lives in `room-client.rkt` (`room-join` / `room-say`
-;; / `in-room`), so this reads like a chat client — a loop over the lines the
-;; room sends.
+;; It enters the named room, waits until everyone it expects is present, posts
+;; one line, and collects each expected member's line as the room pushes it back.
+;; All the OCapN machinery lives in `room-client.rkt` (`room-connect` /
+;; `dir-enter` / `room-subscribe` / `room-say` / `in-room`), so this reads like a
+;; chat client — a loop over the lines the room sends. The strict directory verbs
+;; live there; the friendly enter-or-open below is this app's own convenience.
 ;;
-;;   racket client.rkt 127.0.0.1:9099 alice "hi" alice,bob,carol
+;;   racket client.rkt 127.0.0.1:9099 general alice "hi" alice,bob,carol
 ;;
 ;; The locator is transport-neutral: a `host:port` reaches a TCP room, an
 ;; `ocapn://<nodeid>.iroh?direct-addresses=…` URI reaches an iroh room. The
-;; fourth argument is the roster: a comma-separated list of the member nicks
+;; second argument is the room name (entering one that does not exist opens it).
+;; The fifth argument is the roster: a comma-separated list of the member nicks
 ;; to expect (default: just you). An optional timeout in milliseconds defaults to
 ;; 15000. The client posts only once every roster member is present — it learns
 ;; who is present from its welcome (which names everyone already in the room) and
@@ -24,6 +26,40 @@
 ;; OCapN wire — the room cannot tell which language a member is written in.
 
 (require "room-client.rkt" racket/string)
+
+;; Get a reference to the named room, opening it if it does not exist yet. The
+;; wire and the directory wrapper stay strict — `dir-enter` raises on a missing
+;; room, `dir-open` raises on a taken name — so this leniency is a CLI
+;; convenience, here in the app, composed from the strict verbs.
+(define (enter-or-open d name)
+  (with-handlers ([exn? (lambda (e)
+                          (cond
+                            [(regexp-match? #rx"no room named" (exn-message e))
+                             (with-handlers ([exn? (lambda (e2)
+                                                     (if (regexp-match? #rx"already exists" (exn-message e2))
+                                                         (dir-enter d name) ; lost the race; it is there now
+                                                         (raise e2)))])
+                               (dir-open d name))]
+                            [else (raise e)]))])
+    (dir-enter d name)))
+
+;; Render the live room list for one line of output.
+(define (format-rooms rooms)
+  (if (null? rooms)
+      "(none yet)"
+      (string-join (for/list ([r (in-list rooms)]) (format "~a (~a)" (car r) (cadr r))) ", ")))
+
+;; The friendly entry the client uses: connect, show and follow discovery (the
+;; `list` snapshot and the `watch` change feed), then enter the room (opening it
+;; if new) and subscribe as `nick`.
+(define (join-room locator room-name nick)
+  (define d (room-connect locator))
+  (printf "[~a] rooms: ~a\n" nick (format-rooms (dir-list d)))
+  (flush-output)
+  (dir-watch d (lambda (kind name count)
+                 (printf "[~a] directory: ~a ~a (~a)\n" nick kind name count)
+                 (flush-output)))
+  (room-subscribe (directory-conn d) (enter-or-open d room-name) nick))
 
 ;; The welcome ends with the nicks already present: "… in the room: a, b, c" —
 ;; the only way to learn about earlier arrivals.
@@ -53,8 +89,8 @@
     [(exn? result) (raise result)]
     [else result]))
 
-(define (run-client locator nick line roster [timeout-seconds 15])
-  (define room (room-join locator nick))
+(define (run-client locator room-name nick line roster [timeout-seconds 15])
+  (define room (join-room locator room-name nick))
   (define deadline-ms (+ (current-inexact-milliseconds) (* timeout-seconds 1000.0)))
   (define (remaining-seconds)
     (/ (- deadline-ms (current-inexact-milliseconds)) 1000.0))
@@ -105,17 +141,18 @@
 
 (module+ main
   (define args (current-command-line-arguments))
-  (when (< (vector-length args) 3)
-    (eprintf "usage: client.rkt <locator> <nick> <line> [roster] [timeout-ms]   (locator: host:port or an ocapn:// URI; roster: comma-separated nicks to expect; default just you)\n")
+  (when (< (vector-length args) 4)
+    (eprintf "usage: client.rkt <locator> <room> <nick> <line> [roster] [timeout-ms]   (locator: host:port or an ocapn:// URI; roster: comma-separated nicks to expect; default just you)\n")
     (exit 2))
   (define locator (vector-ref args 0))
-  (define nick (vector-ref args 1))
-  (define line (vector-ref args 2))
-  (define roster (if (> (vector-length args) 3)
-                     (string-split (vector-ref args 3) ",")
+  (define room-name (vector-ref args 1))
+  (define nick (vector-ref args 2))
+  (define line (vector-ref args 3))
+  (define roster (if (> (vector-length args) 4)
+                     (string-split (vector-ref args 4) ",")
                      (list nick)))
-  (define timeout-ms (if (> (vector-length args) 4)
-                         (string->number (vector-ref args 4))
+  (define timeout-ms (if (> (vector-length args) 5)
+                         (string->number (vector-ref args 5))
                          15000))
   (unless (and timeout-ms (real? timeout-ms) (positive? timeout-ms))
     (eprintf "client ~a failed: timeout-ms must be a positive number\n" nick)
@@ -124,5 +161,5 @@
                    (lambda (e)
                      (eprintf "client ~a failed: ~a\n" nick (if (exn? e) (exn-message e) e))
                      (exit 1))])
-    (run-client locator nick line roster (/ timeout-ms 1000.0))
+    (run-client locator room-name nick line roster (/ timeout-ms 1000.0))
     (exit 0)))

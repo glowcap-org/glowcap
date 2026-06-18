@@ -12,11 +12,11 @@ const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const crypto = pancake.foundation.crypto;
-const net_adapter = pancake.net_adapter;
+const net = pancake.net;
 const driver = pancake.driver;
 const codec = pancake.ocapn.codec;
-const tcp = net_adapter.tcp;
-const net = std.Io.net;
+const tcp = net.tcp;
+const Stream = std.Io.net.Stream;
 
 const host = "127.0.0.1";
 /// The suite dials this fixed port; `--port=N` (threaded by
@@ -397,7 +397,7 @@ fn acceptLoop(shared: *SharedState, io: std.Io) void {
     }
 }
 
-fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: net.Stream) void {
+fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: Stream) void {
     var enliven_group: std.Io.Group = .init;
     defer enliven_group.cancel(io);
 
@@ -418,7 +418,7 @@ fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: net.Stream) v
     const write_buf = allocator.alloc(u8, frame_cap) catch return;
     defer allocator.free(write_buf);
 
-    var conn = net_adapter.tcp.connectionOver(io, &peer, stream_in, read_buf, write_buf) catch return;
+    var conn = net.tcp.connectionOver(io, &peer, stream_in, read_buf, write_buf) catch return;
     defer conn.deinit();
 
     var resolver_map: std.AutoHashMapUnmanaged(u64, u64) = .{};

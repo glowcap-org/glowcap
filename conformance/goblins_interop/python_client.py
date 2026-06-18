@@ -20,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bindings" / "python"))
 
-from pancake import connect  # noqa: E402
+from pancake import connect, tcp_locator  # noqa: E402
 
 HOST = "127.0.0.1"
 # The Goblins vat's fixed port; --port=N (from
@@ -70,7 +70,7 @@ async def converse() -> None:
 
         # `connect` completes the keyed handshake; reaching here means Goblins
         # accepted our signed start-session and we accepted its.
-        conn = await connect(HOST, PORT)
+        conn = await connect(tcp_locator(HOST, PORT))
         print("python-goblins-interop: session open, keyed start-session accepted by goblins")
         conn.serve()
 

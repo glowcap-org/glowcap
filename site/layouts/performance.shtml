@@ -8,6 +8,8 @@
 		.bench-charts figure { flex: 1 1 320px; max-width: 400px; margin: 0; }
 		.bench-charts figcaption { font-size: 0.85rem; color: var(--ink-soft); margin-bottom: 0.4rem; }
 		.bench-charts svg { max-width: 100%; height: auto; }
+		.bench-note, .bench-stamp { font-size: 0.85rem; color: var(--ink-soft); }
+		.bench-note { margin-top: -0.5rem; }
 	</style>
 </head>
 <main id="content">

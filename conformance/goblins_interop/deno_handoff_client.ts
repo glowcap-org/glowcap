@@ -1,0 +1,116 @@
+// Live three-party handoff with the Deno binding as the recipient (Carol),
+// proving the binding redeems a `desc:handoff-give` transparently — the same
+// `connect`/`fetch`/`send` application surface the demos use, no bespoke handoff
+// choreography in the app.
+//
+// It spawns the conformance Goblins introducer host (Alice on PORT, Bob the
+// exporter on PORT+1), learns Alice's introducer swiss-num from its NDJSON
+// readiness line, then:
+//   1. `connect` to Alice and `fetch` the introducer.
+//   2. `send(introducer, "get-greeter")`. Alice hands back Bob's greeter as a
+//      three-party handoff give. The binding's machine redeems it: it dials Bob
+//      directly (keyed with the *same* identity Alice saw), withdraws the gift,
+//      and resolves the send to an ordinary capability — the app never sees the
+//      give or the second connection.
+//   3. `send(greeter, "", ["pancake-carol"])`. The bytes go straight to Bob;
+//      the reply must carry the name back, proving data integrity end to end.
+//
+// Needs `racket` plus the `goblins` collection on PATH, so it runs as the
+// sibling build step `zig build deno-goblins-handoff`.
+
+import { connect, type Ref, tcpLocator } from "@pancake/stack";
+
+const HOST = "127.0.0.1";
+// Alice's port; Bob (the exporter) listens on PORT+1. `--port=N` (from
+// `zig build deno-goblins-handoff -Dport=N`) moves the pair when 22112 is taken.
+let PORT = 22112;
+for (const a of Deno.args) {
+	if (a.startsWith("--port=")) PORT = Number(a.slice("--port=".length));
+	else fail(`unknown argument '${a}'`);
+}
+if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65534) {
+	fail("--port must be an integer in 1..65534 (bob listens on port+1)");
+}
+const RACKET = "/usr/local/bin/racket";
+const HOST_SCRIPT = "conformance/goblins-peer/racket/handoff-introducer-host.rkt";
+
+function fail(msg: string): never {
+	console.error(`deno-goblins-handoff FAILED: ${msg}`);
+	Deno.exit(1);
+}
+
+const child = new Deno.Command(RACKET, {
+	args: [HOST_SCRIPT, String(PORT), String(PORT + 1)],
+	stdout: "piped",
+	stderr: "piped",
+}).spawn();
+
+const stdoutReader = child.stdout.getReader();
+
+async function readSwiss(): Promise<string> {
+	const decoder = new TextDecoder();
+	let buf = "";
+	const deadline = Date.now() + 30_000;
+	while (Date.now() < deadline) {
+		const { value, done } = await stdoutReader.read();
+		if (done) break;
+		buf += decoder.decode(value, { stream: true });
+		const m = buf.match(/"swiss":"([^"]+)"/);
+		if (m) return m[1];
+	}
+	fail("never saw the introducer readiness line");
+}
+
+let ok = false;
+try {
+	const swiss = await readSwiss();
+	console.log(
+		`deno-goblins-handoff: alice published introducer swiss=${swiss} on ${HOST}:${PORT}`,
+	);
+
+	// `connect` completes the keyed handshake; the machine's retained identity is
+	// the recipient key the gift Alice deposits will name.
+	const conn = await connect(tcpLocator(HOST, PORT));
+	console.log("deno-goblins-handoff: session open (recipient -> alice)");
+	conn.serve().catch(() => {}); // the partner hanging up ends the serve loop
+
+	const introducer = await conn.fetch(swiss);
+	console.log(
+		"deno-goblins-handoff: enlivened alice's introducer, asking for the greeter",
+	);
+
+	// The introduction: Alice returns Bob's greeter as a handoff give. The binding
+	// redeems it transparently, so this resolves to an ordinary capability `Ref`.
+	const greeter = await conn.send(introducer, "get-greeter", []) as Ref;
+	console.log(
+		"deno-goblins-handoff: introduction redeemed — got the greeter as an ordinary ref",
+	);
+
+	// Call the greeter. The send routes straight to Bob (the exporter); the reply
+	// must echo the name we sent, so the handoff proves data integrity, not just
+	// choreography.
+	const reply = await conn.send(greeter, "", ["pancake-carol"]);
+	if (typeof reply !== "string" || !reply.includes("pancake-carol")) {
+		fail(`greeter reply did not carry the name back: ${JSON.stringify(reply)}`);
+	}
+	console.log(`deno-goblins-handoff: greeter replied: ${reply}`);
+
+	ok = true;
+	console.log(
+		"deno-goblins-handoff OK: the Deno binding redeemed a three-party handoff from live Goblins and called the exporter directly",
+	);
+	conn.close();
+} finally {
+	try {
+		await stdoutReader.cancel();
+	} catch { /* already released */ }
+	try {
+		await child.stderr.cancel();
+	} catch { /* already released */ }
+	try {
+		child.kill();
+	} catch { /* already gone */ }
+	await child.status;
+}
+
+if (!ok) Deno.exit(1);

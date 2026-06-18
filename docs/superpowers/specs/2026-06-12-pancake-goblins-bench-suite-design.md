@@ -8,7 +8,7 @@ is the living description of what shipped.
 ## Goal
 
 Compare pancake against Spritely Goblins on equal terms: write a benchmark
-application once in capability/actor terms, run that *same* application on both
+application once in capability/actor terms, run that _same_ application on both
 substrates over the same transport, and measure the metrics people use to judge
 an IO server — latency, throughput, connection scaling, and memory.
 
@@ -23,15 +23,15 @@ on pancake's Zig protocol core versus Goblins' native-Racket runtime."
 These were checked by running code in the devcontainer, not taken from prose:
 
 - `zig build racket-goblins-interop` completes a keyed OCapN handshake, a
-  bootstrap fetch, and an echo deliver/resolve against a *live* Goblins vat over
+  bootstrap fetch, and an echo deliver/resolve against a _live_ Goblins vat over
   TCP. The Racket binding genuinely talks to real Goblins.
 - A throwaway Goblins echo client/server over loopback TCP (built on
   `conformance/goblins-peer/racket/tcp-netlayer.rkt` + `spawn-mycapn` +
   `register`/`enliven`) runs 2000 sequential round-trips and reports latency,
   throughput, and memory.
 - A throwaway pancake echo client/server over loopback TCP (built on the
-  binding's `listen`/`accept`/`connect`/`conn-publish`/`conn-fetch` surface) does
-  the same.
+  binding's `listen`/`accept`/`connect`/`conn-publish`/`conn-fetch` surface)
+  does the same.
 
 The probes also exposed a fairness trap (see below), which is the reason this
 design exists rather than just shipping the probes.
@@ -39,8 +39,8 @@ design exists rather than just shipping the probes.
 ## Fairness principle
 
 The probes were not yet fair: the pancake client used a hand-written blocking
-send→flush→read→dispatch loop while Goblins routed every message through its full
-vat event loop and promise machinery. That measures a tight hand-coded loop
+send→flush→read→dispatch loop while Goblins routed every message through its
+full vat event loop and promise machinery. That measures a tight hand-coded loop
 against a complete actor runtime. The suite holds these lines instead:
 
 1. **One application source per suite.** The actor behavior (constructors,
@@ -51,7 +51,7 @@ against a complete actor runtime. The suite holds these lines instead:
    (`<-`) and promise observers (`on`), the idiomatic Goblins way. Neither
    substrate gets a privileged synchronous fast path the other lacks.
 3. **Same driving model.** Goblins drains turns through its vat loop
-   automatically. pancake is sans-io, so the harness gives it a *general* pump
+   automatically. pancake is sans-io, so the harness gives it a _general_ pump
    that runs the connection/vat to quiescence (drive queued turns, flush
    outbound, read+dispatch inbound until the outstanding promises settle). This
    pump is the fair analog of Goblins' scheduler — general, not per-message.
@@ -59,7 +59,7 @@ against a complete actor runtime. The suite holds these lines instead:
    default frame and buffer sizes, both warmed, multiple timed trials.
 5. **The substrate is the only intended difference.** pancake ships a compiled
    Zig protocol core consumed from Racket; Goblins is native Racket. That
-   asymmetry *is* the comparison and is fair precisely because everything above
+   asymmetry _is_ the comparison and is fair precisely because everything above
    it is identical.
 
 Reporting follows the existing bench convention (`bench/codec_bench.zig`):
@@ -72,12 +72,12 @@ the other three are "worth benchmarking" because they exercise what CapTP exists
 for — passing capability references across the wire, invoking them, stateful
 actors, and promise pipelining.
 
-| Suite | Application | What it exercises |
-| --- | --- | --- |
-| S0 · echo | one actor returns its argument | raw round-trip + runtime overhead (calibration) |
+| Suite                      | Application                                                                                                                 | What it exercises                                                           |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| S0 · echo                  | one actor returns its argument                                                                                              | raw round-trip + runtime overhead (calibration)                             |
 | S1 · registry + pipelining | a registry actor hands back capability references; client invokes them, including a pipelined call on an unresolved promise | cross-wire references, method dispatch, promise pipelining, stateful actors |
-| S2 · mint/purse | a mint creates purses (capabilities); deposit/withdraw move balances; purses pass as references between parties | capability passing as arguments, stateful turns, classic ocap shape |
-| S3 · task board | `create` returns a task capability; `assign`, `complete`, `list` | realistic mixed-method workload mirroring pancake's cross-language demos |
+| S2 · mint/purse            | a mint creates purses (capabilities); deposit/withdraw move balances; purses pass as references between parties             | capability passing as arguments, stateful turns, classic ocap shape         |
+| S3 · task board            | `create` returns a task capability; `assign`, `complete`, `list`                                                            | realistic mixed-method workload mirroring pancake's cross-language demos    |
 
 ## Metrics
 
@@ -92,7 +92,7 @@ Racket and backend-agnostic.
 - **Connections.** Open C concurrent client connections to one server; report
   total and per-connection keyed-handshake setup time and the setup rate
   (connections/second).
-- **Memory.** Sample the *server process* RSS (`/proc/<pid>/status` VmRSS and
+- **Memory.** Sample the _server process_ RSS (`/proc/<pid>/status` VmRSS and
   VmHWM) at baseline (0 connections) and with C live connections; report the
   baseline, the steady total, and the derived bytes-per-connection. A heavier
   application (more live exports) is expected to cost more per connection, so
@@ -136,12 +136,12 @@ contain no application logic.
 
 ## Transport and process model
 
-- Loopback TCP on both substrates (matches the existing
-  `racket-goblins-interop` setup and the Goblins `tcp-netlayer`).
+- Loopback TCP on both substrates (matches the existing `racket-goblins-interop`
+  setup and the Goblins `tcp-netlayer`).
 - The server runs in its **own OS process** so its RSS is attributable. The
   orchestrator spawns it, waits for an NDJSON readiness line (the pattern
-  `conformance/goblins-peer/racket/goblins-host.rkt` already uses), then runs the
-  client workloads against it, then tears it down.
+  `conformance/goblins-peer/racket/goblins-host.rkt` already uses), then runs
+  the client workloads against it, then tears it down.
 - Client workloads run in their own process and open real TCP connections.
 
 ## Build integration
@@ -175,9 +175,9 @@ contain no application logic.
 
 - **A full Goblins-compatibility library.** The suite shares only the actor
   surface a benchmark app needs (`{spawn,$,<-,on,methods,bcom}` + the small
-  bootstrap verbs). Running arbitrary unmodified Goblins programs (machines, full
-  sturdyref/pipelining/error taxonomy, vat lifecycle) is a much larger surface
-  and is not built here.
+  bootstrap verbs). Running arbitrary unmodified Goblins programs (machines,
+  full sturdyref/pipelining/error taxonomy, vat lifecycle) is a much larger
+  surface and is not built here.
 - **A wall-clock performance gate.** This suite reports numbers; it does not
   assert thresholds. A gated, hardware-stable threshold is separate roadmap work
   (`docs/roadmap.md`, "Enforced wall-clock performance gate").
@@ -195,6 +195,6 @@ contain no application logic.
   version change is absorbed.
 - **Noisy timing.** Multiple trials, warmup, reported percentiles, and an
   acknowledgement that absolute numbers are environment-dependent; the
-  pancake-vs-Goblins *ratio* on one host is the durable signal.
+  pancake-vs-Goblins _ratio_ on one host is the durable signal.
 - **Memory attribution.** Server in its own process; RSS read from `/proc`;
   bytes-per-connection derived from baseline vs. loaded, not guessed.

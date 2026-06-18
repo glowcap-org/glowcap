@@ -142,7 +142,7 @@ pub const AnswerTable = struct {
         return 0;
     }
 
-    /// Number of live answer rows -- the value the inbound-answer cap bounds.
+    /// Number of live answer rows — the value the inbound-answer cap bounds.
     pub fn len(self: *const AnswerTable) usize {
         return self.rows.count();
     }

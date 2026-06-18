@@ -1,10 +1,9 @@
 //! The Ed25519 and SHA-256 work that OCapN's signatures need, and nothing more.
 //!
-//! Three jobs live here. We sign the `acceptable-location-sig` that rides on
-//! `op:start-session`. We sign and check the `desc:sig-envelope` certificates a
-//! handoff carries. And we derive a peer's and a session's identity using the
-//! double-SHA256 the CapTP spec calls for, which gives us `PeerId` and
-//! `SessionId`.
+//! Three jobs live here: sign the `acceptable-location-sig` that rides on
+//! `op:start-session`, sign and check the `desc:sig-envelope` certificates a
+//! handoff carries, and derive a peer's and a session's identity using the
+//! double-SHA256 the CapTP spec calls for (`PeerId` and `SessionId`).
 //!
 //! It's all pure math. Nothing here allocates, does I/O, or keeps global state,
 //! and it builds for `wasm32` as-is. There's one thing you won't find: making
@@ -62,9 +61,6 @@ pub const PeerKey = struct {
     /// check, so callers get to keep passing slices around.
     pub fn fromSlice(bytes: []const u8) CryptoError!PeerKey {
         if (bytes.len != PEER_KEY_BYTES) return CryptoError.MalformedKey;
-        // Copy the slice into a fixed array; the `[0..N]` bound checks the
-        // length. Ed25519 wants the key by value, so this 32-byte copy is just
-        // part of the primitive, same as in std.crypto.
         return .{ .bytes = bytes[0..PEER_KEY_BYTES].* };
     }
 
@@ -92,8 +88,6 @@ pub const Signature = struct {
     pub fn fromParts(r: []const u8, s: []const u8) CryptoError!Signature {
         const half = SIGNATURE_BYTES / 2;
         if (r.len != half or s.len != half) return CryptoError.MalformedSignature;
-        // Join the two halves (the lengths were checked just above). The 64-byte
-        // copy is inherent to a by-value `Signature`.
         var out: [SIGNATURE_BYTES]u8 = undefined;
         out[0..half].* = r[0..half].*;
         out[half..].* = s[0..half].*;
@@ -186,7 +180,7 @@ pub fn verify(pubkey: PeerKey, payload: []const u8, sig: Signature) CryptoError!
 /// We hand-roll the serialization right here, against the Syrup byte spec, so
 /// `foundation` doesn't have to depend on a codec. It comes out byte-for-byte
 /// identical to what the Syrup codec would produce for the same s-expression,
-/// and an oracle fixture keeps it honest.
+/// and an oracle fixture pins that byte-for-byte.
 pub fn derivePublicIdentifier(key: PeerKey) id.PeerId {
     // Stream the gcrypt s-expression straight into SHA256: each structural
     // token and the raw `q` bytes are hashed in place. No staging buffer, so

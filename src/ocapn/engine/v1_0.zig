@@ -33,17 +33,11 @@ pub fn installResolverForOutboundDeliver(peer: *Peer, deliver: model.Deliver) !m
         return .{ .deliver = deliver };
     }
     // Synthesize a promise-shaped resolver export and commit the
-    // answer→export link so the partner's subsequent resolver-callback
-    // deliver translates back into a semantic `Resolve`.
-    const resolver_export = try peer.session_state.allocateExport();
-    try peer.session_state.installOutboundResolver(deliver.answer.?, resolver_export);
-    // The resolver mention goes on the wire below, bypassing
-    // `recordSend` (encode-time augmentation), so it must take the
-    // same wire-delta retain `retainSentExports` would have added.
-    // Without it the partner's matching `op:gc-exports` delta drives
-    // the count to zero and removes the export row while
-    // `v1_0_outbound_resolvers` still points at it.
-    try peer.session_state.retainSentExportRef(.{ .near = model.NearRef.promise(resolver_export) });
+    // answer→export link (plus the wire-delta retain its on-wire mention
+    // needs) through the session's single accounting seam, so the partner's
+    // subsequent resolver-callback deliver translates back into a semantic
+    // `Resolve`.
+    const resolver_export = try peer.session_state.mintOutboundResolver(deliver.answer.?);
     return .{
         .deliver = .{
             .target = deliver.target,
@@ -52,6 +46,39 @@ pub fn installResolverForOutboundDeliver(peer: *Peer, deliver: model.Deliver) !m
             .resolve_me_desc = .{ .near = model.NearRef.promise(resolver_export) },
         },
     };
+}
+
+/// Install the V1.0 carrier for a projection's resolution. A projection
+/// (`op:get`/`op:index`/`op:untag`) opens a new answer, but V1.0 has no wire
+/// `op:resolve` to push that answer's resolution back, and the projection ops
+/// carry no inline `resolve_me_desc` slot the way `op:deliver` does. So once
+/// the projection has shipped, the sender installs a listener on the projected
+/// answer pointed at a synthesized resolver export: when the partner settles
+/// the projection it fires the listener as a `['fulfill|'break, …]` deliver to
+/// that export, which `interceptInboundDeliver` recognizes and surfaces back as
+/// a semantic `Resolve` for the projected answer — the same round trip an
+/// answered deliver earns, carried on a separate `op:listen` frame. The
+/// `op:listen` must reach the wire *after* the projection that opened the
+/// answer; the caller orders the two pushes. V1.0 sessions only — the caller
+/// gates on `Session.needsV1_0Translation`.
+pub fn installListenerForOutboundProjection(peer: *Peer, projected_answer: u64) !void {
+    // Mint the resolver export and commit its answer link and wire-delta retain
+    // through the session's single accounting seam (see
+    // `installResolverForOutboundDeliver`), then carry the mention on `op:listen`.
+    const resolver_export = try peer.session_state.mintOutboundResolver(projected_answer);
+    const wire: model.Message = .{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = projected_answer } },
+        .listener = .{ .near = model.NearRef.promise(resolver_export) },
+        .wants_partial = false,
+    } };
+    var frame = try codec.dispatch.encodeMessageForProfile(
+        peer.session_state.codec,
+        peer.allocator,
+        peer.session_state.wire_profile,
+        wire,
+    );
+    errdefer frame.deinit();
+    try peer.outbound.push(peer.allocator, frame);
 }
 
 /// Encode a semantic `Resolve` as its V1.0 resolver-callback `op:deliver`
@@ -87,16 +114,33 @@ pub fn encodeResolveAsCallback(peer: *Peer, resolve: model.Resolve) !void {
     try peer.outbound.push(peer.allocator, frame);
 }
 
-/// Intercept an inbound V1.0 deliver. Returns the answer a resolver-callback
-/// settles — the caller surfaces a semantic `Resolve` — or null for an
-/// ordinary deliver, first *installing session authority* for the partner's
-/// advertised resolver: a `resolve_me_desc` registers the resolver import
-/// (allocating and installing a virtual inbound answer when the deliver
-/// carries no wire answer-position, the V1.0 resolver-only fetch pattern).
-pub fn interceptInboundDeliver(peer: *Peer, deliver: model.view.Deliver) !?u64 {
+/// The outcome of intercepting an inbound V1.0 deliver.
+pub const InboundIntercept = union(enum) {
+    /// The deliver targets one of our resolver exports: it settles the inbound
+    /// `answer` carried here, and the caller surfaces a semantic `Resolve`.
+    settles_answer: u64,
+    /// An ordinary deliver (to a local object, a pipelined answer, or the
+    /// bootstrap export). `answer_override` is non-null only when the deliver
+    /// carried a `resolve_me_desc` but no wire answer-position: the session
+    /// allocated a virtual inbound answer the surfaced deliver must carry so the
+    /// application's reply routes back through the resolver callback. A deliver
+    /// that already had a wire answer needs no override (the frame carries it),
+    /// so `answer_override` stays null.
+    ordinary: ?u64,
+};
+
+/// Intercept an inbound V1.0 deliver, *installing session authority* for the
+/// partner's advertised resolver: a `resolve_me_desc` registers the resolver
+/// import (allocating and installing a virtual inbound answer when the deliver
+/// carries no wire answer-position, the V1.0 resolver-only call pattern). The
+/// returned `InboundIntercept` tells the caller whether the deliver settles one
+/// of our answers (surface a `Resolve`) or is ordinary — and, for the
+/// resolver-only ordinary case, which virtual answer the surfaced deliver must
+/// carry so the application can reply to it.
+pub fn interceptInboundDeliver(peer: *Peer, deliver: model.view.Deliver) !InboundIntercept {
     if (deliver.target.exportPosition()) |position| {
         if (peer.session_state.answerForResolverExport(position)) |answer| {
-            return answer;
+            return .{ .settles_answer = answer };
         }
     }
     if (deliver.resolve_me_desc) |rmd| {
@@ -116,7 +160,11 @@ pub fn interceptInboundDeliver(peer: *Peer, deliver: model.view.Deliver) !?u64 {
                 break :blk virtual;
             };
             try peer.session_state.installInboundResolver(answer, import_position);
+            // A resolver-only deliver (no wire answer) surfaces with the virtual
+            // answer so the application's reply has a target; a deliver that
+            // already carried a wire answer surfaces unchanged.
+            if (deliver.answer == null) return .{ .ordinary = answer };
         }
     }
-    return null;
+    return .{ .ordinary = null };
 }

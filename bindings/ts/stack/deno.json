@@ -1,0 +1,14 @@
+{
+	"name": "@pancake/stack",
+	"version": "0.1.0",
+	"exports": {
+		".": "./mod.ts",
+		"./transport/tcp": "./transport/tcp.ts",
+		"./transport/inproc": "./transport/inproc.ts",
+		"./ffi": "./ffi.ts"
+	},
+	"tasks": {
+		"smoke": "deno run --allow-ffi --allow-read zig_smoke.ts",
+		"check": "deno check mod.ts transport/tcp.ts transport/inproc.ts ffi.ts zig_smoke.ts"
+	}
+}

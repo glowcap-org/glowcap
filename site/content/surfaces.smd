@@ -19,7 +19,7 @@ language you are writing in.
 | --- | --- | --- |
 | [Zig package]($link.page('start')) | Zig | you are in Zig, or want the full engine and its types |
 | C ABI | C, or any FFI host | you are embedding in C, or wrapping from a runtime with no binding yet |
-| [Bindings]($link.page('bindings')) | Rust, Deno, Python, Racket | you are in one of those four languages |
+| [Bindings]($link.page('bindings')) | Rust, TypeScript, Python, Racket | you are in one of those four languages |
 
 ## The Zig package
 
@@ -34,23 +34,25 @@ declarations you import, with their ownership and lifetime notes, are the genera
 
 ## The C ABI
 
-The same code compiles to `libpancake.a` and `libpancake.so` with a single header,
-`pancake.h`. The surface is deliberately boring: opaque handles, fixed-width return
-codes, `ptr + len` views, callbacks, and explicit release functions. That is what
-lets a consumer wrap it well without knowing any Zig. The header is generated from
-the same Zig declarations the library compiles, so it can never silently disagree
-with the binary, and the optional iroh transport adds `pancake_iroh.h` as a superset.
+The same code compiles to a set of composable archives, linked à la carte, each in
+static (`.a`) and shared (`.so`) form: `libpancake_ocapn` carries the sans-io peer
+and the shared vocabulary in `pancake_ocapn.h`, and each transport is its own archive
+and header (`libpancake_net_transport_tcp` with `pancake_net_transport_tcp.h`,
+`libpancake_net_transport_inproc` with `pancake_net_transport_inproc.h`). The surface is
+deliberately boring: opaque handles, fixed-width return codes, `ptr + len` views,
+callbacks, and explicit release functions. That is what lets a consumer wrap it well
+without knowing any Zig. Each header is generated from the same Zig declarations the
+archive compiles, so it can never silently disagree with the binary, and the optional
+iroh transport adds `pancake_net_transport_iroh.h` as a companion (it includes `pancake_ocapn.h` and
+adds only the `pancake_iroh_*` family; a consumer links it alongside the core archives).
 [Consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md)
 walks the build, the artifacts, the ownership rules, and a first complete program.
 
 ## The bindings
 
-A binding already did the C wrapping and presents an idiomatic API, so you write
-the language you already know. Each one is also a *dogfood*: it drives a real OCapN
-round-trip through the C ABI on every build, so a wire-shape or ABI regression is
-caught by an actual foreign-language consumer, not a Zig test pretending to be one.
-The [Bindings]($link.page('bindings')) page has the shared shape and the per-language
-tours.
+A binding already did the C wrapping and presents an idiomatic API. See
+[Bindings]($link.page('bindings')) for the shared shape, per-language tours, and how
+each one dogfoods the archives on every build.
 
 ## One library, one build, one engine
 
@@ -64,7 +66,7 @@ once; the [Concepts]($link.page('concepts')) page walks that handshake. The surf
 also come from one build: every artifact above is produced by `zig build`, and the
 single command `zig build check` proves the whole tree at once: the gate, examples,
 dogfoods, and interop. The full step catalog lives in
-[the execution model](https://codeberg.org/jimisaacs/pancake/src/branch/main/.agents/rules/cli.md).
+[the build catalog](https://codeberg.org/jimisaacs/pancake/src/branch/main/README.md#build).
 
 The one place the surfaces diverge is encryption: iroh rides a separate optional
 artifact, which the [Transports]($link.page('transports')) page covers.

@@ -1,0 +1,16 @@
+{
+  "workspace": ["./stack", "./iroh"],
+  "fmt": {
+    "useTabs": true,
+    "indentWidth": 4,
+    "lineWidth": 100,
+    "semiColons": true,
+    "singleQuote": false,
+    "include": ["**/*.ts"]
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}

@@ -44,7 +44,7 @@ The framework-shaped pieces sit on top of the core, never inside it.
   `$`, send it eventually with `<-`, and observe the promise that comes back. It
   adds no protocol semantics the engine lacks; it is the friendlier face on top of
   the substrate.
-- **net_adapter** is the one place `std.Io` is allowed in. A netlayer is a contract
+- **net** is the one place `std.Io` is allowed in. A netlayer is a contract
   the core dispatches against rather than a privileged built-in, so a transport is a
   resident you register. Three ship today: cleartext TCP, an in-process switchboard
   for whole conversations inside one process, and [iroh](https://www.iroh.computer/)'s
@@ -67,7 +67,7 @@ The framework-shaped pieces sit on top of the core, never inside it.
 Two surfaces carry pancake out to the people building on it, and the
 [Surfaces]($link.page('surfaces')) page is the consumer's-eye view of both.
 
-- **c_abi** is the boring public surface, and boring is the compliment. It is opaque
+- **c_abi** is the deliberate public surface: opaque
   handles, fixed-width return codes, `ptr + len` views, callbacks, and explicit
   release, so a consumer can wrap it well without knowing any Zig.
 - **driver** is the native application surface. It binds an actor vat to a live
@@ -75,5 +75,5 @@ Two surfaces carry pancake out to the people building on it, and the
   small vocabulary of verbs instead of hand-writing an open-pump-dispatch loop.
 
 The [bindings]($link.page('bindings')) are that same application surface once more, in
-Rust, Deno, Python, and Racket. Each consumes the C ABI and presents it in its own
+Rust, TypeScript, Python, and Racket. Each consumes the C ABI and presents it in its own
 idiom, which is why an app reads like an app no matter the language.

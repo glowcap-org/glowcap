@@ -19,7 +19,7 @@ pub fn main() !void {
     defer a.free(committed);
 
     if (!std.mem.eql(u8, committed, bytes)) {
-        std.debug.print("gen-header-iroh: {s} is stale. Run `zig build gen-header-iroh` and commit it.\n", .{header_gen.header_path});
+        std.debug.print("gen-header-net-transport-iroh: {s} is stale. Run `zig build gen-header-net-transport-iroh` and commit it.\n", .{header_gen.header_path});
         return error.HeaderStale;
     }
 }

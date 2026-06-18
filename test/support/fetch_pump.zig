@@ -1,4 +1,4 @@
-//! Bootstrap-fetch settlement choreography shared by the net_adapter
+//! Bootstrap-fetch settlement choreography shared by the net
 //! loopback tests.
 //!
 //! Test support (not a production module): the blocking-pump clients
@@ -14,7 +14,7 @@ const pancake = @import("pancake");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
-const net_adapter = pancake.net_adapter;
+const net = pancake.net;
 
 /// True once the peer's session has reached `open` — the `runUntil` predicate
 /// for handshake completion.
@@ -34,7 +34,7 @@ pub fn drainEvents(peer: *engine.Peer) void {
 /// pump the connection until the session opens, and drop the handshake events.
 pub fn handshakeToOpen(
     peer: *engine.Peer,
-    conn: *net_adapter.Connection,
+    conn: *net.Connection,
     start_session: model.Message,
 ) !void {
     try peer.sendCopying(start_session);
@@ -86,7 +86,7 @@ pub fn matchFetchEvent(
 pub fn settleFetch(
     allocator: std.mem.Allocator,
     peer: *engine.Peer,
-    conn: *net_adapter.Connection,
+    conn: *net.Connection,
     swissnum: []const u8,
 ) !model.Reference {
     const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &peer.session_state, swissnum);

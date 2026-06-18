@@ -5,7 +5,8 @@ behavior and Spritely Goblins fixtures are the conformance authority.
 
 ## Read first
 
-1. [docs/vision.md](docs/vision.md) — where the project is going; read before scoping.
+1. [docs/vision.md](docs/vision.md) — where the project is going; read before
+   scoping.
 2. [docs/architecture.md](docs/architecture.md) — memory, C ABI, and layer
    boundaries, plus the session representation.
 3. [AGENTS.md](AGENTS.md) — first principles, the Start Here router, and the
@@ -21,9 +22,9 @@ Substantial changes (features, sweeps, architectural moves) also follow
 
 **In scope:** the CapTP loop; both codecs (Syrup, Cap'n Proto) and the
 codec-dispatch boundary; the session state machine and tables; negotiation and
-feature sets; the caller-owned `Peer` engine; the `net_adapter` netlayer
-contract and its residents (tcp, inproc, iroh); the C ABI surface; wire and
-vocabulary decisions.
+feature sets; the caller-owned `Peer` engine; the `net` netlayer contract and
+its residents (tcp, inproc, iroh); the C ABI surface; wire and vocabulary
+decisions.
 
 **Out of scope:** new authority models; `std.Io` in the sync no-I/O core
 (`foundation` / `model` / `codec` / `session` / `engine`); authority decisions
@@ -36,7 +37,7 @@ Settled decisions land as ADRs in [docs/decisions/adr/](docs/decisions/adr/);
 start from [the template](docs/decisions/adr/template.md). Write one when a
 change affects codec / netlayer boundaries, the session state machine,
 negotiation, wire capability semantics, vocabulary, or layer separation — and
-flip it to `accepted` *before* code is built against it.
+flip it to `accepted` _before_ code is built against it.
 
 ## Conventions
 
@@ -45,10 +46,11 @@ flip it to `accepted` *before* code is built against it.
 - **Authority lives in the session.** Codecs parse and render; they never decide
   whether a reference, answer, export, import, or release is valid.
 - **Copies are named.** Every wire-path allocation or copy is forbidden,
-  intentional, or measured — see [.agents/rules/memory.md](.agents/rules/memory.md).
+  intentional, or measured — see
+  [.agents/rules/memory.md](.agents/rules/memory.md).
 - **Cap'n Proto vs capnp.** "Cap'n Proto" in prose; `capnp` in identifiers.
-- **No external taste-reference names** in committed files; express the intent as
-  Zig-native control, vocabulary, and tests.
+- **No external taste-reference names** in committed files; express the intent
+  as Zig-native control, vocabulary, and tests.
 - **Write the design first.**
 
 ## Review cadence
@@ -61,9 +63,8 @@ turnaround is best-effort too.
 
 ## Dev environment
 
-The committed [`.devcontainer/`](.devcontainer/) is the canonical
-ready-to-build environment. Open with _Dev Containers: Reopen in Container_,
-then:
+The committed [`.devcontainer/`](.devcontainer/) is the canonical ready-to-build
+environment. Open with _Dev Containers: Reopen in Container_, then:
 
 ```sh
 bash .devcontainer/post-create.sh

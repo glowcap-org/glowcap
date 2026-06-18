@@ -1,4 +1,4 @@
-#include "pancake.h"
+#include "pancake_ocapn.h"
 
 #include <stdalign.h>
 #include <stddef.h>
@@ -55,8 +55,6 @@ int main(void) {
         return 1;
     }
 
-    /* The host arena carried the context object and the peer; releasing the peer
-       and then the context returns every one through host_free. */
     pancake_peer_release(peer);
     pancake_context_release(ctx);
 

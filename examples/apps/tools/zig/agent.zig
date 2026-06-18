@@ -15,7 +15,7 @@ const pancake = @import("pancake");
 
 const actors = pancake.actors;
 const driver = pancake.driver;
-const tcp = pancake.net_adapter.tcp;
+const tcp = pancake.net.tcp;
 
 const host = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
@@ -61,8 +61,10 @@ pub fn main(init: std.process.Init) !void {
     const nick = args.next() orelse return fail("missing <nick>");
     const port = try std.fmt.parseInt(u16, port_str, 10);
 
-    const address = try tcp.parseHostPort(host, port);
-    var conn = try driver.connect(io, allocator, address, .{ .frame_cap = frame_cap });
+    var tcp_resident = tcp.Resident{ .io = io };
+    var designator_buf: [64]u8 = undefined;
+    const designator = try std.fmt.bufPrint(&designator_buf, "{s}:{d}", .{ host, port });
+    var conn = try driver.connect(&.{tcp_resident.netlayer()}, allocator, tcp.at(designator), .ephemeral, .{ .frame_cap = frame_cap });
     defer conn.close();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -72,19 +74,16 @@ pub fn main(init: std.process.Init) !void {
     const tools = try conn.fetch("tools");
     var ok = true;
 
-    // 1. Delegation: get a clock capability and call it.
     const clock = try grant(conn, tools, "grant", "clock", arena);
     const now = try conn.call(clock, .{ .verb = "now", .args = &.{} }, arena);
     ok = check(nick, "delegation: was handed a clock and called it", fulfilledInteger(now)) and ok;
 
-    // 2. Attenuation: a read-only file capability reads but refuses writes.
     const files = try grant(conn, tools, "grant", "files-readonly", arena);
     const read = try conn.call(files, .{ .verb = "read", .args = &.{.{ .string = "report.txt" }} }, arena);
     ok = check(nick, "attenuation: read through the read-only view", fulfilledString(read)) and ok;
     const write = try conn.call(files, .{ .verb = "write", .args = &.{ .{ .string = "report.txt" }, .{ .string = "tampered" } } }, arena);
     ok = check(nick, "attenuation: write is refused", write == .broken) and ok;
 
-    // 3. Revocation: a revocable handle works, then breaks after revoke.
     const revocable = try grant(conn, tools, "grant-revocable", "clock", arena);
     const before = try conn.call(revocable, .{ .verb = "now", .args = &.{} }, arena);
     ok = check(nick, "revocation: the handle works before revoke", fulfilledInteger(before)) and ok;

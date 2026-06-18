@@ -13,7 +13,7 @@ pub fn main() !void {
     defer a.free(committed);
 
     if (!std.mem.eql(u8, committed, bytes)) {
-        std.debug.print("gen-header: {s} is stale. Run `zig build gen-header` and commit it.\n", .{header_gen.header_path});
+        std.debug.print("gen-header-ocapn: {s} is stale. Run `zig build gen-header-ocapn` and commit it.\n", .{header_gen.header_path});
         return error.HeaderStale;
     }
 }

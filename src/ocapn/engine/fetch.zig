@@ -9,7 +9,7 @@
 //! comes the wire loop, which is the adapter's job, not ours: send the message,
 //! and hand each reply to the matcher. Finally, `tryMatchFetchOutcome` looks at an
 //! inbound message and decides whether it settles our fetch, or is just unrelated
-//! traffic the caller should set aside for now.
+//! traffic the caller should buffer as unrelated.
 //!
 //! The matcher accepts both forms the spec allows: an `op:resolve` keyed on the
 //! answer (PreSpec), and an `op:deliver` to the resolver export carrying

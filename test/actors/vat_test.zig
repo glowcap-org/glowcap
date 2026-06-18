@@ -308,7 +308,7 @@ test "a turn's local send built in turn.arena survives the next turn's arena res
 
     const sink_state: *Sink = blk: {
         const cell = vat.actors.get(sink.local) orelse return error.NoSuchActor;
-        break :blk @ptrCast(@alignCast(cell.state));
+        break :blk @ptrCast(@alignCast(cell.box.ptr));
     };
     try std.testing.expectEqualStrings("payload-intact", sink_state.buf[0..sink_state.len]);
 }
@@ -367,4 +367,231 @@ test "a local listener that re-enters drive still reads an intact fulfilled valu
 
     try std.testing.expect(!capture.broke);
     try std.testing.expectEqualStrings("greeting-1", capture.buf[0..capture.len]);
+}
+
+// --- Local time-travel: snapshot / restore -------------------------------
+//
+// Tier 2 (copy-on-write) covers mutable actors that opt into snapshots with a
+// `clone` method; tier 3 (functional become) covers persistent actors that
+// never mutate `self`. The testing allocator fails any test that leaks, so a
+// green run is also the proof that every shared box and every clone is freed
+// exactly once.
+
+/// A mutable counter that opts into snapshots with a deep `clone`. Its `self`
+/// is its state, the tier-2 flavor: the vat copies-on-write a shared box before
+/// a turn mutates it.
+const CloneCounter = struct {
+    n: i64,
+
+    pub fn handle(self: *CloneCounter, turn: *Turn, msg: Message) !model.Argument {
+        _ = turn;
+        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
+        if (std.mem.eql(u8, msg.verb, "increment")) {
+            self.n += 1;
+            return .{ .void = {} };
+        }
+        return error.NoSuchMethod;
+    }
+
+    pub fn clone(self: *const CloneCounter, allocator: std.mem.Allocator) std.mem.Allocator.Error!*CloneCounter {
+        const fresh = try allocator.create(CloneCounter);
+        fresh.* = .{ .n = self.n };
+        return fresh;
+    }
+};
+
+fn getN(vat: *actors.Vat, ref: actors.Ref) !i64 {
+    return (try vat.near(ref, .{ .verb = "get" })).integer;
+}
+
+test "snapshot shares state and copy-on-write isolates a later mutation" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    const counter = try vat.spawn(CloneCounter, .{ .n = 0 });
+    _ = try vat.near(counter, .{ .verb = "increment" }); // n = 1
+
+    var snap = try vat.snapshot();
+    defer snap.deinit();
+
+    // The next turn mutates a *shared* box, so copy-on-write must clone it first;
+    // the snapshot's copy keeps n = 1.
+    _ = try vat.near(counter, .{ .verb = "increment" }); // live n = 2
+    try std.testing.expectEqual(@as(i64, 2), try getN(&vat, counter));
+
+    try vat.restore(&snap);
+    try std.testing.expectEqual(@as(i64, 1), try getN(&vat, counter));
+}
+
+test "two independent snapshots each restore their own revision and are reusable" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    const counter = try vat.spawn(CloneCounter, .{ .n = 0 });
+
+    var s0 = try vat.snapshot(); // n = 0
+    defer s0.deinit();
+    _ = try vat.near(counter, .{ .verb = "increment" }); // n = 1
+    var s1 = try vat.snapshot(); // n = 1
+    defer s1.deinit();
+    _ = try vat.near(counter, .{ .verb = "increment" }); // n = 2
+
+    try vat.restore(&s0);
+    try std.testing.expectEqual(@as(i64, 0), try getN(&vat, counter));
+    try vat.restore(&s1);
+    try std.testing.expectEqual(@as(i64, 1), try getN(&vat, counter));
+    // Reusable: the same snapshot restores again.
+    try vat.restore(&s0);
+    try std.testing.expectEqual(@as(i64, 0), try getN(&vat, counter));
+}
+
+test "a non-cloneable, non-persistent actor makes snapshot fail NotSnapshottable" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    // `Counter` (above) defines no `clone` and is not persistent.
+    const counter = try vat.spawn(Counter, .{ .n = 0 });
+    try std.testing.expectError(actors.Error.NotSnapshottable, vat.snapshot());
+    // The vat is left usable: the failed snapshot shared nothing it kept.
+    _ = try vat.near(counter, .{ .verb = "increment" });
+    try std.testing.expectEqual(@as(i64, 1), try getN(&vat, counter));
+}
+
+test "snapshot and restore refuse a non-quiescent vat with NotQuiescent" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    const counter = try vat.spawn(CloneCounter, .{ .n = 0 });
+    // A queued (undriven) send leaves the vat non-quiescent.
+    _ = try vat.send(counter, .{ .verb = "increment" });
+    try std.testing.expectError(actors.Error.NotQuiescent, vat.snapshot());
+
+    // A snapshot taken at quiescence cannot be restored mid-queue either.
+    try vat.drive();
+    var snap = try vat.snapshot();
+    defer snap.deinit();
+    _ = try vat.send(counter, .{ .verb = "increment" });
+    try std.testing.expectError(actors.Error.NotQuiescent, vat.restore(&snap));
+    try vat.drive();
+}
+
+/// A mutable actor whose state owns heap (a label), so a snapshot must deep-copy
+/// it on write and a restore must free the live copy — the leak check is the
+/// assertion.
+const Ledger = struct {
+    allocator: std.mem.Allocator,
+    label: []u8,
+    n: i64 = 0,
+
+    pub fn handle(self: *Ledger, turn: *Turn, msg: Message) !model.Argument {
+        _ = turn;
+        if (std.mem.eql(u8, msg.verb, "label")) return .{ .bytes = self.label };
+        if (std.mem.eql(u8, msg.verb, "relabel")) {
+            const fresh = try self.allocator.dupe(u8, msg.arg(0).bytes);
+            self.allocator.free(self.label);
+            self.label = fresh;
+            self.n += 1;
+            return .{ .void = {} };
+        }
+        return error.NoSuchMethod;
+    }
+
+    pub fn clone(self: *const Ledger, allocator: std.mem.Allocator) std.mem.Allocator.Error!*Ledger {
+        const fresh = try allocator.create(Ledger);
+        errdefer allocator.destroy(fresh);
+        const label = try allocator.dupe(u8, self.label);
+        fresh.* = .{ .allocator = allocator, .label = label, .n = self.n };
+        return fresh;
+    }
+
+    pub fn deinit(self: *Ledger, allocator: std.mem.Allocator) void {
+        allocator.free(self.label);
+    }
+};
+
+test "snapshot deep-copies heap-owning state and restores it leak-free" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    const ledger = try vat.spawn(Ledger, .{ .allocator = allocator, .label = try allocator.dupe(u8, "v0") });
+
+    var snap = try vat.snapshot();
+    defer snap.deinit();
+
+    // Relabel mutates a shared, heap-owning box: copy-on-write must deep-clone
+    // the label so freeing the live "v1" never touches the snapshot's "v0".
+    _ = try vat.near(ledger, .{ .verb = "relabel", .args = &.{.{ .bytes = "v1" }} });
+    try std.testing.expectEqualStrings("v1", (try vat.near(ledger, .{ .verb = "label" })).bytes);
+
+    try vat.restore(&snap);
+    try std.testing.expectEqualStrings("v0", (try vat.near(ledger, .{ .verb = "label" })).bytes);
+}
+
+/// A persistent actor (tier 3): it never mutates `self`, producing its next
+/// state with `turn.become`. It defines no `clone`, so a snapshot can only admit
+/// it via the persistent (share-only) path.
+const PersistentCounter = struct {
+    pub const snapshot_persistent = true;
+    n: i64,
+
+    pub fn handle(self: *PersistentCounter, turn: *Turn, msg: Message) !model.Argument {
+        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
+        if (std.mem.eql(u8, msg.verb, "increment")) {
+            try turn.become(PersistentCounter, .{ .n = self.n + 1 });
+            return .{ .void = {} };
+        }
+        if (std.mem.eql(u8, msg.verb, "bump-then-fail")) {
+            // Stage a become, then error: the staged value must be discarded.
+            try turn.become(PersistentCounter, .{ .n = 999 });
+            return error.Boom;
+        }
+        return error.NoSuchMethod;
+    }
+};
+
+test "a persistent actor snapshots with no clone method (share-only)" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    const counter = try vat.spawn(PersistentCounter, .{ .n = 5 });
+    // No `clone`, yet the snapshot succeeds: the persistent flavor is admitted by
+    // sharing alone, which `NotSnapshottable` would reject for a mutable actor.
+    var snap = try vat.snapshot();
+    defer snap.deinit();
+    try std.testing.expectEqual(@as(i64, 5), try getN(&vat, counter));
+}
+
+test "functional become installs the new value while snapshots keep the old" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    const counter = try vat.spawn(PersistentCounter, .{ .n = 0 });
+    _ = try vat.near(counter, .{ .verb = "increment" }); // become -> 1
+
+    var snap = try vat.snapshot(); // shares the n = 1 value
+    defer snap.deinit();
+
+    _ = try vat.near(counter, .{ .verb = "increment" }); // become -> 2, new box
+    try std.testing.expectEqual(@as(i64, 2), try getN(&vat, counter));
+
+    try vat.restore(&snap);
+    try std.testing.expectEqual(@as(i64, 1), try getN(&vat, counter));
+}
+
+test "a handler error discards the pending become" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    const counter = try vat.spawn(PersistentCounter, .{ .n = 7 });
+    try std.testing.expectError(error.Boom, vat.near(counter, .{ .verb = "bump-then-fail" }));
+    // The staged become(999) was discarded; the actor keeps its prior state.
+    try std.testing.expectEqual(@as(i64, 7), try getN(&vat, counter));
 }

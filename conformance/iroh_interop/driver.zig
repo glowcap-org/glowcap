@@ -48,7 +48,7 @@ const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
-const net_adapter = pancake.net_adapter;
+const net = pancake.net;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over iroh";
@@ -65,7 +65,7 @@ const Greeter = struct {
 
 /// Server half: accept one partner over iroh, publish the greeter, serve until
 /// the client hangs up.
-fn hostOnce(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerror!void {
+fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -75,7 +75,7 @@ fn hostOnce(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerr
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(listener, allocator, &peer, read_buf, write_buf);
+    var cv = try driver.acceptVia(listener, allocator, &peer, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
     std.debug.print("iroh-interop: server accepted a QUIC stream and opened the keyed session\n", .{});
 
@@ -86,7 +86,7 @@ fn hostOnce(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerr
 /// Prove the shutdown lever: an accept against a closed endpoint returns
 /// `error.ConnectionLost` instead of parking its thread forever — the contract
 /// `Resident.close` exists to provide.
-fn expectAcceptClosed(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerror!void {
+fn expectAcceptClosed(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     var read_buf: [256]u8 = undefined;
@@ -102,7 +102,7 @@ fn expectAcceptClosed(listener: net_adapter.Listener, allocator: std.mem.Allocat
 /// Client half: dial by endpoint id + direct-address hints through the
 /// transport-neutral `connectVia`, fetch the greeter, call it, check the reply.
 fn callOnce(
-    registry: net_adapter.NetlayerRegistry,
+    netlayers: []const net.netlayer.Netlayer,
     designator: []const u8,
     direct_addrs: []const u8,
     allocator: std.mem.Allocator,
@@ -125,7 +125,7 @@ fn callOnce(
         .designator = designator,
         .hints = .{ .entries = &hint_entries },
     };
-    var cv = try driver.connectVia(registry, allocator, &peer, locator, read_buf, write_buf);
+    var cv = try driver.connectVia(netlayers, allocator, &peer, locator, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
     std.debug.print("iroh-interop: client dialed by endpoint id and opened the keyed session\n", .{});
 
@@ -148,7 +148,7 @@ fn callOnce(
 /// greeter. The locator carries an empty hint set, so a successful session
 /// proves the dial was resolved, not hinted.
 fn callByIdOnly(
-    registry: net_adapter.NetlayerRegistry,
+    netlayers: []const net.netlayer.Netlayer,
     designator: []const u8,
     allocator: std.mem.Allocator,
 ) !void {
@@ -166,7 +166,7 @@ fn callByIdOnly(
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(registry, allocator, &peer, locator, read_buf, write_buf);
+    var cv = try driver.connectVia(netlayers, allocator, &peer, locator, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -201,9 +201,10 @@ fn assertPartnerIsNodeId(cv: *driver.ConnectedVat, node_id_hex: []const u8) !voi
 /// responder handshake with `secret` (the endpoint's own key), assert the dialer
 /// arrived as its own node id, then publish and serve.
 fn hostUnified(
-    listener: net_adapter.Listener,
+    listener: net.netlayer.Listener,
     allocator: std.mem.Allocator,
     secret: pancake.foundation.crypto.SecretKey,
+    self_id: []const u8,
     expect_partner_id: []const u8,
 ) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
@@ -215,7 +216,7 @@ fn hostUnified(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptViaWithSecret(listener, allocator, &peer, secret, read_buf, write_buf);
+    var cv = try driver.acceptVia(listener, allocator, &peer, .{ .keyed = .{ .secret = secret, .designator = self_id } }, read_buf, write_buf);
     defer cv.deinit();
     try assertPartnerIsNodeId(&cv, expect_partner_id);
 
@@ -228,7 +229,7 @@ fn hostUnified(
 /// server's session identity is its node id, then fetch and call the greeter so
 /// the unified session is proven to carry real traffic.
 fn callUnified(
-    registry: net_adapter.NetlayerRegistry,
+    netlayers: []const net.netlayer.Netlayer,
     server_id: []const u8,
     self_id: []const u8,
     secret: pancake.foundation.crypto.SecretKey,
@@ -248,7 +249,7 @@ fn callUnified(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectViaWithSecret(registry, allocator, &peer, locator, self_id, secret, read_buf, write_buf);
+    var cv = try driver.connectVia(netlayers, allocator, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = self_id } }, read_buf, write_buf);
     defer cv.deinit();
     try assertPartnerIsNodeId(&cv, server_id);
 
@@ -278,19 +279,17 @@ fn restartCycle(
     var client = try iroh.Resident.init(io, null, .local_discovery);
     defer client.deinit();
 
-    const s_entries = [_]net_adapter.Netlayer{server.netlayer()};
-    const s_registry = net_adapter.NetlayerRegistry{ .entries = &s_entries };
-    const c_entries = [_]net_adapter.Netlayer{client.netlayer()};
-    const c_registry = net_adapter.NetlayerRegistry{ .entries = &c_entries };
+    const s_entries = [_]net.netlayer.Netlayer{server.netlayer()};
+    const c_entries = [_]net.netlayer.Netlayer{client.netlayer()};
 
-    var listener = try s_registry.resolve(iroh.transport_name).?.listen(allocator, .{
+    var listener = try net.netlayer.resolve(&s_entries, iroh.transport_name).?.listen(allocator, .{
         .designator = "",
         .hints = model.Hints.emptyFalse(),
     });
     defer listener.close();
 
     var host = try io.concurrent(hostOnce, .{ listener, allocator });
-    const client_result = callByIdOnly(c_registry, dial_id, allocator);
+    const client_result = callByIdOnly(&c_entries, dial_id, allocator);
     if (client_result) |_| {} else |err| {
         std.debug.print("iroh-interop: durable-identity client failed: {s}\n", .{@errorName(err)});
         server.close();
@@ -307,9 +306,6 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    // Two endpoints, two Ed25519 endpoint identities — one per peer, exactly
-    // as two processes (or two hosts) would hold them. This pair is the
-    // relay-less `direct` posture: dialed by id plus direct-address hints.
     var server = iroh.Resident.init(io, null, .direct) catch |err| {
         std.debug.print("iroh-interop: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
@@ -327,24 +323,17 @@ pub fn main(init: std.process.Init) !void {
     const server_addrs = try server.directAddrs(&addrs_buf);
     std.debug.print("iroh-interop: server endpoint id {s} direct addrs {s}\n", .{ server_id, server_addrs });
 
-    // The server hosts through the contract listener; the client dials through
-    // the registry on the `iroh` transport symbol — the same transport-neutral
-    // driver path tcp and memory use.
-    const server_entries = [_]net_adapter.Netlayer{server.netlayer()};
-    const server_registry = net_adapter.NetlayerRegistry{ .entries = &server_entries };
-    const client_entries = [_]net_adapter.Netlayer{client.netlayer()};
-    const client_registry = net_adapter.NetlayerRegistry{ .entries = &client_entries };
+    const server_entries = [_]net.netlayer.Netlayer{server.netlayer()};
+    const client_entries = [_]net.netlayer.Netlayer{client.netlayer()};
 
-    var listener = try server_registry.resolve(iroh.transport_name).?.listen(allocator, .{
+    var listener = try net.netlayer.resolve(&server_entries, iroh.transport_name).?.listen(allocator, .{
         .designator = "",
         .hints = model.Hints.emptyFalse(),
     });
     defer listener.close();
 
     var host_future = try io.concurrent(hostOnce, .{ listener, allocator });
-    const client_result = callOnce(client_registry, server_id, server_addrs, allocator);
-    // A failed client leaves the server parked in accept; close the endpoint
-    // so the gate exits nonzero instead of hanging.
+    const client_result = callOnce(&client_entries, server_id, server_addrs, allocator);
     if (client_result) |_| {} else |err| {
         std.debug.print("iroh-interop: client failed: {s}\n", .{@errorName(err)});
         server.close();
@@ -354,16 +343,13 @@ pub fn main(init: std.process.Init) !void {
     try client_result;
     try host_result;
 
-    // Address defects are typed before the sidecar or the network is asked:
-    // a malformed designator and a hint-less locator both refuse as
-    // `InvalidAddress` rather than timing out as `ConnectionLost`.
     {
         var peer = engine.Peer.initNegotiating(allocator);
         defer peer.deinit();
         var read_buf: [256]u8 = undefined;
         var write_buf: [256]u8 = undefined;
-        const bufs: net_adapter.Buffers = .{ .read = &read_buf, .write = &write_buf };
-        const nl = client_registry.resolve(iroh.transport_name).?;
+        const bufs: net.netlayer.Buffers = .{ .read = &read_buf, .write = &write_buf };
+        const nl = net.netlayer.resolve(&client_entries, iroh.transport_name).?;
         if (nl.dial(&peer, .{
             .transport = iroh.transport_name,
             .designator = "not-a-node-id",
@@ -377,18 +363,11 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("iroh-interop: address defects refused as InvalidAddress before touching the network\n", .{});
     }
 
-    // The shutdown lever: close the endpoint and a parked accept returns
-    // `ConnectionLost` instead of hanging its thread.
     var parked = try io.concurrent(expectAcceptClosed, .{ listener, allocator });
     server.close();
     try parked.await(io);
     std.debug.print("iroh-interop: closing the endpoint released the parked accept\n", .{});
 
-    // The seeded-identity bridge: the same 32 seed bytes produce, in pancake's
-    // own crypto and in the sidecar's endpoint, the same Ed25519 public key —
-    // so an endpoint id pancake derives for a key is the id iroh answers to.
-    // The key-unification capstone (one key as both session identity and
-    // transport designator) stands on exactly this fact.
     {
         const seed: [32]u8 = @splat(0x42);
         var seeded = try iroh.Resident.init(io, &seed, .direct);
@@ -401,13 +380,6 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("iroh-interop: a seeded endpoint's id is the Ed25519 key pancake derives from the same seed\n", .{});
     }
 
-    // Dial by id alone: the discovery seam. Two endpoints in the
-    // `local_discovery` posture share a process-local address book, so each
-    // publishes its own address on bind and the client reaches the server with
-    // no direct-address hint on the locator — the lookup half of the transport,
-    // proven deterministically with no relay and no public infrastructure. The
-    // public-internet posture (`.discovery`, the number-0 relays plus DNS/pkarr)
-    // is the same dial-by-id path against real discovery services.
     {
         var d_server = try iroh.Resident.init(io, null, .local_discovery);
         defer d_server.deinit();
@@ -417,19 +389,17 @@ pub fn main(init: std.process.Init) !void {
         var d_id_buf: [iroh.node_id_len]u8 = undefined;
         const d_server_id = d_server.nodeId(&d_id_buf);
 
-        const d_server_entries = [_]net_adapter.Netlayer{d_server.netlayer()};
-        const d_server_registry = net_adapter.NetlayerRegistry{ .entries = &d_server_entries };
-        const d_client_entries = [_]net_adapter.Netlayer{d_client.netlayer()};
-        const d_client_registry = net_adapter.NetlayerRegistry{ .entries = &d_client_entries };
+        const d_server_entries = [_]net.netlayer.Netlayer{d_server.netlayer()};
+        const d_client_entries = [_]net.netlayer.Netlayer{d_client.netlayer()};
 
-        var d_listener = try d_server_registry.resolve(iroh.transport_name).?.listen(allocator, .{
+        var d_listener = try net.netlayer.resolve(&d_server_entries, iroh.transport_name).?.listen(allocator, .{
             .designator = "",
             .hints = model.Hints.emptyFalse(),
         });
         defer d_listener.close();
 
         var d_host = try io.concurrent(hostOnce, .{ d_listener, allocator });
-        const d_client_result = callByIdOnly(d_client_registry, d_server_id, allocator);
+        const d_client_result = callByIdOnly(&d_client_entries, d_server_id, allocator);
         if (d_client_result) |_| {} else |err| {
             std.debug.print("iroh-interop: dial-by-id-alone client failed: {s}\n", .{@errorName(err)});
             d_server.close();
@@ -440,13 +410,6 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("iroh-interop: dialed by endpoint id alone through the discovery address book — no direct-address hints\n", .{});
     }
 
-    // Key unification: one Ed25519 key per peer is at once the iroh node id, the
-    // OCapN locator designator, and the OCapN session signing key. Each side
-    // seeds its endpoint and signs its `op:start-session` with the secret half of
-    // that same seed, so over the live wire the partner's verified session pubkey
-    // equals the node id the transport authenticated equals the signed
-    // designator — asserted on both halves. This rides the dial-by-id discovery
-    // seam: the client reaches the server by id alone, no direct-address hints.
     {
         const crypto = pancake.foundation.crypto;
         const server_seed: [32]u8 = @splat(0x11);
@@ -464,19 +427,17 @@ pub fn main(init: std.process.Init) !void {
         var u_client_buf: [iroh.node_id_len]u8 = undefined;
         const u_client_id = u_client.nodeId(&u_client_buf);
 
-        const u_server_entries = [_]net_adapter.Netlayer{u_server.netlayer()};
-        const u_server_registry = net_adapter.NetlayerRegistry{ .entries = &u_server_entries };
-        const u_client_entries = [_]net_adapter.Netlayer{u_client.netlayer()};
-        const u_client_registry = net_adapter.NetlayerRegistry{ .entries = &u_client_entries };
+        const u_server_entries = [_]net.netlayer.Netlayer{u_server.netlayer()};
+        const u_client_entries = [_]net.netlayer.Netlayer{u_client.netlayer()};
 
-        var u_listener = try u_server_registry.resolve(iroh.transport_name).?.listen(allocator, .{
+        var u_listener = try net.netlayer.resolve(&u_server_entries, iroh.transport_name).?.listen(allocator, .{
             .designator = "",
             .hints = model.Hints.emptyFalse(),
         });
         defer u_listener.close();
 
-        var u_host = try io.concurrent(hostUnified, .{ u_listener, allocator, server_secret, u_client_id });
-        const u_client_result = callUnified(u_client_registry, u_server_id, u_client_id, client_secret, allocator);
+        var u_host = try io.concurrent(hostUnified, .{ u_listener, allocator, server_secret, u_server_id, u_client_id });
+        const u_client_result = callUnified(&u_client_entries, u_server_id, u_client_id, client_secret, allocator);
         if (u_client_result) |_| {} else |err| {
             std.debug.print("iroh-interop: key-unification client failed: {s}\n", .{@errorName(err)});
             u_server.close();
@@ -487,18 +448,8 @@ pub fn main(init: std.process.Init) !void {
         std.debug.print("iroh-interop: one key per peer is the iroh node id, the locator designator, and the session signing key — verified on both halves over the live wire\n", .{});
     }
 
-    // Durable key-as-designator identity (F): a sturdyref is a node id plus a
-    // swiss-number, and both outlive a restart because the identity is the key,
-    // not the process. A vat seeded `dur_seed` publishes the greeter at the
-    // swiss-number "greeter"; its node id is recorded as the sturdyref's
-    // designator. The endpoint is then torn down and a *new* endpoint rebound
-    // from the same seed — same Ed25519 key, so the same node id at a fresh
-    // address — and a client reaches the same published cap through the locator
-    // recorded before the restart, with no re-exchange of addresses.
     {
         const dur_seed: [32]u8 = @splat(0x55);
-        // The persisted sturdyref designator: written once, reused across the
-        // restart. A real deployment would store this in a sturdyref URI.
         var sturdyref: [iroh.node_id_len]u8 = undefined;
 
         {
@@ -507,7 +458,6 @@ pub fn main(init: std.process.Init) !void {
             _ = v1.nodeId(&sturdyref);
             try restartCycle(io, allocator, &v1, sturdyref[0..]);
         }
-        // v1's endpoint is gone here — the restart boundary.
 
         {
             var v2 = try iroh.Resident.init(io, &dur_seed, .local_discovery);
@@ -515,8 +465,6 @@ pub fn main(init: std.process.Init) !void {
             var v2_buf: [iroh.node_id_len]u8 = undefined;
             const v2_id = v2.nodeId(&v2_buf);
             if (!std.mem.eql(u8, v2_id, sturdyref[0..])) return error.NodeIdNotDurable;
-            // Dial the designator recorded *before* the restart, not v2's freshly
-            // read id, so the proof is that the old sturdyref still reaches the cap.
             try restartCycle(io, allocator, &v2, sturdyref[0..]);
         }
         std.debug.print("iroh-interop: a sturdyref (node id + swiss-number) outlives an endpoint restart — same seed, same node id, same published cap reached through the recorded locator\n", .{});

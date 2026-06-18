@@ -243,11 +243,7 @@ pub const PipelinePath = LazySequence(model.PipelineOp, PipelineOp);
 /// The record wrapping is pipeline-path-specific (an empty path collapses to
 /// the shared empty record without touching the allocator), so it lives here
 /// beside the alias; the generic sequence materializes plain slices only.
-pub fn pipelinePathToOwned(path: PipelinePath, allocator: std.mem.Allocator) Error!model.PipelinePath {
-    return pipelinePathToOwnedDepth(path, allocator, 0);
-}
-
-fn pipelinePathToOwnedDepth(path: PipelinePath, allocator: std.mem.Allocator, depth: usize) Error!model.PipelinePath {
+fn pipelinePathToOwned(path: PipelinePath, allocator: std.mem.Allocator, depth: usize) Error!model.PipelinePath {
     const ops = try path.toOwnedSliceDepth(allocator, depth);
     if (ops.len == 0) {
         allocator.free(ops);
@@ -332,7 +328,7 @@ pub const Reference = union(enum) {
             .far => |far| .{ .far = far },
             .promise => |promise| .{ .promise = .{
                 .answer_position = promise.answer_position,
-                .path = try pipelinePathToOwnedDepth(promise.path, allocator, depth),
+                .path = try pipelinePathToOwned(promise.path, allocator, depth),
             } },
             .sturdy => |sturdy| blk: {
                 const peer = try sturdy.peer.toOwned(allocator);
@@ -673,6 +669,13 @@ pub const Body = union(enum) {
         return std.meta.activeTag(self);
     }
 };
+
+comptime {
+    // The borrowed body mirrors `model.Message` arm-for-arm. The codecs' kind
+    // dispatch (`syrup.shared.messageOp`) and `eventKindFromBody` both lean on
+    // that one-to-one shape, so bind it at compile time.
+    model.assertMirrorsMessageKinds(Body);
+}
 
 fn deliverToOwned(allocator: std.mem.Allocator, deliver: Deliver) Error!model.Message {
     const target = try deliver.target.toOwned(allocator);

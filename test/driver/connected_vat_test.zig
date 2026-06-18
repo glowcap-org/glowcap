@@ -16,9 +16,9 @@ const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
-const tcp = pancake.net_adapter.tcp;
+const tcp = pancake.net.tcp;
 
-const net = std.Io.net;
+const ip = std.Io.net;
 
 const frame_cap = 4096;
 
@@ -31,6 +31,95 @@ const Greeter = struct {
         return .{ .string = "hello from the hosting vat" };
     }
 };
+
+/// The taskboard shapes the pipelining test drives: a board whose `create`
+/// mints a fresh task capability, and a task that answers `assign`/`complete`/
+/// `status`. The same shape `bench/langs/host.zig` serves; here it proves the
+/// questioner-side pipelining path end to end.
+const Task = struct {
+    done: bool = false,
+    pub fn handle(self: *Task, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = turn;
+        if (std.mem.eql(u8, msg.verb, "assign")) return .{ .bytes = "assigned" };
+        if (std.mem.eql(u8, msg.verb, "complete")) {
+            self.done = true;
+            return .{ .bytes = "done" };
+        }
+        if (std.mem.eql(u8, msg.verb, "status")) return .{ .bytes = if (self.done) "done" else "open" };
+        return error.NoSuchMethod;
+    }
+};
+
+const Board = struct {
+    pub fn handle(self: *Board, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = self;
+        if (!std.mem.eql(u8, msg.verb, "create")) return error.NoSuchMethod;
+        const cap = try driver.spawnAt(turn.vat, Task, .{});
+        return cap.arg();
+    }
+};
+
+/// Host the board and serve until the client leaves — the pipelining test's
+/// hosting half.
+fn serveBoardOnce(server: *driver.Server) anyerror!void {
+    var conn = try server.accept();
+    defer conn.close();
+    _ = try conn.publish("root", Board, .{});
+    try conn.serve();
+}
+
+/// Drive the taskboard unit with promise pipelining: send `create`, then send
+/// `assign`/`complete`/`status` addressed at the *unresolved* `create` answer,
+/// and only then settle the final `status`. The four delivers flush together on
+/// that settle — none waits for `create` to come back — so the host queues the
+/// three pipelined calls on its pending answer and drains them onto the freshly
+/// spawned task when `create` resolves (ADR-0007's serving half). A correct
+/// `status` of `done` proves the questioner half end to end: a dependent chain
+/// crossed the wire as one batch, not four round trips.
+fn pipelineUnitOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
+    var tcp_resident = tcp.Resident{ .io = io };
+    var buf: [64]u8 = undefined;
+    var conn = try driver.connect(&.{tcp_resident.netlayer()}, allocator, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
+    defer conn.close();
+
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+
+    const root = try conn.fetch("root");
+    const created = try conn.send(root, .{ .verb = "create", .args = &.{.{ .bytes = "benchmark" }} });
+    _ = try conn.sendToAnswer(created, .{ .verb = "assign", .args = &.{.{ .bytes = "alice" }} });
+    _ = try conn.sendToAnswer(created, .{ .verb = "complete" });
+    const status = try conn.sendToAnswer(created, .{ .verb = "status" });
+
+    const settled = try conn.settlePromise(status, arena_state.allocator());
+    switch (settled) {
+        .fulfilled => |arg| {
+            try std.testing.expect(arg == .bytes);
+            try std.testing.expectEqualStrings("done", arg.bytes);
+        },
+        .broken => return error.PipelinedStatusBroke,
+    }
+}
+
+test "driver loopback: promise pipelining drives create->assign->complete->status as one batch and status settles done" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
+    defer server.close();
+    var addr_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
+
+    var host_future = try io.concurrent(serveBoardOnce, .{&server});
+    const client_result = pipelineUnitOnce(io, address, allocator);
+    const host_result = host_future.await(io);
+    try client_result;
+    try host_result;
+}
 
 /// Accept one partner via `driver.acceptTcp` (responder keyed handshake inside),
 /// publish the greeter, and `serve` until the client leaves — whether it closes
@@ -81,7 +170,7 @@ fn onGreeting(ctx: ?*anyopaque, resolution: actors.Resolution) void {
 /// The client reads through a 64-byte buffer — far smaller than any handshake
 /// frame — so every inbound frame on this side assembles in the connection's
 /// bounded spill, proving the small-buffer read path over a real socket.
-fn callOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator) !void {
+fn callOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -115,8 +204,10 @@ fn callOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator) !v
 /// so the client connects, fetches, calls, and closes without peer or buffer
 /// setup. `call` returns the settled outcome materialized into the caller's
 /// arena — no ctx/callback dance.
-fn connectOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator) !void {
-    var conn = try driver.connect(io, allocator, address, .{ .frame_cap = frame_cap });
+fn connectOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
+    var tcp_resident = tcp.Resident{ .io = io };
+    var buf: [64]u8 = undefined;
+    var conn = try driver.connect(&.{tcp_resident.netlayer()}, allocator, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
     defer conn.close();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -150,9 +241,11 @@ test "driver loopback: connect and listen own peers and buffers, fetch + call ro
     defer threaded.deinit();
     const io = threaded.io();
 
-    var server = try driver.listen(io, allocator, .{ .ip4 = net.Ip4Address.loopback(0) }, .{ .frame_cap = frame_cap });
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
     defer server.close();
-    const address = server.localAddress();
+    var addr_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
 
     var host_future = try io.concurrent(serveOnce, .{&server});
     const client_result = connectOnce(io, address, allocator);
@@ -168,7 +261,7 @@ test "driver loopback: acceptTcp publishes and serves the keyed session connectT
     defer threaded.deinit();
     const io = threaded.io();
 
-    var listener = try tcp.Listener.bind(io, .{ .ip4 = net.Ip4Address.loopback(0) });
+    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer listener.deinit();
     const address = listener.localAddress();
 
@@ -183,10 +276,10 @@ test "driver loopback: acceptTcp publishes and serves the keyed session connectT
 }
 
 /// Dial an `ocapn://` URI via `driver.connectUri`: build the URI for the bound
-/// address, parse-and-dial it in one call against a caller-owned registry, then
-/// fetch + call. Proves the URI becomes a connection with no transport branch in
-/// the caller — the registry decides.
-fn dialUriOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator) !void {
+/// address, parse-and-dial it in one call against a caller-owned netlayer slice,
+/// then fetch + call. Proves the URI becomes a connection with no transport
+/// branch in the caller — the slice decides.
+fn dialUriOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var designator_buf: [64]u8 = undefined;
     const designator = try std.fmt.bufPrint(&designator_buf, "{f}", .{address});
     const uri = try model.uri.writePeer(allocator, .{
@@ -205,10 +298,8 @@ fn dialUriOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator)
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var tcp_resident = pancake.net_adapter.tcp.Resident{ .io = io };
-    const residents = [_]pancake.net_adapter.Netlayer{tcp_resident.netlayer()};
-    const registry = pancake.net_adapter.NetlayerRegistry{ .entries = &residents };
-    var cv = try driver.connectUri(registry, allocator, &peer, uri, read_buf, write_buf);
+    var tcp_resident = pancake.net.tcp.Resident{ .io = io };
+    var cv = try driver.connectUri(&.{tcp_resident.netlayer()}, allocator, &peer, uri, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -222,14 +313,14 @@ fn dialUriOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator)
     try std.testing.expect(state.done and state.ok);
 }
 
-test "driver loopback: connectUri parses an ocapn:// URI and dials it through the caller's registry" {
+test "driver loopback: connectUri parses an ocapn:// URI and dials it through the caller's netlayer slice" {
     const allocator = std.testing.allocator;
 
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
 
-    var listener = try tcp.Listener.bind(io, .{ .ip4 = net.Ip4Address.loopback(0) });
+    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer listener.deinit();
     const address = listener.localAddress();
 
@@ -245,7 +336,7 @@ test "driver loopback: connectUri parses an ocapn:// URI and dials it through th
 /// `Error.FetchBroken` rather than a flat failure that could also mean a
 /// non-capability fulfillment, and `fetchSettled` carries the partner's break
 /// reason whole in caller-owned memory.
-fn fetchMissingOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator) !void {
+fn fetchMissingOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -276,7 +367,7 @@ test "driver loopback: a fetch of an unpublished name surfaces Error.FetchBroken
     defer threaded.deinit();
     const io = threaded.io();
 
-    var listener = try tcp.Listener.bind(io, .{ .ip4 = net.Ip4Address.loopback(0) });
+    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer listener.deinit();
     const address = listener.localAddress();
 
@@ -303,8 +394,10 @@ const LocalPing = struct {
 /// anything after the handshake (the host publishes but is never fetched).
 /// Settling into the plain testing allocator and freeing with `Settled.deinit`
 /// also proves the result frees exactly what `call` materialized.
-fn callLocalOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator) !void {
-    var conn = try driver.connect(io, allocator, address, .{ .frame_cap = frame_cap });
+fn callLocalOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
+    var tcp_resident = tcp.Resident{ .io = io };
+    var buf: [64]u8 = undefined;
+    var conn = try driver.connect(&.{tcp_resident.netlayer()}, allocator, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
     defer conn.close();
 
     const cap = try conn.spawn(LocalPing, .{});
@@ -326,9 +419,11 @@ test "driver loopback: call on a locally spawned ref settles with no partner tra
     defer threaded.deinit();
     const io = threaded.io();
 
-    var server = try driver.listen(io, allocator, .{ .ip4 = net.Ip4Address.loopback(0) }, .{ .frame_cap = frame_cap });
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
     defer server.close();
-    const address = server.localAddress();
+    var addr_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
 
     var host_future = try io.concurrent(serveOnce, .{&server});
     const client_result = callLocalOnce(io, address, allocator);
@@ -382,7 +477,7 @@ fn abortingHostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyer
 /// Fetch the greeter and call it against a partner that answers with a typed
 /// abort and leaves: the pending `call` settles broken with the partner's own
 /// diagnostic, and `abortReason` retains the same message.
-fn callAbortedOnce(io: std.Io, address: net.IpAddress, allocator: std.mem.Allocator) !void {
+fn callAbortedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -414,7 +509,7 @@ test "driver loopback: a partner's typed abort breaks the pending call with its 
     defer threaded.deinit();
     const io = threaded.io();
 
-    var listener = try tcp.Listener.bind(io, .{ .ip4 = net.Ip4Address.loopback(0) });
+    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
     defer listener.deinit();
     const address = listener.localAddress();
 
@@ -436,14 +531,12 @@ test "connectUri fails closed on a URI whose transport has no registered residen
     var read_buf: [256]u8 = undefined;
     var write_buf: [256]u8 = undefined;
 
-    var tcp_resident = pancake.net_adapter.tcp.Resident{ .io = io };
-    const residents = [_]pancake.net_adapter.Netlayer{tcp_resident.netlayer()};
-    const registry = pancake.net_adapter.NetlayerRegistry{ .entries = &residents };
+    var tcp_resident = pancake.net.tcp.Resident{ .io = io };
 
-    // A syntactically valid URI naming a transport the registry does not host:
+    // A syntactically valid URI naming a transport the slice does not host:
     // the dial refuses rather than silently falling back to tcp.
     try std.testing.expectError(
         driver.Error.UnknownTransport,
-        driver.connectUri(registry, allocator, &peer, "ocapn://node123.quic", &read_buf, &write_buf),
+        driver.connectUri(&.{tcp_resident.netlayer()}, allocator, &peer, "ocapn://node123.quic", .ephemeral, &read_buf, &write_buf),
     );
 }

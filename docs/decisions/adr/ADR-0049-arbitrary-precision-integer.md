@@ -14,46 +14,45 @@ superseded_by: []
 
 The OCapN Integer is arbitrary-precision (Model.md § Integer), and Goblins
 marshals Racket bignums. pancake modelled `integer` as `i64` and refused a
-magnitude outside that range at decode — a pinned fail-closed boundary, and
-the last missing atom of the passable set. Completing it has one design
-question: what bytes represent the magnitude in the codec-neutral model?
-Syrup carries decimal digits on the wire; a binary (limb) representation
-would force a decimal↔binary conversion inside the Syrup codec, which both
-allocates on the zero-copy borrowed-view path and drags bignum arithmetic
-into the tree.
+magnitude outside that range at decode — a pinned fail-closed boundary, and the
+last missing atom of the passable set. Completing it has one design question:
+what bytes represent the magnitude in the codec-neutral model? Syrup carries
+decimal digits on the wire; a binary (limb) representation would force a
+decimal↔binary conversion inside the Syrup codec, which both allocates on the
+zero-copy borrowed-view path and drags bignum arithmetic into the tree.
 
 ## Decision
 
 - **The model carries the sign plus the canonical decimal magnitude.**
-  `model.BigInteger` is `negative: bool` + `digits: []const u8`. Canonical
-  means non-empty ASCII `0-9`, no leading zero, magnitude outside `i64`
-  (`BigInteger.isCanonical`, the type's own invariant). Both wire codecs
-  carry exactly these bytes — Syrup as the integer's digit run, Cap'n Proto
-  as a data field with the sign on the discriminant word — so the borrowed
-  view *borrows* the digits from the frame on both codecs and no conversion
-  or bignum arithmetic exists anywhere in the tree.
+  `model.BigInteger` is `negative: bool` + `digits: []const u8`. Canonical means
+  non-empty ASCII `0-9`, no leading zero, magnitude outside `i64`
+  (`BigInteger.isCanonical`, the type's own invariant). Both wire codecs carry
+  exactly these bytes — Syrup as the integer's digit run, Cap'n Proto as a data
+  field with the sign on the discriminant word — so the borrowed view _borrows_
+  the digits from the frame on both codecs and no conversion or bignum
+  arithmetic exists anywhere in the tree.
 - **The arm split is canonical, so equality is bytewise.** Decode produces
   `integer` for every value in the `i64` range (including both exact bounds;
-  `minInt`'s magnitude is the one asymmetry) and `big_integer` only outside
-  it. Two arms never spell one arithmetic value, so Pass Invariant Equality
-  over big integers is sign + digit bytes, with no cross-arm case.
+  `minInt`'s magnitude is the one asymmetry) and `big_integer` only outside it.
+  Two arms never spell one arithmetic value, so Pass Invariant Equality over big
+  integers is sign + digit bytes, with no cross-arm case.
 - **Refusal is symmetric (ADR-0003).** A non-canonical big integer — leading
   zeros, non-digits, or a magnitude that belongs to the `integer` arm — is a
   malformed frame on decode and an unsupported argument on encode, in both
   codecs and at the C ABI boundary (`PANCAKE_ARG_BIG_INTEGER`, which reuses
   `bytes`/`bytes_len` for digits and `boolean` for the sign). Only canonical
   bytes ever cross any boundary.
-- **Arithmetic is the application's job.** pancake transports and compares
-  the value; it does not compute with it. A consumer parses the digits into
-  its own bignum type.
+- **Arithmetic is the application's job.** pancake transports and compares the
+  value; it does not compute with it. A consumer parses the digits into its own
+  bignum type.
 
 ## Scope (what this does not decide)
 
-- OCapN Null stays fail-closed: Goblins has no Null marshalling and the
-  upstream encoding is unsettled (ADR-0046 context holds).
-- The protocol-position integers (export/answer positions, list indexes,
-  wire deltas) stay `u64`/`i64`; arbitrary precision applies to the passable
-  value space only.
+- OCapN Null stays fail-closed: Goblins has no Null marshalling and the upstream
+  encoding is unsettled (ADR-0046 context holds).
+- The protocol-position integers (export/answer positions, list indexes, wire
+  deltas) stay `u64`/`i64`; arbitrary precision applies to the passable value
+  space only.
 
 ## Consequences
 
@@ -61,7 +60,6 @@ into the tree.
 - `model.Argument` does not grow: the arm is 24 bytes against the 80-byte
   reference arm that sizes the union.
 - The proof chain: layer unit tests, cross-codec equivalence, byte parity
-  against the upstream Racket Syrup encoder
-  (`op_deliver_arg_big_integer.bin`, `prim_integer_big_neg.bin`), and the
-  live `goblins-interop` echo, which round-trips 2^100 through a real
-  Racket bignum in both directions.
+  against the upstream Racket Syrup encoder (`op_deliver_arg_big_integer.bin`,
+  `prim_integer_big_neg.bin`), and the live `goblins-interop` echo, which
+  round-trips 2^100 through a real Racket bignum in both directions.

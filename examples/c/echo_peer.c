@@ -1,11 +1,19 @@
 /* An in-process echo conversation between two peers, driven entirely through
-   pancake.h. This is the reference shape of a C event loop: pump bytes with
-   recv_stream, advance with step, drain with take_outbound, and route events
-   by peek_event into the typed polls. No sockets — the two peers exchange
-   their frames through plain memory, which is exactly what the sans-I/O
-   contract promises a host can do. */
+   the sans-io ocapn surface (pancake_ocapn.h). This is the reference shape of a
+   C event loop: pump bytes with recv_stream, advance with step, drain with
+   take_outbound, and route events by peek_event into the typed polls. No
+   sockets — the two peers exchange their frames through plain memory, which is
+   exactly what the sans-I/O contract promises a host can do. It links the ocapn
+   base plus the TCP transport archive (ADR-0059) to show a real composed link
+   line stays symbol-disjoint even when the program drives only the base.
 
-#include "pancake.h"
+   This is the host's view: a host that owns its event loop drives the peer by
+   hand. The owning, Connection-shaped client surface — dial, handshake, fetch,
+   call — is pancake_tcp_session_* in pancake_net_transport_tcp.h (ADR-0062); its
+   worked round-trip against a hosting peer lives in
+   test/c_abi/tcp_session_test.zig. */
+
+#include "pancake_ocapn.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -18,20 +26,18 @@ static int pump(PancakePeer *from, PancakePeer *to) {
         PancakeManagedFrame frame;
         int32_t rc = pancake_peer_take_outbound(from, &frame);
         if (rc == PANCAKE_ERR_WOULD_BLOCK) {
-            return PANCAKE_OK; /* queue drained */
+            return PANCAKE_OK;
         }
         if (rc != PANCAKE_OK) {
             return rc;
         }
 
-        /* Feed the frame's bytes as a byte stream: recv_stream consumes one
-           whole frame per call and reports how many bytes it took. */
         size_t offset = 0;
         while (offset < frame.len) {
             size_t consumed = 0;
             rc = pancake_peer_recv_stream(to, frame.bytes + offset, frame.len - offset, &consumed);
             if (rc == PANCAKE_ERR_WOULD_BLOCK) {
-                break; /* partial frame: a socket loop would read more */
+                break;
             }
             if (rc != PANCAKE_OK) {
                 pancake_managed_frame_release(&frame);
@@ -73,9 +79,6 @@ static int settle(PancakePeer *a, PancakePeer *b) {
 }
 
 int main(void) {
-    /* Two already-open fixture peers: the host publishes, the client calls.
-       A real connection would use pancake_peer_new and the keyed
-       pancake_peer_start_session handshake first. */
     PancakePeer *host = NULL;
     PancakePeer *client = NULL;
     if (pancake_peer_new_raw_open(&host) != PANCAKE_OK ||
@@ -83,22 +86,15 @@ int main(void) {
         return 1;
     }
 
-    /* A raw-open fixture skips the handshake, so install the well-known
-       bootstrap export the open transition would have registered. A peer that
-       handshakes gets this for free. */
     if (pancake_peer_register_export(host, PANCAKE_BOOTSTRAP_POSITION) != PANCAKE_OK) {
         return 1;
     }
 
-    /* The host publishes an echo capability behind the name "echo". The
-       library answers the client's bootstrap fetch for it automatically. */
     uint64_t echo_export = 0;
     if (pancake_peer_register_bootstrap_cap(host, (const uint8_t *)"echo", 4, &echo_export) != PANCAKE_OK) {
         return 1;
     }
 
-    /* The client asks for it by name: one call registers the bootstrap
-       import, allocates the question id, and queues the canonical fetch. */
     uint64_t fetch_answer = 0;
     if (pancake_peer_send_bootstrap_fetch(client, (const uint8_t *)"echo", 4, &fetch_answer) != PANCAKE_OK) {
         return 1;
@@ -107,7 +103,6 @@ int main(void) {
         return 1;
     }
 
-    /* The fetch settles as a typed resolve carrying the capability. */
     if (pancake_peer_peek_event(client) != PANCAKE_EVENT_RESOLVE) {
         return 1;
     }
@@ -125,7 +120,6 @@ int main(void) {
     pancake_resolve_release(&fetched);
     printf("fetched \"echo\" as import %llu\n", (unsigned long long)echo_cap.id);
 
-    /* Call it: deliver ["hello"] and ask for a reply on a fresh answer. */
     uint64_t call_answer = 0;
     if (pancake_peer_next_answer(client, &call_answer) != PANCAKE_OK) {
         return 1;
@@ -142,9 +136,6 @@ int main(void) {
         return 1;
     }
 
-    /* The host's event loop: route by kind, take each typed deliver, and serve
-       the one addressed to the echo export (the bootstrap fetch also surfaces
-       as a deliver event; the library already answered it). */
     PancakeDeliver call;
     for (;;) {
         if (pancake_peer_peek_event(host) != PANCAKE_EVENT_DELIVER) {
@@ -172,7 +163,6 @@ int main(void) {
         return 1;
     }
 
-    /* The reply lands on the client as a resolve keyed on the call's answer. */
     PancakeResolve reply;
     if (pancake_peer_poll_event_resolve(client, &reply) != PANCAKE_OK) {
         return 1;

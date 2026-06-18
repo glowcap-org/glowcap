@@ -1,5 +1,5 @@
 //! `driver.LoopDialer` end to end: the completion loop as the client fan-out
-//! surface above `net_adapter`, paired with the existing blocking host API.
+//! surface above `net`, paired with the existing blocking host API.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -9,9 +9,9 @@ const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
-const tcp = pancake.net_adapter.tcp;
+const tcp = pancake.net.tcp;
 
-const net = std.Io.net;
+const ip = std.Io.net;
 
 const frame_cap = 4096;
 const client_count = 6;
@@ -159,7 +159,7 @@ test "driver.LoopDialer: dialed clients fetch and call through the completion lo
     defer threaded.deinit();
     const io = threaded.io();
 
-    var listener = try tcp.Listener.bind(io, try net.IpAddress.parse("127.0.0.1", 0));
+    var listener = try tcp.Listener.bind(io, try ip.IpAddress.parse("127.0.0.1", 0));
     defer listener.deinit();
     const address = listener.localAddress();
 
@@ -213,7 +213,7 @@ test "driver.LoopDialer: a refused dial fires on_close with opened == false and 
     const io = threaded.io();
 
     // Bind and immediately tear down a listener so the port is known-refusing.
-    var listener = try tcp.Listener.bind(io, try net.IpAddress.parse("127.0.0.1", 0));
+    var listener = try tcp.Listener.bind(io, try ip.IpAddress.parse("127.0.0.1", 0));
     const address = listener.localAddress();
     listener.deinit();
 

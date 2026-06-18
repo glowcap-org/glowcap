@@ -69,7 +69,7 @@
 
   ;; `connect` completes the keyed handshake; reaching the fetch means Goblins
   ;; accepted our signed start-session and we accepted its.
-  (define conn (connect HOST PORT))
+  (define conn (connect (tcp-locator HOST PORT)))
   (printf "racket-goblins-interop: session open, keyed start-session accepted by goblins\n")
 
   (define echo (conn-fetch conn swiss))

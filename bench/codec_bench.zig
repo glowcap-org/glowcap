@@ -1,21 +1,12 @@
-//! Throughput benchmarks for the wire path the alloc-budget test counts but
-//! does not time: codec encode/decode and steady-state inbound dispatch, plus a
-//! sparse partner-position table-population check.
+//! Throughput benchmarks for codec encode/decode, steady-state inbound dispatch,
+//! and sparse export-table inserts.
 //!
-//! Performance is a public contract, but the two halves of that contract are
-//! enforced differently. The alloc-budget test gates the count with a `== 1`
-//! assertion that fails the build. This benchmark reports ns/op and MB/s as
-//! visible numbers, not as a gated threshold. No test asserts a wall-clock bound.
-//! Under `zig build check` it runs in Debug, the default optimize mode, where the
-//! numbers are roughly an order of magnitude slower than ReleaseFast. Read the
-//! printed `mode=` field: Debug numbers track regressions relative to each other,
-//! not absolute throughput. Run directly with `-Doptimize=ReleaseFast` for the
-//! real figures. A gated, release-pinned wall-clock threshold needs a stable
-//! benchmark harness.
+//! The alloc-budget test gates per-turn allocation count (`== 1`); this bench
+//! reports ns/op and MB/s as visible numbers, not gated thresholds. Under
+//! `zig build check` it runs in Debug — read the printed `mode=` field and compare
+//! relative regressions, or run with `-Doptimize=ReleaseFast` for absolute figures.
 //!
-//! Timing rides a `std.Io` monotonic clock (`.awake`). A benchmark is an
-//! adapter-shaped program, so it may name `std.Io`; the clock stays in the
-//! harness and never enters the sync no-I/O core being measured.
+//! Timing uses `std.Io`'s monotonic clock (`.awake`) in the harness only.
 
 const std = @import("std");
 const builtin = @import("builtin");
@@ -59,7 +50,7 @@ fn benchEncode(
     message: model.Message,
     iters: usize,
 ) !void {
-    // One warm encode to learn the frame size for the throughput figure.
+    // Warm encode to learn frame size for the throughput figure.
     var probe = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.WireProfile.v1_0, message);
     const frame_len = probe.bytes().len;
     probe.deinit();
@@ -98,9 +89,7 @@ fn benchDecode(
 }
 
 /// Steady-state inbound dispatch: feed a borrowed `op:deliver` to a live export
-/// and drain the surfaced event, `turns` times. Complements
-/// `test/engine/alloc_budget_test.zig` (which fixes the per-turn allocation
-/// count at 1) with the wall-clock cost of that one-allocation turn.
+/// and drain the surfaced event. Complements `test/engine/alloc_budget_test.zig`.
 fn benchDispatch(io: std.Io, allocator: std.mem.Allocator, turns: usize) !void {
     const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
     var peer = engine.Peer.init(allocator);
@@ -130,8 +119,8 @@ fn driveOneTurn(peer: *engine.Peer, frame_bytes: []const u8) !void {
 /// Populate the export table with `count` *sparse* positions (stride well above
 /// 1 so a flat backing store would balloon) and time the inserts. The tables are
 /// integer-keyed hashes precisely so a hostile partner naming sparse positions
-/// cannot force O(position) memory or scan cost (see docs/architecture.md
-/// § bare-position keys); this keeps that cost a measured constant, not a claim.
+/// cannot force O(position) memory or scan cost (see docs/architecture.md);
+/// this keeps that cost a measured constant, not a claim.
 fn benchSparseExportTable(io: std.Io, allocator: std.mem.Allocator, count: usize) !void {
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();

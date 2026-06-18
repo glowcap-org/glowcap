@@ -6,77 +6,109 @@
 
 use std::time::Duration;
 
-use pancake::{connect, Argument, Ref};
+use pancake::{connect, tcp_locator, Argument, Ref};
 
 fn check(nick: &str, label: &str, passed: bool) -> bool {
-    println!("{nick}: {} — {label}", if passed { "ok" } else { "FAIL" });
-    passed
+	println!("{nick}: {} — {label}", if passed { "ok" } else { "FAIL" });
+	passed
 }
 
 fn cap(arg: &Argument) -> Result<Ref, String> {
-    Ref::try_from(arg).map_err(|_| "grant did not return a capability".to_string())
+	Ref::try_from(arg).map_err(|_| "grant did not return a capability".to_string())
 }
 
-async fn run(addr: &str, nick: &str) -> Result<(), String> {
-    let conn = connect(addr).await.map_err(|e| format!("connect: {e:?}"))?;
-    let tools = conn.fetch("tools").await.map_err(|e| format!("fetch tools: {e:?}"))?;
-    let mut ok = true;
+async fn run(locator: &str, nick: &str) -> Result<(), String> {
+	let conn = connect(locator, None)
+		.await
+		.map_err(|e| format!("connect: {e:?}"))?;
+	let tools = conn
+		.fetch("tools")
+		.await
+		.map_err(|e| format!("fetch tools: {e:?}"))?;
+	let mut ok = true;
 
-    // 1. Delegation: get a clock capability and call it.
-    let clock = cap(&conn.send(&tools, "grant", &[Argument::String("clock".into())]).await
-        .map_err(|e| format!("grant clock: {e:?}"))?)?;
-    let now = conn.send(&clock, "now", &[]).await;
-    ok &= check(nick, "delegation: was handed a clock and called it", matches!(now, Ok(Argument::Integer(_))));
+	let clock = cap(&conn
+		.send(&tools, "grant", &["clock".into()])
+		.await
+		.map_err(|e| format!("grant clock: {e:?}"))?)?;
+	let now = conn.send(&clock, "now", &[]).await;
+	ok &= check(
+		nick,
+		"delegation: was handed a clock and called it",
+		matches!(now, Ok(Argument::Integer(_))),
+	);
 
-    // 2. Attenuation: a read-only file capability reads but refuses writes.
-    let files = cap(&conn.send(&tools, "grant", &[Argument::String("files-readonly".into())]).await
-        .map_err(|e| format!("grant files: {e:?}"))?)?;
-    let read = conn.send(&files, "read", &[Argument::String("report.txt".into())]).await;
-    ok &= check(nick, "attenuation: read through the read-only view", matches!(read, Ok(Argument::String(_))));
-    let write = conn.send(&files, "write", &[Argument::String("report.txt".into()), Argument::String("tampered".into())]).await;
-    ok &= check(nick, "attenuation: write is refused", write.is_err());
+	let files = cap(&conn
+		.send(&tools, "grant", &["files-readonly".into()])
+		.await
+		.map_err(|e| format!("grant files: {e:?}"))?)?;
+	let read = conn.send(&files, "read", &["report.txt".into()]).await;
+	ok &= check(
+		nick,
+		"attenuation: read through the read-only view",
+		matches!(read, Ok(Argument::String(_))),
+	);
+	let write = conn
+		.send(&files, "write", &["report.txt".into(), "tampered".into()])
+		.await;
+	ok &= check(nick, "attenuation: write is refused", write.is_err());
 
-    // 3. Revocation: a revocable handle works, then breaks after revoke.
-    let revocable = cap(&conn.send(&tools, "grant-revocable", &[Argument::String("clock".into())]).await
-        .map_err(|e| format!("grant-revocable: {e:?}"))?)?;
-    ok &= check(nick, "revocation: the handle works before revoke", conn.send(&revocable, "now", &[]).await.is_ok());
-    conn.send(&tools, "revoke-last", &[]).await.map_err(|e| format!("revoke-last: {e:?}"))?;
-    ok &= check(nick, "revocation: the handle breaks after revoke", conn.send(&revocable, "now", &[]).await.is_err());
+	let revocable = cap(&conn
+		.send(&tools, "grant-revocable", &["clock".into()])
+		.await
+		.map_err(|e| format!("grant-revocable: {e:?}"))?)?;
+	ok &= check(
+		nick,
+		"revocation: the handle works before revoke",
+		conn.send(&revocable, "now", &[]).await.is_ok(),
+	);
+	conn.send(&tools, "revoke-last", &[])
+		.await
+		.map_err(|e| format!("revoke-last: {e:?}"))?;
+	ok &= check(
+		nick,
+		"revocation: the handle breaks after revoke",
+		conn.send(&revocable, "now", &[]).await.is_err(),
+	);
 
-    conn.close();
-    if ok {
-        println!("{nick}: all capability properties held");
-        Ok(())
-    } else {
-        Err("a capability property did not hold".to_string())
-    }
+	conn.close();
+	if ok {
+		println!("{nick}: all capability properties held");
+		Ok(())
+	} else {
+		Err("a capability property did not hold".to_string())
+	}
 }
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    if args.len() < 4 {
-        eprintln!("usage: tools-agent <host> <port> <nick>");
-        std::process::exit(2);
-    }
-    let addr = format!("{}:{}", args[1], args[2]);
-    let nick = args[3].clone();
+	let args: Vec<String> = std::env::args().collect();
+	if args.len() < 4 {
+		eprintln!("usage: tools-agent <host> <port> <nick>");
+		std::process::exit(2);
+	}
+	let Ok(port) = args[2].parse::<u16>() else {
+		eprintln!("usage: tools-agent <host> <port> <nick> (port must be a number)");
+		std::process::exit(2);
+	};
+	let locator = tcp_locator(&args[1], port);
+	let nick = args[3].clone();
 
-    let local = tokio::task::LocalSet::new();
-    let result = local
-        .run_until(async {
-            match tokio::time::timeout(Duration::from_secs(15), run(&addr, &nick)).await {
-                Ok(inner) => inner,
-                Err(_) => Err(format!("{nick} timed out")),
-            }
-        })
-        .await;
+	let local = tokio::task::LocalSet::new();
+	let result = local
+		.run_until(async {
+			match tokio::time::timeout(Duration::from_secs(15), run(&locator, &nick)).await {
+				Ok(inner) => inner,
+				Err(_) => Err(format!("{nick} timed out")),
+			}
+		})
+		.await;
 
-    match result {
-        Ok(()) => std::process::exit(0),
-        Err(err) => {
-            eprintln!("agent {nick} failed: {err}");
-            std::process::exit(1);
-        }
-    }
+	match result {
+		Ok(()) => std::process::exit(0),
+		Err(err) => {
+			eprintln!("agent {nick} failed: {err}");
+			std::process::exit(1);
+		}
+	}
 }

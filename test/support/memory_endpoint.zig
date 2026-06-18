@@ -1,7 +1,7 @@
 //! An in-memory frame endpoint for tests: a FIFO of owned frames, no real I/O.
 //!
 //! It exercises the owned-transfer half of the transport contract — the same
-//! seam `net_adapter` fills over a real `std.Io` stream — without needing a
+//! seam `net` fills over a real `std.Io` stream — without needing a
 //! socket. The `std.Io` parameters match that transport shape but go unused;
 //! moving a frame needs no I/O. This is test support, not a production layer.
 

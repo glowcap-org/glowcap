@@ -1,0 +1,129 @@
+//! Live iroh scale proof for the Rust binding: many concurrent connections
+//! served from one readiness loop (ADR-0057), the Rust sibling of the Zig
+//! `zig build iroh-loop` gate.
+//!
+//! The iroh netlayer has one I/O model — an event-driven readiness loop. This
+//! gate proves it through the binding: one [`IrohServer`] runs a single readiness
+//! loop (an `AsyncFd` over the endpoint's readiness fd, ADR-0057) and serves
+//! every accepted connection's peer from the one tokio current-thread runtime.
+//! Many clients dial it at once, each over its own iroh endpoint, fetch the
+//! published greeter, and call it several times. Every reply must come back
+//! correct — so the one server loop is provably multiplexing all the connections
+//! at once.
+//!
+//! It exercises the whole loop surface live through the binding: the readiness
+//! fd, the records `drain_ready` returns, non-blocking `try_accept`, and
+//! `try_read` / `try_write` with their `WOULD_BLOCK` re-arming. Teardown is
+//! non-blocking by construction — no parked read races a release.
+//!
+//! Needs `cargo` plus the iroh ABI companion library (`zig build iroh-abi`); run
+//! via `zig build rust-iroh-loop`.
+
+use std::rc::Rc;
+
+use pancake_rust_dogfood::{listen_iroh, Argument, Connection, Reachability};
+
+type Fail = Box<dyn std::error::Error>;
+
+// Concurrent connections, each served on the one server loop; calls each makes
+// before closing. Mirrors the Zig iroh-loop gate.
+const NUM_CONNS: usize = 16;
+const CALLS_PER_CONN: usize = 4;
+const GREETING: &str = "hello over the iroh loop";
+
+#[tokio::main(flavor = "current_thread")]
+async fn main() -> Result<(), Fail> {
+	for arg in std::env::args().skip(1) {
+		// The gate takes no arguments; `-Dport` is meaningless for an in-process
+		// local-discovery run, so accept and ignore a `--port=` for build parity.
+		if !arg.starts_with("--port=") {
+			return Err(format!("unknown argument '{arg}'").into());
+		}
+	}
+
+	// The `Connection` driver is `!Send`, so it lives on a `LocalSet`.
+	let local = tokio::task::LocalSet::new();
+	local.run_until(run()).await
+}
+
+async fn run() -> Result<(), Fail> {
+	let server = Rc::new(listen_iroh(Reachability::LocalDiscovery)?);
+	let server_id = server.node_id().to_string();
+	println!("rust-iroh-loop: server endpoint id {server_id}");
+
+	// Accept every dial, publish this connection's greeter, and keep its driver
+	// alive — all served from the server's one readiness loop.
+	let accept_server = Rc::clone(&server);
+	let accept_task = tokio::task::spawn_local(async move {
+		let mut served: Vec<Connection> = Vec::new();
+		while let Ok(conn) = accept_server.accept().await {
+			if conn.publish("greeter", greeter).await.is_err() {
+				continue;
+			}
+			served.push(conn);
+		}
+		served // hold the connections (and their drivers) until the loop ends
+	});
+
+	// Fan out all clients at once: they share nothing, so the only thing that can
+	// serve them all is the one server loop multiplexing.
+	let mut clients = Vec::new();
+	for _ in 0..NUM_CONNS {
+		let id = server_id.clone();
+		clients.push(tokio::task::spawn_local(client_once(id)));
+	}
+
+	let mut failures = 0usize;
+	for c in clients {
+		match c.await {
+			Ok(Ok(())) => {}
+			Ok(Err(e)) => {
+				eprintln!("rust-iroh-loop: a client failed: {e}");
+				failures += 1;
+			}
+			Err(e) => {
+				eprintln!("rust-iroh-loop: a client task panicked: {e}");
+				failures += 1;
+			}
+		}
+	}
+
+	// Bring the server (and its readiness loop) down so the accept task ends and
+	// the gate never hangs.
+	server.close();
+	let _ = accept_task.await;
+
+	if failures > 0 {
+		return Err(format!("{failures}/{NUM_CONNS} client(s) failed").into());
+	}
+	println!(
+        "rust-iroh-loop: OK — {NUM_CONNS} concurrent iroh connections, {CALLS_PER_CONN} calls each, \
+         served from one loop over the readiness fd + non-blocking frame I/O"
+    );
+	Ok(())
+}
+
+// The published actor: answer `greet` with a static greeting.
+fn greeter(verb: &str, _args: &[Argument]) -> Result<Argument, String> {
+	if verb == "greet" {
+		Ok(GREETING.into())
+	} else {
+		Err(format!("no such method: {verb}"))
+	}
+}
+
+// One client: bind its own iroh endpoint, dial the server by id alone (the
+// local-discovery book resolves it), fetch the greeter, and call it
+// `CALLS_PER_CONN` times, checking every reply.
+async fn client_once(server_id: String) -> Result<(), Fail> {
+	let conn = Connection::connect_iroh(&server_id, "", Reachability::LocalDiscovery).await?;
+	let greeter = conn.fetch("greeter").await?;
+	for _ in 0..CALLS_PER_CONN {
+		let reply = conn.send(&greeter, "greet", &[]).await?;
+		if reply.as_str() != Some(GREETING) {
+			return Err(format!("wrong reply: {reply:?}").into());
+		}
+	}
+	conn.close();
+	Ok(())
+}

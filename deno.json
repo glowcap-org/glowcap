@@ -1,0 +1,16 @@
+{
+  "imports": {
+    "@pancake/stack": "./bindings/ts/stack/mod.ts",
+    "@pancake/stack/ffi": "./bindings/ts/stack/ffi.ts",
+    "@pancake/iroh": "./bindings/ts/iroh/mod.ts"
+  },
+  "fmt": {
+    "useTabs": true,
+    "indentWidth": 4,
+    "lineWidth": 100,
+    "semiColons": true,
+    "singleQuote": false,
+    "include": ["**/*.ts"],
+    "exclude": ["bindings/ts", "zig-out", ".zig-cache", "**/target", "**/node_modules", "**/upstream", ".local"]
+  }
+}

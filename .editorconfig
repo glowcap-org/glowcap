@@ -1,0 +1,75 @@
+# pancake — editor formatting backbone (https://editorconfig.org).
+#
+# One indentation rule: tabs displayed as four columns. The override blocks
+# below name the file types whose own formatter or grammar forbids tabs, so the
+# editor agrees with the tool that actually rewrites the file (zig fmt, ruff,
+# deno fmt, rustfmt) instead of fighting it. The enforced gate is `zig build
+# fmt-check` (Zig, hermetic, part of `zig build check`) and `zig build
+# bindings-fmt-check` (Rust + TypeScript, sibling); this file keeps live editing
+# aligned with those.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = tab
+indent_size = 4
+tab_width = 4
+
+# Zig and its object notation: `zig fmt` always emits four spaces and is not
+# configurable.
+[*.{zig,zon}]
+indent_style = space
+indent_size = 4
+
+# Python: PEP 8 and every Python formatter (black, ruff) reject tabs.
+[*.py]
+indent_style = space
+indent_size = 4
+
+# Racket and Scheme: indentation aligns under the open form, so a tab would
+# break alignment the moment the column it stands for changes.
+[*.{rkt,scm,ss}]
+indent_style = space
+indent_size = 2
+
+# Shell: matches the existing devcontainer and CI scripts.
+[*.sh]
+indent_style = space
+indent_size = 4
+
+# YAML forbids tabs for indentation outright.
+[*.{yml,yaml}]
+indent_style = space
+indent_size = 2
+
+# JSON / JSONC: the committed deno.json, devcontainer.json, and tsconfig-style
+# files are two-space, and JSON has no formatter here that would convert them.
+[*.{json,jsonc}]
+indent_style = space
+indent_size = 2
+
+# TOML: Cargo.toml, pyproject.toml, rustfmt.toml are hand-edited and two-space
+# is the cargo/community norm.
+[*.toml]
+indent_style = space
+indent_size = 2
+
+# C headers and sources: the public headers are generated four-space by
+# tools/header_gen*.zig, so the hand-written examples match them.
+[*.{c,h}]
+indent_style = space
+indent_size = 4
+
+# Markdown: two-space, and trailing whitespace can be a hard line break, so it
+# is not stripped here.
+[*.md]
+indent_style = space
+indent_size = 2
+trim_trailing_whitespace = false
+
+# Makefiles require real tabs for recipe lines.
+[Makefile]
+indent_style = tab

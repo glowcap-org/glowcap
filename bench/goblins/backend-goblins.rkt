@@ -38,7 +38,7 @@
   (sync (make-semaphore)))
 
 ;; A client owns its own vat + netlayer (ephemeral listen port) + mycapn, so each
-;; client-connect is a distinct CapTP session — the honest analog of one pancake
+;; client-connect is a distinct CapTP session — the same shape as one pancake
 ;; connection. The server's host/port are kept to rebuild the sturdyref. One
 ;; settle channel is reused across all (sequential) calls so the driver adds no
 ;; per-call allocation overhead beyond what entering the vat requires — the

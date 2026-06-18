@@ -14,9 +14,10 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const c = @import("c_abi");
+const ci = @import("c_abi_net_transport_inproc");
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
-const inproc = pancake.net_adapter.inproc;
+const inproc = pancake.net.inproc;
 const handshake = @import("../support/handshake.zig");
 
 const frame_cap = 4096;
@@ -38,18 +39,18 @@ fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
 
 const Step = enum { received, closed };
 
-fn pumpStep(peer: *engine.Peer, conn: *c.PancakeInprocConn) !Step {
+fn pumpStep(peer: *engine.Peer, conn: *ci.PancakeInprocConn) !Step {
     while ((try peer.step()) != .idle) {}
     while (peer.takeOutbound()) |frame_value| {
         var frame = frame_value;
         defer frame.deinit();
         const bytes = frame.bytes();
         var cf: c.PancakeFrame = .{ .bytes = bytes.ptr, .len = bytes.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
-        if (c.pancake_inproc_conn_write_frame(conn, &cf) != c.PANCAKE_OK) return error.WriteFailed;
+        if (ci.pancake_inproc_conn_write_frame(conn, &cf) != c.PANCAKE_OK) return error.WriteFailed;
     }
 
     var mf: c.PancakeManagedFrame = undefined;
-    const rc = c.pancake_inproc_conn_read_frame(conn, &mf);
+    const rc = ci.pancake_inproc_conn_read_frame(conn, &mf);
     if (rc == c.PANCAKE_ERR_CLOSED) return .closed;
     if (rc != c.PANCAKE_OK) return error.ReadFailed;
     defer c.pancake_managed_frame_release(&mf);
@@ -62,7 +63,7 @@ fn pumpStep(peer: *engine.Peer, conn: *c.PancakeInprocConn) !Step {
 }
 
 const ServerArgs = struct {
-    listener: *c.PancakeInprocListener,
+    listener: *ci.PancakeInprocListener,
     allocator: std.mem.Allocator,
     result: anyerror!void = {},
 };
@@ -77,17 +78,17 @@ fn serveOnce(args: *ServerArgs) !void {
     peer.session_state.limits.max_frame_bytes = frame_cap;
     _ = try peer.registerBootstrapCap("thermostat");
 
-    var conn: ?*c.PancakeInprocConn = null;
-    if (c.pancake_inproc_accept(args.listener, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn) != c.PANCAKE_OK)
+    var conn: ?*ci.PancakeInprocConn = null;
+    if (ci.pancake_inproc_accept(args.listener, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn) != c.PANCAKE_OK)
         return error.AcceptFailed;
     const conn_ptr = conn orelse return error.AcceptNull;
-    defer c.pancake_inproc_conn_release(conn_ptr);
+    defer ci.pancake_inproc_conn_release(conn_ptr);
 
     try peer.sendCopying(startSession("server"));
     while ((try pumpStep(&peer, conn_ptr)) != .closed) {}
 }
 
-fn fetchOnce(conn: *c.PancakeInprocConn, allocator: std.mem.Allocator) !void {
+fn fetchOnce(conn: *ci.PancakeInprocConn, allocator: std.mem.Allocator) !void {
     var peer = stubNegotiatingPeer(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -145,31 +146,31 @@ fn drainEvents(peer: *engine.Peer) void {
 test "c-abi inproc loopback: handshake to open + bootstrap fetch round-trip" {
     const allocator = std.testing.allocator;
 
-    var netlayer: ?*c.PancakeInprocNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_inproc_netlayer_new(&netlayer));
+    var netlayer: ?*ci.PancakeInprocNetlayer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_netlayer_new(&netlayer));
     const netlayer_ptr = netlayer.?;
-    defer c.pancake_inproc_netlayer_release(netlayer_ptr);
+    defer ci.pancake_inproc_netlayer_release(netlayer_ptr);
 
-    var listener: ?*c.PancakeInprocListener = null;
+    var listener: ?*ci.PancakeInprocListener = null;
     try std.testing.expectEqual(
         c.PANCAKE_OK,
-        c.pancake_inproc_listen(netlayer_ptr, designator.ptr, designator.len, &listener),
+        ci.pancake_inproc_listen(netlayer_ptr, designator.ptr, designator.len, &listener),
     );
     const listener_ptr = listener.?;
-    defer c.pancake_inproc_listener_release(listener_ptr);
+    defer ci.pancake_inproc_listener_release(listener_ptr);
 
     var args: ServerArgs = .{ .listener = listener_ptr, .allocator = allocator };
     const server_thread = try std.Thread.spawn(.{}, serveThread, .{&args});
 
-    var conn: ?*c.PancakeInprocConn = null;
-    const connect_rc = c.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn);
+    var conn: ?*ci.PancakeInprocConn = null;
+    const connect_rc = ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn);
     try std.testing.expectEqual(c.PANCAKE_OK, connect_rc);
     const conn_ptr = conn.?;
 
     const client_result = fetchOnce(conn_ptr, allocator);
 
     // Closing the client lets the server observe EOF and finish.
-    c.pancake_inproc_conn_release(conn_ptr);
+    ci.pancake_inproc_conn_release(conn_ptr);
     server_thread.join();
 
     try client_result;
@@ -177,48 +178,48 @@ test "c-abi inproc loopback: handshake to open + bootstrap fetch round-trip" {
 }
 
 test "c-abi inproc connect rejects bad arguments and a missing listener distinctly" {
-    var netlayer: ?*c.PancakeInprocNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_inproc_netlayer_new(&netlayer));
+    var netlayer: ?*ci.PancakeInprocNetlayer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_netlayer_new(&netlayer));
     const netlayer_ptr = netlayer.?;
-    defer c.pancake_inproc_netlayer_release(netlayer_ptr);
+    defer ci.pancake_inproc_netlayer_release(netlayer_ptr);
 
-    var conn: ?*c.PancakeInprocConn = null;
+    var conn: ?*ci.PancakeInprocConn = null;
 
     // A zero frame cap is an invalid argument, not a codec selector problem.
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        c.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, 0, &conn),
+        ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, 0, &conn),
     );
     // An unknown codec selector is an invalid argument.
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        c.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, 999, frame_cap, &conn),
+        ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, 999, frame_cap, &conn),
     );
     // A null required pointer is a null-pointer error.
     try std.testing.expectEqual(
         c.PANCAKE_ERR_NULL_POINTER,
-        c.pancake_inproc_connect(null, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn),
+        ci.pancake_inproc_connect(null, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn),
     );
     // Dialing a designator with no bound listener is an I/O fault, with a cause
-    // recorded for pancake_last_error — distinct from a malformed request.
-    c.pancake_clear_last_error();
+    // recorded for pancake_inproc_last_error — distinct from a malformed request.
+    ci.pancake_inproc_clear_last_error();
     try std.testing.expectEqual(
         c.PANCAKE_ERR_IO,
-        c.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn),
+        ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn),
     );
-    try std.testing.expect(c.pancake_last_error(null, 0) > 0);
+    try std.testing.expect(ci.pancake_inproc_last_error(null, 0) > 0);
 }
 
 test "c-abi inproc listen rejects an empty designator" {
-    var netlayer: ?*c.PancakeInprocNetlayer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_inproc_netlayer_new(&netlayer));
+    var netlayer: ?*ci.PancakeInprocNetlayer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, ci.pancake_inproc_netlayer_new(&netlayer));
     const netlayer_ptr = netlayer.?;
-    defer c.pancake_inproc_netlayer_release(netlayer_ptr);
+    defer ci.pancake_inproc_netlayer_release(netlayer_ptr);
 
     const empty = "";
-    var listener: ?*c.PancakeInprocListener = null;
+    var listener: ?*ci.PancakeInprocListener = null;
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
-        c.pancake_inproc_listen(netlayer_ptr, empty.ptr, empty.len, &listener),
+        ci.pancake_inproc_listen(netlayer_ptr, empty.ptr, empty.len, &listener),
     );
 }

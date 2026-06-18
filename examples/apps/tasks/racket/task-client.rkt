@@ -23,7 +23,7 @@
 ;; Join the board: connect, fetch the board by name, publish a watcher the board
 ;; can call back (we ignore its updates in this one-shot client).
 (define (board-join host port)
-  (define c (connect host port))
+  (define c (connect (tcp-locator host port)))
   (define the-board (conn-fetch c "board"))
   (define a-board (board c the-board))
   (define watcher (conn-spawn c (lambda (bcom) (methods [(update tasks) (void)]))))

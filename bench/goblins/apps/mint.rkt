@@ -11,15 +11,19 @@
 (define (server-build mint-cap)
   (define (root _bcom)
     (define (make-purse initial)
-      (define bal (box initial))
-      (define (purse _b)
+      ;; The balance lives in the behavior, not a private box: `deposit` becomes
+      ;; a new behavior carrying the updated balance. That keeps the state where
+      ;; the vat can see it, so a time-travel snapshot captures and can rewind it
+      ;; — a box would hide the balance from the snapshot. Identical observable
+      ;; behavior on every backend (`bcom` is the same on Goblins and pancake).
+      (define (purse bcom balance)
         (dispatch
          (list
-          (cons 'balance (lambda () (unbox bal)))
+          (cons 'balance (lambda () balance))
           (cons 'deposit (lambda (amt)
-                           (set-box! bal (+ (unbox bal) amt))
-                           (unbox bal))))))
-      (mint-cap purse))
+                           (define next (+ balance amt))
+                           (bcom (purse bcom next) next))))))
+      (mint-cap (lambda (bcom) (purse bcom initial))))
     (dispatch (list (cons 'make-purse make-purse))))
   root)
 

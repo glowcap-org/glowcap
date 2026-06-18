@@ -7,7 +7,7 @@
 //! (`test/conformance`, `test/oracle`) and the cross-language bindings'
 //! scenario runners compare them for identical observable behavior. This is a
 //! public surface on purpose — it is how a consumer proves it produces the
-//! canonical trace — so it ships in `libpancake`, not under `test/`.
+//! canonical trace — so it ships in the `pancake` module, not under `test/`.
 //!
 //! The drivers are sync and codec-parameterized; they own no I/O and add no
 //! protocol semantics the engine lacks.
@@ -94,7 +94,6 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
     errdefer out.deinit(allocator);
     try out.appendSlice(allocator, "scenario=driven_deliver_resolve\n");
 
-    // p1 imports p2's bootstrap export (id 0) and asks a question on answer 42.
     try pair.p1.session_state.registerImport(0);
     try pair.p1.sendCopying(.{ .deliver = .{
         .target = .{ .far = .{ .import_position = 0 } },
@@ -115,7 +114,6 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
         try appendTraceLine(allocator, &out, "p2=event:{s}\n", .{@tagName(event.kind())});
     }
 
-    // p2 resolves the question with "pong".
     try pair.p2.sendCopying(.{ .resolve = .{
         .answer = 42,
         .resolution = .{ .fulfill = .{ .bytes = "pong" } },
@@ -170,8 +168,8 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
         const frame = pair.p1.takeOutbound().?;
         try pair.p2.feedInbound(frame);
     }
-    // p2 dispatches the inbound fetch: the deliver surfaces as an event and the
-    // synthesized resolve is enqueued; a second step encodes that settlement.
+    // The deliver surfaces as an event on the first step; the synthesized
+    // resolve encodes on the second.
     _ = try pair.p2.step();
     if (pair.p2.pollEvent()) |event_value| {
         var event = event_value;

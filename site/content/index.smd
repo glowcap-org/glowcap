@@ -16,15 +16,22 @@ speaks it.
 
 [Their program hands yours a reference to an object called "greeter." Holding that reference is the whole permission to call it.]($image.siteAsset('diagram-capability.svg'))
 
-Everything else in pancake is in service of keeping that promise honest. The protocol
+Everything else in pancake keeps that promise. The protocol
 core is deterministic and synchronous and does no I/O of its own, so the sockets and
 the scheduling live in adapters stacked above it. Nothing important hides either.
 Where a frame is owned or borrowed, where a copy happens, and which wire format is on
 the line all stay visible at the boundary that owns them.
 
+Two peers can reach each other directly, with no server in the middle. The
+[iroh transport]($link.page('transports/iroh')) carries a session over encrypted
+QUIC and names each peer by a self-authenticating key, so the address you dial *is*
+the identity you connected to — one Ed25519 key is at once the network route, the
+capability you name, and the key that signs the session. It rides an optional
+artifact, so a program that only speaks TCP never pays for it.
+
 You can reach the same library three ways. It is a Zig package you import directly,
 it is a plain C ABI you can call from anything, and it is four language bindings that
-each feel native in Rust, Deno, Python, and Racket.
+each feel native in Rust, TypeScript, Python, and Racket.
 
 This site is the front door. The deep documentation lives next to the source, so a
 claim about the code travels in the same change as the code itself. Pick a path

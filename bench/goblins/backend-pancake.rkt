@@ -28,7 +28,7 @@
 
 (struct pclient (conn))
 
-(define (client-connect host port) (pclient (connect host port)))
+(define (client-connect host port) (pclient (connect (tcp-locator host port))))
 
 (define (client-fetch handle name) (conn-fetch (pclient-conn handle) name))
 

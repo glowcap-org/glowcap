@@ -237,6 +237,137 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
     try std.testing.expect(peer.giftRegistry().giftWithdrawn(gift_id_a[0..]));
 }
 
+// The exporter half of a three-party handoff across two sessions: a gift whose
+// object is a node-local bootstrap cap (named by swissnum) is re-resolved
+// against the *withdrawing* session, not returned as the deposit-session near.
+// This is what lets one node deposit a gift on its gifter session and honor the
+// withdraw on a separate recipient session (ADR-0009 exporter half).
+test "a withdraw of a node-local swiss gift re-resolves against the withdrawing session" {
+    const allocator = std.testing.allocator;
+
+    const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x73));
+    const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x74));
+    const gifter_pub = gifter_secret.publicKey();
+    const recipient_pub = recipient_secret.publicKey();
+
+    var give_signed: []u8 = undefined;
+    var give_sig: crypto.Signature = undefined;
+    const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
+    defer allocator.free(give_signed);
+
+    var receive: model.HandoffReceive = .{
+        .receiving_session = receiving_session[0..],
+        .receiving_side = receiving_side[0..],
+        .handoff_count = 1,
+        .signed_give = give,
+        .signature = "",
+    };
+    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    defer allocator.free(receive_signed);
+    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
+    receive.signature = receive_sig.asBytes();
+
+    var exporter = engine.Peer.init(allocator);
+    defer exporter.deinit();
+
+    // The withdrawing session publishes "dm" at a *different* export position
+    // than the gifter's deposit session: burn one export first so the swiss
+    // lands past position 1, proving the result is this session's position and
+    // not the deposit-session near baked into the gift.
+    _ = try exporter.session_state.allocateExport();
+    const dm_here = try exporter.session_state.registerBootstrapCap("dm");
+    try std.testing.expect(dm_here != 1);
+
+    // The deposit names the object by swiss; the stored near (a deposit-session
+    // value, deliberately position 1) must be ignored on withdraw.
+    try exporter.giftRegistry().depositOwnedNamed(
+        allocator,
+        exporter.session_state.limits,
+        gift_id_a[0..],
+        model.Reference{ .near = model.NearRef.object(1) },
+        gifter_pub.asBytes(),
+        "dm",
+    );
+
+    const handoff = model.Handoff{ .receive = receive };
+    const view_handoff = model.view.Handoff.fromOwned(&handoff);
+    const resolution_msg = switch (try engine.bootstrap.resolveForWithdraw(allocator, &exporter.session_state, exporter.giftRegistry(), .{
+        .receive = view_handoff.receive,
+        .answer = 7,
+    })) {
+        .settled => |msg| msg,
+        .awaiting_deposit => return error.TestUnexpectedPending,
+    };
+    defer model.freeMessage(allocator, resolution_msg);
+
+    const fulfilled = switch (resolution_msg.resolve.resolution) {
+        .fulfill => |arg| arg,
+        .@"break" => return error.TestUnexpectedBreak,
+    };
+    try std.testing.expectEqual(dm_here, fulfilled.reference.near.export_position);
+    try std.testing.expect(exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+}
+
+// A swiss-named gift withdrawn on a session that does not publish the object is
+// refused, not handed a dangling deposit-session near. The node owns the gift's
+// identity but has not exported it on this session.
+test "a swiss gift withdrawn where the object is unpublished breaks" {
+    const allocator = std.testing.allocator;
+
+    const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x75));
+    const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x76));
+    const gifter_pub = gifter_secret.publicKey();
+    const recipient_pub = recipient_secret.publicKey();
+
+    var give_signed: []u8 = undefined;
+    var give_sig: crypto.Signature = undefined;
+    const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
+    defer allocator.free(give_signed);
+
+    var receive: model.HandoffReceive = .{
+        .receiving_session = receiving_session[0..],
+        .receiving_side = receiving_side[0..],
+        .handoff_count = 1,
+        .signed_give = give,
+        .signature = "",
+    };
+    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    defer allocator.free(receive_signed);
+    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
+    receive.signature = receive_sig.asBytes();
+
+    var exporter = engine.Peer.init(allocator);
+    defer exporter.deinit();
+
+    // No "dm" bootstrap cap on this session; the gift still names it by swiss.
+    try exporter.giftRegistry().depositOwnedNamed(
+        allocator,
+        exporter.session_state.limits,
+        gift_id_a[0..],
+        model.Reference{ .near = model.NearRef.object(1) },
+        gifter_pub.asBytes(),
+        "dm",
+    );
+
+    const handoff = model.Handoff{ .receive = receive };
+    const view_handoff = model.view.Handoff.fromOwned(&handoff);
+    // The break carries a static message and owns no heap, so it is read
+    // directly — `resolveForWithdraw` allocates nothing on the refusal path
+    // (production `sendCopying`-clones it; the original is never freed).
+    const resolution_msg = switch (try engine.bootstrap.resolveForWithdraw(allocator, &exporter.session_state, exporter.giftRegistry(), .{
+        .receive = view_handoff.receive,
+        .answer = 7,
+    })) {
+        .settled => |msg| msg,
+        .awaiting_deposit => return error.TestUnexpectedPending,
+    };
+
+    switch (resolution_msg.resolve.resolution) {
+        .@"break" => |b| try std.testing.expect(std.mem.indexOf(u8, b.message, "not hosted") != null),
+        .fulfill => return error.TestUnexpectedFulfill,
+    }
+}
+
 test "a withdraw that arrives before its deposit parks and settles once the gift lands" {
     const allocator = std.testing.allocator;
 

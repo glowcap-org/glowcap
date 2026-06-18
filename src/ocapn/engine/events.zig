@@ -28,6 +28,13 @@ pub const EventKind = enum {
     untag,
 };
 
+comptime {
+    // A new `model.Message` arm cannot land without its `EventKind` mirror; the
+    // C `PANCAKE_EVENT_*` block is forced in turn by `eventKindToC`'s exhaustive
+    // switch over this enum.
+    model.assertMirrorsMessageKinds(EventKind);
+}
+
 /// Error decoding an inbound frame into the codec-neutral `model.view.Body`: a
 /// codec parse failure or a lazy-sequence projection failure.
 pub const DecodeError = codec.dispatch.Error || model.view.ProjectError;
@@ -40,11 +47,19 @@ pub const DecodeError = codec.dispatch.Error || model.view.ProjectError;
 pub const Event = struct {
     frame: foundation.Frame,
     tag: EventKind,
-    /// The codec that carried `frame` -- the session's negotiated `model.CodecId`.
+    /// The codec that carried `frame` — the session's negotiated `model.CodecId`.
     codec: model.CodecId,
     /// Off-wire answer-id for a Goblins V1.0 resolver-callback (ADR-0010). Set
     /// only when `tag == .resolve` and the frame is a translated deliver.
     resolve_answer: ?u64 = null,
+    /// Off-wire answer-id for an ordinary inbound deliver that carried a
+    /// `resolve_me_desc` but no wire answer-position (the Goblins V1.0
+    /// resolver-only call pattern). The session allocated a virtual inbound
+    /// answer and installed the partner's resolver against it; the surfaced
+    /// deliver must carry that virtual answer so the application's reply routes
+    /// back through the resolver callback rather than dropping silently. Set
+    /// only when `tag == .deliver`.
+    deliver_answer: ?u64 = null,
 
     pub fn kind(self: Event) EventKind {
         return self.tag;
@@ -63,6 +78,11 @@ pub const Event = struct {
                 .resolution = try resolutionFromResolverCallback(wire.deliver.args),
             } };
         }
+        if (self.deliver_answer) |answer| {
+            var deliver = wire.deliver;
+            deliver.answer = answer;
+            return .{ .deliver = deliver };
+        }
         return wire;
     }
 
@@ -79,6 +99,11 @@ pub const Event = struct {
                 .answer = answer,
                 .resolution = try resolution.toOwned(event_allocator),
             } };
+        }
+        if (self.deliver_answer) |answer| {
+            var deliver = body.deliver;
+            deliver.answer = answer;
+            return (model.view.Body{ .deliver = deliver }).toOwned(event_allocator);
         }
         return body.toOwned(event_allocator);
     }

@@ -2,15 +2,18 @@
  *
  * Hand-written. The implementation is transports/iroh/src/lib.rs (a Rust
  * staticlib over the iroh crate, emitting libpancake_iroh_sidecar.a); the
- * consumer is the Zig resident src/net_adapter/iroh.zig. Every call below
- * blocks the calling thread: the endpoint owns a private tokio runtime behind
- * its opaque handle and each call runs to completion against it. No call
- * panics across this boundary; failures come back as null handles or negative
- * return values.
+ * consumer is the Zig resident src/net/transport/iroh.zig. The blocking calls
+ * (connect/accept/conn_read/conn_write) block the calling thread: the endpoint
+ * owns a private tokio runtime behind its opaque handle and each runs to
+ * completion against it. The ADR-0057 readiness surface
+ * (endpoint_readiness_fd / drain_ready and the set_nonblocking / try_* calls)
+ * is non-blocking: it reports readiness over one fd so a single loop thread
+ * multiplexes many connections. No call panics across this boundary; failures
+ * come back as null handles or negative return values.
  *
  * This is the private byte-level seam. It is deliberately prefixed
  * pancake_iroh_sidecar_* so it shares no symbol prefix with the public
- * frame-level ABI (pancake_iroh_netlayer_*, in include/pancake_iroh.h): the
+ * frame-level ABI (pancake_iroh_netlayer_*, in include/pancake_net_transport_iroh.h): the
  * two link into one library without colliding.
  *
  * Lifetime order: free every connection before its endpoint, and free the
@@ -48,6 +51,29 @@ extern "C" {
 #define PANCAKE_IROH_REACH_DISCOVERY 1u
 #define PANCAKE_IROH_REACH_DISCOVERY_NO_RELAY 2u
 #define PANCAKE_IROH_REACH_LOCAL_DISCOVERY 3u
+
+/* The event-driven scale superset (ADR-0057). On top of the blocking calls
+ * above, an endpoint can serve many connections from one thread: the loop polls
+ * one readiness fd, drains a ready-queue of (conn, events) records, and drives
+ * non-blocking frame I/O. WOULD_BLOCK is the try_read/try_write sentinel,
+ * distinct from 0 (clean end of stream) and -1 (error). The PANCAKE_IROH_EV_*
+ * bits describe how a connection became ready; EV_ACCEPT carries a NULL conn and
+ * means an inbound connection is waiting. */
+#define PANCAKE_IROH_WOULD_BLOCK ((intptr_t)-2)
+#define PANCAKE_IROH_EV_READABLE 1u
+#define PANCAKE_IROH_EV_WRITABLE 2u
+#define PANCAKE_IROH_EV_CLOSED 4u
+#define PANCAKE_IROH_EV_ACCEPT 8u
+
+/* One drained readiness record: the connection that became ready (its
+ * pancake_iroh_sidecar_conn pointer as an integer, or 0 for an EV_ACCEPT
+ * record) and the PANCAKE_IROH_EV_* bitset describing how. The Zig resident
+ * reads the identical layout, so this struct is kept in lockstep with the Rust
+ * PancakeIrohReadyEvent and the resident's ReadyEvent. */
+typedef struct pancake_iroh_sidecar_ready_event {
+  size_t conn;
+  uint32_t events;
+} pancake_iroh_sidecar_ready_event;
 
 /* An iroh endpoint: a bound QUIC socket pair plus the tokio runtime driving
  * it. Created by pancake_iroh_sidecar_endpoint_new; released by
@@ -130,6 +156,59 @@ void pancake_iroh_sidecar_conn_close(pancake_iroh_sidecar_conn *conn);
 /* Release a connection handle, closing the connection first if still open.
  * NULL is a no-op. The handle is invalid afterward. */
 void pancake_iroh_sidecar_conn_free(pancake_iroh_sidecar_conn *conn);
+
+/* ── The event-driven scale superset (ADR-0057) ──────────────────────────── */
+
+/* The OS readiness fd for this endpoint's scale surface: the read end of a
+ * self-pipe the sidecar nudges whenever a connection (or the acceptor) becomes
+ * ready. The completion loop registers this once and polls it; on wake it drains
+ * the fd's bytes and calls pancake_iroh_sidecar_endpoint_drain_ready. Returns -1
+ * if the readiness channel could not be created. Borrows the handle; the fd is
+ * owned by the endpoint and valid until pancake_iroh_sidecar_endpoint_free. */
+int32_t pancake_iroh_sidecar_endpoint_readiness_fd(const pancake_iroh_sidecar_endpoint *ep);
+
+/* Drain pending readiness records into the caller's buffer. `out` points at
+ * `out_cap` records; the call writes up to that many and returns the count
+ * (>= 0), or -1 on error. No allocation per call. If more remain queued than
+ * fit, the endpoint re-nudges its readiness fd so the loop wakes again to drain
+ * the rest. Borrows the handle. */
+intptr_t pancake_iroh_sidecar_endpoint_drain_ready(const pancake_iroh_sidecar_endpoint *ep,
+                                                   pancake_iroh_sidecar_ready_event *out,
+                                                   size_t out_cap);
+
+/* Start the non-blocking acceptor: incoming connections surface through
+ * pancake_iroh_sidecar_endpoint_try_accept and EV_ACCEPT readiness events
+ * instead of the blocking accept. Idempotent. Returns 0 on success, -1 if the
+ * readiness channel could not be created. Borrows the handle. */
+int32_t pancake_iroh_sidecar_endpoint_set_nonblocking_accept(pancake_iroh_sidecar_endpoint *ep);
+
+/* Claim one connection the acceptor has pulled off the wire, or NULL when none
+ * is waiting (the non-blocking accept: NULL is WOULD_BLOCK, not failure — retry
+ * on the next EV_ACCEPT). The returned handle is a fresh blocking connection;
+ * the loop calls pancake_iroh_sidecar_conn_set_nonblocking on it. Returns an
+ * owned handle or NULL. The endpoint must outlive the connection. */
+pancake_iroh_sidecar_conn *pancake_iroh_sidecar_endpoint_try_accept(pancake_iroh_sidecar_endpoint *ep);
+
+/* Move a connection onto the endpoint's readiness surface: the reader and writer
+ * tasks take its streams, and from here try_read/try_write replace the blocking
+ * conn_read/conn_write. Idempotent. Returns 0 on success, -1 if the readiness
+ * channel is unavailable or the streams were already taken. `ep` must be the
+ * endpoint that minted `conn`. Borrows both handles. */
+int32_t pancake_iroh_sidecar_conn_set_nonblocking(pancake_iroh_sidecar_endpoint *ep,
+                                                  pancake_iroh_sidecar_conn *conn);
+
+/* Non-blocking read: copy up to `len` buffered inbound bytes into `buf`. Returns
+ * the byte count (> 0), 0 at clean end of stream, -1 on error, or
+ * PANCAKE_IROH_WOULD_BLOCK when no bytes are buffered yet. The connection must
+ * have been moved to the readiness surface. Borrows the handle. */
+intptr_t pancake_iroh_sidecar_conn_try_read(pancake_iroh_sidecar_conn *conn, uint8_t *buf, size_t len);
+
+/* Non-blocking write: enqueue all `len` bytes from `buf` for the writer task.
+ * Returns `len` on success, -1 if the connection is closed, or
+ * PANCAKE_IROH_WOULD_BLOCK when the outbound buffer is at its bound (re-arm on
+ * the next EV_WRITABLE). The connection must have been moved to the readiness
+ * surface. Borrows the handle. */
+intptr_t pancake_iroh_sidecar_conn_try_write(pancake_iroh_sidecar_conn *conn, const uint8_t *buf, size_t len);
 
 /* Close the endpoint without releasing its handle: a blocked
  * pancake_iroh_sidecar_accept returns NULL, subsequent dials fail, and queued

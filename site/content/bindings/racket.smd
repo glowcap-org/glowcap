@@ -6,11 +6,30 @@
 .draft = false,
 ---
 
-The Racket binding loads the installed shared `libpancake` and presents a `peer`,
-native Racket values, and event structs in
-[`bindings/racket/pancake.rkt`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/racket/pancake.rkt).
-It is the reference shape for the whole binding family, because it reads the way a
+The Racket binding loads the installed shared pancake archives and mirrors the
+à-la-carte archive set: the core module
+[`bindings/racket/pancake.rkt`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/racket/pancake.rkt)
+(over `libpancake_ocapn`) presents a `peer`, native Racket values, and event
+structs, and you `require` one module per transport — `pancake-tcp.rkt`,
+`pancake-inproc.rkt`, and the lazy `pancake-iroh.rkt` — to add only that
+transport's archive. The core is the reference shape for the whole binding
+family, because it reads the way a
 [Spritely Goblins](https://spritely.institute/goblins/) programmer expects.
+
+## The same round-trip
+
+The round-trip the [Start building]($link.page('start')) page walks through in Zig —
+connect, fetch a capability by name, call it, and handle the reply — reads like this in
+Racket, where `conn-send` pumps the connection and hands back the reply.
+
+```scheme
+(require "pancake.rkt")
+
+(define c (connect "ocapn://127.0.0.1:9099.tcp")) ; the partner's locator
+(define greeter (conn-fetch c "greeter")) ; a capability, by name
+(printf "~a\n" (conn-send c greeter 'greet "world"))
+(connection-close! c)
+```
 
 ## A Goblins-faithful actor layer
 
@@ -38,7 +57,7 @@ the peer over `tcp-connect` and `tcp-listen`, you read events as a sequence with
 ## Dogfood and example
 
 ```sh
-zig build racket-dogfood    # the Racket consumer against libpancake
+zig build racket-dogfood    # the Racket consumer against the pancake archives
 ```
 
 The full surface lives in the

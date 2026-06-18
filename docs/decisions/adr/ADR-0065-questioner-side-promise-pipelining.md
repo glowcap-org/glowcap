@@ -1,0 +1,116 @@
+---
+id: ADR-0065
+status: accepted
+date: 2026-06-18
+tags: [pipelining, driver, c-abi, bindings, tcp, nagle, questioner]
+decision: A questioner addresses a verb at an answer it has not settled by passing the handle a prior send returned back to `send` — `Connection.send`/`sendToAnswer`/`settlePromise` in the Zig driver, `pancake_peer_send_deliver`'s answer target under the owning C session, and a vow-as-send-target in every binding — so a dependent chain costs one round trip; the deliver is queued at the send and the batch flushes on the first settle. The TCP transport disables Nagle on every dialed and accepted socket so the batched-then-await pattern does not eat a delayed-ACK stall.
+supersedes: []
+superseded_by: []
+---
+
+# ADR-0065 Questioner-side promise pipelining
+
+## Context
+
+[ADR-0007](ADR-0007-promise-pipelining-substrate.md) settled the *serving* half:
+how a peer queues an `op:deliver` addressed at a still-pending answer, drains it
+FIFO on resolution, and decomposes a multi-hop send into chained single-hop
+`op:deliver`s. It left the *questioner* half — how an application actually issues
+a pipelined send and settles the one answer it cares about — as engine-internal
+plumbing reachable only through the raw peer.
+
+The gap that remained was ergonomic, not protocol. A consumer that writes
+`create` then `assign`/`complete`/`status` on the returned task pays four serial
+round trips if it awaits each step, even though the wire already supports
+addressing the later three at the answer `create` will resolve to. Closing that
+gap means a single, boring shape across the Zig driver, the C ABI, and all four
+language bindings, so a dependent chain costs one round trip in every consumer.
+
+Engages the First Principles
+[_make the correct path the easy path_](../../../AGENTS.md#first-principles) — a
+vow returned by a send is itself a send target, so pipelining reads like ordinary
+calls — and _performance is a public contract_: a batched send that a delayed-ACK
+timer stalls is a silent round-trip tax, named and removed here, not measured and
+shrugged at.
+
+## Decision
+
+### One shape: a returned handle is a send target
+
+The Zig driver ([`src/driver/connection.zig`](../../../src/driver/connection.zig))
+exposes the questioner triad: `send(target, msg)` returns an answer `Promise`
+without settling it; `sendToAnswer(promise, msg)` addresses a verb at that pending
+answer (the wire `desc:answer`, ADR-0007); `settlePromise(promise, arena)` drives
+until a chosen answer settles. The flush is deferred to the next settle, so a
+batch of sends leaves the wire together; the triad delegates to
+[`ConnectedVat`](../../../src/driver/connected_vat.zig), which owns the answer
+bookkeeping over the engine's `allocateAnswer`.
+
+The C ABI carries the same seam: `pancake_peer_send_deliver`
+([`src/c_abi/ocapn/peer.zig`](../../../src/c_abi/ocapn/peer.zig)) takes an
+optional answer target, and the owning TCP session (ADR-0062) wraps it as the
+non-blocking `send`/settle pair a binding drives.
+
+Every binding renders the triad in its own idiom, and in each one *the handle a
+send returns is a valid target for the next send*: Rust's `RemotePromise`
+implements `AsSendTarget`, Python's and TypeScript's `Connection.send` accept a
+`RemotePromise`, and Racket's `conn-send-promise` returns a `promise-ref` that
+`conn-send`/`conn-send-promise` pipeline against, settled by `conn-await`. A
+pipelined send to a local-only handle (one with no far answer) is refused, not
+silently downgraded.
+
+### The transport does not stall the batch
+
+The questioner pattern is write-a-batch-then-await. Nagle's algorithm holds a
+small trailing segment until the prior one is ACKed, and an idle peer only ACKs on
+its ~40 ms delayed-ACK timer, so a batched send can wait on a timer for nothing —
+erasing pipelining's whole point. The TCP transport
+([`src/net/transport/tcp.zig`](../../../src/net/transport/tcp.zig),
+`setNoDelay`) sets `TCP_NODELAY` on every dialed and accepted socket, at the one
+spot it turns an `Io` into a socket. It is best-effort: a stream whose option
+cannot be set still works, just with coalescing.
+
+## Scope (what this does not decide)
+
+- **The serving half is unchanged.** Queueing, draining, the listener matrix, and
+  multi-hop decomposition stay as [ADR-0007](ADR-0007-promise-pipelining-substrate.md)
+  settled them; this ADR only blesses the caller-facing surface that drives them.
+- **Projections (`op:get`/`op:index`/`op:untag`) are their own seam.** A vow's
+  `get`/`index`/`untag` pipeline a structural step
+  ([ADR-0050](ADR-0050-get-index-responder.md), [ADR-0052](ADR-0052-untag-responder.md));
+  this ADR covers verb sends at an answer, not field navigation.
+- **No new wire shape.** Nothing here adds a frame; a pipelined questioner send is
+  the same `op:deliver` against a `desc:answer` ADR-0007 already carries.
+
+## Alternatives Considered
+
+- **Leave pipelining to the raw peer.** Rejected: `pancake_peer_send_deliver` with
+  a hand-allocated answer is correct but not the easy path; consumers awaited each
+  step and paid serial round trips. A vow-as-target makes the fast path the
+  obvious one.
+- **A separate `pipeline()` method distinct from `send()`.** Rejected: a second
+  verb to learn. Overloading the existing send on the target type keeps one
+  surface, and the type (capability vs. vow) already says whether it pipelines.
+- **Leave Nagle on; document the stall.** Rejected: performance is a public
+  contract. A request/response wire gains nothing from Nagle and loses a round
+  trip to it; disabling it is the correct default, not a tuning knob.
+
+## Consequences
+
+- The `bench-langs` throughput unit runs the four-verb taskboard script pipelined
+  in every client (the latency unit stays sequential), so the per-language report
+  measures the pipelined steady-state rate; the Goblins-reference row uses
+  Goblins' native pipelining to keep the workload identical
+  ([`bench/langs/contract.md`](../../../bench/langs/contract.md)).
+- Disabling Nagle drops the per-round-trip delayed-ACK stall on the TCP path:
+  loopback `bench-langs` throughput rose by two to three orders of magnitude once
+  the batched send stopped waiting on the ACK timer.
+- The questioner triad is exercised by each binding's `zig_smoke` pipelining
+  proof and the driver/actor scenarios; the wire shape it rides is the ADR-0007
+  substrate the session/engine tests and Goblins fixtures already cover.
+
+## Notes
+
+[ADR-0007](ADR-0007-promise-pipelining-substrate.md) is the serving substrate
+this surface drives. [ADR-0062](ADR-0062-one-connect-over-a-netlayer-slice.md)
+owns the C session the bindings sit on.

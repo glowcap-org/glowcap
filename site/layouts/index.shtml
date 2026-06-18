@@ -23,11 +23,15 @@
 		</a>
 		<a class="card" href="$site.page('bindings').link()">
 			<h3>Bindings</h3>
-			<p>The same library in Rust, Deno, Python, and Racket.</p>
+			<p>The same library in Rust, TypeScript, Python, and Racket.</p>
 		</a>
 		<a class="card" href="$site.page('concepts').link()">
 			<h3>Concepts</h3>
 			<p>Capabilities, CapTP, and OCapN — what they are and why they hold.</p>
+		</a>
+		<a class="card" href="$site.page('transports/iroh').link()">
+			<h3>iroh: encrypted P2P</h3>
+			<p>Reach a peer by a self-authenticating key over encrypted QUIC — no server in the middle.</p>
 		</a>
 		<a class="card" href="$site.page('reference').link()">
 			<h3>API reference</h3>

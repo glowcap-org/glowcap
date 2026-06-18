@@ -26,3 +26,4 @@ pub const canonicalHandoffGiveSignedBytes = encode.canonicalHandoffGiveSignedByt
 pub const canonicalHandoffReceiveSignedBytes = encode.canonicalHandoffReceiveSignedBytes;
 pub const handoffGiveRecordBytesRawLocation = encode.handoffGiveRecordBytesRawLocation;
 pub const wrapSignedHandoffGive = encode.wrapSignedHandoffGive;
+pub const encodePeerLocatorRecord = encode.encodePeerLocatorRecord;

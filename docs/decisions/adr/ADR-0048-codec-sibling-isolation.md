@@ -14,34 +14,32 @@ superseded_by: []
 
 ADR-0040 made the layer DAG compile-enforced: one internal module per layer,
 with an explicit one-way import table. That law stops a codec from reaching
-session or engine, but it cannot see *inside* a layer — `syrup/` and `capnp/`
+session or engine, but it cannot see _inside_ a layer — `syrup/` and `capnp/`
 both lived in the one `codec` module, so `syrup/decode.zig` importing
-`../capnp/wire.zig` would have compiled. The codec-plurality posture
-(ADR-0003) treats the two codecs as independent fillers of a slot resolved
-through the registry/dispatch seam; the open registry (ADR-0026) promises a
-third codec costs nothing the built-ins didn't. Both promises assume sibling
-codecs share nothing but the codec-neutral model and the framing verdict —
-an assumption that was held only by convention. ADR-0040's own discipline —
-when a language-native organ can hold a boundary, use the organ, not a text
-scan — points at sub-layer modules.
+`../capnp/wire.zig` would have compiled. The codec-plurality posture (ADR-0003)
+treats the two codecs as independent fillers of a slot resolved through the
+registry/dispatch seam; the open registry (ADR-0026) promises a third codec
+costs nothing the built-ins didn't. Both promises assume sibling codecs share
+nothing but the codec-neutral model and the framing verdict — an assumption that
+was held only by convention. ADR-0040's own discipline — when a language-native
+organ can hold a boundary, use the organ, not a text scan — points at sub-layer
+modules.
 
 ## Decision
 
-- **One module per sibling codec.** `build.zig` creates internal modules
-  rooted at `src/ocapn/codec/syrup/mod.zig` and
-  `src/ocapn/codec/capnp/mod.zig`. Each imports `foundation`, `model`, and
-  `framing` — nothing else. A codec naming the other's files fails to
-  compile.
+- **One module per sibling codec.** `build.zig` creates internal modules rooted
+  at `src/ocapn/codec/syrup/mod.zig` and `src/ocapn/codec/capnp/mod.zig`. Each
+  imports `foundation`, `model`, and `framing` — nothing else. A codec naming
+  the other's files fails to compile.
 - **`framing` is a shared module.** The codec-verdict vocabulary
-  (`framing.Prefix`) is rooted at `src/ocapn/codec/framing.zig` and imported
-  by both codecs, by the codec root, and by nothing above the codec layer
-  directly — the engine and netlayer keep reaching it as
-  `codec.dispatch.framing`.
+  (`framing.Prefix`) is rooted at `src/ocapn/codec/framing.zig` and imported by
+  both codecs, by the codec root, and by nothing above the codec layer directly
+  — the engine and netlayer keep reaching it as `codec.dispatch.framing`.
 - **The codec root is the one bilingual surface.** `mod.zig` re-exports both
   codecs under the unchanged public names; `dispatch.zig` and `registry.zig`
   import both to route by `model.CodecId`. A consumer-supplied codec still
-  arrives through `pub const pancake_codecs` in the root file (ADR-0026) and
-  is equally invisible to the built-ins.
+  arrives through `pub const pancake_codecs` in the root file (ADR-0026) and is
+  equally invisible to the built-ins.
 - **All three build graphs carry the same wiring** (host, cross-compile
   full-library, cross-compile sans-io core), so the boundary holds on every
   target `zig build check` compiles.

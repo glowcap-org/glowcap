@@ -15,7 +15,7 @@
 //!
 //! Ownership at the handler boundary is *turn-scoped*. The `Message` a handler
 //! receives borrows its arguments for the duration of the turn. For its reply a
-//! handler has two honest choices, and the vat reclaims storage after either. It
+//! handler has two choices, and the vat reclaims storage after either. It
 //! can return a value owned by its own `self` or aliased from the message, which
 //! allocates nothing. Or it can allocate the reply and any scratch from
 //! `turn.arena`, the per-turn allocator the vat hands every handler. The vat owns
@@ -49,6 +49,34 @@
 //! ref without caring where it lives; the vat chooses the route. The engine stays
 //! focused on codecs and authority. The vat sits above it and imports the engine,
 //! never the reverse.
+//!
+//! ## Local time-travel (snapshot / restore) — opt-in, off by default
+//!
+//! A vat can `snapshot` its local actor heap and later `restore` it, Goblins's
+//! `snapshot-whactormap` shaped in Zig (ADR-0060). Each actor's state lives behind
+//! a refcounted `StateBox`, so a snapshot shares state pointers rather than copying
+//! bytes — O(objects), no per-byte clone — and the count is non-atomic because a
+//! vat is single-threaded. The feature pays nothing when unused: a non-snapshotting
+//! actor's box stays `refs == 1` and the turn path costs one extra pointer hop.
+//!
+//! There are two opt-in actor flavors, and a snapshot needs one of them:
+//!   * **Mutable + `clone`.** An actor that defines `pub fn clone(self: *const
+//!     @This(), allocator) std.mem.Allocator.Error!*@This()` keeps mutating its
+//!     `self` and is copied-on-write: the vat deep-clones a *shared* box before the
+//!     next turn can mutate it, so the snapshot's copy is never touched.
+//!   * **Persistent + `become`.** An actor that declares `pub const
+//!     snapshot_persistent = true;` never mutates `self`; it produces its next
+//!     state with `Turn.become`. Because the value is never mutated in place, the
+//!     snapshot can share it with no copy-on-write — full Goblins parity.
+//! An actor that is neither cloneable nor persistent makes `snapshot` fail with
+//! `NotSnapshottable`, so a silent partial snapshot is impossible.
+//!
+//! Time-travel is **local only.** A snapshot captures local actor state and
+//! `next_actor`; it never touches `peer`, `exports`, far listeners, or the turn
+//! arenas. A restore rewinds no remote peer, and far references in restored state
+//! are copied as data — their wire meaning is engine-owned and forward-only. Both
+//! `snapshot` and `restore` require quiescence (no turn or drive in flight, empty
+//! queue), else `NotQuiescent`.
 
 const std = @import("std");
 const model = @import("model");
@@ -105,7 +133,9 @@ pub const Error = error{
     /// A near-call (`near` / `$`) was made to a far ref; only `send` reaches one.
     NotNearCallable,
     /// `Vat.bindExport` was given a far ref: only a local actor can be bound to
-    /// an export position this vat answers for.
+    /// an export position this vat answers for. Also returned by `Turn.become`
+    /// for a far self-ref, which cannot happen for a running local handler but
+    /// keeps the surface total.
     NotLocal,
     /// A far `send` was made on a vat with no bound peer.
     NotConnected,
@@ -128,6 +158,15 @@ pub const Error = error{
     /// stack. For example, actor A near-calls B, which near-calls A again. This is
     /// not a wire bound; inbound frames never drive a near-call.
     NearCallTooDeep,
+    /// `Vat.snapshot` or `Vat.restore` was called while a turn or drive was in
+    /// flight or the send queue was non-empty. Time-travel is only coherent at
+    /// quiescence: a snapshot taken mid-turn would capture a half-mutated heap.
+    NotQuiescent,
+    /// `Vat.snapshot` reached an actor that is neither cloneable (no `clone`
+    /// method) nor persistent (`snapshot_persistent`), so its mutable state
+    /// cannot be safely shared with a snapshot. The snapshot fails whole rather
+    /// than silently omitting the actor.
+    NotSnapshottable,
 } || std.mem.Allocator.Error;
 
 /// Cap on synchronous near-call (`$`) nesting depth. Eventual-sends do not count
@@ -136,6 +175,71 @@ pub const Error = error{
 /// recursion well below a stack overflow while leaving ample room for the few
 /// levels real code nests.
 const max_near_call_depth: u32 = 128;
+
+/// Whether a behavior is a *persistent* actor: it never mutates `self` and
+/// produces its next state with `Turn.become`, so a snapshot may share its state
+/// with no copy-on-write. Opt in with `pub const snapshot_persistent = true;`.
+fn behaviorIsPersistent(comptime Behavior: type) bool {
+    return @hasDecl(Behavior, "snapshot_persistent") and Behavior.snapshot_persistent;
+}
+
+/// A refcounted home for one actor's state. A `Cell` holds a `*StateBox`, and a
+/// snapshot shares that pointer instead of copying the bytes behind it. The count
+/// is non-atomic because a vat is single-threaded, and an immutable/shared state
+/// value never points back at a box, so the graph is acyclic and a plain count
+/// frees correctly with no collector. The behavior's identity travels in the box
+/// (`handle`/`destroy`/`clone`) so a snapshot can rebuild a working cell from a
+/// shared box alone.
+const StateBox = struct {
+    ptr: *anyopaque,
+    /// Live references: the vat's own cell plus one per snapshot that shares it.
+    refs: usize,
+    handle: *const fn (state: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument,
+    destroy: *const fn (state: *anyopaque, allocator: std.mem.Allocator) void,
+    /// Deep-copy this box's state into a fresh allocation, for copy-on-write.
+    /// Null when the actor opted out of cloning; such a box is snapshottable only
+    /// if it is `persistent`.
+    clone: ?*const fn (state: *anyopaque, allocator: std.mem.Allocator) std.mem.Allocator.Error!*anyopaque,
+    /// Set at spawn for a persistent actor: its state is never mutated in place,
+    /// so copy-on-write is skipped and a snapshot shares it directly.
+    persistent: bool,
+};
+
+/// One actor slot in the vat's heap: a single owning reference to a `StateBox`.
+const Cell = struct { box: *StateBox };
+
+/// A staged `Turn.become`: the next state box, installed when the turn frame
+/// returns successfully and discarded if the handler errors.
+const PendingBecome = struct { id: u64, box: *StateBox };
+
+/// Release one reference to `box`, freeing its state and the box itself when the
+/// last reference drops. The single chokepoint for box lifetime, shared by the
+/// vat and by `Snapshot.deinit` so both count the same way.
+fn releaseBox(allocator: std.mem.Allocator, box: *StateBox) void {
+    box.refs -= 1;
+    if (box.refs == 0) {
+        box.destroy(box.ptr, allocator);
+        allocator.destroy(box);
+    }
+}
+
+/// A captured local actor heap: a point-in-time sharing of each actor's
+/// `StateBox` (refcount raised, no bytes copied) plus the `next_actor` counter.
+/// Reusable across repeated `restore`s. The owner frees it with `deinit`, which
+/// drops the snapshot's reference to every shared box. Captures local state only
+/// — never `peer`, `exports`, far listeners, or the turn arenas.
+pub const Snapshot = struct {
+    boxes: std.AutoHashMapUnmanaged(u64, *StateBox) = .{},
+    next_actor: u64 = 1,
+    allocator: std.mem.Allocator,
+
+    pub fn deinit(self: *Snapshot) void {
+        var it = self.boxes.valueIterator();
+        while (it.next()) |box| releaseBox(self.allocator, box.*);
+        self.boxes.deinit(self.allocator);
+        self.* = undefined;
+    }
+};
 
 /// The per-turn context handed to an actor's handler. It is the actor's authority
 /// to spawn, near-call, and eventual-send, plus its own identity. An explicit
@@ -149,6 +253,20 @@ pub const Turn = struct {
     /// sends made inside one turn share it; it is reset only when an outermost turn
     /// begins.
     arena: std.mem.Allocator,
+    /// A pending `become` staged by this turn, or null. Installed when the turn
+    /// frame returns successfully; discarded (its box released) on a handler error.
+    pending_become: ?PendingBecome = null,
+    /// The answer this turn must settle, set by `serve` for an inbound deliver
+    /// (null for a `tell` with no answer, or a near-call). `forward` reads it to
+    /// defer resolution onto a forwarded send's promise.
+    inbound_answer: ?u64 = null,
+    /// Set by `forward`: this turn handed its answer off to a forwarded send's
+    /// promise, so `serve` must not resolve it from the handler's return value.
+    forwarded: bool = false,
+    /// True while this turn runs under a synchronous near-call (`$`), where the
+    /// caller wants a value back now. `forward` then forwards by near-call to a
+    /// local target and returns its value rather than deferring an answer.
+    near_call: bool = false,
 
     /// The handled actor's own reference, for replying with itself or handing
     /// itself out as a callback.
@@ -169,7 +287,51 @@ pub const Turn = struct {
     pub fn send(self: *Turn, target: Ref, msg: Message) Error!Promise {
         return self.vat.send(target, msg);
     }
+    /// Functional "become" for a persistent actor (mirrors Goblins `bcom`): stage
+    /// `next` as this actor's state. The new value is installed when this turn
+    /// frame returns successfully and discarded if the handler errors, so a failed
+    /// turn leaves the actor unchanged. A persistent actor never mutates its
+    /// `self`; it calls `become` instead, which is why a snapshot can share its
+    /// state with no copy-on-write. Calling it twice in one turn keeps the last
+    /// value. Legal only for a local self-ref.
+    pub fn become(self: *Turn, comptime Behavior: type, next: Behavior) Error!void {
+        return self.vat.stageBecome(self, Behavior, next);
+    }
+
+    /// Forward this turn's call to `target` and let this actor's own answer
+    /// resolve to the target's eventual result — the primitive a forwarding
+    /// proxy (caretaker, attenuator) is built on. Goblins expresses this as a
+    /// behavior that returns `(apply <- target args)`; pancake's handler returns
+    /// a concrete value, so `forward` instead defers the inbound answer and
+    /// settles it when the forwarded send settles, local or far. `target` may be
+    /// local or far: a far forward is what lets a holder hand out an attenuated
+    /// or revocable view of a capability it imported over the wire.
+    ///
+    /// The return is a `void` placeholder the vat ignores; the real answer rides
+    /// the forwarded promise. A turn with no inbound answer (a `tell`) forwards
+    /// fire-and-forget. Forwarding does not preserve promise pipelining *through*
+    /// the proxy: a partner pipelining on the proxy's answer queues on this side
+    /// until the forwarded send settles (ADR-0064).
+    pub fn forward(self: *Turn, target: Ref, msg: Message) anyerror!model.Argument {
+        return self.vat.forwardTurn(self, target, msg);
+    }
 };
+
+/// Heap context a forwarded turn's promise listener carries: the vat to resolve
+/// against and the deferred inbound answer. Freed by the listener once it fires
+/// (on settle, or on a disconnect break via `breakFarPromises`).
+const ForwardContext = struct { vat: *Vat, answer: u64 };
+
+fn forwardListener(ctx: ?*anyopaque, resolution: Resolution) void {
+    const fc: *ForwardContext = @ptrCast(@alignCast(ctx.?));
+    defer fc.vat.allocator.destroy(fc);
+    // Best-effort: a failed resolve strands the partner's answer until teardown
+    // (the same class as a refused GC release), never a fault on this side.
+    switch (resolution) {
+        .fulfilled => |value| fc.vat.resolveFulfill(fc.answer, value) catch {},
+        .broken => |message| fc.vat.resolveBreak(fc.answer, message) catch {},
+    }
+}
 
 /// One single-threaded container of local objects — the Goblins-shaped layer
 /// above the engine. Spawn objects, near-call them with `near` (`$`),
@@ -213,12 +375,6 @@ pub const Vat = struct {
     next_actor: u64 = 1,
     next_promise: u64 = 1,
 
-    const Cell = struct {
-        state: *anyopaque,
-        handle: *const fn (state: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument,
-        destroy: *const fn (state: *anyopaque, allocator: std.mem.Allocator) void,
-    };
-
     const Queued = struct { target: u64, msg: Message, promise: u64 };
 
     /// A pure-local vat (no wire). `near`/`send`/`drive` over local actors only.
@@ -243,7 +399,7 @@ pub const Vat = struct {
 
     pub fn deinit(self: *Vat) void {
         var it = self.actors.valueIterator();
-        while (it.next()) |cell| cell.destroy(cell.state, self.allocator);
+        while (it.next()) |cell| releaseBox(self.allocator, cell.box);
         self.actors.deinit(self.allocator);
         self.queue.deinit(self.allocator);
         self.listeners.deinit(self.allocator);
@@ -253,15 +409,11 @@ pub const Vat = struct {
         self.queue_arena.deinit();
     }
 
-    /// Spawn a local actor with `initial` state, returning a local `Ref`. No
-    /// export position is minted: a partner cannot reach the actor until it is
-    /// bound with `bindExport` (or spawned through the driver's exporting
-    /// `spawn`), so this is the no-grant way to create one.
-    pub fn spawn(self: *Vat, comptime Behavior: type, initial: Behavior) Error!Ref {
-        const state = try self.allocator.create(Behavior);
-        errdefer self.allocator.destroy(state);
-        state.* = initial;
-
+    /// Allocate a fresh `StateBox` (`refs = 1`) owning a heap copy of `initial`,
+    /// wiring the behavior's `handle`/`destroy`/`clone` and persistent flavor. The
+    /// one place a box is born, shared by `spawn` and `become`. On failure it owns
+    /// nothing: `initial`'s resources are reclaimed before the error returns.
+    fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*StateBox {
         const Glue = struct {
             fn handle(erased: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
                 const behavior: *Behavior = @ptrCast(@alignCast(erased));
@@ -272,10 +424,50 @@ pub const Vat = struct {
                 if (@hasDecl(Behavior, "deinit")) behavior.deinit(allocator);
                 allocator.destroy(behavior);
             }
+            fn clone(erased: *anyopaque, allocator: std.mem.Allocator) std.mem.Allocator.Error!*anyopaque {
+                const behavior: *const Behavior = @ptrCast(@alignCast(erased));
+                // Reached only when `clone` was wired below, i.e. the actor
+                // defines it; the guard keeps the body compilable for actors
+                // that do not.
+                if (@hasDecl(Behavior, "clone")) {
+                    const fresh = try behavior.clone(allocator);
+                    return @ptrCast(fresh);
+                }
+                unreachable;
+            }
         };
 
+        const state = try self.allocator.create(Behavior);
+        // Move `initial` into the heap state *before* the next fallible step, so
+        // the failure path's `deinit` reclaims a fully-formed value (the doc
+        // contract) rather than reading uninitialized memory.
+        state.* = initial;
+        const box = self.allocator.create(StateBox) catch |e| {
+            if (@hasDecl(Behavior, "deinit")) state.deinit(self.allocator);
+            self.allocator.destroy(state);
+            return e;
+        };
+        box.* = .{
+            .ptr = @ptrCast(state),
+            .refs = 1,
+            .handle = Glue.handle,
+            .destroy = Glue.destroy,
+            .clone = if (@hasDecl(Behavior, "clone")) Glue.clone else null,
+            .persistent = behaviorIsPersistent(Behavior),
+        };
+        return box;
+    }
+
+    /// Spawn a local actor with `initial` state, returning a local `Ref`. No
+    /// export position is minted: a partner cannot reach the actor until it is
+    /// bound with `bindExport` (or spawned through the driver's exporting
+    /// `spawn`), so this is the no-grant way to create one.
+    pub fn spawn(self: *Vat, comptime Behavior: type, initial: Behavior) Error!Ref {
+        const box = try self.makeBox(Behavior, initial);
+        errdefer releaseBox(self.allocator, box);
+
         const id = self.next_actor;
-        try self.actors.put(self.allocator, id, .{ .state = state, .handle = Glue.handle, .destroy = Glue.destroy });
+        try self.actors.put(self.allocator, id, .{ .box = box });
         self.next_actor += 1;
         return .{ .local = id };
     }
@@ -306,16 +498,82 @@ pub const Vat = struct {
         self.turn_depth -= 1;
     }
 
+    /// Copy-on-write: if `cell`'s box is shared with a snapshot, deep-clone its
+    /// state into a fresh box before the turn that is about to run can mutate it,
+    /// so the snapshot's copy is never touched. A persistent box is skipped — it is
+    /// never mutated in place — and an unshared box (`refs == 1`) costs nothing.
+    /// Conservative by necessity: a read-only near-call to a shared mutable actor
+    /// still clones, because mutable `self` hides reads from writes.
+    fn ensureUnshared(self: *Vat, cell: *Cell) Error!void {
+        const box = cell.box;
+        if (box.persistent or box.refs == 1) return;
+        // A shared, non-persistent box was admitted by `snapshot` only if it is
+        // cloneable, so `clone` is non-null here; treat a null as "cannot COW".
+        const clone_fn = box.clone orelse return;
+        const fresh_ptr = try clone_fn(box.ptr, self.allocator);
+        const new_box = self.allocator.create(StateBox) catch |e| {
+            box.destroy(fresh_ptr, self.allocator);
+            return e;
+        };
+        new_box.* = .{
+            .ptr = fresh_ptr,
+            .refs = 1,
+            .handle = box.handle,
+            .destroy = box.destroy,
+            .clone = box.clone,
+            .persistent = box.persistent,
+        };
+        // Drop this cell's reference to the shared box (the snapshot keeps it
+        // alive, so this never frees it) and point the cell at the private copy.
+        box.refs -= 1;
+        cell.box = new_box;
+    }
+
     fn callLocal(self: *Vat, id: u64, msg: Message) anyerror!model.Argument {
         // Bound the near-call recursion before it can overflow the native stack:
         // each nested `$` deepens `turn_depth`, so refuse once it would exceed the
         // cap rather than crashing on a cyclic local graph.
         if (self.turn_depth >= max_near_call_depth) return Error.NearCallTooDeep;
-        const cell = self.actors.get(id) orelse return Error.NoSuchActor;
+        const cell = self.actors.getPtr(id) orelse return Error.NoSuchActor;
+        try self.ensureUnshared(cell);
+        // Read the box pointer out before the handler runs: a handler may spawn,
+        // which can resize `actors` and invalidate `cell`.
+        const box = cell.box;
         const arena = self.beginTurn();
         defer self.endTurn();
-        var turn = Turn{ .vat = self, .self_ref = .{ .local = id }, .arena = arena };
-        return cell.handle(cell.state, &turn, msg);
+        var turn = Turn{ .vat = self, .self_ref = .{ .local = id }, .arena = arena, .near_call = true };
+        if (box.handle(box.ptr, &turn, msg)) |value| {
+            if (turn.pending_become) |pending| self.installBecome(pending);
+            return value;
+        } else |err| {
+            if (turn.pending_become) |pending| releaseBox(self.allocator, pending.box);
+            return err;
+        }
+    }
+
+    /// Stage `next` as the running actor's pending become (see `Turn.become`).
+    fn stageBecome(self: *Vat, turn: *Turn, comptime Behavior: type, next: Behavior) Error!void {
+        const id = switch (turn.self_ref) {
+            .local => |a| a,
+            .far => return Error.NotLocal,
+        };
+        const box = try self.makeBox(Behavior, next);
+        // Last become in a turn wins: release any value staged earlier this turn.
+        if (turn.pending_become) |prev| releaseBox(self.allocator, prev.box);
+        turn.pending_become = .{ .id = id, .box = box };
+    }
+
+    /// Install a staged become: swap the actor's live box for the new one,
+    /// releasing the old live reference (a snapshot that shares it keeps it alive).
+    fn installBecome(self: *Vat, pending: PendingBecome) void {
+        const cell = self.actors.getPtr(pending.id) orelse {
+            // The actor vanished mid-turn (it cannot, today — a running actor is
+            // never removed — but keep the release total rather than leak).
+            releaseBox(self.allocator, pending.box);
+            return;
+        };
+        releaseBox(self.allocator, cell.box);
+        cell.box = pending.box;
     }
 
     /// The eventual send (`<-`): location-transparent. A local target queues a
@@ -340,6 +598,54 @@ pub const Vat = struct {
                 return .{ .far = answer };
             },
         }
+    }
+
+    /// Drive `Turn.forward`: forward this turn's call to `target` and arrange for
+    /// the turn's inbound answer to settle when the forwarded send does.
+    ///
+    /// A synchronous near-call (`$`) wants a value now, so it forwards by
+    /// near-call and returns the target's value directly — legal only for a local
+    /// target, since `near` refuses a far ref. The eventual-send/deliver path
+    /// defers: with an inbound answer it sends and settles that answer on the
+    /// forwarded promise; with none (a `tell`) it forwards fire-and-forget. The
+    /// placeholder return is ignored by `serve`/`callLocal` once `forwarded` is set.
+    fn forwardTurn(self: *Vat, turn: *Turn, target: Ref, msg: Message) anyerror!model.Argument {
+        if (turn.near_call) return self.near(target, msg);
+        const answer = turn.inbound_answer orelse {
+            try self.tell(target, msg);
+            turn.forwarded = true;
+            return .{ .void = {} };
+        };
+        const promise = try self.send(target, msg);
+        const fc = try self.allocator.create(ForwardContext);
+        fc.* = .{ .vat = self, .answer = answer };
+        // A fresh promise can only collide on OOM, never `AlreadyListening`.
+        self.on(promise, .{ .ctx = fc, .func = forwardListener }) catch |e| {
+            self.allocator.destroy(fc);
+            return e;
+        };
+        turn.forwarded = true;
+        return .{ .void = {} };
+    }
+
+    /// Promise pipelining (the questioner half of ADR-0007): eventual-send `msg`
+    /// to a far answer this vat is still awaiting — the `.far` position a prior
+    /// `send` returned — instead of a settled reference. It puts one
+    /// `op:deliver` against `<desc:answer answer_pos>` on the wire, so a
+    /// dependent call need not wait for the answer it depends on to come back:
+    /// send `create`, then `sendToAnswer(create_answer, assign)` before
+    /// `create` resolves. The partner queues the call on that pending answer and
+    /// drains it when the answer settles (the serving side ADR-0007 already
+    /// built). Returns a `Promise` for this call's own result, which can itself
+    /// be pipelined against. `msg`'s verb and args are borrowed only for this
+    /// call (cloned inside `peer.sendCopying`). `NotConnected` if no peer is
+    /// bound. The empty-path target rides the engine's flat `desc:answer` send;
+    /// a multi-hop path is the engine's decomposition concern, not this surface.
+    pub fn sendToAnswer(self: *Vat, answer_pos: u64, msg: Message) Error!Promise {
+        const peer = self.peer orelse return Error.NotConnected;
+        const answer = peer.allocateAnswer();
+        try self.farDeliverTo(.{ .promise = .{ .answer_position = answer_pos } }, msg, answer);
+        return .{ .far = answer };
     }
 
     /// The fire-and-forget eventual-send (Goblins `<-np`): like `send`, but it
@@ -377,17 +683,25 @@ pub const Vat = struct {
         };
     }
 
-    /// Encode a far `op:deliver` for `msg` to `far_ref`, requesting `answer`
-    /// (null for a no-answer `tell`). Two named allocations live here, the
-    /// one place the far-send path needs them. First, a scratch slice that
-    /// splices the verb symbol ahead of the args, because the wire deliver
-    /// carries `[verb, args…]` as one list while the actor API keeps the verb
-    /// separate — freed immediately (the elements are borrowed, only the spine
-    /// is owned). Second, the one boundary clone inside `peer.sendCopying`, which
-    /// the outbound queue requires since `msg`'s args are borrowed from the
-    /// caller. The splice cannot reuse the clone: `sendCopying` clones whatever
-    /// list it is handed, and the verb must be in that list first.
+    /// Encode a far `op:deliver` to a settled far import — the resolved-target
+    /// case of `farDeliverTo`.
     fn farDeliver(self: *Vat, far_ref: model.FarRef, msg: Message, answer: ?u64) Error!void {
+        return self.farDeliverTo(.{ .far = far_ref }, msg, answer);
+    }
+
+    /// Encode one far `op:deliver` for `msg` to a wire `target` — a far import
+    /// (`farDeliver`) or a pending answer (`sendToAnswer`'s `desc:answer`) —
+    /// requesting `answer` (null for a no-answer `tell`). Two named allocations
+    /// live here, the one place the far-send path needs them. First, a scratch
+    /// slice that splices the verb symbol ahead of the args, because the wire
+    /// deliver carries `[verb, args…]` as one list while the actor API keeps the
+    /// verb separate — freed immediately (the elements are borrowed, only the
+    /// spine is owned). Second, the one boundary clone inside
+    /// `peer.sendCopying`, which the outbound queue requires since `msg`'s args
+    /// are borrowed from the caller. The splice cannot reuse the clone:
+    /// `sendCopying` clones whatever list it is handed, and the verb must be in
+    /// that list first.
+    fn farDeliverTo(self: *Vat, target: model.Reference, msg: Message, answer: ?u64) Error!void {
         const peer = self.peer orelse return Error.NotConnected;
         const has_verb = msg.verb.len > 0;
         const full = try self.allocator.alloc(model.Argument, msg.args.len + @intFromBool(has_verb));
@@ -399,7 +713,7 @@ pub const Vat = struct {
         }
         for (msg.args, 0..) |argument, i| full[head + i] = argument;
         peer.sendCopying(.{ .deliver = .{
-            .target = .{ .far = far_ref },
+            .target = target,
             .args = full,
             .answer = answer,
         } }) catch |e| return switch (e) {
@@ -475,6 +789,61 @@ pub const Vat = struct {
         gop.value_ptr.* = local_id;
     }
 
+    /// Whether the vat is idle: no turn or drive in flight and no queued sends.
+    /// `snapshot` and `restore` require it, so time-travel never captures or
+    /// rewinds a half-mutated heap.
+    fn quiescent(self: *const Vat) bool {
+        return self.turn_depth == 0 and self.drive_depth == 0 and self.queue.items.len == 0;
+    }
+
+    /// Capture the local actor heap: share every actor's `StateBox` (refcount up,
+    /// no bytes copied — O(objects), Goblins's `snapshot-whactormap` shape) and
+    /// the `next_actor` counter. Requires quiescence (`NotQuiescent`) and every
+    /// actor to be cloneable or persistent (`NotSnapshottable`); on either failure
+    /// nothing is left shared. The returned `Snapshot` is the owner's to `deinit`.
+    pub fn snapshot(self: *Vat) Error!Snapshot {
+        if (!self.quiescent()) return Error.NotQuiescent;
+        var snap = Snapshot{ .allocator = self.allocator };
+        errdefer snap.deinit();
+        var it = self.actors.iterator();
+        while (it.next()) |entry| {
+            const box = entry.value_ptr.box;
+            if (box.clone == null and !box.persistent) return Error.NotSnapshottable;
+            try snap.boxes.put(self.allocator, entry.key_ptr.*, box);
+            box.refs += 1;
+        }
+        snap.next_actor = self.next_actor;
+        return snap;
+    }
+
+    /// Rewind the local actor heap to `snap`: re-point every actor at the
+    /// snapshot's shared boxes and restore `next_actor`. Requires quiescence. The
+    /// new table is built (sharing the snapshot's boxes) before the live boxes are
+    /// released, so a mid-build failure leaves the live heap intact. `snap` stays
+    /// reusable across repeated restores. Touches local actor state only — never
+    /// the peer, exports, far listeners, or arenas.
+    pub fn restore(self: *Vat, snap: *const Snapshot) Error!void {
+        if (!self.quiescent()) return Error.NotQuiescent;
+        var rebuilt: std.AutoHashMapUnmanaged(u64, Cell) = .{};
+        errdefer {
+            var rit = rebuilt.valueIterator();
+            while (rit.next()) |cell| releaseBox(self.allocator, cell.box);
+            rebuilt.deinit(self.allocator);
+        }
+        var sit = snap.boxes.iterator();
+        while (sit.next()) |entry| {
+            try rebuilt.put(self.allocator, entry.key_ptr.*, .{ .box = entry.value_ptr.* });
+            entry.value_ptr.*.refs += 1;
+        }
+        // Commit: the rebuilt table is fully built and ref-counted, so releasing
+        // the live boxes and swapping cannot fail.
+        var lit = self.actors.valueIterator();
+        while (lit.next()) |cell| releaseBox(self.allocator, cell.box);
+        self.actors.deinit(self.allocator);
+        self.actors = rebuilt;
+        self.next_actor = snap.next_actor;
+    }
+
     /// Run queued local eventual-sends to quiescence, settling each promise with
     /// the handler's value (or a break on error) and firing its listener. Turns
     /// queued by a turn run in the same drive (FIFO). The queued messages'
@@ -531,10 +900,15 @@ pub const Vat = struct {
                         try self.resolveBreak(answer, @errorName(Error.NearCallTooDeep));
                         return true;
                     }
-                    const cell = self.actors.get(local_id) orelse {
+                    const cell = self.actors.getPtr(local_id) orelse {
                         try self.resolveBreak(answer, @errorName(Error.NoSuchActor));
                         return true;
                     };
+                    // Copy-on-write a shared box before the inbound turn can
+                    // mutate it, ordered with the checks above so a refusal
+                    // never resets the arena.
+                    try self.ensureUnshared(cell);
+                    const box = cell.box;
                     // Materialize the borrowed wire args *inside* the turn
                     // window: `beginTurn`'s depth-0 reset has already run, so
                     // the args land in the turn arena and the next outermost
@@ -547,11 +921,18 @@ pub const Vat = struct {
                     const arena = self.beginTurn();
                     defer self.endTurn();
                     const args = try deliver.args.toOwnedSlice(arena);
-                    var turn = Turn{ .vat = self, .self_ref = .{ .local = local_id }, .arena = arena };
-                    break :reply cell.handle(cell.state, &turn, messageFor(args)) catch |err| {
+                    var turn = Turn{ .vat = self, .self_ref = .{ .local = local_id }, .arena = arena, .inbound_answer = answer };
+                    if (box.handle(box.ptr, &turn, messageFor(args))) |value| {
+                        if (turn.pending_become) |pending| self.installBecome(pending);
+                        // A forwarding actor handed its answer to another send's
+                        // promise; that promise resolves it, not this return.
+                        if (turn.forwarded) return true;
+                        break :reply value;
+                    } else |err| {
+                        if (turn.pending_become) |pending| releaseBox(self.allocator, pending.box);
                         try self.resolveBreak(answer, @errorName(err));
                         return true;
-                    };
+                    }
                 };
                 try self.resolveFulfill(answer, reply);
                 return true;

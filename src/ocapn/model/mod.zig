@@ -624,3 +624,27 @@ pub const message_kinds = [_]MessageKind{
     .{ .tag_name = "index", .model_name = "Index" },
     .{ .tag_name = "untag", .model_name = "Untag" },
 };
+
+/// Bind a satellite kind registry to `Message` at compile time: assert that
+/// `Registry`'s fields mirror `Message`'s arms by name and order. Each registry
+/// that restates the message-kind set — the engine's `EventKind`, the Cap'n
+/// Proto wire `Kind`, the C `PANCAKE_EVENT_*` block through its `EventKind`
+/// mirror — calls this so a new `Message` arm cannot land without its mirror.
+/// The wire ids and C discriminants stay explicit (they are external contracts,
+/// not derivations); this only forbids the set from drifting. `Registry` may be
+/// an `enum` or a `union` so the same assert covers `view.Body` too.
+pub fn assertMirrorsMessageKinds(comptime Registry: type) void {
+    const arms = @typeInfo(Message).@"union".fields;
+    const mirror = switch (@typeInfo(Registry)) {
+        .@"enum" => |info| info.fields,
+        .@"union" => |info| info.fields,
+        else => @compileError("kind registry must be an enum or union"),
+    };
+    if (arms.len != mirror.len)
+        @compileError("kind registry arity drifted from model.Message");
+    inline for (arms, mirror) |arm, field| {
+        if (!std.mem.eql(u8, arm.name, field.name))
+            @compileError("kind registry must mirror model.Message arm '" ++
+                arm.name ++ "' in order, found '" ++ field.name ++ "'");
+    }
+}

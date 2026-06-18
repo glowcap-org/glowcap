@@ -18,52 +18,85 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 pub(crate) const READ_CHUNK: usize = 16 * 1024;
 
 pub(crate) fn io_err(_: std::io::Error) -> Error {
-    Error::from_code(sys::ERR_IO)
+	Error::from_code(sys::ERR_IO)
 }
 
-/// Encode pending outbound work and write every queued frame, then flush. Generic
-/// over the byte sink so the same pump drives a peer over TCP or over the iroh
-/// sidecar bridge; the frame unit is identical.
-pub(crate) async fn pump_outbound<S: AsyncWrite + Unpin>(peer: &mut Peer<'_>, stream: &mut S) -> Result<()> {
-    peer.step()?;
-    while let Some(frame) = peer.take_outbound()? {
-        stream.write_all(&frame).await.map_err(io_err)?;
-    }
-    stream.flush().await.map_err(io_err)?;
-    Ok(())
+/// Encode every pending outbound message and write the queued frames, then
+/// flush. Generic over the byte sink so the same pump drives a peer over TCP or
+/// over the iroh sidecar bridge; the frame unit is identical. Stepping to idle
+/// (not once) is what keeps a pipelined batch whole: a projection's settlement
+/// cascades — a resolve drains the projection, whose resolve fires a listener
+/// that queues a deliver — and each link is a separate step. A single step would
+/// strand the tail in the queue, deadlocking a partner parked on the answer it
+/// carries.
+pub(crate) async fn pump_outbound<S: AsyncWrite + Unpin>(
+	peer: &mut Peer<'_>,
+	stream: &mut S,
+) -> Result<()> {
+	peer.step_to_idle()?;
+	while let Some(frame) = peer.take_outbound()? {
+		stream.write_all(&frame).await.map_err(io_err)?;
+	}
+	stream.flush().await.map_err(io_err)?;
+	Ok(())
 }
 
 /// Complete the keyed `op:start-session` handshake: sign `transport`/`designator`
-/// with a per-connection random session seed (entropy at the I/O boundary, never
-/// in the sans-io core), flush it, and read until the partner's start-session
-/// opens the session. The caller names the locator — its own `host:port` for a
-/// `tcp` dialer (a true locator a Goblins partner accepts), an empty designator
-/// for an iroh dialer whose identity is the session key, the local endpoint id
-/// for an iroh listener. Leftover inbound bytes stay in `inbox` for the caller's
-/// main loop. The exchange is symmetric — both ends send first, then read — so
-/// two pancake peers (or pancake and Goblins) converge.
+/// with a session seed, flush it, and read until the partner's start-session
+/// opens the session. Pass `seed: None` to mint a per-connection random seed
+/// (entropy at the I/O boundary, never in the sans-io core); pass `Some(seed)` to
+/// reuse a retained identity — the recipient half of a three-party handoff dials
+/// the exporter with the same seed it presented to the gifter, which is what the
+/// exporter verifies the `desc:handoff-receive` against. Returns the seed
+/// actually used so the caller can retain it for later exporter dials. The caller
+/// names the locator — its own `host:port` for a `tcp` dialer (a true locator a
+/// Goblins partner accepts), an empty designator for an iroh dialer whose
+/// identity is the session key, the local endpoint id for an iroh listener.
+/// Leftover inbound bytes stay in `inbox` for the caller's main loop. The
+/// exchange is symmetric — both ends send first, then read — so two pancake peers
+/// (or pancake and Goblins) converge.
 pub(crate) async fn handshake<S: AsyncRead + AsyncWrite + Unpin>(
-    peer: &mut Peer<'_>,
-    stream: &mut S,
-    transport: &str,
-    designator: &str,
-    inbox: &mut Vec<u8>,
-    chunk: &mut [u8],
-) -> Result<()> {
-    let mut seed = [0u8; 32];
-    getrandom::getrandom(&mut seed).map_err(|_| Error::from_code(sys::ERR_INTERNAL))?;
-    peer.start_session(&seed, transport, designator, true)?;
-    pump_outbound(peer, stream).await?;
-    while !peer.session_is_open() {
-        let n = stream.read(&mut *chunk).await.map_err(io_err)?;
-        if n == 0 {
-            return Err(Error::from_code(sys::ERR_CLOSED)); // closed during the handshake
-        }
-        inbox.extend_from_slice(&chunk[..n]);
-        while let Some(consumed) = peer.recv_stream(inbox)? {
-            inbox.drain(..consumed);
-        }
-        pump_outbound(peer, stream).await?;
-    }
-    Ok(())
+	peer: &mut Peer<'_>,
+	stream: &mut S,
+	transport: &str,
+	designator: &str,
+	inbox: &mut Vec<u8>,
+	chunk: &mut [u8],
+	seed: Option<[u8; 32]>,
+) -> Result<[u8; 32]> {
+	let seed = match seed {
+		Some(seed) => seed,
+		None => {
+			let mut seed = [0u8; 32];
+			getrandom::getrandom(&mut seed).map_err(|_| Error::from_code(sys::ERR_INTERNAL))?;
+			seed
+		}
+	};
+	peer.start_session(&seed, transport, designator, true)?;
+	pump_outbound(peer, stream).await?;
+	while !peer.session_is_open() {
+		let n = stream.read(&mut *chunk).await.map_err(io_err)?;
+		if n == 0 {
+			return Err(Error::from_code(sys::ERR_CLOSED)); // closed during the handshake
+		}
+		inbox.extend_from_slice(&chunk[..n]);
+		// Ingest only up to the frame that opens the session. A partner may
+		// pipeline application frames — most sharply, a bootstrap fetch — right
+		// behind its start-session; those must not be dispatched here, because a
+		// fetch is answered the instant it is ingested (the responder is
+		// automatic) and the host has not yet published its bootstrap caps. They
+		// stay in `inbox` for the caller's main loop, which dispatches them only
+		// after applying the host's setup (publish), the ordering the Zig
+		// LoopHost guarantees by publishing in connection setup.
+		while !peer.session_is_open() {
+			match peer.recv_stream(inbox)? {
+				Some(consumed) => {
+					inbox.drain(..consumed);
+				}
+				None => break,
+			}
+		}
+		pump_outbound(peer, stream).await?;
+	}
+	Ok(seed)
 }

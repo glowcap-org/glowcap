@@ -81,6 +81,14 @@ fn applyRecvShared(self: *Session, message: anytype) !void {
             if (ss.acceptable_location.designator.len > 0) {
                 self.partner_designator = try self.key_arena.allocator().dupe(u8, ss.acceptable_location.designator);
             }
+            // The verbatim location-record bytes a gifter embeds in a
+            // `desc:handoff-give` ride only on the borrowed decode view; the owned
+            // message shape drops them, so capture them when present.
+            if (acceptableLocationRawBytes(ss)) |raw| {
+                if (raw.len > 0) {
+                    self.partner_acceptable_location_raw = try self.key_arena.allocator().dupe(u8, raw);
+                }
+            }
             if (self.handshake_local_sent) try self.transitionToOpen();
             self.handshake_remote_received = true;
         },
@@ -96,6 +104,16 @@ fn sessionPubkeyBytes(ss: anytype) []const u8 {
         ss.session_pubkey
     else
         ss.session_pubkey.bytes;
+}
+
+/// The verbatim `<ocapn-peer ...>` location bytes, present only on the borrowed
+/// decode view (`?[]const u8`); the owned `model.StartSession` has no such field,
+/// so the owned-apply path reports none.
+fn acceptableLocationRawBytes(ss: anytype) ?[]const u8 {
+    return if (comptime @hasField(@TypeOf(ss), "acceptable_location_raw"))
+        ss.acceptable_location_raw
+    else
+        null;
 }
 
 pub fn applySend(self: *Session, message: model.Message) !void {
@@ -115,14 +133,11 @@ pub fn applySend(self: *Session, message: model.Message) !void {
         .get => |get| try installAnswer(self, .outbound, get.answer),
         .index => |index| try installAnswer(self, .outbound, index.answer),
         .untag => |untag| try installAnswer(self, .outbound, untag.answer),
-        .resolve => |resolve| {
-            if (self.inbound_answers.getPtr(resolve.answer)) |entry| {
-                entry.status = switch (resolve.resolution) {
-                    .fulfill => .fulfilled,
-                    .@"break" => .broken,
-                };
-            }
-        },
+        // A sent `op:resolve` is routed through `applySentResolve` by
+        // `recordSend`, never here — it consumes the resolution (moves it into
+        // the answer store) under a single-owner contract `applySend`'s
+        // borrow-the-message shape cannot express.
+        .resolve => unreachable,
         .gc_export => |gc_export| {
             try session.applyGcExportDecrement(&self.imports, gc_export);
             // ADR-0009: a fully-released third-party import can never receive
@@ -147,8 +162,51 @@ pub fn applySend(self: *Session, message: model.Message) !void {
             if (self.handshake_remote_received) try self.transitionToOpen();
             self.handshake_local_sent = true;
         },
-        else => {},
+        // No send-side authority change beyond the `retainSentExports`
+        // accounting above: `op:listen` anchors at the engine seam, `op:handoff`
+        // carries its own gift bookkeeping, and `op:abort` tears the session
+        // down. Listing them explicitly (rather than `else`) makes a new
+        // `model.Message` kind fail to compile until its apply decision is
+        // classified here.
+        .listen, .handoff, .abort => {},
     }
+}
+
+/// Apply a resolve we are sending. **Consumes `resolve.resolution`**: it is
+/// moved into the inbound answer's store on success, or freed on any failure —
+/// the caller never frees it (a resolve has no heap beyond its resolution). The
+/// store becomes the single owner: the queued outbound carrier holds only the
+/// answer position, and `Peer.step` reads the resolution back from the store to
+/// encode (`mod.Outbound.settled_answer`).
+///
+/// Moving here — not cloning — is what closes the record/emit gap *and* keeps
+/// the wire path copy-free: the status flip and the stored resolution are one
+/// fact ("this inbound answer is settled, and here is its value"), so they land
+/// together at record time. Storing only when the queued frame later emits split
+/// them, opening a window — as wide as a whole inbound batch, since `stepInner`
+/// drains all inbound before emitting any outbound — in which an answer read
+/// settled with no resolution on hand; every status-reading consumer (op:listen,
+/// projections, pipelined op:deliver) then had to special-case it. The invariant
+/// is now structural: for every inbound answer, `status != .pending` iff a
+/// resolution is stored.
+pub fn applySentResolve(self: *Session, resolve: model.Resolve) !void {
+    // Account every `near` export the payload puts on the wire (see
+    // `retainSentExports`). On failure the resolution has found no owner, so the
+    // consume contract makes us free it.
+    retainSentExports(self, .{ .resolve = resolve }) catch |err| {
+        model.freeResolution(self.allocator, resolve.resolution);
+        return err;
+    };
+    // The send validator already proved the answer exists and is pending, so a
+    // missing row is not reachable in practice; honour the consume contract
+    // defensively rather than strand the resolution.
+    if (!self.inbound_answers.contains(resolve.answer)) {
+        model.freeResolution(self.allocator, resolve.resolution);
+        return;
+    }
+    // Transfer ownership to the store (which frees the resolution on its own
+    // failure, so the contract holds on every path).
+    try self.storeResolution(resolve.answer, resolve.resolution);
 }
 
 pub fn applyRecv(self: *Session, message: model.Message) !void {
@@ -185,7 +243,7 @@ pub fn applyRecv(self: *Session, message: model.Message) !void {
 /// Install the imports introduced by the `far` references in an argument tree
 /// (a deliver's args or a resolution's fulfill payload). Each `far` is a
 /// `<desc:import-object>` naming one of the partner's exports; registering it
-/// records the import we now hold. The bootstrap import (0) is excluded; an
+/// records the import the session holds. The bootstrap import (0) is excluded; an
 /// already-held position increments its wire-delta refcount, so a later
 /// `op:gc-exports` releasing the same total delta balances.
 fn installIntroducedImports(self: *Session, args: anytype, depth: usize) RecvViewError!void {
@@ -256,7 +314,21 @@ fn retainSentExports(self: *Session, message: model.Message) !void {
             try retainSentExportRef(self, listen.target);
             try retainSentExportRef(self, listen.listener);
         },
-        else => {},
+        // `op:get` / `op:index` / `op:untag` put their receiver reference on the
+        // wire just like a deliver target, so a `near` receiver takes the same
+        // wire-delta retain — symmetric with `validateSend`, which already proves
+        // the receiver is a held export. Omitting it let a settled partner's
+        // `op:gc-exports` underflow the export it never saw retained.
+        .get => |get| try retainSentExportRef(self, get.receiver),
+        .index => |index| try retainSentExportRef(self, index.receiver),
+        .untag => |untag| try retainSentExportRef(self, untag.receiver),
+        // Exhaustive on purpose — no `else`. A new sendable kind that puts a
+        // reference on the wire must declare its wire-delta retain above, or this
+        // switch stops compiling. That compile error is the ratchet for the gap
+        // that let `op:get`/`op:index`/`op:untag` ship unaccounted: silence here
+        // becomes a partner `op:gc-exports` underflow later. These kinds put no
+        // `near` export mention on the wire, so they retain nothing.
+        .gc_export, .gc_answer, .handoff, .start_session, .abort => {},
     }
 }
 

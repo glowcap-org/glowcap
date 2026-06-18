@@ -13,30 +13,30 @@
 //
 //   deno run --allow-ffi --allow-read --allow-net agent.ts 127.0.0.1 9099 deno-agent
 
-import { connect, type Ref } from "../../../../bindings/deno/pancake.ts";
+import { connect, type Ref, tcpLocator } from "@pancake/stack";
 import { GRANT, GRANT_REVOCABLE, NOW, READ, REVOKE_LAST, TOOLS, WRITE } from "./protocol.ts";
 
 const [host, portStr, nick] = Deno.args;
 if (!host || !portStr || !nick) {
-  console.error("usage: agent.ts <host> <port> <nick>");
-  Deno.exit(2);
+	console.error("usage: agent.ts <host> <port> <nick>");
+	Deno.exit(2);
 }
 
 function check(label: string, ok: boolean): void {
-  console.log(`${nick}: ${ok ? "ok" : "FAIL"} — ${label}`);
-  if (!ok) Deno.exit(1);
+	console.log(`${nick}: ${ok ? "ok" : "FAIL"} — ${label}`);
+	if (!ok) Deno.exit(1);
 }
 
 async function broke(call: Promise<unknown>): Promise<boolean> {
-  try {
-    await call;
-    return false;
-  } catch {
-    return true;
-  }
+	try {
+		await call;
+		return false;
+	} catch {
+		return true;
+	}
 }
 
-const conn = await connect(host, Number(portStr));
+const conn = await connect(tcpLocator(host, Number(portStr)));
 conn.serve().catch(() => {});
 const tools = await conn.fetch(TOOLS);
 
@@ -48,15 +48,26 @@ check("delegation: was handed a clock and called it", typeof now === "bigint");
 // 2. Attenuation: a read-only file capability reads but refuses writes.
 const files = await conn.send(tools, GRANT, ["files-readonly"]) as Ref;
 const contents = await conn.send(files, READ, ["report.txt"]);
-check("attenuation: read through the read-only view", typeof contents === "string");
-check("attenuation: write is refused", await broke(conn.send(files, WRITE, ["report.txt", "tampered"])));
+check(
+	"attenuation: read through the read-only view",
+	typeof contents === "string",
+);
+check(
+	"attenuation: write is refused",
+	await broke(conn.send(files, WRITE, ["report.txt", "tampered"])),
+);
 
 // 3. Revocation: a revocable handle works, then breaks after revoke.
-const revocableClock = await conn.send(tools, GRANT_REVOCABLE, ["clock"]) as Ref;
+const revocableClock = await conn.send(tools, GRANT_REVOCABLE, [
+	"clock",
+]) as Ref;
 const before = await conn.send(revocableClock, NOW);
 check("revocation: the handle works before revoke", typeof before === "bigint");
 await conn.send(tools, REVOKE_LAST);
-check("revocation: the handle breaks after revoke", await broke(conn.send(revocableClock, NOW)));
+check(
+	"revocation: the handle breaks after revoke",
+	await broke(conn.send(revocableClock, NOW)),
+);
 
 console.log(`${nick}: all capability properties held`);
 conn.close();

@@ -59,7 +59,7 @@ needs a locator again.
 A locator can also carry **hints**: `?key=value` pairs tacked onto the end of the URI,
 as in `ocapn://<node-id>.iroh?…`. Hints are how a transport learns the extra it needs
 to reach a peer when the designator alone will not do. iroh leans on them: a node id
-is self-authenticating but not yet routable, so a dial today rides explicit
+is self-authenticating but not routable without hints, so dialing needs explicit
 direct-address hints in the query. They are plain text on the wire and carry no type
 system, only `key=value` strings. And they are only ever a routing aid, never
 authority: a wrong or missing hint can stop you from *reaching* a peer, but no hint can
@@ -173,10 +173,15 @@ That budget is not abstract tidiness. It is what one target demands. pancake is 
 for a single ordinary server to hold about **500,000** live OCapN connections at once.
 At that scale memory gives out long before CPU does, so the per-connection numbers above
 are the whole game: two kilobytes across 500k is well under a gigabyte of core state.
-What is *not* proven yet is the same load over real sockets: accept rate and kernel
-memory at an actual 500k still need a live harness, and pancake does not count them as
-done. The
-[ladder](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/ladder.md) has the
+
+Half a million is a design target, not a count clocked on a live wire. It is large enough
+to force a sans-io core, a shared read-buffer pool, and sub-two-kilobyte sessions, and small
+enough to fit on one tuned machine if the per-connection memory budget holds. Above that
+scale the limit is the kernel's — socket memory, file descriptors, syscall cost — and
+pancake has not measured those yet. Until it has, 500k is the largest fan-out paired with
+a budget the build gate already defends.
+
+The [ladder](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/ladder.md) has the
 exact ceilings and the arithmetic; the [Performance]($link.page('performance')) page has
 the benchmarks and how to run them.
 
@@ -188,8 +193,8 @@ the work:
 - **Live Goblins interop.** pancake holds a real, two-way OCapN conversation with a
   [Spritely Goblins](https://spritely.institute/goblins/) peer, Goblins calling pancake
   and pancake calling back, from every binding and not just from Zig.
-- **The upstream [OCapN test suite](https://github.com/ocapn/ocapn-test-suite).** The
-  community's own conformance harness, run directly against a pancake peer.
+- **The upstream [OCapN test suite](https://github.com/ocapn/ocapn-test-suite).** Run with
+  `zig build ocapn-conformance` against a pancake peer.
 - **Cross-codec replay.** The same conversation runs through Syrup and Cap'n Proto and
   must produce an identical trace, so switching codecs cannot quietly change behavior.
 

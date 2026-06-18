@@ -6,7 +6,7 @@
 //! test drives it end to end through the driver's transport-neutral `connectVia`
 //! and `acceptVia` with the real verified keyed handshake: bind, accept, dial,
 //! fetch a published actor, call it, and read the reply. Nothing in `src/driver`,
-//! `src/net_adapter`, or the core was edited to add it. The resident registers,
+//! `src/net`, or the core was edited to add it. The resident registers,
 //! and the driver dispatches on its symbol. That demonstrates the pluggability the
 //! vision claims: a QUIC/iroh resident slots in the same way.
 //!
@@ -22,10 +22,9 @@ const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
-const net_adapter = pancake.net_adapter;
-const tcp = net_adapter.tcp;
+const net = pancake.net;
+const tcp = net.tcp;
 
-const net = std.Io.net;
 const frame_cap = 4096;
 
 /// A netlayer resident defined outside the core, under a fabricated transport
@@ -36,11 +35,11 @@ const LoopbackResident = struct {
 
     const transport = "x-loopback";
 
-    fn netlayer(self: *LoopbackResident) net_adapter.Netlayer {
+    fn netlayer(self: *LoopbackResident) net.netlayer.Netlayer {
         return .{ .ctx = self, .vtable = &vtable };
     }
 
-    const vtable: net_adapter.Netlayer.VTable = .{
+    const vtable: net.netlayer.Netlayer.VTable = .{
         .transport_name = transport,
         .dial = dial,
         .listen = listen,
@@ -50,8 +49,8 @@ const LoopbackResident = struct {
         ctx: *anyopaque,
         peer: *engine.Peer,
         locator: model.PeerLocator,
-        bufs: net_adapter.Buffers,
-    ) net_adapter.DialError!net_adapter.Connection {
+        bufs: net.netlayer.Buffers,
+    ) net.netlayer.DialError!net.Connection {
         const self: *LoopbackResident = @ptrCast(@alignCast(ctx));
         const address = tcp.parseDesignator(locator.designator) catch return error.InvalidAddress;
         return tcp.connectAddress(self.io, peer, address, bufs.read, bufs.write) catch |err| switch (err) {
@@ -63,8 +62,8 @@ const LoopbackResident = struct {
     fn listen(
         ctx: *anyopaque,
         allocator: std.mem.Allocator,
-        config: net_adapter.ListenConfig,
-    ) net_adapter.ListenError!net_adapter.Listener {
+        config: net.netlayer.ListenConfig,
+    ) net.netlayer.ListenError!net.netlayer.Listener {
         const self: *LoopbackResident = @ptrCast(@alignCast(ctx));
         const address = tcp.parseDesignator(config.designator) catch return error.InvalidAddress;
         const box = allocator.create(ListenerBox) catch return error.OutOfMemory;
@@ -81,14 +80,14 @@ const LoopbackResident = struct {
         allocator: std.mem.Allocator,
     };
 
-    const listener_vtable: net_adapter.Listener.VTable = .{
+    const listener_vtable: net.netlayer.Listener.VTable = .{
         .transport_name = transport,
         .accept = accept,
         .localDesignator = localDesignator,
         .close = close,
     };
 
-    fn accept(ctx: *anyopaque, peer: *engine.Peer, bufs: net_adapter.Buffers) net_adapter.AcceptError!net_adapter.Connection {
+    fn accept(ctx: *anyopaque, peer: *engine.Peer, bufs: net.netlayer.Buffers) net.netlayer.AcceptError!net.Connection {
         const box: *ListenerBox = @ptrCast(@alignCast(ctx));
         return box.listener.accept(peer, bufs.read, bufs.write) catch |err| switch (err) {
             error.OutOfMemory => error.OutOfMemory,
@@ -119,7 +118,7 @@ const Greeter = struct {
 };
 
 /// Host: accept one partner through `acceptVia`, publish the greeter, serve.
-fn hostOnce(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerror!void {
+fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -129,7 +128,7 @@ fn hostOnce(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerr
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(listener, allocator, &peer, read_buf, write_buf);
+    var cv = try driver.acceptVia(listener, allocator, &peer, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     _ = try cv.publish("greeter", Greeter, .{});
@@ -137,7 +136,7 @@ fn hostOnce(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerr
 }
 
 /// Client: dial through `connectVia` on the `x-loopback` symbol, fetch, call.
-fn callOnce(registry: net_adapter.NetlayerRegistry, designator: []const u8, allocator: std.mem.Allocator) !void {
+fn callOnce(netlayers: []const net.netlayer.Netlayer, designator: []const u8, allocator: std.mem.Allocator) !void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -152,7 +151,7 @@ fn callOnce(registry: net_adapter.NetlayerRegistry, designator: []const u8, allo
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(registry, allocator, &peer, locator, read_buf, write_buf);
+    var cv = try driver.connectVia(netlayers, allocator, &peer, locator, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -178,10 +177,9 @@ test "netlayer pluggability: an out-of-core transport dials and hosts through th
 
     // Register the test-defined transport. The driver dispatches on its symbol.
     var resident = LoopbackResident{ .io = io };
-    const entries = [_]net_adapter.Netlayer{resident.netlayer()};
-    const registry = net_adapter.NetlayerRegistry{ .entries = &entries };
+    const netlayers = [_]net.netlayer.Netlayer{resident.netlayer()};
 
-    var listener = try registry.resolve("x-loopback").?.listen(allocator, .{
+    var listener = try net.netlayer.resolve(&netlayers, "x-loopback").?.listen(allocator, .{
         .designator = "127.0.0.1:0",
         .hints = model.Hints.emptyFalse(),
     });
@@ -191,7 +189,7 @@ test "netlayer pluggability: an out-of-core transport dials and hosts through th
     const designator = listener.localDesignator(&designator_buf);
 
     var host_future = try io.concurrent(hostOnce, .{ listener, allocator });
-    const client_result = callOnce(registry, designator, allocator);
+    const client_result = callOnce(&netlayers, designator, allocator);
     const host_result = host_future.await(io);
 
     try client_result;

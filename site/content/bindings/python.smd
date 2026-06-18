@@ -6,11 +6,35 @@
 .draft = false,
 ---
 
-The Python binding loads the installed shared `libpancake` through `ctypes` and
-presents a `Peer` in
-[`bindings/python/pancake.py`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/python/pancake.py).
-Wire values map to native Python values (integers, strings, bytes, lists, and the
+The Python binding loads the installed shared pancake archives through `ctypes`
+and mirrors the à-la-carte archive set: the core
+[`bindings/python/pancake`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/python/pancake)
+package (over `libpancake_ocapn`) presents a `Peer`, and one submodule per
+transport — `pancake.tcp`, `pancake.inproc`, and the lazy `pancake.iroh` —
+loads only its own archive. The raw `ctypes` layer is the package's `_`-private
+per-archive `_ffi_core` / `_ffi_tcp` / `_ffi_inproc` / `_ffi_iroh` modules. Wire
+values map to native Python values (integers, strings, bytes, lists, and the
 rest), so you rarely think about the FFI underneath.
+
+## The same round-trip
+
+The round-trip the [Start building]($link.page('start')) page walks through in Zig —
+connect, fetch a capability by name, call it, and handle the reply — reads like this in
+Python. Starting `serve` runs the inbound loop so the reply arrives.
+
+```python
+from pancake import connect
+
+conn = await connect("ocapn://127.0.0.1:9099.tcp")  # the partner's locator
+conn.serve()
+greeter = await conn.fetch("greeter")  # a capability, by name
+try:
+    reply = await conn.send(greeter, "greet", ["world"])
+    print(reply)
+except Exception as reason:
+    print(f"the greeter refused: {reason}")
+await conn.close()
+```
 
 ## Async
 
@@ -29,7 +53,7 @@ an ordinary Python callable, and a leading symbol argument selects the method ve
 ## Dogfood and example
 
 ```sh
-zig build python-dogfood    # the Python consumer against libpancake
+zig build python-dogfood    # the Python consumer against the pancake archives
 ```
 
 The full surface lives in the

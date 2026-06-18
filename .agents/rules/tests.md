@@ -10,8 +10,8 @@ globs: test/**/*.zig, src/**/*.zig, bench/**/*.zig, examples/**/*.zig, examples/
 - Unit tests prove local invariants.
 - Oracle traces prove scenario behavior.
 - Protocol manifests and Goblins fixtures pin external conformance pressure.
-- Rust C ABI dogfood proves `libpancake` and `pancake.h` are consumable from a
-  non-Zig caller.
+- Rust C ABI dogfood proves the pancake archives and their headers are
+  consumable from a non-Zig caller.
 - Benchmarks keep performance budgets visible; they do not prove correctness.
 
 ## Protocol Claims Need Scenarios
@@ -30,8 +30,11 @@ gap explicitly.
 - `test/codec`: encode/decode fixtures and borrowed-view behavior.
 - `test/session`: validation and state transitions.
 - `test/engine`: `Peer` dispatch, ownership, events, outbound drain.
-- `test/actors`: `Vat` turn loop and actor wire hosting over the engine.
-- `test/net_adapter`: stream framing, connection pump, TCP, and completion loop.
+- `test/actors`: `Vat` turn loop, actor wire hosting over the engine, and local
+  time-travel (snapshot/restore, copy-on-write, functional `become`).
+- `test/persistent`: the persistent immutable map — structural sharing across
+  versions, refcount correctness, and leak-freedom.
+- `test/net`: stream framing, connection pump, TCP, and completion loop.
 - `test/driver`: driver loopback — the owning `connect` / `listen` halves and
   the buffer-explicit `connectTcp` / `acceptTcp` halves, plus the application
   verbs over a real socket.

@@ -22,7 +22,7 @@ from typing import List
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[4] / "bindings" / "python"))
 
-from pancake import Connection, connect  # noqa: E402
+from pancake import Connection, connect, tcp_locator  # noqa: E402
 
 BOARD = "board"
 ADD, DONE, LIST, WATCH, UPDATE = "add", "done", "list", "watch", "update"
@@ -59,7 +59,7 @@ class TaskBoard:
 
     @classmethod
     async def join(cls, host: str, port: int) -> "TaskBoard":
-        conn = await connect(host, port)
+        conn = await connect(tcp_locator(host, port))
         conn.serve()
         board = await conn.fetch(BOARD)
         self = cls(conn, board)

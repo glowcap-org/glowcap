@@ -1,0 +1,69 @@
+---
+.title = "TypeScript",
+.date = @date("2026-06-12T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+The JavaScript/TypeScript binding is one source that runs on Deno, Bun, and
+experimental Node: all runtime coupling lives behind a thin FFI/socket seam that
+loads the matching adapter at startup. It loads the installed shared pancake
+archives over the host's FFI and mirrors the à-la-carte archive set as a Deno
+workspace of two packages. The core
+[`bindings/ts/stack/mod.ts`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/stack/mod.ts)
+(`@pancake/stack`, over `libpancake_ocapn`) presents a `Peer` class, with the
+built-in transports `@pancake/stack/transport/tcp` and
+`@pancake/stack/transport/inproc`; the optional encrypted-QUIC transport is the
+separate `@pancake/iroh` package, reached lazily by the core's `connect` for an
+`iroh` locator. Each opens only its own archive. Wire values arrive as
+discriminated unions, so a delivery is a value you switch on with the type
+narrowing you already expect from TypeScript.
+
+## The same round-trip
+
+The round-trip the [Start building]($link.page('start')) page walks through in Zig —
+connect, fetch a capability by name, call it, and handle the reply — reads like this in
+TypeScript. Starting `serve` runs the inbound loop so the reply arrives.
+
+```ts
+import { connect } from "@pancake/stack";
+
+const conn = await connect("ocapn://127.0.0.1:9099.tcp"); // the partner's locator
+conn.serve().catch(() => {});
+const greeter = await conn.fetch("greeter"); // a capability, by name
+try {
+  const reply = await conn.send(greeter, "greet", ["world"]);
+  console.log(reply);
+} catch (reason) {
+  console.error("the greeter refused:", reason);
+}
+conn.close();
+```
+
+## Async
+
+The async surface returns native `Promise`s and supports `using`, so a connection
+cleans itself up at the end of a block. An `AsyncConnection` runs the peer over
+the host runtime's own sockets. You read events as a stream with
+`for await (const event of conn)` and await a result directly with
+`await vat.send(ref, verb, args)`: no polling, no callback registration.
+
+## Actors
+
+The actor layer is a `Vat` over `(verb, args) => Argument` callbacks. A local actor
+is a plain function; an eventual-send to a partner-hosted reference resolves the
+returned promise when the answer settles.
+
+## Dogfood and example
+
+```sh
+zig build deno-dogfood    # the Deno consumer against the pancake archives
+zig build bun-dogfood     # the same source, on Bun
+```
+
+The full surface lives in the
+[TypeScript binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/README.md),
+and the
+[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/deno/room_client.ts)
+builds a small capability-secure room on this surface.

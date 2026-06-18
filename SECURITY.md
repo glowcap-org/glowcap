@@ -9,9 +9,9 @@ all other work here. This policy applies to every release.
 ## Reporting a vulnerability
 
 **Do not open a public issue for a security report.** Contact the maintainer
-privately — contact details are on the [@jimisaacs](https://codeberg.org/jimisaacs)
-profile (a GitHub mirror with private security advisories also exists). Please
-include:
+privately — contact details are on the
+[@jimisaacs](https://codeberg.org/jimisaacs) profile (a GitHub mirror with
+private security advisories also exists). Please include:
 
 1. What is at risk: which module / codec / netlayer / wire shape, and the
    invariant it threatens.
@@ -47,8 +47,10 @@ even if it requires unusual configuration — it is not a feature request:
 
 ## Out of scope
 
-- Bugs in *example* code that don't violate the invariants above (normal issues).
-- Behavior of products built on pancake (they carry their own security policies).
+- Bugs in _example_ code that don't violate the invariants above (normal
+  issues).
+- Behavior of products built on pancake (they carry their own security
+  policies).
 - Dependency issues that don't reach pancake's threat surface — report upstream.
 
 ## Acknowledgements

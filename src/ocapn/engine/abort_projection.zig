@@ -144,7 +144,7 @@ pub fn classify(err: anyerror) Classification {
         // A V1.0 `op:resolve` reached encode with no resolver row recorded for
         // its answer — the translation state is broken, so the session fails
         // closed rather than leave the partner hanging on an answer that can
-        // no longer settle.
+        // never settle.
         error.MissingV1_0Resolver => .{ .domain = .session, .abort = .{
             .kind = .protocol_error,
             .message = "v1.0 resolve has no resolver recorded for its answer",

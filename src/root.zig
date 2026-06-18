@@ -19,16 +19,17 @@
 //! - `actors` is the Goblins-shaped layer above the engine: a `Vat` of local
 //!   objects with near-call and eventual-send, local or far over a bound peer. It
 //!   stays in the sync, no-I/O core and adds no protocol the engine lacks.
-//! - `net_adapter` is the one place real I/O lives. It drives a `Peer` over a byte
+//! - `net` is the one place real I/O lives. It drives a `Peer` over a byte
 //!   stream and adds no protocol behavior of its own.
-//! - `driver` sits above both `actors` and `net_adapter`: `driver.connect` and
+//! - `driver` sits above both `actors` and `net`: `driver.connect` and
 //!   `driver.listen` each hand back an owning `Connection`, so a Zig app gets
 //!   `connect`/`listen`/`fetch`/`publish`/`spawn`/`send`/`tell`/`serve`/`close`
 //!   instead of a hand-written pump loop. It composes; it adds no protocol.
 //!
 //! Two more layers live under `src/` but not on this namespace, because a Zig
 //! consumer has no use for them here. `c_abi` is the C interface — it is
-//! compiled into `libpancake`, and a C consumer reaches it through `pancake.h`.
+//! compiled into the `libpancake_ocapn` archive, and a C consumer reaches it
+//! through `pancake_ocapn.h` (plus the per-transport headers).
 //! `conformance` runs fixed scenarios and hands back their wire bytes; it is
 //! the test suite's oracle, not part of the runtime path, and the tests import
 //! it directly.
@@ -37,7 +38,6 @@
 //! free of I/O. The adapters are where the outside world gets in. For the bigger
 //! picture, see `docs/architecture.md`.
 
-// Declared in the same top-down layer order the doc comment above narrates.
 pub const foundation = @import("foundation");
 
 /// The OCapN / CapTP protocol core. These four layers *are* the protocol: the
@@ -54,7 +54,7 @@ pub const ocapn = struct {
 };
 
 pub const actors = @import("actors");
-pub const net_adapter = @import("net_adapter");
+pub const net = @import("net");
 pub const driver = @import("driver");
 
 /// The sync, no-I/O peer you hold and drive — the front door of the engine.
@@ -70,7 +70,7 @@ pub const Connection = driver.Connection;
 pub const Frame = foundation.Frame;
 
 // `c_abi` is referenced here so its exported `pancake_*` symbols are compiled
-// into `libpancake`, without exposing the module on the Zig namespace.
+// into the `libpancake_ocapn` archive, without exposing the module on the Zig namespace.
 comptime {
     _ = @import("c_abi");
 }

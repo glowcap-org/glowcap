@@ -1,10 +1,9 @@
 //! 02 — Actor far-send with a promise.
 //!
 //! A caller's `Vat` eventual-sends to a host's published actor over a paired
-//! session and observes the promise. This is the bread-and-butter pattern: one
-//! vat publishes an object, the other imports it and calls it, and the answer
-//! comes back as a settled promise — the same exchange chapter 01's `call`
-//! drives over a real socket.
+//! session and observes the promise. One vat publishes an object, the other
+//! imports it and calls it, and the answer comes back as a settled promise —
+//! the same exchange chapter 01's `call` drives over a real socket.
 //!
 //! One layer down from chapter 01, the `actors.Vat` is what runs that
 //! exchange: `send` queues the `op:deliver` with a fresh answer, `serve`
@@ -71,13 +70,11 @@ pub fn main() !void {
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;
 
-    // The host publishes a Greeter at export 5.
     var host_vat = actors.Vat.initOver(allocator, host_peer);
     defer host_vat.deinit();
     const greeter = try host_vat.spawn(Greeter, .{ .greeting = "Howdy" });
     try host_vat.bindExport(greeter, 5);
 
-    // The caller imports it and sends `hello("world")`.
     try caller_peer.importObject(5);
     var caller_vat = actors.Vat.initOver(allocator, caller_peer);
     defer caller_vat.deinit();
@@ -90,7 +87,6 @@ pub fn main() !void {
     });
     try caller_vat.on(promise, .{ .ctx = &result, .func = onResolve });
 
-    // Shuttle the deliver from caller to host, serve it, shuttle the resolve back.
     _ = try caller_peer.step();
     while (caller_peer.takeOutbound()) |frame| try host_peer.feedInbound(frame);
     _ = try host_peer.step();

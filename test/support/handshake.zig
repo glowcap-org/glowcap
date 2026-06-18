@@ -1,6 +1,6 @@
 //! Stub keyed-handshake vocabulary shared by the loopback tests.
 //!
-//! Test support (not a production module): the net_adapter and C ABI
+//! Test support (not a production module): the net and C ABI
 //! loopback proofs all open their sessions with the same unsigned
 //! `op:start-session` — zero key, zero signature, partner verification off —
 //! because they prove transport and framing seams, not the handshake. The

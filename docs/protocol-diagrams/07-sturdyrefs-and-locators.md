@@ -8,8 +8,8 @@ deliver (see the vocabulary note and DR-4 in
 
 ## ST-1 — Sturdyref anatomy
 
-A sturdyref is offline authority: a locator saying *where* the hosting peer
-lives plus a swiss number saying *which* object to fetch there. It carries no
+A sturdyref is offline authority: a locator saying _where_ the hosting peer
+lives plus a swiss number saying _which_ object to fetch there. It carries no
 live session state and survives restarts on both sides.
 
 ```mermaid
@@ -23,10 +23,9 @@ flowchart TD
 
 ## ST-2 — Enlivenment
 
-Turning a sturdyref into a live reference takes two moves: establish a
-session per the locator (if none exists), then bootstrap-`fetch` the
-swiss number. The result is
-an ordinary import — from here on, sturdyref origin is invisible.
+Turning a sturdyref into a live reference takes two moves: establish a session
+per the locator (if none exists), then bootstrap-`fetch` the swiss number. The
+result is an ordinary import — from here on, sturdyref origin is invisible.
 
 ```mermaid
 sequenceDiagram

@@ -1,0 +1,16 @@
+[package]
+name = "langs-bench"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "langs-bench"
+path = "src/main.rs"
+
+# `default-features = false` + `async`: link only the core archive plus its tokio
+# driver, the same set the tasks demo client uses. The dependency's build.rs finds
+# the installed archives under the repo's zig-out/lib relative to its own manifest.
+[dependencies]
+pancake = { path = "../../../../bindings/rust", package = "pancake-rust-dogfood", default-features = false, features = ["async"] }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "time", "sync"] }

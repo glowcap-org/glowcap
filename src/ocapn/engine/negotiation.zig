@@ -93,10 +93,6 @@ pub fn sharesProfile(local: Offer, remote: Offer) bool {
     return chooseProfile(local.profiles, remote.profiles) != null;
 }
 
-pub fn sharesCodec(local: Offer, remote: Offer) bool {
-    return chooseCodec(local.codecs, remote.codecs) != null;
-}
-
 fn chooseProfile(local: []const model.WireProfile, remote: []const model.WireProfile) ?model.WireProfile {
     var best: ?struct { score: usize, profile: model.WireProfile } = null;
     for (local, 0..) |lp, local_idx| {

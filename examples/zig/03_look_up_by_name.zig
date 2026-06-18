@@ -3,9 +3,9 @@
 //! A client asks the server's bootstrap object for a capability, naming it with
 //! a swiss-number. This is the engine-level machinery beneath the fetch-by-name
 //! that chapter 01 rides; chapter 04 pre-wires the import by hand instead.
-//! Notice the server never writes a fetch handler: it just maps the
-//! swiss-number to a capability, and the runtime answers the inbound `'fetch`
-//! on its own; ADR-0006 records that decision.
+//! The server never writes a fetch handler. It maps the swiss-number to a
+//! capability, and the runtime answers the inbound `'fetch` on its own. ADR-0006
+//! records that decision.
 //!
 //! On the client side, `fetch.prepareFetchSwissnum` builds the bootstrap-fetch
 //! deliver, plus, on V1.0, the resolver the answer comes back to. Then
@@ -30,21 +30,15 @@ pub fn main() !void {
     const client = &pair.p1;
     const server = &pair.p2;
 
-    // The server publishes a thermostat behind a swiss-number. That is the whole
-    // server side — no handler, no dispatch loop.
     const swissnum = "thermostat-swiss";
     const cap_export = try server.registerBootstrapCap(swissnum);
     std.debug.print("server published swissnum -> export {d}\n", .{cap_export});
 
-    // The client prepares a bootstrap fetch and drives the wire loop. `send`
-    // takes ownership of the prepared (heap-owned) message.
     const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, swissnum);
     try client.send(prepared.message);
     _ = try client.step();
     try server.feedInbound(client.takeOutbound().?);
 
-    // This step recognizes the fetch, surfaces the deliver event, and enqueues
-    // the synthesized resolve; a second step encodes that settlement.
     _ = try server.step();
     {
         var ev = server.pollEvent().?;
@@ -54,7 +48,6 @@ pub fn main() !void {
     try client.feedInbound(server.takeOutbound().?);
     _ = try client.step();
 
-    // Match the settlement into an owned outcome.
     var settle = client.pollEvent().?;
     defer settle.deinit();
     const owned = try settle.decodeOwned(allocator);
@@ -68,8 +61,6 @@ pub fn main() !void {
         .settled => |outcome| switch (outcome) {
             .fulfilled => |reference| {
                 defer model.freeReference(allocator, reference);
-                // The server fulfilled with its bootstrap export; the perspective
-                // flip lands it on the client as the import it now holds.
                 const position = switch (reference) {
                     .far => |far| far.import_position,
                     .near => |near| near.export_position,

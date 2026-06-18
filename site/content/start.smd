@@ -8,8 +8,7 @@
 
 The quickest way to get a feel for pancake is to watch one program call another.
 So let us write the calling half, look at every line, and then point you at the
-[surface]($link.page('surfaces')) that matches your language. The client program here is not for show. The
-build compiles and runs it under `zig build examples`, which is what keeps it from
+[surface]($link.page('surfaces')) that matches your language. The build compiles and runs it under `zig build examples`, which is what keeps it from
 drifting away from the library.
 
 ## In Zig
@@ -26,13 +25,19 @@ const pancake = b.dependency("pancake", .{ .target = target, .optimize = optimiz
 exe.root_module.addImport("pancake", pancake.module("pancake"));
 ```
 
-Now the client itself. A whole client is one object and a handful of verbs, and
-here is the entire round-trip:
+The client itself is one object and a handful of verbs. Here is the entire
+round-trip:
 
 ```zig
 const pancake = @import("pancake");
 
-const conn = try pancake.driver.connect(io, allocator, address, .{});
+// Dial by locator — the one dialer. The transport set is a bare slice naming
+// the transports this client can reach (here, just TCP); `tcp.at` turns a
+// `host:port` into a `tcp` locator with no caller buffer. Add `iroh` by
+// putting one more netlayer in the slice — the same call.
+var tcp_resident = pancake.net.tcp.Resident{ .io = io };
+
+const conn = try pancake.driver.connect(&.{tcp_resident.netlayer()}, allocator, pancake.net.tcp.at(designator), .ephemeral, .{});
 defer conn.close();
 
 const greeter = try conn.fetch("greeter"); // a capability, by name
@@ -80,11 +85,10 @@ writing Zig. If you are embedding pancake in a C program or binding it from anot
 runtime, start with
 [consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md).
 It walks the build, the artifacts, the ownership rules, and a first complete program
-in one place. The C surface is deliberately boring, and that is the point. It is
-opaque handles, fixed-width return codes, `ptr + len` views, and explicit release
-functions, which is exactly what makes it pleasant to wrap.
+in one place. The C surface is opaque handles, fixed-width return codes, `ptr + len` views, and explicit release
+functions — the shape that makes it pleasant to wrap.
 
-## In Rust, Deno, Python, or Racket
+## In Rust, TypeScript, Python, or Racket
 
 If you write one of these four, a binding already did the wrapping for you. Each one
 consumes the C ABI as a genuine foreign-language consumer and then presents an
@@ -92,7 +96,7 @@ idiomatic API on top, so you write the language you already know instead of fore
 function calls. Start at the [bindings overview]($link.page('bindings')) for the
 shape they share, then jump to your language:
 [Rust]($link.page('bindings/rust')),
-[Deno]($link.page('bindings/deno')),
+[TypeScript]($link.page('bindings/ts')),
 [Python]($link.page('bindings/python')), or
 [Racket]($link.page('bindings/racket')).
 

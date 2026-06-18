@@ -1,4 +1,7 @@
-#include "pancake.h"
+/* Frame ownership over the C ABI: a borrowed PancakeFrame view over caller-owned
+   bytes, the same shape as examples/zig/frame_view.zig. */
+
+#include "pancake_ocapn.h"
 
 #include <stdio.h>
 
@@ -11,13 +14,5 @@ int main(void) {
     };
 
     printf("shape=%u bytes=%zu\n", frame.shape, frame.len);
-    pancake_managed_frame_release(NULL);
-
-    PancakePeer *peer = NULL;
-    if (pancake_peer_new(&peer) != PANCAKE_OK) {
-        return 1;
-    }
-    pancake_peer_release(peer);
-
-    return frame.bytes == NULL ? 1 : 0;
+    return 0;
 }

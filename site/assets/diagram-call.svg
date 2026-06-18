@@ -1,36 +1,147 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 300" width="720" height="300" role="img" aria-label="You deliver a call to a partner and immediately hold a promise; when the partner resolves the call, the promise settles to its result.">
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  viewBox="0 0 720 300"
+  width="720"
+  height="300"
+  role="img"
+  aria-label="You deliver a call to a partner and immediately hold a promise; when the partner resolves the call, the promise settles to its result."
+>
   <defs>
-    <marker id="call-teal" viewBox="0 0 10 10" refX="7.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker
+      id="call-teal"
+      viewBox="0 0 10 10"
+      refX="7.5"
+      refY="5"
+      markerWidth="7"
+      markerHeight="7"
+      orient="auto-start-reverse"
+    >
       <path d="M0 0L10 5L0 10z" fill="#1b5f66"></path>
     </marker>
-    <marker id="call-amber" viewBox="0 0 10 10" refX="7.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+    <marker
+      id="call-amber"
+      viewBox="0 0 10 10"
+      refX="7.5"
+      refY="5"
+      markerWidth="7"
+      markerHeight="7"
+      orient="auto-start-reverse"
+    >
       <path d="M0 0L10 5L0 10z" fill="#a4560c"></path>
     </marker>
   </defs>
-  <style>
-    text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  <style>text { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
     .head { font-size: 15px; font-weight: 700; }
     .label { font-size: 13.5px; }
-    .muted { fill: #6b5d4d; }
-  </style>
+    .muted { fill: #6b5d4d; }</style>
 
-  <line x1="140" y1="68" x2="140" y2="292" stroke="#e7d4b7" stroke-width="2"></line>
-  <line x1="580" y1="68" x2="580" y2="292" stroke="#e7d4b7" stroke-width="2"></line>
+  <line x1="140" y1="68" x2="140" y2="292" stroke="#e7d4b7" stroke-width="2">
+  </line>
+  <line x1="580" y1="68" x2="580" y2="292" stroke="#e7d4b7" stroke-width="2">
+  </line>
 
-  <rect x="60" y="24" width="160" height="44" rx="11" fill="#fff9ee" stroke="#c76f18"></rect>
-  <text x="140" y="52" text-anchor="middle" class="head" fill="#a4560c">You</text>
-  <rect x="500" y="24" width="160" height="44" rx="11" fill="#f1f7f6" stroke="#257f88"></rect>
-  <text x="580" y="52" text-anchor="middle" class="head" fill="#1b5f66">Partner</text>
+  <rect
+    x="60"
+    y="24"
+    width="160"
+    height="44"
+    rx="11"
+    fill="#fff9ee"
+    stroke="#c76f18"
+  >
+  </rect>
+  <text
+    x="140"
+    y="52"
+    text-anchor="middle"
+    class="head"
+    fill="#a4560c"
+  >You</text>
+  <rect
+    x="500"
+    y="24"
+    width="160"
+    height="44"
+    rx="11"
+    fill="#f1f7f6"
+    stroke="#257f88"
+  >
+  </rect>
+  <text
+    x="580"
+    y="52"
+    text-anchor="middle"
+    class="head"
+    fill="#1b5f66"
+  >Partner</text>
 
-  <path d="M140 108 L 576 108" fill="none" stroke="#1b5f66" stroke-width="2" marker-end="url(#call-teal)"></path>
-  <text x="362" y="100" text-anchor="middle" class="label" fill="#1b5f66">deliver: greet("world")</text>
+  <path
+    d="M140 108 L 576 108"
+    fill="none"
+    stroke="#1b5f66"
+    stroke-width="2"
+    marker-end="url(#call-teal)"
+  >
+  </path>
+  <text
+    x="362"
+    y="100"
+    text-anchor="middle"
+    class="label"
+    fill="#1b5f66"
+  >deliver: greet("world")</text>
 
-  <rect x="60" y="140" width="160" height="36" rx="10" fill="#ffffff" stroke="#c76f18" stroke-dasharray="5 4"></rect>
-  <text x="140" y="163" text-anchor="middle" class="label" fill="#a4560c">a promise, right away</text>
+  <rect
+    x="60"
+    y="140"
+    width="160"
+    height="36"
+    rx="10"
+    fill="#ffffff"
+    stroke="#c76f18"
+    stroke-dasharray="5 4"
+  >
+  </rect>
+  <text
+    x="140"
+    y="163"
+    text-anchor="middle"
+    class="label"
+    fill="#a4560c"
+  >a promise, right away</text>
 
-  <path d="M576 228 L 140 228" fill="none" stroke="#a4560c" stroke-width="2" stroke-dasharray="6 4" marker-end="url(#call-amber)"></path>
-  <text x="362" y="220" text-anchor="middle" class="label" fill="#a4560c">resolve: "Hello, world"</text>
+  <path
+    d="M576 228 L 140 228"
+    fill="none"
+    stroke="#a4560c"
+    stroke-width="2"
+    stroke-dasharray="6 4"
+    marker-end="url(#call-amber)"
+  >
+  </path>
+  <text
+    x="362"
+    y="220"
+    text-anchor="middle"
+    class="label"
+    fill="#a4560c"
+  >resolve: "Hello, world"</text>
 
-  <rect x="60" y="256" width="160" height="36" rx="10" fill="#eef6f1" stroke="#257f88"></rect>
-  <text x="140" y="279" text-anchor="middle" class="label" fill="#1b5f66">settled: "Hello, world"</text>
+  <rect
+    x="60"
+    y="256"
+    width="160"
+    height="36"
+    rx="10"
+    fill="#eef6f1"
+    stroke="#257f88"
+  >
+  </rect>
+  <text
+    x="140"
+    y="279"
+    text-anchor="middle"
+    class="label"
+    fill="#1b5f66"
+  >settled: "Hello, world"</text>
 </svg>

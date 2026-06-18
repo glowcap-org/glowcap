@@ -56,6 +56,14 @@ const GiftEntry = struct {
     /// Null when the deposit recorded only provenance (the cross-peer give
     /// routing path, where no capability rides with the deposit).
     gifted: ?model.Reference,
+    /// The vat-scoped swissnum the gifted object is published under, captured
+    /// when the deposit named a local bootstrap export (ADR-0009 exporter half).
+    /// A cross-session withdraw re-resolves this against the *withdrawing*
+    /// session — the gifted near is only meaningful on the deposit session, so a
+    /// node serving the recipient on a different session hands back a fresh near
+    /// for the same object. Empty when the gift names no node-local swiss cap, in
+    /// which case the stored `gifted` reference is returned verbatim.
+    gifted_swiss: []const u8,
 };
 
 /// The vat-scoped gift and handoff-count authority (ADR-0056). A gifter deposits
@@ -82,6 +90,7 @@ pub const GiftRegistry = struct {
             allocator.free(entry.key_ptr.*);
             allocator.free(entry.value_ptr.recipient_key);
             allocator.free(entry.value_ptr.gifter_key);
+            allocator.free(entry.value_ptr.gifted_swiss);
             if (entry.value_ptr.gifted) |gifted| model.freeReference(allocator, gifted);
         }
         self.gifts.deinit(allocator);
@@ -106,7 +115,25 @@ pub const GiftRegistry = struct {
         gifted: model.Reference,
         gifter_key: []const u8,
     ) !void {
-        try self.putGift(allocator, limits, gift_id, "", gifter_key, gifted);
+        try self.putGift(allocator, limits, gift_id, "", gifter_key, gifted, "");
+    }
+
+    /// Deposit a gift whose capability the registry adopts *and* whose gifted
+    /// object is a node-local bootstrap cap named by `gifted_swiss` (ADR-0009
+    /// exporter half). A withdraw arriving on a different session re-resolves the
+    /// swiss against that session and hands back a fresh near, so the recipient
+    /// can reach the object over its own connection. On success the registry owns
+    /// `gifted` and a copy of `gifted_swiss`; on error the caller keeps `gifted`.
+    pub fn depositOwnedNamed(
+        self: *GiftRegistry,
+        allocator: std.mem.Allocator,
+        limits: session_mod.SessionLimits,
+        gift_id: []const u8,
+        gifted: model.Reference,
+        gifter_key: []const u8,
+        gifted_swiss: []const u8,
+    ) !void {
+        try self.putGift(allocator, limits, gift_id, "", gifter_key, gifted, gifted_swiss);
     }
 
     /// Deposit (or re-deposit) a gift withdrawable only by the recipient named in
@@ -123,7 +150,7 @@ pub const GiftRegistry = struct {
         gifter_key: []const u8,
     ) !void {
         if (recipient_key.len == 0) return session_mod.Error.MalformedMessage;
-        try self.putGift(allocator, limits, gift_id, recipient_key, gifter_key, null);
+        try self.putGift(allocator, limits, gift_id, recipient_key, gifter_key, null, "");
     }
 
     fn putGift(
@@ -134,20 +161,25 @@ pub const GiftRegistry = struct {
         recipient_key: []const u8,
         gifter_key: []const u8,
         gifted: ?model.Reference,
+        gifted_swiss: []const u8,
     ) !void {
         if (gift_id.len == 0) return session_mod.Error.MalformedMessage;
         if (self.gifts.getPtr(gift_id)) |entry| {
             const recipient_copy = try allocator.dupe(u8, recipient_key);
             errdefer allocator.free(recipient_copy);
             const gifter_copy = try allocator.dupe(u8, gifter_key);
+            errdefer allocator.free(gifter_copy);
+            const swiss_copy = try allocator.dupe(u8, gifted_swiss);
             allocator.free(entry.recipient_key);
             allocator.free(entry.gifter_key);
+            allocator.free(entry.gifted_swiss);
             if (entry.gifted) |old| model.freeReference(allocator, old);
             entry.* = .{
                 .recipient_key = recipient_copy,
                 .gifter_key = gifter_copy,
                 .withdrawn = false,
                 .gifted = gifted,
+                .gifted_swiss = swiss_copy,
             };
             return;
         }
@@ -161,6 +193,8 @@ pub const GiftRegistry = struct {
         errdefer allocator.free(recipient_copy);
         const gifter_copy = try allocator.dupe(u8, gifter_key);
         errdefer allocator.free(gifter_copy);
+        const swiss_copy = try allocator.dupe(u8, gifted_swiss);
+        errdefer allocator.free(swiss_copy);
         const gop = try self.gifts.getOrPut(allocator, id_copy);
         gop.key_ptr.* = id_copy;
         gop.value_ptr.* = .{
@@ -168,6 +202,7 @@ pub const GiftRegistry = struct {
             .gifter_key = gifter_copy,
             .withdrawn = false,
             .gifted = gifted,
+            .gifted_swiss = swiss_copy,
         };
     }
 
@@ -205,6 +240,15 @@ pub const GiftRegistry = struct {
     pub fn giftedCap(self: *const GiftRegistry, gift_id: []const u8) ?model.Reference {
         const entry = self.gifts.get(gift_id) orelse return null;
         return entry.gifted;
+    }
+
+    /// The vat-scoped swissnum the gifted object is published under, or empty if
+    /// the deposit named no node-local bootstrap cap. The cross-session withdraw
+    /// path re-resolves a non-empty swiss against the withdrawing session; null
+    /// if the gift is unknown.
+    pub fn giftedSwiss(self: *const GiftRegistry, gift_id: []const u8) ?[]const u8 {
+        const entry = self.gifts.get(gift_id) orelse return null;
+        return entry.gifted_swiss;
     }
 
     /// The withdrawal authority check: gift existence, not-yet-withdrawn,
@@ -351,7 +395,16 @@ pub fn resolveForDeposit(
     var transferred = false;
     errdefer if (!transferred) model.freeReference(session.allocator, gifted);
     const gifter_key = session.partnerSessionKey() orelse "";
-    try registry.depositOwned(session.allocator, session.limits, request.gift_id, gifted, gifter_key);
+    // A gifted near naming one of our bootstrap caps carries a vat-scoped
+    // identity (its swissnum); recording it lets a withdraw on a different
+    // session re-resolve the object there instead of returning this session's
+    // near. Any other shape (a far import, a near with no swiss) deposits
+    // verbatim, preserving the cross-peer give-routing contract.
+    const gifted_swiss: []const u8 = switch (gifted) {
+        .near => |near| session.bootstrapSwissForExport(near.export_position) orelse "",
+        else => "",
+    };
+    try registry.depositOwnedNamed(session.allocator, session.limits, request.gift_id, gifted, gifter_key, gifted_swiss);
     transferred = true;
     const answer = request.answer orelse return null;
     return .{ .resolve = .{
@@ -407,6 +460,29 @@ pub fn resolveForWithdraw(
         } } };
     };
     try registry.applyWithdraw(allocator, session.limits, receive);
+
+    // A gift that named a node-local bootstrap cap is re-resolved against *this*
+    // (the withdrawing) session: the deposit-session near is meaningless here, so
+    // hand back a fresh near for the same swissnum — the export the recipient can
+    // reach over its own connection. This is the exporter half of a three-party
+    // handoff across two sessions; the gift's deposit session and this withdraw
+    // session differ, so a verbatim near would point at nothing on the wire.
+    const gifted_swiss = registry.giftedSwiss(receive.signed_give.gift_id) orelse "";
+    if (gifted_swiss.len > 0) {
+        if (session.bootstrapLookup(gifted_swiss)) |export_position| {
+            return .{ .settled = .{ .resolve = .{
+                .answer = request.answer,
+                .resolution = .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(export_position) } } },
+            } } };
+        }
+        // The object is not published on this session: the node owns the gift's
+        // identity but has not exported it here. Refuse rather than hand back a
+        // dangling deposit-session near.
+        return .{ .settled = .{ .resolve = .{
+            .answer = request.answer,
+            .resolution = .{ .@"break" = .{ .message = "gift object not hosted on this session" } },
+        } } };
+    }
 
     // Read the unfiltered gifted cap: `applyWithdraw` above just marked the gift
     // withdrawn, and a withdraw is exactly when we deliver the gifted reference.

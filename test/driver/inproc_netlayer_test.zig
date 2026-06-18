@@ -17,8 +17,8 @@ const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
-const net_adapter = pancake.net_adapter;
-const inproc = net_adapter.inproc;
+const net = pancake.net;
+const inproc = net.inproc;
 
 const frame_cap = 4096;
 const node_designator = "greeter-node";
@@ -52,7 +52,7 @@ fn onGreeting(ctx: ?*anyopaque, resolution: actors.Resolution) void {
 /// Accept one partner over the bound in-process listener, publish the greeter, and
 /// serve until the client leaves. The listener is bound by the test body before
 /// the client dials, so there is no accept-before-bind race.
-fn hostOnce(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerror!void {
+fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -62,7 +62,7 @@ fn hostOnce(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerr
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(listener, allocator, &peer, read_buf, write_buf);
+    var cv = try driver.acceptVia(listener, allocator, &peer, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     _ = try cv.publish("greeter", Greeter, .{});
@@ -81,13 +81,12 @@ fn callOnce(network: *inproc.Network, allocator: std.mem.Allocator) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    const residents = [_]net_adapter.Netlayer{network.netlayer()};
-    const registry = net_adapter.NetlayerRegistry{ .entries = &residents };
-    var cv = try driver.connectVia(registry, allocator, &peer, .{
+    const netlayers = [_]net.netlayer.Netlayer{network.netlayer()};
+    var cv = try driver.connectVia(&netlayers, allocator, &peer, .{
         .transport = inproc.transport_name,
         .designator = node_designator,
         .hints = model.Hints.emptyFalse(),
-    }, read_buf, write_buf);
+    }, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -136,19 +135,18 @@ test "inproc netlayer: dialing an unbound designator fails closed" {
     var read_buf: [256]u8 = undefined;
     var write_buf: [256]u8 = undefined;
 
-    const residents = [_]net_adapter.Netlayer{network.netlayer()};
-    const registry = net_adapter.NetlayerRegistry{ .entries = &residents };
-    try std.testing.expectError(error.ConnectionLost, driver.connectVia(registry, allocator, &peer, .{
+    const netlayers = [_]net.netlayer.Netlayer{network.netlayer()};
+    try std.testing.expectError(error.ConnectionLost, driver.connectVia(&netlayers, allocator, &peer, .{
         .transport = inproc.transport_name,
         .designator = "no-such-node",
         .hints = model.Hints.emptyFalse(),
-    }, &read_buf, &write_buf));
+    }, .ephemeral, &read_buf, &write_buf));
 }
 
 /// Park an accept on the listener and expect the clean closed verdict: the
 /// listener was closed with nothing pending, so accept reports the partner-less
 /// close as `error.ConnectionLost`.
-fn acceptUntilClosed(listener: net_adapter.Listener, allocator: std.mem.Allocator) anyerror!void {
+fn acceptUntilClosed(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     var read_buf: [256]u8 = undefined;

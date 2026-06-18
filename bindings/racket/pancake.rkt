@@ -1,7 +1,8 @@
 #lang racket/base
-;; Idiomatic Racket API for libpancake — an OCapN/CapTP peer you drive.
+;; Idiomatic Racket API for pancake — an OCapN/CapTP peer you drive.
 ;;
-;; The raw `ffi/unsafe` layer is private to this module. What you use is a `peer`
+;; The raw `ffi/unsafe` layer lives in the internal `private/ffi-core.rkt` module; this
+;; module is just the public surface over it. What you use is a `peer`
 ;; you create and release, native Racket values as arguments (exact integers,
 ;; flonums, booleans, bytes, strings, symbols, references, lists), and event
 ;; structs out of `peer-poll`. The default peer negotiates an authenticated
@@ -14,11 +15,12 @@
 ;;   (peer-take-outbound p)
 
 (require ffi/unsafe
-         ffi/unsafe/define
          racket/runtime-path
          racket/tcp
+         racket/async-channel
          racket/random
-         "constants.rkt"
+         "private/constants.rkt"
+         "private/ffi-core.rkt"
          (for-syntax racket/base))
 
 (provide (struct-out near-ref) (struct-out far-ref) (struct-out promise-ref)
@@ -26,15 +28,16 @@
          (struct-out kw) (struct-out pset) (struct-out tagged-arg)
          near far
          (struct-out deliver-event) (struct-out resolve-event) (struct-out other-event)
-         (struct-out fulfill) (struct-out brk)
+         (struct-out fulfill) (struct-out brk) (struct-out handoff)
          abi-version last-error clear-last-error
          make-context make-context/allocator context-release!
          make-peer make-peer/in make-peer/raw-open make-peer/raw-open/in peer-release!
          peer-register-export! peer-next-export! peer-register-import!
-         peer-next-answer! peer-codec peer-send-bootstrap-fetch!
+         peer-next-answer! peer-codec peer-send-bootstrap-fetch! peer-send-withdraw-gift!
          peer-send-gc-export! peer-send-gc-answer!
          peer-start-session! peer-session-open?
-         peer-feed! peer-feed-owned! peer-step! peer-send-deliver! peer-send-resolve!
+         peer-feed! peer-feed-owned! peer-step! peer-step-to-idle! peer-send-deliver! peer-send-resolve!
+         peer-send-get! peer-send-index! peer-send-untag!
          peer-take-outbound peer-poll peer-recv-stream!
          peer-last-abort (struct-out abort-info)
          exn:fail:pancake? exn:fail:pancake-code exn:fail:pancake-abort
@@ -43,281 +46,15 @@
          async-send-deliver! async-send-resolve! async-next-event async-flush!
          in-async-events)
 
-;; ── Raw FFI (private) ────────────────────────────────────────────────────────
-;; No extension: `ffi-lib` appends the platform-correct one (`.so`, `.dylib`,
-;; `.dll`) and tries the versioned variants, so this loads on Linux, macOS, and
-;; Windows from the one `zig build` output.
-;;
-;; Memory discipline: Racket's collector moves GC-managed memory, so every
-;; buffer whose raw address C reads — and every cstruct C reads or writes — is
-;; allocated 'atomic-interior, which stays put while a Racket reference is
-;; retained; the `keep` lists threaded through the marshalling code provide
-;; exactly that reference for the duration C may use the address. Plain
-;; 'atomic memory is kept *alive* by a reference but not *in place*, so an
-;; address stored into a struct field would dangle when a collection moves the
-;; block.
-(define-runtime-path lib-path "../../zig-out/lib/libpancake")
-(define lib (ffi-lib (path->string lib-path)))
-
-(define-cstruct _PancakeFrame ([bytes _pointer] [len _size] [shape _uint32]) #:malloc-mode 'atomic-interior)
-(define-cstruct _PancakeManagedFrame
-  ([bytes _pointer] [len _size] [shape _uint32] [release _pointer] [private-data _pointer]) #:malloc-mode 'atomic-interior)
-
-;; The host-allocator callback types are callable from C: `_fun` makes the
-;; Racket procedures C-callable trampolines. The closures must stay reachable
-;; (see `context`) for as long as the library may invoke them.
-(define _PancakeAllocFn (_fun _pointer _size _size -> _pointer))
-(define _PancakeFreeFn (_fun _pointer _pointer _size _size -> _void))
-(define-cstruct _PancakeAllocator
-  ([alloc _PancakeAllocFn] [free _PancakeFreeFn] [user-data _pointer]) #:malloc-mode 'atomic-interior)
-(define-cstruct _PancakeEvent ([kind _uint32] [frame _PancakeManagedFrame]) #:malloc-mode 'atomic-interior)
-(define-cstruct _PancakeReference ([kind _uint32] [sub-kind _uint32] [id _uint64]) #:malloc-mode 'atomic-interior)
-(define-cstruct _PancakeArgument
-  ([kind _uint32] [boolean _uint32] [integer _int64] [float64 _double]
-   [bytes _pointer] [bytes-len _size] [reference _PancakeReference]
-   [items _pointer] [items-len _size]) #:malloc-mode 'atomic-interior)
-(define-cstruct _PancakeDeliver
-  ([target _PancakeReference] [args _pointer] [args-len _size]
-   [has-answer _uint32] [answer _uint64] [owner _pointer]) #:malloc-mode 'atomic-interior)
-(define-cstruct _PancakeResolve
-  ([answer _uint64] [resolution-kind _uint32] [fulfill _PancakeArgument]
-   [break-message _pointer] [break-message-len _size] [owner _pointer]) #:malloc-mode 'atomic-interior)
-;; Mirrors `PancakeLastAbort` in pancake.h: two leading u32s, then three
-;; (pointer, length) views of process-static strings the library owns.
-(define-cstruct _PancakeLastAbort
-  ([domain _uint32] [has-kind _uint32]
-   [kind-name _pointer] [kind-name-len _size]
-   [message _pointer] [message-len _size]
-   [error-name _pointer] [error-name-len _size]) #:malloc-mode 'atomic-interior)
-
-(define-ffi-definer define-pancake lib)
-(define-pancake pancake_abi_version
-  (_fun (major : (_ptr o _uint32)) (minor : (_ptr o _uint32)) (patch : (_ptr o _uint32))
-        -> _void -> (values major minor patch)))
-(define-pancake pancake_last_error (_fun _pointer _size -> _size))
-(define-pancake pancake_clear_last_error (_fun -> _void))
-(define-pancake pancake_context_new (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_context_new_with_allocator
-  (_fun _PancakeAllocator-pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_context_release (_fun _pointer -> _void))
-(define-pancake pancake_peer_new_in
-  (_fun _pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_tcp_netlayer_new_in
-  (_fun _pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_peer_feed_owned (_fun _pointer _PancakeManagedFrame-pointer -> _int32))
-(define-pancake pancake_peer_new (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_peer_new_negotiated
-  (_fun _uint32 _uint32 (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_peer_new_negotiated_in
-  (_fun _pointer _uint32 _uint32 (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_peer_new_raw_open (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_peer_new_raw_open_in
-  (_fun _pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_peer_start_session
-  (_fun _pointer _pointer _size _pointer _size _uint32 _pointer _size -> _int32))
-(define-pancake pancake_peer_session_is_open (_fun _pointer -> _int32))
-(define-pancake pancake_peer_release (_fun _pointer -> _void))
-(define-pancake pancake_peer_feed_borrowed (_fun _pointer _PancakeFrame-pointer -> _int32))
-(define-pancake pancake_peer_step (_fun _pointer -> _int32))
-(define-pancake pancake_peer_recv_stream
-  (_fun _pointer _pointer _size (consumed : (_ptr o _size)) -> (r : _int32) -> (values r consumed)))
-(define-pancake pancake_peer_take_outbound (_fun _pointer _PancakeManagedFrame-pointer -> _int32))
-(define-pancake pancake_managed_frame_release (_fun _PancakeManagedFrame-pointer -> _void))
-(define-pancake pancake_peer_poll_event (_fun _pointer _PancakeEvent-pointer -> _int32))
-(define-pancake pancake_event_release (_fun _PancakeEvent-pointer -> _void))
-(define-pancake pancake_peer_register_export (_fun _pointer _uint64 -> _int32))
-(define-pancake pancake_peer_next_export
-  (_fun _pointer (out : (_ptr o _uint64)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_peer_register_import (_fun _pointer _uint64 -> _int32))
-(define-pancake pancake_peer_next_answer
-  (_fun _pointer (out : (_ptr o _uint64)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_peer_last_abort (_fun _pointer _PancakeLastAbort-pointer -> _int32))
-(define-pancake pancake_peer_peek_event (_fun _pointer -> _int32))
-(define-pancake pancake_peer_send_deliver
-  (_fun _pointer _PancakeReference-pointer _pointer _size _uint32 _uint64 -> _int32))
-(define-pancake pancake_peer_send_resolve
-  (_fun _pointer _uint64 _uint32 _PancakeArgument-pointer/null _pointer _size -> _int32))
-(define-pancake pancake_peer_poll_event_deliver (_fun _pointer _PancakeDeliver-pointer -> _int32))
-(define-pancake pancake_peer_poll_event_resolve (_fun _pointer _PancakeResolve-pointer -> _int32))
-(define-pancake pancake_deliver_release (_fun _PancakeDeliver-pointer -> _void))
-(define-pancake pancake_resolve_release (_fun _PancakeResolve-pointer -> _void))
-(define-pancake pancake_peer_register_bootstrap_cap
-  (_fun _pointer _pointer _size (out : (_ptr o _uint64)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_peer_send_bootstrap_fetch
-  (_fun _pointer _pointer _size (out : (_ptr o _uint64)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_peer_codec
-  (_fun _pointer (out : (_ptr o _uint32)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_peer_send_gc_export
-  (_fun _pointer _pointer _pointer _size -> _int32))
-(define-pancake pancake_peer_send_gc_answer (_fun _pointer _uint64 -> _int32))
-(define-pancake pancake_tcp_netlayer_new (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_tcp_netlayer_release (_fun _pointer -> _void))
-(define-pancake pancake_tcp_connect
-  (_fun _pointer _pointer _size _uint16 _uint32 _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_tcp_listen
-  (_fun _pointer _pointer _size _uint16 (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_tcp_listener_port
-  (_fun _pointer (out : (_ptr o _uint16)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_tcp_accept
-  (_fun _pointer _uint32 _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_tcp_conn_read_frame (_fun _pointer _PancakeManagedFrame-pointer -> _int32))
-(define-pancake pancake_tcp_conn_write_frame (_fun _pointer _PancakeFrame-pointer -> _int32))
-(define-pancake pancake_tcp_conn_release (_fun _pointer -> _void))
-(define-pancake pancake_tcp_listener_release (_fun _pointer -> _void))
-
-;; OCapN locator URIs — core libpancake vocabulary, so a TCP-only program reaches
-;; the grammar without the iroh superset. One grammar, no hand-rolled percent
-;; codec: verbs mint an opaque locator handle, nouns read borrowed views from it.
-(define-pancake pancake_uri_parse_peer
-  (_fun _pointer _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_uri_parse_sturdyref
-  (_fun _pointer _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_uri_format_peer
-  (_fun _pointer _size _pointer _size _pointer _pointer _pointer _pointer _size
-        _pointer _size (out-len : (_ptr o _size)) -> (r : _int32) -> (values r out-len)))
-(define-pancake pancake_uri_format_sturdyref
-  (_fun _pointer _size _pointer _size _pointer _size _pointer _pointer _pointer _pointer _size
-        _pointer _size (out-len : (_ptr o _size)) -> (r : _int32) -> (values r out-len)))
-(define-pancake pancake_locator_transport
-  (_fun _pointer (p : (_ptr o _pointer)) (l : (_ptr o _size)) -> (r : _int32) -> (values r p l)))
-(define-pancake pancake_locator_designator
-  (_fun _pointer (p : (_ptr o _pointer)) (l : (_ptr o _size)) -> (r : _int32) -> (values r p l)))
-(define-pancake pancake_locator_swissnum
-  (_fun _pointer (p : (_ptr o _pointer)) (l : (_ptr o _size)) -> (r : _int32) -> (values r p l)))
-(define-pancake pancake_locator_hint
-  (_fun _pointer _pointer _size (p : (_ptr o _pointer)) (l : (_ptr o _size)) -> (r : _int32) -> (values r p l)))
-(define-pancake pancake_locator_hint_count
-  (_fun _pointer (c : (_ptr o _size)) -> (r : _int32) -> (values r c)))
-(define-pancake pancake_locator_hint_at
-  (_fun _pointer _size (k : (_ptr o _pointer)) (kl : (_ptr o _size)) (v : (_ptr o _pointer)) (vl : (_ptr o _size))
-        -> (r : _int32) -> (values r k kl v vl)))
-(define-pancake pancake_locator_release (_fun _pointer -> _void))
-
-;; ── iroh transport FFI (separate libpancake_iroh artifact, loaded lazily) ────
+;; ── iroh transport ───────────────────────────────────────────────────────────
 ;; iroh's encrypted-QUIC netlayer links the Rust sidecar, which ADR-0055 keeps
-;; out of libpancake; it ships as its own optional superset library
-;; (libpancake_iroh, `zig build iroh-abi`, needs cargo). It is loaded only on
-;; first iroh use, so a Racket program (and the TCP dogfood) that never touches
-;; iroh never needs it built. The frame unit is identical to TCP's, so the async
-;; driver below carries a peer over an iroh connection exactly as over a port.
-(define-runtime-path iroh-lib-path "../../zig-out/lib/libpancake_iroh")
-(define iroh-ffi-cache (box #f))
-
-;; Reachability posture — REQUIRED on every public iroh constructor, with NO
-;; default: a peer states how it is reachable, the binding never guesses.
-(define IROH-REACH-DIRECT 0)             ; dial by id + direct-address hints; relay-less, no discovery
-(define IROH-REACH-DISCOVERY 1)          ; n0 relays + DNS discovery; dial by id alone
-(define IROH-REACH-DISCOVERY-NO-RELAY 2) ; DNS discovery, no relays
-(define IROH-REACH-LOCAL-DISCOVERY 3)    ; in-process address book; tests/same-process
-
-;; Open the iroh ABI library and bind its symbols on first use, caching the
-;; table. Optional — a clear error names the build step when it is absent.
-(define (iroh-ffi)
-  (or (unbox iroh-ffi-cache)
-      (let ([table (load-iroh-ffi)])
-        (set-box! iroh-ffi-cache table)
-        table)))
-
-(define (load-iroh-ffi)
-  (define L
-    (with-handlers ([exn:fail?
-                     (lambda (e)
-                       (error 'iroh
-                              (string-append
-                               "iroh transport unavailable: could not load libpancake_iroh from "
-                               "zig-out/lib. Build it with `zig build iroh-abi` (needs cargo). ~a")
-                              (exn-message e)))])
-      (ffi-lib (path->string iroh-lib-path))))
-  (hasheq
-   'netlayer-new   (get-ffi-obj 'pancake_iroh_netlayer_new L
-                     (_fun _pointer _size _uint32 (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-   'netlayer-close (get-ffi-obj 'pancake_iroh_netlayer_close L (_fun _pointer -> _void))
-   'netlayer-release (get-ffi-obj 'pancake_iroh_netlayer_release L (_fun _pointer -> _void))
-   'node-id        (get-ffi-obj 'pancake_iroh_netlayer_node_id L
-                     (_fun _pointer _pointer _size (out : (_ptr o _size)) -> (r : _int32) -> (values r out)))
-   'direct-addrs   (get-ffi-obj 'pancake_iroh_netlayer_direct_addrs L
-                     (_fun _pointer _pointer _size (out : (_ptr o _size)) -> (r : _int32) -> (values r out)))
-   ;; connect/accept/read/write block the calling thread (the endpoint runs its
-   ;; own runtime), so #:blocking? lets the Racket scheduler and GC run while one
-   ;; parks — other green threads keep going instead of the place freezing.
-   'connect        (get-ffi-obj 'pancake_iroh_netlayer_connect L
-                     (_fun #:blocking? #t _pointer _pointer _size _pointer _size _uint32 _size
-                           (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-   'accept         (get-ffi-obj 'pancake_iroh_netlayer_accept L
-                     (_fun #:blocking? #t _pointer _uint32 _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-   'read-frame     (get-ffi-obj 'pancake_iroh_conn_read_frame L
-                     (_fun #:blocking? #t _pointer _PancakeManagedFrame-pointer -> _int32))
-   'write-frame    (get-ffi-obj 'pancake_iroh_conn_write_frame L
-                     (_fun #:blocking? #t _pointer _PancakeFrame-pointer -> _int32))
-   'conn-release   (get-ffi-obj 'pancake_iroh_conn_release L (_fun _pointer -> _void))))
-
-(define (iroh-fn key) (hash-ref (iroh-ffi) key))
-
-;; A bound iroh endpoint, dialed connection, and the dialer's optional owned
-;; endpoint. The async connection below carries `iroh-link` instead of a port
-;; pair when it rides iroh.
-;; `reachability` is required — an IROH-REACH-* posture, no default.
-(define (iroh-netlayer-new reachability)
-  (define-values (rc h) ((iroh-fn 'netlayer-new) #f 0 reachability)) ; #f/0 secret seed = a fresh random key
-  (check rc)
-  h)
-
-(define (iroh-netlayer-node-id h)
-  (define buf (make-bytes 64)) ; an endpoint id is 64 lowercase-hex bytes
-  (define-values (rc len) ((iroh-fn 'node-id) h buf 64))
-  (check rc)
-  (bytes->string/utf-8 (subbytes buf 0 len)))
-
-(define (iroh-netlayer-direct-addresses h)
-  ;; A buffer too small is ERR-INVALID-ARGUMENT; grow until the comma-separated
-  ;; hint string fits (loopback hints are short, but be safe).
-  (let loop ([cap 256])
-    (define buf (make-bytes cap))
-    (define-values (rc len) ((iroh-fn 'direct-addrs) h buf cap))
-    (cond
-      [(and (= rc ERR-INVALID-ARGUMENT) (< cap (* 64 1024))) (loop (* cap 4))]
-      [else (check rc) (bytes->string/utf-8 (subbytes buf 0 len))])))
-
-(define (iroh-netlayer-connect h node-id hints)
-  ;; connect is #:blocking?, so GC may run mid-call; pin the borrowed inputs in
-  ;; immobile memory rather than passing movable byte strings.
-  (define nb (string->bytes/utf-8 node-id))
-  (define hb (string->bytes/utf-8 hints))
-  (define nbuf (malloc (max (bytes-length nb) 1) 'atomic-interior)) (memcpy nbuf nb (bytes-length nb))
-  (define hbuf (malloc (max (bytes-length hb) 1) 'atomic-interior)) (memcpy hbuf hb (bytes-length hb))
-  (define-values (rc conn) ((iroh-fn 'connect) h nbuf (bytes-length nb) hbuf (bytes-length hb) CODEC-SYRUP 4096))
-  (check rc)
-  conn)
-
-(define (iroh-netlayer-accept h)
-  (define-values (rc conn) ((iroh-fn 'accept) h CODEC-SYRUP 4096))
-  (values rc conn))
-
-(define (iroh-netlayer-close! h) ((iroh-fn 'netlayer-close) h))
-(define (iroh-netlayer-release! h) ((iroh-fn 'netlayer-release) h))
-
-;; Block for one whole frame's bytes, or `eof` on a clean end of stream.
-(define (iroh-conn-read-bytes conn)
-  (define mf (make-PancakeManagedFrame #f 0 0 #f #f))
-  (define code ((iroh-fn 'read-frame) conn mf))
-  (cond
-    [(= code ERR-CLOSED) eof]
-    [(not (= code OK)) (check code)]
-    [else
-     (define out (bytes<-c (PancakeManagedFrame-bytes mf) (PancakeManagedFrame-len mf)))
-     (pancake_managed_frame_release mf)
-     out]))
-
-(define (iroh-conn-write-frame! conn frame)
-  (define buf (malloc (max (bytes-length frame) 1) 'atomic-interior))
-  (memcpy buf frame (bytes-length frame))
-  (check ((iroh-fn 'write-frame) conn (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE))))
-
-(define (iroh-conn-close! conn) ((iroh-fn 'conn-release) conn))
-
-;; The iroh address a peer signs and publishes: an `ocapn://<nodeid>.iroh?…` URI.
-(struct iroh-link (conn netlayer))
-(struct iroh-server (netlayer node-id))
+;; out of the pure-Zig archives; it ships as its own optional companion library
+;; (libpancake_net_transport_iroh, `zig build iroh-abi`, needs cargo). Mirroring that artifact
+;; split, the iroh binding lives in the `pancake-iroh.rkt` companion, which builds
+;; an `async-transport` over the iroh ABI through the netlayer seam below. `connect`
+;; loads it lazily on the first iroh locator, so a Racket program (and the TCP
+;; dogfood) that never touches iroh needs neither the companion nor the library.
+(define-runtime-path iroh-companion-path "pancake-iroh.rkt")
 
 ;; ── Library identity and per-thread last error ───────────────────────────────
 ;; (abi-version) -> (values major minor patch) of the linked library.
@@ -344,14 +81,24 @@
 ;; `abort-info` naming the member (see `peer-last-abort`); `abort` is #f
 ;; everywhere else.
 (struct exn:fail:pancake exn:fail (code abort))
-(define (check code)
+
+;; Raise a typed pancake failure for a non-OK `code`, reading the human-readable
+;; cause through `read-error` (a thunk that returns the message string or #f).
+;; Each transport archive keeps its own thread-local last-error slot, so a
+;; transport module passes its own reader here; `check` is the ocapn-family
+;; spelling that reads `pancake_last_error`. The seam below provides `check-with`
+;; so `pancake-tcp.rkt` / `pancake-inproc.rkt` raise the same typed exn from
+;; their own diagnostics.
+(define (check-with code read-error)
   (unless (= code OK)
-    (define msg (last-error))   ; capture immediately, before any later call clobbers it
+    (define msg (read-error))   ; capture immediately, before any later call clobbers it
     (raise (exn:fail:pancake
             (if msg
                 (format "pancake error ~a: ~a" code msg)
                 (format "pancake error ~a" code))
             (current-continuation-marks) code #f))))
+
+(define (check code) (check-with code last-error))
 
 ;; Like `check`, but for the calls that feed inbound wire bytes to a peer: on
 ;; failure, read the peer's typed last-abort detail and attach it to the raised
@@ -393,6 +140,14 @@
 (struct other-event (kind frame) #:transparent)
 (struct fulfill (value) #:transparent)
 (struct brk (message) #:transparent)
+;; A poll-only resolution: the answer settled to a three-party handoff give the
+;; recipient must redeem against the named exporter (ADR-0009/ADR-0056). `give`
+;; is the verbatim signed `desc:handoff-give` bytes, `exporter-locator` the
+;; exporter's dialable `ocapn://` URI (or "" when the give names no flat
+;; locator), `recipient-key` the 32-byte key the give is addressed to. The
+;; high-level connection redeems this transparently in its pump loop, so an
+;; application driving the connection never sees it.
+(struct handoff (give exporter-locator recipient-key) #:transparent)
 
 ;; The typed cause of a peer's most recent refused frame, read back through
 ;; `peer-last-abort`. `domain` is 'codec, 'session, or 'foreign; `kind` is the
@@ -650,6 +405,131 @@
   (check rc)
   answer)
 
+;; Begin enlivening the sturdyref published behind `swissnum` (a bytestring;
+;; ADR-0012): the requester half over bootstrap-fetch with the dedup cache.
+;; Returns the `_PancakeEnlivenStart` struct — a status (ENLIVEN-FRESH /
+;; ENLIVEN-CACHED / ENLIVEN-IN-FLIGHT) plus the answer to drive or the cached far
+;; reference's import position and kind. Requires an open sturdyref-capable session.
+(define (peer-prepare-enliven! p swissnum)
+  (define buf (malloc (max (bytes-length swissnum) 1) 'atomic-interior))
+  (memcpy buf swissnum (bytes-length swissnum))
+  (define out (make-PancakeEnlivenStart 0 0 0 0))
+  (check (pancake_peer_prepare_enliven (peer-handle p) buf (bytes-length swissnum) out))
+  out)
+
+;; Settle a fresh enliven once its bootstrap-fetch resolution arrives (ADR-0012):
+;; cache the fulfilled far reference (`import-position`/`kind`, an ENLIVEN-OUTCOME-*
+;; outcome) under `swissnum` so a repeat short-circuits, or clear the in-flight
+;; marker on a break.
+(define (peer-record-enlivenment! p swissnum outcome import-position kind)
+  (define buf (malloc (max (bytes-length swissnum) 1) 'atomic-interior))
+  (memcpy buf swissnum (bytes-length swissnum))
+  (check (pancake_peer_record_enlivenment
+          (peer-handle p) buf (bytes-length swissnum) outcome import-position kind)))
+
+;; Recipient half of a three-party handoff (ADR-0009/ADR-0056): sign a
+;; `desc:handoff-receive` over the verbatim `give` bytes (keyed by the 32-byte
+;; `seed`) and queue a `withdraw-gift` deliver to the exporter's bootstrap under
+;; `answer`. Requires an open keyed session to the exporter opened with this same
+;; `seed` — that session key is what the exporter verifies the receive against.
+;; `count` is the number of prior withdrawals from this exporter session (0 for
+;; the first, rising monotonically), which the exporter requires to increase.
+(define (peer-send-withdraw-gift! p give seed count answer)
+  (unless (= (bytes-length seed) 32) (error 'peer-send-withdraw-gift! "seed must be 32 bytes"))
+  (define gbuf (malloc (max (bytes-length give) 1) 'atomic-interior))
+  (memcpy gbuf give (bytes-length give))
+  (define sbuf (malloc 32 'atomic-interior))
+  (memcpy sbuf seed 32)
+  (check (pancake_peer_send_withdraw_gift (peer-handle p) gbuf (bytes-length give) sbuf 32 count answer)))
+
+;; ── Gifter (introducer) half of a three-party handoff (ADR-0009/ADR-0056) ─────
+;; The partner's session public key from its op:start-session (#"" before the
+;; handshake half arrives). A gifter reads it on the to-recipient session for the
+;; give's recipient key, and on the to-exporter session for the gifter↔exporter
+;; session name. Copied out of the borrowed view immediately.
+(define (peer-partner-session-key p)
+  (define-values (rc ptr len) (pancake_peer_partner_session_key (peer-handle p)))
+  (check rc)
+  (bytes<-c ptr len))
+
+;; The partner's verbatim `<ocapn-peer …>` location-record bytes from its
+;; op:start-session (#"" when none were captured). A gifter embeds these as the
+;; give's exporter location so a peer comparing locations matches byte-for-byte.
+;; Copied out of the borrowed view immediately.
+(define (peer-partner-locator-raw p)
+  (define-values (rc ptr len) (pancake_peer_partner_locator_raw (peer-handle p)))
+  (check rc)
+  (bytes<-c ptr len))
+
+;; Deposit `gifted` with this (exporter) session: queue a fire-and-forget
+;; `deposit-gift` deliver to the exporter's bootstrap carrying `gift-id` and the
+;; gifted reference. `gifted` must be a reference the exporter exported to us, so
+;; it re-encodes to that exporter's own export — exactly how `peer-send-deliver!`
+;; encodes a target reference.
+(define (peer-send-deposit-gift! p gift-id gifted)
+  (define gbuf (malloc (max (bytes-length gift-id) 1) 'atomic-interior))
+  (memcpy gbuf gift-id (bytes-length gift-id))
+  (check (pancake_peer_send_deposit_gift (peer-handle p) gbuf (bytes-length gift-id) (ref->c gifted))))
+
+;; Resolve `answer` (a question the recipient asked this gifter) with a signed
+;; `desc:handoff-give`: queue an op:resolve whose fulfill carries `give` verbatim,
+;; so the recipient redeems it transparently and reaches the exporter directly.
+(define (peer-send-resolve-handoff-give! p answer give)
+  (define gbuf (malloc (max (bytes-length give) 1) 'atomic-interior))
+  (memcpy gbuf give (bytes-length give))
+  (check (pancake_peer_send_resolve_handoff_give (peer-handle p) answer gbuf (bytes-length give))))
+
+;; Bind `registry-ptr` (a raw gift-registry handle) as this peer's shared gift
+;; registry before its handshake, so inbound deposit/withdraw resolve against the
+;; node-wide table. The registry must outlive the peer. Binding-internal.
+(define (peer-set-gift-registry! p registry-ptr)
+  (check (pancake_peer_set_gift_registry (peer-handle p) registry-ptr)))
+
+;; Author the signed `desc:handoff-give` a gifter returns to a recipient. `seed`
+;; is the gifter's 32-byte identity (the key it presents on its session to the
+;; exporter, which signs the give); `recipient-key` is the recipient's session
+;; public key; `exporter-locator-raw` the exporter's verbatim location bytes
+;; (from `peer-partner-locator-raw` on the gifter↔exporter session);
+;; `exporter-session-key` the exporter's session public key; `gift-id` the
+;; deposited gift's id. Returns owned give bytes (copied out; the library buffer
+;; is released here).
+(define (build-handoff-give seed recipient-key exporter-locator-raw exporter-session-key gift-id)
+  (unless (= (bytes-length seed) 32) (error 'build-handoff-give "a gifter seed must be 32 bytes"))
+  (define (pin bs)
+    (define buf (malloc (max (bytes-length bs) 1) 'atomic-interior))
+    (memcpy buf bs (bytes-length bs))
+    buf)
+  (define-values (rc ptr len)
+    (pancake_build_handoff_give
+     (pin seed) 32
+     (pin recipient-key) (bytes-length recipient-key)
+     (pin exporter-locator-raw) (bytes-length exporter-locator-raw)
+     (pin exporter-session-key) (bytes-length exporter-session-key)
+     (pin gift-id) (bytes-length gift-id)))
+  (check rc)
+  (define out (bytes<-c ptr len))
+  (pancake_handoff_give_bytes_release ptr len)
+  out)
+
+;; A vat-scoped deposited-gift table a node shares across its peers (ADR-0056).
+;; An exporter receives a gift's deposit on the gifter session and its withdraw
+;; on the recipient's separate session; one registry bound on both peers is what
+;; lets the second find what the first deposited. Borrowed by every peer it is
+;; set on — free it last.
+(struct gift-registry (ptr) #:mutable)
+
+(define (make-gift-registry)
+  (define-values (rc ptr) (pancake_gift_registry_new))
+  (check rc)
+  (gift-registry ptr))
+
+(define (gift-registry-pointer gr) (gift-registry-ptr gr))
+
+(define (gift-registry-free! gr)
+  (when (gift-registry-ptr gr)
+    (pancake_gift_registry_free (gift-registry-ptr gr))
+    (set-gift-registry-ptr! gr #f)))
+
 ;; Queue an op:gc-export releasing wire-delta counts on imports this peer
 ;; holds: the i-th position is released by the i-th delta. The lists are
 ;; parallel and must be non-empty and the same length.
@@ -765,6 +645,31 @@
 
 (define (peer-step! p) (check (pancake_peer_step (peer-handle p))))
 
+;; Step until quiescent: drains every cascaded outbound (a projection resolving,
+;; a listener firing, a queued deliver) in one sweep, so the pump never strands
+;; queued frames behind a blocking inbox read. The native loop is bounded by the
+;; work the session already admitted (ADR-0050 / ADR-0007).
+(define (peer-step-to-idle! p) (check (pancake_peer_step_to_idle (peer-handle p))))
+
+;; Pipelined projections (ADR-0050): send `op:get` / `op:index` / `op:untag`
+;; against `receiver` (a `promise-ref` vow, or any held reference), allocating
+;; `answer` for the projected value. The engine trails the matching `op:listen`
+;; so the projected answer's resolution rides back. `field` / `tag` are strings.
+(define (peer-send-get! p receiver field answer)
+  (define fb (string->bytes/utf-8 field))
+  (define buf (malloc (max (bytes-length fb) 1) 'atomic-interior))
+  (memcpy buf fb (bytes-length fb))
+  (check (pancake_peer_send_get (peer-handle p) (ref->c receiver) buf (bytes-length fb) answer)))
+
+(define (peer-send-index! p receiver index answer)
+  (check (pancake_peer_send_index (peer-handle p) (ref->c receiver) index answer)))
+
+(define (peer-send-untag! p receiver tag answer)
+  (define tb (string->bytes/utf-8 tag))
+  (define buf (malloc (max (bytes-length tb) 1) 'atomic-interior))
+  (memcpy buf tb (bytes-length tb))
+  (check (pancake_peer_send_untag (peer-handle p) (ref->c receiver) buf (bytes-length tb) answer)))
+
 ;; Feed buffered wire bytes; the peer frames and dispatches one whole frame if
 ;; present. Returns the consumed byte count on OK, #f on WOULD-BLOCK (the buffer
 ;; holds only a partial frame), and raises on any other code, attaching the
@@ -838,7 +743,7 @@
      ev]))
 
 (define (poll-resolve p)
-  (define r (make-PancakeResolve 0 0 (make-PancakeArgument ARG-VOID 0 0 0.0 #f 0 (make-PancakeReference 0 0 0) #f 0) #f 0 #f))
+  (define r (make-PancakeResolve 0 0 (make-PancakeArgument ARG-VOID 0 0 0.0 #f 0 (make-PancakeReference 0 0 0) #f 0) #f 0 (make-PancakeHandoffGive #f 0 #f 0 #f 0) #f))
   (define rc (pancake_peer_poll_event_resolve (peer-handle p) r))
   (cond
     ;; Same leave-queued contract as poll-deliver: drain the refused resolve
@@ -846,10 +751,22 @@
     [(= rc ERR-UNSUPPORTED-VALUE) (poll-other p)]
     [else
      (check rc)
+     (define kind (PancakeResolve-resolution-kind r))
      (define res
-       (if (= (PancakeResolve-resolution-kind r) RESOLUTION-FULFILL)
-           (fulfill (arg<-c (PancakeResolve-fulfill r)))
-           (brk (bytes->string/utf-8 (bytes<-c (PancakeResolve-break-message r) (PancakeResolve-break-message-len r)) #\uFFFD))))
+       (cond
+         [(= kind RESOLUTION-FULFILL) (fulfill (arg<-c (PancakeResolve-fulfill r)))]
+         ;; A three-party handoff give: project its three (pointer, length) views
+         ;; into a `handoff` the connection's pump loop redeems transparently.
+         [(= kind RESOLUTION-HANDOFF)
+          (define h (PancakeResolve-handoff r))
+          (define loc-ptr (PancakeHandoffGive-exporter-locator h))
+          (define loc-len (PancakeHandoffGive-exporter-locator-len h))
+          (handoff (bytes<-c (PancakeHandoffGive-give h) (PancakeHandoffGive-give-len h))
+                   (if (or (not loc-ptr) (= loc-len 0))
+                       ""
+                       (bytes->string/utf-8 (bytes<-c loc-ptr loc-len) #\uFFFD))
+                   (bytes<-c (PancakeHandoffGive-recipient-key h) (PancakeHandoffGive-recipient-key-len h)))]
+         [else (brk (bytes->string/utf-8 (bytes<-c (PancakeResolve-break-message r) (PancakeResolve-break-message-len r)) #\uFFFD))]))
      (define ev (resolve-event (PancakeResolve-answer r) res))
      (pancake_resolve_release r)
      ev]))
@@ -883,6 +800,7 @@
 (provide methods bcom?
          (struct-out actor-ref) (struct-out local-vow)
          current-vat make-vat with-vat vat-run
+         vat-snapshot vat-restore!
          spawn $ <- <-np on
          publish! vat-serve! drive break-far-vows!)
 
@@ -915,12 +833,73 @@
 ;; a far answer to its listener; `exports` maps a peer export id to a local actor
 ;; id. `peer` is the bound peer (or #f for a pure-local vat); far-send answers
 ;; come from the peer's one outbound-answer allocator (`peer-next-answer!`).
-(struct vat (peer cells next queue listeners far-listeners exports) #:transparent)
+;; `tt` is #f for the default (fast, in-place) vat, or a `time-travel` record
+;; when the vat retains a revisable history of behaviors (see `make-vat
+;; #:time-travel?`); it never touches the live near-call path.
+;; `far-resolutions` stashes a far answer's resolution that arrived before any
+;; listener was registered, so a later `on` / `conn-await` for that answer still
+;; settles (a reply that lands before its listener — e.g. a source vow awaited
+;; after a sibling projection already pumped the loop). Mirrors the Deno/Python
+;; binding stash; cleared on disconnect by `break-far-vows!`.
+;; `resolve-interceptor` is a box holding an optional hook the connection installs
+;; to originate a three-party handoff: when a published actor's reply is a
+;; capability that lives on a *different* connection, the ordinary resolve would
+;; mis-send a cross-connection reference, so the interceptor `(answer value) ->
+;; boolean` claims such a reply (returns #t) and resolves it itself as a signed
+;; give. A #f return falls through to the ordinary resolve. The box stays #f on a
+;; pure-local vat, so the hot turn path pays one unbox when the feature is off.
+(struct vat (peer cells next queue listeners far-listeners far-resolutions exports tt resolve-interceptor) #:transparent)
 
-;; (make-vat #:peer p) — a vat, optionally bound to a peer for far sends and
-;; hosting.
-(define (make-vat #:peer [peer #f])
-  (vat peer (make-hasheqv) (box 1) (box '()) (make-hasheqv) (make-hasheqv) (make-hasheqv)))
+;; Time-travel state for a vat opted into snapshotting. `mirror` is an immutable
+;; id→behavior map kept in step with the live `cells` — each spawn and each
+;; `bcom` writes the new behavior into it in O(log n). `history` is the stack of
+;; mirror versions, one per state-changing turn. Because behaviors are immutable
+;; and the maps share structure, a snapshot is just the current mirror (O(1)) and
+;; retaining every turn costs only the changed path — the same shape Goblins's
+;; `snapshot-whactormap` has. This is the standing cost of the feature being on;
+;; it captures behaviors only, so it buys revisability only for actors whose
+;; state lives in their behavior (functional `bcom`), not in a private box.
+(struct time-travel (mirror history) #:transparent)
+
+;; (make-vat #:peer p #:time-travel? #f) — a vat, optionally bound to a peer for
+;; far sends and hosting. `#:time-travel? #t` opts every actor in this vat into a
+;; retained, revisable behavior history reachable through `vat-snapshot` /
+;; `vat-restore!`; the default vat keeps no history and its turn path is the
+;; in-place box write below, unchanged.
+(define (make-vat #:peer [peer #f] #:time-travel? [time-travel? #f])
+  (vat peer (make-hasheqv) (box 1) (box '()) (make-hasheqv) (make-hasheqv) (make-hasheqv) (make-hasheqv)
+       (and time-travel? (time-travel (box (hasheqv)) (box '())))
+       (box #f)))
+
+;; Record an actor's current behavior into the time-travel mirror and push the
+;; new mirror version onto the history — but only when the vat opted in. For the
+;; default vat this is a single predicate test, so the hot turn path pays nothing
+;; when the feature is off.
+(define (tt-record! v id behavior)
+  (define tt (vat-tt v))
+  (when tt
+    (define snapshot (hash-set (unbox (time-travel-mirror tt)) id behavior))
+    (set-box! (time-travel-mirror tt) snapshot)
+    (set-box! (time-travel-history tt) (cons snapshot (unbox (time-travel-history tt))))))
+
+;; (vat-snapshot v) — the current revisable state of every actor as an immutable
+;; id→behavior map, captured in O(1). Errors on a vat that did not opt in.
+(define (vat-snapshot v)
+  (define tt (vat-tt v))
+  (unless tt (error 'vat-snapshot "vat is not in time-travel mode — make it with #:time-travel? #t"))
+  (unbox (time-travel-mirror tt)))
+
+;; (vat-restore! v snap) — rewind every actor present in `snap` to the behavior
+;; it held there and reset the mirror to it. Actors spawned after `snap` keep
+;; their live cell but are absent from the restored mirror, so a later snapshot
+;; reflects the rewound set. Errors on a vat that did not opt in.
+(define (vat-restore! v snap)
+  (define tt (vat-tt v))
+  (unless tt (error 'vat-restore! "vat is not in time-travel mode — make it with #:time-travel? #t"))
+  (for ([(id behavior) (in-hash snap)])
+    (define cell (hash-ref (vat-cells v) id #f))
+    (when cell (set-box! cell behavior)))
+  (set-box! (time-travel-mirror tt) snap))
 
 ;; Run `thunk` with `v` as the current vat. `with-vat` is the macro form.
 (define (vat-run v thunk) (parameterize ([current-vat v]) (thunk)))
@@ -951,7 +930,9 @@
   ;; applies it after the turn returns, so a `bcom` mid-turn cannot tear the
   ;; behavior out from under the call in flight.
   (define (bcom new-behavior [result (void)]) (become new-behavior result))
-  (set-box! cell (apply constructor bcom args))
+  (define behavior (apply constructor bcom args))
+  (set-box! cell behavior)
+  (tt-record! v id behavior)
   (actor-ref v id))
 
 ;; ── $ : the synchronous near-call ─────────────────────────────────────────────
@@ -974,7 +955,10 @@
   (define behavior (unbox cell))
   (define result (parameterize ([current-vat v]) (apply behavior method args)))
   (cond
-    [(become? result) (set-box! cell (become-behavior result)) (become-result result)]
+    [(become? result)
+     (set-box! cell (become-behavior result))
+     (tt-record! v (actor-ref-id ref) (become-behavior result))
+     (become-result result)]
     [else result]))
 
 ;; ── <- : the eventual-send (returns a vow) ────────────────────────────────────
@@ -982,19 +966,24 @@
 ;; a turn for `drive` and returns a `local-vow`. To a `far-ref` it sends an
 ;; `op:deliver` over the bound peer with a fresh answer — marshalling the method
 ;; symbol to an OCapN `(sym …)` ahead of the args — and returns a `promise-ref`
-;; backed by that answer.
+;; backed by that answer. To a `promise-ref` (the vow an earlier far `<-`
+;; returned) it pipelines (ADR-0007): the deliver rides a `desc:answer` target,
+;; so the call addresses the object that answer will resolve to and the partner
+;; queues it until the answer settles — a dependent call need not wait for the
+;; one it depends on.
 (define (<- ref method . args)
   (cond
     [(actor-ref? ref) (queue-local-send ref method args)]
-    [(far-ref? ref) (far-send ref method args #:answer? #t)]
+    [(or (far-ref? ref) (promise-ref? ref)) (far-send ref method args #:answer? #t)]
     [else (error '<- "not a reference: ~a" ref)]))
 
 ;; `<-np` ("no promise") is the fire-and-forget eventual-send: deliver with no
-;; answer requested, return void. To a local actor it queues a promise-less turn.
+;; answer requested, return void. To a local actor it queues a promise-less turn;
+;; to a `far-ref` or a pipelined `promise-ref` it flushes a deliver with no answer.
 (define (<-np ref method . args)
   (cond
     [(actor-ref? ref) (queue-local-send ref method args) (void)]
-    [(far-ref? ref) (far-send ref method args #:answer? #f) (void)]
+    [(or (far-ref? ref) (promise-ref? ref)) (far-send ref method args #:answer? #f) (void)]
     [else (error '<-np "not a reference: ~a" ref)]))
 
 (define (queue-local-send ref method args)
@@ -1011,7 +1000,13 @@
   ;; The answer comes from the peer's one outbound-answer allocator
   ;; (pancake_peer_next_answer), so it can never alias another question.
   (define answer (and answer? (peer-next-answer! p)))
-  (peer-send-deliver! p ref (cons (sym (symbol->string method)) args) #:answer answer)
+  ;; A non-empty method marshals to a leading OCapN `(sym …)`; the empty symbol
+  ;; means a positional (methodless) invocation — a bare `(your-name)` deliver, no
+  ;; stray empty symbol on the wire — matching `Vat::send` and the Deno/Python/Rust
+  ;; bindings, and what a methodless Goblins lambda (e.g. a handoff greeter) expects.
+  (define method-name (symbol->string method))
+  (define payload (if (= 0 (string-length method-name)) args (cons (sym method-name) args)))
+  (peer-send-deliver! p ref payload #:answer answer)
   (and answer (promise-ref answer)))
 
 ;; ── on : register a one-shot listener on a vow ────────────────────────────────
@@ -1042,7 +1037,16 @@
           (settle-local v (local-vow-id chained) (cdr outcome) #t))))
   (cond
     [(local-vow? a-vow) (hash-set! (vat-listeners v) (local-vow-id a-vow) listener)]
-    [(promise-ref? a-vow) (hash-set! (vat-far-listeners v) (promise-ref-answer a-vow) listener)]
+    [(promise-ref? a-vow)
+     (define answer (promise-ref-answer a-vow))
+     ;; A resolution that already arrived (before this listener) is waiting in the
+     ;; stash — fire now from it; otherwise wait for the inbound resolve-event.
+     (define stashed (hash-ref (vat-far-resolutions v) answer #f))
+     (cond
+       [stashed
+        (hash-remove! (vat-far-resolutions v) answer)
+        (if (fulfill? stashed) (listener (fulfill-value stashed) #f) (listener (brk-message stashed) #t))]
+       [else (hash-set! (vat-far-listeners v) answer listener)])]
     [else (error 'on "not a vow: ~a" a-vow)])
   ;; Match Goblins: `on` is a statement unless the caller asked to chain.
   (if promise? chained (void)))
@@ -1115,20 +1119,37 @@
         (define resolution
           (with-handlers ([(lambda (_) #t) (lambda (e) (brk (exn->message e)))])
             (fulfill (apply $ (actor-ref v actor-id) method rest))))
-        (when answer (peer-send-resolve! (vat-peer v) answer resolution))
+        (when answer
+          ;; A reply that is a capability living on another connection trips the
+          ;; gifter half: the interceptor deposits it with its exporter and
+          ;; answers with a signed give instead of an ordinary cross-connection
+          ;; resolve (ADR-0009). Anything else falls through to the normal resolve.
+          (define interceptor (unbox (vat-resolve-interceptor v)))
+          (unless (and (fulfill? resolution) interceptor
+                       (interceptor answer (fulfill-value resolution)))
+            (peer-send-resolve! (vat-peer v) answer resolution)))
         #t])]))
 
 (define (serve-resolve v event)
   (define answer (resolve-event-answer event))
   (define listener (hash-ref (vat-far-listeners v) answer #f))
   (cond
-    [(not listener) #f]
+    [(not listener)
+     ;; No listener yet: stash the resolution so a later `on` / `conn-await` for
+     ;; this answer still settles. A resolve-event is always for an answer this
+     ;; peer issued, so it belongs to this vat (returns #t).
+     (hash-set! (vat-far-resolutions v) answer (resolve-event-resolution event))
+     #t]
     [else
      (hash-remove! (vat-far-listeners v) answer)
      (define res (resolve-event-resolution event))
-     (if (fulfill? res)
-         (listener (fulfill-value res) #f)
-         (listener (brk-message res) #t))
+     (cond
+       [(fulfill? res) (listener (fulfill-value res) #f)]
+       [(brk? res) (listener (brk-message res) #t)]
+       ;; A handoff reaching the vat means no redeemer intercepted it (the
+       ;; connection redeems transparently before serving); break rather than
+       ;; hand the application an unredeemed give.
+       [else (listener "handoff give arrived at a vat with no redeemer" #t)])
      #t]))
 
 ;; Map a wire reference to a vat target, routing a `near-ref` export this vat
@@ -1152,93 +1173,17 @@
   ;; and mutating the table mid-iteration would lose it.
   (define pending (hash-values (vat-far-listeners v)))
   (hash-clear! (vat-far-listeners v))
+  ;; Stashed resolutions for never-awaited answers die with the connection.
+  (hash-clear! (vat-far-resolutions v))
   (for ([listener (in-list pending)])
     (listener message #t)))
 
-;; ── Blocking TCP endpoints ───────────────────────────────────────────────────
-(provide make-netlayer make-netlayer/in netlayer-release! netlayer-listen netlayer-connect
-         listener-port listener-accept listener-close!
-         endpoint-read-frame endpoint-write-frame! endpoint-close!
-         peer-register-bootstrap-cap!)
-
-(struct netlayer (handle) #:mutable)
-(struct listener (handle) #:mutable)
-(struct endpoint (handle) #:mutable)
-
-(define (host->ptr host)
-  (define bs (string->bytes/utf-8 host))
-  (define buf (malloc (max (bytes-length bs) 1) 'atomic-interior))
-  (memcpy buf bs (bytes-length bs))
-  (values buf (bytes-length bs)))
-
-(define (make-netlayer)
-  (define-values (rc h) (pancake_tcp_netlayer_new))
-  (check rc)
-  (define nl (netlayer h))
-  (register-finalizer nl (lambda (q) (netlayer-release! q)))
-  nl)
-
-(define (make-netlayer/in ctx)
-  (define-values (rc h) (pancake_tcp_netlayer_new_in (context-handle ctx)))
-  (check rc)
-  (define nl (netlayer h))
-  (register-finalizer nl (lambda (q) (netlayer-release! q)))
-  nl)
-
-(define (netlayer-release! nl)
-  (when (netlayer-handle nl)
-    (pancake_tcp_netlayer_release (netlayer-handle nl))
-    (set-netlayer-handle! nl #f)))
-
-(define (netlayer-listen nl host [port 0])
-  (define-values (buf n) (host->ptr host))
-  (define-values (rc h) (pancake_tcp_listen (netlayer-handle nl) buf n port))
-  (check rc)
-  (define lst (listener h))
-  (register-finalizer lst (lambda (q) (listener-close! q)))
-  lst)
-
-(define (netlayer-connect nl host port [codec 'syrup] [max-frame 4096])
-  (define-values (buf n) (host->ptr host))
-  (define-values (rc h) (pancake_tcp_connect (netlayer-handle nl) buf n port (codec-id codec) max-frame))
-  (check rc)
-  (define cn (endpoint h))
-  (register-finalizer cn (lambda (q) (endpoint-close! q)))
-  cn)
-
-(define (listener-port lst)
-  (define-values (rc port) (pancake_tcp_listener_port (listener-handle lst)))
-  (check rc)
-  port)
-
-(define (listener-accept lst [codec 'syrup] [max-frame 4096])
-  (define-values (rc h) (pancake_tcp_accept (listener-handle lst) (codec-id codec) max-frame))
-  (check rc)
-  (define cn (endpoint h))
-  (register-finalizer cn (lambda (q) (endpoint-close! q)))
-  cn)
-
-(define (listener-close! lst)
-  (when (listener-handle lst)
-    (pancake_tcp_listener_release (listener-handle lst))
-    (set-listener-handle! lst #f)))
-
-(define (endpoint-read-frame cn)
-  (define mf (make-PancakeManagedFrame #f 0 0 #f #f))
-  (check (pancake_tcp_conn_read_frame (endpoint-handle cn) mf))
-  (define out (bytes<-c (PancakeManagedFrame-bytes mf) (PancakeManagedFrame-len mf)))
-  (pancake_managed_frame_release mf)
-  out)
-
-(define (endpoint-write-frame! cn frame)
-  (define buf (malloc (max (bytes-length frame) 1) 'atomic-interior))
-  (memcpy buf frame (bytes-length frame))
-  (check (pancake_tcp_conn_write_frame (endpoint-handle cn) (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE))))
-
-(define (endpoint-close! cn)
-  (when (endpoint-handle cn)
-    (pancake_tcp_conn_release (endpoint-handle cn))
-    (set-endpoint-handle! cn #f)))
+;; ── Bootstrap serving ────────────────────────────────────────────────────────
+;; Publishing a capability behind a swiss number is core OCapN, not transport:
+;; the explicit blocking netlayer/listener/endpoint handles for the TCP and
+;; in-process archives live in their own composable modules (`pancake-tcp.rkt`,
+;; `pancake-inproc.rkt`), built on the transport seam this module exports below.
+(provide peer-register-bootstrap-cap!)
 
 (define (peer-register-bootstrap-cap! p swissnum)
   (define buf (malloc (max (bytes-length swissnum) 1) 'atomic-interior))
@@ -1257,16 +1202,39 @@
 ;; is driven from one thread (the peer is a single-owner state machine). This is
 ;; the pump layer `connection` builds on; an application usually holds a
 ;; `connection`.
-;; `in`/`out` are the Racket port pair for the TCP path; `iroh` is an
-;; `iroh-link` (and then `in`/`out` are #f) when the peer rides iroh instead.
-;; The driver below branches on whichever is present, so a peer is carried over
-;; an encrypted iroh QUIC connection exactly as over a port pair.
-(struct async-connection (peer in out [inbox #:mutable] iroh) #:transparent)
+;; The transport an async connection drives: how whole frames move and how the
+;; connection tears down. The core supplies the TCP port transport below; the
+;; `pancake-iroh` companion supplies the iroh one and injects it through
+;; `async-connection/transport`, so the iroh artifact stays out of this core
+;; driver entirely.
+;;   write-frame! : (bytes? -> void)                 write one outbound frame
+;;   flush!       : (-> void)                         flush buffered output
+;;   fill-inbox!  : (-> (or/c bytes? eof-object?))    block for more inbound bytes
+;;   close!       : (-> void)                         release the transport
+(struct async-transport (write-frame! flush! fill-inbox! close!))
+
+;; The pump layer `connection` builds on: a `peer`, the accumulated inbound
+;; `inbox`, and the `transport` carrying its frames. The driver is transport
+;; agnostic — it never branches on TCP vs iroh; the transport closures do.
+(struct async-connection (peer [inbox #:mutable] transport) #:transparent)
+
+;; The TCP port transport: frames concatenate into the byte stream and flush
+;; once; a fill reads whatever is ready (blocking for at least one byte while
+;; yielding to the scheduler); close shuts both ports.
+(define (port-transport in out)
+  (async-transport
+   (lambda (frame) (write-bytes frame out))
+   (lambda () (flush-output out))
+   (lambda ()
+     (define buf (make-bytes 65536))
+     (define n (read-bytes-avail! buf in))
+     (if (eof-object? n) eof (subbytes buf 0 n)))
+   (lambda () (close-output-port out) (close-input-port in))))
 
 ;; Connect to host:port and complete the keyed OCapN handshake.
 (define (async-connect host port)
   (define-values (in out) (tcp-connect host port))
-  (define ac (async-connection (make-peer) in out #"" #f))
+  (define ac (async-connection (make-peer) #"" (port-transport in out)))
   (define-values (local-host local-port _rh _rp) (tcp-addresses in #t))
   (open-keyed-session! ac (format "~a:~a" local-host local-port))
   ac)
@@ -1274,54 +1242,37 @@
 ;; Wrap a peer you have configured (exports/imports/bootstrap caps) and an
 ;; accepted port pair.
 (define (async-connection/ports peer in out)
-  (async-connection peer in out #"" #f))
+  (async-connection peer #"" (port-transport in out)))
 
-;; Wrap a peer and an established iroh link (#f port pair). The driver sources
-;; and sinks whole frames through the iroh FFI instead of byte-stream ports.
-(define (async-connection/iroh peer link)
-  (async-connection peer #f #f #"" link))
+;; Wrap a peer and a transport a netlayer companion built (the iroh path). The
+;; binding-internal seam `pancake-iroh` constructs its connections through.
+(define (async-connection/transport peer transport)
+  (async-connection peer #"" transport))
 
-;; Encode pending outbound work and write every queued frame to the wire. On
-;; iroh each queued frame is one FFI write; on a port the frames concatenate
-;; into the byte stream and flush once.
+;; Encode pending outbound work and write every queued frame to the wire through
+;; the transport, then flush once.
 (define (async-pump-outbound! conn)
   (define p (async-connection-peer conn))
-  (peer-step! p)
-  (define link (async-connection-iroh conn))
-  (cond
-    [link
-     (let loop ()
-       (define frame (peer-take-outbound p))
-       (when frame
-         (iroh-conn-write-frame! (iroh-link-conn link) frame)
-         (loop)))]
-    [else
-     (define out (async-connection-out conn))
-     (let loop ()
-       (define frame (peer-take-outbound p))
-       (when frame
-         (write-bytes frame out)
-         (loop)))
-     (flush-output out)]))
+  ;; Step to idle, not once: settling one answer can cascade (a projection
+  ;; resolves, fires a listener, queues a deliver), and a single step would leave
+  ;; the cascade's frames queued behind the next blocking inbox read. Draining to
+  ;; quiescence here puts the whole batch on the wire in one pump.
+  (peer-step-to-idle! p)
+  (define t (async-connection-transport conn))
+  (let loop ()
+    (define frame (peer-take-outbound p))
+    (when frame
+      ((async-transport-write-frame! t) frame)
+      (loop)))
+  ((async-transport-flush! t)))
 
-;; Pull more inbound bytes onto the inbox: one whole iroh frame, or whatever a
-;; port read makes ready. Returns #t after appending, or `eof` on clean close.
+;; Pull more inbound bytes onto the inbox through the transport. Returns #t after
+;; appending, or `eof` on clean close.
 (define (async-fill-inbox! conn)
-  (define link (async-connection-iroh conn))
+  (define got ((async-transport-fill-inbox! (async-connection-transport conn))))
   (cond
-    [link
-     (define got (iroh-conn-read-bytes (iroh-link-conn link)))
-     (cond
-       [(eof-object? got) eof]
-       [else (set-async-connection-inbox! conn (bytes-append (async-connection-inbox conn) got)) #t])]
-    [else
-     ;; Blocks for at least one byte (yielding to the green-thread scheduler) and
-     ;; returns whatever is ready — it does not wait to fill the whole buffer.
-     (define buf (make-bytes 65536))
-     (define n (read-bytes-avail! buf (async-connection-in conn)))
-     (cond
-       [(eof-object? n) eof]
-       [else (set-async-connection-inbox! conn (bytes-append (async-connection-inbox conn) (subbytes buf 0 n))) #t])]))
+    [(eof-object? got) eof]
+    [else (set-async-connection-inbox! conn (bytes-append (async-connection-inbox conn) got)) #t]))
 
 ;; Flush whatever is already queued on the peer's outbound to the wire. A `<-`
 ;; far-send only enqueues; the bytes leave when something pumps the peer.
@@ -1381,24 +1332,193 @@
 ;; the netlayer's `endpoint-close!`. The Goblins verbs (`spawn`, `$`, `<-`, `on`, `bcom`, `methods`)
 ;; are unchanged — you use them through the connection's vat.
 (provide (struct-out connection)
-         connect listen accept server? server-port server-close!
-         connect-iroh connect-iroh-uri listen-iroh
-         IROH-REACH-DIRECT IROH-REACH-DISCOVERY IROH-REACH-DISCOVERY-NO-RELAY IROH-REACH-LOCAL-DISCOVERY
-         iroh-server? iroh-server-node-id iroh-server-direct-addresses
-         iroh-server-uri iroh-server-accept iroh-server-close!
-         connect-uri parse-locator format-peer-uri (struct-out locator)
+         connect listen accept server? server-port server-close! server-machine
+         machine-publish-giftable
+         tcp-locator parse-locator format-peer-uri (struct-out locator)
          conn-vat conn-async conn-peer conn-spawn conn-publish
-         conn-fetch conn-send conn-serve conn-tell connection-close!)
+         conn-fetch conn-enliven conn-send conn-send-promise conn-await
+         conn-get conn-index conn-untag conn-serve conn-tell connection-close!
+         conn-with-gc!)
 
-(struct connection (async vat))
+;; ── Transport seam ───────────────────────────────────────────────────────────
+;; The binding-internal surface every transport companion builds on, mirroring
+;; the à-la-carte archive split (ADR-0059): `pancake-tcp.rkt`,
+;; `pancake-inproc.rkt`, and `pancake-iroh.rkt` each open only their own archive
+;; and reach the shared core machinery through here. The companions that drive a
+;; live session (iroh) construct an `async-transport` over their own FFI, wrap it
+;; with `async-connection/transport`, complete the keyed handshake through
+;; `open-keyed-session!`, and return a `connection`. The explicit netlayer
+;; companions (tcp, inproc) reuse `check-with` to raise the same typed
+;; `exn:fail:pancake` from their own last-error reader, `codec-id` to spell a
+;; codec symbol, and `context-handle` to thread an allocation context into a
+;; `*-new-in` constructor. The cstruct and managed-frame release bindings are the
+;; shared frame ABI all the archives speak by layout. Not a public API — an
+;; application reaches a transport through its companion module's own surface.
+(provide async-transport async-connection/transport make-peer make-vat make-fresh-machine
+         open-keyed-session! check check-with bytes<-c codec-id context-handle
+         _PancakeFrame _PancakeFrame-pointer make-PancakeFrame
+         _PancakeManagedFrame _PancakeManagedFrame-pointer make-PancakeManagedFrame
+         PancakeManagedFrame-bytes PancakeManagedFrame-len
+         pancake_managed_frame_release)
+
+;; A connection carries its async transport, its vat, and a machine router. The
+;; machine (Goblins `mycapn` analogue, ADR-0009/ADR-0056) retains the session
+;; identity seed and the exporter connections it has dialed, so the connection
+;; can redeem three-party handoff gives transparently in its pump loop and route
+;; redeemed-capability sends to the exporter that hosts them — the application's
+;; `conn-send`/`conn-fetch`/`conn-tell` surface is unchanged.
+(struct connection (async vat machine))
+
+;; Distributed GC (ADR-0063), opt-in and off by default. A connection opted in
+;; with `conn-with-gc!` carries a gc-state in this weak table; absent means GC is
+;; off. The `connection` struct itself stays immutable, so the state lives beside
+;; it keyed by identity. The table is weak so a dropped connection's state is
+;; reclaimed with it.
+(define gc-states (make-weak-hasheq))
+
+;; The per-connection GC state: an async-channel onto which a fetched import's
+;; finalizer (run on Racket's finalizer thread) parks its position. The
+;; connection's own loops drain it on the main thread, where the peer FFI is
+;; safe to touch, and send one `op:gc-export` per parked position.
+(struct gc-state (channel))
+
+;; Opt this connection into distributed GC (ADR-0063), off by default. Once on, a
+;; far capability returned by `conn-fetch` releases its import to the partner — a
+;; single `op:gc-export` delta — when Racket's collector reclaims the last
+;; reference to it, so the partner can release the matching export. Collection is
+;; best-effort on the collector's schedule. Capabilities lifted elsewhere (a
+;; `conn-send` reply, a delivered argument, an `conn-enliven` result the dedup
+;; cache owns) are outside this seam. Returns the connection for chaining.
+(define (conn-with-gc! c)
+  (hash-set! gc-states c (gc-state (make-async-channel)))
+  c)
+
+;; Register a fetched far import for GC when GC is on (ADR-0063). The finalizer
+;; captures only the integer position, never the `far-ref`, so it cannot resurrect
+;; the handle whose death it waits on. The bootstrap import (position 0, refused
+;; in a `gc-export`) and a redeemed-handoff token (a synthetic far id, never a
+;; wire import) are never tracked.
+(define (track-import! c val)
+  (define gs (hash-ref gc-states c #f))
+  (when (and gs (far-ref? val)
+             (not (= (far-ref-id val) 0))
+             (< (far-ref-id val) REDEEMED-TOKEN-BASE))
+    (define id (far-ref-id val))
+    (define ch (gc-state-channel gs))
+    (register-finalizer val (lambda (_) (async-channel-put ch id))))
+  val)
+
+;; Drain the parked GC releases on the main thread: one `op:gc-export` delta per
+;; reclaimed import, then flush. Best-effort — a refused release strands a partner
+;; export reclaimed at teardown, never a fault. Called at the head of the
+;; connection's own loops, so a release queued by a finalizer rides out on the
+;; next thing the connection does.
+(define (drain-gc! c)
+  (define gs (hash-ref gc-states c #f))
+  (when gs
+    (define ch (gc-state-channel gs))
+    (define drained
+      (let loop ([acc '()])
+        (define id (sync/timeout 0 ch))
+        (if id (loop (cons id acc)) acc)))
+    (unless (null? drained)
+      (for ([id (in-list drained)])
+        (with-handlers ([(lambda (_) #t) void])
+          (peer-send-gc-export! (conn-peer c) (list id) (list 1))))
+      (async-flush! (conn-async c)))))
+
+;; Redeemed three-party handoff capabilities live on a dialed exporter
+;; connection, not the connection the give arrived over. A redeemed capability is
+;; handed to the application as an ordinary `far-ref` whose id is drawn from this
+;; reserved high range — above any wire-allocated import position — and the
+;; machine records the route (exporter connection + the real exporter-side
+;; reference) under that id. A later `conn-send`/`conn-tell` to that id is
+;; forwarded to the exporter with the real reference swapped in, so transparency
+;; lives entirely inside the binding and the public `far-ref`/`conn-send` surface
+;; is untouched. The range is disjoint from real session ids, so a redeemed token
+;; can never alias a partner's import.
+(define REDEEMED-TOKEN-BASE (expt 2 60))
+
+;; The machine router's mutable state — pancake's analogue of Goblins' `mycapn`,
+;; one per node. It holds the retained 32-byte identity `seed` (reused for every
+;; connection it opens), the exporter connections keyed by `ocapn://` locator,
+;; the per-exporter-session withdrawal `counts`, the `redeemed` table (token ->
+;; (exporter-connection . real-reference)), and the next token to mint. The
+;; gifter half adds four shared-state fields: a lazily-created shared
+;; `gift-registry` (boxed) bound on every peer of this node so a gift deposited
+;; on one connection and withdrawn on another resolve against one authority; the
+;; live `connections` of this node (so a node-giftable published once appears on
+;; all of them, including connections accepted later); the `giftables` by swiss
+;; name (capabilities this node exports under one identity on every connection);
+;; and `fetched-homes`, an identity table mapping a fetched capability to the
+;; connection it lives on, so a published actor returning a capability whose home
+;; is a different connection trips the transparent gifter.
+(struct machine (seed exporters counts redeemed next-token gift-registry connections giftables fetched-homes))
+
+(define (make-machine seed)
+  (machine seed (make-hash) (make-hash) (make-hash) (box REDEEMED-TOKEN-BASE)
+           (box #f) (make-hasheq) (make-hash) (make-weak-hasheq)))
+
+;; Bind this node's shared gift registry onto `peer` before its handshake, so the
+;; peer's inbound deposit/withdraw resolve against the node-wide table. The
+;; registry is created lazily the first time a peer is bound and outlives every
+;; connection. Binding-internal: every connection path calls it.
+(define (machine-bind-registry! m peer)
+  (define grb (machine-gift-registry m))
+  (unless (unbox grb) (set-box! grb (make-gift-registry)))
+  (peer-set-gift-registry! peer (gift-registry-pointer (unbox grb))))
+
+;; Release the shared gift registry, once every connection that referenced it is
+;; closed. Idempotent; a machine with no exporter activity never allocated one.
+;; Call at node shutdown — the gate leaks it at process exit instead.
+(define (machine-dispose-registry! m)
+  (define grb (machine-gift-registry m))
+  (when (unbox grb) (gift-registry-free! (unbox grb)) (set-box! grb #f)))
+
+;; Track a connection and publish every node-giftable on it. Binding-internal:
+;; `build-connection` calls it as a connection is constructed.
+(define (machine-register! m c)
+  (hash-set! (machine-connections m) c #t)
+  (for ([(name behavior) (in-hash (machine-giftables m))])
+    (publish-giftable-on-conn! c name behavior)))
+
+;; Stop tracking a closed connection. Binding-internal.
+(define (machine-unregister! m c)
+  (hash-remove! (machine-connections m) c))
+
+;; Publish `behavior` under `name` on every connection of this node — those open
+;; now and any accepted later — so a recipient can withdraw a gift naming it on a
+;; connection it dialed itself (the exporter half of a three-party handoff). The
+;; behavior is an ordinary actor behavior `(lambda (method . args) …)`, e.g. one
+;; built with `methods`.
+(define (machine-publish-giftable m name behavior)
+  (hash-set! (machine-giftables m) name behavior)
+  (for ([c (in-hash-keys (machine-connections m))])
+    (publish-giftable-on-conn! c name behavior)))
+
+;; A machine with a fresh random identity seed — the transport seam a companion
+;; (iroh) uses to build a `connection` without reaching for an entropy source of
+;; its own. An iroh recipient redeeming a `tcp` exporter give dials it with this
+;; retained seed, the same shape the core's tcp `connect` retains.
+(define (make-fresh-machine) (make-machine (crypto-random-bytes 32)))
+
+;; The exporter route for a redeemed token, if `target` names one: a pair of the
+;; exporter connection and the real exporter-side reference. #f for any ordinary
+;; capability, so the caller falls through to the normal path.
+(define (machine-route m target)
+  (and (far-ref? target)
+       (>= (far-ref-id target) REDEEMED-TOKEN-BASE)
+       (hash-ref (machine-redeemed m) (far-ref-id target) #f)))
 
 ;; Complete the keyed op:start-session handshake over a negotiating peer: sign a
-;; tcp locator naming `designator` with a per-connection random session key,
-;; flush it, and pump until the partner's start-session opens the session.
-;; Entropy is generated here, at the I/O boundary, never in the sans-io core.
-(define (open-keyed-session! ac designator #:transport [transport "tcp"])
+;; tcp locator naming `designator` with the session key `seed` (a fresh random
+;; key when none is given — entropy at the I/O boundary, never in the sans-io
+;; core; an explicit `seed` reuses a machine's retained identity to dial an
+;; exporter), flush it, and pump until the partner's start-session opens the
+;; session.
+(define (open-keyed-session! ac designator #:transport [transport "tcp"] #:seed [seed (crypto-random-bytes 32)])
   (define p (async-connection-peer ac))
-  (peer-start-session! p (crypto-random-bytes 32) #:designator designator #:transport transport)
+  (peer-start-session! p seed #:designator designator #:transport transport)
   (async-flush! ac)
   (drive-handshake-until-open! ac))
 
@@ -1418,17 +1538,40 @@
            (error 'connect "connection closed during the OCapN handshake")]
           [else (loop)])))))
 
-;; Dial host:port, complete the keyed OCapN handshake, and return a ready
-;; connection with its vat wired. The session is open (the op:start-session
-;; exchange has completed) before this returns — the same handshake a real
-;; Goblins peer requires.
-(define (connect host port)
+;; Wrap a freshly-handshaken async connection and its peer in a `connection`
+;; bound to node machine `m`: build the vat, install the foreign-home resolve
+;; interceptor that originates the gifter half of a three-party handoff, and join
+;; the node so every node-giftable is published on this connection too. The
+;; single place a `connection` is born, so every path shares the machine seam.
+(define (build-connection ac peer m #:time-travel? [time-travel? #f])
+  (define v (make-vat #:peer peer #:time-travel? time-travel?))
+  (define conn (connection ac v m))
+  (set-box! (vat-resolve-interceptor v)
+            (lambda (answer value) (intercept-resolve! conn answer value)))
+  (machine-register! m conn)
+  conn)
+
+;; The TCP dial mechanism behind `connect`: open a socket to host:port, bind the
+;; node's shared gift registry, and complete the keyed op:start-session handshake
+;; keyed with the machine's retained identity (so the session is open before this
+;; returns — the same handshake a real Goblins peer requires). The connection
+;; shares `m`, so a fetched capability and any handoff it triggers share one
+;; identity and connection table. Not provided; a `tcp` locator reaches it
+;; through `connect`.
+(define (dial-tcp host port m)
   (define-values (in out) (tcp-connect host port))
   (define peer (make-peer))
   (define ac (async-connection/ports peer in out))
+  (machine-bind-registry! m peer)
   (define-values (local-host local-port _rh _rp) (tcp-addresses in #t))
-  (open-keyed-session! ac (format "~a:~a" local-host local-port))
-  (connection ac (make-vat #:peer peer)))
+  (open-keyed-session! ac (format "~a:~a" local-host local-port) #:seed (machine-seed m))
+  (build-connection ac peer m))
+
+;; Dial host:port for `connect`. A shared `machine` threads one node identity and
+;; gift registry across several connections (the gifter side of a three-party
+;; handoff); omit it for a standalone connection with a fresh identity.
+(define (connect-tcp host port #:machine [machine #f])
+  (dial-tcp host port (or machine (make-fresh-machine))))
 
 ;; ── Hosting: listen and accept ────────────────────────────────────────────────
 ;; The host side of the same surface. `listen` binds host:port and returns a
@@ -1436,121 +1579,93 @@
 ;; handshake (the exchange is symmetric — both ends send their op:start-session
 ;; first, then read), and returns a ready connection exactly like `connect`.
 ;; Each accepted partner gets its own peer and vat. Pass port 0 for an ephemeral
-;; port and read the bound one back with `server-port`.
-(struct server (listener))
+;; port and read the bound one back with `server-port`. `accept` takes
+;; `#:time-travel?`: pass #t to give the accepted connection's vat a retained,
+;; revisable behavior history (every actor it hosts), off by default. The server
+;; carries one node `machine` (read it with `server-machine`): every accepted
+;; connection shares its identity and gift registry, so a node-giftable published
+;; on it with `machine-publish-giftable` appears on each accepted partner.
+(struct server (listener machine))
 
 (define (listen host [port 0])
-  (server (tcp-listen port 64 #t host)))
+  (server (tcp-listen port 64 #t host) (make-fresh-machine)))
+
+;; The struct's `server-machine` accessor is the node machine shared by every
+;; connection this server accepts — pass it to `connect`'s `#:machine` so a
+;; fetched capability and the recipient connection share one node (the gifter
+;; side of a three-party handoff), and publish a node-giftable on it with
+;; `machine-publish-giftable`.
 
 (define (server-port s)
   (define-values (_host port _rh _rp) (tcp-addresses (server-listener s) #t))
   port)
 
-(define (accept s)
+(define (accept s #:time-travel? [time-travel? #f])
   (define-values (in out) (tcp-accept (server-listener s)))
   (define peer (make-peer))
   (define ac (async-connection/ports peer in out))
+  (define m (server-machine s))
+  (machine-bind-registry! m peer)
+  ;; Construct the connection — which registers the node's giftables as bootstrap
+  ;; caps — *before* driving the handshake to completion, so a dialer's pipelined
+  ;; bootstrap fetch for a giftable is answered the instant the session opens (a
+  ;; recipient redeeming a gift fetches it immediately).
+  (define conn (build-connection ac peer m #:time-travel? time-travel?))
   (define-values (local-host local-port _rh _rp) (tcp-addresses in #t))
-  (open-keyed-session! ac (format "~a:~a" local-host local-port))
-  (connection ac (make-vat #:peer peer)))
+  (open-keyed-session! ac (format "~a:~a" local-host local-port) #:seed (machine-seed m))
+  conn)
 
 ;; Stop accepting new partners. Connections already accepted are unaffected.
 (define (server-close! s) (tcp-close (server-listener s)))
 
-;; ── iroh: the same surface over encrypted QUIC ───────────────────────────────
-;; `connect-iroh`/`listen-iroh` mirror `connect`/`listen` but ride the iroh
-;; sidecar: a peer addresses a partner by endpoint id + direct-address hints (an
-;; `ocapn://<nodeid>.iroh?direct-addresses=…` URI) instead of host:port. They
-;; need the iroh ABI library — `zig build iroh-abi` (cargo). Everything above the
-;; pump (vat, conn-* verbs, events) is identical; only the transport differs.
-
-;; Dial an iroh partner by endpoint id and direct-address hints, complete the
-;; keyed OCapN handshake over the encrypted-QUIC transport, and return a ready
-;; connection — the iroh sibling of `connect`. The local endpoint is ephemeral (a
-;; fresh key) and released with the connection. `reachability` is required — an
-;; IROH-REACH-* posture, no default.
-(define (connect-iroh reachability node-id direct-addresses)
-  (define netlayer (iroh-netlayer-new reachability))
-  (define conn
-    (with-handlers ([(lambda (_) #t)
-                     (lambda (e) (iroh-netlayer-release! netlayer) (raise e))])
-      (iroh-netlayer-connect netlayer node-id direct-addresses)))
-  (define peer (make-peer))
-  (define ac (async-connection/iroh peer (iroh-link conn netlayer)))
-  ;; A dialer signs an empty designator (its identity is the session key),
-  ;; matching the Zig driver; the connection owns the ephemeral netlayer.
-  (open-keyed-session! ac "" #:transport "iroh")
-  (connection ac (make-vat #:peer peer)))
-
-;; Dial a partner from its published `ocapn://` URI, dispatching on the locator's
-;; transport: `iroh` dials the endpoint id with its `direct-addresses` hints,
-;; `tcp` dials the `host:port` designator. The transport-agnostic entry point —
-;; parse once through the core grammar, which picks the netlayer.
-;; `reachability` is required — an IROH-REACH-* posture, no default. It governs
-;; the iroh branch; the tcp branch ignores it.
-(define (connect-uri reachability uri)
+;; Dial a partner from its `ocapn://` locator — the one dialer, dispatching on the
+;; locator's transport: `iroh` dials the endpoint id with its `direct-addresses`
+;; hints, `tcp` dials the `host:port` designator. There is no other dial: a
+;; literal address is a `tcp` locator, built with `tcp-locator`. Parse once
+;; through the core grammar, which picks the netlayer. `reachability` (an
+;; IROH-REACH-* posture) governs the iroh branch and is required only when the
+;; locator's transport is `iroh`; a `tcp` locator ignores it, so a plain TCP dial
+;; needs nothing but the locator. An iroh locator with no posture fails closed
+;; rather than guessing one.
+;; `#:machine` shares one node identity and gift registry across several
+;; connections — the gifter side of a three-party handoff, where the same node
+;; both serves recipients (via `listen`/`accept`) and dials the exporter it
+;; re-gifts from. Omit it for a standalone connection with a fresh identity. Only
+;; the `tcp` branch threads it today; an iroh locator builds its own machine.
+(define (connect uri [reachability #f] #:machine [machine #f])
   (define loc (parse-locator uri))
   (define transport (locator-transport loc))
   (cond
     [(string=? transport "iroh")
-     (connect-iroh reachability (locator-designator loc) (hash-ref (locator-hints loc) "direct-addresses" ""))]
+     (unless reachability
+       (error 'connect "an iroh locator requires a reachability posture: ~a" uri))
+     ;; Load the iroh companion lazily — only an iroh locator pulls in
+     ;; libpancake_net_transport_iroh and its binding; a TCP-only program never touches either.
+     ((dynamic-require iroh-companion-path 'connect-iroh)
+      (locator-designator loc) (hash-ref (locator-hints loc) "direct-addresses" "") reachability)]
     [(string=? transport "tcp")
      (define designator (locator-designator loc))
      (define colon (let loop ([i (- (string-length designator) 1)])
                      (cond [(< i 0) #f]
                            [(char=? (string-ref designator i) #\:) i]
                            [else (loop (- i 1))])))
-     (unless colon (error 'connect-uri "tcp locator designator is not host:port: ~a" designator))
-     (connect (substring designator 0 colon)
-              (string->number (substring designator (+ colon 1))))]
-    [else (error 'connect-uri "unsupported transport \"~a\"" transport)]))
+     (unless colon (error 'connect "tcp locator designator is not host:port: ~a" designator))
+     (connect-tcp (substring designator 0 colon)
+                  (string->number (substring designator (+ colon 1)))
+                  #:machine machine)]
+    [else (error 'connect "unsupported transport \"~a\"" transport)]))
 
-;; Dial an iroh partner from its published `ocapn://<nodeid>.iroh?…` URI — a thin
-;; wrapper over the transport-dispatching `connect-uri`. `reachability` is
-;; required — an IROH-REACH-* posture, no default.
-(define (connect-iroh-uri reachability uri) (connect-uri reachability uri))
-
-;; Bind a fresh ephemeral iroh endpoint and return a server that accepts
-;; partners on it. Read its dialable URI with `iroh-server-uri` and pass that to
-;; a partner's `connect-iroh-uri`. `reachability` is required — an IROH-REACH-*
-;; posture, no default.
-(define (listen-iroh reachability)
-  (define nl (iroh-netlayer-new reachability))
-  (iroh-server nl (iroh-netlayer-node-id nl)))
-
-;; This endpoint's direct-address hints (comma-separated) — the dialable
-;; addresses with no relay, valid on loopback/LAN.
-(define (iroh-server-direct-addresses s) (iroh-netlayer-direct-addresses (iroh-server-netlayer s)))
-
-;; The `ocapn://<nodeid>.iroh?direct-addresses=…` URI a partner dials, rendered
-;; through the core locator grammar.
-(define (iroh-server-uri s)
-  (define addrs (iroh-server-direct-addresses s))
-  (format-peer-uri "iroh" (iroh-server-node-id s)
-                   (if (= 0 (string-length addrs)) (hash) (hash "direct-addresses" addrs))))
-
-;; Block for the next partner, complete the responder handshake (signing the
-;; server's endpoint id as the locator designator), and return a ready
-;; connection exactly like `accept`. The accepted connection borrows the server's
-;; netlayer (which the server owns), so `connection-close!` releases only the
-;; accepted iroh connection, not the endpoint.
-(define (iroh-server-accept s)
-  (define-values (rc conn) (iroh-netlayer-accept (iroh-server-netlayer s)))
-  (check rc)
-  (define peer (make-peer))
-  (define ac (async-connection/iroh peer (iroh-link conn #f)))
-  (open-keyed-session! ac (iroh-server-node-id s) #:transport "iroh")
-  (connection ac (make-vat #:peer peer)))
-
-;; Stop accepting and release the server's endpoint. Accepted connections are
-;; unaffected until their own `connection-close!`.
-(define (iroh-server-close! s)
-  (iroh-netlayer-close! (iroh-server-netlayer s))
-  (iroh-netlayer-release! (iroh-server-netlayer s)))
+;; Build a `tcp` locator from a literal host and port: `ocapn://host:port.tcp`,
+;; rendered through the core grammar. The convenience for the common case — a
+;; caller holding a host and port passes `(connect (tcp-locator host port))`
+;; instead of hand-formatting the URI. `host:port` is not a dial of its own; it
+;; is a locator like any other.
+(define (tcp-locator host port)
+  (format-peer-uri "tcp" (format "~a:~a" host port)))
 
 ;; ── OCapN locator URIs ───────────────────────────────────────────────────────
 ;; The `ocapn://<designator>.<transport>[?hints]` grammar is core OCapN
-;; vocabulary, defined once in libpancake's `pancake_uri_*` / `pancake_locator_*`
+;; vocabulary, defined once in libpancake_ocapn's `pancake_uri_*` / `pancake_locator_*`
 ;; surface, so this binding hand-rolls no percent codec. `parse-locator` copies
 ;; every borrowed view into Racket strings before releasing the handle;
 ;; `format-peer-uri` renders through the same grammar.
@@ -1632,19 +1747,9 @@
 ;; Named `connection-close!` with the full prefix, keeping the
 ;; application-surface close distinct from the netlayer's `endpoint-close!`.
 (define (connection-close! c)
+  (machine-unregister! (connection-machine c) c)
   (define ac (connection-async c))
-  (define link (async-connection-iroh ac))
-  (cond
-    [link
-     (iroh-conn-close! (iroh-link-conn link))
-     ;; A dialer owns its ephemeral endpoint; an accepted link's netlayer belongs
-     ;; to the server, so leave it (the server closes it).
-     (when (iroh-link-netlayer link)
-       (iroh-netlayer-close! (iroh-link-netlayer link))
-       (iroh-netlayer-release! (iroh-link-netlayer link)))]
-    [else
-     (close-output-port (async-connection-out ac))
-     (close-input-port (async-connection-in ac))]))
+  ((async-transport-close! (async-connection-transport ac))))
 
 ;; Spawn a local actor at a fresh export position and return a near capability to
 ;; hand a partner. `(conn-spawn c ^name arg …)` constructs like `spawn`. The
@@ -1664,14 +1769,179 @@
   (publish! (conn-vat c) actor pos)
   (near pos))
 
+;; Publish a node-giftable `behavior` (an actor behavior `(lambda (method . args)
+;; …)`) under `name` on connection `c`. Binding-internal: `machine-register!` and
+;; `machine-publish-giftable` call it so a node-giftable appears as a bootstrap
+;; cap on every connection of the node. The behavior is spawned directly (no
+;; constructor), so a giftable built with `methods` works unchanged.
+(define (publish-giftable-on-conn! c name behavior)
+  (define pos (peer-register-bootstrap-cap! (conn-peer c) (string->bytes/utf-8 name)))
+  (define actor (with-vat (conn-vat c) (spawn (lambda (_bcom) behavior))))
+  (publish! (conn-vat c) actor pos)
+  (void))
+
+;; ── Machine router: transparent three-party handoff redemption ────────────────
+;; A give arriving as a resolution is redeemed by the connection's machine, not
+;; the vat: dial the named exporter keyed with this connection's retained
+;; identity, withdraw the gift, and hand back the live capability under a reserved
+;; token so the application's `conn-send`/`conn-fetch` yields an ordinary
+;; capability. All synchronous, matching the rest of the Racket binding.
+
+;; Dial an exporter named by a give's `ocapn://` locator, bound to node machine
+;; `m` so the redeemed capability and any further handoff it triggers share one
+;; identity and connection table (and the exporter recognizes the recipient the
+;; give names, keyed with the machine's retained seed). TCP today; an iroh
+;; exporter locator is a later lift.
+(define (dial-exporter uri m)
+  (define loc (parse-locator uri))
+  (unless (string=? (locator-transport loc) "tcp")
+    (raise-pancake 'conn-send ERR-INVALID-ARGUMENT
+                   "handoff redeem: unsupported exporter transport \"~a\" in ~a"
+                   (locator-transport loc) uri))
+  (define designator (locator-designator loc))
+  (define colon (let loop ([i (- (string-length designator) 1)])
+                  (cond [(< i 0) #f]
+                        [(char=? (string-ref designator i) #\:) i]
+                        [else (loop (- i 1))])))
+  (unless colon
+    (raise-pancake 'conn-send ERR-INVALID-ARGUMENT "tcp locator designator is not host:port: ~a" designator))
+  (dial-tcp (substring designator 0 colon)
+            (string->number (substring designator (+ colon 1)))
+            m))
+
+;; Withdraw a deposited gift over an exporter connection: sign a
+;; `desc:handoff-receive` over `give` keyed by `seed`, deliver `withdraw-gift`,
+;; and pump the exporter connection until the withdrawn capability's reference
+;; resolves.
+(define (withdraw-gift! c give seed count)
+  (define v (conn-vat c))
+  (define p (conn-peer c))
+  (define answer (peer-next-answer! p))
+  (define result (box 'pending))
+  (with-vat v
+    (on (promise-ref answer)
+        (lambda (val) (set-box! result (cons 'ok val)))
+        #:catch (lambda (m) (set-box! result (cons 'broken m)))))
+  (peer-send-withdraw-gift! p give seed count answer)
+  (async-flush! (conn-async c))
+  (let loop ()
+    (define r (unbox result))
+    (cond
+      [(eq? r 'pending)
+       (define ev (async-next-event (conn-async c)))
+       (when (eof-object? ev) (error 'withdraw-gift "exporter closed before the gift settled"))
+       (vat-serve! v (maybe-redeem! c ev))
+       (loop)]
+      [(eq? (car r) 'broken)
+       (raise-pancake 'conn-send ERR-BROKEN "withdraw-gift broke: ~a" (cdr r))]
+      [else
+       (define val (cdr r))
+       (unless (or (far-ref? val) (near-ref? val))
+         (raise-pancake 'conn-send ERR-UNSUPPORTED-VALUE "withdraw-gift did not resolve to a capability: ~a" val))
+       val])))
+
+;; Redeem one give through the connection's machine: reuse or dial the exporter
+;; keyed with the retained identity, withdraw the gift, enroll the live capability
+;; under a fresh reserved token, and return the `far-ref` the application sees.
+(define (machine-redeem! c a-handoff)
+  (define m (connection-machine c))
+  (define locator (handoff-exporter-locator a-handoff))
+  (when (= 0 (string-length locator))
+    (raise-pancake 'conn-send ERR-INVALID-ARGUMENT "handoff give names no dialable exporter locator"))
+  (define exporter
+    (or (hash-ref (machine-exporters m) locator #f)
+        (let ([conn (dial-exporter locator m)])
+          (hash-set! (machine-exporters m) locator conn)
+          conn)))
+  ;; Goblins requires the handoff-count to rise; the first withdrawal on a fresh
+  ;; exporter session is 0, the next 1, and so on.
+  (define count (hash-ref (machine-counts m) locator 0))
+  (hash-set! (machine-counts m) locator (+ count 1))
+  (define real-ref (withdraw-gift! exporter (handoff-give a-handoff) (machine-seed m) count))
+  (define token (unbox (machine-next-token m)))
+  (set-box! (machine-next-token m) (+ token 1))
+  (hash-set! (machine-redeemed m) token (cons exporter real-ref))
+  (far token))
+
+;; Redeem a handoff resolve-event in place: rewrite it to a `fulfill` carrying the
+;; live capability (or a `brk` on redeem failure). Any other event passes through.
+(define (maybe-redeem! c ev)
+  (if (and (resolve-event? ev) (handoff? (resolve-event-resolution ev)))
+      (let ([answer (resolve-event-answer ev)])
+        (with-handlers ([exn:fail? (lambda (e)
+                                     (resolve-event answer (brk (format "handoff redeem failed: ~a" (exn-message e)))))])
+          (resolve-event answer (fulfill (machine-redeem! c (resolve-event-resolution ev))))))
+      ev))
+
+;; ── Machine router: transparent gifter (introducer) origination ───────────────
+;; The vat's resolve interceptor (installed by `build-connection`). When a
+;; published actor on connection `c` returns a capability whose home is a
+;; *different* connection of this node, resolving `answer` with the bare
+;; cross-connection reference would be meaningless to the partner. Instead claim
+;; the answer (return #t) and originate the gifter half of a three-party handoff;
+;; an ordinary reply falls through (return #f) to the normal resolve.
+(define (intercept-resolve! c answer value)
+  (define home
+    (and (or (far-ref? value) (near-ref? value))
+         (hash-ref (machine-fetched-homes (connection-machine c)) value #f)))
+  (cond
+    [(and home (not (eq? home c)))
+     (originate-handoff! c answer value home)
+     #t]
+    [else #f]))
+
+;; Originate the gifter half of a three-party handoff (ADR-0009): deposit
+;; `gifted` (a capability that lives on the `exporter` connection) back with the
+;; exporter, then resolve the recipient's `answer` with a signed
+;; `desc:handoff-give` the recipient redeems transparently. The crypto inputs
+;; come from this gifter's two sessions — the recipient key from this
+;; (to-recipient) connection `c`, the exporter locator and key from the exporter
+;; connection — signed with the node's one retained identity, which is also what
+;; the exporter saw on the deposit, so the give's signature and the deposit's
+;; provenance match. A failure breaks the recipient's answer.
+(define (originate-handoff! c answer gifted exporter)
+  (with-handlers
+      ([(lambda (_) #t)
+        (lambda (e)
+          (with-handlers ([(lambda (_) #t) void])
+            (peer-send-resolve! (conn-peer c) answer
+                                (brk (format "handoff origination failed: ~a" (exn->message e))))
+            (async-flush! (conn-async c))))])
+    (define gift-id (crypto-random-bytes 32))
+    ;; Deposit on the exporter connection (the gifted reference is one the
+    ;; exporter exported to us, so it re-encodes to its own export there), and put
+    ;; it on the wire before the recipient can dial in to withdraw.
+    (peer-send-deposit-gift! (conn-peer exporter) gift-id gifted)
+    (async-flush! (conn-async exporter))
+    (define recipient-key (peer-partner-session-key (conn-peer c)))
+    (define exporter-locator-raw (peer-partner-locator-raw (conn-peer exporter)))
+    (define exporter-session-key (peer-partner-session-key (conn-peer exporter)))
+    (when (or (= 0 (bytes-length recipient-key))
+              (= 0 (bytes-length exporter-locator-raw))
+              (= 0 (bytes-length exporter-session-key)))
+      (raise-pancake 'conn-serve ERR-INVALID-ARGUMENT
+                     "handoff origination needs open keyed sessions to both the recipient and the exporter"))
+    (define give (build-handoff-give (machine-seed (connection-machine c))
+                                     recipient-key exporter-locator-raw exporter-session-key gift-id))
+    (peer-send-resolve-handoff-give! (conn-peer c) answer give)
+    (async-flush! (conn-async c))))
+
 ;; Eventual-send `verb` to `target` and drive the connection until the reply
 ;; settles, returning the fulfilled value — the request/reply half whose
 ;; fire-and-forget sibling is `conn-tell`. A `near-ref` this connection spawned
 ;; resolves in process; a partner's ref goes out on the wire. A broken reply
 ;; raises a typed `exn:fail:pancake` carrying PANCAKE_ERR_BROKEN, exactly as
 ;; the Python and Rust `send`s fail. Single-threaded: it pumps events itself,
-;; matching the rest of the Racket binding.
+;; matching the rest of the Racket binding. A redeemed-handoff capability is
+;; routed to the exporter connection that hosts it, with the real reference.
 (define (conn-send c target verb . args)
+  (define route (machine-route (connection-machine c) target))
+  (if route
+      (apply conn-send (car route) (cdr route) verb args)
+      (conn-send/here c target verb args)))
+
+(define (conn-send/here c target verb args)
+  (drain-gc! c) ; flush any imports reclaimed since the last connection op
   (define v (conn-vat c))
   ;; Route a self-spawned target to its local actor; a partner's ref stays far.
   ;; A local send queues a turn that `drive` runs in-process (firing the
@@ -1692,12 +1962,88 @@
       [(eq? r 'pending)
        (define ev (async-next-event (conn-async c)))
        (when (eof-object? ev) (error 'conn-send "connection closed before ~a settled" verb))
-       (vat-serve! v ev)
+       ;; A handoff resolution is redeemed transparently before the vat sees it,
+       ;; so the awaiting send settles with the live capability, never the give.
+       (vat-serve! v (maybe-redeem! c ev))
        (loop)]
       ;; A partner break is a typed pancake failure (PANCAKE_ERR_BROKEN), so a
       ;; caller can tell "the partner refused this call" from a local bug —
       ;; matching Python's VowBroken and Rust's ERR_BROKEN.
       [(eq? (car r) 'broken) (raise-pancake 'conn-send ERR-BROKEN "~a broke: ~a" verb (cdr r))]
+      [else (cdr r)])))
+
+;; Eventual-send `verb` to `target` and return its `promise-ref` WITHOUT driving
+;; the connection to a reply — the non-blocking half of `conn-send` and the seam
+;; for promise pipelining (ADR-0007). The returned `promise-ref` is itself a
+;; valid `target` for a later `conn-send`/`conn-send-promise`/`conn-tell`, so a
+;; dependent call rides a `desc:answer` deliver the partner queues until the
+;; answer settles; a `create -> use` chain then costs one round trip. The
+;; deliver is queued now and its bytes leave the wire when the chain is settled
+;; by passing its tail to `conn-send` (which flushes the batch and pumps to the
+;; value) — a chain never settled is fire-and-forget, for which `conn-tell` is
+;; the right call. A `near-ref` this connection spawned resolves in process.
+(define (conn-send-promise c target verb . args)
+  (define v (conn-vat c))
+  (define resolved (vat-resolve-target v target))
+  (define vow (with-vat v (apply <- resolved verb args)))
+  ;; A local target runs its turn now; a far/pipelined target leaves on the
+  ;; settling `conn-send`'s flush, so the whole chain travels as one batch.
+  (when (actor-ref? resolved) (drive v))
+  vow)
+
+;; ── Pipelined projections (ADR-0050) ─────────────────────────────────────────
+;; Project a field, element, or unwrapped tag out of a far vow WITHOUT waiting
+;; for it to settle, returning a new `promise-ref` for the projected value. The
+;; projection rides the wire as `op:get` / `op:index` / `op:untag` against the
+;; receiver's answer (ADR-0052), so it pipelines exactly like a dependent call:
+;; `(conn-untag c vow "row")` then `(conn-index c that 0)` reaches the first
+;; element of an unwrapped tagged record in one batch, before the source resolves.
+;; The returned vow is itself a projection or `conn-send` target, and settles via
+;; `conn-await`. Bytes leave on the next pump (a `conn-await`/`conn-send` flush),
+;; matching `conn-send-promise`.
+(define (conn-get c a-vow field)
+  (project-vow c a-vow (lambda (p recv answer) (peer-send-get! p recv field answer))))
+
+(define (conn-index c a-vow i)
+  (project-vow c a-vow (lambda (p recv answer) (peer-send-index! p recv i answer))))
+
+(define (conn-untag c a-vow tag)
+  (project-vow c a-vow (lambda (p recv answer) (peer-send-untag! p recv tag answer))))
+
+(define (project-vow c a-vow send!)
+  (unless (promise-ref? a-vow)
+    (raise-pancake 'conn-project ERR-INVALID-ARGUMENT
+                   "projection target is not a far vow: ~a" a-vow))
+  (define p (conn-peer c))
+  ;; The projected answer comes from the peer's one outbound-answer allocator, so
+  ;; it can never alias a live question.
+  (define answer (peer-next-answer! p))
+  (send! p a-vow answer)
+  (promise-ref answer))
+
+;; Drive the connection until `a-vow` settles, returning its fulfilled value —
+;; the awaiting half of `conn-send-promise` / `conn-get` / `conn-index` /
+;; `conn-untag`. A broken vow raises a typed `exn:fail:pancake` (PANCAKE_ERR_BROKEN),
+;; as `conn-send` does. A local vow settles in `drive`; a far vow on a wire reply.
+;; Single-threaded: it pumps events itself, like the rest of the binding.
+(define (conn-await c a-vow)
+  (define v (conn-vat c))
+  (define result (box 'pending))
+  (with-vat v
+    (on a-vow
+        (lambda (val) (set-box! result (cons 'ok val)))
+        #:catch (lambda (m) (set-box! result (cons 'broken m)))))
+  (if (local-vow? a-vow) (drive v) (async-flush! (conn-async c)))
+  (let loop ()
+    (define r (unbox result))
+    (cond
+      [(eq? r 'pending)
+       (define ev (async-next-event (conn-async c)))
+       (when (eof-object? ev) (error 'conn-await "connection closed before the vow settled"))
+       (vat-serve! v (maybe-redeem! c ev))
+       (loop)]
+      [(eq? (car r) 'broken)
+       (raise-pancake 'conn-await ERR-BROKEN "vow broke: ~a" (cdr r))]
       [else (cdr r)])))
 
 ;; Fetch a partner's published capability by name, returning the far
@@ -1708,6 +2054,7 @@
 ;; anything but a capability raises a typed unsupported-value failure, the
 ;; same code the Python binding uses for the same shape.
 (define (conn-fetch c name)
+  (drain-gc! c) ; flush any imports reclaimed since the last connection op
   (define v (conn-vat c))
   (define answer (peer-send-bootstrap-fetch! (conn-peer c) (string->bytes/utf-8 name)))
   (define result (box 'pending))
@@ -1722,7 +2069,9 @@
       [(eq? r 'pending)
        (define ev (async-next-event (conn-async c)))
        (when (eof-object? ev) (error 'conn-fetch "connection closed before \"~a\" settled" name))
-       (vat-serve! v ev)
+       ;; A fetch that resolves to a handoff give is redeemed transparently, so
+       ;; `conn-fetch` returns an ordinary capability.
+       (vat-serve! v (maybe-redeem! c ev))
        (loop)]
       [(eq? (car r) 'broken)
        (raise-pancake 'conn-fetch ERR-BROKEN "fetch \"~a\" broke: ~a" name (cdr r))]
@@ -1731,26 +2080,94 @@
        (unless (or (near-ref? val) (far-ref? val) (promise-ref? val))
          (raise-pancake 'conn-fetch ERR-UNSUPPORTED-VALUE
                         "fetch \"~a\" did not resolve to a capability: ~a" name val))
-       val])))
+       ;; Stamp the home: a fetched capability lives on *this* connection. Used on
+       ;; this connection, home is a no-op; returned to another connection (a gift
+       ;; to pass on), the recorded home is what lets the gifter half recognize it
+       ;; as foreign and originate a three-party handoff rather than mis-encode a
+       ;; cross-connection reference (ADR-0009).
+       (when (or (far-ref? val) (near-ref? val))
+         (hash-set! (machine-fetched-homes (connection-machine c)) val c))
+       (track-import! c val)])))
+
+;; Enliven a sturdyref against this connection (ADR-0012): bring the durable
+;; `(peer, swissnum)` to life as a live capability. Parses `sturdyref` for its
+;; swissnum, then fetches it through the dedup cache — a repeat enliven of the
+;; same swissnum on this session short-circuits with no wire traffic. The
+;; connection must already be open to the sturdyref's peer; the sans-io core
+;; tracks no remote locator and never dials. A partner break raises a typed
+;; PANCAKE_ERR_BROKEN; a fulfill that is not a capability raises the typed
+;; unsupported-value failure, matching `conn-fetch` and the other bindings.
+(define (conn-enliven c sturdyref)
+  (define swissnum (string->bytes/utf-8 (locator-swissnum (parse-locator sturdyref #:sturdyref? #t))))
+  (define p (conn-peer c))
+  (define start (peer-prepare-enliven! p swissnum))
+  (cond
+    [(= (PancakeEnlivenStart-status start) ENLIVEN-CACHED)
+     ;; Cache hit: reconstruct the far reference, no wire traffic.
+     (far (PancakeEnlivenStart-import-position start)
+          (= (PancakeEnlivenStart-kind start) REF-PROMISE-KIND))]
+    [else
+     ;; FRESH or IN-FLIGHT: drive the (possibly shared) answer to settlement.
+     (define answer (PancakeEnlivenStart-answer start))
+     (define v (conn-vat c))
+     (define result (box 'pending))
+     (with-vat v
+       (on (promise-ref answer)
+           (lambda (val) (set-box! result (cons 'ok val)))
+           #:catch (lambda (m) (set-box! result (cons 'broken m)))))
+     (async-flush! (conn-async c))
+     (let loop ()
+       (define r (unbox result))
+       (cond
+         [(eq? r 'pending)
+          (define ev (async-next-event (conn-async c)))
+          (when (eof-object? ev)
+            (peer-record-enlivenment! p swissnum ENLIVEN-OUTCOME-BROKEN 0 0)
+            (error 'conn-enliven "connection closed before \"~a\" settled" sturdyref))
+          (vat-serve! v (maybe-redeem! c ev))
+          (loop)]
+         [(eq? (car r) 'broken)
+          (peer-record-enlivenment! p swissnum ENLIVEN-OUTCOME-BROKEN 0 0)
+          (raise-pancake 'conn-enliven ERR-BROKEN "enliven \"~a\" broke: ~a" sturdyref (cdr r))]
+         [else
+          (define val (cdr r))
+          (cond
+            [(far-ref? val)
+             ;; Cache the fulfilled far reference so a repeat enliven short-circuits.
+             (peer-record-enlivenment!
+              p swissnum ENLIVEN-OUTCOME-FULFILLED (far-ref-id val)
+              (if (far-ref-promise val) REF-PROMISE-KIND REF-OBJECT))
+             val]
+            [(near-ref? val) val]
+            [else
+             (peer-record-enlivenment! p swissnum ENLIVEN-OUTCOME-BROKEN 0 0)
+             (raise-pancake 'conn-enliven ERR-UNSUPPORTED-VALUE
+                            "enliven \"~a\" did not resolve to a capability: ~a" sturdyref val)])]))]))
 
 ;; Fire-and-forget eventual-send (Goblins `<-np`): no answer is allocated and no
 ;; reply comes back, so a notification or broadcast costs one deliver. A
 ;; self-spawned target runs its turn in-process (like `conn-send`); a far one
 ;; flushes the deliver to the wire.
 (define (conn-tell c target verb . args)
-  (define v (conn-vat c))
-  (define resolved (vat-resolve-target v target))
-  (with-vat v (apply <-np resolved verb args))
-  (if (actor-ref? resolved)
-      (drive v)
-      (async-flush! (conn-async c))))
+  (define route (machine-route (connection-machine c) target))
+  (cond
+    ;; A redeemed-handoff capability is told on its exporter connection, with the
+    ;; real exporter-side reference — as `conn-send` routes it.
+    [route (apply conn-tell (car route) (cdr route) verb args)]
+    [else
+     (define v (conn-vat c))
+     (define resolved (vat-resolve-target v target))
+     (with-vat v (apply <-np resolved verb args))
+     (if (actor-ref? resolved)
+         (drive v)
+         (async-flush! (conn-async c)))]))
 
 ;; Drive inbound events into the vat until the connection closes: serve each
 ;; event (run published actors, settle far vows). A receive-style app reads from
 ;; whatever its actors enqueue.
 (define (conn-serve c)
   (for ([ev (in-async-events (conn-async c))])
-    (vat-serve! (conn-vat c) ev))
+    (vat-serve! (conn-vat c) (maybe-redeem! c ev)))
   ;; The loop ends only when the connection closes. The wire is gone, so break
   ;; any far vow still awaiting a reply rather than leaving it pending forever —
   ;; the same disconnect guarantee the Deno and Python connections give.

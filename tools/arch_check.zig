@@ -42,6 +42,13 @@ pub const LayerSpec = struct {
     /// True for the sync, no-I/O core: bans `std.Io`, `std.net`,
     /// `std.fs.File`, `std.Thread`, and (one sanctioned exception) `std.atomic`.
     core: bool,
+    /// True (the default) for a normal layer materialized into the build graph
+    /// by `graphFromTable`. False for an out-of-graph artifact that this gate
+    /// still claims (file coverage, edge liveness, and the I/O bans) but that is
+    /// built outside the layer DAG — the iroh C ABI (`c_abi_net_transport_iroh`) links the Rust
+    /// sidecar and imports the injected `iroh` resident, neither expressible as a
+    /// DAG edge, so it is minted by `irohAbiModule`, not here.
+    graph: bool = true,
 };
 
 /// Create the `arch-check` build step over the authoritative layer table.
@@ -181,10 +188,10 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
         // `std.posix` / `std.crypto`, which select the platform underneath; a
         // direct `std.os.linux` / `std.os.windows` reference compiles on one OS
         // and breaks every other build. Only a platform-gated completion
-        // backend may name its own OS — `net_adapter/uring.zig` is imported
+        // backend may name its own OS — `net/completion/uring.zig` is imported
         // behind an `os.tag == .linux` check. A new platform backend allowlists
         // itself here in the same change that gates its import.
-        const platform_gated = std.mem.endsWith(u8, file_path, "net_adapter/uring.zig");
+        const platform_gated = std.mem.endsWith(u8, file_path, "net/completion/uring.zig");
         if (!platform_gated and
             (std.mem.indexOf(u8, contents, "std.os.linux") != null or
                 std.mem.indexOf(u8, contents, "std.os.windows") != null))

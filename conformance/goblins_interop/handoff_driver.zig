@@ -19,7 +19,7 @@ const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const codec = pancake.ocapn.codec;
 const crypto = pancake.foundation.crypto;
-const tcp = pancake.net_adapter.tcp;
+const tcp = pancake.net.tcp;
 
 const host = "127.0.0.1";
 /// Alice's and Bob's listening ports. `--port=N` (from

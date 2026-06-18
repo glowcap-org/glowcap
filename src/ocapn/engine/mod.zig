@@ -41,6 +41,26 @@ pub const EventKind = events.EventKind;
 pub const DecodeError = events.DecodeError;
 pub const Event = events.Event;
 
+/// Verbatim byte span of the `<desc:sig-envelope <desc:handoff-give …> …>` a
+/// recipient relays unaltered to the exporter. Surfaced here so the C ABI
+/// projects a received give without reaching past the engine into the codec.
+pub const spanSignedHandoffGive = codec.syrup.spanSignedHandoffGive;
+
+/// Parse a verbatim `<ocapn-peer …>` Syrup record into a `model.PeerLocator`
+/// with heap-owned hint entries (free with `model.freeHints`). The C ABI redeem
+/// projection uses this to recover an exporter's direct-address dial hints from
+/// a give's exporter-location record, which the allocation-free borrowed reader
+/// drops. Surfaced here so the C ABI reads a locator without reaching past the
+/// engine into the codec.
+pub const readLocatorOwned = codec.syrup.readLocatorOwned;
+
+/// Encode a verbatim `<ocapn-peer …>` Syrup record carrying hint entries, so a
+/// gifter can name an exporter reachable only by a dial hint (an iroh exporter's
+/// direct addresses). The recipient re-parses it with `readLocatorOwned`.
+/// Surfaced here so the C ABI builds a give location without reaching past the
+/// engine into the codec.
+pub const encodePeerLocatorRecord = codec.syrup.encodePeerLocatorRecord;
+
 /// The well-known bootstrap export position every OCapN peer answers `fetch` on,
 /// owned by the session and surfaced here so consumers above the engine name the
 /// one authoritative value rather than re-deriving the magic `0`.
@@ -89,6 +109,19 @@ fn Queue(comptime T: type) type {
             try self.items.append(allocator, value);
         }
 
+        /// Reserve room for one more `push`, so a follow-up `pushAssumeCapacity`
+        /// cannot fail. The pair lets a caller make the *enqueue* infallible after
+        /// a fallible step that has already transferred ownership (a sent resolve
+        /// whose resolution moved into the answer store), keeping record+enqueue
+        /// atomic without an undo path.
+        fn ensureUnusedCapacityForOne(self: *Self, allocator: std.mem.Allocator) !void {
+            try self.items.ensureUnusedCapacity(allocator, 1);
+        }
+
+        fn pushAssumeCapacity(self: *Self, value: T) void {
+            self.items.appendAssumeCapacity(value);
+        }
+
         /// Dequeue the front element, or null when drained — reclaiming the
         /// backing slots (rewind the head, retain capacity) at that point.
         fn pop(self: *Self) ?T {
@@ -120,11 +153,12 @@ fn Queue(comptime T: type) type {
             return self.items.pop();
         }
 
-        /// The front element without dequeuing it, or null when drained. The
-        /// returned value aliases the queued element — read it, do not own it.
-        fn peek(self: *Self) ?T {
+        /// A borrowed pointer to the front element without dequeuing it, or null
+        /// when drained. The pointer aliases the queued element and stays valid
+        /// until the next queue mutation — read through it, do not own it.
+        fn peek(self: *Self) ?*const T {
             if (self.head == self.items.items.len) return null;
-            return self.items.items[self.head];
+            return &self.items.items[self.head];
         }
 
         /// The not-yet-dequeued elements, for type-specific teardown before
@@ -167,6 +201,30 @@ const PendingWithdraw = struct {
     answer: u64,
 };
 
+/// One slot in the outbound queue. Most kinds queue a fully-built `message` the
+/// queue owns until `step` encodes it. A sent `op:resolve` is the exception: its
+/// resolution lives in the answer store (it moved there at record time), so the
+/// queue holds only `settled_answer` — the position of the inbound answer it
+/// settles — and `step` reads the resolution back from the store to encode.
+/// That single store ownership is the point: the resolution is not copied into a
+/// frame here and the store there, and an inbound `op:gc-answers` that drops the
+/// row between record and emit simply leaves nothing to encode (a self-contained
+/// frame copy would dangle on exactly that sequence; this carrier cannot).
+const Outbound = union(enum) {
+    message: model.Message,
+    settled_answer: u64,
+
+    fn deinit(self: Outbound, allocator: std.mem.Allocator) void {
+        switch (self) {
+            // The store owns a settled answer's resolution and frees it at answer
+            // GC or session teardown (`deinitAnswerEntry`); the carrier owns
+            // nothing.
+            .settled_answer => {},
+            .message => |message| freeMessage(allocator, message),
+        }
+    }
+};
+
 /// The caller-owned CapTP engine: one peer per session, no I/O, no hidden
 /// scheduler. The host feeds inbound frames (`recvBorrowed` / `feedInbound`),
 /// advances the peer with `step`, drains `outbound`, and reads surfaced
@@ -176,7 +234,7 @@ pub const Peer = struct {
     allocator: std.mem.Allocator,
     session_state: session.Session,
     inbound: Queue(foundation.Frame),
-    pending_send: Queue(model.Message),
+    pending_send: Queue(Outbound),
     outbound: Queue(foundation.Frame),
     events: Queue(Event),
     /// Resolutions forwarded for handoff-imported promises (ADR-0009) awaiting
@@ -304,8 +362,8 @@ pub const Peer = struct {
         }
         self.inbound.deinit(self.allocator);
 
-        for (self.pending_send.pending()) |*message| {
-            freeMessage(self.allocator, message.*);
+        for (self.pending_send.pending()) |*item| {
+            item.deinit(self.allocator);
         }
         self.pending_send.deinit(self.allocator);
 
@@ -365,13 +423,27 @@ pub const Peer = struct {
     /// decomposed-chain links — kept separate so the chain links bypass the
     /// (already-checked) multi-hop guard, breaking the `send` recursion cycle.
     fn enqueueRecorded(self: *Peer, message: model.Message) !void {
+        // A sent `op:resolve` moves its resolution into the answer store at
+        // record time (`recordSend` consumes it), so the queue carries only the
+        // settled answer position. Reserve the carrier slot *before* recording:
+        // the resolution transfer is then committed by an infallible push, never
+        // by an undo — a record that succeeded but failed to enqueue would settle
+        // the answer with no frame to carry it to the partner.
+        if (message == .resolve) {
+            const answer = message.resolve.answer;
+            try self.pending_send.ensureUnusedCapacityForOne(self.allocator);
+            try self.session_state.recordSend(message);
+            self.pending_send.pushAssumeCapacity(.{ .settled_answer = answer });
+            return;
+        }
+
         var owned_needs_free = true;
         errdefer if (owned_needs_free) freeMessage(self.allocator, message);
 
-        try self.pending_send.push(self.allocator, message);
+        try self.pending_send.push(self.allocator, .{ .message = message });
         owned_needs_free = false;
         var appended = true;
-        errdefer if (appended) freeMessage(self.allocator, self.pending_send.popBack().?);
+        errdefer if (appended) self.pending_send.popBack().?.deinit(self.allocator);
 
         try self.session_state.recordSend(message);
         appended = false;
@@ -566,7 +638,8 @@ pub const Peer = struct {
         // before other work. The empty-list fast path costs one length read.
         try self.settlePendingWithdraws();
 
-        // One inbound frame per step. `pop` transfers ownership into dispatch (on
+        // One unit of work per step: dispatch one inbound frame, else encode one
+        // pending outbound message. `pop` transfers ownership into dispatch (on
         // success the frame moves into the surfaced event, zero copy; on error
         // dispatch frees it) and reclaims the backing once inbound is drained —
         // the consumed frames below the head were moved out, so reclaim never
@@ -578,29 +651,58 @@ pub const Peer = struct {
             return .progress;
         }
 
-        const message = self.pending_send.pop() orelse return .idle;
-        defer freeMessage(self.allocator, message);
+        switch (self.pending_send.pop() orelse return .idle) {
+            .message => |message| {
+                defer freeMessage(self.allocator, message);
+                try self.emitOutboundMessage(message);
+            },
+            .settled_answer => |answer| {
+                // The resolution lives in the answer store (it moved there at
+                // record time). Borrow it to encode and to drive the local
+                // settlement — the store keeps owning it. If an inbound
+                // `op:gc-answers` dropped the row between record and now, the
+                // resolve is moot: the row's pipelined calls, projections, and
+                // listeners were freed with it, so there is nothing to emit or
+                // settle.
+                const stored = self.session_state.peekResolution(answer) orelse return .progress;
+                const resolve: model.Resolve = .{ .answer = answer, .resolution = stored.* };
+                try self.emitOutboundMessage(.{ .resolve = resolve });
+                // A sent `op:resolve` also settles one of our inbound answers locally.
+                try self.settleSentResolve(resolve);
+            },
+        }
+        return .progress;
+    }
 
-        // Goblins V1.0 has no wire `op:resolve`: a semantic `Resolve` ships as an
-        // `op:deliver` to the partner's resolver import (`v1_0`, ADR-0010). The
-        // callback's args borrow `message`, which the `defer` above frees after
-        // encode completes.
-        if (self.session_state.needsV1_0Translation() and message == .resolve) {
-            // If the answer has a resolver import (from the partner's
-            // `resolve_me_desc`), encode as a resolver-callback deliver. If
-            // not (e.g. a promise settled through `op:listen` listeners
-            // only), skip the wire encode — the listener fire below handles
-            // notification.
+    /// Encode one popped pending message onto `outbound`, applying the V1.0
+    /// translations that have no wire form under PreSpec (`v1_0`, ADR-0010):
+    ///   - a semantic `Resolve` ships as a resolver-callback `op:deliver` to the
+    ///     partner's resolver import, or is dropped when only `op:listen`
+    ///     listeners settle the answer (the listener fire in `settleSentResolve`
+    ///     handles notification);
+    ///   - an answered `op:deliver` gains a synthesized resolver export at encode
+    ///     time, committing the resolver link as it does;
+    ///   - a projection trails an `op:listen` that carries its new answer's
+    ///     resolution back, since the projection ops carry no inline resolver
+    ///     (ADR-0050, ADR-0052). The listen must follow the op that opened the
+    ///     answer on the wire, so it is pushed after the encode.
+    /// PreSpec encodes the message as it stands. Borrows `message`; the caller
+    /// owns and frees it.
+    fn emitOutboundMessage(self: *Peer, message: model.Message) !void {
+        const needs_v1_0 = self.session_state.needsV1_0Translation();
+
+        if (needs_v1_0 and message == .resolve) {
             if (self.session_state.resolverForInboundAnswer(message.resolve.answer) != null) {
                 try v1_0.encodeResolveAsCallback(self, message.resolve);
             }
-        } else {
-            // V1.0 augments an answered deliver with a synthesized resolver
-            // export at encode time, committing the resolver link as it does.
-            const wire_message = if (self.session_state.needsV1_0Translation() and message == .deliver)
-                try v1_0.installResolverForOutboundDeliver(self, message.deliver)
-            else
-                message;
+            return;
+        }
+
+        const wire_message = if (needs_v1_0 and message == .deliver)
+            try v1_0.installResolverForOutboundDeliver(self, message.deliver)
+        else
+            message;
+        {
             var frame = try codec.dispatch.encodeMessageForProfile(
                 self.session_state.codec,
                 self.allocator,
@@ -611,30 +713,35 @@ pub const Peer = struct {
             try self.outbound.push(self.allocator, frame);
         }
 
-        // A sent `op:resolve` settles one of our inbound answers; drain the calls
-        // the partner pipelined against it, then fire its listeners (ADR-0007
-        // § Queue ownership and drain — calls first, since a drained call may
-        // settle further answers). The resolution frame is already on `outbound`,
-        // so a drain
-        // refusal surfaces as a step error without un-sending the resolution.
-        if (message == .resolve) {
-            try pipeline.drainPipelinedCalls(self, message.resolve);
-            try pipeline.drainProjections(self, message.resolve);
-            try pipeline.fireListenersOnResolve(self, message.resolve);
-            // Store the resolution so late pipelined calls redirect and late
-            // listeners fire with the correct value. Reference resolutions are
-            // pipelining redirect targets; all resolutions are needed for late
-            // `op:listen` fires.
-            const stored = try model.cloneResolution(self.allocator, message.resolve.resolution);
-            self.session_state.storeResolution(message.resolve.answer, stored) catch |err| {
-                freeResolution(self.allocator, stored);
-                return err;
-            };
-        }
-        return .progress;
+        if (needs_v1_0) switch (message) {
+            .get => |g| try v1_0.installListenerForOutboundProjection(self, g.answer),
+            .index => |i| try v1_0.installListenerForOutboundProjection(self, i.answer),
+            .untag => |u| try v1_0.installListenerForOutboundProjection(self, u.answer),
+            else => {},
+        };
     }
 
-    /// Retry every parked `withdraw-gift` whose gift is now deposited: re-run
+    /// Settle the local consequences of a just-sent `op:resolve`: drain the
+    /// calls the partner pipelined against the answer and the projections
+    /// anchored on it (calls first — a drained call may settle further answers,
+    /// ADR-0007 § Queue ownership and drain), then fire its listeners. The
+    /// resolution itself is already stored — `applySentResolve` stored it when
+    /// this resolve was recorded (`recordSend` routes a sent resolve there), the
+    /// same moment the answer's status flipped — so a
+    /// pipelined call, projection, or `op:listen` that arrived between record and
+    /// this emit already saw the settled answer with its value on hand and was
+    /// served directly; only the calls / projections / listeners that anchored
+    /// while the answer was still pending remain for these drains. The resolution
+    /// frame is already on `outbound`, so a drain refusal surfaces as a step
+    /// error without un-sending it. Borrows `resolve`; the caller owns and frees
+    /// it.
+    fn settleSentResolve(self: *Peer, resolve: model.Resolve) !void {
+        try pipeline.drainPipelinedCalls(self, resolve);
+        try pipeline.drainProjections(self, resolve);
+        try pipeline.fireListenersOnResolve(self, resolve);
+    }
+
+    /// Retry every parked `withdraw-gift` whose gift is already deposited: re-run
     /// the verified withdraw responder and enqueue its answer. An entry whose
     /// gift is still missing stays parked; a settled entry (fulfilled *or*
     /// refused with a typed break) is freed here.
@@ -846,20 +953,26 @@ pub const Peer = struct {
         // ordering (see `classifyInboundDeliver`).
         var tag = eventKindFromBody(decoded_body);
         var resolve_answer: ?u64 = null;
-        var v1_0_resolve: ?model.Resolve = null;
-        defer if (v1_0_resolve) |resolve| freeMessage(self.allocator, .{ .resolve = resolve });
+        var deliver_answer: ?u64 = null;
+        var v1_0_resolve: ?model.view.Resolve = null;
         var bootstrap_action: ?bootstrap.Action = null;
         if (decoded_body == .deliver) {
             switch (try self.classifyInboundDeliver(decoded_body.deliver)) {
-                // Surfaces as a semantic `Resolve` (ADR-0010): the resolution is
-                // materialized owned because `recordRecv` below retains it.
+                // Surfaces as a semantic `Resolve` (ADR-0010). The resolution is
+                // a *borrowed* view over the deliver's args, applied through the
+                // session's resolver-callback seam below — no owned
+                // materialization. `recordResolverCallbackResolve` settles the
+                // outbound answer and installs any `far` the fulfill introduces,
+                // but does not store the resolution itself — the surfaced frame,
+                // kept alive on the event queue, carries the value to the
+                // application. The borrow stays valid because that frame outlives
+                // the apply call.
                 .v1_0_resolve => |answer| {
                     tag = .resolve;
                     resolve_answer = answer;
                     v1_0_resolve = .{
                         .answer = answer,
-                        .resolution = try (try resolutionFromResolverCallback(decoded_body.deliver.args))
-                            .toOwned(self.allocator),
+                        .resolution = try resolutionFromResolverCallback(decoded_body.deliver.args),
                     };
                 },
                 // Queued or redirected against the answer it pipelined on
@@ -871,11 +984,14 @@ pub const Peer = struct {
                 // Answered automatically once authority records the deliver
                 // (ADR-0006 responder half); the action applies below.
                 .bootstrap => |action| bootstrap_action = action,
-                .ordinary => {},
+                // A resolver-only deliver carries the virtual answer the
+                // classifier allocated, so the surfaced deliver can be replied
+                // to; an answered deliver carries null (the frame has the answer).
+                .ordinary => |answer| deliver_answer = answer,
             }
         }
 
-        try self.events.push(self.allocator, .{ .frame = frame, .tag = tag, .resolve_answer = resolve_answer, .codec = self.session_state.codec });
+        try self.events.push(self.allocator, .{ .frame = frame, .tag = tag, .resolve_answer = resolve_answer, .deliver_answer = deliver_answer, .codec = self.session_state.codec });
         stored = true;
         var appended = true;
         errdefer if (appended) {
@@ -884,7 +1000,7 @@ pub const Peer = struct {
         };
 
         if (v1_0_resolve) |resolve| {
-            try self.session_state.recordRecv(.{ .resolve = resolve });
+            try self.session_state.recordResolverCallbackResolve(resolve);
         } else {
             try self.session_state.recordRecvView(decoded_body);
         }
@@ -947,8 +1063,14 @@ pub const Peer = struct {
         /// A bootstrap-protocol deliver (ADR-0006): the caller applies the
         /// action after authority records the deliver.
         bootstrap: bootstrap.Action,
-        /// An ordinary deliver, surfaced to the application as-is.
-        ordinary,
+        /// An ordinary deliver, surfaced to the application. The optional answer
+        /// is the virtual inbound answer the V1.0 classifier allocated for a
+        /// resolver-only deliver (a `resolve_me_desc` with no wire
+        /// answer-position); the surfaced deliver carries it so the
+        /// application's reply routes back through the resolver callback. Null
+        /// for an ordinary deliver whose answer (if any) the frame already
+        /// carries.
+        ordinary: ?u64,
     };
 
     /// Classify an inbound `op:deliver` into the one route it takes. The three
@@ -968,9 +1090,16 @@ pub const Peer = struct {
     ///    for a bootstrap fetch, and a resolver-only fetch has its virtual
     ///    answer installed before the bootstrap action is computed.
     fn classifyInboundDeliver(self: *Peer, deliver: model.view.Deliver) !InboundDeliverClass {
+        // A resolver-only deliver (no wire answer) has a virtual answer
+        // allocated here; carry it to the `.ordinary` surface so a deliver to a
+        // local object can be replied to. A pipelined or bootstrap deliver
+        // consumes the answer through its own path (the queued call's answer,
+        // `answerForResolverImport`), so the override only matters for ordinary.
+        var ordinary_answer: ?u64 = null;
         if (self.session_state.needsV1_0Translation()) {
-            if (try v1_0.interceptInboundDeliver(self, deliver)) |answer| {
-                return .{ .v1_0_resolve = answer };
+            switch (try v1_0.interceptInboundDeliver(self, deliver)) {
+                .settles_answer => |answer| return .{ .v1_0_resolve = answer },
+                .ordinary => |answer| ordinary_answer = answer,
             }
         }
         if (try pipeline.maybeEnqueuePipelinedCall(self, deliver)) {
@@ -979,7 +1108,7 @@ pub const Peer = struct {
         if (try bootstrap.pendingBootstrapAction(deliver, &self.session_state)) |action| {
             return .{ .bootstrap = action };
         }
-        return .ordinary;
+        return .{ .ordinary = ordinary_answer };
     }
 
     /// Take the next surfaced event, or null when none is queued. The caller
@@ -988,13 +1117,15 @@ pub const Peer = struct {
         return self.events.pop();
     }
 
-    /// Borrow the next surfaced event without consuming it, or null when none is
-    /// queued. The returned value aliases the still-queued event's frame — read
-    /// it (e.g. `view()`), do not `deinit` it; a following `pollEvent` consumes
-    /// and owns the real one. Lets a consumer that may reject the event (a typed
-    /// projection that cannot represent an argument) leave it queued for the
-    /// opaque-frame fallback instead of dequeuing it into the void.
-    pub fn peekEvent(self: *Peer) ?Event {
+    /// Borrow a const pointer to the next surfaced event without consuming it, or
+    /// null when none is queued. The pointer aliases the still-queued event's
+    /// frame, so you can read it (`view()`) but cannot `deinit` it — that is the
+    /// queue's to do when a following `pollEvent` consumes and owns the real one.
+    /// The borrow stays valid until the next `pollEvent`. This lets a consumer
+    /// that may reject the event (a typed projection that cannot represent an
+    /// argument) leave it queued for the opaque-frame fallback instead of
+    /// dequeuing it into the void.
+    pub fn peekEvent(self: *Peer) ?*const Event {
         return self.events.peek();
     }
 
@@ -1097,10 +1228,6 @@ pub fn ownedFrameFromView(allocator: std.mem.Allocator, frame: foundation.FrameV
     }
 }
 
-// The owned-message ownership lifecycle lives at the model layer (`model.owned`)
-// so the session's pipelining tables can own and release queued messages without
-// reaching up into the engine. The outbound queue moves through `send`; the
-// one boundary copy (`sendCopying`) goes through `cloneMessage`.
 const cloneMessage = model.cloneMessage;
 const freeMessage = model.freeMessage;
 const freeResolution = model.freeResolution;

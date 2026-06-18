@@ -20,77 +20,113 @@ Run `zig build` from the repository root: run from a subdirectory it drops
 manifest paths wrong.
 
 `zig build check` runs the Zig-hermetic gate: architecture checks, meta
-scaffolding checks, correctness tests, public examples, protocol/Goblins oracle
-checks, the accountability application and its three-party attribution test,
-and benchmark smoke checks. Cross-language C ABI dogfood and the live
-Goblins interop run as sibling steps because they require non-Zig runtimes on
-PATH. Use focused steps while iterating:
+scaffolding checks, Zig formatting (`zig fmt --check`), correctness tests,
+public examples, protocol/Goblins oracle checks, the accountability application
+and its three-party attribution test, and benchmark smoke checks. Cross-language
+C ABI dogfood, the live Goblins interop, and the Rust/TypeScript formatting check
+run as sibling steps because they require non-Zig runtimes on PATH. Indentation
+policy lives in `.editorconfig` (tabs displayed four wide, with space overrides
+for the languages whose formatter or grammar forbids tabs), `rustfmt.toml`, and
+the `deno.json` `fmt` blocks; Python and Racket are governed by `.editorconfig`
+alone. Use focused steps while iterating:
 
 ```sh
 zig build test
 zig build test -Dtest-filter=substring   # only tests whose names match
 zig build arch-check
 zig build meta-check
+zig build fmt                # format Zig sources in place (zig fmt)
+zig build fmt-check          # check Zig formatting (zig fmt --check) — part of check
+zig build bindings-fmt       # format the Rust crates + TypeScript bindings in place (needs cargo + deno)
+zig build bindings-fmt-check # check Rust + TypeScript formatting (needs cargo + deno)
 zig build docs              # generate the Zig API reference (autodoc) under zig-out/docs/
 zig build site              # build the documentation site (Zine + autodoc) under zig-out/site/
 zig build docs-serve        # serve the documentation site locally at http://127.0.0.1:1990/pancake/
 zig build oracle-check
 zig build cross-check        # compile-only: full library for macOS (kqueue) + sans-io core for wasm32 — part of check
-zig build rust-dogfood      # Rust C ABI dogfood against libpancake (needs cargo)
-zig build deno-dogfood      # Deno C ABI dogfood against libpancake (needs deno)
-zig build python-dogfood    # Python C ABI dogfood against libpancake (needs python3)
-zig build racket-dogfood    # Racket C ABI dogfood against libpancake (needs racket)
-zig build bindings          # all four dogfoods together
+zig build rust-dogfood      # Rust C ABI dogfood against the pancake archives (needs cargo)
+zig build deno-dogfood      # Deno C ABI dogfood against the pancake archives (needs deno)
+zig build bun-dogfood       # Bun C ABI dogfood against the pancake archives — same multi-runtime JS binding as Deno (needs bun)
+zig build python-dogfood    # Python C ABI dogfood against the pancake archives (needs python3)
+zig build racket-dogfood    # Racket C ABI dogfood against the pancake archives (needs racket)
+zig build bindings          # all five dogfoods together
+zig build deno-gifter-gate  # pancake-only 3-node three-party handoff: a broker introduces a recipient to an exporter, then the recipient messages it directly (needs deno)
 zig build goblins-interop   # live OCapN conversation vs a real Goblins vat, both directions (needs racket + goblins)
 zig build deno-goblins-interop   # live keyed conversation: Deno binding vs a real Goblins vat over the C ABI (needs deno + racket + goblins)
 zig build python-goblins-interop # live keyed conversation: Python binding vs a real Goblins vat (needs python3 + racket + goblins)
 zig build rust-goblins-interop   # live keyed conversation: Rust binding vs a real Goblins vat (needs cargo + racket + goblins)
 zig build racket-goblins-interop # live keyed conversation: Racket binding vs a real Goblins vat (needs racket + goblins)
 zig build goblins-handoff   # live three-party handoff vs Goblins, pancake as recipient (needs racket + goblins)
+zig build deno-goblins-handoff # live three-party handoff: the Deno binding redeems a give from a real Goblins introducer and calls the exporter (needs deno + racket + goblins)
+zig build python-goblins-handoff # live three-party handoff: the Python binding redeems a give from a real Goblins introducer and calls the exporter (needs python3 + racket + goblins)
+zig build rust-goblins-handoff # live three-party handoff: the Rust binding redeems a give from a real Goblins introducer and calls the exporter (needs cargo + racket + goblins)
+zig build racket-goblins-handoff # live three-party handoff: the Racket binding redeems a give from a real Goblins introducer and calls the exporter (needs racket + goblins)
+zig build deno-goblins-gift # live three-party handoff: the Deno binding mints a give a real Goblins recipient redeems, reaching the exporter (needs deno + racket + goblins)
+zig build python-goblins-gift # live three-party handoff: the Python binding mints a give a real Goblins recipient redeems, reaching the exporter (needs python3 + racket + goblins)
+zig build rust-goblins-gift # live three-party handoff: the Rust binding mints a give a real Goblins recipient redeems, reaching the exporter (needs cargo + racket + goblins)
+zig build racket-goblins-gift # live three-party handoff: the Racket binding mints a give a real Goblins recipient redeems, reaching the exporter (needs racket + goblins)
 zig build iroh-lib          # build the iroh netlayer sidecar staticlib in transports/iroh (needs cargo)
 zig build iroh-interop      # live encrypted OCapN conversation: two pancake peers over real iroh endpoints (needs cargo)
-zig build iroh-abi          # build libpancake_iroh — the iroh transport's public C ABI superset (needs cargo)
+zig build iroh-reachability # opt-in: live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (needs cargo + internet)
+zig build iroh-mesh         # live three-party handoff over iroh: recipient reaches the introduced exporter by node id (needs cargo)
+zig build iroh-loop         # live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)
+zig build bindings-iroh-loop # per-binding iroh scale proof: many connections served from one loop, every binding (needs cargo + the runtimes)
+zig build python-iroh-loop  # live iroh scale: the Python binding serves many connections from one readiness loop (ADR-0057; needs cargo + python3)
+zig build rust-iroh-loop    # live iroh scale: the Rust binding serves many connections from one readiness loop (ADR-0057; needs cargo)
+zig build racket-iroh-loop  # live iroh scale: the Racket binding serves many connections from one readiness loop (ADR-0057; needs cargo + racket)
+zig build iroh-abi          # build libpancake_net_transport_iroh — the iroh transport's public C ABI companion (needs cargo)
 zig build fixture-gen-check # regenerate the Syrup fixture corpus via the upstream Racket Syrup encoder and diff against the committed bytes (needs racket + syrup)
 zig build ocapn-conformance # run the upstream OCapN test suite against a pancake peer (needs uv + the ocapn-conformance submodule)
 zig build demo-rooms             # cross-language rooms chat: Zig/Rust/Python/Racket/Deno in one room (needs deno; joins python3/racket/cargo clients when present)
 zig build demo-rooms-iroh        # the rooms chat over iroh's encrypted QUIC: an iroh-enabled Zig client + cross-language clients through the iroh C ABI (needs cargo + deno)
+zig build demo-rooms-dm          # rooms direct-message-by-introduction over TCP: a room introduces two members who then DM directly, room out of the path (needs deno)
+zig build rooms-client           # run the native Zig rooms chat client (one-shot) against a room you started; pass `-- <locator> <nick> <line> [roster]`
 zig build demo-tasks             # cross-language tasks board: Zig/Rust/Python/Racket/Deno on one board (needs deno; joins python3/racket/cargo clients when present)
 zig build demo-tools        # cross-language capability showcase: delegation/attenuation/revocation for AI agent harnesses (needs deno; joins python3/racket/cargo agents when present)
 zig build accountability             # accountability application on pancake's own runtime over a real loopback TCP socket
 zig build accountability-three-party # three-party accountability attribution across the handoff seam (in-memory, pure Zig)
 zig build demo-accountability        # cross-language accountability demo: Zig host + Deno/Python callers (needs deno)
 zig build examples
-zig build gen-header        # regenerate include/pancake.h from src/c_abi
-zig build gen-header-check  # verify include/pancake.h matches src/c_abi (fails if stale) — part of check
-zig build gen-header-iroh        # regenerate include/pancake_iroh.h from src/c_abi/iroh.zig
-zig build gen-header-iroh-check  # verify include/pancake_iroh.h matches src/c_abi/iroh.zig (fails if stale) — part of check
+zig build gen-header-ocapn          # regenerate include/pancake_ocapn.h from src/c_abi/ocapn
+zig build gen-header-ocapn-check    # verify include/pancake_ocapn.h matches src/c_abi/ocapn (fails if stale) — part of check
+zig build gen-header-net-transport-tcp        # regenerate include/pancake_net_transport_tcp.h from src/c_abi/net_transport/tcp
+zig build gen-header-net-transport-tcp-check  # verify include/pancake_net_transport_tcp.h matches src/c_abi/net_transport/tcp (fails if stale) — part of check
+zig build gen-header-net-transport-inproc        # regenerate include/pancake_net_transport_inproc.h from src/c_abi/net_transport/inproc
+zig build gen-header-net-transport-inproc-check  # verify include/pancake_net_transport_inproc.h matches src/c_abi/net_transport/inproc (fails if stale) — part of check
+zig build gen-header-net-transport-iroh        # regenerate include/pancake_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig
+zig build gen-header-net-transport-iroh-check  # verify include/pancake_net_transport_iroh.h matches src/c_abi/net_transport/iroh/mod.zig (fails if stale) — part of check
 zig build bench-frame-view
 zig build bench-codec
 zig build bench-peer-scaling # measure per-connection memory footprint and extrapolate to 500k connections; writes a report under zig-out/bench-reports/
+zig build bench-snapshot     # measure vat snapshot/restore (S5): O(objects), flat in object size, off by default; writes a report under zig-out/bench-reports/
 zig build bench-goblins      # cross-implementation benchmark: pancake's Racket binding vs Spritely Goblins, one shared app (needs racket + goblins); `-- --smoke`/`--suite=<name>` forwarded, writes a report under zig-out/bench-reports/
+zig build bench-langs        # per-language consumer-cost benchmark: one fixed native Zig host, the client language swapped per row, driven by a native Zig orchestrator (no Racket on the driving path; Racket joins only as the binding and Goblins-reference rows). Zig always; joins deno/python3/cargo/racket+goblins when present; NOT a leaderboard; `-- --smoke`/`--client=<name>` forwarded, writes a report under zig-out/bench-reports/
+zig build bench-iroh         # measure OCapN round-trip latency/throughput over encrypted iroh QUIC vs a same-machine cleartext TCP baseline (needs cargo); `-- --smoke` forwarded
+zig build bench-site-report  # regenerate the performance page's charts and tables from live ReleaseFast runs of every bench + the Goblins comparison, splicing into site/content/performance.smd (needs racket + goblins + cargo)
 ```
 
 `-Dport=N` pins the listening TCP port for the demo and live interop steps
 (default: ephemeral for demos, each step's documented fixed port for interop;
-`goblins-handoff` runs two listeners and takes N and N+1). `-Dattach=true`
-(demo steps only, requires `-Dport`) joins an already-running server on that
-port instead of spawning one; `demo-accountability` rejects it because each
-caller needs a fresh host.
+`goblins-handoff` runs two listeners and takes N and N+1). `-Dattach=true` (demo
+steps only, requires `-Dport`) joins an already-running server on that port
+instead of spawning one; `demo-accountability` rejects it because each caller
+needs a fresh host.
 
 ## Devcontainer
 
 The committed `.devcontainer/` is the canonical ready-to-build environment.
-Versions and paths live in [`.devcontainer/pins.sh`](../../.devcontainer/pins.sh);
-per-arch checksums in [`checksums.sh`](../../.devcontainer/checksums.sh).
-[`check-env-sync.sh`](../../.devcontainer/check-env-sync.sh) keeps `Dockerfile` and
-`devcontainer.json` aligned with `pins.sh`. Install scripts are host orchestration
-only — the project gate remains `zig build check`. After container open:
-`bash .devcontainer/post-create.sh`, then `zig build check`.
-See [`.devcontainer/README.md`](../../.devcontainer/README.md). Serena MCP is
+Versions and paths live in
+[`.devcontainer/pins.sh`](../../.devcontainer/pins.sh); per-arch checksums in
+[`checksums.sh`](../../.devcontainer/checksums.sh).
+[`check-env-sync.sh`](../../.devcontainer/check-env-sync.sh) keeps `Dockerfile`
+and `devcontainer.json` aligned with `pins.sh`. Install scripts are host
+orchestration only — the project gate remains `zig build check`. After container
+open: `bash .devcontainer/post-create.sh`, then `zig build check`. See
+[`.devcontainer/README.md`](../../.devcontainer/README.md). Serena MCP is
 client-started (stdio); see [serena-mcp](serena-mcp.md).
 
-Put first-class project commands in `build.zig`; devcontainer scripts handle image
-build, cache ownership, and toolchain pin checks only.
+Put first-class project commands in `build.zig`; devcontainer scripts handle
+image build, cache ownership, and toolchain pin checks only.
 
 ## Generated State
 
@@ -98,7 +134,8 @@ Generated state is ignored and must not be committed:
 
 - `.zig-cache/`
 - `zig-out/`
-- `zig-pkg/` (Zig's extracted-package dir; appears at `site/zig-pkg/` for the site sub-build)
+- `zig-pkg/` (Zig's extracted-package dir; appears at `site/zig-pkg/` for the
+  site sub-build)
 - `.serena/cache/`
 - `.serena/logs/`
 - `.serena/memories/` unless a maintainer explicitly asks to share a memory

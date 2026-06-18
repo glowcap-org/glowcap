@@ -6,14 +6,17 @@
 .draft = false,
 ---
 
-pancake ships one library and four ways to hold it from another language, one of the
-three consumption [surfaces]($link.page('surfaces')). Each binding loads the installed
-`libpancake` and presents an idiomatic API on top, so
-what you write is Rust, TypeScript, Python, or Racket rather than foreign function
-calls. Every binding earns its keep a second way too. It is a *dogfood*, which means
-it drives a real OCapN round-trip through the C ABI on every build. If the wire shape
-or the ABI ever regresses, an actual foreign-language consumer catches it, not a Zig
-test pretending to be one.
+pancake ships a set of composable C ABI archives and four ways to hold them from
+another language, one of the three consumption [surfaces]($link.page('surfaces')).
+Each binding mirrors that archive set: a standalone core module over
+`libpancake_ocapn`, plus one composable per-transport module that loads or links
+only its own archive. You compose transports à la carte — import or enable the
+core, then add only the transports a program reaches for — exactly as a C
+consumer links archives or a Zig consumer imports modules. Every module presents
+an idiomatic API on top, so what you write is Rust, TypeScript, Python, or Racket
+rather than foreign function calls. Each binding also dogfoods the C ABI on every
+build: a real OCapN round-trip through a foreign-language consumer, so wire-shape
+or ABI regressions surface where they would in production.
 
 [All four bindings wrap the same C ABI. The shared surface is what lets an app read the same way in every language.]($image.siteAsset('diagram-bindings.svg'))
 
@@ -42,7 +45,7 @@ of special APIs.
 | Binding | Idiomatic entry | Async idiom | Actor idiom |
 | --- | --- | --- | --- |
 | [Rust]($link.page('bindings/rust')) | `Peer`, typed enums | tokio (opt-in `async`) | `Vat` over closures |
-| [Deno]($link.page('bindings/deno')) | `Peer` class | native promises | `Vat` over callbacks |
+| [TypeScript]($link.page('bindings/ts')) | `Peer` class | native promises | `Vat` over callbacks |
 | [Python]($link.page('bindings/python')) | `Peer`, native values | `asyncio` | `Vat` over callables |
 | [Racket]($link.page('bindings/racket')) | `peer`, event structs | green threads + ports | Goblins-faithful |
 
@@ -57,21 +60,16 @@ travels over the wire and settles a promise. Racket's layer is the reference sha
 all of this, because it reads the way a
 [Spritely Goblins](https://spritely.institute/goblins/) programmer already expects.
 
-> **Vat** — a single-threaded home for your local objects, the unit Spritely
-> Goblins and the wider ocap world organize around. Each call into a vat runs to
-> completion as one *turn* before the next begins, so an actor never sees a
-> half-finished state. You reason about it like a single thread, whatever
-> language the binding wraps it in.
+> **Vat** — a single-threaded home for local objects. Each call runs as one *turn*
+> before the next begins. The [modules page]($link.page('modules')) draws the full picture.
 
 ## Encryption rides a separate artifact
 
-`libpancake` itself carries cleartext TCP and no TLS. Encrypted transport reaches
-the bindings as [iroh](https://www.iroh.computer/)'s QUIC through a *separate optional
-library*, `libpancake_iroh`, which adds `connect_iroh` and `listen_iroh` alongside the
-TCP
-verbs. Keeping it out of the base library is what keeps the core pure Zig. The only
-difference a consumer sees is addressing: a peer is reached by its self-authenticating
-endpoint id and address hints carried in an `ocapn://` URI, not a `host:port`.
+Cleartext TCP ships in the pure-Zig archives. Encrypted transport is
+[iroh](https://www.iroh.computer/) QUIC through a separate optional library,
+`libpancake_net_transport_iroh`, with per-binding modules that load only for an
+`iroh` locator. See [Transports]($link.page('transports')) for how hosting and
+dialing differ from TCP.
 
 ## Run them
 

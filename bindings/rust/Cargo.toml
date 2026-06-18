@@ -8,15 +8,33 @@ publish = false
 path = "src/lib.rs"
 
 [features]
+# The feature set mirrors pancake's à-la-carte C ABI archives (ADR-0059): the
+# core OCapN peer is always present, and each transport feature links exactly its
+# companion archive and compiles its module (`build.rs` emits one
+# `cargo:rustc-link-lib` per enabled feature). A consumer pays — in linked
+# archive and symbols — only for the transports it turns on.
+default = ["tcp", "inproc"]
+
+# Blocking TCP transport. Links `libpancake_net_transport_tcp` and compiles
+# `pub mod tcp` (the `pancake_tcp_*` netlayer + its own `pancake_tcp_last_error`).
+tcp = []
+# Blocking in-process transport. Links `libpancake_net_transport_inproc` and
+# compiles `pub mod inproc` (the `pancake_inproc_*` netlayer + its own
+# `pancake_inproc_last_error`).
+inproc = []
+
 # Opt-in async I/O over tokio. The base binding stays dependency-free; the sync
 # `Peer` is sans-io and drives from any runtime, so async is purely additive.
 # `getrandom` supplies the per-connection session seed at the I/O boundary (the
-# sans-io core never generates entropy).
+# sans-io core never generates entropy). It adds the tokio-driven `Connection`
+# over native sockets and links no transport archive of its own.
 async = ["dep:tokio", "dep:getrandom"]
-# Opt-in iroh transport. Links the iroh public C ABI superset library
-# (`libpancake_iroh`, built by `zig build iroh-abi`, needs cargo) instead of
-# plain `libpancake`, and adds `Connection::connect_iroh` / `IrohServer` over the
-# encrypted-QUIC sidecar bridge (ADR-0055). Implies `async` (the driver it rides).
+# Opt-in iroh transport. Links the iroh public C ABI companion library
+# (`libpancake_net_transport_iroh`, built by `zig build iroh-abi`, needs cargo) *alongside*
+# the static core archive — it exports only `pancake_iroh_*`, so core symbols still
+# come from `libpancake_ocapn` (ADR-0055). Compiles `pub mod iroh` and adds
+# `Connection::connect_iroh` / `IrohServer` over the encrypted-QUIC sidecar
+# bridge. Implies `async` (the driver it rides).
 iroh = ["async"]
 
 [dependencies]
@@ -29,3 +47,10 @@ getrandom = { version = "0.2", optional = true }
 [[example]]
 name = "goblins_interop"
 required-features = ["async"]
+
+# Live iroh scale proof: many concurrent connections served from one readiness
+# loop (ADR-0057), the Rust sibling of `zig build iroh-loop`. Run via
+# `zig build rust-iroh-loop` (needs cargo + the iroh ABI library).
+[[example]]
+name = "iroh_loop"
+required-features = ["iroh"]

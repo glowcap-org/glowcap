@@ -466,126 +466,170 @@ fn decodeBodyAt(bytes: []const u8, cursor: *usize, limit: usize) Error!model.vie
     try readByte(bytes, cursor, '<');
     const op = try readSymbolLimited(bytes, cursor, limit);
 
-    if (std.mem.eql(u8, op, "op:abort")) {
-        const message = try readStringLimited(bytes, cursor, limit);
-        try readByte(bytes, cursor, '>');
-        const abort = parseAbortWireString(message);
-        return .{ .abort = .{ .kind = abort.kind, .message = abort.message } };
-    }
-
-    if (std.mem.eql(u8, op, "op:deliver")) {
-        const target = try readReference(bytes, cursor, limit);
-        const args_body = try sliceArgumentListNeutral(bytes, cursor, 0, limit);
-        const answer = try readOptionalPositiveInt(bytes, cursor);
-        const resolve_me_desc = try readOptionalReference(bytes, cursor, limit);
-        try readByte(bytes, cursor, '>');
-        return .{ .deliver = .{
-            .target = neutralReference(target),
-            .args = neutralArgs(args_body),
-            .answer = answer,
-            .resolve_me_desc = if (resolve_me_desc) |reference| neutralReference(reference) else null,
-        } };
-    }
-
-    if (std.mem.eql(u8, op, "op:resolve")) {
-        const answer = try readPositiveInt(bytes, cursor);
-        const resolution = try readNeutralResolution(bytes, cursor, limit);
-        try readByte(bytes, cursor, '>');
-        return .{ .resolve = .{ .answer = answer, .resolution = resolution } };
-    }
-
-    if (std.mem.eql(u8, op, "op:gc-exports")) {
-        const positions = try readPositionList(bytes, cursor, limit);
-        const deltas = try readPositionList(bytes, cursor, limit);
-        try readByte(bytes, cursor, '>');
-        return .{ .gc_export = .{
-            .positions = neutralPositions(positions),
-            .deltas = neutralPositions(deltas),
-        } };
-    }
-
-    if (std.mem.eql(u8, op, "op:gc-answers")) {
-        const positions = try readPositionList(bytes, cursor, limit);
-        try readByte(bytes, cursor, '>');
-        return .{ .gc_answer = .{ .positions = neutralPositions(positions) } };
-    }
-
-    if (std.mem.eql(u8, op, "op:get")) {
-        const receiver = try readReference(bytes, cursor, limit);
-        // A String per the spec (and what Goblins sends); see the encoder.
-        const field = try readStringLimited(bytes, cursor, limit);
-        const answer = try readPositiveInt(bytes, cursor);
-        try readByte(bytes, cursor, '>');
-        return .{ .get = .{ .receiver = neutralReference(receiver), .field = field, .answer = answer } };
-    }
-
-    if (std.mem.eql(u8, op, "op:index")) {
-        const receiver = try readReference(bytes, cursor, limit);
-        const index = try readInteger(bytes, cursor);
-        const answer = try readPositiveInt(bytes, cursor);
-        try readByte(bytes, cursor, '>');
-        return .{ .index = .{ .receiver = neutralReference(receiver), .index = index, .answer = answer } };
-    }
-
-    if (std.mem.eql(u8, op, "op:untag")) {
-        const receiver = try readReference(bytes, cursor, limit);
-        // A String per the spec; see the encoder.
-        const tag = try readStringLimited(bytes, cursor, limit);
-        const answer = try readPositiveInt(bytes, cursor);
-        try readByte(bytes, cursor, '>');
-        return .{ .untag = .{ .receiver = neutralReference(receiver), .tag = tag, .answer = answer } };
-    }
-
-    if (std.mem.eql(u8, op, "op:listen")) {
-        const target = try readReference(bytes, cursor, limit);
-        const listener = try readReference(bytes, cursor, limit);
-        const wants_partial = if (cursor.* < bytes.len and bytes[cursor.*] != '>')
-            try readBool(bytes, cursor)
-        else
-            false;
-        try readByte(bytes, cursor, '>');
-        return .{ .listen = .{
-            .target = neutralReference(target),
-            .listener = neutralReference(listener),
-            .wants_partial = wants_partial,
-        } };
-    }
-
-    if (std.mem.eql(u8, op, "op:start-session")) {
-        const version_wire = try readStringLimited(bytes, cursor, limit);
-        const captp_version = model.CaptpVersion.fromWireString(version_wire) orelse return Error.MalformedFrame;
-        const session_pubkey = try readPeerKeyQ(bytes, cursor, limit);
-        // Span the exact `<ocapn-peer …>` location-record bytes around the read so
-        // a verifier checks the signature over what was received, not a re-encode.
-        const location_start = cursor.*;
-        const acceptable_location = try readLocator(bytes, cursor, limit);
-        const location_raw = bytes[location_start..cursor.*];
-        const acceptable_location_sig = try readSignatureViewLimited(bytes, cursor, limit);
-        try readByte(bytes, cursor, '>');
-        return .{ .start_session = .{
-            .captp_version = captp_version,
-            .session_pubkey = session_pubkey,
-            .acceptable_location = .{
-                .transport = acceptable_location.transport,
-                .designator = acceptable_location.designator,
-                .hints = acceptable_location.hints,
-            },
-            .acceptable_location_sig = .{ .halves = .{ .r = acceptable_location_sig.r, .s = acceptable_location_sig.s } },
-            .acceptable_location_raw = location_raw,
-        } };
-    }
-
-    if (std.mem.eql(u8, op, "desc:sig-envelope")) {
-        // The signed-handoff reader re-parses the whole envelope from where
-        // this message began, so its cursor — not the outer one — marks the
-        // message end.
-        var envelope_cursor: usize = message_start;
-        const handoff = try readBorrowedSignedHandoff(bytes, &envelope_cursor, limit);
-        cursor.* = envelope_cursor;
-        return .{ .handoff = handoff };
+    // Dispatch by op symbol over the message-kind tag set. Both the op string
+    // (`shared.messageOp`) and the decoder (`decoderFor`) are exhaustive
+    // switches over `std.meta.Tag(model.Message)`, so a new kind cannot compile
+    // without a wire op *and* a decoder — the silent fall-through that let the
+    // encoder's exhaustive switch drift ahead of the decoder is gone.
+    inline for (std.meta.fields(std.meta.Tag(model.Message))) |field| {
+        const kind: std.meta.Tag(model.Message) = @enumFromInt(field.value);
+        if (std.mem.eql(u8, op, comptime shared.messageOp(kind))) {
+            return decoderFor(kind)(bytes, cursor, limit, message_start);
+        }
     }
 
     return Error.UnsupportedMessage;
+}
+
+/// One decoder reads one message body from just past its op symbol, advancing
+/// `cursor` to the byte after the closing `>`. `message_start` is the offset of
+/// the opening `<`; only the handoff decoder needs it (it re-parses the whole
+/// signed envelope from there), but every decoder takes it so the dispatch
+/// table is one uniform function-pointer type.
+const OpDecoder = *const fn (bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body;
+
+fn decoderFor(comptime kind: std.meta.Tag(model.Message)) OpDecoder {
+    return switch (kind) {
+        .abort => decodeAbortBody,
+        .deliver => decodeDeliverBody,
+        .resolve => decodeResolveBody,
+        .gc_export => decodeGcExportBody,
+        .gc_answer => decodeGcAnswerBody,
+        .get => decodeGetBody,
+        .index => decodeIndexBody,
+        .untag => decodeUntagBody,
+        .listen => decodeListenBody,
+        .start_session => decodeStartSessionBody,
+        .handoff => decodeHandoffBody,
+    };
+}
+
+fn decodeAbortBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = message_start;
+    const message = try readStringLimited(bytes, cursor, limit);
+    try readByte(bytes, cursor, '>');
+    const abort = parseAbortWireString(message);
+    return .{ .abort = .{ .kind = abort.kind, .message = abort.message } };
+}
+
+fn decodeDeliverBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = message_start;
+    const target = try readReference(bytes, cursor, limit);
+    const args_body = try sliceArgumentListNeutral(bytes, cursor, 0, limit);
+    const answer = try readOptionalPositiveInt(bytes, cursor);
+    const resolve_me_desc = try readOptionalReference(bytes, cursor, limit);
+    try readByte(bytes, cursor, '>');
+    return .{ .deliver = .{
+        .target = neutralReference(target),
+        .args = neutralArgs(args_body),
+        .answer = answer,
+        .resolve_me_desc = if (resolve_me_desc) |reference| neutralReference(reference) else null,
+    } };
+}
+
+fn decodeResolveBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = message_start;
+    const answer = try readPositiveInt(bytes, cursor);
+    const resolution = try readNeutralResolution(bytes, cursor, limit);
+    try readByte(bytes, cursor, '>');
+    return .{ .resolve = .{ .answer = answer, .resolution = resolution } };
+}
+
+fn decodeGcExportBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = message_start;
+    const positions = try readPositionList(bytes, cursor, limit);
+    const deltas = try readPositionList(bytes, cursor, limit);
+    try readByte(bytes, cursor, '>');
+    return .{ .gc_export = .{
+        .positions = neutralPositions(positions),
+        .deltas = neutralPositions(deltas),
+    } };
+}
+
+fn decodeGcAnswerBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = message_start;
+    const positions = try readPositionList(bytes, cursor, limit);
+    try readByte(bytes, cursor, '>');
+    return .{ .gc_answer = .{ .positions = neutralPositions(positions) } };
+}
+
+fn decodeGetBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = message_start;
+    const receiver = try readReference(bytes, cursor, limit);
+    // A String per the spec (and what Goblins sends); see the encoder.
+    const field = try readStringLimited(bytes, cursor, limit);
+    const answer = try readPositiveInt(bytes, cursor);
+    try readByte(bytes, cursor, '>');
+    return .{ .get = .{ .receiver = neutralReference(receiver), .field = field, .answer = answer } };
+}
+
+fn decodeIndexBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = message_start;
+    const receiver = try readReference(bytes, cursor, limit);
+    const index = try readInteger(bytes, cursor);
+    const answer = try readPositiveInt(bytes, cursor);
+    try readByte(bytes, cursor, '>');
+    return .{ .index = .{ .receiver = neutralReference(receiver), .index = index, .answer = answer } };
+}
+
+fn decodeUntagBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = message_start;
+    const receiver = try readReference(bytes, cursor, limit);
+    // A String per the spec; see the encoder.
+    const tag = try readStringLimited(bytes, cursor, limit);
+    const answer = try readPositiveInt(bytes, cursor);
+    try readByte(bytes, cursor, '>');
+    return .{ .untag = .{ .receiver = neutralReference(receiver), .tag = tag, .answer = answer } };
+}
+
+fn decodeListenBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = message_start;
+    const target = try readReference(bytes, cursor, limit);
+    const listener = try readReference(bytes, cursor, limit);
+    const wants_partial = if (cursor.* < bytes.len and bytes[cursor.*] != '>')
+        try readBool(bytes, cursor)
+    else
+        false;
+    try readByte(bytes, cursor, '>');
+    return .{ .listen = .{
+        .target = neutralReference(target),
+        .listener = neutralReference(listener),
+        .wants_partial = wants_partial,
+    } };
+}
+
+fn decodeStartSessionBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    _ = message_start;
+    const version_wire = try readStringLimited(bytes, cursor, limit);
+    const captp_version = model.CaptpVersion.fromWireString(version_wire) orelse return Error.MalformedFrame;
+    const session_pubkey = try readPeerKeyQ(bytes, cursor, limit);
+    // Span the exact `<ocapn-peer …>` location-record bytes around the read so
+    // a verifier checks the signature over what was received, not a re-encode.
+    const location_start = cursor.*;
+    const acceptable_location = try readLocator(bytes, cursor, limit);
+    const location_raw = bytes[location_start..cursor.*];
+    const acceptable_location_sig = try readSignatureViewLimited(bytes, cursor, limit);
+    try readByte(bytes, cursor, '>');
+    return .{ .start_session = .{
+        .captp_version = captp_version,
+        .session_pubkey = session_pubkey,
+        .acceptable_location = .{
+            .transport = acceptable_location.transport,
+            .designator = acceptable_location.designator,
+            .hints = acceptable_location.hints,
+        },
+        .acceptable_location_sig = .{ .halves = .{ .r = acceptable_location_sig.r, .s = acceptable_location_sig.s } },
+        .acceptable_location_raw = location_raw,
+    } };
+}
+
+fn decodeHandoffBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
+    // The signed-handoff reader re-parses the whole envelope from where this
+    // message began, so its cursor — not the outer one — marks the message end.
+    var envelope_cursor: usize = message_start;
+    const handoff = try readBorrowedSignedHandoff(bytes, &envelope_cursor, limit);
+    cursor.* = envelope_cursor;
+    return .{ .handoff = handoff };
 }
 
 /// Turn a V1.0 abort wire string back into a typed reason. V1.0 writes aborts
@@ -636,22 +680,19 @@ fn readBorrowedSignedHandoff(bytes: []const u8, cursor: *usize, limit: usize) Er
 
 fn readBorrowedHandoffGivePayload(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.HandoffGive {
     const recipient_key = try readPeerKeyQ(bytes, cursor, limit);
+    // Capture the verbatim `<ocapn-peer …>` span so a consumer can recover hint
+    // entries the borrowed session reader discards. A real Goblins give writes
+    // `#f` hints (no entries); an exporter reachable only by direct address
+    // names them here, and the redeem projection re-parses this span to dial.
+    const locator_start = cursor.*;
     const locator = try readLocator(bytes, cursor, limit);
-    // Accept `#f` hints (`Hints.emptyFalse`) as well as strictly-empty hints:
-    // a real Goblins handoff-give writes the exporter location with `#f` hints,
-    // exactly as it does for an op:start-session location. Hints carrying
-    // entries are refused: the borrowed give flattens its exporter location to
-    // `transport:designator`, which cannot carry entries, and silently dropping
-    // them would change the signed bytes a verifier reproduces.
-    if (locator.hints.entries.len != 0) {
-        return Error.UnsupportedMessage;
-    }
+    const locator_record = bytes[locator_start..cursor.*];
     const gifter_exporter_session = try readBytesLimited(bytes, cursor, limit);
     const gifter_side = try readBytesLimited(bytes, cursor, limit);
     const gift_id = try readBytesLimited(bytes, cursor, limit);
     return .{
         .recipient_key = recipient_key,
-        .exporter_location = .{ .locator = .{ .transport = locator.transport, .designator = locator.designator } },
+        .exporter_location = .{ .locator = .{ .transport = locator.transport, .designator = locator.designator, .record = locator_record } },
         .gifter_exporter_session = gifter_exporter_session,
         .gifter_side = gifter_side,
         .gift_id = gift_id,

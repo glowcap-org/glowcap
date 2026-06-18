@@ -13,7 +13,7 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[4] / "bindings" / "python"))
 
-from pancake import VowBroken, connect  # noqa: E402
+from pancake import VowBroken, connect, tcp_locator  # noqa: E402
 
 TOOLS = "tools"
 GRANT, GRANT_REVOCABLE, REVOKE_LAST = "grant", "grant-revocable", "revoke-last"
@@ -38,7 +38,7 @@ async def main() -> None:
         except VowBroken:
             return True
 
-    conn = await connect(host, port)
+    conn = await connect(tcp_locator(host, port))
     conn.serve()
     tools = await conn.fetch(TOOLS)
 

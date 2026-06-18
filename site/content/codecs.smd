@@ -29,27 +29,100 @@ though the two wire encodings look nothing alike.
 
 ## The two that ship
 
-| Codec | Wire shape | Trade | Reach for it when |
-| --- | --- | --- | --- |
-| Syrup | length-prefixed byte records | compact frames; Goblins-canonical | talking to Goblins, or when per-connection density matters |
-| Cap'n Proto | 8-byte-aligned words | fixed-offset fields, larger frames | two pancake peers, once you have measured the encode/decode trade |
+| Codec | Wire shape | Reach for it when |
+| --- | --- | --- |
+| Syrup | length-prefixed, variable-length byte records | the default — and the only choice that reaches Goblins or any other OCapN peer, or when per-connection density matters |
+| Cap'n Proto | fixed 8-byte-aligned words, every field at a known offset | two pancake peers, after measuring that fixed-offset access pays for the larger frames |
 
 ### Syrup
 
-The Goblins-canonical profile, and the format OCapN requires on the wire. It is
-what pancake speaks by default and what it speaks to any
-[Spritely Goblins](https://spritely.institute/goblins/) peer. Its records are
-variable-length, which keeps frames compact.
+Syrup is the format [OCapN](https://github.com/ocapn/ocapn) settles on, so it is the
+interop floor: CapTP 1.0 over Syrup is what pancake speaks by default and the only thing it
+can speak to a [Spritely Goblins](https://spritely.institute/goblins/) peer or any other
+implementation. Its records are length-prefixed and variable-length, which keeps frames
+compact and lets the decoder double as the stream framer — one parser finds a frame's
+boundary and decodes it in the same pass.
+
+Syrup also carries a second job no other codec takes over: it is the canonical form pancake
+signs. A session's `op:start-session` location signature and every handoff certificate are
+Ed25519 over canonical Syrup bytes, even when the conversation itself is riding Cap'n Proto.
+So Syrup is the security substrate regardless of which codec moves the traffic.
+
+Reading a Syrup value means walking its records in order. The engine's steady-state path
+does exactly that, a single forward pass over a borrowed view, so it never pays to seek. A
+byte record has no fixed offset, so jumping to element *i* of a list re-scans from the
+start. That is the price of compactness, and it is why the hot path iterates rather than
+indexes.
 
 ### Cap'n Proto
 
-A second, hand-rolled codec, selectable on a live session. Its word-aligned frames
-are larger on the wire, with every field at a fixed offset. Both peers settle on it at
-handshake (`pairedWithCodec` in Zig, `pancake_peer_new_negotiated` over the C ABI, and
-the matching idiom in every binding), and from there the whole conversation rides it.
-Whether that shape pays off for your traffic is a measured question, not a claimed one:
-`zig build bench-codec` reports the current encode and decode ns/op and MB/s for both,
-and the [Performance]($link.page('performance')) page is where those numbers live.
+Cap'n Proto is the second codec: a layout of 8-byte words where every field sits at a known
+offset, reached by following struct and list pointers. pancake's is hand-rolled against the
+wire format with no schema compiler in the build, because it is a
+*pancake-to-pancake dialect* — there is no third-party Cap'n Proto reader to satisfy, so a
+generated schema would buy nothing. Both peers settle on it at the handshake
+(`pairedWithCodec` in Zig, `pancake_peer_new_negotiated` over the C ABI, the matching idiom
+in every binding), and the whole conversation rides it from there. It never reaches a
+Goblins peer.
+
+Fixed offsets are the point. Reaching field *i* is arithmetic, not a scan, so random access
+is constant-time and the borrowed decode projection is cheap. That is the edge the
+benchmark's faster Cap'n Proto decode reflects. The cost is size: padding every value to a
+word and spending words on pointers makes frames larger, most visibly for the small messages
+that dominate control traffic. Cap'n Proto can also carry a typed value where Syrup projects
+a string — a typed abort reason, say — a small demonstration that the codec moves bytes while
+the model keeps the meaning.
+
+## The tradeoffs, plainly
+
+Neither codec is "the fast one." They trade along four axes, and only the first is a hard
+constraint.
+
+- **Interop is decisive.** Syrup reaches every OCapN peer; Cap'n Proto reaches only another
+  pancake that negotiated it. If anything on the far side is not pancake, the choice is made
+  for you, and it is Syrup. This is the one axis you cannot measure your way around.
+- **Wire size favors Syrup.** Variable-length records pack a small message into far fewer
+  bytes than word-aligned padding plus pointers. At pancake's high-fan-out target, smaller
+  frames mean less bandwidth and less in-flight memory per connection. The gap is widest for
+  small messages and narrows as a payload's own bytes — a large blob, a long string — come
+  to dominate the padding.
+- **Access pattern favors Cap'n Proto.** Fixed offsets give constant-time random access and
+  a cheap decode projection, where Syrup must scan its records in order. pancake's engine
+  iterates forward on purpose, so the steady-state path does not lean on the difference, but
+  a workload that seeks within large, field-heavy messages is where Cap'n Proto earns its
+  frames back.
+- **Signing is always Syrup.** Whichever codec carries the call, the handshake and handoff
+  signatures are over canonical Syrup. Choosing Cap'n Proto changes the traffic encoding, not
+  the security substrate.
+
+Two things are *not* trades. Both codecs decode view-first — a borrowed projection over the
+frame, with owned materialization only when the session retains a message — so zero-copy is
+not a reason to pick one. And both answer to the same model: a value the model does not admit
+is rejected with a typed error by either, never silently coerced, so switching codecs changes the wire and never the behavior.
+
+## What the benchmark does and does not say
+
+`zig build bench-codec` times one representative call, a method invocation with a small
+mixed-type argument list, and the [Performance]($link.page('performance')) page shows the
+result. On that message Syrup encodes a little faster and into a much smaller frame, and
+Cap'n Proto decodes a little faster; the MB/s figures look lopsided only because Cap'n Proto
+is moving several times as many bytes for the same message. Read per message, the two are
+close.
+
+That closeness is the headline for *typical* CapTP traffic, which is small control
+messages. It is not a verdict that Cap'n Proto is pointless. Its advantage — constant-time
+field access over large, structured, or partially read payloads — is a different message
+shape than the benchmark measures. The takeaway is the inverse of the usual reflex: do not
+reach for Cap'n Proto because it sounds faster, because for the messages OCapN sends most,
+Syrup is smaller and no slower, and it is the only one that talks to anything but pancake.
+
+## Which to reach for
+
+Stay on **Syrup** unless you have a measured reason not to. It is the default, the interop
+floor, and the signing substrate, and for ordinary traffic it is as quick and far more
+compact. Reach for **Cap'n Proto** only on a pancake-to-pancake link whose payloads are large
+or field-heavy enough that constant-time access pays for the bigger frames, and confirm it
+with `zig build bench-codec` on the message shapes you actually send rather than this page's.
 
 ## Bring your own
 

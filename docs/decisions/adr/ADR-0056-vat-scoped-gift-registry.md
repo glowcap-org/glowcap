@@ -17,17 +17,17 @@ Three-party gift authority existed twice. The session carried per-session
 ([ADR-0009](ADR-0009-three-party-handoff-substrate.md) § Session-owned gift
 table), and `engine.bootstrap.GiftRegistry` carried the same tables vat-scoped,
 because a gifter deposits on its own session while the recipient withdraws on a
-*different* session — the per-session table cannot serve the spec's
+_different_ session — the per-session table cannot serve the spec's
 cross-session flow. The engine dispatcher branched between the two at runtime,
 `bootstrap.zig` carried duplicate resolve/verify pairs, and the duplicates had
 drifted: the session rejected a duplicate gift id while the registry replaced
 it. One authority had to win.
 
-Engages the [First Principles](../../../AGENTS.md#first-principles): *session
-state is authoritative* is clarified, not relaxed — the session spine still
+Engages the [First Principles](../../../AGENTS.md#first-principles): _session
+state is authoritative_ is clarified, not relaxed — the session spine still
 validates handoff well-formedness and the generic inbound path still moves no
 withdrawal authority; the registry is vat-scoped authority that only the
-verified callers consult. *Conformance is load-bearing*: the live
+verified callers consult. _Conformance is load-bearing_: the live
 `goblins-interop` / `goblins-handoff` gates and the upstream OCapN suite
 exercise exactly this seam.
 
@@ -35,12 +35,12 @@ exercise exactly this seam.
 
 `engine.bootstrap.GiftRegistry` is the only gift / handoff-count authority.
 Every `Peer` owns a private registry (`Peer.own_gift_registry`, freed in
-`deinit`); a host serving several direct sessions to one vat points its peers
-at one shared registry through `Peer.shared_gift_registry`, and
-`Peer.giftRegistry()` selects whichever applies — the runtime dispatch branch
-is gone. The session's `gifts` / `handoff_counts` tables, `GiftEntry`, and
-every session gift method are deleted; `SessionLimits` keeps the
-`max_deposited_gifts` / `max_seen_handoff_counts` bounds the registry enforces
+`deinit`); a host serving several direct sessions to one vat points its peers at
+one shared registry through `Peer.shared_gift_registry`, and
+`Peer.giftRegistry()` selects whichever applies — the runtime dispatch branch is
+gone. The session's `gifts` / `handoff_counts` tables, `GiftEntry`, and every
+session gift method are deleted; `SessionLimits` keeps the `max_deposited_gifts`
+/ `max_seen_handoff_counts` bounds the registry enforces
 ([ADR-0025](ADR-0025-session-table-cap-policy.md)).
 
 The registry's semantics win where the two had drifted: re-depositing an
@@ -50,9 +50,8 @@ not by refusing a repeat deposit. The registry absorbed the session's
 recipient-match check: a deposit that names a recipient (the cross-peer give
 routing path) is withdrawable only by that recipient, while a bootstrap
 `deposit-gift` names none and the signed give's signature check binds the
-recipient at withdraw time. Rows live on the gpa with precise per-row frees —
-an arena cannot reclaim a replaced row (memory rule § Vat-scoped gift
-registry).
+recipient at withdraw time. Rows live on the gpa with precise per-row frees — an
+arena cannot reclaim a replaced row (memory rule § Vat-scoped gift registry).
 
 A `withdraw-gift` whose gift id names no live deposit — unknown, or already
 consumed and awaiting a re-deposit — is not refused. The deposit travels on a
@@ -66,20 +65,20 @@ deposit lands. The bootstrap responder returns
 deposit never arrives stays parked until teardown; deadlines belong to the
 application, above pancake.
 
-The registry carries no lock. The engine is externally synchronized
-everywhere; the prior spinlock made the registry the one self-locking corner.
-A host that shares one registry across OS threads owns the locking — the
-conformance host (`conformance/ocapn-conformance/pancake_peer.zig`) wraps every
-pump that can dispatch a `deposit-gift` / `withdraw-gift` on a sharing peer in
-one host-owned blocking mutex, and waits for socket readability outside it so
-an idle connection never starves another's dispatch.
+The registry carries no lock. The engine is externally synchronized everywhere;
+the prior spinlock made the registry the one self-locking corner. A host that
+shares one registry across OS threads owns the locking — the conformance host
+(`conformance/ocapn-conformance/pancake_peer.zig`) wraps every pump that can
+dispatch a `deposit-gift` / `withdraw-gift` on a sharing peer in one host-owned
+blocking mutex, and waits for socket readability outside it so an idle
+connection never starves another's dispatch.
 
 ## Scope (what this does not decide)
 
 - The handoff wire shapes, the decoded-field signing contract, and the
   cross-peer routing functions are unchanged
-  ([ADR-0009](ADR-0009-three-party-handoff-substrate.md) stands for all of
-  that; this ADR supersedes only its session-owned gift table).
+  ([ADR-0009](ADR-0009-three-party-handoff-substrate.md) stands for all of that;
+  this ADR supersedes only its session-owned gift table).
 - Signature verification stays an embedder-boundary concern; the registry
   records the gifter key as opaque provenance and runs no crypto.
 
@@ -92,9 +91,9 @@ an idle connection never starves another's dispatch.
   guard is the monotonic handoff count, and a gifter re-authorizing the same
   gift id is a legitimate replace; refusing it adds no security and breaks
   re-authorization.
-- **Keep the registry's internal spinlock.** Rejected: the engine is
-  externally synchronized by contract everywhere else, and a sans-I/O core
-  spinlock is the wrong tool for the one threaded host, which may block.
+- **Keep the registry's internal spinlock.** Rejected: the engine is externally
+  synchronized by contract everywhere else, and a sans-I/O core spinlock is the
+  wrong tool for the one threaded host, which may block.
 
 ## Consequences
 

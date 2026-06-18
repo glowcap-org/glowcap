@@ -1,0 +1,367 @@
+//! Persistent immutable collections — actor-support for vat time-travel.
+//!
+//! A persistent actor (see `actors/vat.zig`, ADR-0060) produces its next state
+//! with `Turn.become` instead of mutating `self`, which is what lets a vat
+//! snapshot share the value with no copy-on-write. If that state is a large map,
+//! rebuilding it every turn would make `become` O(size). `PersistentMap` closes
+//! that: an immutable hash array mapped trie (HAMT) whose updates copy only the
+//! path to the changed leaf and share every untouched subtree by reference, so a
+//! `put` is O(log n) and the prior version — and any snapshot that holds it —
+//! stays valid and untouched (ADR-0061).
+//!
+//! Nodes are reference-counted. The count is non-atomic because the vat is
+//! single-threaded, and an immutable trie is acyclic, so a plain count frees
+//! correctly with no collector — the same reasoning as the vat's `StateBox`.
+//! `put`, `remove`, and `deinit` are the only operations that move a refcount.
+//!
+//! Scope (ADR-0061): one map keyed by `u64`, values stored by value. It is a
+//! sharp leaf module, not a general collections package, and is not exported on
+//! the public `pancake` namespace — consumers import `persistent` directly. The
+//! map does not own its values' resources: a value type that owns heap is the
+//! caller's to free when it drops the last copy.
+
+const std = @import("std");
+
+/// An immutable, structurally-shared map from `u64` to `V`. Construct with
+/// `init`, derive new versions with `put`/`remove` (each returns a new map that
+/// shares structure with the old one), and free each version with `deinit`.
+/// Every version is independently owned: deriving `b` from `a` does not consume
+/// `a`, and both must be `deinit`-ed.
+pub fn PersistentMap(comptime V: type) type {
+    return struct {
+        const Self = @This();
+
+        const Leaf = struct { key: u64, value: V };
+        const Slot = union(enum) {
+            leaf: Leaf,
+            node: *Node,
+        };
+        /// A refcounted trie node: a 64-way branch whose `bitmap` marks which
+        /// chunks are present and whose `children` is the compact array of just
+        /// those slots (`children.len == popCount(bitmap)`).
+        const Node = struct {
+            refs: usize,
+            bitmap: u64,
+            children: []Slot,
+        };
+
+        /// Bits consumed per trie level: 64-way branching.
+        const chunk_bits: u5 = 6;
+
+        allocator: std.mem.Allocator,
+        root: ?*Node,
+        count: usize,
+
+        /// An empty map. Cheap: it allocates nothing until the first `put`.
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return .{ .allocator = allocator, .root = null, .count = 0 };
+        }
+
+        /// Drop this version's reference to the trie, freeing every node a later
+        /// version or snapshot no longer shares.
+        pub fn deinit(self: *Self) void {
+            if (self.root) |root| releaseNode(self.allocator, root);
+            self.* = undefined;
+        }
+
+        /// The number of keys in this version.
+        pub fn len(self: Self) usize {
+            return self.count;
+        }
+
+        /// The value bound to `key`, or null. O(log n), allocation-free, and it
+        /// never mutates a refcount.
+        pub fn get(self: Self, key: u64) ?V {
+            var node = self.root orelse return null;
+            var shift: u32 = 0;
+            while (true) {
+                const chunk = chunkAt(key, shift);
+                const bit = slotBit(chunk);
+                if (node.bitmap & bit == 0) return null;
+                switch (node.children[slotPos(node.bitmap, chunk)]) {
+                    .leaf => |leaf| return if (leaf.key == key) leaf.value else null,
+                    .node => |child| {
+                        node = child;
+                        shift += chunk_bits;
+                    },
+                }
+            }
+        }
+
+        /// Whether `key` is bound.
+        pub fn contains(self: Self, key: u64) bool {
+            return self.get(key) != null;
+        }
+
+        /// A new map with `key` bound to `value`, sharing every untouched subtree
+        /// with `self` (their refcounts rise). Both maps stay valid; both must be
+        /// `deinit`-ed. O(log n) freshly-allocated nodes.
+        pub fn put(self: Self, key: u64, value: V) std.mem.Allocator.Error!Self {
+            const root = self.root orelse {
+                const node = try leafNode(self.allocator, key, value);
+                return .{ .allocator = self.allocator, .root = node, .count = 1 };
+            };
+            const result = try nodePut(self.allocator, root, key, value, 0);
+            return .{
+                .allocator = self.allocator,
+                .root = result.node,
+                .count = self.count + @intFromBool(result.added),
+            };
+        }
+
+        /// A new map without `key`, sharing untouched subtrees with `self`. If
+        /// `key` was absent, the result shares `self`'s root outright (one
+        /// refcount bump, no path copy). Both maps stay valid and must be
+        /// `deinit`-ed.
+        pub fn remove(self: Self, key: u64) std.mem.Allocator.Error!Self {
+            const root = self.root orelse return self;
+            const result = try nodeRemove(self.allocator, root, key, 0);
+            if (!result.removed) {
+                root.refs += 1;
+                return .{ .allocator = self.allocator, .root = root, .count = self.count };
+            }
+            return .{ .allocator = self.allocator, .root = result.node, .count = self.count - 1 };
+        }
+
+        // ── trie internals ────────────────────────────────────────────────
+
+        fn chunkAt(key: u64, shift: u32) u6 {
+            return @intCast((key >> @intCast(shift)) & 0x3f);
+        }
+
+        fn slotBit(chunk: u6) u64 {
+            return @as(u64, 1) << chunk;
+        }
+
+        /// The dense index of `chunk` within a node: how many present chunks sit
+        /// below it.
+        fn slotPos(bitmap: u64, chunk: u6) usize {
+            return @popCount(bitmap & (slotBit(chunk) - 1));
+        }
+
+        fn retainSlot(slot: Slot) void {
+            switch (slot) {
+                .leaf => {},
+                .node => |node| node.refs += 1,
+            }
+        }
+
+        fn releaseNode(allocator: std.mem.Allocator, node: *Node) void {
+            node.refs -= 1;
+            if (node.refs != 0) return;
+            for (node.children) |slot| {
+                switch (slot) {
+                    .leaf => {},
+                    .node => |child| releaseNode(allocator, child),
+                }
+            }
+            allocator.free(node.children);
+            allocator.destroy(node);
+        }
+
+        /// A fresh single-leaf root node (`refs = 1`).
+        fn leafNode(allocator: std.mem.Allocator, key: u64, value: V) std.mem.Allocator.Error!*Node {
+            const children = try allocator.alloc(Slot, 1);
+            children[0] = .{ .leaf = .{ .key = key, .value = value } };
+            const node = allocator.create(Node) catch |err| {
+                allocator.free(children);
+                return err;
+            };
+            node.* = .{ .refs = 1, .bitmap = slotBit(chunkAt(key, 0)), .children = children };
+            return node;
+        }
+
+        /// A fresh node (`refs = 1`) holding two distinct keys at `shift`, pushing
+        /// deeper while their chunks collide. The keys differ within 64 bits, so
+        /// the recursion terminates by `shift == 60`.
+        fn twoLeafNode(
+            allocator: std.mem.Allocator,
+            shift: u32,
+            k1: u64,
+            v1: V,
+            k2: u64,
+            v2: V,
+        ) std.mem.Allocator.Error!*Node {
+            const c1 = chunkAt(k1, shift);
+            const c2 = chunkAt(k2, shift);
+            if (c1 == c2) {
+                const sub = try twoLeafNode(allocator, shift + chunk_bits, k1, v1, k2, v2);
+                errdefer releaseNode(allocator, sub);
+                const children = try allocator.alloc(Slot, 1);
+                children[0] = .{ .node = sub };
+                const node = allocator.create(Node) catch |err| {
+                    allocator.free(children);
+                    return err;
+                };
+                node.* = .{ .refs = 1, .bitmap = slotBit(c1), .children = children };
+                return node;
+            }
+            const children = try allocator.alloc(Slot, 2);
+            errdefer allocator.free(children);
+            if (c1 < c2) {
+                children[0] = .{ .leaf = .{ .key = k1, .value = v1 } };
+                children[1] = .{ .leaf = .{ .key = k2, .value = v2 } };
+            } else {
+                children[0] = .{ .leaf = .{ .key = k2, .value = v2 } };
+                children[1] = .{ .leaf = .{ .key = k1, .value = v1 } };
+            }
+            const node = allocator.create(Node) catch |err| {
+                allocator.free(children);
+                return err;
+            };
+            node.* = .{ .refs = 1, .bitmap = slotBit(c1) | slotBit(c2), .children = children };
+            return node;
+        }
+
+        const PutResult = struct { node: *Node, added: bool };
+
+        /// Path-copy `node` with `key` => `value`: returns a fresh node
+        /// (`refs = 1`) whose untouched children are shared with `node` (their
+        /// refcounts raised). Retains happen only after every allocation
+        /// succeeds, so an out-of-memory mid-build leaves no over-counted box.
+        fn nodePut(
+            allocator: std.mem.Allocator,
+            node: *Node,
+            key: u64,
+            value: V,
+            shift: u32,
+        ) std.mem.Allocator.Error!PutResult {
+            const chunk = chunkAt(key, shift);
+            const bit = slotBit(chunk);
+            const pos = slotPos(node.bitmap, chunk);
+            const old = node.children;
+
+            if (node.bitmap & bit == 0) {
+                // Absent here: insert a leaf, keeping the dense array sorted.
+                const children = try allocator.alloc(Slot, old.len + 1);
+                @memcpy(children[0..pos], old[0..pos]);
+                children[pos] = .{ .leaf = .{ .key = key, .value = value } };
+                @memcpy(children[pos + 1 ..], old[pos..]);
+                const fresh = allocator.create(Node) catch |err| {
+                    allocator.free(children);
+                    return err;
+                };
+                for (old) |slot| retainSlot(slot);
+                fresh.* = .{ .refs = 1, .bitmap = node.bitmap | bit, .children = children };
+                return .{ .node = fresh, .added = true };
+            }
+
+            switch (old[pos]) {
+                .leaf => |leaf| {
+                    if (leaf.key == key) {
+                        // Replace the value in place on a copy.
+                        const children = try allocator.alloc(Slot, old.len);
+                        @memcpy(children, old);
+                        children[pos] = .{ .leaf = .{ .key = key, .value = value } };
+                        const fresh = allocator.create(Node) catch |err| {
+                            allocator.free(children);
+                            return err;
+                        };
+                        for (old) |slot| retainSlot(slot);
+                        fresh.* = .{ .refs = 1, .bitmap = node.bitmap, .children = children };
+                        return .{ .node = fresh, .added = false };
+                    }
+                    // Two distinct keys collide here: push both down a level.
+                    const sub = try twoLeafNode(allocator, shift + chunk_bits, leaf.key, leaf.value, key, value);
+                    errdefer releaseNode(allocator, sub);
+                    const children = try allocator.alloc(Slot, old.len);
+                    @memcpy(children, old);
+                    const node_alloc = allocator.create(Node) catch |err| {
+                        allocator.free(children);
+                        return err;
+                    };
+                    for (old, 0..) |slot, i| {
+                        if (i != pos) retainSlot(slot);
+                    }
+                    children[pos] = .{ .node = sub };
+                    node_alloc.* = .{ .refs = 1, .bitmap = node.bitmap, .children = children };
+                    return .{ .node = node_alloc, .added = true };
+                },
+                .node => |child| {
+                    const sub = try nodePut(allocator, child, key, value, shift + chunk_bits);
+                    errdefer releaseNode(allocator, sub.node);
+                    const children = try allocator.alloc(Slot, old.len);
+                    @memcpy(children, old);
+                    const node_alloc = allocator.create(Node) catch |err| {
+                        allocator.free(children);
+                        return err;
+                    };
+                    // Carry every sibling; the recursed child is replaced by the
+                    // fresh `sub.node`, so the old child keeps its own refcount.
+                    for (old, 0..) |slot, i| {
+                        if (i != pos) retainSlot(slot);
+                    }
+                    children[pos] = .{ .node = sub.node };
+                    node_alloc.* = .{ .refs = 1, .bitmap = node.bitmap, .children = children };
+                    return .{ .node = node_alloc, .added = sub.added };
+                },
+            }
+        }
+
+        const RemoveResult = struct { node: *Node, removed: bool };
+
+        /// Path-copy `node` without `key`. `removed` is false when `key` was
+        /// absent, in which case `node` is returned unchanged (the caller shares
+        /// it). Nodes are not canonicalized on the way down: a branch may shrink to
+        /// a single entry or (at the root) to none. `get`/`len`/`remove` stay
+        /// correct over such a node, and `deinit` frees it; the only cost is a
+        /// little wasted depth, never a leak or a wrong answer.
+        fn nodeRemove(
+            allocator: std.mem.Allocator,
+            node: *Node,
+            key: u64,
+            shift: u32,
+        ) std.mem.Allocator.Error!RemoveResult {
+            const chunk = chunkAt(key, shift);
+            const bit = slotBit(chunk);
+            if (node.bitmap & bit == 0) return .{ .node = node, .removed = false };
+            const pos = slotPos(node.bitmap, chunk);
+            const old = node.children;
+
+            switch (old[pos]) {
+                .leaf => |leaf| {
+                    if (leaf.key != key) return .{ .node = node, .removed = false };
+                    const fresh = try dropSlot(allocator, node, pos, bit);
+                    return .{ .node = fresh, .removed = true };
+                },
+                .node => |child| {
+                    const sub = try nodeRemove(allocator, child, key, shift + chunk_bits);
+                    if (!sub.removed) return .{ .node = node, .removed = false };
+                    // The child still has at least one entry (an empty child would
+                    // have been a single leaf, handled above), so replace it.
+                    errdefer releaseNode(allocator, sub.node);
+                    const children = try allocator.alloc(Slot, old.len);
+                    @memcpy(children, old);
+                    const node_alloc = allocator.create(Node) catch |err| {
+                        allocator.free(children);
+                        return err;
+                    };
+                    for (old, 0..) |slot, i| {
+                        if (i != pos) retainSlot(slot);
+                    }
+                    children[pos] = .{ .node = sub.node };
+                    node_alloc.* = .{ .refs = 1, .bitmap = node.bitmap, .children = children };
+                    return .{ .node = node_alloc, .removed = true };
+                },
+            }
+        }
+
+        /// A fresh copy of `node` with the slot at `pos` (chunk `bit`) dropped,
+        /// sharing the surviving children. `node` always keeps at least one other
+        /// slot here: a node with a single leaf is only ever reached as a `leaf`
+        /// case one level up, never as a standalone node to shrink to empty.
+        fn dropSlot(allocator: std.mem.Allocator, node: *Node, pos: usize, bit: u64) std.mem.Allocator.Error!*Node {
+            const old = node.children;
+            const children = try allocator.alloc(Slot, old.len - 1);
+            @memcpy(children[0..pos], old[0..pos]);
+            @memcpy(children[pos..], old[pos + 1 ..]);
+            const fresh = allocator.create(Node) catch |err| {
+                allocator.free(children);
+                return err;
+            };
+            for (children) |slot| retainSlot(slot);
+            fresh.* = .{ .refs = 1, .bitmap = node.bitmap & ~bit, .children = children };
+            return fresh;
+        }
+    };
+}

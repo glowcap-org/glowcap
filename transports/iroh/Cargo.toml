@@ -16,7 +16,7 @@ publish = false
 [lib]
 # The staticlib is named `pancake_iroh_sidecar` so it emits
 # `libpancake_iroh_sidecar.a`: the private byte-level seam, distinct from the
-# public frame-level artifact `libpancake_iroh` that the `iroh-abi` build step
+# public frame-level artifact `libpancake_net_transport_iroh` that the `iroh-abi` build step
 # produces (ADR-0055).
 name = "pancake_iroh_sidecar"
 crate-type = ["staticlib"]

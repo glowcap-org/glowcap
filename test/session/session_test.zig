@@ -591,6 +591,29 @@ test "re-sending an export retains its wire-delta so a matching gc-exports does 
     try std.testing.expect(s.hasExport(7));
 }
 
+test "sending a projection op naming a near receiver retains its wire-delta" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerExport(7);
+    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(7));
+
+    // `op:get` / `op:index` / `op:untag` each put export 7 on the wire as the
+    // projection receiver, exactly like a deliver target. Each crossing must
+    // retain the wire-delta, or the partner's later release underflows.
+    try s.recordSend(.{ .get = .{ .receiver = .{ .near = .{ .export_position = 7 } }, .field = "x", .answer = 1 } });
+    try s.recordSend(.{ .index = .{ .receiver = .{ .near = .{ .export_position = 7 } }, .index = 0, .answer = 2 } });
+    try s.recordSend(.{ .untag = .{ .receiver = .{ .near = .{ .export_position = 7 } }, .tag = "t", .answer = 3 } });
+    // Local baseline (1) plus the three wire references the partner now holds.
+    try std.testing.expectEqual(@as(u64, 4), s.exportRefcount(7));
+
+    // The partner that received export 7 three times releases with delta 3; it
+    // must decrement cleanly down to the local baseline, never underflow.
+    try s.recordRecv(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{3} } });
+    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(7));
+    try std.testing.expect(s.hasExport(7));
+}
+
 // Gift and handoff-count authority lives in the vat-scoped
 // `engine.bootstrap.GiftRegistry`; its authority tests live in
 // `test/engine/gift_registry_test.zig`. The session keeps only handoff
@@ -1186,11 +1209,15 @@ test "a second outbound resolve for a settled inbound answer is refused" {
     } });
     // An answer resolves exactly once on the send side too, symmetric with the
     // inbound double-resolve rejection: a second resolve would put our own
-    // protocol violation on the wire.
+    // protocol violation on the wire. `recordSend` consumes a resolve's
+    // resolution (it transfers into the answer store on success, is freed on
+    // refusal), so the break reason is heap-owned here exactly as the engine
+    // hands it — the refusal frees it, no leak.
+    const again = try allocator.dupe(u8, "again");
     try std.testing.expectError(session.Error.UnexpectedMessage, s.recordSend(.{
         .resolve = .{
             .answer = 11,
-            .resolution = .{ .@"break" = .{ .message = "again" } },
+            .resolution = .{ .@"break" = .{ .message = again } },
         },
     }));
     // An unknown answer stays the reference error it always was.

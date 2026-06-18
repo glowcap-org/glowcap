@@ -14,6 +14,7 @@
 //! outbound queue and reading its events while the application drives the socket.
 
 const vat = @import("vat.zig");
+const ocap_mod = @import("ocap.zig");
 
 pub const Vat = vat.Vat;
 pub const Turn = vat.Turn;
@@ -23,3 +24,10 @@ pub const Message = vat.Message;
 pub const Resolution = vat.Resolution;
 pub const Listener = vat.Listener;
 pub const Error = vat.Error;
+
+/// Object-capability membrane patterns — a revocable caretaker and a verb
+/// allow-list attenuator — forwarding proxies over any local or far reference.
+pub const ocap = ocap_mod;
+pub const Caretaker = ocap_mod.Caretaker;
+pub const caretaker = ocap_mod.caretaker;
+pub const attenuate = ocap_mod.attenuate;

@@ -51,7 +51,17 @@ pub const PeerLocator = struct {
 /// A handoff's exporter location, in whichever shape its codec carried it.
 pub const ExporterLocation = union(enum) {
     raw: []const u8,
-    locator: struct { transport: []const u8, designator: []const u8 },
+    locator: struct {
+        transport: []const u8,
+        designator: []const u8,
+        /// The verbatim `<ocapn-peer …>` record this locator parsed from, when
+        /// the codec carried one (the Syrup path; empty for capnp's opaque
+        /// bytes). A consumer that needs hint entries the borrowed session
+        /// reader discards — an exporter's direct-address dial hints, say —
+        /// re-parses this span with an allocator. The flattened
+        /// `transport:designator` form above cannot carry hints.
+        record: []const u8 = &.{},
+    },
 
     pub fn toOwned(self: ExporterLocation, allocator: std.mem.Allocator) Error![]u8 {
         return switch (self) {

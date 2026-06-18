@@ -1,13 +1,13 @@
 # tools — least authority for AI agent harnesses, in code
 
-This is the capability showcase: the concrete answer to "what is pancake actually
-good for beyond chat?" A coordinator holds tools; an agent connects and is handed
-exactly the authority a task needs — attenuated to read-only where appropriate,
-revocable when the task is done. The agent can call what it was given and nothing
-else, because there is no ambient authority to escalate to.
+This is the capability showcase: the concrete answer to "what is pancake
+actually good for beyond chat?" A coordinator holds tools; an agent connects and
+is handed exactly the authority a task needs — attenuated to read-only where
+appropriate, revocable when the task is done. The agent can call what it was
+given and nothing else, because there is no ambient authority to escalate to.
 
-This is the authority model AI agent harnesses are currently reinventing with API
-keys, allowlists, and middleware. In pancake it is one `spawn` away.
+This is the authority model AI agent harnesses are currently reinventing with
+API keys, allowlists, and middleware. In pancake it is one `spawn` away.
 
 Run it:
 
@@ -16,11 +16,11 @@ zig build demo-tools
 ```
 
 That starts a Deno coordinator and runs one agent per available language against
-it — Deno and the always-built Zig agent, plus Python, Racket, and Rust when their
-runtimes are on PATH. The coordinator and the agent are different languages on the
-wire, so the capability passing, attenuation, and revocation are real — not
-in-process tricks. Each agent prints `ok` for every property and exits non-zero if
-any fails.
+it — Deno and the always-built Zig agent, plus Python, Racket, and Rust when
+their runtimes are on PATH. The coordinator and the agent are different
+languages on the wire, so the capability passing, attenuation, and revocation
+are real — not in-process tricks. Each agent prints `ok` for every property and
+exits non-zero if any fails.
 
 By default the demo binds an ephemeral port; pin it with
 `zig build demo-tools -Dport=9099`. To run the agents against a coordinator you
@@ -49,8 +49,8 @@ const clock = await conn.send(tools, "grant", ["clock"]);
 const now = await conn.send(clock, "now"); // an ordinary call — clock is a capability
 ```
 
-The agent received a reference it can call. It did not receive a URL, a token, or
-a name to look up in a registry. The reference *is* the authority.
+The agent received a reference it can call. It did not receive a URL, a token,
+or a name to look up in a registry. The reference _is_ the authority.
 
 ### Attenuation — a read-only view is a function wrapping a function
 
@@ -63,9 +63,9 @@ function readOnly(tool) {
 }
 ```
 
-The agent gets `grant("files-readonly")`, reads successfully, and its write breaks.
-There is no "permission" field anywhere — the attenuated capability cannot
-express a write.
+The agent gets `grant("files-readonly")`, reads successfully, and its write
+breaks. There is no "permission" field anywhere — the attenuated capability
+cannot express a write.
 
 ### Revocation — a forwarder you can switch off
 
@@ -73,37 +73,42 @@ express a write.
 function revocable(tool) {
   let live = true;
   return {
-    behavior: (verb, args) => { if (!live) throw new Error("revoked"); return tool(verb, args); },
-    revoke: () => { live = false; },
+    behavior: (verb, args) => {
+      if (!live) throw new Error("revoked");
+      return tool(verb, args);
+    },
+    revoke: () => {
+      live = false;
+    },
   };
 }
 ```
 
-The agent calls the revocable handle successfully, the coordinator revokes it, and
-every subsequent call breaks — with no change to the agent and no global registry
-of who-can-do-what.
+The agent calls the revocable handle successfully, the coordinator revokes it,
+and every subsequent call breaks — with no change to the agent and no global
+registry of who-can-do-what.
 
 ### Least authority, by construction
 
 The fourth property is the one you cannot show with a positive assertion: the
-agent holds *exactly* the references it was granted. There is no ambient
-authority — no global namespace, no "list all tools" it can call, no directory to
-walk. Export positions are private to a connection, not names in a shared space,
-so no reference the coordinator never sent the agent points to a tool. That is the
-property that makes a capability harness safe to point an LLM at.
+agent holds _exactly_ the references it was granted. There is no ambient
+authority — no global namespace, no "list all tools" it can call, no directory
+to walk. Export positions are private to a connection, not names in a shared
+space, so no reference the coordinator never sent the agent points to a tool.
+That is the property that makes a capability harness safe to point an LLM at.
 
 ## Why this matters for AI
 
 An agent harness needs to give a model tools without giving it the keys to the
 house. Today that means API keys (coarse, leaky, hard to revoke), allowlists
-(ambient, easy to get wrong), and middleware (a separate layer to maintain). With
-capabilities:
+(ambient, easy to get wrong), and middleware (a separate layer to maintain).
+With capabilities:
 
-- The agent holds references, not credentials. It cannot escalate to authority it
-  was not handed.
+- The agent holds references, not credentials. It cannot escalate to authority
+  it was not handed.
 - Attenuation is composition: wrap a capability to narrow it.
-- Revocation is a lever you hold: sever a capability the moment a task ends or an
-  agent misbehaves.
+- Revocation is a lever you hold: sever a capability the moment a task ends or
+  an agent misbehaves.
 
 The same `connect` / `fetch` / `spawn` / `send` surface that makes the chat demo
 trivial makes this safe-by-construction harness trivial too.

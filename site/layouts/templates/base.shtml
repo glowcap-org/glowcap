@@ -31,13 +31,16 @@
 					<a class="$site.page('concepts').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('concepts').link()">Concepts</a>
 					<a class="$site.page('codecs').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('codecs').link()">Codecs</a>
 					<a class="$site.page('transports').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('transports').link()">Transports</a>
+					<div class="nav-sub">
+						<a class="$site.page('transports/iroh').isCurrent().then('is-current', '')" href="$site.page('transports/iroh').link()">iroh (encrypted P2P)</a>
+					</div>
 					<a class="$site.page('modules').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('modules').link()">The modules</a>
 					<span class="nav-heading">Consume</span>
 					<a class="$site.page('surfaces').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('surfaces').link()">Surfaces</a>
 					<a class="$site.page('bindings').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('bindings').link()">Bindings</a>
 					<div class="nav-sub">
 						<a class="$site.page('bindings/rust').isCurrent().then('is-current', '')" href="$site.page('bindings/rust').link()">Rust</a>
-						<a class="$site.page('bindings/deno').isCurrent().then('is-current', '')" href="$site.page('bindings/deno').link()">Deno</a>
+						<a class="$site.page('bindings/ts').isCurrent().then('is-current', '')" href="$site.page('bindings/ts').link()">TypeScript</a>
 						<a class="$site.page('bindings/python').isCurrent().then('is-current', '')" href="$site.page('bindings/python').link()">Python</a>
 						<a class="$site.page('bindings/racket').isCurrent().then('is-current', '')" href="$site.page('bindings/racket').link()">Racket</a>
 					</div>

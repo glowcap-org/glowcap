@@ -36,8 +36,10 @@ fn host(server: *driver.Server) !void {
 }
 
 /// The client half — the README's Quick Start snippet, verbatim.
-fn client(io: std.Io, allocator: std.mem.Allocator, address: std.Io.net.IpAddress) !void {
-    const conn = try pancake.driver.connect(io, allocator, address, .{});
+fn client(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !void {
+    var tcp_resident = pancake.net.tcp.Resident{ .io = io };
+
+    const conn = try pancake.driver.connect(&.{tcp_resident.netlayer()}, allocator, pancake.net.tcp.at(designator), .ephemeral, .{});
     defer conn.close();
 
     const greeter = try conn.fetch("greeter"); // a capability, by name
@@ -59,11 +61,14 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var server = try driver.listen(io, allocator, .{ .ip4 = std.Io.net.Ip4Address.loopback(0) }, .{});
+    var tcp_resident = pancake.net.tcp.Resident{ .io = io };
+    var server = try driver.listen(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{});
     defer server.close();
 
-    // The host serves on a concurrent fiber; the client drives this one.
+    var addr_buf: [64]u8 = undefined;
+    const designator = server.localDesignator(&addr_buf);
+
     var hosting = try io.concurrent(host, .{&server});
-    try client(io, allocator, server.localAddress());
+    try client(io, allocator, designator);
     try hosting.await(io);
 }

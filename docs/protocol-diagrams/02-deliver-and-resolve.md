@@ -1,19 +1,18 @@
 # Deliver and resolve
 
-Anchors: CapTP Specification § op:deliver, § The bootstrap Object, § op:get,
-§ op:index.
+Anchors: CapTP Specification § op:deliver, § The bootstrap Object, § op:get, §
+op:index.
 
 One vocabulary note before the diagrams: the draft CapTP specification has no
 `op:resolve` section. The `op:resolve` operator and its `resolve:fulfill` /
 `resolve:break` arms are pancake's PreSpec profile shape, tracking the pair of
-settlement operators — `op:resolve` and `op:break` — the OCapN working group
-has agreed to adopt. The 2026-02-10 meeting minutes in `conformance/ocapn-spec/`
+settlement operators — `op:resolve` and `op:break` — the OCapN working group has
+agreed to adopt. The 2026-02-10 meeting minutes in `conformance/ocapn-spec/`
 record that consensus; the wire encoding is still unsettled upstream, and
 pancake's single `op:resolve` with fulfill and break arms is its PreSpec
-rendering of the pair. On the v1.0 wire that Goblins speaks,
-settlement travels as the resolver-callback deliver DR-4 shows. Every
-`op:resolve` arrow in this diagram set is drawing the PreSpec shape of that
-settlement.
+rendering of the pair. On the v1.0 wire that Goblins speaks, settlement travels
+as the resolver-callback deliver DR-4 shows. Every `op:resolve` arrow in this
+diagram set is drawing the PreSpec shape of that settlement.
 
 ## DR-1 — op:deliver with an answer
 
@@ -46,9 +45,9 @@ sequenceDiagram
 
 ## DR-3 — op:resolve with a break
 
-Settlement has two shapes: `resolve:fulfill` carries a value,
-`resolve:break` carries an error. A broken answer propagates its error to
-anything pipelined against it (see [03-promises-and-pipelining.md](03-promises-and-pipelining.md)).
+Settlement has two shapes: `resolve:fulfill` carries a value, `resolve:break`
+carries an error. A broken answer propagates its error to anything pipelined
+against it (see [03-promises-and-pipelining.md](03-promises-and-pipelining.md)).
 
 ```mermaid
 sequenceDiagram
@@ -62,9 +61,9 @@ sequenceDiagram
 ## DR-4 — resolve-me-desc resolver callback
 
 The fourth `op:deliver` operand may name a resolver object the questioner
-exports. The answerer imports it and later *delivers the resolution to it* as
-an ordinary call carrying `'fulfill` or `'break`, instead of (or alongside)
-the `op:resolve` path.
+exports. The answerer imports it and later _delivers the resolution to it_ as an
+ordinary call carrying `'fulfill` or `'break`, instead of (or alongside) the
+`op:resolve` path.
 
 ```mermaid
 sequenceDiagram

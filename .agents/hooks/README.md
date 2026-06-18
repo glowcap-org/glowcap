@@ -2,8 +2,8 @@
 
 Canonical home for hook scripts that fire around agent file edits.
 
-| Surface | Canonical |
-| --- | --- |
+| Surface                      | Canonical                                        |
+| ---------------------------- | ------------------------------------------------ |
 | Per-edit Zig format dispatch | [`format-edited-file.sh`](format-edited-file.sh) |
 
 The script formats `*.zig` with `zig fmt`. Anything else is ignored. The script

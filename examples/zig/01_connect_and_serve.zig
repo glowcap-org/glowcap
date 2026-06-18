@@ -1,10 +1,10 @@
 //! 01 — The application surface: connect, listen, fetch, call, serve, close.
 //!
 //! This chapter is the surface an application actually rides — the same nine
-//! verbs every binding exposes, in native Zig. Chapters 02–04 peel back the
-//! layers underneath it, one at a time, down to the raw engine. Each side
-//! holds one owning `driver.Connection` over
-//! a real TCP socket with the keyed, authenticated `op:start-session`
+//! verbs every binding exposes, in native Zig. Chapters 02–04 go one layer
+//! deeper underneath, down to the raw engine. Each side holds one owning
+//! `driver.Connection` over a real TCP socket with the keyed, authenticated
+//! `op:start-session`
 //! handshake on both ends. The host listens, accepts a partner, publishes an
 //! actor by name, and `serve`s until the partner leaves. The client connects,
 //! fetches the actor by name, `call`s it, and switches on the settled outcome.
@@ -52,18 +52,18 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var server = try driver.listen(io, allocator, .{ .ip4 = std.Io.net.Ip4Address.loopback(0) }, .{});
+    var tcp_resident = pancake.net.tcp.Resident{ .io = io };
+    var server = try driver.listen(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{});
     defer server.close();
 
-    // The host serves on a concurrent fiber; the client drives this one.
+    var addr_buf: [64]u8 = undefined;
+    const designator = server.localDesignator(&addr_buf);
+
     var hosting = try io.concurrent(host, .{&server});
 
-    // The client half: connect, fetch, call, switch on the settled outcome.
-    var conn = try driver.connect(io, allocator, server.localAddress(), .{});
+    var conn = try driver.connect(&.{tcp_resident.netlayer()}, allocator, pancake.net.tcp.at(designator), .ephemeral, .{});
     const greeter = try conn.fetch("greeter");
 
-    // `call` blocks until the reply settles and materializes the outcome into
-    // the arena, so nothing in `settled` borrows the turn that resolved it.
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const settled = try conn.call(greeter, .{
@@ -71,7 +71,6 @@ pub fn main(init: std.process.Init) !void {
         .args = &.{.{ .string = "world" }},
     }, arena_state.allocator());
 
-    // Closing the connection is what ends the host's serve.
     conn.close();
     try hosting.await(io);
 

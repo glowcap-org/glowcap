@@ -20,7 +20,7 @@
     (flush-output)
     (unless ok (exit 1)))
 
-  (define c (connect host port))
+  (define c (connect (tcp-locator host port)))
   (define tools (conn-fetch c "tools"))
 
   ;; 1. Delegation: get a clock capability and call it.

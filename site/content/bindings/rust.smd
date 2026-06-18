@@ -6,11 +6,35 @@
 .draft = false,
 ---
 
-The Rust binding links the installed static `libpancake` directly and presents a
-typed API in
-[`bindings/rust/src/lib.rs`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/rust/src/lib.rs).
-You work with a `Peer` and Rust enums for `Reference`, `Argument`, and `Event`, so
-the wire's value tree arrives as ordinary Rust values you can match on.
+The Rust binding links the installed static pancake archives directly and
+mirrors the à-la-carte archive set with Cargo features: the crate root always
+links `libpancake_ocapn` and presents a typed API in
+[`bindings/rust/src/lib.rs`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/rust/src/lib.rs),
+and each transport is its own feature-gated module — `tcp` and `inproc` on by
+default, `iroh` opt-in — so a build links exactly the archives its features turn
+on (the TCP `Netlayer`/`Listener`/`Endpoint` live under `pancake::tcp`). You work
+with a `Peer` and Rust enums for `Reference`, `Argument`, and `Event`, so the
+wire's value tree arrives as ordinary Rust values you can match on.
+
+## The same round-trip
+
+The round-trip the [Start building]($link.page('start')) page walks through in Zig —
+connect, fetch a capability by name, call it, and handle the reply — reads like this in
+Rust. The `Connection` owns the peer on its own task, so it runs inside a
+`tokio::task::LocalSet`.
+
+```rust
+use pancake::{connect, Argument};
+
+let conn = connect("ocapn://127.0.0.1:9099.tcp").await?; // the partner's locator
+let greeter = conn.fetch("greeter").await?; // a capability, by name
+match conn.send(&greeter, "greet", &[Argument::String("world".into())]).await {
+    Ok(Argument::String(reply)) => println!("{reply}"),
+    Ok(other) => println!("unexpected reply: {other:?}"),
+    Err(reason) => eprintln!("the greeter refused: {reason:?}"),
+}
+conn.close();
+```
 
 ## Async
 
@@ -31,7 +55,7 @@ the wire and settles through `Vat::send(...).await`.
 ## Dogfood and example
 
 ```sh
-zig build rust-dogfood    # cargo test against libpancake, sync + async
+zig build rust-dogfood    # cargo test against the pancake archives, sync + async
 ```
 
 The full surface lives in the

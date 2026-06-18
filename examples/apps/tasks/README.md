@@ -2,9 +2,9 @@
 
 This is a small, real application built on pancake actors. A task board runs as
 a server; clients connect, add tasks, mark them done, and see changes in real
-time. What makes it worth reading is not the task board — it is *how* the board
-works, and that clients written in Zig, Rust, Python, Racket, and Deno manage the same
-board at the same time, none of them aware of the others' languages.
+time. What makes it worth reading is not the task board — it is _how_ the board
+works, and that clients written in Zig, Rust, Python, Racket, and Deno manage
+the same board at the same time, none of them aware of the others' languages.
 
 Run the whole thing with one command:
 
@@ -12,16 +12,16 @@ Run the whole thing with one command:
 zig build demo-tasks
 ```
 
-That starts a Deno-hosted board and runs one client per available language.
-Each client adds a task, lists the board, marks its task done, and confirms the
+That starts a Deno-hosted board and runs one client per available language. Each
+client adds a task, lists the board, marks its task done, and confirms the
 change. When they all succeed you will see a transcript per language and a final
 line saying every client completed a round trip.
 
 The only runtime the demo requires is `deno`, which hosts the board and runs the
 orchestrator, plus the Zig client, which `zig build` always builds. Python,
-Racket, and Rust each join only when their runtime (`python3`, `racket`, `cargo`)
-is on PATH; the demo reports any language it skipped rather than failing. It is a
-sibling of `zig build check`, not part of the hermetic gate.
+Racket, and Rust each join only when their runtime (`python3`, `racket`,
+`cargo`) is on PATH; the demo reports any language it skipped rather than
+failing. It is a sibling of `zig build check`, not part of the hermetic gate.
 
 By default the demo binds an ephemeral port; pin it with
 `zig build demo-tasks -Dport=9099`. To run the demo's clients against a board
@@ -79,6 +79,7 @@ in every binding.
 ## The idea: the capability is the permission
 
 In an HTTP world, this application needs:
+
 - An API server with REST endpoints
 - Authentication (tokens, sessions, OAuth)
 - Authorization middleware (who can add? who can mark done?)
@@ -86,10 +87,11 @@ In an HTTP world, this application needs:
 - Client libraries that wire all of this together
 
 With OCapN capabilities:
+
 - A board actor with four methods
 - A watcher actor the client publishes
 - The client hands the board a capability to its watcher
-- The capability *is* the identity — the board knows who you are because it
+- The capability _is_ the identity — the board knows who you are because it
   holds your capability
 
 No tokens. No middleware. No separate push layer. The board calls you back
@@ -117,16 +119,16 @@ Each language has a `TaskBoard` client — the small layer that knows about OCap
 thin app on top of it. The app reads the same in every language because each
 `TaskBoard` exposes its own runtime's native async shape:
 
-| Language | Add a task | List tasks | Mark done |
-| --- | --- | --- | --- |
-| Deno | `await board.add(text)` | `await board.list()` | `await board.done(id)` |
-| Python | `await board.add(text)` | `await board.list()` | `await board.done(id)` |
-| Racket | `(board-add b text)` | `(board-list b)` | `(board-done b id)` |
-| Rust | `board.add(text).await?` | `board.list().await?` | `board.done(id).await?` |
+| Language | Add a task               | List tasks            | Mark done               |
+| -------- | ------------------------ | --------------------- | ----------------------- |
+| Deno     | `await board.add(text)`  | `await board.list()`  | `await board.done(id)`  |
+| Python   | `await board.add(text)`  | `await board.list()`  | `await board.done(id)`  |
+| Racket   | `(board-add b text)`     | `(board-list b)`      | `(board-done b id)`     |
+| Rust     | `board.add(text).await?` | `board.list().await?` | `board.done(id).await?` |
 
 Reading any two side by side shows how little the actor model changes from
-language to language — and how much boilerplate disappears compared to the
-HTTP version of the same application.
+language to language — and how much boilerplate disappears compared to the HTTP
+version of the same application.
 
 ## Where the board could go next
 

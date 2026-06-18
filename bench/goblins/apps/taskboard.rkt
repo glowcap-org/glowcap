@@ -16,15 +16,18 @@
 (define (server-build mint-cap)
   (define (root _bcom)
     (define (create title)
-      (define state (box 'open))
-      (define who (box #f))
-      (define (task _b)
+      ;; Status and assignee live in the behavior, not private boxes: `assign`
+      ;; and `complete` become a new behavior carrying the updated state. That
+      ;; keeps the state where the vat can see it, so a time-travel snapshot
+      ;; captures and can rewind it — boxes would hide it. Identical observable
+      ;; behavior on every backend (`bcom` is the same on Goblins and pancake).
+      (define (task bcom state who)
         (dispatch
          (list
-          (cons 'assign (lambda (p) (set-box! who p) #"assigned"))
-          (cons 'complete (lambda () (set-box! state #"done") #"done"))
-          (cons 'status (lambda () (unbox state))))))
-      (mint-cap task))
+          (cons 'assign (lambda (p) (bcom (task bcom state p) #"assigned")))
+          (cons 'complete (lambda () (bcom (task bcom #"done" who) #"done")))
+          (cons 'status (lambda () state)))))
+      (mint-cap (lambda (bcom) (task bcom 'open #f))))
     (dispatch (list (cons 'create create))))
   root)
 

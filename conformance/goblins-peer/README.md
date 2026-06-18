@@ -10,14 +10,14 @@ wrappers and small Racket programs around that API.
 
 ## Files
 
-| File | Role |
-| --- | --- |
-| `racket/tcp-netlayer.rkt` | Testing TCP netlayer for loopback OCapN runs. |
-| `racket/captp-demo.rkt` | In-process CapTP demo over Goblins fake-intarwebs. |
-| `racket/tcp-demo.rkt` | Two Goblins peers over local TCP; exits after one roundtrip. |
-| `racket/three-vat-demo.rkt` | Three-party introduction over local TCP. |
+| File                         | Role                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------- |
+| `racket/tcp-netlayer.rkt`    | Testing TCP netlayer for loopback OCapN runs.                             |
+| `racket/captp-demo.rkt`      | In-process CapTP demo over Goblins fake-intarwebs.                        |
+| `racket/tcp-demo.rkt`        | Two Goblins peers over local TCP; exits after one roundtrip.              |
+| `racket/three-vat-demo.rkt`  | Three-party introduction over local TCP.                                  |
 | `racket/seven-caps-peer.rkt` | Long-running peer registering the seven caps expected by the OCapN suite. |
-| `run.sh` | Native launcher using the devcontainer's `racket`. |
+| `run.sh`                     | Native launcher using the devcontainer's `racket`.                        |
 
 ## Running
 
@@ -42,8 +42,8 @@ bash conformance/ocapn-conformance/run.sh test \
 
 ## How Pancake Uses This
 
-- **As an external peer.** Goblins emits OCapN/Syrup bytes pancake must parse and
-  answer correctly.
+- **As an external peer.** Goblins emits OCapN/Syrup bytes pancake must parse
+  and answer correctly.
 - **As a conformance-suite target.** `seven-caps-peer.rkt` supplies the target
   capabilities the upstream Python suite expects.
 - **As a wire-shape lookup.** When the Zig implementation needs evidence for a

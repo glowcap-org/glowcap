@@ -20,8 +20,8 @@ const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
-const tcp = pancake.net_adapter.tcp;
-const net = std.Io.net;
+const tcp = pancake.net.tcp;
+const ip = std.Io.net;
 
 const AFFORDANCE_NAME = "affordance";
 const frame_cap: usize = 1 << 16;
@@ -104,7 +104,7 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    var listener = try tcp.Listener.bind(io, .{ .ip4 = net.Ip4Address.loopback(bind_port) });
+    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(bind_port) });
     defer listener.deinit();
     const address = listener.localAddress();
     const port: u16 = switch (address) {

@@ -18,7 +18,6 @@ const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
 
-const net = std.Io.net;
 const frame_cap = 4096;
 const client_count = 8;
 
@@ -60,7 +59,7 @@ fn callOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    const address = try pancake.net_adapter.tcp.parseHostPort("127.0.0.1", port);
+    const address = try pancake.net.tcp.parseHostPort("127.0.0.1", port);
     var cv = try driver.connectTcp(io, allocator, &peer, address, read_buf, write_buf);
     defer cv.deinit();
 

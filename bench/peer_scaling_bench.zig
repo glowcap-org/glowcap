@@ -26,18 +26,30 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const engine = pancake.ocapn.engine;
+const actors = pancake.actors;
+const driver = pancake.driver;
+const model = pancake.ocapn.model;
+
+/// A trivial published capability, so the `served` scenario's vat holds one live
+/// actor cell — the per-connection state a loop-driven host (ADR-0057) carries
+/// on top of the bare `engine.Peer`.
+const BenchGreeter = struct {
+    pub fn handle(self: *BenchGreeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = self;
+        _ = turn;
+        _ = msg;
+        return .{ .string = "ok" };
+    }
+};
 
 const target_connections: u64 = 500_000;
-const ram_sizes_gb = [_]u64{ 16, 32, 64, 128 };
 
-/// Tracks live (outstanding) heap bytes and the peak, by accumulating the signed
-/// delta of every allocator operation. Live bytes after a set of peers are
-/// constructed and warmed, with every transient event frame already freed, is the
-/// steady-state heap those peers hold.
+/// Tracks live (outstanding) heap bytes by accumulating the signed delta of every
+/// allocator operation. Live bytes after peers are constructed and warmed, with
+/// every transient event frame already freed, is the steady-state heap they hold.
 const LiveBytesAllocator = struct {
     backing: std.mem.Allocator,
     live: i128 = 0,
-    peak: i128 = 0,
 
     fn allocator(self: *LiveBytesAllocator) std.mem.Allocator {
         return .{
@@ -48,7 +60,6 @@ const LiveBytesAllocator = struct {
 
     fn note(self: *LiveBytesAllocator, delta: i128) void {
         self.live += delta;
-        if (self.live > self.peak) self.peak = self.live;
     }
 
     fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
@@ -98,12 +109,23 @@ const Scenario = enum {
     /// Sixteen exports registered plus a driven turn: a connection holding a
     /// handful of live capabilities.
     active16,
+    /// The loop-driven path (ADR-0057): a warmed peer plus the `actors.Vat` with
+    /// one published capability that a completion-loop host (`iroh.LoopHost`,
+    /// `driver.loop`) holds per connection. This is the marginal cost a connection
+    /// adds when served from one loop thread rather than a thread of its own — the
+    /// number the `iroh-loop` gate proves at scale.
+    served,
 };
+
+/// True for scenarios whose per-connection state includes a vat, not just a peer.
+fn scenarioHoldsVat(s: Scenario) bool {
+    return s == .served;
+}
 
 fn warmPeer(peer: *engine.Peer, scenario: Scenario) !void {
     switch (scenario) {
         .idle => {},
-        .warmed => {
+        .warmed, .served => {
             try peer.session_state.registerExport(7);
             try driveOneTurn(peer);
         },
@@ -129,7 +151,10 @@ const Measurement = struct {
     sample: u64,
     /// Marginal steady-state heap bytes one more connection of this kind adds.
     heap_per_peer: f64,
-    /// Total per-connection bytes: the inline `Peer` struct plus marginal heap.
+    /// Inline per-connection struct bytes: `Peer`, plus `Vat` for a loop-served
+    /// connection. Held in the host's per-connection slot, not on the heap.
+    inline_bytes: f64,
+    /// Total per-connection bytes: the inline struct(s) plus marginal heap.
     bytes_per_conn: f64,
 };
 
@@ -141,32 +166,53 @@ fn measure(backing: std.mem.Allocator, scenario: Scenario, sample: u64) !Measure
     var tracker = LiveBytesAllocator{ .backing = backing };
     const tracked = tracker.allocator();
 
-    // The array of peers is held in untracked memory so only each peer's own
-    // session heap counts toward the footprint, never this bookkeeping slice.
+    const holds_vat = scenarioHoldsVat(scenario);
+
+    // The arrays of peers (and, for the loop-driven scenario, vats) are held in
+    // untracked memory so only each connection's own session and vat heap counts
+    // toward the footprint, never these bookkeeping slices. Stable addresses also
+    // let each vat borrow its peer (`Vat.initOver(&peers[i])`).
     const peers = try backing.alloc(engine.Peer, sample);
     defer backing.free(peers);
+    const vats: []actors.Vat = if (holds_vat) try backing.alloc(actors.Vat, sample) else &.{};
+    defer if (holds_vat) backing.free(vats);
 
     const before = tracker.liveBytes();
     var created: u64 = 0;
     errdefer {
         var j: u64 = 0;
-        while (j < created) : (j += 1) peers[j].deinit();
+        while (j < created) : (j += 1) {
+            if (holds_vat) vats[j].deinit();
+            peers[j].deinit();
+        }
     }
     while (created < sample) : (created += 1) {
         peers[created] = engine.Peer.init(tracked);
         try warmPeer(&peers[created], scenario);
+        if (holds_vat) {
+            vats[created] = actors.Vat.initOver(tracked, &peers[created]);
+            _ = try driver.publishNamed(&vats[created], "greeter", BenchGreeter, .{});
+        }
     }
     const after = tracker.liveBytes();
 
     var i: u64 = 0;
-    while (i < sample) : (i += 1) peers[i].deinit();
+    while (i < sample) : (i += 1) {
+        if (holds_vat) vats[i].deinit();
+        peers[i].deinit();
+    }
 
+    // The inline per-connection cost is the `Peer` struct, plus the `Vat` struct
+    // for a loop-served connection (the loop host holds both inline in its slot).
+    const vat_inline: usize = if (holds_vat) @sizeOf(actors.Vat) else 0;
+    const inline_bytes: f64 = @floatFromInt(@sizeOf(engine.Peer) + vat_inline);
     const heap_per_peer = @as(f64, @floatFromInt(after - before)) / @as(f64, @floatFromInt(sample));
     return .{
         .scenario = scenario,
         .sample = sample,
         .heap_per_peer = heap_per_peer,
-        .bytes_per_conn = heap_per_peer + @as(f64, @floatFromInt(@sizeOf(engine.Peer))),
+        .inline_bytes = inline_bytes,
+        .bytes_per_conn = heap_per_peer + inline_bytes,
     };
 }
 
@@ -179,6 +225,7 @@ fn scenarioLabel(s: Scenario) []const u8 {
         .idle => "idle (just accepted)",
         .warmed => "warmed (one turn carried)",
         .active16 => "active (16 capabilities held)",
+        .served => "served (loop host: peer + vat + cap)",
     };
 }
 
@@ -201,17 +248,17 @@ pub fn main(init: std.process.Init) !void {
 
     const sample: u64 = if (smoke) 64 else 2000;
 
-    const scenarios = [_]Scenario{ .idle, .warmed, .active16 };
+    const scenarios = [_]Scenario{ .idle, .warmed, .active16, .served };
     var results: [scenarios.len]Measurement = undefined;
     for (scenarios, 0..) |scenario, idx| {
         results[idx] = try measure(backing, scenario, sample);
         const m = results[idx];
         std.debug.print(
-            "peer_scaling scenario={s} sample={d} peer_struct_bytes={d} heap_per_peer_bytes={d:.1} bytes_per_conn={d:.1} mem_at_500k_gib={d:.3}\n",
+            "peer_scaling scenario={s} sample={d} inline_struct_bytes={d:.0} heap_per_peer_bytes={d:.1} bytes_per_conn={d:.1} mem_at_500k_gib={d:.3}\n",
             .{
                 @tagName(m.scenario),
                 m.sample,
-                @sizeOf(engine.Peer),
+                m.inline_bytes,
                 m.heap_per_peer,
                 m.bytes_per_conn,
                 gib(m.bytes_per_conn * @as(f64, @floatFromInt(target_connections))),
@@ -224,12 +271,6 @@ pub fn main(init: std.process.Init) !void {
     try writeReport(backing, io, &results);
     std.debug.print("peer_scaling report written to zig-out/bench-reports/peer-scaling.md\n", .{});
 }
-
-// ---------------------------------------------------------------------------
-// Report rendering: a markdown report plus a hand-rolled SVG line chart. Both
-// are zero-dependency strings the benchmark emits directly — no plotting crate,
-// honoring the project's boring, dependency-free posture.
-// ---------------------------------------------------------------------------
 
 fn writeReport(gpa: std.mem.Allocator, io: std.Io, results: []const Measurement) !void {
     const svg = try renderSvg(gpa, results);
@@ -259,9 +300,9 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         \\Generated by `zig build bench-peer-scaling`. This is Phase 1 of the
         \\500k-connection study: the memory-per-connection constraint, measured
         \\in-process with no sockets. Because the protocol core is sans-io, a
-        \\connection's cost is exactly one `engine.Peer` plus its session heap.
-        \\That means thousands of peers can be stood up, warmed, and weighed without a
-        \\transport.
+        \\connection's cost is one `engine.Peer` plus its session heap (and, when
+        \\served from the completion loop, an `actors.Vat`). That means thousands
+        \\of connections can be stood up, warmed, and weighed without a transport.
         \\
         \\## Method
         \\
@@ -303,6 +344,19 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         \\The "fits" columns are connections (millions) of that kind that the
         \\core state alone fits in that RAM, ignoring transport buffers.
         \\
+        \\## The loop-driven path (ADR-0057)
+        \\
+        \\The `served` row is the per-connection cost when a connection is served
+        \\from one completion-loop thread (`iroh.LoopHost`, `driver.loop`) instead
+        \\of a thread of its own: a warmed `engine.Peer` plus the `actors.Vat`,
+        \\with one published capability, that the host holds inline in its
+        \\per-connection slot. That is the footprint behind the `iroh-loop` gate,
+        \\which serves many concurrent iroh connections from a single thread over
+        \\the sidecar's readiness fd, drained ready-queue, and non-blocking frame
+        \\I/O. The blocking thread-per-connection path (ADR-0053) adds the same
+        \\core state *plus* an OS thread (or two) per connection — megabytes of
+        \\stack each — which is exactly what the loop removes.
+        \\
         \\## Transport buffers (the part the loop owns)
         \\
         \\Since ADR-0054 the core state above is also the dominant
@@ -310,18 +364,28 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         \\backend-owned pool (`Options.read_buffers`, default 256 x 16 KiB,
         \\about 4 MiB total), so an idle connection holds zero read-buffer
         \\bytes; a frame larger than a pool buffer, or split across reads,
-        \\rides the bounded spill that frees on drain (ADR-0041). The honest
-        \\warmed footprint at 500k is the core state plus one pool.
+        \\rides the bounded spill that frees on drain (ADR-0041). The warmed
+        \\footprint at 500k is the core state plus one pool.
+        \\
+        \\For the iroh loop path the sidecar adds its own per-connection bytes,
+        \\in the Rust heap rather than this measurement: each non-blocking
+        \\connection holds an inbound and an outbound buffer, each bounded at
+        \\1 MiB (`NB_BUFFER_BOUND`). They are allocated on first traffic and
+        \\back-pressure rather than grow — a full inbound buffer parks the
+        \\sidecar's reader so QUIC flow control reaches the remote sender, and a
+        \\full outbound buffer returns `WOULD_BLOCK` to the loop. So the bound is
+        \\a flow-control ceiling, never a silent drop or an unbounded queue.
         \\
         \\![per-connection memory to 500k](peer-scaling.svg)
         \\
         \\## Phase 2 (real socket load)
         \\
         \\The completion loop (io_uring on Linux, kqueue on macOS/BSD) has
-        \\shipped, but this bench still measures in-process core state, not a
-        \\loop under real socket load. Accept throughput, syscalls per turn, and
-        \\resident-set growth on a live 500k-connection run still need a load
-        \\harness. This report does not drive that harness yet.
+        \\shipped, and the iroh loop bridge (ADR-0057) is live behind
+        \\`zig build iroh-loop`, but this bench still measures in-process core
+        \\state, not a loop under real socket load. Accept throughput, syscalls
+        \\per turn, and resident-set growth on a live 500k-connection run still
+        \\need a load harness. This report does not drive that harness yet.
         \\
     );
 
@@ -356,7 +420,7 @@ fn renderSvg(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
     }
     const y_max = if (top_gib <= 0) 1.0 else top_gib * 1.15;
 
-    const colors = [_][]const u8{ "#2563eb", "#16a34a", "#dc2626" };
+    const colors = [_][]const u8{ "#2563eb", "#16a34a", "#dc2626", "#9333ea" };
 
     try appendFmt(&b, gpa,
         \\<svg xmlns="http://www.w3.org/2000/svg" width="{d:.0}" height="{d:.0}" font-family="sans-serif" font-size="13">

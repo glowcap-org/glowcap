@@ -42,8 +42,11 @@ body {
   display: flex;
   flex-direction: column;
   /* A whisper of warmth at the top edge, fading into flat paper. */
-  background:
-    radial-gradient(120% 60% at 50% -10%, color-mix(in srgb, var(--accent) 9%, var(--paper)) 0%, var(--paper) 60%) no-repeat;
+  background: radial-gradient(
+    120% 60% at 50% -10%,
+    color-mix(in srgb, var(--accent) 9%, var(--paper)) 0%,
+    var(--paper) 60%
+  ) no-repeat;
 }
 
 .shell {

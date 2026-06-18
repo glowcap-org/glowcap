@@ -17,18 +17,18 @@ honest about how far the code has actually reached toward it.
 
 Match depth to the task — do not read the whole tree for a one-line fix.
 
-| Task | Load first | Gate |
-| --- | --- | --- |
-| Quick fix in one layer | Focused rule for that surface ([rule index](.agents/README.md)) | `zig build test` or narrower |
-| Substantial feature, refactor, sweep, or release check | [`docs/vision.md`](docs/vision.md) + [work skill](.agents/skills/work/SKILL.md) | `zig build check` |
-| Protocol semantics or layer boundary | [architecture rule](.agents/rules/architecture.md) + [tests rule](.agents/rules/tests.md) | `zig build oracle-check` |
-| Inbound parsing, length limits, or any attacker-controlled bytes | [resilience rule](.agents/rules/resilience.md) | `zig build test` + `zig build oracle-check` |
-| Allocation, copy, or frame ownership on the wire path | [memory rule](.agents/rules/memory.md) | `zig build test` (alloc and footprint budgets run here) |
-| Runtime seam — `actors`, `net_adapter`, or `driver` (`std.Io`, sockets, turn loop) | [architecture rule](.agents/rules/architecture.md) + [memory rule](.agents/rules/memory.md) | `zig build test` |
-| C ABI surface or a language binding | [architecture rule](.agents/rules/architecture.md) + [`bindings/README.md`](bindings/README.md) | `zig build gen-header` + `zig build rust-dogfood` |
-| Example or example app | [`examples/README.md`](examples/README.md) + [doc-voice](.agents/rules/doc-voice.md) | `zig build examples` |
-| Agent scaffolding (`.agents/`, overlays, hooks, skills) | [agent-scaffolding rule](.agents/rules/agent-scaffolding.md) | `zig build meta-check` |
-| Doc edit | [doc-drift](.agents/rules/doc-drift.md) + [doc-voice](.agents/rules/doc-voice.md) | same change updates claims |
+| Task                                                                       | Load first                                                                                      | Gate                                                    |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Quick fix in one layer                                                     | Focused rule for that surface ([rule index](.agents/README.md))                                 | `zig build test` or narrower                            |
+| Substantial feature, refactor, sweep, or release check                     | [`docs/vision.md`](docs/vision.md) + [work skill](.agents/skills/work/SKILL.md)                 | `zig build check`                                       |
+| Protocol semantics or layer boundary                                       | [architecture rule](.agents/rules/architecture.md) + [tests rule](.agents/rules/tests.md)       | `zig build oracle-check`                                |
+| Inbound parsing, length limits, or any attacker-controlled bytes           | [resilience rule](.agents/rules/resilience.md)                                                  | `zig build test` + `zig build oracle-check`             |
+| Allocation, copy, or frame ownership on the wire path                      | [memory rule](.agents/rules/memory.md)                                                          | `zig build test` (alloc and footprint budgets run here) |
+| Runtime seam — `actors`, `net`, or `driver` (`std.Io`, sockets, turn loop) | [architecture rule](.agents/rules/architecture.md) + [memory rule](.agents/rules/memory.md)     | `zig build test`                                        |
+| C ABI surface or a language binding                                        | [architecture rule](.agents/rules/architecture.md) + [`bindings/README.md`](bindings/README.md) | `zig build gen-header-ocapn` + `zig build rust-dogfood` |
+| Example or example app                                                     | [`examples/README.md`](examples/README.md) + [doc-voice](.agents/rules/doc-voice.md)            | `zig build examples`                                    |
+| Agent scaffolding (`.agents/`, overlays, hooks, skills)                    | [agent-scaffolding rule](.agents/rules/agent-scaffolding.md)                                    | `zig build meta-check`                                  |
+| Doc edit                                                                   | [doc-drift](.agents/rules/doc-drift.md) + [doc-voice](.agents/rules/doc-voice.md)               | same change updates claims                              |
 
 **Context map** (when you need authority, not a tour):
 
@@ -37,7 +37,8 @@ Match depth to the task — do not read the whole tree for a one-line fix.
 - Concrete remaining work, ordered: [`docs/roadmap.md`](docs/roadmap.md)
 - Layer ownership: [`docs/architecture.md`](docs/architecture.md)
 - Settled decisions: [`docs/decisions/adr/`](docs/decisions/adr/)
-- pancake-authored Syrup oracle corpus and pressure: `test/oracles/`, `test/oracle/`
+- pancake-authored Syrup oracle corpus and pressure: `test/oracles/`,
+  `test/oracle/`
 - Live Goblins wire authority: `conformance/goblins-peer/`
 - OCapN spec corpus: `conformance/ocapn-spec/`
 
@@ -68,10 +69,10 @@ Match depth to the task — do not read the whole tree for a one-line fix.
 
 Canonical agent guidance lives under [`.agents/`](.agents/); its
 [index](.agents/README.md) names every rule and skill and what each governs.
-Claude gets rules through one directory symlink, [`.claude/rules`](.claude/rules/)
-→ `.agents/rules`. Cursor gets one symlink per rule,
-`.cursor/rules/<name>.mdc` → `.agents/rules/<name>.md`, because Cursor discovers
-rules by `.mdc` file.
+Claude gets rules through one directory symlink,
+[`.claude/rules`](.claude/rules/) → `.agents/rules`. Cursor gets one symlink per
+rule, `.cursor/rules/<name>.mdc` → `.agents/rules/<name>.md`, because Cursor
+discovers rules by `.mdc` file.
 
 The scaffolding is itself a public API for agents, with its own gate. Read
 [`.agents/rules/agent-scaffolding.md`](.agents/rules/agent-scaffolding.md)
@@ -85,4 +86,5 @@ single-file diagnostics in Zig source. The operator notes live at
 [`.agents/skills/serena/SKILL.md`](.agents/skills/serena/SKILL.md).
 
 For substantial work — scoping, sweeps, architectural moves, or release
-readiness — follow [`.agents/skills/work/SKILL.md`](.agents/skills/work/SKILL.md).
+readiness — follow
+[`.agents/skills/work/SKILL.md`](.agents/skills/work/SKILL.md).

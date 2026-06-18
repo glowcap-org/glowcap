@@ -11,7 +11,7 @@ const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
 const crypto = foundation.crypto;
-const net_adapter = @import("net_adapter");
+const net = @import("net");
 
 pub const Result = struct { abort_inbound: bool };
 
@@ -88,7 +88,7 @@ pub const Registry = struct {
 pub fn maybeAbortInbound(
     registry: *Registry,
     peer: *engine.Peer,
-    conn: *net_adapter.Connection,
+    conn: *net.Connection,
     event: *engine.Event,
 ) !void {
     const body = try event.view();
@@ -114,7 +114,7 @@ pub fn maybeAbortOutbound(
     registry: *Registry,
     partner_designator: []const u8,
     peer: *engine.Peer,
-    conn: *net_adapter.Connection,
+    conn: *net.Connection,
 ) !void {
     if (!registry.shouldAbortOutbound(conn.io, partner_designator)) return;
     try peer.sendCopying(.{ .abort = .{

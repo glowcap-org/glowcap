@@ -225,7 +225,7 @@ pub const SessionLimits = struct {
     /// so a hostile length claim or never-completing frame fails loud as
     /// `resource_exhausted` rather than growing a buffer without bound. A
     /// byte-stream adapter sizes its steady-state read buffer below this cap; a
-    /// frame larger than the buffer pays one bounded spill (`net_adapter.Spill`,
+    /// frame larger than the buffer pays one bounded spill (`net.Spill`,
     /// ADR-0041). Not consulted by the frame boundary, which is
     /// handed an already-framed buffer.
     max_frame_bytes: usize = 1 << 20,
@@ -351,6 +351,14 @@ pub const Session = struct {
     /// across sessions — a gifter matching a sturdyref's exporter location to the
     /// session it already holds with that exporter — reads it. Lives in `key_arena`.
     partner_designator: []const u8 = &.{},
+    /// The partner's verbatim `<ocapn-peer ...>` location-record bytes, exactly as
+    /// they arrived on its `op:start-session`. A gifter embeds these in a
+    /// `desc:handoff-give`'s exporter-location so a peer comparing the give's
+    /// location to the session's matches byte-for-byte (ADR-0009) — the designator
+    /// alone is lossy for that match. Empty until the partner's handshake half
+    /// arrives with raw bytes (the decode path captures them; an owned-message
+    /// apply path does not). Lives in `key_arena`.
+    partner_acceptable_location_raw: []const u8 = &.{},
     /// V1.0 resolver-callback links for our *outbound* answers, mapping a
     /// resolver-export id to an answer-pos. An inbound deliver to that export is
     /// the partner resolving the answer. Keyed for the reverse lookup that runs
@@ -431,6 +439,7 @@ pub const Session = struct {
             .handshake_remote_received = false,
             .partner_session_key = &.{},
             .partner_designator = &.{},
+            .partner_acceptable_location_raw = &.{},
             .v1_0_outbound_resolvers = .empty,
             .v1_0_inbound_resolvers = .empty,
             .v1_0_inbound_resolver_answers = .empty,
@@ -473,6 +482,32 @@ pub const Session = struct {
     /// after the augmented deliver is accepted.
     pub fn installOutboundResolver(self: *Session, answer: u64, resolver_export: u64) !void {
         try self.v1_0_outbound_resolvers.put(self.allocator, resolver_export, answer);
+    }
+
+    /// Mint a synthesized V1.0 resolver export for `answer` and commit, in one
+    /// place, the whole wire-delta accounting its on-wire mention requires:
+    /// allocate the export, install the answer→resolver link, and take the
+    /// export's wire-delta retain. The V1.0 encode hooks
+    /// (`engine.v1_0.installResolverForOutboundDeliver` for an answered deliver,
+    /// `installListenerForOutboundProjection` for a projection listener) put the
+    /// resolver mention on the wire *outside* `recordSend`/`retainSentExports`,
+    /// so this is the single owner of that accounting — both hooks route through
+    /// it rather than restating the three steps and risking drift from
+    /// `applySend`. All-or-none: a failure after the export is minted rolls it
+    /// back, since it was never handed to the partner. Returns the minted
+    /// resolver export position.
+    pub fn mintOutboundResolver(self: *Session, answer: u64) !u64 {
+        const resolver_export = try self.allocateExport();
+        errdefer self.releaseUnsharedExport(resolver_export);
+        try self.installOutboundResolver(answer, resolver_export);
+        // Undo the resolver link before the export rollback: the wire-delta
+        // retain below can fail (it allocates), and a successful retain would
+        // have bumped the export past count 1, where the single-decrement
+        // `releaseUnsharedExport` no longer removes it. Removing the link first
+        // (errdefers run last-in-first-out) keeps the failure path clean.
+        errdefer _ = self.v1_0_outbound_resolvers.remove(resolver_export);
+        try self.retainSentExportRef(.{ .near = model.NearRef.promise(resolver_export) });
+        return resolver_export;
     }
 
     /// Record that the partner's inbound `answer` is resolved via their resolver
@@ -614,9 +649,24 @@ pub const Session = struct {
     }
 
     pub fn recordSend(self: *Session, message: model.Message) !void {
+        // Admit and validate are ownership-neutral — they read the message, never
+        // take its heap — so one pair of calls fronts every kind. Ownership forks
+        // only at apply: a sent `op:resolve` is *consumed* (its resolution moves
+        // into the inbound answer's store, `applySentResolve`), so a pre-apply
+        // refusal must free it; every other kind is borrowed and freed by the
+        // outbound queue after emit. `apply_owns_resolution` marks the handoff —
+        // once apply runs it owns the resolution's fate (moved on success, freed
+        // on its own failure), so the errdefer must not also free it.
+        var apply_owns_resolution = false;
+        errdefer if (message == .resolve and !apply_owns_resolution)
+            model.freeResolution(self.allocator, message.resolve.resolution);
         try self.admitInState(message);
         try self.validateSend(message);
-        try self.applySend(message);
+        apply_owns_resolution = true;
+        switch (message) {
+            .resolve => |resolve| try self.applySentResolve(resolve),
+            else => try self.applySend(message),
+        }
     }
 
     pub fn recordRecv(self: *Session, message: model.Message) !void {
@@ -658,13 +708,30 @@ pub const Session = struct {
         }
     }
 
-    // Validation lives in `validate.zig`; apply lives in `apply.zig`. The
+    /// Record the inbound resolve the engine synthesizes when a V1.0 partner
+    /// fulfills a promise by delivering to its resolver callback (ADR-0010).
+    /// Validates and applies straight from the borrowed resolution view, so the
+    /// V1.0 hot path materializes no owned resolution.
+    ///
+    /// This is deliberately *not* `recordRecvView`: that path refuses a
+    /// wire `op:resolve` on a V1.0 session, and this resolve never arrived on
+    /// the wire — the partner sent an `op:deliver` to the resolver and the
+    /// engine surfaces the settlement as a semantic resolve. The shared
+    /// inbound-resolve validation and apply run exactly as the canonical
+    /// resolve path does, minus that wire refusal. The borrowed `resolve` must
+    /// outlive this call; the engine keeps the frame it borrows alive on the
+    /// event queue before applying.
+    pub fn recordResolverCallbackResolve(self: *Session, resolve: model.view.Resolve) !void {
+        const body = model.view.Body{ .resolve = resolve };
+        try self.admitInState(body);
+        try validate.validateInboundResolve(self, resolve);
+        try self.applyRecvView(body);
+    }
+
+    // Per-kind validate/apply live in `validate.zig` and `apply.zig`; the
     // public spine is `recordSend` / `recordRecv` / `recordRecvView` /
-    // `admits`; the per-kind validators, walkers, and apply arms are
-    // module-local to those two files. Validation never mutates; apply
-    // commits only after validation passes. Exactly three per-kind steps stay
-    // public, each because one engine pre-step must run the same rule before
-    // `recordRecv*` does — every other caller goes through the spine.
+    // `admits`. Three per-kind entry points stay public because one engine
+    // pre-step must run the same rule before `recordRecv*`.
     const validate = @import("validate.zig");
     const apply = @import("apply.zig");
 
@@ -673,6 +740,7 @@ pub const Session = struct {
     const validateRecv = validate.validateRecv;
     const applyRecvView = apply.applyRecvView;
     const applySend = apply.applySend;
+    const applySentResolve = apply.applySentResolve;
     const applyRecv = apply.applyRecv;
 
     /// Validate a pipelined inbound deliver before the engine queues or
@@ -762,6 +830,20 @@ pub const Session = struct {
         return self.bootstrap.get(swissnum);
     }
 
+    /// The swissnum a local export serves, or null if `export_position` is not a
+    /// bootstrap-published cap on this session — the reverse of `bootstrapLookup`.
+    /// A gifted near resolved through this names the vat-scoped object identity a
+    /// cross-session withdrawal re-resolves against the withdrawing session
+    /// (ADR-0009 exporter half). The returned slice aliases this session's
+    /// arena-owned key and lives as long as the session.
+    pub fn bootstrapSwissForExport(self: *const Session, export_position: u64) ?[]const u8 {
+        var it = self.bootstrap.iterator();
+        while (it.next()) |entry| {
+            if (entry.value_ptr.* == export_position) return entry.key_ptr.*;
+        }
+        return null;
+    }
+
     /// Reserve the next outbound answer-pos. The id is installed in the outbound
     /// answer table when the carrying `op:deliver` is recorded on send; this only
     /// advances the counter so concurrent fetches / decompositions don't collide.
@@ -786,6 +868,16 @@ pub const Session = struct {
     pub fn partnerDesignator(self: *const Session) ?[]const u8 {
         if (self.partner_designator.len == 0) return null;
         return self.partner_designator;
+    }
+
+    /// The partner's verbatim `<ocapn-peer ...>` location-record bytes from its
+    /// `op:start-session`, or null when the handshake half has not arrived with raw
+    /// bytes (the decode path captures them; an owned-message apply path does not).
+    /// A gifter embeds these as a `desc:handoff-give`'s exporter-location so a peer
+    /// comparing locations matches byte-for-byte (ADR-0009).
+    pub fn partnerLocatorRaw(self: *const Session) ?[]const u8 {
+        if (self.partner_acceptable_location_raw.len == 0) return null;
+        return self.partner_acceptable_location_raw;
     }
 
     // --- Pipelining substrate (ADR-0007) ---------------------------------
@@ -853,7 +945,7 @@ pub const Session = struct {
     /// invariant: `target` must be `.pending`, and resolving an answer settles it
     /// before its calls drain (`recordSend` runs at send time). So to move a batch
     /// onward from A you resolve A — settling it — and any later attempt to requeue
-    /// the batch back onto A finds A no longer pending and fails with
+    /// the batch back onto A finds A already settled and fails with
     /// `InvalidReference`, freeing the batch. A resolution chain therefore cannot
     /// loop: it can only move forward through still-pending answers (bounded by the
     /// inbound-answer cap) until it reaches a non-promise resolution or a settled
@@ -905,14 +997,22 @@ pub const Session = struct {
     }
 
     /// Anchor `projection` (taking ownership of its `.field` bytes) on the
-    /// pending inbound answer `answer_position` (ADR-0050). On failure the bytes are
-    /// freed. The answer must exist and be `pending`; a settled answer's
-    /// projection is computed immediately by the engine and never stored.
+    /// pending inbound answer `answer_position` (ADR-0050). On failure the bytes
+    /// are freed. The answer must exist and must still be pending: a projection
+    /// fires once, from `drainProjections`, when the answer's resolve drains, so
+    /// anchoring onto an already-settled answer would never fire. Settled is
+    /// read as a stored resolution rather than the status flag — the two are
+    /// equivalent for inbound answers (the `applySentResolve` invariant: status
+    /// and resolution land together), and naming the resolution keeps this guard
+    /// honest if that ever drifts. Symmetric with `installListener`, which the
+    /// engine's `installAnswerListener` gates the same way (peek first, install
+    /// only when pending).
     pub fn installProjection(self: *Session, answer_position: u64, projection: Projection) !void {
         errdefer deinitProjection(self.allocator, projection);
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return Error.InvalidReference;
-        if (entry.status != .pending) return Error.InvalidReference;
+        const resolution_stored = if (entry.payload) |p| p.resolution != null else false;
+        if (resolution_stored) return Error.InvalidReference;
         const installed = if (entry.payload) |p| p.projections.items.len else 0;
         if (installed >= self.limits.max_listeners_per_target) {
             return Error.ProjectionCapExceeded;
@@ -1137,8 +1237,8 @@ pub fn checkGcExportDecrement(
     table: *const SlotTable,
     gc_export: model.GcExport,
 ) (Error || std.mem.Allocator.Error)!void {
-    // Single pass over the wire deltas (O(1) `count` per position now that the
-    // table is position-keyed): accumulate each position's running total and
+    // Single pass over the wire deltas (O(1) `count` per position with the
+    // position-keyed table): accumulate each position's running total and
     // reject the moment it would exceed the live refcount. The scratch map
     // tolerates repeated positions in one message without the prior O(n^2)
     // re-scan; it is GC-validation scratch, freed before apply.

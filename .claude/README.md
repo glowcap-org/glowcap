@@ -10,5 +10,6 @@ the canonical agent guidance lives.
 - `settings.json` enables shared agent plugins and wires edit hooks to scripts
   under [`.agents/hooks`](../.agents/hooks).
 
-Edit canonical guidance under `.agents/`; keep this overlay thin. `zig build
+Edit canonical guidance under `.agents/`; keep this overlay thin.
+`zig build
 meta-check` verifies the symlink shape and hook/MCP wiring.

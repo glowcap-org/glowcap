@@ -1,11 +1,11 @@
-//! Private ABI constants mirrored from `pancake.h`.
+//! Private ABI constants mirrored from `pancake_ocapn.h`.
 
 #![allow(dead_code)]
 
 use core::ffi::{c_int, c_uint};
 
 /// `codec` for `pancake_peer_new_negotiated` and the tcp endpoints; mirrors
-/// `PANCAKE_CODEC_*` in `pancake.h`.
+/// `PANCAKE_CODEC_*` in `pancake_ocapn.h`.
 pub const CODEC_SYRUP: c_uint = 0;
 pub const CODEC_CAPNP: c_uint = 1;
 
@@ -56,22 +56,31 @@ pub const ARG_BIG_INTEGER: c_uint = 12;
 
 pub const RESOLUTION_FULFILL: c_uint = 0;
 pub const RESOLUTION_BREAK: c_uint = 1;
+pub const RESOLUTION_HANDOFF: c_uint = 2;
 
 /// Wire spelling of the empty locator hints in `pancake_peer_start_session`;
-/// mirrors `PANCAKE_HINTS_EMPTY_MAP` / `PANCAKE_HINTS_EMPTY_FALSE` in `pancake.h`.
+/// mirrors `PANCAKE_HINTS_EMPTY_MAP` / `PANCAKE_HINTS_EMPTY_FALSE` in `pancake_ocapn.h`.
 pub const HINTS_EMPTY_MAP: c_uint = 0;
 pub const HINTS_EMPTY_FALSE: c_uint = 1;
 
 /// The well-known bootstrap export position every OCapN peer answers `fetch`
-/// on; mirrors `PANCAKE_BOOTSTRAP_POSITION` in `pancake.h`.
+/// on; mirrors `PANCAKE_BOOTSTRAP_POSITION` in `pancake_ocapn.h`.
 pub const BOOTSTRAP_POSITION: u64 = 0;
 
 /// `captp_version` for `pancake_peer_new_negotiated`; mirrors
-/// `PANCAKE_CAPTP_VERSION_*` in `pancake.h`.
+/// `PANCAKE_CAPTP_VERSION_*` in `pancake_ocapn.h`.
 pub const CAPTP_VERSION_V1_0: c_uint = 0;
 pub const CAPTP_VERSION_PRE_SPEC: c_uint = 1;
 
-/// `PancakeLastAbort.domain`; mirrors `PANCAKE_ABORT_DOMAIN_*` in `pancake.h`.
+/// `PancakeEnlivenStart.status` / `pancake_peer_record_enlivenment` outcome;
+/// mirrors `PANCAKE_ENLIVEN_*` in `pancake_ocapn.h`.
+pub const ENLIVEN_FRESH: c_uint = 0;
+pub const ENLIVEN_CACHED: c_uint = 1;
+pub const ENLIVEN_IN_FLIGHT: c_uint = 2;
+pub const ENLIVEN_OUTCOME_FULFILLED: c_uint = 0;
+pub const ENLIVEN_OUTCOME_BROKEN: c_uint = 1;
+
+/// `PancakeLastAbort.domain`; mirrors `PANCAKE_ABORT_DOMAIN_*` in `pancake_ocapn.h`.
 pub const ABORT_DOMAIN_CODEC: c_uint = 0;
 pub const ABORT_DOMAIN_SESSION: c_uint = 1;
 pub const ABORT_DOMAIN_FOREIGN: c_uint = 2;

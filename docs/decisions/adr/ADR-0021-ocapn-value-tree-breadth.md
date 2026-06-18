@@ -13,24 +13,27 @@ superseded_by: []
 ## Context
 
 Goblins's `^echo` reflects any value its caller sends, and Goblins's CapTP
-marshaller emits the full OCapN passable universe (Model.md § Atom + § Container)
-as `op:deliver` arguments and resolution payloads. If pancake's value model is
-narrower than that universe, an honest Goblins client can hand pancake a value
-its decoder has no home for. The [First Principles](../../../AGENTS.md#first-principles)
-hold that protocol correctness comes before implementation convenience, and that
-a codec parses and renders but does not get to rule a partner's value illegal.
-The value model and the Syrup wire sit at different widths; the gap between them
-must be a loud, typed boundary, not a silent drop or a panic.
+marshaller emits the full OCapN passable universe (Model.md § Atom + §
+Container) as `op:deliver` arguments and resolution payloads. If pancake's value
+model is narrower than that universe, an honest Goblins client can hand pancake
+a value its decoder has no home for. The
+[First Principles](../../../AGENTS.md#first-principles) hold that protocol
+correctness comes before implementation convenience, and that a codec parses and
+renders but does not get to rule a partner's value illegal. The value model and
+the Syrup wire sit at different widths; the gap between them must be a loud,
+typed boundary, not a silent drop or a panic.
 
 ## Decision
 
-The `Argument` union in [`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig) carries
-the passable value tree as 14 variants: `bytes`, `symbol`, `reference`, `error`,
+The `Argument` union in
+[`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig) carries the
+passable value tree as 14 variants: `bytes`, `symbol`, `reference`, `error`,
 `handoff`, `string`, `integer`, `boolean`, `list`, `void`, `float64`, `set`,
 `tagged`, and `keyword`. Every value Goblins can marshal therefore has a model
 home, so decoding never forces a crash.
 
-The Syrup codec in [`src/ocapn/codec/syrup/decode.zig`](../../../src/ocapn/codec/syrup/decode.zig)
+The Syrup codec in
+[`src/ocapn/codec/syrup/decode.zig`](../../../src/ocapn/codec/syrup/decode.zig)
 renders and lifts every modeled positional passable:
 
 - `writeArgument` encodes `bytes`, `symbol`, `reference`, `string`, `handoff`,
@@ -79,18 +82,19 @@ not fork on representability.
   (`Null`/`Dict`/`Float32`/bignum), refused loudly on decode — a named boundary,
   not an invisible one.
 - Conformance evidence lives in
-  [`test/codec/syrup_test.zig`](../../../test/codec/syrup_test.zig): the rendered
-  variants assert against Goblins byte fixtures (`op_deliver_arg_*`); `float64`
-  pins the canonical `'D'` + big-endian binary64 bytes and round-trips NaN and
-  signed zero bit-for-bit.
+  [`test/codec/syrup_test.zig`](../../../test/codec/syrup_test.zig): the
+  rendered variants assert against Goblins byte fixtures (`op_deliver_arg_*`);
+  `float64` pins the canonical `'D'` + big-endian binary64 bytes and round-trips
+  NaN and signed zero bit-for-bit.
 
 ## Float64 equality
 
-Float64 Pass-Invariant Equality uses `Object.is` semantics, not IEEE `==`: every NaN
-bit-pattern is Equal to every other NaN, and `+0.0` is not Equal to `-0.0`.
-`model.float64Equal` implements it by collapsing every NaN to one Equal class and
-otherwise comparing raw bits. This is the equality axis Model.md requires for the
-passable value tree, and it is what the `float64` round-trip test pins bit-for-bit.
+Float64 Pass-Invariant Equality uses `Object.is` semantics, not IEEE `==`: every
+NaN bit-pattern is Equal to every other NaN, and `+0.0` is not Equal to `-0.0`.
+`model.float64Equal` implements it by collapsing every NaN to one Equal class
+and otherwise comparing raw bits. This is the equality axis Model.md requires
+for the passable value tree, and it is what the `float64` round-trip test pins
+bit-for-bit.
 
 ## Notes
 

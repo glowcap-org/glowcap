@@ -37,7 +37,7 @@ bash conformance/ocapn-conformance/run.sh shell
 
 ## Running Against pancake
 
-The suite can be pointed at a *pancake* peer, not only Goblins.
+The suite can be pointed at a _pancake_ peer, not only Goblins.
 `pancake_peer.zig` serves the canonical conformance swiss-nums over the
 `tcp-testing-only` netlayer, and `run-against-pancake.sh` starts it and runs the
 suite against it:
@@ -51,14 +51,14 @@ bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_deliver  # on
 Against the external authority, pancake passes the targeted upstream modules the
 wrapper runs:
 
-| Module | What it exercises |
-| --- | --- |
-| `tests.op_start_session` | Valid keyed handshakes, invalid signature/version aborts, and crossed-hellos resolution. |
-| `tests.op_abort` | Aborting before a session is fully established. |
-| `tests.op_deliver` | Deliveries with and without answers, promise pipelining, and broken-promise propagation. |
-| `tests.op_listen` | Listening to pending and already-settled promises. |
-| `tests.op_gc` | Answer and export garbage-collection messages. |
-| `tests.third_party_handoffs` | Handoff-give and handoff-receive flows, including wait-before-deposit. |
+| Module                       | What it exercises                                                                        |
+| ---------------------------- | ---------------------------------------------------------------------------------------- |
+| `tests.op_start_session`     | Valid keyed handshakes, invalid signature/version aborts, and crossed-hellos resolution. |
+| `tests.op_abort`             | Aborting before a session is fully established.                                          |
+| `tests.op_deliver`           | Deliveries with and without answers, promise pipelining, and broken-promise propagation. |
+| `tests.op_listen`            | Listening to pending and already-settled promises.                                       |
+| `tests.op_gc`                | Answer and export garbage-collection messages.                                           |
+| `tests.third_party_handoffs` | Handoff-give and handoff-receive flows, including wait-before-deposit.                   |
 
 `handshake_abort_probe.py` remains a focused diagnostic for malformed handshake
 cases if a suite regression needs isolating. It is not part of the default
@@ -74,11 +74,11 @@ re-encode of them.
 
 ## What This Proves
 
-The suite is external conformance pressure. A green run against
-`goblins-peer/` proves the upstream suite, the native wrapper, the slim Goblins
-target, and its testing TCP netlayer compose; a run against `pancake_peer.zig`
-turns the same authority on pancake itself. It is not the `zig build check`
-gate and it is not the semantic oracle for Zig code by itself.
+The suite is external conformance pressure. A green run against `goblins-peer/`
+proves the upstream suite, the native wrapper, the slim Goblins target, and its
+testing TCP netlayer compose; a run against `pancake_peer.zig` turns the same
+authority on pancake itself. It is not the `zig build check` gate and it is not
+the semantic oracle for Zig code by itself.
 
 Pancake's in-tree gate remains `zig build oracle-check` / `zig build check`.
 Those gates cover the checked protocol scenarios and pancake-authored Syrup

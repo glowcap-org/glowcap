@@ -8,11 +8,10 @@
 //!
 //! `pairing.paired` runs both `op:start-session` halves in-process and leaves both
 //! sessions open on the Goblins V1.0 wire profile. (Real peers do the same
-//! handshake, just over a netlayer.) One wrinkle of V1.0 is that it has no wire
-//! `op:resolve`. So when a deliver carries an `answer`, the runtime quietly
-//! attaches a resolver, and the partner's reply comes back as an ordinary
-//! `op:deliver` to that resolver. You don't have to think about any of this:
-//! `Event.view()` re-projects the callback as the `Resolve` it really stands for.
+//! handshake, over a netlayer in production.) V1.0 has no wire `op:resolve`.
+//! When a deliver carries an `answer`, the runtime attaches a resolver, and the
+//! partner's reply comes back as an ordinary `op:deliver` to that resolver.
+//! `Event.view()` re-projects that callback as the semantic `Resolve`.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
@@ -31,14 +30,9 @@ pub fn main() !void {
     const phone = &pair.p1;
     const speaker = &pair.p2;
 
-    // The speaker hosts an object at export id 1; the phone holds it as import 1.
-    // (Chapter 03 derives this from a bootstrap fetch instead of pre-wiring it.)
     try speaker.exportObject(1);
     try phone.importObject(1);
 
-    // The phone calls queue("Hot Knife"), tagging the call with answer 42. The
-    // args are static, so `sendCopying` clones them (vs. `send`, which takes
-    // ownership and frees).
     try phone.sendCopying(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(1) },
         .args = &.{ .{ .symbol = "queue" }, .{ .bytes = "Hot Knife" } },
@@ -53,8 +47,6 @@ pub fn main() !void {
         std.debug.print("speaker received a {s}\n", .{@tagName(call.kind())});
     }
 
-    // The speaker hands back a receipt: a fresh local export (id 5), fulfilled to
-    // the phone's answer 42. On V1.0 `step` encodes this as a resolver-callback.
     try speaker.exportObject(5);
     try speaker.sendCopying(.{ .resolve = .{
         .answer = 42,
@@ -66,7 +58,6 @@ pub fn main() !void {
 
     var resolved = phone.pollEvent().?;
     defer resolved.deinit();
-    // `view()` re-projects the V1.0 resolver-callback as the semantic Resolve.
     const body = try resolved.view();
     const fulfilled = switch (body.resolve.resolution) {
         .fulfill => |arg| arg,
@@ -75,8 +66,6 @@ pub fn main() !void {
             return;
         },
     };
-    // The speaker sent Near(5) (its export); the perspective flip lands it on the
-    // phone as Far(5) (the phone's import of that receipt).
     const receipt_import = switch (fulfilled) {
         .reference => |reference| switch (reference) {
             .far => |far| far.import_position,

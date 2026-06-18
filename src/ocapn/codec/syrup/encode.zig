@@ -184,7 +184,7 @@ pub fn encodeMessageForProfile(
     switch (message) {
         .abort => |abort| {
             try beginRecord(allocator, &out);
-            try writeSymbol(allocator, &out, "op:abort");
+            try writeSymbol(allocator, &out, shared.messageOp(.abort));
             try writeAbortWireString(allocator, &out, abort);
             try endRecord(allocator, &out);
         },
@@ -193,7 +193,7 @@ pub fn encodeMessageForProfile(
             // position — the fire-and-forget one-way send. There is no separate
             // one-way record on the wire.
             try beginRecord(allocator, &out);
-            try writeSymbol(allocator, &out, "op:deliver");
+            try writeSymbol(allocator, &out, shared.messageOp(.deliver));
             try writeTargetReference(allocator, &out, deliver.target);
             try writeArgumentList(allocator, &out, deliver.args);
             if (deliver.answer) |answer| {
@@ -210,7 +210,7 @@ pub fn encodeMessageForProfile(
         },
         .resolve => |resolve| {
             try beginRecord(allocator, &out);
-            try writeSymbol(allocator, &out, "op:resolve");
+            try writeSymbol(allocator, &out, shared.messageOp(.resolve));
             try writePositiveInt(allocator, &out, resolve.answer);
             switch (resolve.resolution) {
                 .fulfill => |arg| {
@@ -230,20 +230,20 @@ pub fn encodeMessageForProfile(
         },
         .gc_export => |gc_export| {
             try beginRecord(allocator, &out);
-            try writeSymbol(allocator, &out, "op:gc-exports");
+            try writeSymbol(allocator, &out, shared.messageOp(.gc_export));
             try writeUnsignedList(allocator, &out, gc_export.positions);
             try writeUnsignedList(allocator, &out, gc_export.deltas);
             try endRecord(allocator, &out);
         },
         .gc_answer => |gc_answer| {
             try beginRecord(allocator, &out);
-            try writeSymbol(allocator, &out, "op:gc-answers");
+            try writeSymbol(allocator, &out, shared.messageOp(.gc_answer));
             try writeUnsignedList(allocator, &out, gc_answer.positions);
             try endRecord(allocator, &out);
         },
         .get => |get| {
             try beginRecord(allocator, &out);
-            try writeSymbol(allocator, &out, "op:get");
+            try writeSymbol(allocator, &out, shared.messageOp(.get));
             try writeTargetReference(allocator, &out, get.receiver);
             // The field name is a String on the wire (CapTP § op:get; Goblins
             // guards `string?` on receipt), not a Symbol.
@@ -253,7 +253,7 @@ pub fn encodeMessageForProfile(
         },
         .index => |index| {
             try beginRecord(allocator, &out);
-            try writeSymbol(allocator, &out, "op:index");
+            try writeSymbol(allocator, &out, shared.messageOp(.index));
             try writeTargetReference(allocator, &out, index.receiver);
             try writeInteger(allocator, &out, index.index);
             try writePositiveInt(allocator, &out, index.answer);
@@ -261,7 +261,7 @@ pub fn encodeMessageForProfile(
         },
         .untag => |untag| {
             try beginRecord(allocator, &out);
-            try writeSymbol(allocator, &out, "op:untag");
+            try writeSymbol(allocator, &out, shared.messageOp(.untag));
             try writeTargetReference(allocator, &out, untag.receiver);
             // The expected tag is a String on the wire (CapTP § op:untag),
             // matching op:get's field-name choice.
@@ -271,7 +271,7 @@ pub fn encodeMessageForProfile(
         },
         .listen => |listen| {
             try beginRecord(allocator, &out);
-            try writeSymbol(allocator, &out, "op:listen");
+            try writeSymbol(allocator, &out, shared.messageOp(.listen));
             try writePayloadReference(allocator, &out, listen.target);
             try writePayloadReference(allocator, &out, listen.listener);
             if (profile.captp_version == .v1_0) {
@@ -281,7 +281,7 @@ pub fn encodeMessageForProfile(
         },
         .start_session => |start_session| {
             try beginRecord(allocator, &out);
-            try writeSymbol(allocator, &out, "op:start-session");
+            try writeSymbol(allocator, &out, shared.messageOp(.start_session));
             try writeString(allocator, &out, start_session.captp_version.wireString());
             try writePeerKey(allocator, &out, start_session.session_pubkey.bytes);
             try writeLocator(allocator, &out, start_session.acceptable_location);
@@ -619,6 +619,63 @@ fn writeLocator(allocator: std.mem.Allocator, out: *std.ArrayList(u8), location:
         try out.appendSlice(allocator, "{}");
     }
     try endRecord(allocator, out);
+}
+
+/// Encode a verbatim `<ocapn-peer transport designator hints>` Syrup record,
+/// **including** hint entries as a `{…}` dict. `writeLocator` renders only the
+/// two empty hint spellings (`#f`, `{}`); this is its entry-carrying
+/// counterpart, for a gifter naming an exporter reachable only by a dial hint —
+/// an iroh exporter's direct-address list, say. Entries are emitted in canonical
+/// (encoded-key-sorted) order. Caller owns the returned slice. An empty hint set
+/// delegates to `writeLocator` so the `#f`/`{}` spelling is preserved.
+pub fn encodePeerLocatorRecord(allocator: std.mem.Allocator, location: model.PeerLocator) ![]u8 {
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    if (location.hints.entries.len == 0) {
+        try writeLocator(allocator, &out, location);
+        return out.toOwnedSlice(allocator);
+    }
+    try beginRecord(allocator, &out);
+    try writeSymbol(allocator, &out, "ocapn-peer");
+    try writeSymbol(allocator, &out, location.transport);
+    try writeString(allocator, &out, location.designator);
+    try writeHintDict(allocator, &out, location.hints.entries);
+    try endRecord(allocator, &out);
+    return out.toOwnedSlice(allocator);
+}
+
+/// Emit a Syrup `{…}` dict for hint entries, each `key value` pair encoded then
+/// sorted lexicographically by its bytes — the canonical order the upstream
+/// Syrup encoder uses (see `writeCanonicalStruct` for why sorting whole
+/// `key ++ value` encodings is equivalent to sorting keys when keys are unique).
+fn writeHintDict(allocator: std.mem.Allocator, out: *std.ArrayList(u8), entries: []const model.HintEntry) WalkError!void {
+    try out.append(allocator, '{');
+    const encoded = try allocator.alloc([]u8, entries.len);
+    var built: usize = 0;
+    defer {
+        for (encoded[0..built]) |element| allocator.free(element);
+        allocator.free(encoded);
+    }
+    for (entries) |entry| {
+        var element: std.ArrayList(u8) = .empty;
+        errdefer element.deinit(allocator);
+        try writeString(allocator, &element, entry.name);
+        try writeHintValue(allocator, &element, entry.value);
+        encoded[built] = try element.toOwnedSlice(allocator);
+        built += 1;
+    }
+    std.mem.sort([]u8, encoded, {}, lessByteSlice);
+    for (encoded) |element| try out.appendSlice(allocator, element);
+    try out.append(allocator, '}');
+}
+
+fn writeHintValue(allocator: std.mem.Allocator, out: *std.ArrayList(u8), value: model.HintValue) !void {
+    switch (value) {
+        .string => |string| try writeString(allocator, out, string),
+        .bytes => |bytes| try writeBytes(allocator, out, bytes),
+        .integer => |integer| try writeInteger(allocator, out, integer),
+        .boolean => |boolean| try writeBool(allocator, out, boolean),
+    }
 }
 
 fn writeLocatorString(allocator: std.mem.Allocator, out: *std.ArrayList(u8), location: []const u8) !void {

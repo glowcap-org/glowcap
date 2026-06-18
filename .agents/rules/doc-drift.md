@@ -5,8 +5,8 @@ globs: **/*.md, src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, 
 
 # pancake — Doc Drift Prevention
 
-This rule keeps doc claims *true*. Its sibling, [doc-voice](doc-voice.md), keeps
-doc prose *readable* — written as dialog for a person, not as private shorthand.
+This rule keeps doc claims _true_. Its sibling, [doc-voice](doc-voice.md), keeps
+doc prose _readable_ — written as dialog for a person, not as private shorthand.
 Run the two together whenever you touch a doc.
 
 Every doc surface that makes a state claim must satisfy one of:
@@ -36,7 +36,7 @@ change as the state they describe:
 - `site/content/**`
 - `bindings/README.md`
 - `bindings/rust/README.md`
-- `bindings/deno/README.md`
+- `bindings/ts/README.md`
 - `bindings/python/README.md`
 - `bindings/racket/README.md`
 - `examples/README.md`
@@ -50,15 +50,14 @@ change as the state they describe:
 - test names that encode API contracts
 
 `zig build meta-check` holds this registry honest in both directions: every
-top-level `docs/*.md`, every planning doc that declares itself living-state,
-and every doc under a `docs/` subdirectory that declares itself a
-living-state surface must be listed here (a covering glob like
-`docs/protocol-diagrams/**` counts), and every non-glob path listed here must
-exist.
+top-level `docs/*.md`, every planning doc that declares itself living-state, and
+every doc under a `docs/` subdirectory that declares itself a living-state
+surface must be listed here (a covering glob like `docs/protocol-diagrams/**`
+counts), and every non-glob path listed here must exist.
 
 `docs/vision.md` is the one surface that argues a destination: its aspirational
-prose is not drift, but its present-tense claims (what is implemented versus not,
-build-step and API names) are gated like any other and move with the code.
+prose is not drift, but its present-tense claims (what is implemented versus
+not, build-step and API names) are gated like any other and move with the code.
 
 Other `README.md` files are not automatically living-state surfaces. Classify
 them by role:

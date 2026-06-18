@@ -21,7 +21,7 @@ const PipelineOpKind = shared.PipelineOpKind;
 const HandoffKind = shared.HandoffKind;
 const StructLoc = shared.StructLoc;
 
-/// Encode for a wire profile -- the codec-dispatch boundary's counterpart to
+/// Encode for a wire profile — the codec-dispatch boundary's counterpart to
 /// `syrup.encodeMessageForProfile`. Cap'n Proto is pancake's self-consistent
 /// dialect (ADR-0026): the struct schema always carries `resolve_me_desc` /
 /// `wants_partial`, and the engine applies the V1.0 semantic translation
@@ -30,10 +30,9 @@ const StructLoc = shared.StructLoc;
 /// uniformity and intentionally unused.
 pub fn encodeMessageForProfile(
     allocator: std.mem.Allocator,
-    profile: model.WireProfile,
+    _: model.WireProfile,
     message: model.Message,
 ) EncodeError!foundation.Frame {
-    _ = profile;
     return encodeMessage(allocator, message);
 }
 
@@ -416,7 +415,7 @@ fn lessByKeyBytes(keys: []const []u8, a: usize, b: usize) bool {
 }
 
 /// Encode a single `Argument` as a standalone Cap'n Proto message and return its
-/// owned bytes -- the canonical sort key for set ordering. Caller owns the slice.
+/// owned bytes — the canonical sort key for set ordering. Caller owns the slice.
 fn encodeArgumentKey(allocator: std.mem.Allocator, arg: model.Argument) EncodeError![]u8 {
     var builder = wire.Builder{};
     defer builder.deinit(allocator);

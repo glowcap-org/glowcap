@@ -1,14 +1,14 @@
 {
-	"mcpServers": {
-		"serena": {
-			"command": "serena",
-			"args": [
-				"start-mcp-server",
-				"--context",
-				"ide",
-				"--project",
-				"${workspaceFolder}"
-			]
-		}
-	}
+  "mcpServers": {
+    "serena": {
+      "command": "serena",
+      "args": [
+        "start-mcp-server",
+        "--context",
+        "ide",
+        "--project",
+        "${workspaceFolder}"
+      ]
+    }
+  }
 }

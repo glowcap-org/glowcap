@@ -21,7 +21,7 @@ import sys
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "bindings" / "python"))
 
 from nacl.signing import SigningKey  # noqa: E402
-from pancake import VowBroken, connect  # noqa: E402
+from pancake import VowBroken, connect, tcp_locator  # noqa: E402
 
 
 def b64url(data: bytes) -> str:
@@ -33,7 +33,7 @@ async def run(port: int) -> None:
     print(f"  connecting to 127.0.0.1:{port}…")
 
     # `connect` completes the keyed op:start-session handshake before returning.
-    conn = await connect("127.0.0.1", port)
+    conn = await connect(tcp_locator("127.0.0.1", port))
     # `fetch`/`send` drive the inbound loop themselves — no separate serve() call.
     affordance = await conn.fetch("affordance")
 

@@ -2,7 +2,7 @@
 //!
 //! This file owns the scalable counterparts to the blocking, caller-pumped
 //! surface in `mod.zig`. `LoopHost` hosts the actor surface on
-//! `net_adapter.Loop`: it accepts partners, signs every connection's keyed
+//! `net.Loop`: it accepts partners, signs every connection's keyed
 //! `op:start-session` with one server identity key, and gives each accepted
 //! connection its own `actors.Vat`. `LoopDialer` is the outbound counterpart:
 //! it dials TCP partners, signs the dialer half of the handshake with a
@@ -20,7 +20,7 @@ const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
 const actors = @import("actors");
-const net_adapter = @import("net_adapter");
+const net = @import("net");
 
 const mod = @import("mod.zig");
 const gc = @import("gc.zig");
@@ -67,7 +67,7 @@ fn serveThroughVat(vat: *actors.Vat, gc_stateless: bool, peer: *engine.Peer, eve
 /// One teardown for both loop drivers' per-connection contexts: deinit the
 /// context and free it on the owner's allocator. `Owner` carries `allocator`
 /// and an inner `Conn` type with a `deinit`.
-fn freeConnCtxFor(comptime Owner: type) net_adapter.completion.FreeConnCtx {
+fn freeConnCtxFor(comptime Owner: type) net.completion.FreeConnCtx {
     return struct {
         fn free(ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void {
             const self: *Owner = @ptrCast(@alignCast(ctx.?));
@@ -81,7 +81,7 @@ fn freeConnCtxFor(comptime Owner: type) net_adapter.completion.FreeConnCtx {
 /// A connection-fan-out host that runs the actor surface on the completion loop.
 /// This is the scalable counterpart to one-connection-per-thread `ConnectedVat`.
 ///
-/// It wraps `net_adapter.Loop`, draws one server identity key, and hosts a vat
+/// It wraps `net.Loop`, draws one server identity key, and hosts a vat
 /// per accepted connection: each connection gets a fresh `actors.Vat` bound to
 /// its peer, the application's `publish` callback sets up that connection's
 /// objects (typically with `publishNamed`), and every surfaced event runs
@@ -127,7 +127,7 @@ pub const LoopHost = struct {
         }
     };
 
-    loop: net_adapter.Loop,
+    loop: net.Loop,
     secret: crypto.SecretKey,
     frame_cap: usize,
     verify_partner: bool,
@@ -150,7 +150,7 @@ pub const LoopHost = struct {
     ) !LoopHost {
         const secret = try drawSessionSecret(io);
 
-        const loop = try net_adapter.Loop.init(allocator, makePeer, null, .{
+        const loop = try net.Loop.init(allocator, makePeer, null, .{
             .frame_cap = options.frame_cap,
             .max_conns = options.max_conns,
             .listen = options.port,
@@ -191,7 +191,7 @@ pub const LoopHost = struct {
     /// Binds the loop's shared context to this now-stable host so the
     /// per-connection hooks can reach the server key, the publish callback, and
     /// the allocator.
-    pub fn run(self: *LoopHost, stop: net_adapter.completion.Stop) !void {
+    pub fn run(self: *LoopHost, stop: net.completion.Stop) !void {
         self.loop.make_ctx = @ptrCast(self);
         return self.loop.run(stop);
     }
@@ -222,7 +222,7 @@ pub const LoopHost = struct {
 };
 
 /// A completion-loop client fan-out driver: the outbound counterpart to
-/// `LoopHost`. It owns one `net_adapter.Loop`, creates one negotiating peer and
+/// `LoopHost`. It owns one `net.Loop`, creates one negotiating peer and
 /// actor vat per dialed TCP connection, signs the dialer half of
 /// `op:start-session` with a dialer-owned key, and runs application callbacks from
 /// the loop's per-event hook. The core protocol layers do not change.
@@ -311,7 +311,7 @@ pub const LoopDialer = struct {
         }
     };
 
-    loop: net_adapter.Loop,
+    loop: net.Loop,
     secret: crypto.SecretKey,
     frame_cap: usize,
     verify_partner: bool,
@@ -326,7 +326,7 @@ pub const LoopDialer = struct {
         const secret = try drawSessionSecret(io);
         // No `.listen`: a dialer-only loop must not open a socket that accepts
         // strangers under the dialer's identity.
-        const loop = try net_adapter.Loop.init(allocator, makePeer, null, .{
+        const loop = try net.Loop.init(allocator, makePeer, null, .{
             .frame_cap = options.frame_cap,
             .max_conns = options.max_conns,
             .make_conn_ctx = makeConnCtx,
@@ -359,7 +359,7 @@ pub const LoopDialer = struct {
 
     /// Run the loop: `.forever` for a long-lived dialer, `.{ .after_closed = n }`
     /// to return once `n` dialed connections have fully closed.
-    pub fn run(self: *LoopDialer, stop: net_adapter.completion.Stop) !void {
+    pub fn run(self: *LoopDialer, stop: net.completion.Stop) !void {
         self.loop.make_ctx = @ptrCast(self);
         return self.loop.run(stop);
     }

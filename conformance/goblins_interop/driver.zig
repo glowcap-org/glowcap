@@ -3,14 +3,18 @@
 //!
 //! The client bracket: pancake spawns the conformance Goblins host
 //! (`goblins-host.rkt`), reads its NDJSON readiness to learn the listen
-//! port and the published echo cap's swiss-num, dials it over `net_adapter.tcp`,
+//! port and the published echo cap's swiss-num, dials it over `net.tcp`,
 //! runs the keyed `op:start-session` handshake (real Ed25519, a `tcp` locator
 //! with `#f` hints so the signed bytes match what Goblins re-encodes), verifies
 //! Goblins' own signed start-session, then bootstrap-fetches the echo cap and
 //! calls it, asserting it resolves fulfilled. The same bracket pipelines the
 //! two projection ops Goblins can answer — an `op:index` against the settled
 //! echo answer, and an `op:get` against a still-pending answer that settles to
-//! a Struct — and asserts Goblins resolves each projection.
+//! a Struct — and asserts Goblins resolves each projection. Finally it enlivens
+//! the echo swiss-num through the engine's ADR-0012 dedup-cache API
+//! (`prepareEnliven`/`recordEnlivenment`, the surface every binding's `enliven`
+//! rides), calls the enlivened cap, and asserts a repeat enliven hits the cache
+//! with no wire traffic — proving enliven against a real Goblins-published cap.
 //!
 //! The listener bracket: pancake then binds its own TCP listener on an
 //! ephemeral port and a real Goblins client dials in. Three scenarios share
@@ -35,7 +39,7 @@ const engine = pancake.ocapn.engine;
 const codec = pancake.ocapn.codec;
 const actors = pancake.actors;
 const crypto = pancake.foundation.crypto;
-const tcp = pancake.net_adapter.tcp;
+const tcp = pancake.net.tcp;
 
 const host = "127.0.0.1";
 /// The Goblins host's listening port in the dial direction. `--port=N` (from
@@ -422,19 +426,15 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_st
     // 4. Pipeline an op:index against the settled echo answer (ADR-0050,
     //    pancake as the asker): Goblins exports a promise at the new answer
     //    position and resolves it to element 0 of the echoed list. V1.0 has no
-    //    op:resolve push, so an op:listen with one of our exports as the
-    //    listener carries the projected resolution back as a deliver.
+    //    op:resolve push, so the engine auto-installs a listener on the
+    //    projected answer (`engine.v1_0.installListenerForOutboundProjection`);
+    //    Goblins fires it and the projected resolution surfaces back here as an
+    //    ordinary resolve event, exactly as the bindings see it.
     const index_answer: u64 = 4343;
     try peer.sendCopying(.{ .index = .{
         .receiver = .{ .promise = .{ .answer_position = echo_answer } },
         .index = 0,
         .answer = index_answer,
-    } });
-    const listener_export = try peer.exportNextObject();
-    try peer.sendCopying(.{ .listen = .{
-        .target = .{ .promise = .{ .answer_position = index_answer } },
-        .listener = .{ .near = .{ .export_position = listener_export } },
-        .wants_partial = false,
     } });
 
     var projected = false;
@@ -444,22 +444,18 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_st
             var event = event_value;
             defer event.deinit();
             const body = event.view() catch continue;
-            if (body == .deliver and body.deliver.target == .near and
-                body.deliver.target.near.export_position == listener_export)
-            {
-                // Goblins fires a listener with ['fulfill value] / ['break reason].
-                if ((try body.deliver.args.len()) != 2) return error.ProjectionWrongPayload;
-                const tag: []const u8 = switch (try body.deliver.args.at(0)) {
-                    .symbol => |s| s,
-                    else => return error.ProjectionWrongPayload,
-                };
-                if (!std.mem.eql(u8, tag, "fulfill")) return error.ProjectionBroke;
-                const text: []const u8 = switch (try body.deliver.args.at(1)) {
-                    .bytes, .string => |t| t,
-                    else => return error.ProjectionWrongPayload,
-                };
-                if (!std.mem.eql(u8, text, "pancake-ping")) return error.ProjectionWrongPayload;
-                projected = true;
+            if (body == .resolve and body.resolve.answer == index_answer) {
+                switch (body.resolve.resolution) {
+                    .fulfill => |payload| {
+                        const text: []const u8 = switch (payload) {
+                            .bytes, .string => |t| t,
+                            else => return error.ProjectionWrongPayload,
+                        };
+                        if (!std.mem.eql(u8, text, "pancake-ping")) return error.ProjectionWrongPayload;
+                        projected = true;
+                    },
+                    .@"break" => return error.ProjectionBroke,
+                }
             }
         }
         if (progress == .closed) break;
@@ -471,8 +467,8 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_st
     //    fetch the record cap — calling it returns a string-keyed hash, the
     //    OCapN Struct — and project the "name" field out of the call's answer.
     //    The op:get is sent *before* the call settles, so Goblins anchors its
-    //    `hash-ref` vow on a still-pending answer; the op:listen carries the
-    //    projected field back as a listener-fire deliver.
+    //    `hash-ref` vow on a still-pending answer; the engine's auto-installed
+    //    listener carries the projected field back as a resolve event.
     const record = try goblins_child.fetchCap(allocator, &peer, &conn, record_swiss);
     defer model.freeReference(allocator, record);
     std.debug.print("goblins-interop: fetched goblins record cap, pipelining op:get against its answer\n", .{});
@@ -489,12 +485,6 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_st
         .field = "name",
         .answer = get_answer,
     } });
-    const get_listener = try peer.exportNextObject();
-    try peer.sendCopying(.{ .listen = .{
-        .target = .{ .promise = .{ .answer_position = get_answer } },
-        .listener = .{ .near = .{ .export_position = get_listener } },
-        .wants_partial = false,
-    } });
 
     var got = false;
     while (!got) {
@@ -503,28 +493,81 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_st
             var event = event_value;
             defer event.deinit();
             const body = event.view() catch continue;
-            if (body == .deliver and body.deliver.target == .near and
-                body.deliver.target.near.export_position == get_listener)
-            {
-                // Goblins fires a listener with ['fulfill value] / ['break reason].
-                if ((try body.deliver.args.len()) != 2) return error.GetProjectionWrongPayload;
-                const tag: []const u8 = switch (try body.deliver.args.at(0)) {
-                    .symbol => |s| s,
-                    else => return error.GetProjectionWrongPayload,
-                };
-                if (!std.mem.eql(u8, tag, "fulfill")) return error.GetProjectionBroke;
-                const text: []const u8 = switch (try body.deliver.args.at(1)) {
-                    .bytes, .string => |t| t,
-                    else => return error.GetProjectionWrongPayload,
-                };
-                if (!std.mem.eql(u8, text, "pancake-get")) return error.GetProjectionWrongPayload;
-                got = true;
+            if (body == .resolve and body.resolve.answer == get_answer) {
+                switch (body.resolve.resolution) {
+                    .fulfill => |payload| {
+                        const text: []const u8 = switch (payload) {
+                            .bytes, .string => |t| t,
+                            else => return error.GetProjectionWrongPayload,
+                        };
+                        if (!std.mem.eql(u8, text, "pancake-get")) return error.GetProjectionWrongPayload;
+                        got = true;
+                    },
+                    .@"break" => return error.GetProjectionBroke,
+                }
             }
         }
         if (progress == .closed) break;
     }
     if (!got) return error.GetProjectionNeverResolved;
     std.debug.print("goblins-interop: op:get pipelined against the pending record answer; goblins resolved the projected field\n", .{});
+
+    // 6. Enliven the echo cap by its swiss-num through the engine's ADR-0012
+    //    dedup-cache API (the same surface every binding's `enliven` rides), not a
+    //    bare bootstrap fetch. The first enliven runs a real bootstrap-fetch to
+    //    Goblins and caches the resolved far reference; calling the enlivened cap
+    //    proves it is live. A second enliven for the same swiss-num then short-
+    //    circuits on the cache with no wire traffic, returning the same import.
+    const enlivened = try goblins_child.enlivenCap(allocator, &peer, &conn, swiss);
+    defer model.freeReference(allocator, enlivened);
+    std.debug.print("goblins-interop: enlivened goblins echo cap via the dedup-cache API, calling it\n", .{});
+
+    const enliven_answer: u64 = 4646;
+    try peer.sendCopying(.{ .deliver = .{
+        .target = enlivened,
+        .args = &.{.{ .bytes = "pancake-enliven" }},
+        .answer = enliven_answer,
+    } });
+    var enliven_echoed = false;
+    while (!enliven_echoed) {
+        const progress = try conn.pump();
+        while (peer.pollEvent()) |event_value| {
+            var event = event_value;
+            defer event.deinit();
+            const body = event.view() catch continue;
+            if (body == .resolve and body.resolve.answer == enliven_answer) {
+                switch (body.resolve.resolution) {
+                    .fulfill => |payload| {
+                        if (payload != .list or (try payload.list.len()) != 1) return error.EnlivenWrongPayload;
+                        const text: []const u8 = switch (try payload.list.at(0)) {
+                            .bytes, .string => |t| t,
+                            else => return error.EnlivenWrongPayload,
+                        };
+                        if (!std.mem.eql(u8, text, "pancake-enliven")) return error.EnlivenWrongPayload;
+                        enliven_echoed = true;
+                    },
+                    .@"break" => return error.EnlivenBroke,
+                }
+            }
+        }
+        if (progress == .closed) break;
+    }
+    if (!enliven_echoed) return error.EnlivenNeverResolved;
+
+    // The repeat enliven must hit the cache: same import position, no wire traffic.
+    const repeat = try engine.sturdyref.prepareEnliven(allocator, &peer.session_state, .{
+        .peer = .{ .transport = tcp.transport_name, .designator = designator, .hints = model.Hints.emptyFalse() },
+        .swissnum = swiss,
+    });
+    switch (repeat) {
+        .cached => |reference| {
+            if (reference != .far or enlivened != .far or
+                reference.far.import_position != enlivened.far.import_position)
+                return error.EnlivenCacheMismatch;
+        },
+        .in_flight, .fresh => return error.EnlivenCacheMissed,
+    }
+    std.debug.print("goblins-interop: enliven dedup cache hit on repeat — same import, no wire traffic\n", .{});
 }
 
 /// Verify the Ed25519 signature Goblins put on its own `op:start-session` over

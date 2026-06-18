@@ -1,17 +1,27 @@
-//! Header parity — proves the hand-written `include/pancake.h` agrees with the
-//! Zig `c_abi` source it mirrors, so the two cannot silently drift. The header
-//! keeps its prose (it is the C consumer's contract document); this test is the
-//! compiler-checked guarantee that its layouts and constants match the source.
+//! Header parity — proves the generated `include/pancake_ocapn.h` and the two
+//! transport headers (`pancake_net_transport_tcp.h`, `pancake_net_transport_inproc.h`) agree with
+//! the Zig C ABI sources they mirror, so the two cannot silently drift. The
+//! headers keep their prose (they are the C consumer's contract documents); this
+//! test is the compiler-checked guarantee that their layouts and constants match
+//! the source.
 //!
-//! `@cImport` translates `pancake.h`; every assertion compares a C declaration
-//! against the Zig `extern struct` / constant it is supposed to equal.
+//! `@cImport` translates the three headers into one namespace; every assertion
+//! compares a C declaration against the Zig `extern struct` / constant /
+//! function it is supposed to equal. The shared vocabulary (frame/context types,
+//! codes) is declared once in `pancake_ocapn.h`, which the transport headers
+//! include, so struct and constant parity is checked against the `c_abi` (ocapn)
+//! source; each transport module's functions are checked separately (ADR-0059).
 
 const std = @import("std");
 const pancake = @import("pancake");
 
 const cabi = @import("c_abi");
+const cabi_tcp = @import("c_abi_net_transport_tcp");
+const cabi_inproc = @import("c_abi_net_transport_inproc");
 const c = @cImport({
-    @cInclude("pancake.h");
+    @cInclude("pancake_ocapn.h");
+    @cInclude("pancake_net_transport_tcp.h");
+    @cInclude("pancake_net_transport_inproc.h");
 });
 
 /// Every field of the Zig struct sits at the same offset in the C struct, and
@@ -32,19 +42,25 @@ fn isFunction(comptime value: anytype) bool {
     return @typeInfo(@TypeOf(value)) == .@"fn";
 }
 
-test "every exported C ABI function is declared in the header" {
-    // A `pancake_*` function added to the Zig source but forgotten in the header
+fn expectFunctionsDeclared(comptime Mod: type, comptime header: []const u8) void {
+    // A `pancake_*` function added to the Zig source but forgotten in its header
     // (or removed from one side only) fails to compile here.
-    @setEvalBranchQuota(20000);
-    inline for (@typeInfo(cabi).@"struct".decls) |decl| {
+    @setEvalBranchQuota(40000);
+    inline for (@typeInfo(Mod).@"struct".decls) |decl| {
         if (comptime std.mem.startsWith(u8, decl.name, "pancake_")) {
-            if (comptime isFunction(@field(cabi, decl.name))) {
+            if (comptime isFunction(@field(Mod, decl.name))) {
                 if (!@hasDecl(c, decl.name)) {
-                    @compileError("exported function missing from pancake.h: " ++ decl.name);
+                    @compileError("exported function missing from " ++ header ++ ": " ++ decl.name);
                 }
             }
         }
     }
+}
+
+test "every exported C ABI function is declared in its header" {
+    expectFunctionsDeclared(cabi, "pancake_ocapn.h");
+    expectFunctionsDeclared(cabi_tcp, "pancake_net_transport_tcp.h");
+    expectFunctionsDeclared(cabi_inproc, "pancake_net_transport_inproc.h");
 }
 
 test "C header struct layouts match the Zig c_abi source" {

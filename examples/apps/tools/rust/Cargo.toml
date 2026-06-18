@@ -8,6 +8,8 @@ publish = false
 name = "tools-agent"
 path = "agent.rs"
 
+# `default-features = false` so this agent links only the core archive plus its
+# tokio driver: it dials over native sockets and pays for no transport archive.
 [dependencies]
-pancake = { path = "../../../../bindings/rust", package = "pancake-rust-dogfood", features = ["async"] }
+pancake = { path = "../../../../bindings/rust", package = "pancake-rust-dogfood", default-features = false, features = ["async"] }
 tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "time", "sync"] }

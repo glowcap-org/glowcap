@@ -19,7 +19,7 @@
 //! what you pass in, like the queued call or the listener target, and moves its
 //! heap into the result. It moves, it doesn't copy. The one exception is the
 //! partial-listener case, where a single resolution has to both fire the listener
-//! now and re-anchor it on the next answer, so there it makes one
+//! immediately and re-anchor it on the next answer, so there it makes one
 //! `model.cloneReference`.
 
 const std = @import("std");
@@ -128,7 +128,7 @@ pub const DecomposeError = std.mem.Allocator.Error || error{
 ///
 /// Pure move, no clone: each `call` op's args move into its intermediate deliver,
 /// the outer args / `resolve_me_desc` move into the terminal, and the emptied
-/// `path.ops` backing slice is freed (its elements now live in the chain).
+/// `path.ops` backing slice is freed (its elements live in the chain).
 ///
 /// Ownership on error: a `field` step is rejected up front and `OutOfMemory`
 /// fires on the single allocation — both before any move — so `message` is left
@@ -171,7 +171,7 @@ pub fn decomposeOutboundDeliver(
         .resolve_me_desc = deliver.resolve_me_desc,
     } };
     // Every op payload + the outer args moved into the chain; release only the
-    // now-emptied `ops` backing slice.
+    // emptied `ops` backing slice.
     allocator.free(ops);
     return .{ .intermediates = intermediates, .terminal = terminal };
 }
@@ -358,19 +358,20 @@ pub fn maybeInstallInboundListener(peer: *Peer, listen: model.view.Listen) !void
 /// ordinary recv handling. An already-settled answer fires the listener now
 /// against the stored resolution, or a generic break when none was kept.
 fn installAnswerListener(peer: *Peer, answer: u64, listen: model.view.Listen) !void {
-    const entry = peer.session_state.inboundAnswer(answer) orelse return;
+    _ = peer.session_state.inboundAnswer(answer) orelse return;
     const position = listen.listener.position() orelse return;
     try peer.session_state.registerImport(position);
     const listener_entry: session.ListenerEntry = .{
         .target = .{ .far = model.FarRef.object(position) },
         .wants_partial = listen.wants_partial,
     };
-    if (entry.status == .fulfilled or entry.status == .broken) {
-        const resolution: model.Resolution = if (peer.session_state.peekResolution(answer)) |r|
-            r.*
-        else
-            .{ .@"break" = .{ .message = "promise already settled" } };
-        const action = try classifyListenerDrain(peer.allocator, listener_entry, resolution);
+    // A settled inbound answer always holds its stored resolution (the
+    // `applySentResolve` invariant: status and resolution land together at
+    // record time). So the peek is the whole decision — present means settled, fire the
+    // listener now from the kept value; absent means still pending, install it
+    // for the answer's own resolve to fire (`fireListenersOnResolve`).
+    if (peer.session_state.peekResolution(answer)) |resolution| {
+        const action = try classifyListenerDrain(peer.allocator, listener_entry, resolution.*);
         try applyListenerAction(peer, action);
     } else {
         try peer.session_state.installListener(answer, listener_entry);
@@ -385,12 +386,14 @@ fn installAnswerListener(peer: *Peer, answer: u64, listen: model.view.Listen) !v
 /// A still-pending answer queues the owned call until we resolve it; an
 /// enqueue refusal (e.g. the queue cap) propagates and the session frees the
 /// call. A settled answer dispatches the call right now, through the same
-/// `dispatchDrainedCall` path a queued call takes on drain: against the kept
-/// resolution when one was stored — the case a live Goblins enliven-and-call
-/// in one breath hits, since we auto-serve the bootstrap fetch synchronously
-/// and the answer settles before the pipelined frame is processed — or, when
-/// no resolution was kept, against a synthetic "pipelined target already
-/// broken" break, so the caller's answer/resolver is not left hanging.
+/// `dispatchDrainedCall` path a queued call takes on drain, against its kept
+/// resolution — the case a live Goblins enliven-and-call in one breath hits,
+/// since we auto-serve the bootstrap fetch synchronously and the answer settles
+/// before the pipelined frame is processed. The settled-vs-pending split is the
+/// stored resolution itself (the `applySentResolve` invariant: a settled inbound
+/// answer always holds its resolution), not the status flag, so a call arriving while
+/// the answer's own resolve is queued-but-unemitted is dispatched against the
+/// real value rather than mistaken for an unresolved or broken target.
 ///
 /// Every arm validates the borrowed view first (the same reference / argument /
 /// depth checks as a direct deliver) and only then materializes it owned, so an
@@ -399,7 +402,7 @@ fn installAnswerListener(peer: *Peer, answer: u64, listen: model.view.Listen) !v
 pub fn maybeEnqueuePipelinedCall(peer: *Peer, deliver: model.view.Deliver) !bool {
     if (deliver.target != .promise) return false;
     const answer = deliver.target.promise.answer_position;
-    const entry = peer.session_state.inboundAnswer(answer) orelse return false;
+    if (peer.session_state.inboundAnswer(answer) == null) return false;
 
     // The V1.0 resolver for this deliver's `resolve_me_desc` was already
     // installed by the inbound-deliver classifier (`Peer.classifyInboundDeliver`),
@@ -407,30 +410,32 @@ pub fn maybeEnqueuePipelinedCall(peer: *Peer, deliver: model.view.Deliver) !bool
 
     try peer.session_state.validatePipelinedDeliver(deliver);
 
-    if (entry.status == .pending) {
-        // Install the queued call's own answer so further pipelined calls
-        // can target it (a multi-hop pipeline: A→B→C queues B on A, then
-        // C targets B's answer — C needs B's answer to exist).
-        if (deliver.answer) |call_answer| {
-            try peer.session_state.installInboundAnswer(call_answer);
-        }
+    // The stored resolution is the settled/pending decision (the
+    // `applySentResolve` invariant: a settled inbound answer always holds its
+    // resolution). Peeking
+    // rather than reading the status flag is what keeps a call that arrives
+    // while the answer's own resolve is still a queued outbound message from
+    // being misrouted — it sees the real value and dispatches against it.
+    if (peer.session_state.peekResolution(answer)) |resolution| {
+        // Settled: dispatch the call right now, the same path a queued call
+        // takes on drain. The local-delivery bound is per-resolution (see
+        // `drainPipelinedCalls`), so it resets for this immediate dispatch
+        // exactly as it does for a drain.
         const owned = try (model.view.Body{ .deliver = deliver }).toOwned(peer.allocator);
-        try peer.session_state.enqueuePipelinedCall(answer, owned);
+        peer.local_delivery_depth = 0;
+        try dispatchDrainedCall(peer, answer, owned, resolution.*);
         return true;
     }
 
-    // Settled (`fulfilled` or `broken` — the status space is total). Dispatch
-    // against the kept resolution, or propagate a synthetic break when none
-    // was stored (a break or non-reference fulfill). The local-delivery bound
-    // is per-resolution (see `drainPipelinedCalls`), so it resets for this
-    // immediate dispatch exactly as it does for a drain.
-    const owned = try (model.view.Body{ .deliver = deliver }).toOwned(peer.allocator);
-    peer.local_delivery_depth = 0;
-    if (peer.session_state.peekResolution(answer)) |resolution| {
-        try dispatchDrainedCall(peer, answer, owned, resolution.*);
-    } else {
-        try dispatchDrainedCall(peer, answer, owned, .{ .@"break" = .{ .message = "pipelined target already broken" } });
+    // Still pending: queue the call until we resolve the answer. Install the
+    // queued call's own answer first so further pipelined calls can target it (a
+    // multi-hop pipeline: A→B→C queues B on A, then C targets B's answer — C
+    // needs B's answer to exist).
+    if (deliver.answer) |call_answer| {
+        try peer.session_state.installInboundAnswer(call_answer);
     }
+    const owned = try (model.view.Body{ .deliver = deliver }).toOwned(peer.allocator);
+    try peer.session_state.enqueuePipelinedCall(answer, owned);
     return true;
 }
 
@@ -535,13 +540,17 @@ fn anchorProjection(peer: *Peer, source: u64, projection: session.Projection) !v
     var current = source;
     var moving = projection;
     while (true) {
-        const entry = peer.session_state.inboundAnswer(current) orelse
+        if (peer.session_state.inboundAnswer(current) == null)
             return breakProjection(peer, moving, "projection receiver names an unknown answer");
-        if (entry.status == .pending) {
-            return peer.session_state.installProjection(current, moving);
-        }
+        // The stored resolution is itself the settled/pending decision (the
+        // `applySentResolve` invariant couples status and resolution, so peeking
+        // is equivalent to reading the flag and never rests on the `.?`). Absent
+        // means still pending — install the projection and let the answer's own
+        // resolve drain it (`drainProjections`); present means project now.
+        // Mirrors `installProjection`, `installAnswerListener`, and
+        // `Peer.stepInner`, every other settled-answer reader.
         const resolution = peer.session_state.peekResolution(current) orelse
-            return breakProjection(peer, moving, "projection receiver settled with no kept resolution");
+            return peer.session_state.installProjection(current, moving);
         switch (projectResolution(resolution.*, moving.kind)) {
             .resolved => |projected| return resolveProjection(peer, moving, projected),
             .reanchor => |next| {
@@ -643,8 +652,8 @@ fn propagateBreakToDrainedCall(peer: *Peer, queued: model.Message, resolution: m
 }
 
 /// Deliver a drained pipelined call to a local export `near` resolved its
-/// target to: rewrite the target, install the call's own answer as one we now
-/// owe, and surface a synthesized `op:deliver` event so the application
+/// target to: rewrite the target, install the call's own answer as one the session
+/// owes, and surface a synthesized `op:deliver` event so the application
 /// dispatches it as if it had arrived directly. Bounded by
 /// `SessionLimits.max_local_deliveries` to stop a resolution chain looping.
 fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.NearRef) !void {

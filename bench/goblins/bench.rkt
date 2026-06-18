@@ -25,7 +25,10 @@
 
 (define ALL-SUITES '("echo" "registry" "mint" "taskboard"))
 (define SUITES (if (equal? suite-sel "all") ALL-SUITES (list suite-sel)))
-(define BACKENDS '("goblins" "pancake"))
+;; Three series: standard Goblins, the pancake binding, and the pancake binding
+;; with time-travel on for every actor (`pancake-tt`). Each is its own backend
+;; module under bench/goblins/backend-<name>.rkt.
+(define BACKENDS '("goblins" "pancake" "pancake-tt"))
 
 (define LAT-N (if smoke? 20 2000))
 (define TPUT-N (if smoke? 20 2000))
@@ -143,14 +146,14 @@
 ;; ---- Report ----
 (define (f r k) (if (and r (cdr (assq k r))) (cdr (assq k r)) "-"))
 (define (row suite)
-  (define g (hash-ref results (list suite "goblins") #f))
-  (define p (hash-ref results (list suite "pancake") #f))
   (string-append
    (format "~a\n" suite)
-   (format "  ~a  p50=~ams p99=~ams p999=~ams rps=~a setup=~ams/conn per_conn=~akB\n"
-           "goblins" (f g 'p50) (f g 'p99) (f g 'p999) (f g 'rps) (f g 'conn_ms) (f g 'per_conn_kb))
-   (format "  ~a  p50=~ams p99=~ams p999=~ams rps=~a setup=~ams/conn per_conn=~akB"
-           "pancake" (f p 'p50) (f p 'p99) (f p 'p999) (f p 'rps) (f p 'conn_ms) (f p 'per_conn_kb))))
+   (string-join
+    (for/list ([backend (in-list BACKENDS)])
+      (define r (hash-ref results (list suite backend) #f))
+      (format "  ~a  p50=~ams p99=~ams p999=~ams rps=~a setup=~ams/conn per_conn=~akB"
+              backend (f r 'p50) (f r 'p99) (f r 'p999) (f r 'rps) (f r 'conn_ms) (f r 'per_conn_kb)))
+    "\n")))
 
 (define report
   (string-append

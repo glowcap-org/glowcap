@@ -1,7 +1,7 @@
 # Session lifecycle
 
-Anchors: CapTP Specification § Sessions, § op:start-session, § Ending a
-session, § Crossed hellos.
+Anchors: CapTP Specification § Sessions, § op:start-session, § Ending a session,
+§ Crossed hellos.
 
 ## SL-1 — Session state machine
 
@@ -36,9 +36,9 @@ sequenceDiagram
 
 ## SL-3 — Handshake refusal
 
-A version mismatch or a location signature that fails verification is fatal:
-the offended side sends `op:abort` and the session moves straight to Closed
-without ever opening.
+A version mismatch or a location signature that fails verification is fatal: the
+offended side sends `op:abort` and the session moves straight to Closed without
+ever opening.
 
 ```mermaid
 sequenceDiagram
@@ -53,10 +53,9 @@ sequenceDiagram
 ## SL-4 — Crossed hellos
 
 Anchor: CapTP Specification § Crossed hellos. Two peers dialing each other
-simultaneously produce two half-open sessions for one peer pair. A
-deterministic tie-break over the two sessions' key material selects the
-survivor; the losing session is aborted. Exactly one open session per peer
-pair survives.
+simultaneously produce two half-open sessions for one peer pair. A deterministic
+tie-break over the two sessions' key material selects the survivor; the losing
+session is aborted. Exactly one open session per peer pair survives.
 
 ```mermaid
 sequenceDiagram
@@ -92,11 +91,11 @@ flowchart TD
 
 ## SL-6 — Abort teardown effects
 
-Anchor: CapTP Specification § Ending a session. `op:abort` (in either
-direction) severs the session: all imports and exports release, unresolved
-promises break, and per-session key material is discarded. The unrecognized-
-record policy feeds this path: a wire record the receiver does not recognize
-is a protocol error and aborts the session.
+Anchor: CapTP Specification § Ending a session. `op:abort` (in either direction)
+severs the session: all imports and exports release, unresolved promises break,
+and per-session key material is discarded. The unrecognized- record policy feeds
+this path: a wire record the receiver does not recognize is a protocol error and
+aborts the session.
 
 ```mermaid
 flowchart TD
@@ -109,7 +108,7 @@ flowchart TD
 ```
 
 One deliberate survivor: the handoff-count replay guard is keyed by the
-Exporter–Receiver session identity, not the carrying connection, and it lives
-in the vat-scoped gift registry. A host that keeps one registry across
-connections therefore refuses a reconnecting Receiver's replayed count (see
+Exporter–Receiver session identity, not the carrying connection, and it lives in
+the vat-scoped gift registry. A host that keeps one registry across connections
+therefore refuses a reconnecting Receiver's replayed count (see
 [06-handoffs.md](06-handoffs.md) HO-7).

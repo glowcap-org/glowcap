@@ -19,15 +19,15 @@ when the right move is to fix what you found.
 
 Read only what the task needs:
 
-| If the task touches… | Read first |
-| --- | --- |
-| Scope, APIs, naming, structure, release bar | [`docs/vision.md`](../../../docs/vision.md) |
+| If the task touches…                                  | Read first                                                                                                 |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| Scope, APIs, naming, structure, release bar           | [`docs/vision.md`](../../../docs/vision.md)                                                                |
 | Layer ownership, protocol authority, module placement | [`docs/architecture.md`](../../../docs/architecture.md) + [architecture rule](../../rules/architecture.md) |
-| Frames, allocators, wire-path copies | [memory rule](../../rules/memory.md) |
-| Semantic claims, fixtures, conformance | [tests rule](../../rules/tests.md) + `test/oracles/` |
-| Docs, README, agent scaffolding | [doc-drift](../../rules/doc-drift.md) + [doc-voice](../../rules/doc-voice.md) |
-| A settled boundary or vocabulary choice | matching ADR under `docs/decisions/adr/` |
-| OCapN spec text (when semantics are unclear) | `conformance/ocapn-spec/` |
+| Frames, allocators, wire-path copies                  | [memory rule](../../rules/memory.md)                                                                       |
+| Semantic claims, fixtures, conformance                | [tests rule](../../rules/tests.md) + `test/oracles/`                                                       |
+| Docs, README, agent scaffolding                       | [doc-drift](../../rules/doc-drift.md) + [doc-voice](../../rules/doc-voice.md)                              |
+| A settled boundary or vocabulary choice               | matching ADR under `docs/decisions/adr/`                                                                   |
+| OCapN spec text (when semantics are unclear)          | `conformance/ocapn-spec/`                                                                                  |
 
 For Zig symbols — modules, types, renames, reference walks — use Serena first
 per [serena-mcp rule](../../rules/serena-mcp.md).
@@ -69,8 +69,10 @@ Use focused gates while iterating (see [cli rule](../../rules/cli.md)).
 
 ## 5. Compound (leave the next agent better off)
 
-- Update `docs/shipped.md` and `docs/boundaries.md` when behavior or boundaries change.
-- Fix doc drift in files you touched; leave prose more readable than you found it.
+- Update `docs/shipped.md` and `docs/boundaries.md` when behavior or boundaries
+  change.
+- Fix doc drift in files you touched; leave prose more readable than you found
+  it.
 - Do not leave "someone should fix X later" without recording X as a present
   boundary in vision, `docs/boundaries.md`, or an ADR.
 - Scaffolding changes: update `tools/meta_check.zig` in the same change.

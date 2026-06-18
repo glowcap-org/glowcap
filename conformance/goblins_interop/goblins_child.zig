@@ -96,6 +96,57 @@ pub fn fetchCap(
     }
 }
 
+/// Enliven a sturdyref by its swiss-num over the live connection, exercising the
+/// engine's ADR-0012 dedup-cache API (`prepareEnliven`/`recordEnlivenment`) rather
+/// than a bare bootstrap fetch. Pumps a fresh enliven to settlement and caches it;
+/// the caller owns the returned reference. The session must have negotiated the
+/// sturdyref feature (the negotiating peer offers `FeatureSet.full()`, so it has).
+pub fn enlivenCap(
+    allocator: std.mem.Allocator,
+    peer: *engine.Peer,
+    conn: anytype,
+    swiss: []const u8,
+) !model.Reference {
+    const sturdyref: model.SturdyRef = .{
+        // The core ignores the peer locator on enliven (dialing is the adapter's
+        // job); only the swiss-num keys the bootstrap fetch.
+        .peer = .{ .transport = "tcp", .designator = "", .hints = model.Hints.emptyFalse() },
+        .swissnum = swiss,
+    };
+    const start = try engine.sturdyref.prepareEnliven(allocator, &peer.session_state, sturdyref);
+    const prepared = switch (start) {
+        // A first enliven on a fresh session can never be cached or in flight.
+        .cached, .in_flight => return error.EnlivenUnexpectedlyDeduped,
+        .fresh => |p| p,
+    };
+    try peer.send(prepared.message);
+
+    while (true) {
+        const progress = try conn.pump();
+        while (peer.pollEvent()) |event_value| {
+            var event = event_value;
+            defer event.deinit();
+            const owned = try event.decodeOwned(allocator);
+            const match = try engine.fetch.tryMatchFetchOutcome(
+                allocator,
+                prepared.resolver_export,
+                prepared.answer_position,
+                owned,
+            );
+            switch (match) {
+                .settled => |outcome| return engine.sturdyref.recordEnlivenment(
+                    allocator,
+                    &peer.session_state,
+                    swiss,
+                    outcome,
+                ),
+                .unrelated => |msg| model.freeMessage(allocator, msg),
+            }
+        }
+        if (progress == .closed) return error.EnlivenNeverSettled;
+    }
+}
+
 /// Pull the value out of a `"<key>":"<value>"` NDJSON line — pass the needle
 /// up to and including the opening quote, e.g. `"swiss":"` — or null if the
 /// needle is absent.

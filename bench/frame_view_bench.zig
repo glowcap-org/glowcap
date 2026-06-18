@@ -5,8 +5,7 @@ const foundation = pancake.foundation;
 const engine = pancake.ocapn.engine;
 const model = pancake.ocapn.model;
 
-/// Counts every backing allocation (fresh `alloc`, plus a growing
-/// `remap`/`resize`) so the wire-path measurement reflects real heap traffic.
+/// Counts fresh `alloc` and growing `remap` traffic for the wire-path budget.
 const TotalCountingAllocator = struct {
     backing: std.mem.Allocator,
     allocs: usize = 0,
@@ -45,9 +44,8 @@ const TotalCountingAllocator = struct {
 
 const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
 
-/// Print the steady-state heap traffic of one inbound `op:deliver` to a live
-/// local export. Mirrors `test/engine/alloc_budget_test.zig`; the current budget
-/// is the retained event frame, not validation materialization.
+/// Steady-state heap traffic for one inbound `op:deliver` to a live local export.
+/// Mirrors `test/engine/alloc_budget_test.zig`.
 fn reportWirePathBudget(backing: std.mem.Allocator) !void {
     var counter = TotalCountingAllocator{ .backing = backing };
     var peer = engine.Peer.init(counter.allocator());
@@ -66,12 +64,8 @@ fn reportWirePathBudget(backing: std.mem.Allocator) !void {
     );
 }
 
-/// Print the in-memory footprint of the value-tree types. `Argument` is a
-/// 14-arm recursive `union(enum)`, so it pays the size of its largest arm on
-/// every element of every args list; its rare ~160-byte `handoff` arm is boxed
-/// (`*Handoff`) so the common arm sets the size (`Reference`, 80 bytes) instead.
-/// This is the layout anchor for the codec-neutral hot path — read the number
-/// deliberately rather than discover it under a profiler.
+/// In-memory size of codec-neutral value-tree types. The rare `handoff` arm is
+/// boxed (`*Handoff`) so common args pay the `Reference` arm size, not ~160 B.
 fn reportModelLayout() void {
     std.debug.print(
         "model_layout Argument={d} Message={d} Reference={d} Resolution={d}\n",

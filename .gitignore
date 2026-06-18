@@ -12,6 +12,8 @@ bindings/rust/Cargo.lock
 bindings/rust/target/
 examples/apps/*/rust/Cargo.lock
 examples/apps/*/rust/target/
+bench/langs/clients/rust_bench/Cargo.lock
+bench/langs/clients/rust_bench/target/
 # transports/iroh/Cargo.lock is deliberately committed (see its Cargo.toml):
 # the sidecar's external dependency tree must resolve identically everywhere.
 transports/iroh/target/
@@ -19,7 +21,13 @@ transports/iroh/target/
 # binding consumer caches
 **/__pycache__/
 **/*.pyc
-bindings/deno/node_modules/
+bindings/ts/node_modules/
+# Racket bytecode: compiling a Racket source (bench-langs precompiles its
+# clients so cold-start measures startup, not recompilation) writes a
+# `compiled/` dir of `.zo`/`.dep` next to that source and every dependency it
+# reaches — the binding, the binding's `private/`, the shared metrics, and the
+# goblins-peer sources. Generated, never committed, wherever it lands.
+**/compiled/
 
 # accountability-on-pancake writes its durable Episode log + transparency root
 # here at run time; generated state, never committed.
