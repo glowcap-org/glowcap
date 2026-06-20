@@ -84,7 +84,7 @@ const frame_stream = @import("../frame_stream.zig");
 
 /// One finished operation reported by a backend: the `user_data` the submit
 /// carried, and the platform result (bytes transferred, a new fd, or negative on
-/// error — the same sign convention as the underlying syscall).
+/// error, the same sign convention as the underlying syscall).
 pub const Completion = struct {
     user_data: u64,
     result: i32,
@@ -137,7 +137,7 @@ pub const FreeConnCtx = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void
 /// `ctx`, the per-connection context (null when the connection failed before
 /// `make_conn_ctx` ran), and `opened`: true when the connection completed its
 /// connect or accept, false when it failed before opening (e.g. a refused
-/// dial). This is the loop's only failure surface for a dialed connection —
+/// dial). This is the loop's only failure surface for a dialed connection,
 /// `dialTcp` returns before the connect completes, so a refused dial is
 /// observable nowhere else.
 pub const OnClose = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque, opened: bool) void;
@@ -220,7 +220,7 @@ const steady_outbound_bytes: usize = 16 * 1024;
 
 /// How recv-completion consumption ended, decided by `onRecvConsume` while
 /// the completion's pool buffer is still borrowed and acted on by
-/// `onRecvFinish` after the buffer has been recycled — so every exit path
+/// `onRecvFinish` after the buffer has been recycled, so every exit path
 /// recycles exactly once.
 const RecvVerdict = enum {
     /// Bytes consumed; run events, outbound drive, and the next read arm.
@@ -366,7 +366,7 @@ pub fn Loop(comptime Backend: type) type {
         }
 
         /// Tear down the loop. Requires every connection's in-flight ops to
-        /// have retired — in practice, `run` returned with every connection
+        /// have retired, in practice, `run` returned with every connection
         /// fully closed (a `.{ .after_closed = n }` stop that counts them
         /// all). A submitted send borrows the connection's `front` buffer
         /// until the backend reports it complete, so freeing a connection
@@ -568,7 +568,7 @@ pub fn Loop(comptime Backend: type) type {
             return c.front.items.len - c.front_off;
         }
 
-        /// Arm the next read — unless the partner is not draining our writes.
+        /// Arm the next read, unless the partner is not draining our writes.
         /// Pending outbound past the high-water mark means every newly applied
         /// inbound frame would pile more replies onto an unread socket, so the
         /// read parks instead and `onSend` resumes it when the queue drains
@@ -613,7 +613,7 @@ pub fn Loop(comptime Backend: type) type {
             // A frame already accumulating in the spill owns every newly
             // received byte: extend it so the prefix stays contiguous. The
             // supply stays the spill for this whole completion even if it
-            // drains mid-loop — `incoming` has been absorbed and must not be
+            // drains mid-loop, `incoming` has been absorbed and must not be
             // re-read.
             const from_spill = c.spill.isActive();
             if (from_spill) {
@@ -741,7 +741,7 @@ pub fn Loop(comptime Backend: type) type {
                 }
                 i = node.next_starved;
             }
-            // The read seat was `.starved`, so the slot must be in the list —
+            // The read seat was `.starved`, so the slot must be in the list,
             // `parkStarved` links and marks together. Falling off the end means
             // the chain is corrupt; keep that loud instead of letting a later
             // `parkStarved` build a cycle on the broken link.
@@ -881,7 +881,7 @@ pub fn Loop(comptime Backend: type) type {
             self.backend.submitClose(userData(.close, slot), c.fd) catch {
                 // Could not even queue the close. Close the fd directly so it is
                 // not leaked: the normal path closes it via the queued op, so
-                // `teardown` never closes — this failure branch is the only place
+                // `teardown` never closes, this failure branch is the only place
                 // the fd would otherwise outlive the connection, and the two are
                 // mutually exclusive, so there is no double close. If no other op
                 // is outstanding, reclaim now; otherwise the last in-flight op's
@@ -898,7 +898,7 @@ pub fn Loop(comptime Backend: type) type {
         }
 
         /// Account one completed per-connection op. On a closing connection the
-        /// op that drains the last in-flight one reclaims the slot — deferring
+        /// op that drains the last in-flight one reclaims the slot, deferring
         /// teardown until here is what keeps `front` alive for as long as any
         /// submitted send could still touch it, and keeps the slot from being
         /// reused while a stale completion could still arrive for it. A close

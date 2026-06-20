@@ -41,7 +41,7 @@ not add CapTP semantics that the core lacks.
 ## Layer Ownership
 
 - `foundation`: bytes, IDs, frame ownership.
-- `ocapn/`: the OCapN / CapTP protocol itself — the four layers that _are_ the
+- `ocapn/`: the OCapN / CapTP protocol itself, the four layers that _are_ the
   protocol (everything else adds none). They live under `src/ocapn/` and are
   reached as `pancake.ocapn.<layer>`:
   - `ocapn/model`: codec-neutral semantic types.
@@ -49,7 +49,7 @@ not add CapTP semantics that the core lacks.
   - `ocapn/session`: validation and authoritative tables.
   - `ocapn/engine`: caller-owned `Peer`, `step`, inbound dispatch, outbound
     drain.
-- `actors`: Goblins-shaped local objects — a sync, no-I/O `Vat` (spawn,
+- `actors`: Goblins-shaped local objects, a sync, no-I/O `Vat` (spawn,
   near-call `$`, eventual-send `<-`, promises) above the engine; adds no CapTP
   semantics the engine lacks. Also owns opt-in local time-travel
   (`snapshot`/`restore`, refcounted state boxes, copy-on-write, functional
@@ -59,7 +59,7 @@ not add CapTP semantics that the core lacks.
   `become` is O(log n) with structural sharing. Pure, no-I/O, imports nothing,
   and not on the public `pancake` namespace; reached by opt-in persistent
   actors.
-- `net`: the one place `std.Io` enters — folds the one parser over a stream and
+- `net`: the one place `std.Io` enters, folds the one parser over a stream and
   binds the TCP socket. Not part of the no-I/O core.
 - `driver`: the native application surface above both `actors` and `net`;
   `ConnectedVat` binds a vat to a live `net.Connection` over a caller-owned
@@ -71,12 +71,12 @@ not add CapTP semantics that the core lacks.
   (`libpancake_net_transport_{tcp,inproc,iroh}`) — each exporting only its own
   `pancake_<family>_*` family (the ADR-0055 companion split, generalized to
   every transport by ADR-0059):
-  - `c_abi/shared` (module `c_abi_shared`): the shared C-ABI vocabulary leaf —
+  - `c_abi/shared` (module `c_abi_shared`): the shared C-ABI vocabulary leaf,
     the C-visible frame/context types, return and codec codes, allocation
     policy, managed-frame machinery, and the per-thread last-error slot.
     Declares **no `export fn`**, so every archive reuses it without inheriting
     another's exports.
-  - `c_abi/ocapn` (module `c_abi`): `libpancake_ocapn`'s entry points — the
+  - `c_abi/ocapn` (module `c_abi`): `libpancake_ocapn`'s entry points, the
     sans-io peer plus the shared vocabulary, C-shaped only. Peer, frame,
     context, and URI modules import `c_abi_shared` directly; there is no marshal
     leaf. Every handle frees through exactly one `pancake_*_release`; a
@@ -100,7 +100,7 @@ not add CapTP semantics that the core lacks.
       family plus its own `pancake_inproc_last_error`, and reflects its header
       from its own root (`zig build gen-header-net-transport-inproc`).
     - `c_abi/net_transport/iroh` (module `c_abi_net_transport_iroh`): the iroh
-      transport's public C ABI (`libpancake_net_transport_iroh`) — exports only
+      transport's public C ABI (`libpancake_net_transport_iroh`), exports only
       the `pancake_iroh_*` family and reuses `c_abi/shared` by layout. It sits
       _outside_ the layer DAG (`.graph = false` in `build.zig`'s `layer_table`)
       because it links the Rust sidecar and imports the injected `iroh`
@@ -111,9 +111,13 @@ not add CapTP semantics that the core lacks.
   - The transport archives sit outside the layer DAG too (`.graph = false`); the
     `archive_table` in `build.zig` declares the archive set and its dependency
     edges (`net_transport_{tcp,inproc,iroh}` → `net` → `ocapn`).
-- `conformance`: canonical CapTP scenario drivers — the observable-trace oracle
-  that `test/conformance`, `test/oracle`, and the bindings' scenario runners
-  compare against. Not part of the runtime path.
+- `oracle`: canonical CapTP scenario drivers, the observable-trace reference
+  of truth that the Zig oracle tests (`test/oracle`) compare against. It is a
+  public surface so a C consumer can produce the same canonical trace, but no
+  binding consumes it today: the bindings prove the C ABI by dogfood, not by
+  oracle traces. Not part of the runtime path. (The top-level `conformance/`
+  tree is unrelated: it holds the external authority — the OCapN suite, the live
+  Goblins peer — not this in-tree layer.)
 
 If a change moves authority downward into codec/adapter code, stop and redesign.
 When a concern fits no layer above, give it to the layer that owns the decision,

@@ -37,23 +37,23 @@ test "deliver with nested args, promise path target, and resolve_me_desc round-t
         .{ .tagged = .{ .tag = "rec", .value = &inner } },
     };
     try expectRoundTrip(.{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = 9, .path = .{ .ops = &ops } } },
+        .target = .{ .promise = .{ .answer_position = .from(9), .path = .{ .ops = &ops } } },
         .args = &args,
-        .answer = 11,
+        .answer = .from(11),
         .resolve_me_desc = .{ .near = model.NearRef.promise(4) },
     } });
 }
 
 test "resolve fulfill with a reference payload round-trips" {
     try expectRoundTrip(.{ .resolve = .{
-        .answer = 42,
+        .answer = .from(42),
         .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(5) } } },
     } });
 }
 
 test "resolve break round-trips" {
     try expectRoundTrip(.{ .resolve = .{
-        .answer = 1,
+        .answer = .from(1),
         .resolution = .{ .@"break" = .{ .message = "boom" } },
     } });
 }
@@ -75,8 +75,8 @@ test "listen, get, index round-trip" {
         .listener = .{ .near = model.NearRef.object(9) },
         .wants_partial = true,
     } });
-    try expectRoundTrip(.{ .get = .{ .receiver = .{ .far = model.FarRef.object(2) }, .field = "name", .answer = 3 } });
-    try expectRoundTrip(.{ .index = .{ .receiver = .{ .far = model.FarRef.object(2) }, .index = 5, .answer = 4 } });
+    try expectRoundTrip(.{ .get = .{ .receiver = .{ .far = model.FarRef.object(2) }, .field = "name", .answer = .from(3) } });
+    try expectRoundTrip(.{ .index = .{ .receiver = .{ .far = model.FarRef.object(2) }, .index = 5, .answer = .from(4) } });
 }
 
 test "start_session round-trips" {
@@ -131,7 +131,7 @@ test "toOwned bounds nesting through promise pipeline-path call ops, not just li
         call_args[0] = arg;
         const ops = try arena.alloc(model.PipelineOp, 1);
         ops[0] = .{ .call = call_args };
-        arg = .{ .reference = .{ .promise = .{ .answer_position = 1, .path = .{ .ops = ops } } } };
+        arg = .{ .reference = .{ .promise = .{ .answer_position = .from(1), .path = .{ .ops = ops } } } };
     }
 
     const args = [_]model.Argument{arg};

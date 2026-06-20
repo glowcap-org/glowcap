@@ -10,13 +10,13 @@ test "resolveForSwissnum fulfills with the mapped export, breaks on a miss" {
     defer sess.deinit();
     const export_position = try sess.registerBootstrapCap("k");
 
-    // no free: fulfill is a POD NearRef and the break reason is static — never
+    // no free: fulfill is a POD NearRef and the break reason is static, never
     // route these through `freeMessage` (only `Peer.sendCopying`, which clones).
-    const hit = engine.bootstrap.resolveForSwissnum(&sess, .{ .swissnum = "k", .answer = 7 });
-    try std.testing.expectEqual(@as(u64, 7), hit.resolve.answer);
-    try std.testing.expectEqual(model.NearRef.object(export_position), hit.resolve.resolution.fulfill.reference.near);
+    const hit = engine.bootstrap.resolveForSwissnum(&sess, .{ .swissnum = "k", .answer = .from(7) });
+    try std.testing.expectEqual(@as(u64, 7), hit.resolve.answer.int());
+    try std.testing.expectEqual(model.NearRef.object(export_position.int()), hit.resolve.resolution.fulfill.reference.near);
 
-    const miss = engine.bootstrap.resolveForSwissnum(&sess, .{ .swissnum = "nope", .answer = 9 });
+    const miss = engine.bootstrap.resolveForSwissnum(&sess, .{ .swissnum = "nope", .answer = .from(9) });
     try std.testing.expectEqualStrings("unknown swissnum", miss.resolve.resolution.@"break".message);
 }
 
@@ -47,7 +47,7 @@ test "pendingBootstrapAction recognizes a real bootstrap-fetch, misses otherwise
         const msg = model.Message{ .deliver = .{
             .target = .{ .far = model.FarRef.object(session.BOOTSTRAP_POSITION) },
             .args = args,
-            .answer = 4,
+            .answer = .from(4),
         } };
         defer model.freeMessage(allocator, msg);
         var miss_frame = try codec.syrup.encodeMessage(allocator, msg);
@@ -64,7 +64,7 @@ test "pendingBootstrapAction recognizes a real bootstrap-fetch, misses otherwise
         const msg = model.Message{ .deliver = .{
             .target = .{ .far = model.FarRef.object(5) },
             .args = args,
-            .answer = 4,
+            .answer = .from(4),
         } };
         defer model.freeMessage(allocator, msg);
         var miss_frame = try codec.syrup.encodeMessage(allocator, msg);
@@ -87,7 +87,7 @@ test "a deliver to .far import 0 is not auto-served as a bootstrap fetch" {
     const wire = "<10'op:deliver<18'desc:import-object0+>[5'fetch5:swiss]4+f>";
     const view = try codec.syrup.decodeBody(.{ .bytes = wire, .shape = .byte });
     try std.testing.expect(view.deliver.target == .far);
-    try std.testing.expectEqual(session.BOOTSTRAP_POSITION, view.deliver.target.far.import_position);
+    try std.testing.expectEqual(session.BOOTSTRAP_POSITION, view.deliver.target.far.import_position.int());
     try std.testing.expect((try engine.bootstrap.pendingBootstrapAction(view.deliver, &sess)) == null);
 }
 
@@ -141,8 +141,8 @@ test "responder auto-resolves an inbound bootstrap fetch (no manual reply)" {
             // reference as decoded — `fetch.tryMatchFetchOutcome` does not flip —
             // and the codec round-trips `Near`↔`desc:import-object` symmetrically).
             const position: u64 = switch (ref) {
-                .near => |near| near.export_position,
-                .far => |far| far.import_position,
+                .near => |near| near.export_position.int(),
+                .far => |far| far.import_position.int(),
                 else => return error.TestUnexpectedResult,
             };
             try std.testing.expectEqual(export_position, position);

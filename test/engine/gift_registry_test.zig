@@ -144,7 +144,7 @@ test "a re-deposit of the same gift id replaces the prior row and frees it" {
     defer registry.deinit(allocator);
 
     // Both deposited capabilities carry heap (a broken ref owns its message), so
-    // the testing allocator proves the first is freed on overwrite — a leak or a
+    // the testing allocator proves the first is freed on overwrite, a leak or a
     // double free fails this test.
     const first = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "first") } };
     try registry.depositOwned(allocator, default_limits, "gift-1", first, "gifter-key-a");
@@ -198,6 +198,40 @@ test "deposited gifts are bounded by max_deposited_gifts (ADR-0025)" {
     );
     try std.testing.expect(registry.giftDeposited("gift-a"));
     try std.testing.expect(!registry.giftDeposited("gift-b"));
+}
+
+test "the registry mints monotonic emitted handoff counts per receiving session" {
+    const allocator = std.testing.allocator;
+    var registry: GiftRegistry = .{};
+    defer registry.deinit(allocator);
+
+    // A fresh receiving session starts at 0 and rises by one per withdrawal,
+    // the recipient-side mirror of the accepted-count replay guard, so the count
+    // this node emits is exactly the count the exporter's `validateWithdraw`
+    // expects next.
+    try std.testing.expectEqual(@as(u64, 0), try registry.nextEmittedCount(allocator, default_limits, "session-a"));
+    try std.testing.expectEqual(@as(u64, 1), try registry.nextEmittedCount(allocator, default_limits, "session-a"));
+    try std.testing.expectEqual(@as(u64, 2), try registry.nextEmittedCount(allocator, default_limits, "session-a"));
+
+    // Counters are per receiving session: a second exporter session starts fresh.
+    try std.testing.expectEqual(@as(u64, 0), try registry.nextEmittedCount(allocator, default_limits, "session-b"));
+    try std.testing.expectEqual(@as(u64, 3), try registry.nextEmittedCount(allocator, default_limits, "session-a"));
+}
+
+test "emitted-handoff-count rows are bounded by max_seen_handoff_counts (ADR-0025)" {
+    const allocator = std.testing.allocator;
+    var registry: GiftRegistry = .{};
+    defer registry.deinit(allocator);
+    const limits: session.SessionLimits = .{ .max_seen_handoff_counts = 1 };
+
+    // The first receiving session allocates the one permitted row; a second
+    // distinct session overflows it, the same cap its accepted-count mirror holds.
+    _ = try registry.nextEmittedCount(allocator, limits, "session-1");
+    _ = try registry.nextEmittedCount(allocator, limits, "session-1");
+    try std.testing.expectError(
+        session.Error.HandoffCountCapExceeded,
+        registry.nextEmittedCount(allocator, limits, "session-2"),
+    );
 }
 
 test "seen-handoff-count rows are bounded by max_seen_handoff_counts (ADR-0025)" {

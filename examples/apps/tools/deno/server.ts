@@ -47,7 +47,7 @@ function makeFiles(): Tool {
 	};
 }
 
-/** Attenuation — a read-only view is a function wrapping a function: forward the
+/** Attenuation. A read-only view is a function wrapping a function: forward the
  * safe verb, refuse the rest. This is the whole of attenuation. */
 function readOnly(tool: Tool): Tool {
 	return (verb, args) => {
@@ -56,7 +56,7 @@ function readOnly(tool: Tool): Tool {
 	};
 }
 
-/** Revocation — a forwarder you can switch off. Returns the wrapped behavior and
+/** Revocation, a forwarder you can switch off. Returns the wrapped behavior and
  * the lever that severs it; after `revoke()`, every call breaks. */
 function revocable(tool: Tool): { behavior: Tool; revoke: () => void } {
 	let live = true;

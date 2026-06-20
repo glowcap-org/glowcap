@@ -98,7 +98,7 @@ export async function runClient(
 	});
 
 	// Subscribe, handing the room a capability to our inbox. The welcome names
-	// everyone already present — the only way to learn about earlier arrivals.
+	// everyone already present, the only way to learn about earlier arrivals.
 	const welcome = await conn.send(room, SUBSCRIBE, [nick, inbox]);
 	for (const n of welcomeNames(typeof welcome === "string" ? welcome : "")) {
 		present.add(n);

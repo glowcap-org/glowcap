@@ -39,15 +39,28 @@ Full applications run in every binding, each built on the same small surface —
   `zig build demo-tools` runs each available agent against the coordinator;
   coordinator and agent are different languages on the wire, so the capability
   trio is real, not in-process.
+- [`apps/accountability-on-pancake/`](apps/accountability-on-pancake/) — a
+  signed-call accountability application: KERI-anchored identity, a signed
+  Episode per capability invocation, and a Merkle transparency log, all above
+  pancake's runtime over a real OCapN/TCP session. `zig build accountability`
+  runs the native Zig walk (ridden by `zig build check`);
+  `zig build demo-accountability` runs the Zig host with Deno and Python callers
+  over the C ABI; `zig build accountability-three-party` proves a handoff-
+  introduced caller is attributed, not the introducer.
 
 Each demo binds an ephemeral port by default. Pin the port with `-Dport`
 (`zig build demo-rooms -Dport=9099`), or add `-Dattach=true` to join a server
-you already started on that port instead of spawning one — each app's README
-shows the standalone server command the attach mode pairs with.
+you already started on that port instead of spawning one, each app's README
+shows the standalone server command the attach mode pairs with. (`demo-accountability`
+is the exception: it rejects `-Dattach`, since each caller needs a fresh host.)
 
 Each client is built the same way: it `fetch`es the server's capability by name,
-`spawn`s a local actor (an inbox/watcher), and hands the server a reference to
-it — no export-position numbers, no manual flush, no hand-rolled serve loop.
+`spawn`s a local actor (an inbox or watcher), and hands the server a reference to
+it. There are no export-position numbers and no manual flush. The
+request-response clients (tasks and tools) drive each call to its settled reply
+and stop. The rooms clients have to watch their inbox for broadcasts that can
+arrive at any time, so the higher-level bindings run `serve()` for that while the
+native Zig client pumps `step` in an explicit loop.
 
 Lower-level library mechanics:
 

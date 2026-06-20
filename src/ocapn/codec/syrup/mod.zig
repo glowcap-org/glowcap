@@ -5,6 +5,7 @@
 pub const shared = @import("shared.zig");
 pub const decode = @import("decode.zig");
 pub const encode = @import("encode.zig");
+pub const canonical = @import("canonical.zig");
 
 pub const Error = shared.Error;
 pub const WalkError = shared.WalkError;
@@ -20,10 +21,10 @@ pub const spanSignedHandoffGive = decode.spanSignedHandoffGive;
 
 pub const encodeMessage = encode.encodeMessage;
 pub const encodeMessageForProfile = encode.encodeMessageForProfile;
-pub const canonicalLocationSignedBytes = encode.canonicalLocationSignedBytes;
-pub const canonicalLocationSignedBytesRaw = encode.canonicalLocationSignedBytesRaw;
-pub const canonicalHandoffGiveSignedBytes = encode.canonicalHandoffGiveSignedBytes;
-pub const canonicalHandoffReceiveSignedBytes = encode.canonicalHandoffReceiveSignedBytes;
-pub const handoffGiveRecordBytesRawLocation = encode.handoffGiveRecordBytesRawLocation;
-pub const wrapSignedHandoffGive = encode.wrapSignedHandoffGive;
+pub const canonicalLocationSignedBytes = canonical.canonicalLocationSignedBytes;
+pub const canonicalLocationSignedBytesRaw = canonical.canonicalLocationSignedBytesRaw;
+pub const canonicalHandoffGiveSignedBytes = canonical.canonicalHandoffGiveSignedBytes;
+pub const canonicalHandoffReceiveSignedBytes = canonical.canonicalHandoffReceiveSignedBytes;
+pub const handoffGiveRecordBytesRawLocation = canonical.handoffGiveRecordBytesRawLocation;
+pub const wrapSignedHandoffGive = canonical.wrapSignedHandoffGive;
 pub const encodePeerLocatorRecord = encode.encodePeerLocatorRecord;

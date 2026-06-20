@@ -66,7 +66,7 @@ cases if a suite regression needs isolating. It is not part of the default
 
 Two details keep the suite's verdict honest. The Syrup codec consumes a
 non-empty hints map, because the suite's `tcp-testing-only` netlayer carries the
-address in the locator hints (`{host …, port …}`) — a peer that rejected
+address in the locator hints (`{host …, port …}`), a peer that rejected
 non-empty hints would abort the handshake before any signature was checked,
 passing the invalid-version and invalid-signature tests for the wrong reason.
 And signature verification reads the captured raw locator bytes, never a

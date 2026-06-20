@@ -53,7 +53,7 @@ const RejectingVerifier = struct {
     }
 };
 
-/// A real Ed25519 verifier that routes each handoff certificate to the right key —
+/// A real Ed25519 verifier that routes each handoff certificate to the right key,
 /// the production shape ADR-0009 describes. A `desc:handoff-receive` payload is
 /// verified with the recipient key; any other (`desc:handoff-give`) with the
 /// gifter's session key. It distinguishes them by the leading record label, since
@@ -150,7 +150,7 @@ test "third-party handoff authorizes a withdrawal under real Ed25519 with keys r
     }
 
     // The exporter builds its verifier from the key it stored at deposit (the
-    // gifter's) and the recipient key carried in the give — no key conjured at
+    // gifter's) and the recipient key carried in the give, no key conjured at
     // verify time. Both certificates verify, so the withdrawal is authorized.
     const stored_gifter = exporter.giftRegistry().giftGifterKey(gift_id_a[0..]).?;
     var verifier_ctx: RoutingVerifier = .{
@@ -192,7 +192,7 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
 
     // Deposit the capability the exporter will hand back, keyed under the
     // gifter's session pubkey, on the peer's own gift registry.
-    const deposited = model.Reference{ .far = .{ .import_position = 9 } };
+    const deposited = model.Reference{ .far = .{ .import_position = .from(9) } };
     try peer.giftRegistry().depositOwned(
         allocator,
         peer.session_state.limits,
@@ -204,7 +204,7 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
     // A second deposit of the same gift id replaces the first (the registry's
     // re-deposit contract): the withdraw below must yield this reference, not
     // the import-9 one.
-    const redeposited = model.Reference{ .far = .{ .import_position = 10 } };
+    const redeposited = model.Reference{ .far = .{ .import_position = .from(10) } };
     try peer.giftRegistry().depositOwned(
         allocator,
         peer.session_state.limits,
@@ -215,25 +215,25 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
 
     // Withdraw it. `resolveForWithdraw` reads the gifted cap *after*
     // `applyWithdraw` marks the row withdrawn, which is why `giftedCap` does not
-    // filter by the withdrawn flag — otherwise the resolution would break with
+    // filter by the withdrawn flag, otherwise the resolution would break with
     // "gift not deposited" instead of fulfilling with the deposited reference.
     const handoff = model.Handoff{ .receive = receive };
     const view_handoff = model.view.Handoff.fromOwned(&handoff);
     const resolution_msg = switch (try engine.bootstrap.resolveForWithdraw(allocator, &peer.session_state, peer.giftRegistry(), .{
         .receive = view_handoff.receive,
-        .answer = 5,
+        .answer = .from(5),
     })) {
         .settled => |msg| msg,
         .awaiting_deposit => return error.TestUnexpectedPending,
     };
     defer model.freeMessage(allocator, resolution_msg);
 
-    try std.testing.expectEqual(@as(u64, 5), resolution_msg.resolve.answer);
+    try std.testing.expectEqual(@as(u64, 5), resolution_msg.resolve.answer.int());
     const fulfilled = switch (resolution_msg.resolve.resolution) {
         .fulfill => |arg| arg,
         .@"break" => return error.TestUnexpectedBreak,
     };
-    try std.testing.expectEqual(@as(u64, 10), fulfilled.reference.far.import_position);
+    try std.testing.expectEqual(@as(u64, 10), fulfilled.reference.far.import_position.int());
     try std.testing.expect(peer.giftRegistry().giftWithdrawn(gift_id_a[0..]));
 }
 
@@ -276,7 +276,7 @@ test "a withdraw of a node-local swiss gift re-resolves against the withdrawing 
     // not the deposit-session near baked into the gift.
     _ = try exporter.session_state.allocateExport();
     const dm_here = try exporter.session_state.registerBootstrapCap("dm");
-    try std.testing.expect(dm_here != 1);
+    try std.testing.expect(dm_here.int() != 1);
 
     // The deposit names the object by swiss; the stored near (a deposit-session
     // value, deliberately position 1) must be ignored on withdraw.
@@ -293,7 +293,7 @@ test "a withdraw of a node-local swiss gift re-resolves against the withdrawing 
     const view_handoff = model.view.Handoff.fromOwned(&handoff);
     const resolution_msg = switch (try engine.bootstrap.resolveForWithdraw(allocator, &exporter.session_state, exporter.giftRegistry(), .{
         .receive = view_handoff.receive,
-        .answer = 7,
+        .answer = .from(7),
     })) {
         .settled => |msg| msg,
         .awaiting_deposit => return error.TestUnexpectedPending,
@@ -352,11 +352,11 @@ test "a swiss gift withdrawn where the object is unpublished breaks" {
     const handoff = model.Handoff{ .receive = receive };
     const view_handoff = model.view.Handoff.fromOwned(&handoff);
     // The break carries a static message and owns no heap, so it is read
-    // directly — `resolveForWithdraw` allocates nothing on the refusal path
+    // directly, `resolveForWithdraw` allocates nothing on the refusal path
     // (production `sendCopying`-clones it; the original is never freed).
     const resolution_msg = switch (try engine.bootstrap.resolveForWithdraw(allocator, &exporter.session_state, exporter.giftRegistry(), .{
         .receive = view_handoff.receive,
-        .answer = 7,
+        .answer = .from(7),
     })) {
         .settled => |msg| msg,
         .awaiting_deposit => return error.TestUnexpectedPending,
@@ -407,7 +407,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     const frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(0) },
         .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff_arg } },
-        .answer = 1,
+        .answer = .from(1),
     } });
     try exporter.feedInbound(frame);
     while ((try exporter.step()) != .idle) {}
@@ -423,7 +423,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
 
     // The deposit lands on the vat's registry (in production, via the gifter's
     // session to this same vat).
-    const deposited = model.Reference{ .far = .{ .import_position = 9 } };
+    const deposited = model.Reference{ .far = .{ .import_position = .from(9) } };
     try exporter.giftRegistry().depositOwned(
         allocator,
         exporter.session_state.limits,
@@ -634,7 +634,7 @@ test "the exporter authorizes a withdrawal against the gifter key it learned fro
     }
 
     // The exporter recorded exactly the gifter's real session key, learned at
-    // handshake — proof the key flowed from the session, not the call site.
+    // handshake, proof the key flowed from the session, not the call site.
     try std.testing.expectEqualSlices(u8, gifter_pub.asBytes(), gx.p2.giftRegistry().giftGifterKey(gift_id_a[0..]).?);
 
     const stored_gifter = gx.p2.giftRegistry().giftGifterKey(gift_id_a[0..]).?;
@@ -650,7 +650,7 @@ test "canonical handoff-give bytes are a stable Ed25519 signing domain an embedd
     const allocator = std.testing.allocator;
 
     // The exact bytes the gifter's `desc:sig-envelope` signature covers. Before
-    // this encoder existed, an embedder had no way to reconstruct them — so a
+    // this encoder existed, an embedder had no way to reconstruct them, so a
     // handoff signature could not be verified the way an op:start-session
     // location signature can. This proves the domain round-trips under real
     // Ed25519 and that it binds the whole record, not one field.
@@ -674,11 +674,74 @@ test "canonical handoff-give bytes are a stable Ed25519 signing domain an embedd
     );
 
     // The receive certificate has its own canonical domain, distinct from the
-    // give it embeds — so the two signatures never share a payload.
+    // give it embeds, so the two signatures never share a payload.
     const receive = receiveWith(gift_id_a[0..], 1, receive_signature[0..]);
     const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
     defer allocator.free(receive_signed);
     try std.testing.expect(!std.mem.eql(u8, signed, receive_signed));
+}
+
+test "a signed handoff give re-encodes across codecs and its gifter signature still verifies (ADR-0009/ADR-0003)" {
+    const allocator = std.testing.allocator;
+    const dispatch = pancake.ocapn.codec.dispatch;
+
+    // A give signed once, over its Syrup-canonical bytes, the gifter's actual
+    // signing domain. `give_sig` must outlive every borrow of `give.signature`.
+    const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x07));
+    var give_signed: []u8 = undefined;
+    var give_sig: crypto.Signature = undefined;
+    const give = try signedGive(
+        gift_id_a[0..],
+        recipient_key[0..],
+        &gifter_secret,
+        &give_signed,
+        &give_sig,
+        allocator,
+    );
+    defer allocator.free(give_signed);
+    try crypto.verify(gifter_secret.publicKey(), give_signed, give_sig);
+
+    const profile = model.WireProfile.v1_0;
+    const message = model.Message{ .handoff = .{ .give = give } };
+
+    // The cross-codec re-encode contract (ADR-0003 / ADR-0009): the signature
+    // covers the *decoded* record's Syrup canonicalization, not the carrying
+    // codec's bytes. So for every ordered pair of distinct codecs — encode in
+    // the source, decode to a typed record, `reEncodeHandoff` into the target,
+    // decode again — re-deriving the signing domain reproduces the exact bytes
+    // the gifter signed, and the carried signature still verifies over them.
+    const codecs = [_]model.CodecId{ .syrup, .capnp };
+    for (codecs) |source| {
+        for (codecs) |target| {
+            if (source == target) continue;
+
+            var src_frame = try dispatch.encodeMessageForProfile(source, allocator, profile, message);
+            defer src_frame.deinit();
+            const src_body = try dispatch.decodeBody(source, src_frame.view());
+            const src_owned = try src_body.toOwned(allocator);
+            defer model.freeMessage(allocator, src_owned);
+
+            var tgt_frame = try engine.handoff_re_encode.reEncodeHandoff(
+                allocator,
+                src_owned.handoff,
+                target,
+                profile,
+            );
+            defer tgt_frame.deinit();
+            const tgt_body = try dispatch.decodeBody(target, tgt_frame.view());
+            const tgt_owned = try tgt_body.toOwned(allocator);
+            defer model.freeMessage(allocator, tgt_owned);
+
+            const recanonical = try syrup.canonicalHandoffGiveSignedBytes(allocator, tgt_owned.handoff.give);
+            defer allocator.free(recanonical);
+            try std.testing.expectEqualSlices(u8, give_signed, recanonical);
+
+            const carried = crypto.Signature.fromBytes(
+                tgt_owned.handoff.give.signature[0..crypto.SIGNATURE_BYTES].*,
+            );
+            try crypto.verify(gifter_secret.publicKey(), recanonical, carried);
+        }
+    }
 }
 
 test "handoff side-name helper enforces the 32-byte Ed25519 key contract" {

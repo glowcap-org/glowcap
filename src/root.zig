@@ -27,12 +27,12 @@
 //!   instead of a hand-written pump loop. It composes; it adds no protocol.
 //!
 //! Two more layers live under `src/` but not on this namespace, because a Zig
-//! consumer has no use for them here. `c_abi` is the C interface — it is
+//! consumer has no use for them here. `c_abi` is the C interface; it is
 //! compiled into the `libpancake_ocapn` archive, and a C consumer reaches it
 //! through `pancake_ocapn.h` (plus the per-transport headers).
-//! `conformance` runs fixed scenarios and hands back their wire bytes; it is
-//! the test suite's oracle, not part of the runtime path, and the tests import
-//! it directly.
+//! `oracle` runs fixed scenarios and hands back their wire bytes; it is
+//! the test suite's reference of truth, not part of the runtime path, and the
+//! tests import it directly.
 //!
 //! The whole core, foundation through engine, is deterministic, synchronous, and
 //! free of I/O. The adapters are where the outside world gets in. For the bigger
@@ -57,7 +57,7 @@ pub const actors = @import("actors");
 pub const net = @import("net");
 pub const driver = @import("driver");
 
-/// The sync, no-I/O peer you hold and drive — the front door of the engine.
+/// The sync, no-I/O peer you hold and drive, the front door of the engine.
 pub const Peer = ocapn.engine.Peer;
 
 /// A vat of local actor objects with near-call and eventual-send above the engine.

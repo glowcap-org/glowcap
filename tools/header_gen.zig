@@ -132,7 +132,7 @@ comptime {
 // functions' counterpart of the constant groups above: `emitFn` refuses a name
 // missing from this table, the comptime guard below holds the table against
 // the real `c_abi` declarations in both directions, and `generate` verifies
-// every listed name landed in the output text — so a new `pub fn pancake_*`
+// every listed name landed in the output text, so a new `pub fn pancake_*`
 // in c_abi cannot silently miss pancake_ocapn.h while the check stays green.
 const emitted_fns = [_][]const u8{
     "pancake_abi_version",
@@ -180,12 +180,26 @@ const emitted_fns = [_][]const u8{
     "pancake_peer_partner_locator_raw",
     "pancake_build_handoff_give",
     "pancake_handoff_give_bytes_release",
+    "pancake_encode_peer_locator",
+    "pancake_peer_locator_bytes_release",
     "pancake_peer_send_deposit_gift",
     "pancake_peer_send_resolve_handoff_give",
     "pancake_gift_registry_new",
     "pancake_gift_registry_new_in",
     "pancake_gift_registry_free",
     "pancake_peer_set_gift_registry",
+    "pancake_node_new",
+    "pancake_node_new_in",
+    "pancake_node_free",
+    "pancake_node_register_conn",
+    "pancake_node_remove_conn",
+    "pancake_node_send_withdraw",
+    "pancake_node_originate_give",
+    "pancake_node_enroll_redeemed",
+    "pancake_node_route",
+    "pancake_node_record_foreign_home",
+    "pancake_node_foreign_home",
+    "pancake_node_arg_is_foreign",
     "pancake_peer_poll_event_deliver",
     "pancake_peer_poll_event_resolve",
     "pancake_deliver_release",
@@ -505,6 +519,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\typedef struct PancakeManagedFrame PancakeManagedFrame;
         \\typedef struct PancakePeer PancakePeer;
         \\typedef struct PancakeGiftRegistry PancakeGiftRegistry;
+        \\typedef struct PancakeNode PancakeNode;
         \\typedef void (*PancakeReleaseFn)(PancakeManagedFrame *frame);
         \\
     );
@@ -540,7 +555,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\power of two) or NULL on failure; free receives the exact size and
         \\alignment the allocation was made with. There is no realloc by design:
         \\the library never resizes in place, so free's size always equals
-        \\alloc's — correct even for a size-tracking host allocator.
+        \\alloc's, correct even for a size-tracking host allocator.
     );
     try b.appendSlice(gpa,
         \\typedef struct PancakeContext PancakeContext;
@@ -660,17 +675,34 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_peer_send_untag", &.{ "peer", "receiver", "tag", "tag_len", "answer" }, "Queue an op:untag projection (ADR-0052): export a fresh promise at `answer`\nthat resolves to the payload of whatever `receiver` resolves to, requiring a\nTagged record whose tag equals `tag` (breaks on a mismatched tag or\nwrong-shape value). `answer` must come from pancake_peer_next_answer on this\npeer; `tag` is borrowed.");
     try emitFn(&b, gpa, "pancake_peer_send_gc_export", &.{ "peer", "positions", "deltas", "len" }, "Construct and queue an op:gc-export releasing wire-delta counts on imports\nthis peer holds: positions[i] is released by deltas[i], for `len` parallel\nentries (both borrowed; len == 0 is PANCAKE_ERR_INVALID_ARGUMENT).");
     try emitFn(&b, gpa, "pancake_peer_send_gc_answer", &.{ "peer", "answer" }, "Construct and queue an op:gc-answer releasing the answer position this peer\nno longer needs.");
-    try emitFn(&b, gpa, "pancake_peer_send_withdraw_gift", &.{ "peer", "give", "give_len", "seed", "seed_len", "handoff_count", "answer" }, "Recipient half of a three-party handoff (ADR-0009): build a signed\ndesc:handoff-receive embedding the verbatim `give` bytes and queue a\nwithdraw-gift op:deliver to the exporter's bootstrap (far object 0) under\n`answer`. The caller must already hold an open keyed session to the exporter\nnamed by the give's exporter-location, opened with the same 32-byte `seed`\nthe gift was deposited under (seed_len must be 32, the session must be open,\nelse PANCAKE_ERR_SESSION). `handoff_count` is the 1-based count of\nwithdrawals from this exporter. The withdrawn reference arrives as a\nPANCAKE_EVENT_RESOLVE keyed on `answer`. `give` and `seed` are borrowed.");
+    try emitFn(&b, gpa, "pancake_peer_send_withdraw_gift", &.{ "peer", "give", "give_len", "seed", "seed_len", "answer" }, "Recipient half of a three-party handoff (ADR-0009): build a signed\ndesc:handoff-receive embedding the verbatim `give` bytes and queue a\nwithdraw-gift op:deliver to the exporter's bootstrap (far object 0) under\n`answer`. The caller must already hold an open keyed session to the exporter\nnamed by the give's exporter-location, opened with the same 32-byte `seed`\nthe gift was deposited under (seed_len must be 32, the session must be open,\nelse PANCAKE_ERR_SESSION). The monotonic handoff-count the exporter requires\nto increase is minted internally by the peer's gift registry (0 for the first\nwithdrawal from a given exporter session, rising across reconnects when a\nshared registry is wired), so the caller never tracks it. The withdrawn\nreference arrives as a PANCAKE_EVENT_RESOLVE keyed on `answer`. `give` and\n`seed` are borrowed.");
     try emitFn(&b, gpa, "pancake_peer_partner_session_key", &.{ "peer", "out_ptr", "out_len" }, "Borrow the partner's session public key learned from its op:start-session\ninto out_ptr/out_len (a NULL pointer and zero length before the handshake\nhalf arrives). A gifter reads it on the to-recipient session for a give's\nrecipient key, and on the to-exporter session to derive the gifter-exporter\nsession name. The view aliases the session until the peer is released.");
     try emitFn(&b, gpa, "pancake_peer_partner_locator_raw", &.{ "peer", "out_ptr", "out_len" }, "Borrow the partner's verbatim location-record bytes from its op:start-session\ninto out_ptr/out_len (a NULL pointer and zero length when none were captured).\nA gifter embeds these as a give's exporter location so a peer comparing\nlocations matches byte-for-byte. The view aliases the session until release.");
     try emitFn(&b, gpa, "pancake_build_handoff_give", &.{ "seed", "seed_len", "recipient_key", "recipient_key_len", "exporter_locator_raw", "exporter_locator_raw_len", "exporter_session_key", "exporter_session_key_len", "gift_id", "gift_id_len", "out_give", "out_give_len" }, "Build the signed desc:handoff-give a gifter returns to a recipient, writing\nowned bytes into out_give/out_give_len (release with\npancake_handoff_give_bytes_release). `seed` is the gifter's 32-byte identity\nseed (the key it presents on the to-exporter session, which signs the give\nand must equal the deposit's provenance); seed_len must be 32. recipient_key\nis the recipient's session public key, exporter_locator_raw the exporter's\nverbatim location bytes, exporter_session_key the exporter's session public\nkey, gift_id the deposited gift's id. The gifter side and gifter-exporter\nsession name are derived from the keys. All inputs are borrowed.");
     try emitFn(&b, gpa, "pancake_handoff_give_bytes_release", &.{ "give", "give_len" }, "Release give bytes returned by pancake_build_handoff_give. NULL is a no-op.");
+    try emitFn(&b, gpa, "pancake_encode_peer_locator", &.{ "transport", "transport_len", "designator", "designator_len", "direct_addresses", "direct_addresses_len", "out", "out_len" }, "Build the verbatim exporter location-record bytes a give names, writing owned\nbytes into out/out_len (release with pancake_peer_locator_bytes_release), the\nconstruct-it-yourself counterpart of pancake_peer_partner_locator_raw, for an\nexporter whose own session record carries no dial hint. transport/designator\nname the exporter; direct_addresses, when non-empty, adds the exporter's\ncomma-separated socket addresses as a direct-addresses hint, so a cross-process\nrecipient dials the exporter directly with no discovery service (an iroh\nexporter reachable only by address). A NULL or empty direct_addresses yields a\nhint-less location identical to the exporter's own session record, so a\ndiscovery-reachable or TCP exporter keeps using pancake_peer_partner_locator_raw\ninstead. The bytes are in the handoff codec (Syrup, as desc:handoff-give is);\nthe result feeds pancake_build_handoff_give as exporter_locator_raw. All inputs\nare borrowed.");
+    try emitFn(&b, gpa, "pancake_peer_locator_bytes_release", &.{ "locator", "locator_len" }, "Release locator bytes returned by pancake_encode_peer_locator. NULL is a no-op.");
     try emitFn(&b, gpa, "pancake_peer_send_deposit_gift", &.{ "peer", "gift_id", "gift_id_len", "gifted_ref" }, "Deposit a gift with this (exporter) session: queue a deposit-gift op:deliver\nto the exporter's bootstrap object (far object 0) carrying the gift id and\nthe gifted reference. Fire-and-forget (no answer): the exporter records the\ngift and parks any withdraw-gift that arrives first until this deposit lands.\ngift_id is borrowed; gifted_ref is borrowed and cloned by the send.");
     try emitFn(&b, gpa, "pancake_peer_send_resolve_handoff_give", &.{ "peer", "answer", "give", "give_len" }, "Resolve `answer` (a question the recipient asked this gifter) with a signed\ndesc:handoff-give: queue an op:resolve whose fulfill carries `give` verbatim,\nso the encoder emits the exact bytes the gifter signed and the recipient\nredeems them transparently. `give` is borrowed for the call.");
     try emitFn(&b, gpa, "pancake_gift_registry_new", &.{"out_registry"}, "Create a shared gift registry backed by the library allocator, writing the\nhandle into out_registry. Bind it onto each peer of a node with\npancake_peer_set_gift_registry before the peers exchange handoff traffic, and\nrelease it with pancake_gift_registry_free only after every peer that\nreferenced it is released.");
     try emitFn(&b, gpa, "pancake_gift_registry_new_in", &.{ "context", "out_registry" }, "Context-backed counterpart of pancake_gift_registry_new: the registry and\nevery gift row it owns allocate and free through `context`'s allocator\n(ADR-0059). The context must outlive the registry.");
     try emitFn(&b, gpa, "pancake_gift_registry_free", &.{"registry"}, "Release a shared gift registry and every gift row it still owns. The caller\nmust have released (or never set this registry on) every peer first. NULL is\na no-op.");
     try emitFn(&b, gpa, "pancake_peer_set_gift_registry", &.{ "peer", "registry" }, "Bind `registry` as `peer`'s shared gift registry, so the peer's inbound\ndeposit-gift / withdraw-gift resolve against the shared table instead of its\nprivate one. Set this before the peer's handshake; the registry must outlive\nthe peer. A NULL registry detaches the peer back to its own table.");
+
+    try section(&b, gpa, "Cross-connection handoff router (PancakeNode, ADR-0066)");
+    try emitFn(&b, gpa, "pancake_node_new", &.{ "seed", "seed_len", "out_node" }, "Create a node bound to the 32-byte identity `seed`, writing the handle into\nout_node. The seed is reused for every connection the node opens so an\nexporter verifies a desc:handoff-receive against one key; draw it at the\nhost's I/O boundary (the sans-io node never generates entropy). Release with\npancake_node_free. `seed` is borrowed; seed_len must be 32.");
+    try emitFn(&b, gpa, "pancake_node_new_in", &.{ "context", "seed", "seed_len", "out_node" }, "Context-backed counterpart of pancake_node_new: the node, its per-connection\npeers, and the shared gift registry allocate and free through `context`'s\nallocator (ADR-0059). The context must outlive the node.");
+    try emitFn(&b, gpa, "pancake_node_free", &.{"node"}, "Release a node: free every registered peer, the routing tables and the\nreferences they own, and the shared gift registry. The caller must have\nfinished pumping every connection's peer first (those peers are node-owned).\nNULL is a no-op.");
+    try emitFn(&b, gpa, "pancake_node_register_conn", &.{ "node", "out_conn_id", "out_peer" }, "Register a fresh connection, writing its conn_id into out_conn_id and the\nnode-owned negotiating peer into out_peer. Pump out_peer with the ordinary\npancake_peer_* surface (it is already bound to the node's gift registry and\nsigns op:start-session with the node seed). Do NOT free out_peer: the node\nowns it and frees it on pancake_node_remove_conn / pancake_node_free.");
+    try emitFn(&b, gpa, "pancake_node_remove_conn", &.{ "node", "conn_id" }, "Remove a registered connection: free its node-owned peer and retire the\nconn_id (never reused). A later route to a redeemed token whose exporter was\nthis connection fails closed. Stop pumping this connection's peer first. An\nunknown conn_id is a no-op.");
+    try emitFn(&b, gpa, "pancake_node_send_withdraw", &.{ "node", "exporter_conn", "give", "give_len", "answer" }, "Mint and queue the recipient half of a three-party handoff on the dialed\nexporter connection: sign a desc:handoff-receive over the verbatim signed\n`give` bytes keyed by the node identity, mint the monotonic handoff-count from\nthe shared registry, and queue withdraw-gift under `answer`. Flush by pumping\nexporter_conn's peer; the withdrawn reference arrives as a resolve keyed on\n`answer`. The exporter session must be open (PANCAKE_ERR_SESSION otherwise).\n`give` is borrowed.");
+    try emitFn(&b, gpa, "pancake_node_originate_give", &.{ "node", "recipient_conn", "exporter_conn", "gifted_ref", "gift_id", "gift_id_len", "answer", "exporter_location", "exporter_location_len" }, "Gifter half of a three-party handoff (ADR-0009), the mirror of\npancake_node_send_withdraw: queue a deposit-gift of `gifted_ref` on\nexporter_conn, build a desc:handoff-give signed by the node identity and\naddressed to recipient_conn's partner, and queue it as the fulfillment of\n`answer` on recipient_conn. Flush both connections (exporter first) so the\ndeposit lands before the recipient dials in to withdraw. `gift_id` keys the\ndeposit and the give (host-drawn). `exporter_location`, when non-NULL and\nnon-empty, is the verbatim exporter locator embedded in the give (an iroh\nexporter reachable only by a Direct dial hint); NULL or empty uses the\nexporter session's own location record. Both sessions must be open\n(PANCAKE_ERR_SESSION otherwise). All byte and reference inputs are borrowed.");
+    try emitFn(&b, gpa, "pancake_node_enroll_redeemed", &.{ "node", "exporter_conn", "far_id", "out_token" }, "Enroll a redeemed far-object capability `far_id` (the reference a withdraw\nresolved to, hosted on exporter_conn) under a fresh synthetic token, writing\nthe token's far id into out_token. Hand the token to the application as an\nordinary far capability; a later pancake_node_route of it forwards to\nexporter_conn with far_id swapped back in. The token is drawn from a reserved\nhigh range disjoint from any wire import.");
+    try emitFn(&b, gpa, "pancake_node_route", &.{ "node", "default_conn", "far_id", "out_conn_id", "out_far_id", "out_routed" }, "Resolve where a deliver to far-object `far_id` rides. A redeemed token routes\nto its exporter connection with the real far id; any other far id rides\ndefault_conn unchanged. Writes the destination conn_id / far id and 1/0 into\nout_routed (0 when a redeemed token names an exporter connection that is gone,\nso the deliver must be dropped).");
+    try emitFn(&b, gpa, "pancake_node_record_foreign_home", &.{ "node", "far_id", "home" }, "Record that the fetched far import `far_id` lives on connection `home`, so a\nlater foreign-home return is re-gifted instead of mis-encoding a\ncross-connection reference (ADR-0009 gifter half). A synthetic redeemed token\n(a high far id) is never a wire import, so recording it is a no-op.");
+    try emitFn(&b, gpa, "pancake_node_foreign_home", &.{ "node", "far_id", "out_conn_id", "out_found" }, "The connection a fetched far import `far_id` lives on. Writes the home conn_id\ninto out_conn_id and 1/0 into out_found (0 for any far id that was never\nrecorded, including a redeemed token).");
+    try emitFn(&b, gpa, "pancake_node_arg_is_foreign", &.{ "node", "default_conn", "far_id", "out_foreign" }, "Whether far-object `far_id`, used as a send/tell argument from default_conn,\nnames a capability foreign to that connection: a redeemed handoff token (the\nnode routes it to a different exporter) or a far the node recorded as fetched\non another connection. Writes 1/0 into out_foreign. A binding fails closed on\n1 rather than mis-encoding the reference for this partner; the gifter half\nre-gifts such a capability when it is returned (ADR-0009).");
+
     try emitFn(&b, gpa, "pancake_peer_poll_event_deliver", &.{ "peer", "out" }, "Take the next event as a structured deliver, or PANCAKE_ERR_WRONG_EVENT /\nPANCAKE_ERR_WOULD_BLOCK. PANCAKE_ERR_WRONG_EVENT, PANCAKE_ERR_UNSUPPORTED_VALUE,\nand decode failures leave the event queued; drain it with\npancake_peer_poll_event or the queue never advances (pancake_peer_codec names\nthe raw frame's codec). Release with the matching *_release.");
     try emitFn(&b, gpa, "pancake_peer_poll_event_resolve", &.{ "peer", "out" }, "Take the next event as a structured resolve; same routing contract as\npancake_peer_poll_event_deliver, including the leave-queued fallback to\npancake_peer_poll_event on PANCAKE_ERR_UNSUPPORTED_VALUE and decode failures.");
     try emitFn(&b, gpa, "pancake_deliver_release", &.{"deliver"}, "Release a deliver projection; the `args` views aliasing its arena die with\nit. Idempotent: the struct is cleared, so releasing again (or a\nzero-initialized struct) is a no-op.");

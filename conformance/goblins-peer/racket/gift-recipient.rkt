@@ -50,7 +50,7 @@
    (define introducer-vow (<- mycapn 'enliven introducer-sturdyref))
 
    ;; Ask the gifter to introduce the greeter, and wait for that to *resolve*
-   ;; before calling — the resolution is a handoff-give Goblins redeems to the
+   ;; before calling, the resolution is a handoff-give Goblins redeems to the
    ;; live exporter cap. Redeem-then-call (rather than pipelining the greeter
    ;; call onto the unresolved introduction) keeps the greeter call off the
    ;; gifter entirely: it goes straight to the exporter, the same shape the

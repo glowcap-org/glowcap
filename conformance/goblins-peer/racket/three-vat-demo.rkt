@@ -1,5 +1,5 @@
 #lang racket/base
-;; three-vat-demo.rkt — proves Goblins/CapTP does real OCapN three-party
+;; three-vat-demo.rkt, proves Goblins/CapTP does real OCapN three-party
 ;; introduction (the "bash exec" property) over the TCP netlayer.
 ;;
 ;; Three real Vats, three TCP ports, three independent mycapn machine
@@ -40,11 +40,11 @@
 
 (define (^greeter _bcom my-name)
   (lambda (your-name)
-    (format "Hello ~a, I'm ~a — the bytes you just received came directly to me!"
+    (format "Hello ~a, I'm ~a, the bytes you just received came directly to me!"
             your-name my-name)))
 
 ;; ============================================================================
-;; The introducer Alice hosts — holds a remote ref to Bob's greeter,
+;; The introducer Alice hosts, holds a remote ref to Bob's greeter,
 ;; hands it out on request.
 ;; ============================================================================
 
@@ -55,7 +55,7 @@
       [else (error '^introducer "unknown command: ~v" args)])))
 
 ;; ============================================================================
-;; Per-peer trace tally — proves who dialed whom.
+;; Per-peer trace tally, proves who dialed whom.
 ;; ============================================================================
 
 (define alice-port 9011)
@@ -89,7 +89,7 @@
   (make-trace-tally "Carol"))
 
 ;; ============================================================================
-;; Bob — bind, host greeter, hand sturdyref to Alice
+;; Bob, bind, host greeter, hand sturdyref to Alice
 ;; ============================================================================
 
 (printf "~n=== Bob: binding 127.0.0.1:~a, hosting greeter ===~n" bob-port)
@@ -108,7 +108,7 @@
   (bob-machine-run ($ bob-mycapn 'register bob-greeter 'tcp)))
 
 ;; ============================================================================
-;; Alice — bind, enliven Bob's greeter, host introducer
+;; Alice, bind, enliven Bob's greeter, host introducer
 ;; ============================================================================
 
 (printf "~n=== Alice: binding 127.0.0.1:~a, enlivening Bob's greeter ===~n" alice-port)
@@ -141,7 +141,7 @@
    ($ alice-mycapn 'register alice-introducer 'tcp)))
 
 ;; ============================================================================
-;; Carol — bind, dial Alice, ask for the greeter, invoke it
+;; Carol, bind, dial Alice, ask for the greeter, invoke it
 ;; ============================================================================
 
 (printf "~n=== Carol: binding 127.0.0.1:~a, will enliven Alice's introducer ===~n" carol-port)
@@ -163,7 +163,7 @@
    (<- carol-mycapn 'enliven alice-introducer-sref))
  (printf "  [Carol] asking introducer for the greeter (this is the introduction)...~n")
  (define greeter-vow (<- introducer-vow 'get-greeter))
- (printf "  [Carol] invoking the greeter — bytes should go directly to Bob...~n")
+  (printf "  [Carol] invoking the greeter; bytes should go directly to Bob...~n")
  (on (<- greeter-vow "Carol")
      (lambda (val)
        (async-channel-put response-ch `(ok ,val)))
@@ -188,7 +188,7 @@
   [(ok)
    (printf "~n  Carol's greeter call succeeded. Reply: ~a~n" (cadr reply))]
   [(err)
-   (printf "~n  Carol's greeter call FAILED — broken promise: ~v~n" (cadr reply))
+   (printf "~n  Carol's greeter call FAILED, broken promise: ~v~n" (cadr reply))
    (exit 1)]
   [else
    (printf "~n  Carol's greeter call TIMED OUT (no reply within 10s)~n")
@@ -208,7 +208,7 @@
 ;;      Carol's mycapn dialed Bob directly)
 ;;
 ;; If Goblins had only Cap'n-Proto-RPC-level-2 semantics (no
-;; introduction), Carol would never dial Bob — her traffic would proxy
+;; introduction), Carol would never dial Bob, her traffic would proxy
 ;; through Alice. In that world, Bob.accepts would stay at 1.
 (printf "~n  Assertion: Bob's accepts >= 2 (introduction worked, Carol dialed Bob directly)~n")
 (define introduction-worked? (>= (unbox bob-accepts) 2))
@@ -218,7 +218,7 @@
   (printf "~n  WHY IT MATTERS: A failure here means Carol's bytes routed THROUGH~n")
   (printf "  Alice (proxying), not direct to Bob. That's what level-2 RPC does;~n")
   (printf "  three-party introduction (CapTP level 3) is what makes it the~n")
-  (printf "  'OCapN exec' — the introducer steps OUT of the data path.~n")
+  (printf "  'OCapN exec', the introducer steps OUT of the data path.~n")
   (exit 1))
 
 ;; Bonus assertion: Carol has dialed BOTH Alice and Bob (proves the

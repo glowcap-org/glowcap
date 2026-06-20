@@ -23,7 +23,7 @@ layer, each sibling wire codec is its own module, so Syrup and Cap'n Proto
 cannot import each other either (ADR-0048). The DAG is one declaration, the
 `layer_table` in build.zig, and the arch gate checks it against the tree: a
 granted edge no file imports fails, and so do the content bans a module graph
-cannot express — no `std.Io` or threading in the core, and no platform syscall
+cannot express, no `std.Io` or threading in the core, and no platform syscall
 namespaces in portable code. `zig build check` runs that gate. A claim about
 layering in any doc defers to the `build.zig` table. The `src/` layout is
 settled; keeping it settled is part of this standing discipline, never a
@@ -66,6 +66,12 @@ the warmed total — struct plus session heap — at or under 2 KiB per connecti
 extrapolates to 500k; `zig build check` runs it in `--smoke` mode and runs both
 budget gates.
 
+Those two are the headline numbers, not the only gated costs. The same
+`zig build check` test suite also pins the outbound `encodeMessage` allocation
+count, the `op:resolve` record's single allocation, the model value-tree struct
+sizes, the GC-churn live-heap reclaim, and a zero-allocation steady hosted-vat
+turn. The wire-path budget holds as a set, not only at the inbound floor.
+
 What stays open on this rung is the part that needs a socket, not a number on
 paper. The footprint above is the protocol core measured in-process. The
 completion loop's read buffers come from a shared backend-owned pool (ADR-0054),
@@ -103,7 +109,7 @@ drift-gated.
 ## Rung 5 — The Netlayer Frontier
 
 The netlayer is a contract with three residents, the third of them the encrypted
-iroh channel — now encrypted, discoverable (dial-by-id), identity-unified, and
+iroh channel, now encrypted, discoverable (dial-by-id), identity-unified, and
 served at scale by the ADR-0057 completion loop (`iroh.LoopHost`, gated by
 `iroh-loop`), pancake to pancake. That loop is the netlayer's one I/O model, and
 every binding parks on its readiness fd natively (gated by
@@ -125,7 +131,7 @@ a real iroh endpoint, dialed by Ed25519 endpoint id, carried by the
 `transports/iroh` Rust sidecar so the pure-Zig archives stay pure Zig, and
 proven live by `zig build iroh-interop`. All three drive through the same
 `connectVia` / `acceptVia` path and complete the same verified handshake, and
-adding each one edited no driver, core, or contract file — which is what proves
+adding each one edited no driver, core, or contract file, which is what proves
 the contract is transport-general rather than socket-shaped; a caller's own
 transport slots in the same way. (A test-defined `x-loopback` transport also
 exercises the dispatch from outside the tree, though it rides tcp underneath.)
@@ -148,8 +154,9 @@ side: both run keyed sessions through the same loop-backed connection lifecycle.
 Open work on this rung is the live 500k footprint measurement that turns rung
 2's budget into a number under real socket load, and a Windows completion
 backend. Binding-side adoption of the loop surface has landed: every binding
-(Deno, Python, Rust, Racket) wraps it, each gated by a many-connection proof
-under `bindings-iroh-loop`. The encrypted channel itself exists, pancake to
+(Deno, Python, Rust, Racket) wraps it; Python, Rust, and Racket are each gated
+by a many-connection proof under `bindings-iroh-loop`, and Deno implements the
+same surface. The encrypted channel itself exists, pancake to
 pancake, behind ADR-0043 (`zig build iroh-interop` is the live proof), and its
 identity-and-discovery capstones have since landed on the same gate:
 **dial-by-id discovery** (a configurable, no-default `Reachability`; the gate
@@ -160,7 +167,7 @@ is OCapN's self-authenticating designator, relays and hole-punching are
 sidecar-internal, and `ocapn://<nodeid>.iroh` URI dialing reaches every binding
 through the `libpancake_net_transport_iroh` C ABI companion library with an
 explicit reachability. What remains is the **live-socket 500k measurement**: the
-at-scale substrate itself has landed — the event-driven completion loop of
+at-scale substrate itself has landed, the event-driven completion loop of
 ADR-0057 (`iroh.LoopHost`, gated by `iroh-loop`) is the iroh netlayer's one I/O
 model and multiplexes many connections through one readiness fd, not a thread
 per connection, and `bench-peer-scaling`'s `served` row measures its

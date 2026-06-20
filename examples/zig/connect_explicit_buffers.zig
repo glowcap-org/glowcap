@@ -6,7 +6,7 @@
 //! the call site: the caller owns the negotiating `engine.Peer` (and sets its
 //! frame limit), owns both read/write buffers, and passes all three to
 //! `driver.connectTcp` / `driver.acceptTcp`. The buffers size the steady
-//! state, not the largest admissible frame — an inbound frame that outgrows
+//! state, not the largest admissible frame, an inbound frame that outgrows
 //! the read buffer assembles once in the connection's bounded spill, capped by
 //! the peer's `max_frame_bytes`. The reply is observed with the explicit
 //! promise idiom: `send` returns a promise, `on` registers a listener, and the
@@ -58,7 +58,7 @@ fn host(listener: *tcp.Listener, allocator: std.mem.Allocator) !void {
 }
 
 /// The reply listener fires once, during the settling step, with a
-/// turn-borrowed resolution — copy out what must outlive it. Two bools are all
+/// turn-borrowed resolution, copy out what must outlive it. Two bools are all
 /// this client keeps.
 const Reply = struct {
     done: bool = false,

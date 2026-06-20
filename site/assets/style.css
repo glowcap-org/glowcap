@@ -1,4 +1,4 @@
-/* pancake site — a warm, two-column documentation surface. The palette is
+/* pancake site, a warm, two-column documentation surface. The palette is
    pulled from the hero art: cream paper, cocoa ink, an amber accent, and a
    teal that plays against it. */
 
@@ -639,7 +639,7 @@ hr {
 }
 
 /* The module stack: one connected panel of layers resting on layers, the way
-   the architecture composes. It is deliberately not card-shaped — the route
+   the architecture composes. It is deliberately not card-shaped, the route
    cards lift and link, this is a diagram that sits still and reads top to
    bottom, so a colored left edge marks each band instead of a raised tile. */
 .stack {
@@ -680,7 +680,7 @@ hr {
   display: block;
   color: var(--ink-soft);
   font-size: 0.86rem;
-  /* Same widow control as body copy — these read as sentences, not labels. */
+  /* Same widow control as body copy, these read as sentences, not labels. */
   text-wrap: pretty;
 }
 

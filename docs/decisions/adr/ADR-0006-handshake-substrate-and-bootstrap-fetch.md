@@ -3,7 +3,7 @@ id: ADR-0006
 status: accepted
 date: 2026-05-01
 tags: [handshake, bootstrap, lifecycle, substrate, start-session]
-decision: The `op:start-session` exchange and the bootstrap-`'fetch` flow are codec-neutral. The core ships their no-I/O halves — the wire record, the `negotiating → open` session machine, the sync in-process handshake driver, and both the bootstrap-fetch initiator and the inbound-`'fetch` responder (a session-owned swissnum→export-id `bootstrap` registry plus engine-side recognition and reply synthesis) — and an adapter drives the wire loop. Production netlayers are not implemented.
+decision: The `op:start-session` exchange and the bootstrap-`'fetch` flow are codec-neutral. The core ships their no-I/O halves — the wire record, the `negotiating → open` session machine, the sync in-process handshake driver, and both the bootstrap-fetch initiator and the inbound-`'fetch` responder (a session-owned swissnum→export-id `bootstrap` registry plus engine-side recognition and reply synthesis) — and an adapter drives the wire loop. Production netlayers are out of scope here; the netlayer contract is ADR-0043.
 supersedes: []
 superseded_by: []
 ---
@@ -128,9 +128,12 @@ concern and is not implemented.
 
 ## Scope (what this does not decide)
 
-- Production netlayers are not implemented. The core ships the no-I/O halves;
+- Production netlayers are out of scope here. The core ships the no-I/O halves;
   driving frames over a real transport (and the connection lifecycle around it)
-  is an adapter concern.
+  is an adapter concern, decided by the netlayer contract
+  ([ADR-0043](ADR-0043-netlayer-contract.md)) and its transport residents
+  ([ADR-0047](ADR-0047-in-memory-netlayer.md) in-process,
+  [ADR-0055](ADR-0055-iroh-netlayer-sidecar.md) iroh).
 - `deposit-gift` / `withdraw-gift` bootstrap methods — they ride the handoff
   cryptographic suite in [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
 
@@ -177,11 +180,11 @@ concern and is not implemented.
 The `op:start-session` record shape is final: real Ed25519 fills the
 `session_pubkey` / `acceptable_location_sig` bytes (see Peer authentication
 above) without reshaping the record or the session machine. A production
-netlayer is a reserved seam an adapter implements against the same model record
-and the same `negotiating →
-open` machine; the `bootstrap` registry is session
-state (not codec state), so dispatch keys on the codec-neutral semantic shape
-across the active codec.
+netlayer implements against the same model record and the same `negotiating →
+open` machine, which is what the netlayer contract
+([ADR-0043](ADR-0043-netlayer-contract.md)) did without reshaping either; the
+`bootstrap` registry is session state (not codec state), so dispatch keys on the
+codec-neutral semantic shape across the active codec.
 
 ## Notes
 

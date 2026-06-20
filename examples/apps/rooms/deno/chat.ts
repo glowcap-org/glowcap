@@ -1,4 +1,4 @@
-// An interactive rooms chat client, in Deno — the one you actually talk in.
+// An interactive rooms chat client, in Deno, the one you actually talk in.
 //
 // It enters a room, prints every line as it arrives, and posts whatever you
 // type. Lines that start with "/" are commands, not chat:
@@ -79,7 +79,7 @@ async function pump(room: Room): Promise<void> {
 		for await (const { from, text, system } of room.messages) {
 			console.log(system ? `* ${text}` : `${from}: ${text}`);
 		}
-	} catch { /* the stream ended under us — nothing to show */ }
+	} catch { /* the stream ended under us, nothing to show */ }
 }
 
 // A typed line is a command if it starts with "/"; otherwise it is chat.
@@ -137,7 +137,7 @@ async function tryMove(
 // The live rooms, most-populated first.
 function showRooms(): void {
 	if (liveRooms.size === 0) {
-		return void console.log("* no rooms yet — /open one");
+		return void console.log("* no rooms yet, /open one");
 	}
 	const rows = [...liveRooms.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
 	console.log(

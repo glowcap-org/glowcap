@@ -1,4 +1,4 @@
-// An interactive tasks client — the one you actually manage tasks in.
+// An interactive tasks client, the one you actually manage tasks in.
 //
 // It connects to a task board, prints every change as it arrives, and accepts
 // commands: `add <text>`, `done <id>`, `list`. Press Ctrl-D to leave.
@@ -14,7 +14,7 @@ if (!host || !portStr) {
 }
 
 const board = await TaskBoard.join(host, Number(portStr));
-console.log("(connected — commands: add <text>, done <id>, list, quit)");
+console.log("(connected, commands: add <text>, done <id>, list, quit)");
 
 const initial = await board.list();
 printBoard(initial);

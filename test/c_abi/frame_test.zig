@@ -85,7 +85,7 @@ test "C ABI recv_stream frames a byte stream one frame at a time" {
 test "C ABI recv_stream refuses an over-cap frame instead of asking for more bytes" {
     // Every binding accumulates an inbox and keeps reading while recv_stream
     // answers WOULD_BLOCK, so the inbox is bounded only if an over-cap frame
-    // is refused as FRAME_TOO_LARGE the moment that is knowable (ADR-0041) —
+    // is refused as FRAME_TOO_LARGE the moment that is knowable (ADR-0041),
     // both when a length prefix declares past the cap and when an undeclared
     // frame has already buffered past it.
     const allocator = std.testing.allocator;
@@ -185,7 +185,7 @@ test "C ABI exposes non-abort events as managed event frames in the negotiated c
         .shape = c_abi.PANCAKE_FRAME_SHAPE_BYTE,
     };
     const runtime_peer: *pancake.ocapn.engine.Peer = @ptrCast(@alignCast(peer.?));
-    try runtime_peer.session_state.registerExport(7);
+    try runtime_peer.session_state.registerExport(.from(7));
     try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_feed_borrowed(peer, &frame));
 
     var event: c_abi.PancakeEvent = undefined;

@@ -9,7 +9,7 @@ adapter design, not a pancake wire-protocol oracle.
 Generate accountability output first:
 
 ```sh
-racket conformance/accountability-on-goblins/racket/kernel.rkt
+( cd conformance/accountability-on-goblins && racket racket/kernel.rkt )
 ```
 
 Then audit it:

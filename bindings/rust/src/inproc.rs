@@ -154,7 +154,7 @@ impl Drop for Listener<'_> {
 	}
 }
 
-/// A blocking in-process endpoint — the `pancake_inproc_*` frame shuttle.
+/// A blocking in-process endpoint, the `pancake_inproc_*` frame shuttle.
 /// Closed on drop. The frame methods block. Borrows the [`Netlayer`] (or
 /// [`Listener`]) it came from, so that backend outlives it.
 pub struct Endpoint<'a> {

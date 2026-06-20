@@ -34,7 +34,7 @@ inventory.
 
 ## API Constraints
 
-`get_symbols_overview` takes a file path, never a directory — to map a
+`get_symbols_overview` takes a file path, never a directory, to map a
 directory, list its files first and call per-file. `find_symbol` matches a
 `name_path_pattern`; every other symbol tool takes an exact `name_path`. The
 [serena skill](../skills/serena/SKILL.md) carries the full call shapes.
@@ -43,12 +43,12 @@ directory, list its files first and call per-file. `find_symbol` matches a
 
 Warm Serena early by calling `get_symbols_overview` on the file most relevant to
 the task. The [serena skill](../skills/serena/SKILL.md) carries the warm-with
-table, the module map, cold-start timing, and ready-made calls — read it before
+table, the module map, cold-start timing, and ready-made calls, read it before
 the first call of a session.
 
 Use `depth=1` on a struct to map its children before deciding which bodies to
 read with `include_body=true`. Reading an entire large type (e.g. `Peer`,
-`Session`) returns hundreds of lines — targeted reads are faster.
+`Session`) returns hundreds of lines, targeted reads are faster.
 
 Prefer symbol-aware rename/body replacement over search-and-replace for Zig
 source. Serena diagnostics are an iteration aid, not the gate. Verify completed

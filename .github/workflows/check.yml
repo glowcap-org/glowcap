@@ -1,5 +1,5 @@
 # The project gates on the GitHub mirror, run in the canonical devcontainer
-# image via ci/gates.sh — the same script the Codeberg (.forgejo/workflows/)
+# image via ci/gates.sh, the same script the Codeberg (.forgejo/workflows/)
 # wrapper runs. Origin is Codeberg; this exists because the mirror's hosted
 # runners are docker-capable and free.
 name: check

@@ -35,7 +35,7 @@ test "recording an outbound resolve moves the resolution into the store, copying
         .{ .wire_profile = model.WireProfile.pre_spec },
     ));
     defer peer.deinit();
-    try peer.session_state.registerExport(7);
+    try peer.session_state.registerExport(.from(7));
 
     // The inbound answer the resolve settles: a question the partner posed
     // (`op:deliver` to our export 7) that we now owe. Installed and drained
@@ -48,15 +48,15 @@ test "recording an outbound resolve moves the resolution into the store, copying
 
     // An *owned* resolution, exactly as a caller hands to `Peer.send`: the move
     // transfers this heap into the store, which frees it at teardown. (Allocated
-    // before the window so the dupe is not counted; never freed here — ownership
+    // before the window so the dupe is not counted; never freed here, ownership
     // is transferred by `recordSend`.)
     const payload = try gpa.dupe(u8, "ok");
     const resolution: model.Resolution = .{ .fulfill = .{ .bytes = payload } };
 
     counter.allocs = 0;
-    try peer.session_state.recordSend(.{ .resolve = .{ .answer = 11, .resolution = resolution } });
+    try peer.session_state.recordSend(.{ .resolve = .{ .answer = .from(11), .resolution = resolution } });
 
     // One allocation: the answer's lazily-created payload row. Zero resolution
-    // copies — the resolution moved. A reintroduced clone would read 2 here.
+    // copies, the resolution moved. A reintroduced clone would read 2 here.
     try std.testing.expectEqual(@as(usize, 1), counter.allocs);
 }

@@ -63,7 +63,7 @@ fn applyRecvShared(self: *Session, message: anytype) !void {
                 };
             }
             // A canonical `op:resolve` fulfilling with a `far` reference hands
-            // us a new import (the resolved capability) — install it.
+            // us a new import (the resolved capability), install it.
             if (resolve.resolution == .fulfill) {
                 try installIntroducedImport(self, resolve.resolution.fulfill, 0);
             }
@@ -144,10 +144,11 @@ pub fn applySend(self: *Session, message: model.Message) !void {
             // a relayed resolution, so drop its imported-promise row (host +
             // listeners + stored resolution) alongside the import.
             for (gc_export.positions) |pos| {
-                if (!self.imports.contains(pos)) {
-                    if (self.findImportedPromise(pos)) |entry| {
+                const import_id = model.ImportId.from(pos);
+                if (!self.imports.contains(import_id)) {
+                    if (self.findImportedPromise(import_id)) |entry| {
                         session.deinitImportedPromise(self.allocator, entry);
-                        _ = self.imported_promises.remove(pos);
+                        _ = self.imported_promises.remove(import_id);
                     }
                 }
             }
@@ -187,8 +188,8 @@ pub fn applySend(self: *Session, message: model.Message) !void {
 /// drains all inbound before emitting any outbound — in which an answer read
 /// settled with no resolution on hand; every status-reading consumer (op:listen,
 /// projections, pipelined op:deliver) then had to special-case it. The invariant
-/// is now structural: for every inbound answer, `status != .pending` iff a
-/// resolution is stored.
+/// is now structural: for every inbound answer, `status != .pending` if and
+/// only if a resolution is stored.
 pub fn applySentResolve(self: *Session, resolve: model.Resolve) !void {
     // Account every `near` export the payload puts on the wire (see
     // `retainSentExports`). On failure the resolution has found no owner, so the
@@ -213,7 +214,7 @@ pub fn applyRecv(self: *Session, message: model.Message) !void {
     switch (message) {
         .gc_export => |gc_export| try session.applyGcExportDecrement(&self.exports, gc_export),
         // Inbound `op:gc-answers` releases an answer we created for the
-        // partner — decrement our inbound answers and prune the inbound
+        // partner, decrement our inbound answers and prune the inbound
         // resolver link we recorded for it.
         .gc_answer => |gc_answer| try applyGcAnswerDecrementInbound(self, gc_answer.positions),
         // `op:get` / `op:index` / `op:untag` export a promise at the new answer
@@ -259,7 +260,7 @@ fn installIntroducedImports(self: *Session, args: anytype, depth: usize) RecvVie
 fn installIntroducedImport(self: *Session, arg: anytype, depth: usize) RecvViewError!void {
     switch (arg) {
         .reference => |reference| switch (reference) {
-            .far => |far| if (far.import_position != BOOTSTRAP_POSITION) {
+            .far => |far| if (far.import_position.int() != BOOTSTRAP_POSITION) {
                 try self.registerImport(far.import_position);
             },
             else => {},
@@ -268,13 +269,13 @@ fn installIntroducedImport(self: *Session, arg: anytype, depth: usize) RecvViewE
         .tagged => |tagged| try installIntroducedImports(self, tagged.value, depth + 1),
         .@"struct" => |entries| try installIntroducedStructImports(self, entries, depth + 1),
         // Exhaustive on purpose: a new Argument arm must decide here whether it
-        // can introduce an import — see `validate.validateInboundArgument`.
+        // can introduce an import, see `validate.validateInboundArgument`.
         .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
     }
 }
 
 /// Struct entries carry full argument values, so an introduced `far` import can
-/// arrive inside one — the struct mirror of `installIntroducedImports`,
+/// arrive inside one, the struct mirror of `installIntroducedImports`,
 /// dual-shape over the borrowed `model.view.StructEntries` and the owned slice.
 fn installIntroducedStructImports(self: *Session, entries: anytype, depth: usize) RecvViewError!void {
     if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
@@ -339,7 +340,7 @@ fn retainSentExports(self: *Session, message: model.Message) !void {
 /// wire-delta retain this apply walk would have added.
 pub fn retainSentExportRef(self: *Session, reference: model.Reference) !void {
     switch (reference) {
-        .near => |near| if (near.export_position != BOOTSTRAP_POSITION) {
+        .near => |near| if (near.export_position.int() != BOOTSTRAP_POSITION) {
             try self.exports.retain(self.allocator, near.export_position);
         },
         else => {},
@@ -361,35 +362,35 @@ fn retainSentExportArg(self: *Session, arg: model.Argument, depth: usize) RecvVi
             for (entries) |entry| try retainSentExportArg(self, entry.value, depth + 1);
         },
         // Exhaustive on purpose: a new Argument arm must decide here whether it
-        // can name an export — see `validate.validateInboundArgument`.
+        // can name an export, see `validate.validateInboundArgument`.
         .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
     }
 }
 
 /// Apply `op:gc-answers` to our inbound answers. A fully-released answer can
 /// never resolve again, so its V1.0 inbound resolver link (ADR-0010) is
-/// dropped with the row — an O(1) keyed removal.
+/// dropped with the row, an O(1) keyed removal.
 fn applyGcAnswerDecrementInbound(self: *Session, positions: []const u64) Error!void {
     for (positions) |position| {
-        if (try decrementAnswer(self, &self.inbound_answers, position)) {
-            _ = self.v1_0_inbound_resolvers.remove(position);
+        if (try decrementAnswer(self, &self.inbound_answers, model.AnswerId.from(position))) {
+            _ = self.v1_0_inbound_resolvers.remove(model.AnswerId.from(position));
         }
     }
 }
 
 /// Apply `op:gc-answers` to our outbound answers, dropping any V1.0 outbound
 /// resolver link for a fully-released answer. The link map is keyed by
-/// resolver-export for the hot reverse lookup, so removal-by-answer scans —
+/// resolver-export for the hot reverse lookup, so removal-by-answer scans,
 /// bounded by the outstanding resolver links and only on the GC path.
 fn applyGcAnswerDecrementOutbound(self: *Session, positions: []const u64) Error!void {
     for (positions) |position| {
-        if (try decrementAnswer(self, &self.outbound_answers, position)) {
-            removeOutboundResolverByAnswer(self, position);
+        if (try decrementAnswer(self, &self.outbound_answers, model.AnswerId.from(position))) {
+            removeOutboundResolverByAnswer(self, model.AnswerId.from(position));
         }
     }
 }
 
-fn removeOutboundResolverByAnswer(self: *Session, answer: u64) void {
+fn removeOutboundResolverByAnswer(self: *Session, answer: model.AnswerId) void {
     var it = self.v1_0_outbound_resolvers.iterator();
     while (it.next()) |entry| {
         if (entry.value_ptr.* == answer) {
@@ -402,7 +403,7 @@ fn removeOutboundResolverByAnswer(self: *Session, answer: u64) void {
 /// Decrement an answer's refcount, removing it at zero. Returns whether the
 /// answer was fully released (count reached zero). Releasing an answer frees
 /// any queued pipelined calls, listeners, and stored resolution it owns.
-fn decrementAnswer(self: *Session, table: *AnswerTable, position: u64) Error!bool {
+fn decrementAnswer(self: *Session, table: *AnswerTable, position: model.AnswerId) Error!bool {
     const entry = table.getPtr(position) orelse return Error.GcUnderflow;
     if (entry.count == 0) return Error.GcUnderflow;
     entry.count -= 1;
@@ -420,7 +421,7 @@ fn decrementAnswer(self: *Session, table: *AnswerTable, position: u64) Error!boo
 /// cap is the direction's policy, not a property of which pointer was passed.
 /// Idempotent: an already-present row is left untouched (the engine installs a
 /// queued pipelined call's answer at queue time and again at redirect time).
-pub fn installAnswer(self: *Session, direction: AnswerDirection, position: u64) !void {
+pub fn installAnswer(self: *Session, direction: AnswerDirection, position: model.AnswerId) !void {
     const table = switch (direction) {
         .inbound => &self.inbound_answers,
         .outbound => &self.outbound_answers,

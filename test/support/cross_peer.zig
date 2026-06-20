@@ -74,7 +74,7 @@ pub fn deliverGive(
 /// Before the recipient sends the handoff-receive and the exporter's gift
 /// registry authorizes the withdrawal (gift existence, recipient match,
 /// handoff-count monotonicity), both certificates are checked at the boundary by the injected
-/// verifier — each over its *canonical signed bytes* (ADR-0009): the gifter's
+/// verifier, each over its *canonical signed bytes* (ADR-0009): the gifter's
 /// signature over the embedded `desc:handoff-give` record, and the recipient's
 /// signature over the `desc:handoff-receive` record. The signed domain is the
 /// whole envelope, not the gift-id field alone; verifying a single field would
@@ -102,7 +102,7 @@ pub fn withdrawGift(
         return Error.SignatureRejected;
     }
 
-    // Authority moves here, behind the verification above — not on the exporter's
+    // Authority moves here, behind the verification above, not on the exporter's
     // generic inbound path, which refuses to consume a gift from an unauthenticated
     // handoff frame. The frame is still pumped so the exporter surfaces the
     // `.handoff` event, but the withdrawal is applied explicitly against the

@@ -22,12 +22,13 @@
          "pancake.rkt")
 
 (provide connect-iroh
+         connect-iroh/node
          listen-iroh
          IROH-REACH-DIRECT IROH-REACH-DISCOVERY IROH-REACH-DISCOVERY-NO-RELAY IROH-REACH-LOCAL-DISCOVERY
          iroh-server? iroh-server-node-id iroh-server-direct-addresses
-         iroh-server-uri iroh-server-accept iroh-server-close!)
+         iroh-server-node iroh-server-uri iroh-server-accept iroh-server-close!)
 
-;; Reachability posture — REQUIRED on every public iroh constructor, with NO
+;; Reachability posture, REQUIRED on every public iroh constructor, with NO
 ;; default: a peer states how it is reachable, the binding never guesses. The
 ;; lazy iroh ABI loader behind `iroh-fn` lives in `private/ffi-iroh.rkt`.
 (define IROH-REACH-DIRECT 0)             ; dial by id + direct-address hints; relay-less, no discovery
@@ -36,7 +37,7 @@
 (define IROH-REACH-LOCAL-DISCOVERY 3)    ; in-process address book; tests/same-process
 
 ;; ── netlayer FFI wrappers ─────────────────────────────────────────────────────
-;; `reachability` is required — an IROH-REACH-* posture, no default.
+;; `reachability` is required, an IROH-REACH-* posture, no default.
 (define (iroh-netlayer-new reachability)
   (define-values (rc h) ((iroh-fn 'netlayer-new) #f 0 reachability)) ; #f/0 secret seed = a fresh random key
   (check rc)
@@ -61,7 +62,7 @@
 ;; Dial a partner non-blockingly: the dial itself parks (it is #:blocking?), but
 ;; the returned connection is driven by the netlayer's readiness loop, so its
 ;; reads and writes never park a thread. Pin the borrowed inputs in immobile
-;; memory — the call may run while the GC moves Racket-managed blocks.
+;; memory, the call may run while the GC moves Racket-managed blocks.
 (define (iroh-netlayer-try-connect h node-id hints)
   (define nb (string->bytes/utf-8 node-id))
   (define hb (string->bytes/utf-8 hints))
@@ -275,34 +276,81 @@
 ;; is ephemeral (a fresh key) and driven by its own readiness loop, both released
 ;; with the connection. `reachability` is an IROH-REACH-* posture, supplied by
 ;; `connect`.
+;; The fresh node's session key and its node identity are one and the same
+;; seed, so the connection's wire identity stays coherent, a handoff this node
+;; later redeems signs its `desc:handoff-receive` with the very key the gifter
+;; recorded, exactly as the TCP dialer (`dial-tcp`) does. Delegates to the
+;; node-keyed dial with a fresh node rather than keying the session
+;; independently of the node it builds.
+;; The discovery-posture dial retry budget: how long pkarr propagation is given
+;; before each retry, and how many attempts (~72s total, covering n0 DNS/pkarr
+;; propagation). Matches the TS `dialResolving` budget.
+(define DISCOVERY-DIAL-RETRY-S 3.0)
+(define DISCOVERY-DIAL-MAX-ATTEMPTS 24)
+
+;; Dial, retrying only under a propagating-discovery posture (DISCOVERY and
+;; DISCOVERY-NO-RELAY) while it resolves the partner by id. A dial-by-id can fail
+;; with "no addressing information" until the exporter's pkarr record propagates
+;; to the n0 resolver (seconds, variable); every other posture dials once
+;; (Direct's addresses are in hand, local_discovery resolves instantly). Mirrors
+;; the TS `dialResolving` and the Zig `iroh-reachability` driver.
+(define (dial-resolving netlayer node-id direct-addresses retry?)
+  (let loop ([attempt 1])
+    (define result
+      (with-handlers ([(lambda (_) #t)
+                       (lambda (e)
+                         (if (and retry? (< attempt DISCOVERY-DIAL-MAX-ATTEMPTS))
+                             'retry
+                             (raise e)))])
+        (iroh-netlayer-try-connect netlayer node-id direct-addresses)))
+    (if (eq? result 'retry)
+        (begin (sleep DISCOVERY-DIAL-RETRY-S) (loop (add1 attempt)))
+        result)))
+
 (define (connect-iroh node-id direct-addresses reachability)
-  (define netlayer (iroh-netlayer-new reachability))
-  (define lp (make-iroh-loop netlayer))
-  (define conn
-    (with-handlers ([(lambda (_) #t)
-                     (lambda (e) (loop-stop! lp) (iroh-netlayer-release! netlayer) (raise e))])
-      (iroh-netlayer-try-connect netlayer node-id direct-addresses)))
-  (loop-register! lp conn)
-  (define peer (make-peer))
-  (define ac (async-connection/transport peer (iroh-loop-transport lp conn netlayer #t)))
-  ;; A dialer signs an empty designator (its identity is the session key),
-  ;; matching the Zig driver; the pump owns the ephemeral netlayer and loop.
-  (open-keyed-session! ac "" #:transport "iroh")
-  (connection ac (make-vat #:peer peer) (make-fresh-machine)))
+  (connect-iroh/node node-id direct-addresses reachability (make-fresh-node)))
+
+;; The node-keyed iroh dial behind a handoff redeem: dial the exporter
+;; endpoint and bring the connection up under node `m` rather than a fresh
+;; node, binding its shared gift registry and keying the session with its retained
+;; seed, so the redeemed capability and any further handoff it triggers share the
+;; recipient's one identity and connection table (ADR-0009/ADR-0056), the iroh
+;; sibling of the core's `dial-tcp`. The core's `dial-exporter` loads it lazily
+;; for an iroh give.
+(define (connect-iroh/node node-id direct-addresses reachability m)
+  (define-values (conn-id peer) (node-register-conn! m))
+  (with-handlers ([(lambda (_) #t) (lambda (e) (node-remove-conn! m conn-id) (raise e))])
+    (define netlayer (iroh-netlayer-new reachability))
+    (define lp (make-iroh-loop netlayer))
+    (define conn
+      (with-handlers ([(lambda (_) #t)
+                       (lambda (e) (loop-stop! lp) (iroh-netlayer-release! netlayer) (raise e))])
+        (dial-resolving netlayer node-id direct-addresses
+                        (or (= reachability IROH-REACH-DISCOVERY)
+                            (= reachability IROH-REACH-DISCOVERY-NO-RELAY)))))
+    (loop-register! lp conn)
+    (define ac (async-connection/transport peer (iroh-loop-transport lp conn netlayer #t)))
+    (open-keyed-session! ac "" #:transport "iroh" #:seed (node-seed m))
+    (build-connection ac peer m conn-id)))
 
 ;; ── host ─────────────────────────────────────────────────────────────────────
-(struct iroh-server (netlayer node-id loop))
+;; `node` is the one node shared by every connection this server
+;; accepts — its retained identity and gift registry — the iroh sibling of the
+;; TCP `server`'s node. The gifter half of a three-party handoff dials the
+;; exporter under this same node (`connect-iroh/node`) so a published
+;; node-giftable and the introducer it returns share one node (ADR-0009).
+(struct iroh-server (netlayer node-id loop node))
 
 ;; Bind a fresh ephemeral iroh endpoint and return a server that accepts partners
 ;; on it, all driven by one readiness loop. Read its dialable URI with
 ;; `iroh-server-uri` and pass that to a partner's `connect`. `reachability` is
-;; required — an IROH-REACH-* posture, no default.
+;; required, an IROH-REACH-* posture, no default.
 (define (listen-iroh reachability)
   (define nl (iroh-netlayer-new reachability))
   (define lp (make-iroh-loop nl))
-  (iroh-server nl (iroh-netlayer-node-id nl) lp))
+  (iroh-server nl (iroh-netlayer-node-id nl) lp (make-fresh-node)))
 
-;; This endpoint's direct-address hints (comma-separated) — the dialable
+;; This endpoint's direct-address hints (comma-separated), the dialable
 ;; addresses with no relay, valid on loopback/LAN.
 (define (iroh-server-direct-addresses s) (iroh-netlayer-direct-addresses (iroh-server-netlayer s)))
 
@@ -323,11 +371,20 @@
     (define-values (rc conn) ((iroh-fn 'try-accept) (iroh-server-netlayer s)))
     (cond
       [(= rc OK)
-       (loop-register! lp conn)
-       (define peer (make-peer))
-       (define ac (async-connection/transport peer (iroh-loop-transport lp conn #f #f)))
-       (open-keyed-session! ac (iroh-server-node-id s) #:transport "iroh")
-       (connection ac (make-vat #:peer peer) (make-fresh-machine))]
+       (define m (iroh-server-node s))
+       (define-values (conn-id peer) (node-register-conn! m))
+       (with-handlers ([(lambda (_) #t) (lambda (e) (node-remove-conn! m conn-id) (raise e))])
+         (loop-register! lp conn)
+         (define ac (async-connection/transport peer (iroh-loop-transport lp conn #f #f)))
+         ;; Construct the connection — which registers the node's giftables as
+         ;; bootstrap caps and installs the gifter-side resolve interceptor —
+         ;; *before* driving the handshake to completion, so a dialer's pipelined
+         ;; bootstrap fetch for a giftable is answered the instant the session opens
+         ;; (a recipient redeeming a gift fetches it immediately), keyed with the
+         ;; node's one retained seed exactly as the TCP responder does.
+         (define conn-built (build-connection ac peer m conn-id))
+         (open-keyed-session! ac (iroh-server-node-id s) #:transport "iroh" #:seed (node-seed m))
+         conn-built)]
       [(= rc WOULD-BLOCK)
        (if (iroh-loop-accept-closed? lp)
            (error 'iroh-server-accept "server closed")

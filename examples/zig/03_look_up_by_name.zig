@@ -1,4 +1,4 @@
-//! 03 — Look up a service by name.
+//! 03, Look up a service by name.
 //!
 //! A client asks the server's bootstrap object for a capability, naming it with
 //! a swiss-number. This is the engine-level machinery beneath the fetch-by-name
@@ -62,8 +62,8 @@ pub fn main() !void {
             .fulfilled => |reference| {
                 defer model.freeReference(allocator, reference);
                 const position = switch (reference) {
-                    .far => |far| far.import_position,
-                    .near => |near| near.export_position,
+                    .far => |far| far.import_position.int(),
+                    .near => |near| near.export_position.int(),
                     else => return error.UnexpectedReferenceShape,
                 };
                 std.debug.print("client fetched the thermostat as import {d}\n", .{position});

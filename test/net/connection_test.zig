@@ -16,7 +16,7 @@ const zero_pubkey = [_]u8{0} ** 32;
 const zero_sig = [_]u8{0} ** 64;
 
 /// These tests prove byte-stream framing, not handshake authentication, and the
-/// `op:start-session` they feed carries the stub zero signature — so the peers
+/// `op:start-session` they feed carries the stub zero signature, so the peers
 /// run with partner-signature verification off (a verifying peer would, rightly,
 /// refuse the unsigned handshake). The keyed path is covered in `pairing_test`.
 fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
@@ -95,7 +95,7 @@ test "pumpOver frames each frame of a concatenation in order" {
     try std.testing.expectEqual(f1.bytes().len, p1.received);
 
     // The duplicate start-session is a protocol violation (already received one),
-    // so the second frame is *framed* (one parse) but refused by authority —
+    // so the second frame is *framed* (one parse) but refused by authority,
     // surfaced as a protocol abort, not swallowed.
     try std.testing.expectError(error.ProtocolAbort, net.pumpOver(&peer, &reader, &writer, &spill));
 

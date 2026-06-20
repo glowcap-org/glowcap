@@ -13,8 +13,8 @@
     (define (make-purse initial)
       ;; The balance lives in the behavior, not a private box: `deposit` becomes
       ;; a new behavior carrying the updated balance. That keeps the state where
-      ;; the vat can see it, so a time-travel snapshot captures and can rewind it
-      ;; — a box would hide the balance from the snapshot. Identical observable
+      ;; the vat can see it, so a time-travel snapshot captures and can rewind
+      ;; it; a box would hide the balance from the snapshot. Identical observable
       ;; behavior on every backend (`bcom` is the same on Goblins and pancake).
       (define (purse bcom balance)
         (dispatch

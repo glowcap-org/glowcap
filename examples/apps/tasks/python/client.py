@@ -35,7 +35,7 @@ async def main() -> None:
     after = await board.list()
     ours = next((t for t in after if t.id == task_id), None)
     if not ours or not ours.completed:
-        print(f"{nick}: FAIL — task #{task_id} not marked completed", file=sys.stderr)
+        print(f"{nick}: FAIL, task #{task_id} not marked completed", file=sys.stderr)
         await board.leave()
         sys.exit(1)
 

@@ -28,7 +28,7 @@ decisions.
 
 **Out of scope:** new authority models; `std.Io` in the sync no-I/O core
 (`foundation` / `model` / `codec` / `session` / `engine`); authority decisions
-pushed down into codecs or adapters; TLS over TCP, which is not implemented —
+pushed down into codecs or adapters; TLS over TCP, which is not implemented,
 the encrypted channel is the iroh netlayer (ADR-0055).
 
 ## Decision records
@@ -36,7 +36,7 @@ the encrypted channel is the iroh netlayer (ADR-0055).
 Settled decisions land as ADRs in [docs/decisions/adr/](docs/decisions/adr/);
 start from [the template](docs/decisions/adr/template.md). Write one when a
 change affects codec / netlayer boundaries, the session state machine,
-negotiation, wire capability semantics, vocabulary, or layer separation — and
+negotiation, wire capability semantics, vocabulary, or layer separation, and
 flip it to `accepted` _before_ code is built against it.
 
 ## Conventions
@@ -46,7 +46,7 @@ flip it to `accepted` _before_ code is built against it.
 - **Authority lives in the session.** Codecs parse and render; they never decide
   whether a reference, answer, export, import, or release is valid.
 - **Copies are named.** Every wire-path allocation or copy is forbidden,
-  intentional, or measured — see
+  intentional, or measured, see
   [.agents/rules/memory.md](.agents/rules/memory.md).
 - **Cap'n Proto vs capnp.** "Cap'n Proto" in prose; `capnp` in identifiers.
 - **No external taste-reference names** in committed files; express the intent
@@ -101,5 +101,5 @@ gate ([tools/arch_check.zig](tools/arch_check.zig)) blocks layering violations.
 ## License
 
 By contributing, you agree your contributions are licensed under
-[Apache-2.0](LICENSE-APACHE) — the
+[Apache-2.0](LICENSE-APACHE), the
 same terms as the project.

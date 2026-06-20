@@ -31,7 +31,7 @@
 
 ;; An opaque M-byte actor for the snapshot/restore axes. Goblins behaviors are
 ;; immutable, so isolating a snapshot from a mutation means `become`-ing a fresh
-;; bytevector — the O(M) shape pancake's mutable copy-on-write also pays.
+;; bytevector, the O(M) shape pancake's mutable copy-on-write also pays.
 (define (^blob bcom data)
   (lambda (method . args)
     (case method
@@ -79,7 +79,7 @@
 ;; mactors alive, so a garbage collection can both trip `snapshot-whactormap`'s
 ;; `in-weak-hash` iterator mid-pass ("no element at index") *and*, more quietly,
 ;; reclaim actors just before a snapshot so it captures too few entries and times
-;; too low. Neither is a signal in the data — a collection-free pass over the
+;; too low. Neither is a signal in the data, a collection-free pass over the
 ;; whole population is the answer. `with-retry` reruns a measurement on the rare
 ;; trip (`collect-garbage` first clears the dead attempt); `expect-full` rejects
 ;; an undercounted snapshot so a retry rebuilds rather than reporting a low lie.
@@ -156,7 +156,7 @@
 
 ;; Warmup: Goblins is Racket/Chez, so the first turns pay JIT and heap-growth
 ;; costs. Run each path off the clock, then settle GC, so the measured medians
-;; are steady state — the same hygiene the wire suite applies.
+;; are steady state, the same hygiene the wire suite applies.
 (unless smoke?
   (for ([_ (in-range 5)])
     (median-snapshot 256 256)

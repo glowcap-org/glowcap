@@ -76,7 +76,7 @@ async function buildRust(): Promise<boolean> {
 		stderr: "inherit",
 	}).output();
 	if (!built.success) {
-		console.log("tasks demo: skipping Rust — cargo build failed");
+		console.log("tasks demo: skipping Rust, cargo build failed");
 	}
 	return built.success;
 }

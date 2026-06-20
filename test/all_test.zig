@@ -8,13 +8,13 @@ comptime {
     _ = @import("codec/prefix_decode_test.zig");
     _ = @import("codec/registry_test.zig");
     _ = @import("codec/encode_budget_test.zig");
+    _ = @import("codec/codec_equivalence_test.zig");
     _ = @import("model/model_test.zig");
     _ = @import("model/equality_test.zig");
     _ = @import("model/view_test.zig");
     _ = @import("model/uri_test.zig");
     _ = @import("oracle/protocol_oracle_test.zig");
-    _ = @import("conformance/parity_test.zig");
-    _ = @import("conformance/codec_equivalence_test.zig");
+    _ = @import("oracle/scenario_trace_test.zig");
     _ = @import("actors/vat_test.zig");
     _ = @import("actors/ocap_test.zig");
     _ = @import("actors/host_test.zig");
@@ -22,6 +22,7 @@ comptime {
     _ = @import("c_abi/frame_test.zig");
     _ = @import("c_abi/context_test.zig");
     _ = @import("c_abi/typed_test.zig");
+    _ = @import("c_abi/node_test.zig");
     _ = @import("c_abi/header_parity_test.zig");
     _ = @import("c_abi/uri_test.zig");
     _ = @import("c_abi/handshake_test.zig");
@@ -59,7 +60,9 @@ comptime {
     _ = @import("engine/gift_registry_test.zig");
     _ = @import("engine/cross_peer_test.zig");
     _ = @import("engine/pairing_test.zig");
+    _ = @import("engine/node_test.zig");
     _ = @import("driver/connected_vat_test.zig");
+    _ = @import("driver/crossed_hellos_test.zig");
     _ = @import("driver/gc_stateless_test.zig");
     _ = @import("driver/pluggability_test.zig");
     _ = @import("driver/inproc_netlayer_test.zig");

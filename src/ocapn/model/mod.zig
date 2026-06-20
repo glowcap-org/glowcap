@@ -1,19 +1,27 @@
 //! The message, described once, with no codec attached.
 //!
 //! Both codecs produce this same shape, and the engine works against it, so all
-//! of pancake shares one vocabulary for what a message actually is. That's what
-//! lives here: the value types (`Message` and its arms, `Reference`, `Argument`,
-//! `Resolution`, and the handshake, handoff, and gc shapes), plus the words two
-//! peers negotiate with (`CodecId`, `CaptpVersion`, `WireProfile`, `FeatureSet`,
-//! `AbortKind`).
+//! of pancake shares one vocabulary for what a message actually is. The
+//! mutually-recursive value-tree core lives here directly — `Message` and its
+//! arms, `Reference`, `Argument`, `Resolution`, and the handshake/locator and gc
+//! shapes — because those types reference one another and read best as one unit.
+//! The separable leaves are sibling files this hub re-exports: `negotiated` (the
+//! words two peers settle on — `CodecId`, `CaptpVersion`, `WireProfile`,
+//! `FeatureSet`), `handoff` (the three-party handoff payloads), and `abort`
+//! (`AbortKind`, `AbortReason`).
 //!
 //! None of it carries a codec, an allocation policy, or any authority. It's just
 //! the shape. `session` is what decides whether a given message is valid, and
-//! `codec` is what turns it into bytes. Three sibling files finish the story:
-//! `owned` handles who clones and frees the tree, `view` is the borrowed look at
-//! it over live wire bytes, and `equality` is how two values compare.
+//! `codec` is what turns it into bytes. Three more sibling files finish the
+//! story: `owned` handles who clones and frees the tree, `view` is the borrowed
+//! look at it over live wire bytes, and `equality` is how two values compare.
 
 const std = @import("std");
+
+const negotiated = @import("negotiated.zig");
+const handoff_types = @import("handoff.zig");
+const abort_types = @import("abort.zig");
+const position = @import("position.zig");
 
 /// Who owns a `Message` once the frame it arrived on is gone, and how it gets
 /// released. It all lives in `owned.zig` so there's a single `clone` / `free`
@@ -69,119 +77,22 @@ pub const uri = @import("uri.zig");
 /// backstop for trees that skipped session validation.
 pub const max_value_depth: usize = 256;
 
-/// Which wire codec a direct session speaks. The two built-ins are `capnp` (the
-/// native word-aligned fast path) and `syrup` (the byte-record one everyone can
-/// fall back to); negotiation lists them best-first and breaks ties on that
-/// order.
-///
-/// The enum is non-exhaustive on purpose: a consumer can mint their own codec id
-/// (`@enumFromInt` past the built-ins) and register it with `codec.registry`, so
-/// "bring your own codec" needs no fork of this type. The tag is a stable `u16`
-/// wire identity — built-in values never move.
-///
-/// This lives in `model` rather than `codec`, and that's deliberate. The session
-/// has to record which codec it picked, but it must not depend on a codec to do
-/// it; the choice stays the session's to make. So the id sits down here,
-/// `codec.registry`/`codec.dispatch` resolve it to an implementation, and
-/// `engine.negotiation` is what settles it during the handshake.
-pub const CodecId = enum(u16) {
-    capnp = 0,
-    syrup = 1,
-    _,
-};
+/// The words two peers settle on at handshake (`negotiated`): which codec frames
+/// the bytes, which CapTP version is spoken, and which optional features both
+/// advertised. `CodecId` lives in `model` rather than `codec` on purpose, the
+/// session records its choice without depending on a codec to do it.
+pub const CodecId = negotiated.CodecId;
+pub const CaptpVersion = negotiated.CaptpVersion;
+pub const WireProfile = negotiated.WireProfile;
+pub const FeatureSet = negotiated.FeatureSet;
 
-pub const CaptpVersion = enum {
-    v1_0,
-    pre_spec,
-
-    pub fn wireString(self: CaptpVersion) []const u8 {
-        return switch (self) {
-            .v1_0 => "1.0",
-            .pre_spec => "pancake-pre-spec",
-        };
-    }
-
-    pub fn fromWireString(wire: []const u8) ?CaptpVersion {
-        if (std.mem.eql(u8, wire, "1.0")) return .v1_0;
-        // "ocapn-1.0" is accepted leniently for interop: no fixture in the
-        // conformance corpus pins a peer that emits it, but it is a plausible
-        // spelling of the same version and refusing it would buy nothing.
-        if (std.mem.eql(u8, wire, "ocapn-1.0")) return .v1_0;
-        if (std.mem.eql(u8, wire, "pancake-pre-spec")) return .pre_spec;
-        return null;
-    }
-};
-
-pub const WireProfile = struct {
-    captp_version: CaptpVersion,
-
-    pub const v1_0 = WireProfile{
-        .captp_version = .v1_0,
-    };
-    pub const pre_spec = WireProfile{
-        .captp_version = .pre_spec,
-    };
-
-    /// A diagnostic label for logs and error text, not a wire token: the
-    /// handshake puts `CaptpVersion.wireString()` on the wire, never this.
-    pub fn name(self: WireProfile) []const u8 {
-        return switch (self.captp_version) {
-            .v1_0 => "ocapn-v1.0",
-            .pre_spec => "pancake-pre-spec",
-        };
-    }
-};
-
-pub const FeatureSet = struct {
-    pipelining: bool = false,
-    handoff: bool = false,
-    wire_delta: bool = false,
-    sturdyref: bool = false,
-    stream: bool = false,
-    equality: bool = false,
-
-    /// The minimal set: Deliver, Resolve, and Abort only.
-    pub fn minimum() FeatureSet {
-        return .{};
-    }
-
-    /// Full pancake-native feature set: every feature field, driven off the
-    /// field list itself so a new feature joins automatically.
-    pub fn full() FeatureSet {
-        var out: FeatureSet = .{};
-        inline for (@typeInfo(FeatureSet).@"struct".fields) |field| {
-            @field(out, field.name) = true;
-        }
-        return out;
-    }
-
-    /// Pipelining, handoff, and wire-delta, without sturdyrefs or equality
-    /// (ADR-0008, ADR-0009).
-    pub fn pipeliningAndHandoff() FeatureSet {
-        return .{ .pipelining = true, .handoff = true, .wire_delta = true };
-    }
-
-    /// Everything except streaming: the full set with `stream` switched off
-    /// (ADR-0012).
-    pub fn fullExceptStreaming() FeatureSet {
-        var out = full();
-        out.stream = false;
-        return out;
-    }
-
-    /// Per-feature intersection — the handshake-negotiated set is the AND of the
-    /// two peers' advertised sets, so neither side exercises a capability the
-    /// other did not advertise. Pure and symmetric:
-    /// `a.intersect(b) == b.intersect(a)`. The feature half of
-    /// `engine.negotiation.negotiate`; the codec half lives there.
-    pub fn intersect(self: FeatureSet, other: FeatureSet) FeatureSet {
-        var out: FeatureSet = .{};
-        inline for (@typeInfo(FeatureSet).@"struct".fields) |field| {
-            @field(out, field.name) = @field(self, field.name) and @field(other, field.name);
-        }
-        return out;
-    }
-};
+/// The three position spaces a session keys on, one zero-cost newtype each, so a
+/// partner-named import id can never be passed where a local export id is meant
+/// (`position`). Scalar id fields carry these end to end; cross the `u64`
+/// wire/ABI boundary with `ExportId.from` / `.int` and friends.
+pub const ExportId = position.ExportId;
+pub const ImportId = position.ImportId;
+pub const AnswerId = position.AnswerId;
 
 pub const HintValue = union(enum) {
     string: []const u8,
@@ -238,35 +149,36 @@ pub const LocationSig = struct {
 pub const RefKind = enum { object, promise };
 
 pub const NearRef = struct {
-    export_position: u64,
+    export_position: ExportId,
     /// `.object` (the default) encodes as `<desc:import-object N>`, `.promise` as
     /// `<desc:import-promise N>`.
     kind: RefKind = .object,
 
-    /// A plain object export. The common case.
-    pub fn object(export_position: u64) NearRef {
-        return .{ .export_position = export_position, .kind = .object };
+    /// A plain object export at wire position `n`. The common case.
+    pub fn object(n: u64) NearRef {
+        return .{ .export_position = .from(n), .kind = .object };
     }
 
-    /// A promise export: a vow, a resolver callback, or a handoff vow.
-    pub fn promise(export_position: u64) NearRef {
-        return .{ .export_position = export_position, .kind = .promise };
+    /// A promise export at wire position `n`: a vow, a resolver callback, or a
+    /// handoff vow.
+    pub fn promise(n: u64) NearRef {
+        return .{ .export_position = .from(n), .kind = .promise };
     }
 };
 
 pub const FarRef = struct {
-    import_position: u64,
+    import_position: ImportId,
     /// Which descriptor named this import on the wire. Defaults to `.object`.
     kind: RefKind = .object,
 
-    /// A plain object import. The common case.
-    pub fn object(import_position: u64) FarRef {
-        return .{ .import_position = import_position, .kind = .object };
+    /// A plain object import at wire position `n`. The common case.
+    pub fn object(n: u64) FarRef {
+        return .{ .import_position = .from(n), .kind = .object };
     }
 
-    /// A promise import, decoded from `<desc:import-promise>`.
-    pub fn promise(import_position: u64) FarRef {
-        return .{ .import_position = import_position, .kind = .promise };
+    /// A promise import at wire position `n`, decoded from `<desc:import-promise>`.
+    pub fn promise(n: u64) FarRef {
+        return .{ .import_position = .from(n), .kind = .promise };
     }
 };
 
@@ -297,7 +209,7 @@ pub const PipelinePath = struct {
 };
 
 pub const PromiseRef = struct {
-    answer_position: u64,
+    answer_position: AnswerId,
     /// Optional pipeline path targeting relative to the eventual resolution.
     /// Empty (default) means the resolution itself.
     path: PipelinePath = .{},
@@ -323,24 +235,30 @@ pub const Reference = union(enum) {
     sturdy: SturdyRef,
     broken: BrokenRef,
 
-    /// The wire position this reference names: a near export's `export_position` or a
-    /// far import's `import_position` (they live in one integer space). Null for a
-    /// reference that names no position (promise / sturdy / broken).
+    /// The raw wire position this reference names: a near export's
+    /// `export_position` or a far import's `import_position`, collapsed to the
+    /// one `u64` integer space they share on the wire. Null for a reference that
+    /// names no position (promise / sturdy / broken). This is the escape hatch
+    /// for code that genuinely wants the bare integer; prefer `exportPosition`
+    /// when you mean "the local export this names," so the type keeps an import
+    /// id out of an export-keyed lookup.
     pub fn position(self: Reference) ?u64 {
         return switch (self) {
-            .near => |near| near.export_position,
-            .far => |far| far.import_position,
+            .near => |near| near.export_position.int(),
+            .far => |far| far.import_position.int(),
             else => null,
         };
     }
 
     /// The local export position this reference names, but only when it is a
-    /// `.near` export this peer hosts. A resolver-export lookup must use this,
-    /// never `position`: a resolver callback always targets one of our `.near`
-    /// exports, and keying an export-indexed map on a partner-named `.far` import
-    /// id (the same integer space) would let a coincidental collision misclassify
-    /// an ordinary deliver as a resolver callback.
-    pub fn exportPosition(self: Reference) ?u64 {
+    /// `.near` export this peer hosts, typed, so it cannot be mistaken for a
+    /// partner-named import id. A resolver-export lookup must use this, never
+    /// `position`: a resolver callback always targets one of our `.near`
+    /// exports, and keying an export-indexed map on a `.far` import id (the same
+    /// integer space) would let a coincidental collision misclassify an ordinary
+    /// deliver as a resolver callback. The type now makes that misuse a compile
+    /// error rather than a comment.
+    pub fn exportPosition(self: Reference) ?ExportId {
         return switch (self) {
             .near => |near| near.export_position,
             else => null,
@@ -442,82 +360,20 @@ pub const Tagged = struct {
     value: []const Argument,
 };
 
-pub const AbortKind = enum {
-    normal_shutdown,
-    version_mismatch,
-    protocol_error,
-    timeout,
-    unauthorized,
-    invalid_handoff_signature,
-    handoff_replay,
-    queue_cap_exceeded,
-    pipelining_not_negotiated,
-    wire_delta_not_negotiated,
-    handoffs_not_negotiated,
-    sturdyrefs_not_negotiated,
-    invalid_start_session_signature,
-    crossed_hellos,
-    connection_lost,
-    graceful_shutdown,
-    malformed_frame,
-    resource_exhausted,
-    other,
-
-    pub fn wireName(self: AbortKind) []const u8 {
-        return switch (self) {
-            .normal_shutdown => "NormalShutdown",
-            .version_mismatch => "VersionMismatch",
-            .protocol_error => "ProtocolError",
-            .timeout => "Timeout",
-            .unauthorized => "Unauthorized",
-            .invalid_handoff_signature => "InvalidHandoffSignature",
-            .handoff_replay => "HandoffReplay",
-            .queue_cap_exceeded => "QueueCapExceeded",
-            .pipelining_not_negotiated => "PipeliningNotNegotiated",
-            .wire_delta_not_negotiated => "WireDeltaNotNegotiated",
-            .handoffs_not_negotiated => "HandoffsNotNegotiated",
-            .sturdyrefs_not_negotiated => "SturdyrefsNotNegotiated",
-            .invalid_start_session_signature => "InvalidStartSessionSignature",
-            .crossed_hellos => "CrossedHellos",
-            .connection_lost => "ConnectionLost",
-            .graceful_shutdown => "GracefulShutdown",
-            .malformed_frame => "MalformedFrame",
-            .resource_exhausted => "ResourceExhausted",
-            .other => "Other",
-        };
-    }
-
-    /// The inverse of `wireName`, derived from it: every variant is matched by
-    /// the exact string `wireName` emits, so the two directions cannot drift and
-    /// a new variant is covered the moment it has a `wireName` arm.
-    pub fn fromWireName(name: []const u8) ?AbortKind {
-        inline for (@typeInfo(AbortKind).@"enum".fields) |field| {
-            const kind: AbortKind = @enumFromInt(field.value);
-            if (std.mem.eql(u8, kind.wireName(), name)) return kind;
-        }
-        return null;
-    }
-};
-
-/// A typed abort reason: the kind plus a human-readable message. The V1.0
-/// single-string wire form `"<Label>: <message>"` is the codec's vocabulary,
-/// not the model's — the Syrup encoder builds it from `kind.wireName()` and
-/// the Syrup decoder recovers the kind from the prefix, falling back to
-/// `.other` when no label matches.
-pub const AbortReason = struct {
-    kind: AbortKind,
-    message: []const u8,
-};
+/// Why a session tore down (`abort`): the closed set of reasons and a reason
+/// paired with a human-readable message.
+pub const AbortKind = abort_types.AbortKind;
+pub const AbortReason = abort_types.AbortReason;
 
 pub const Deliver = struct {
     target: Reference,
     args: []const Argument,
-    answer: ?u64 = null,
+    answer: ?AnswerId = null,
     resolve_me_desc: ?Reference = null,
 };
 
 pub const Resolve = struct {
-    answer: u64,
+    answer: AnswerId,
     resolution: Resolution,
 };
 
@@ -530,34 +386,11 @@ pub const GcAnswer = struct {
     positions: []const u64,
 };
 
-pub const HandoffGive = struct {
-    recipient_key: []const u8,
-    exporter_location: []const u8,
-    gifter_exporter_session: []const u8,
-    gifter_side: []const u8,
-    gift_id: []const u8,
-    signature: []const u8,
-    /// Optional verbatim `<desc:sig-envelope <desc:handoff-give …> <sig-val …>>`
-    /// bytes. When set, the encoder emits these exactly instead of re-encoding the
-    /// fields above. A recipient forwarding a gifter's give to the exporter uses
-    /// this so the exporter re-verifies the gifter's signature over the *exact*
-    /// bytes the gifter signed — re-encoding could differ (e.g. `#f` vs `{}` hints)
-    /// and fail verification.
-    raw_signed: ?[]const u8 = null,
-};
-
-pub const HandoffReceive = struct {
-    receiving_session: []const u8,
-    receiving_side: []const u8,
-    handoff_count: u64,
-    signed_give: HandoffGive,
-    signature: []const u8,
-};
-
-pub const Handoff = union(enum) {
-    give: HandoffGive,
-    receive: HandoffReceive,
-};
+/// The three-party handoff payloads (`handoff`): the gifter's signed give and
+/// the recipient's redemption of it (ADR-0009).
+pub const HandoffGive = handoff_types.HandoffGive;
+pub const HandoffReceive = handoff_types.HandoffReceive;
+pub const Handoff = handoff_types.Handoff;
 
 pub const StartSession = struct {
     captp_version: CaptpVersion,
@@ -575,19 +408,19 @@ pub const Listen = struct {
 pub const Get = struct {
     receiver: Reference,
     field: []const u8,
-    answer: u64,
+    answer: AnswerId,
 };
 
 pub const Index = struct {
     receiver: Reference,
     index: i64,
-    answer: u64,
+    answer: AnswerId,
 };
 
 pub const Untag = struct {
     receiver: Reference,
     tag: []const u8,
-    answer: u64,
+    answer: AnswerId,
 };
 
 /// If you hand this to an owning sink like `Peer.send`, every slice in it must

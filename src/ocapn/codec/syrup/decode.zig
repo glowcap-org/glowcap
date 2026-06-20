@@ -25,7 +25,7 @@ const Error = shared.Error;
 /// Decode-time recursion bound for the neutral argument walker. The arg tree is
 /// attacker-controlled, and slicing a nested `list` / `set` / `user-record`
 /// recurses one native frame per level, so an unbounded nesting depth is a
-/// one-frame stack overflow during decode — *before* the session's
+/// one-frame stack overflow during decode, *before* the session's
 /// authority-level `SessionLimits.max_nesting_depth` (default 64) can reject
 /// it. This cap fails such a frame loud as `MalformedFrame` instead. It sits
 /// well above the session cap so it never rejects a frame authority would
@@ -53,7 +53,7 @@ const max_collection_elements: usize = 1 << 20;
 /// points (`decodeBody`, the owned readers, re-parses of already-bounded
 /// sub-slices) pass this no-op limit; only the streaming `decodePrefix`
 /// passes its `max_frame_bytes`, so a length prefix that declares a body past
-/// the cap fails `FrameTooLarge` the moment the prefix is read — per ADR-0029
+/// the cap fails `FrameTooLarge` the moment the prefix is read, per ADR-0029
 /// the in-flight frame is refused *during* decode, not after the adapter has
 /// buffered the whole cap.
 const no_limit: usize = std.math.maxInt(usize);
@@ -84,7 +84,7 @@ pub const SignatureView = struct {
 
 /// Materialize an owned `model.Message` from a complete `frame`: the
 /// borrowed codec-neutral projection (`decodeBody`) followed by
-/// `model.view.Body.toOwned`. One decode vocabulary — every *argument* arm the
+/// `model.view.Body.toOwned`. One decode vocabulary, every *argument* arm the
 /// encoder emits reads back with full fidelity (strings stay strings, symbols
 /// stay symbols, numeric/list/set/tagged arms included), mirroring
 /// `capnp.decodeOwned` and the symmetric-refusal posture of ADR-0003. Locator
@@ -138,7 +138,7 @@ fn neutralArgsAt(ctx: model.view.Args.Ctx, index: usize) model.view.ProjectError
 
 /// Forward cursor: `cursor` is a byte offset into the list region. One
 /// `readNeutralArgument` advances it past the element it returns, so a full
-/// walk is a single linear pass — not the per-`at` re-scan from byte 0.
+/// walk is a single linear pass, not the per-`at` re-scan from byte 0.
 fn neutralArgsNext(ctx: model.view.Args.Ctx, cursor: *u64) model.view.ProjectError!?model.view.Argument {
     var c: usize = @intCast(cursor.*);
     if (c >= ctx.bytes.len) return null;
@@ -469,7 +469,7 @@ fn decodeBodyAt(bytes: []const u8, cursor: *usize, limit: usize) Error!model.vie
     // Dispatch by op symbol over the message-kind tag set. Both the op string
     // (`shared.messageOp`) and the decoder (`decoderFor`) are exhaustive
     // switches over `std.meta.Tag(model.Message)`, so a new kind cannot compile
-    // without a wire op *and* a decoder — the silent fall-through that let the
+    // without a wire op *and* a decoder, the silent fall-through that let the
     // encoder's exhaustive switch drift ahead of the decoder is gone.
     inline for (std.meta.fields(std.meta.Tag(model.Message))) |field| {
         const kind: std.meta.Tag(model.Message) = @enumFromInt(field.value);
@@ -522,7 +522,7 @@ fn decodeDeliverBody(bytes: []const u8, cursor: *usize, limit: usize, message_st
     return .{ .deliver = .{
         .target = neutralReference(target),
         .args = neutralArgs(args_body),
-        .answer = answer,
+        .answer = if (answer) |a| model.AnswerId.from(a) else null,
         .resolve_me_desc = if (resolve_me_desc) |reference| neutralReference(reference) else null,
     } };
 }
@@ -532,7 +532,7 @@ fn decodeResolveBody(bytes: []const u8, cursor: *usize, limit: usize, message_st
     const answer = try readPositiveInt(bytes, cursor);
     const resolution = try readNeutralResolution(bytes, cursor, limit);
     try readByte(bytes, cursor, '>');
-    return .{ .resolve = .{ .answer = answer, .resolution = resolution } };
+    return .{ .resolve = .{ .answer = model.AnswerId.from(answer), .resolution = resolution } };
 }
 
 fn decodeGcExportBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
@@ -560,7 +560,7 @@ fn decodeGetBody(bytes: []const u8, cursor: *usize, limit: usize, message_start:
     const field = try readStringLimited(bytes, cursor, limit);
     const answer = try readPositiveInt(bytes, cursor);
     try readByte(bytes, cursor, '>');
-    return .{ .get = .{ .receiver = neutralReference(receiver), .field = field, .answer = answer } };
+    return .{ .get = .{ .receiver = neutralReference(receiver), .field = field, .answer = model.AnswerId.from(answer) } };
 }
 
 fn decodeIndexBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
@@ -569,7 +569,7 @@ fn decodeIndexBody(bytes: []const u8, cursor: *usize, limit: usize, message_star
     const index = try readInteger(bytes, cursor);
     const answer = try readPositiveInt(bytes, cursor);
     try readByte(bytes, cursor, '>');
-    return .{ .index = .{ .receiver = neutralReference(receiver), .index = index, .answer = answer } };
+    return .{ .index = .{ .receiver = neutralReference(receiver), .index = index, .answer = model.AnswerId.from(answer) } };
 }
 
 fn decodeUntagBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
@@ -579,7 +579,7 @@ fn decodeUntagBody(bytes: []const u8, cursor: *usize, limit: usize, message_star
     const tag = try readStringLimited(bytes, cursor, limit);
     const answer = try readPositiveInt(bytes, cursor);
     try readByte(bytes, cursor, '>');
-    return .{ .untag = .{ .receiver = neutralReference(receiver), .tag = tag, .answer = answer } };
+    return .{ .untag = .{ .receiver = neutralReference(receiver), .tag = tag, .answer = model.AnswerId.from(answer) } };
 }
 
 fn decodeListenBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
@@ -812,22 +812,22 @@ fn readReference(bytes: []const u8, cursor: *usize, limit: usize) Error!Referenc
     if (std.mem.eql(u8, tag, "desc:export")) {
         const export_position = try readPositiveInt(bytes, cursor);
         try readByte(bytes, cursor, '>');
-        return .{ .near = .{ .export_position = export_position, .kind = .object } };
+        return .{ .near = .{ .export_position = model.ExportId.from(export_position), .kind = .object } };
     }
     if (std.mem.eql(u8, tag, "desc:import-object")) {
         const import_position = try readPositiveInt(bytes, cursor);
         try readByte(bytes, cursor, '>');
-        return .{ .far = .{ .import_position = import_position, .kind = .object } };
+        return .{ .far = .{ .import_position = model.ImportId.from(import_position), .kind = .object } };
     }
     if (std.mem.eql(u8, tag, "desc:import-promise")) {
         const import_position = try readPositiveInt(bytes, cursor);
         try readByte(bytes, cursor, '>');
-        return .{ .far = .{ .import_position = import_position, .kind = .promise } };
+        return .{ .far = .{ .import_position = model.ImportId.from(import_position), .kind = .promise } };
     }
     if (std.mem.eql(u8, tag, "desc:answer")) {
         const answer_position = try readPositiveInt(bytes, cursor);
         try readByte(bytes, cursor, '>');
-        return .{ .promise = .{ .answer_position = answer_position } };
+        return .{ .promise = .{ .answer_position = model.AnswerId.from(answer_position) } };
     }
     return Error.UnsupportedReference;
 }
@@ -871,7 +871,7 @@ fn readPeerKeyQ(bytes: []const u8, cursor: *usize, limit: usize) Error![]const u
 /// The grammar is matched exactly, algorithm tags included. A record that
 /// claims any other curve or scheme is refused as malformed: accepting it and
 /// then verifying its `q` as an Ed25519 key would silently coerce the claimed
-/// algorithm — exactly the mis-decode ADR-0003's symmetric refusal forbids.
+/// algorithm, exactly the mis-decode ADR-0003's symmetric refusal forbids.
 fn parsePeerKeyQ(list: []const u8) Error![]const u8 {
     var cursor: usize = 0;
     try readByte(list, &cursor, '[');
@@ -940,7 +940,7 @@ fn readHints(bytes: []const u8, cursor: *usize, limit: usize) Error!model.Hints 
     return Error.MalformedFrame;
 }
 
-/// Parse hints with allocation — entries are heap-owned. Keys and values are
+/// Parse hints with allocation; entries are heap-owned. Keys and values are
 /// duped so the result outlives the frame. Free with `model.freeHints`.
 /// Allocation failure propagates as `OutOfMemory`, never as a frame error:
 /// running out of heap is not evidence the partner sent hostile bytes.
@@ -1077,7 +1077,7 @@ fn readOptionalPositiveInt(bytes: []const u8, cursor: *usize) Error!?u64 {
     return try readPositiveInt(bytes, cursor);
 }
 
-/// Canonical Syrup forbids a superfluous leading zero in any digit run — a
+/// Canonical Syrup forbids a superfluous leading zero in any digit run, a
 /// length prefix or an integer magnitude. `007"…` and `00+` spell the same
 /// value as `7"…` and `0+`, so a lenient read would admit several wire
 /// spellings of one message and quietly void byte-level canonicality.
@@ -1157,7 +1157,7 @@ fn readInteger(bytes: []const u8, cursor: *usize) Error!i64 {
     try rejectNonCanonicalDigits(bytes, start, cursor.*);
     // Parse the magnitude as u64, not i64: `writeSignedMagnitude` emits
     // `minInt(i64)` as the unsigned magnitude 2^63 (`9223372036854775808`), which
-    // does not fit i64 — parsing it as i64 would reject a frame this codec itself
+    // does not fit i64, parsing it as i64 would reject a frame this codec itself
     // produced. Apply the sign afterwards, handling the minInt boundary so the
     // full i64 range round-trips and matches the Cap'n Proto codec.
     const magnitude = std.fmt.parseInt(u64, bytes[start..cursor.*], 10) catch {
@@ -1340,7 +1340,7 @@ fn isSignedHandoffEnvelope(bytes: []const u8, cursor: usize) bool {
 /// gifter returns, so it must be reproduced unaltered. The scan honors Syrup
 /// length prefixes through the codec's own value walker, so a key or signature
 /// byte that happens to equal `<`, `>`, `[`, `]`, or a digit cannot truncate the
-/// span — the failure mode of a naive bracket matcher. The returned slice borrows
+/// span, the failure mode of a naive bracket matcher. The returned slice borrows
 /// `frame`.
 pub fn spanSignedHandoffGive(frame: []const u8) ?[]const u8 {
     const start = std.mem.indexOf(u8, frame, recordPrefix("desc:sig-envelope")) orelse return null;

@@ -3,7 +3,7 @@
 //! a gift's `deposit-gift` on the gifter session and its `withdraw-gift` on the
 //! recipient's separate session; binding both peers to one registry is what lets
 //! the second find what the first deposited. The registry is *borrowed* by every
-//! peer it is set on and must outlive all of them — free it last.
+//! peer it is set on and must outlive all of them, free it last.
 
 const std = @import("std");
 

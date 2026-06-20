@@ -1,0 +1,153 @@
+"""Live three-party handoff over iroh, all in the Python binding (ADR-0009), the
+Python sibling of the Deno ``zig build demo-rooms-dm-iroh`` proof and the iroh
+companion of ``python-goblins-handoff``. It proves both halves of an iroh handoff
+through the binding's own surface: the gifter mints a ``desc:handoff-give`` whose
+exporter location names an iroh endpoint by a ``direct-addresses`` dial hint, and
+the recipient redeems it transparently by dialing that endpoint directly over
+encrypted QUIC.
+
+Topology — three iroh endpoints (separate identities) in one process, the
+relay-less ``DIRECT`` posture on loopback, so the gate is deterministic and
+flake-free (no discovery service, no network):
+  Exporter  binds an iroh endpoint and publishes a node-giftable ``greeter``.
+  Gifter    binds its own endpoint, dials the exporter (sharing one node
+            identity), fetches the greeter, records the exporter's dialable URI
+            as the give's exporter location, and publishes an ``introducer`` that
+            returns the greeter.
+  Recipient binds its own endpoint, dials the gifter, asks the introducer for the
+            greeter, transparently redeems the give by dialing the exporter
+            directly, and calls it — the reply must echo its name.
+
+Returning the exporter's greeter (home = gifter↔exporter) on the recipient's
+connection trips the transparent gifter; the recipient's ``send`` resolves to an
+ordinary capability whose calls route straight to the exporter. The proof is the
+greeter's reply carrying the name the recipient sent.
+
+Needs ``python3`` plus the iroh ABI companion library (``zig build iroh-abi``);
+run via ``zig build python-iroh-handoff``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bindings" / "python"))
+
+from pancake import Ref, encode_peer_locator  # noqa: E402
+from pancake.iroh import (  # noqa: E402
+    Reachability,
+    connect_iroh,
+    connect_iroh_with_node,
+    listen_iroh,
+)
+
+NAME = "python-iroh-carol"
+
+for _arg in sys.argv[1:]:
+    # The gate takes no arguments; `-Dport` is meaningless for an in-process
+    # Direct-posture run, so accept and ignore a `--port=` for build parity.
+    if not _arg.startswith("--port="):
+        print(f"python-iroh-handoff: unknown argument '{_arg}'", file=sys.stderr)
+        raise SystemExit(2)
+
+
+def fail(msg: str) -> None:
+    print(f"python-iroh-handoff FAILED: {msg}", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def greeter(verb: str, args: list):
+    """The published actor: answer ``greet`` by echoing the caller's name."""
+    if verb == "greet":
+        name = args[0] if args else ""
+        return f"hello {name} over iroh handoff"
+    return None
+
+
+async def accept_loop(server, served: list) -> None:
+    """Serve every connection the server accepts for the life of the run. Ends
+    when the server closes and ``__anext__`` raises ``StopAsyncIteration``."""
+    async for conn in server:
+        conn.serve()
+        served.append(conn)
+
+
+async def dialable(server) -> "tuple[str, str]":
+    """An iroh endpoint reports its direct addresses asynchronously after bind;
+    wait for at least one before reading the dialable id+addresses, a give with
+    no direct-addresses hint is not dialable under the relay-less Direct posture."""
+    for _ in range(1000):
+        addrs = server.direct_addresses
+        if addrs:
+            return server.node_id, addrs
+        await asyncio.sleep(0.02)
+    fail("timed out waiting for an endpoint's direct addresses")
+    raise AssertionError  # unreachable
+
+
+async def run() -> None:
+    # ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
+    exporter = listen_iroh(Reachability.DIRECT)
+    exporter.node.publish_giftable("greeter", greeter)
+    exporter_id, exporter_addrs = await dialable(exporter)
+    exporter_served: list = []
+    exporter_task = asyncio.create_task(accept_loop(exporter, exporter_served))
+    print(f"python-iroh-handoff: exporter published greeter on {exporter_id}")
+
+    # ── Gifter: dials the exporter under one identity, re-gifts the greeter ───────
+    gifter = listen_iroh(Reachability.DIRECT)
+    gifter_id, gifter_addrs = await dialable(gifter)
+    to_exporter = await connect_iroh_with_node(
+        exporter_id, exporter_addrs, Reachability.DIRECT, gifter.node
+    )
+    greeter_ref = await to_exporter.fetch("greeter")
+    # The exporter's own signed session record names it by node id alone — not
+    # dialable under the relay-less Direct posture — so record its full dialable
+    # location (id + direct-addresses) as the give's exporter location.
+    to_exporter.set_exporter_locator(encode_peer_locator("iroh", exporter_id, exporter_addrs))
+
+    def introducer(verb: str, args: list):
+        if verb == "get-greeter":
+            return greeter_ref
+        return None
+
+    gifter.node.publish_giftable("introducer", introducer)
+    gifter_served: list = []
+    gifter_task = asyncio.create_task(accept_loop(gifter, gifter_served))
+    print(f"python-iroh-handoff: gifter published introducer on {gifter_id}")
+
+    # ── Recipient: dials the gifter, redeems the give by dialing the exporter ─────
+    recipient = await connect_iroh(gifter_id, gifter_addrs, Reachability.DIRECT)
+    introducer_ref = await recipient.fetch("introducer")
+    granted = await recipient.send(introducer_ref, "get-greeter", [])
+    if not isinstance(granted, Ref):
+        fail(f"introduction did not redeem to a capability: {granted!r}")
+    print("python-iroh-handoff: recipient redeemed the give, got the greeter as an ordinary ref")
+
+    reply = await recipient.send(granted, "greet", [NAME])
+    if not isinstance(reply, str) or NAME not in reply:
+        fail(f"greeter reply did not carry the name back: {reply!r}")
+    print(f"python-iroh-handoff: greeter replied: {reply}")
+
+    print(
+        "python-iroh-handoff OK: the Python binding minted an iroh handoff give and "
+        "redeemed it by dialing the exporter directly over encrypted QUIC"
+    )
+
+    # Teardown: close the dialing connections, then every accepted connection,
+    # then the servers, closing a server ends its accept loop, which we await so
+    # no readiness fd reader outlives the endpoint it watches.
+    await recipient.close()
+    await to_exporter.close()
+    for conn in (*exporter_served, *gifter_served):
+        await conn.close()
+    await exporter.close()
+    await gifter.close()
+    await exporter_task
+    await gifter_task
+
+
+if __name__ == "__main__":
+    asyncio.run(asyncio.wait_for(run(), timeout=90.0))

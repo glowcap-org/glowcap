@@ -110,7 +110,7 @@ test "oracle-check verifies runtime deliver event and resolve state scenarios" {
         .wire_profile = model.WireProfile.pre_spec,
     }));
     defer peer.deinit();
-    try peer.session_state.registerExport(7);
+    try peer.session_state.registerExport(.from(7));
 
     try peer.recvBorrowed(.{
         .bytes = "<10'op:deliver<11'desc:export7+>[]11+f>",
@@ -119,18 +119,18 @@ test "oracle-check verifies runtime deliver event and resolve state scenarios" {
     var event = peer.pollEvent().?;
     defer event.deinit();
     try std.testing.expectEqual(pancake.ocapn.engine.EventKind.deliver, event.kind());
-    try std.testing.expect(peer.session_state.inboundAnswer(11) != null);
+    try std.testing.expect(peer.session_state.inboundAnswer(.from(11)) != null);
 
     var resolver = pancake.ocapn.engine.Peer.initWithSession(allocator, pancake.ocapn.session.Session.initWith(allocator, .{
         .wire_profile = model.WireProfile.pre_spec,
     }));
     defer resolver.deinit();
-    try resolver.session_state.registerImport(9);
+    try resolver.session_state.registerImport(.from(9));
     try resolver.session_state.recordSend(.{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = 9 } },
+            .target = .{ .far = .{ .import_position = .from(9) } },
             .args = &.{},
-            .answer = 42,
+            .answer = .from(42),
         },
     });
     try resolver.recvBorrowed(.{
@@ -139,6 +139,6 @@ test "oracle-check verifies runtime deliver event and resolve state scenarios" {
     });
     try std.testing.expectEqual(
         pancake.ocapn.session.AnswerStatus.fulfilled,
-        resolver.session_state.outboundAnswer(42).?.status,
+        resolver.session_state.outboundAnswer(.from(42)).?.status,
     );
 }

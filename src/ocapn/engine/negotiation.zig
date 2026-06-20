@@ -19,7 +19,7 @@
 const std = @import("std");
 const model = @import("model");
 
-/// Built-in codec identifier — re-exported from `model.CodecId`, whose
+/// Built-in codec identifier, re-exported from `model.CodecId`, whose
 /// declaration order (`capnp` then `syrup`) is the negotiation tie-break
 /// (most-preferred first). Both codecs are live-session selectable; the codec
 /// dispatch boundary (`codec.dispatch`) routes each frame by this id.

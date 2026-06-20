@@ -25,7 +25,7 @@ the line all stay visible at the boundary that owns them.
 Two peers can reach each other directly, with no server in the middle. The
 [iroh transport]($link.page('transports/iroh')) carries a session over encrypted
 QUIC and names each peer by a self-authenticating key, so the address you dial *is*
-the identity you connected to — one Ed25519 key is at once the network route, the
+the identity you connected to, one Ed25519 key is at once the network route, the
 capability you name, and the key that signs the session. It rides an optional
 artifact, so a program that only speaks TCP never pays for it.
 

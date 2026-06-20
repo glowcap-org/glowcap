@@ -58,7 +58,7 @@ test "a projection anchoring while the receiver's resolve is queued still settle
     const allocator = std.testing.allocator;
     var peer = openPeer(allocator);
     defer peer.deinit();
-    try peer.session_state.registerExport(7);
+    try peer.session_state.registerExport(.from(7));
 
     try receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
 
@@ -66,7 +66,7 @@ test "a projection anchoring while the receiver's resolve is queued still settle
     // unemitted on `pending_send`, so answer 11 reads settled before its
     // emit-time drain. Storing the resolution at record time is what lets the
     // op:get below find 11's value rather than a settled-but-resolutionless row.
-    try peer.sendCopying(.{ .resolve = .{ .answer = 11, .resolution = .{ .fulfill = .{ .@"struct" = &.{
+    try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .@"struct" = &.{
         .{ .key = "name", .value = .{ .string = "tabby" } },
     } } } } });
 
@@ -79,18 +79,18 @@ test "a projection anchoring while the receiver's resolve is queued still settle
     const wire = try drainOutbound(&peer, allocator);
     defer allocator.free(wire);
     try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve12+<15'resolve:fulfill5\"tabby>>") != null);
-    try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(12).?.status);
+    try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(12)).?.status);
 }
 
 test "a chained projection whose inner answer's resolve is still queued reaches the element" {
     const allocator = std.testing.allocator;
     var peer = openPeer(allocator);
     defer peer.deinit();
-    try peer.session_state.registerExport(7);
+    try peer.session_state.registerExport(.from(7));
 
     // Answer 11 is fully settled and drained.
     try receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
-    try peer.sendCopying(.{ .resolve = .{ .answer = 11, .resolution = .{ .fulfill = .{ .tagged = .{
+    try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .tagged = .{
         .tag = "row",
         .value = &.{ .{ .string = "alice" }, .{ .string = "bob" } },
     } } } } });
@@ -114,7 +114,7 @@ test "a chained projection whose inner answer's resolve is still queued reaches 
     const wire = try drainOutbound(&peer, allocator);
     defer allocator.free(wire);
     try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve13+<15'resolve:fulfill5\"alice>>") != null);
-    try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(13).?.status);
+    try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(13)).?.status);
 }
 
 test "a pipelined op:deliver arriving while its answer's resolve is queued delivers, not breaks" {
@@ -124,14 +124,14 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
     var p2 = engine.Peer.init(allocator);
     defer p2.deinit();
 
-    try p1.session_state.registerImport(7);
-    try p2.session_state.registerExport(7);
+    try p1.session_state.registerImport(.from(7));
+    try p2.session_state.registerExport(.from(7));
 
     // p1 delivers to p2's export, allocating answer 42 (p2 owes it).
     try p1.sendCopying(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = 7 } },
+        .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{},
-        .answer = 42,
+        .answer = .from(42),
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
     try p2.feedInbound(p1.takeOutbound().?);
@@ -143,9 +143,9 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
 
     // p1 pipelines a call against answer 42.
     try p1.sendCopying(.{ .deliver = .{
-        .target = .{ .promise = .{ .answer_position = 42 } },
+        .target = .{ .promise = .{ .answer_position = .from(42) } },
         .args = &.{.{ .bytes = "ping" }},
-        .answer = 43,
+        .answer = .from(43),
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
     const pipelined = p1.takeOutbound().?;
@@ -157,8 +157,8 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
     // stored resolution and was dispatched against a synthetic "pipelined
     // target already broken"; now it sees the near value and delivers locally.
     try p2.sendCopying(.{ .resolve = .{
-        .answer = 42,
-        .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = 9 } } } },
+        .answer = .from(42),
+        .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(9) } } } },
     } });
     try p2.feedInbound(pipelined);
     while ((try p2.step()) == .progress) {}
@@ -172,8 +172,8 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
     try std.testing.expectEqual(engine.EventKind.deliver, local_event.kind());
     const view = try local_event.view();
     try std.testing.expect(view.deliver.target == .near);
-    try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position);
-    try std.testing.expectEqual(@as(?u64, 43), view.deliver.answer);
+    try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
+    try std.testing.expectEqual(@as(?model.AnswerId, .from(43)), view.deliver.answer);
     try std.testing.expectEqualStrings("ping", (try view.deliver.args.at(0)).bytes);
 }
 
@@ -184,16 +184,16 @@ test "an op:listen arriving while its answer's resolve is queued fires with the 
     var p2 = engine.Peer.init(allocator);
     defer p2.deinit();
 
-    try p1.session_state.registerImport(7);
-    try p2.session_state.registerExport(7);
+    try p1.session_state.registerImport(.from(7));
+    try p2.session_state.registerExport(.from(7));
     // p1's listener object is its own export 9; p2 reaches it when it fires.
-    try p1.session_state.registerExport(9);
+    try p1.session_state.registerExport(.from(9));
 
     // p1 delivers to p2's export, allocating answer 42.
     try p1.sendCopying(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = 7 } },
+        .target = .{ .far = .{ .import_position = .from(7) } },
         .args = &.{},
-        .answer = 42,
+        .answer = .from(42),
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
     try p2.feedInbound(p1.takeOutbound().?);
@@ -205,8 +205,8 @@ test "an op:listen arriving while its answer's resolve is queued fires with the 
 
     // p1 listens on the promise (answer 42), nominating its export 9.
     try p1.sendCopying(.{ .listen = .{
-        .target = .{ .promise = .{ .answer_position = 42 } },
-        .listener = .{ .near = .{ .export_position = 9 } },
+        .target = .{ .promise = .{ .answer_position = .from(42) } },
+        .listener = .{ .near = .{ .export_position = .from(9) } },
         .wants_partial = false,
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
@@ -217,7 +217,7 @@ test "an op:listen arriving while its answer's resolve is queued fires with the 
     // stored resolution lets it fire now with "ok" rather than against a
     // synthetic break (or get stranded waiting on an emit-time fire).
     try p2.sendCopying(.{ .resolve = .{
-        .answer = 42,
+        .answer = .from(42),
         .resolution = .{ .fulfill = .{ .bytes = "ok" } },
     } });
     try p2.feedInbound(listen_frame);
@@ -236,7 +236,7 @@ test "an op:listen arriving while its answer's resolve is queued fires with the 
             if (event.kind() != .deliver) continue;
             const view = try event.view();
             if (view != .deliver or view.deliver.target != .near) continue;
-            if (view.deliver.target.near.export_position != 9) continue;
+            if (view.deliver.target.near.export_position.int() != 9) continue;
             try std.testing.expectEqualStrings("fulfill", (try view.deliver.args.at(0)).symbol);
             try std.testing.expectEqualStrings("ok", (try view.deliver.args.at(1)).bytes);
             saw_fire = true;

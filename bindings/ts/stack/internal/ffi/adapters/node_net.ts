@@ -6,7 +6,7 @@
 // paused and resumed one read at a time, so inbound bytes are bounded by the
 // pump's pace rather than buffered without limit.
 
-// @ts-nocheck — typed against node:net's ambient types, present under Bun/Node.
+// @ts-nocheck, typed against node:net's ambient types, present under Bun/Node.
 import { connect as netConnect, createServer, type Server, type Socket } from "node:net";
 import type { NetConn, NetListener } from "../runtime.ts";
 

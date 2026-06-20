@@ -31,8 +31,17 @@
 // Run it:  deno run --allow-ffi --allow-net --allow-read server.ts 9099
 //          ROOMS_TRANSPORT=iroh deno run -A --unstable-ffi server.ts
 
-import { type AppValue, Connection, listen, Machine, Ref } from "@pancake/stack";
+import {
+	type AppValue,
+	type Connection,
+	encodePeerLocator,
+	listen,
+	Node,
+	parseLocator,
+	Ref,
+} from "@pancake/stack";
 import { listenIroh, Reachability } from "@pancake/iroh";
+import { dial, isUriLocator } from "./locator.ts";
 import {
 	DIRECTORY,
 	ENTER,
@@ -72,7 +81,7 @@ const rooms = new Map<string, RoomState>();
 /** Introducible members, by nick: the `dm` reference the directory fetched from
  * each member's own endpoint. Each reference's `home` is the directory↔member
  * connection the directory dialed, so returning one from `introduce` trips the
- * binding's transparent gifter — the directory deposits the gift with the member
+ * binding's transparent gifter, the directory deposits the gift with the member
  * and answers the caller with a `desc:handoff-give`, never relaying the DM. */
 const introductions = new Map<string, Ref>();
 
@@ -87,7 +96,7 @@ const registering = new Set<string>();
  * it directly. On success the member's inbox is told `notify("registered",
  * nick)`, the deterministic signal that the nick is now introducible. */
 async function registerMember(
-	machine: Machine,
+	node: Node,
 	nick: string,
 	locator: string,
 	inbox: Ref,
@@ -99,12 +108,26 @@ async function registerMember(
 	try {
 		// Dial the member with the node's shared identity so the gift the directory
 		// later mints (signed with that identity) matches the deposit's provenance.
-		const toMember = await Connection.connect(
-			locator.slice(0, locator.lastIndexOf(":")),
-			Number(locator.slice(locator.lastIndexOf(":") + 1)),
-			machine,
-		);
+		// Transport-neutral: a `host:port` dials TCP; an `ocapn://…iroh` URI dials
+		// iroh's encrypted QUIC — by direct-address hints when the URI carries them,
+		// else by resolving the node id through discovery (see `dial`).
+		const toMember = await dial(locator, node);
 		toMember.serve().catch(() => {});
+		// An iroh member signs only its node id on its session, so the gift's
+		// exporter location would otherwise carry no way to reach it. Re-encode the
+		// member's registered locator as the gift's exporter location, so the gift
+		// names the member exactly as the member advertised — id + direct-addresses
+		// for a direct member, id alone for a discovery member — and the recipient's
+		// redeem picks the dial posture from those hints. A TCP member's signed
+		// host:port is already dialable, so it keeps the partner's signed location.
+		if (isUriLocator(locator)) {
+			const loc = parseLocator(locator);
+			toMember.setExporterLocator(encodePeerLocator({
+				transport: loc.transport,
+				designator: loc.designator,
+				directAddresses: loc.hints.get("direct-addresses") ?? "",
+			}));
+		}
 		const dm = await toMember.fetch("dm");
 		introductions.set(key, dm);
 		// Deterministic readiness: the member learns its nick is introducible only
@@ -222,7 +245,7 @@ function leaveRoom(
 	return removed;
 }
 
-/** Drop a connection from every room it is in — the cleanup when its socket
+/** Drop a connection from every room it is in, the cleanup when its socket
  * closes. Also reclaim any room this connection opened but never subscribed to,
  * so an abandoned `open` does not leak an empty room. */
 function leaveAll(conn: Connection): void {
@@ -289,27 +312,29 @@ function roomBehavior(state: RoomState, conn: Connection) {
 
 /** The directory behavior for one connection. `open`/`enter` return a live
  * reference to a room — the per-connection room view spawned here — so the room
- * a client holds is bound to that client's connection. `machine` is the node's
+ * a client holds is bound to that client's connection. `node` is the node's
  * shared identity/gift registry, needed to dial members back for introductions. */
-export function directoryBehavior(conn: Connection, machine: Machine) {
+export function directoryBehavior(conn: Connection, node: Node) {
 	return (verb: string, args: AppValue[]): AppValue => {
 		if (verb === REGISTER) {
 			const nick = typeof args[0] === "string" ? args[0] : "";
 			const locator = typeof args[1] === "string" ? args[1] : "";
 			const inbox = args[2];
 			if (nick.length === 0 || locator.length === 0) {
-				throw new Error("register needs a nick and a host:port locator");
+				throw new Error("register needs a nick and a locator");
 			}
 			if (!(inbox instanceof Ref)) {
 				throw new Error("register needs an inbox capability");
 			}
-			if (locator.lastIndexOf(":") < 0) {
-				throw new Error("register locator must be host:port");
+			// A locator is either a TCP `host:port` or an `ocapn://…iroh?…` URI; both
+			// have a colon, so just require one that the dial-back can parse.
+			if (!isUriLocator(locator) && locator.lastIndexOf(":") < 0) {
+				throw new Error("register locator must be host:port or an ocapn:// URI");
 			}
 			// The dial-back is async; kick it off and ack now. The member waits for
 			// the `notify("registered", …)` the dial-back pushes before treating its
 			// nick as introducible, so there is no register/introduce race.
-			void registerMember(machine, nick, locator, inbox, conn);
+			void registerMember(node, nick, locator, inbox, conn);
 			return null;
 		}
 		if (verb === INTRODUCE) {
@@ -370,16 +395,16 @@ function transportArg(): "tcp" | "iroh" {
 }
 
 /** Serve the directory on every connection `server` accepts until it closes.
- * `machine` is the node's shared identity/gift registry — the same one the
+ * `node` is the node's shared identity/gift registry — the same one the
  * accepted connections key with — so `register`'s dial-back and `introduce`'s
  * gift origination share one identity (the directory↔member dial and the
  * directory↔caller answer must agree for the handoff signature to verify). */
 export async function serveDirectory(
 	server: AsyncIterable<Connection>,
-	machine: Machine,
+	node: Node,
 ): Promise<void> {
 	for await (const conn of server) {
-		conn.publish(DIRECTORY, directoryBehavior(conn, machine)); // fetchable by name
+		conn.publish(DIRECTORY, directoryBehavior(conn, node)); // fetchable by name
 		conn.serve().then(
 			() => leaveAll(conn),
 			() => leaveAll(conn),
@@ -398,14 +423,16 @@ if (import.meta.main) {
 	// locator (127.0.0.1:<port>), an ocapn:// URI is an iroh locator.
 	if (transport === "iroh") {
 		// The rooms URIs carry direct-addresses, so `.direct` is the explicit posture.
-		// Introductions (`register`/`introduce`) are TCP-only this cycle, so the iroh
-		// room serves chat with a fresh node identity for the directory dial-back.
-		const iroh = listenIroh(Reachability.Direct);
+		// One shared node across the iroh listener and the directory behavior, so
+		// `register`'s dial-back and `introduce`'s gift origination present one
+		// identity, what a cross-process three-party handoff over iroh requires.
+		const node = new Node();
+		const iroh = listenIroh(Reachability.Direct, undefined, node);
 		console.log(`ROOMS-SERVER-LISTENING ${iroh.uri}`);
-		await serveDirectory(iroh, new Machine());
+		await serveDirectory(iroh, node);
 	} else {
 		const tcp = listen("127.0.0.1", Number(positional[0] ?? "0"));
 		console.log(`ROOMS-SERVER-LISTENING ${await tcp.ready()}`);
-		await serveDirectory(tcp, tcp.machine);
+		await serveDirectory(tcp, tcp.node);
 	}
 }

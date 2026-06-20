@@ -96,7 +96,7 @@ pub const Promise = union(enum) {
     /// Result of a local send; settled by `Vat.drive`.
     local: u64,
     /// Result of a far send; the outbound answer position the partner resolves.
-    far: u64,
+    far: model.AnswerId,
 };
 
 /// A message to an actor: a verb (method selector) and its arguments. From the
@@ -145,7 +145,7 @@ pub const Error = error{
     AlreadyPublished,
     /// `Vat.on` was called for a promise that already holds a listener.
     /// Listeners are one-shot and a promise holds at most one, so replacing it
-    /// would silently orphan the first — the same rule `bindExport` applies to
+    /// would silently orphan the first, the same rule `bindExport` applies to
     /// export positions.
     AlreadyListening,
     /// The bound peer refused an outbound far `send` for a session or protocol
@@ -226,8 +226,8 @@ fn releaseBox(allocator: std.mem.Allocator, box: *StateBox) void {
 /// A captured local actor heap: a point-in-time sharing of each actor's
 /// `StateBox` (refcount raised, no bytes copied) plus the `next_actor` counter.
 /// Reusable across repeated `restore`s. The owner frees it with `deinit`, which
-/// drops the snapshot's reference to every shared box. Captures local state only
-/// — never `peer`, `exports`, far listeners, or the turn arenas.
+/// drops the snapshot's reference to every shared box. Captures local state
+/// only, never `peer`, `exports`, far listeners, or the turn arenas.
 pub const Snapshot = struct {
     boxes: std.AutoHashMapUnmanaged(u64, *StateBox) = .{},
     next_actor: u64 = 1,
@@ -259,7 +259,7 @@ pub const Turn = struct {
     /// The answer this turn must settle, set by `serve` for an inbound deliver
     /// (null for a `tell` with no answer, or a near-call). `forward` reads it to
     /// defer resolution onto a forwarded send's promise.
-    inbound_answer: ?u64 = null,
+    inbound_answer: ?model.AnswerId = null,
     /// Set by `forward`: this turn handed its answer off to a forwarded send's
     /// promise, so `serve` must not resolve it from the handler's return value.
     forwarded: bool = false,
@@ -299,7 +299,7 @@ pub const Turn = struct {
     }
 
     /// Forward this turn's call to `target` and let this actor's own answer
-    /// resolve to the target's eventual result — the primitive a forwarding
+    /// resolve to the target's eventual result, the primitive a forwarding
     /// proxy (caretaker, attenuator) is built on. Goblins expresses this as a
     /// behavior that returns `(apply <- target args)`; pancake's handler returns
     /// a concrete value, so `forward` instead defers the inbound answer and
@@ -320,7 +320,7 @@ pub const Turn = struct {
 /// Heap context a forwarded turn's promise listener carries: the vat to resolve
 /// against and the deferred inbound answer. Freed by the listener once it fires
 /// (on settle, or on a disconnect break via `breakFarPromises`).
-const ForwardContext = struct { vat: *Vat, answer: u64 };
+const ForwardContext = struct { vat: *Vat, answer: model.AnswerId };
 
 fn forwardListener(ctx: ?*anyopaque, resolution: Resolution) void {
     const fc: *ForwardContext = @ptrCast(@alignCast(ctx.?));
@@ -333,7 +333,7 @@ fn forwardListener(ctx: ?*anyopaque, resolution: Resolution) void {
     }
 }
 
-/// One single-threaded container of local objects — the Goblins-shaped layer
+/// One single-threaded container of local objects, the Goblins-shaped layer
 /// above the engine. Spawn objects, near-call them with `near` (`$`),
 /// eventual-send with `send` (`<-`), and `drive` queued turns to completion;
 /// bind a peer and the same sends reach far references. Sync and no-I/O by
@@ -350,7 +350,7 @@ pub const Vat = struct {
     queue: std.ArrayList(Queued) = .empty,
     listeners: std.AutoHashMapUnmanaged(u64, Listener) = .{},
     /// Listener for a far send's promise, keyed by outbound answer position.
-    far_listeners: std.AutoHashMapUnmanaged(u64, Listener) = .{},
+    far_listeners: std.AutoHashMapUnmanaged(model.AnswerId, Listener) = .{},
     /// Local actor id for each export position published on the peer.
     exports: std.AutoHashMapUnmanaged(u64, u64) = .{},
     /// Per-turn scratch the vat hands each handler as `turn.arena`. A handler's
@@ -593,7 +593,7 @@ pub const Vat = struct {
             },
             .far => |far_ref| {
                 const peer = self.peer orelse return Error.NotConnected;
-                const answer = peer.allocateAnswer();
+                const answer = model.AnswerId.from(peer.allocateAnswer());
                 try self.farDeliver(far_ref, msg, answer);
                 return .{ .far = answer };
             },
@@ -604,7 +604,7 @@ pub const Vat = struct {
     /// the turn's inbound answer to settle when the forwarded send does.
     ///
     /// A synchronous near-call (`$`) wants a value now, so it forwards by
-    /// near-call and returns the target's value directly — legal only for a local
+    /// near-call and returns the target's value directly, legal only for a local
     /// target, since `near` refuses a far ref. The eventual-send/deliver path
     /// defers: with an inbound answer it sends and settles that answer on the
     /// forwarded promise; with none (a `tell`) it forwards fire-and-forget. The
@@ -641,9 +641,9 @@ pub const Vat = struct {
     /// call (cloned inside `peer.sendCopying`). `NotConnected` if no peer is
     /// bound. The empty-path target rides the engine's flat `desc:answer` send;
     /// a multi-hop path is the engine's decomposition concern, not this surface.
-    pub fn sendToAnswer(self: *Vat, answer_pos: u64, msg: Message) Error!Promise {
+    pub fn sendToAnswer(self: *Vat, answer_pos: model.AnswerId, msg: Message) Error!Promise {
         const peer = self.peer orelse return Error.NotConnected;
-        const answer = peer.allocateAnswer();
+        const answer = model.AnswerId.from(peer.allocateAnswer());
         try self.farDeliverTo(.{ .promise = .{ .answer_position = answer_pos } }, msg, answer);
         return .{ .far = answer };
     }
@@ -683,9 +683,9 @@ pub const Vat = struct {
         };
     }
 
-    /// Encode a far `op:deliver` to a settled far import — the resolved-target
+    /// Encode a far `op:deliver` to a settled far import, the resolved-target
     /// case of `farDeliverTo`.
-    fn farDeliver(self: *Vat, far_ref: model.FarRef, msg: Message, answer: ?u64) Error!void {
+    fn farDeliver(self: *Vat, far_ref: model.FarRef, msg: Message, answer: ?model.AnswerId) Error!void {
         return self.farDeliverTo(.{ .far = far_ref }, msg, answer);
     }
 
@@ -701,7 +701,7 @@ pub const Vat = struct {
     /// are borrowed from the caller. The splice cannot reuse the clone:
     /// `sendCopying` clones whatever list it is handed, and the verb must be in
     /// that list first.
-    fn farDeliverTo(self: *Vat, target: model.Reference, msg: Message, answer: ?u64) Error!void {
+    fn farDeliverTo(self: *Vat, target: model.Reference, msg: Message, answer: ?model.AnswerId) Error!void {
         const peer = self.peer orelse return Error.NotConnected;
         const has_verb = msg.verb.len > 0;
         const full = try self.allocator.alloc(model.Argument, msg.args.len + @intFromBool(has_verb));
@@ -743,7 +743,7 @@ pub const Vat = struct {
     }
 
     /// Break every outstanding far promise with `message`, firing each
-    /// listener's break path synchronously, before this returns — a
+    /// listener's break path synchronously, before this returns, a
     /// stack-bound listener context is safe because nothing fires later. A far promise settles only when the partner's resolution
     /// arrives over the wire, so once the connection is gone those resolutions can
     /// never come. A driver calls this on disconnect, so an awaiting `on`
@@ -789,6 +789,17 @@ pub const Vat = struct {
         gop.value_ptr.* = local_id;
     }
 
+    /// The local `Ref` bound to wire export `position`, or null when no actor is
+    /// exported there, the inverse of `bindExport`'s position → actor map. A
+    /// surface that receives a near reference (which names an object by its wire
+    /// export position, not its vat-local actor id) resolves it through here so a
+    /// position is never mistaken for an actor id; `Vat.serve` resolves an inbound
+    /// deliver's target the same way.
+    pub fn refForExport(self: *const Vat, position: u64) ?Ref {
+        const local_id = self.exports.get(position) orelse return null;
+        return .{ .local = local_id };
+    }
+
     /// Whether the vat is idle: no turn or drive in flight and no queued sends.
     /// `snapshot` and `restore` require it, so time-travel never captures or
     /// rewinds a half-mutated heap.
@@ -797,7 +808,7 @@ pub const Vat = struct {
     }
 
     /// Capture the local actor heap: share every actor's `StateBox` (refcount up,
-    /// no bytes copied — O(objects), Goblins's `snapshot-whactormap` shape) and
+    /// no bytes copied, O(objects), Goblins's `snapshot-whactormap` shape) and
     /// the `next_actor` counter. Requires quiescence (`NotQuiescent`) and every
     /// actor to be cloneable or persistent (`NotSnapshottable`); on either failure
     /// nothing is left shared. The returned `Snapshot` is the owner's to `deinit`.
@@ -820,7 +831,7 @@ pub const Vat = struct {
     /// snapshot's shared boxes and restore `next_actor`. Requires quiescence. The
     /// new table is built (sharing the snapshot's boxes) before the live boxes are
     /// released, so a mid-build failure leaves the live heap intact. `snap` stays
-    /// reusable across repeated restores. Touches local actor state only — never
+    /// reusable across repeated restores. Touches local actor state only, never
     /// the peer, exports, far listeners, or arenas.
     pub fn restore(self: *Vat, snap: *const Snapshot) Error!void {
         if (!self.quiescent()) return Error.NotQuiescent;
@@ -850,7 +861,7 @@ pub const Vat = struct {
     /// clones live in the queue arena, which resets — capacity retained — only
     /// when the *outermost* drive has fully drained the queue, so a turn that
     /// queues more sends mid-drive never has its message freed under it.
-    pub fn drive(self: *Vat) anyerror!void {
+    pub fn drive(self: *Vat) Error!void {
         self.drive_depth += 1;
         defer self.drive_depth -= 1;
         var index: usize = 0;
@@ -876,7 +887,7 @@ pub const Vat = struct {
         switch (body) {
             .deliver => |deliver| {
                 const export_position = deliver.target.exportPosition() orelse return false;
-                const local_id = self.exports.get(export_position) orelse return false;
+                const local_id = self.exports.get(export_position.int()) orelse return false;
                 // V1.0: when the deliver has no wire answer but carries a
                 // resolve_me_desc, the engine installed a virtual answer for
                 // the resolver. Look it up so the resolve reaches the partner.
@@ -887,10 +898,10 @@ pub const Vat = struct {
                         // pipelined-drain event that round-tripped through
                         // encode+decode, flipping the perspective). `position`
                         // accepts both — near and far name one integer space.
-                        const id = rmd.position() orelse break :blk @as(?u64, null);
-                        break :blk peer.session_state.answerForResolverImport(id);
+                        const id = rmd.position() orelse break :blk @as(?model.AnswerId, null);
+                        break :blk peer.session_state.answerForResolverImport(model.ImportId.from(id));
                     }
-                    break :blk @as(?u64, null);
+                    break :blk @as(?model.AnswerId, null);
                 } else null;
                 const reply = reply: {
                     // The depth and actor checks run before the turn opens,
@@ -961,7 +972,7 @@ pub const Vat = struct {
 
     /// Fire `promise_id`'s listener, if any. A fulfilled value lives in the
     /// turn arena (or aliases the queued message), and a listener may
-    /// legitimately open a top-level turn (`near` or `drive`) while it runs —
+    /// legitimately open a top-level turn (`near` or `drive`) while it runs,
     /// whose depth-0 reset would free that storage mid-call. So the one
     /// argument is cloned onto the vat allocator for the duration of the
     /// listener call and freed right here, mirroring the far-resolve path in
@@ -979,13 +990,13 @@ pub const Vat = struct {
         }
     }
 
-    fn resolveFulfill(self: *Vat, answer: ?u64, reply: model.Argument) !void {
+    fn resolveFulfill(self: *Vat, answer: ?model.AnswerId, reply: model.Argument) !void {
         const ans = answer orelse return;
         const peer = self.peer orelse return;
         try peer.sendCopying(.{ .resolve = .{ .answer = ans, .resolution = .{ .fulfill = reply } } });
     }
 
-    fn resolveBreak(self: *Vat, answer: ?u64, message: []const u8) !void {
+    fn resolveBreak(self: *Vat, answer: ?model.AnswerId, message: []const u8) !void {
         const ans = answer orelse return;
         const peer = self.peer orelse return;
         try peer.sendCopying(.{ .resolve = .{ .answer = ans, .resolution = .{ .@"break" = .{ .message = message } } } });

@@ -5,8 +5,9 @@
 //! its own thread over the platform completion backend (io_uring / kqueue).
 //! Several `driver.connectTcp` clients dial concurrently, each completing the
 //! real keyed `op:start-session` handshake (mutual signature verification on),
-//! then `fetch` the greeter and `send` it a call, asserting the reply round-trips
-//! — an object answering on the scalable path, assembled by the host API rather
+//! then `fetch` the greeter and `send` it a call, asserting the reply
+//! round-trips, an object answering on the scalable path, assembled by the host
+//! API rather
 //! than hand-wired loop hooks.
 
 const std = @import("std");
@@ -48,7 +49,7 @@ fn runHost(host: *driver.LoopHost, until_closed: usize, out_err: *?anyerror) voi
 }
 
 /// One client: keyed dial via `connectTcp`, fetch the greeter, call it, assert
-/// the reply — all through the `ConnectedVat` surface.
+/// the reply, all through the `ConnectedVat` surface.
 fn callOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();

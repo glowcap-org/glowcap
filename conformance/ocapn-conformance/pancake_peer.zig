@@ -60,7 +60,7 @@ const SharedState = struct {
 // exporter connection's slot (matched by the exporter's session designator), the
 // exporter thread runs the fetch/deposit and signs the give, and the recipient
 // thread resolves the enliven once the give is back. Only serializable data
-// crosses the hub — each thread still touches only its own peer.
+// crosses the hub, each thread still touches only its own peer.
 
 /// The signed handoff-give the exporter thread produces, polled by the recipient
 /// thread. Every field is read and written only under the hub mutex, so the two
@@ -175,7 +175,7 @@ const GifterHub = struct {
     /// The exporter thread hands a finished give (or a failure) back to the
     /// recipient thread's result. If the recipient already tore down
     /// (`recipient_gone`), no one will consume the result, so the caller frees the
-    /// give bytes and the result here — it is the last thread out. `allocator` is
+    /// give bytes and the result here; it is the last thread out. `allocator` is
     /// the shared process allocator every result and give was built with.
     fn complete(self: *GifterHub, allocator: std.mem.Allocator, result: *GifterResult, give_bytes: ?[]u8) void {
         self.lock();
@@ -445,7 +445,7 @@ fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: Stream) void 
     // One session identity for this whole connection. A three-party handoff where
     // pancake is the recipient signs its `desc:handoff-receive` with this key,
     // because the gifter named pancake's session public key as the give's
-    // recipient key — so the handshake and the later withdraw must use the same
+    // recipient key, so the handshake and the later withdraw must use the same
     // secret.
     var session_seed: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&session_seed) catch return;
@@ -456,7 +456,7 @@ fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: Stream) void 
     // partner's hello arrives, which can be never (a crossed-hellos abort), and
     // an unbounded hold would stall every other connection's dispatch. The peer
     // therefore runs the handshake on its private registry and joins the shared
-    // one just below, before any bootstrap deliver can dispatch — non-handshake
+    // one just below, before any bootstrap deliver can dispatch, non-handshake
     // traffic is refused until the session is open.
     cv.startKeyedSessionWithSecret(.{
         .transport = "tcp-testing-only",
@@ -656,7 +656,7 @@ const HookCtx = struct {
     handoff_secret: crypto.SecretKey,
     greeter_export: u64,
     enlivener_export: u64,
-    /// This connection's hub slot — an exporter thread polls it for gifter work.
+    /// This connection's hub slot, an exporter thread polls it for gifter work.
     exporter_slot: *ExporterSlot,
     /// Set when this connection is a gifter's recipient awaiting a give: the
     /// pending result and the enliven answer to resolve once it arrives.
@@ -994,11 +994,12 @@ fn handoffWithdrawInner(shared: *SharedState, secret: crypto.SecretKey, give_byt
     const exporter_key = peer.session_state.partnerSessionKey() orelse return error.NoExporterKey;
     const signed_receive = try engine.handoff_recipient.signedReceiveFromGiveBytes(
         allocator,
+        peer.session_state.limits,
+        peer.giftRegistry(),
         secret,
         our_pubkey,
         exporter_key,
         give_bytes,
-        0,
     );
 
     var handoff_msg = model.Handoff{ .receive = signed_receive.message() };

@@ -16,7 +16,7 @@
 //! greeter (whose home is the gifter↔Bob connection) on Carol's connection trips
 //! the transparent gifter — it deposits the greeter back with Bob over its own
 //! Bob connection and resolves Carol's send with a signed give. One node identity
-//! (`gifter.machine()`) serves both the recipient and the exporter connection, so
+//! (`gifter.node()`) serves both the recipient and the exporter connection, so
 //! the give's signature matches the deposit. Goblins Bob must accept the deposit;
 //! Goblins Carol must redeem the give and reach Bob directly. The proof is
 //! Carol's `GIFT OK` line carrying the greeter's reply with the name she sent.
@@ -33,7 +33,7 @@ use tokio::process::{Child, ChildStdout, Command};
 
 const HOST: &str = "127.0.0.1";
 /// Bob (the Goblins exporter) listens on PORT; Carol binds her own peer on
-/// PORT+1. pancake (the gifter) takes an ephemeral port — the recipient learns it
+/// PORT+1. pancake (the gifter) takes an ephemeral port, the recipient learns it
 /// at spawn time. `--port=N` (from `zig build rust-goblins-gift -Dport=N`) moves
 /// the pair when 22124 is taken.
 const DEFAULT_PORT: u16 = 22124;
@@ -74,7 +74,7 @@ async fn main() -> Result<(), Fail> {
 		.spawn()?;
 
 	// Drain Bob's stderr in the background. A piped child stream that is never
-	// read deadlocks the child once its OS pipe fills — Goblins logs to stderr
+	// read deadlocks the child once its OS pipe fills, Goblins logs to stderr
 	// during operation, so leaving it undrained stalls the deposit and the whole
 	// handoff times out. The captured text is printed only on failure.
 	let bob_stderr = Arc::new(Mutex::new(Vec::<u8>::new()));
@@ -129,7 +129,7 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	// connection, so the give's signature matches the deposit.
 	let server = listen((HOST, 0)).await?;
 	let gifter_port = server.local_addr()?.port();
-	let machine = server.machine();
+	let node = server.node();
 
 	// Run the accept loop, retaining every accepted connection: dropping a
 	// `Connection` closes it, so the recipient's connection must be held for the
@@ -144,7 +144,7 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	// Dial Bob and fetch his greeter, sharing the gifter's node identity. The
 	// fetched ref's home is this gifter↔Bob connection, which is what lets
 	// pancake re-gift it across to the recipient.
-	let to_bob = Connection::connect_with_machine((HOST, port), machine.clone()).await?;
+	let to_bob = Connection::connect_with_node((HOST, port), node.clone()).await?;
 	let greeter = to_bob.fetch(GREETER_SWISS).await?;
 	println!("rust-goblins-gift: fetched goblins-bob's greeter");
 
@@ -154,7 +154,7 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	// giftable is a factory because an actor behavior is a `!Clone` `FnMut`: each
 	// connection it is published on gets a freshly minted behavior with the same
 	// logic, all returning the one greeter.
-	machine.publish_giftable(INTRODUCER_SWISS, move || {
+	node.publish_giftable(INTRODUCER_SWISS, move || {
 		let greeter = greeter.clone();
 		Box::new(move |verb: &str, _args: &[Argument]| {
 			if verb == "get-greeter" {

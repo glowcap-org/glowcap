@@ -1,4 +1,4 @@
-//! C ABI allocation-context contract — proves a `PancakeContext` owns allocation
+//! C ABI allocation-context contract, proves a `PancakeContext` owns allocation
 //! policy for a whole handle family. Every allocation a context-scoped handle
 //! makes (the peer and netlayer objects, the managed outbound/event frames,
 //! adopted inbound frames, TCP connection/listener payloads and their buffers,
@@ -54,7 +54,7 @@ const CountingHost = struct {
 };
 
 /// Build an external managed frame over caller-owned bytes whose `release`
-/// flips a flag — the same shape a `pancake_tcp_conn_read_frame` hands out,
+/// flips a flag, the same shape a `pancake_tcp_conn_read_frame` hands out,
 /// minus a backing allocation, so a test can feed it owned and watch it release.
 const ExternalFrame = struct {
     var released: bool = false;
@@ -127,7 +127,7 @@ test "host context balances a peer, an adopted inbound frame, and its event fram
     try std.testing.expectEqual(c.PANCAKE_EVENT_ABORT, event.kind);
 
     // The host allocator actually carried the load (the context object, the peer,
-    // the adopted wrapper, the event-frame wrapper) — not the library default.
+    // the adopted wrapper, the event-frame wrapper), not the library default.
     try std.testing.expect(host.alloc_calls > 0);
 
     c.pancake_event_release(&event);
@@ -179,7 +179,7 @@ test "host context: feed_owned failure frees the adopted wrapper and consumes th
 
     // A word-shaped frame whose length is not a multiple of 8 is rejected by the
     // frame layer; the adopted wrapper allocated up front must be freed, and the
-    // frame is consumed — released once through its own callback, with the
+    // frame is consumed, released once through its own callback, with the
     // caller's struct cleared so a late release is a no-op.
     var bytes = [_]u8{ 1, 2, 3 };
     var managed = ExternalFrame.make(bytes[0..]);

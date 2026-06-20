@@ -194,7 +194,7 @@ pub const Connection = struct {
 /// socket-backed caller (its connection owns the spill).
 ///
 /// Order of operations (single fiber, blocking):
-///   1. Encode the peer's queued sends and flush all outbound to the wire — the
+///   1. Encode the peer's queued sends and flush all outbound to the wire, the
 ///      handshake `op:start-session`, responses from a prior apply, or a
 ///      projected abort all leave this way.
 ///   2. If the spill (when active) or the buffer holds a whole frame, frame +

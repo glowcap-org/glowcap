@@ -6,7 +6,7 @@
 // adapter converts to and from `bigint` at the seam so the layers above hold one
 // representation.
 
-// @ts-nocheck — typed against Bun's ambient types, which only exist under Bun.
+// @ts-nocheck, typed against Bun's ambient types, which only exist under Bun.
 import { dlopen as bunDlopen, FFIType, JSCallback, ptr, toArrayBuffer } from "bun:ffi";
 import { socketConnect, socketListen } from "./node_net.ts";
 import type {

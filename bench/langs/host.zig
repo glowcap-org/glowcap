@@ -1,7 +1,7 @@
 //! The fixed reference host for the per-language consumer-cost bench
 //! (`zig build bench-langs`). It serves the bench taskboard app on pancake's
 //! native Zig runtime, so the only thing that varies between bench rows is the
-//! client language dialing in — the server adds no Chez, V8, or CPython noise.
+//! client language dialing in, the server adds no Chez, V8, or CPython noise.
 //!
 //! The board publishes one verb, `create`, which mints a fresh task capability
 //! and returns it. Each task answers `assign`, `complete`, and `status`, the
@@ -50,7 +50,7 @@ const Task = struct {
 
 /// The board root: `create` spawns a task at a fresh export position and returns
 /// the capability, so the client invokes the returned task several times over
-/// the wire — the capability-passing the bench measures.
+/// the wire, the capability-passing the bench measures.
 const Board = struct {
     pub fn handle(self: *Board, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = self;

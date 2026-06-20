@@ -21,7 +21,7 @@ const Peer = engine.Peer;
 /// records it on the target session, drains the imported-promise listeners, and
 /// synthesizes a fire `op:deliver` for each. Owns its `resolution` until drained.
 pub const PendingRelayedResolution = struct {
-    import_position: u64,
+    import_position: model.ImportId,
     resolution: model.Resolution,
 };
 

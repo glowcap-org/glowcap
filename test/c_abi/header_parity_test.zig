@@ -1,4 +1,4 @@
-//! Header parity — proves the generated `include/pancake_ocapn.h` and the two
+//! Header parity, proves the generated `include/pancake_ocapn.h` and the two
 //! transport headers (`pancake_net_transport_tcp.h`, `pancake_net_transport_inproc.h`) agree with
 //! the Zig C ABI sources they mirror, so the two cannot silently drift. The
 //! headers keep their prose (they are the C consumer's contract documents); this

@@ -61,7 +61,7 @@
                  (flush-output)))
   (room-subscribe (directory-conn d) (enter-or-open d room-name) nick))
 
-;; The welcome ends with the nicks already present: "… in the room: a, b, c" —
+;; The welcome ends with the nicks already present: "… in the room: a, b, c",
 ;; the only way to learn about earlier arrivals.
 (define (welcome-names msg)
   (and (message-system? msg)

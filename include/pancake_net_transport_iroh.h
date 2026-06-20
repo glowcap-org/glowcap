@@ -69,7 +69,7 @@ typedef struct PancakeIrohNetlayer PancakeIrohNetlayer;
 typedef struct PancakeIrohConn PancakeIrohConn;
 
 /* Reachability postures for pancake_iroh_netlayer_new. The caller always
-   passes one — there is no default. A pancake peer never turns on relays
+   passes one; there is no default. A pancake peer never turns on relays
    or a discovery service as a hidden implementation detail; the host
    chooses, in the open, how the endpoint becomes reachable.
      DIRECT             relay-less, lookup-less; dial by id plus
@@ -187,7 +187,7 @@ intptr_t pancake_iroh_conn_try_read(PancakeIrohConn *conn, uint8_t *buf, size_t 
    its bound (retry the same bytes after the next writable record), or
    PANCAKE_ERR_IO on a fault. */
 intptr_t pancake_iroh_conn_try_write(PancakeIrohConn *conn, const uint8_t *buf, size_t len);
-/* Copy the calling thread's last iroh-transport error into out_buf — the iroh
+/* Copy the calling thread's last iroh-transport error into out_buf, the iroh
    sibling of pancake_last_error, reading libpancake_net_transport_iroh's own per-thread slot. A
    pancake_iroh_* call that returns PANCAKE_ERR_IO records its concrete cause here.
    Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0

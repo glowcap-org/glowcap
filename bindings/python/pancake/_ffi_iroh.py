@@ -28,7 +28,7 @@ _IROH_EV_ACCEPT = 8
 
 
 class _IrohReadyEvent(ctypes.Structure):
-    """One readiness record drained by ``pancake_iroh_netlayer_drain_ready`` — the
+    """One readiness record drained by ``pancake_iroh_netlayer_drain_ready``, the
     ``extern struct`` counterpart of the header's ``PancakeIrohReadyEvent``.
     ``conn`` is the ready connection's handle (``None`` for an accept record,
     claimed with ``try_accept``) and ``events`` the ``_IROH_EV_*`` bitset."""
@@ -50,7 +50,7 @@ def _load_iroh():
         "pancake_iroh_netlayer_direct_addrs": ([P, u8p, ctypes.c_size_t, size_p], ctypes.c_int32),
         # The event-driven loop surface (ADR-0057): the netlayer's one I/O model.
         # Park on the readiness fd, drain records when it signals, and drive
-        # non-blocking byte I/O — one thread serves many connections.
+        # non-blocking byte I/O, one thread serves many connections.
         "pancake_iroh_netlayer_readiness_fd": ([P], ctypes.c_int32),
         "pancake_iroh_netlayer_drain_ready": ([P, ev_p, ctypes.c_size_t], ctypes.c_ssize_t),
         "pancake_iroh_netlayer_try_accept": ([P, ctypes.POINTER(P)], ctypes.c_int32),

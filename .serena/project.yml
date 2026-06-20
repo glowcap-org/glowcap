@@ -48,7 +48,7 @@ initial_prompt: |
   This repository is pancake: a Zig implementation of the OCapN / CapTP
   substrate.
 
-  Read AGENTS.md first — use its Start Here table to match depth to the task.
+  Read AGENTS.md first, use its Start Here table to match depth to the task.
   Destination: docs/vision.md. Substantial work: .agents/skills/work/SKILL.md.
 
   Agent guidance lives in .agents/. Core rules:

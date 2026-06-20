@@ -46,6 +46,7 @@ const context = @import("context.zig");
 const frame = @import("frame.zig");
 const peer = @import("peer.zig");
 const gift_registry = @import("gift_registry.zig");
+const node = @import("node.zig");
 const uri = @import("uri.zig");
 
 /// ABI version the library implements. While `major` is 0 the ABI is unstable
@@ -127,6 +128,13 @@ pub const PancakePeer = opaque {};
 /// session) resolve against the same authority (ADR-0009/ADR-0056).
 pub const PancakeGiftRegistry = opaque {};
 
+/// The sans-io cross-connection handoff router (`engine.Node`, ADR-0066): a tier
+/// above `PancakePeer` that owns the retained node identity, the shared gift
+/// registry, one node-owned peer per registered connection, and the
+/// redeemed-token / foreign-home routing that makes three-party handoff
+/// transparent. Single-owner and not internally synchronized, like `PancakePeer`.
+pub const PancakeNode = opaque {};
+
 // ── Allocation context ───────────────────────────────────────────────────────
 
 // Host allocator surface (shared leaf).
@@ -172,7 +180,7 @@ pub const PANCAKE_HINTS_EMPTY_MAP: u32 = 0;
 pub const PANCAKE_HINTS_EMPTY_FALSE: u32 = 1;
 
 /// The well-known bootstrap export position every OCapN peer answers `fetch`
-/// on — the one authoritative value, surfaced from the engine so a consumer
+/// on, the one authoritative value, surfaced from the engine so a consumer
 /// never re-derives the magic `0`.
 pub const PANCAKE_BOOTSTRAP_POSITION: u64 = engine.BOOTSTRAP_POSITION;
 
@@ -193,7 +201,7 @@ pub const PancakeDeliver = extern struct {
 
 /// A `desc:handoff-give` projected to C for a binding to redeem (ADR-0009/
 /// ADR-0056). `give`/`give_len` is the verbatim `<desc:sig-envelope …>` span the
-/// recipient relays unaltered to the exporter — feed it straight to
+/// recipient relays unaltered to the exporter, feed it straight to
 /// `pancake_peer_send_withdraw_gift`. `exporter_locator`/`exporter_locator_len`
 /// is the exporter's dialable `ocapn://…` URI, or empty when the give's location
 /// is not a flat transport locator (the binding then cannot dial it). `recipient_key`
@@ -370,12 +378,26 @@ pub const pancake_peer_partner_session_key = peer.pancake_peer_partner_session_k
 pub const pancake_peer_partner_locator_raw = peer.pancake_peer_partner_locator_raw;
 pub const pancake_build_handoff_give = peer.pancake_build_handoff_give;
 pub const pancake_handoff_give_bytes_release = peer.pancake_handoff_give_bytes_release;
+pub const pancake_encode_peer_locator = peer.pancake_encode_peer_locator;
+pub const pancake_peer_locator_bytes_release = peer.pancake_peer_locator_bytes_release;
 pub const pancake_peer_send_deposit_gift = peer.pancake_peer_send_deposit_gift;
 pub const pancake_peer_send_resolve_handoff_give = peer.pancake_peer_send_resolve_handoff_give;
 pub const pancake_gift_registry_new = gift_registry.pancake_gift_registry_new;
 pub const pancake_gift_registry_new_in = gift_registry.pancake_gift_registry_new_in;
 pub const pancake_gift_registry_free = gift_registry.pancake_gift_registry_free;
 pub const pancake_peer_set_gift_registry = gift_registry.pancake_peer_set_gift_registry;
+pub const pancake_node_new = node.pancake_node_new;
+pub const pancake_node_new_in = node.pancake_node_new_in;
+pub const pancake_node_free = node.pancake_node_free;
+pub const pancake_node_register_conn = node.pancake_node_register_conn;
+pub const pancake_node_remove_conn = node.pancake_node_remove_conn;
+pub const pancake_node_send_withdraw = node.pancake_node_send_withdraw;
+pub const pancake_node_originate_give = node.pancake_node_originate_give;
+pub const pancake_node_enroll_redeemed = node.pancake_node_enroll_redeemed;
+pub const pancake_node_route = node.pancake_node_route;
+pub const pancake_node_record_foreign_home = node.pancake_node_record_foreign_home;
+pub const pancake_node_foreign_home = node.pancake_node_foreign_home;
+pub const pancake_node_arg_is_foreign = node.pancake_node_arg_is_foreign;
 pub const pancake_peer_poll_event_deliver = peer.pancake_peer_poll_event_deliver;
 pub const pancake_peer_poll_event_resolve = peer.pancake_peer_poll_event_resolve;
 pub const pancake_deliver_release = peer.pancake_deliver_release;
@@ -400,5 +422,6 @@ comptime {
     _ = frame;
     _ = peer;
     _ = gift_registry;
+    _ = node;
     _ = uri;
 }

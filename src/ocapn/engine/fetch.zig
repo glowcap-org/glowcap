@@ -1,4 +1,4 @@
-//! Asking the partner's `<bootstrap>` for the cap behind a swissnum — our side of
+//! Asking the partner's `<bootstrap>` for the cap behind a swissnum, our side of
 //! bootstrap-fetch (CapTP `op:deliver`), the half that does no I/O.
 //!
 //! The whole flow is three steps, and the core only owns the two that don't touch
@@ -27,12 +27,12 @@ const events = @import("events.zig");
 /// `Peer.send`).
 pub const PreparedFetch = struct {
     message: model.Message,
-    answer_position: u64,
-    resolver_export: u64,
+    answer_position: model.AnswerId,
+    resolver_export: model.ExportId,
 };
 
 /// How a fetch settles. Owned: `fulfilled` carries a cloned reference, `broken`
-/// a duplicated reason — both outlive the transient inbound message the matcher
+/// a duplicated reason, both outlive the transient inbound message the matcher
 /// consumes. The caller releases them (`model.freeReference` / `allocator.free`).
 pub const FetchOutcome = union(enum) {
     fulfilled: model.Reference,
@@ -80,7 +80,7 @@ pub fn prepareFetchSwissnum(
     const answer_position = session.allocateOutboundAnswer();
 
     const resolve_me_desc: ?model.Reference = if (session.needsV1_0Translation())
-        .{ .near = model.NearRef.promise(resolver_export) }
+        .{ .near = .{ .export_position = resolver_export, .kind = .promise } }
     else
         null;
 
@@ -102,8 +102,8 @@ pub fn prepareFetchSwissnum(
 /// handed back unchanged for the caller to re-own.
 pub fn tryMatchFetchOutcome(
     allocator: std.mem.Allocator,
-    resolver_export: u64,
-    answer_position: u64,
+    resolver_export: model.ExportId,
+    answer_position: model.AnswerId,
     msg: model.Message,
 ) !FetchMatch {
     switch (msg) {

@@ -25,13 +25,13 @@ bindings/ts/node_modules/
 # Racket bytecode: compiling a Racket source (bench-langs precompiles its
 # clients so cold-start measures startup, not recompilation) writes a
 # `compiled/` dir of `.zo`/`.dep` next to that source and every dependency it
-# reaches — the binding, the binding's `private/`, the shared metrics, and the
+# reaches, the binding, the binding's `private/`, the shared metrics, and the
 # goblins-peer sources. Generated, never committed, wherever it lands.
 **/compiled/
 
 # accountability-on-pancake writes its durable Episode log + transparency root
 # here at run time; generated state, never committed.
-conformance/accountability-on-pancake/.data/
+examples/apps/accountability-on-pancake/.data/
 
 # local scratch: reference clones, throwaway experiments (never committed)
 .local/

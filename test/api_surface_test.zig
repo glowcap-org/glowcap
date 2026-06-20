@@ -13,7 +13,7 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 /// A declaration that exists only to fire `@compileError` on misuse must not be
-/// analyzed by this walk — referencing it *is* the misuse it traps. Each entry
+/// analyzed by this walk, referencing it *is* the misuse it traps. Each entry
 /// names one such poison decl; a new trap added to the public surface earns its
 /// row here in the same change.
 fn isPoisonDecl(comptime T: type, comptime name: []const u8) bool {

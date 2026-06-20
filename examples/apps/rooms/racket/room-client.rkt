@@ -33,7 +33,7 @@
 (define (dial locator)
   (cond
     ;; Rooms URIs carry direct-addresses, so dial with the explicit Direct
-    ;; posture — reachability is required, never defaulted.
+    ;; posture, reachability is required, never defaulted.
     [(string-contains? locator "://") (connect locator IROH-REACH-DIRECT)]
     [else
      (define colon (let loop ([i (- (string-length locator) 1)])

@@ -1,5 +1,5 @@
 #lang racket/base
-;; Internal: the raw `ffi/unsafe` loader for libpancake_ocapn — the core archive.
+;; Internal: the raw `ffi/unsafe` loader for libpancake_ocapn, the core archive.
 ;;
 ;; Nothing here is public. The ergonomic surface in `../pancake.rkt` calls the
 ;; bound C functions and reads/writes the cstructs `ffi-shared.rkt` defines; a
@@ -102,7 +102,7 @@
 ;; verbatim give bytes (keyed by the 32-byte seed) and queue a withdraw-gift
 ;; deliver to the exporter's bootstrap under `answer`.
 (define-pancake pancake_peer_send_withdraw_gift
-  (_fun _pointer _pointer _size _pointer _size _uint64 _uint64 -> _int32))
+  (_fun _pointer _pointer _size _pointer _size _uint64 -> _int32))
 ;; Gifter (introducer) half of a three-party handoff (ADR-0009/ADR-0056). A
 ;; gifter reads the partner's session key (the recipient key, the exporter key)
 ;; and the exporter's verbatim location bytes off the two sessions it holds, then
@@ -120,20 +120,49 @@
   (_fun _pointer _size _pointer _size _pointer _size _pointer _size _pointer _size
         (give : (_ptr o _pointer)) (give-len : (_ptr o _size)) -> (r : _int32) -> (values r give give-len)))
 (define-pancake pancake_handoff_give_bytes_release (_fun _pointer _size -> _void))
-;; A vat-scoped deposited-gift table a node shares across its peers, so a gift
-;; deposited on one connection and withdrawn on another resolve against one
-;; authority. Borrowed by every peer it is set on; it must outlive them.
-(define-pancake pancake_gift_registry_new
-  (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_gift_registry_free (_fun _pointer -> _void))
-(define-pancake pancake_peer_set_gift_registry (_fun _pointer _pointer -> _int32))
+;; Build the verbatim exporter location-record bytes a give names (transport +
+;; designator, plus optional comma-separated direct-addresses) — the
+;; construct-it-yourself counterpart of `pancake_peer_partner_locator_raw` for an
+;; iroh exporter reachable only by a dial hint.
+(define-pancake pancake_encode_peer_locator
+  (_fun _pointer _size _pointer _size _pointer _size
+        (out : (_ptr o _pointer)) (out-len : (_ptr o _size)) -> (r : _int32) -> (values r out out-len)))
+(define-pancake pancake_peer_locator_bytes_release (_fun _pointer _size -> _void))
+;; The node: the cross-connection handoff router (engine.Node, ADR-0066) — the one
+;; place the router lives, projected here so every binding shares it. Semantics
+;; in `src/c_abi/ocapn/node.zig`.
+(define-pancake pancake_node_new
+  (_fun _pointer _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
+(define-pancake pancake_node_new_in
+  (_fun _pointer _pointer _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
+(define-pancake pancake_node_free (_fun _pointer -> _void))
+(define-pancake pancake_node_register_conn
+  (_fun _pointer (cid : (_ptr o _uint64)) (peer : (_ptr o _pointer))
+        -> (r : _int32) -> (values r cid peer)))
+(define-pancake pancake_node_remove_conn (_fun _pointer _uint64 -> _int32))
+(define-pancake pancake_node_send_withdraw
+  (_fun _pointer _uint64 _pointer _size _uint64 -> _int32))
+(define-pancake pancake_node_originate_give
+  (_fun _pointer _uint64 _uint64 _PancakeReference-pointer _pointer _size _uint64 _pointer _size -> _int32))
+(define-pancake pancake_node_enroll_redeemed
+  (_fun _pointer _uint64 _uint64 (out : (_ptr o _uint64)) -> (r : _int32) -> (values r out)))
+(define-pancake pancake_node_route
+  (_fun _pointer _uint64 _uint64 (cid : (_ptr o _uint64)) (fid : (_ptr o _uint64)) (routed : (_ptr o _uint32))
+        -> (r : _int32) -> (values r cid fid routed)))
+(define-pancake pancake_node_record_foreign_home (_fun _pointer _uint64 _uint64 -> _int32))
+(define-pancake pancake_node_foreign_home
+  (_fun _pointer _uint64 (cid : (_ptr o _uint64)) (found : (_ptr o _uint32))
+        -> (r : _int32) -> (values r cid found)))
+(define-pancake pancake_node_arg_is_foreign
+  (_fun _pointer _uint64 _uint64 (foreign : (_ptr o _uint32))
+        -> (r : _int32) -> (values r foreign)))
 (define-pancake pancake_peer_codec
   (_fun _pointer (out : (_ptr o _uint32)) -> (r : _int32) -> (values r out)))
 (define-pancake pancake_peer_send_gc_export
   (_fun _pointer _pointer _pointer _size -> _int32))
 (define-pancake pancake_peer_send_gc_answer (_fun _pointer _uint64 -> _int32))
 
-;; OCapN locator URIs — core libpancake_ocapn vocabulary, so a TCP-only program reaches
+;; OCapN locator URIs, core libpancake_ocapn vocabulary, so a TCP-only program reaches
 ;; the grammar without any transport companion. One grammar, no hand-rolled percent
 ;; codec: verbs mint an opaque locator handle, nouns read borrowed views from it.
 (define-pancake pancake_uri_parse_peer

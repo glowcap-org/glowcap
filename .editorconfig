@@ -1,4 +1,4 @@
-# pancake — editor formatting backbone (https://editorconfig.org).
+# pancake, editor formatting backbone (https://editorconfig.org).
 #
 # One indentation rule: tabs displayed as four columns. The override blocks
 # below name the file types whose own formatter or grammar forbids tabs, so the

@@ -2,7 +2,7 @@
 //! eventual-sends (`<-`) to it through a *far* ref and observes the promise. The
 //! send routes over the peer as an `op:deliver`, the published actor runs a turn
 //! and resolves the answer, and the inbound resolution fires the far promise's
-//! listener — all through the actor API, no hand-built wire messages.
+//! listener, all through the actor API, no hand-built wire messages.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -54,7 +54,7 @@ test "eventual-send to a far ref routes over the wire and resolves the promise" 
     try server.bindExport(counter, 7);
     try pair.p1.importObject(7);
 
-    // p1's vat eventual-sends counter.add(5) to the far ref — no wire message by
+    // p1's vat eventual-sends counter.add(5) to the far ref, no wire message by
     // hand, just `send` to a far Ref.
     var client = actors.Vat.initOver(allocator, &pair.p1);
     defer client.deinit();
@@ -82,7 +82,7 @@ test "eventual-send to a far ref routes over the wire and resolves the promise" 
     try std.testing.expectEqual(@as(i64, 15), result);
 }
 
-test "near-call to a far ref is rejected — only send reaches a far object" {
+test "near-call to a far ref is rejected, only send reaches a far object" {
     const allocator = std.testing.allocator;
     var vat = actors.Vat.init(allocator);
     defer vat.deinit();

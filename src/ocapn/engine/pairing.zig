@@ -55,7 +55,7 @@ pub const ShuttleOutcome = enum {
     /// Both peers reached `StepOutcome.idle` with no traffic in flight inside
     /// the iteration cap.
     quiescent,
-    /// The iteration cap fired before quiescence — escalate (dispatcher bug).
+    /// The iteration cap fired before quiescence, escalate (dispatcher bug).
     iter_cap_exceeded,
 };
 
@@ -113,7 +113,7 @@ pub fn paired(allocator: std.mem.Allocator) !Pair {
 }
 
 /// Construct a paired pair whose sessions carry the handshake-negotiated feature
-/// set — the intersection of the two `negotiation.Offer`s
+/// set, the intersection of the two `negotiation.Offer`s
 /// (`engine.negotiation.negotiate`). Returns `Error.NoSharedCodec` when the
 /// offers share no codec. Both peers are built with the *same* negotiated set,
 /// so a capability one side withholds (e.g. `handoff = false`) is exercised by
@@ -159,7 +159,7 @@ fn pairedWithProfileCodecAndFeatures(
     features: model.FeatureSet,
 ) !Pair {
     // The stub-key handshake below signs nothing (zero key + zero sig), so
-    // partner-signature verification cannot apply here — keyed tests construct
+    // partner-signature verification cannot apply here, keyed tests construct
     // verifying peers and call `sendKeyedStartSession`.
     var p1 = Peer.initNegotiatingWith(allocator, .{
         .wire_profile = wire_profile,
@@ -259,7 +259,7 @@ fn sendStartSession(
 /// `op:start-session` event against its decoded view. The view borrows the
 /// event's frame, and the verification is the engine's one start-session body
 /// (`engine.verifyPartnerStartSession`), so the in-process keyed pairing checks
-/// exactly what a verifying peer checks — including the verbatim-capture
+/// exactly what a verifying peer checks, including the verbatim-capture
 /// `acceptable_location_raw` signing input when the codec preserves it.
 fn verifyAndDrainEvents(allocator: std.mem.Allocator, peer: *Peer) !void {
     var saw_start_session = false;

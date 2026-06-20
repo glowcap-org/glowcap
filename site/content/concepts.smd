@@ -157,7 +157,7 @@ draws the handshake and the abort a no-overlap negotiation produces.
 
 pancake treats every allocation and copy on the wire path as a design event. Each one
 is forbidden, named, or measured, and never left to chance. The rule that makes this
-tractable is a clean split in who owns the bytes. A `Frame` owns its wire bytes, a
+tractable is an explicit split in who owns the bytes. A `Frame` owns its wire bytes, a
 `FrameView` borrows them for a bounded scope, and session state never holds on to
 borrowed memory. The budget that falls out is two numbers. A steady-state delivery to a
 live export costs exactly **one heap allocation**: the owned-frame copy the event model
@@ -187,16 +187,18 @@ the benchmarks and how to run them.
 
 ## What proves it
 
-Every semantic claim in these docs is checked by something that runs. Three checks do
+Every semantic claim in these docs is backed by something that runs. Three proof layers do
 the work:
 
 - **Live Goblins interop.** pancake holds a real, two-way OCapN conversation with a
   [Spritely Goblins](https://spritely.institute/goblins/) peer, Goblins calling pancake
-  and pancake calling back, from every binding and not just from Zig.
+  and pancake calling back, from every binding and not just from Zig, `zig build
+  goblins-interop`, an opt-in step needing Racket + Goblins on PATH.
 - **The upstream [OCapN test suite](https://github.com/ocapn/ocapn-test-suite).** Run with
-  `zig build ocapn-conformance` against a pancake peer.
+  `zig build ocapn-conformance` against a pancake peer (opt-in; needs the suite via `uv`).
 - **Cross-codec replay.** The same conversation runs through Syrup and Cap'n Proto and
   must produce an identical trace, so switching codecs cannot quietly change behavior.
+  This one runs in the hermetic `zig build check`.
 
 The [project page]($link.page('project')) tracks how much of the protocol these cover
 today, and the [examples]($link.page('examples')) let you watch a round-trip run.

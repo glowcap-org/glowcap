@@ -19,19 +19,19 @@
 (let ([root (build echo:server-build)])
   (check-true (echo:result-ok? ((echo:client-prepare local-call root) 0))))
 
-;; registry — returns a capability that is then invoked
+;; registry, returns a capability that is then invoked
 (let ([root (build reg:server-build)])
   (define v ((reg:client-prepare local-call root) 7))
   (check-equal? v #"7")
   (check-true (reg:result-ok? v)))
 
-;; mint — deposit lands on the returned purse capability
+;; mint, deposit lands on the returned purse capability
 (let ([root (build mint:server-build)])
   (define v ((mint:client-prepare local-call root) 0))
   (check-equal? v 105)
   (check-true (mint:result-ok? v)))
 
-;; taskboard — assign/complete/status on the returned task capability
+;; taskboard, assign/complete/status on the returned task capability
 (let ([root (build tb:server-build)])
   (define v ((tb:client-prepare local-call root) 0))
   (check-equal? v #"done")

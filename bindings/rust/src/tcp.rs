@@ -170,7 +170,7 @@ impl Drop for Listener<'_> {
 	}
 }
 
-/// A blocking TCP endpoint — the `pancake_tcp_*` frame shuttle, one
+/// A blocking TCP endpoint, the `pancake_tcp_*` frame shuttle, one
 /// layer below [`Connection`](crate::Connection). Closed on drop. The frame
 /// methods block. Borrows the [`Netlayer`] (or [`Listener`]) it came from, so
 /// that backend outlives it.

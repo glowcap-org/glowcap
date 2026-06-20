@@ -35,11 +35,12 @@ Core invariants:
 - Conformance fixtures and scenario traces gate every release.
 - Dogfooding comes before compatibility claims.
 
-The Zig repo keeps a local oracle bridge under `test/oracle/` and
-`test/oracles/`. It enumerates the shipped message model, embeds the
-pancake-authored Syrup fixture corpus (byte vectors cross-checked through the
-upstream Syrup encoders, not Goblins captures — see
-[`test/oracles/README.md`](../test/oracles/README.md)), and defines the
+The Zig repo keeps a local oracle bridge under `test/oracle/`. It enumerates
+the shipped message model, embeds the
+pancake-authored Syrup fixture corpus under `test/oracle/corpus/` (byte vectors
+cross-checked through the
+upstream Syrup encoders, not Goblins captures, see
+[`test/oracle/README.md`](../test/oracle/README.md)), and defines the
 session-trace shape used by engine scenario tests. Goblins-canonical wire
 authority comes from the live Goblins peer under `conformance/goblins-peer/` and
 the upstream conformance suite, not from this corpus.
@@ -61,7 +62,7 @@ The canonical core owns protocol semantics and nothing else:
 - no process-level runtime object.
 
 This is also why the driving layer is named `engine`, not `runtime`. In this
-codebase "runtime" means exactly the thing above that the core refuses to be —
+codebase "runtime" means exactly the thing above that the core refuses to be,
 an ambient executor with its own scheduler and tasks. The engine is the
 explicit, caller-driven alternative: it dispatches a session synchronously and
 nothing more.
@@ -95,7 +96,7 @@ The `actors` layer also owns opt-in local time-travel: a `Vat` can `snapshot`
 its local actor heap and `restore` it, sharing each actor's state behind a
 non-atomic refcounted box (O(objects), no byte copy), with copy-on-write for
 mutable actors and functional `become` for persistent ones (ADR-0060). It is
-local-only — a snapshot never captures session state and a restore never rewinds
+local-only, a snapshot never captures session state and a restore never rewinds
 a peer. The sibling `persistent` leaf supplies one refcounted-HAMT
 `PersistentMap` (ADR-0061) so a persistent actor's incremental `become` is O(log
 n) with structural sharing; it imports nothing and is not on the public
@@ -188,9 +189,12 @@ import/answer positions), so the session spends those positions as keys instead
 of re-deriving them with linear scans.
 
 - **Position-keyed tables.** Exports, imports, and inbound/outbound answers are
-  O(1) position-keyed maps (`SlotTable` for the wire-delta refcounts,
-  `AnswerTable` for answers), not linearly-scanned lists. GC validation is a
-  single pass with O(1) per-position lookup.
+  O(1) position-keyed maps, not linearly-scanned lists. Exports and imports
+  share one wire-delta refcount core (`SlotTable`) but wrap it in distinct
+  `ExportTable` and `ImportTable` types, so the cap that bounds partner-driven
+  imports is a property of `ImportTable` rather than a check each call site must
+  restate; answers use `AnswerTable`. GC validation is a single pass with O(1)
+  per-position lookup.
 - **Hot/cold answers.** An answer row is the hot state-machine fields (status +
   refcount); its pipelining payload (queued calls, listeners, projections,
   stored resolution) hangs off a pointer allocated only when an answer actually
@@ -241,7 +245,7 @@ the CapTP spec lets a peer reuse an `answer-pos` once it has been GC'd
 ("provided the answer position is not in use, it is a valid answer position";
 `op:gc-answers` — "the `answer-pos` can be re-used"), and import positions are
 likewise partner-named. The slot tables still need no generational handle or ABA
-guard, but the reason is _not_ "positions are never reused" — it is that every
+guard, but the reason is _not_ "positions are never reused": it is that every
 position-keyed row is removed at GC (the answer row and its queued calls,
 listeners, and resolver links die together in `decrementAnswer`). A partner's
 permitted reuse therefore lands on a cleared table, indistinguishable from a
@@ -336,8 +340,8 @@ its own `pancake_<family>_*` symbols, and carries its own last-error reader.
 `libpancake_ocapn` owns the shared vocabulary — the C-visible types, return
 codes, and codec selector — and is the universal base every consumer links; each
 transport header `#include`s `pancake_ocapn.h` to share those types by layout.
-The single umbrella archive and catch-all header from before ADR-0059 are gone;
-there is no "everything" artifact. A transport archive shares no runtime symbol
+There is no umbrella archive and no catch-all header, no "everything" artifact
+(ADR-0059). A transport archive shares no runtime symbol
 with the peer: it cooperates only through the `PancakeContext` the consumer
 creates and through type layout, so the archives stay symbol-disjoint and link
 together without collision (ADR-0055, ADR-0059).

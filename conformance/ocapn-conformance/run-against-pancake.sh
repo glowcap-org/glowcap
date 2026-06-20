@@ -39,7 +39,7 @@ LOG="$(mktemp)"
 FILTER='Download|Built|Installed|Building|Audited|Resolved|Prepared|Updating'
 
 if [ ! -x "$PEER" ]; then
-  echo "ocapn-conformance: $PEER not built — run 'zig build ocapn-conformance' (it installs the peer before running the suite)" >&2
+  echo "ocapn-conformance: $PEER not built, run 'zig build ocapn-conformance' (it installs the peer before running the suite)" >&2
   exit 1
 fi
 

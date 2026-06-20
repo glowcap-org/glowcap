@@ -67,7 +67,7 @@ impl AsyncConnection {
 		}
 	}
 
-	/// Borrow the owned peer — e.g. to register exports/imports before driving.
+	/// Borrow the owned peer, e.g. to register exports/imports before driving.
 	pub fn peer(&mut self) -> &mut Peer<'static> {
 		&mut self.peer
 	}
@@ -100,7 +100,7 @@ impl AsyncConnection {
 			// Flush anything the last dispatch queued (replies, aborts). Stepping
 			// to idle settles answers, which drains their pipelined calls and
 			// projections into *fresh* events, so re-poll before blocking on the
-			// wire — otherwise those drained events sit unseen until the partner
+			// wire, otherwise those drained events sit unseen until the partner
 			// happens to send again, hanging a pipelined batch.
 			self.pump_outbound().await?;
 			if let Some(event) = self.peer.poll()? {

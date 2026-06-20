@@ -129,7 +129,8 @@ loop (`iroh.LoopHost`, gated by `zig build iroh-loop`) is the iroh netlayer's
 one I/O model and serves many concurrent connections from one loop thread. The
 public iroh netlayer C ABI is loop-only — a readiness fd plus a non-blocking
 drain, armed at construction, with no blocking frame surface — and every binding
-parks on that fd natively (gated by `bindings-iroh-loop`). The cross-language
+parks on that fd natively (Python, Rust, and Racket gated by `bindings-iroh-loop`).
+The cross-language
 `demo-rooms-iroh` and the Deno iroh tests are flaky under load — an FFI-teardown
 race plus message loss under many concurrent dials — so `iroh-interop` is the
 authoritative, deterministic iroh gate.

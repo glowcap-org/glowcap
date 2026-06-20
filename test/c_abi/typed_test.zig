@@ -1,4 +1,4 @@
-//! Typed OCapN driving surface — proves a C consumer can *construct* a call and
+//! Typed OCapN driving surface, proves a C consumer can *construct* a call and
 //! *inspect* a delivery as structured values, not just shuttle opaque frames.
 //! This is the surface that turns a binding from "observes that a message
 //! arrived" into "calls a remote method and reads the reply."
@@ -244,7 +244,7 @@ test "C ABI send_get/index/untag construct real projection ops on the wire" {
     try expectProjectionListener(peer);
 
     // Pipelined: a projection against a promise receiver (an unresolved answer)
-    // rides a desc:answer target — the promise.get(...) shape on the wire.
+    // rides a desc:answer target, the promise.get(...) shape on the wire.
     const promise_receiver = c.PancakeReference{
         .kind = c.PANCAKE_REF_PROMISE,
         .sub_kind = c.PANCAKE_REF_SUB_OBJECT,
@@ -454,7 +454,7 @@ test "C ABI resolve fulfilled with a handoff give projects to PANCAKE_RESOLUTION
     // resolves not to a value but to a `desc:handoff-give` it must redeem. The
     // typed resolve poll projects it as `PANCAKE_RESOLUTION_HANDOFF`, surfacing
     // the verbatim give (for pancake_peer_send_withdraw_gift) and the exporter's
-    // dialable locator — the binding never sees the opaque frame.
+    // dialable locator, the binding never sees the opaque frame.
     const model = pancake.ocapn.model;
     const engine = pancake.ocapn.engine;
 
@@ -480,7 +480,7 @@ test "C ABI resolve fulfilled with a handoff give projects to PANCAKE_RESOLUTION
     defer c.pancake_managed_frame_release(&question);
 
     // A native partner hosts object 9, receives the call, and resolves the answer
-    // to a give — gifter origination the C ABI cannot yet do, so a Zig peer
+    // to a give, gifter origination the C ABI cannot yet do, so a Zig peer
     // stands in. The flat `transport:designator` exporter location round-trips to
     // a parsed locator the projection formats as an `ocapn://` URI.
     var sender = engine.Peer.initRawOpenFixture(std.testing.allocator);
@@ -498,7 +498,7 @@ test "C ABI resolve fulfilled with a handoff give projects to PANCAKE_RESOLUTION
         .signature = &([_]u8{0xaa} ** 64),
     } };
     try sender.sendCopying(.{ .resolve = .{
-        .answer = answer,
+        .answer = .from(answer),
         .resolution = .{ .fulfill = .{ .handoff = &handoff } },
     } });
     _ = try sender.step();
@@ -525,7 +525,7 @@ test "C ABI resolve fulfilled with a handoff give projects to PANCAKE_RESOLUTION
     try std.testing.expect(std.mem.indexOf(u8, give_bytes, "desc:handoff-give") != null);
     try std.testing.expect(give.exporter_locator != null);
     // Formatted through the core URI grammar, so the designator's `:` is
-    // percent-encoded — the locator round-trips through `pancake_uri_parse_peer`.
+    // percent-encoded, the locator round-trips through `pancake_uri_parse_peer`.
     try std.testing.expectEqualStrings(
         "ocapn://127.0.0.1%3A9099.tcp",
         give.exporter_locator.?[0..give.exporter_locator_len],

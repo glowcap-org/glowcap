@@ -13,14 +13,14 @@ A minimum reproducible KEL + Episode set covering one AID
 - `episodes.jsonld` — one Episode anchored at `kel_anchor.seq=1` (the rotation
   key), `crypto_suite=ed25519-blake3-cesr-v1`.
 
-The original four-AID `.data/` lives under
+The source four-AID `.data/` lives under
 [`../../../accountability-on-goblins/.data/`](../../../accountability-on-goblins/.data/);
 this fixture captures a single coherent slice of it so the Python KERI
 conformance oracle can run without first invoking the Racket kernel.
 
 ## What is NOT in this fixture
 
-- **Private keys** (`.sk` files in the original `.data/keys/`). The oracle
+- **Private keys** (`.sk` files in the source `.data/keys/`). The oracle
   verifies signatures using the public verkey hashes embedded in each KEL event;
   it never reads `.sk`. The oracle uses public material only.
 - **Transparency log** (`transparency.log`, `transparency.root`). The oracle
@@ -33,8 +33,8 @@ conformance oracle can run without first invoking the Racket kernel.
 
 When the kernel's KERI primitives change shape:
 
-1. Run `racket conformance/accountability-on-goblins/racket/kernel.rkt` in a
-   devcontainer to regenerate the source `.data/`.
+1. Run `( cd conformance/accountability-on-goblins && racket racket/kernel.rkt )`
+   in a devcontainer to regenerate the source `.data/`.
 2. Pick one AID's KEL + matching Episode (the Episode's `kel_anchor.aid` must
    match a committed KEL filename) and copy the two files into this fixture,
    overwriting the old contents.
@@ -43,6 +43,6 @@ When the kernel's KERI primitives change shape:
 4. Commit the refreshed fixture in the same PR that changes the kernel's KERI
    primitives.
 
-`run.sh --fixture <name>` exports `GOBLINS_DATA_DIR=fixtures/<name>` so the
-oracle's `Path(os.environ.get("GOBLINS_DATA_DIR"))` reads this directory without
-any other changes.
+`run.sh --fixture <name>` exports `GOBLINS_DATA_DIR` pointing at this directory
+(`keri-conformance/fixtures/<name>`) so the oracle's
+`Path(os.environ.get("GOBLINS_DATA_DIR"))` reads it without any other changes.

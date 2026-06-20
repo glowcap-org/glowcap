@@ -1,4 +1,4 @@
-//! C-ABI frame-boundary loopback — proves the blocking TCP endpoint handles drive a
+//! C-ABI frame-boundary loopback, proves the blocking TCP endpoint handles drive a
 //! real handshake + bootstrap fetch when the *host* owns the peer and shuttles
 //! frames itself (`read_frame -> recvStreamPrefix` / `takeOutbound ->
 //! write_frame`). This is the host-driven netlayer boundary the C ABI exposes: the
@@ -30,7 +30,7 @@ fn isOpen(peer: *engine.Peer) bool {
 }
 
 /// This boundary proof exercises the C endpoint + framing, and its `startSession`
-/// carries the stub zero signature — so the peers run with partner-signature
+/// carries the stub zero signature, so the peers run with partner-signature
 /// verification off (a verifying peer would refuse the unsigned handshake). The
 /// keyed, verified handshake is proven in `pairing_test`.
 fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {

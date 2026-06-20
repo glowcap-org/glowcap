@@ -1,6 +1,6 @@
 # @pancake/iroh
 
-The optional encrypted-QUIC (iroh) transport for the pancake JavaScript/TypeScript binding — a
+The optional encrypted-QUIC (iroh) transport for the pancake JavaScript/TypeScript binding, a
 composable companion to [`@pancake/stack`](../stack/README.md). It rides its own archive,
 `libpancake_net_transport_iroh` (a Rust iroh sidecar, ADR-0055), which exports only the
 `pancake_iroh_*` family and shares no core symbol, so it loads alongside `libpancake_ocapn`, never
@@ -30,6 +30,6 @@ console.log(server.uri); // hand this to a partner
 for await (const conn of server) conn.serve();
 ```
 
-`Reachability` is required at every entry point — the caller owns the reach/privacy posture, there
-is no default. See [`mod.ts`](mod.ts) for `connectIroh`, `listenIroh`, `IrohServer`, and the
+`Reachability` is required at every entry point, the caller owns the reach/privacy posture, with no
+default. See [`mod.ts`](mod.ts) for `connectIroh`, `listenIroh`, `IrohServer`, and the
 `Reachability` postures.

@@ -64,13 +64,13 @@ fn expectEncodeBudget(
     var counter = TotalCountingAllocator{ .backing = std.testing.allocator };
     const gpa = counter.allocator();
 
-    // A `op:deliver` to the partner bootstrap carrying one inline bytes argument
-    // — the outbound twin of the inbound budget test's frame.
+    // A `op:deliver` to the partner bootstrap carrying one inline bytes
+    // argument, the outbound twin of the inbound budget test's frame.
     const message = model.Message{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = 0 } },
+            .target = .{ .far = .{ .import_position = .from(0) } },
             .args = &.{.{ .bytes = "hello" }},
-            .answer = 11,
+            .answer = .from(11),
         },
     };
 

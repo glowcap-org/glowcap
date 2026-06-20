@@ -79,7 +79,7 @@ test "public key for fixed seed matches known answer" {
 
 test "derivePublicIdentifier matches externally-computed SHA256 double-hash" {
     // Known answer computed independently (Node crypto) over the OCapN gcrypt
-    // s-expression for the fixed-seed public key — cross-checks the hand-rolled
+    // s-expression for the fixed-seed public key, cross-checks the hand-rolled
     // Syrup canonical encoding and the double-SHA256 against a second toolchain.
     const secret = SecretKey.fromSeed(SEED_A);
     const peer_id = crypto.derivePublicIdentifier(secret.publicKey());

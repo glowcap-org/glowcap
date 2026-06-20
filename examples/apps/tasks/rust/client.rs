@@ -31,7 +31,7 @@ async fn run_client(locator: &str, nick: &str, task_text: &str) -> Result<(), St
 	match ours {
 		Some(t) if t.completed => println!("{nick}: confirmed task #{id} is done"),
 		_ => {
-			eprintln!("{nick}: FAIL — task #{id} not marked completed");
+			eprintln!("{nick}: FAIL, task #{id} not marked completed");
 			board.leave().await;
 			std::process::exit(1);
 		}

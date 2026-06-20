@@ -54,7 +54,7 @@ need to map a directory, list files first then call per-file.
 | engine      | `src/ocapn/engine/mod.zig`      | `Peer`, `StepOutcome`, `Event`, `EventKind`                                                                                            |
 | engine      | `src/ocapn/engine/pipeline.zig` | `decomposeOutboundDeliver`, `synthesizeListenerFire`, `classifyListenerDrain`                                                          |
 | c_abi       | `src/c_abi/ocapn/mod.zig`       | all `pancake_*` exported C functions                                                                                                   |
-| conformance | `src/conformance/mod.zig`       | scenario trace runners                                                                                                                 |
+| oracle      | `src/oracle/mod.zig`            | scenario trace runners                                                                                                                 |
 
 ## Common Calls
 
@@ -120,7 +120,7 @@ Read a symbol body directly when you already know its name and file:
 ## Memories
 
 Serena memories are per-clone runtime state under `.serena/memories/`, ignored
-by git — a fresh clone has none. Call `list_memories` to see what this clone
+by git, a fresh clone has none. Call `list_memories` to see what this clone
 actually holds before reading one; never assume a named memory exists. The
 committed rules and docs, not memories, are the durable guidance.
 

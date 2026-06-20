@@ -57,7 +57,7 @@ Copy helpers belong in `test/support`, not production modules.
 Each allocation or copy below was scrutinized against the rule that a copy is a
 design event: forbid it, name it, or measure it. Each one is required, and this
 section names the contract that requires it. Do not "optimize" one away without
-re-deriving that contract. Forbidding is the default verdict, not naming — see
+re-deriving that contract. Forbidding is the default verdict, not naming, see
 the [prerelease posture](prerelease.md): re-derive a copy against the _full_
 option set (a single durable owner the consumer already reads through can hold
 the value, leaving the transient carrier only a key) before it earns a slot
@@ -85,13 +85,13 @@ here.
   side pays the mirror-image copy: `Vat.settleLocal` clones the one fulfilled
   argument onto the vat allocator for the duration of the listener call and
   frees it there, because a listener may open a top-level turn whose depth-0
-  reset would free a turn-arena value mid-call — the same defense `Vat.serve`
+  reset would free a turn-arena value mid-call, the same defense `Vat.serve`
   already gives the far-resolve path.
 - **Vat local time-travel: refcounted state boxes, copy-on-write clone, and
   functional `become` (ADR-0060).** Actor-layer, off the wire path, and off by
   default. Each actor's state lives in a heap `StateBox` carrying a non-atomic
   refcount; `Vat.snapshot` shares those boxes (one refcount bump per actor, zero
-  bytes copied — O(objects), Goblins's spine-copy shape), so a non-snapshotting
+  bytes copied, O(objects), Goblins's spine-copy shape), so a non-snapshotting
   actor's box stays `refs == 1` and pays only one pointer indirection per turn.
   Two opt-in writes close the share: a mutable actor's `clone` deep-copies a
   _shared_ box once, the first time a turn would mutate it (`ensureUnshared`),
@@ -229,7 +229,7 @@ here.
   authority. Every `Peer` owns a private registry (`own_gift_registry`, freed in
   `Peer.deinit`); a host serving several direct sessions to one vat points its
   peers at one shared registry instead, keeps it alive past every peer's
-  `deinit`, and owns any cross-thread locking — the registry carries no lock.
+  `deinit`, and owns any cross-thread locking; the registry carries no lock.
   Its tables are _not_ monotonic: a re-deposit of the same gift id replaces the
   prior row by freeing its recipient key, gifter key, and gifted reference, so
   the rows live on the gpa with precise per-row frees, never in a bump arena (an
@@ -266,7 +266,7 @@ here.
   transfers ownership of its resolution into the inbound answer's store (a
   consume contract: `recordSend` frees it on any refusal, so the caller never
   frees it), and the queued outbound carrier (`engine.Outbound.settled_answer`)
-  holds only the answer position — `Peer.step` reads the resolution back from
+  holds only the answer position, `Peer.step` reads the resolution back from
   the store via `peekResolution` to encode. The store is the single owner: a
   late pipelined call redirecting off the settled answer and a late `op:listen`
   firing with the value both read it in place; it is freed once on overwrite or
@@ -277,7 +277,7 @@ here.
   per-resolve wire-path allocation is the answer's lazily-created payload row,
   pinned with **zero** resolution copies by
   `test/engine/resolve_alloc_budget_test.zig`. (The V1.0/pipelined projection
-  path clones its borrowed projected resolution once — that is `sendCopying`'s
+  path clones its borrowed projected resolution once, that is `sendCopying`'s
   boundary copy, above, then moved into the store here, not a second copy.)
 - **Projection anchors: one dupe of the field name / tag per inbound `op:get` /
   `op:untag` (`Peer.respondToProjection`).** A projection waits on its source
@@ -333,7 +333,7 @@ here.
   bytes_, which means each element is encoded once just to obtain its sort key
   (`syrup.writeCanonicalSet`, `capnp.canonicalSetOrder` / `encodeArgumentKey`),
   plus the per-set sort scratch. Syrup struct encode pays the same per-entry
-  encode-then-sort (`writeCanonicalStruct`); capnp struct ordering is cheaper —
+  encode-then-sort (`writeCanonicalStruct`); capnp struct ordering is cheaper,
   a shallow entry copy sorted by raw key bytes. All of it is turn-scratch
   bounded by the caller's own message and freed before encode returns. Deleting
   the key encode means sorting on model values, which two encoders can disagree

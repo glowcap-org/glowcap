@@ -35,7 +35,7 @@ fn host(server: *driver.Server) !void {
     try conn.serve();
 }
 
-/// The client half — the README's Quick Start snippet, verbatim.
+/// The client half, the README's Quick Start snippet, verbatim.
 fn client(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !void {
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
 

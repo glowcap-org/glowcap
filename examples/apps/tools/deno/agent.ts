@@ -23,7 +23,7 @@ if (!host || !portStr || !nick) {
 }
 
 function check(label: string, ok: boolean): void {
-	console.log(`${nick}: ${ok ? "ok" : "FAIL"} — ${label}`);
+	console.log(`${nick}: ${ok ? "ok" : "FAIL"}, ${label}`);
 	if (!ok) Deno.exit(1);
 }
 

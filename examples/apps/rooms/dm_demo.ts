@@ -2,7 +2,7 @@
 //
 // A rendezvous room introduces two members who then talk *directly*, with the
 // room out of the message path — the headline of cycle C. It is the rooms-app
-// face of `deno-gifter-gate`: same three-party handoff (ADR-0009), dressed in
+// face of `deno-gifter-handoff`: same three-party handoff (ADR-0009), dressed in
 // the rooms protocol (`register`/`introduce` on the directory, a member `dm`
 // object) so the demo exercises the real server behaviour, not a bespoke one.
 //
@@ -32,7 +32,7 @@ import { Connection, listen, Ref } from "@pancake/stack";
 import { serveDirectory } from "./deno/server.ts";
 import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "./deno/protocol.ts";
 
-const DM_TEXT = "hi Bob — privately, from Carol";
+const DM_TEXT = "hi Bob, privately, from Carol";
 
 function fail(message: string): never {
 	console.error(`rooms-dm demo FAILED: ${message}`);
@@ -55,9 +55,9 @@ async function until(
 async function main(): Promise<void> {
 	// ── Bob (member / exporter): a node-giftable dm inbox on its own endpoint ────
 	const bobInbox: string[] = [];
-	let bobInbound = 0; // every connection Bob accepts — the new-inbound proof
+	let bobInbound = 0; // every connection Bob accepts, the new-inbound proof
 	const bob = listen("127.0.0.1", 0);
-	bob.machine.publishGiftable("dm", (verb, args) => {
+	bob.node.publishGiftable("dm", (verb, args) => {
 		if (verb !== DM) throw new Error(`dm has no method ${verb}`);
 		bobInbox.push(String(args[0]));
 		return null;
@@ -72,12 +72,12 @@ async function main(): Promise<void> {
 
 	// ── Room (rendezvous / gifter): the real directory, with introductions ───────
 	const room = listen("127.0.0.1", 0);
-	const roomServe = serveDirectory(room, room.machine);
+	const roomServe = serveDirectory(room, room.node);
 	const roomPort = await room.ready();
 
 	// ── Bob joins the room and registers his dialable locator ────────────────────
 	// The room dials that locator back, fetches Bob's `dm`, and signals readiness
-	// on the inbox Bob hands it — so `introduce` can never race the dial-back.
+	// on the inbox Bob hands it, so `introduce` can never race the dial-back.
 	const bobToRoom = await Connection.connect("127.0.0.1", roomPort);
 	bobToRoom.serve().catch(() => {});
 	const bobDir = await bobToRoom.fetch(DIRECTORY);
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
 	const carolDir = await carol.fetch(DIRECTORY);
 	// `introduce` returns Bob's dm (home = room↔Bob); the binding transparently
 	// turns that foreign-home reference into a redeemed cap on a fresh, direct
-	// Carol↔Bob connection — the gifter half of the handoff, end to end.
+	// Carol↔Bob connection, the gifter half of the handoff, end to end.
 	const introduced = await carol.send(carolDir, INTRODUCE, ["bob"]);
 	if (!(introduced instanceof Ref)) {
 		fail("introduce did not return a capability");

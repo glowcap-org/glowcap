@@ -33,6 +33,7 @@ import {
 	formatPeerUri,
 	type FramePump,
 	type KeyedLocator,
+	Node,
 	openKeyedSession,
 	outPointer,
 	PancakeError,
@@ -70,7 +71,7 @@ function readUsize(buf: Uint8Array): number {
 // Mirrors the core's read chunk; raw inbound bytes are framed by the peer above.
 const READ_CHUNK = 64 * 1024;
 
-/** How an iroh endpoint becomes reachable — a required, explicit posture with
+/** How an iroh endpoint becomes reachable, a required, explicit posture with
  * no default. The caller owns the reach/privacy tradeoff at every constructor:
  * - `Direct`: dial by id + direct-address hints; relay-less, no discovery.
  * - `Discovery`: n0 relays + DNS discovery; dial by id alone.
@@ -83,7 +84,7 @@ export enum Reachability {
 	LocalDiscovery = 3,
 }
 
-/** A bound iroh QUIC endpoint plus the sidecar runtime driving it — the iroh
+/** A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
  * sibling of the TCP `Netlayer`, but it is also its own listener (there is no
  * host:port to bind, so accepting lives here, on the readiness loop). Dial a
  * partner by endpoint id + direct-address hints. Release every `IrohConn` it
@@ -91,8 +92,8 @@ export enum Reachability {
 export class IrohNetlayer {
 	#raw: Ptr;
 
-	/** Bind an endpoint. `reachability` is required — the caller owns the
-	 * reach/privacy posture, there is no default. `secretSeed` is a 32-byte
+	/** Bind an endpoint. `reachability` is required, the caller owns the
+	 * reach/privacy posture, with no default. `secretSeed` is a 32-byte
 	 * Ed25519 secret key for a stable id, or omitted for a fresh random key. */
 	constructor(reachability: Reachability, secretSeed?: Uint8Array) {
 		if (secretSeed !== undefined && secretSeed.length !== 32) {
@@ -111,7 +112,7 @@ export class IrohNetlayer {
 		this.#raw = outPointer(out);
 	}
 
-	/** This endpoint's id — its Ed25519 public key as lowercase hex, the dialable
+	/** This endpoint's id, its Ed25519 public key as lowercase hex, the dialable
 	 * designator a keyed locator signs and a partner passes to `connect`. */
 	nodeId(): string {
 		const cap = 64;
@@ -123,7 +124,7 @@ export class IrohNetlayer {
 		return new TextDecoder().decode(out.subarray(0, readUsize(len)));
 	}
 
-	/** This endpoint's comma-separated direct socket addresses — the dialing hint
+	/** This endpoint's comma-separated direct socket addresses, the dialing hint
 	 * a partner needs because the sidecar binds relay-less and lookup-less. Empty
 	 * when the endpoint has no direct addresses yet. */
 	directAddresses(): string {
@@ -148,7 +149,7 @@ export class IrohNetlayer {
 	// frames the raw bytes `IrohConn.tryReadInto` hands out, the same way the TCP
 	// pump frames its socket bytes.
 
-	/** This endpoint's single readiness fd — park on it (a `node:net` socket over
+	/** This endpoint's single readiness fd, park on it (a `node:net` socket over
 	 * a dup of it) and call `drainReady` when it signals. Owned by the netlayer;
 	 * never close it. */
 	readinessFd(): number {
@@ -201,7 +202,7 @@ export class IrohNetlayer {
 	}
 
 	/** Close the endpoint without freeing the handle: later dials fail and the
-	 * readiness loop winds down. Idempotent — the shutdown lever for a server or
+	 * readiness loop winds down. Idempotent, the shutdown lever for a server or
 	 * dialer. */
 	close(): void {
 		if (this.#raw !== NULL) irohS().pancake_iroh_netlayer_close(this.#raw);
@@ -219,7 +220,7 @@ export class IrohNetlayer {
 	}
 }
 
-/** One iroh QUIC connection carrying one OCapN session — the iroh sibling of the
+/** One iroh QUIC connection carrying one OCapN session, the iroh sibling of the
  * TCP `Endpoint`. Driven by an `IrohLoop`: the raw bytes `tryReadInto` hands out
  * are framed above, and no call ever parks on the connection. */
 export class IrohConn {
@@ -301,6 +302,7 @@ function dupFd(fd: number): number {
  * `*Pending` flag holds an edge that arrived before its waiter so no wakeup is
  * lost. */
 interface ConnWaiters {
+	conn: IrohConn;
 	readable: (() => void) | null;
 	writable: (() => void) | null;
 	readablePending: boolean;
@@ -348,6 +350,7 @@ class IrohLoop {
 
 	register(conn: IrohConn): void {
 		this.#conns.set(conn.key(), {
+			conn,
 			readable: null,
 			writable: null,
 			readablePending: false,
@@ -400,14 +403,26 @@ class IrohLoop {
 		});
 	}
 
-	/** Stop the loop (destroying its readiness socket, closing the dup) and wake
-	 * every waiter so parked pumps unwind. The caller releases the netlayer after
-	 * this returns — no callback still touches it. */
+	/** Stop the loop (destroying its readiness socket, closing the dup), wake every
+	 * waiter so parked pumps unwind, and release the sidecar handle of every
+	 * connection still registered here. The caller releases the netlayer after this
+	 * returns — and the C ABI requires every connection released before its
+	 * netlayer (`destroyConn` dereferences the netlayer). A dialing pump
+	 * unregisters and releases its one connection before it calls this, so the
+	 * release below is a no-op for it; a server's shared loop still holds every
+	 * accepted connection that no per-connection close reached, so releasing them
+	 * here — while the netlayer is still alive — is what keeps the server's
+	 * `netlayer.release()` from freeing memory those connections still point at.
+	 * Each connection's own `close` is idempotent with this. */
 	close(): void {
 		if (this.#closed) return;
 		this.#closed = true;
 		this.#shutdownSocket();
-		for (const w of this.#conns.values()) this.#wakeClosed(w);
+		for (const w of this.#conns.values()) {
+			this.#wakeClosed(w);
+			w.conn.release();
+		}
+		this.#conns.clear();
 		if (this.#acceptWaiter !== null) {
 			const a = this.#acceptWaiter;
 			this.#acceptWaiter = null;
@@ -439,7 +454,7 @@ class IrohLoop {
 	// The event loop calls this whenever the readiness socket has data. Drain the
 	// queue in batches until a short count (a deeper queue than one drain holds is
 	// never stranded), dispatching each record. A fault means the endpoint was
-	// closed under us — stop watching the fd.
+	// closed under us, stop watching the fd.
 	#onReady(): void {
 		if (this.#closed) return;
 		const dv = new DataView(this.#buf.buffer);
@@ -604,23 +619,70 @@ class IrohPump implements FramePump {
 	}
 }
 
-/** Dial an iroh partner by endpoint id and direct-address hints, complete the
- * keyed OCapN handshake over the encrypted-QUIC transport, and return a ready
- * `Connection` — the iroh sibling of the core's `connect`. The local endpoint is
- * ephemeral (a fresh key) and released with the connection. `reachability` is
- * required — the caller owns the dialer's reach posture, there is no default.
- * This is what the core's `connect` calls for an `iroh` locator. Needs the iroh
- * ABI library (`zig build iroh-abi`). */
+// iroh discovery resolves a peer by node id alone, but the exporter's pkarr
+// record takes seconds to propagate after it binds, so a dial-by-id can fail with
+// "no addressing information" until it lands. Every posture that resolves by id
+// through a propagating service — `Discovery` (n0 relays + DNS/pkarr) and
+// `DiscoveryNoRelay` (DNS/pkarr, no relay) — therefore retries the dial on a
+// bounded budget; `Direct` dials once (its addresses are in hand) and
+// `LocalDiscovery` dials once (its in-process address book resolves instantly).
+// The C ABI flattens a not-yet-resolvable dial to the same code as a hard
+// failure, so a genuinely unreachable peer simply exhausts the budget rather than
+// failing fast. Mirrors the Zig `iroh-reachability` driver's settle/retry shape.
+const DISCOVERY_DIAL_RETRY_MS = 3_000;
+const DISCOVERY_DIAL_MAX_ATTEMPTS = 24; // ~72s, covers pkarr propagation
+
+/** Whether a posture resolves the partner by id through a propagating discovery
+ * service, so a dial-by-id should settle/retry while the record lands. */
+function settlesWhileResolving(reachability: Reachability): boolean {
+	return (
+		reachability === Reachability.Discovery ||
+		reachability === Reachability.DiscoveryNoRelay
+	);
+}
+
+/** Dial, retrying only under a propagating-discovery posture while it resolves. */
+async function dialResolving(
+	netlayer: IrohNetlayer,
+	nodeId: string,
+	directAddresses: string,
+	reachability: Reachability,
+): Promise<IrohConn> {
+	if (!settlesWhileResolving(reachability)) {
+		return netlayer.tryConnect(nodeId, directAddresses);
+	}
+	for (let attempt = 1;; attempt += 1) {
+		try {
+			return await netlayer.tryConnect(nodeId, directAddresses);
+		} catch (e) {
+			if (attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS) throw e;
+			await new Promise((r) => setTimeout(r, DISCOVERY_DIAL_RETRY_MS));
+		}
+	}
+}
+
+/** Dial an iroh partner and complete the keyed OCapN handshake over the
+ * encrypted-QUIC transport, returning a ready `Connection` — the iroh sibling of
+ * the core's `connect`. The local endpoint is ephemeral (a fresh key) and
+ * released with the connection. `reachability` is required — the caller owns the
+ * dialer's reach posture, with no default — and it decides how the partner is
+ * reached: `Direct` dials the `directAddresses` hints with no discovery; the
+ * discovery postures (`Discovery` via n0 relays + DNS/pkarr, `DiscoveryNoRelay`
+ * via DNS/pkarr) resolve `nodeId` by itself, ignoring hints, and retry while that
+ * resolution propagates. This is what the core's
+ * `connect` calls for an `iroh` locator. Needs the iroh ABI library
+ * (`zig build iroh-abi`). */
 export async function connectIroh(
 	nodeId: string,
 	directAddresses: string,
 	reachability: Reachability,
+	node: Node = new Node(),
 ): Promise<Connection> {
 	const netlayer = new IrohNetlayer(reachability);
 	const loop = new IrohLoop(netlayer);
 	let conn: IrohConn;
 	try {
-		conn = await netlayer.tryConnect(nodeId, directAddresses);
+		conn = await dialResolving(netlayer, nodeId, directAddresses, reachability);
 	} catch (e) {
 		loop.close();
 		netlayer.release();
@@ -629,13 +691,23 @@ export async function connectIroh(
 	loop.register(conn);
 	loop.start();
 	// A dialer signs an empty designator (its identity is the session key),
-	// matching the Zig driver; the pump owns the ephemeral netlayer and loop.
-	const ac = AsyncConnection.fromPump(
-		new Peer(),
-		new IrohPump(conn, "", loop, netlayer, true),
-	);
-	await openKeyedSession(ac);
-	return Connection.fromAsync(ac);
+	// matching the Zig driver; the pump owns the ephemeral netlayer and loop. The
+	// peer is node-owned (ADR-0066): registering the connection with the node's
+	// node returns its `connId` and the peer to pump, so the session's public key
+	// (a give's `recipient_key`) and the node's identity/gift registry agree —
+	// what a three-party handoff requires (ADR-0009/ADR-0056).
+	const { connId, peer } = node.registerConn();
+	try {
+		const ac = AsyncConnection.fromPump(
+			peer,
+			new IrohPump(conn, "", loop, netlayer, true),
+		);
+		await openKeyedSession(ac, node.seed);
+		return Connection.fromAsync(ac, node, connId);
+	} catch (e) {
+		node.removeConn(connId);
+		throw e;
+	}
 }
 
 /** Complete the responder handshake over an accepted iroh connection, signing
@@ -646,13 +718,24 @@ async function acceptIroh(
 	conn: IrohConn,
 	localNodeId: string,
 	loop: IrohLoop,
+	node: Node = new Node(),
 ): Promise<Connection> {
-	const ac = AsyncConnection.fromPump(
-		new Peer(),
-		new IrohPump(conn, localNodeId, loop),
-	);
-	await openKeyedSession(ac);
-	return Connection.fromAsync(ac);
+	// As `connectIroh`: the peer is node-owned (ADR-0066), so a node's accepted
+	// connections share one identity and gift registry, what lets an exporter
+	// match a gift's deposit (on the gifter session) and withdraw (on the recipient
+	// session).
+	const { connId, peer } = node.registerConn();
+	try {
+		const ac = AsyncConnection.fromPump(
+			peer,
+			new IrohPump(conn, localNodeId, loop),
+		);
+		await openKeyedSession(ac, node.seed);
+		return Connection.fromAsync(ac, node, connId);
+	} catch (e) {
+		node.removeConn(connId);
+		throw e;
+	}
 }
 
 /** A listening iroh endpoint. Iterate it for an accepted `Connection` per
@@ -664,18 +747,32 @@ export class IrohServer {
 	#loop: IrohLoop;
 	#closed = false;
 	#nodeId: string;
+	// One identity and one shared gift registry for the whole node: every accepted
+	// connection keys its handshake with this node's seed and binds its peer to
+	// this node's gift registry, so a gift deposited on one accepted connection
+	// is withdrawable on another — the exporter-node shape a three-party handoff
+	// recipient relies on (ADR-0009/ADR-0056). The TCP `Server`'s iroh sibling.
+	readonly #node: Node;
 
-	constructor(netlayer: IrohNetlayer) {
+	constructor(netlayer: IrohNetlayer, node: Node = new Node()) {
 		this.#netlayer = netlayer;
 		this.#nodeId = netlayer.nodeId();
+		this.#node = node;
 		// Serve every accepted connection from one readiness loop instead of a
 		// blocking accept and a blocking read parked per connection (ADR-0057).
 		this.#loop = new IrohLoop(netlayer);
 	}
 
-	/** This endpoint's id — the keyed locator designator and the URI host. */
+	/** This endpoint's id, the keyed locator designator and the URI host. */
 	get nodeId(): string {
 		return this.#nodeId;
+	}
+
+	/** The node's shared node, its retained identity and gift registry. An
+	 * exporter application reads it to originate gifts that recipients withdraw
+	 * across the node's connections; the TCP `Server.node` sibling. */
+	get node(): Node {
+		return this.#node;
 	}
 
 	/** This endpoint's comma-separated direct-address hints. */
@@ -706,7 +803,12 @@ export class IrohServer {
 				// dialed and died), never the server — release it and keep accepting.
 				let connection: Connection;
 				try {
-					connection = await acceptIroh(conn, this.#nodeId, this.#loop);
+					connection = await acceptIroh(
+						conn,
+						this.#nodeId,
+						this.#loop,
+						this.#node,
+					);
 				} catch {
 					this.#loop.unregister(conn);
 					conn.release();
@@ -717,10 +819,11 @@ export class IrohServer {
 		}
 	}
 
-	/** Stop accepting and release the endpoint. Stops the readiness loop and
-	 * awaits its in-flight wait before freeing the netlayer, so no FFI call is
-	 * still touching the endpoint when it is released. */
-	async close(): Promise<void> {
+	/** Stop accepting and release the endpoint. Closes the endpoint, then stops the
+	 * readiness loop — which releases every accepted connection still borrowing
+	 * this netlayer — and only then frees the netlayer, so no connection the C ABI
+	 * would route through it outlives it. */
+	close(): void {
 		if (this.#closed) return;
 		this.#closed = true;
 		this.#netlayer.close();
@@ -734,13 +837,14 @@ export class IrohServer {
 }
 
 /** Bind an iroh endpoint and return an `IrohServer` you iterate for each
- * accepted `Connection`. `reachability` is required — the caller owns the reach
- * posture, there is no default. `secretSeed` is a 32-byte Ed25519 secret key
+ * accepted `Connection`. `reachability` is required, the caller owns the reach
+ * posture, with no default. `secretSeed` is a 32-byte Ed25519 secret key
  * for a stable endpoint id, or omitted for a fresh random one. Needs the iroh
  * ABI library (`zig build iroh-abi`). */
 export function listenIroh(
 	reachability: Reachability,
 	secretSeed?: Uint8Array,
+	node?: Node,
 ): IrohServer {
-	return new IrohServer(new IrohNetlayer(reachability, secretSeed));
+	return new IrohServer(new IrohNetlayer(reachability, secretSeed), node);
 }

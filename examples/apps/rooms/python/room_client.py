@@ -62,7 +62,7 @@ async def _dial(locator: str) -> Connection:
 
 class Directory:
     """The directory of rooms: the server's one published object. Connect to it,
-    then :meth:`open` a new room or :meth:`enter` an existing one — each returns a
+    then :meth:`open` a new room or :meth:`enter` an existing one, each returns a
     reference to that room. Both mirror the wire: ``open`` raises if the name is
     taken, ``enter`` raises if there is no such room."""
 
@@ -186,6 +186,6 @@ class Room:
                 print("rooms: the room closed the connection", file=sys.stderr)
         except Exception as err:  # noqa: BLE001
             if not self._leaving:
-                print(f"rooms: lost the connection — {err}", file=sys.stderr)
+                print(f"rooms: lost the connection, {err}", file=sys.stderr)
         finally:
             self._lines.put_nowait(None)  # end the messages stream

@@ -52,7 +52,7 @@ impl Directory {
 	/// Dial `locator`, start the connection's driver, and fetch the directory.
 	pub async fn connect(locator: &str) -> Result<Directory, String> {
 		// `dial` spawns the connection's driver task, so inbound events are
-		// already being served — `fetch`, `send`, and inbox callbacks all work
+		// already being served, `fetch`, `send`, and inbox callbacks all work
 		// without a separate serve loop.
 		let conn = Rc::new(dial(locator).await?);
 		let directory = conn

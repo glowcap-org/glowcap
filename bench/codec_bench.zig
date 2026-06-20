@@ -3,7 +3,7 @@
 //!
 //! The alloc-budget test gates per-turn allocation count (`== 1`); this bench
 //! reports ns/op and MB/s as visible numbers, not gated thresholds. Under
-//! `zig build check` it runs in Debug — read the printed `mode=` field and compare
+//! `zig build check` it runs in Debug, read the printed `mode=` field and compare
 //! relative regressions, or run with `-Doptimize=ReleaseFast` for absolute figures.
 //!
 //! Timing uses `std.Io`'s monotonic clock (`.awake`) in the harness only.
@@ -32,7 +32,7 @@ fn benchMessage() model.Message {
     return .{ .deliver = .{
         .target = .{ .far = model.FarRef.object(5) },
         .args = &bench_args,
-        .answer = 7,
+        .answer = .from(7),
     } };
 }
 
@@ -94,7 +94,7 @@ fn benchDispatch(io: std.Io, allocator: std.mem.Allocator, turns: usize) !void {
     const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
-    try peer.session_state.registerExport(7);
+    try peer.session_state.registerExport(.from(7));
 
     for (0..8) |_| try driveOneTurn(&peer, deliver_to_live_export);
 
@@ -129,7 +129,7 @@ fn benchSparseExportTable(io: std.Io, allocator: std.mem.Allocator, count: usize
     const start = nowNs(io);
     var i: usize = 0;
     while (i < count) : (i += 1) {
-        try peer.session_state.registerExport(@as(u64, i) * stride + 1);
+        try peer.session_state.registerExport(.from(@as(u64, i) * stride + 1));
     }
     const ns_per = (nowNs(io) - start) / @as(f64, @floatFromInt(count));
 

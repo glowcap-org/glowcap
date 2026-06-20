@@ -1,4 +1,4 @@
-"""Idiomatic Python API for pancake — an OCapN/CapTP peer you drive.
+"""Idiomatic Python API for pancake, an OCapN/CapTP peer you drive.
 
 This is the core package: it rides the universal ``libpancake_ocapn`` archive
 and is usable on its own. The raw ``ctypes`` FFI lives in the internal
@@ -139,7 +139,7 @@ def clear_last_error() -> None:
 
 @dataclass(frozen=True)
 class AbortDetail:
-    """The typed cause of a peer's most recent local dispatch failure — the
+    """The typed cause of a peer's most recent local dispatch failure, the
     counterpart of the C ABI's ``PancakeLastAbort``. ``domain`` names the layer
     that refused (``"codec"``, ``"session"``, or ``"foreign"``), ``kind`` the
     projected ``op:abort`` kind when one exists, ``message`` the static
@@ -240,7 +240,7 @@ Argument = Union[int, float, bool, bytes, str, "Symbol", "Keyword", None, Refere
 
 # An application value mirrors an Argument but carries a capability as a `Ref`
 # (the binding marshals it to/from a wire reference at the boundary), so an app
-# works with capabilities as ordinary values — this is the vocabulary the
+# works with capabilities as ordinary values; this is the vocabulary the
 # application-surface `Connection` speaks. See :class:`Connection`.
 Value = Union[int, float, bool, bytes, str, "Symbol", "Keyword", None, "Ref", list, "Set", "Tagged"]
 
@@ -321,7 +321,7 @@ def _ref_to_c(ref: Reference) -> _Reference:
 
 def _arg_to_c(value: Argument, keepalive: list) -> _Argument:
     a = _Argument()
-    if isinstance(value, bool):  # before int — bool is an int subclass
+    if isinstance(value, bool):  # before int; bool is an int subclass
         a.kind, a.boolean = _ARG_BOOLEAN, 1 if value else 0
     elif isinstance(value, int):
         # ctypes silently wraps an out-of-range int mod 2**64; OCapN integers are
@@ -547,6 +547,9 @@ class Peer:
         self._raw = ptr
         # Library-allocator peer: no backing context to keep alive.
         self._context: Optional["Context"] = None
+        # This wrapper owns the peer and releases it. A node-owned peer
+        # (:meth:`from_node_raw`) sets this False, the node frees it.
+        self._owned = True
 
     @classmethod
     def new_in(cls, context: "Context", version: str = "v1.0", codec: str = "syrup") -> "Peer":
@@ -560,9 +563,10 @@ class Peer:
             _check(_lib.pancake_peer_new_negotiated_in(context._raw, _version_id(version), _codec_id(codec), ctypes.byref(ptr)))
         self._raw = ptr
         # Hold a strong reference so the context cannot be GC-collected (and its
-        # allocator released) before this peer — CPython does not order
+        # allocator released) before this peer; CPython does not order
         # finalizers by allocation dependency.
         self._context = context
+        self._owned = True
         return self
 
     @classmethod
@@ -573,6 +577,7 @@ class Peer:
         _check(_lib.pancake_peer_new_raw_open(ctypes.byref(ptr)))
         self._raw = ptr
         self._context = None
+        self._owned = True
         return self
 
     @classmethod
@@ -584,6 +589,21 @@ class Peer:
         self._raw = ptr
         # Keep the context alive at least as long as this peer (see new_in).
         self._context = context
+        self._owned = True
+        return self
+
+    @classmethod
+    def from_node_raw(cls, raw: ctypes.c_void_p) -> "Peer":
+        """Wrap a node-owned peer (ADR-0066) for pumping, *without owning it*. A
+        :class:`Node` registers each connection with its
+        :class:`PancakeNode`, which allocates the peer and frees it on
+        ``remove_conn`` / ``free``; this wrapper drives that peer with the
+        ordinary ``pancake_peer_*`` surface but never releases it. Binding-internal:
+        a :class:`Connection` sources its peer here from ``register_conn``."""
+        self = cls.__new__(cls)
+        self._raw = raw
+        self._context = None
+        self._owned = False
         return self
 
     def __enter__(self) -> "Peer":
@@ -593,9 +613,11 @@ class Peer:
         self.release()
 
     def release(self) -> None:
-        if self._raw:
+        # A node-owned peer (`_owned` False) is freed by the node, not here; drop
+        # the handle either way so a double call is a no-op.
+        if self._raw and self._owned:
             _lib.pancake_peer_release(self._raw)
-            self._raw = None
+        self._raw = None
 
     def __del__(self):
         self.release()
@@ -605,7 +627,7 @@ class Peer:
 
     def next_export(self) -> int:
         """Allocate and register the next free export position from the
-        session's one export allocator — the counter that also mints bootstrap
+        session's one export allocator, the counter that also mints bootstrap
         and resolver exports, so a spawned position can never alias one."""
         out = ctypes.c_uint64()
         _check(_lib.pancake_peer_next_export(self._raw, ctypes.byref(out)))
@@ -616,7 +638,7 @@ class Peer:
 
     def next_answer(self) -> int:
         """Allocate the next outbound answer position from the session's one
-        answer allocator — the counter that backs every outbound question, so a
+        answer allocator, the counter that backs every outbound question, so a
         privately-counted answer can never alias a live one."""
         out = ctypes.c_uint64()
         _check(_lib.pancake_peer_next_answer(self._raw, ctypes.byref(out)))
@@ -635,7 +657,7 @@ class Peer:
         (``Peer("pre-spec")`` for upstream OCapN). The 32-byte ``seed`` is the
         session key (the library refuses any other length);
         ``transport``/``designator`` form the locator the partner verifies, so
-        they must be what it expects — for a Goblins partner, ``"tcp"`` with
+        they must be what it expects, for a Goblins partner, ``"tcp"`` with
         ``hints_empty_false`` true (Goblins emits the empty hints as the
         boolean ``#f``). Flush it, then pump until :meth:`session_is_open`."""
         if len(seed) != 32:
@@ -815,15 +837,15 @@ class Peer:
         buf = ctypes.create_string_buffer(swissnum, len(swissnum))
         _check(_lib.pancake_peer_record_enlivenment(self._raw, ctypes.cast(buf, ctypes.c_void_p), len(swissnum), outcome, import_position, kind))
 
-    def send_withdraw_gift(self, give: bytes, seed: bytes, handoff_count: int, answer: int) -> None:
+    def send_withdraw_gift(self, give: bytes, seed: bytes, answer: int) -> None:
         """Recipient half of a three-party handoff (ADR-0009/ADR-0056): sign a
         ``desc:handoff-receive`` over the verbatim ``give`` bytes and queue a
         ``withdraw-gift`` ``op:deliver`` to the exporter's bootstrap under
         ``answer``. Requires an open keyed session to the exporter opened with
-        this same 32-byte ``seed`` — that session key is what the exporter
-        verifies the receive against. ``handoff_count`` is the count of prior
-        withdrawals from this exporter session (0 for the first, rising
-        monotonically), which the exporter requires to increase. The withdrawn
+        this same 32-byte ``seed``, that session key is what the exporter
+        verifies the receive against. The monotonic handoff-count the exporter
+        requires to increase is minted by the peer's gift registry, not supplied
+        here. The withdrawn
         reference arrives as the resolution of ``answer``."""
         if len(seed) != 32:
             raise ValueError("a session seed must be 32 bytes")
@@ -834,7 +856,7 @@ class Peer:
                 self._raw,
                 ctypes.cast(give_buf, ctypes.c_void_p), len(give),
                 ctypes.cast(seed_buf, ctypes.c_void_p), len(seed),
-                handoff_count, answer,
+                answer,
             )
         )
 
@@ -1057,50 +1079,73 @@ class Peer:
 # for broken resolutions, and dataclasses for the unified reference and promise.
 #
 # An actor is a callable ``behavior(verb, args) -> value``. It returns a reply
-# value, or raises to break the resolution. A :class:`Ref` names an object the
+# value, or raises to break the resolution. A :class:`VatRef` names an object the
 # vat can eventual-send to, wherever it lives: a local actor in this vat, or a
 # far object the bound peer holds as an import. :meth:`Vat.call` is the
 # synchronous near-call and is local-only; :meth:`Vat.send` is the
-# location-transparent eventual-send and routes by where the ref lives.
+# location-transparent eventual-send and routes by where the ref lives. The
+# application never handles a :class:`VatRef`; it holds a :class:`Ref` (below),
+# the capability the :class:`Connection` surface hands back and accepts, and the
+# connection lowers it to a :class:`VatRef` when it enters the vat.
 
 
 @dataclass(frozen=True)
-class Ref:
-    """A reference the vat can eventual-send to, wherever the object lives.
+class VatRef:
+    """The vat's internal reference to an object it can eventual-send to.
 
     A *local* ref names an actor in this vat; :meth:`Vat.call` and
     :meth:`Vat.send` run its turns here. A *far* ref wraps a :class:`Far`
     import the bound peer holds; :meth:`Vat.send` routes to it as an
-    ``op:deliver`` and :meth:`Vat.call` (near) is illegal.
+    ``op:deliver`` and :meth:`Vat.call` (near) is illegal. Binding-internal:
+    the application holds a :class:`Ref`, which lowers to this.
     """
 
     local_id: Optional[int] = None
     far: Optional[Far] = None
-    # The wire reference this marshals to when handed to a partner as a capability
-    # argument. A locally-spawned actor carries a `Near` (our export); set by the
-    # :class:`Connection` layer. The vat itself never reads this.
-    near: Optional[Near] = None
-    # The connection this reference lives on, when it is *not* the connection the
-    # application sends through. A capability redeemed from a three-party handoff
-    # lives on the exporter connection the machine dialed, so `Connection.send`
-    # routes there transparently. `None` means "the connection this Ref is used
-    # with" — the ordinary same-connection case. Excluded from equality so a
-    # routed ref still compares by identity, not by which connection carries it.
-    home: Optional["Connection"] = field(default=None, compare=False, repr=False)
 
     @classmethod
-    def local(cls, actor_id: int) -> "Ref":
+    def local(cls, actor_id: int) -> "VatRef":
         """A reference to a local actor by its vat id."""
         return cls(local_id=actor_id)
 
     @classmethod
-    def to(cls, far: Far) -> "Ref":
+    def to(cls, far: Far) -> "VatRef":
         """A reference to a partner-hosted object the peer holds as an import."""
         return cls(far=far)
 
     @property
     def is_local(self) -> bool:
         return self.local_id is not None
+
+
+@dataclass(frozen=True)
+class Ref:
+    """An application capability: what :meth:`Connection.fetch`,
+    :meth:`Connection.spawn`, and a :meth:`Connection.send` reply hand back, and
+    what ``send``/``tell`` accept as a target or argument.
+
+    It names a local actor this connection hosts (carrying the ``Near`` export it
+    marshals to) or a far object imported over the wire. The vat itself works in
+    :class:`VatRef`; this lowers to one via :meth:`_vat` when it crosses into the
+    vat.
+    """
+
+    local_id: Optional[int] = None
+    far: Optional[Far] = None
+    # The wire reference this marshals to when handed to a partner as a capability
+    # argument. A locally-spawned actor carries a `Near` (our export); set by the
+    # :class:`Connection` layer.
+    near: Optional[Near] = None
+
+    @property
+    def is_local(self) -> bool:
+        return self.local_id is not None
+
+    def _vat(self) -> VatRef:
+        """Lower this capability to the vat's internal reference for a near-call
+        or eventual-send. The ``near`` export is an app-marshaling detail the vat
+        never reads, so it is dropped here."""
+        return VatRef(local_id=self.local_id, far=self.far)
 
     def _wire(self) -> Reference:
         """The wire reference to marshal this capability to in a `send` argument:
@@ -1143,7 +1188,7 @@ class Vow:
     local_id: Optional[int] = None
     answer: Optional[int] = None
     # The vat that issued this vow, so `await` can register for its settlement.
-    # Excluded from equality/repr — two vows are the same by position, not vat.
+    # Excluded from equality/repr, two vows are the same by position, not vat.
     vat: Optional["Vat"] = field(default=None, compare=False, repr=False)
 
     @property
@@ -1267,6 +1312,24 @@ class _Listener:
     on_broken: Optional[object] = None
 
 
+class Forward:
+    """A behavior's tail-forward of its answer to another reference — the binding's
+    `Turn.forward` (ADR-0064). Return ``Forward(target, verb, args)`` from a
+    behavior and the vat resolves the caller's answer from ``target <- verb(args)``
+    instead of from a value: a local target near-calls (composing if it forwards
+    again), a far target eventual-sends and defers until the reply settles. It is
+    the whole mechanism behind a caretaker/attenuator — each is an ordinary actor
+    whose behavior forwards (or raises to refuse), so the proxy is a plain `Ref`
+    you delegate and may call locally or over the wire alike."""
+
+    __slots__ = ("target", "verb", "args")
+
+    def __init__(self, target: "Ref", verb: str, args=None):
+        self.target = target
+        self.verb = verb
+        self.args = list(args or [])
+
+
 class Vat:
     """A turn loop over a heap of actors, local and remote alike.
 
@@ -1312,19 +1375,19 @@ class Vat:
 
     @property
     def peer(self) -> Optional[Peer]:
-        """The bound peer — to feed/step/take_outbound around :meth:`serve`."""
+        """The bound peer, to feed/step/take_outbound around :meth:`serve`."""
         return self._peer
 
-    def spawn(self, behavior) -> Ref:
-        """Spawn a local actor with ``behavior``, returning a local :class:`Ref`."""
+    def spawn(self, behavior) -> VatRef:
+        """Spawn a local actor with ``behavior``, returning a local :class:`VatRef`."""
         actor_id = self._next_actor
         self._next_actor += 1
         self._actors[actor_id] = behavior
-        return Ref.local(actor_id)
+        return VatRef.local(actor_id)
 
-    def call(self, ref: Ref, verb: str, args: Optional[list] = None):
+    def call(self, ref: VatRef, verb: str, args: Optional[list] = None):
         """The synchronous near-call (``$``): run ``ref``'s handler now and
-        return its value. Legal only for a *local* ref — a far ref raises, since
+        return its value. Legal only for a *local* ref, a far ref raises, since
         only :meth:`send` reaches one. Raises if no such actor exists, or
         propagates whatever the behavior itself raises."""
         if not ref.is_local:
@@ -1334,7 +1397,7 @@ class Vat:
             raise KeyError(f"no such actor: {ref.local_id}")
         return behavior(verb, list(args or []))
 
-    def send(self, ref: Ref, verb: str, args: Optional[list] = None) -> Vow:
+    def send(self, ref: VatRef, verb: str, args: Optional[list] = None) -> Vow:
         """The eventual send (``<-``): location-transparent. A local target
         queues a turn for :meth:`drive` and returns a local :class:`Vow`. A far
         target sends an ``op:deliver`` over the bound peer — a leading
@@ -1411,16 +1474,43 @@ class Vat:
             actor_id, verb, args, vow_id = self._queue[index]
             index += 1
             try:
-                resolution: Resolution = Fulfill(self.call(Ref.local(actor_id), verb, args))
-            except Exception as error:  # noqa: BLE001 — a raise breaks the resolution
-                resolution = Break(str(error))
-            self._settle_local(vow_id, resolution)
+                value = self.call(VatRef.local(actor_id), verb, args)
+            except Exception as error:  # noqa: BLE001, a raise breaks the resolution
+                self._settle_local(vow_id, Break(str(error)))
+                continue
+            self._resolve(
+                value,
+                lambda v, vid=vow_id: self._settle_local(vid, Fulfill(v)),
+                lambda m, vid=vow_id: self._settle_local(vid, Break(m)),
+            )
         self._queue.clear()
 
-    def publish(self, export_position: int, behavior) -> Ref:
+    def _resolve(self, value, on_fulfilled, on_broken) -> None:
+        """Settle an answer from a behavior's result. A plain value fulfills it; a
+        :class:`Forward` tail-resolves it from the forwarded send — a local target
+        near-calls (and recurses, so caretaker-over-attenuator composes), a far
+        target eventual-sends and defers the settle onto the reply (ADR-0064). This
+        is the one place the vat interprets a forward, shared by the inbound-deliver
+        and local-drive paths so a proxy behaves identically whoever calls it."""
+        if not isinstance(value, Forward):
+            on_fulfilled(value)
+            return
+        target = value.target._vat()
+        if target.is_local:
+            try:
+                inner = self.call(target, value.verb, value.args)
+            except Exception as error:  # noqa: BLE001 — a refusal breaks the answer
+                on_broken(str(error))
+                return
+            self._resolve(inner, on_fulfilled, on_broken)
+        else:
+            vow = self.send(target, value.verb, value.args)
+            self.on(vow, on_fulfilled=on_fulfilled, on_broken=on_broken)
+
+    def publish(self, export_position: int, behavior) -> VatRef:
         """Spawn ``behavior`` and publish it at ``export_position`` so a partner's
         deliveries to that export run the actor (dispatched by :meth:`serve`).
-        Requires a bound peer. Returns the new local :class:`Ref`."""
+        Requires a bound peer. Returns the new local :class:`VatRef`."""
         if self._peer is None:
             raise PancakeError(_ERR_UNSUPPORTED_VALUE, "this vat has no peer; publish needs Vat(peer)")
         ref = self.spawn(behavior)
@@ -1433,7 +1523,7 @@ class Vat:
         its actor (a leading :class:`Symbol` is the verb) and resolves the
         answer with the reply (a break if the actor raised). A resolve for a
         pending far vow fires its listener. Returns whether the event belonged
-        to this vat — ``False`` means the caller handles it."""
+        to this vat, ``False`` means the caller handles it."""
         if isinstance(event, Deliver):
             return self._serve_deliver(event)
         if isinstance(event, Resolve):
@@ -1455,21 +1545,34 @@ class Vat:
             verb, rest = "", args
 
         try:
-            resolution: Resolution = Fulfill(self.call(Ref.local(actor_id), verb, rest))
-        except Exception as error:  # noqa: BLE001 — broken resolution carries the message
-            resolution = Break(str(error))
-        if event.answer is not None and self._peer is not None:
+            value = self.call(VatRef.local(actor_id), verb, rest)
+        except Exception as error:  # noqa: BLE001, broken resolution carries the message
+            if event.answer is not None and self._peer is not None:
+                self._peer.send_resolve(event.answer, Break(str(error)))
+            return True
+
+        answer = event.answer
+        peer = self._peer
+
+        def on_fulfilled(reply) -> None:
+            if answer is None or peer is None:
+                return
             # A reply that is a capability living on another connection trips the
             # gifter half: the interceptor deposits it with its exporter and
             # answers with a signed give instead of an ordinary cross-connection
             # resolve (ADR-0009).
-            if (
-                isinstance(resolution, Fulfill)
-                and self._resolve_interceptor is not None
-                and self._resolve_interceptor(event.answer, resolution.value)
-            ):
-                return True
-            self._peer.send_resolve(event.answer, resolution)
+            if self._resolve_interceptor is not None and self._resolve_interceptor(answer, reply):
+                return
+            peer.send_resolve(answer, Fulfill(reply))
+
+        def on_broken(message) -> None:
+            if answer is not None and peer is not None:
+                peer.send_resolve(answer, Break(message))
+
+        # A plain value resolves now; a `Forward` (a caretaker/attenuator proxy)
+        # tail-resolves the answer from the forwarded send — deferring it for a
+        # far target — through the one shared `_resolve` path (ADR-0064).
+        self._resolve(value, on_fulfilled, on_broken)
         return True
 
     def _serve_resolve(self, event: Resolve) -> bool:
@@ -1518,7 +1621,7 @@ class _KeyedLocator(NamedTuple):
 
 
 class _FramePump:
-    """How one transport moves a frame — a complete, codec-self-delimited CapTP
+    """How one transport moves a frame, a complete, codec-self-delimited CapTP
     message, the same unit :meth:`Peer.take_outbound` yields and
     :meth:`Peer.feed`/:meth:`Peer.recv_stream` consume. A transport differs only
     in how it moves that unit, never in the pump that drives the peer over it, so
@@ -1599,7 +1702,7 @@ class _TcpPump(_FramePump):
 class AsyncConnection:
     """An OCapN/CapTP peer driven asynchronously over a transport pump.
 
-    The sync :class:`Peer` is sans-io — it never blocks and never owns a socket.
+    The sync :class:`Peer` is sans-io, it never blocks and never owns a socket.
     This owns one peer and one :class:`_FramePump` and *drives* the peer over it:
     source whole frames (or raw bytes the peer frames), let the peer dispatch
     them, write the peer's outbound frames back, and surface events. The pump is
@@ -1633,7 +1736,7 @@ class AsyncConnection:
 
     @classmethod
     def from_pump(cls, peer: Peer, pump: _FramePump) -> "AsyncConnection":
-        """Wrap a peer and an already-built frame pump — the transport-neutral
+        """Wrap a peer and an already-built frame pump, the transport-neutral
         constructor the iroh path uses."""
         return cls(peer, pump)
 
@@ -1644,7 +1747,7 @@ class AsyncConnection:
 
     @property
     def peer(self) -> Peer:
-        """The owned peer — e.g. to register exports/imports before driving."""
+        """The owned peer, e.g. to register exports/imports before driving."""
         return self._peer
 
     def vat(self) -> "Vat":
@@ -1704,7 +1807,7 @@ class AsyncConnection:
             # Flush anything the last dispatch queued (replies, aborts). Stepping
             # to idle settles answers, which drains their pipelined calls and
             # projections into *fresh* events, so re-poll before blocking on the
-            # wire — otherwise those drained events sit unseen until the partner
+            # wire, otherwise those drained events sit unseen until the partner
             # happens to send again, hanging a pipelined batch.
             await self._pump_outbound()
             event = self._peer.poll()
@@ -1749,7 +1852,7 @@ class AsyncConnection:
 
     def shutdown(self) -> bool:
         """Unblock a transport read parked on a worker thread (see
-        :meth:`_FramePump.shutdown`) without freeing the transport — the unblock
+        :meth:`_FramePump.shutdown`) without freeing the transport, the unblock
         half of a teardown that drains the inbound loop before :meth:`aclose`."""
         return self._pump.shutdown()
 
@@ -1783,7 +1886,7 @@ async def _open_keyed_session(ac: "AsyncConnection", seed: Optional[bytes] = Non
     sign the transport's locator with a session key, flush it, and pump until the
     partner's start-session opens the session. Entropy is generated here, at the
     I/O boundary, never in the sans-io core. A handoff recipient passes its
-    machine's retained identity ``seed`` so the exporter recognizes it as the
+    node's retained identity ``seed`` so the exporter recognizes it as the
     party the give names; an ordinary dial gets a fresh per-connection key. The
     locator comes from the transport pump — the socket's real local address for
     ``tcp`` (a true locator a Goblins partner accepts), the local endpoint id for
@@ -1811,7 +1914,7 @@ def build_handoff_give(
     gift_id: bytes,
 ) -> bytes:
     """Author the signed ``desc:handoff-give`` a gifter returns to a recipient
-    (ADR-0009). ``seed`` is the gifter's 32-byte identity seed — the key it
+    (ADR-0009). ``seed`` is the gifter's 32-byte identity seed, the key it
     presents on its session to the exporter, which signs the give and must equal
     the deposit's provenance. ``recipient_key`` is the recipient's session public
     key; ``exporter_locator_raw`` the exporter's verbatim location bytes (read off
@@ -1844,81 +1947,215 @@ def build_handoff_give(
         _lib.pancake_handoff_give_bytes_release(out_give, out_len.value)
 
 
-class GiftRegistry:
-    """A vat-scoped deposited-gift table a node shares across its peers (ADR-0056).
-    An exporter receives a gift's ``deposit-gift`` on the gifter session and its
-    ``withdraw-gift`` on the recipient's separate session; one registry bound on
-    both peers is what lets the second find what the first deposited. Borrowed by
-    every peer it is set on — it must outlive them, so :meth:`free` it last."""
+def encode_peer_locator(transport: str, designator: str, direct_addresses: str = "") -> bytes:
+    """Build the verbatim exporter location-record bytes a gifter embeds in a give
+    when the exporter is reachable only by a dial hint (ADR-0009), the
+    construct-it-yourself counterpart of the partner's signed session record, for
+    an exporter whose own record carries no hint. ``transport``/``designator`` name
+    the exporter; a non-empty ``direct_addresses`` (comma-separated socket
+    addresses) adds a ``direct-addresses`` hint so a cross-process recipient dials
+    it directly with no discovery service (an iroh exporter reachable only by
+    address). The result feeds :meth:`Connection.set_exporter_locator`. An empty
+    ``direct_addresses`` yields a hint-less location identical to the exporter's
+    own signed record, so a TCP or discovery-reachable exporter needs no
+    override."""
+    out_loc = ctypes.c_void_p()
+    out_len = ctypes.c_size_t()
+    t_b = ctypes.create_string_buffer(transport.encode(), len(transport.encode()))
+    d_b = ctypes.create_string_buffer(designator.encode(), len(designator.encode()))
+    a_b = ctypes.create_string_buffer(direct_addresses.encode(), len(direct_addresses.encode()))
+    _check(_lib.pancake_encode_peer_locator(
+        ctypes.cast(t_b, ctypes.c_void_p), len(transport.encode()),
+        ctypes.cast(d_b, ctypes.c_void_p), len(designator.encode()),
+        ctypes.cast(a_b, ctypes.c_void_p), len(direct_addresses.encode()),
+        ctypes.byref(out_loc), ctypes.byref(out_len),
+    ))
+    try:
+        return ctypes.string_at(out_loc, out_len.value)
+    finally:
+        _lib.pancake_peer_locator_bytes_release(out_loc, out_len.value)
 
-    def __init__(self):
+
+# A redeemed-handoff token is a far id from a reserved high range, disjoint from
+# any wire import, so it can never alias one (mirrors `engine.Node.REDEEMED_TOKEN_BASE`).
+REDEEMED_TOKEN_BASE = 1 << 60
+
+
+class _NodeRaw:
+    """Thin ctypes marshalling over the `PancakeNode` (ADR-0066), the
+    cross-connection handoff router in the Zig core. The semantics are the node's
+    (`src/c_abi/ocapn/node.zig`); :class:`Node` documents how the binding uses
+    them and keeps this alive while any connection borrows a node-owned peer."""
+
+    def __init__(self, seed: bytes):
         out = ctypes.c_void_p()
-        _check(_lib.pancake_gift_registry_new(ctypes.byref(out)))
+        buf = (ctypes.c_uint8 * len(seed)).from_buffer_copy(seed)
+        _check(_lib.pancake_node_new(ctypes.cast(buf, ctypes.c_void_p), len(seed), ctypes.byref(out)))
         self._raw = out
 
     @property
-    def pointer(self) -> ctypes.c_void_p:
-        """The opaque handle, for :meth:`Peer.set_gift_registry`. Binding-internal."""
+    def raw(self) -> ctypes.c_void_p:
         return self._raw
 
-    def free(self) -> None:
-        """Release the registry and every gift row it still owns. Every peer it was
-        set on must already be released. Idempotent."""
+    def register_conn(self) -> "tuple[int, Peer]":
+        # The peer is node-owned (do not free it, remove_conn / free does).
+        conn_id = ctypes.c_uint64()
+        peer_ptr = ctypes.c_void_p()
+        _check(_lib.pancake_node_register_conn(self._raw, ctypes.byref(conn_id), ctypes.byref(peer_ptr)))
+        return conn_id.value, Peer.from_node_raw(peer_ptr)
+
+    def remove_conn(self, conn_id: int) -> None:
         if self._raw:
-            _lib.pancake_gift_registry_free(self._raw)
+            _check(_lib.pancake_node_remove_conn(self._raw, conn_id))
+
+    def send_withdraw(self, exporter_conn: int, give: bytes, answer: int) -> None:
+        buf = (ctypes.c_uint8 * len(give)).from_buffer_copy(give)
+        _check(_lib.pancake_node_send_withdraw(self._raw, exporter_conn, ctypes.cast(buf, ctypes.c_void_p), len(give), answer))
+
+    def originate_give(self, recipient_conn: int, exporter_conn: int, gifted: Reference, gift_id: bytes, answer: int, exporter_location: bytes) -> None:
+        ref = _ref_to_c(gifted)
+        gid = ctypes.create_string_buffer(bytes(gift_id), len(gift_id))
+        loc = ctypes.create_string_buffer(bytes(exporter_location), len(exporter_location)) if exporter_location else None
+        _check(_lib.pancake_node_originate_give(
+            self._raw,
+            recipient_conn,
+            exporter_conn,
+            ctypes.byref(ref),
+            ctypes.cast(gid, ctypes.c_void_p),
+            len(gift_id),
+            answer,
+            ctypes.cast(loc, ctypes.c_void_p) if loc is not None else None,
+            len(exporter_location),
+        ))
+
+    def enroll_redeemed(self, exporter_conn: int, far_id: int) -> int:
+        token = ctypes.c_uint64()
+        _check(_lib.pancake_node_enroll_redeemed(self._raw, exporter_conn, far_id, ctypes.byref(token)))
+        return token.value
+
+    def route(self, default_conn: int, far_id: int) -> "Optional[tuple[int, int]]":
+        out_conn = ctypes.c_uint64()
+        out_far = ctypes.c_uint64()
+        routed = ctypes.c_uint32()
+        _check(_lib.pancake_node_route(
+            self._raw, default_conn, far_id,
+            ctypes.byref(out_conn), ctypes.byref(out_far), ctypes.byref(routed),
+        ))
+        if routed.value == 0:
+            return None
+        return out_conn.value, out_far.value
+
+    def record_foreign_home(self, far_id: int, home: int) -> None:
+        _check(_lib.pancake_node_record_foreign_home(self._raw, far_id, home))
+
+    def foreign_home(self, far_id: int) -> Optional[int]:
+        out_conn = ctypes.c_uint64()
+        found = ctypes.c_uint32()
+        _check(_lib.pancake_node_foreign_home(self._raw, far_id, ctypes.byref(out_conn), ctypes.byref(found)))
+        return out_conn.value if found.value else None
+
+    def arg_is_foreign(self, default_conn: int, far_id: int) -> bool:
+        foreign = ctypes.c_uint32()
+        _check(_lib.pancake_node_arg_is_foreign(self._raw, default_conn, far_id, ctypes.byref(foreign)))
+        return bool(foreign.value)
+
+    def free(self) -> None:
+        """Release the node, every registered peer, the routing tables, and the
+        shared gift registry. Idempotent."""
+        if self._raw:
+            _lib.pancake_node_free(self._raw)
             self._raw = ctypes.c_void_p()
 
+    def __del__(self):
+        self.free()
 
-class Machine:
-    """The CapTP machine for one peer — pancake's analogue of Goblins' ``mycapn``,
+
+class Node:
+    """The CapTP node — pancake's analogue of Goblins' ``mycapn``,
     kept deliberately distinct from the per-partner netlayer
-    (:class:`AsyncConnection`) and the actor layer (:class:`Vat`). It holds the
-    peer's stable identity (one session ``seed``, reused for every connection it
-    opens) and owns the connections it dials to redeem three-party handoffs
-    (ADR-0009/ADR-0056). A :class:`Connection` delegates redemption to its
-    machine; the machine dials the exporter keyed with the retained identity — so
-    the exporter recognizes the recipient the give names — withdraws the gift, and
-    hands back a capability whose ``home`` is the exporter connection. Routing by
-    a ref's home is what keeps the machine a router above the connections rather
-    than a connection that proxies."""
+    (:class:`AsyncConnection`) and the actor layer (:class:`Vat`). The
+    cross-connection handoff router lives in the Zig core (``engine.Node``,
+    ADR-0066): it owns the retained identity, the shared gift registry, one
+    node-owned peer per connection, and the redeemed-token / foreign-home routing
+    tables. This is the thin host-idiom residue over it — the exporter-connection
+    cache it dials to redeem gives, the ``conn_id``→:class:`Connection` map the
+    router resolves through, the node-giftable factories, and the iroh redeem
+    posture. A :class:`Connection` delegates redemption and routing here; the
+    router lives below, so a redeemed capability is an ordinary token the
+    application sends to and the node forwards to its exporter transparently."""
 
     def __init__(self, seed: Optional[bytes] = None):
         self.seed = seed if seed is not None else secrets.token_bytes(32)
         if len(self.seed) != 32:
             raise ValueError("a session seed must be 32 bytes")
+        # The sans-io router in the core. Held for the node's whole life; every
+        # `Connection` holds a strong reference to this `Node`, so the node
+        # (and the per-connection peers it owns) outlives every borrower and is
+        # freed only when the last connection is gone.
+        self._node = _NodeRaw(self.seed)
+        # Exporter connections this node dialed to redeem gives, keyed by locator
+        # so a second redeem of the same exporter reuses the open connection.
         self._exporters: "dict[str, Connection]" = {}
-        self._counts: "dict[str, int]" = {}
-        # One deposited-gift table shared across every peer this machine binds, so
-        # an exporter node's deposit (on the gifter connection) and withdraw (on
-        # the recipient connection) resolve against the same authority. Lazily
-        # created the first time a peer is bound; outlives every connection, so it
-        # is freed by `dispose_registry`, not when a single connection closes.
-        self._gift_registry: Optional[GiftRegistry] = None
-        # Every live connection of this node, so a node-giftable published once
-        # appears on all of them — including connections accepted later.
-        self._connections: "set[Connection]" = set()
+        # Every live connection by `conn_id`, so the router resolves a token's
+        # exporter to a `Connection` and a node-giftable published once appears on
+        # all of them — including connections accepted later.
+        self._connections: "dict[int, Connection]" = {}
         # Node-giftable objects by swiss name: capabilities this node exports under
         # one identity on *every* connection. A handoff recipient withdraws a gift
         # on a connection it dialed itself, separate from the gifter's deposit
         # connection; the exporter can only honor it if the gifted object is
         # published on the withdrawing connection too.
         self._giftable: "dict[str, Behavior]" = {}
+        # The iroh reachability posture this node uses to redeem a *hint-less*
+        # handoff give — one whose exporter location names the exporter by node id
+        # alone, so the recipient must resolve it by id. Defaults to Discovery, the
+        # maximal-reach choice; a relay-policy deployment lowers it to
+        # DiscoveryNoRelay. A hinted give always dials Direct and ignores it.
+        # Stored as the numeric Reachability value so the core stays free of the
+        # optional iroh module.
+        self._redeem_reachability = 1  # Reachability.DISCOVERY
 
-    def bind_registry(self, peer: "Peer") -> None:
-        """Bind this node's shared gift registry onto ``peer`` before its
-        handshake, so the peer's inbound deposit/withdraw resolve against the
-        node-wide table. Binding-internal: every :class:`Connection` calls it."""
-        if self._gift_registry is None:
-            self._gift_registry = GiftRegistry()
-        peer.set_gift_registry(self._gift_registry.pointer)
+    @property
+    def redeem_reachability(self) -> int:
+        """The iroh reachability posture this node uses to redeem a *hint-less*
+        handoff give (the exporter named by node id alone, with no direct-address
+        hints). Defaults to ``Reachability.DISCOVERY`` (n0 relays + DNS/pkarr); set
+        it to ``Reachability.DISCOVERY_NO_RELAY`` to honor a no-relay deployment
+        policy. A hinted give always dials ``Reachability.DIRECT`` and ignores it.
+        Assign a :class:`pancake.iroh.Reachability` (or its int)."""
+        return self._redeem_reachability
 
-    def dispose_registry(self) -> None:
-        """Release the shared gift registry, once every connection that referenced
-        it is closed. Idempotent; a machine with no exporter activity never
-        allocated one. Call at node shutdown, after :meth:`close_exporters`."""
-        if self._gift_registry is not None:
-            self._gift_registry.free()
-            self._gift_registry = None
+    @redeem_reachability.setter
+    def redeem_reachability(self, reachability) -> None:
+        self._redeem_reachability = int(reachability)
+
+    def register_conn(self) -> "tuple[int, Peer]":
+        """Register a fresh connection with the node, returning its ``conn_id`` and
+        the node-owned peer to drive. Binding-internal: a :class:`Connection`
+        sources its peer here before its handshake."""
+        return self._node.register_conn()
+
+    def remove_conn(self, conn_id: int) -> None:
+        """Free a connection's node-owned peer once its loop has stopped pumping.
+        Binding-internal: a :class:`Connection` calls it during teardown."""
+        self._node.remove_conn(conn_id)
+
+    def send_withdraw(self, exporter_conn: int, give: bytes, answer: int) -> None:
+        """Sign and queue the recipient half of a three-party handoff on the
+        dialed ``exporter_conn``: the node signs a ``desc:handoff-receive`` over
+        ``give`` keyed by its retained identity and queues ``withdraw-gift`` under
+        ``answer`` (the one definition shared with the native driver, ADR-0066).
+        Binding-internal: :meth:`Connection.withdraw_gift` flushes and awaits it."""
+        self._node.send_withdraw(exporter_conn, give, answer)
+
+    def originate_give(self, recipient_conn: int, exporter_conn: int, gifted: Reference, gift_id: bytes, answer: int, exporter_location: bytes) -> None:
+        """Originate the gifter half of a three-party handoff (ADR-0009): queue a
+        deposit of ``gifted`` on ``exporter_conn``, build a ``desc:handoff-give``
+        signed by the node identity and addressed to ``recipient_conn``'s partner,
+        and queue it as the fulfillment of ``answer`` on ``recipient_conn`` (the
+        one definition shared with the native driver, ADR-0066). Binding-internal:
+        the resolve interceptor flushes both connections (exporter first)."""
+        self._node.originate_give(recipient_conn, exporter_conn, gifted, gift_id, answer, exporter_location)
 
     def publish_giftable(self, name: str, behavior: "Behavior") -> None:
         """Publish ``behavior`` under ``name`` on every connection of this node —
@@ -1926,24 +2163,76 @@ class Machine:
         naming it on a connection it dialed itself (the exporter half of a
         three-party handoff, ADR-0009)."""
         self._giftable[name] = behavior
-        for conn in self._connections:
+        for conn in self._connections.values():
             conn.publish(name, behavior)
 
     def register(self, conn: "Connection") -> None:
-        """Track a connection and publish every node-giftable on it.
-        Binding-internal: the :class:`Connection` constructor calls it."""
-        self._connections.add(conn)
+        """Track a connection by its ``conn_id`` and publish every node-giftable on
+        it. Binding-internal: the :class:`Connection` constructor calls it."""
+        self._connections[conn._conn_id] = conn
         for name, behavior in self._giftable.items():
             conn.publish(name, behavior)
 
     def unregister(self, conn: "Connection") -> None:
         """Stop tracking a closed connection. Binding-internal."""
-        self._connections.discard(conn)
+        self._connections.pop(conn._conn_id, None)
+
+    def connection_for(self, conn_id: int) -> "Optional[Connection]":
+        """The live :class:`Connection` for ``conn_id``, or ``None`` if gone."""
+        return self._connections.get(conn_id)
+
+    def record_foreign_home(self, reference: Reference, home: int) -> None:
+        """Record that fetched far ``reference`` lives on connection ``home`` so a
+        later foreign-home return is re-gifted, not mis-encoded (ADR-0009)."""
+        if isinstance(reference, Far):
+            self._node.record_foreign_home(reference.id, home)
+
+    def foreign_home(self, reference: Reference) -> "Optional[Connection]":
+        """The exporter :class:`Connection` a fetched far ``reference`` lives on,
+        if the node recorded one, the gifter half reads it to originate."""
+        if not isinstance(reference, Far):
+            return None
+        home = self._node.foreign_home(reference.id)
+        return self._connections.get(home) if home is not None else None
+
+    def arg_is_foreign(self, default_conn: int, reference: Reference) -> bool:
+        """Whether ``reference`` names a capability foreign to ``default_conn`` as
+        a ``send``/``tell`` argument — a redeemed token or a far the node recorded
+        as living on another connection (ADR-0066). The node owns the verdict; a
+        send fails closed on it rather than mis-encoding the reference."""
+        return isinstance(reference, Far) and self._node.arg_is_foreign(default_conn, reference.id)
+
+    def route(self, default_conn: int, reference: Reference) -> "Optional[tuple[Connection, Far]]":
+        """The exporter route for a redeemed token addressed from ``default_conn``:
+        the destination :class:`Connection` and the real exporter-side reference to
+        swap in. ``None`` for an ordinary reference (it rides its own connection),
+        and ``None`` — fail closed — when the token's exporter connection is gone."""
+        if not isinstance(reference, Far) or reference.id < REDEEMED_TOKEN_BASE:
+            return None
+        routed = self._node.route(default_conn, reference.id)
+        if routed is None:
+            return None
+        conn_id, far_id = routed
+        conn = self._connections.get(conn_id)
+        if conn is None:
+            return None
+        return conn, Far(id=far_id, promise=False)
+
+    def enroll(self, exporter_conn: int, reference: Reference) -> Reference:
+        """Enroll a redeemed capability hosted on ``exporter_conn`` under a fresh
+        routable token, returning the far reference the application receives,
+        indistinguishable from any other capability a partner hands back. Anything
+        but a far is no routable token and is handed back unchanged."""
+        if not isinstance(reference, Far):
+            return reference
+        token = self._node.enroll_redeemed(exporter_conn, reference.id)
+        return Far(id=token, promise=False)
 
     async def redeem(self, give: Handoff) -> "tuple[Connection, Reference]":
-        """Redeem a handoff give: dial the named exporter keyed with this
-        machine's identity (reusing an open connection to it), withdraw the gift,
-        and return the live capability plus the connection it lives on."""
+        """Redeem a handoff give: dial the named exporter keyed with this node's
+        identity (reusing an open connection to it), withdraw the gift, and return
+        the live capability plus the exporter connection it lives on. The caller
+        enrolls the reference against that connection to mint a routable token."""
         if not give.exporter_locator:
             raise PancakeError(_ERR_INVALID_ARGUMENT, "handoff give names no dialable exporter locator")
         conn = self._exporters.get(give.exporter_locator)
@@ -1951,23 +2240,34 @@ class Machine:
             conn = await Connection._dial_exporter(give.exporter_locator, self)
             self._exporters[give.exporter_locator] = conn
             conn.serve()
-        # Goblins tracks handoff-count per exporter session and requires it to
-        # rise; the first withdrawal on a fresh exporter connection is 0 (matches
-        # the live `goblins-handoff` reference driver), the next is 1, and so on.
-        count = self._counts.get(give.exporter_locator, 0)
-        self._counts[give.exporter_locator] = count + 1
-        reference = await conn.withdraw_gift(give.give, self.seed, count)
+        reference = await conn.withdraw_gift(give.give)
         return conn, reference
 
     async def close_exporters(self) -> None:
-        """Close every exporter connection this machine dialed."""
+        """Close every exporter connection this node dialed."""
         for conn in list(self._exporters.values()):
             await conn._close_transport()
         self._exporters.clear()
 
 
+class Caretaker:
+    """A revocable caretaker over a capability (ADR-0064), returned by
+    :meth:`Connection.caretaker`. Hand :attr:`proxy` to a partner; call
+    :meth:`revoke` to sever it, after which every call through the proxy breaks
+    with ``Revoked``."""
+
+    def __init__(self, proxy: Ref, live: list):
+        self.proxy = proxy
+        self._live = live
+
+    def revoke(self) -> None:
+        """Sever the proxy: subsequent calls through it break with ``Revoked``.
+        Idempotent."""
+        self._live[0] = False
+
+
 class Connection:
-    """A live connection to one OCapN partner — the one object an app holds.
+    """A live connection to one OCapN partner, the one object an app holds.
 
         conn = await connect(tcp_locator("127.0.0.1", 9099))
         conn.serve()
@@ -1976,16 +2276,16 @@ class Connection:
         await conn.send(board, "watch", [inbox])
     """
 
-    def __init__(self, ac: AsyncConnection, machine: Optional[Machine] = None):
+    def __init__(self, ac: AsyncConnection, node: Node, conn_id: int):
         self._ac = ac
         self._vat = ac.vat()
-        self._machine = machine if machine is not None else Machine()
+        self._node = node
+        # This connection's node-assigned id (ADR-0066): the router resolves a
+        # redeemed token to the exporter connection by it, and a fetch stamps a far
+        # import's foreign home with it.
+        self._conn_id = conn_id
         self._serve_task: Optional[asyncio.Task] = None
         self._closing = False
-        # Outbound answers whose handoff give the machine redeemed: the answer
-        # maps to the exporter connection its capability lives on, so the
-        # resolution lifts with the right `home`.
-        self._redeemed_home: "dict[int, Connection]" = {}
         # Distributed GC (ADR-0063), opt-in and off by default. When on, a
         # `fetch` result is tracked by a `weakref.finalize`; its release is
         # parked here and a single drain enqueues the `op:gc-exports`. The loop is
@@ -1995,86 +2295,120 @@ class Connection:
         self._gc_pending: "list[int]" = []
         self._gc_drain_task: Optional[asyncio.Task] = None
         self._loop = asyncio.get_event_loop()
-        # A published actor returned a capability that lives on another connection
-        # (a gift to pass on): the wire reference maps to its exporter home, read
-        # back by the resolve interceptor to originate the handoff. Set in
-        # :meth:`_wrap`, consumed in :meth:`_intercept_resolve` the same turn.
-        self._foreign_return: "dict[Reference, Connection]" = {}
+        # An optional dialable exporter location this connection's gifter
+        # origination signs into a give instead of the exporter's own signed
+        # session record (ADR-0009). Set by :meth:`set_exporter_locator` when the
+        # gifter learned the exporter's full ``ocapn://…?direct-addresses=…`` out
+        # of band — the only way a give can name an iroh exporter reachable by a
+        # dial hint under the relay-less ``Direct`` posture.
+        self._exporter_locator: Optional[bytes] = None
         # Originate a three-party handoff when a published actor returns a
         # capability whose home is a different connection (ADR-0009).
         self._vat.set_resolve_interceptor(self._intercept_resolve)
         # Join the node so every node-giftable is published on this connection too
         # — including this one, accepted after the giftable was registered.
-        self._machine.register(self)
+        self._node.register(self)
 
     @classmethod
-    async def connect(cls, host: str, port: int, machine: Optional[Machine] = None) -> "Connection":
+    async def connect(cls, host: str, port: int, node: Optional[Node] = None) -> "Connection":
         """Dial ``host:port``, complete the keyed OCapN handshake, and return a
         ready connection. The session is open before this resolves, so a
-        ``fetch``/``send`` rides an established session — the same handshake a
-        real Goblins peer requires. Pass ``machine`` to share one node identity
+        ``fetch``/``send`` rides an established session, the same handshake a
+        real Goblins peer requires. Pass ``node`` to share one node identity
         and gift registry across several connections (the gifter side of a
         three-party handoff); omit it for a standalone connection."""
-        machine = machine if machine is not None else Machine()
+        node = node if node is not None else Node()
         reader, writer = await asyncio.open_connection(host, port)
-        ac = AsyncConnection.from_stream(Peer(), reader, writer)
-        machine.bind_registry(ac.peer)
-        await _open_keyed_session(ac, machine.seed)
-        return cls(ac, machine)
+        conn_id, peer = node.register_conn()
+        try:
+            ac = AsyncConnection.from_stream(peer, reader, writer)
+            await _open_keyed_session(ac, node.seed)
+        except BaseException:
+            node.remove_conn(conn_id)
+            raise
+        return cls(ac, node, conn_id)
 
     @classmethod
-    async def _accept(cls, reader, writer, machine: Optional[Machine] = None) -> "Connection":
+    async def _accept(cls, reader, writer, node: Optional[Node] = None) -> "Connection":
         """Wrap an accepted stream and complete the keyed handshake from the
         responder side. Resolves once the session is open. Construct *before*
         driving the handshake to completion so the node's giftables are published
-        as bootstrap caps before a dialer's pipelined bootstrap fetch is answered
-        — a recipient redeeming a gift fetches it the instant the session opens."""
-        machine = machine if machine is not None else Machine()
-        ac = AsyncConnection.from_stream(Peer(), reader, writer)
-        machine.bind_registry(ac.peer)
-        conn = cls(ac, machine)
+        as bootstrap caps before a dialer's pipelined bootstrap fetch is
+        answered, a recipient redeeming a gift fetches it the instant the
+        session opens."""
+        node = node if node is not None else Node()
+        conn_id, peer = node.register_conn()
+        ac = AsyncConnection.from_stream(peer, reader, writer)
+        conn = cls(ac, node, conn_id)
         try:
-            await _open_keyed_session(ac, machine.seed)
+            await _open_keyed_session(ac, node.seed)
         except BaseException:
             await conn._close_transport()
             raise
         return conn
 
     @classmethod
-    async def _dial_exporter(cls, uri: str, machine: Machine) -> "Connection":
+    async def _dial_exporter(cls, uri: str, node: Node) -> "Connection":
         """Dial an exporter named by a handoff give's ``ocapn://`` locator, keyed
-        with ``machine``'s retained identity, and bind the result to that same
-        machine so the redeemed capability and any further handoff it triggers
-        share one identity and connection table. Binding-internal: the machine
-        calls this to redeem a give. TCP today; an iroh exporter locator is a
-        later lift."""
+        with ``node``'s retained identity, and bind the result to that same
+        node so the redeemed capability and any further handoff it triggers
+        share one identity and connection table. Binding-internal: the node
+        calls this to redeem a give. Dispatches on the locator's transport, a
+        ``tcp`` host:port, or an ``iroh`` endpoint id whose posture the give's
+        hints imply: direct-address hints dial them with no discovery service
+        (Direct), a bare node id resolves by id under the recipient node's
+        configured redeem posture (default Discovery; a relay-policy node lowers
+        it to DiscoveryNoRelay), so one give shape covers an offline direct dial
+        and an internet dial-by-id alike."""
         loc = parse_locator(uri)
-        if loc.transport != "tcp":
-            raise PancakeError(
-                _ERR_INVALID_ARGUMENT,
-                f'handoff redeem: unsupported exporter transport "{loc.transport}" in {uri}',
+        if loc.transport == "tcp":
+            host, sep, port = loc.designator.rpartition(":")
+            if not sep:
+                raise PancakeError(_ERR_INVALID_ARGUMENT, f"tcp locator designator is not host:port: {loc.designator}")
+            reader, writer = await asyncio.open_connection(host, int(port))
+            conn_id, peer = node.register_conn()
+            try:
+                ac = AsyncConnection.from_stream(peer, reader, writer)
+                await _open_keyed_session(ac, node.seed)
+            except BaseException:
+                node.remove_conn(conn_id)
+                raise
+            return cls(ac, node, conn_id)
+        if loc.transport == "iroh":
+            from . import iroh as _iroh_transport
+            addrs = loc.hints.get("direct-addresses", "")
+            reachability = (
+                _iroh_transport.Reachability.DIRECT if addrs else node.redeem_reachability
             )
-        host, sep, port = loc.designator.rpartition(":")
-        if not sep:
-            raise PancakeError(_ERR_INVALID_ARGUMENT, f"tcp locator designator is not host:port: {loc.designator}")
-        reader, writer = await asyncio.open_connection(host, int(port))
-        ac = AsyncConnection.from_stream(Peer(), reader, writer)
-        machine.bind_registry(ac.peer)
-        await _open_keyed_session(ac, machine.seed)
-        return cls(ac, machine)
+            return await _iroh_transport.connect_iroh_with_node(loc.designator, addrs, reachability, node)
+        raise PancakeError(
+            _ERR_INVALID_ARGUMENT,
+            f'handoff redeem: unsupported exporter transport "{loc.transport}" in {uri}',
+        )
 
     @property
     def peer(self) -> Peer:
-        """The underlying sans-io peer — the escape hatch for handoff, pipelining,
+        """The underlying sans-io peer, the escape hatch for handoff, pipelining,
         and session control. Applications do not need it."""
         return self._ac.peer
 
     @property
-    def machine(self) -> Machine:
-        """The node's shared machine — its retained identity and gift registry,
+    def node(self) -> Node:
+        """The node's shared node, its retained identity and gift registry,
         shared by every connection of one node so the gifter half of a handoff can
         reach a sibling connection's session keys. Binding-internal."""
-        return self._machine
+        return self._node
+
+    def set_exporter_locator(self, raw_locator: bytes) -> None:
+        """Record the dialable exporter location this connection's gifter
+        origination signs into a give, in place of the exporter's own signed
+        session record (ADR-0009). ``raw_locator`` is the verbatim location bytes
+        from :func:`encode_peer_locator` (read off the registered exporter URI).
+        Binding-internal: a rendezvous that learned a member's iroh URI sets it so
+        a give can name an exporter reachable only by a dial hint under the
+        relay-less ``Direct`` posture. Unset, origination uses the partner's
+        signed location."""
+        self._exporter_locator = raw_locator
 
     def spawn(self, behavior: Behavior) -> Ref:
         """Spawn a local actor and return a capability to it. Pass the returned
@@ -2093,12 +2427,45 @@ class Connection:
         local = self._vat.publish(position, self._wrap(behavior))
         return Ref(local_id=local.local_id, near=Near(position))
 
+    def caretaker(self, target: Ref) -> Caretaker:
+        """Wrap ``target`` (local or far) in a revocable caretaker (ADR-0064).
+        Returns a :class:`Caretaker` whose ``proxy`` is an ordinary capability
+        to hand a partner; every call through it forwards to ``target`` until
+        :meth:`Caretaker.revoke`, after which each breaks with ``Revoked``.
+        ``target`` may be a capability imported over the wire — the proxy
+        forwards transparently — so this hands out a revocable view of authority
+        you do not own locally. The proxy is a plain spawned actor, so it answers
+        a local call exactly as a partner's does."""
+        live = [True]
+
+        def proxy_behavior(verb: str, args: list):
+            if not live[0]:
+                raise ValueError("Revoked")
+            return Forward(target, verb, args)
+
+        return Caretaker(self.spawn(proxy_behavior), live)
+
+    def attenuate(self, target: Ref, verbs: list[str]) -> Ref:
+        """Wrap ``target`` (local or far) in an attenuator (ADR-0064): a proxy
+        that forwards only the calls whose verb is in ``verbs`` and breaks every
+        other with ``Attenuated``. Returns the proxy capability to hand a
+        partner. ``target`` may be a wire-imported capability, so this narrows
+        authority you hold. The proxy is a plain spawned actor."""
+        allowed = set(verbs)
+
+        def proxy_behavior(verb: str, args: list):
+            if verb not in allowed:
+                raise ValueError("Attenuated")
+            return Forward(target, verb, args)
+
+        return self.spawn(proxy_behavior)
+
     def _settle(self, vow) -> "asyncio.Future":
         """Register a listener on ``vow`` now and return a future it settles. The
         listener must be registered before any pump (``drive``/``flush``): a local
         ``drive`` fires synchronously, and a far reply can land on the serve loop
-        the instant ``flush`` yields — either would settle before a later ``await``
-        could subscribe."""
+        the instant ``flush`` yields. Either would settle before a later
+        ``await`` could subscribe."""
         future = asyncio.get_running_loop().create_future()
 
         def fulfilled(value: object) -> None:
@@ -2128,13 +2495,15 @@ class Connection:
         result = await future
         if not _is_wire_reference(result):
             raise FetchFailed(name)
-        # Stamp the home: a fetched capability lives on *this* connection. Used on
-        # this connection, home is a no-op; returned to another connection (a gift
-        # to pass on), the explicit home is what lets the gifter half recognize it
-        # as foreign and originate a three-party handoff rather than mis-encode it.
+        # Record the foreign home in the node: a fetched far capability lives on
+        # *this* connection. Used here it is an ordinary import; returned to another
+        # connection (a gift to pass on), the recorded home is what lets the gifter
+        # half recognize it as foreign and originate a three-party handoff rather
+        # than mis-encode a cross-connection reference (ADR-0009).
         if isinstance(result, Far):
-            return self._track_import(Ref(far=result, home=self))
-        return Ref(near=result, home=self)
+            self._node.record_foreign_home(result, self._conn_id)
+            return self._track_import(Ref(far=result))
+        return Ref(near=result)
 
     def with_gc(self) -> "Connection":
         """Opt this connection into distributed GC (ADR-0063), off by default.
@@ -2153,7 +2522,7 @@ class Connection:
         bootstrap import (position 0) is refused in a ``gc-exports`` and never
         tracked; the finalizer captures only the integer position, never the
         ``Ref``, so it does not pin the very handle whose death it waits on."""
-        if self._gc and ref.far is not None and ref.far.id != 0:
+        if self._gc and ref.far is not None and ref.far.id != 0 and ref.far.id < REDEEMED_TOKEN_BASE:
             weakref.finalize(ref, self._on_import_dropped, ref.far.id)
         return ref
 
@@ -2225,6 +2594,33 @@ class Connection:
         )
         return Ref(far=result)
 
+    def _is_foreign(self, far: Far) -> bool:
+        """Whether ``far`` names a capability that lives on a *different*
+        connection: a redeemed-handoff token (the node routes it to its exporter)
+        or a far the node recorded as fetched on another connection of this node.
+        The gifter half handles such a capability when it is *returned*
+        (ADR-0009); passing one as an argument is the symmetric case still to
+        land, so a send fails closed rather than mis-encode it for this partner.
+        The node owns the verdict (ADR-0066)."""
+        return self._node.arg_is_foreign(self._conn_id, far)
+
+    def _assert_no_foreign_ref(self, value: "Value") -> None:
+        """Refuse a capability that lives on another connection in send-argument
+        position, recursing into the container shapes a reference can hide in."""
+        if isinstance(value, Ref):
+            if value.far is not None and self._is_foreign(value.far):
+                raise PancakeError(
+                    _ERR_INVALID_ARGUMENT,
+                    "passing a capability that lives on another connection as a send argument is not yet supported; "
+                    "introduce it as a return value instead (three-party handoff in argument position is the next lift)",
+                )
+        elif isinstance(value, Tagged):
+            for item in value.value:
+                self._assert_no_foreign_ref(item)
+        elif isinstance(value, list):
+            for item in value:
+                self._assert_no_foreign_ref(item)
+
     def send(self, target: "Ref | RemotePromise", verb: str, args: Optional[list[Value]] = None) -> RemotePromise:
         """Eventual-send ``verb(args)`` to ``target`` and return a
         :class:`RemotePromise` for the reply. ``await`` it for the value (a
@@ -2240,12 +2636,17 @@ class Connection:
         The deliver is queued now; its bytes leave the wire when the returned
         handle -- or any send pipelined behind it -- is first awaited, so a
         pipelined batch travels together."""
-        # A capability redeemed from a handoff lives on the exporter connection
-        # the machine dialed; route the send there so the bytes go straight to the
-        # exporter, transparently to the application (Goblins' three-party
-        # handoff).
-        if isinstance(target, Ref) and target.home is not None and target.home is not self:
-            return target.home.send(target, verb, args)
+        # A capability redeemed from a handoff is a token the node routes to the
+        # exporter connection it lives on; send there with the real exporter-side
+        # reference so the bytes go straight to the exporter, transparently to the
+        # application (Goblins' three-party handoff).
+        if isinstance(target, Ref) and target.far is not None:
+            routed = self._node.route(self._conn_id, target.far)
+            if routed is not None:
+                exporter, reference = routed
+                return exporter.send(Ref(far=reference), verb, args)
+        for a in (args or []):
+            self._assert_no_foreign_ref(a)
         wire_args = [self._lower(a) for a in (args or [])]
         is_local = isinstance(target, Ref) and target.local_id is not None
         if not is_local:
@@ -2255,7 +2656,7 @@ class Connection:
                 raise PancakeError(_ERR_UNSUPPORTED_VALUE, "cannot pipeline against a local-send promise; await it for a Ref")
             vow = self._vat.send_to_answer(target.answer, verb, wire_args)
         else:
-            vow = self._vat.send(target, verb, wire_args)
+            vow = self._vat.send(target._vat(), verb, wire_args)
 
         answer = None if vow.is_local else vow.answer
 
@@ -2263,13 +2664,18 @@ class Connection:
             future = self._settle(vow)  # subscribe before any pump
             if is_local:
                 self._vat.drive()
+                # A local actor may tail-forward to a far target (a caretaker over
+                # a wire-imported capability, ADR-0064); its answer then settles on
+                # the partner's reply, so pump the wire to await it.
+                if not future.done():
+                    self.serve()
+                    await self._ac.flush()
             else:
                 await self._ac.flush()
             value = await future
-            # A redeemed handoff resolution lifts with the exporter connection as
-            # the ref's home; every ordinary resolution lifts against this one.
-            home = self if answer is None else self._redeemed_home.get(answer, self)
-            return self._lift_value(value, home)
+            # A redeemed-handoff resolution already lifts as an ordinary token (the
+            # node routes it to its exporter); every resolution lifts the same way.
+            return self._lift(value)
 
         # Only a far answer is projectable; a local-send handle has none.
         project = None
@@ -2300,7 +2706,7 @@ class Connection:
         async def begin() -> Value:
             future = self._settle(vow)
             await self._ac.flush()
-            return self._lift_value(await future, self)
+            return self._lift(await future)
 
         def project(op2: str, key2):
             return self._project_answer(answer, op2, key2)
@@ -2311,13 +2717,18 @@ class Connection:
         """Fire-and-forget eventual-send (Goblins ``<-np``): no answer is
         allocated and no reply comes back, so a notification or broadcast costs
         one deliver rather than a deliver plus a reply. Flushes immediately."""
-        # Route a redeemed-handoff capability to its exporter connection, as send.
-        if target.home is not None and target.home is not self:
-            await target.home.tell(target, verb, args)
-            return
+        # Route a redeemed-handoff token to its exporter connection, as send.
+        if target.far is not None:
+            routed = self._node.route(self._conn_id, target.far)
+            if routed is not None:
+                exporter, reference = routed
+                await exporter.tell(Ref(far=reference), verb, args)
+                return
+        for a in (args or []):
+            self._assert_no_foreign_ref(a)
         wire_args = [self._lower(a) for a in (args or [])]
         if target.local_id is not None:
-            self._vat.send(target, verb, wire_args)
+            self._vat.send(target._vat(), verb, wire_args)
             self._vat.drive()
             return
         payload = [Symbol(verb), *wire_args] if verb else wire_args
@@ -2338,7 +2749,7 @@ class Connection:
         # rather than leaving its future pending forever.
         try:
             async for event in self._ac:
-                # A give arriving as a resolution is redeemed by the machine, not
+                # A give arriving as a resolution is redeemed by the node, not
                 # the vat: dial the exporter keyed with our identity, withdraw, and
                 # settle the awaiting send with the live capability. Done off the
                 # loop so the redeem's own I/O does not stall this connection's
@@ -2354,27 +2765,28 @@ class Connection:
             self._vat.break_far_vows("connection closed")
 
     async def _redeem_handoff(self, answer: int, give: Handoff) -> None:
-        # Redeem a handoff give through the machine, then settle the original
-        # answer by feeding the vat a synthetic fulfill carrying the redeemed
-        # capability — whose `home` (recorded here) is the exporter connection it
-        # lives on. A redeem failure breaks the awaiting send rather than hanging.
+        # Redeem a handoff give through the node, enroll the withdrawn
+        # capability against its exporter connection to mint a routable token
+        # (ADR-0066), then settle the original answer with that token — an ordinary
+        # far the application sends to and the node forwards to the exporter. A
+        # redeem failure breaks the awaiting send rather than hanging.
         try:
-            conn, reference = await self._machine.redeem(give)
-            self._redeemed_home[answer] = conn
-            self._vat.serve(Resolve(answer=answer, resolution=Fulfill(reference)))
+            conn, reference = await self._node.redeem(give)
+            token = self._node.enroll(conn._conn_id, reference)
+            self._vat.serve(Resolve(answer=answer, resolution=Fulfill(token)))
         except Exception as error:  # noqa: BLE001 — a failed redeem breaks the vow
             self._vat.serve(Resolve(answer=answer, resolution=Break(f"handoff redeem failed: {error}")))
 
-    async def withdraw_gift(self, give: bytes, seed: bytes, count: int) -> Reference:
-        """Withdraw a deposited gift from this (exporter) connection: sign a
-        ``desc:handoff-receive`` over ``give`` keyed by ``seed`` and deliver
-        ``withdraw-gift`` to the exporter's bootstrap, returning the withdrawn
-        capability's wire reference once it resolves. Binding-internal: the
-        machine calls this during redeem."""
+    async def withdraw_gift(self, give: bytes) -> Reference:
+        """Withdraw a deposited gift from this (exporter) connection: the node
+        signs a ``desc:handoff-receive`` over ``give`` keyed by its retained
+        identity and delivers ``withdraw-gift`` to the exporter's bootstrap,
+        returning the withdrawn capability's wire reference once it resolves.
+        Binding-internal: the node calls this during redeem."""
         self.serve()
         answer = self._ac.peer.next_answer()
         future = self._settle(Vow(answer=answer, vat=self._vat))
-        self._ac.peer.send_withdraw_gift(give, seed, count, answer)
+        self._node.send_withdraw(self._conn_id, give, answer)
         await self._ac.flush()
         value = await future
         if not _is_wire_reference(value):
@@ -2382,15 +2794,15 @@ class Connection:
         return value
 
     async def close(self) -> None:
-        """Close the connection and every exporter connection its machine dialed
+        """Close the connection and every exporter connection its node dialed
         for handoffs. A running :meth:`serve` completes cleanly."""
         self._closing = True
-        await self._machine.close_exporters()
+        await self._node.close_exporters()
         await self._close_transport()
 
     async def _close_transport(self) -> None:
-        """Close just this connection's transport, without touching the machine's
-        other connections — how the machine reclaims an exporter connection it
+        """Close just this connection's transport, without touching the node's
+        other connections, how the node reclaims an exporter connection it
         owns, and the shared teardown :meth:`close` runs last.
 
         Tear down in order so a release never races the inbound loop: unblock the
@@ -2399,7 +2811,7 @@ class Connection:
         is closed so the read returns a clean EOF and the loop ends on its own;
         one whose read is cancellable (TCP) has its loop task cancelled."""
         self._closing = True
-        self._machine.unregister(self)
+        self._node.unregister(self)
         unblocked = self._ac.shutdown()
         if self._serve_task is not None:
             if not unblocked:
@@ -2408,7 +2820,11 @@ class Connection:
                 await self._serve_task
             except (asyncio.CancelledError, OSError):
                 pass
+        # The loop has stopped pumping this connection's node-owned peer; let the
+        # transport go, then have the node free the peer and drop the connection's
+        # routes (ADR-0066). `aclose` no-ops the peer release, the node owns it.
         await self._ac.aclose()
+        self._node.remove_conn(self._conn_id)
 
     async def __aenter__(self) -> "Connection":
         return self
@@ -2419,27 +2835,29 @@ class Connection:
     def _wrap(self, behavior: Behavior):
         def wrapped(verb: str, raw_args: list):
             result = behavior(verb, [self._lift(a) for a in raw_args])
-            # A returned capability whose home is another connection is recorded
-            # for the resolve interceptor, which originates a three-party handoff
-            # instead of mis-sending a cross-connection reference (ADR-0009; the
-            # gifter half, C-i: a top-level returned capability).
-            if isinstance(result, Ref) and result.home is not None and result.home is not self:
-                wire = result._wire()
-                self._foreign_return[wire] = result.home
-                return wire
+            # A `Forward` (a caretaker/attenuator) tail-forwards rather than
+            # returning a value; lower its args to the wire and let the vat
+            # resolve the answer from the forwarded send (ADR-0064).
+            if isinstance(result, Forward):
+                return Forward(result.target, result.verb, [self._lower(a) for a in result.args])
+            # A returned far capability that lives on another connection is lowered
+            # to its wire reference like any other; the resolve interceptor reads
+            # the node's recorded foreign home to originate a three-party handoff
+            # rather than mis-encode the cross-connection reference (ADR-0009).
             return None if result is None else self._lower(result)
         return wrapped
 
     def _intercept_resolve(self, answer: int, value) -> bool:
-        # The vat is about to resolve a deliver's answer. If the reply is a
-        # capability a published actor returned that lives on another connection,
-        # claim it: originate the gifter half of a three-party handoff off the loop
-        # rather than resolve a cross-connection reference. Anything else falls
-        # through to the ordinary resolve.
-        if not _is_wire_reference(value):
+        # The vat is about to resolve a deliver's answer. If the reply is a far
+        # capability a published actor returned that lives on another connection
+        # (the node recorded its foreign home at fetch), claim it: originate the
+        # gifter half of a three-party handoff off the loop rather than resolve a
+        # cross-connection reference. Anything else falls through to the ordinary
+        # resolve.
+        if not isinstance(value, Far):
             return False
-        exporter = self._foreign_return.pop(value, None)
-        if exporter is None:
+        exporter = self._node.foreign_home(value)
+        if exporter is None or exporter is self:
             return False
         asyncio.ensure_future(self._originate_handoff(answer, value, exporter))
         return True
@@ -2451,41 +2869,28 @@ class Connection:
         await self._ac.flush()
 
     async def _originate_handoff(self, answer: int, gifted: Reference, exporter: "Connection") -> None:
-        # Originate the gifter half of a three-party handoff (ADR-0009): deposit
-        # `gifted` (a capability that lives on the `exporter` connection) back with
-        # the exporter, then resolve the recipient's `answer` with a signed
-        # `desc:handoff-give` the recipient redeems transparently. Crypto inputs
-        # come from this gifter's two sessions — the recipient key from this
-        # (to-recipient) connection, the exporter locator and key from the exporter
-        # connection — signed with the node's one retained identity, which is also
-        # what the exporter saw on the deposit, so the give's signature and the
-        # deposit's provenance match. A failure breaks the recipient's answer.
+        # Originate the gifter half of a three-party handoff (ADR-0009) for a
+        # capability that lives on the `exporter` connection: the node owns the
+        # recipe (deposit, sign the give keyed by the node identity, queue the
+        # resolve); the binding draws the gift id and flushes. A failure breaks the
+        # recipient's answer.
         try:
             gift_id = secrets.token_bytes(32)
-            # Deposit on the exporter connection (the gifted reference is one the
-            # exporter exported to us, so it re-encodes to its own export there),
-            # and put it on the wire before the recipient can dial in to withdraw.
-            exporter.peer.send_deposit_gift(gift_id, gifted)
-            await exporter._flush_outbound()
-
-            recipient_key = self.peer.partner_session_key()
-            exporter_locator_raw = exporter.peer.partner_locator_raw()
-            exporter_session_key = exporter.peer.partner_session_key()
-            if not recipient_key or not exporter_locator_raw or not exporter_session_key:
-                raise PancakeError(
-                    _ERR_INVALID_ARGUMENT,
-                    "handoff origination needs open keyed sessions to both the recipient and the exporter",
-                )
-            give = build_handoff_give(
-                seed=self._machine.seed,
-                recipient_key=recipient_key,
-                exporter_locator_raw=exporter_locator_raw,
-                exporter_session_key=exporter_session_key,
-                gift_id=gift_id,
+            # The node deposits on the exporter and signs the give addressed to
+            # this recipient in one recipe; the binding only draws the gift id and
+            # flushes both connections — the exporter first, so the deposit is on
+            # the wire before the recipient dials in to withdraw.
+            self._node.originate_give(
+                self._conn_id,
+                exporter._conn_id,
+                gifted,
+                gift_id,
+                answer,
+                exporter._exporter_locator or b"",
             )
-            self.peer.send_resolve_handoff_give(answer, give)
+            await exporter._flush_outbound()
             await self._flush_outbound()
-        except Exception as error:  # noqa: BLE001 — a failed origination breaks the vow
+        except Exception as error:  # noqa: BLE001, a failed origination breaks the vow
             try:
                 self.peer.send_resolve(answer, Break(f"handoff origination failed: {error}"))
                 await self._flush_outbound()
@@ -2496,7 +2901,7 @@ class Connection:
     def _lower(value):
         if isinstance(value, Ref):
             return value._wire()
-        if isinstance(value, Set):  # before list — Set subclasses list
+        if isinstance(value, Set):  # before list, Set subclasses list
             return Set(Connection._lower(v) for v in value)
         if isinstance(value, Tagged):
             return Tagged(value.tag, [Connection._lower(v) for v in value.value])
@@ -2510,7 +2915,7 @@ class Connection:
             return Ref(far=value)
         if isinstance(value, Near):
             return Ref(near=value)
-        if isinstance(value, Set):  # before list — Set subclasses list
+        if isinstance(value, Set):  # before list, Set subclasses list
             return Set(Connection._lift(v) for v in value)
         if isinstance(value, Tagged):
             return Tagged(value.tag, [Connection._lift(v) for v in value.value])
@@ -2518,34 +2923,17 @@ class Connection:
             return [Connection._lift(v) for v in value]
         return value
 
-    def _lift_value(self, value, home: "Connection"):
-        # As :meth:`_lift`, but stamps every reference with the ``home``
-        # connection it lives on, so a capability redeemed from a handoff (which
-        # lives on the exporter connection) routes there when the application
-        # sends to it. Nested capabilities from one resolution share the home.
-        if isinstance(value, Far):
-            return Ref(far=value, home=home)
-        if isinstance(value, Near):
-            return Ref(near=value, home=home)
-        if isinstance(value, Set):  # before list — Set subclasses list
-            return Set(self._lift_value(v, home) for v in value)
-        if isinstance(value, Tagged):
-            return Tagged(value.tag, [self._lift_value(v, home) for v in value.value])
-        if isinstance(value, list):
-            return [self._lift_value(v, home) for v in value]
-        return value
-
 
 class Server:
-    """A listening server — one object an app holds, mirroring the Deno/Rust/Racket
+    """A listening server, one object an app holds, mirroring the Deno/Rust/Racket
     servers. Async-iterable (``async for conn in server``), and ``.port`` surfaces
     the bound port so binding an ephemeral port (``port=0``) and telling a partner
     where to connect works the same as the other bindings."""
 
-    def __init__(self, server: asyncio.AbstractServer, queue: "asyncio.Queue", machine: Machine):
+    def __init__(self, server: asyncio.AbstractServer, queue: "asyncio.Queue", node: Node):
         self._server = server
         self._queue = queue
-        self._machine = machine
+        self._node = node
 
     @property
     def port(self) -> int:
@@ -2553,13 +2941,13 @@ class Server:
         return self._server.sockets[0].getsockname()[1]
 
     @property
-    def machine(self) -> Machine:
-        """The node's shared machine: one retained identity and gift registry
+    def node(self) -> Node:
+        """The node's shared node: one retained identity and gift registry
         across every accepted connection. Pass it to :meth:`Connection.connect`
-        so a fetched capability and the recipient connection share one node —
+        so a fetched capability and the recipient connection share one node,
         the gifter side of a three-party handoff. Publish a node-giftable on it
-        with :meth:`Machine.publish_giftable`."""
-        return self._machine
+        with :meth:`Node.publish_giftable`."""
+        return self._node
 
     def close(self) -> None:
         self._server.close()
@@ -2569,19 +2957,19 @@ class Server:
 
     async def __anext__(self) -> "Connection":
         reader, writer = await self._queue.get()
-        return await Connection._accept(reader, writer, self._machine)
+        return await Connection._accept(reader, writer, self._node)
 
 
 async def listen(host: str, port: int = 0) -> Server:
     """Bind a listening :class:`Server`. ``async for conn in await listen(host, 0)``
     accepts each partner; ``server.port`` reads the bound ephemeral port. Each
-    yielded :class:`Connection` is one accepted partner — publish capabilities on
+    yielded :class:`Connection` is one accepted partner, publish capabilities on
     it and call :meth:`Connection.serve`."""
     queue: asyncio.Queue = asyncio.Queue()
     server = await asyncio.start_server(
         lambda r, w: queue.put_nowait((r, w)), host, port,
     )
-    return Server(server, queue, Machine())
+    return Server(server, queue, Node())
 
 
 # ── OCapN locator URIs ───────────────────────────────────────────────────────
@@ -2689,14 +3077,14 @@ def format_peer_uri(transport: str, designator: str, hints: "Optional[dict[str, 
 def tcp_locator(host: str, port: int) -> str:
     """Build a ``tcp`` locator from a literal host and port:
     ``ocapn://host:port.tcp``, rendered through the core grammar. The convenience
-    for the common case — a caller holding a host and port passes
+    for the common case, a caller holding a host and port passes
     ``connect(tcp_locator(host, port))`` instead of hand-formatting the URI.
     ``host:port`` is not a dial of its own; it is a locator like any other."""
     return format_peer_uri("tcp", f"{host}:{port}")
 
 
-async def connect(uri: str, reachability: "Optional[int]" = None, machine: "Optional[Machine]" = None) -> Connection:
-    """Dial a partner from its ``ocapn://`` locator — the one dialer, dispatching
+async def connect(uri: str, reachability: "Optional[int]" = None, node: "Optional[Node]" = None) -> Connection:
+    """Dial a partner from its ``ocapn://`` locator, the one dialer, dispatching
     on the locator's transport: ``iroh`` dials the endpoint id with its
     ``direct-addresses`` hints, ``tcp`` dials the ``host:port`` designator. There
     is no other dial: a literal address is a ``tcp`` locator, built with
@@ -2719,7 +3107,7 @@ async def connect(uri: str, reachability: "Optional[int]" = None, machine: "Opti
         host, sep, port = loc.designator.rpartition(":")
         if not sep:
             raise PancakeError(_ERR_INVALID_ARGUMENT, f"tcp locator designator is not host:port: {loc.designator}")
-        return await Connection.connect(host, int(port), machine)
-    if machine is not None:
-        raise PancakeError(_ERR_INVALID_ARGUMENT, "connect: a shared machine is supported only for tcp locators today")
+        return await Connection.connect(host, int(port), node)
+    if node is not None:
+        raise PancakeError(_ERR_INVALID_ARGUMENT, "connect: a shared node is supported only for tcp locators today")
     raise PancakeError(_ERR_INVALID_ARGUMENT, f'connect: unsupported transport "{loc.transport}"')

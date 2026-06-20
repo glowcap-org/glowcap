@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Pure-parser checks for site_report.rkt. Run with:
 ;;   racket bench/site_report-test.rkt
-;; No benches run here — the fixtures are captured ReleaseFast output, so the
+;; No benches run here, the fixtures are captured ReleaseFast output, so the
 ;; parsers work without a build. Exit code is nonzero on any failure.
 (require rackunit rackunit/text-ui (file "site_report.rkt"))
 

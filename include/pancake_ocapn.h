@@ -178,6 +178,7 @@ typedef struct PancakeFrame {
 typedef struct PancakeManagedFrame PancakeManagedFrame;
 typedef struct PancakePeer PancakePeer;
 typedef struct PancakeGiftRegistry PancakeGiftRegistry;
+typedef struct PancakeNode PancakeNode;
 typedef void (*PancakeReleaseFn)(PancakeManagedFrame *frame);
 struct PancakeManagedFrame {
     /* Owned and self-releasing: release with `pancake_managed_frame_release`. */
@@ -215,7 +216,7 @@ void pancake_event_release(PancakeEvent *event);
    power of two) or NULL on failure; free receives the exact size and
    alignment the allocation was made with. There is no realloc by design:
    the library never resizes in place, so free's size always equals
-   alloc's — correct even for a size-tracking host allocator. */
+   alloc's, correct even for a size-tracking host allocator. */
 typedef struct PancakeContext PancakeContext;
 typedef void *(*PancakeAllocFn)(void *user_data, size_t size, size_t alignment);
 typedef void (*PancakeFreeFn)(void *user_data, void *ptr, size_t size, size_t alignment);
@@ -520,10 +521,13 @@ int32_t pancake_peer_send_gc_answer(PancakePeer *peer, uint64_t answer);
    `answer`. The caller must already hold an open keyed session to the exporter
    named by the give's exporter-location, opened with the same 32-byte `seed`
    the gift was deposited under (seed_len must be 32, the session must be open,
-   else PANCAKE_ERR_SESSION). `handoff_count` is the 1-based count of
-   withdrawals from this exporter. The withdrawn reference arrives as a
-   PANCAKE_EVENT_RESOLVE keyed on `answer`. `give` and `seed` are borrowed. */
-int32_t pancake_peer_send_withdraw_gift(PancakePeer *peer, const uint8_t *give, size_t give_len, const uint8_t *seed, size_t seed_len, uint64_t handoff_count, uint64_t answer);
+   else PANCAKE_ERR_SESSION). The monotonic handoff-count the exporter requires
+   to increase is minted internally by the peer's gift registry (0 for the first
+   withdrawal from a given exporter session, rising across reconnects when a
+   shared registry is wired), so the caller never tracks it. The withdrawn
+   reference arrives as a PANCAKE_EVENT_RESOLVE keyed on `answer`. `give` and
+   `seed` are borrowed. */
+int32_t pancake_peer_send_withdraw_gift(PancakePeer *peer, const uint8_t *give, size_t give_len, const uint8_t *seed, size_t seed_len, uint64_t answer);
 /* Borrow the partner's session public key learned from its op:start-session
    into out_ptr/out_len (a NULL pointer and zero length before the handshake
    half arrives). A gifter reads it on the to-recipient session for a give's
@@ -547,6 +551,22 @@ int32_t pancake_peer_partner_locator_raw(PancakePeer *peer, const uint8_t **out_
 int32_t pancake_build_handoff_give(const uint8_t *seed, size_t seed_len, const uint8_t *recipient_key, size_t recipient_key_len, const uint8_t *exporter_locator_raw, size_t exporter_locator_raw_len, const uint8_t *exporter_session_key, size_t exporter_session_key_len, const uint8_t *gift_id, size_t gift_id_len, uint8_t **out_give, size_t *out_give_len);
 /* Release give bytes returned by pancake_build_handoff_give. NULL is a no-op. */
 void pancake_handoff_give_bytes_release(uint8_t *give, size_t give_len);
+/* Build the verbatim exporter location-record bytes a give names, writing owned
+   bytes into out/out_len (release with pancake_peer_locator_bytes_release), the
+   construct-it-yourself counterpart of pancake_peer_partner_locator_raw, for an
+   exporter whose own session record carries no dial hint. transport/designator
+   name the exporter; direct_addresses, when non-empty, adds the exporter's
+   comma-separated socket addresses as a direct-addresses hint, so a cross-process
+   recipient dials the exporter directly with no discovery service (an iroh
+   exporter reachable only by address). A NULL or empty direct_addresses yields a
+   hint-less location identical to the exporter's own session record, so a
+   discovery-reachable or TCP exporter keeps using pancake_peer_partner_locator_raw
+   instead. The bytes are in the handoff codec (Syrup, as desc:handoff-give is);
+   the result feeds pancake_build_handoff_give as exporter_locator_raw. All inputs
+   are borrowed. */
+int32_t pancake_encode_peer_locator(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t *direct_addresses, size_t direct_addresses_len, uint8_t **out, size_t *out_len);
+/* Release locator bytes returned by pancake_encode_peer_locator. NULL is a no-op. */
+void pancake_peer_locator_bytes_release(uint8_t *locator, size_t locator_len);
 /* Deposit a gift with this (exporter) session: queue a deposit-gift op:deliver
    to the exporter's bootstrap object (far object 0) carrying the gift id and
    the gifted reference. Fire-and-forget (no answer): the exporter records the
@@ -577,6 +597,83 @@ void pancake_gift_registry_free(PancakeGiftRegistry *registry);
    private one. Set this before the peer's handshake; the registry must outlive
    the peer. A NULL registry detaches the peer back to its own table. */
 int32_t pancake_peer_set_gift_registry(PancakePeer *peer, PancakeGiftRegistry *registry);
+
+/* ── Cross-connection handoff router (PancakeNode, ADR-0066) ── */
+/* Create a node bound to the 32-byte identity `seed`, writing the handle into
+   out_node. The seed is reused for every connection the node opens so an
+   exporter verifies a desc:handoff-receive against one key; draw it at the
+   host's I/O boundary (the sans-io node never generates entropy). Release with
+   pancake_node_free. `seed` is borrowed; seed_len must be 32. */
+int32_t pancake_node_new(const uint8_t *seed, size_t seed_len, PancakeNode **out_node);
+/* Context-backed counterpart of pancake_node_new: the node, its per-connection
+   peers, and the shared gift registry allocate and free through `context`'s
+   allocator (ADR-0059). The context must outlive the node. */
+int32_t pancake_node_new_in(PancakeContext *context, const uint8_t *seed, size_t seed_len, PancakeNode **out_node);
+/* Release a node: free every registered peer, the routing tables and the
+   references they own, and the shared gift registry. The caller must have
+   finished pumping every connection's peer first (those peers are node-owned).
+   NULL is a no-op. */
+void pancake_node_free(PancakeNode *node);
+/* Register a fresh connection, writing its conn_id into out_conn_id and the
+   node-owned negotiating peer into out_peer. Pump out_peer with the ordinary
+   pancake_peer_* surface (it is already bound to the node's gift registry and
+   signs op:start-session with the node seed). Do NOT free out_peer: the node
+   owns it and frees it on pancake_node_remove_conn / pancake_node_free. */
+int32_t pancake_node_register_conn(PancakeNode *node, uint64_t *out_conn_id, PancakePeer **out_peer);
+/* Remove a registered connection: free its node-owned peer and retire the
+   conn_id (never reused). A later route to a redeemed token whose exporter was
+   this connection fails closed. Stop pumping this connection's peer first. An
+   unknown conn_id is a no-op. */
+int32_t pancake_node_remove_conn(PancakeNode *node, uint64_t conn_id);
+/* Mint and queue the recipient half of a three-party handoff on the dialed
+   exporter connection: sign a desc:handoff-receive over the verbatim signed
+   `give` bytes keyed by the node identity, mint the monotonic handoff-count from
+   the shared registry, and queue withdraw-gift under `answer`. Flush by pumping
+   exporter_conn's peer; the withdrawn reference arrives as a resolve keyed on
+   `answer`. The exporter session must be open (PANCAKE_ERR_SESSION otherwise).
+   `give` is borrowed. */
+int32_t pancake_node_send_withdraw(PancakeNode *node, uint64_t exporter_conn, const uint8_t *give, size_t give_len, uint64_t answer);
+/* Gifter half of a three-party handoff (ADR-0009), the mirror of
+   pancake_node_send_withdraw: queue a deposit-gift of `gifted_ref` on
+   exporter_conn, build a desc:handoff-give signed by the node identity and
+   addressed to recipient_conn's partner, and queue it as the fulfillment of
+   `answer` on recipient_conn. Flush both connections (exporter first) so the
+   deposit lands before the recipient dials in to withdraw. `gift_id` keys the
+   deposit and the give (host-drawn). `exporter_location`, when non-NULL and
+   non-empty, is the verbatim exporter locator embedded in the give (an iroh
+   exporter reachable only by a Direct dial hint); NULL or empty uses the
+   exporter session's own location record. Both sessions must be open
+   (PANCAKE_ERR_SESSION otherwise). All byte and reference inputs are borrowed. */
+int32_t pancake_node_originate_give(PancakeNode *node, uint64_t recipient_conn, uint64_t exporter_conn, const PancakeReference *gifted_ref, const uint8_t *gift_id, size_t gift_id_len, uint64_t answer, const uint8_t *exporter_location, size_t exporter_location_len);
+/* Enroll a redeemed far-object capability `far_id` (the reference a withdraw
+   resolved to, hosted on exporter_conn) under a fresh synthetic token, writing
+   the token's far id into out_token. Hand the token to the application as an
+   ordinary far capability; a later pancake_node_route of it forwards to
+   exporter_conn with far_id swapped back in. The token is drawn from a reserved
+   high range disjoint from any wire import. */
+int32_t pancake_node_enroll_redeemed(PancakeNode *node, uint64_t exporter_conn, uint64_t far_id, uint64_t *out_token);
+/* Resolve where a deliver to far-object `far_id` rides. A redeemed token routes
+   to its exporter connection with the real far id; any other far id rides
+   default_conn unchanged. Writes the destination conn_id / far id and 1/0 into
+   out_routed (0 when a redeemed token names an exporter connection that is gone,
+   so the deliver must be dropped). */
+int32_t pancake_node_route(PancakeNode *node, uint64_t default_conn, uint64_t far_id, uint64_t *out_conn_id, uint64_t *out_far_id, uint32_t *out_routed);
+/* Record that the fetched far import `far_id` lives on connection `home`, so a
+   later foreign-home return is re-gifted instead of mis-encoding a
+   cross-connection reference (ADR-0009 gifter half). A synthetic redeemed token
+   (a high far id) is never a wire import, so recording it is a no-op. */
+int32_t pancake_node_record_foreign_home(PancakeNode *node, uint64_t far_id, uint64_t home);
+/* The connection a fetched far import `far_id` lives on. Writes the home conn_id
+   into out_conn_id and 1/0 into out_found (0 for any far id that was never
+   recorded, including a redeemed token). */
+int32_t pancake_node_foreign_home(PancakeNode *node, uint64_t far_id, uint64_t *out_conn_id, uint32_t *out_found);
+/* Whether far-object `far_id`, used as a send/tell argument from default_conn,
+   names a capability foreign to that connection: a redeemed handoff token (the
+   node routes it to a different exporter) or a far the node recorded as fetched
+   on another connection. Writes 1/0 into out_foreign. A binding fails closed on
+   1 rather than mis-encoding the reference for this partner; the gifter half
+   re-gifts such a capability when it is returned (ADR-0009). */
+int32_t pancake_node_arg_is_foreign(PancakeNode *node, uint64_t default_conn, uint64_t far_id, uint32_t *out_foreign);
 /* Take the next event as a structured deliver, or PANCAKE_ERR_WRONG_EVENT /
    PANCAKE_ERR_WOULD_BLOCK. PANCAKE_ERR_WRONG_EVENT, PANCAKE_ERR_UNSUPPORTED_VALUE,
    and decode failures leave the event queued; drain it with

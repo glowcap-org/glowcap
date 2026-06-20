@@ -8,7 +8,7 @@
 /* A C embedder owning every pancake allocation: a trivial bump arena behind the
    PancakeContext host-allocator callbacks. Over-aligned so any alignment pancake
    asks for (peer object, session tables) lands aligned. Frees are counted, not
-   reclaimed — enough to assert the context balances alloc against free. */
+   reclaimed, enough to assert the context balances alloc against free. */
 static alignas(64) unsigned char arena[1u << 20];
 static size_t arena_used;
 static size_t alloc_calls;

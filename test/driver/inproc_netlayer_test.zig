@@ -171,7 +171,7 @@ test "inproc netlayer: closing the listener wakes a parked accept cleanly" {
     // Park an accept on its own fiber, give it time to reach the wait, then
     // close the listener out from under it. The woken accepter must observe
     // the close and return before the listener frees its mutex and pending
-    // list — the waiter accounting in the close path is what makes that safe.
+    // list, the waiter accounting in the close path is what makes that safe.
     var accept_future = try io.concurrent(acceptUntilClosed, .{ listener, allocator });
     std.Io.sleep(io, std.Io.Duration.fromMilliseconds(20), .real) catch {};
     listener.close();

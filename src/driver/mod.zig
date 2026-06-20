@@ -22,7 +22,7 @@
 //!
 //! This file is the driver root: the vocabulary every driver embedding shares
 //! (`Error`, `Identity`, `Capability`, `Settled`, `ServeOptions`) and the verbs
-//! the surfaces ride once — `publishNamed`, `spawnAt`, `sendBootstrapFetch`, and
+//! the surfaces ride once, `publishNamed`, `spawnAt`, `sendBootstrapFetch`, and
 //! the `drawSessionSecret` entropy boundary. The surfaces themselves live in
 //! sibling files and are re-exported here, so every driver surface is reached
 //! through this one root: the borrowing, caller-pumped `ConnectedVat` and its
@@ -197,6 +197,17 @@ pub const acceptTcp = connected_vat.acceptTcp;
 pub const connectVia = connected_vat.connectVia;
 pub const connectUri = connected_vat.connectUri;
 pub const acceptVia = connected_vat.acceptVia;
+
+/// The sans-io cross-connection handoff router (`engine.Node`, ADR-0066),
+/// re-exported so a native driver embedder reaches it as `driver.Node`. It lives
+/// in the engine core because it is pure routing data; this is the ergonomic
+/// alias next to the other driver surfaces. It owns the per-connection peers, the
+/// shared gift registry, and the redeemed-token / foreign-home routing tables
+/// that make three-party handoff transparent; the vat stays above it.
+pub const Node = engine.Node;
+/// A `Node` connection handle (`engine.ConnId`), re-exported so embedders name an
+/// exporter/recipient connection as `driver.ConnId`.
+pub const ConnId = engine.ConnId;
 
 const connection = @import("connection.zig");
 /// The owning, one-call application connection `connect`/`listen` hand back

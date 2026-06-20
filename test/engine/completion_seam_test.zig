@@ -17,7 +17,7 @@ const pancake = @import("pancake");
 
 const engine = pancake.ocapn.engine;
 
-/// `op:deliver` to live local export 7, answer position 11 — the same fixed
+/// `op:deliver` to live local export 7, answer position 11, the same fixed
 /// frame the alloc-budget test reuses, so re-applying it is idempotent on the
 /// session tables and a steady stream of them never errors.
 const deliver_to_export7 = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
@@ -55,7 +55,7 @@ fn drainDeliverEvents(peer: *engine.Peer) !usize {
 test "completion seam: a frame delivered one byte at a time applies exactly once" {
     var peer = engine.Peer.init(std.testing.allocator);
     defer peer.deinit();
-    try peer.session_state.registerExport(7);
+    try peer.session_state.registerExport(.from(7));
 
     var buf: [256]u8 = undefined;
     var valid: usize = 0;
@@ -87,7 +87,7 @@ test "completion seam: a frame delivered one byte at a time applies exactly once
 test "completion seam: two frames in one read drain via compaction" {
     var peer = engine.Peer.init(std.testing.allocator);
     defer peer.deinit();
-    try peer.session_state.registerExport(7);
+    try peer.session_state.registerExport(.from(7));
 
     const wire = deliver_to_export7 ++ deliver_to_export7;
     var buf: [512]u8 = undefined;
@@ -102,7 +102,7 @@ test "completion seam: two frames in one read drain via compaction" {
 test "completion seam: a frame plus a partial next frame leaves the tail buffered" {
     var peer = engine.Peer.init(std.testing.allocator);
     defer peer.deinit();
-    try peer.session_state.registerExport(7);
+    try peer.session_state.registerExport(.from(7));
 
     // One whole frame followed by a strict prefix of the next: the loop applies
     // the first and keeps the partial tail for the following read.

@@ -109,8 +109,8 @@ typedef struct PancakeSettled {
 } PancakeSettled;
 
 /* Dial host:port, run the ephemeral keyed handshake, and return an owning
-   session framing on `codec` and refusing inbound frames over max_frame_bytes
-   — the C twin of driver.connect(&.{tcp}, ., .ephemeral, .). Blocking; `host`
+   session framing on `codec` and refusing inbound frames over max_frame_bytes,
+   the C twin of driver.connect(&.{tcp}, ., .ephemeral, .). Blocking; `host`
    is borrowed. PANCAKE_ERR_INVALID_ARGUMENT for a bad codec, a zero frame cap,
    or an unparseable address; PANCAKE_ERR_IO (see pancake_tcp_last_error) when
    the dial fails. Release with pancake_tcp_session_release. */
@@ -167,7 +167,7 @@ void pancake_tcp_promise_release(PancakeTcpPromise *promise);
 /* Tear down the session: close the connection (freeing the owned peer and
    buffers) and free the handle. Do not use `session` afterward. */
 void pancake_tcp_session_release(PancakeTcpSession *session);
-/* Copy the calling thread's last TCP-transport error into out_buf — the tcp
+/* Copy the calling thread's last TCP-transport error into out_buf, the tcp
    sibling of pancake_last_error, reading this archive's own per-thread slot. A
    pancake_tcp_* call that returns PANCAKE_ERR_IO records its concrete cause here.
    Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0

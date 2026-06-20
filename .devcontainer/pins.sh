@@ -1,4 +1,4 @@
-# pancake devcontainer pins — versions and canonical paths.
+# pancake devcontainer pins, versions and canonical paths.
 # Install, verify, Dockerfile ENV, and devcontainer.json must stay aligned.
 # check-env-sync.sh enforces path consistency across those surfaces.
 

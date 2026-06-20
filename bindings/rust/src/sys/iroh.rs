@@ -63,7 +63,7 @@ extern "C" {
 
 	// The event-driven loop surface (ADR-0057): the netlayer's one I/O model.
 	// Park on the readiness fd, drain records when it signals, and drive
-	// non-blocking byte I/O — one task serves many connections.
+	// non-blocking byte I/O, one task serves many connections.
 	pub fn pancake_iroh_netlayer_readiness_fd(netlayer: *mut PancakeIrohNetlayer) -> c_int;
 	pub fn pancake_iroh_netlayer_drain_ready(
 		netlayer: *mut PancakeIrohNetlayer,

@@ -21,6 +21,8 @@ across the bindings:
 | `conn.fetch(name)`             | Fetch a partner's published capability by name; returns a `Ref`                                                                                                                                        |
 | `conn.enliven(sturdyref)`      | Bring a durable `ocapn://…/s/<swiss>` sturdyref to life on the open session; returns a `Ref`, with a dedup cache (ADR-0012)                                                                            |
 | `conn.spawn(behavior)`         | Create a local actor; returns a `Ref` that auto-marshals in args                                                                                                                                       |
+| `conn.caretaker(ref)`          | Wrap any `Ref` (local or far) in a revocable forwarding proxy; returns the proxy `Ref` plus a `revoke` lever — calls forward until revoked, then break `Revoked` (ADR-0064)                              |
+| `conn.attenuate(ref, verbs)`   | Wrap any `Ref` in a proxy that forwards only the allow-listed `verbs` and breaks every other call `Attenuated` (ADR-0064)                                                                                |
 | `conn.send(ref, verb, args)`   | Call a method on a capability and await the reply                                                                                                                                                      |
 | `conn.tell(ref, verb, args)`   | Fire-and-forget send (Goblins `<-np`): no answer, no reply. Use it for notifications and broadcasts.                                                                                                   |
 | `conn.serve()`                 | Run the inbound event loop (resolves on close, rejects on error)                                                                                                                                       |
@@ -52,7 +54,7 @@ one. Racket's `(accept (listen host port))` returns the same `connection` that
 `connect` does.
 
 Receiving a three-party handoff is transparent on the application surface: a
-binding's `Connection` redeems a `desc:handoff-give` itself — its machine router
+binding's `Connection` redeems a `desc:handoff-give` itself — its node router
 dials the named exporter with the connection's retained identity, withdraws the
 gift, and resolves the `send`/`fetch` to an ordinary capability that later sends
 route to the exporter — so application code calls a handed-off capability
@@ -66,19 +68,25 @@ actor returns a `Ref` whose home is a different connection than the one asking,
 the binding deposits the gift on the home connection and answers with a signed
 `desc:handoff-give` — no choreography in application code. This rests on one
 identity and one gift registry per node: a node's `Server`, `connect`, and
-redeem connections share a `Machine` (read it as `server.machine`), so a gift
+redeem connections share a `Node` (read it as `server.node`), so a gift
 deposited on one connection is withdrawable on another and a pancake node serves
-direct redeems as the exporter. It is proven by the `deno-gifter-gate`
+direct redeems as the exporter. It is proven by the `deno-gifter-handoff`
 (all-pancake, broker out of the path), the per-binding `deno-goblins-gift`,
 `python-goblins-gift`, `rust-goblins-gift`, and `racket-goblins-gift` gates
 (pancake as gifter, live Goblins recipient + exporter), and `demo-rooms-dm`
 (rooms direct-message-by-introduction) build steps.
 
-The raw peer (`conn.peer`) remains available beneath the application surface.
-Use it for promise pipelining, session control, or fixed-position interop with a
-partner that expects a known export slot. The
-[`examples/apps/`](../examples/apps/) clients are built entirely on the surface
-above.
+Promise pipelining is on the application surface itself: the handle a `send`
+returns is a valid target for the next `send`, so a call addressed at an answer
+that has not resolved yet costs one round trip instead of one per dependent link
+(ADR-0007 serving, ADR-0065 questioner). Pass the vow back as the target — Rust's
+`RemotePromise`, Python's and TypeScript's `RemotePromise`, Racket's
+`conn-send-promise` result — and settle only the tail.
+
+The raw peer (`conn.peer`) remains available beneath that surface for session
+control or fixed-position interop with a partner that expects a known export
+slot. The [`examples/apps/`](../examples/apps/) clients are built entirely on the
+surface above.
 
 One binding-specific shape remains, and it follows Rust's async model. Rust's
 `tell` returns once the deliver is queued on the driver task, and that task
@@ -93,7 +101,7 @@ The `Connection` and actor layers above are pure composition over the C ABI. The
 ABI itself stays small and C-shaped, and it ships as composable per-family
 archives a consumer links à la carte (ADR-0059): `libpancake_ocapn` carries the
 peer plus the shared vocabulary in `pancake_ocapn.h`, and each transport is its
-own archive and header — `libpancake_net_transport_tcp`
+own archive and header, `libpancake_net_transport_tcp`
 (`pancake_net_transport_tcp.h`), `libpancake_net_transport_inproc`
 (`pancake_net_transport_inproc.h`), and `libpancake_net_transport_iroh`
 (`pancake_net_transport_iroh.h`). Together they expose these groups:
@@ -146,6 +154,16 @@ own archive and header — `libpancake_net_transport_tcp`
   promises, sturdyrefs (the enliven dedup cache owns them), bootstrap, and
   redeemed handoff tokens are excluded — so the behavior is uniform across all
   four bindings.
+- **Object-capability forwarders (ADR-0064).** `conn.caretaker(ref)` and
+  `conn.attenuate(ref, verbs)` spawn an ordinary actor whose behavior returns the
+  binding's forward value — `Turn.forward`, the binding-level shape of the Zig
+  vat primitive — so it wraps *any* `Ref`, local or wire-imported, and a binding
+  hands out a revocable or narrowed view of authority it does not own. The shared
+  dispatch path tail-resolves the answer from the forwarded send: a local target
+  near-calls (composing), a far target defers the caller's answer until the reply
+  settles. Because the proxy is a plain actor it answers the host's own near-call
+  exactly as it answers a partner's delivery. Each binding owns this in its serve
+  loop; the C ABI stays the same low-level deliver/resolve surface.
   `pancake_peer_peek_event`, `pancake_peer_poll_event_deliver`, and
   `pancake_peer_poll_event_resolve` read inbound deliveries and resolutions as
   structured values; a value the typed surface cannot carry (e.g. a handoff
@@ -194,7 +212,7 @@ archives, and each one mirrors the à-la-carte archive set (ADR-0059): a
 standalone **core** module over `libpancake_ocapn`, plus one composable module
 per transport that loads or links only its own archive. Importing or enabling a
 transport pulls in just that transport's archive, exactly as a C consumer links
-archives or a Zig consumer imports modules — the core never loads a transport,
+archives or a Zig consumer imports modules, the core never loads a transport,
 and one transport never loads another. Rust links the installed static archives;
 Deno, Python, and Racket load the installed shared archives. The core module is
 usable on its own, and a consumer composes only the transports a program reaches
@@ -216,7 +234,7 @@ language-native async layer.
 | [`python/`](python/) | the `pancake` package (`Peer`, native Python values)                                                                  | `pancake.tcp`, `pancake.inproc`, `pancake.iroh`                                   | `zig_smoke.py`                          |
 | [`racket/`](racket/) | `pancake.rkt` (`peer`, native Racket values, event structs)                                                           | `pancake-tcp.rkt`, `pancake-inproc.rkt`, `pancake-iroh.rkt`                       | `zig-smoke.rkt`                         |
 
-Picking transports à la carte reads the same way in every binding — import or
+Picking transports à la carte reads the same way in every binding, import or
 enable the core, then add only the transports you want:
 
 ```ts
@@ -242,7 +260,7 @@ from pancake.tcp import TcpNetlayer
 pancake = { version = "*", features = ["iroh"] }   # implies the async feature
 ```
 
-Each binding keeps its raw FFI and generated ABI constants in clearly-internal
+Each binding keeps its raw FFI and its hand-mirrored ABI constants in clearly-internal
 modules grouped per archive the way the C ABI is, idiomatic to its ecosystem —
 Rust's private `sys` (`sys/{ocapn,tcp,inproc,iroh}.rs`) and `abi_constants`, the
 JS binding's per-archive loaders and runtime FFI shim under
@@ -403,6 +421,36 @@ busy-poll. Each is held to the same scale bar by a many-connection gate —
 `zig build demo-rooms-iroh` runs the same cross-language room over iroh; a
 binding joins when its runtime and the iroh library are both present.
 
+Every binding also mints and redeems a three-party handoff **over iroh** through
+its own surface, the gifter records the exporter's dialable iroh location as the
+give's exporter location (`encode_peer_locator` + `set_exporter_locator`), and the
+recipient redeems it transparently by dialing that endpoint directly. `zig build
+bindings-iroh-handoff` runs `python-iroh-handoff`, `rust-iroh-handoff`, and
+`racket-iroh-handoff`, each standing up exporter, gifter, and recipient across
+three iroh endpoints in one process under the relay-less `Direct` posture (the
+Deno binding proves the same path through `demo-rooms-dm-iroh`).
+
+Both iroh reachability postures ship in every binding, not just Deno. The
+`Direct` posture (dial the exporter's `direct-addresses`) is what the handoff
+gates above exercise; the `Discovery` posture (dial by **node id alone** over n0
+relays + DNS/pkarr) is carried by every `connect_iroh`, whose dial retries on a
+shared settle/retry budget while the partner's pkarr record propagates. When a
+give names its exporter by **node id alone** (no `direct-addresses`), the
+recipient resolves it under its node's configured redeem posture — `Discovery`
+by default, lowerable to `DiscoveryNoRelay` for a no-relay policy through each
+binding's `set_redeem_reachability` knob (`setRedeemReachability` in TS, the
+`redeem_reachability` property in Python, `set-node-redeem-reachability!` in
+Racket); a hinted give always dials `Direct`. That the redeem honors the
+configured posture is proven hermetically per binding by `zig build
+bindings-iroh-redeem-posture` — each lowers its recipient to `local_discovery`
+and redeems a hint-less give by id through an in-process book (the default
+`Discovery` would need the network). Its
+offline, deterministic dial-by-id form (`local_discovery`) is proven by the
+`*-iroh-loop` gates; the live public-internet form is proven per binding by the
+opt-in `zig build bindings-iroh-reachability` (`python-`/`rust-`/`racket-iroh-reachability`),
+two `Discovery`-posture endpoints reaching each other by id alone — kept out of
+`check` because publish-propagation timing is not hermetic.
+
 ## Running
 
 ```sh
@@ -411,12 +459,12 @@ zig build rust-dogfood    # just the Rust consumer
 ```
 
 `zig build bindings` requires `cargo`, `deno`, `bun`, `python3`, and `racket` on
-PATH — provided by [`../.devcontainer/`](../.devcontainer/). The libraries are
+PATH, provided by [`../.devcontainer/`](../.devcontainer/). The libraries are
 built and installed under `../zig-out/lib/` first.
 
 ## Finding the archives
 
-Every binding locates its archives through the same cascade — configure first,
+Every binding locates its archives through the same cascade, configure first,
 then a development fallback, then the system search:
 
 1. **`PANCAKE_LIB_DIR` (configure).** If the environment names a directory, the
@@ -436,7 +484,7 @@ For the load-time bindings (the TypeScript, Python, and Racket FFIs) this runs
 on each `dlopen`; the Deno gate passes `--allow-env` so the configure leg is
 reachable. Rust links the core/tcp/inproc archives **statically**, so the
 cascade is a build-time link-search path there; only the dynamically-loaded iroh
-sidecar carries it forward as a runtime rpath. A future hosted, versioned
-release of the per-platform archives — pancake's "C release" — drops a
-cached-download leg in between configure and the dev fallback without changing
-this order.
+sidecar carries it forward as a runtime rpath. A hosted, versioned release of
+the per-platform archives — pancake's "C release" — is not shipped yet; it would
+drop a cached-download leg between configure and the dev fallback without
+changing this order.

@@ -30,7 +30,7 @@
      (printf "~a: confirmed task #~a is done\n" nick id)
      (flush-output)]
     [else
-     (eprintf "~a: FAIL — task #~a not marked completed\n" nick id)
+     (eprintf "~a: FAIL, task #~a not marked completed\n" nick id)
      (board-leave b)
      (exit 1)])
   (board-leave b))

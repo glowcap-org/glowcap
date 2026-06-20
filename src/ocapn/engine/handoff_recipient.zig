@@ -7,9 +7,12 @@ const std = @import("std");
 const model = @import("model");
 const codec = @import("codec");
 const crypto = @import("foundation").crypto;
+const session_mod = @import("session");
+const bootstrap = @import("bootstrap.zig");
 
 const Sha256 = std.crypto.hash.sha2.Sha256;
 
+/// Double-SHA256 a gifter uses to derive a stable gift id from a swissnum.
 pub fn sha256d(data: []const u8) [32]u8 {
     var once: [32]u8 = undefined;
     Sha256.hash(data, &once, .{});
@@ -18,44 +21,26 @@ pub fn sha256d(data: []const u8) [32]u8 {
     return twice;
 }
 
-/// Render the canonical `public-key` s-expression Goblins hashes into a side
-/// name. The key must be exactly a 32-byte Ed25519 public key — the only width
-/// the protocol uses. A non-32-byte key is rejected (`MalformedKey`) rather than
-/// silently producing a Goblins-incompatible name, and the rejection forecloses
-/// an over-long key overflowing `buf`. The literal `32:` length prefix below is
-/// pinned to `crypto.PEER_KEY_BYTES` by the comptime assert.
-pub fn pubkeySyrup(buf: []u8, key: []const u8) error{MalformedKey}![]u8 {
-    comptime std.debug.assert(crypto.PEER_KEY_BYTES == 32);
-    if (key.len != crypto.PEER_KEY_BYTES) return error.MalformedKey;
-    const prefix = "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:";
-    var w: usize = 0;
-    @memcpy(buf[w..][0..prefix.len], prefix);
-    w += prefix.len;
-    @memcpy(buf[w..][0..key.len], key);
-    w += key.len;
-    const suffix = "]]]";
-    @memcpy(buf[w..][0..suffix.len], suffix);
-    w += suffix.len;
-    return buf[0..w];
-}
-
+/// Goblins "side name" for a session public key — the OCapN Public Identifier
+/// (`crypto.derivePublicIdentifier`), surfaced as its raw 32 bytes for the
+/// handoff records that carry it. Single-sourced against the foundation
+/// derivation so the side a handoff names can never drift from the side a
+/// handshake derives. The key must be exactly a 32-byte Ed25519 public key — the
+/// only width the protocol uses; any other length is `MalformedKey`.
 pub fn sideName(key: []const u8) error{MalformedKey}![32]u8 {
-    var buf: [128]u8 = undefined;
-    return sha256d(try pubkeySyrup(&buf, key));
+    const peer_key = crypto.PeerKey.fromSlice(key) catch return error.MalformedKey;
+    return crypto.derivePublicIdentifier(peer_key).bytes;
 }
 
+/// Goblins "session name" for two side names, the OCapN Session ID
+/// (`crypto.sessionIdFromPeerIds`) computed from sides the caller already holds.
 pub fn sessionName(side_a: [32]u8, side_b: [32]u8) [32]u8 {
-    const first, const second = if (std.mem.lessThan(u8, &side_a, &side_b)) .{ side_a, side_b } else .{ side_b, side_a };
-    var buf: [5 + 32 + 32]u8 = undefined;
-    @memcpy(buf[0..5], "prot0");
-    @memcpy(buf[5..37], &first);
-    @memcpy(buf[37..69], &second);
-    return sha256d(&buf);
+    return crypto.sessionIdFromPeerIds(.fromBytes(side_a), .fromBytes(side_b)).bytes;
 }
 
 /// A signed `desc:handoff-receive` that owns its derived bytes. The session and
 /// side names and the signature live inline, so the `model.HandoffReceive` that
-/// `message` projects borrows only this value — no dangling stack references
+/// `message` projects borrows only this value, no dangling stack references
 /// once the builder returns. The caller holds the `SignedReceive` until the
 /// withdraw it carries has been encoded, and keeps owning `give_bytes`.
 pub const SignedReceive = struct {
@@ -90,19 +75,24 @@ pub const SignedReceive = struct {
 /// returning a self-contained `SignedReceive` the caller keeps alive while it
 /// encodes the withdraw. `secret` is the recipient's session key — the one the
 /// gifter named as the give's recipient key — so the exporter verifies the
-/// receive against it.
+/// receive against it. The `handoff_count` is minted from `registry` against the
+/// derived receiving session, so the monotonic replay counter is owned by the
+/// vat-scoped registry here rather than re-tracked by every caller (ADR-0056).
 pub fn signedReceiveFromGiveBytes(
     allocator: std.mem.Allocator,
+    limits: session_mod.SessionLimits,
+    registry: *bootstrap.GiftRegistry,
     secret: crypto.SecretKey,
     our_pubkey: crypto.PeerKey,
     exporter_partner_key: []const u8,
     give_bytes: []const u8,
-    handoff_count: u64,
 ) !SignedReceive {
     const our_side = try sideName(our_pubkey.asBytes());
     const exporter_side = try sideName(exporter_partner_key);
+    const receiving_session = sessionName(our_side, exporter_side);
+    const handoff_count = try registry.nextEmittedCount(allocator, limits, &receiving_session);
     var result: SignedReceive = .{
-        .receiving_session = sessionName(our_side, exporter_side),
+        .receiving_session = receiving_session,
         .receiving_side = our_side,
         .signature = [_]u8{0} ** crypto.SIGNATURE_BYTES,
         .give_bytes = give_bytes,

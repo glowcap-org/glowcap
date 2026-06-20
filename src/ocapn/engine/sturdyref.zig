@@ -37,7 +37,7 @@ pub const Error = error{
     /// Enliven was attempted on a session that is not `open`.
     SessionNotOpen,
     /// The partner settled the bootstrap-fetch answer as a `break`, or with a
-    /// non-`Reference` fulfillment — the swiss-number could not be enlivened
+    /// non-`Reference` fulfillment, the swiss-number could not be enlivened
     /// (ADR-0012 § Enliven over bootstrap-fetch).
     EnlivenmentBroke,
 };
@@ -50,7 +50,7 @@ pub const EnlivenStart = union(enum) {
     cached: model.Reference,
     /// An enliven for this swiss-number is already in flight on `answer_position`; this
     /// call collapsed onto it (ADR-0012 in-flight dedup). Nothing new to send.
-    in_flight: u64,
+    in_flight: model.AnswerId,
     /// Cache + in-flight miss: a fresh bootstrap-fetch. The adapter sends
     /// `prepared.message` (move it into `Peer.send`), drives the wire loop, and
     /// feeds the settlement to `recordEnlivenment`. Owns `prepared.message`.
@@ -73,7 +73,7 @@ pub fn checkEnlivenPreconditions(session: *session_mod.Session) Error!void {
 /// through to a fresh enliven. The returned reference is POD (no allocation).
 pub fn sturdyrefCacheHit(session: *session_mod.Session, sturdyref: model.SturdyRef) ?model.Reference {
     const entry = session.sturdyrefCacheLookup(sturdyref.swissnum) orelse return null;
-    return .{ .far = .{ .import_position = entry.import_position, .kind = entry.kind } };
+    return .{ .far = entry.far };
 }
 
 /// Begin an enliven for `sturdyref`. Checks preconditions, then resolves to a
@@ -105,8 +105,8 @@ pub fn prepareEnliven(
 /// Settle a fresh enliven from its bootstrap-fetch `fetch.FetchOutcome`, taking
 /// ownership of `outcome`. Clears the in-flight marker for `swissnum`, then:
 ///
-/// - `fulfilled(Reference.far)`: caches `(import_position, kind)` (ADR-0012) and returns
-///   the reference (moved out — the caller owns it).
+/// - `fulfilled(Reference.far)`: caches the `FarRef` (ADR-0012) and returns
+///   the reference (moved out, the caller owns it).
 /// - `fulfilled(non-far)` / `broken` / `malformed`: releases any owned payload and
 ///   returns `Error.EnlivenmentBroke`.
 ///
@@ -123,7 +123,7 @@ pub fn recordEnlivenment(
     switch (outcome) {
         .fulfilled => |reference| switch (reference) {
             .far => |far| {
-                session.cacheSturdyrefEnlivenment(swissnum, far.import_position, far.kind) catch {
+                session.cacheSturdyrefEnlivenment(swissnum, far) catch {
                     // The cache is non-load-bearing; a failed insert costs a future
                     // round-trip, not correctness. Keep the live reference.
                 };

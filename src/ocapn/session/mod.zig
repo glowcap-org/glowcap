@@ -21,11 +21,20 @@ const std = @import("std");
 const model = @import("model");
 const answers = @import("answers.zig");
 const slot_table = @import("slot_table.zig");
+const sturdyref_cache = @import("sturdyref_cache.zig");
+const imported_promise = @import("imported_promise.zig");
+const gc = @import("gc.zig");
+const v1_0 = @import("v1_0.zig");
+const handshake = @import("handshake.zig");
+const limits = @import("limits.zig");
 
-/// Position-keyed wire-delta refcount table (exports / imports). See
-/// `slot_table` for why partner-controlled positions use an integer-keyed
-/// hash rather than a raw index vector.
-const SlotTable = slot_table.SlotTable;
+/// Position-keyed wire-delta refcount tables. Exports and imports share one
+/// integer-keyed hash core (`slot_table` explains why partner-controlled
+/// positions cannot use a raw index vector) but wrap it in distinct types so the
+/// cap that bounds partner-driven imports is a property of `ImportTable`, not a
+/// rule each call site must restate.
+const ExportTable = slot_table.ExportTable;
+const ImportTable = slot_table.ImportTable;
 
 /// Error set for the borrowed-view recv walkers: session authority errors plus
 /// the lazy projection errors a codec-backed `model.view.Args` can raise while
@@ -154,13 +163,15 @@ comptime {
 ///
 /// `OutboundResolvers` maps a resolver-export id to an answer-pos, because the
 /// hot lookup (`answerForResolverExport`, run per inbound deliver) needs that
-/// reverse direction. `InboundResolvers` maps an answer-pos to a resolver
-/// import; its inverse (`answerForResolverImport`, on the inbound-deliver
-/// break-propagation path) needs the other direction, so the session keeps
-/// both maps in lockstep rather than scanning. Neither owns heap memory beyond
-/// its map backing.
-const OutboundResolvers = std.AutoHashMapUnmanaged(u64, u64);
-const InboundResolvers = std.AutoHashMapUnmanaged(u64, u64);
+/// reverse direction. `InboundResolverImports` maps an answer-pos to a resolver
+/// import; its inverse `InboundResolverAnswers` (`answerForResolverImport`, on
+/// the inbound-deliver break-propagation path) needs the other direction, so
+/// the session keeps both maps in lockstep rather than scanning. Keying each on
+/// its position newtype makes the direction a property of the type. Neither owns
+/// heap memory beyond its map backing.
+const OutboundResolvers = std.AutoHashMapUnmanaged(model.ExportId, model.AnswerId);
+const InboundResolverImports = std.AutoHashMapUnmanaged(model.AnswerId, model.ImportId);
+const InboundResolverAnswers = std.AutoHashMapUnmanaged(model.ImportId, model.AnswerId);
 
 pub const State = enum {
     negotiating,
@@ -168,68 +179,9 @@ pub const State = enum {
     closed,
 };
 
-/// Bounds on pipelining state (ADR-0007), keeping a peer from being driven into
-/// unbounded memory by a partner that pipelines or listens without ever
-/// resolving. Each overflow is a loud session error, never a silent drop. The
-/// `max_local_deliveries` bound is enforced by the engine's resolution drain;
-/// the rest are enforced here in the session. Defaults mirror the canonical
-/// engine's `SessionLimits`.
-pub const SessionLimits = struct {
-    /// Max pipelined calls queued against a single pending answer.
-    queue_cap: usize = 1024,
-    /// Max inbound answer rows held at once.
-    max_inbound_answers: usize = 65_536,
-    /// Max listeners registered against a single target. Also bounds the
-    /// `op:get` / `op:index` projections anchored on a single answer — the
-    /// same partner-driven fan-out class (ADR-0050).
-    max_listeners_per_target: usize = 64,
-    /// Max re-anchor hops one `op:get` / `op:index` projection may walk
-    /// through *stored* resolutions (ADR-0050). A settled answer whose stored
-    /// resolution is itself a promise re-anchors the projection on that
-    /// promise's answer synchronously; past this bound the projected answer
-    /// breaks, so a cyclic stored-resolution chain fails loud instead of
-    /// spinning.
-    max_projection_chain: usize = 64,
-    /// Max local deliveries surfaced from one resolution drain (engine-enforced).
-    max_local_deliveries: usize = 4096,
-    /// Max import-table rows — bounds a partner introducing unboundedly many
-    /// imports (ADR-0025). Each new partner-driven import registration checks it;
-    /// locally-allocated exports are bounded by our own sends, so exports are
-    /// uncapped.
-    max_imports: usize = 1_048_576,
-    /// Max distinct Exporter-to-Receiver session ids tracked in the vat's
-    /// handoff replay set (`engine.bootstrap.GiftRegistry`, ADR-0025). Each row
-    /// holds one monotonic `last_count`.
-    max_seen_handoff_counts: usize = 16_384,
-    /// Max deposited-gift rows in the vat's gift registry — load-bearing against
-    /// a gifter depositing gifts that are never withdrawn (ADR-0025).
-    max_deposited_gifts: usize = 65_536,
-    /// Max `withdraw-gift`s parked awaiting their deposit (ADR-0056). The
-    /// deposit travels on a different session than the withdraw, so the order
-    /// is not guaranteed and an exporter parks an early withdraw; this bounds a
-    /// partner whose deposits never arrive.
-    max_pending_withdraws: usize = 4_096,
-    /// Max resolved sturdyref enlivenments cached for dedup (ADR-0012). The cache
-    /// is non-load-bearing — a miss costs one extra bootstrap-fetch round-trip,
-    /// never correctness — so an overflow evicts the oldest entry instead of
-    /// erroring. A cap of 0 disables caching.
-    max_sturdyref_cache_entries: usize = 256,
-    /// Max nesting depth of an inbound argument tree (`list` / `set` / `tagged`).
-    /// The value tree is attacker-controlled until validated, and the validate /
-    /// install walk recurses per level, so an unbounded depth is a one-frame
-    /// native-stack overflow (a few KB of nested `[` markers). A loud bound,
-    /// projecting to `resource_exhausted`, sibling to the ADR-0025 table caps.
-    max_nesting_depth: usize = 64,
-    /// Max bytes in a single inbound frame admitted off a byte stream. The
-    /// stream framer caps a frame at this size *during* decode (cap-on-parse),
-    /// so a hostile length claim or never-completing frame fails loud as
-    /// `resource_exhausted` rather than growing a buffer without bound. A
-    /// byte-stream adapter sizes its steady-state read buffer below this cap; a
-    /// frame larger than the buffer pays one bounded spill (`net.Spill`,
-    /// ADR-0041). Not consulted by the frame boundary, which is
-    /// handed an already-framed buffer.
-    max_frame_bytes: usize = 1 << 20,
-};
+/// Resource bounds a session enforces against a partner. Defined in
+/// `limits.zig`; aliased here so call sites keep reading `session.SessionLimits`.
+pub const SessionLimits = limits.SessionLimits;
 
 /// Which answer table an install targets. Inbound rows are partner-named and
 /// bounded by `SessionLimits.max_inbound_answers`; outbound rows are
@@ -239,6 +191,7 @@ pub const AnswerDirection = enum { inbound, outbound };
 
 pub const AnswerStatus = answers.AnswerStatus;
 pub const ListenerEntry = answers.ListenerEntry;
+pub const ListenerList = answers.ListenerList;
 pub const Projection = answers.Projection;
 pub const ProjectionKind = answers.ProjectionKind;
 pub const deinitProjection = answers.deinitProjection;
@@ -255,7 +208,7 @@ pub const deinitAnswerEntry = answers.deinitAnswerEntry;
 /// partner, so it is forwarded to us as a *relayed resolution* rather than a
 /// direct `op:resolve`.
 ///
-/// The presence of a row marks `import_position` third-party-hosted — the distinction
+/// The presence of a row marks `import_position` third-party-hosted, the distinction
 /// that lets an inbound `op:listen` on this import install a listener here rather
 /// than be rejected. Grouping the host, listeners, and resolution in one owned
 /// row gives the third-party promise a single lifecycle.
@@ -264,22 +217,22 @@ pub const ImportedPromise = struct {
     /// so a re-root with a conflicting host is rejected (`Error.HostMismatch`).
     host: []u8,
     /// Parties listening (via `op:listen` on `desc:import-promise`) for the
-    /// relayed resolution. Each owns its `target`.
-    listeners: std.ArrayList(ListenerEntry) = .empty,
+    /// relayed resolution. Each owns its `listener` cap.
+    listeners: ListenerList = .empty,
     /// The relayed resolution once forwarded, stored so a late `op:listen` fires
     /// immediately. Owned; released on removal.
     resolution: ?model.Resolution = null,
 };
 
 /// One resolved sturdyref enlivenment (ADR-0012 dedup cache): the swiss-number
-/// and the `(import_position, kind)` it resolved to. The kind is preserved verbatim so
-/// the cache-hit short-circuit reconstructs the `FarRef` with its wire-tag
-/// discriminator intact (ADR-0010 § The far-kind is preserved across enliven).
-/// Owns its `swissnum`.
+/// and the `FarRef` it resolved to. Storing the whole `FarRef` (import id +
+/// kind), not a loose pair, is what carries ADR-0010 § The far-kind is preserved
+/// across enliven: the cache-hit short-circuit hands the reference back with its
+/// wire-tag discriminator intact, with no destructure-and-reconstruct seam where
+/// the kind could be dropped. Owns its `swissnum`.
 pub const SturdyrefCacheEntry = struct {
     swissnum: []u8,
-    import_position: u64,
-    kind: model.RefKind,
+    far: model.FarRef,
 };
 
 pub const Session = struct {
@@ -328,14 +281,14 @@ pub const Session = struct {
     /// never touches this. Apply dupes anything session-lived onto `allocator`,
     /// so resetting the scratch can never dangle a table row.
     recv_scratch: std.heap.ArenaAllocator,
-    exports: SlotTable,
-    imports: SlotTable,
+    exports: ExportTable,
+    imports: ImportTable,
     inbound_answers: AnswerTable,
     outbound_answers: AnswerTable,
     /// Promises imported from a third party via handoff (ADR-0009), keyed by
     /// import id for O(1) lookup. Each row owns its host designator, listener
-    /// targets, and stored relayed resolution.
-    imported_promises: std.AutoHashMapUnmanaged(u64, ImportedPromise),
+    /// caps, and stored relayed resolution.
+    imported_promises: std.AutoHashMapUnmanaged(model.ImportId, ImportedPromise),
     /// Whether this side has sent its `op:start-session` half (ADR-0006).
     handshake_local_sent: bool,
     /// Whether the partner's `op:start-session` half has been observed.
@@ -367,11 +320,11 @@ pub const Session = struct {
     /// V1.0 resolver-callback links for the partner's *inbound* answers, mapping
     /// an answer-pos to the resolver import id we target when we send our
     /// resolution. See `InboundResolvers`.
-    v1_0_inbound_resolvers: InboundResolvers,
+    v1_0_inbound_resolvers: InboundResolverImports,
     /// The inverse of `v1_0_inbound_resolvers`, mapping a resolver import id back
     /// to its answer-pos, so `answerForResolverImport` is O(1) instead of a scan.
     /// Written in lockstep with `v1_0_inbound_resolvers`; both are monotonic.
-    v1_0_inbound_resolver_answers: InboundResolvers,
+    v1_0_inbound_resolver_answers: InboundResolverAnswers,
     /// Resolved sturdyref enlivenments, mapping a swissnum to its `(import, kind)`
     /// (ADR-0012 dedup).
     /// FIFO-evicting (cap `max_sturdyref_cache_entries`), so it keeps insertion
@@ -380,14 +333,14 @@ pub const Session = struct {
     /// In-flight sturdyref enlivens, mapping a swissnum to its outstanding answer
     /// (ADR-0012 dedup). O(1) lookup; rows are removed on completion, so swissnum
     /// keys are gpa-owned and freed on removal.
-    pending_enlivens: std.StringHashMapUnmanaged(u64),
+    pending_enlivens: std.StringHashMapUnmanaged(model.AnswerId),
     /// The swissnum-to-export registry the inbound-`'fetch` responder consults
     /// (ADR-0006). Keys live in `key_arena`; O(1) lookup. Never removed.
-    bootstrap: std.StringHashMapUnmanaged(u64),
+    bootstrap: std.StringHashMapUnmanaged(model.ExportId),
 
     /// Construction knobs for `initWith`. Every field has a default, so a
     /// caller names only what it overrides: `Session.init(allocator)` is
-    /// `initWith(allocator, .{})`. The knobs are orthogonal — `negotiating`
+    /// `initWith(allocator, .{})`. The knobs are orthogonal, `negotiating`
     /// selects the starting `State`, `limits` sets the resource bounds, and the
     /// rest set the negotiated profile / codec / features the handshake would
     /// otherwise install. The already-open default is v1.0; PreSpec is explicit.
@@ -400,7 +353,7 @@ pub const Session = struct {
         limits: SessionLimits = .{},
     };
 
-    /// Open v1.0 session, all defaults — `initWith(allocator, .{})`.
+    /// Open v1.0 session, all defaults, `initWith(allocator, .{})`.
     pub fn init(allocator: std.mem.Allocator) Session {
         return initWith(allocator, .{});
     }
@@ -423,7 +376,7 @@ pub const Session = struct {
             .features = options.features,
             .limits = options.limits,
             // Start past the bootstrap id so `allocateExport` never aliases the
-            // bootstrap object (export 0) — true from construction, not only once
+            // bootstrap object (export 0), true from construction, not only once
             // `transitionToOpen` runs, so a cap registered before the session
             // opens (e.g. a vat published on accept, hosting on the completion
             // loop) still gets a fresh export rather than colliding with 0.
@@ -471,146 +424,56 @@ pub const Session = struct {
         self.recv_scratch.deinit();
     }
 
-    /// Whether this session's negotiated wire profile is OCapN V1.0, which has no
-    /// native `op:resolve` and therefore needs resolver-callback translation.
-    pub fn needsV1_0Translation(self: *const Session) bool {
-        return self.wire_profile.captp_version == .v1_0;
-    }
+    /// V1.0 resolver-callback translation lives in `v1_0.zig`; these aliases keep
+    /// the call sites reading as ordinary `Session` methods while the bodies sit
+    /// beside the rest of the V1.0 bridge. The resolver-link fields they operate
+    /// on stay on `Session`.
+    pub const needsV1_0Translation = v1_0.needsV1_0Translation;
+    pub const installOutboundResolver = v1_0.installOutboundResolver;
+    pub const mintOutboundResolver = v1_0.mintOutboundResolver;
+    pub const installInboundResolver = v1_0.installInboundResolver;
+    pub const resolverForInboundAnswer = v1_0.resolverForInboundAnswer;
+    pub const answerForResolverImport = v1_0.answerForResolverImport;
+    pub const allocateInboundAnswer = v1_0.allocateInboundAnswer;
+    pub const answerForResolverExport = v1_0.answerForResolverExport;
 
-    /// Record that our outbound `answer` is resolved via local resolver export
-    /// `resolver_export` (the id we advertised in `resolve_me_desc`). Committed
-    /// after the augmented deliver is accepted.
-    pub fn installOutboundResolver(self: *Session, answer: u64, resolver_export: u64) !void {
-        try self.v1_0_outbound_resolvers.put(self.allocator, resolver_export, answer);
-    }
-
-    /// Mint a synthesized V1.0 resolver export for `answer` and commit, in one
-    /// place, the whole wire-delta accounting its on-wire mention requires:
-    /// allocate the export, install the answer→resolver link, and take the
-    /// export's wire-delta retain. The V1.0 encode hooks
-    /// (`engine.v1_0.installResolverForOutboundDeliver` for an answered deliver,
-    /// `installListenerForOutboundProjection` for a projection listener) put the
-    /// resolver mention on the wire *outside* `recordSend`/`retainSentExports`,
-    /// so this is the single owner of that accounting — both hooks route through
-    /// it rather than restating the three steps and risking drift from
-    /// `applySend`. All-or-none: a failure after the export is minted rolls it
-    /// back, since it was never handed to the partner. Returns the minted
-    /// resolver export position.
-    pub fn mintOutboundResolver(self: *Session, answer: u64) !u64 {
-        const resolver_export = try self.allocateExport();
-        errdefer self.releaseUnsharedExport(resolver_export);
-        try self.installOutboundResolver(answer, resolver_export);
-        // Undo the resolver link before the export rollback: the wire-delta
-        // retain below can fail (it allocates), and a successful retain would
-        // have bumped the export past count 1, where the single-decrement
-        // `releaseUnsharedExport` no longer removes it. Removing the link first
-        // (errdefers run last-in-first-out) keeps the failure path clean.
-        errdefer _ = self.v1_0_outbound_resolvers.remove(resolver_export);
-        try self.retainSentExportRef(.{ .near = model.NearRef.promise(resolver_export) });
-        return resolver_export;
-    }
-
-    /// Record that the partner's inbound `answer` is resolved via their resolver
-    /// import `resolver_import` (advertised in the deliver's `resolve_me_desc`).
-    /// All-or-none: a failure on either map put rolls back everything already
-    /// committed — the import retain and the forward entry — so no half-installed
-    /// resolver row survives.
-    pub fn installInboundResolver(self: *Session, answer: u64, resolver_import: u64) !void {
-        try self.registerImport(resolver_import);
-        // The retain above just succeeded, so the rollback decrement cannot
-        // underflow; `unreachable` keeps that construction loud in safe builds.
-        self.v1_0_inbound_resolvers.put(self.allocator, answer, resolver_import) catch |err| {
-            self.imports.decrement(resolver_import, 1) catch unreachable;
-            return err;
-        };
-        self.v1_0_inbound_resolver_answers.put(self.allocator, resolver_import, answer) catch |err| {
-            _ = self.v1_0_inbound_resolvers.remove(answer);
-            self.imports.decrement(resolver_import, 1) catch unreachable;
-            return err;
-        };
-    }
-
-    /// The partner's resolver import for an inbound `answer`, if one was
-    /// advertised — the target our outbound resolution deliver addresses.
-    pub fn resolverForInboundAnswer(self: *const Session, answer: u64) ?u64 {
-        return self.v1_0_inbound_resolvers.get(answer);
-    }
-
-    /// The inbound `answer` a resolver import was installed for — the reverse
-    /// of `resolverForInboundAnswer`. Used by bootstrap-fetch detection when the
-    /// V1.0 resolver-only pattern has no wire answer-position.
-    pub fn answerForResolverImport(self: *const Session, resolver_import: u64) ?u64 {
-        return self.v1_0_inbound_resolver_answers.get(resolver_import);
-    }
-
-    /// Allocate a fresh virtual inbound answer for V1.0 resolver-only fetches,
-    /// from the partner-refused range above `VIRTUAL_INBOUND_ANSWER_BASE`.
-    pub fn allocateInboundAnswer(self: *Session) u64 {
-        const id = self.next_virtual_inbound_answer;
-        self.next_virtual_inbound_answer +%= 1;
-        return id;
-    }
-
-    /// Our outbound `answer` an inbound deliver to `resolver_export` resolves, if
-    /// that export is a known resolver — the signal to translate the inbound
-    /// deliver into a semantic `Resolve`.
-    pub fn answerForResolverExport(self: *const Session, resolver_export: u64) ?u64 {
-        return self.v1_0_outbound_resolvers.get(resolver_export);
-    }
-
-    /// Both handshake halves observed — the precondition for `open`.
-    pub fn handshakeComplete(self: *const Session) bool {
-        return self.handshake_local_sent and self.handshake_remote_received;
-    }
-
-    /// Moves the session from `Negotiating` to `Open`. It installs the fixed
-    /// bootstrap export at
-    /// `BOOTSTRAP_POSITION` (the only fallible step) then flips state, so a
-    /// failed registration leaves the session untouched. Called from the
-    /// `start_session` apply arms once both handshake halves are observed.
-    pub fn transitionToOpen(self: *Session) !void {
-        try self.exports.register(self.allocator, BOOTSTRAP_POSITION);
-        // Reserve the bootstrap id: locally-allocated exports (resolver callbacks,
-        // promises, gifts) start past it so `allocateExport` never aliases it.
-        if (self.next_export_position <= BOOTSTRAP_POSITION) {
-            self.next_export_position = BOOTSTRAP_POSITION + 1;
-        }
-        self.state = .open;
-    }
+    /// The `op:start-session` handshake state lives in `handshake.zig`; these
+    /// aliases keep the call sites reading as ordinary `Session` methods. The
+    /// handshake fields they operate on stay on `Session`.
+    pub const handshakeComplete = handshake.handshakeComplete;
+    pub const transitionToOpen = handshake.transitionToOpen;
+    pub const partnerSessionKey = handshake.partnerSessionKey;
+    pub const partnerDesignator = handshake.partnerDesignator;
+    pub const partnerLocatorRaw = handshake.partnerLocatorRaw;
 
     pub fn close(self: *Session) void {
         self.state = .closed;
     }
 
-    pub fn registerExport(self: *Session, id: u64) !void {
+    pub fn registerExport(self: *Session, id: model.ExportId) !void {
         try self.exports.register(self.allocator, id);
-        if (id >= self.next_export_position) {
-            self.next_export_position = id + 1;
+        if (id.int() >= self.next_export_position) {
+            self.next_export_position = id.int() + 1;
         }
     }
 
     /// Retain a partner-driven import. A *new* id is bounded by
-    /// `SessionLimits.max_imports` (ADR-0025) — a partner cannot grow our import
+    /// `SessionLimits.max_imports` (ADR-0025), a partner cannot grow our import
     /// table without limit. Already-held ids increment their wire-delta refcount:
     /// a partner may introduce the same export multiple times, and our later
     /// `op:gc-exports` must release the same total delta.
-    pub fn registerImport(self: *Session, id: u64) !void {
-        if (!self.imports.contains(id) and
-            self.imports.len() >= self.limits.max_imports)
-        {
-            return Error.ImportCapExceeded;
-        }
-        try self.imports.retain(self.allocator, id);
+    pub fn registerImport(self: *Session, id: model.ImportId) !void {
+        try self.imports.retain(self.allocator, id, self.limits.max_imports);
     }
 
     /// Install `id` as a pending inbound answer we owe resolution for.
     /// Idempotent; bounded by `SessionLimits.max_inbound_answers`. Used when
     /// the engine installs a queued pipelined call's answer, or redirects a
-    /// drained pipelined call to a local export — the forwarded call's own
+    /// drained pipelined call to a local export, the forwarded call's own
     /// answer becomes one we must resolve, even though no wire `op:deliver`
     /// installed it through `recordRecv`. The engine installs the same answer
     /// at queue time and again at local-redirect time, hence the idempotency.
-    pub fn installInboundAnswer(self: *Session, id: u64) !void {
+    pub fn installInboundAnswer(self: *Session, id: model.AnswerId) !void {
         try self.installAnswer(.inbound, id);
     }
 
@@ -639,7 +502,7 @@ pub const Session = struct {
     /// pre-`recordRecv` authority mutation it performs (a pipelined-call enqueue, a
     /// listener install, a V1.0 resolver registration). `recordRecv*` gate
     /// themselves, but those engine pre-steps run ahead of `recordRecv` and the
-    /// pipelined path returns without ever reaching it — so a closed session would
+    /// pipelined path returns without ever reaching it, so a closed session would
     /// otherwise queue a pipelined deliver, failing open. Checking here keeps
     /// `closed` a terminal refusal for every inbound kind. Exactly the state
     /// gate, nothing more: kind-specific rules (e.g. a wire `op:resolve` on a
@@ -715,7 +578,7 @@ pub const Session = struct {
     ///
     /// This is deliberately *not* `recordRecvView`: that path refuses a
     /// wire `op:resolve` on a V1.0 session, and this resolve never arrived on
-    /// the wire — the partner sent an `op:deliver` to the resolver and the
+    /// the wire, the partner sent an `op:deliver` to the resolver and the
     /// engine surfaces the settlement as a semantic resolve. The shared
     /// inbound-resolve validation and apply run exactly as the canonical
     /// resolve path does, minus that wire refusal. The borrowed `resolve` must
@@ -755,58 +618,58 @@ pub const Session = struct {
 
     const installAnswer = apply.installAnswer;
 
-    pub fn inboundAnswer(self: *Session, id: u64) ?AnswerView {
+    pub fn inboundAnswer(self: *Session, id: model.AnswerId) ?AnswerView {
         const entry = self.inbound_answers.getPtr(id) orelse return null;
         return AnswerView.of(entry);
     }
 
-    pub fn outboundAnswer(self: *Session, id: u64) ?AnswerView {
+    pub fn outboundAnswer(self: *Session, id: model.AnswerId) ?AnswerView {
         const entry = self.outbound_answers.getPtr(id) orelse return null;
         return AnswerView.of(entry);
     }
 
-    pub fn hasExport(self: *const Session, id: u64) bool {
+    pub fn hasExport(self: *const Session, id: model.ExportId) bool {
         return self.exports.contains(id);
     }
 
-    pub fn hasImport(self: *const Session, id: u64) bool {
+    pub fn hasImport(self: *const Session, id: model.ImportId) bool {
         return self.imports.contains(id);
     }
 
     /// Current wire-delta refcount for a local export (0 if not live).
-    pub fn exportRefcount(self: *const Session, id: u64) u64 {
+    pub fn exportRefcount(self: *const Session, id: model.ExportId) u64 {
         return self.exports.count(id);
     }
 
     /// Current wire-delta refcount for an import of a partner export (0 if
     /// not live).
-    pub fn importRefcount(self: *const Session, id: u64) u64 {
+    pub fn importRefcount(self: *const Session, id: model.ImportId) u64 {
         return self.imports.count(id);
     }
 
-    pub fn allocateExport(self: *Session) !u64 {
-        const id = self.next_export_position;
+    pub fn allocateExport(self: *Session) !model.ExportId {
+        const id = model.ExportId.from(self.next_export_position);
         try self.exports.register(self.allocator, id);
-        self.next_export_position = id + 1;
+        self.next_export_position += 1;
         return id;
     }
 
     /// Release an export this session just allocated with `allocateExport` and
-    /// never handed to the partner — the rollback half of a locally-aborted
+    /// never handed to the partner, the rollback half of a locally-aborted
     /// operation that allocated an export before a later step failed. The slot is
     /// live at count 1 by construction, so the decrement removes it and cannot
     /// underflow; a failure would mean the caller broke that construction, and
     /// `unreachable` keeps the drift loud in safe builds instead of silently
     /// leaving a phantom export row. The monotonic `next_export_position` is left
     /// advanced: a skipped id is not a leak, and ids are never reused.
-    pub fn releaseUnsharedExport(self: *Session, id: u64) void {
+    pub fn releaseUnsharedExport(self: *Session, id: model.ExportId) void {
         self.exports.decrement(id, 1) catch unreachable;
     }
 
     /// Expose a local capability behind `swissnum` for inbound bootstrap-fetch
     /// (ADR-0006 responder half): allocate a fresh export and map the swissnum to
     /// it. Returns the export id. Re-registering a swissnum replaces its mapping.
-    pub fn registerBootstrapCap(self: *Session, swissnum: []const u8) !u64 {
+    pub fn registerBootstrapCap(self: *Session, swissnum: []const u8) !model.ExportId {
         const export_position = try self.allocateExport();
         // The export was never handed out, so a failure to map the swissnum
         // rolls it back instead of leaving a phantom export row.
@@ -826,17 +689,17 @@ pub const Session = struct {
     }
 
     /// The local export serving `swissnum`, or null if none is registered.
-    pub fn bootstrapLookup(self: *const Session, swissnum: []const u8) ?u64 {
+    pub fn bootstrapLookup(self: *const Session, swissnum: []const u8) ?model.ExportId {
         return self.bootstrap.get(swissnum);
     }
 
     /// The swissnum a local export serves, or null if `export_position` is not a
-    /// bootstrap-published cap on this session — the reverse of `bootstrapLookup`.
+    /// bootstrap-published cap on this session, the reverse of `bootstrapLookup`.
     /// A gifted near resolved through this names the vat-scoped object identity a
     /// cross-session withdrawal re-resolves against the withdrawing session
     /// (ADR-0009 exporter half). The returned slice aliases this session's
     /// arena-owned key and lives as long as the session.
-    pub fn bootstrapSwissForExport(self: *const Session, export_position: u64) ?[]const u8 {
+    pub fn bootstrapSwissForExport(self: *const Session, export_position: model.ExportId) ?[]const u8 {
         var it = self.bootstrap.iterator();
         while (it.next()) |entry| {
             if (entry.value_ptr.* == export_position) return entry.key_ptr.*;
@@ -847,37 +710,10 @@ pub const Session = struct {
     /// Reserve the next outbound answer-pos. The id is installed in the outbound
     /// answer table when the carrying `op:deliver` is recorded on send; this only
     /// advances the counter so concurrent fetches / decompositions don't collide.
-    pub fn allocateOutboundAnswer(self: *Session) u64 {
-        const id = self.next_outbound_answer;
+    pub fn allocateOutboundAnswer(self: *Session) model.AnswerId {
+        const id = model.AnswerId.from(self.next_outbound_answer);
         self.next_outbound_answer += 1;
         return id;
-    }
-
-    /// The partner's session public key, learned from its `op:start-session`, or
-    /// null if the partner's handshake half has not yet arrived with a key. An
-    /// embedder verifies the partner's signatures against it — for a
-    /// gifter-to-exporter session, this is the key the gifter's `desc:handoff-give`
-    /// is signed with, so the exporter can record it with a deposited gift.
-    pub fn partnerSessionKey(self: *const Session) ?[]const u8 {
-        if (self.partner_session_key.len == 0) return null;
-        return self.partner_session_key;
-    }
-
-    /// The partner's location designator from its `op:start-session`, or null if
-    /// the handshake half has not arrived with one.
-    pub fn partnerDesignator(self: *const Session) ?[]const u8 {
-        if (self.partner_designator.len == 0) return null;
-        return self.partner_designator;
-    }
-
-    /// The partner's verbatim `<ocapn-peer ...>` location-record bytes from its
-    /// `op:start-session`, or null when the handshake half has not arrived with raw
-    /// bytes (the decode path captures them; an owned-message apply path does not).
-    /// A gifter embeds these as a `desc:handoff-give`'s exporter-location so a peer
-    /// comparing locations matches byte-for-byte (ADR-0009).
-    pub fn partnerLocatorRaw(self: *const Session) ?[]const u8 {
-        if (self.partner_acceptable_location_raw.len == 0) return null;
-        return self.partner_acceptable_location_raw;
     }
 
     // --- Pipelining substrate (ADR-0007) ---------------------------------
@@ -895,7 +731,7 @@ pub const Session = struct {
     /// message is freed so the caller never double-frees. The answer must exist
     /// and be `pending`; a resolved or unknown answer is the caller's contract
     /// violation, surfaced as `Error.InvalidReference`.
-    pub fn enqueuePipelinedCall(self: *Session, answer_position: u64, message: model.Message) !void {
+    pub fn enqueuePipelinedCall(self: *Session, answer_position: model.AnswerId, message: model.Message) !void {
         errdefer model.freeMessage(self.allocator, message);
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return Error.InvalidReference;
@@ -910,7 +746,7 @@ pub const Session = struct {
     /// ownership of every message and leaving the answer's queue empty. Returns
     /// an empty slice for an unknown answer or empty queue. The caller owns the
     /// returned slice (free each message, then free the slice with `allocator`).
-    pub fn takePipelinedCalls(self: *Session, answer_position: u64) ![]model.Message {
+    pub fn takePipelinedCalls(self: *Session, answer_position: model.AnswerId) ![]model.Message {
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return &.{};
         const payload = entry.payload orelse return &.{};
@@ -920,17 +756,15 @@ pub const Session = struct {
     }
 
     /// Hand the caller the listeners registered on `answer_position`, transferring
-    /// ownership of every entry's target and leaving the answer's listener list
-    /// empty. Returns an empty slice for an unknown answer or no listeners. The
-    /// caller owns the returned slice (release each entry's target, then free the
-    /// slice with `allocator`).
-    pub fn takePipelinedListeners(self: *Session, answer_position: u64) ![]ListenerEntry {
+    /// ownership of every entry's listener cap and leaving the answer's listener
+    /// list empty. Returns an empty slice for an unknown answer or no listeners.
+    /// The caller owns the returned slice (release each entry's listener cap, then
+    /// free the slice with `allocator`).
+    pub fn takePipelinedListeners(self: *Session, answer_position: model.AnswerId) ![]ListenerEntry {
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return &.{};
         const payload = entry.payload orelse return &.{};
-        if (payload.listeners.items.len == 0) return &.{};
-        const drained = try payload.listeners.toOwnedSlice(self.allocator);
-        return drained;
+        return payload.listeners.take(self.allocator);
     }
 
     /// Move a batch of pipelined `calls` (owned messages, e.g. drained from an
@@ -955,7 +789,7 @@ pub const Session = struct {
     /// On any failure the whole batch is freed (no partial move — capacity is
     /// reserved up front so the moves are infallible). `target` must be a pending
     /// inbound answer.
-    pub fn requeuePipelinedCalls(self: *Session, target: u64, seen: []const u64, calls: []model.Message) !void {
+    pub fn requeuePipelinedCalls(self: *Session, target: model.AnswerId, seen: []const model.AnswerId, calls: []model.Message) !void {
         var moved = false;
         errdefer if (!moved) {
             for (calls) |message| model.freeMessage(self.allocator, message);
@@ -972,7 +806,7 @@ pub const Session = struct {
         if (queued + calls.len > self.limits.queue_cap) return Error.QueueCapExceeded;
 
         // Reserve first (the only fallible step); the moves are then infallible,
-        // so ownership transfers atomically — no message is half-moved.
+        // so ownership transfers atomically, no message is half-moved.
         const payload = try ensureAnswerPayload(self.allocator, entry);
         try payload.queue.ensureUnusedCapacity(self.allocator, calls.len);
         for (calls) |message| payload.queue.appendAssumeCapacity(message);
@@ -980,15 +814,15 @@ pub const Session = struct {
         self.allocator.free(calls);
     }
 
-    /// Register `listener` (taking ownership of its `target`) as wanting
-    /// `answer_position`'s resolution. On failure the target is freed. The answer must
-    /// exist; it may be `pending` or already resolved (a late listener — the
+    /// Register `listener` (taking ownership of its `listener` cap) as wanting
+    /// `answer_position`'s resolution. On failure the cap is freed. The answer must
+    /// exist; it may be `pending` or already resolved (a late listener, the
     /// engine fires it immediately from the stored resolution).
-    pub fn installListener(self: *Session, answer_position: u64, listener: ListenerEntry) !void {
-        errdefer model.freeReference(self.allocator, listener.target);
+    pub fn installListener(self: *Session, answer_position: model.AnswerId, listener: ListenerEntry) !void {
+        errdefer model.freeReference(self.allocator, listener.listener);
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return Error.InvalidReference;
-        const installed = if (entry.payload) |p| p.listeners.items.len else 0;
+        const installed = if (entry.payload) |p| p.listeners.len() else 0;
         if (installed >= self.limits.max_listeners_per_target) {
             return Error.ListenerCapExceeded;
         }
@@ -1001,13 +835,13 @@ pub const Session = struct {
     /// are freed. The answer must exist and must still be pending: a projection
     /// fires once, from `drainProjections`, when the answer's resolve drains, so
     /// anchoring onto an already-settled answer would never fire. Settled is
-    /// read as a stored resolution rather than the status flag — the two are
+    /// read as a stored resolution rather than the status flag, the two are
     /// equivalent for inbound answers (the `applySentResolve` invariant: status
     /// and resolution land together), and naming the resolution keeps this guard
     /// honest if that ever drifts. Symmetric with `installListener`, which the
     /// engine's `installAnswerListener` gates the same way (peek first, install
     /// only when pending).
-    pub fn installProjection(self: *Session, answer_position: u64, projection: Projection) !void {
+    pub fn installProjection(self: *Session, answer_position: model.AnswerId, projection: Projection) !void {
         errdefer deinitProjection(self.allocator, projection);
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return Error.InvalidReference;
@@ -1026,7 +860,7 @@ pub const Session = struct {
     /// projection list empty. Returns an empty slice for an unknown answer or
     /// no projections. The caller owns the returned slice (release each entry
     /// with `deinitProjection`, then free the slice with `allocator`).
-    pub fn takeProjections(self: *Session, answer_position: u64) ![]Projection {
+    pub fn takeProjections(self: *Session, answer_position: model.AnswerId) ![]Projection {
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return &.{};
         const payload = entry.payload orelse return &.{};
@@ -1037,7 +871,7 @@ pub const Session = struct {
     /// Store `resolution` on `answer_position` (taking ownership), marking the answer
     /// resolved. Replaces any prior stored resolution. On failure the resolution
     /// is freed.
-    pub fn storeResolution(self: *Session, answer_position: u64, resolution: model.Resolution) !void {
+    pub fn storeResolution(self: *Session, answer_position: model.AnswerId, resolution: model.Resolution) !void {
         const entry = self.inbound_answers.getPtr(answer_position) orelse {
             model.freeResolution(self.allocator, resolution);
             return Error.InvalidReference;
@@ -1056,7 +890,7 @@ pub const Session = struct {
 
     /// Borrow the stored resolution for `answer_position`, if the answer resolved and
     /// retained it. The borrow is valid until the answer is mutated or removed.
-    pub fn peekResolution(self: *Session, answer_position: u64) ?*const model.Resolution {
+    pub fn peekResolution(self: *Session, answer_position: model.AnswerId) ?*const model.Resolution {
         const entry = self.inbound_answers.getPtr(answer_position) orelse return null;
         const payload = entry.payload orelse return null;
         if (payload.resolution) |*resolution| return resolution;
@@ -1064,257 +898,45 @@ pub const Session = struct {
     }
 
     /// Whether `answer_position` is a known inbound answer that has resolved.
-    pub fn answerResolved(self: *Session, answer_position: u64) bool {
+    pub fn answerResolved(self: *Session, answer_position: model.AnswerId) bool {
         const entry = self.inbound_answers.getPtr(answer_position) orelse return false;
         return entry.status != .pending;
     }
 
-    // --- Third-party handoff-imported promises (ADR-0009) ----------------
-    //
-    // A `desc:import-promise` handed to us by an introducing partner names a
-    // promise hosted on a *third* peer. Its resolution reaches us as a relayed
-    // resolution (forwarded by the introducing session), not a direct
-    // `op:resolve`. `op:listen` on such an import installs a listener here; the
-    // relay fires it. These mirror the answer-side pipelining substrate above,
-    // keyed on import id instead of answer id.
+    // Third-party handoff-imported promises (ADR-0009): a `desc:import-promise`
+    // handed to us by an introducing partner names a promise hosted on a *third*
+    // peer, whose resolution reaches us as a relayed resolution rather than a
+    // direct `op:resolve`. The substrate mirrors the answer-side pipelining one
+    // above, keyed on import id; bodies live in `imported_promise.zig`, aliased
+    // here so `sess.installThirdPartyImport(...)` still resolves.
+    pub const installThirdPartyImport = imported_promise.installThirdPartyImport;
+    pub const isThirdPartyImport = imported_promise.isThirdPartyImport;
+    pub const installImportedPromiseListener = imported_promise.installImportedPromiseListener;
+    pub const recordRelayedResolution = imported_promise.recordRelayedResolution;
+    pub const takeImportedPromiseListeners = imported_promise.takeImportedPromiseListeners;
+    pub const importedPromiseResolution = imported_promise.importedPromiseResolution;
+    pub const findImportedPromise = imported_promise.findImportedPromise;
 
-    /// Root `import_position` at a third-party `host`, registering the import (so it
-    /// validates as a reference) and marking it handoff-imported. Idempotent for
-    /// the same host; a re-root with a different host is `Error.HostMismatch`.
-    /// `host` is duped into session-owned storage.
-    pub fn installThirdPartyImport(self: *Session, import_position: u64, host: []const u8) !void {
-        if (self.findImportedPromise(import_position)) |existing| {
-            if (!std.mem.eql(u8, existing.host, host)) return Error.HostMismatch;
-            return;
-        }
-        const host_copy = try self.allocator.dupe(u8, host);
-        errdefer self.allocator.free(host_copy);
-        try self.registerImport(import_position);
-        try self.imported_promises.put(self.allocator, import_position, .{ .host = host_copy });
-    }
-
-    /// Whether `import_position` is a promise imported from a third party (ADR-0009) —
-    /// the gate that admits an `op:listen` on this import as a relayed-resolution
-    /// listener rather than rejecting it.
-    pub fn isThirdPartyImport(self: *Session, import_position: u64) bool {
-        return self.findImportedPromise(import_position) != null;
-    }
-
-    /// Register `listener` (taking ownership of its `target`) as wanting the
-    /// relayed resolution of third-party import `import_position`. On failure the
-    /// target is freed. The import must be third-party-hosted.
-    pub fn installImportedPromiseListener(self: *Session, import_position: u64, listener: ListenerEntry) !void {
-        errdefer model.freeReference(self.allocator, listener.target);
-        const entry = self.findImportedPromise(import_position) orelse return Error.InvalidReference;
-        if (entry.listeners.items.len >= self.limits.max_listeners_per_target) {
-            return Error.ListenerCapExceeded;
-        }
-        try entry.listeners.append(self.allocator, listener);
-    }
-
-    /// Store the relayed `resolution` for third-party import `import_position` (taking
-    /// ownership), so a late `op:listen` fires immediately. Replaces any prior
-    /// stored resolution. On an unknown import the resolution is freed.
-    pub fn recordRelayedResolution(self: *Session, import_position: u64, resolution: model.Resolution) !void {
-        const entry = self.findImportedPromise(import_position) orelse {
-            model.freeResolution(self.allocator, resolution);
-            return Error.InvalidReference;
-        };
-        if (entry.resolution) |prior| model.freeResolution(self.allocator, prior);
-        entry.resolution = resolution;
-    }
-
-    /// Hand the caller the listeners registered on third-party import
-    /// `import_position`, transferring ownership of every entry's target and leaving
-    /// the import's listener list empty. Returns an empty slice for an unknown
-    /// import or no listeners. The caller owns the returned slice (release each
-    /// entry's target, then free the slice with `allocator`).
-    pub fn takeImportedPromiseListeners(self: *Session, import_position: u64) ![]ListenerEntry {
-        const entry = self.findImportedPromise(import_position) orelse return &.{};
-        if (entry.listeners.items.len == 0) return &.{};
-        return entry.listeners.toOwnedSlice(self.allocator);
-    }
-
-    /// Borrow the stored relayed resolution for third-party import `import_position`,
-    /// if one was forwarded. The borrow is valid until the row is mutated or
-    /// removed.
-    pub fn importedPromiseResolution(self: *Session, import_position: u64) ?*const model.Resolution {
-        const entry = self.findImportedPromise(import_position) orelse return null;
-        if (entry.resolution) |*resolution| return resolution;
-        return null;
-    }
-
-    pub fn findImportedPromise(self: *Session, import_position: u64) ?*ImportedPromise {
-        return self.imported_promises.getPtr(import_position);
-    }
-
-    /// The cached enlivenment row for `swissnum`, by value, or null on a cache
-    /// miss (ADR-0012) — one scan answering both halves of the cache-hit
-    /// short-circuit: the import id and the wire-kind, the latter preserved
-    /// verbatim per ADR-0010 § The far-kind is preserved across enliven. The
-    /// returned `swissnum` field borrows the cache row; read the POD fields,
-    /// do not retain the slice.
-    pub fn sturdyrefCacheLookup(self: *const Session, swissnum: []const u8) ?SturdyrefCacheEntry {
-        for (self.sturdyref_cache.items) |entry| {
-            if (std.mem.eql(u8, entry.swissnum, swissnum)) return entry;
-        }
-        return null;
-    }
-
-    /// Cache a resolved enlivenment for future repeat-enlivens (ADR-0012). Bounded
-    /// by `SessionLimits.max_sturdyref_cache_entries`; idempotent on `swissnum`
-    /// (last-wins overwrite, no extra allocation); on overflow it evicts the
-    /// oldest entry (the cache is non-load-bearing). A cap of 0 disables caching.
-    pub fn cacheSturdyrefEnlivenment(
-        self: *Session,
-        swissnum: []const u8,
-        import_position: u64,
-        kind: model.RefKind,
-    ) !void {
-        if (self.limits.max_sturdyref_cache_entries == 0) return;
-        if (self.findSturdyrefCache(swissnum)) |entry| {
-            entry.import_position = import_position;
-            entry.kind = kind;
-            return;
-        }
-        if (self.sturdyref_cache.items.len >= self.limits.max_sturdyref_cache_entries) {
-            const evicted = self.sturdyref_cache.orderedRemove(0);
-            self.allocator.free(evicted.swissnum);
-        }
-        const owned = try self.allocator.dupe(u8, swissnum);
-        errdefer self.allocator.free(owned);
-        try self.sturdyref_cache.append(self.allocator, .{
-            .swissnum = owned,
-            .import_position = import_position,
-            .kind = kind,
-        });
-    }
-
-    /// The outstanding bootstrap-fetch answer for an in-flight enliven of
-    /// `swissnum`, or null when none is pending (ADR-0012 in-flight dedup).
-    pub fn pendingEnlivenAnswer(self: *Session, swissnum: []const u8) ?u64 {
-        return self.pending_enlivens.get(swissnum);
-    }
-
-    /// Record an in-flight enliven so a concurrent enliven for the same
-    /// `swissnum` collapses onto `answer_position`. Idempotent: a no-op when one is
-    /// already outstanding (the caller checks `pendingEnlivenAnswer` first).
-    pub fn notePendingEnliven(self: *Session, swissnum: []const u8, answer_position: u64) !void {
-        const gop = try self.pending_enlivens.getOrPut(self.allocator, swissnum);
-        if (gop.found_existing) return;
-        // Rows are removed on completion, so the key is gpa-owned and freed then;
-        // replace the borrowed key with an owned copy, undoing the slot on OOM.
-        gop.key_ptr.* = self.allocator.dupe(u8, swissnum) catch |err| {
-            _ = self.pending_enlivens.remove(swissnum);
-            return err;
-        };
-        gop.value_ptr.* = answer_position;
-    }
-
-    /// Clear the in-flight marker for `swissnum` once its enliven settles. A
-    /// no-op when none is outstanding.
-    pub fn finishPendingEnliven(self: *Session, swissnum: []const u8) void {
-        if (self.pending_enlivens.fetchRemove(swissnum)) |kv| {
-            self.allocator.free(kv.key);
-        }
-    }
-
-    fn findSturdyrefCache(self: *Session, swissnum: []const u8) ?*SturdyrefCacheEntry {
-        for (self.sturdyref_cache.items) |*entry| {
-            if (std.mem.eql(u8, entry.swissnum, swissnum)) return entry;
-        }
-        return null;
-    }
+    // Sturdyref-enliven dedup (ADR-0012): the resolved-enlivenment cache and the
+    // in-flight enliven set. Bodies live in `sturdyref_cache.zig`; aliased here
+    // so `sess.cacheSturdyrefEnlivenment(...)` still resolves.
+    pub const sturdyrefCacheLookup = sturdyref_cache.sturdyrefCacheLookup;
+    pub const cacheSturdyrefEnlivenment = sturdyref_cache.cacheSturdyrefEnlivenment;
+    pub const pendingEnlivenAnswer = sturdyref_cache.pendingEnlivenAnswer;
+    pub const notePendingEnliven = sturdyref_cache.notePendingEnliven;
+    pub const finishPendingEnliven = sturdyref_cache.finishPendingEnliven;
 };
 
-/// Reject an `op:gc-exports` whose cumulative deltas would drive any export /
-/// import refcount below zero (or release an unknown id). Validates the whole
-/// message before `applyGcExportDecrement` mutates, so apply stays atomic.
-/// A host allocation failure is propagated as itself, never disguised as a
-/// partner protocol violation.
-pub fn checkGcExportDecrement(
-    allocator: std.mem.Allocator,
-    table: *const SlotTable,
-    gc_export: model.GcExport,
-) (Error || std.mem.Allocator.Error)!void {
-    // Single pass over the wire deltas (O(1) `count` per position with the
-    // position-keyed table): accumulate each position's running total and
-    // reject the moment it would exceed the live refcount. The scratch map
-    // tolerates repeated positions in one message without the prior O(n^2)
-    // re-scan; it is GC-validation scratch, freed before apply.
-    var pending: std.AutoHashMapUnmanaged(u64, u64) = .empty;
-    defer pending.deinit(allocator);
-    for (gc_export.positions, gc_export.deltas) |pos, delta| {
-        // The bootstrap position is pinned outside wire-delta accounting
-        // (`retainSentExports` never counts a mention of it), so a partner
-        // releasing its bootstrap import — Goblins' import-0 will handler
-        // emits exactly that — is a no-op, never an underflow and never the
-        // death of the bootstrap export.
-        if (pos == BOOTSTRAP_POSITION) continue;
-        const gop = try pending.getOrPut(allocator, pos);
-        if (!gop.found_existing) gop.value_ptr.* = 0;
-        gop.value_ptr.* = std.math.add(u64, gop.value_ptr.*, delta) catch return Error.GcUnderflow;
-        if (gop.value_ptr.* > table.count(pos)) return Error.GcUnderflow;
-    }
-}
+// Wire-delta GC accounting and structural well-formedness checks (ADR-0008):
+// stateless free functions over the tables/messages they validate. Bodies live
+// in `gc.zig`; re-exported here so `session.checkGcExportDecrement` still
+// resolves from the validate/apply spine.
+pub const checkGcExportDecrement = gc.checkGcExportDecrement;
+pub const applyGcExportDecrement = gc.applyGcExportDecrement;
+pub const checkGcAnswerDecrement = gc.checkGcAnswerDecrement;
+pub const validateGcExport = gc.validateGcExport;
+pub const validateHandoffWellFormed = gc.validateHandoffWellFormed;
 
-pub fn applyGcExportDecrement(table: *SlotTable, gc_export: model.GcExport) Error!void {
-    for (gc_export.positions, gc_export.deltas) |pos, delta| {
-        // Pinned bootstrap position: skipped in validation, skipped here.
-        if (pos == BOOTSTRAP_POSITION) continue;
-        try table.decrement(pos, delta);
-    }
-}
-
-/// Reject an `op:gc-answers` whose per-id occurrence count exceeds the answer's
-/// (single-reference) refcount, or that names an unknown answer-pos. Single pass
-/// with O(1) per-position `count`; the scratch map folds repeated positions
-/// without re-scanning the message. A host allocation failure is propagated as
-/// itself, never disguised as a partner protocol violation.
-pub fn checkGcAnswerDecrement(
-    allocator: std.mem.Allocator,
-    table: *const AnswerTable,
-    positions: []const u64,
-) (Error || std.mem.Allocator.Error)!void {
-    var pending: std.AutoHashMapUnmanaged(u64, u64) = .empty;
-    defer pending.deinit(allocator);
-    for (positions) |pos| {
-        const gop = try pending.getOrPut(allocator, pos);
-        if (!gop.found_existing) gop.value_ptr.* = 0;
-        gop.value_ptr.* += 1;
-        if (gop.value_ptr.* > table.count(pos)) return Error.GcUnderflow;
-    }
-}
-
-/// Release the owned memory an `ImportedPromise` holds: the host designator,
-/// listener targets, and any stored relayed resolution. The listener list is
-/// emptied so the struct is safe to drop or remove afterward.
-pub fn deinitImportedPromise(allocator: std.mem.Allocator, entry: *ImportedPromise) void {
-    allocator.free(entry.host);
-    for (entry.listeners.items) |listener| model.freeReference(allocator, listener.target);
-    entry.listeners.deinit(allocator);
-    if (entry.resolution) |resolution| model.freeResolution(allocator, resolution);
-    entry.resolution = null;
-}
-
-pub fn validateGcExport(gc_export: model.GcExport) Error!void {
-    if (gc_export.positions.len != gc_export.deltas.len) {
-        return Error.MalformedMessage;
-    }
-}
-
-pub fn validateHandoffWellFormed(handoff: model.Handoff) Error!void {
-    switch (handoff) {
-        .give => |give| {
-            if (give.gift_id.len == 0 or give.recipient_key.len == 0) {
-                return Error.MalformedMessage;
-            }
-        },
-        .receive => |receive| {
-            if (receive.receiving_session.len == 0) return Error.MalformedMessage;
-            if (receive.signed_give.gift_id.len == 0 or receive.signed_give.recipient_key.len == 0) {
-                return Error.MalformedMessage;
-            }
-        },
-    }
-}
+/// Release the owned memory an `ImportedPromise` holds (host designator,
+/// listener caps, stored relayed resolution). Body in `imported_promise.zig`.
+pub const deinitImportedPromise = imported_promise.deinitImportedPromise;

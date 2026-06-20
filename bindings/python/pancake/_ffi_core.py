@@ -1,4 +1,4 @@
-"""Internal: the raw ``ctypes`` mirror of ``libpancake_ocapn`` — the core
+"""Internal: the raw ``ctypes`` mirror of ``libpancake_ocapn``, the core
 archive.
 
 Nothing here is public. The ergonomic surface in :mod:`pancake` reaches the
@@ -129,7 +129,7 @@ class _Deliver(ctypes.Structure):
 class _HandoffGive(ctypes.Structure):
     # PancakeHandoffGive: set on a _HANDOFF resolution. Carried by value inside
     # PancakeResolve, so its size is part of that struct's layout even when the
-    # binding never reads a handoff — omitting it makes _Resolve too small and
+    # binding never reads a handoff, omitting it makes _Resolve too small and
     # pancake_peer_poll_event_resolve overflows the buffer.
     _fields_ = [
         ("give", ctypes.c_void_p),
@@ -254,7 +254,7 @@ def _load():
         # the verbatim give bytes (keyed by the 32-byte seed) and queue a
         # withdraw-gift deliver to the exporter's bootstrap under `answer`.
         "pancake_peer_send_withdraw_gift": (
-            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64, ctypes.c_uint64],
+            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64],
             ctypes.c_int32,
         ),
         # Gifter (introducer) half of a three-party handoff (ADR-0009): the
@@ -281,9 +281,38 @@ def _load():
             ctypes.c_int32,
         ),
         "pancake_handoff_give_bytes_release": ([ctypes.c_void_p, ctypes.c_size_t], None),
+        "pancake_encode_peer_locator": (
+            [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
+             ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p), size_p],
+            ctypes.c_int32,
+        ),
+        "pancake_peer_locator_bytes_release": ([ctypes.c_void_p, ctypes.c_size_t], None),
         "pancake_gift_registry_new": ([ctypes.POINTER(ctypes.c_void_p)], ctypes.c_int32),
         "pancake_gift_registry_free": ([ctypes.c_void_p], None),
         "pancake_peer_set_gift_registry": ([P, ctypes.c_void_p], ctypes.c_int32),
+        # Cross-connection handoff router (PancakeNode, ADR-0066): the sans-io node
+        # owns the per-connection peers, the shared gift registry, the retained
+        # identity, and the redeemed-token / foreign-home routing tables. A binding
+        # registers each connection's node-owned peer, pumps it, and routes by
+        # conn_id — every route value an integer, so the router is pure data.
+        "pancake_node_new": ([ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_node_new_in": ([P, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_node_free": ([P], None),
+        "pancake_node_register_conn": ([P, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_node_remove_conn": ([P, ctypes.c_uint64], ctypes.c_int32),
+        "pancake_node_send_withdraw": ([P, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64], ctypes.c_int32),
+        "pancake_node_originate_give": (
+            [P, ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(_Reference), ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_size_t],
+            ctypes.c_int32,
+        ),
+        "pancake_node_enroll_redeemed": ([P, ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64)], ctypes.c_int32),
+        "pancake_node_route": (
+            [P, ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_uint32)],
+            ctypes.c_int32,
+        ),
+        "pancake_node_record_foreign_home": ([P, ctypes.c_uint64, ctypes.c_uint64], ctypes.c_int32),
+        "pancake_node_foreign_home": ([P, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_uint32)], ctypes.c_int32),
+        "pancake_node_arg_is_foreign": ([P, ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint32)], ctypes.c_int32),
         "pancake_peer_codec": ([P, ctypes.POINTER(ctypes.c_uint32)], ctypes.c_int32),
         "pancake_peer_send_gc_export": ([P, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t], ctypes.c_int32),
         "pancake_peer_send_gc_answer": ([P, ctypes.c_uint64], ctypes.c_int32),

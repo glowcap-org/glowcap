@@ -36,7 +36,7 @@ stamped with the run's epoch second:
   site's diagrams. Drop one into a page or open it directly.
 
 The reports are generated, not committed: each is a single machine on a single
-run, so there is no frozen leaderboard in the tree — you render the numbers you
+run, so there is no frozen leaderboard in the tree. You render the numbers you
 measured. [`report.rkt`](report.rkt) owns the Markdown and SVG rendering.
 
 ## The fairness principle

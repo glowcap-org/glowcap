@@ -2,7 +2,7 @@
 
 This is a small, real application built on pancake actors. A task board runs as
 a server; clients connect, add tasks, mark them done, and see changes in real
-time. What makes it worth reading is not the task board — it is _how_ the board
+time. What makes it worth reading is not the task board. It is _how_ the board
 works, and that clients written in Zig, Rust, Python, Racket, and Deno manage
 the same board at the same time, none of them aware of the others' languages.
 
@@ -47,12 +47,12 @@ deno run --allow-ffi --allow-read --allow-net \
 ```
 
 Type `add buy groceries`, `list`, `done 1`, or `quit`. Open more terminals to
-see live updates arrive through capability callbacks — every connected watcher
+see live updates arrive through capability callbacks, every connected watcher
 sees every change as it happens, with no polling.
 
 ## What this shows that rooms doesn't
 
-Rooms is a chat — pub/sub with capability callbacks. Tasks shows a different
+Rooms is a chat, pub/sub with capability callbacks. Tasks shows a different
 pattern:
 
 - **CRUD with capability security.** `add` creates state, `done` mutates it,
@@ -91,7 +91,7 @@ With OCapN capabilities:
 - A board actor with four methods
 - A watcher actor the client publishes
 - The client hands the board a capability to its watcher
-- The capability _is_ the identity — the board knows who you are because it
+- The capability _is_ the identity, the board knows who you are because it
   holds your capability
 
 No tokens. No middleware. No separate push layer. The board calls you back
@@ -127,7 +127,7 @@ thin app on top of it. The app reads the same in every language because each
 | Rust     | `board.add(text).await?` | `board.list().await?` | `board.done(id).await?` |
 
 Reading any two side by side shows how little the actor model changes from
-language to language — and how much boilerplate disappears compared to the HTTP
+language to language, and how much boilerplate disappears compared to the HTTP
 version of the same application.
 
 ## Where the board could go next

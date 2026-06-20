@@ -1,4 +1,4 @@
-//! C ABI OCapN locator-URI contract — proves the `pancake_uri_*` verbs and the
+//! C ABI OCapN locator-URI contract, proves the `pancake_uri_*` verbs and the
 //! `pancake_locator_*` accessors round-trip a peer and a sturdyref through the
 //! one core grammar (`model.uri`), so a binding never hand-rolls a percent
 //! codec. Parse yields one owned `PancakeLocator`; format renders it back;
@@ -43,7 +43,7 @@ test "parse a peer URI with hints; look up and enumerate them" {
     try std.testing.expectEqualStrings("iroh", try view(c.pancake_locator_transport, loc));
     try std.testing.expectEqualStrings("abc123", try view(c.pancake_locator_designator, loc));
 
-    // Looked up by key — the percent-encoded brackets decode.
+    // Looked up by key, the percent-encoded brackets decode.
     const key = "direct-addresses";
     var vptr: ?[*]const u8 = null;
     var vlen: usize = 0;

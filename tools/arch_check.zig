@@ -112,7 +112,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
         const layer_index = layerIndexOf(table, file_path) orelse {
             try violations.append(gpa, try std.fmt.allocPrint(
                 gpa,
-                "{s}: no layer in build.zig's layer_table claims this file — declare its module or move it",
+                "{s}: no layer in build.zig's layer_table claims this file, declare its module or move it",
                 .{file_path},
             ));
             continue;

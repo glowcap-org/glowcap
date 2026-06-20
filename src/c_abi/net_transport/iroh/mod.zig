@@ -122,13 +122,13 @@ const ConnPayload = struct {
 // The netlayer's one I/O model: serve many connections from one host thread. The
 // loop is armed at construction, so the host parks on the netlayer's single
 // readiness fd (`readiness_fd`), drains the ready records (`drain_ready`) when it
-// signals, and drives non-blocking byte I/O on the named connections — the same
+// signals, and drives non-blocking byte I/O on the named connections, the same
 // model the Zig `iroh.LoopHost` uses, exposed so a language binding can own the
 // loop. No call ever parks on a specific connection, so releasing one never
 // races a parked read.
 
 /// Returned by the non-blocking calls when the operation cannot make progress
-/// without blocking — the canonical base-ABI `PANCAKE_ERR_WOULD_BLOCK` (-7), so
+/// without blocking, the canonical base-ABI `PANCAKE_ERR_WOULD_BLOCK` (-7), so
 /// the iroh loop surface speaks the same would-block code as the rest of
 /// the C ABI, not the sidecar's private byte-level sentinel.
 const PANCAKE_ERR_WOULD_BLOCK = c.PANCAKE_ERR_WOULD_BLOCK;
@@ -156,7 +156,7 @@ pub const PancakeIrohReadyEvent = extern struct {
 /// library-owned allocator. `secret_seed`/`secret_seed_len` is either a 32-byte
 /// Ed25519 secret key (borrowed) or empty (`secret_seed_len == 0`) for a fresh
 /// random key; any other length is `PANCAKE_ERR_INVALID_ARGUMENT`.
-/// `reachability` is one of `PANCAKE_IROH_REACH_*` and is mandatory — it decides
+/// `reachability` is one of `PANCAKE_IROH_REACH_*` and is mandatory, it decides
 /// whether the endpoint uses relays or a discovery service, with no default; an
 /// unknown value is `PANCAKE_ERR_INVALID_ARGUMENT`. Binds the endpoint and arms
 /// the readiness loop, so the returned netlayer is immediately driveable through
@@ -341,7 +341,7 @@ pub export fn pancake_iroh_netlayer_readiness_fd(netlayer: ?*PancakeIrohNetlayer
 /// then again until it returns fewer than `out_cap` records (more may be queued
 /// than one call drains), before re-parking on the fd. Records for connections
 /// already released are skipped, so a host can release a connection at any time
-/// without racing this call — the drain touches only the endpoint, never a
+/// without racing this call, the drain touches only the endpoint, never a
 /// per-connection buffer. Run it on one thread per netlayer, serialized against
 /// `_release` of the netlayer.
 pub export fn pancake_iroh_netlayer_drain_ready(
@@ -474,7 +474,7 @@ fn drainInto(nl: *NetlayerPayload, dest: []PancakeIrohReadyEvent) usize {
                 dest[out_n] = .{ .conn = @ptrCast(payload), .events = rec.events };
                 out_n += 1;
             }
-            // A record for a freed connection routes to nothing — skip it.
+            // A record for a freed connection routes to nothing, skip it.
         }
         if (count < want) break;
     }

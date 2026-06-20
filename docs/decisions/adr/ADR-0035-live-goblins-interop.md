@@ -31,7 +31,7 @@ The TCP transport symbol is `tcp`
 Goblins' conformance TCP netlayer; pancake's locator shape (`ocapn-peer` label,
 `host:port` designator, `#f` hints) already matched. The live proof is the gated
 step `zig build goblins-interop`
-([`conformance/goblins_interop/driver.zig`](../../../conformance/goblins_interop/driver.zig)):
+([`interop/goblins_interop/driver.zig`](../../../interop/goblins_interop/driver.zig)):
 it spawns `goblins-host.rkt`, reads its NDJSON readiness to learn the listen
 port and echo swiss-num, dials it over `net.tcp`, runs the keyed
 `op:start-session` handshake (real Ed25519, a `tcp` locator with `#f` hints so
@@ -76,7 +76,7 @@ transport (TLS) is a separate netlayer slice.
 ## Consequences
 
 `net.tcp.transport_name` is `tcp`; the C ABI comment and `bindings/README.md`
-follow. New `conformance/goblins_interop/driver.zig` and the `goblins-interop`
+follow. New `interop/goblins_interop/driver.zig` and the `goblins-interop`
 build step ([`build.zig`](../../../build.zig)), documented in
 [`.agents/rules/cli.md`](../../../.agents/rules/cli.md). This is the first
 pancake test that spawns a subprocess and drives real cross-implementation

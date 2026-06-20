@@ -8,16 +8,16 @@ not part of pancake's protocol core.
 ## Why It Lives Here
 
 This application is external conformance pressure for the kind of host software
-pancake supports; the sibling
-[`accountability-on-pancake/`](../accountability-on-pancake/) runs the same
-shape on pancake itself. It exercises three concerns above CapTP:
+pancake supports; the worked application
+[`accountability-on-pancake/`](../../examples/apps/accountability-on-pancake/)
+runs the same shape on pancake itself. It exercises three concerns above CapTP:
 
 1. networked capability invocation;
 2. identity material bound to a peer;
 3. an observation point that emits a signed Episode for each invocation.
 
 This implementation uses Goblins for the runtime. Pancake's core remains
-codec-neutral CapTP; the pancake port in `accountability-on-pancake/` wraps the
+codec-neutral CapTP; the pancake port in `examples/apps/accountability-on-pancake/` wraps the
 caller-owned `Peer` boundary rather than pushing Episode/KERI vocabulary into
 the protocol core.
 
@@ -35,21 +35,27 @@ the protocol core.
 
 ## Generated State
 
-`racket/.data/` and `racket/tests/.data/` are runtime outputs. If fixture data
-is committed for a scenario, it must be named as a fixture in that scenario's
-docs; ordinary demo output should stay generated state.
+`.data/` (written by the kernel and three-vat demos) and `racket/tests/.data/`
+(written by `raco test`) are runtime outputs. If fixture data is committed for a
+scenario, it must be named as a fixture in that scenario's docs; ordinary demo
+output should stay generated state.
 
 ## Running
 
+The kernel writes `.data/` to the current directory, and the audit and keri
+scenarios read `conformance/accountability-on-goblins/.data/`, so run the
+generators from the app directory (the subshells below keep your shell at the
+repo root):
+
 ```sh
 # 8-step kernel demo.
-racket conformance/accountability-on-goblins/racket/kernel.rkt
+( cd conformance/accountability-on-goblins && racket racket/kernel.rkt )
 
 # Rackunit tests.
 raco test conformance/accountability-on-goblins/racket/tests/kernel-test.rkt
 
 # Three-party introduction + signed Episodes.
-racket conformance/accountability-on-goblins/racket/accountable-three-vat-demo.rkt
+( cd conformance/accountability-on-goblins && racket racket/accountable-three-vat-demo.rkt )
 ```
 
 Verify outputs with sibling scenarios:

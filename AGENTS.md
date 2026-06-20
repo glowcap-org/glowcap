@@ -1,7 +1,7 @@
 # pancake — Agent Guide
 
 This repository is `pancake`: a Zig implementation of the OCapN / CapTP
-substrate. pancake is the implementation — there is no released predecessor to
+substrate. pancake is the implementation. There is no released predecessor to
 defer to.
 
 OCapN behavior, Spritely Goblins fixtures, and Zig-local protocol scenarios are
@@ -15,7 +15,7 @@ honest about how far the code has actually reached toward it.
 
 ## Start Here
 
-Match depth to the task — do not read the whole tree for a one-line fix.
+Match depth to the task: do not read the whole tree for a one-line fix.
 
 | Task                                                                       | Load first                                                                                      | Gate                                                    |
 | -------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
@@ -37,8 +37,8 @@ Match depth to the task — do not read the whole tree for a one-line fix.
 - Concrete remaining work, ordered: [`docs/roadmap.md`](docs/roadmap.md)
 - Layer ownership: [`docs/architecture.md`](docs/architecture.md)
 - Settled decisions: [`docs/decisions/adr/`](docs/decisions/adr/)
-- pancake-authored Syrup oracle corpus and pressure: `test/oracles/`,
-  `test/oracle/`
+- pancake-authored Syrup oracle corpus and pressure: `test/oracle/` (corpus
+  under `test/oracle/corpus/`)
 - Live Goblins wire authority: `conformance/goblins-peer/`
 - OCapN spec corpus: `conformance/ocapn-spec/`
 

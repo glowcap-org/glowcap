@@ -22,7 +22,7 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 
-/// The wire op symbol for each message-level `model.Message` kind — the one
+/// The wire op symbol for each message-level `model.Message` kind, the one
 /// source both codec halves read so the encoder's `writeSymbol` and the
 /// decoder's dispatch table cannot disagree on a name. The switch is
 /// exhaustive over the message tag, so a new `model.Message` kind fails to
@@ -81,6 +81,6 @@ pub const Error = error{
 pub const WalkError = Error || std.mem.Allocator.Error || error{NoSpaceLeft};
 
 /// The public encode entry points' error set: the recursive walk's `WalkError`
-/// plus the frame constructor's shape refusal — the same named-set posture as
+/// plus the frame constructor's shape refusal, the same named-set posture as
 /// `capnp.EncodeError`.
 pub const EncodeError = WalkError || foundation.Frame.Error;

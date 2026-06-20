@@ -92,7 +92,7 @@ pub const Backend = struct {
     /// full. A dispatch batch can arm more operations than the ring has SQ
     /// entries (each of up to 256 completions may arm a recv and a send), and
     /// SQEs otherwise flush only in `poll`, so without this a busy batch would
-    /// fail healthy submissions — closing live connections or, on the accept
+    /// fail healthy submissions, closing live connections or, on the accept
     /// re-arm, killing the whole loop. The mid-batch flush is safe: the kernel
     /// buffers completion overflow, and `poll` still reaps everything.
     fn getSqe(self: *Backend) !*linux.io_uring_sqe {

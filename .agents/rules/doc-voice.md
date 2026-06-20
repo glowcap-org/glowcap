@@ -65,7 +65,16 @@ These are the tells that prose has drifted into a private notation:
   typed abort." Write "a malformed frame becomes a typed abort." An arrow is
   fine inside an actual flow diagram like `Frame -> Codec -> Session` when it
   stands on its own line as a diagram.
-- Em-dash pile-ups that pack three facts into one breath.
+- The em-dash as a default connector. It is a strong, occasional tool, not the
+  punctuation a sentence reaches for by habit, and the drift here is using it
+  everywhere a comma or period would do. Two uses earn it: a **matched pair**
+  standing in for parentheses when the aside carries its own commas (`the core —
+  model, codec, session — stays sync`), and a **single** dash for a turn a comma
+  cannot carry, used sparingly and never more than one per sentence. Everything
+  else is overuse: "X — and then Y", "X — which is Y", a lone dash where ", " or
+  ". " reads the same, and three facts strung behind dashes in one breath. The
+  test is simple: if a comma, period, colon, or parentheses would carry the
+  sentence as well, the dash has not earned its place.
 - Telegraphic fragments with the verb cut out: "Bounded recursion. Depth-capped.
   Fails loud."
 - Bare citation dumps like "(Invariant 14)" or "(ADR-0025)" dropped in with no

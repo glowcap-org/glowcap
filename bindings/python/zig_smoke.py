@@ -1,5 +1,5 @@
 """Python dogfood of the Zig pancake C ABI archives, through the idiomatic ``pancake``
-module: drive OCapN with native Python values and typed events — no ctypes in
+module: drive OCapN with native Python values and typed events, no ctypes in
 sight. This is the consumer ``zig build bindings`` runs."""
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import ctypes
 from pancake import (
     AsyncConnection, Connection, Context, Deliver, Far, FetchFailed,
     Fulfill, Near, Other, PancakeError, Peer, Ref, Resolve, Set, Symbol,
-    Tagged, Vat, VowBroken, abi_version, listen,
+    Tagged, Vat, VatRef, VowBroken, abi_version, listen,
 )
 from pancake.inproc import InprocNetlayer
 from pancake.tcp import TcpNetlayer
@@ -102,7 +102,7 @@ def main() -> int:
 
     # The socket-free in-process transport is its own archive too, surfaced as
     # `pancake.inproc`: a listener binds an opaque designator and a dialer names
-    # it — the same frame shuttle as TCP, no kernel socket touched.
+    # it, the same frame shuttle as TCP, no kernel socket touched.
     with InprocNetlayer() as nl:
         listener = nl.listen("smoke")
         received_inproc: list[bytes] = []
@@ -138,7 +138,7 @@ def main() -> int:
     assert seen.get("local") == 10, seen
     # Near-calling a far ref is illegal; only send reaches one.
     try:
-        local_vat.call(Ref.to(Far(7)), "add", [1, 2])
+        local_vat.call(VatRef.to(Far(7)), "add", [1, 2])
     except Exception:
         pass
     else:
@@ -242,7 +242,7 @@ def main() -> int:
 
         # A sends `counter.add(5)` to the far ref and listens on the far vow.
         result: dict = {}
-        far_counter = Ref.to(Far(7))
+        far_counter = VatRef.to(Far(7))
         far_vow = vat_a.send(far_counter, "add", [5])
         vat_a.on(far_vow, on_fulfilled=lambda value: result.update(value=value))
 
@@ -298,7 +298,152 @@ def main() -> int:
 
     asyncio.run(_projections_reach_a_field())
     print("python zig-smoke OK: pipelined projections untag->index reach a field, and a late source await still settles")
+
+    asyncio.run(_forwarding_proxies_over_the_wire())
+    print("python zig-smoke OK: forwarding proxies forward, attenuate, and revoke over the wire")
+
+    asyncio.run(_forwarding_proxy_local_call())
+    print("python zig-smoke OK: a forwarding proxy answers its host's own local call (local and far target)")
     return 0
+
+
+async def _forwarding_proxies_over_the_wire() -> None:
+    """Object-capability forwarding proxies over the wire (ADR-0064). The server fetches
+    the client's published tool — a far reference on the server side — wraps it
+    in a caretaker and an attenuator, and hands the proxies back. A call through
+    the proxy forwards across the server to the client's tool (the far
+    deferred-answer path) and settles the caller's answer; the attenuator passes
+    only its allow-listed verb; and a revoke breaks every later call."""
+    server = await listen("127.0.0.1", 0)
+    tool_ready = asyncio.Event()
+    proxy_ready = asyncio.Event()
+    try:
+        async def serve_one() -> None:
+            async for conn in server:
+                conn.serve()
+                await tool_ready.wait()
+                tool = await conn.fetch("tool")
+                care = conn.caretaker(tool)
+                readonly = conn.attenuate(tool, ["get"])
+
+                def root(verb, args):
+                    if verb == "proxy":
+                        return care.proxy
+                    if verb == "readonly":
+                        return readonly
+                    if verb == "revoke":
+                        care.revoke()
+                        return None
+                    raise ValueError(f"no such method: {verb}")
+
+                conn.publish("root", root)
+                proxy_ready.set()
+                await conn.serve()
+                break
+
+        serve_task = asyncio.ensure_future(serve_one())
+        conn = await Connection.connect("127.0.0.1", server.port)
+        conn.serve()  # serve so the server's forwarded call arrives
+
+        def tool(verb, args):
+            if verb == "add":
+                n = args[0] if args and isinstance(args[0], int) else 0
+                return n + 1
+            if verb == "get":
+                return 7
+            raise ValueError(f"no such method: {verb}")
+
+        conn.publish("tool", tool)
+        tool_ready.set()
+        await proxy_ready.wait()
+        root_ref = await conn.fetch("root")
+
+        # Live caretaker: a call forwards across the server to the far tool.
+        proxy = await conn.send(root_ref, "proxy", [])
+        assert isinstance(proxy, Ref), "the caretaker proxy lifts to a Ref"
+        total = await conn.send(proxy, "add", [41])
+        assert total == 42, f"caretaker forwards to the far tool, got {total!r}"
+
+        # Attenuator: the allow-listed verb forwards; any other breaks.
+        readonly = await conn.send(root_ref, "readonly", [])
+        assert isinstance(readonly, Ref), "the attenuator proxy lifts to a Ref"
+        got = await conn.send(readonly, "get", [])
+        assert got == 7, f"the attenuator forwards an allowed verb, got {got!r}"
+        denied = None
+        try:
+            await conn.send(readonly, "add", [1])
+        except VowBroken as error:
+            denied = error
+        assert denied is not None and "Attenuated" in str(denied), "an out-of-list verb breaks Attenuated"
+
+        # Revoke: every later call through the proxy breaks.
+        await conn.send(root_ref, "revoke", [])
+        severed = None
+        try:
+            await conn.send(proxy, "add", [1])
+        except VowBroken as error:
+            severed = error
+        assert severed is not None and "Revoked" in str(severed), "a revoked proxy breaks Revoked"
+
+        await conn.close()
+        await asyncio.wait_for(serve_task, timeout=5)
+    finally:
+        server.close()
+
+
+async def _forwarding_proxy_local_call() -> None:
+    """The wart ADR-0064 closes: a forwarding proxy is an ordinary spawned actor, so
+    its own host calls it locally exactly as a partner calls it over the wire. A
+    caretaker over a *local* tool answers a local send; a caretaker over a *far*
+    tool forwards across the wire and the local send still settles; and a revoke
+    breaks the local call too, no second-class behavior on the hosting side."""
+    server = await listen("127.0.0.1", 0)
+    try:
+        async def serve_one() -> None:
+            async for conn in server:
+                def tool(verb, args):
+                    if verb == "ping":
+                        return "pong"
+                    raise ValueError(f"no such method: {verb}")
+
+                conn.publish("tool", tool)
+                await conn.serve()
+                break
+
+        serve_task = asyncio.ensure_future(serve_one())
+        conn = await Connection.connect("127.0.0.1", server.port)
+        conn.serve()
+
+        # A caretaker over a local tool, called locally by its own host.
+        def local_tool(verb, args):
+            if verb == "double":
+                return (args[0] if args and isinstance(args[0], int) else 0) * 2
+            raise ValueError(f"no such method: {verb}")
+
+        care_local = conn.caretaker(conn.spawn(local_tool))
+        doubled = await conn.send(care_local.proxy, "double", [21])
+        assert doubled == 42, f"a local proxy answers a local call, got {doubled!r}"
+
+        # A caretaker over a far tool, called locally: the proxy forwards across
+        # the wire and the local send still settles on the partner's reply.
+        far = await conn.fetch("tool")
+        care_far = conn.caretaker(far)
+        pong = await conn.send(care_far.proxy, "ping", [])
+        assert pong == "pong", f"a local call to a proxy over a far tool settles, got {pong!r}"
+
+        # Revoke severs the local call exactly as it severs a partner's.
+        care_local.revoke()
+        severed = None
+        try:
+            await conn.send(care_local.proxy, "double", [1])
+        except VowBroken as error:
+            severed = error
+        assert severed is not None and "Revoked" in str(severed), "revoke breaks a local call too"
+
+        await conn.close()
+        await asyncio.wait_for(serve_task, timeout=5)
+    finally:
+        server.close()
 
 
 async def _pipelining_drives_chain() -> None:
@@ -718,7 +863,7 @@ async def _disconnect_rejects_pending_send() -> None:
         conn.peer.register_import(7)
         rejected = False
         try:
-            await conn.send(Ref.to(Far(7)), "ping", [])
+            await conn.send(Ref(far=Far(7)), "ping", [])
         except VowBroken:
             rejected = True
         assert rejected, "an outstanding send rejects when the connection drops"

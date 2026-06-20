@@ -83,8 +83,8 @@ const ClientCtx = struct {
     allocator: std.mem.Allocator,
     fulfilled_total: *usize,
     fetch_sent: bool = false,
-    answer_position: u64 = 0,
-    resolver_export: u64 = 0,
+    answer_position: model.AnswerId = .from(0),
+    resolver_export: model.ExportId = .from(0),
     fulfilled: usize = 0,
 
     fn serve(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void {

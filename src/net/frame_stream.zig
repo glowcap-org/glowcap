@@ -59,7 +59,7 @@ pub const Fill = enum { filled, closed };
 /// a full buffer that still holds no frame cannot fit one (`FrameTooLarge`); a
 /// clean EOF on a frame boundary is `.closed`; an EOF with bytes still buffered
 /// is a mid-frame truncation; a read fault is `ConnectionLost`. The codec
-/// verdict over `r.buffered()` is the caller's — this owns only the byte-supply
+/// verdict over `r.buffered()` is the caller's; this owns only the byte-supply
 /// edge, so frame-boundary truth lives in one parser and stream-edge truth lives
 /// in one function.
 ///
@@ -81,7 +81,7 @@ pub fn fillStep(r: *std.Io.Reader) FillError!Fill {
 /// the spill costs nothing. When one admissible frame outgrows the buffer, its
 /// bytes move here so the prefix stays contiguous while the buffer keeps
 /// reading; the frame decodes from the spill, and the spill frees itself the
-/// moment it drains — steady per-connection memory is the read buffer again,
+/// moment it drains, steady per-connection memory is the read buffer again,
 /// not `max_frame_bytes`.
 ///
 /// Boundedness is the codec's cap-during-scan verdict (ADR-0029): a frame whose

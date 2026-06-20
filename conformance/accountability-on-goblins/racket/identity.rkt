@@ -320,7 +320,7 @@
   (build-path kel-dir (format "~a.kel.jsonl" aid)))
 
 (define (signing-key-path data-dir aid seq-hex)
-  ;; Stored signing keys (for the kernel only — production would use OS keystore).
+  ;; Stored signing keys (for the kernel only, production would use OS keystore).
   (define keys-dir (build-path data-dir "keys"))
   (make-directory* keys-dir)
   (build-path keys-dir (format "~a-~a.sk" aid seq-hex)))

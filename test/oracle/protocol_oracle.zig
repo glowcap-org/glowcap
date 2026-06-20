@@ -18,18 +18,18 @@ pub const message_arms = [_]MessageArm{
     .{ .name = "Untag" },
 };
 
-pub const GoblinsFixture = struct {
+pub const OracleFixture = struct {
     name: []const u8,
     data: []const u8,
 
-    pub fn bytes(self: GoblinsFixture) []const u8 {
+    pub fn bytes(self: OracleFixture) []const u8 {
         return self.data;
     }
 };
 
-const fixture_root = "../oracles/goblins/expected/";
+const fixture_root = "corpus/";
 
-pub const goblins_fixtures = [_]GoblinsFixture{
+pub const corpus = [_]OracleFixture{
     fixture("op_abort.bin"),
     fixture("op_abort_connection_lost.bin"),
     fixture("op_abort_crossed_hellos.bin"),
@@ -70,8 +70,8 @@ pub const goblins_fixtures = [_]GoblinsFixture{
     fixture("prim_string_hello.bin"),
 };
 
-pub fn fixtureByName(name: []const u8) ?GoblinsFixture {
-    for (goblins_fixtures) |entry| {
+pub fn fixtureByName(name: []const u8) ?OracleFixture {
+    for (corpus) |entry| {
         if (std.mem.eql(u8, entry.name, name)) {
             return entry;
         }
@@ -79,7 +79,7 @@ pub fn fixtureByName(name: []const u8) ?GoblinsFixture {
     return null;
 }
 
-fn fixture(comptime name: []const u8) GoblinsFixture {
+fn fixture(comptime name: []const u8) OracleFixture {
     return .{
         .name = name,
         .data = @embedFile(fixture_root ++ name),

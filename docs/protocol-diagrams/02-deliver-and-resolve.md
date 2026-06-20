@@ -32,7 +32,7 @@ sequenceDiagram
 
 Fire-and-forget: the answer position is `false`, so no `op:resolve` ever
 returns. The receiver invokes the target and the transaction ends there. There
-is no separate one-way record — a one-way send is an `op:deliver` whose answer
+is no separate one-way record, a one-way send is an `op:deliver` whose answer
 is `false`.
 
 ```mermaid

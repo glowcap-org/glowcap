@@ -1,4 +1,4 @@
-//! Keyed handshake over the C ABI — proves a binding can drive the keyed
+//! Keyed handshake over the C ABI, proves a binding can drive the keyed
 //! `op:start-session` exchange that a peer requiring the handshake (a real
 //! Goblins vat) expects, using only the C functions: a negotiating peer, a
 //! signed start-session built from a 32-byte seed, and the session-open accessor.
@@ -133,7 +133,7 @@ test "C ABI send_withdraw_gift queues a signed withdraw-gift to the exporter boo
     const recipient_loc = "127.0.0.1:1";
     const exporter_loc = "127.0.0.1:2";
     // The recipient signs both its session to the exporter AND its handoff-receive
-    // with this one seed — the continuity a gift deposited under its key needs.
+    // with this one seed, the continuity a gift deposited under its key needs.
     const recipient_seed = [_]u8{0x11} ** 32;
     const exporter_seed = [_]u8{0x22} ** 32;
 
@@ -183,7 +183,6 @@ test "C ABI send_withdraw_gift queues a signed withdraw-gift to the exporter boo
         give.len,
         &recipient_seed,
         recipient_seed.len,
-        1,
         7777,
     ));
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_step(recipient_peer));
@@ -224,7 +223,7 @@ fn openKeyedPair(
 }
 
 /// The partner's verbatim location-record bytes (valid Syrup), captured from its
-/// keyed start-session — what a gifter embeds as a give's exporter location.
+/// keyed start-session, what a gifter embeds as a give's exporter location.
 fn partnerLocatorRaw(peer: ?*c.PancakePeer) ![]const u8 {
     var ptr: ?[*]const u8 = null;
     var len: usize = 0;
@@ -263,7 +262,7 @@ test "C ABI gifter deposit + shared-registry withdraw round-trips across two exp
     // The Phase 1 gap-fix proof: an exporter NODE serves a deposit on one
     // connection (to the gifter) and the matching withdraw on another (the
     // recipient's fresh dial). Both exporter peers share one gift registry, so
-    // the withdraw finds what the deposit recorded — a per-peer registry would
+    // the withdraw finds what the deposit recorded, a per-peer registry would
     // park the withdraw forever. This exercises every new gifter primitive:
     // pancake_build_handoff_give, pancake_peer_send_deposit_gift, and the
     // registry new/set/free surface (the recipient leg reuses the shipped
@@ -271,7 +270,7 @@ test "C ABI gifter deposit + shared-registry withdraw round-trips across two exp
     const crypto = pancake.foundation.crypto;
 
     // The exporter node's two peers share one identity (one seed) and one
-    // registry — the shape the Deno binding will build per node in Phase 2.
+    // registry, the shape the Deno binding will build per node in Phase 2.
     const exporter_seed = [_]u8{0x22} ** 32;
     const gifter_seed = [_]u8{0x33} ** 32;
     const recipient_seed = [_]u8{0x11} ** 32;
@@ -327,7 +326,7 @@ test "C ABI gifter deposit + shared-registry withdraw round-trips across two exp
     const recipient_key = recipient_pub.asBytes();
     const exporter_pub = crypto.SecretKey.fromSeed(exporter_seed).publicKey();
     const exporter_key = exporter_pub.asBytes();
-    // The exporter's verbatim location, learned from the gifter's session to it —
+    // The exporter's verbatim location, learned from the gifter's session to it,
     // valid Syrup the give embeds byte-for-byte (a bare string would not decode).
     const exporter_loc = try partnerLocatorRaw(gifter);
     const gift_id = [_]u8{0x5a} ** 32;
@@ -354,7 +353,7 @@ test "C ABI gifter deposit + shared-registry withdraw round-trips across two exp
     try std.testing.expect(std.mem.indexOf(u8, give, "desc:sig-envelope") != null);
     try std.testing.expect(std.mem.indexOf(u8, give, "desc:handoff-give") != null);
 
-    // The gifter deposits a reference whose home is the exporter — an import it
+    // The gifter deposits a reference whose home is the exporter, an import it
     // received earlier (here registered directly at the exporter's gifter-session
     // export position for "dm"), encoded back to the exporter as that export on
     // the wire, where the exporter recognizes it as its bootstrap cap.
@@ -375,7 +374,6 @@ test "C ABI gifter deposit + shared-registry withdraw round-trips across two exp
         give.len,
         &recipient_seed,
         recipient_seed.len,
-        1,
         withdraw_answer,
     ));
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_step(recipient_peer));
@@ -391,7 +389,7 @@ test "C ABI gifter deposit + shared-registry withdraw round-trips across two exp
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event_resolve(recipient_peer, &resolve));
     defer c.pancake_resolve_release(&resolve);
     try std.testing.expectEqual(withdraw_answer, resolve.answer);
-    // FULFILL with a reference — not a BREAK (which a missing/unshared gift, or a
+    // FULFILL with a reference, not a BREAK (which a missing/unshared gift, or a
     // failed signature, would produce), proving the shared registry resolved it.
     try std.testing.expectEqual(c.PANCAKE_RESOLUTION_FULFILL, resolve.resolution_kind);
     try std.testing.expectEqual(c.PANCAKE_ARG_REFERENCE, resolve.fulfill.kind);
@@ -485,11 +483,11 @@ test "C ABI send_withdraw_gift fails closed without an open keyed session" {
     const give = [_]u8{0x07} ** 8;
     const seed = [_]u8{0x11} ** 32;
     // A raw-open peer has no completed handshake, so no exporter session key.
-    try std.testing.expectEqual(c.PANCAKE_ERR_SESSION, c.pancake_peer_send_withdraw_gift(peer, &give, give.len, &seed, seed.len, 1, 1));
+    try std.testing.expectEqual(c.PANCAKE_ERR_SESSION, c.pancake_peer_send_withdraw_gift(peer, &give, give.len, &seed, seed.len, 1));
     // A 16-byte seed is refused before any session check.
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_peer_send_withdraw_gift(peer, &give, give.len, &seed, 16, 1, 1));
+    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_peer_send_withdraw_gift(peer, &give, give.len, &seed, 16, 1));
     // A NULL give is refused.
-    try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_peer_send_withdraw_gift(peer, null, 0, &seed, seed.len, 1, 1));
+    try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_peer_send_withdraw_gift(peer, null, 0, &seed, seed.len, 1));
 }
 
 test "C ABI negotiated constructor drives PreSpec keyed peers to an open session" {

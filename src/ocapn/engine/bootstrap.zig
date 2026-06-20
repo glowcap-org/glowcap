@@ -16,20 +16,20 @@ const session_mod = @import("session");
 /// A recognized inbound bootstrap-fetch.
 pub const FetchRequest = struct {
     swissnum: []const u8,
-    answer: u64,
+    answer: model.AnswerId,
 };
 
 /// A recognized inbound `deposit-gift` bootstrap call.
 pub const DepositRequest = struct {
     gift_id: []const u8,
     gifted: model.view.Reference,
-    answer: ?u64,
+    answer: ?model.AnswerId,
 };
 
 /// A recognized inbound `withdraw-gift` bootstrap call.
 pub const WithdrawRequest = struct {
     receive: model.view.HandoffReceive,
-    answer: u64,
+    answer: model.AnswerId,
 };
 
 pub const Action = union(enum) {
@@ -83,6 +83,14 @@ pub const GiftRegistry = struct {
     /// per gifter/recipient pair regardless of which direct session carries the
     /// withdraw.
     handoff_counts: std.StringHashMapUnmanaged(u64) = .empty,
+    /// Next `handoff_count` this node will emit when it withdraws from a given
+    /// receiving session id — the recipient-side mirror of `handoff_counts`.
+    /// Lives here, not in the adapter, so every binding and a native Zig caller
+    /// share one monotonic source across reconnects to the same exporter
+    /// (ADR-0025/ADR-0056). Keyed by the same vat-scoped receiving session id the
+    /// exporter checks, so a count this node mints is the count that exporter
+    /// expects.
+    emitted_handoff_counts: std.StringHashMapUnmanaged(u64) = .empty,
 
     pub fn deinit(self: *GiftRegistry, allocator: std.mem.Allocator) void {
         var gift_it = self.gifts.iterator();
@@ -98,6 +106,38 @@ pub const GiftRegistry = struct {
         var count_it = self.handoff_counts.iterator();
         while (count_it.next()) |entry| allocator.free(entry.key_ptr.*);
         self.handoff_counts.deinit(allocator);
+
+        var emitted_it = self.emitted_handoff_counts.iterator();
+        while (emitted_it.next()) |entry| allocator.free(entry.key_ptr.*);
+        self.emitted_handoff_counts.deinit(allocator);
+    }
+
+    /// Mint the `handoff_count` for this node's next withdrawal from
+    /// `receiving_session` and advance the stored counter. Returns 0 for the
+    /// first withdrawal from a session and a strictly increasing value after,
+    /// exactly what the exporter's `validateWithdraw` replay guard requires. The
+    /// table is bounded by `max_seen_handoff_counts` like its accepted-side
+    /// mirror, so an unbounded fan-out of exporters cannot grow it without limit.
+    pub fn nextEmittedCount(
+        self: *GiftRegistry,
+        allocator: std.mem.Allocator,
+        limits: session_mod.SessionLimits,
+        receiving_session: []const u8,
+    ) !u64 {
+        if (self.emitted_handoff_counts.getPtr(receiving_session)) |next| {
+            const value = next.*;
+            next.* = value + 1;
+            return value;
+        }
+        if (self.emitted_handoff_counts.count() >= limits.max_seen_handoff_counts) {
+            return session_mod.Error.HandoffCountCapExceeded;
+        }
+        const copy = try allocator.dupe(u8, receiving_session);
+        errdefer allocator.free(copy);
+        const gop = try self.emitted_handoff_counts.getOrPut(allocator, copy);
+        gop.key_ptr.* = copy;
+        gop.value_ptr.* = 1;
+        return 0;
     }
 
     /// Deposit (or re-deposit) a gift whose capability the registry adopts. On
@@ -138,7 +178,7 @@ pub const GiftRegistry = struct {
 
     /// Deposit (or re-deposit) a gift withdrawable only by the recipient named in
     /// `recipient_key`, checked against the signed give at withdraw time. No
-    /// capability is recorded — a host routing the give across sessions
+    /// capability is recorded, a host routing the give across sessions
     /// deposits provenance only. Use `depositOwned` when the deposit itself
     /// carries the capability.
     pub fn deposit(
@@ -215,7 +255,7 @@ pub const GiftRegistry = struct {
         return entry.withdrawn;
     }
 
-    /// Whether `gift_id` names a deposited, not-yet-consumed gift — the only
+    /// Whether `gift_id` names a deposited, not-yet-consumed gift, the only
     /// rows a withdraw can take. A consumed row reads as not live, so an early
     /// or repeated `withdraw-gift` parks awaiting a (re-)deposit instead of
     /// verifying against a stale row's key.
@@ -311,7 +351,7 @@ pub const GiftRegistry = struct {
 /// ordinary handling instead of being auto-served.
 pub fn pendingBootstrapAction(deliver: model.view.Deliver, session: *const session_mod.Session) model.view.ProjectError!?Action {
     const target_export = deliver.target.exportPosition() orelse return null;
-    if (target_export != session_mod.BOOTSTRAP_POSITION) return null;
+    if (target_export.int() != session_mod.BOOTSTRAP_POSITION) return null;
 
     const argc = try deliver.args.len();
     if (argc < 2) return null;
@@ -362,11 +402,11 @@ pub fn pendingBootstrapAction(deliver: model.view.Deliver, session: *const sessi
     return null;
 }
 
-fn answerForDeliver(deliver: model.view.Deliver, session: *const session_mod.Session) ?u64 {
+fn answerForDeliver(deliver: model.view.Deliver, session: *const session_mod.Session) ?model.AnswerId {
     return deliver.answer orelse blk: {
         if (deliver.resolve_me_desc) |rmd| {
             if (rmd.position()) |import_position| {
-                break :blk session.answerForResolverImport(import_position);
+                break :blk session.answerForResolverImport(model.ImportId.from(import_position));
             }
         }
         break :blk null;
@@ -377,7 +417,7 @@ pub fn resolveForSwissnum(session: *const session_mod.Session, request: FetchReq
     if (session.bootstrapLookup(request.swissnum)) |export_position| {
         return .{ .resolve = .{
             .answer = request.answer,
-            .resolution = .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(export_position) } } },
+            .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = export_position } } } },
         } };
     }
     return .{ .resolve = .{
@@ -438,7 +478,7 @@ pub fn resolveForWithdraw(
     const handoff_owned = try (model.view.Handoff{ .receive = request.receive }).toOwned(allocator);
     // `receive` only borrows `handoff_owned` for this call, and a fulfilled
     // resolution returns an independent `cloneReference`, so the owned copy is
-    // freed on every path — not just on error.
+    // freed on every path, not just on error.
     defer model.freeHandoff(allocator, handoff_owned);
     const receive = handoff_owned.receive;
 
@@ -463,7 +503,7 @@ pub fn resolveForWithdraw(
 
     // A gift that named a node-local bootstrap cap is re-resolved against *this*
     // (the withdrawing) session: the deposit-session near is meaningless here, so
-    // hand back a fresh near for the same swissnum — the export the recipient can
+    // hand back a fresh near for the same swissnum, the export the recipient can
     // reach over its own connection. This is the exporter half of a three-party
     // handoff across two sessions; the gift's deposit session and this withdraw
     // session differ, so a verbatim near would point at nothing on the wire.
@@ -472,7 +512,7 @@ pub fn resolveForWithdraw(
         if (session.bootstrapLookup(gifted_swiss)) |export_position| {
             return .{ .settled = .{ .resolve = .{
                 .answer = request.answer,
-                .resolution = .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(export_position) } } },
+                .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = export_position } } } },
             } } };
         }
         // The object is not published on this session: the node owns the gift's

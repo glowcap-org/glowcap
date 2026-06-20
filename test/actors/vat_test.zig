@@ -9,7 +9,7 @@ const actors = pancake.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 
-/// A counter whose `self` *is* its state — `increment`/`add` mutate it in place,
+/// A counter whose `self` *is* its state, `increment`/`add` mutate it in place,
 /// the Zig-native "become".
 const Counter = struct {
     n: i64,
@@ -43,7 +43,7 @@ test "near-call dispatches synchronously and become mutates state" {
     try std.testing.expectEqual(@as(i64, 5), (try vat.near(counter, .{ .verb = "get" })).integer);
 }
 
-/// An actor that near-calls itself without bound — a stand-in for a cyclic local
+/// An actor that near-calls itself without bound, a stand-in for a cyclic local
 /// actor graph. The vat's near-call depth cap must stop it with a typed error
 /// instead of overflowing the native stack.
 const SelfRecurser = struct {
@@ -151,7 +151,7 @@ test "a handler allocates its reply from turn.arena without leaking" {
     try std.testing.expectEqualStrings("hello, world", captured.buf[0..captured.len]);
 }
 
-/// An actor that, in its own turn, spawns a helper and near-calls it — proving
+/// An actor that, in its own turn, spawns a helper and near-calls it, proving
 /// `Turn` carries spawn/call authority into a handler.
 const Adder = struct {
     pub fn handle(self: *Adder, turn: *Turn, msg: Message) !model.Argument {
@@ -274,7 +274,7 @@ const Forwarder = struct {
     }
 };
 
-/// Stores the bytes it is sent — but first it deliberately scribbles over the
+/// Stores the bytes it is sent, but first it deliberately scribbles over the
 /// turn arena, so a message that (wrongly) still borrowed reset arena storage
 /// would arrive corrupted.
 const Sink = struct {
@@ -480,7 +480,7 @@ test "snapshot and restore refuse a non-quiescent vat with NotQuiescent" {
 }
 
 /// A mutable actor whose state owns heap (a label), so a snapshot must deep-copy
-/// it on write and a restore must free the live copy — the leak check is the
+/// it on write and a restore must free the live copy, the leak check is the
 /// assertion.
 const Ledger = struct {
     allocator: std.mem.Allocator,

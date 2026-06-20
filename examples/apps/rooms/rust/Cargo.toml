@@ -13,13 +13,13 @@ path = "client.rs"
 # addition to TCP, by turning on the binding's iroh transport. Off by default so
 # the TCP demo builds without cargo's iroh ABI companion library. With it on the
 # client links `libpancake_net_transport_iroh` alongside the core; off, it links
-# only the core — the same "no shipped cost" the archive set gives.
+# only the core, the same "no shipped cost" the archive set gives.
 iroh = ["pancake/iroh"]
 
 # The pancake binding, with its tokio async layer. Renamed to `pancake` so the
 # application reads against the library, not the dogfood crate's package name.
 # `default-features = false` so this client links only the core archive plus its
-# tokio driver — it dials over native sockets and never the blocking tcp/inproc
+# tokio driver, it dials over native sockets and never the blocking tcp/inproc
 # transport archives, so it pays for neither. The optional `iroh` feature above
 # is the one transport archive it can add.
 [dependencies]

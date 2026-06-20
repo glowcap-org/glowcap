@@ -50,7 +50,7 @@ fn reportWirePathBudget(backing: std.mem.Allocator) !void {
     var counter = TotalCountingAllocator{ .backing = backing };
     var peer = engine.Peer.init(counter.allocator());
     defer peer.deinit();
-    try peer.session_state.registerExport(7);
+    try peer.session_state.registerExport(.from(7));
 
     const warmup = 8;
     const turns = 1024;

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # The full gate sequence, forge-neutral. CI wrappers (.forgejo/workflows/,
-# .github/workflows/) run this inside the committed devcontainer image — the
+# .github/workflows/) run this inside the committed devcontainer image, the
 # same commands a contributor runs. The project gate itself stays
 # `zig build check`; this script only sequences it with the cross-language
 # sibling gates that need the non-Zig runtimes the image carries.

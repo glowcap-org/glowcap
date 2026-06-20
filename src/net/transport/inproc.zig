@@ -44,7 +44,7 @@ const Io = std.Io;
 
 /// A non-blocking spinlock for the short critical sections reached from vtable
 /// `close` callbacks, which have no `io` to drive an `Io.Mutex`. Held only across
-/// a refcount decrement or a hash-map removal — never across a wait.
+/// a refcount decrement or a hash-map removal, never across a wait.
 const SpinLock = struct {
     inner: std.atomic.Mutex = .unlocked,
     fn lock(self: *SpinLock) void {
@@ -69,7 +69,7 @@ const AcceptError = netlayer.AcceptError;
 /// `op:start-session`. Matches the `pancake_inproc_*` C ABI family.
 pub const transport_name = "inproc";
 
-/// Build an `inproc` locator naming the switchboard `designator` to dial — the
+/// Build an `inproc` locator naming the switchboard `designator` to dial, the
 /// name a listener bound on the same `Network`. The transport owns this
 /// spelling, so a caller dials without writing the `model.PeerLocator` literal
 /// by hand. The designator is a caller-held name (not a formatted address), so
@@ -294,7 +294,7 @@ const Endpoint = struct {
         return null; // No fd: this transport multiplexes in process, not via poll.
     }
 
-    /// Build a peer-less `InprocFrameStream` over this endpoint — the host-driven
+    /// Build a peer-less `InprocFrameStream` over this endpoint, the host-driven
     /// frame boundary the C ABI sits on, where the host owns the peer. The mirror
     /// of `intoConnection` for the frame-stream path.
     fn intoFrameStream(self: *Endpoint, io: Io, allocator: std.mem.Allocator, codec_id: model.CodecId, max_frame_bytes: usize) InprocFrameStream {
@@ -609,7 +609,7 @@ pub const InprocListener = struct {
 };
 
 /// Build the listener's endpoint over an accepted duplex (it writes the
-/// listen-to-dial pipe and reads the dial-to-listen pipe — the mirror of the dialer).
+/// listen-to-dial pipe and reads the dial-to-listen pipe, the mirror of the dialer).
 /// On allocation failure the duplex is torn down so the dialer gets EOF. Shared
 /// by the driver-path `accept` and the frame-stream `acceptFrameStream`.
 fn acceptEndpoint(allocator: std.mem.Allocator, duplex: *Duplex, bufs: Buffers) std.mem.Allocator.Error!*Endpoint {

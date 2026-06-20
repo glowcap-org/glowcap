@@ -43,7 +43,7 @@ use tokio::sync::Notify;
 /// The ALPN both pancake peers negotiate (ADR-0055).
 const ALPN: &[u8] = b"ocapn/pancake/1";
 
-/// Upper bound on a single dial — discovery resolution plus relay/hole-punch
+/// Upper bound on a single dial, discovery resolution plus relay/hole-punch
 /// setup. A dial that cannot be established within this window returns null (the
 /// Zig resident maps that to `error.ConnectionLost`) instead of parking the
 /// calling thread forever. Loopback and in-process dials complete in
@@ -51,8 +51,8 @@ const ALPN: &[u8] = b"ocapn/pancake/1";
 /// failed dial from hanging a gate or a caller.
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Reachability postures, chosen explicitly by the caller — there is no
-/// default. A pancake peer never enables relays or a discovery service as a
+/// Reachability postures, chosen explicitly by the caller, with no default. A
+/// pancake peer never enables relays or a discovery service as a
 /// hidden implementation detail; the host decides, in the open, how this
 /// endpoint becomes reachable. These values mirror
 /// `PANCAKE_IROH_REACH_*` in `include/pancake_iroh_sidecar.h` and the
@@ -198,7 +198,7 @@ impl Readiness {
 
 	/// Enqueue one readiness record and nudge the self-pipe. The wakeup byte is
 	/// best-effort: the queue already carries the event, so a full pipe (an
-	/// undrained backlog) is harmless — the loop is already going to wake.
+	/// undrained backlog) is harmless, the loop is already going to wake.
 	fn signal(&self, conn: usize, events: u32) {
 		self.queue
 			.lock()
@@ -233,7 +233,7 @@ struct AcceptedRaw {
 /// they can hold them across `.await` without a `!Send` guard.
 struct NbConn {
 	readiness: Arc<Readiness>,
-	/// This connection's `PancakeIrohConn` pointer as an integer — the identity
+	/// This connection's `PancakeIrohConn` pointer as an integer, the identity
 	/// the loop matches drained records against.
 	id: usize,
 	inbound: Mutex<Inbound>,
@@ -265,7 +265,7 @@ struct Outbound {
 
 /// Create an endpoint. `secret_seed32` is either null (generate a fresh random
 /// endpoint key) or a pointer to 32 bytes of Ed25519 secret key material.
-/// `reachability` selects how this endpoint becomes reachable and is mandatory —
+/// `reachability` selects how this endpoint becomes reachable and is mandatory,
 /// one of `PANCAKE_IROH_REACH_*`, with no implicit default. An unknown value
 /// returns null. Returns an owned handle (release with
 /// `pancake_iroh_sidecar_endpoint_free`) or null on failure. Blocks until the
@@ -602,7 +602,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_close(conn: *mut PancakeIrohConn) {
 /// `conn_write` on the same handle (the teardown a binding hits when it releases
 /// a connection whose inbound loop is still parked on a read): closing the QUIC
 /// connection makes the parked call return at once, and acquiring both stream
-/// locks before the drop fences against it — once the locks are free, no
+/// locks before the drop fences against it, once the locks are free, no
 /// blocking call is still borrowing this box, so the free below cannot race one.
 #[no_mangle]
 pub extern "C" fn pancake_iroh_sidecar_conn_free(conn: *mut PancakeIrohConn) {
@@ -826,7 +826,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_set_nonblocking_accept(
 
 /// Claim one connection the acceptor has pulled off the wire, or null when none
 /// is waiting (the non-blocking counterpart of `accept`: null is `WOULD_BLOCK`,
-/// not failure — the loop retries on the next `EV_ACCEPT`). The returned handle
+/// not failure, the loop retries on the next `EV_ACCEPT`). The returned handle
 /// is a fresh blocking connection; the loop calls `conn_set_nonblocking` on it
 /// to bind it to the readiness surface. Returns an owned handle or null. The
 /// endpoint must outlive the connection.
@@ -947,7 +947,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_try_read(
 
 /// Non-blocking write: enqueue all `len` bytes from `buf` for the writer task.
 /// Returns `len` on success, -1 if the connection is closed, or
-/// `PANCAKE_IROH_WOULD_BLOCK` (-2) when the outbound buffer is at its bound — the
+/// `PANCAKE_IROH_WOULD_BLOCK` (-2) when the outbound buffer is at its bound, the
 /// loop re-arms on the next `EV_WRITABLE`. The connection must have been moved to
 /// the readiness surface with `conn_set_nonblocking`. Borrows the handle.
 #[no_mangle]

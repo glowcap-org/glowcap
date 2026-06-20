@@ -40,7 +40,7 @@ The two benches stay separate; read
 ## How it stays fair
 
 Every row runs against the same ReleaseFast host binary, the same four-verb
-workload (create, assign, complete, status — see [`contract.md`](contract.md)),
+workload (create, assign, complete, status, see [`contract.md`](contract.md)),
 the same loopback TCP (the transport disables Nagle for every peer, so no row
 eats a delayed-ACK stall the others dodge), and the same counts and driving
 discipline: `latency` is sequential on every row, `throughput` is pipelined on

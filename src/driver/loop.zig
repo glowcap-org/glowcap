@@ -238,7 +238,7 @@ pub const LoopDialer = struct {
     /// Fired once per dialed connection when it fully closes. `client` is the
     /// connection's application surface, or null when the connection failed
     /// before it opened (no vat was ever built for it); `opened` is false for
-    /// a dial that never completed its connect — a refused dial is observable
+    /// a dial that never completed its connect, a refused dial is observable
     /// nowhere else, because `dialTcp` returns before the connect resolves.
     pub const OnClose = *const fn (ctx: ?*anyopaque, client: ?*Client, opened: bool) void;
 
@@ -299,7 +299,7 @@ pub const LoopDialer = struct {
 
     const Conn = struct {
         client: Client,
-        /// True once `on_open` has fired for this connection — the callback is
+        /// True once `on_open` has fired for this connection, the callback is
         /// at-most-once even if another `start_session` event arrives.
         on_open_fired: bool = false,
         on_open: ?OnOpen,

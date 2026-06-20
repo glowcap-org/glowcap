@@ -92,7 +92,7 @@ fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type) type {
         };
 
         /// Forward-only walk over the sequence. One linear pass, no
-        /// per-element re-scan and no `len()` pre-walk — the shape the
+        /// per-element re-scan and no `len()` pre-walk, the shape the
         /// session's hot validate/install paths use.
         pub const Iterator = struct {
             inner: union(enum) {
@@ -139,7 +139,7 @@ fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type) type {
                 allocator.free(elem.key);
             } else if (comptime OwnedElem != u64) {
                 // POD elements (u64 positions) own nothing. Any new element
-                // type must declare its release arm above — a silent
+                // type must declare its release arm above, a silent
                 // fall-through would leak every element on the unwind path.
                 @compileError("LazySequence.freeOwned has no release arm for " ++ @typeName(OwnedElem));
             }
@@ -210,7 +210,7 @@ fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type) type {
 /// A borrowed sequence of `Argument` values.
 pub const Args = LazySequence(model.Argument, Argument);
 
-/// A borrowed sequence of `StructEntry` pairs — the lazy backing of an OCapN
+/// A borrowed sequence of `StructEntry` pairs, the lazy backing of an OCapN
 /// `Argument.@"struct"`. One cursor walks (key, value) pairs off the wire, the
 /// same shape `Args` walks single values, so a struct projects with no per-entry
 /// allocation until `Argument.toOwned`.
@@ -265,7 +265,7 @@ pub const SturdyRef = struct {
 
 /// Borrowed mirror of `model.PromiseRef`.
 pub const PromiseRef = struct {
-    answer_position: u64,
+    answer_position: model.AnswerId,
     path: PipelinePath = PipelinePath.empty(),
 };
 
@@ -278,24 +278,26 @@ pub const Reference = union(enum) {
     sturdy: SturdyRef,
     broken: BreakReason,
 
-    /// The wire position this reference names: a near export's `export_position` or a
-    /// far import's `import_position` (they live in one integer space). Null for a
-    /// reference that names no position (promise / sturdy / broken).
+    /// The raw wire position this reference names: a near export's
+    /// `export_position` or a far import's `import_position`, collapsed to the
+    /// one `u64` integer space they share on the wire. Null for a reference that
+    /// names no position (promise / sturdy / broken). Prefer `exportPosition`
+    /// when you mean "the local export this names."
     pub fn position(self: Reference) ?u64 {
         return switch (self) {
-            .near => |near| near.export_position,
-            .far => |far| far.import_position,
+            .near => |near| near.export_position.int(),
+            .far => |far| far.import_position.int(),
             else => null,
         };
     }
 
     /// The local export position this reference names, but only when it is a
-    /// `.near` export this peer hosts. A resolver-export lookup must use this,
-    /// never `position`: a resolver callback always targets one of our `.near`
-    /// exports, and keying an export-indexed map on a partner-named `.far` import
-    /// id (the same integer space) would let a coincidental collision misclassify
-    /// an ordinary deliver as a resolver callback.
-    pub fn exportPosition(self: Reference) ?u64 {
+    /// `.near` export this peer hosts, typed, so it cannot be mistaken for a
+    /// partner-named import id. A resolver-export lookup must use this, never
+    /// `position`: keying an export-indexed map on a `.far` import id (the same
+    /// integer space) would let a coincidental collision misclassify an ordinary
+    /// deliver as a resolver callback.
+    pub fn exportPosition(self: Reference) ?model.ExportId {
         return switch (self) {
             .near => |near| near.export_position,
             else => null,
@@ -447,7 +449,7 @@ pub const PipelineOp = union(enum) {
     fn toOwnedDepth(self: PipelineOp, allocator: std.mem.Allocator, depth: usize) Error!model.PipelineOp {
         return switch (self) {
             .field => |field| .{ .field = try allocator.dupe(u8, field) },
-            // A call op's args are one nesting level deeper — increment rather than
+            // A call op's args are one nesting level deeper, increment rather than
             // reset, so a promise→call→promise→call… tree is bounded by
             // `model.max_value_depth` like list/set/tagged nesting. Resetting to 0
             // here (the old `toOwnedSlice`) let such a tree recurse off the stack.
@@ -487,12 +489,12 @@ pub const Handoff = records.Handoff;
 pub const Deliver = struct {
     target: Reference,
     args: Args,
-    answer: ?u64 = null,
+    answer: ?model.AnswerId = null,
     resolve_me_desc: ?Reference = null,
 };
 
 pub const Resolve = struct {
-    answer: u64,
+    answer: model.AnswerId,
     resolution: Resolution,
 };
 
@@ -505,19 +507,19 @@ pub const Listen = struct {
 pub const Get = struct {
     receiver: Reference,
     field: []const u8,
-    answer: u64,
+    answer: model.AnswerId,
 };
 
 pub const Index = struct {
     receiver: Reference,
     index: i64,
-    answer: u64,
+    answer: model.AnswerId,
 };
 
 pub const Untag = struct {
     receiver: Reference,
     tag: []const u8,
-    answer: u64,
+    answer: model.AnswerId,
 };
 
 pub const GcExport = struct {

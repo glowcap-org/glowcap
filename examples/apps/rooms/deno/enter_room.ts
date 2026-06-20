@@ -38,7 +38,7 @@ export async function enterOrOpen(dir: Directory, name: string): Promise<Ref> {
 
 /** The one-call friendly entry for a single-room session: connect, enter the
  * named room (opening it if new), and subscribe as `nick`. Returns the directory
- * too, since it owns the connection — `room.leave()` drops the room and
+ * too, since it owns the connection, `room.leave()` drops the room and
  * `dir.close()` ends the session. */
 export async function joinRoom(
 	locator: string,

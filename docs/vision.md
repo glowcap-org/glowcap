@@ -32,13 +32,13 @@ says 500k as an achievement until a gate proves it under real socket load. Until
 then it is a design constraint every struct on the session path answers to.
 
 The portable core is synchronous and does no I/O, so the core alone cannot
-deliver 500k — but it can make 500k impossible, by letting per-session state
+deliver 500k, but it can make 500k impossible, by letting per-session state
 bloat or by allocating on the wire path without naming it. So the core's
 obligation is a per-session footprint small enough, and an allocation discipline
 strict enough, that the adapter is never fighting its own substrate. That
 obligation is a contract the gates defend, and the [ladder](ladder.md) owns its
 numbers: the per-session inline and warmed footprint ceilings, and the wire
-path's steady-state floor of one heap allocation per inbound delivery — the
+path's steady-state floor of one heap allocation per inbound delivery, the
 owned-frame copy the event model requires, and no more. A field added to session
 state is a withdrawal from that budget and is justified like one. The adapter's
 job, when its day comes, is to turn the budget into a measurement against a real
@@ -106,7 +106,7 @@ whichever netlayer the peer speaks.
 
 Two peers that cannot open a raw socket to each other still have to talk, and
 OCapN names peer reachability without further configuration a desired property
-of a netlayer — the canonical one, Tor onion, provides it. pancake should ship a
+of a netlayer. The canonical one, Tor onion, provides it. pancake should ship a
 netlayer that gives that reachability on the modern internet: a
 self-authenticating node identity as the designator, NAT traversal and relays so
 a peer behind a home router is reachable without port-forwarding, an encrypted

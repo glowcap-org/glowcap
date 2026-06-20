@@ -52,7 +52,7 @@ container persists crates in a volume.
 `post-create.sh` also ensures `${CACHE_ROOT}/zls` is writable (ZLS).
 
 Ptrace requires `runArgs` in `devcontainer.json`. `perf` may still depend on
-host kernel policy. `raco` has no `--version` flag — use `racket --version`.
+host kernel policy. `raco` has no `--version` flag, use `racket --version`.
 
 ## Layout
 
@@ -70,5 +70,5 @@ host kernel policy. `raco` has no `--version` flag — use `racket --version`.
 | `install-*.sh`                                 | One toolchain group per script     |
 
 Cursor agents using Serena: enable **serena** in MCP settings; config is
-[`.cursor/mcp.json`](../.cursor/mcp.json) (stdio — Cursor starts the server).
+[`.cursor/mcp.json`](../.cursor/mcp.json) (stdio, Cursor starts the server).
 See [`.agents/rules/serena-mcp.md`](../.agents/rules/serena-mcp.md).

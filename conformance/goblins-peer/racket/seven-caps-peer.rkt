@@ -1,5 +1,5 @@
 #lang racket
-;; seven-caps-peer.rkt — long-running Goblins peer registering the
+;; seven-caps-peer.rkt, long-running Goblins peer registering the
 ;; seven canonical OCapN test caps at the swiss-nums the conformance
 ;; suite expects.
 ;;
@@ -43,7 +43,7 @@
   (collect-garbage))
 
 ;; ─────────────────────────────────────────────────────────────────
-;; Seven canonical caps — copied verbatim from Spritely's reference
+;; Seven canonical caps, copied verbatim from Spritely's reference
 ;; (misc/ocapn-test-suite.scm in spritely/racket-goblins). Behavior is
 ;; what the suite asserts against; do not modify without a matching
 ;; suite-side change.

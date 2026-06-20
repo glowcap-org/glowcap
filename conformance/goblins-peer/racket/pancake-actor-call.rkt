@@ -55,7 +55,7 @@
 
    (on (<- mycapn 'enliven target)
        (lambda (actor)
-         ;; The cap is live now — this is a plain (non-pipelined) deliver.
+         ;; The cap is live now, this is a plain (non-pipelined) deliver.
          (on (<- actor message)
              (lambda (val) (async-channel-put response-ch `(ok ,val)))
              #:catch

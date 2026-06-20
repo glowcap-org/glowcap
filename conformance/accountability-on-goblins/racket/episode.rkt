@@ -1,5 +1,5 @@
 #lang racket/base
-;; episode.rkt — Episode emission.
+;; episode.rkt, Episode emission.
 ;;
 ;; An Episode is a signed bitemporal RDF-Star quad recording a capability
 ;; invocation. Per substrate commitment, every Episode:
@@ -28,7 +28,7 @@
   ;; Build, sign, persist, and log an Episode. Returns the Episode hash table.
   ;;
   ;; The optional `#:signing-aid` lets a Vat sign an Episode about an
-  ;; invocation whose actor is a different AID — e.g. a Vat that
+  ;; invocation whose actor is a different AID, e.g. a Vat that
   ;; observes a remote peer (via OCapN three-party introduction)
   ;; invoking one of its capabilities. The Episode's `actor` field
   ;; records WHO INVOKED; `signing-aid` is who attests they observed
@@ -66,7 +66,7 @@
   ;; fields (sig, ephemeral_pubkey_sig). Same shape both sides hash → bytes.
   (string->bytes/utf-8 (jsexpr->string episode-without-signatures)))
 
-;; Crypto suite identifier — names the primitive set the kernel signs Episodes
+;; Crypto suite identifier, names the primitive set the kernel signs Episodes
 ;; with. Carried in every Episode (substrate commitment #7, crypto-agility):
 ;; the verifier can refuse unknown suites. Changing primitive families bumps
 ;; the suite string; the actual versioning protocol (semver, namespacing,
@@ -124,7 +124,7 @@
   ;; 1. Generate per-Episode ephemeral keypair, derived from the rotation chain
   ;;    in the sense that the AID's CURRENT key countersigns the ephemeral pk
   ;;    (Sigstore-style). The ephemeral private key is destroyed at function
-  ;;    exit — only the public key + signature persist.
+  ;;    exit, only the public key + signature persist.
   (define-values (eph-pk eph-sk eph-pk-cesr)
     (id:aid-ephemeral-keypair data-dir signing-aid))
 
@@ -146,13 +146,13 @@
   ;; 4. Sign Episode payload with ephemeral signing key, then zero it. The
   ;;    private key has no use after this point; explicit zero-fill is more
   ;;    honest than relying on GC. (Memory still lives until reclaimed; we
-  ;;    don't claim immunity from process-memory inspection — see STATUS.md.)
+  ;;    don't claim immunity from process-memory inspection, see STATUS.md.)
   (define payload-bytes (canonical-bytes-for-signing payload))
   (define episode-sig-bytes (id:ephemeral-sign eph-sk payload-bytes))
   (bytes-fill! eph-sk 0)
   (define episode-sig-cesr (id:cesr-encode-64 "0B" episode-sig-bytes))
 
-  ;; 5. Get the SIGNING AID's current event sequence (for KEL anchoring) —
+  ;; 5. Get the SIGNING AID's current event sequence (for KEL anchoring),
   ;;    needed by the audit verifier to find the right verkey to verify
   ;;    the ephemeral-pubkey countersignature.
   (define kel (id:load-kel data-dir signing-aid))

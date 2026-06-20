@@ -69,7 +69,7 @@ pub export fn pancake_peer_new_in(context: ?*PancakeContext, out_peer: ?*?*Panca
 /// codec: `captp_version` is a `PANCAKE_CAPTP_VERSION_*` value (`_V1_0`, or
 /// `_PRE_SPEC` for the upstream OCapN prerelease profile) and `codec` is a
 /// `PANCAKE_CODEC_*` value. Both ends of a connection must construct with the
-/// same pair — `op:start-session` carries the profile but no codec operand, so
+/// same pair, `op:start-session` carries the profile but no codec operand, so
 /// codec agreement is the caller's, the same agreement the matching `codec`
 /// argument to `pancake_tcp_connect` / `pancake_tcp_accept` records.
 /// `pancake_peer_start_session` signs with the profile chosen here.
@@ -89,7 +89,7 @@ pub export fn pancake_peer_new_negotiated_in(context: ?*PancakeContext, captp_ve
     return peerNewIn(c_ctx.allocator, slot, true, profile, codec_id);
 }
 
-/// Create an already-open peer that skips the keyed handshake — the
+/// Create an already-open peer that skips the keyed handshake, the
 /// trusted/local direct-frame constructor. It is the entry for hosts that drive
 /// the engine from frames they already hold (test harnesses, in-process and
 /// local-socket loops across the bindings). It is a distinct named constructor,
@@ -193,7 +193,7 @@ pub export fn pancake_peer_feed_owned(peer: ?*PancakePeer, frame_in: ?*PancakeMa
         // `initExternal` transfers unconditionally: it already disposed the
         // storage through `releaseAdoptedManagedFrame`, which released the
         // managed frame and destroyed `payload`. The refusal names the caller's
-        // fault — storage that does not satisfy the declared shape (a word
+        // fault, storage that does not satisfy the declared shape (a word
         // frame needs an 8-aligned pointer and a length divisible by 8).
         return PANCAKE_ERR_INVALID_ARGUMENT;
     };
@@ -249,7 +249,7 @@ pub export fn pancake_peer_recv_stream(
 }
 
 /// Advance the peer: validate-and-apply queued inbound frames and encode pending
-/// outbound work. No I/O — the caller drains `take_outbound` and `poll_event`
+/// outbound work. No I/O, the caller drains `take_outbound` and `poll_event`
 /// afterward.
 pub export fn pancake_peer_step(peer: ?*PancakePeer) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
@@ -313,7 +313,7 @@ pub export fn pancake_peer_poll_event(peer: ?*PancakePeer, out_event: ?*PancakeE
 /// bytes for the `(transport, designator)` locator, and enqueues the handshake
 /// frame; flush it with `pancake_peer_step` + `pancake_peer_take_outbound`. The
 /// signed locator is what the partner verifies, so the designator and transport
-/// must be the ones it expects — for a Goblins partner, transport `"tcp"` with
+/// must be the ones it expects, for a Goblins partner, transport `"tcp"` with
 /// `hints` set to `PANCAKE_HINTS_EMPTY_FALSE` (Goblins emits the boolean-false
 /// spelling of an empty hints map and re-encodes what it checks).
 /// `hints` selects the wire spelling of the locator's empty hints:
@@ -446,7 +446,7 @@ pub export fn pancake_peer_send_bootstrap_fetch(
         };
     }
     ptr.send(prepared.message) catch |err| return feedErrorToCode(err);
-    slot.* = prepared.answer_position;
+    slot.* = prepared.answer_position.int();
     return PANCAKE_OK;
 }
 
@@ -487,12 +487,12 @@ pub export fn pancake_peer_prepare_enliven(
             .status = c.PANCAKE_ENLIVEN_CACHED,
             .kind = if (reference.far.kind == .promise) c.PANCAKE_REF_SUB_PROMISE else c.PANCAKE_REF_SUB_OBJECT,
             .answer = 0,
-            .import_position = reference.far.import_position,
+            .import_position = reference.far.import_position.int(),
         },
         .in_flight => |answer| slot.* = .{
             .status = c.PANCAKE_ENLIVEN_IN_FLIGHT,
             .kind = 0,
-            .answer = answer,
+            .answer = answer.int(),
             .import_position = 0,
         },
         .fresh => |prepared| {
@@ -513,7 +513,7 @@ pub export fn pancake_peer_prepare_enliven(
             slot.* = .{
                 .status = c.PANCAKE_ENLIVEN_FRESH,
                 .kind = 0,
-                .answer = prepared.answer_position,
+                .answer = prepared.answer_position.int(),
                 .import_position = 0,
             };
         },
@@ -544,7 +544,7 @@ pub export fn pancake_peer_record_enlivenment(
             // marker. It only errors on a non-far/broken outcome, which a
             // `.far` fulfillment never is.
             _ = engine.sturdyref.recordEnlivenment(ptr.allocator, &ptr.session_state, swiss, .{
-                .fulfilled = .{ .far = .{ .import_position = import_position, .kind = ref_kind } },
+                .fulfilled = .{ .far = .{ .import_position = model.ImportId.from(import_position), .kind = ref_kind } },
             }) catch |err| return feedErrorToCode(err);
         },
         c.PANCAKE_ENLIVEN_OUTCOME_BROKEN => ptr.session_state.finishPendingEnliven(swiss),
@@ -584,7 +584,7 @@ pub export fn pancake_peer_last_abort(peer: ?*PancakePeer, out: ?*PancakeLastAbo
 /// events. The bare-position sibling of `register_bootstrap_cap` (no swissnum).
 pub export fn pancake_peer_register_export(peer: ?*PancakePeer, export_position: u64) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    ptr.session_state.registerExport(export_position) catch |err| return feedErrorToCode(err);
+    ptr.session_state.registerExport(model.ExportId.from(export_position)) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
 
@@ -620,7 +620,7 @@ pub export fn pancake_peer_next_answer(peer: ?*PancakePeer, out_answer: ?*u64) i
 /// bootstrap import) directly.
 pub export fn pancake_peer_register_import(peer: ?*PancakePeer, import_position: u64) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    ptr.session_state.registerImport(import_position) catch |err| return feedErrorToCode(err);
+    ptr.session_state.registerImport(model.ImportId.from(import_position)) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
 
@@ -694,7 +694,7 @@ pub export fn pancake_peer_send_deliver(
     ptr.sendCopying(.{ .deliver = .{
         .target = model_target,
         .args = model_args,
-        .answer = if (has_answer != 0) answer else null,
+        .answer = if (has_answer != 0) model.AnswerId.from(answer) else null,
     } }) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
@@ -725,7 +725,7 @@ pub export fn pancake_peer_send_resolve(
         } },
         else => return PANCAKE_ERR_INVALID_ARGUMENT,
     };
-    ptr.sendCopying(.{ .resolve = .{ .answer = answer, .resolution = resolution } }) catch |err| return feedErrorToCode(err);
+    ptr.sendCopying(.{ .resolve = .{ .answer = model.AnswerId.from(answer), .resolution = resolution } }) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
 
@@ -751,7 +751,7 @@ pub export fn pancake_peer_send_get(
     ptr.sendCopying(.{ .get = .{
         .receiver = model_receiver,
         .field = field_bytes,
-        .answer = answer,
+        .answer = model.AnswerId.from(answer),
     } }) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
@@ -773,7 +773,7 @@ pub export fn pancake_peer_send_index(
     ptr.sendCopying(.{ .index = .{
         .receiver = model_receiver,
         .index = index,
-        .answer = answer,
+        .answer = model.AnswerId.from(answer),
     } }) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
@@ -798,7 +798,7 @@ pub export fn pancake_peer_send_untag(
     ptr.sendCopying(.{ .untag = .{
         .receiver = model_receiver,
         .tag = tag_bytes,
-        .answer = answer,
+        .answer = model.AnswerId.from(answer),
     } }) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
@@ -846,17 +846,17 @@ pub export fn pancake_peer_send_gc_answer(peer: ?*PancakePeer, answer: u64) i32 
 /// was deposited under — that session key is what the exporter verifies the
 /// receive against, so the receive's session and side names are derived from it
 /// and the session must be open (`PANCAKE_ERR_SESSION` otherwise). `give` is the
-/// verbatim signed `desc:handoff-give` bytes and `handoff_count` is the count of
-/// prior withdrawals this recipient has made from this exporter session (0 for
-/// the first, rising monotonically), which the exporter requires to increase.
-/// `give` and `seed` are borrowed for the call; `seed_len` must be 32.
+/// verbatim signed `desc:handoff-give` bytes. The monotonic `handoff-count` the
+/// exporter requires to increase is minted internally by the peer's gift
+/// registry — 0 for the first withdrawal from a given exporter session, rising
+/// across reconnects when a shared registry is wired — so the caller never
+/// tracks it. `give` and `seed` are borrowed for the call; `seed_len` must be 32.
 pub export fn pancake_peer_send_withdraw_gift(
     peer: ?*PancakePeer,
     give: ?[*]const u8,
     give_len: usize,
     seed: ?[*]const u8,
     seed_len: usize,
-    handoff_count: u64,
     answer: u64,
 ) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
@@ -867,32 +867,17 @@ pub export fn pancake_peer_send_withdraw_gift(
 
     const seed_bytes: [foundation.crypto.SEED_BYTES]u8 = seed_ptr[0..foundation.crypto.SEED_BYTES].*;
     const secret = foundation.crypto.SecretKey.fromSeed(seed_bytes);
-    const our_pubkey = secret.publicKey();
 
-    // The exporter's session key — learned from the completed keyed handshake —
-    // names the receive's session and side, so the session must be open.
-    const exporter_key = ptr.session_state.partnerSessionKey() orelse return c.PANCAKE_ERR_SESSION;
-
-    const signed = engine.handoff_recipient.signedReceiveFromGiveBytes(
-        ptr.allocator,
-        secret,
-        our_pubkey,
-        exporter_key,
-        give_ptr[0..give_len],
-        handoff_count,
-    ) catch |err| switch (err) {
+    // `Peer.sendWithdrawGift` owns the withdraw shape — sign the receive (the
+    // exporter session must be open, since its key names the receive's session),
+    // mint the monotonic `handoff_count` from the vat-scoped gift registry, and
+    // queue the `withdraw-gift` deliver — so `engine.Node` and this C export
+    // drive one definition rather than each hand-rolling the deliver.
+    ptr.sendWithdrawGift(secret, give_ptr[0..give_len], model.AnswerId.from(answer)) catch |err| switch (err) {
+        error.NoExporterKey => return c.PANCAKE_ERR_SESSION,
         error.MalformedKey => return PANCAKE_ERR_INVALID_ARGUMENT,
-        error.OutOfMemory => return PANCAKE_ERR_INTERNAL,
-        else => return PANCAKE_ERR_CODEC,
+        else => return feedErrorToCode(err),
     };
-    // `signed.message()` borrows `signed`; both outlive `sendCopying`, which
-    // deep-copies the deliver before this returns.
-    var handoff = model.Handoff{ .receive = signed.message() };
-    ptr.sendCopying(.{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(0) },
-        .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff } },
-        .answer = answer,
-    } }) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
 
@@ -1000,6 +985,65 @@ pub export fn pancake_handoff_give_bytes_release(give: ?[*]u8, give_len: usize) 
     ctx.library_allocator.free(ptr[0..give_len]);
 }
 
+/// Build the verbatim exporter location-record bytes a give names, writing owned
+/// bytes into `out`/`out_len` (release with `pancake_peer_locator_bytes_release`)
+/// — the construct-it-yourself counterpart of `pancake_peer_partner_locator_raw`,
+/// for an exporter whose own session record carries no dial hint.
+/// `transport`/`designator` name the exporter; `direct_addresses`, when
+/// non-empty, adds the exporter's comma-separated socket addresses as a
+/// `direct-addresses` hint, so a cross-process recipient dials the exporter
+/// directly with no discovery service (an iroh exporter reachable only by
+/// address). A NULL or empty `direct_addresses` yields a hint-less location
+/// identical to the exporter's own session record, so a discovery-reachable or
+/// TCP exporter keeps using `partner_locator_raw` instead. The bytes are encoded
+/// in the handoff codec (Syrup, as `desc:handoff-give` is — see
+/// `handoff_gifter.buildSignedGive`); the result feeds
+/// `pancake_build_handoff_give` as `exporter_locator_raw`. All inputs are
+/// borrowed.
+pub export fn pancake_encode_peer_locator(
+    transport: ?[*]const u8,
+    transport_len: usize,
+    designator: ?[*]const u8,
+    designator_len: usize,
+    direct_addresses: ?[*]const u8,
+    direct_addresses_len: usize,
+    out: ?*?[*]u8,
+    out_len: ?*usize,
+) i32 {
+    const out_slot = out orelse return PANCAKE_ERR_NULL_POINTER;
+    const out_len_slot = out_len orelse return PANCAKE_ERR_NULL_POINTER;
+    const transport_slice = sliceFromC(transport, transport_len) catch |err| return marshalErrorToCode(err);
+    const designator_slice = sliceFromC(designator, designator_len) catch |err| return marshalErrorToCode(err);
+
+    var entries_buf: [1]model.HintEntry = undefined;
+    var hints: model.Hints = model.Hints.emptyFalse();
+    if (direct_addresses) |addrs_ptr| {
+        if (direct_addresses_len != 0) {
+            entries_buf[0] = .{ .name = "direct-addresses", .value = .{ .string = addrs_ptr[0..direct_addresses_len] } };
+            hints = .{ .entries = entries_buf[0..1], .wire_form = .map };
+        }
+    }
+
+    const bytes = engine.encodePeerLocatorRecord(ctx.library_allocator, .{
+        .transport = transport_slice,
+        .designator = designator_slice,
+        .hints = hints,
+    }) catch |err| switch (err) {
+        error.OutOfMemory => return PANCAKE_ERR_INTERNAL,
+        else => return PANCAKE_ERR_CODEC,
+    };
+    out_slot.* = bytes.ptr;
+    out_len_slot.* = bytes.len;
+    return PANCAKE_OK;
+}
+
+/// Release locator bytes returned by `pancake_encode_peer_locator`. NULL is a
+/// no-op.
+pub export fn pancake_peer_locator_bytes_release(locator: ?[*]u8, locator_len: usize) void {
+    const ptr = locator orelse return;
+    ctx.library_allocator.free(ptr[0..locator_len]);
+}
+
 /// Deposit a gift with this (exporter) session: queue a `deposit-gift`
 /// `op:deliver` to the exporter's bootstrap object (far object 0) carrying the
 /// gift id and the gifted reference. Fire-and-forget (no answer): the exporter
@@ -1016,11 +1060,7 @@ pub export fn pancake_peer_send_deposit_gift(
     const gref = gifted_ref orelse return PANCAKE_ERR_NULL_POINTER;
     const gift = sliceFromC(gift_id, gift_id_len) catch |err| return marshalErrorToCode(err);
     const model_gifted = referenceFromC(gref.*) catch |err| return marshalErrorToCode(err);
-    ptr.sendCopying(.{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(0) },
-        .args = &.{ .{ .symbol = "deposit-gift" }, .{ .bytes = gift }, .{ .reference = model_gifted } },
-        .answer = null,
-    } }) catch |err| return feedErrorToCode(err);
+    ptr.sendDepositGift(gift, model_gifted) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
 
@@ -1038,22 +1078,7 @@ pub export fn pancake_peer_send_resolve_handoff_give(
     const give_ptr = give orelse return PANCAKE_ERR_NULL_POINTER;
     if (give_len == 0) return PANCAKE_ERR_INVALID_ARGUMENT;
 
-    // Only `raw_signed` is set: the encoder emits these bytes verbatim, so the
-    // empty descriptor fields are never read. `give_view` borrows the C bytes;
-    // both outlive `sendCopying`, which deep-copies before returning.
-    var handoff = model.Handoff{ .give = .{
-        .recipient_key = "",
-        .exporter_location = "",
-        .gifter_exporter_session = "",
-        .gifter_side = "",
-        .gift_id = "",
-        .signature = "",
-        .raw_signed = give_ptr[0..give_len],
-    } };
-    ptr.sendCopying(.{ .resolve = .{
-        .answer = answer,
-        .resolution = .{ .fulfill = .{ .handoff = &handoff } },
-    } }) catch |err| return feedErrorToCode(err);
+    ptr.sendResolveHandoffGive(model.AnswerId.from(answer), give_ptr[0..give_len]) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
 
@@ -1079,7 +1104,7 @@ pub export fn pancake_peer_poll_event_deliver(peer: ?*PancakePeer, out: ?*Pancak
 
     const arena = newProjectionArena(ptr.allocator) orelse return PANCAKE_ERR_INTERNAL;
     // The failure paths below return error *codes*, not Zig errors, so an
-    // errdefer would never fire — the success flag is what keeps a refused
+    // errdefer would never fire, the success flag is what keeps a refused
     // projection (e.g. a handoff argument routed to the opaque fallback) from
     // leaking one arena per retry.
     var projected = false;
@@ -1092,7 +1117,7 @@ pub export fn pancake_peer_poll_event_deliver(peer: ?*PancakePeer, out: ?*Pancak
     const args_c = argsToC(a, deliver.args) catch |err| return marshalErrorToCode(err);
     projected = true;
 
-    // Projection succeeded — now consume and release the event.
+    // Projection succeeded, now consume and release the event.
     var event = ptr.pollEvent().?;
     event.deinit();
     slot.* = .{
@@ -1100,7 +1125,7 @@ pub export fn pancake_peer_poll_event_deliver(peer: ?*PancakePeer, out: ?*Pancak
         .args = args_c.ptr,
         .args_len = args_c.len,
         .has_answer = if (deliver.answer != null) 1 else 0,
-        .answer = deliver.answer orelse 0,
+        .answer = if (deliver.answer) |ans| ans.int() else 0,
         .owner = @ptrCast(arena),
     };
     return PANCAKE_OK;
@@ -1149,7 +1174,7 @@ pub export fn pancake_peer_poll_event_resolve(peer: ?*PancakePeer, out: ?*Pancak
         };
         return PANCAKE_OK;
     } else |err| switch (err) {
-        // Not a handoff give — fall through to the ordinary value path.
+        // Not a handoff give, fall through to the ordinary value path.
         error.NotHandoff => {},
         error.OutOfMemory => return PANCAKE_ERR_INTERNAL,
     }
@@ -1164,11 +1189,11 @@ pub export fn pancake_peer_poll_event_resolve(peer: ?*PancakePeer, out: ?*Pancak
     };
     projected = true;
 
-    // Projection succeeded — now consume and release the event.
+    // Projection succeeded, now consume and release the event.
     var event = ptr.pollEvent().?;
     event.deinit();
     slot.* = .{
-        .answer = resolve.answer,
+        .answer = resolve.answer.int(),
         .resolution_kind = switch (resolve.resolution) {
             .fulfill => c.PANCAKE_RESOLUTION_FULFILL,
             .@"break" => c.PANCAKE_RESOLUTION_BREAK,
@@ -1198,7 +1223,7 @@ const HandoffGiveProjection = struct {
 /// dialable `ocapn://…` locator into `a`. Returns `error.NotHandoff` (the caller
 /// then takes the ordinary value path) unless the resolution is exactly a
 /// fulfilled give. Reads from the borrowed `view`/`event` so the parsed exporter
-/// locator survives — `body.toOwned` would flatten it to raw bytes.
+/// locator survives, `body.toOwned` would flatten it to raw bytes.
 fn resolveHandoffGive(
     a: std.mem.Allocator,
     event: *const engine.Event,
@@ -1246,7 +1271,7 @@ fn resolveHandoffGive(
     const recipient_key = try a.dupe(u8, give.recipient_key);
 
     return .{
-        .answer = resolve.answer,
+        .answer = resolve.answer.int(),
         .give = .{
             .give = give_bytes.ptr,
             .give_len = give_bytes.len,

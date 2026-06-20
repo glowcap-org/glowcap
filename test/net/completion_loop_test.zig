@@ -3,7 +3,7 @@
 //!
 //! One single-threaded `net.Loop` (the portable `completion.Loop` over the
 //! platform backend) accepts several concurrent connections and serves the
-//! bootstrap-fetch scenario on each — the same handshake-to-open plus
+//! bootstrap-fetch scenario on each, the same handshake-to-open plus
 //! `fetch`/auto-`resolve` round-trip the blocking `tcp_test` proves, now driven by
 //! kernel completions instead of a blocking pump. Several clients dial at once, so
 //! the multiplexing (many connections, one loop, one thread) is exercised, not
@@ -142,7 +142,7 @@ const LoopVat = struct {
         errdefer allocator.destroy(self);
         self.vat = actors.Vat.initOver(allocator.*, peer);
         // Spawn the actor and publish it at the bootstrap swissnum the client
-        // fetches — exactly `driver.ConnectedVat.publish`, now on the loop.
+        // fetches, exactly `driver.ConnectedVat.publish`, now on the loop.
         const greeter = try self.vat.spawn(Greeter, .{});
         const position = try peer.registerBootstrapCap("thermostat");
         try self.vat.bindExport(greeter, position);
@@ -177,7 +177,7 @@ fn makeVatHostPeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engi
 }
 
 /// One client: handshake, fetch the loop-hosted `thermostat`, then *call*
-/// `greet` on it and assert the reply comes back — over the completion loop.
+/// `greet` on it and assert the reply comes back, over the completion loop.
 fn fetchThenCall(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
     var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
     defer peer.deinit();
@@ -290,7 +290,7 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
 
     // Heavy reuse on purpose: more lifecycles than slots, in waves, so each
     // slot is torn down and re-accepted many times. This is the real stress of
-    // the deferred-teardown + slot-reuse machinery the unit path only grazes —
+    // the deferred-teardown + slot-reuse machinery the unit path only grazes,
     // if teardown ever stranded a slot (the io_uring/kqueue close-while-recv-armed
     // bug class), the pool would fill, later accepts would be refused, and the
     // clients in a later wave would fail to fetch.
@@ -305,7 +305,7 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
         .listen = 0,
         // A deliberately tiny ring: one dispatch batch arms far more
         // operations than eight SQ entries hold, so this churn also pins the
-        // io_uring backend's submission-queue self-healing — without the
+        // io_uring backend's submission-queue self-healing, without the
         // mid-batch flush in `getSqe`, a full queue would close healthy
         // connections (or kill the accept re-arm, and with it the loop) long
         // before the waves complete. kqueue ignores the hint.
@@ -345,7 +345,7 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
 
 /// One abrupt client: connect a real socket and drop it immediately, without
 /// handshaking. The server accepts, arms a recv, and has its opening
-/// `op:start-session` send pending — so the close lands while ops are in flight.
+/// `op:start-session` send pending, so the close lands while ops are in flight.
 /// This is the exact teardown path the io_uring/kqueue close-while-recv-armed
 /// bugs lived in; under churn it must drain both ops and reclaim the slot, never
 /// strand or crash.
@@ -405,7 +405,7 @@ test "completion loop: survives abrupt mid-handshake drops under churn (close-wh
     }
 
     // The loop must process every abrupt close as a completed lifecycle and
-    // terminate — if any close stranded its slot, `run(total)` would block
+    // terminate, if any close stranded its slot, `run(total)` would block
     // forever and join would hang the test rather than return.
     loop_thread.join();
     if (loop_err) |err| return err;
@@ -745,7 +745,7 @@ test "completion loop: outbound past the high-water mark parks reads until the p
     try drainOutboundBytes(&client, allocator, &fetch_bytes);
 
     // The mark sits far below one frame, so both the handshake reply and the
-    // fetch reply must park the read — observable from the very first write.
+    // fetch reply must park the read, observable from the very first write.
     const high_water: usize = 16;
     try std.testing.expect(server_ss.items.len > high_water);
 
@@ -877,7 +877,7 @@ const ScriptBackend = struct {
     }
 
     pub fn poll(self: *ScriptBackend, out: []completion.Completion) !usize {
-        // The loop stalled with no completion to deliver: a loop bug — a
+        // The loop stalled with no completion to deliver: a loop bug, a
         // starved connection that was never resumed would die here, loudly.
         if (self.ready_len == 0) return error.FakeBackendStalled;
         const n = @min(out.len, self.ready_len);
@@ -916,7 +916,7 @@ fn buildClientScript(
     try drainOutboundBytes(&client, allocator, fetch_bytes);
 }
 
-test "completion loop: a pool of one serves two starved connections — a starved read resumes on recycle, never drops" {
+test "completion loop: a pool of one serves two starved connections, a starved read resumes on recycle, never drops" {
     const allocator = std.testing.allocator;
 
     var client_ss: std.ArrayList(u8) = .empty;
@@ -1004,7 +1004,7 @@ test "completion loop: a frame split across two recv completions applies exactly
 }
 
 /// A scripted backend that *holds* every submitted send while recv completions
-/// keep flowing — the kernel-borrow shape of a real io_uring send. At submit it
+/// keep flowing, the kernel-borrow shape of a real io_uring send. At submit it
 /// snapshots the submitted bytes; at release (when the loop has nothing else to
 /// do) it checks the borrowed slice still holds exactly those bytes. Before the
 /// front/back outbound split, a reply appended while a write was in flight
@@ -1108,7 +1108,7 @@ const HeldSendBackend = struct {
         if (self.ready_len == 0) {
             // The loop is out of other work: the "kernel" finally performs the
             // held write, reading the borrowed slice now. If anything moved or
-            // freed that storage since submit, the bytes differ — the exact
+            // freed that storage since submit, the bytes differ, the exact
             // use-after-free the frozen front buffer forbids.
             const held = self.held orelse return error.FakeBackendStalled;
             self.held = null;

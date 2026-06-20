@@ -4,24 +4,24 @@ const pancake = @import("pancake");
 const model = pancake.ocapn.model;
 
 test "far references are equal on import id and wire kind" {
-    const a: model.Reference = .{ .far = .{ .import_position = 7, .kind = .object } };
-    try std.testing.expect(model.referencesEqual(a, .{ .far = .{ .import_position = 7, .kind = .object } }));
+    const a: model.Reference = .{ .far = .{ .import_position = .from(7), .kind = .object } };
+    try std.testing.expect(model.referencesEqual(a, .{ .far = .{ .import_position = .from(7), .kind = .object } }));
     // Distributed-equality evidence: same (import_position, kind) ⇒ equal target.
-    try std.testing.expect(!model.referencesEqual(a, .{ .far = .{ .import_position = 8, .kind = .object } }));
+    try std.testing.expect(!model.referencesEqual(a, .{ .far = .{ .import_position = .from(8), .kind = .object } }));
     // The wire-kind discriminator participates (ADR-0010 § Decision 5).
-    try std.testing.expect(!model.referencesEqual(a, .{ .far = .{ .import_position = 7, .kind = .promise } }));
+    try std.testing.expect(!model.referencesEqual(a, .{ .far = .{ .import_position = .from(7), .kind = .promise } }));
 }
 
 test "references of differing variants are never equal" {
-    const far: model.Reference = .{ .far = .{ .import_position = 1 } };
-    const near: model.Reference = .{ .near = .{ .export_position = 1 } };
+    const far: model.Reference = .{ .far = .{ .import_position = .from(1) } };
+    const near: model.Reference = .{ .near = .{ .export_position = .from(1) } };
     try std.testing.expect(!model.referencesEqual(far, near));
 }
 
 test "near references compare on export id and kind" {
-    const a: model.Reference = .{ .near = .{ .export_position = 3, .kind = .promise } };
-    try std.testing.expect(model.referencesEqual(a, .{ .near = .{ .export_position = 3, .kind = .promise } }));
-    try std.testing.expect(!model.referencesEqual(a, .{ .near = .{ .export_position = 3, .kind = .object } }));
+    const a: model.Reference = .{ .near = .{ .export_position = .from(3), .kind = .promise } };
+    try std.testing.expect(model.referencesEqual(a, .{ .near = .{ .export_position = .from(3), .kind = .promise } }));
+    try std.testing.expect(!model.referencesEqual(a, .{ .near = .{ .export_position = .from(3), .kind = .object } }));
 }
 
 test "broken references compare on message" {
@@ -58,7 +58,7 @@ test "peer-locator equality ignores the hint-encoding marker" {
 
 test "peer locators differing only in hints are the same peer" {
     // Locators.md: "the designator and transport are the only pieces of
-    // information which need to match" — hints are connection advice, not
+    // information which need to match". Hints are connection advice, not
     // identity.
     const entries = [_]model.HintEntry{
         .{ .name = "host", .value = .{ .string = "127.0.0.1" } },
@@ -93,27 +93,27 @@ test "sturdy references differing only in peer hints are equal" {
 
 test "promise references compare on answer id and pipeline path" {
     const ops = [_]model.PipelineOp{.{ .field = "method" }};
-    const a: model.Reference = .{ .promise = .{ .answer_position = 5, .path = .{ .ops = &ops } } };
-    try std.testing.expect(model.referencesEqual(a, .{ .promise = .{ .answer_position = 5, .path = .{ .ops = &ops } } }));
+    const a: model.Reference = .{ .promise = .{ .answer_position = .from(5), .path = .{ .ops = &ops } } };
+    try std.testing.expect(model.referencesEqual(a, .{ .promise = .{ .answer_position = .from(5), .path = .{ .ops = &ops } } }));
     // Same answer, empty path ≠ non-empty path.
-    try std.testing.expect(!model.referencesEqual(a, .{ .promise = .{ .answer_position = 5 } }));
-    try std.testing.expect(!model.referencesEqual(a, .{ .promise = .{ .answer_position = 6, .path = .{ .ops = &ops } } }));
+    try std.testing.expect(!model.referencesEqual(a, .{ .promise = .{ .answer_position = .from(5) } }));
+    try std.testing.expect(!model.referencesEqual(a, .{ .promise = .{ .answer_position = .from(6), .path = .{ .ops = &ops } } }));
 }
 
 test "argument equality recurses through lists and nested references" {
     const inner_a = [_]model.Argument{
         .{ .integer = 1 },
-        .{ .reference = .{ .far = .{ .import_position = 9 } } },
+        .{ .reference = .{ .far = .{ .import_position = .from(9) } } },
     };
     const inner_b = [_]model.Argument{
         .{ .integer = 1 },
-        .{ .reference = .{ .far = .{ .import_position = 9 } } },
+        .{ .reference = .{ .far = .{ .import_position = .from(9) } } },
     };
     try std.testing.expect(model.argumentsEqual(.{ .list = &inner_a }, .{ .list = &inner_b }));
 
     const inner_c = [_]model.Argument{
         .{ .integer = 1 },
-        .{ .reference = .{ .far = .{ .import_position = 10 } } },
+        .{ .reference = .{ .far = .{ .import_position = .from(10) } } },
     };
     try std.testing.expect(!model.argumentsEqual(.{ .list = &inner_a }, .{ .list = &inner_c }));
 
@@ -139,7 +139,7 @@ test "big integer equality is bytewise over sign and canonical digits" {
     const other = model.Argument{ .big_integer = .{ .negative = false, .digits = "1267650600228229401496703205377" } };
     try std.testing.expect(!model.argumentsEqual(a, other));
 
-    // The two integer arms never compare equal — decode keeps every i64-range
+    // The two integer arms never compare equal; decode keeps every i64-range
     // value on the `integer` arm, so cross-arm aliasing cannot arise.
     try std.testing.expect(!model.argumentsEqual(a, .{ .integer = 42 }));
 
@@ -160,7 +160,7 @@ test "set equality is order-agnostic (multiset), per Pass Invariant Equality" {
     const reordered = [_]model.Argument{ .{ .integer = 3 }, .{ .integer = 1 }, .{ .integer = 2 } };
     try std.testing.expect(model.argumentsEqual(.{ .set = &a }, .{ .set = &reordered }));
 
-    // The same elements as a list in a different order are NOT equal — lists are
+    // The same elements as a list in a different order are NOT equal; lists are
     // ordered, only sets are not. This is the line that keeps the two arms honest.
     try std.testing.expect(!model.argumentsEqual(.{ .list = &a }, .{ .list = &reordered }));
 
@@ -203,7 +203,7 @@ test "scalar arguments compare by value and reject variant mismatch" {
 
 test "float64 equality follows Object.is, not IEEE: NaN equals NaN" {
     // Model.md § Pass Invariant Equality: every NaN is Equal to every other NaN,
-    // so a NaN-bearing value that round-trips the network stays Equal to itself —
+    // so a NaN-bearing value that round-trips the network stays Equal to itself,
     // unlike IEEE `==`, under which `NaN == NaN` is false.
     const nan = std.math.nan(f64);
     try std.testing.expect(model.argumentsEqual(.{ .float64 = nan }, .{ .float64 = nan }));
@@ -236,7 +236,7 @@ test "equality bails at the depth cap on a promise/call tower instead of overflo
     // The recursion cycle under test: a promise reference carries a pipeline
     // path, a `call` step carries arguments, and an argument can be another
     // promise reference. The depth counter must thread through that whole
-    // cycle — dropping it at the reference arm or restarting it at the path
+    // cycle, dropping it at the reference arm or restarting it at the path
     // would let a tall enough tower recurse off the native stack.
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -244,14 +244,14 @@ test "equality bails at the depth cap on a promise/call tower instead of overflo
 
     const buildTower = struct {
         fn build(a: std.mem.Allocator, levels: usize) !model.Reference {
-            var reference: model.Reference = .{ .promise = .{ .answer_position = 0 } };
+            var reference: model.Reference = .{ .promise = .{ .answer_position = .from(0) } };
             var level: usize = 0;
             while (level < levels) : (level += 1) {
                 const args = try a.alloc(model.Argument, 1);
                 args[0] = .{ .reference = reference };
                 const ops = try a.alloc(model.PipelineOp, 1);
                 ops[0] = .{ .call = args };
-                reference = .{ .promise = .{ .answer_position = 0, .path = .{ .ops = ops } } };
+                reference = .{ .promise = .{ .answer_position = .from(0), .path = .{ .ops = ops } } };
             }
             return reference;
         }

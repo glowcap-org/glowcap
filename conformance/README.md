@@ -1,8 +1,16 @@
 # conformance/
 
-External conformance pressure for pancake. This directory holds the OCapN test
-suite, the Spritely Goblins peer that pancake's interop dials, the worked
+External conformance pressure for pancake: the arbiters of correct that would
+hold even if pancake were rewritten from scratch. This directory holds the
+upstream OCapN test suite, the Spritely Goblins peer that pancake dials, the
+spec submodules kept for citation, the Goblins reference implementation of the
 accountability application, and the KERI and episode oracles that arbitrate it.
+The worked accountability application *on pancake* is not an arbiter — it lives
+beside the other worked applications under
+[`../examples/apps/`](../examples/apps/accountability-on-pancake/). The live
+cross-implementation drivers — pancake talking to Goblins or to another pancake
+over iroh — are **not** external authority either; they live in
+[`../interop/`](../interop/README.md).
 The toolchains these need are Racket with Goblins and Python, and
 [`../.devcontainer/`](../.devcontainer/) provides them natively, so nothing here
 vendors its own runtime.
@@ -22,13 +30,7 @@ bash conformance/bootstrap-submodules.sh
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | [`ocapn-conformance/`](ocapn-conformance/)                 | The upstream OCapN test suite (submodule) + a native `uv` wrapper.                                                            | `bash conformance/ocapn-conformance/run.sh test '<ocapn-url>'`      |
 | [`goblins-peer/`](goblins-peer/)                           | pancake's slim Spritely Goblins OCapN peer — the seven-caps conformance target + TCP netlayer + demos.                        | `bash conformance/goblins-peer/run.sh seven-caps-peer`              |
-| [`accountability-on-pancake/`](accountability-on-pancake/) | Accountability-emitting application hosted by pancake itself, plus cross-language callers and a three-party attribution test. | `zig build accountability` / `zig build accountability-three-party` |
-| [`goblins_interop/`](goblins_interop/)                     | Live OCapN conversation drivers against a real Goblins vat — both directions, plus the three-party handoff.                   | `zig build goblins-interop` / `zig build goblins-handoff`           |
-| [`iroh_interop/`](iroh_interop/)                           | Live pancake-to-pancake OCapN over real iroh endpoints: direct dial, dial-by-id discovery, key unification, durable identity. | `zig build iroh-interop`                                            |
-| [`iroh_reachability/`](iroh_reachability/)                 | Opt-in dial-by-id over n0 relays and DNS/pkarr — real public discovery, not the in-process book.                              | `zig build iroh-reachability`                                       |
-| [`iroh_loop/`](iroh_loop/)                                 | Live iroh scale proof: many concurrent connections from one readiness loop (ADR-0057).                                        | `zig build iroh-loop` / binding siblings (`python-iroh-loop`, etc.) |
-| [`iroh_mesh/`](iroh_mesh/)                                 | Three-party handoff where the recipient reaches the exporter over iroh by the gifted node id.                                 | `zig build iroh-mesh`                                               |
-| [`accountability-on-goblins/`](accountability-on-goblins/) | Accountability-emitting application on Goblins (KERI AIDs, signed Episodes, Merkle log) + its persisted `.data/` corpus.      | (kernel/demos under `racket/`)                                      |
+| [`accountability-on-goblins/`](accountability-on-goblins/) | The Goblins reference implementation of the accountability application (KERI AIDs, signed Episodes, Merkle log) + its persisted `.data/` corpus — the source the KERI and episode arbiters check. | (kernel/demos under `racket/`)                                      |
 | [`keri-conformance/`](keri-conformance/)                   | Python oracle (keripy-checked primitives) that arbitrates the KERI fixtures.                                                  | `bash conformance/keri-conformance/run.sh --fixture sample-kel`     |
 | [`episode-audit/`](episode-audit/)                         | `audit.rkt` — verifies each Episode's signature chain against the KEL.                                                        | `bash conformance/episode-audit/run.sh`                             |
 | [`spritely-goblins/`](spritely-goblins/)                   | Goblins source (submodule), used for wire-shape lookup and not compiled here.                                                 | —                                                                   |
@@ -43,6 +45,6 @@ bash conformance/bootstrap-submodules.sh
   and Python come from the devcontainer; the `run.sh` wrappers call `racket` /
   `uv run` directly.
 - **The canonical positive Syrup byte corpus lives at
-  [`../test/oracles/goblins/`](../test/oracles/goblins/)** and is gated by
+  [`../test/oracle/corpus/`](../test/oracle/corpus/)** and is gated by
   `zig build oracle-check`; this directory is the live, process-level
   conformance pressure that the in-tree oracle can't capture.

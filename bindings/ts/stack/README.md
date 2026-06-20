@@ -47,8 +47,9 @@ it.
 
 The core is usable standalone. The transport modules build on it — they share the `Context` pointer
 and the frame/context type layout, and they are symbol-disjoint — but never on each other. The
-internal loaders live under [`internal/ffi/`](internal/ffi/) (one per archive) and the generated ABI
-constants in [`internal/constants.ts`](internal/constants.ts); a consumer never imports those.
+internal loaders live under [`internal/ffi/`](internal/ffi/) (one per archive) and the ABI
+constants, hand-mirrored from `pancake_ocapn.h`, in
+[`internal/constants.ts`](internal/constants.ts); a consumer never imports those.
 
 ## The core
 
@@ -70,7 +71,7 @@ const frame = peer.takeOutbound();
 
 The high-level `connect`/`listen` ride the runtime's networking, so a program that dials a `tcp`
 locator or hosts a `Server` needs only the core module. `connect` imports `@pancake/iroh` lazily on
-the first `iroh` locator — so a program that never speaks iroh never loads
+the first `iroh` locator, so a program that never speaks iroh never loads
 `libpancake_net_transport_iroh`.
 
 ## The transports
@@ -97,7 +98,7 @@ call's diagnostic never scrapes the core's unrelated one.
 ## Gating
 
 [`zig_smoke.ts`](zig_smoke.ts) is the one consumer both `zig build deno-dogfood` and
-`zig build bun-dogfood` run — the same source on both runtimes: it drives a real OCapN round-trip
+`zig build bun-dogfood` run, the same source on both runtimes: it drives a real OCapN round-trip
 through the core API and shuttles a frame through both the TCP and in-process transports. Deno's FFI
 needs `--allow-ffi --allow-read`; the build step passes them and resolves the shared libraries
 relative to `zig-out/`.

@@ -1,9 +1,13 @@
 //! Crossed-hellos mitigation for concurrent outbound and inbound dials (ADR-0030).
 //!
-//! When two peers simultaneously open sessions to each other, the side with the
-//! lexicographically lower Public Identifier aborts its inbound session; the
-//! higher-keyed side aborts outbound. The adapter owns detection — the no-I/O core
-//! only projects the typed `crossed_hellos` abort kind.
+//! When two peers dial each other at once, each ends up holding both an outbound
+//! and an inbound session to the same partner, and the pair must collapse to one.
+//! The tiebreak is the byte order of the two Public Identifiers: the side whose
+//! identifier is *not* lower aborts its inbound session, and the strictly
+//! lower-keyed side aborts its outbound — so both peers keep the session the
+//! higher-keyed peer opened, with no coordination beyond the comparison each runs
+//! locally. The adapter owns detection — the no-I/O core only projects the typed
+//! `crossed_hellos` abort kind.
 
 const std = @import("std");
 
@@ -83,8 +87,9 @@ pub const Registry = struct {
     }
 };
 
-/// After an inbound `op:start-session` event, consult `registry` and abort the
-/// lower-keyed inbound session when a crossed-hellos collision is detected.
+/// After an inbound `op:start-session` event, consult `registry`: on a
+/// crossed-hellos collision the not-lower side aborts its own inbound session, so
+/// the pair keeps the session the higher-keyed peer opened.
 pub fn maybeAbortInbound(
     registry: *Registry,
     peer: *engine.Peer,
@@ -102,7 +107,7 @@ pub fn maybeAbortInbound(
     if (result.abort_inbound) {
         try peer.sendCopying(.{ .abort = .{
             .kind = .crossed_hellos,
-            .message = "crossed hellos: aborting lower-keyed inbound session",
+            .message = "crossed hellos: higher-keyed side aborting its inbound session",
         } });
         _ = conn.pump() catch {};
     }
@@ -119,7 +124,7 @@ pub fn maybeAbortOutbound(
     if (!registry.shouldAbortOutbound(conn.io, partner_designator)) return;
     try peer.sendCopying(.{ .abort = .{
         .kind = .crossed_hellos,
-        .message = "crossed hellos: aborting lower-keyed outbound session",
+        .message = "crossed hellos: lower-keyed side aborting its outbound session",
     } });
     _ = conn.pump() catch {};
 }

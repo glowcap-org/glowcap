@@ -38,7 +38,7 @@
 
 (define (^greeter _bcom my-name)
   (lambda (your-name)
-    (format "Hello ~a, I'm ~a — handed off directly from the exporter!" your-name my-name)))
+    (format "Hello ~a, I'm ~a, handed off directly from the exporter!" your-name my-name)))
 
 (define (^introducer _bcom greeter-ref)
   (lambda args
@@ -76,7 +76,7 @@
    (define mycapn (spawn-mycapn netlayer))
    (define nonce-registry ($ mycapn 'get-registry))
    ;; Enliven Bob's greeter (opens an Alice -> Bob connection); pass the vow to the
-   ;; introducer — Goblins pipelining lets the introducer hand out the vow.
+   ;; introducer, Goblins pipelining lets the introducer hand out the vow.
    (define greeter-vow (<- mycapn 'enliven bob-greeter-sref))
    (define introducer (spawn ^introducer greeter-vow))
    ($ nonce-registry 'register introducer INTRODUCER-SWISS)

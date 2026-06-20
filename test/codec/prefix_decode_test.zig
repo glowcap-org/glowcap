@@ -5,7 +5,7 @@
 //! *is* the framer, so this is the untrusted-input attack surface; it must:
 //!
 //!   * report `.incomplete` for every strict prefix of a valid frame, and
-//!     exactly `.decoded{ consumed = frame_len }` at the full length — never a
+//!     exactly `.decoded{ consumed = frame_len }` at the full length, never a
 //!     partial apply, never an over-read;
 //!   * find the boundary of the first frame in a concatenation and stop there;
 //!   * reject structurally-invalid bytes as `.malformed` regardless of length;
@@ -57,7 +57,7 @@ fn encodeSyrupPreSpec(allocator: std.mem.Allocator, message: model.Message) !pan
 test "syrup decodePrefix: every byte split of a valid frame is incomplete until complete" {
     const allocator = std.testing.allocator;
 
-    const target = model.Reference{ .far = .{ .import_position = 7 } };
+    const target = model.Reference{ .far = .{ .import_position = .from(7) } };
     const nested = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 } };
     const deliver_args = [_]model.Argument{
         .{ .bytes = "hello" },
@@ -78,7 +78,7 @@ test "syrup decodePrefix: every byte split of a valid frame is incomplete until 
     try frames.append(allocator, try encodeSyrup(allocator, .{ .deliver = .{
         .target = target,
         .args = deliver_args[0..],
-        .answer = 42,
+        .answer = .from(42),
     } }));
     try frames.append(allocator, try encodeSyrup(allocator, .{ .deliver = .{
         .target = target,
@@ -86,7 +86,7 @@ test "syrup decodePrefix: every byte split of a valid frame is incomplete until 
         .answer = null,
     } }));
     try frames.append(allocator, try encodeSyrupPreSpec(allocator, .{
-        .resolve = .{ .answer = 3, .resolution = .{ .fulfill = .{ .bytes = "ok" } } },
+        .resolve = .{ .answer = .from(3), .resolution = .{ .fulfill = .{ .bytes = "ok" } } },
     }));
     try frames.append(allocator, try encodeSyrup(allocator, .{
         .gc_answer = .{ .positions = &.{ 11, 13 } },
@@ -125,7 +125,7 @@ test "syrup decodePrefix: structurally invalid bytes are malformed, not incomple
         "<7'op:foo>", // unknown op symbol
         "<10'op:deliverX", // wrong byte where a reference record must start
         "<>", // empty record, no op symbol
-        "<10'op:deliver<11'desc:export7+>[5:hello]42+f>trailing<", // trailing starts a new (incomplete) frame — but first frame is decoded
+        "<10'op:deliver<11'desc:export7+>[5:hello]42+f>trailing<", // trailing starts a new (incomplete) frame, but first frame is decoded
     };
 
     // The first four are malformed.
@@ -157,7 +157,7 @@ test "syrup decodePrefix: an incomplete prefix past max_frame_bytes is too_large
     defer frame.deinit();
 
     // A still-arriving frame must be refused the moment its scanned length
-    // crosses the cap (ADR-0029) — it can never complete within the cap, and
+    // crosses the cap (ADR-0029); it can never complete within the cap, and
     // an `incomplete` verdict there would let a streaming caller buffer past
     // the bound (the contract the netlayer spill's boundedness leans on,
     // ADR-0041). At a prefix of exactly the cap the scanner cannot yet know,
@@ -177,7 +177,7 @@ test "capnp decodePrefix: an incomplete prefix declaring a body past max_frame_b
     defer frame.deinit();
 
     // The single-segment header declares the whole frame's length, so the
-    // refusal lands as soon as the header is readable — long before the body
+    // refusal lands as soon as the header is readable, long before the body
     // arrives.
     const bytes = frame.bytes();
     const cap = bytes.len - 1;

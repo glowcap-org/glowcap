@@ -1,6 +1,6 @@
 # SHACL shape for goblins:Episode (kernel scope).
 #
-# Validation is runtime-deferred — shapes/ here is the kernel-local
+# Validation is runtime-deferred, shapes/ here is the kernel-local
 # declaration that names every property a kernel-emitted Episode carries.
 # Promotes to a top-level `goblins-shapes/` ontology if/when shapes
 # multiply (e.g. TerminusDB integration with multiple Episode classes).

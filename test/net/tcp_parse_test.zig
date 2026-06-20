@@ -1,4 +1,4 @@
-//! `tcp.parseDesignator` branch coverage — no sockets. The locator reconnect
+//! `tcp.parseDesignator` branch coverage, no sockets. The locator reconnect
 //! path (`tcp.connect`) is proven end to end over loopback in `tcp_test.zig`;
 //! this pins the designator-splitting itself, including the IPv6 bracket rule
 //! and the malformed cases, which a single IPv4 loopback dial does not reach.

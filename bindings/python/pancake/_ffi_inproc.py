@@ -46,5 +46,5 @@ def _load():
     return facade
 
 
-# Loaded when :mod:`pancake.inproc` is imported — not when the core package is.
+# Loaded when :mod:`pancake.inproc` is imported, not when the core package is.
 _inproc_lib = _load()

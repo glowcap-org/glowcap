@@ -1,7 +1,7 @@
 //! Per-connection memory footprint, and what it means for a 500k-connection
 //! server.
 //!
-//! The binding constraint on a high-fan-out OCapN server is not CPU — it is the
+//! The binding constraint on a high-fan-out OCapN server is not CPU. It is the
 //! heap a single idle connection costs, multiplied by the connection count. This
 //! benchmark measures that cost the way the sans-io core makes possible: it
 //! stands up thousands of `engine.Peer`s in-process, with no sockets and no
@@ -31,7 +31,7 @@ const driver = pancake.driver;
 const model = pancake.ocapn.model;
 
 /// A trivial published capability, so the `served` scenario's vat holds one live
-/// actor cell — the per-connection state a loop-driven host (ADR-0057) carries
+/// actor cell, the per-connection state a loop-driven host (ADR-0057) carries
 /// on top of the bare `engine.Peer`.
 const BenchGreeter = struct {
     pub fn handle(self: *BenchGreeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
@@ -112,7 +112,7 @@ const Scenario = enum {
     /// The loop-driven path (ADR-0057): a warmed peer plus the `actors.Vat` with
     /// one published capability that a completion-loop host (`iroh.LoopHost`,
     /// `driver.loop`) holds per connection. This is the marginal cost a connection
-    /// adds when served from one loop thread rather than a thread of its own — the
+    /// adds when served from one loop thread rather than a thread of its own, the
     /// number the `iroh-loop` gate proves at scale.
     served,
 };
@@ -126,12 +126,12 @@ fn warmPeer(peer: *engine.Peer, scenario: Scenario) !void {
     switch (scenario) {
         .idle => {},
         .warmed, .served => {
-            try peer.session_state.registerExport(7);
+            try peer.session_state.registerExport(.from(7));
             try driveOneTurn(peer);
         },
         .active16 => {
             var i: u64 = 0;
-            while (i < 16) : (i += 1) try peer.session_state.registerExport(i + 1);
+            while (i < 16) : (i += 1) try peer.session_state.registerExport(.from(i + 1));
             // Export 7 is among the sixteen, so the fixed deliver lands on a live target.
             try driveOneTurn(peer);
         },
@@ -350,10 +350,11 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         \\from one completion-loop thread (`iroh.LoopHost`, `driver.loop`) instead
         \\of a thread of its own: a warmed `engine.Peer` plus the `actors.Vat`,
         \\with one published capability, that the host holds inline in its
-        \\per-connection slot. That is the footprint behind the `iroh-loop` gate,
-        \\which serves many concurrent iroh connections from a single thread over
-        \\the sidecar's readiness fd, drained ready-queue, and non-blocking frame
-        \\I/O. The blocking thread-per-connection path (ADR-0053) adds the same
+        \\per-connection slot. The `iroh-loop` gate proves that one thread serves
+        \\many concurrent iroh connections from the sidecar's readiness fd,
+        \\drained ready-queue, and non-blocking frame I/O; this row reports what
+        \\one such connection costs, and the gate proves the multiplexing, not the
+        \\bytes. The blocking thread-per-connection path (ADR-0053) adds the same
         \\core state *plus* an OS thread (or two) per connection — megabytes of
         \\stack each — which is exactly what the loop removes.
         \\
@@ -492,7 +493,7 @@ fn renderSvg(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         const ly = plot_t + 6 + @as(f64, @floatFromInt(idx)) * 22.0;
         try appendFmt(&b, gpa,
             \\<rect x="{d:.1}" y="{d:.1}" width="14" height="14" fill="{s}"/>
-            \\<text x="{d:.1}" y="{d:.1}" fill="#222">{s} — {d:.2} GiB @ 500k</text>
+            \\<text x="{d:.1}" y="{d:.1}" fill="#222">{s}, {d:.2} GiB @ 500k</text>
             \\
         , .{ plot_r + 14, ly, color, plot_r + 32, ly + 12, scenarioLabel(m.scenario), gib(m.bytes_per_conn * @as(f64, @floatFromInt(target_connections))) });
     }

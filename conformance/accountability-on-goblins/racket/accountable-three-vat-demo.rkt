@@ -38,7 +38,7 @@
          racket/match)
 
 ;; ============================================================================
-;; Per-peer state setup — each peer has its own data dir + KERI AID.
+;; Per-peer state setup, each peer has its own data dir + KERI AID.
 ;; ============================================================================
 
 (define (data-root)
@@ -135,7 +135,7 @@
        result-payload])))
 
 ;; ============================================================================
-;; The introducer Alice hosts — gives out a remote ref to Bob's
+;; The introducer Alice hosts, gives out a remote ref to Bob's
 ;; affordance on request.
 ;; ============================================================================
 
@@ -146,7 +146,7 @@
       [else (error '^introducer "unknown command: ~v" args)])))
 
 ;; ============================================================================
-;; Per-peer setup — each gets a TCP netlayer + mycapn + KERI AID.
+;; Per-peer setup: each gets a TCP netlayer + mycapn + KERI AID.
 ;; ============================================================================
 
 (define (banner heading)
@@ -162,7 +162,7 @@
 (printf "  Alice AID: ~a~n" alice-aid)
 (printf "  Carol AID: ~a~n" carol-aid)
 
-;; Trace tally — same shape as three-vat-demo.rkt; proves Carol's
+;; Trace tally, same shape as three-vat-demo.rkt; proves Carol's
 ;; introduction-triggered call goes Carol -> Bob, not via Alice.
 
 (define alice-port 9021)
@@ -245,7 +245,7 @@
 (sleep 0.3)
 
 ;; ============================================================================
-;; Verdict — three layers of assertions
+;; Verdict, three layers of assertions
 ;; ============================================================================
 
 (banner "VERDICT: substrate accountability loop wired through OCapN introduction")

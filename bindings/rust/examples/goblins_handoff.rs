@@ -9,7 +9,7 @@
 //! readiness line, then:
 //!   1. `connect` to Alice and `fetch` the introducer.
 //!   2. `send(introducer, "get-greeter")`. Alice hands back Bob's greeter as a
-//!      three-party handoff give. The binding's machine router redeems it: it
+//!      three-party handoff give. The binding's node router redeems it: it
 //!      dials Bob directly (keyed with the *same* identity Alice saw), withdraws
 //!      the gift, and resolves the send to an ordinary capability — the
 //!      application never sees the give or the second connection.
@@ -69,7 +69,7 @@ async fn main() -> Result<(), Fail> {
 }
 
 async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
-	// `connect` completes the keyed handshake; the machine's retained identity is
+	// `connect` completes the keyed handshake; the node's retained identity is
 	// the recipient key the gift Alice deposits will name.
 	let conn = connect(&tcp_locator(HOST, port), None).await?;
 	println!("rust-goblins-handoff: session open (recipient -> alice)");
@@ -82,7 +82,7 @@ async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 	let granted = conn.send(&introducer, "get-greeter", &[]).await?;
 	let greeter = Ref::try_from(&granted)
 		.map_err(|_| format!("introduction did not redeem to a capability: {granted:?}"))?;
-	println!("rust-goblins-handoff: introduction redeemed — got the greeter as an ordinary ref");
+	println!("rust-goblins-handoff: introduction redeemed, got the greeter as an ordinary ref");
 
 	// Call the greeter. The send routes straight to Bob (the exporter); the reply
 	// must echo the name we sent, so the handoff proves data integrity.

@@ -2,40 +2,34 @@
 
 The [ladder](ladder.md) explains the architectural rungs and which ones are
 held. This file is the flatter companion. It names the concrete remaining work,
-with each item checked against the current tree instead of copied from an old
-audit. When an item lands, this file changes in the same diff. Like every
+with each item checked against the current tree. When an item lands, this file
+changes in the same diff. Like every
 living-state surface, it should describe the repository as it is.
 
 ## How this is ordered
 
-The order is an engineering argument, not a priority list, and it has one shape:
-**iroh is the capstone, and everything else earns its place before it.** The
-QUIC/iroh netlayer is the highest-leverage piece and the one that makes the most
-boundaries disappear, but it should plug into a substrate that is already
-complete and proven, not into a substrate it forces into existence. So the work
-is staged:
+The sections below are ordered by dependency, not priority, and most of the work
+they describe has already landed. The QUIC/iroh netlayer was the capstone: the
+highest-leverage piece, built to plug into a substrate that was already complete
+rather than to force that substrate into existence. So the substrate landed first
+and iroh landed on top of it, and the sections keep that order so a reader meets
+each layer before the one that rests on it.
 
-1. **Cross-cutting foundations** land first. These touch several layers at once
-   — the data model, the protocol core, the handoff substrate — and both the
-   independent tracks and iroh itself depend on them. They are done carefully,
-   as architecture, with no corners cut, because a corner cut here is a corner
-   cut everywhere downstream.
-2. **Independent tracks** follow, and they parallelize. Each is localized to one
-   layer and does not block the others, so they can be worked concurrently once
-   the foundations they rest on are in.
-3. **Platform reach** is gated on hardware this repository's environment does
-   not have. It is real work, not deferred work, but it cannot be done or proven
-   here.
-4. **The iroh capstone** is last, and the substrate proven ready for it: the
-   encrypted channel landed with no driver or core edit, and the
-   identity-and-discovery cluster it unlocked — dial-by-id discovery,
-   key-as-designator identity, durable capabilities, secure-transport URIs —
-   landed on top, all on the `iroh-interop` gate. The mesh and real-internet
-   reachability landed too (`iroh-mesh`, `iroh-reachability`), and so did the
-   at-scale substrate: the ADR-0057 completion-loop bridge (`iroh.LoopHost`,
-   gated by `iroh-loop`). What remains is the live-socket 500k measurement,
-   binding-side non-blocking adoption, and the external blocks
-   (Goblins-over-iroh, native QUIC).
+1. **Cross-cutting foundations** come first. They touch several layers at once
+   (the data model, the protocol core, the handoff substrate), and both the
+   independent tracks and iroh depend on them. They are done; what remains here
+   waits on upstream, not on this repository.
+2. **Independent tracks** follow. Each is localized to one layer and does not
+   block the others, so the remaining ones can be worked concurrently.
+3. **Platform reach** is gated on hardware this environment does not have. It is
+   real work, not deferred work, but it cannot be done or proven here.
+4. **The iroh capstone** comes last because it rests on everything above. The
+   encrypted channel, dial-by-id discovery, key-as-designator identity, durable
+   capabilities, secure-transport URIs, the mesh, real-internet reachability, and
+   the at-scale completion loop have all landed, each on its own gate
+   (`iroh-interop`, `iroh-mesh`, `iroh-reachability`, `iroh-loop`). What remains
+   is the live-socket 500k measurement and the external blocks (Goblins over
+   iroh, native QUIC).
 
 ## 1. Cross-cutting foundations (watch items; nothing buildable remains)
 
@@ -62,7 +56,7 @@ scenario, and the live `goblins-handoff` step cover the current certificate
 seam. A pure-pancake three-party handoff also runs over a real transport:
 `zig build iroh-mesh` runs a three-party handoff across three iroh endpoints,
 then has the recipient reach the introduced exporter by the gifted node id,
-withdraw, and call — the mesh, all pancake.
+withdraw, and call, the mesh, all pancake.
 
 ## 2. Independent tracks (parallelizable once the foundations are in)
 
@@ -72,7 +66,7 @@ they can be worked concurrently. None of them is cross-cutting.
 - **Enforced wall-clock performance gate.** Allocation count is gated exactly
   and the per-session footprint is gated (ADR-0045). Wall-clock time is only
   printed, and `check` prints it in Debug. A real threshold needs a ReleaseFast,
-  hardware-stable benchmark harness that does not flake — infrastructure work,
+  hardware-stable benchmark harness that does not flake, infrastructure work,
   not a one-line assertion.
 - **Export-on-marshal for spawned capabilities.** `driver.spawnAt` (and the
   `spawn` verbs that ride on it) mints the export the moment the actor is
@@ -80,15 +74,15 @@ they can be worked concurrently. None of them is cross-cutting.
   sent. Minting the export only when the reference first marshals onto the wire
   would close that window. Today the early-export contract is documented on
   `spawn` / `spawnAt`, and `Vat.spawn` is the no-export alternative.
-- **Questioner-side promise pipelining.** The serving half shipped with ADR-0007
-  — an inbound deliver against a pending answer queues and drains — and the
-  engine already sends a flat `desc:answer` deliver for an empty-path promise
-  target. What no consumer can reach is the questioner half: `Vat.send` takes no
-  promise target, and the C ABI's only call is blocking and object-only.
-  Surfacing it (a `Vat.sendToAnswer` verb, a non-blocking session send/settle
-  ABI, the four bindings) completes the capability and gives the `bench-langs`
-  throughput row a signal distinct from latency. Design:
-  [`superpowers/specs/2026-06-17-client-promise-pipelining-design.md`](superpowers/specs/2026-06-17-client-promise-pipelining-design.md).
+- **Restart-stable TCP listening identity.** The iroh capstone already binds a
+  peer's Ed25519 key as node id, locator designator, and session signing key,
+  and a sturdyref survives an endpoint restart (section 4). The cleartext TCP
+  netlayer has no equivalent: its keyed handshake authenticates the session but
+  the listener has no durable, pinned designator a partner can re-dial across a
+  process restart. Giving the TCP transport a restart-stable listening identity
+  (an SPKI-pinned or key-derived designator, the TCP analogue of the iroh node
+  id) would let durable capabilities span restarts on TCP too. It is a transport
+  feature localized to the TCP netlayer and its session seam, not a core change.
 
 - **A hosted, versioned C release of the archives.** Every binding already
   resolves its archives through a shared cascade — `PANCAKE_LIB_DIR`
@@ -127,7 +121,7 @@ directions package (`driver.LoopHost`, `driver.LoopDialer`).
 The capstone's first slice exists. The iroh netlayer is a real
 `net.netlayer.Netlayer` resident (`net/transport/iroh.zig`, ADR-0055),
 registered like tcp and reached through `connectVia` and `acceptVia` with no
-driver or core edit — exactly the seam the substrate was built to receive. The
+driver or core edit, exactly the seam the substrate was built to receive. The
 transport is a Rust sidecar staticlib (`transports/iroh/`) behind a narrow
 blocking C ABI, so pancake's own archives stay pure Zig; the transport symbol is
 `iroh` and the locator designator is the endpoint's Ed25519 id.
@@ -137,7 +131,7 @@ through the keyed handshake, a bootstrap fetch, and a deliver/resolve. The
 capstone's identity-and-discovery cluster has since landed, all proven by the
 same `iroh-interop` gate:
 
-- **Peer discovery and relays — shipped.** The netlayer takes a configurable,
+- **Peer discovery and relays, shipped.** The netlayer takes a configurable,
   no-default `Reachability` (`direct`/`discovery`/`discovery_no_relay`/
   `local_discovery`) threaded through the sidecar, the resident, the public C
   ABI, and all four bindings. The gate dials by node id **alone** through an
@@ -145,13 +139,13 @@ same `iroh-interop` gate:
   deterministically; the public-internet posture is the same path against n0
   relays and pkarr/DNS. Relays and hole-punching are sidecar-internal (iroh
   performs them); the posture is pancake's visible, opt-in choice.
-- **Key-as-designator identity — shipped.** One Ed25519 key per peer is now at
+- **Key-as-designator identity, shipped.** One Ed25519 key per peer is now at
   once the iroh node id, the OCapN locator designator, and the session signing
   key. `driver.connectVia` / `acceptVia` with a `.keyed` `Identity` sign the
   keyed handshake with the endpoint's own key, and `iroh-interop` verifies on
   both halves that the partner's session pubkey equals the node id equals the
   signed designator.
-- **Durable capability identity — shipped.** A sturdyref (node id plus
+- **Durable capability identity, shipped.** A sturdyref (node id plus
   swiss-number) outlives an endpoint restart: the gate tears an endpoint down,
   rebinds from the same seed (same key, same node id at a fresh address), and
   reaches the same published cap through the locator recorded before the
@@ -160,16 +154,17 @@ same `iroh-interop` gate:
 
 What remains on the cluster is **scale and external blocks**, each named:
 
-- **Serving iroh at scale** is the event-driven completion loop of ADR-0057 —
+- **Serving iroh at scale** is the event-driven completion loop of ADR-0057,
   now built (`iroh.LoopHost`, gated by `zig build iroh-loop`) and the iroh
   netlayer's one I/O model, so connections multiplex through one loop thread
   instead of a thread apiece. The public netlayer C ABI is loop-only (a
   readiness fd plus a non-blocking drain, armed at construction), and every
   binding parks on that fd natively (Deno, Python, Rust, and Racket each in
-  their own idiom, each proven by a many-connection gate under
-  `bindings-iroh-loop`), so binding scale-parity holds. What remains is the live
+  their own idiom). Python, Rust, and Racket are each proven by a many-connection
+  gate under `bindings-iroh-loop`; Deno implements the same loop surface,
+  exercised by the iroh demos rather than that aggregate step. What remains is the live
   measurement at the ~500k-connection footprint target; the design is
-  [`planning/iroh-completion-loop-bridge.md`](planning/iroh-completion-loop-bridge.md).
+  [ADR-0057](decisions/adr/ADR-0057-iroh-completion-loop-bridge.md).
 - **Goblins interop over iroh** is deferred behind a contained *upstream* change,
   not a pancake one: Goblins ships no iroh netlayer, so the transport is proven
   pancake-to-pancake today. Unblocking it is an edit to Goblins' netlayer seam

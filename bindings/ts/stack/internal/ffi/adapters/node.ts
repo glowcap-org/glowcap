@@ -3,7 +3,7 @@
 // Node's built-in `node:ffi` (added in Node 26, behind `--experimental-ffi`)
 // and its `node:net` sockets provide the runtime seams declared in
 // `../runtime.ts`. Node already models a pointer as a `bigint`, so this adapter
-// does no per-call pointer conversion — it only translates the FFI type
+// does no per-call pointer conversion, it only translates the FFI type
 // vocabulary and takes addresses through `ffi.getRawPointer`.
 //
 // This path is experimental and ungated: it requires Node 26+ run with
@@ -11,7 +11,7 @@
 // `node:ffi` itself is a stability-1 API. It is shipped so a Node consumer can
 // try the binding; it is not covered by a build gate.
 
-// @ts-nocheck — typed against node:ffi/node:net ambient types, present under Node.
+// @ts-nocheck, typed against node:ffi/node:net ambient types, present under Node.
 import * as ffiMod from "node:ffi";
 import { socketConnect, socketListen } from "./node_net.ts";
 import type {

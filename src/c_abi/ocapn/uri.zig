@@ -134,14 +134,14 @@ fn hintBytes(value: model.HintValue) ?[]const u8 {
     };
 }
 
-/// Borrow the locator's transport (e.g. "tcp", "iroh") — the field a dispatcher
+/// Borrow the locator's transport (e.g. "tcp", "iroh"), the field a dispatcher
 /// reads to pick a netlayer.
 pub export fn pancake_locator_transport(loc: ?*PancakeLocator, out_ptr: ?*?[*]const u8, out_len: ?*usize) i32 {
     const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
     return writeView(payload.peer.transport, out_ptr, out_len);
 }
 
-/// Borrow the locator's designator — the transport-specific address (a TCP
+/// Borrow the locator's designator, the transport-specific address (a TCP
 /// host:port string, an iroh node id, an inproc designator).
 pub export fn pancake_locator_designator(loc: ?*PancakeLocator, out_ptr: ?*?[*]const u8, out_len: ?*usize) i32 {
     const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;

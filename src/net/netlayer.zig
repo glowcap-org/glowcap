@@ -69,7 +69,7 @@ pub const Listener = struct {
     vtable: *const VTable,
 
     pub const VTable = struct {
-        /// The transport this listener hosts — the symbol signed into the
+        /// The transport this listener hosts, the symbol signed into the
         /// responder's `op:start-session`, matching its netlayer's name.
         transport_name: []const u8,
         accept: *const fn (ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) AcceptError!Connection,
@@ -128,7 +128,7 @@ pub const Netlayer = struct {
 /// does. The transport set is a bare `[]const Netlayer` the host owns and keeps
 /// alive for every `Connection` minted from it (the residents behind it own the
 /// live streams). A handful of netlayers, so a linear scan is the right
-/// structure — no hash map for N≈2. The driver dials and hosts by resolving the
+/// structure, no hash map for N≈2. The driver dials and hosts by resolving the
 /// locator's transport symbol against this slice, failing closed when it finds
 /// nothing rather than defaulting to any transport.
 pub fn resolve(netlayers: []const Netlayer, transport: []const u8) ?Netlayer {

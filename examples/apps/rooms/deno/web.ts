@@ -131,7 +131,7 @@ async function bridge(ws: WebSocket): Promise<void> {
 
 	const dir = await connectDirectory();
 	if (!dir) {
-		safeSend(ws, { notice: "the room server is unavailable — reconnecting…" });
+		safeSend(ws, { notice: "the room server is unavailable, reconnecting…" });
 		safeClose(ws);
 		return;
 	}
@@ -373,7 +373,7 @@ const PAGE = `<!doctype html>
   .content.no-members { grid-template-columns: minmax(0,1fr); }
   .content.no-members .members { display: none; }
 
-  /* ── Message stream — left/right chat bubbles ─────────────────────────── */
+  /* ── Message stream, left/right chat bubbles ─────────────────────────── */
   .stream { position: relative; min-height: 0; }
   #log { position: absolute; inset: 0; overflow-y: auto; padding: 16px 0 20px; display: flex; flex-direction: column; gap: 2px; }
   .row { display: flex; gap: 10px; padding: 2px 20px; align-items: flex-start; }
@@ -532,7 +532,7 @@ const PAGE = `<!doctype html>
           <div class="join-wrap" id="joinScreen">
             <form id="joinForm" class="join">
               <h2>Join a room</h2>
-              <p class="lead">Pick a room and a name to start chatting — capability-secure, no account.</p>
+              <p class="lead">Pick a room and a name to start chatting, capability-secure, no account.</p>
               <label for="room">Room</label>
               <input id="room" placeholder="general" value="general" aria-label="Room name" maxlength="32" />
               <label for="nick">Display name</label>
@@ -679,7 +679,7 @@ const PAGE = `<!doctype html>
     while ((m = re.exec(text)) !== null) { if (m[1].toLowerCase() === nick.toLowerCase()) return true; }
     return false;
   }
-  // Build a safe DOM fragment — every literal goes in via textContent / .href, so
+  // Build a safe DOM fragment, every literal goes in via textContent / .href, so
   // message text can never inject markup.
   function renderRich(text) {
     const frag = document.createDocumentFragment();
@@ -772,7 +772,7 @@ const PAGE = `<!doctype html>
     if (unreadDivider) { unreadDivider.remove(); unreadDivider = null; }
   }
 
-  // Append a chat line as a bubble — others on the left (with an avatar and a
+  // Append a chat line as a bubble, others on the left (with an avatar and a
   // name), you on the right. Consecutive lines from the same author within a few
   // minutes stack as extra bubbles under the one header, with the timestamp
   // following the latest bubble. "/me …" renders as an italic action narration.
@@ -1013,7 +1013,7 @@ const PAGE = `<!doctype html>
 
   function connect() {
     setStatus("connecting", everConnected ? "reconnecting…" : "connecting…");
-    if (everConnected && joinedRoom) setBanner("Disconnected — reconnecting…");
+    if (everConnected && joinedRoom) setBanner("Disconnected, reconnecting…");
     const proto = location.protocol === "https:" ? "wss://" : "ws://";
     ws = new WebSocket(proto + location.host + "/ws");
 
@@ -1045,7 +1045,7 @@ const PAGE = `<!doctype html>
     };
     ws.onclose = () => {
       setStatus("reconnecting", "reconnecting…");
-      if (joinedRoom) setBanner("Disconnected — reconnecting…");
+      if (joinedRoom) setBanner("Disconnected, reconnecting…");
       setComposerEnabled(false);
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 5000); // back off, capped at 5s
@@ -1104,7 +1104,7 @@ const PAGE = `<!doctype html>
       lineInput.value = "";
       autoGrow();
     } else {
-      addSystem("Not connected — your message was not sent");
+      addSystem("Not connected, your message was not sent");
     }
   }
   function insertMention(name) {

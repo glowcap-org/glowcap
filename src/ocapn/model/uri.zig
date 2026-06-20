@@ -72,7 +72,7 @@ fn parseUri(uri_str: []const u8) Error!std.Uri {
 /// Split the netloc into designator and transport on the last dot. The split
 /// happens on the **percent-encoded** form (so an escaped `.` in the designator
 /// is data, not a structural delimiter), then each side percent-decodes
-/// individually — the same discipline as `decodeHints`.
+/// individually, the same discipline as `decodeHints`.
 fn splitNetloc(allocator: std.mem.Allocator, host_component: std.Uri.Component) Error!struct { transport: []u8, designator: []u8 } {
     const netloc_pe = componentBytes(host_component);
 

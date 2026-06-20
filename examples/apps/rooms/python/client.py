@@ -3,7 +3,7 @@
 It enters the named room, waits until everyone it expects is present, posts one
 line, and collects each expected member's line as the room pushes it back. All
 the OCapN machinery lives in ``room_client.py`` (:class:`Room`), so this reads
-like a chat client and nothing else — driven by ``async for msg in room``.
+like a chat client and nothing else, driven by ``async for msg in room``.
 
     python3 client.py 127.0.0.1:9099 general alice "hi" alice,bob,carol
 
@@ -19,7 +19,7 @@ already chatting in an attached room, say) are printed but never counted, so a
 busy room cannot fake or break the assertion.
 
 This is the same application as the Deno, Racket, Rust, and Zig clients, on one
-OCapN wire — the room cannot tell which language a member is written in.
+OCapN wire, the room cannot tell which language a member is written in.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ def _fmt_rooms(rooms: "list[tuple[str, int]]") -> str:
 
 def _welcome_names(message) -> "list[str] | None":
     """The welcome ends with the nicks already present: ``… in the room: a, b,
-    c`` — the only way to learn about earlier arrivals."""
+    c``, the only way to learn about earlier arrivals."""
     if not message.system:
         return None
     m = re.search(r" in the room: (.+)$", message.text)
@@ -74,7 +74,7 @@ def _joined_nick(message) -> "str | None":
 async def run_client(locator: str, room_name: str, nick: str, line: str, roster: list[str]) -> None:
     directory = await Directory.connect(locator)
     # Discovery: show the rooms that already have people in them, then follow the
-    # live list — both the snapshot (`list`) and the change feed (`watch`).
+    # live list, both the snapshot (`list`) and the change feed (`watch`).
     live = await directory.list()
     print(f"[{nick}] rooms: {_fmt_rooms(live)}", flush=True)
     await directory.watch(lambda kind, name, count: print(f"[{nick}] directory: {kind} {name} ({count})", flush=True))

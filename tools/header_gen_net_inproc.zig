@@ -59,7 +59,7 @@ comptime {
     }
 }
 
-/// Map a Zig type to its C spelling — reflection-driven, so a parameter type
+/// Map a Zig type to its C spelling, reflection-driven, so a parameter type
 /// change in `c_abi_net_transport_inproc` flows into the header automatically.
 fn cType(comptime T: type) []const u8 {
     return switch (T) {
@@ -219,7 +219,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_inproc_conn_release", &.{"conn"}, "Close the connection and free the handle; do not use `conn` afterward.");
     try emitFn(&b, gpa, "pancake_inproc_listener_release", &.{"listener"}, "Close the listener and free the handle; do not use `listener` afterward.");
 
-    try emitFn(&b, gpa, "pancake_inproc_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last in-process-transport error into out_buf — the\ninproc sibling of pancake_last_error, reading this archive's own per-thread\nslot. A pancake_inproc_* call that returns a cause-bearing code records it\nhere. Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or\ncap 0 queries the length. Returns the full message length, or 0 when none is\nset.");
+    try emitFn(&b, gpa, "pancake_inproc_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last in-process-transport error into out_buf, the\ninproc sibling of pancake_last_error, reading this archive's own per-thread\nslot. A pancake_inproc_* call that returns a cause-bearing code records it\nhere. Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or\ncap 0 queries the length. Returns the full message length, or 0 when none is\nset.");
     try emitFn(&b, gpa, "pancake_inproc_clear_last_error", &.{}, "Clear the calling thread's in-process-transport last-error slot.");
 
     try b.appendSlice(gpa,

@@ -6,7 +6,7 @@ globs: **/*.md, src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, 
 # pancake — Doc Drift Prevention
 
 This rule keeps doc claims _true_. Its sibling, [doc-voice](doc-voice.md), keeps
-doc prose _readable_ — written as dialog for a person, not as private shorthand.
+doc prose _readable_, written as dialog for a person, not as private shorthand.
 Run the two together whenever you touch a doc.
 
 Every doc surface that makes a state claim must satisfy one of:
@@ -78,8 +78,10 @@ surface; do not let old plan language masquerade as current architecture.
 - Do not leave stale status markers in living-state docs.
 - Do not hardcode a count the code can outgrow ("all fifteen arms"); describe
   the set, or cite the gate that holds the number.
-- If a line only explains how the current shape came to be, move that context to
-  a PR/commit message or remove it.
+- If a line — or a whole historical-snapshot file — only explains how the
+  current shape came to be, the record belongs in git history: prune it once the
+  work it captured has shipped and its lessons live in the code, ADRs, or
+  living-state docs. A snapshot is a transition, not a permanent home.
 - When an API name changes, sweep docs, tests, examples, and agent rules in the
   same change.
 - When scaffolding topology changes, update `.agents/README.md`,

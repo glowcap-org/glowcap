@@ -40,7 +40,7 @@ Syrup is the format [OCapN](https://github.com/ocapn/ocapn) settles on, so it is
 interop floor: CapTP 1.0 over Syrup is what pancake speaks by default and the only thing it
 can speak to a [Spritely Goblins](https://spritely.institute/goblins/) peer or any other
 implementation. Its records are length-prefixed and variable-length, which keeps frames
-compact and lets the decoder double as the stream framer — one parser finds a frame's
+compact and lets the decoder double as the stream framer, one parser finds a frame's
 boundary and decodes it in the same pass.
 
 Syrup also carries a second job no other codec takes over: it is the canonical form pancake
@@ -59,7 +59,7 @@ indexes.
 Cap'n Proto is the second codec: a layout of 8-byte words where every field sits at a known
 offset, reached by following struct and list pointers. pancake's is hand-rolled against the
 wire format with no schema compiler in the build, because it is a
-*pancake-to-pancake dialect* — there is no third-party Cap'n Proto reader to satisfy, so a
+*pancake-to-pancake dialect*: there is no third-party Cap'n Proto reader to satisfy, so a
 generated schema would buy nothing. Both peers settle on it at the handshake
 (`pairedWithCodec` in Zig, `pancake_peer_new_negotiated` over the C ABI, the matching idiom
 in every binding), and the whole conversation rides it from there. It never reaches a

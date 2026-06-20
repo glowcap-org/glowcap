@@ -1,4 +1,4 @@
-"""The blocking TCP transport — pancake's ``libpancake_net_transport_tcp``
+"""The blocking TCP transport, pancake's ``libpancake_net_transport_tcp``
 archive, surfaced à la carte.
 
 This is a companion to the core :mod:`pancake` module, mirroring the C ABI's
@@ -20,7 +20,7 @@ peers over TCP by hand composes it with the core:
 This is the explicit, synchronous shuttle. The async, transport-neutral
 application surface (:func:`pancake.connect`, :func:`pancake.listen`,
 :class:`pancake.Connection`) lives in the core and drives TCP over asyncio
-without this archive — reach here only when you want the blocking endpoints
+without this archive, reach here only when you want the blocking endpoints
 themselves.
 """
 

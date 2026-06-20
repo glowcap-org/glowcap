@@ -26,7 +26,7 @@ fn startSession(designator: []const u8) model.Message {
 }
 
 /// This loopback proof exercises transport + framing, and its `startSession`
-/// carries the stub zero signature — so the peers run with partner-signature
+/// carries the stub zero signature, so the peers run with partner-signature
 /// verification off (a verifying peer would refuse the unsigned handshake). The
 /// keyed, verified handshake is proven in `pairing_test`.
 fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {

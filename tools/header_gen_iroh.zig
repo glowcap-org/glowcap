@@ -64,7 +64,7 @@ comptime {
     }
 }
 
-/// Map a Zig type to its C spelling — reflection-driven, so a parameter type
+/// Map a Zig type to its C spelling, reflection-driven, so a parameter type
 /// change in `c_abi_net_transport_iroh` flows into the header automatically.
 fn cType(comptime T: type) []const u8 {
     return switch (T) {
@@ -234,7 +234,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\typedef struct PancakeIrohConn PancakeIrohConn;
         \\
         \\/* Reachability postures for pancake_iroh_netlayer_new. The caller always
-        \\   passes one — there is no default. A pancake peer never turns on relays
+        \\   passes one; there is no default. A pancake peer never turns on relays
         \\   or a discovery service as a hidden implementation detail; the host
         \\   chooses, in the open, how the endpoint becomes reachable.
         \\     DIRECT             relay-less, lookup-less; dial by id plus
@@ -293,7 +293,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_iroh_conn_try_read", &.{ "conn", "buf", "len" }, "Non-blocking read of raw inbound bytes into buf: the byte count (>0),\nPANCAKE_ERR_WOULD_BLOCK when nothing is buffered yet, PANCAKE_ERR_CLOSED on a\nclean end of stream, or PANCAKE_ERR_IO on a fault. You frame these bytes\nyourself (feed them to a PancakePeer's stream input), the same shape the TCP\npath uses.");
     try emitFn(&b, gpa, "pancake_iroh_conn_try_write", &.{ "conn", "buf", "len" }, "Non-blocking write of len raw bytes from buf: the count written (the whole\nslice, all-or-nothing), PANCAKE_ERR_WOULD_BLOCK when the outbound buffer is at\nits bound (retry the same bytes after the next writable record), or\nPANCAKE_ERR_IO on a fault.");
 
-    try emitFn(&b, gpa, "pancake_iroh_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last iroh-transport error into out_buf — the iroh\nsibling of pancake_last_error, reading libpancake_net_transport_iroh's own per-thread slot. A\npancake_iroh_* call that returns PANCAKE_ERR_IO records its concrete cause here.\nCopies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0\nqueries the length. Returns the full message length, or 0 when none is set.");
+    try emitFn(&b, gpa, "pancake_iroh_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last iroh-transport error into out_buf, the iroh\nsibling of pancake_last_error, reading libpancake_net_transport_iroh's own per-thread slot. A\npancake_iroh_* call that returns PANCAKE_ERR_IO records its concrete cause here.\nCopies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0\nqueries the length. Returns the full message length, or 0 when none is set.");
     try emitFn(&b, gpa, "pancake_iroh_clear_last_error", &.{}, "Clear the calling thread's iroh-transport last-error slot.");
 
     try b.appendSlice(gpa,

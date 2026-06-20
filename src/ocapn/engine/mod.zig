@@ -3,7 +3,7 @@
 //! We call this the engine, not the runtime, and that difference is the whole
 //! point. pancake has no runtime in the usual sense: no scheduler, no background
 //! tasks, no ambient executor driving things behind your back. The engine is the
-//! explicit, synchronous alternative — you feed it frames, you call `step`, you
+//! explicit, synchronous alternative, you feed it frames, you call `step`, you
 //! drain and poll. When the project's values say "no hidden runtime", this layer
 //! is what they mean stays absent.
 //!
@@ -28,7 +28,18 @@ pub const events = @import("events.zig");
 pub const fetch = @import("fetch.zig");
 pub const handoff_gifter = @import("handoff_gifter.zig");
 pub const handoff_recipient = @import("handoff_recipient.zig");
+pub const handoff_re_encode = @import("handoff_re_encode.zig");
 pub const negotiation = @import("negotiation.zig");
+const node = @import("node.zig");
+/// The sans-io cross-connection handoff router (ADR-0066): a tier above the
+/// per-connection `Peer` that owns the retained node identity, the shared gift
+/// registry, and the redeemed-token / foreign-home routing that makes
+/// three-party handoff transparent. It lives in the engine core (not the
+/// I/O-bearing driver) because it is pure routing data, so the sans-io C ABI and
+/// native callers reach it without dragging in a transport.
+pub const Node = node.Node;
+/// A `Node` connection handle (ADR-0066), re-exported alongside `Node`.
+pub const ConnId = node.ConnId;
 pub const pairing = @import("pairing.zig");
 pub const pipeline = @import("pipeline.zig");
 pub const registry = @import("registry.zig");
@@ -65,7 +76,11 @@ pub const encodePeerLocatorRecord = codec.syrup.encodePeerLocatorRecord;
 /// owned by the session and surfaced here so consumers above the engine name the
 /// one authoritative value rather than re-deriving the magic `0`.
 pub const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
-const resolutionFromResolverCallback = events.resolutionFromResolverCallback;
+
+/// The inbound receive/dispatch spine (`recvBorrowed`/`recvStreamPrefix`/`step`
+/// call in here). Factored out of the `Peer` body as free functions over
+/// `*Peer`, the same shape `v1_0`/`pipeline` use.
+const inbound = @import("inbound.zig");
 
 /// The errors the engine itself mints on the dispatch / step spine, as opposed
 /// to the codec and session error sets it forwards. Enumerated as one explicit
@@ -122,7 +137,7 @@ fn Queue(comptime T: type) type {
             self.items.appendAssumeCapacity(value);
         }
 
-        /// Dequeue the front element, or null when drained — reclaiming the
+        /// Dequeue the front element, or null when drained, reclaiming the
         /// backing slots (rewind the head, retain capacity) at that point.
         fn pop(self: *Self) ?T {
             if (self.head == self.items.items.len) {
@@ -149,13 +164,13 @@ fn Queue(comptime T: type) type {
 
         /// Remove and return the most-recently pushed element, for `errdefer`
         /// undo of an append whose follow-up failed. Null when empty.
-        fn popBack(self: *Self) ?T {
+        pub fn popBack(self: *Self) ?T {
             return self.items.pop();
         }
 
         /// A borrowed pointer to the front element without dequeuing it, or null
         /// when drained. The pointer aliases the queued element and stays valid
-        /// until the next queue mutation — read through it, do not own it.
+        /// until the next queue mutation, read through it, do not own it.
         fn peek(self: *Self) ?*const T {
             if (self.head == self.items.items.len) return null;
             return &self.items.items[self.head];
@@ -198,7 +213,7 @@ pub const AbortInfo = struct {
 /// or at `Peer.deinit`.
 const PendingWithdraw = struct {
     handoff: model.Handoff,
-    answer: u64,
+    answer: model.AnswerId,
 };
 
 /// One slot in the outbound queue. Most kinds queue a fully-built `message` the
@@ -212,7 +227,7 @@ const PendingWithdraw = struct {
 /// frame copy would dangle on exactly that sequence; this carrier cannot).
 const Outbound = union(enum) {
     message: model.Message,
-    settled_answer: u64,
+    settled_answer: model.AnswerId,
 
     fn deinit(self: Outbound, allocator: std.mem.Allocator) void {
         switch (self) {
@@ -278,7 +293,7 @@ pub const Peer = struct {
     /// success, so it stays readable after the error has propagated.
     last_abort: ?AbortInfo = null,
 
-    /// Peer over an already-open v1.0 session with default limits — no
+    /// Peer over an already-open v1.0 session with default limits, no
     /// handshake will run. A real connection starts with `initNegotiating`
     /// and authenticates `op:start-session` instead.
     pub fn init(allocator: std.mem.Allocator) Peer {
@@ -355,7 +370,7 @@ pub const Peer = struct {
     /// pending messages and events, parked withdraws and relayed resolutions,
     /// the private gift registry, and the session with its tables. A shared
     /// gift registry (`shared_gift_registry`) is the one thing not freed
-    /// here — its owner outlives every peer pointed at it.
+    /// here, its owner outlives every peer pointed at it.
     pub fn deinit(self: *Peer) void {
         for (self.inbound.pending()) |*frame| {
             frame.deinit();
@@ -518,6 +533,77 @@ pub const Peer = struct {
         } });
     }
 
+    /// Queue the recipient half of a three-party handoff: sign a
+    /// `desc:handoff-receive` over `give_bytes` keyed by `secret`, mint the
+    /// monotonic handoff-count from this peer's gift registry, and queue
+    /// `withdraw-gift` to the exporter's bootstrap object under `answer`. The
+    /// exporter session must be open — its partner key names the receive's
+    /// session — or this fails with `error.NoExporterKey`. This is the one
+    /// definition of the withdraw deliver shape; `Node.sendWithdraw` and the C
+    /// ABI both drive it. `give_bytes` is borrowed for the call.
+    pub fn sendWithdrawGift(
+        self: *Peer,
+        secret: foundation.crypto.SecretKey,
+        give_bytes: []const u8,
+        answer: model.AnswerId,
+    ) !void {
+        const exporter_key = self.session_state.partnerSessionKey() orelse return error.NoExporterKey;
+        const signed = try handoff_recipient.signedReceiveFromGiveBytes(
+            self.allocator,
+            self.session_state.limits,
+            self.giftRegistry(),
+            secret,
+            secret.publicKey(),
+            exporter_key,
+            give_bytes,
+        );
+        // `signed.message()` borrows `signed`; both outlive `sendCopying`, which
+        // deep-copies the deliver before this returns.
+        var handoff = model.Handoff{ .receive = signed.message() };
+        try self.sendCopying(.{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(BOOTSTRAP_POSITION) },
+            .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff } },
+            .answer = answer,
+        } });
+    }
+
+    /// Queue a `deposit-gift` to this (exporter) session's bootstrap object: a
+    /// fire-and-forget `op:deliver` carrying the gift id and the gifted
+    /// reference, so the exporter records the gift a later `withdraw-gift`
+    /// redeems. This is the one definition of the deposit deliver shape;
+    /// `Node.originateGive` and the C ABI both drive it. `gift_id` is borrowed
+    /// and `gifted` is borrowed; both are cloned into the outbound queue.
+    pub fn sendDepositGift(self: *Peer, gift_id: []const u8, gifted: model.Reference) !void {
+        try self.sendCopying(.{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(BOOTSTRAP_POSITION) },
+            .args = &.{ .{ .symbol = "deposit-gift" }, .{ .bytes = gift_id }, .{ .reference = gifted } },
+            .answer = null,
+        } });
+    }
+
+    /// Resolve `answer` (a question a recipient asked this gifter) with a signed
+    /// `desc:handoff-give`: queue an `op:resolve` whose fulfill carries
+    /// `give_bytes` verbatim, so the encoder emits the exact bytes the gifter
+    /// signed and the recipient redeems them transparently. Only `raw_signed` is
+    /// set; the empty descriptor fields are never read on the verbatim path. This
+    /// is the one definition of the resolve-give shape; `Node.originateGive` and
+    /// the C ABI both drive it. `give_bytes` is borrowed for the call.
+    pub fn sendResolveHandoffGive(self: *Peer, answer: model.AnswerId, give_bytes: []const u8) !void {
+        var handoff = model.Handoff{ .give = .{
+            .recipient_key = "",
+            .exporter_location = "",
+            .gifter_exporter_session = "",
+            .gifter_side = "",
+            .gift_id = "",
+            .signature = "",
+            .raw_signed = give_bytes,
+        } };
+        try self.sendCopying(.{ .resolve = .{
+            .answer = answer,
+            .resolution = .{ .fulfill = .{ .handoff = &handoff } },
+        } });
+    }
+
     /// Whether the session has completed the `op:start-session` handshake and is
     /// open for traffic. An adapter pumps the handshake frames, then checks this
     /// before sending application messages.
@@ -531,33 +617,33 @@ pub const Peer = struct {
     /// inbound `'fetch` for the swissnum is then served automatically by
     /// `dispatchOwnedFrameInner`.
     pub fn registerBootstrapCap(self: *Peer, swissnum: []const u8) !u64 {
-        return self.session_state.registerBootstrapCap(swissnum);
+        return (try self.session_state.registerBootstrapCap(swissnum)).int();
     }
 
     /// Publish a local object at export position `id` so inbound deliveries to it
     /// are admitted and surface as events. Capabilities are driven through the
     /// peer; the session's authoritative tables stay encapsulated.
     pub fn exportObject(self: *Peer, id: u64) !void {
-        return self.session_state.registerExport(id);
+        return self.session_state.registerExport(model.ExportId.from(id));
     }
 
-    /// Allocate the next free export position for a local object and return it —
+    /// Allocate the next free export position for a local object and return it,
     /// the auto-assigned counterpart of `exportObject`.
     pub fn exportNextObject(self: *Peer) !u64 {
-        return self.session_state.allocateExport();
+        return (try self.session_state.allocateExport()).int();
     }
 
     /// Track a partner-hosted object held as import position `id`, so a `far` send
     /// to it is admitted (e.g. an import handed back by a bootstrap fetch).
     pub fn importObject(self: *Peer, id: u64) !void {
-        return self.session_state.registerImport(id);
+        return self.session_state.registerImport(model.ImportId.from(id));
     }
 
-    /// Allocate the next outbound answer position — the question id for a deliver
+    /// Allocate the next outbound answer position, the question id for a deliver
     /// that wants a reply. The actor layer rides this to back an eventual-send's
     /// promise; the partner's `op:resolve` for this id settles it.
     pub fn allocateAnswer(self: *Peer) u64 {
-        return self.session_state.allocateOutboundAnswer();
+        return self.session_state.allocateOutboundAnswer().int();
     }
 
     /// Enqueue a forwarded resolution for handoff-imported promise `import_position`
@@ -569,16 +655,16 @@ pub const Peer = struct {
     pub fn relayResolution(self: *Peer, import_position: u64, resolution: model.Resolution) !void {
         errdefer freeResolution(self.allocator, resolution);
         try self.pending_relayed_resolutions.append(self.allocator, .{
-            .import_position = import_position,
+            .import_position = model.ImportId.from(import_position),
             .resolution = resolution,
         });
     }
 
     /// Apply one forwarded resolution (ADR-0009), taking ownership of
     /// `resolution`: fire the listeners installed on `import_position` (borrowing the
-    /// resolution), then store it for late listeners (moving it in) —
+    /// resolution), then store it for late listeners (moving it in),
     /// borrow-then-move, no clone. Called by `cross_peer.drainRelayedResolutions`.
-    pub fn applyRelayedResolution(self: *Peer, import_position: u64, resolution: model.Resolution) !void {
+    pub fn applyRelayedResolution(self: *Peer, import_position: model.ImportId, resolution: model.Resolution) !void {
         pipeline.fireImportedPromiseListeners(self, import_position, resolution) catch |err| {
             freeResolution(self.allocator, resolution);
             return err;
@@ -606,7 +692,7 @@ pub const Peer = struct {
     /// abort and leave the session as it was.
     pub fn step(self: *Peer) !StepOutcome {
         return self.stepInner() catch |err| {
-            self.emitAbortForError(err);
+            inbound.emitAbortForError(self, err);
             return err;
         };
     }
@@ -622,7 +708,7 @@ pub const Peer = struct {
     /// Classify `err` and keep it readable through `lastAbort`. Idempotent for
     /// one failure: the inbound path records inside `emitAbortForError` and
     /// again in `step`'s exit, overwriting with the same classification.
-    fn recordFailure(self: *Peer, err: anyerror) void {
+    pub fn recordFailure(self: *Peer, err: anyerror) void {
         const classified = abort_projection.classify(err);
         self.last_abort = .{
             .domain = classified.domain,
@@ -641,13 +727,13 @@ pub const Peer = struct {
         // One unit of work per step: dispatch one inbound frame, else encode one
         // pending outbound message. `pop` transfers ownership into dispatch (on
         // success the frame moves into the surfaced event, zero copy; on error
-        // dispatch frees it) and reclaims the backing once inbound is drained —
+        // dispatch frees it) and reclaims the backing once inbound is drained,
         // the consumed frames below the head were moved out, so reclaim never
         // double-frees. The inner dispatch is used here (not `dispatchOwnedFrame`)
         // because `step`'s own exit projects the abort for every failure; the
         // wrapped form would emit it twice.
         if (self.inbound.pop()) |frame| {
-            try self.dispatchOwnedFrameInner(frame);
+            try inbound.dispatchOwnedFrameInner(self, frame);
             return .progress;
         }
 
@@ -659,7 +745,7 @@ pub const Peer = struct {
             .settled_answer => |answer| {
                 // The resolution lives in the answer store (it moved there at
                 // record time). Borrow it to encode and to drive the local
-                // settlement — the store keeps owning it. If an inbound
+                // settlement, the store keeps owning it. If an inbound
                 // `op:gc-answers` dropped the row between record and now, the
                 // resolve is moot: the row's pipelined calls, projections, and
                 // listeners were freed with it, so there is nothing to emit or
@@ -784,7 +870,7 @@ pub const Peer = struct {
     /// is the single intentional copy on the borrowed inbound path.
     pub fn recvBorrowed(self: *Peer, frame: foundation.FrameView) !void {
         const owned = try ownedFrameFromView(self.allocator, frame);
-        try self.dispatchOwnedFrame(owned);
+        try inbound.dispatchOwnedFrame(self, owned);
     }
 
     /// Outcome of framing one message off the front of a byte-stream buffer.
@@ -819,18 +905,18 @@ pub const Peer = struct {
         switch (prefix) {
             .incomplete => return .incomplete,
             .malformed => {
-                self.emitAbortForError(error.MalformedFrame);
+                inbound.emitAbortForError(self, error.MalformedFrame);
                 return error.MalformedFrame;
             },
             .too_large => {
-                self.emitAbortForError(error.FrameTooLarge);
+                inbound.emitAbortForError(self, error.FrameTooLarge);
                 return error.FrameTooLarge;
             },
             .decoded => |decoded| {
                 // The prefix decoded under this same codec, so its shape is
                 // registered; a null would mean the dispatchers disagree.
                 const shape = codec.dispatch.frameShape(self.session_state.codec) orelse {
-                    self.emitAbortForError(error.MalformedFrame);
+                    inbound.emitAbortForError(self, error.MalformedFrame);
                     return error.MalformedFrame;
                 };
                 // A failed materialization is recorded like every other inbound
@@ -843,272 +929,13 @@ pub const Peer = struct {
                     self.recordFailure(err);
                     return err;
                 };
-                self.applyDecodedOwnedFrame(owned, decoded.body) catch |err| {
-                    self.emitAbortForError(err);
+                inbound.applyDecodedOwnedFrame(self, owned, decoded.body) catch |err| {
+                    inbound.emitAbortForError(self, err);
                     return err;
                 };
                 return .{ .consumed = decoded.consumed };
             },
         }
-    }
-
-    /// Dispatch an owned inbound frame, taking ownership.
-    ///
-    /// On success the frame moves into the surfaced event (zero copy). On any
-    /// error the frame is released and session state is left unchanged: the event
-    /// is enqueued before `recordRecv`, with rollback if authority rejects it, so
-    /// session state never advances without a matching event and vice versa.
-    ///
-    /// A rejection that names a protocol violation (codec-malformed frame or a
-    /// session state-machine refusal) projects to a typed outbound `op:abort`
-    /// and closes the session (`abort_projection`) before the error surfaces:
-    /// the partner sees a fail-loud abort, and the caller still receives the
-    /// typed error (and should flush `takeOutbound` to send the abort frame).
-    fn dispatchOwnedFrame(self: *Peer, frame_in: foundation.Frame) !void {
-        return self.dispatchOwnedFrameInner(frame_in) catch |err| {
-            self.emitAbortForError(err);
-            return err;
-        };
-    }
-
-    /// Best-effort emit of the outbound `op:abort` an inbound failure projects to
-    /// (`abort_projection.abortForError`), then close if the projection says
-    /// so. The abort frame is encoded directly (aborts are always admitted) and
-    /// appended to `outbound`; it bypasses `recordSend`, which would reject it
-    /// against the post-failure session state. Swallows its own allocation
-    /// failures so the original dispatch error is never masked — but still closes
-    /// when the projection requires it, since the decision to abort stands
-    /// regardless of whether the frame could be encoded.
-    fn emitAbortForError(self: *Peer, err: anyerror) void {
-        self.recordFailure(err);
-        const projected = abort_projection.abortForError(err) orelse return;
-        defer if (projected.close) self.session_state.close();
-
-        const message: model.Message = .{ .abort = .{
-            .kind = projected.kind,
-            .message = projected.message,
-        } };
-        var frame = codec.dispatch.encodeMessageForProfile(
-            self.session_state.codec,
-            self.allocator,
-            self.session_state.wire_profile,
-            message,
-        ) catch return;
-        self.outbound.push(self.allocator, frame) catch frame.deinit();
-    }
-
-    fn dispatchOwnedFrameInner(self: *Peer, frame_in: foundation.Frame) !void {
-        const decoded_body = codec.dispatch.decodeBody(self.session_state.codec, frame_in.view()) catch |err| {
-            var frame = frame_in;
-            frame.deinit();
-            return err;
-        };
-        try self.applyDecodedOwnedFrame(frame_in, decoded_body);
-    }
-
-    /// Apply an already-decoded inbound frame: install listeners, enqueue a
-    /// pipelined call, surface the event, and record authority. This is the
-    /// shared tail of the owned-frame boundary (`dispatchOwnedFrameInner`) and the
-    /// byte-stream framer (`recvStreamPrefix`), so an inbound frame is parsed
-    /// exactly once regardless of how it arrived.
-    ///
-    /// `decoded_body` may borrow `frame_in`'s own bytes (frame boundary) or a
-    /// separate stream buffer that outlives this call (`recvStreamPrefix`). It
-    /// must stay valid until apply completes; afterwards the retained event owns
-    /// only `frame_in` and the borrow is dropped.
-    fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_body: model.view.Body) !void {
-        var frame = frame_in;
-        var stored = false;
-        errdefer if (!stored) frame.deinit();
-
-        // Apply the session's state-admission gate before any authority mutation
-        // below. The pipelined-call enqueue, listener install, and V1.0 resolver
-        // registration all run ahead of `recordRecvView`/`recordRecv`, and the
-        // pipelined path returns without ever reaching them — so without this a
-        // closed (or negotiating) session would mutate authority for an inbound
-        // kind it must refuse. `recordRecv*` re-checks the gate; the check is pure.
-        try self.session_state.admits(decoded_body);
-
-        // A verifying peer authenticates the partner's `op:start-session` before
-        // learning its key: real Ed25519 over the captured location bytes. The
-        // session core runs no crypto, so this engine-boundary check gates the
-        // handshake; a failure returns `InvalidStartSessionSignature`, which
-        // projects an abort and leaves the session un-opened (the key is never
-        // learned, since `recordRecvView` below does not run).
-        if (self.verify_partner_handshake and decoded_body == .start_session) {
-            try verifyPartnerStartSession(self.allocator, decoded_body.start_session);
-        }
-
-        // An inbound `op:listen` against one of our pending inbound answers
-        // registers the listener so the resolution fires it (ADR-0007 §
-        // op:listen). Installed before the event/`recordRecv` so a refusal
-        // leaves nothing surfaced. Non-promise targets and listens on unknown
-        // answers fall through to ordinary recv handling.
-        if (decoded_body == .listen) {
-            try pipeline.maybeInstallInboundListener(self, decoded_body.listen);
-        }
-
-        // An inbound deliver takes exactly one of four routes; the classifier
-        // holds the probe order, so the precedence is data here, not call-site
-        // ordering (see `classifyInboundDeliver`).
-        var tag = eventKindFromBody(decoded_body);
-        var resolve_answer: ?u64 = null;
-        var deliver_answer: ?u64 = null;
-        var v1_0_resolve: ?model.view.Resolve = null;
-        var bootstrap_action: ?bootstrap.Action = null;
-        if (decoded_body == .deliver) {
-            switch (try self.classifyInboundDeliver(decoded_body.deliver)) {
-                // Surfaces as a semantic `Resolve` (ADR-0010). The resolution is
-                // a *borrowed* view over the deliver's args, applied through the
-                // session's resolver-callback seam below — no owned
-                // materialization. `recordResolverCallbackResolve` settles the
-                // outbound answer and installs any `far` the fulfill introduces,
-                // but does not store the resolution itself — the surfaced frame,
-                // kept alive on the event queue, carries the value to the
-                // application. The borrow stays valid because that frame outlives
-                // the apply call.
-                .v1_0_resolve => |answer| {
-                    tag = .resolve;
-                    resolve_answer = answer;
-                    v1_0_resolve = .{
-                        .answer = answer,
-                        .resolution = try resolutionFromResolverCallback(decoded_body.deliver.args),
-                    };
-                },
-                // Queued or redirected against the answer it pipelined on
-                // (ADR-0007); nothing surfaces for this frame.
-                .pipelined => {
-                    frame.deinit();
-                    return;
-                },
-                // Answered automatically once authority records the deliver
-                // (ADR-0006 responder half); the action applies below.
-                .bootstrap => |action| bootstrap_action = action,
-                // A resolver-only deliver carries the virtual answer the
-                // classifier allocated, so the surfaced deliver can be replied
-                // to; an answered deliver carries null (the frame has the answer).
-                .ordinary => |answer| deliver_answer = answer,
-            }
-        }
-
-        try self.events.push(self.allocator, .{ .frame = frame, .tag = tag, .resolve_answer = resolve_answer, .deliver_answer = deliver_answer, .codec = self.session_state.codec });
-        stored = true;
-        var appended = true;
-        errdefer if (appended) {
-            var removed = self.events.popBack().?;
-            removed.frame.deinit();
-        };
-
-        if (v1_0_resolve) |resolve| {
-            try self.session_state.recordResolverCallbackResolve(resolve);
-        } else {
-            try self.session_state.recordRecvView(decoded_body);
-        }
-        appended = false;
-
-        // op:get / op:index / op:untag responder (ADR-0050): apply above
-        // installed the projected answer; anchor the projection on the
-        // receiver. The view's field/tag bytes borrow the frame, so the owned
-        // dupe happens here, while the borrow is still valid.
-        switch (decoded_body) {
-            .get => |get| try pipeline.respondToProjection(self, get.receiver, .{ .field = get.field }, get.answer),
-            .index => |idx| try pipeline.respondToProjection(self, idx.receiver, .{ .index = idx.index }, idx.answer),
-            .untag => |untag| try pipeline.respondToProjection(self, untag.receiver, .{ .untag = untag.tag }, untag.answer),
-            else => {},
-        }
-
-        if (bootstrap_action) |action| {
-            switch (action) {
-                .fetch => |req| try self.sendCopying(bootstrap.resolveForSwissnum(&self.session_state, req)),
-                .deposit_gift => |req| {
-                    if (try bootstrap.resolveForDeposit(&self.session_state, self.giftRegistry(), req)) |msg| {
-                        try self.sendCopying(msg);
-                    }
-                },
-                .withdraw_gift => |req| {
-                    switch (try bootstrap.resolveForWithdraw(self.allocator, &self.session_state, self.giftRegistry(), req)) {
-                        .settled => |msg| try self.sendCopying(msg),
-                        // The gift's deposit has not arrived yet (it travels on
-                        // a different session); park the withdraw — `step`
-                        // settles it once the deposit lands.
-                        .awaiting_deposit => {
-                            if (self.pending_withdraws.items.len >= self.session_state.limits.max_pending_withdraws) {
-                                return session.Error.PendingWithdrawCapExceeded;
-                            }
-                            const owned = try (model.view.Handoff{ .receive = req.receive }).toOwned(self.allocator);
-                            errdefer model.freeHandoff(self.allocator, owned);
-                            try self.pending_withdraws.append(self.allocator, .{
-                                .handoff = owned,
-                                .answer = req.answer,
-                            });
-                        },
-                    }
-                },
-            }
-        }
-    }
-
-    /// The one route an inbound `op:deliver` takes, decided by
-    /// `classifyInboundDeliver`. The variants are mutually exclusive by
-    /// construction: a resolver-callback targets a resolver export, a pipelined
-    /// call targets a `desc:answer` promise, and a bootstrap deliver targets the
-    /// bootstrap export — three disjoint target shapes.
-    const InboundDeliverClass = union(enum) {
-        /// A V1.0 resolver-callback (ADR-0010) settling the inbound answer
-        /// carried here; the frame surfaces as a semantic `Resolve`.
-        v1_0_resolve: u64,
-        /// Pipelined against an answer we owe (ADR-0007): the call was queued or
-        /// redirected during classification, so the frame surfaces nothing.
-        pipelined,
-        /// A bootstrap-protocol deliver (ADR-0006): the caller applies the
-        /// action after authority records the deliver.
-        bootstrap: bootstrap.Action,
-        /// An ordinary deliver, surfaced to the application. The optional answer
-        /// is the virtual inbound answer the V1.0 classifier allocated for a
-        /// resolver-only deliver (a `resolve_me_desc` with no wire
-        /// answer-position); the surfaced deliver carries it so the
-        /// application's reply routes back through the resolver callback. Null
-        /// for an ordinary deliver whose answer (if any) the frame already
-        /// carries.
-        ordinary: ?u64,
-    };
-
-    /// Classify an inbound `op:deliver` into the one route it takes. The three
-    /// special-case probes live here in their load-bearing order, so the
-    /// precedence is data at the call site rather than comment-enforced
-    /// sequencing:
-    ///
-    /// 1. V1.0 resolver classification runs first. Classification installs the
-    ///    partner's resolver as a side effect, and a pipelined deliver carrying
-    ///    `resolve_me_desc` needs that resolver installed before its frame is
-    ///    released, so the V1.0 translation finds it when the drained call
-    ///    resolves later.
-    /// 2. Pipelining runs after V1.0 classify: an inbound deliver whose target
-    ///    is a still-pending answer is queued until that answer resolves
-    ///    (ADR-0007).
-    /// 3. The bootstrap probe runs last, so a pipelined call is never mistaken
-    ///    for a bootstrap fetch, and a resolver-only fetch has its virtual
-    ///    answer installed before the bootstrap action is computed.
-    fn classifyInboundDeliver(self: *Peer, deliver: model.view.Deliver) !InboundDeliverClass {
-        // A resolver-only deliver (no wire answer) has a virtual answer
-        // allocated here; carry it to the `.ordinary` surface so a deliver to a
-        // local object can be replied to. A pipelined or bootstrap deliver
-        // consumes the answer through its own path (the queued call's answer,
-        // `answerForResolverImport`), so the override only matters for ordinary.
-        var ordinary_answer: ?u64 = null;
-        if (self.session_state.needsV1_0Translation()) {
-            switch (try v1_0.interceptInboundDeliver(self, deliver)) {
-                .settles_answer => |answer| return .{ .v1_0_resolve = answer },
-                .ordinary => |answer| ordinary_answer = answer,
-            }
-        }
-        if (try pipeline.maybeEnqueuePipelinedCall(self, deliver)) {
-            return .pipelined;
-        }
-        if (try bootstrap.pendingBootstrapAction(deliver, &self.session_state)) |action| {
-            return .{ .bootstrap = action };
-        }
-        return .{ .ordinary = ordinary_answer };
     }
 
     /// Take the next surfaced event, or null when none is queued. The caller
@@ -1119,7 +946,7 @@ pub const Peer = struct {
 
     /// Borrow a const pointer to the next surfaced event without consuming it, or
     /// null when none is queued. The pointer aliases the still-queued event's
-    /// frame, so you can read it (`view()`) but cannot `deinit` it — that is the
+    /// frame, so you can read it (`view()`) but cannot `deinit` it, that is the
     /// queue's to do when a following `pollEvent` consumes and owns the real one.
     /// The borrow stays valid until the next `pollEvent`. This lets a consumer
     /// that may reject the event (a typed projection that cannot represent an
@@ -1154,25 +981,6 @@ comptime {
             "A larger session struct is a withdrawal from the 500k footprint budget — raise the budget deliberately, do not route around it.",
         .{ @sizeOf(Peer), peer_session_struct_budget_bytes },
     ));
-}
-
-/// The `EventKind` a decoded body surfaces as — a 1:1 body-tag mapping. The one
-/// re-tag (a V1.0 resolver-callback deliver surfacing as `.resolve`) is decided
-/// by the inbound classifier (`classifyInboundDeliver`), not here.
-fn eventKindFromBody(body: model.view.Body) EventKind {
-    return switch (body) {
-        .deliver => .deliver,
-        .resolve => .resolve,
-        .gc_export => .gc_export,
-        .gc_answer => .gc_answer,
-        .handoff => .handoff,
-        .start_session => .start_session,
-        .abort => .abort,
-        .listen => .listen,
-        .get => .get,
-        .index => .index,
-        .untag => .untag,
-    };
 }
 
 /// Verify the partner's `op:start-session` location signature: real Ed25519 over

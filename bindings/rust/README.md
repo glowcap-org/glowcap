@@ -29,7 +29,7 @@ plus the TCP archive and nothing else. The transport modules build on the core
 `iroh` is opt-in and implies `async` (the tokio driver it rides); it needs the
 companion library built by `zig build iroh-abi`. The `async` feature adds the
 tokio-driven `Connection` over native sockets and links no transport archive of
-its own, so it composes with whichever transport archives are enabled — the
+its own, so it composes with whichever transport archives are enabled, the
 example clients enable it with `default-features = false`, paying for the core
 archive plus their tokio driver and no blocking transport archive at all.
 
@@ -89,7 +89,7 @@ zig build rust-goblins-interop   # live Goblins conversation (needs racket + gob
 The à-la-carte composition is checkable directly with cargo:
 
 ```sh
-cargo build --no-default-features                 # core only — proves the core stands alone
+cargo build --no-default-features                 # core only, proves the core stands alone
 cargo build --no-default-features --features tcp  # core + one transport
 cargo build                                       # default: core + tcp + inproc
 zig build iroh-abi && cargo build --features iroh # opt-in iroh companion links

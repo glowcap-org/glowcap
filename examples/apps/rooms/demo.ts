@@ -72,14 +72,14 @@ const DENO_FLAGS = transport === "iroh"
 
 interface Member {
 	name: string;
-	/** The nick this member joins with — the roster every client asserts against. */
+	/** The nick this member joins with, the roster every client asserts against. */
 	nick: string;
 	cmd: string;
 	/** The client's args, once we know the locator and the full member roster. */
 	argv: (locator: string, roster: string) => string[];
 }
 
-/** True if `cmd` can be spawned at all — the cross-platform way to ask "is this
+/** True if `cmd` can be spawned at all, the cross-platform way to ask "is this
  * runtime on PATH?" without a shell. */
 async function onPath(cmd: string): Promise<boolean> {
 	try {
@@ -112,7 +112,7 @@ async function buildRust(): Promise<boolean> {
 		stderr: "inherit",
 	}).output();
 	if (!built.success) {
-		console.log("rooms demo: skipping Rust — cargo build failed");
+		console.log("rooms demo: skipping Rust, cargo build failed");
 	}
 	return built.success;
 }

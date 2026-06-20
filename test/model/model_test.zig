@@ -7,7 +7,7 @@ test "value-tree types stay within their documented size budget" {
     // The handoff arm of `Argument`/`Resolution` is boxed (`*Handoff`) precisely
     // so the common arm sets the struct size; un-boxing it would balloon every
     // element of a deliver's args (the memory rule's load-bearing-allocations
-    // budget). These bounds turn that budget into a gate — a regression here is
+    // budget). These bounds turn that budget into a gate, a regression here is
     // the bench's printed `model_layout` numbers drifting silently.
     try std.testing.expect(@sizeOf(model.Argument) <= 88);
     try std.testing.expect(@sizeOf(model.Resolution) <= 96);
@@ -77,7 +77,7 @@ test "protocol model arms map one-to-one onto Zig Message tags" {
 
     // Truth derives from the `model.Message` union itself, not from a second
     // hand list: a new union arm fails here until `message_kinds` carries its
-    // row, and a kinds row fails until the oracle registry carries its arm —
+    // row, and a kinds row fails until the oracle registry carries its arm,
     // so new protocol vocabulary cannot land without oracle pressure.
     const fields = @typeInfo(model.Message).@"union".fields;
     try std.testing.expectEqual(fields.len, model.message_kinds.len);

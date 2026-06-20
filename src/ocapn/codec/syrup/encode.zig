@@ -1,11 +1,12 @@
 //! The Syrup encoder: `model.Message` to wire bytes.
 //!
 //! This is the encode half of the Syrup codec. It owns `encodeMessage` and
-//! `encodeMessageForProfile`, the canonical signed-byte builders the handshake
-//! and handoff drivers sign over (`canonicalLocationSignedBytes` and friends),
-//! and the little `write*` record/list/leaf primitives beneath them. The shared
-//! `Error` and `WalkError` sets live in `shared`; this file builds
-//! bytes and holds no session authority. The decode half is `decode`.
+//! `encodeMessageForProfile`, the `write*` record/list/leaf primitives beneath
+//! them, and the `pub` record writers the signing domain composes (`canonical`
+//! builds the signed-byte products from them, so the bytes a signature covers
+//! never drift from the wire). The shared `Error` and `WalkError` sets live in
+//! `shared`; this file builds bytes and holds no session authority. The decode
+//! half is `decode`.
 
 const std = @import("std");
 
@@ -13,7 +14,6 @@ const foundation = @import("foundation");
 const model = @import("model");
 
 const shared = @import("shared.zig");
-const decode = @import("decode.zig");
 
 const Error = shared.Error;
 const WalkError = shared.WalkError;
@@ -21,154 +21,6 @@ const EncodeError = shared.EncodeError;
 
 pub fn encodeMessage(allocator: std.mem.Allocator, message: model.Message) EncodeError!foundation.Frame {
     return encodeMessageForProfile(allocator, model.WireProfile.v1_0, message);
-}
-
-/// ADR-0006 canonical signed bytes for an `op:start-session`
-/// `acceptable-location`: the Syrup encoding of the wrapping record
-/// `<my-location $acceptable-location>` (per Goblins `captp.rkt`).
-///
-/// This is the exact byte domain `acceptable_location_sig` signs over. Both
-/// ends must produce identical bytes for verification to succeed, so it is
-/// single-sourced here against the codec's own locator encoder rather than
-/// re-derived at the signing site. Caller owns the returned slice.
-pub fn canonicalLocationSignedBytes(
-    allocator: std.mem.Allocator,
-    location: model.PeerLocator,
-) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    try beginRecord(allocator, &out);
-    try writeSymbol(allocator, &out, "my-location");
-    try writeLocator(allocator, &out, location);
-    try endRecord(allocator, &out);
-    return out.toOwnedSlice(allocator);
-}
-
-/// As `canonicalLocationSignedBytes`, but wraps the *exact received*
-/// location-record bytes instead of re-encoding a decoded locator. The
-/// `<my-location …>` framing is single-sourced against the same record writers,
-/// so a peer that signs via `canonicalLocationSignedBytes` and a peer that
-/// verifies via this function agree byte-for-byte — and verification stays
-/// correct for a locator whose hints the borrowed decode does not retain. Pass
-/// the `acceptable_location_raw` a Syrup `op:start-session` decode captured.
-/// Caller owns the returned slice.
-pub fn canonicalLocationSignedBytesRaw(
-    allocator: std.mem.Allocator,
-    location_record_bytes: []const u8,
-) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    try beginRecord(allocator, &out);
-    try writeSymbol(allocator, &out, "my-location");
-    try out.appendSlice(allocator, location_record_bytes);
-    try endRecord(allocator, &out);
-    return out.toOwnedSlice(allocator);
-}
-
-/// Canonical signed bytes for a `desc:handoff-give`: the Syrup encoding of the
-/// inner `<desc:handoff-give recipient-key exporter-location
-/// gifter-exporter-session gifter-side gift-id>` record. That record is exactly
-/// the byte domain the gifter's `desc:sig-envelope` signature covers, so this is
-/// what you hand to `crypto.verify` (or `crypto.sign`) to check a handoff the
-/// same way `canonicalLocationSignedBytes` lets you check an `op:start-session`
-/// location signature. It is single-sourced against the wire encoder
-/// (`writeHandoffGiveRecord`), so the signing domain can never drift from the
-/// bytes that go on the wire. Caller owns the returned slice.
-pub fn canonicalHandoffGiveSignedBytes(
-    allocator: std.mem.Allocator,
-    give: model.HandoffGive,
-) ![]u8 {
-    if (give.raw_signed) |raw| {
-        return handoffGiveSignedPayloadBytes(allocator, raw);
-    }
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    try writeHandoffGiveRecord(allocator, &out, give);
-    return out.toOwnedSlice(allocator);
-}
-
-/// Build the inner `<desc:handoff-give recipient-key exporter-location
-/// gifter-exporter-session gifter-side gift-id>` record, taking the exporter
-/// location as **verbatim** Syrup bytes rather than a flattened
-/// `transport:designator`. A gifter that learned the exporter's location from its
-/// `op:start-session` must reproduce it byte-for-byte — hints and all — so a peer
-/// comparing the give's exporter location to the session location matches; the
-/// locator encoder cannot round-trip arbitrary hints. The returned bytes are the
-/// signing domain (caller owns them) and feed `wrapSignedHandoffGive`.
-pub fn handoffGiveRecordBytesRawLocation(
-    allocator: std.mem.Allocator,
-    recipient_key: []const u8,
-    exporter_location_raw: []const u8,
-    gifter_exporter_session: []const u8,
-    gifter_side: []const u8,
-    gift_id: []const u8,
-) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    try beginRecord(allocator, &out);
-    try writeSymbol(allocator, &out, "desc:handoff-give");
-    try writePeerKey(allocator, &out, recipient_key);
-    try out.appendSlice(allocator, exporter_location_raw);
-    try writeBytes(allocator, &out, gifter_exporter_session);
-    try writeBytes(allocator, &out, gifter_side);
-    try writeBytes(allocator, &out, gift_id);
-    try endRecord(allocator, &out);
-    return out.toOwnedSlice(allocator);
-}
-
-/// Wrap an inner `desc:handoff-give` record and its 64-byte signature into the
-/// `<desc:sig-envelope <record> <sig-val …>>` a recipient forwards or a gifter
-/// returns. The caller owns the result.
-pub fn wrapSignedHandoffGive(
-    allocator: std.mem.Allocator,
-    give_record: []const u8,
-    signature: []const u8,
-) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    try beginRecord(allocator, &out);
-    try writeSymbol(allocator, &out, "desc:sig-envelope");
-    try out.appendSlice(allocator, give_record);
-    try writeSignature(allocator, &out, signature);
-    try endRecord(allocator, &out);
-    return out.toOwnedSlice(allocator);
-}
-
-fn handoffGiveSignedPayloadBytes(allocator: std.mem.Allocator, raw_signed: []const u8) ![]u8 {
-    var cursor: usize = 0;
-    try decode.readByte(raw_signed, &cursor, '<');
-    const envelope_tag = try decode.readSymbol(raw_signed, &cursor);
-    if (!std.mem.eql(u8, envelope_tag, "desc:sig-envelope")) return Error.MalformedFrame;
-
-    const payload_start = cursor;
-    try decode.readByte(raw_signed, &cursor, '<');
-    const payload_tag = try decode.readSymbol(raw_signed, &cursor);
-    if (!std.mem.eql(u8, payload_tag, "desc:handoff-give")) return Error.MalformedFrame;
-
-    cursor = payload_start;
-    _ = try decode.readBalanced(raw_signed, &cursor, '<', '>');
-    const payload_end = cursor;
-    _ = try decode.readSignatureView(raw_signed, &cursor);
-    try decode.readByte(raw_signed, &cursor, '>');
-    try decode.expectEnd(raw_signed, cursor);
-
-    return allocator.dupe(u8, raw_signed[payload_start..payload_end]);
-}
-
-/// Canonical signed bytes for a `desc:handoff-receive`: the Syrup encoding of the
-/// inner `<desc:handoff-receive receiving-session receiving-side handoff-count
-/// <signed-give>>` record — the byte domain the recipient's `desc:sig-envelope`
-/// signature covers. The record embeds the already-signed give envelope, so
-/// verifying the receive certificate does not re-derive the give's signature.
-/// Single-sourced against `writeHandoffReceiveRecord`. Caller owns the slice.
-pub fn canonicalHandoffReceiveSignedBytes(
-    allocator: std.mem.Allocator,
-    receive: model.HandoffReceive,
-) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    try writeHandoffReceiveRecord(allocator, &out, receive);
-    return out.toOwnedSlice(allocator);
 }
 
 pub fn encodeMessageForProfile(
@@ -190,14 +42,14 @@ pub fn encodeMessageForProfile(
         },
         .deliver => |deliver| {
             // A no-answer deliver is a single `op:deliver` with a `#f` answer
-            // position — the fire-and-forget one-way send. There is no separate
+            // position, the fire-and-forget one-way send. There is no separate
             // one-way record on the wire.
             try beginRecord(allocator, &out);
             try writeSymbol(allocator, &out, shared.messageOp(.deliver));
             try writeTargetReference(allocator, &out, deliver.target);
             try writeArgumentList(allocator, &out, deliver.args);
             if (deliver.answer) |answer| {
-                try writePositiveInt(allocator, &out, answer);
+                try writePositiveInt(allocator, &out, answer.int());
             } else {
                 try writeBool(allocator, &out, false);
             }
@@ -211,7 +63,7 @@ pub fn encodeMessageForProfile(
         .resolve => |resolve| {
             try beginRecord(allocator, &out);
             try writeSymbol(allocator, &out, shared.messageOp(.resolve));
-            try writePositiveInt(allocator, &out, resolve.answer);
+            try writePositiveInt(allocator, &out, resolve.answer.int());
             switch (resolve.resolution) {
                 .fulfill => |arg| {
                     try beginRecord(allocator, &out);
@@ -248,7 +100,7 @@ pub fn encodeMessageForProfile(
             // The field name is a String on the wire (CapTP § op:get; Goblins
             // guards `string?` on receipt), not a Symbol.
             try writeString(allocator, &out, get.field);
-            try writePositiveInt(allocator, &out, get.answer);
+            try writePositiveInt(allocator, &out, get.answer.int());
             try endRecord(allocator, &out);
         },
         .index => |index| {
@@ -256,7 +108,7 @@ pub fn encodeMessageForProfile(
             try writeSymbol(allocator, &out, shared.messageOp(.index));
             try writeTargetReference(allocator, &out, index.receiver);
             try writeInteger(allocator, &out, index.index);
-            try writePositiveInt(allocator, &out, index.answer);
+            try writePositiveInt(allocator, &out, index.answer.int());
             try endRecord(allocator, &out);
         },
         .untag => |untag| {
@@ -266,7 +118,7 @@ pub fn encodeMessageForProfile(
             // The expected tag is a String on the wire (CapTP § op:untag),
             // matching op:get's field-name choice.
             try writeString(allocator, &out, untag.tag);
-            try writePositiveInt(allocator, &out, untag.answer);
+            try writePositiveInt(allocator, &out, untag.answer.int());
             try endRecord(allocator, &out);
         },
         .listen => |listen| {
@@ -445,7 +297,7 @@ fn writeArgument(allocator: std.mem.Allocator, out: *std.ArrayList(u8), arg: mod
 /// Encode a set's elements in canonical order: each element is encoded
 /// independently, the encodings are sorted lexicographically by byte, and
 /// emitted in that order. A set is unordered, so its wire form must not depend
-/// on the order the model held it in — the encode-side partner of the
+/// on the order the model held it in, the encode-side partner of the
 /// order-agnostic set equality in `model.equality`.
 fn writeCanonicalSet(allocator: std.mem.Allocator, out: *std.ArrayList(u8), items: []const model.Argument) WalkError!void {
     if (items.len == 0) return;
@@ -534,7 +386,31 @@ fn writeSignedReceive(allocator: std.mem.Allocator, out: *std.ArrayList(u8), rec
     try endRecord(allocator, out);
 }
 
-fn writeHandoffGiveRecord(allocator: std.mem.Allocator, out: *std.ArrayList(u8), give: model.HandoffGive) !void {
+// The record-level writers below are the signing-domain seam: `canonical.zig`
+// builds the byte products a `desc:sig-envelope` signature covers by composing
+// them, so the signing domain is single-sourced against the wire encoder and the
+// leaf primitives stay private to this file.
+
+/// Wrap an `acceptable-location` in the `<my-location $loc>` record an
+/// `op:start-session` signature covers.
+pub fn writeMyLocationRecord(allocator: std.mem.Allocator, out: *std.ArrayList(u8), location: model.PeerLocator) !void {
+    try beginRecord(allocator, out);
+    try writeSymbol(allocator, out, "my-location");
+    try writeLocator(allocator, out, location);
+    try endRecord(allocator, out);
+}
+
+/// As `writeMyLocationRecord`, but splices the *exact received* location-record
+/// bytes instead of re-encoding a decoded locator, so verification stays correct
+/// for a locator whose hints the borrowed decode did not retain.
+pub fn writeMyLocationRecordRaw(allocator: std.mem.Allocator, out: *std.ArrayList(u8), location_record_bytes: []const u8) !void {
+    try beginRecord(allocator, out);
+    try writeSymbol(allocator, out, "my-location");
+    try out.appendSlice(allocator, location_record_bytes);
+    try endRecord(allocator, out);
+}
+
+pub fn writeHandoffGiveRecord(allocator: std.mem.Allocator, out: *std.ArrayList(u8), give: model.HandoffGive) !void {
     try beginRecord(allocator, out);
     try writeSymbol(allocator, out, "desc:handoff-give");
     try writePeerKey(allocator, out, give.recipient_key);
@@ -545,7 +421,30 @@ fn writeHandoffGiveRecord(allocator: std.mem.Allocator, out: *std.ArrayList(u8),
     try endRecord(allocator, out);
 }
 
-fn writeHandoffReceiveRecord(
+/// Build the inner `<desc:handoff-give …>` record taking the exporter location
+/// as **verbatim** Syrup bytes (hints and all) rather than a flattened
+/// `transport:designator`, so a peer comparing the give's exporter location to
+/// the session location matches a hinted locator the encoder cannot round-trip.
+pub fn writeHandoffGiveRecordRawLocation(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    recipient_key: []const u8,
+    exporter_location_raw: []const u8,
+    gifter_exporter_session: []const u8,
+    gifter_side: []const u8,
+    gift_id: []const u8,
+) !void {
+    try beginRecord(allocator, out);
+    try writeSymbol(allocator, out, "desc:handoff-give");
+    try writePeerKey(allocator, out, recipient_key);
+    try out.appendSlice(allocator, exporter_location_raw);
+    try writeBytes(allocator, out, gifter_exporter_session);
+    try writeBytes(allocator, out, gifter_side);
+    try writeBytes(allocator, out, gift_id);
+    try endRecord(allocator, out);
+}
+
+pub fn writeHandoffReceiveRecord(
     allocator: std.mem.Allocator,
     out: *std.ArrayList(u8),
     receive: model.HandoffReceive,
@@ -556,6 +455,22 @@ fn writeHandoffReceiveRecord(
     try writeBytes(allocator, out, receive.receiving_side);
     try writePositiveInt(allocator, out, receive.handoff_count);
     try writeSignedGive(allocator, out, receive.signed_give);
+    try endRecord(allocator, out);
+}
+
+/// Wrap an already-signed inner record and its 64-byte signature into the
+/// `<desc:sig-envelope <record> <sig-val …>>` a recipient forwards or a gifter
+/// returns.
+pub fn writeSigEnvelope(
+    allocator: std.mem.Allocator,
+    out: *std.ArrayList(u8),
+    signed_record: []const u8,
+    signature: []const u8,
+) !void {
+    try beginRecord(allocator, out);
+    try writeSymbol(allocator, out, "desc:sig-envelope");
+    try out.appendSlice(allocator, signed_record);
+    try writeSignature(allocator, out, signature);
     try endRecord(allocator, out);
 }
 
@@ -624,7 +539,7 @@ fn writeLocator(allocator: std.mem.Allocator, out: *std.ArrayList(u8), location:
 /// Encode a verbatim `<ocapn-peer transport designator hints>` Syrup record,
 /// **including** hint entries as a `{…}` dict. `writeLocator` renders only the
 /// two empty hint spellings (`#f`, `{}`); this is its entry-carrying
-/// counterpart, for a gifter naming an exporter reachable only by a dial hint —
+/// counterpart, for a gifter naming an exporter reachable only by a dial hint,
 /// an iroh exporter's direct-address list, say. Entries are emitted in canonical
 /// (encoded-key-sorted) order. Caller owns the returned slice. An empty hint set
 /// delegates to `writeLocator` so the `#f`/`{}` spelling is preserved.
@@ -645,7 +560,7 @@ pub fn encodePeerLocatorRecord(allocator: std.mem.Allocator, location: model.Pee
 }
 
 /// Emit a Syrup `{…}` dict for hint entries, each `key value` pair encoded then
-/// sorted lexicographically by its bytes — the canonical order the upstream
+/// sorted lexicographically by its bytes, the canonical order the upstream
 /// Syrup encoder uses (see `writeCanonicalStruct` for why sorting whole
 /// `key ++ value` encodings is equivalent to sorting keys when keys are unique).
 fn writeHintDict(allocator: std.mem.Allocator, out: *std.ArrayList(u8), entries: []const model.HintEntry) WalkError!void {
@@ -727,24 +642,24 @@ fn writePayloadReference(allocator: std.mem.Allocator, out: *std.ArrayList(u8), 
                 .object => "desc:import-object",
                 .promise => "desc:import-promise",
             });
-            try writePositiveInt(allocator, out, near.export_position);
+            try writePositiveInt(allocator, out, near.export_position.int());
             try endRecord(allocator, out);
         },
         .far => |far| {
             try beginRecord(allocator, out);
             try writeSymbol(allocator, out, "desc:export");
-            try writePositiveInt(allocator, out, far.import_position);
+            try writePositiveInt(allocator, out, far.import_position.int());
             try endRecord(allocator, out);
         },
         // `desc:answer` carries no path operand: a non-empty path must have been
         // decomposed into single-hop links by the engine before encode (ADR-0007
         // § Multi-hop decomposition at the sender). One reaching here is an
-        // engine bug — fail loud rather than silently drop the path.
+        // engine bug, fail loud rather than silently drop the path.
         .promise => |promise| {
             if (!promise.path.isEmpty()) return Error.UnsupportedReference;
             try beginRecord(allocator, out);
             try writeSymbol(allocator, out, "desc:answer");
-            try writePositiveInt(allocator, out, promise.answer_position);
+            try writePositiveInt(allocator, out, promise.answer_position.int());
             try endRecord(allocator, out);
         },
         else => return Error.UnsupportedReference,

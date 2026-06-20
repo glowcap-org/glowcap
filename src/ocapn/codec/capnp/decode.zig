@@ -207,7 +207,7 @@ fn neutralArgsAt(ctx: model.view.Args.Ctx, index: usize) model.view.ProjectError
 
 /// Forward cursor over a composite list: `cursor` is the element index. Element
 /// access is already O(1) stride math here, so this is `at` plus a bounds-gated
-/// increment — the iterator interface is uniform across codecs.
+/// increment, the iterator interface is uniform across codecs.
 fn neutralArgsNext(ctx: model.view.Args.Ctx, cursor: *u64) model.view.ProjectError!?model.view.Argument {
     if (cursor.* >= ctx.w2) return null;
     const out = try neutralArgsAt(ctx, @intCast(cursor.*));
@@ -276,9 +276,9 @@ fn neutralReferenceView(reader: Reader, loc: StructLoc) Error!model.view.Referen
     const scalar = try reader.dataWord(loc, 1);
     const is_promise = data0 & shared.data0_flag != 0;
     return switch (disc) {
-        .near => .{ .far = .{ .import_position = scalar, .kind = if (is_promise) .promise else .object } },
-        .far => .{ .near = .{ .export_position = scalar, .kind = if (is_promise) .promise else .object } },
-        .promise => .{ .promise = .{ .answer_position = scalar, .path = try neutralPathBacking(reader, loc, 0) } },
+        .near => .{ .far = .{ .import_position = model.ImportId.from(scalar), .kind = if (is_promise) .promise else .object } },
+        .far => .{ .near = .{ .export_position = model.ExportId.from(scalar), .kind = if (is_promise) .promise else .object } },
+        .promise => .{ .promise = .{ .answer_position = model.AnswerId.from(scalar), .path = try neutralPathBacking(reader, loc, 0) } },
         .sturdy => .{ .sturdy = .{
             .peer = try neutralPeerLocator(reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame),
             .swissnum = try borrowedData(reader, loc, 1),
@@ -469,12 +469,12 @@ fn neutralBody(view: MessageView) Error!model.view.Body {
             break :blk .{ .deliver = .{
                 .target = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
                 .args = try neutralArgsBacking(reader, body, 1),
-                .answer = if (flags & shared.deliver_has_answer != 0) try reader.dataWord(body, 1) else null,
+                .answer = if (flags & shared.deliver_has_answer != 0) model.AnswerId.from(try reader.dataWord(body, 1)) else null,
                 .resolve_me_desc = resolve_me,
             } };
         },
         .resolve => .{ .resolve = .{
-            .answer = try reader.dataWord(body, 0),
+            .answer = model.AnswerId.from(try reader.dataWord(body, 0)),
             .resolution = try neutralResolution(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
         } },
         .gc_export => .{ .gc_export = .{
@@ -494,17 +494,17 @@ fn neutralBody(view: MessageView) Error!model.view.Body {
         .get => .{ .get = .{
             .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
             .field = try borrowedData(reader, body, 1),
-            .answer = try reader.dataWord(body, 0),
+            .answer = model.AnswerId.from(try reader.dataWord(body, 0)),
         } },
         .index => .{ .index = .{
             .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
             .index = @bitCast(try reader.dataWord(body, 0)),
-            .answer = try reader.dataWord(body, 1),
+            .answer = model.AnswerId.from(try reader.dataWord(body, 1)),
         } },
         .untag => .{ .untag = .{
             .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
             .tag = try borrowedData(reader, body, 1),
-            .answer = try reader.dataWord(body, 0),
+            .answer = model.AnswerId.from(try reader.dataWord(body, 0)),
         } },
         .start_session => .{ .start_session = try neutralStartSession(reader, body) },
         .handoff => .{ .handoff = try neutralHandoffFromStruct(reader, body) },

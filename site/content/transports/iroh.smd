@@ -42,20 +42,23 @@ the same published cap through the locator recorded before the restart.
 ## Reaching a peer
 
 A peer hands you its node id; how that id turns into a route is a *reachability
-posture* you choose when you bind the endpoint. pancake exposes three:
+posture* you choose when you bind the endpoint. pancake exposes four:
 
 | Posture | How a dial resolves | Proven by |
 | --- | --- | --- |
 | `direct` | the dialer carries the peer's direct socket addresses as locator hints | `zig build iroh-interop` |
 | `local_discovery` | an in-process address book resolves the id, no relay, fully deterministic | `zig build iroh-interop` |
 | `discovery` | the public number-0 relays plus DNS/pkarr resolve the id over the open internet | `zig build iroh-reachability` |
+| `discovery_no_relay` | DNS/pkarr resolve the id, but with relay fallback disabled — published direct addresses only | `zig build iroh-redeem-posture` |
 
-The first two are deterministic and run as the standard interop gate. The third
-reaches real n0 infrastructure: a server publishes its node info to pkarr on bind,
-and a client dials by the 64-hex id alone with an empty hint set, so a session that
-opens proves the route was discovered, not hinted. Because it depends on public
-infrastructure and propagation timing, it is opt-in and never part of the hermetic
-`zig build check`.
+`direct` and `local_discovery` are deterministic and run as the standard interop
+gate. `discovery` reaches real n0 infrastructure: a server publishes its node info
+to pkarr on bind, and a client dials by the 64-hex id alone with an empty hint set,
+so a session that opens proves the route was discovered, not hinted. Because it
+depends on public infrastructure and propagation timing, it is opt-in and never part
+of the hermetic `zig build check`. `discovery_no_relay` is the same discovery path
+with relay fallback disabled; that a hint-less give is governed by the configured
+posture is proven hermetically by `zig build iroh-redeem-posture`.
 
 ## A separate artifact, by design
 
@@ -75,8 +78,8 @@ same `connect` as TCP, and the only difference a caller sees is the address.
 
 ## Scale: many connections, one thread
 
-The shipped iroh resident serves one connection per OS thread, which is the simple
-path and what `iroh-interop` proves correct. For the fan-out pancake targets
+The shipped iroh resident serves one connection per OS thread, the
+one-thread-per-connection path that `iroh-interop` proves correct. For the fan-out pancake targets
 elsewhere, that caps too early, so iroh also has an event-driven path
 ([ADR-0057](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0057-iroh-readiness-loop.md)):
 a loop host registers the sidecar's single readiness descriptor once and drives

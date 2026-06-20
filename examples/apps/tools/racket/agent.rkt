@@ -16,7 +16,7 @@
 
 (define (run host port nick)
   (define (check label ok)
-    (printf "~a: ~a — ~a\n" nick (if ok "ok" "FAIL") label)
+    (printf "~a: ~a, ~a\n" nick (if ok "ok" "FAIL") label)
     (flush-output)
     (unless ok (exit 1)))
 

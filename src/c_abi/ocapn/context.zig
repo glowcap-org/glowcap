@@ -81,7 +81,7 @@ pub export fn pancake_context_new_with_allocator(spec: ?*const PancakeAllocator,
 /// allocator outlives those handles by contract, not by reference counting.
 /// Releasing while a handle is still live leaves that handle's allocator
 /// pointing into freed context memory, so its next allocation or release is
-/// undefined behavior — there is no runtime check.
+/// undefined behavior; there is no runtime check.
 pub export fn pancake_context_release(context: ?*PancakeContext) void {
     const ctx = ctxFromOpaque(context) orelse return;
     switch (ctx.backing) {

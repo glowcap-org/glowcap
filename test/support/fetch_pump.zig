@@ -3,7 +3,7 @@
 //!
 //! Test support (not a production module): the blocking-pump clients
 //! (`tcp_test`, `netlayer_test`, the completion loop's dialed-in clients) and
-//! the completion dialer's serve callback all drive the same scenario — open
+//! the completion dialer's serve callback all drive the same scenario, open
 //! the handshake, send a prepared bootstrap fetch, then match every inbound
 //! event against it with one fulfilled/broken/malformed switch. That
 //! choreography lives here once; each test keeps only the transport seam it
@@ -30,7 +30,7 @@ pub fn drainEvents(peer: *engine.Peer) void {
     }
 }
 
-/// Queue `start_session` (copying — the caller keeps its borrowed fields),
+/// Queue `start_session` (copying, the caller keeps its borrowed fields),
 /// pump the connection until the session opens, and drop the handshake events.
 pub fn handshakeToOpen(
     peer: *engine.Peer,
@@ -50,8 +50,8 @@ pub fn handshakeToOpen(
 /// one fails as `error.FetchMalformed`.
 pub fn matchFetchEvent(
     allocator: std.mem.Allocator,
-    resolver_export: u64,
-    answer_position: u64,
+    resolver_export: model.ExportId,
+    answer_position: model.AnswerId,
     event: *engine.Event,
 ) !?model.Reference {
     const owned = try event.decodeOwned(allocator);
@@ -79,7 +79,7 @@ pub fn matchFetchEvent(
 
 /// Fetch `swissnum` from the partner's bootstrap over an open blocking
 /// connection: prepare the fetch, send it, and pump until it settles.
-/// Returns the fulfilled reference — owned by the caller, released with
+/// Returns the fulfilled reference, owned by the caller, released with
 /// `model.freeReference`. The connection closing before the fetch settles
 /// fails as `error.ClosedBeforeSettled`; a broken or malformed settlement
 /// fails through `matchFetchEvent`.

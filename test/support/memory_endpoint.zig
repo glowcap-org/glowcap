@@ -43,7 +43,7 @@ pub const MemoryEndpoint = struct {
     /// Take the next queued inbound frame, transferring ownership to the caller:
     /// the endpoint advances past it and stops tracking it, so the caller must
     /// `deinit` the returned frame. Returns null once the queue is drained. `io`
-    /// and `allocator` are unused — the frame was allocated by its writer and is
+    /// and `allocator` are unused, the frame was allocated by its writer and is
     /// moved, not copied.
     pub fn readFrame(
         self: *MemoryEndpoint,

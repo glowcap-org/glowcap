@@ -3,14 +3,14 @@
 This is a small, real application built on pancake actors. A server hosts a
 _directory_ of chat rooms; people open a new room or enter an existing one, post
 lines, and see each other's lines in real time. What makes it worth reading is
-not the chat — it is _how_ the chat works, and that one room holds members
+not the chat. It is _how_ the chat works, and that one room holds members
 written in Zig, Rust, Python, Racket, and Deno at the same time, none of them
 aware of the others' languages.
 
 A room is itself a capability: the directory's `open` and `enter` each hand back
 a live reference to the room, and you talk to that reference. The directory also
 `list`s the rooms that have people in them and lets a client `watch` for rooms
-opening, filling, and closing. A room exists only while someone is in it — when
+opening, filling, and closing. A room exists only while someone is in it, when
 its last member leaves, the room is removed and its name frees up.
 
 Run the whole thing with one command:
@@ -20,7 +20,7 @@ zig build demo-rooms
 ```
 
 That starts a Deno-hosted server and joins one client per language into a single
-room over TCP — the first client to arrive opens the room, the rest enter it.
+room over TCP, the first client to arrive opens the room, the rest enter it.
 Each client posts a line and waits to receive every member's line back. When
 they all succeed you will see a transcript per language and a final line saying
 every member saw every message.
@@ -85,10 +85,31 @@ and sends its DMs over that fresh connection, never through the room. The demo
 asserts all three: the introduction yields a live capability, the target accepts
 a brand-new inbound connection for the DM (distinct from the directory's
 dial-back), and the room never carries the message. It runs over loopback TCP
-and needs only `deno`. (The same introduction over iroh is a further lift — it
-needs the exporter's direct-address hints carried in the advertised session
-locator — so the DM demo is TCP today; the broadcast room above already runs
-over iroh.)
+and needs only `deno`.
+
+The same introduction runs **over iroh's encrypted QUIC**, cross-endpoint:
+
+```sh
+zig build demo-rooms-dm-iroh
+```
+
+The gift the directory mints names the member's iroh node id **and its
+`direct-addresses`** (carried as signed hints in the give's exporter location),
+so the introduced caller redeems by dialing the member's endpoint directly, the
+relay-less `Direct` posture, no discovery service. Three separate iroh endpoints
+(room, member, caller) in one process prove the same three assertions; it needs
+`cargo` (the iroh sidecar) and `deno`.
+
+The same introduction, but with the gift naming the member by **node id alone**
+(no `direct-addresses`), runs as an opt-in step that resolves the id through n0
+discovery (relays + DNS/pkarr):
+
+```sh
+zig build demo-rooms-dm-iroh-discovery
+```
+
+It reaches the real internet, so it is opt-in and never part of `zig build check`;
+it needs `cargo`, `deno`, and network access.
 
 ## Chat in it from your browser
 
@@ -138,7 +159,7 @@ browser ──WebSocket──▶ web.ts (a pancake member) ──TCP/OCapN──
 ```
 
 It also prints the server's port, so you can join the same room from a terminal
-at the same time with `chat.ts` (below) — pass the same room name. It serves on
+at the same time with `chat.ts` (below), pass the same room name. It serves on
 port 8000 by default; pass a different one as the first argument.
 
 ## Chat in it yourself, interactively
@@ -155,7 +176,7 @@ deno run --allow-ffi --allow-read --allow-net \
 ```
 
 It prints `ROOMS-SERVER-LISTENING 9099`. Then open a terminal for each person
-and join a room with a nickname — the first argument is the locator the server
+and join a room with a nickname, the first argument is the locator the server
 announced (`127.0.0.1:9099` for the TCP server above, or the `ocapn://…` URI an
 `ROOMS_TRANSPORT=iroh` server prints), the second is the room name (entering one
 that does not exist opens it):
@@ -181,7 +202,7 @@ one terminal can wander between rooms.
 
 You can mix languages in the same room. The one-shot clients each take a room, a
 nickname, and a single line to post, so you can drop one into a running room to
-say hello from another language — for example, while `alice` and `bob` are
+say hello from another language, for example, while `alice` and `bob` are
 chatting in `general`, each of the five languages can wave from its own
 terminal:
 
@@ -200,7 +221,7 @@ Zig client runs through `zig build rooms-client`, which builds the same native
 binary the demo uses and forwards everything after `--` to it.
 
 Each one-shot client takes the same transport-neutral locator as its first
-argument, so the same command line joins a TCP or an iroh room — pass the URI
+argument, so the same command line joins a TCP or an iroh room, pass the URI
 the iroh server announced instead of `host:port`. The trailing argument is the
 roster each one-shot client waits to hear from. Passing just its own nickname
 means "post and go," so it does not block on a full room.
@@ -208,7 +229,7 @@ means "post and go," so it does not block on a full room.
 ## The idea: you call me, I call you back
 
 A traditional chat client polls a server: "anything new? anything new?" This one
-never does. When a client subscribes, it hands the room a _capability_ — a live
+never does. When a client subscribes, it hands the room a _capability_, a live
 reference to its own `inbox` object. The room keeps that capability, and
 whenever anyone posts, the room calls each member's inbox back directly. The
 push is the room invoking an object it was handed, not a message on a queue
@@ -218,7 +239,7 @@ That one move is the whole object-capability story made concrete:
 
 - **A room is a capability the directory returns.** The server publishes one
   bootstrap object, the `directory`. Sending it `open(name)` or `enter(name)`
-  returns a live reference to a room — not a URL or a room id you look up again,
+  returns a live reference to a room, not a URL or a room id you look up again,
   but the room object itself. Holding that reference _is_ your access to the
   room. The directory's `list` and `watch` let a client _discover_ which rooms
   have people in them, but they return names and counts, not authority: you
@@ -245,7 +266,7 @@ That one move is the whole object-capability story made concrete:
 examples/apps/rooms/
 ├── deno/protocol.ts      the shared wire contract: directory verbs (open/enter/list/watch + register/introduce) + room verbs (subscribe/post/leave) + the member dm verb
 ├── deno/server.ts        the server (directory of rooms, multi-connection, capability callbacks, watchers, member introductions)
-├── deno/room_client.ts   the Room client (the OCapN layer) in Deno — strict directory open/enter/list/watch
+├── deno/room_client.ts   the Room client (the OCapN layer) in Deno, strict directory open/enter/list/watch
 ├── deno/enter_room.ts    the CLI's friendly enter-or-open, composed from those strict verbs
 ├── deno/client.ts        the one-shot demo client in Deno (lists rooms, then enters)
 ├── deno/chat.ts          the interactive terminal client (/open /enter /leave /list)
@@ -255,7 +276,9 @@ examples/apps/rooms/
 ├── rust/room.rs + client.rs             the same, in Rust (its own crate)
 ├── zig/client.zig        the same in native Zig, over the real TCP netlayer
 ├── demo.ts               the orchestrator `zig build demo-rooms` runs
-└── dm_demo.ts            the direct-message-by-introduction orchestrator `zig build demo-rooms-dm` runs
+├── dm_demo.ts            the direct-message-by-introduction orchestrator `zig build demo-rooms-dm` runs
+├── dm_demo_iroh.ts       the same introduction over iroh, cross-endpoint, that `zig build demo-rooms-dm-iroh` runs
+└── dm_demo_iroh_discovery.ts  the node-id-only variant `zig build demo-rooms-dm-iroh-discovery` runs
 ```
 
 Each language has a `Room` client — the small layer that knows about OCapN
@@ -288,7 +311,7 @@ const inbox = conn.spawn((verb, args) => { … });      // our callback, a capab
 await conn.send(room, "subscribe", [nick, inbox]);    // hand it over
 ```
 
-No export-position numbers, no manual flush, no hand-rolled receive loop — the
+No export-position numbers, no manual flush, no hand-rolled receive loop, the
 `Room` wrapper is a few dozen lines because the surface does the rest. The Zig
 client uses the same surface as `driver.ConnectedVat`, explicit about allocation
 and I/O. Reading any two `Room` clients side by side shows how little the model
@@ -302,11 +325,11 @@ interactive CLI both surface, with switching between rooms on one connection.
 Because a room is just a capability, the directory already goes further: with
 `register`/`introduce` it hands a client a _member's_ capability that lives on
 that member's own endpoint and lets the two talk directly — a three-party
-handoff, the gifter side, with the room out of the path
-(`zig build
-demo-rooms-dm`). The next steps are carrying that introduction over
-iroh (cross-process redeem needs the exporter's direct-address hints in the
-advertised locator) and introducing whole rooms that live on another server.
+handoff, the gifter side, with the room out of the path, over loopback TCP
+(`zig build demo-rooms-dm`) **and over iroh's encrypted QUIC**
+(`zig build demo-rooms-dm-iroh`), where the gift names the member's
+`direct-addresses` so the caller dials it directly. The next step is introducing
+whole rooms that live on another server.
 
 Nor does the server yet attenuate (a read-only room handle) or persist history.
 Attenuation and revocation are shown end-to-end in the sibling

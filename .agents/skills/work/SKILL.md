@@ -1,7 +1,7 @@
 ---
 name: work
 description: >-
-  Use when starting substantial pancake work — scoping features, architectural
+  Use when starting substantial pancake work, scoping features, architectural
   moves, naming or module-boundary sweeps, release readiness, multi-file
   refactors, or reviews that should end in action or evidenced inaction. Skip
   for one-line fixes and pure questions where a focused rule already specifies
@@ -12,7 +12,7 @@ description: >-
 
 Substantial work on pancake should leave the repository closer to
 [`docs/vision.md`](../../../docs/vision.md) and easier for the next agent to
-continue. Assess first, then act or prove inaction — do not stop at a report
+continue. Assess first, then act or prove inaction, do not stop at a report
 when the right move is to fix what you found.
 
 ## 1. Load context (strategic, not exhaustive)
@@ -24,7 +24,7 @@ Read only what the task needs:
 | Scope, APIs, naming, structure, release bar           | [`docs/vision.md`](../../../docs/vision.md)                                                                |
 | Layer ownership, protocol authority, module placement | [`docs/architecture.md`](../../../docs/architecture.md) + [architecture rule](../../rules/architecture.md) |
 | Frames, allocators, wire-path copies                  | [memory rule](../../rules/memory.md)                                                                       |
-| Semantic claims, fixtures, conformance                | [tests rule](../../rules/tests.md) + `test/oracles/`                                                       |
+| Semantic claims, fixtures, conformance                | [tests rule](../../rules/tests.md) + `test/oracle/`                                                        |
 | Docs, README, agent scaffolding                       | [doc-drift](../../rules/doc-drift.md) + [doc-voice](../../rules/doc-voice.md)                              |
 | A settled boundary or vocabulary choice               | matching ADR under `docs/decisions/adr/`                                                                   |
 | OCapN spec text (when semantics are unclear)          | `conformance/ocapn-spec/`                                                                                  |
@@ -48,7 +48,7 @@ per [serena-mcp rule](../../rules/serena-mcp.md).
 - **Act** when any answer is "no" and you can fix it within scope. Load-bearing
   architectural or naming changes are in scope when they are the right move.
 - **Inaction** only with evidence: gates pass, vision gap is a documented
-  boundary (README, vision, or ADR) — not neglect dressed as prudence.
+  boundary (README, vision, or ADR), not neglect dressed as prudence.
 
 ## 3. Execute
 

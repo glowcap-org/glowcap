@@ -17,8 +17,8 @@ test "paired factory drives the handshake to open with bootstrap export" {
 
     try std.testing.expectEqual(session.State.open, pair.p1.session_state.state);
     try std.testing.expectEqual(session.State.open, pair.p2.session_state.state);
-    try std.testing.expect(pair.p1.session_state.hasExport(session.BOOTSTRAP_POSITION));
-    try std.testing.expect(pair.p2.session_state.hasExport(session.BOOTSTRAP_POSITION));
+    try std.testing.expect(pair.p1.session_state.hasExport(.from(session.BOOTSTRAP_POSITION)));
+    try std.testing.expect(pair.p2.session_state.hasExport(.from(session.BOOTSTRAP_POSITION)));
     try std.testing.expect(pair.p1.session_state.handshakeComplete());
     try std.testing.expect(pair.p2.session_state.handshakeComplete());
     try std.testing.expect(pair.p1.pollEvent() == null);
@@ -31,10 +31,10 @@ test "paired peers can exchange traffic once open" {
     defer pair.deinit();
 
     // p1 imports p2's bootstrap export, then delivers against it.
-    try pair.p1.session_state.registerImport(session.BOOTSTRAP_POSITION);
+    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
     try pair.p1.sendCopying(.{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = session.BOOTSTRAP_POSITION } },
+            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
             .args = &.{.{ .bytes = "ping" }},
             .answer = null,
             .resolve_me_desc = null,
@@ -100,12 +100,12 @@ test "v1.0 resolve round-trips as a resolver-callback deliver across paired peer
     var pair = try pairing.paired(allocator);
     defer pair.deinit();
 
-    try pair.p1.session_state.registerImport(session.BOOTSTRAP_POSITION);
+    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
     try pair.p1.sendCopying(.{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = session.BOOTSTRAP_POSITION } },
+            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
             .args = &.{.{ .bytes = "ping" }},
-            .answer = 42,
+            .answer = .from(42),
             .resolve_me_desc = null,
         },
     });
@@ -113,7 +113,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver across paired peer
 
     const resolver_export = pair.p1.session_state.next_export_position - 1;
     try std.testing.expect(resolver_export != session.BOOTSTRAP_POSITION);
-    try std.testing.expectEqual(@as(?u64, 42), pair.p1.session_state.answerForResolverExport(resolver_export));
+    try std.testing.expectEqual(@as(?model.AnswerId, .from(42)), pair.p1.session_state.answerForResolverExport(.from(resolver_export)));
 
     const deliver_frame = pair.p1.takeOutbound().?;
     try pair.p2.feedInbound(deliver_frame);
@@ -123,11 +123,11 @@ test "v1.0 resolve round-trips as a resolver-callback deliver across paired peer
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
     }
-    try std.testing.expectEqual(@as(?u64, resolver_export), pair.p2.session_state.resolverForInboundAnswer(42));
+    try std.testing.expectEqual(@as(?model.ImportId, .from(resolver_export)), pair.p2.session_state.resolverForInboundAnswer(.from(42)));
 
     try pair.p2.sendCopying(.{
         .resolve = .{
-            .answer = 42,
+            .answer = .from(42),
             .resolution = .{ .fulfill = .{ .bytes = "pong" } },
         },
     });
@@ -142,7 +142,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver across paired peer
     try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
 
     const view = try event.view();
-    try std.testing.expectEqual(@as(u64, 42), view.resolve.answer);
+    try std.testing.expectEqual(@as(u64, 42), view.resolve.answer.int());
     try std.testing.expectEqualSlices(u8, "pong", view.resolve.resolution.fulfill.bytes);
 }
 
@@ -323,10 +323,10 @@ test "paired Cap'n Proto peers exchange a deliver (parity with Syrup)" {
     var pair = try pairing.pairedWithOffers(allocator, capnpOffer(), capnpOffer());
     defer pair.deinit();
 
-    try pair.p1.session_state.registerImport(session.BOOTSTRAP_POSITION);
+    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
     try pair.p1.sendCopying(.{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = session.BOOTSTRAP_POSITION } },
+            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
             .args = &.{.{ .bytes = "ping" }},
             .answer = null,
             .resolve_me_desc = null,
@@ -354,12 +354,12 @@ test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" 
     var pair = try pairing.pairedWithOffers(allocator, capnpOffer(), capnpOffer());
     defer pair.deinit();
 
-    try pair.p1.session_state.registerImport(session.BOOTSTRAP_POSITION);
+    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
     try pair.p1.sendCopying(.{
         .deliver = .{
-            .target = .{ .far = .{ .import_position = session.BOOTSTRAP_POSITION } },
+            .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
             .args = &.{.{ .bytes = "ping" }},
-            .answer = 42,
+            .answer = .from(42),
             .resolve_me_desc = null,
         },
     });
@@ -374,11 +374,11 @@ test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" 
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
     }
-    try std.testing.expectEqual(@as(?u64, resolver_export), pair.p2.session_state.resolverForInboundAnswer(42));
+    try std.testing.expectEqual(@as(?model.ImportId, .from(resolver_export)), pair.p2.session_state.resolverForInboundAnswer(.from(42)));
 
     try pair.p2.sendCopying(.{
         .resolve = .{
-            .answer = 42,
+            .answer = .from(42),
             .resolution = .{ .fulfill = .{ .bytes = "pong" } },
         },
     });
@@ -395,7 +395,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" 
     // `view()` reprojects the resolver-callback deliver as the semantic Resolve,
     // proving the V1.0 translation is codec-blind: same SessionTrace as Syrup.
     const view = try event.view();
-    try std.testing.expectEqual(@as(u64, 42), view.resolve.answer);
+    try std.testing.expectEqual(@as(u64, 42), view.resolve.answer.int());
     try std.testing.expectEqualSlices(u8, "pong", view.resolve.resolution.fulfill.bytes);
 }
 
@@ -427,7 +427,7 @@ test "a verifying peer aborts an op:start-session whose signature does not match
 
     // A sender that emits a structurally valid keyed start-session, but advertises
     // one key while carrying a signature only a *different* key could have made
-    // over this location — the signature does not match the claimed key.
+    // over this location, the signature does not match the claimed key.
     var sender = engine.Peer.initNegotiating(allocator);
     defer sender.deinit();
 
@@ -546,7 +546,7 @@ test "a verifying peer refuses a hinted-locator handshake whose hint bytes were 
 
     // Flip one digit inside the hint map after signing. The frame stays
     // structurally valid, so only a signature computed over the received hint
-    // bytes can notice — proving the hints participate in the signed domain.
+    // bytes can notice, proving the hints participate in the signed domain.
     const tampered = try allocator.dupe(u8, hinted_locator_bytes);
     defer allocator.free(tampered);
     tampered[std.mem.lastIndexOfScalar(u8, tampered, '1').?] = '2';
@@ -565,7 +565,7 @@ test "the handshake records each partner's session key for later signature check
     defer pair.deinit();
 
     // Each side should have learned the other's session public key from the
-    // partner's op:start-session — the key an embedder verifies the partner's
+    // partner's op:start-session, the key an embedder verifies the partner's
     // signatures against (e.g. a gifter's handoff-give on a gifter-to-exporter
     // session, ADR-0009).
     const p1_pub = (crypto.SecretKey.fromSeed(p1_seed)).publicKey();
@@ -583,11 +583,11 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
     defer pair.deinit();
 
     // p1 calls the partner bootstrap, allocating answer 42 and a resolver export.
-    try pair.p1.session_state.registerImport(session.BOOTSTRAP_POSITION);
+    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
     try pair.p1.sendCopying(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = session.BOOTSTRAP_POSITION } },
+        .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
         .args = &.{.{ .bytes = "ping" }},
-        .answer = 42,
+        .answer = .from(42),
         .resolve_me_desc = null,
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
@@ -606,9 +606,9 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
     // `['break, <exn:fail:mystery>]` to p1's resolver export (the V1.0
     // resolver-callback form), where the reason is a tagged record. pancake
     // cannot *emit* this (its breaks are desc:error), so it is sent by hand.
-    try pair.p2.session_state.registerImport(resolver_export);
+    try pair.p2.session_state.registerImport(.from(resolver_export));
     try pair.p2.sendCopying(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = resolver_export } },
+        .target = .{ .far = .{ .import_position = .from(resolver_export) } },
         .args = &.{ .{ .symbol = "break" }, .{ .tagged = .{ .tag = "exn:fail:mystery", .value = &.{} } } },
         .answer = null,
         .resolve_me_desc = null,
@@ -625,7 +625,7 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
     const view = try event.view();
-    try std.testing.expectEqual(@as(u64, 42), view.resolve.answer);
+    try std.testing.expectEqual(@as(u64, 42), view.resolve.answer.int());
     try std.testing.expect(view.resolve.resolution == .@"break");
     try std.testing.expectEqualSlices(u8, "exn:fail:mystery", view.resolve.resolution.@"break".message);
 }
@@ -636,11 +636,11 @@ test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shap
     defer pair.deinit();
 
     // p1 calls the partner bootstrap with an answer, minting a resolver export.
-    try pair.p1.session_state.registerImport(session.BOOTSTRAP_POSITION);
+    try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
     try pair.p1.sendCopying(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = session.BOOTSTRAP_POSITION } },
+        .target = .{ .far = .{ .import_position = .from(session.BOOTSTRAP_POSITION) } },
         .args = &.{.{ .bytes = "ping" }},
-        .answer = 42,
+        .answer = .from(42),
         .resolve_me_desc = null,
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
@@ -657,10 +657,10 @@ test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shap
     // deliver whose break payload must be a bare Symbol: Goblins' unmarshal
     // table has no `<error …>` record (an unknown record tag raises
     // `captp-unknown-record-rag` and the break is lost), while a Symbol passes
-    // its unmarshaller untouched — the same payload shape the `op:listen`
+    // its unmarshaller untouched, the same payload shape the `op:listen`
     // listener fire uses.
     try pair.p2.sendCopying(.{ .resolve = .{
-        .answer = 42,
+        .answer = .from(42),
         .resolution = .{ .@"break" = .{ .message = "unknown swissnum" } },
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
@@ -687,7 +687,7 @@ test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shap
     defer event.deinit();
     try std.testing.expectEqual(engine.EventKind.resolve, event.kind());
     const view = try event.view();
-    try std.testing.expectEqual(@as(u64, 42), view.resolve.answer);
+    try std.testing.expectEqual(@as(u64, 42), view.resolve.answer.int());
     try std.testing.expect(view.resolve.resolution == .@"break");
     try std.testing.expectEqualSlices(u8, "unknown swissnum", view.resolve.resolution.@"break".message);
 }

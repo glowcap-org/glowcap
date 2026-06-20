@@ -35,7 +35,7 @@ pub const ConnectionOptions = struct {
     codec: model.CodecId = .syrup,
 };
 
-/// An owning connection — the one object a native Zig application holds. It
+/// An owning connection, the one object a native Zig application holds. It
 /// owns the peer and both read/write buffers, so a caller connects (or
 /// accepts) with one call instead of stitching a negotiating peer, two
 /// buffers, and `connectVia` together by hand. Heap-pinned because the
@@ -75,12 +75,22 @@ pub const Connection = struct {
     /// instead of the vat-local `actors.Ref`: the owning C session
     /// (`pancake_tcp_session_fetch`, ADR-0062) hands the partner's fetched
     /// capability back as a `model.Reference` without naming the actor layer. A
-    /// far cap projects as a far object reference; a (rare) local fetch projects
-    /// as a near object reference.
+    /// bootstrap fetch always resolves to the responder's *own* published export:
+    /// the responder names it with a near reference to itself, which arrives here,
+    /// after OCapN's perspective flip, as a far reference (an import). The
+    /// responder has no path that hands back one of *our* exports —
+    /// `registerBootstrapCap` maps a swissnum only to a fresh local export of the
+    /// responder — so `ConnectedVat.fetch` never yields a `.local` ref. The
+    /// `.local` arm is therefore unreachable; it fails closed rather than
+    /// fabricate a near reference from an actor id, which is a different number
+    /// space than the export position a near reference names. (Reflexive
+    /// references — a partner handing back one of our own exports — do occur, but
+    /// in deliver arguments and call/send resolutions, not here; a handler reaches
+    /// them through `Vat.refForExport`.)
     pub fn fetchReference(self: *Connection, name: []const u8) !model.Reference {
         return switch (try self.cv.fetch(name)) {
             .far => |far_ref| .{ .far = far_ref },
-            .local => |id| .{ .near = model.NearRef.object(id) },
+            .local => driver.Error.FetchNotACapability,
         };
     }
     /// `call` addressed by a wire `model.Reference` and verb/args, the
@@ -90,11 +100,7 @@ pub const Connection = struct {
     /// `broken`, or bare answer-`promise` reference is refused with
     /// `Error.UncallableTarget`.
     pub fn callReference(self: *Connection, target: model.Reference, verb: []const u8, args: []const model.Argument, arena: std.mem.Allocator) !Settled {
-        const ref: actors.Ref = switch (target) {
-            .far => |far_ref| .{ .far = far_ref },
-            .near => |near_ref| .{ .local = near_ref.export_position },
-            .promise, .sturdy, .broken => return driver.Error.UncallableTarget,
-        };
+        const ref = self.refForTarget(target) orelse return driver.Error.UncallableTarget;
         return self.cv.call(ref, .{ .verb = verb, .args = args }, arena);
     }
     /// Eventual-send `msg` to `target`, returning a promise (see `ConnectedVat.send`).
@@ -110,12 +116,24 @@ pub const Connection = struct {
     /// target; a `promise`, `sturdy`, or `broken` reference is refused with
     /// `Error.UncallableTarget`.
     pub fn sendReference(self: *Connection, target: model.Reference, verb: []const u8, args: []const model.Argument) !actors.Promise {
-        const ref: actors.Ref = switch (target) {
-            .far => |far_ref| .{ .far = far_ref },
-            .near => |near_ref| .{ .local = near_ref.export_position },
-            .promise, .sturdy, .broken => return driver.Error.UncallableTarget,
-        };
+        const ref = self.refForTarget(target) orelse return driver.Error.UncallableTarget;
         return self.cv.send(ref, .{ .verb = verb, .args = args });
+    }
+
+    /// Resolve a wire `model.Reference` to the `actors.Ref` an eventual-send
+    /// targets, or null when it names no callable object. A far reference is a
+    /// partner-hosted import. A near reference names a local object by its wire
+    /// export position, which is a different number space from the vat's actor
+    /// ids, so it resolves through the export table (`Vat.refForExport`) and
+    /// fails closed when no actor is bound there rather than treating the
+    /// position as an actor id. A `promise`, `sturdy`, or `broken` reference is
+    /// not an eventual-send target.
+    fn refForTarget(self: *Connection, target: model.Reference) ?actors.Ref {
+        return switch (target) {
+            .far => |far_ref| .{ .far = far_ref },
+            .near => |near_ref| self.cv.vat.refForExport(near_ref.export_position.int()),
+            .promise, .sturdy, .broken => null,
+        };
     }
     /// Promise pipelining: eventual-send `msg` to a far `promise` a prior
     /// `send`/`sendToAnswer` returned, before it resolves (see
@@ -186,7 +204,7 @@ fn createShell(allocator: std.mem.Allocator, opts: ConnectionOptions) !*Connecti
 }
 
 /// Dial a `model.PeerLocator` in one call, own the peer and buffers, and
-/// complete the keyed handshake — the one-call native-Zig client and the one
+/// complete the keyed handshake, the one-call native-Zig client and the one
 /// dialer, matching every binding's `connect`. Resolves the locator's
 /// `transport` symbol against the netlayer that hosts it in `netlayers` (so a
 /// transport the core never named, like iroh, dials here as soon as its netlayer
@@ -214,7 +232,7 @@ pub fn connect(
     return self;
 }
 
-/// Dial an `ocapn://` URI string in one call, owning the peer and buffers — the
+/// Dial an `ocapn://` URI string in one call, owning the peer and buffers, the
 /// sibling of `connect` for a caller that holds a published URI rather than a
 /// parsed `model.PeerLocator`. Parses the URI through the core grammar (so the
 /// percent-encoded designator is decoded correctly), then dials it with
@@ -251,7 +269,7 @@ pub const Server = struct {
     /// Write the bound dialable designator (with the kernel-chosen port when
     /// `listen` bound port 0) into `out` and return the written slice: the
     /// designator a partner dials. Empty when `out` cannot hold it or the
-    /// transport faulted — callers must treat empty as a defect, never sign it.
+    /// transport faulted, callers must treat empty as a defect, never sign it.
     pub fn localDesignator(self: *const Server, out: []u8) []const u8 {
         return self.listener.localDesignator(out);
     }

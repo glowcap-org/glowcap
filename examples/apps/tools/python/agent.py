@@ -27,7 +27,7 @@ async def main() -> None:
     host, port, nick = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 
     def check(label: str, ok: bool) -> None:
-        print(f"{nick}: {'ok' if ok else 'FAIL'} — {label}")
+        print(f"{nick}: {'ok' if ok else 'FAIL'}, {label}")
         if not ok:
             sys.exit(1)
 

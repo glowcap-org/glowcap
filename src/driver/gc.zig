@@ -3,7 +3,7 @@
 //! A host that does not retain imports introduced by an inbound deliver should
 //! release them immediately via `op:gc-exports`. Likewise, once an outbound answer
 //! is resolved the host may GC the answer-pos via `op:gc-answers`. This is
-//! adapter policy — the session tables own the counts; these helpers only enqueue
+//! adapter policy, the session tables own the counts; these helpers only enqueue
 //! the wire messages after a surfaced event has been handled.
 
 const engine = @import("engine");
@@ -25,7 +25,7 @@ const GcExportBatch = struct {
     n: usize = 0,
 
     fn add(self: *GcExportBatch, pos: u64) void {
-        // The bootstrap import is never accounted — the session's install walk
+        // The bootstrap import is never accounted, the session's install walk
         // excludes it the same way, and an `op:gc-exports` naming it is refused
         // by send validation, which would strand the whole flush it rode in.
         if (pos == engine.BOOTSTRAP_POSITION) return;
@@ -76,7 +76,7 @@ pub fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) void {
 
     if (deliver.resolve_me_desc) |rmd| {
         switch (rmd) {
-            .far => |far| batch.add(far.import_position),
+            .far => |far| batch.add(far.import_position.int()),
             else => {},
         }
     }
@@ -86,7 +86,7 @@ pub fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) void {
     // export-indexed resolver-answer lookup.
     if (deliver.target.exportPosition()) |target| {
         if (peer.session_state.answerForResolverExport(target)) |answer| {
-            const answer_positions = [_]u64{answer};
+            const answer_positions = [_]u64{answer.int()};
             peer.sendCopying(.{ .gc_answer = .{ .positions = &answer_positions } }) catch {};
         }
     }
@@ -107,7 +107,7 @@ fn addIntroducedFarsInArgs(batch: *GcExportBatch, args: model.view.Args, depth: 
 fn addIntroducedFars(batch: *GcExportBatch, arg: model.view.Argument, depth: usize, max_depth: usize) void {
     switch (arg) {
         .reference => |ref| switch (ref) {
-            .far => |far| batch.add(far.import_position),
+            .far => |far| batch.add(far.import_position.int()),
             else => {},
         },
         .list, .set => |items| addIntroducedFarsInArgs(batch, items, depth + 1, max_depth),
@@ -136,13 +136,13 @@ pub fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) void {
         };
         break :blk resolve.answer;
     };
-    const positions = [_]u64{answer};
+    const positions = [_]u64{answer.int()};
     peer.sendCopying(.{ .gc_answer = .{ .positions = &positions } }) catch {};
 }
 
 /// The stateless-GC policy after one served event: a deliver gc-collects the
 /// exports it introduced, a resolve gc-collects its settled answer. The single
-/// home for which event kind triggers which emit — both the per-connection
+/// home for which event kind triggers which emit, both the per-connection
 /// `ConnectedVat` and the `LoopHost` fan-out call this so the policy cannot drift
 /// between them.
 pub fn emitStatelessAfter(peer: *engine.Peer, event: *engine.Event) void {

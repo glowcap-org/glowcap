@@ -9,7 +9,7 @@ all other work here. This policy applies to every release.
 ## Reporting a vulnerability
 
 **Do not open a public issue for a security report.** Contact the maintainer
-privately — contact details are on the
+privately, contact details are on the
 [@jimisaacs](https://codeberg.org/jimisaacs) profile (a GitHub mirror with
 private security advisories also exists). Please include:
 
@@ -27,7 +27,7 @@ invariants jump the queue.
 ## What counts as a security issue
 
 A report demonstrating a violation of any of these is in scope for security,
-even if it requires unusual configuration — it is not a feature request:
+even if it requires unusual configuration, it is not a feature request:
 
 - **Semantics are codec-neutral.** A codec that decodes a frame into a reference
   carrying authority the session did not export, or encodes a reference carrying
@@ -51,7 +51,7 @@ even if it requires unusual configuration — it is not a feature request:
   issues).
 - Behavior of products built on pancake (they carry their own security
   policies).
-- Dependency issues that don't reach pancake's threat surface — report upstream.
+- Dependency issues that don't reach pancake's threat surface, report upstream.
 
 ## Acknowledgements
 

@@ -1,5 +1,5 @@
 #lang racket/base
-;; goblins-tap-dialer.rkt — single-shot Goblins client that dials a
+;; goblins-tap-dialer.rkt, single-shot Goblins client that dials a
 ;; remote OCapN sturdyref, enlivens it, and invokes it once.
 ;;
 ;; Usage:
@@ -41,7 +41,7 @@
    (define netlayer (spawn ^tcp-netlayer "127.0.0.1" local-port))
    (define mycapn (spawn-mycapn netlayer))
 
-   ;; Build the sturdyref directly via the struct constructor —
+   ;; Build the sturdyref directly via the struct constructor,
    ;; bypasses Racket's net/url-string parser (which doesn't accept
    ;; `host:port` inside the OCapN subdomain field). The
    ;; tcp-netlayer here uses netlayer-name 'tcp; designator is

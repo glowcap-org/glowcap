@@ -9,7 +9,7 @@ Canonical home for agent-facing guidance in this Zig repository.
 ├── README.md   # this file; the Rules, Skills, and Hooks tables below are canonical
 ├── rules/      # one .md per rule — see the Rules table
 ├── skills/     # one directory per skill, each with a SKILL.md — see the Skills table
-└── hooks/      # shared hook scripts — see the Hooks table
+└── hooks/      # shared hook scripts, see the Hooks table
 ```
 
 The tables below enumerate the contents and `zig build meta-check` holds them to
@@ -26,7 +26,7 @@ guidance:
   `.agents/skills`.
 
 `zig build meta-check` verifies this topology and every scaffolding claim it can
-reach mechanically — symlink shape, the rule and skill indexes, Markdown links,
+reach mechanically, symlink shape, the rule and skill indexes, Markdown links,
 documented build steps, the living-state registry, and more.
 [`tools/meta_check.zig`](../tools/meta_check.zig) is the authoritative
 inventory; update it in the same change as any intentional scaffolding move.
@@ -46,7 +46,7 @@ inventory; update it in the same change as any intentional scaffolding move.
 | [project-values](rules/project-values.md)           | Explicit systems design, polished library surface, and no hidden costs                                 |
 | [resilience](rules/resilience.md)                   | Attacker-controlled bytes, parse limits, and layer-owned refusal policy                                |
 | [serena-mcp](rules/serena-mcp.md)                   | When to use Serena symbol tools vs. host file tools for Zig code                                       |
-| [tests](rules/tests.md)                             | Unit, oracle, conformance, and benchmark discipline                                                    |
+| [tests](rules/tests.md)                             | Test taxonomy and vocabulary: which layer, what authority, what a failure means                        |
 
 ## Skills
 

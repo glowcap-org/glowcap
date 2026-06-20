@@ -42,7 +42,7 @@ test "steady-state deliver to a live export holds its allocation budget" {
     var counter = CountingAllocator{ .backing = std.testing.allocator };
     var peer = engine.Peer.init(counter.allocator());
     defer peer.deinit();
-    try peer.session_state.registerExport(7);
+    try peer.session_state.registerExport(.from(7));
 
     // Warm up: install answer 11 and grow the inbound/event backing arrays so
     // the measured window sees only per-turn wire-path traffic.

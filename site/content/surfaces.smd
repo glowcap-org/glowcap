@@ -38,7 +38,9 @@ The same code compiles to a set of composable archives, linked à la carte, each
 static (`.a`) and shared (`.so`) form: `libpancake_ocapn` carries the sans-io peer
 and the shared vocabulary in `pancake_ocapn.h`, and each transport is its own archive
 and header (`libpancake_net_transport_tcp` with `pancake_net_transport_tcp.h`,
-`libpancake_net_transport_inproc` with `pancake_net_transport_inproc.h`). The surface is
+`libpancake_net_transport_inproc` with `pancake_net_transport_inproc.h`). A transport
+links over the shared net-core base `libpancake_net`, which carries no header and
+exports nothing of its own but must appear in the link line. The surface is
 deliberately boring: opaque handles, fixed-width return codes, `ptr + len` views,
 callbacks, and explicit release functions. That is what lets a consumer wrap it well
 without knowing any Zig. Each header is generated from the same Zig declarations the
@@ -52,7 +54,7 @@ walks the build, the artifacts, the ownership rules, and a first complete progra
 
 A binding already did the C wrapping and presents an idiomatic API. See
 [Bindings]($link.page('bindings')) for the shared shape, per-language tours, and how
-each one dogfoods the archives on every build.
+each one dogfoods the archives through its own `*-dogfood` step.
 
 ## One library, one build, one engine
 
@@ -63,9 +65,10 @@ hold the same OCapN conversation, byte for byte. What a session does *negotiate*
 codec and CapTP version, is settled per session against whoever answers, not by which
 surface you built on, so one instance can run many sessions speaking different codecs at
 once; the [Concepts]($link.page('concepts')) page walks that handshake. The surfaces
-also come from one build: every artifact above is produced by `zig build`, and the
-single command `zig build check` proves the whole tree at once: the gate, examples,
-dogfoods, and interop. The full step catalog lives in
+also come from one build: every artifact above is produced by `zig build`, and
+`zig build check` runs the hermetic gate, tests, oracle and conformance scenarios,
+examples, and the structure checks. The cross-language dogfoods and live interop run
+as sibling steps, since they need non-Zig runtimes on PATH. The full step catalog lives in
 [the build catalog](https://codeberg.org/jimisaacs/pancake/src/branch/main/README.md#build).
 
 The one place the surfaces diverge is encryption: iroh rides a separate optional

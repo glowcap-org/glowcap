@@ -29,7 +29,7 @@ It targets OCapN, the open object-capability network protocol from
 [Spritely Institute](https://spritely.institute/) and the OCapN community. You
 use it as a library, and you manage its memory yourself. Nothing important
 hides: where a copy happens, where something is allocated, which wire format is
-in play, where I/O and scheduling live — all of it stays visible at the boundary
+in play, where I/O and scheduling live: all of it stays visible at the boundary
 that owns it.
 
 <p align="center">
@@ -55,10 +55,10 @@ name, call it, switch on the settled outcome, close.
 ```zig
 const pancake = @import("pancake");
 
-// Dial by locator — the one dialer. The transport set is a bare slice naming
+// Dial by locator, the one dialer. The transport set is a bare slice naming
 // the transports this client can reach (here, just TCP); `tcp.at` turns a
 // `host:port` into a `tcp` locator with no caller buffer. Add `iroh` by
-// putting one more netlayer in the slice — the same call.
+// putting one more netlayer in the slice, the same call.
 var tcp_resident = pancake.net.tcp.Resident{ .io = io };
 
 const conn = try pancake.driver.connect(&.{tcp_resident.netlayer()}, allocator, pancake.net.tcp.at(designator), .ephemeral, .{});
@@ -87,7 +87,7 @@ is the runnable version of both halves.
 Not writing Zig? The same library is a C ABI with bindings:
 [`docs/consuming-from-c.md`](docs/consuming-from-c.md) is the route for C and
 FFI consumers, and [`bindings/`](bindings/README.md) holds the Rust, Deno,
-Python, and Racket surfaces — each speaking the same nine application verbs.
+Python, and Racket surfaces, each speaking the same nine application verbs.
 
 ## Learn by example
 
@@ -133,7 +133,7 @@ Focused steps while iterating:
 zig build test
 zig build test -Dtest-filter=substring   # only tests whose names match
 zig build examples
-zig build bindings        # rust + deno + python + racket C ABI smokes
+zig build bindings        # rust + deno + bun + python + racket C ABI smokes
 zig build oracle-check    # protocol manifest + Syrup fixture parity
 zig build meta-check      # scaffolding and documented build-step parity
 ```

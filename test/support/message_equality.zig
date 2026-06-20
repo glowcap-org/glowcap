@@ -2,7 +2,7 @@
 //!
 //! Test support (not a production module): the view round-trip test and the
 //! cross-codec equivalence harness both need to ask "are these two decoded
-//! messages the same meaning?" — independent of which codec or entry point
+//! messages the same meaning?", independent of which codec or entry point
 //! produced them. Leans on the production `model.*Equal` helpers for the leaf
 //! comparisons (references, arguments, locators).
 

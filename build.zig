@@ -8,7 +8,7 @@ const meta_check = @import("tools/meta_check.zig");
 /// archive's dynamic library soname tracks `major`.
 const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 
-/// The layer DAG — the one authoritative statement of the architecture
+/// The layer DAG, the one authoritative statement of the architecture
 /// (ADR-0040; ADR-0048 for the sibling-codec modules below the codec layer).
 /// Every build graph is generated from this table, and `tools/arch_check.zig`
 /// verifies it against the source tree: a granted edge no file imports fails
@@ -28,7 +28,7 @@ const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "persistent", .prefix = "persistent/", .imports = &.{}, .core = true },
     .{ .name = "actors", .prefix = "actors/", .imports = &.{ "model", "engine" }, .core = true },
     .{ .name = "net", .prefix = "net/", .imports = &.{ "foundation", "model", "codec", "engine" }, .core = false },
-    .{ .name = "conformance", .prefix = "conformance/", .imports = &.{ "foundation", "model", "engine" }, .core = false },
+    .{ .name = "oracle", .prefix = "oracle/", .imports = &.{ "foundation", "model", "engine" }, .core = false },
     .{ .name = "driver", .prefix = "driver/", .imports = &.{ "foundation", "model", "engine", "actors", "net" }, .core = false },
     .{ .name = "c_abi_shared", .prefix = "c_abi/shared/", .imports = &.{ "foundation", "model" }, .core = false },
     .{ .name = "c_abi", .prefix = "c_abi/ocapn/", .imports = &.{ "foundation", "model", "engine", "c_abi_shared" }, .core = false },
@@ -45,7 +45,7 @@ const layer_table = [_]arch_check.LayerSpec{
 /// the archives a consumer links alongside it (the dependency edges). The build
 /// generates every artifact and header from this table, and `tools/meta_check.zig`
 /// consumes it to verify each declared archive is built, headered, and that each
-/// edge is real — the same "tables carry the edges the code uses" law ADR-0040
+/// edge is real, the same "tables carry the edges the code uses" law ADR-0040
 /// established for layers. Under Model A every transport embeds its lower layers
 /// as local symbols, so `pancake_net` exports nothing yet; it is first-class in
 /// the contract so the Model-A→B migration never adds an archive to a link line.
@@ -118,7 +118,7 @@ fn graphFromTable(
     const mods = b.allocator.alloc(*std.Build.Module, table.len) catch @panic("OOM");
     for (table, 0..) |spec, i| {
         // Out-of-graph rows (e.g. `c_abi_net_transport_iroh`) are claimed by arch-check for file
-        // coverage and edge liveness but are not DAG participants — they link a
+        // coverage and edge liveness but are not DAG participants, they link a
         // non-Zig sidecar and import an injected resident, so `irohAbiModule`
         // mints them. No graph row imports such a row, so the slot stays unread.
         if (!spec.graph) continue;
@@ -146,7 +146,7 @@ fn graphFromTable(
     return mods;
 }
 
-/// One executable over the public `pancake` module — the shape every example,
+/// One executable over the public `pancake` module, the shape every example,
 /// bench, interop driver, and demo client shares: a module rooted at
 /// `root_source`, the `pancake` import, and the named executable.
 fn pancakeExecutable(
@@ -166,7 +166,7 @@ fn pancakeExecutable(
     return b.addExecutable(.{ .name = name, .root_module = mod });
 }
 
-/// A `pancakeExecutable` run from the repository root with side effects — the
+/// A `pancakeExecutable` run from the repository root with side effects, the
 /// shape the live interop drivers and worked applications share.
 fn addPancakeRun(
     b: *std.Build,
@@ -183,7 +183,7 @@ fn addPancakeRun(
 }
 
 /// A sibling-step system command that needs the installed archive set and its
-/// headers and runs from the repository root with side effects — the shape
+/// headers and runs from the repository root with side effects, the shape
 /// every cross-language interop and demo orchestrator shares.
 fn addInstalledSystemRun(b: *std.Build, argv: []const []const u8) *std.Build.Step.Run {
     const run = b.addSystemCommand(argv);
@@ -193,7 +193,7 @@ fn addInstalledSystemRun(b: *std.Build, argv: []const []const u8) *std.Build.Ste
     return run;
 }
 
-/// The full `src/root.zig` module graph for an arbitrary target — used by the
+/// The full `src/root.zig` module graph for an arbitrary target, used by the
 /// cross-compile gate to type-check the platform backends (notably the
 /// macOS/BSD `kqueue` path, which the host io_uring build never compiles)
 /// without running, so a regression there fails `zig build check` instead of
@@ -204,7 +204,7 @@ fn crossLibModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Opt
 }
 
 /// The *sans-io core* module graph (no `net` / I/O) for an arbitrary
-/// target, returning the `actors` module at its top — used to type-check the
+/// target, returning the `actors` module at its top, used to type-check the
 /// core for `wasm32-freestanding`, gating the 32-bit overflow guards the codec
 /// carries without pulling in the I/O layers that wasm lacks.
 fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.OptimizeMode) *std.Build.Module {
@@ -220,7 +220,7 @@ const AbiImport = struct { name: []const u8, module: *std.Build.Module };
 /// archive (ADR-0059). Minted fresh per call so the artifact, the hermetic check
 /// object, and the header generator can each have their own (no source file
 /// lands in two modules of one compilation). `imports` supplies the layer
-/// instances the transport draws on — always the shared vocabulary leaf
+/// instances the transport draws on, always the shared vocabulary leaf
 /// (`c_abi_shared`), never the `c_abi` ocapn root, so the artifact stays
 /// symbol-disjoint from `libpancake_ocapn`. These are the `.graph = false`
 /// `c_abi_*` rows' only materialization: they sit outside the layer DAG because
@@ -291,7 +291,7 @@ pub fn build(b: *std.Build) void {
     // ── Port pinning for demo and interop steps ──────────────────────────────
     // Every demo orchestrator binds an ephemeral port by default, and every
     // live interop step pins its own fixed port so concurrent steps cannot
-    // collide. `-Dport` overrides either choice for one run — to put a demo
+    // collide. `-Dport` overrides either choice for one run, to put a demo
     // server on a forwarded port, or to move an interop step off a port that
     // is taken on this machine. `-Dattach` (demo steps only, requires
     // `-Dport`) joins an already-running server on that port instead of
@@ -305,7 +305,7 @@ pub fn build(b: *std.Build) void {
 
     // ── Internal layer modules (ADR-0040, ADR-0048) ─────────────────────────
     // The DAG lives in `layer_table` above; materializing it makes every edge a
-    // compiler-checked law — a layer cannot even name a file outside its module
+    // compiler-checked law, a layer cannot even name a file outside its module
     // root, and a new edge is a visible one-line table diff, not a review note.
     // arch-check consumes the same table, so a granted edge no file imports
     // fails the gate, and only the content bans a module graph cannot express
@@ -408,7 +408,7 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     tests_mod.addImport("pancake", lib_mod);
-    // `c_abi` and `conformance` are not on the public `pancake` namespace (a
+    // `c_abi` and `oracle` are not on the public `pancake` namespace (a
     // Zig consumer has no use for either), so their test suites import the
     // layer modules directly.
     tests_mod.addImport("c_abi", host_mods[layerIndex("c_abi")]);
@@ -416,7 +416,7 @@ pub fn build(b: *std.Build) void {
     // loopback suites drive them directly, reusing the artifact module instances.
     tests_mod.addImport("c_abi_net_transport_tcp", tcp_abi_mod);
     tests_mod.addImport("c_abi_net_transport_inproc", inproc_abi_mod);
-    tests_mod.addImport("conformance", host_mods[layerIndex("conformance")]);
+    tests_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
     // The persistent-collections leaf module (ADR-0061) is not on the public
     // `pancake` namespace, so its direct test imports the layer module.
     tests_mod.addImport("persistent", host_mods[layerIndex("persistent")]);
@@ -444,11 +444,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
     oracle_tests_mod.addImport("pancake", lib_mod);
+    // The scenario traces drive the `oracle` layer directly (it is not on the
+    // public `pancake` namespace), so the focused gate imports it too.
+    oracle_tests_mod.addImport("oracle", host_mods[layerIndex("oracle")]);
     const oracle_tests = b.addTest(.{
         .root_module = oracle_tests_mod,
     });
     const run_oracle_tests = b.addRunArtifact(oracle_tests);
-    const oracle_check_step = b.step("oracle-check", "Run protocol and Goblins fixture oracle checks");
+    const oracle_check_step = b.step("oracle-check", "Run the protocol oracle: message-arm coverage, Syrup corpus parity, and whole-conversation scenario traces (test/oracle_check.zig)");
     oracle_check_step.dependOn(&run_oracle_tests.step);
     check_step.dependOn(&run_oracle_tests.step);
 
@@ -609,7 +612,7 @@ pub fn build(b: *std.Build) void {
     }
 
     // C example programs over the per-archive headers, each linking exactly the
-    // composed archive set it includes — the same à-la-carte link the documented
+    // composed archive set it includes, the same à-la-carte link the documented
     // recipe gives a C consumer (ADR-0059). `compose_transports` links all three
     // and is the standing Model-A symbol-disjoint composition proof.
     const c_examples = [_]struct { name: []const u8, path: []const u8, libs: []const *std.Build.Step.Compile }{
@@ -650,7 +653,7 @@ pub fn build(b: *std.Build) void {
         }
     }
     // The snapshot bench measures the persistent-actor divergence path, so it
-    // imports the persistent-collections leaf module directly — the same way the
+    // imports the persistent-collections leaf module directly, the same way the
     // test module does; it is not on the public `pancake` namespace (ADR-0061).
     bench_exes[3].root_module.addImport("persistent", host_mods[layerIndex("persistent")]);
     b.step("bench-frame-view", "Run frame/view benchmark").dependOn(&bench_runs[0].step);
@@ -726,24 +729,24 @@ pub fn build(b: *std.Build) void {
     const bindings_step = b.step("bindings", "Run per-language dogfood of the C ABI (rust, deno, bun, python, racket)");
     for (dogfood_runs) |run| bindings_step.dependOn(&run.step);
 
-    // Pancake-only three-party handoff gate: pancake is exporter, gifter, and
+    // Pancake-only three-party handoff: pancake is exporter, gifter, and
     // recipient over loopback TCP. A broker introduces a recipient to an
     // exporter's node-giftable object; the recipient transparently redeems the
-    // give and messages the exporter *directly* — the broker never relays. Proves
+    // give and messages the exporter *directly*, the broker never relays. Proves
     // the gifter half (ADR-0009) and the engine's swiss re-resolution end to end
     // through the binding, with no Goblins or manual export bookkeeping.
-    const run_gifter_gate = b.addSystemCommand(&.{
-        "deno",                             "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
-        "bindings/ts/stack/gifter_gate.ts",
+    const run_gifter_handoff = b.addSystemCommand(&.{
+        "deno",                                "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
+        "bindings/ts/stack/gifter_handoff.ts",
     });
-    run_gifter_gate.step.dependOn(b.getInstallStep());
-    b.step("deno-gifter-gate", "Pancake-only 3-node three-party handoff: a broker introduces a recipient to an exporter, who is then messaged directly (needs deno)")
-        .dependOn(&run_gifter_gate.step);
+    run_gifter_handoff.step.dependOn(b.getInstallStep());
+    b.step("deno-gifter-handoff", "Pancake-only 3-node three-party handoff: a broker introduces a recipient to an exporter, who is then messaged directly (needs deno)")
+        .dependOn(&run_gifter_handoff.step);
 
-    // The rooms-app face of the gifter gate: a rendezvous room introduces two
+    // The rooms-app face of the gifter handoff: a rendezvous room introduces two
     // members who then DM directly, room out of the path. Exercises the real
     // rooms directory's `register`/`introduce` and a member's exported `dm`
-    // object — the three proofs (live cap, brand-new inbound, no relay) asserted.
+    // object, the three proofs (live cap, brand-new inbound, no relay) asserted.
     const run_rooms_dm = b.addSystemCommand(&.{
         "deno",                           "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
         "examples/apps/rooms/dm_demo.ts",
@@ -759,20 +762,20 @@ pub fn build(b: *std.Build) void {
     // `goblins` collection on PATH (like the binding dogfoods), so it is a
     // sibling of `check`, not part of the hermetic gate. The driver spawns and
     // tears down the Goblins vat itself.
-    const run_goblins_interop = addPancakeRun(b, lib_mod, target, optimize, "pancake-goblins-interop", "conformance/goblins_interop/driver.zig");
+    const run_goblins_interop = addPancakeRun(b, lib_mod, target, optimize, "pancake-goblins-interop", "interop/goblins_interop/driver.zig");
     if (pin_port) |p| run_goblins_interop.addArg(b.fmt("--port={d}", .{p}));
     const goblins_interop_step = b.step("goblins-interop", "Live OCapN conversation vs a real Goblins vat, both directions (needs racket + goblins)");
     goblins_interop_step.dependOn(&run_goblins_interop.step);
 
     // Live three-party handoff, pancake as recipient (needs racket + goblins).
     // It runs two Goblins listeners (alice, bob), so `-Dport=N` pins N and N+1.
-    const run_goblins_handoff = addPancakeRun(b, lib_mod, target, optimize, "pancake-goblins-handoff", "conformance/goblins_interop/handoff_driver.zig");
+    const run_goblins_handoff = addPancakeRun(b, lib_mod, target, optimize, "pancake-goblins-handoff", "interop/goblins_interop/handoff_driver.zig");
     if (pin_port) |p| run_goblins_handoff.addArg(b.fmt("--port={d}", .{p}));
     const goblins_handoff_step = b.step("goblins-handoff", "Live three-party handoff vs Goblins, pancake as recipient (needs racket + goblins)");
     goblins_handoff_step.dependOn(&run_goblins_handoff.step);
 
     // Each binding drives the same keyed conversation against a real Goblins
-    // vat through the installed C ABI archives — the binding↔live-Goblins keyed
+    // vat through the installed C ABI archives, the binding↔live-Goblins keyed
     // conversation, not just the in-Zig one. Every entry needs `racket` + the
     // `goblins` collection on PATH plus its own runtime; each script spawns and
     // tears down the Goblins vat itself. The Rust entry runs a feature-gated
@@ -788,17 +791,17 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "deno-goblins-interop",
             .description = "Live keyed OCapN conversation: Deno binding vs a real Goblins vat (needs deno + racket + goblins)",
-            .argv = &.{ "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "conformance/goblins_interop/deno_client.ts" },
+            .argv = &.{ "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "interop/goblins_interop/deno_client.ts" },
         },
         .{
             .step_name = "python-goblins-interop",
             .description = "Live keyed OCapN conversation: Python binding vs a real Goblins vat (needs python3 + racket + goblins)",
-            .argv = &.{ "python3", "conformance/goblins_interop/python_client.py" },
+            .argv = &.{ "python3", "interop/goblins_interop/python_client.py" },
         },
         .{
             .step_name = "racket-goblins-interop",
             .description = "Live keyed OCapN conversation: Racket binding vs a real Goblins vat (needs racket + goblins)",
-            .argv = &.{ "racket", "conformance/goblins_interop/racket_client.rkt" },
+            .argv = &.{ "racket", "interop/goblins_interop/racket_client.rkt" },
         },
         .{
             .step_name = "rust-goblins-interop",
@@ -823,15 +826,15 @@ pub fn build(b: *std.Build) void {
     // level). Spawns the Goblins introducer + exporter pair itself; `-Dport=N`
     // pins the introducer port (the exporter listens on N+1).
     const run_deno_handoff = addInstalledSystemRun(b, &.{
-        "deno",                                               "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
-        "conformance/goblins_interop/deno_handoff_client.ts",
+        "deno",                                           "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "interop/goblins_interop/deno_handoff_client.ts",
     });
     if (pin_port) |p| run_deno_handoff.addArg(b.fmt("--port={d}", .{p}));
     b.step("deno-goblins-handoff", "Live three-party handoff: the Deno binding redeems a give from a real Goblins introducer and calls the exporter (needs deno + racket + goblins)")
         .dependOn(&run_deno_handoff.step);
 
     const run_python_handoff = addInstalledSystemRun(b, &.{
-        "python3", "conformance/goblins_interop/python_handoff_client.py",
+        "python3", "interop/goblins_interop/python_handoff_client.py",
     });
     if (pin_port) |p| run_python_handoff.addArg(b.fmt("--port={d}", .{p}));
     b.step("python-goblins-handoff", "Live three-party handoff: the Python binding redeems a give from a real Goblins introducer and calls the exporter (needs python3 + racket + goblins)")
@@ -848,7 +851,7 @@ pub fn build(b: *std.Build) void {
         .dependOn(&run_rust_handoff.step);
 
     const run_racket_handoff = addInstalledSystemRun(b, &.{
-        "racket", "conformance/goblins_interop/racket_handoff_client.rkt",
+        "racket", "interop/goblins_interop/racket_handoff_client.rkt",
     });
     if (pin_port) |p| run_racket_handoff.addArg(b.fmt("--port={d}", .{p}));
     b.step("racket-goblins-handoff", "Live three-party handoff: the Racket binding redeems a give from a real Goblins introducer and calls the exporter (needs racket + goblins)")
@@ -856,15 +859,15 @@ pub fn build(b: *std.Build) void {
 
     // Live three-party handoff with the Deno binding as the *gifter*: pancake
     // fetches a greeter from a Goblins exporter, publishes an introducer, and
-    // mints a `desc:handoff-give` a Goblins recipient redeems — reaching the
+    // mints a `desc:handoff-give` a Goblins recipient redeems, reaching the
     // exporter directly. The mirror of `deno-goblins-handoff`, proving the
     // exporter half of ADR-0009 cross-implementation: Goblins accepts pancake's
     // `deposit-gift` and redeems pancake's give. The client spawns the Goblins
     // exporter + recipient itself; `-Dport=N` pins the exporter port (the
     // recipient binds on N+1; the gifter takes an ephemeral port).
     const run_deno_gift = addInstalledSystemRun(b, &.{
-        "deno",                                            "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
-        "conformance/goblins_interop/deno_gift_client.ts",
+        "deno",                                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
+        "interop/goblins_interop/deno_gift_client.ts",
     });
     if (pin_port) |p| run_deno_gift.addArg(b.fmt("--port={d}", .{p}));
     b.step("deno-goblins-gift", "Live three-party handoff: the Deno binding mints a give a real Goblins recipient redeems, reaching the exporter (needs deno + racket + goblins)")
@@ -872,12 +875,12 @@ pub fn build(b: *std.Build) void {
 
     // The per-binding mirrors of `deno-goblins-gift`: pancake is the gifter in
     // each language, deposits with the live Goblins exporter, and mints a give a
-    // live Goblins recipient redeems — proving the transparent gifter half of
+    // live Goblins recipient redeems, proving the transparent gifter half of
     // ADR-0009 in Python, Rust, and Racket too. Each client spawns the shared
     // Goblins exporter + recipient scripts itself; `-Dport=N` pins the exporter
     // port (the recipient binds on N+1; the gifter takes an ephemeral port).
     const run_python_gift = addInstalledSystemRun(b, &.{
-        "python3", "conformance/goblins_interop/python_gift_client.py",
+        "python3", "interop/goblins_interop/python_gift_client.py",
     });
     if (pin_port) |p| run_python_gift.addArg(b.fmt("--port={d}", .{p}));
     b.step("python-goblins-gift", "Live three-party handoff: the Python binding mints a give a real Goblins recipient redeems, reaching the exporter (needs python3 + racket + goblins)")
@@ -894,7 +897,7 @@ pub fn build(b: *std.Build) void {
         .dependOn(&run_rust_gift.step);
 
     const run_racket_gift = addInstalledSystemRun(b, &.{
-        "racket", "conformance/goblins_interop/racket_gift_client.rkt",
+        "racket", "interop/goblins_interop/racket_gift_client.rkt",
     });
     if (pin_port) |p| run_racket_gift.addArg(b.fmt("--port={d}", .{p}));
     b.step("racket-goblins-gift", "Live three-party handoff: the Racket binding mints a give a real Goblins recipient redeems, reaching the exporter (needs racket + goblins)")
@@ -950,7 +953,7 @@ pub fn build(b: *std.Build) void {
     // Regenerate the performance page's charts and tables from live ReleaseFast
     // runs of every bench (codec, peer-scaling, frame-view) plus the Goblins
     // comparison, splicing the results into site/content/performance.smd between
-    // `<!-- bench:<name> -->` markers — the gen-header pattern, applied to docs.
+    // `<!-- bench:<name> -->` markers, the gen-header pattern, applied to docs.
     // Needs `racket` + `goblins`, so it is a sibling of `check`, never gated:
     // bench numbers are a dated snapshot of one machine, not an invariant.
     const run_site_report = addInstalledSystemRun(b, &.{ "racket", "bench/site_report.rkt" });
@@ -974,7 +977,7 @@ pub fn build(b: *std.Build) void {
     // The resident compiles as its own module over the same layer-module
     // instances, *outside* the `pancake` root namespace: its externs resolve
     // only when the staticlib links, and the api-surface test references every
-    // exported `pancake` declaration recursively — exporting it would drag the
+    // exported `pancake` declaration recursively, exporting it would drag the
     // Rust sidecar into every gate.
     const iroh_resident_mod = b.createModule(.{
         .root_source_file = b.path("src/net/transport/iroh.zig"),
@@ -988,7 +991,7 @@ pub fn build(b: *std.Build) void {
     iroh_resident_mod.addImport("net", host_mods[layerIndex("net")]);
 
     const iroh_interop_mod = b.createModule(.{
-        .root_source_file = b.path("conformance/iroh_interop/driver.zig"),
+        .root_source_file = b.path("interop/iroh_interop/driver.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -1009,12 +1012,12 @@ pub fn build(b: *std.Build) void {
     iroh_interop_step.dependOn(&run_iroh_interop.step);
 
     // Live real-internet reachability (Milestone 1): two peers reach each other
-    // by node id alone over n0's public relays and DNS/pkarr discovery — no
+    // by node id alone over n0's public relays and DNS/pkarr discovery, no
     // direct-address hints. Touches public discovery infrastructure, so it is
     // opt-in and never part of `check` or the deterministic `iroh-interop`;
     // discovery-propagation timing makes it unsuitable as a hermetic gate.
     const iroh_reach_mod = b.createModule(.{
-        .root_source_file = b.path("conformance/iroh_reachability/driver.zig"),
+        .root_source_file = b.path("interop/iroh_reachability/driver.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -1034,12 +1037,12 @@ pub fn build(b: *std.Build) void {
     const iroh_reach_step = b.step("iroh-reachability", "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)");
     iroh_reach_step.dependOn(&run_iroh_reach.step);
 
-    // The mesh (Milestone 2): a three-party handoff over iroh — A introduces B
+    // The mesh (Milestone 2): a three-party handoff over iroh, A introduces B
     // to C, and B reaches C by the gifted node id and calls the gifted cap.
     // Deterministic (in-process discovery book), the same gate posture as
     // `iroh-interop`.
     const iroh_mesh_mod = b.createModule(.{
-        .root_source_file = b.path("conformance/iroh_mesh/driver.zig"),
+        .root_source_file = b.path("interop/iroh_mesh/driver.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -1065,7 +1068,7 @@ pub fn build(b: *std.Build) void {
     // thread per connection. Deterministic (in-process discovery book), the same
     // gate posture as `iroh-interop`.
     const iroh_loop_mod = b.createModule(.{
-        .root_source_file = b.path("conformance/iroh_loop/driver.zig"),
+        .root_source_file = b.path("interop/iroh_loop/driver.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -1143,7 +1146,7 @@ pub fn build(b: *std.Build) void {
     iroh_abi_shared.step.dependOn(&iroh_lib.step);
     const iroh_abi_install = b.addInstallArtifact(iroh_abi_shared, .{});
     const iroh_abi_header_install = b.addInstallHeaderFile(b.path("include/pancake_net_transport_iroh.h"), "pancake_net_transport_iroh.h");
-    const iroh_abi_step = b.step("iroh-abi", "Build libpancake_net_transport_iroh — the iroh transport's public C ABI companion (needs cargo)");
+    const iroh_abi_step = b.step("iroh-abi", "Build libpancake_net_transport_iroh, the iroh transport's public C ABI companion (needs cargo)");
     iroh_abi_step.dependOn(&iroh_abi_install.step);
     iroh_abi_step.dependOn(&iroh_abi_header_install.step);
 
@@ -1165,7 +1168,7 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "python-iroh-loop",
             .description = "Live iroh scale: the Python binding serves many connections from one readiness loop (ADR-0057; needs cargo + python3)",
-            .argv = &.{ "python3", "conformance/iroh_loop/python_client.py" },
+            .argv = &.{ "python3", "interop/iroh_loop/python_client.py" },
         },
         .{
             .step_name = "rust-iroh-loop",
@@ -1176,7 +1179,7 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "racket-iroh-loop",
             .description = "Live iroh scale: the Racket binding serves many connections from one readiness loop (ADR-0057; needs cargo + racket)",
-            .argv = &.{ "racket", "conformance/iroh_loop/racket_client.rkt" },
+            .argv = &.{ "racket", "interop/iroh_loop/racket_client.rkt" },
         },
     };
     for (iroh_loop_clients) |client| {
@@ -1192,8 +1195,146 @@ pub fn build(b: *std.Build) void {
         bindings_iroh_loop_step.dependOn(&run.step);
     }
 
+    // Per-binding three-party handoff over iroh, each self-contained in one
+    // process (exporter + gifter + recipient, relay-less Direct posture): the
+    // binding sibling of the Deno `demo-rooms-dm-iroh` proof and the iroh
+    // companion of the `*-goblins-handoff` gates. Each proves both halves of an
+    // iroh handoff through its own surface, minting a give whose exporter
+    // location names an iroh endpoint, and redeeming it by dialing that endpoint
+    // directly over encrypted QUIC. Deterministic and flake-free: no discovery
+    // service, no relays, no network.
+    const bindings_iroh_handoff_step = b.step("bindings-iroh-handoff", "Per-binding three-party handoff over iroh: every binding mints and redeems an iroh handoff give in one process (needs cargo + the runtimes)");
+    const iroh_handoff_clients = [_]struct {
+        step_name: []const u8,
+        description: []const u8,
+        argv: []const []const u8,
+        dashdash_before_args: bool = false,
+    }{
+        .{
+            .step_name = "python-iroh-handoff",
+            .description = "Three-party handoff over iroh: the Python binding mints and redeems an iroh handoff give in one process (needs cargo + python3)",
+            .argv = &.{ "python3", "interop/iroh_handoff/python_client.py" },
+        },
+        .{
+            .step_name = "rust-iroh-handoff",
+            .description = "Three-party handoff over iroh: the Rust binding mints and redeems an iroh handoff give in one process (needs cargo)",
+            .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "iroh", "--example", "iroh_handoff" },
+            .dashdash_before_args = true,
+        },
+        .{
+            .step_name = "racket-iroh-handoff",
+            .description = "Three-party handoff over iroh: the Racket binding mints and redeems an iroh handoff give in one process (needs cargo + racket)",
+            .argv = &.{ "racket", "interop/iroh_handoff/racket_client.rkt" },
+        },
+    };
+    for (iroh_handoff_clients) |client| {
+        const run = addInstalledSystemRun(b, client.argv);
+        run.setCwd(b.path("."));
+        run.has_side_effects = true;
+        run.step.dependOn(iroh_abi_step);
+        if (pin_port) |p| {
+            if (client.dashdash_before_args) run.addArg("--");
+            run.addArg(b.fmt("--port={d}", .{p}));
+        }
+        b.step(client.step_name, client.description).dependOn(&run.step);
+        bindings_iroh_handoff_step.dependOn(&run.step);
+    }
+
+    // Per-binding hermetic proof that a recipient's configured redeem posture
+    // governs a *hint-less* iroh give (one naming its exporter by node id alone,
+    // no direct-addresses): each binding sets its recipient machine's redeem
+    // posture to `local_discovery` and redeems the hint-less give by resolving the
+    // exporter's id through an in-process address book, no network. A
+    // discriminating proof: the default `discovery` posture would reach for n0's
+    // relays + DNS and fail with no internet, so the redeem succeeds only because
+    // `dial_exporter` honors the configured posture. Deterministic and flake-free,
+    // like `bindings-iroh-handoff`.
+    const bindings_iroh_redeem_step = b.step("bindings-iroh-redeem-posture", "Per-binding hermetic proof that a configured redeem posture governs a hint-less iroh give, every binding (needs cargo + the runtimes)");
+    const iroh_redeem_clients = [_]struct {
+        step_name: []const u8,
+        description: []const u8,
+        argv: []const []const u8,
+        dashdash_before_args: bool = false,
+    }{
+        .{
+            .step_name = "python-iroh-redeem-posture",
+            .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Python binding (needs cargo + python3)",
+            .argv = &.{ "python3", "interop/iroh_redeem_posture/python_client.py" },
+        },
+        .{
+            .step_name = "rust-iroh-redeem-posture",
+            .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Rust binding (needs cargo)",
+            .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "iroh", "--example", "iroh_redeem_posture" },
+            .dashdash_before_args = true,
+        },
+        .{
+            .step_name = "racket-iroh-redeem-posture",
+            .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Racket binding (needs cargo + racket)",
+            .argv = &.{ "racket", "interop/iroh_redeem_posture/racket_client.rkt" },
+        },
+    };
+    for (iroh_redeem_clients) |client| {
+        const run = addInstalledSystemRun(b, client.argv);
+        run.setCwd(b.path("."));
+        run.has_side_effects = true;
+        run.step.dependOn(iroh_abi_step);
+        if (pin_port) |p| {
+            if (client.dashdash_before_args) run.addArg("--");
+            run.addArg(b.fmt("--port={d}", .{p}));
+        }
+        b.step(client.step_name, client.description).dependOn(&run.step);
+        bindings_iroh_redeem_step.dependOn(&run.step);
+    }
+
+    // Per-binding live real-internet reachability: each binding reaches a peer by
+    // node id ALONE over n0's public relays and DNS/pkarr discovery — no
+    // direct-address hints, no in-process address book — the binding siblings of
+    // the Zig `iroh-reachability` driver. Each binds two `Discovery`-posture
+    // endpoints in one process; the client dials by id only and the dial rides
+    // the binding's `Discovery` settle/retry while the publish propagates. Like
+    // `iroh-reachability`, these touch public n0 infrastructure and
+    // pkarr-propagation timing, so they are opt-in and never part of `check` or
+    // the deterministic `bindings-iroh-handoff`. The offline, deterministic
+    // dial-by-id proof is `local_discovery` in the `*-iroh-loop` gates.
+    const bindings_iroh_reach_step = b.step("bindings-iroh-reachability", "Per-binding live dial-by-id over n0 relays + DNS/pkarr discovery, every binding (opt-in; needs cargo + the runtimes + internet)");
+    const iroh_reach_clients = [_]struct {
+        step_name: []const u8,
+        description: []const u8,
+        argv: []const []const u8,
+        dashdash_before_args: bool = false,
+    }{
+        .{
+            .step_name = "python-iroh-reachability",
+            .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Python binding (opt-in; needs cargo + python3 + internet)",
+            .argv = &.{ "python3", "interop/iroh_reachability/python_client.py" },
+        },
+        .{
+            .step_name = "rust-iroh-reachability",
+            .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Rust binding (opt-in; needs cargo + internet)",
+            .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "iroh", "--example", "iroh_reachability" },
+            .dashdash_before_args = true,
+        },
+        .{
+            .step_name = "racket-iroh-reachability",
+            .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Racket binding (opt-in; needs cargo + racket + internet)",
+            .argv = &.{ "racket", "interop/iroh_reachability/racket_client.rkt" },
+        },
+    };
+    for (iroh_reach_clients) |client| {
+        const run = addInstalledSystemRun(b, client.argv);
+        run.setCwd(b.path("."));
+        run.has_side_effects = true;
+        run.step.dependOn(iroh_abi_step);
+        if (pin_port) |p| {
+            if (client.dashdash_before_args) run.addArg("--");
+            run.addArg(b.fmt("--port={d}", .{p}));
+        }
+        b.step(client.step_name, client.description).dependOn(&run.step);
+        bindings_iroh_reach_step.dependOn(&run.step);
+    }
+
     // Hermetic type-check of the public iroh C ABI: an object, so its externs
-    // need no definition — `zig build check` catches rot in this module (and the
+    // need no definition, `zig build check` catches rot in this module (and the
     // resident surface it drives) without cargo. Linking stays in `iroh-abi`.
     const iroh_abi_check_mod = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod);
     const iroh_abi_check = b.addObject(.{
@@ -1238,7 +1379,7 @@ pub fn build(b: *std.Build) void {
     // ── External conformance pressure (siblings of `check`) ──────────────────
     // A pancake peer the upstream OCapN test suite can dial: it serves the
     // canonical conformance swiss-nums over `tcp-testing-only`. The orchestrator
-    // `run-against-pancake.sh` starts it and runs the suite against it — pointing
+    // `run-against-pancake.sh` starts it and runs the suite against it, pointing
     // the external authority back at pancake. Not part of `check`; needs uv +
     // the suite submodule. The peer installs only for this step, not on every
     // default build.
@@ -1255,12 +1396,12 @@ pub fn build(b: *std.Build) void {
     // generator/corpus drift fails loud instead of rotting silently. A sibling
     // step (needs racket + the syrup collection), not part of the hermetic
     // check; a deliberate corpus change regenerates with
-    // `racket test/oracles/goblins/generate.rkt test/oracles/goblins/expected`.
+    // `racket test/oracle/generate.rkt test/oracle/corpus`.
     const fixture_gen = b.addSystemCommand(&.{"racket"});
-    fixture_gen.addFileArg(b.path("test/oracles/goblins/generate.rkt"));
+    fixture_gen.addFileArg(b.path("test/oracle/generate.rkt"));
     const fixture_gen_out = fixture_gen.addOutputDirectoryArg("generated-fixtures");
     const fixture_diff = b.addSystemCommand(&.{ "diff", "-r" });
-    fixture_diff.addDirectoryArg(b.path("test/oracles/goblins/expected"));
+    fixture_diff.addDirectoryArg(b.path("test/oracle/corpus"));
     fixture_diff.addDirectoryArg(fixture_gen_out);
     const fixture_gen_check_step = b.step("fixture-gen-check", "Regenerate Syrup fixtures via the upstream Racket Syrup encoder and diff against the committed corpus (needs racket + syrup)");
     fixture_gen_check_step.dependOn(&fixture_diff.step);
@@ -1348,6 +1489,36 @@ pub fn build(b: *std.Build) void {
     const rooms_demo_iroh_step = b.step("demo-rooms-iroh", "Run the cross-language rooms demo over iroh's encrypted QUIC (needs cargo + deno; joins python3/racket/cargo clients when present)");
     rooms_demo_iroh_step.dependOn(&rooms_demo_iroh.step);
 
+    // The iroh sibling of `demo-rooms-dm`: a room introduces two members who then
+    // DM directly, every hop over iroh's encrypted QUIC. The cross-endpoint proof
+    // that a gift can name an exporter reachable only by a dial hint (an iroh
+    // endpoint's direct addresses) and a recipient redeems it by dialing that
+    // endpoint directly, no discovery service and no relay. Three iroh endpoints in
+    // one process for precise, flake-free assertions. Needs cargo (the sidecar +
+    // iroh ABI companion) and deno, so it is a sibling of `check`.
+    const rooms_dm_iroh = addInstalledSystemRun(b, &.{
+        "deno",                                "run", "-A", "--unstable-ffi",
+        "examples/apps/rooms/dm_demo_iroh.ts",
+    });
+    rooms_dm_iroh.step.dependOn(iroh_abi_step);
+    b.step("demo-rooms-dm-iroh", "Rooms DM-by-introduction over iroh: a room introduces two members who then DM directly over encrypted QUIC, room out of the path (needs cargo + deno)")
+        .dependOn(&rooms_dm_iroh.step);
+
+    // The discovery sibling of `demo-rooms-dm-iroh`: the same three-party handoff,
+    // but every hop reaches its partner by node id ALONE over real n0 discovery
+    // (relays + DNS/pkarr): the give names the exporter by id with no
+    // direct-address hints, and the recipient resolves that id. Like
+    // `iroh-reachability`, it touches public n0 infrastructure and pkarr-propagation
+    // timing, so it is opt-in and never part of `check`; the offline, deterministic
+    // proof of the same handoff is `demo-rooms-dm-iroh` (the Direct posture).
+    const rooms_dm_iroh_discovery = addInstalledSystemRun(b, &.{
+        "deno",                                          "run", "-A", "--unstable-ffi",
+        "examples/apps/rooms/dm_demo_iroh_discovery.ts",
+    });
+    rooms_dm_iroh_discovery.step.dependOn(iroh_abi_step);
+    b.step("demo-rooms-dm-iroh-discovery", "Opt-in: rooms DM-by-introduction over iroh by node id ALONE through n0 discovery (relays + DNS/pkarr), no direct-address hints (needs cargo + deno + internet)")
+        .dependOn(&rooms_dm_iroh_discovery.step);
+
     // The tasks cross-language application demo: a capability-secure shared task
     // board with CRUD operations and live change notifications through capability
     // callbacks. One Zig-built native client plus the Deno server and
@@ -1393,12 +1564,12 @@ pub fn build(b: *std.Build) void {
     // real loopback TCP socket; the host publishes an Affordance capability and
     // the caller invokes it, and every invocation produces a signed,
     // transparency-logged Episode attributing the attested caller. Identity
-    // (KERI), Episodes, and the transparency log all live above pancake — the app
-    // imports the `pancake` module and never reaches into the core. It is a
-    // sibling of `check` (it needs no extra runtime, but it is a worked example
-    // homed in `conformance/`, not part of the hermetic protocol gate). The app
-    // source lives in `conformance/accountability-on-pancake/`.
-    const run_accountability = addPancakeRun(b, lib_mod, target, optimize, "accountability-on-pancake", "conformance/accountability-on-pancake/zig/main.zig");
+    // (KERI), Episodes, and the transparency log all live above pancake, the app
+    // imports the `pancake` module and never reaches into the core. It needs no
+    // extra runtime, so it rides the gate as an application contract (below). The
+    // app source lives under `examples/apps/accountability-on-pancake/`, beside
+    // the other worked applications.
+    const run_accountability = addPancakeRun(b, lib_mod, target, optimize, "accountability-on-pancake", "examples/apps/accountability-on-pancake/zig/main.zig");
     const accountability_step = b.step("accountability", "Run the accountability application on pancake's own runtime over real TCP");
     accountability_step.dependOn(&run_accountability.step);
     // The accountability application and its three-party attribution test are
@@ -1412,11 +1583,11 @@ pub fn build(b: *std.Build) void {
     // installed C ABI. The orchestrator receives the host binary's built path
     // as its argument; the host installs only for this step, not on every
     // default build.
-    const host_exe = pancakeExecutable(b, lib_mod, target, optimize, "accountability-host", "conformance/accountability-on-pancake/zig/host.zig");
+    const host_exe = pancakeExecutable(b, lib_mod, target, optimize, "accountability-host", "examples/apps/accountability-on-pancake/zig/host.zig");
     const host_install = b.addInstallArtifact(host_exe, .{});
     const accountability_demo = addInstalledSystemRun(b, &.{
-        "deno",                                               "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
-        "conformance/accountability-on-pancake/deno/demo.ts",
+        "deno",                                                 "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "examples/apps/accountability-on-pancake/deno/demo.ts",
     });
     accountability_demo.addArtifactArg(host_exe); // the Zig host's built path
     if (pin_port) |p| accountability_demo.addArg(b.fmt("--port={d}", .{p}));
@@ -1427,9 +1598,9 @@ pub fn build(b: *std.Build) void {
 
     // Three-party accountability test: proves that a handoff-introduced caller's
     // Episode attributes the true caller, not the introducer. In-memory, protocol-
-    // level — the same test the Zig-native and cross-seam demos make over TCP.
+    // level, the same test the Zig-native and cross-seam demos make over TCP.
     const three_party_mod = b.createModule(.{
-        .root_source_file = b.path("conformance/accountability-on-pancake/zig/three_party_test.zig"),
+        .root_source_file = b.path("examples/apps/accountability-on-pancake/zig/three_party_test.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -1447,7 +1618,7 @@ pub fn build(b: *std.Build) void {
     // The public face under zig-out/site/: the Zine-rendered pages plus the
     // autodoc API reference under reference/api/. Zine is a heavyweight static
     // site generator, so it lives behind its own build in `site/build.zig` and
-    // is compiled only when these steps run — the same way the cargo, deno, and
+    // is compiled only when these steps run, the same way the cargo, deno, and
     // racket sibling steps reach for their tool at run time. The hermetic
     // `check` graph never imports it, so the root build stays dependency-free.
     const site_cache_dir = b.pathJoin(&.{ b.build_root.path.?, ".zig-cache" });
@@ -1475,7 +1646,7 @@ pub fn build(b: *std.Build) void {
 
     // `docs-serve` is the normal local preview: Zine's development server
     // rebuilds and reloads as the content and templates change. It serves the
-    // Zine pages only — the generated autodoc reference is a release-time
+    // Zine pages only, the generated autodoc reference is a release-time
     // install, so preview the API reference with `zig build site`.
     //
     // The inner `zig build … docs-serve` launches Zine's dev server as a
@@ -1512,8 +1683,9 @@ pub fn build(b: *std.Build) void {
     // generated and never formatted, so the site rows name its two source files
     // directly rather than the `site` directory.
     const zig_fmt_paths = [_][]const u8{
-        "build.zig", "build.zig.zon", "src",      "test",           "tools",
-        "bench",     "conformance",   "examples", "site/build.zig", "site/build.zig.zon",
+        "build.zig",          "build.zig.zon", "src",     "test",     "tools",
+        "bench",              "conformance",   "interop", "examples", "site/build.zig",
+        "site/build.zig.zon",
     };
     const fmt_write = b.addFmt(.{ .paths = &zig_fmt_paths });
     b.step("fmt", "Format Zig sources in place (zig fmt)").dependOn(&fmt_write.step);

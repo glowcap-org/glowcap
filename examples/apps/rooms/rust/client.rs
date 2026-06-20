@@ -41,7 +41,7 @@ fn is_room_exists(reason: &str) -> bool {
 
 /// Get a reference to `name`, opening the room if it does not exist yet. Tries
 /// `enter`, falls back to `open`, and on a creation race falls back to `enter`
-/// once more — composed from the directory's strict verbs.
+/// once more, composed from the directory's strict verbs.
 async fn enter_or_open(dir: &Directory, name: &str) -> Result<pancake::Ref, String> {
 	match dir.enter(name).await {
 		Ok(room) => return Ok(room),

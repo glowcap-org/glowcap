@@ -211,7 +211,7 @@ const StreamWriter = struct {
     }
 
     /// The sidecar write is synchronous: it copies or sends `bytes` before
-    /// returning, so the caller may free them as soon as the call returns —
+    /// returning, so the caller may free them as soon as the call returns,
     /// unlike the completion loop's queued writes, which borrow until retire.
     fn writeAll(self: *StreamWriter, bytes: []const u8) Io.Writer.Error!void {
         if (pancake_iroh_sidecar_conn_write(self.conn, bytes.ptr, bytes.len) < 0) return error.WriteFailed;
@@ -269,7 +269,7 @@ pub const IrohStream = struct {
         self.allocator.destroy(self);
     }
 
-    /// Free the sidecar connection and destroy this wrapper — the typed
+    /// Free the sidecar connection and destroy this wrapper, the typed
     /// counterpart of the `Connection`'s `close` hook, for the host-driven C
     /// ABI frame path that holds the stream directly rather than behind a
     /// `Connection`.
@@ -318,7 +318,7 @@ pub const Resident = struct {
     /// Bind an iroh endpoint. `secret_seed` is either null (a fresh random
     /// endpoint key) or 32 bytes of Ed25519 secret key material, borrowed for
     /// the call. `reachability` chooses the endpoint's reachability posture and
-    /// is mandatory — there is no default. `io` is captured for the connections
+    /// is mandatory; there is no default. `io` is captured for the connections
     /// this resident mints.
     pub fn init(io: Io, secret_seed: ?*const [32]u8, reachability: Reachability) InitError!Resident {
         const endpoint = pancake_iroh_sidecar_endpoint_new(secret_seed, @intFromEnum(reachability)) orelse return error.EndpointBindFailed;
@@ -410,7 +410,7 @@ pub const Resident = struct {
     pub const DirectAddrsError = error{OutputBufferTooSmall};
 
     /// Write this endpoint's comma-separated direct socket addresses into
-    /// `out` and return the written slice — the `hint_direct_addresses`
+    /// `out` and return the written slice, the `hint_direct_addresses`
     /// value a partner dials with. An endpoint with no direct addresses
     /// yields an empty slice; a buffer that cannot hold the list is the
     /// typed error, never silently empty.
@@ -501,7 +501,7 @@ pub const Resident = struct {
 };
 
 /// `loopTryRead` / `loopTryWrite` return this when the operation cannot make
-/// progress without blocking — the resident-surface spelling of the sidecar's
+/// progress without blocking, the resident-surface spelling of the sidecar's
 /// `WOULD_BLOCK`, distinct from 0 (clean end of stream) and negative (fault).
 pub const loop_would_block: isize = would_block;
 
@@ -582,7 +582,7 @@ fn residentListen(
 
 /// A heap-pinned accept seat over the resident's one endpoint, freed by the
 /// contract listener's `close`. Closing the listener does not close the
-/// endpoint — the resident owns that.
+/// endpoint, the resident owns that.
 const ListenerBox = struct {
     resident: *Resident,
     allocator: std.mem.Allocator,
@@ -629,7 +629,7 @@ fn listenerClose(ctx: *anyopaque) void {
 /// `(conn, events)` record, drives non-blocking frame I/O on that connection's
 /// peer and runs the surfaced events through the connection's own `actors.Vat`.
 /// N connections cost one loop source plus the sidecar's fixed runtime threads,
-/// not N×2 blocking threads — the cost ADR-0057 exists to remove.
+/// not N×2 blocking threads, the cost ADR-0057 exists to remove.
 ///
 /// This source lives in the resident module, not `src/driver`, because it calls
 /// the sidecar's `extern` symbols directly; keeping it here preserves the
@@ -899,7 +899,7 @@ pub const LoopHost = struct {
     const FeedResult = enum { ok, fail, close };
 
     /// Apply every whole frame in `bytes` to the peer, carrying a partial tail in
-    /// the spill — the same boundary handling the TCP completion loop uses
+    /// the spill, the same boundary handling the TCP completion loop uses
     /// (`completion.onRecvConsume`), driven by `try_read` chunks instead of a
     /// shared pool buffer.
     fn feed(self: *LoopHost, c: *Conn, bytes: []const u8) FeedResult {
@@ -979,7 +979,7 @@ pub const LoopHost = struct {
     }
 
     /// Best-effort flush of whatever the engine projected for a dispatch failure
-    /// (typically an `op:abort`), then close — mirroring the TCP loop's
+    /// (typically an `op:abort`), then close, mirroring the TCP loop's
     /// `failConn`.
     fn failConn(self: *LoopHost, slot: usize) void {
         const c = &self.conns[slot];

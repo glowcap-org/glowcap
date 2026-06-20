@@ -20,10 +20,10 @@ test "protocol oracle enumerates every shipped message arm" {
     }
 }
 
-test "protocol oracle exposes checked-in Goblins Syrup fixtures" {
+test "protocol oracle exposes the checked-in Syrup fixture corpus" {
     // Corpus/registry agreement — every `.bin` on disk registered, every
     // registered name on disk — is held both ways by meta-check's
-    // checkGoblinsFixtureRegistry. This proves the embedded bytes are
+    // checkOracleCorpusRegistry. This proves the embedded bytes are
     // reachable by name and non-empty.
     const abort = protocol_oracle.fixtureByName("op_abort.bin").?;
     try std.testing.expectEqualStrings("op_abort.bin", abort.name);

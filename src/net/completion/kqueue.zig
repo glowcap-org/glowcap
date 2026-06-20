@@ -173,7 +173,7 @@ pub const Backend = struct {
     // operation. The other order is not failure-safe: a `Pending` mutated ahead
     // of a failed `register` would leave a stale user_data behind a propagated
     // error, and a later registration on the same fd would resurrect it as a
-    // synthesized completion — landing on a reused slot and tearing down an
+    // synthesized completion, landing on a reused slot and tearing down an
     // unrelated connection. A registered one-shot filter with no pending record
     // is benign: `poll`'s `getPtr(fd) orelse continue` drops it.
 
@@ -232,7 +232,7 @@ pub const Backend = struct {
         // yield a completion. io_uring posts a cancellation completion for a recv
         // or send still pending when its fd closes; kqueue drops the fd from the
         // kernel filter set, so synthesize those completions by hand before
-        // removing the slot — otherwise a close while a recv is armed strands the
+        // removing the slot, otherwise a close while a recv is armed strands the
         // connection slot forever (its ops-in-flight never reaches zero).
         // Reserve every completion slot before touching any state: a failed
         // append after the fd closes (or after only one synthetic completion

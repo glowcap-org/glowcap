@@ -42,7 +42,7 @@ the vision itself when a tradeoff between them is unclear.
 
 ## Release Bar
 
-Work toward a 1.0 where the shape feels inevitable — a reader should not be able
+Work toward a 1.0 where the shape feels inevitable, a reader should not be able
 to imagine a cleaner OCapN implementation at this layer without breaking what
 pancake protects (performance, architecture, cross-binding interop).
 
@@ -52,7 +52,7 @@ pancake protects (performance, architecture, cross-binding interop).
 - **Names and structure are architecture.** A misleading module or type name is
   a boundary bug, not cosmetics.
 - **No half measures on touched surfaces.** If you open a layer, leave it
-  sharper — code, tests, docs, and examples aligned in the same change.
+  sharper, code, tests, docs, and examples aligned in the same change.
 - **Compound for the next agent.** Accurate living-state docs and passing gates
   matter more than session-local narration.
 
@@ -61,7 +61,7 @@ pancake protects (performance, architecture, cross-binding interop).
 Before adding setup, build, API, or documentation surface, ask:
 
 - Does this move toward [`docs/vision.md`](../../docs/vision.md), or at least
-  hold a line that protects it — rather than trading performance, the
+  hold a line that protects it, rather than trading performance, the
   architecture, or cross-binding interop for local convenience?
 - Does this keep framework-shaped ambition (actors, the simulator) _above_ the
   sans-io core instead of pushing authority or I/O down into it?

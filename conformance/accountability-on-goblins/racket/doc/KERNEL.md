@@ -20,7 +20,7 @@ you see all eight on stdout:
       vat instantiated; actor spawned.
 [2/8] Actor has KERI-anchored DID (inception event)
       AID: E<44-char-CESR-Blake3-256-SAID>
-      KEL: /work/accountability-on-goblins/racket/.data/kel/E<...>.kel.jsonl
+      KEL: .data/kel/E<...>.kel.jsonl
 [3/8] Actor holds OCapN-shaped capability ref to Affordance
       capability: <Goblins near-ref to demo-affordance>
       policy: ((default-grant (actor any) (right access) (affordance demo)))
@@ -152,11 +152,11 @@ loops compose is out of scope:
   SAIDs, signatures, and pre-rotation discipline against the KEL; witness
   receipts and full keripy `Serder` ingestion are not covered. Within that
   boundary, "KERI in Racket" is a checked fact rather than a claim, and the same
-  harness is the regression gate for any future implementation of these
-  primitives in another language.
+  harness is the regression gate for these primitives in any other language
+  implementation.
 
 ## See also
 
-- [`../../README.md`](../../README.md) — Vat layout, build/run, file map
+- [`../../README.md`](../../README.md) — build/run and file map
 - [Spritely Goblins](https://spritely.institute/goblins/) — the upstream OCapN
   reference implementation this Vat builds on

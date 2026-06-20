@@ -77,7 +77,7 @@ int32_t pancake_inproc_conn_write_frame(PancakeInprocConn *conn, const PancakeFr
 void pancake_inproc_conn_release(PancakeInprocConn *conn);
 /* Close the listener and free the handle; do not use `listener` afterward. */
 void pancake_inproc_listener_release(PancakeInprocListener *listener);
-/* Copy the calling thread's last in-process-transport error into out_buf — the
+/* Copy the calling thread's last in-process-transport error into out_buf, the
    inproc sibling of pancake_last_error, reading this archive's own per-thread
    slot. A pancake_inproc_* call that returns a cause-bearing code records it
    here. Copies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or

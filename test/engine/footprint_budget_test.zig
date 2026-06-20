@@ -42,11 +42,11 @@ const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
 /// the compiler-held half (`engine.peer_session_struct_budget_bytes`); this is
 /// the warmed total, struct plus session heap. Crossing it is a design event that
 /// raises the budget here and in docs/ladder.md rung 2 (the ladder owns the
-/// numbers), with the bytes justified — not a number to quietly nudge up.
+/// numbers), with the bytes justified, not a number to quietly nudge up.
 const warmed_total_budget_bytes: u64 = 2048;
 
 fn warmPeer(peer: *engine.Peer) !void {
-    try peer.session_state.registerExport(7);
+    try peer.session_state.registerExport(.from(7));
     try peer.recvBorrowed(.{ .bytes = deliver_to_live_export, .shape = .byte });
     while (peer.pollEvent()) |event_in| {
         var event = event_in;
@@ -89,7 +89,7 @@ test "a warmed session holds its per-connection footprint budget" {
 
     if (bytes_per_conn > warmed_total_budget_bytes) {
         std.debug.print(
-            "footprint regression: warmed session is {d} B/conn (struct {d} + heap {d}), over the {d}-byte budget — see docs/ladder.md rung 2\n",
+            "footprint regression: warmed session is {d} B/conn (struct {d} + heap {d}), over the {d}-byte budget, see docs/ladder.md rung 2\n",
             .{ bytes_per_conn, @sizeOf(engine.Peer), heap_per_peer, warmed_total_budget_bytes },
         );
         return error.FootprintBudgetExceeded;

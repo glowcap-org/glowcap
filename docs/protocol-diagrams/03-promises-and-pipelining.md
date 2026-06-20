@@ -6,7 +6,7 @@ Anchors: CapTP Specification § Promises, § Promise pipelining, § op:listen. T
 ## PP-1 — Promise lifecycle
 
 A promise settles exactly once into Fulfilled or Broken. Fulfilling with
-_another promise_ is a partial step — the promise stays pending against the new
+_another promise_ is a partial step, the promise stays pending against the new
 target until a non-promise value or an error arrives.
 
 ```mermaid
@@ -22,7 +22,7 @@ stateDiagram-v2
 ## PP-2 — Pipelined deliver on an answer
 
 A questioner may target `desc:answer N` before N has resolved. The answerer
-queues the pipelined call against the pending answer and runs it on settlement —
+queues the pipelined call against the pending answer and runs it on settlement,
 saving the round-trip.
 
 ```mermaid

@@ -30,7 +30,7 @@
 (define GREETER-SWISS
   (string->bytes/latin-1 "pancakeGiftGreeterSwissnum000001"))
 
-;; Greeter behavior — replies with the caller's name embedded, so the recipient
+;; Greeter behavior, replies with the caller's name embedded, so the recipient
 ;; proves the handoff carried real data end to end, not just a live reference.
 (define (^greeter _bcom)
   (lambda (name)

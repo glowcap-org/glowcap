@@ -36,7 +36,7 @@
 (define (now) (current-inexact-monotonic-milliseconds))
 
 ;; One client connection: its own vat, an ephemeral-port TCP netlayer, and a
-;; mycapn over it — a distinct CapTP session, the same shape one pancake
+;; mycapn over it, a distinct CapTP session, the same shape one pancake
 ;; connection has. One settle channel reused across the (sequential) calls.
 (struct gconn (run mycapn ch))
 
@@ -83,7 +83,7 @@
 ;; The same four verbs as run-unit, but pipelined through Goblins' own promise
 ;; pipelining: assign/complete/status eventual-send at the promise `create`
 ;; returns, in one vat turn, so the four delivers leave together and only the
-;; final status is settled — the reference counterpart to the bindings' pipelined
+;; final status is settled, the reference counterpart to the bindings' pipelined
 ;; throughput unit, keeping the row fair (the same workload, each stack's native
 ;; pipelining). run-unit stays sequential for the latency row.
 (define (run-unit-pipelined h root)

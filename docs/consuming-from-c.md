@@ -1,6 +1,6 @@
 # Consuming pancake from C
 
-This page is the route for anyone calling pancake's C ABI — from C itself, or
+This page is the route for anyone calling pancake's C ABI, from C itself, or
 from any language with a C foreign-function interface. It walks through building
 and linking, then a first complete program and the ownership rules, and then
 points at the four shipped bindings as worked references. The C ABI ships as a

@@ -31,7 +31,7 @@ inproc = []
 async = ["dep:tokio", "dep:getrandom"]
 # Opt-in iroh transport. Links the iroh public C ABI companion library
 # (`libpancake_net_transport_iroh`, built by `zig build iroh-abi`, needs cargo) *alongside*
-# the static core archive — it exports only `pancake_iroh_*`, so core symbols still
+# the static core archive, it exports only `pancake_iroh_*`, so core symbols still
 # come from `libpancake_ocapn` (ADR-0055). Compiles `pub mod iroh` and adds
 # `Connection::connect_iroh` / `IrohServer` over the encrypted-QUIC sidecar
 # bridge. Implies `async` (the driver it rides).
@@ -48,9 +48,45 @@ getrandom = { version = "0.2", optional = true }
 name = "goblins_interop"
 required-features = ["async"]
 
+# Live three-party gift: the binding deposits a capability with a real Goblins
+# exporter and the recipient withdraws it. Run via `zig build rust-goblins-gift`
+# (needs racket + goblins); drives over the `async` I/O surface.
+[[example]]
+name = "goblins_gift"
+required-features = ["async"]
+
+# Live three-party handoff: the binding redeems a give from a real Goblins
+# introducer and calls the exporter. Run via `zig build rust-goblins-handoff`
+# (needs racket + goblins); drives over the `async` I/O surface.
+[[example]]
+name = "goblins_handoff"
+required-features = ["async"]
+
 # Live iroh scale proof: many concurrent connections served from one readiness
 # loop (ADR-0057), the Rust sibling of `zig build iroh-loop`. Run via
 # `zig build rust-iroh-loop` (needs cargo + the iroh ABI library).
 [[example]]
 name = "iroh_loop"
+required-features = ["iroh"]
+
+# Live three-party handoff over iroh in one process (ADR-0009), the Rust sibling
+# of `zig build demo-rooms-dm-iroh`. Run via `zig build rust-iroh-handoff` (needs
+# cargo + the iroh ABI library).
+[[example]]
+name = "iroh_handoff"
+required-features = ["iroh"]
+
+# Live real-internet reachability: reach a peer by node id alone over n0 relays +
+# DNS/pkarr discovery, the Rust sibling of `zig build iroh-reachability`. Run via
+# `zig build rust-iroh-reachability` (needs cargo + the iroh ABI library +
+# internet); opt-in, never part of `check`.
+[[example]]
+name = "iroh_reachability"
+required-features = ["iroh"]
+
+# Hermetic proof that a recipient's configured redeem posture governs a hint-less
+# iroh give: redeems by id through an in-process LocalDiscovery book, no network.
+# Run via `zig build rust-iroh-redeem-posture`.
+[[example]]
+name = "iroh_redeem_posture"
 required-features = ["iroh"]

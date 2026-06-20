@@ -5,7 +5,7 @@
 //! resident (`src/net/transport/iroh.zig`) call the Rust sidecar through
 //! `extern fn pancake_iroh_sidecar_*` declarations. Those symbols only exist once
 //! `libpancake_iroh_sidecar.a` is
-//! linked — which needs cargo. The header generator
+//! linked, which needs cargo. The header generator
 //! (`tools/header_gen_iroh.zig`) only *reflects* over the module's types and
 //! signatures, never calling them, but the generator executable still has to
 //! link. These stubs satisfy the linker so

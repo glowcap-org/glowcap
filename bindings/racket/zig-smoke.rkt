@@ -101,7 +101,7 @@
   (drive demo-vat)
   (expect (= 115 (unbox observed)) "actor: <- counter 'add 100 fulfilled the vow with 115"))
 
-(printf "racket zig-smoke OK: Goblins-idiom actor — spawn, $, <-, on, bcom\n")
+(printf "racket zig-smoke OK: Goblins-idiom actor, spawn, $, <-, on, bcom\n")
 
 ;; ── Hosting: publish a counter on a peer and serve an inbound deliver ─────────
 ;; Publish a counter at export 7, feed an `op:deliver` carrying `counter.add(5)`
@@ -140,7 +140,7 @@
 
 ;; ── The local|far seam: a vat far-send round-trip ────────────────────────────
 ;; peerB's vat publishes a counter at export 7; peerA's vat far-sends
-;; `(<- (far 7) 'add 5)` through the seam — no hand-built wire message. Shuttle
+;; `(<- (far 7) 'add 5)` through the seam, no hand-built wire message. Shuttle
 ;; A's outbound deliver to B and serve it (10 -> 15, resolves), shuttle the
 ;; resolver-callback deliver back, and serve the typed resolve event on A to fire
 ;; the far vow. This is the same
@@ -244,7 +244,7 @@
 ;; ── Hosting: high-level listen/accept against connect ─────────────────────────
 ;; A host thread listens on an ephemeral port, accepts one partner on the
 ;; high-level surface, publishes `svc`, and serves. The main thread `connect`s,
-;; fetches `svc`, calls it, and reads the reply off the far vow — a keyed
+;; fetches `svc`, calls it, and reads the reply off the far vow, a keyed
 ;; op:start-session handshake on both ends, no peer or vat wired by hand.
 (define hl-server (listen "127.0.0.1" 0))
 (define hl-ready (make-semaphore 0))
@@ -434,7 +434,7 @@
 ;; A host publishes `svc` (whose `boom` method raises) and serves. The client
 ;; proves three contracts the other bindings already pin: a send/tell to a Ref
 ;; this same connection spawned resolves in process (the server hosts no such
-;; export, so a wire route would never reply — mirroring Rust's
+;; export, so a wire route would never reply, mirroring Rust's
 ;; send_to_a_self_spawned_actor_resolves_in_process); a partner break raises a
 ;; typed exn:fail:pancake carrying PANCAKE_ERR_BROKEN; and a failed fetch
 ;; re-raises that typed failure untouched.
@@ -544,7 +544,7 @@
 ;; `conn-untag`/`conn-index`/`conn-get` project a tag/element/field out of a far
 ;; vow *before it settles*, each returning a new pipelinable vow. The board's
 ;; `make` returns a `("assigned" label 7)` row wrapped in a "task" tag; `untag`
-;; unwraps the single-value tag to that row and `index 1` takes the label — a
+;; unwraps the single-value tag to that row and `index 1` takes the label, a
 ;; two-hop chain riding the unresolved `make` answer, no extra round trip. The
 ;; source vow is then awaited to prove a far reply that landed *before* its
 ;; listener (while a sibling projection pumped the loop) still settles from the
@@ -588,6 +588,132 @@
 (server-close! pj-server)
 
 (printf "racket zig-smoke OK: pipelined projections untag->index reach a field, and a late source await still settles\n")
+
+;; ── Object-capability forwarding proxies over the wire (ADR-0064) ─────────────
+;; The client spawns a local tool and passes it as an argument to the host, which
+;; sees a far reference and wraps it in a caretaker and an attenuator, handing the
+;; proxies back. A call through the caretaker proxy forwards across the host back
+;; to the client's tool (the far deferred-answer path) and settles the caller's
+;; answer; the attenuator passes only its allow-listed verb; and a revoke breaks
+;; every later call.
+(define (^tool bcom)
+  (methods
+   [(add n) (+ n 1)]
+   [(get) 7]))
+
+(define mb-server (listen "127.0.0.1" 0))
+(define mb-ready (make-semaphore 0))
+(define mb-ch (make-channel))
+(define mb-host
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put mb-ch e))])
+       (define hconn (accept mb-server))
+       ;; The caretaker the host hands out, stashed so `revoke` can sever it.
+       (define proxy-box (box #f))
+       (conn-publish hconn "root"
+                     (lambda (bcom)
+                       (methods
+                        [(make-proxy tool)
+                         (define proxy (conn-caretaker hconn tool))
+                         (set-box! proxy-box proxy)
+                         proxy]
+                        [(make-readonly tool) (conn-attenuate hconn tool '("get"))]
+                        [(revoke) (conn-revoke! hconn (unbox proxy-box)) "revoked"])))
+       (semaphore-post mb-ready)
+       (conn-serve hconn)
+       (channel-put mb-ch 'served)))))
+
+(define mb-conn (connect (tcp-locator "127.0.0.1" (server-port mb-server))))
+(semaphore-wait mb-ready)
+(define mb-tool (conn-spawn mb-conn ^tool))
+(define mb-root (conn-fetch mb-conn "root"))
+
+;; Live caretaker: a call forwards across the host to the client's far tool.
+(define mb-proxy (conn-send mb-conn mb-root 'make-proxy mb-tool))
+(expect mb-proxy "proxy: the host returned a caretaker proxy")
+(expect (= 42 (conn-send mb-conn mb-proxy 'add 41)) "proxy: caretaker forwards to the far tool")
+
+;; Attenuator: the allow-listed verb forwards; any other breaks.
+(define mb-ro (conn-send mb-conn mb-root 'make-readonly mb-tool))
+(expect (= 7 (conn-send mb-conn mb-ro 'get)) "proxy: attenuator forwards an allowed verb")
+(define mb-denied
+  (with-handlers ([exn:fail:pancake? (lambda (e) e)])
+    (conn-send mb-conn mb-ro 'add 1) #f))
+(expect (and (exn:fail:pancake? mb-denied)
+             (regexp-match? #rx"Attenuated" (exn-message mb-denied)))
+        "proxy: an out-of-list verb breaks Attenuated")
+
+;; Revoke: every later call through the proxy breaks.
+(void (conn-send mb-conn mb-root 'revoke))
+(define mb-severed
+  (with-handlers ([exn:fail:pancake? (lambda (e) e)])
+    (conn-send mb-conn mb-proxy 'add 1) #f))
+(expect (and (exn:fail:pancake? mb-severed)
+             (regexp-match? #rx"Revoked" (exn-message mb-severed)))
+        "proxy: a revoked proxy breaks Revoked")
+
+(connection-close! mb-conn)
+(define mb-host-result (channel-get mb-ch))
+(when (exn? mb-host-result) (raise mb-host-result))
+(expect (eq? 'served mb-host-result) "proxy: host served to a clean close")
+(server-close! mb-server)
+
+(printf "racket zig-smoke OK: forwarding proxies forward, attenuate, and revoke over the wire\n")
+
+;; ── A forwarding proxy answers its host's own local call (ADR-0064) ────────────
+;; The wart ADR-0064 closes: a caretaker proxy is an ordinary spawned actor, so
+;; its own host calls it locally exactly as a partner calls it over the wire. A
+;; caretaker over a *local* tool answers a local send; a caretaker over a *far*
+;; tool forwards across the wire and the local send still settles; and a revoke
+;; breaks the local call too, no second-class behavior on the hosting side.
+(define (^ping bcom) (methods [(ping) 99]))
+(define (^doubler bcom) (methods [(double n) (* n 2)]))
+
+(define lc-server (listen "127.0.0.1" 0))
+(define lc-ready (make-semaphore 0))
+(define lc-ch (make-channel))
+(define lc-host
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put lc-ch e))])
+       (define hconn (accept lc-server))
+       (conn-publish hconn "tool" ^ping)
+       (semaphore-post lc-ready)
+       (conn-serve hconn)
+       (channel-put lc-ch 'served)))))
+
+(define lc-conn (connect (tcp-locator "127.0.0.1" (server-port lc-server))))
+(semaphore-wait lc-ready)
+
+;; A caretaker over a local tool, called locally by its own host.
+(define lc-local (conn-spawn lc-conn ^doubler))
+(define lc-care (conn-caretaker lc-conn lc-local))
+(expect (= 42 (conn-send lc-conn lc-care 'double 21))
+        "local-call: a local proxy answers a local call")
+
+;; A caretaker over a far tool, called locally: the proxy forwards across the wire
+;; and the local send still settles on the partner's reply.
+(define lc-far (conn-fetch lc-conn "tool"))
+(define lc-care-far (conn-caretaker lc-conn lc-far))
+(expect (= 99 (conn-send lc-conn lc-care-far 'ping))
+        "local-call: a local call over a far tool settles")
+
+;; Revoke severs the local call exactly as it severs a partner's.
+(conn-revoke! lc-conn lc-care)
+(define lc-severed
+  (with-handlers ([exn:fail:pancake? (lambda (e) e)])
+    (conn-send lc-conn lc-care 'double 1) #f))
+(expect (and (exn:fail:pancake? lc-severed)
+             (regexp-match? #rx"Revoked" (exn-message lc-severed)))
+        "local-call: revoke breaks a local call too")
+
+(connection-close! lc-conn)
+(define lc-host-result (channel-get lc-ch))
+(when (exn? lc-host-result) (raise lc-host-result))
+(server-close! lc-server)
+
+(printf "racket zig-smoke OK: a forwarding proxy answers its host's own local call (local and far target)\n")
 
 ;; ── À-la-carte transports: one round-trip over each composable transport module ─
 ;; The core peer is sans-io; each transport archive ships as its own composable
@@ -649,7 +775,7 @@
 
 ;; libpancake_net_transport_tcp: the explicit C-ABI TCP netlayer (cleartext,
 ;; loopback-grade). Same round-trip over real sockets, proving the tcp module
-;; composes with the core just as inproc does — a different archive, one core.
+;; composes with the core just as inproc does, a different archive, one core.
 (define tcp-nl (make-netlayer))
 (define tcp-lst (netlayer-listen tcp-nl "127.0.0.1" 0))
 (define tcp-port (listener-port tcp-lst))

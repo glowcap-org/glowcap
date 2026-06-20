@@ -1,6 +1,6 @@
 // Cross-runtime dogfood of the Zig pancake C ABI archives, through the idiomatic
 // composable modules (`mod.ts` core + `tcp.ts`/`inproc.ts` transports): drive
-// OCapN with native values and typed events — no FFI in sight. It runs
+// OCapN with native values and typed events, no FFI in sight. It runs
 // identically on Deno, Bun, and (experimentally) Node, which is the proof the
 // binding is runtime-neutral. This is the consumer `zig build bindings` runs.
 
@@ -726,7 +726,7 @@ function counterBehavior(
 // `.untag(tag)` access an element / unwrap a tag *at the answer*, before it
 // resolves, each returning a new pipelinable `RemotePromise`. The board's
 // `make` returns `["assigned", label, 7]` tagged "task"; untag unwraps the
-// single-value tag to that row, index 1 takes the label — a two-hop projection
+// single-value tag to that row, index 1 takes the label, a two-hop projection
 // chain that rides the still-pending `make` answer with no extra round trip.
 // The source handle is also awaited afterward to prove a far reply
 // observed *late* (after a sibling projection already pumped the loop) still
@@ -815,7 +815,7 @@ function counterBehavior(
 		assert(anchor instanceof Promise, "a send handle must be a real Promise");
 		// `anchor` is never observed; awaiting `ping` flushes the queued batch, so
 		// `explode`'s deliver crosses the wire and the host breaks its answer. The
-		// break resolve arrives with no listener and is dropped — no rejection.
+		// break resolve arrives with no listener and is dropped, no rejection.
 		const pong = await conn.send(root, "ping", []);
 		assert(pong === "pong", `expected pong, got ${String(pong)}`);
 		await new Promise((r) => setTimeout(r, 50)); // let the break resolve land
@@ -1011,7 +1011,7 @@ function counterBehavior(
 // The in-process transport is its own composable module (`./transport/inproc.ts`, riding
 // libpancake_net_transport_inproc): the socket-free sibling of TCP, two peers
 // in one process wired by pipes. Bind a listener on a string designator, dial
-// it, accept, and shuttle one whole frame — no kernel transport, no fd.
+// it, accept, and shuttle one whole frame, no kernel transport, no fd.
 {
 	using net = new InprocNetlayer();
 	using listener = net.listen("zig-smoke");
@@ -1027,6 +1027,168 @@ function counterBehavior(
 		"the in-process endpoint shuttled the frame intact",
 	);
 	ok("the in-process transport shuttled a frame socket-free");
+}
+
+// Object-capability forwarding proxies over the wire (ADR-0064). The server fetches the
+// client's published tool — a far reference on the server side — wraps it in a
+// caretaker and an attenuator, and hands the proxies back. A call through the
+// proxy forwards across the server to the client's tool (the far deferred-answer
+// path) and settles the caller's answer; the attenuator passes only its
+// allow-listed verb; and a revoke breaks every later call.
+{
+	const listener = await listenTcp("127.0.0.1", 0);
+	const port = listener.port;
+	let toolReady!: () => void;
+	const toolPublished = new Promise<void>((r) => (toolReady = r));
+	let proxyReady!: () => void;
+	const proxyPublished = new Promise<void>((r) => (proxyReady = r));
+
+	async function server(): Promise<void> {
+		const tcp = await listener.accept();
+		const conn = await Connection.accept(tcp);
+		conn.serve().catch(() => {});
+		await toolPublished;
+		const tool = await conn.fetch("tool");
+		const care = conn.caretaker(tool);
+		const readonly = conn.attenuate(tool, ["get"]);
+		conn.publish("root", (verb) => {
+			if (verb === "proxy") return care.proxy;
+			if (verb === "readonly") return readonly;
+			if (verb === "revoke") {
+				care.revoke();
+				return;
+			}
+			throw new Error(`no such method: ${verb}`);
+		});
+		proxyReady();
+		await conn.serve();
+	}
+
+	async function client(): Promise<void> {
+		const conn = await Connection.connect("127.0.0.1", port);
+		conn.serve().catch(() => {}); // serve so the server's forwarded call arrives
+		conn.publish("tool", (verb, args) => {
+			if (verb === "add") {
+				const n = typeof args[0] === "bigint" ? args[0] : 0n;
+				return n + 1n;
+			}
+			if (verb === "get") return 7n;
+			throw new Error(`no such method: ${verb}`);
+		});
+		toolReady();
+		await proxyPublished;
+		const root = await conn.fetch("root");
+
+		// Live caretaker: a call forwards across the server to the far tool.
+		const proxy = await conn.send(root, "proxy");
+		assert(proxy instanceof Ref, "the caretaker proxy lifts to a Ref");
+		const sum = await conn.send(proxy as Ref, "add", [41n]);
+		assert(sum === 42n, `caretaker forwards to the far tool, got ${sum}`);
+
+		// Attenuator: the allow-listed verb forwards; any other breaks.
+		const readonly = await conn.send(root, "readonly");
+		assert(readonly instanceof Ref, "the attenuator proxy lifts to a Ref");
+		const got = await conn.send(readonly as Ref, "get");
+		assert(got === 7n, `the attenuator forwards an allowed verb, got ${got}`);
+		let denied: VowBroken | null = null;
+		try {
+			await conn.send(readonly as Ref, "add", [1n]);
+		} catch (err) {
+			if (err instanceof VowBroken) denied = err;
+		}
+		assert(
+			denied !== null && denied.reason.includes("Attenuated"),
+			"an out-of-list verb breaks Attenuated",
+		);
+
+		// Revoke: every later call through the proxy breaks.
+		await conn.send(root, "revoke");
+		let severed: VowBroken | null = null;
+		try {
+			await conn.send(proxy as Ref, "add", [1n]);
+		} catch (err) {
+			if (err instanceof VowBroken) severed = err;
+		}
+		assert(
+			severed !== null && severed.reason.includes("Revoked"),
+			"a revoked proxy breaks Revoked",
+		);
+
+		conn.close();
+	}
+
+	try {
+		await Promise.all([server(), client()]);
+	} finally {
+		listener.close();
+	}
+	ok("forwarding proxies forward, attenuate, and revoke over the wire");
+}
+
+// The wart ADR-0064 closes: a forwarding proxy is an ordinary spawned actor, so its
+// own host calls it locally exactly as a partner calls it over the wire. A
+// caretaker over a *local* tool answers a local send; a caretaker over a *far*
+// tool forwards across the wire and the local send still settles; and a revoke
+// breaks the local call too, no second-class behavior on the hosting side.
+{
+	const listener = await listenTcp("127.0.0.1", 0);
+	const port = listener.port;
+
+	async function server(): Promise<void> {
+		const tcp = await listener.accept();
+		const conn = await Connection.accept(tcp);
+		conn.publish("tool", (verb) => {
+			if (verb === "ping") return "pong";
+			throw new Error(`no such method: ${verb}`);
+		});
+		await conn.serve();
+	}
+
+	async function client(): Promise<void> {
+		const conn = await Connection.connect("127.0.0.1", port);
+		conn.serve().catch(() => {});
+
+		// A caretaker over a local tool, called locally by its own host.
+		const local = conn.spawn((verb, args) => {
+			if (verb === "double") {
+				const n = typeof args[0] === "bigint" ? args[0] : 0n;
+				return n * 2n;
+			}
+			throw new Error(`no such method: ${verb}`);
+		});
+		const careLocal = conn.caretaker(local);
+		const doubled = await conn.send(careLocal.proxy, "double", [21n]);
+		assert(doubled === 42n, `a local proxy answers a local call, got ${doubled}`);
+
+		// A caretaker over a far tool, called locally: the proxy forwards across
+		// the wire and the local send still settles on the partner's reply.
+		const far = await conn.fetch("tool");
+		const careFar = conn.caretaker(far);
+		const pong = await conn.send(careFar.proxy, "ping");
+		assert(pong === "pong", `a local call over a far tool settles, got ${pong}`);
+
+		// Revoke severs the local call exactly as it severs a partner's.
+		careLocal.revoke();
+		let severed: VowBroken | null = null;
+		try {
+			await conn.send(careLocal.proxy, "double", [1n]);
+		} catch (err) {
+			if (err instanceof VowBroken) severed = err;
+		}
+		assert(
+			severed !== null && severed.reason.includes("Revoked"),
+			"revoke breaks a local call too",
+		);
+
+		conn.close();
+	}
+
+	try {
+		await Promise.all([server(), client()]);
+	} finally {
+		listener.close();
+	}
+	ok("a forwarding proxy answers its host's own local call (local and far target)");
 }
 
 ok("drove OCapN through the idiomatic pancake API");

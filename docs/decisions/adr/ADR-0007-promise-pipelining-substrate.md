@@ -159,7 +159,7 @@ the boundary the actor layer later closes.
   releasing an answer (GC, close) frees the queued calls, listener targets, and
   stored resolution it holds.
 - Pipelining is exercised by in-process driven scenarios under
-  [`src/conformance/`](../../../src/conformance/mod.zig) and the session/engine
+  [`src/oracle/`](../../../src/oracle/mod.zig) and the session/engine
   tests, against Goblins fixture shapes for the wire.
 
 ## Forward compatibility

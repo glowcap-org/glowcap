@@ -1,5 +1,5 @@
 #lang racket/base
-;; audit.rkt — entry point for the kernel's audit command.
+;; audit.rkt, entry point for the kernel's audit command.
 ;;
 ;; Reads .data/episodes.jsonld and the per-AID KEL files, verifies every
 ;; Episode's signature chain end-to-end, and prints a human-readable trace

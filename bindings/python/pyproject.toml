@@ -9,7 +9,7 @@ description = "Python ctypes smoke consumer of the Zig pancake C ABI archives (c
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
-# Stdlib ctypes only — no third-party runtime dependencies.
+# Stdlib ctypes only, no third-party runtime dependencies.
 dependencies = []
 
 [tool.setuptools]

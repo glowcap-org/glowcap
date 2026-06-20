@@ -2,7 +2,7 @@
 
 This is the capability showcase: the concrete answer to "what is pancake
 actually good for beyond chat?" A coordinator holds tools; an agent connects and
-is handed exactly the authority a task needs — attenuated to read-only where
+is handed exactly the authority a task needs, attenuated to read-only where
 appropriate, revocable when the task is done. The agent can call what it was
 given and nothing else, because there is no ambient authority to escalate to.
 
@@ -46,7 +46,7 @@ if (verb === GRANT) return conn.spawn(toolFor(name));
 ```typescript
 // agent
 const clock = await conn.send(tools, "grant", ["clock"]);
-const now = await conn.send(clock, "now"); // an ordinary call — clock is a capability
+const now = await conn.send(clock, "now"); // an ordinary call; clock is a capability
 ```
 
 The agent received a reference it can call. It did not receive a URL, a token,
@@ -64,7 +64,7 @@ function readOnly(tool) {
 ```
 
 The agent gets `grant("files-readonly")`, reads successfully, and its write
-breaks. There is no "permission" field anywhere — the attenuated capability
+breaks. There is no "permission" field anywhere, the attenuated capability
 cannot express a write.
 
 ### Revocation — a forwarder you can switch off
@@ -85,14 +85,26 @@ function revocable(tool) {
 ```
 
 The agent calls the revocable handle successfully, the coordinator revokes it,
-and every subsequent call breaks — with no change to the agent and no global
+and every subsequent call breaks, with no change to the agent and no global
 registry of who-can-do-what.
+
+### The same patterns, shipped as built-ins
+
+The point above is that attenuation and revocation need _no special API_ — they
+are ordinary closures over a capability. Because the pattern is so load-bearing,
+pancake also ships it as a forwarding proxy so you do not have to write the
+closure (ADR-0064): `conn.attenuate(tool, ["read"])` returns a read-only proxy,
+and `conn.caretaker(tool)` returns a proxy plus a `revoke` lever. They wrap _any_
+reference, including one imported over the wire, so a coordinator can hand out an
+attenuated or revocable view of authority it does not even own locally. This demo
+keeps the hand-rolled version on purpose — to show the mechanism is just code —
+but a real harness can reach for the built-ins.
 
 ### Least authority, by construction
 
 The fourth property is the one you cannot show with a positive assertion: the
 agent holds _exactly_ the references it was granted. There is no ambient
-authority — no global namespace, no "list all tools" it can call, no directory
+authority, no global namespace, no "list all tools" it can call, no directory
 to walk. Export positions are private to a connection, not names in a shared
 space, so no reference the coordinator never sent the agent points to a tool.
 That is the property that makes a capability harness safe to point an LLM at.
@@ -110,8 +122,8 @@ With capabilities:
 - Revocation is a lever you hold: sever a capability the moment a task ends or
   an agent misbehaves.
 
-The same `connect` / `fetch` / `spawn` / `send` surface that makes the chat demo
-trivial makes this safe-by-construction harness trivial too.
+The same `connect` / `fetch` / `spawn` / `send` surface behind the chat demo
+builds this safe-by-construction harness too.
 
 ## Layout
 

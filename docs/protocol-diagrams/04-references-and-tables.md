@@ -70,7 +70,7 @@ export table and its own answers-asked table; the mirrors fill in on receipt.
 
 Every `desc:import-object` / `desc:import-promise` appearing in an inbound
 message's payload installs (or increments) an import row before the message is
-acted on. This is what makes later `op:gc-exports` accounting sound — see
+acted on. This is what makes later `op:gc-exports` accounting sound, see
 [05-gc.md](05-gc.md).
 
 ```mermaid

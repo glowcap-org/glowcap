@@ -2,7 +2,7 @@
 //! `desc:handoff-give` a gifter returns to a recipient once it has deposited the
 //! gift with the exporter. The session and side naming is the recipient half's
 //! (`handoff_recipient`); this adds the give construction. The I/O-bound
-//! enliven / fetch / deposit choreography stays in the host adapter — these are
+//! enliven / fetch / deposit choreography stays in the host adapter, these are
 //! the crypto and encoding primitives any gifter needs.
 
 const std = @import("std");

@@ -53,7 +53,7 @@ function parseRooms(raw: AppValue): RoomInfo[] {
 }
 
 /** The directory of rooms: the server's one published object. Connect to it,
- * then `open` a new room or `enter` an existing one — each returns a reference
+ * then `open` a new room or `enter` an existing one, each returns a reference
  * to that room. Both mirror the wire: `open` rejects if the name is taken,
  * `enter` rejects if there is no such room. `list` and `watch` are discovery:
  * the rooms that have people in them, as a snapshot or a live feed. The
@@ -87,7 +87,7 @@ export class Directory {
 		return this.conn.send(this.#directory, ENTER, [name]) as Promise<Ref>;
 	}
 
-	/** The live rooms right now — the ones with people in them. */
+	/** The live rooms right now, the ones with people in them. */
 	async list(): Promise<RoomInfo[]> {
 		return parseRooms(
 			await this.conn.send(this.#directory, LIST, []) as AppValue,
@@ -177,7 +177,7 @@ export class Room {
 
 		// Subscribe, handing the room a capability to our inbox. The welcome it
 		// returns is our first line. A rejected claim (e.g. the nickname is taken)
-		// propagates; the connection stays open — the directory owns it, and the
+		// propagates; the connection stays open, the directory owns it, and the
 		// caller may try another room or close the session itself.
 		const welcome = await conn.send(roomRef, SUBSCRIBE, [nick, inbox]);
 		self.#emit("room", typeof welcome === "string" ? welcome : "joined");
@@ -202,7 +202,7 @@ export class Room {
 		try {
 			this.#lines.enqueue({ from, text, system: from === "room" });
 		} catch {
-			// The stream is already closed (we have left) — drop the late line.
+			// The stream is already closed (we have left), drop the late line.
 		}
 	}
 

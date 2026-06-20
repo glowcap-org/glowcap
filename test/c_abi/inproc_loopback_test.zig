@@ -1,4 +1,4 @@
-//! C-ABI frame-boundary loopback over the in-process endpoints — the socket-free
+//! C-ABI frame-boundary loopback over the in-process endpoints, the socket-free
 //! sibling of `endpoint_loopback_test`. It proves the `pancake_inproc_*` handles
 //! drive a real handshake + bootstrap fetch when the *host* owns the peer and
 //! shuttles frames itself, with two peers in one process wired by in-process
@@ -201,7 +201,7 @@ test "c-abi inproc connect rejects bad arguments and a missing listener distinct
         ci.pancake_inproc_connect(null, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn),
     );
     // Dialing a designator with no bound listener is an I/O fault, with a cause
-    // recorded for pancake_inproc_last_error — distinct from a malformed request.
+    // recorded for pancake_inproc_last_error, distinct from a malformed request.
     ci.pancake_inproc_clear_last_error();
     try std.testing.expectEqual(
         c.PANCAKE_ERR_IO,

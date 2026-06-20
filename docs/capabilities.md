@@ -8,7 +8,7 @@ sturdyref are, skip straight back to the [README](../README.md) quickstart.
 ## What a capability is
 
 A capability is a reference that _is_ the permission. If you hold a reference to
-an object, you can call it; if you do not hold it, you cannot — and you cannot
+an object, you can call it; if you do not hold it, you cannot, and you cannot
 forge one, guess one, or escalate your way to one. That single rule replaces the
 machinery most systems use to answer "is this caller allowed to do that?": there
 are no access-control lists to consult, no role checks, no string-typed
@@ -26,7 +26,7 @@ Three patterns fall out of that rule, and they are the reason the model is worth
 the trouble:
 
 - **Delegation.** Handing someone a capability _is_ granting the permission. No
-  registration step, no admin console — passing the reference is the grant.
+  registration step, no admin console, passing the reference is the grant.
 - **Attenuation.** To grant less than you hold, wrap your capability in an
   object that exposes only the narrower surface, and hand out the wrapper. The
   wrapped original never leaves your hands.
@@ -36,7 +36,7 @@ the trouble:
 
 In ordinary memory-safe programming you already live by this rule without naming
 it: an object reference in Zig, Rust, or JavaScript can only be used by code it
-was given to. Capability security is that discipline taken seriously — and CapTP
+was given to. Capability security is that discipline taken seriously, and CapTP
 is what lets it cross a network.
 
 ## What CapTP adds
@@ -51,7 +51,7 @@ given.
 
 Beyond carrying references, CapTP carries _promises_. Calling a remote object
 returns immediately with a promise for the answer, and you may call methods on
-that promise before it resolves — the call is forwarded to wherever the answer
+that promise before it resolves, the call is forwarded to wherever the answer
 turns out to live. This is promise pipelining, and it collapses what would be
 ping-pong round trips into a single flight. The protocol also keeps distributed
 garbage-collection accounts, so when neither side can reach an exported object
@@ -84,7 +84,7 @@ pancake speaks a Goblins convention that the draft spec does not yet pin down.
 pancake is the systems-language entry to that ecosystem: the protocol core in
 Zig, a C ABI above it, and bindings so the same capability discipline is
 reachable from Rust, Python, Deno, and Racket. What that costs in memory and
-allocations is part of the contract — the [architecture](architecture.md) doc is
+allocations is part of the contract, the [architecture](architecture.md) doc is
 the place where those budgets are named.
 
 ## Glossary

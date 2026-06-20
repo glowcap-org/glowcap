@@ -103,6 +103,6 @@ class TaskBoard:
             await self._conn.serve()
         except Exception as err:  # noqa: BLE001
             if not self._leaving:
-                print(f"tasks: lost the connection — {err}", file=sys.stderr)
+                print(f"tasks: lost the connection, {err}", file=sys.stderr)
         finally:
             self._snapshots.put_nowait(None)

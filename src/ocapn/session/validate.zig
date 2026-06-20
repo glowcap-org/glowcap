@@ -31,7 +31,7 @@ const VIRTUAL_INBOUND_ANSWER_BASE = session.VIRTUAL_INBOUND_ANSWER_BASE;
 pub fn validateRecvView(self: *Session, body: model.view.Body) !void {
     // State admission is gated at the dispatch head (`admitInState`); this is
     // the kind-specific validation. `op:start-session` keeps its own
-    // "negotiating-only" rule because the gate admits it in `open` too — a
+    // "negotiating-only" rule because the gate admits it in `open` too, a
     // second handshake there is the kind-specific violation.
     switch (body) {
         .start_session => |ss| try validateStartSession(self, ss, .remote_received),
@@ -67,7 +67,7 @@ fn validateStartSession(
 }
 
 /// Validate an inbound `op:listen`: the pipelining feature gate, the target
-/// rule, and the listener rule — exactly the checks the `.listen` dispatch
+/// rule, and the listener rule, exactly the checks the `.listen` dispatch
 /// arms run. Public because the engine's listener install
 /// (`engine.pipeline.maybeInstallInboundListener`) runs ahead of
 /// `recordRecvView` and must validate before it mutates; both dispatch arms
@@ -187,7 +187,7 @@ pub fn validateRecv(self: *Session, message: model.Message) !void {
             if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
             try session.validateGcExport(gc_export);
             // Inbound `op:gc-exports` is the partner releasing refs to our
-            // exports — decrements the export table. The duplicate-position
+            // exports, decrements the export table. The duplicate-position
             // scratch map is turn-scratch, so it bumps the recv arena and dies
             // with `recordRecvView`'s reset.
             try session.checkGcExportDecrement(self.recv_scratch.allocator(), &self.exports, gc_export);
@@ -240,7 +240,7 @@ fn validateOutboundDeliver(self: *Session, deliver: model.Deliver) !void {
 // `model.view.Reference` reuses `model.NearRef` / `model.FarRef`, and both
 // `Argument` unions share arm names, so one set of `anytype` walkers serves
 // both. There is exactly one copy of each rule, so the owned and borrowed
-// paths cannot drift — proven by the inbound `far`-target rejection test in
+// paths cannot drift, proven by the inbound `far`-target rejection test in
 // `test/session/session_test.zig` running through `recordRecvView`.
 
 /// Scratch tally of the distinct imports one inbound message would newly
@@ -253,14 +253,14 @@ fn validateOutboundDeliver(self: *Session, deliver: model.Deliver) !void {
 /// often the message repeats it). Lazy: a message that introduces no new
 /// import never allocates.
 const ProspectiveImports = struct {
-    seen: std.AutoHashMapUnmanaged(u64, void) = .empty,
+    seen: std.AutoHashMapUnmanaged(model.ImportId, void) = .empty,
 
     fn deinit(self: *ProspectiveImports, allocator: std.mem.Allocator) void {
         self.seen.deinit(allocator);
     }
 
-    fn noteFar(self: *ProspectiveImports, s: *Session, import_position: u64) RecvViewError!void {
-        if (import_position == BOOTSTRAP_POSITION) return;
+    fn noteFar(self: *ProspectiveImports, s: *Session, import_position: model.ImportId) RecvViewError!void {
+        if (import_position.int() == BOOTSTRAP_POSITION) return;
         if (s.imports.contains(import_position)) return;
         const gop = try self.seen.getOrPut(s.allocator, import_position);
         if (gop.found_existing) return;
@@ -276,7 +276,7 @@ fn validateInboundDeliverAny(self: *Session, deliver: anytype) RecvViewError!voi
         // The range at and above `VIRTUAL_INBOUND_ANSWER_BASE` is reserved for
         // session-allocated virtual answers; a partner claim there could
         // collide with a virtual allocation, so it is refused loudly.
-        if (answer >= VIRTUAL_INBOUND_ANSWER_BASE) return Error.InvalidReference;
+        if (answer.int() >= VIRTUAL_INBOUND_ANSWER_BASE) return Error.InvalidReference;
     }
     try validateReference(self, deliver.target, .held_import);
     if (deliver.resolve_me_desc) |reference| {
@@ -287,7 +287,7 @@ fn validateInboundDeliverAny(self: *Session, deliver: anytype) RecvViewError!voi
     try validateInboundArguments(self, deliver.args, 0, &new_imports);
 }
 
-/// Validate a pipelined inbound deliver — one whose target is a still-pending
+/// Validate a pipelined inbound deliver, one whose target is a still-pending
 /// answer the engine queues rather than dispatching immediately. It gets the *same*
 /// reference, argument, depth, and answer-pos validation a directly-delivered
 /// call gets, so a malformed-reference or over-deep pipelined call is rejected
@@ -323,7 +323,7 @@ fn validateReference(self: *Session, reference: anytype, comptime far_policy: Fa
     switch (reference) {
         .near => |near| if (!self.exports.contains(near.export_position)) return Error.InvalidReference,
         .far => |far| switch (far_policy) {
-            .held_import => if (far.import_position != BOOTSTRAP_POSITION and
+            .held_import => if (far.import_position.int() != BOOTSTRAP_POSITION and
                 !self.imports.contains(far.import_position))
                 return Error.InvalidReference,
             .introduction => {},
@@ -403,7 +403,7 @@ fn validateArgument(self: *Session, arg: model.Argument) Error!void {
         .set => |items| try validateArguments(self, items),
         .tagged => |tagged| try validateArguments(self, tagged.value),
         .@"struct" => |entries| for (entries) |entry| try validateArgument(self, entry.value),
-        // Exhaustive on purpose — see `validateInboundArgument`.
+        // Exhaustive on purpose, see `validateInboundArgument`.
         .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
     }
 }

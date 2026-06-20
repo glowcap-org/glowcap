@@ -184,7 +184,7 @@ pub fn verify(pubkey: PeerKey, payload: []const u8, sig: Signature) CryptoError!
 pub fn derivePublicIdentifier(key: PeerKey) id.PeerId {
     // Stream the gcrypt s-expression straight into SHA256: each structural
     // token and the raw `q` bytes are hashed in place. No staging buffer, so
-    // the key bytes are never copied — `update` reads them where they sit.
+    // the key bytes are never copied, `update` reads them where they sit.
     var hasher = Sha256.init(.{});
     hasher.update("[");
     updateSymbol(&hasher, "public-key");
@@ -218,11 +218,21 @@ pub fn derivePublicIdentifier(key: PeerKey) id.PeerId {
 /// the second. Because of the sort, both ends land on the same value even though
 /// one side dialed and the other answered.
 pub fn deriveSessionId(local_key: PeerKey, remote_key: PeerKey) id.SessionId {
-    const id_a = derivePublicIdentifier(local_key);
-    const id_b = derivePublicIdentifier(remote_key);
+    return sessionIdFromPeerIds(
+        derivePublicIdentifier(local_key),
+        derivePublicIdentifier(remote_key),
+    );
+}
 
-    const a = id_a.bytes;
-    const b = id_b.bytes;
+/// Combine two already-derived `PeerId`s into the `SessionId` of their direct
+/// session: sort the pair byte-ascending so dial/answer order doesn't matter,
+/// then double-SHA256 over `"prot0"` and the sorted ids. `deriveSessionId` is
+/// this composed with `derivePublicIdentifier` on each key; the handoff layer,
+/// which already holds the sides (each a `PeerId`), calls this directly, so the
+/// session a handoff names can never drift from the one a handshake derives.
+pub fn sessionIdFromPeerIds(peer_a: id.PeerId, peer_b: id.PeerId) id.SessionId {
+    const a = peer_a.bytes;
+    const b = peer_b.bytes;
     const first, const second = if (std.mem.order(u8, &a, &b) == .gt)
         .{ b, a }
     else

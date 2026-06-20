@@ -52,7 +52,7 @@ async fn run() -> Result<(), Fail> {
 	println!("rust-iroh-loop: server endpoint id {server_id}");
 
 	// Accept every dial, publish this connection's greeter, and keep its driver
-	// alive — all served from the server's one readiness loop.
+	// alive, all served from the server's one readiness loop.
 	let accept_server = Rc::clone(&server);
 	let accept_task = tokio::task::spawn_local(async move {
 		let mut served: Vec<Connection> = Vec::new();
@@ -97,7 +97,7 @@ async fn run() -> Result<(), Fail> {
 		return Err(format!("{failures}/{NUM_CONNS} client(s) failed").into());
 	}
 	println!(
-        "rust-iroh-loop: OK — {NUM_CONNS} concurrent iroh connections, {CALLS_PER_CONN} calls each, \
+        "rust-iroh-loop: OK, {NUM_CONNS} concurrent iroh connections, {CALLS_PER_CONN} calls each, \
          served from one loop over the readiness fd + non-blocking frame I/O"
     );
 	Ok(())

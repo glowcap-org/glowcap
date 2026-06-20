@@ -148,7 +148,7 @@ const coreS = ffi.dlopen(libPath("pancake_ocapn"), {
 		result: "i32",
 	},
 	pancake_peer_send_withdraw_gift: {
-		parameters: ["pointer", "buffer", "usize", "buffer", "usize", "u64", "u64"],
+		parameters: ["pointer", "buffer", "usize", "buffer", "usize", "u64"],
 		result: "i32",
 	},
 	// Gifter (introducer) half of three-party handoff: author + deposit + resolve,
@@ -183,6 +183,23 @@ const coreS = ffi.dlopen(libPath("pancake_ocapn"), {
 		parameters: ["pointer", "usize"],
 		result: "void",
 	},
+	pancake_encode_peer_locator: {
+		parameters: [
+			"buffer",
+			"usize",
+			"buffer",
+			"usize",
+			"buffer",
+			"usize",
+			"buffer",
+			"buffer",
+		],
+		result: "i32",
+	},
+	pancake_peer_locator_bytes_release: {
+		parameters: ["pointer", "usize"],
+		result: "void",
+	},
 	pancake_peer_send_deposit_gift: {
 		parameters: ["pointer", "buffer", "usize", "buffer"],
 		result: "i32",
@@ -195,6 +212,60 @@ const coreS = ffi.dlopen(libPath("pancake_ocapn"), {
 	pancake_gift_registry_free: { parameters: ["pointer"], result: "void" },
 	pancake_peer_set_gift_registry: {
 		parameters: ["pointer", "pointer"],
+		result: "i32",
+	},
+	// Cross-connection handoff router (PancakeNode, ADR-0066): the sans-io node
+	// owns the per-connection peers, the shared gift registry, the retained
+	// identity, and the redeemed-token / foreign-home routing tables. The binding
+	// registers each connection's node-owned peer, pumps it, and routes by
+	// conn_id — every route value an integer, so the routing decision lives in Zig.
+	pancake_node_new: { parameters: ["buffer", "usize", "buffer"], result: "i32" },
+	pancake_node_new_in: {
+		parameters: ["pointer", "buffer", "usize", "buffer"],
+		result: "i32",
+	},
+	pancake_node_free: { parameters: ["pointer"], result: "void" },
+	pancake_node_register_conn: {
+		parameters: ["pointer", "buffer", "buffer"],
+		result: "i32",
+	},
+	pancake_node_remove_conn: { parameters: ["pointer", "u64"], result: "i32" },
+	pancake_node_send_withdraw: {
+		parameters: ["pointer", "u64", "buffer", "usize", "u64"],
+		result: "i32",
+	},
+	pancake_node_originate_give: {
+		parameters: [
+			"pointer",
+			"u64",
+			"u64",
+			"buffer",
+			"buffer",
+			"usize",
+			"u64",
+			"buffer",
+			"usize",
+		],
+		result: "i32",
+	},
+	pancake_node_enroll_redeemed: {
+		parameters: ["pointer", "u64", "u64", "buffer"],
+		result: "i32",
+	},
+	pancake_node_route: {
+		parameters: ["pointer", "u64", "u64", "buffer", "buffer", "buffer"],
+		result: "i32",
+	},
+	pancake_node_record_foreign_home: {
+		parameters: ["pointer", "u64", "u64"],
+		result: "i32",
+	},
+	pancake_node_foreign_home: {
+		parameters: ["pointer", "u64", "buffer", "buffer"],
+		result: "i32",
+	},
+	pancake_node_arg_is_foreign: {
+		parameters: ["pointer", "u64", "u64", "buffer"],
 		result: "i32",
 	},
 	// OCapN locator URIs — core vocabulary in libpancake_ocapn, so a consumer

@@ -257,7 +257,7 @@ fn enterOrOpen(conn: *driver.Connection, allocator: std.mem.Allocator, directory
 }
 
 /// Enter the room, subscribe our inbox, and pump until every roster member's
-/// line has arrived — the transport-neutral body both dial paths share.
+/// line has arrived, the transport-neutral body both dial paths share.
 fn runRoom(conn: *driver.Connection, allocator: std.mem.Allocator, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
     const directory = try conn.fetch("directory");
 

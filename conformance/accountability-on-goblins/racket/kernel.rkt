@@ -26,7 +26,7 @@
          (prefix-in ep: "episode.rkt"))
 
 ;; ============================================================================
-;; Policy — minimal literal form
+;; Policy, minimal literal form
 ;; ============================================================================
 ;; Real Policies are governed artifacts; the kernel's Policy is a single
 ;; default-grant clause: any Actor in this Vat may invoke the demo Affordance
@@ -62,7 +62,7 @@
       [else #f])))
 
 ;; ============================================================================
-;; Affordance — built-in Goblins actor method
+;; Affordance, built-in Goblins actor method
 ;; ============================================================================
 ;; For the kernel, the capability invokes a built-in Goblins actor method
 ;; directly. A WASM-Component-hosted Affordance with WIT-OCapN bindings is
@@ -77,7 +77,7 @@
       [else (hasheq 'kind "demo" 'message "kernel-loop-invoked" 'args args)])))
 
 ;; ============================================================================
-;; Driver — runs the eight steps
+;; Driver, runs the eight steps
 ;; ============================================================================
 
 (define (data-dir)
@@ -110,7 +110,7 @@
   (printf "      KEL: ~a~n" kel-path)
 
   (banner 3 "Actor holds OCapN-shaped capability ref to Affordance")
-  ;; In Goblins, `actor-ref` IS the capability — possession of the reference
+  ;; In Goblins, `actor-ref` IS the capability, possession of the reference
   ;; IS authorization. Capability discipline is enforced at the language level:
   ;; the only way to invoke the Affordance is through this reference.
   (printf "      capability: <Goblins near-ref to demo-affordance>~n")

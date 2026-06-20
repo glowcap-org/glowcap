@@ -23,20 +23,20 @@ living-state surface under the doc-drift rubric, registered in the doc-drift
 living-state table. A rule that cites a path is claiming the path exists. A rule
 that shows a command is claiming the command works. A rule that describes a
 convention is claiming the convention holds. When the state moves, the claim
-moves in the same diff — aligned, removed, or stripped of its state claim. No
+moves in the same diff, aligned, removed, or stripped of its state claim. No
 fourth outcome, and no follow-up PR.
 
 ## The scaffolding has a gate
 
 Code answers to `zig build check`; the scaffolding answers to the same
 invocation. The gate verifies, mechanically, every claim it can reach.
-`tools/meta_check.zig` is the complete inventory — read it before assuming a
+`tools/meta_check.zig` is the complete inventory, read it before assuming a
 claim is unchecked. The shape of what it holds:
 
-- Both overlay schemes are complete and unbroken — the `.claude/rules` directory
+- Both overlay schemes are complete and unbroken, the `.claude/rules` directory
   symlink resolves to `.agents/rules`, and every `.agents/rules/<name>.md` has a
   live `.cursor/rules/<name>.mdc` symlink. A canonical rule without its overlay
-  is silently unloaded — the failure mode is invisible at exactly the moment it
+  is silently unloaded, the failure mode is invisible at exactly the moment it
   matters.
 - The indexes and the directories agree in both directions. An unindexed rule or
   skill is undiscoverable; an indexed ghost is a broken promise. The same holds
@@ -48,7 +48,7 @@ claim is unchecked. The shape of what it holds:
 The gate also creates a standing pressure: **a rule sentence that could be a
 check is a TODO for a check.** When a check lands, the prose that asserted the
 same thing shrinks to a pointer. Over time the rules should get shorter and the
-gate should get longer. That is the intended direction of travel — it is "make
+gate should get longer. That is the intended direction of travel. It is "make
 the correct path the easy path," applied to the rules themselves, because a
 build step holds the line without asking anyone to remember it.
 
@@ -60,7 +60,7 @@ before the session does, and it lands at the strongest layer that can hold it:
 
 1. **A build check**, if the lesson is mechanically checkable.
 2. **A fixture or conformance scenario**, if the lesson is semantic.
-3. **A rule line**, only when neither of the above fits — and then the sharpest
+3. **A rule line**, only when neither of the above fits, and then the sharpest
    line that carries it, placed in the rule that owns the surface.
 4. **A deletion**, when the lesson is that an existing line no longer earns its
    load.
@@ -75,7 +75,7 @@ for the next agent than it was for this one.
 Every rule line is context every future session must carry, so every line pays
 rent. Additions displace or compress; they do not merely accumulate. A rule that
 outgrows a single attentive read splits by responsibility, the way a module
-would. Prefer one sentence with teeth over five with hedges — bullet accretion
+would. Prefer one sentence with teeth over five with hedges, bullet accretion
 is the drift mode of scaffolding, and it kills documents slowly: the
 load-bearing lines drown, the voice flattens, and agents start skimming the very
 text that was supposed to stop them from skimming. Pruning is not maintenance
@@ -84,7 +84,7 @@ deferred from the ratchet; it is half the ratchet.
 ## Taste lives here as structure, not as names
 
 Engineering-taste references belong in prompts and plans; committed files carry
-the taste as shape — explicit protocol vocabulary, honest allocation and
+the taste as shape, explicit protocol vocabulary, honest allocation and
 lifetime surfaces, sharp module boundaries, a gate that bites. If a prompt's
 standard is worth keeping, this rule and the gate are where it keeps, expressed
 as a consequence an agent can act on, never as a name an agent is asked to

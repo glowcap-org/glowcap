@@ -74,7 +74,7 @@ dialing differ from TCP.
 ## Run them
 
 ```sh
-zig build bindings        # rust + deno + python + racket dogfoods
+zig build bindings        # rust + deno + bun + python + racket dogfoods
 zig build rust-dogfood    # just the Rust consumer
 ```
 

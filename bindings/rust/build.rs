@@ -7,7 +7,7 @@ fn main() {
 	// Resolve the archive directory through the cascade every pancake binding
 	// shares: an explicit `PANCAKE_LIB_DIR` override (configure) wins, else the
 	// repo's `zig-out/lib` build output (the dev fallback). For Rust this is a
-	// build-time search path — core/tcp/inproc link statically, so they need no
+	// build-time search path, core/tcp/inproc link statically, so they need no
 	// runtime lookup; only the iroh dylib carries it forward as an rpath below.
 	println!("cargo:rerun-if-env-changed=PANCAKE_LIB_DIR");
 	let lib_dir = match std::env::var_os("PANCAKE_LIB_DIR") {

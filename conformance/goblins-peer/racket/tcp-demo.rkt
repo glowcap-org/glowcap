@@ -24,7 +24,7 @@
     (format "Hello ~a, this is ~a (over TCP CapTP)!" your-name my-name)))
 
 ;; ============================================================================
-;; Peer A — binds 127.0.0.1:9001
+;; Peer A, binds 127.0.0.1:9001
 ;; ============================================================================
 
 (define a-port 9001)
@@ -42,7 +42,7 @@
         a-port alice-sturdyref)
 
 ;; ============================================================================
-;; Peer B — binds 127.0.0.1:9002, dials A
+;; Peer B, binds 127.0.0.1:9002, dials A
 ;; ============================================================================
 
 (define b-port 9002)
@@ -67,7 +67,7 @@
      (lambda (err)
        (async-channel-put response-ch `(err ,err)))))
 
-;; Generous timeout — TCP loopback is fast but we're starting from cold.
+;; Generous timeout, TCP loopback is fast but we're starting from cold.
 (define reply (sync/timeout 5.0 response-ch))
 
 (case (and (pair? reply) (car reply))

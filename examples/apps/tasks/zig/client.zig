@@ -4,7 +4,7 @@
 //!
 //! On the driver surface this reads like the other languages: one owning
 //! `driver.connect`, `fetch` the board by name, `spawn` a watcher, then add a
-//! task, list, mark it done, and list again to confirm — each a blocking
+//! task, list, mark it done, and list again to confirm, each a blocking
 //! `conn.call` that pumps the session until its reply settles. The script reads
 //! top to bottom, no phase machine: this is the same sequence every other
 //! language's one-shot client runs.
@@ -57,7 +57,7 @@ fn printTask(item: model.Argument) void {
     }
 }
 
-/// True when the board's `list` reply contains `id` marked done — the
+/// True when the board's `list` reply contains `id` marked done, the
 /// confirmation the round trip asserts on.
 fn taskIsDone(items: []const model.Argument, id: i64) bool {
     for (items) |item| {
@@ -81,7 +81,7 @@ fn taskIsDone(items: []const model.Argument, id: i64) bool {
     return false;
 }
 
-/// Print the failure and exit non-zero — usable in any expression position
+/// Print the failure and exit non-zero, usable in any expression position
 /// (a broken reply or a malformed one ends the one-shot client the same way).
 fn die(nick: []const u8, reason: []const u8) noreturn {
     std.debug.print("tasks-client: {s} failed: {s}\n", .{ nick, reason });

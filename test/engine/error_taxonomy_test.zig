@@ -7,7 +7,7 @@ test "every codec / session / engine / projection error classifies to a non-fore
     // `classify` is the single source of truth for what a dispatch error means.
     // A new codec/session/engine/projection error variant that falls through to
     // `.foreign` (and thus the C ABI's INTERNAL code and no abort) fails the gate
-    // here instead of silently mis-surfacing — this is the compile-checked boundary
+    // here instead of silently mis-surfacing, this is the compile-checked boundary
     // that replaced the hand-maintained per-surface error tables.
     inline for (.{
         pancake.ocapn.session.Error,

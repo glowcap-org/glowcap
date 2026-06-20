@@ -36,7 +36,7 @@ pub fn main() !void {
     try phone.sendCopying(.{ .deliver = .{
         .target = .{ .far = model.FarRef.object(1) },
         .args = &.{ .{ .symbol = "queue" }, .{ .bytes = "Hot Knife" } },
-        .answer = 42,
+        .answer = .from(42),
     } });
     _ = try phone.step();
     try speaker.feedInbound(phone.takeOutbound().?);
@@ -49,7 +49,7 @@ pub fn main() !void {
 
     try speaker.exportObject(5);
     try speaker.sendCopying(.{ .resolve = .{
-        .answer = 42,
+        .answer = .from(42),
         .resolution = .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(5) } } },
     } });
     _ = try speaker.step();
@@ -68,14 +68,14 @@ pub fn main() !void {
     };
     const receipt_import = switch (fulfilled) {
         .reference => |reference| switch (reference) {
-            .far => |far| far.import_position,
-            .near => |near| near.export_position,
+            .far => |far| far.import_position.int(),
+            .near => |near| near.export_position.int(),
             else => return error.UnexpectedReferenceShape,
         },
         else => return error.UnexpectedResolutionPayload,
     };
     std.debug.print(
         "phone resolved answer={d} -> receipt at import {d}\n",
-        .{ body.resolve.answer, receipt_import },
+        .{ body.resolve.answer.int(), receipt_import },
     );
 }

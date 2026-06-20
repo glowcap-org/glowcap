@@ -30,7 +30,7 @@ console.log(`${nick}: completed task #${id}`);
 const after = await board.list();
 const ours = after.find((t) => t.id === id);
 if (!ours || !ours.completed) {
-	console.error(`${nick}: FAIL — task #${id} not marked completed`);
+	console.error(`${nick}: FAIL, task #${id} not marked completed`);
 	await board.leave();
 	Deno.exit(1);
 }

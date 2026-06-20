@@ -48,7 +48,7 @@ const Greeter = struct {
 };
 
 /// Server half: accept one partner over `listener`, publish the greeter, and
-/// serve until the client closes — the client's `cv.deinit` ends this serve.
+/// serve until the client closes, the client's `cv.deinit` ends this serve.
 fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
@@ -200,7 +200,7 @@ fn benchIroh(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: [
 }
 
 // ── iroh at its design point: many connections on one readiness loop ──────────
-// The serial bench above is one connection, one call in flight — the worst case
+// The serial bench above is one connection, one call in flight, the worst case
 // for the async sidecar bridge, where every blocking read pays a cross-thread
 // `block_on` wakeup with nothing to amortize it against. ADR-0057's readiness
 // loop is the path iroh is built to be served on: one thread multiplexes many

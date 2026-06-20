@@ -1,4 +1,4 @@
-"""The in-process transport — pancake's ``libpancake_net_transport_inproc``
+"""The in-process transport, pancake's ``libpancake_net_transport_inproc``
 archive, surfaced à la carte.
 
 This is the socket-free sibling of :mod:`pancake.tcp`: two peers in one process
@@ -73,7 +73,7 @@ def _designator_buf(designator: str):
 
 class InprocConn:
     """One in-process connection carrying one OCapN session, framed on the
-    netlayer's codec — the socket-free sibling of :class:`pancake.tcp.TcpEndpoint`.
+    netlayer's codec, the socket-free sibling of :class:`pancake.tcp.TcpEndpoint`.
     Closed on release / context exit."""
 
     def __init__(self, raw):
@@ -168,7 +168,7 @@ class InprocNetlayer:
             self._raw = None
 
     def listen(self, designator: str) -> InprocListener:
-        """Bind a listener on ``designator`` — any opaque token a dialer names."""
+        """Bind a listener on ``designator``, any opaque token a dialer names."""
         buf, n = _designator_buf(designator)
         out = ctypes.c_void_p()
         _check_inproc(_inproc_lib.pancake_inproc_listen(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, ctypes.byref(out)))

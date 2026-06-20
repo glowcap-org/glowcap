@@ -32,9 +32,9 @@ test "finalizer-driven gc-export churn reclaims import rows and holds flat heap"
     defer s.deinit();
 
     // Warm one import/release pair so the table backing reaches steady capacity
-    // before the measured churn — the same warmed-baseline shape the footprint
+    // before the measured churn, the same warmed-baseline shape the footprint
     // budget uses, so the quotient is the marginal cost, not first-allocation.
-    try s.registerImport(1);
+    try s.registerImport(.from(1));
     try s.recordSend(.{ .gc_export = .{ .positions = &.{1}, .deltas = &.{1} } });
 
     const before = tracker.liveBytes();
@@ -43,11 +43,11 @@ test "finalizer-driven gc-export churn reclaims import rows and holds flat heap"
     var pos: u64 = 2;
     while (pos < churn) : (pos += 1) {
         // A far reference lifted from the wire: the session counts the import up.
-        try s.registerImport(pos);
-        try std.testing.expectEqual(@as(u64, 1), s.importRefcount(pos));
+        try s.registerImport(.from(pos));
+        try std.testing.expectEqual(@as(u64, 1), s.importRefcount(.from(pos)));
         // The dropped handle's finalizer releases exactly one wire-count unit.
         try s.recordSend(.{ .gc_export = .{ .positions = &.{pos}, .deltas = &.{1} } });
-        try std.testing.expect(!s.hasImport(pos));
+        try std.testing.expect(!s.hasImport(.from(pos)));
     }
 
     const after = tracker.liveBytes();

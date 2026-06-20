@@ -150,7 +150,7 @@ pub fn locator(buf: []u8, address: IpAddress) model.PeerLocator {
 }
 
 /// Build a `tcp` locator from a `host:port` `designator` string the caller
-/// already holds — the value `argv` hands a client, or a `Server`'s
+/// already holds, the value `argv` hands a client, or a `Server`'s
 /// `localDesignator`. This is the buffer-free primary: the designator is the
 /// address, so a literal address needs no `IpAddress` parse and no caller format
 /// buffer (the netlayer `dial` parses the designator). It owns the empty-hints

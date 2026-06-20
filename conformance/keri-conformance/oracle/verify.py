@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""verify.py — custom KERI conformance oracle for the Goblins Vat kernel.
+"""verify.py, custom KERI conformance oracle for the Goblins Vat kernel.
 
 Reads .data/kel/<aid>.kel.jsonl and .data/episodes.jsonld, then verifies:
 
@@ -27,7 +27,7 @@ Exits 0 on full conformance, non-zero with a diff on any mismatch.
 This is **custom verification logic** that uses shared algorithms
 (Blake3 via the `blake3` Python package, Ed25519 via pynacl, optionally
 falling back to keripy's `Diger` / `Verfer` primitives). It is NOT full
-keripy `Serder` ingestion — witness receipts, interaction/delegation/TEL
+keripy `Serder` ingestion, witness receipts, interaction/delegation/TEL
 events, CESR streaming format, weighted/fractional thresholds (`kt` as
 `["1/2","1/2","1/2"]`), and non-Ed25519 / non-Blake3 suites are out of scope.
 
@@ -81,7 +81,7 @@ def cesr_decode_64(prim: str) -> bytes:
     return raw[2:]
 
 
-# Base64url alphabet — used to decode the 1-char index in CESR `A`-prefixed
+# Base64url alphabet, used to decode the 1-char index in CESR `A`-prefixed
 # indexed Ed25519 signatures. CESR primitive codes per WebOfTrust spec.
 _B64URL_ALPHABET = (
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
@@ -122,7 +122,7 @@ def parse_threshold(threshold) -> int:
 
     KERI thresholds are hex strings (`"1"`, `"2"`, `"a"` for 10, etc.). Weighted
     or fractional thresholds (lists like `["1/2","1/2","1/2"]`) are out of
-    kernel oracle scope — the Vat does not emit them, and supporting them
+    kernel oracle scope, the Vat does not emit them, and supporting them
     requires fractional-threshold satisfaction logic that adds risk without
     forcing function. Reject explicitly so future weighted-threshold data
     fails loudly rather than silently passing.
@@ -254,7 +254,7 @@ def verify_kel(aid: str, kel_records: list) -> bool:
             is_icp,
         )
         if computed_said != evt["d"]:
-            err(f"event {i} ({evt['t']}): SAID mismatch — computed {computed_said}, stored {evt['d']}")
+            err(f"event {i} ({evt['t']}): SAID mismatch, computed {computed_said}, stored {evt['d']}")
             return False
         ok(f"event {i} ({evt['t']}): SAID matches")
 
@@ -296,7 +296,7 @@ def verify_kel(aid: str, kel_records: list) -> bool:
                 actual = cesr_encode_32("E", blake3_256(key_cesr.encode("utf-8")))
                 if actual != prior_next_digests[ki]:
                     err(
-                        f"event {i}: pre-rotation commitment broken at index {ki} — "
+                        f"event {i}: pre-rotation commitment broken at index {ki}, "
                         f"prior committed {prior_next_digests[ki]}, current verkey hashes to {actual}"
                     )
                     return False
@@ -428,7 +428,7 @@ def verify_episode(idx: int, episode: dict, kel_for_aid: dict) -> bool:
     ok(f"Episode {idx}: ephemeral_pubkey signed by AID@{seq}")
 
     # Check 2: ephemeral pubkey verified the Episode payload (sig fields stripped).
-    # crypto_suite stays in the payload — it's part of the signed bytes.
+    # crypto_suite stays in the payload, it's part of the signed bytes.
     payload = {
         k: v
         for k, v in episode.items()

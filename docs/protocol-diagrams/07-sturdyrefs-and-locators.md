@@ -25,7 +25,7 @@ flowchart TD
 
 Turning a sturdyref into a live reference takes two moves: establish a session
 per the locator (if none exists), then bootstrap-`fetch` the swiss number. The
-result is an ordinary import — from here on, sturdyref origin is invisible.
+result is an ordinary import, from here on, sturdyref origin is invisible.
 
 ```mermaid
 sequenceDiagram

@@ -1,4 +1,4 @@
-"""Idiomatic Python API for ``libpancake_net_transport_iroh`` — pancake's optional
+"""Idiomatic Python API for ``libpancake_net_transport_iroh``, pancake's optional
 encrypted-QUIC (iroh) transport, the companion to the core :mod:`pancake` module.
 
 The split mirrors the artifacts: ``pancake`` rides ``libpancake_ocapn`` (the
@@ -39,6 +39,7 @@ from typing import Optional, Union
 from . import (
     AsyncConnection,
     Connection,
+    Node,
     Peer,
     PancakeError,
     _ERR_CLOSED,
@@ -95,7 +96,7 @@ class Reachability(enum.IntEnum):
     ``DISCOVERY_NO_RELAY`` (2)
         Use DNS discovery, but no relays.
     ``LOCAL_DISCOVERY`` (3)
-        Use an in-process address book — for tests and same-process peers.
+        Use an in-process address book, for tests and same-process peers.
     """
 
     DIRECT = 0
@@ -105,7 +106,7 @@ class Reachability(enum.IntEnum):
 
 
 class IrohConn:
-    """One iroh QUIC connection carrying one OCapN session — the iroh sibling of
+    """One iroh QUIC connection carrying one OCapN session, the iroh sibling of
     :class:`pancake.tcp.TcpEndpoint`. It is driven by an :class:`_IrohLoop`, which
     frames the raw bytes :meth:`try_read_into` hands out the same way the TCP pump
     frames its socket bytes. No call here ever parks on the connection, so a
@@ -152,12 +153,12 @@ class IrohConn:
 
 
 class IrohNetlayer:
-    """A bound iroh QUIC endpoint plus the sidecar runtime driving it — the iroh
+    """A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
     sibling of :class:`pancake.tcp.TcpNetlayer`, and its own listener (there is no
     host:port, so :meth:`accept` lives here). Release every :class:`IrohConn` it
     mints before releasing it.
 
-    ``reachability`` (a :class:`Reachability`) is required — it sets the
+    ``reachability`` (a :class:`Reachability`) is required, it sets the
     endpoint's addressing posture and has no default."""
 
     def __init__(self, reachability: "Union[int, Reachability]", secret_seed: "Optional[bytes]" = None):
@@ -173,7 +174,7 @@ class IrohNetlayer:
         self._raw = out
 
     def node_id(self) -> str:
-        """This endpoint's id — its Ed25519 public key as lowercase hex, the
+        """This endpoint's id, its Ed25519 public key as lowercase hex, the
         dialable designator a keyed locator signs."""
         cap = 64
         out = (ctypes.c_uint8 * cap)()
@@ -182,7 +183,7 @@ class IrohNetlayer:
         return bytes(out[: n.value]).decode()
 
     def direct_addresses(self) -> str:
-        """This endpoint's comma-separated direct socket addresses — the dialing
+        """This endpoint's comma-separated direct socket addresses, the dialing
         hint a partner needs because the sidecar binds relay-less."""
         cap = 1024
         out = (ctypes.c_uint8 * cap)()
@@ -196,7 +197,7 @@ class IrohNetlayer:
     # The loop is armed when the netlayer is created, so these work immediately.
 
     def readiness_fd(self) -> int:
-        """This endpoint's single readiness fd — register it with the event loop
+        """This endpoint's single readiness fd, register it with the event loop
         (``add_reader``) and call :meth:`drain_ready` when it signals. Owned by
         the netlayer; never close it."""
         fd = _iroh().pancake_iroh_netlayer_readiness_fd(self._raw)
@@ -359,7 +360,7 @@ class _IrohLoop:
 
     async def close(self) -> None:
         """Remove the fd reader and wake every waiter so parked pumps unwind. The
-        caller releases the netlayer after this — no callback still touches it."""
+        caller releases the netlayer after this, no callback still touches it."""
         if self._closed:
             return
         self._closed = True
@@ -387,7 +388,7 @@ class _IrohLoop:
         # The event loop calls this on the loop thread whenever the readiness fd
         # signals. Drain the queue in batches until a short count (a deeper queue
         # than one drain holds is never stranded), dispatching each record. A
-        # fault means the endpoint was closed under us — stop watching the fd.
+        # fault means the endpoint was closed under us, stop watching the fd.
         if self._closed:
             return
         while True:
@@ -440,7 +441,7 @@ class _IrohLoopPump(_FramePump):
     """The iroh pump: a non-blocking :class:`IrohConn` driven by an
     :class:`_IrohLoop` (ADR-0057). It sources raw inbound bytes through the
     sidecar's non-blocking ``try_read``, buffers them, and lets the peer frame
-    them — exactly like the TCP pump, since the frame unit is identical; the
+    them, exactly like the TCP pump, since the frame unit is identical; the
     readiness loop, not a parked blocking read, decides when bytes are available.
     Outbound frames go through the non-blocking ``try_write``, re-arming on the
     next writable record if the sidecar buffer is full. The keyed locator signs
@@ -450,7 +451,7 @@ class _IrohLoopPump(_FramePump):
     Lifetime: a server-accepted pump borrows the server's loop and netlayer; a
     dialing pump minted its own netlayer and loop (``owns_loop``) and tears both
     down on close. No call ever parks on this connection, so ``close`` cannot race
-    a parked read — the teardown hazard the blocking pump had."""
+    a parked read, the teardown hazard the blocking pump had."""
 
     _READ_CHUNK = 65536
 
@@ -514,7 +515,7 @@ class _IrohLoopPump(_FramePump):
     def shutdown(self) -> bool:
         # No parked worker-thread read to close: the receive parks on a future the
         # loop resolves. Dropping the routing entry wakes that waiter with a clean
-        # end, so the inbound loop unwinds — the unblock half of teardown.
+        # end, so the inbound loop unwinds, the unblock half of teardown.
         self._loop.unregister(self._conn)
         return True
 
@@ -532,6 +533,55 @@ class _IrohLoopPump(_FramePump):
                 self._owned_netlayer.release()
 
 
+# The discovery-posture dial retry budget: how long pkarr propagation is given
+# before each retry, and how many attempts (~72s total, covering n0 DNS/pkarr
+# propagation). Matches the TS ``dialResolving`` budget.
+_DISCOVERY_DIAL_RETRY_S = 3.0
+_DISCOVERY_DIAL_MAX_ATTEMPTS = 24
+
+
+async def _dial_resolving(netlayer: IrohNetlayer, node_id: str, direct_addresses: str, retry: bool) -> IrohConn:
+    """Dial, retrying only under a propagating-discovery posture (``DISCOVERY`` and
+    ``DISCOVERY_NO_RELAY``) while it resolves the partner by id. A dial-by-id can
+    fail with "no addressing information" until the exporter's pkarr record
+    propagates to the n0 resolver (seconds, variable); every other posture dials
+    once (Direct's addresses are in hand, local_discovery resolves instantly).
+    Mirrors the TS ``dialResolving`` and the Zig ``iroh-reachability`` driver."""
+    attempt = 1
+    while True:
+        try:
+            return await asyncio.to_thread(netlayer.try_connect, node_id, direct_addresses)
+        except Exception:
+            if not retry or attempt >= _DISCOVERY_DIAL_MAX_ATTEMPTS:
+                raise
+        attempt += 1
+        await asyncio.sleep(_DISCOVERY_DIAL_RETRY_S)
+
+
+async def _dial_iroh_ac(node_id: str, direct_addresses: str, reachability: "Union[int, Reachability]", peer: Peer) -> AsyncConnection:
+    """Dial an iroh endpoint and return the :class:`AsyncConnection` over an
+    ephemeral, self-owned netlayer + readiness loop (ADR-0057), before the keyed
+    handshake, driving the node-owned ``peer`` (ADR-0066). Shared by
+    :func:`connect_iroh` (a fresh node) and :func:`connect_iroh_with_node` (a
+    handoff redeem under a shared node)."""
+    netlayer = IrohNetlayer(reachability)
+    loop = _IrohLoop(netlayer)
+    try:
+        conn = await _dial_resolving(
+            netlayer, node_id, direct_addresses,
+            int(reachability) in (int(Reachability.DISCOVERY), int(Reachability.DISCOVERY_NO_RELAY)),
+        )
+    except BaseException:
+        await loop.close()
+        netlayer.release()
+        raise
+    loop.register(conn)
+    loop.start()
+    # A dialer signs an empty designator (its identity is the session key),
+    # matching the Zig driver; the pump owns the ephemeral netlayer and loop.
+    return AsyncConnection.from_pump(peer, _IrohLoopPump(conn, "", loop, netlayer, owns_loop=True))
+
+
 async def connect_iroh(node_id: str, direct_addresses: str, reachability: "Union[int, Reachability]") -> Connection:
     """Dial an iroh partner by endpoint id and direct-address hints, complete the
     keyed OCapN handshake over the encrypted-QUIC transport, and return a ready
@@ -541,32 +591,50 @@ async def connect_iroh(node_id: str, direct_addresses: str, reachability: "Union
     ``reachability`` (a :class:`Reachability`) sets the ephemeral dialer's posture
     and is required — there is no default. This is what :func:`pancake.connect`
     calls for an ``iroh`` locator. Needs the iroh ABI library
-    (``zig build iroh-abi``)."""
-    netlayer = IrohNetlayer(reachability)
-    loop = _IrohLoop(netlayer)
+    (``zig build iroh-abi``).
+
+    The fresh node's session key and its node identity are one and the same
+    seed, so the connection's wire identity stays coherent, a handoff this node
+    later redeems signs its ``desc:handoff-receive`` with the very key the gifter
+    recorded, exactly as the TCP dialer does."""
+    return await connect_iroh_with_node(node_id, direct_addresses, reachability, Node())
+
+
+async def connect_iroh_with_node(
+    node_id: str,
+    direct_addresses: str,
+    reachability: "Union[int, Reachability]",
+    node: Node,
+) -> Connection:
+    """The node-keyed iroh dial behind a handoff redeem: bring the connection
+    up under ``node`` rather than a fresh node, so the redeemed capability and
+    any further handoff it triggers share the recipient's one identity and gift
+    registry (ADR-0009/ADR-0056), the iroh sibling of the TCP redeem's shared
+    node. Needs the iroh ABI library (``zig build iroh-abi``)."""
+    conn_id, peer = node.register_conn()
     try:
-        conn = await asyncio.to_thread(netlayer.try_connect, node_id, direct_addresses)
+        ac = await _dial_iroh_ac(node_id, direct_addresses, reachability, peer)
+        await _open_keyed_session(ac, node.seed)
     except BaseException:
-        await loop.close()
-        netlayer.release()
+        node.remove_conn(conn_id)
         raise
-    loop.register(conn)
-    loop.start()
-    # A dialer signs an empty designator (its identity is the session key),
-    # matching the Zig driver; the pump owns the ephemeral netlayer and loop.
-    ac = AsyncConnection.from_pump(Peer(), _IrohLoopPump(conn, "", loop, netlayer, owns_loop=True))
-    await _open_keyed_session(ac)
-    return Connection(ac)
+    return Connection(ac, node, conn_id)
 
 
-async def _accept_iroh(conn: IrohConn, local_node_id: str, loop: _IrohLoop) -> Connection:
+async def _accept_iroh(conn: IrohConn, local_node_id: str, loop: _IrohLoop, node: Node) -> Connection:
     """Complete the responder handshake over an accepted iroh connection, signing
     the server's endpoint id as the locator designator (used by
     :class:`IrohServer`). The accepted connection's loop and netlayer belong to
-    the server, not this connection."""
-    ac = AsyncConnection.from_pump(Peer(), _IrohLoopPump(conn, local_node_id, loop))
-    await _open_keyed_session(ac)
-    return Connection(ac)
+    the server, not this connection. It is bound to the server's one ``node``
+    — shared identity and gift registry — and constructed before the handshake
+    completes so the node's giftables are published as bootstrap caps before a
+    dialer's pipelined fetch is answered (the exporter half of a three-party
+    handoff, ADR-0009), exactly as the TCP responder does."""
+    conn_id, peer = node.register_conn()
+    ac = AsyncConnection.from_pump(peer, _IrohLoopPump(conn, local_node_id, loop))
+    accepted = Connection(ac, node, conn_id)
+    await _open_keyed_session(ac, node.seed)
+    return accepted
 
 
 class IrohServer:
@@ -584,12 +652,28 @@ class IrohServer:
         # Serve every accepted connection from one readiness loop instead of a
         # blocking accept and a blocking read parked per connection (ADR-0057).
         self._loop = _IrohLoop(self._netlayer)
+        # One shared node across every accepted connection — one retained
+        # identity and one gift registry — the iroh sibling of the TCP
+        # :class:`pancake.Server`. The gifter half of a three-party handoff dials
+        # the exporter under this same node (:func:`connect_iroh_with_node`)
+        # so a published node-giftable and the introducer it returns share one
+        # node (ADR-0009/ADR-0056).
+        self._node = Node()
         self._closed = False
 
     @property
     def node_id(self) -> str:
-        """This endpoint's id — the keyed locator designator and the URI host."""
+        """This endpoint's id, the keyed locator designator and the URI host."""
         return self._node_id
+
+    @property
+    def node(self) -> Node:
+        """The node's shared node: one retained identity and gift registry
+        across every accepted connection. Pass it to
+        :func:`connect_iroh_with_node` so a fetched capability and the dialing
+        connection share one node — the gifter side of a three-party handoff —
+        and publish a node-giftable on it with :meth:`Node.publish_giftable`."""
+        return self._node
 
     @property
     def direct_addresses(self) -> str:
@@ -619,9 +703,9 @@ class IrohServer:
                 continue
             self._loop.register(conn)
             # A handshake failure belongs to that one connection (a partner that
-            # dialed and died), never the server — release it and keep accepting.
+            # dialed and died), never the server, release it and keep accepting.
             try:
-                return await _accept_iroh(conn, self._node_id, self._loop)
+                return await _accept_iroh(conn, self._node_id, self._loop, self._node)
             except Exception:
                 self._loop.unregister(conn)
                 conn.release()
@@ -648,8 +732,9 @@ class IrohServer:
 def listen_iroh(reachability: "Union[int, Reachability]", secret_seed: "Optional[bytes]" = None) -> IrohServer:
     """Bind an iroh endpoint and return an :class:`IrohServer` you iterate for
     each accepted :class:`pancake.Connection`. ``reachability`` (a
-    :class:`Reachability`) is required and sets the endpoint's addressing posture
-    — there is no default. ``secret_seed`` is a 32-byte Ed25519 secret for a
+    :class:`Reachability`) is required and sets the endpoint's addressing
+    posture. There is no default. ``secret_seed`` is a 32-byte Ed25519 secret
+    for a
     stable endpoint id, or ``None`` for a fresh random one. Needs the iroh ABI
     library (``zig build iroh-abi``)."""
     return IrohServer(reachability, secret_seed)

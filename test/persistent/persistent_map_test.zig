@@ -56,7 +56,7 @@ test "old versions keep their values while a new version shares structure" {
     var v3 = try v2.put(1, 11); // shadows key 1 in v3 only
     defer v3.deinit();
 
-    // Each version reflects exactly the writes up to it — immutability holds
+    // Each version reflects exactly the writes up to it, immutability holds
     // even though v1..v3 share interior nodes.
     try std.testing.expectEqual(@as(usize, 0), v0.len());
 

@@ -1,6 +1,6 @@
 // The wire contract shared by the tasks server and every tasks client, in every
 // language. A capability name and the method verbs the board and a watcher
-// answer to — object-capability messages over OCapN, no RPC framework.
+// answer to, object-capability messages over OCapN, no RPC framework.
 //
 // A board is the server's published capability. A client fetches it by name and
 // eventual-sends `add`, `done`, `list`, and `watch`. When watching, the client

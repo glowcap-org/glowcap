@@ -289,7 +289,7 @@ pub const ConnectedVat = struct {
     }
 
     /// Promise pipelining: eventual-send `msg` to a far `promise` a prior
-    /// `send`/`sendToAnswer` returned, before it resolves — an `op:deliver`
+    /// `send`/`sendToAnswer` returned, before it resolves, an `op:deliver`
     /// against `<desc:answer>` (see `Vat.sendToAnswer`). Returns a promise for
     /// this call's own result, itself pipelineable. The next `step` flushes it.
     /// A `.local` promise has no wire answer to pipeline against, so it is
@@ -312,7 +312,7 @@ pub const ConnectedVat = struct {
 
     /// Fire-and-forget eventual-send (`<-np`): enqueue a deliver with no answer,
     /// so a notification costs one deliver and no reply. The next `step` flushes
-    /// it. Returns nothing — there is no promise to observe.
+    /// it. Returns nothing; there is no promise to observe.
     pub fn tell(self: *ConnectedVat, target: actors.Ref, msg: actors.Message) !void {
         return self.vat.tell(target, msg);
     }
@@ -337,11 +337,12 @@ pub const ConnectedVat = struct {
     /// Fetch a partner's published capability by `name`, returning a far `Ref` you
     /// can `send` to. This is a `call` on the bootstrap object, using explicit,
     /// blocking, caller-owned I/O; `sendBootstrapFetch` is the shared deliver
-    /// shape it drives to settlement. A fetch the partner answers with a break (an
-    /// unpublished name) returns `Error.FetchBroken`; a fetch that fulfills with
-    /// anything other than a far capability returns `Error.FetchNotACapability`.
-    /// This path allocates nothing and retains no break reason; `fetchSettled`
-    /// is the reason-bearing form.
+    /// shape it drives to settlement. A bootstrap fetch always resolves to the
+    /// responder's own published export, so a fulfilled fetch yields a far ref;
+    /// an unpublished name returns `Error.FetchBroken`, and any other fulfill (a
+    /// near, promise, sturdy, or non-reference) returns
+    /// `Error.FetchNotACapability`. This path allocates nothing and retains no
+    /// break reason; `fetchSettled` is the reason-bearing form.
     pub fn fetch(self: *ConnectedVat, name: []const u8) !actors.Ref {
         var state = FetchState{};
         const promise = try sendBootstrapFetch(&self.vat, name);
@@ -468,7 +469,7 @@ const SettleState = struct {
 
 /// What a bootstrap fetch settled to. `onFetch` runs during the settling step
 /// with a turn-borrowed resolution, so it records only the shape (and the POD
-/// far ref) — never a borrow of the resolution's bytes. The break reason is
+/// far ref), never a borrow of the resolution's bytes. The break reason is
 /// deliberately not copied; carrying it would be a hidden allocation, and a
 /// caller that needs it uses `ConnectedVat.fetchSettled`.
 const FetchOutcome = union(enum) {
@@ -574,7 +575,7 @@ pub fn acceptTcp(
 ///
 /// `identity` is the one identity seam: `.ephemeral` draws a fresh random
 /// session key and advertises no dialable designator (the ordinary client), and
-/// `.keyed` signs with a caller-held key over the dialer's own designator — key
+/// `.keyed` signs with a caller-held key over the dialer's own designator, key
 /// unification, when the key is the secret half of the netlayer endpoint's key.
 /// The caller owns `peer`, `read_buf`, and `write_buf`; `netlayers` (and the
 /// residents behind it) must outlive the returned vat. `connectTcp` is the
@@ -610,7 +611,7 @@ pub fn connectVia(
 /// the caller parsing it by hand.
 ///
 /// `netlayers` is the caller's because the residents behind it can hold state
-/// (the iroh resident does), and that state must outlive the returned vat — a
+/// (the iroh resident does), and that state must outlive the returned vat, a
 /// slice built inside this call would dangle the moment it returned. A URI
 /// naming a transport no netlayer hosts fails closed with
 /// `Error.UnknownTransport`. `identity` is the same signing seam `connectVia`
@@ -642,7 +643,7 @@ pub fn connectUri(
 /// A host is always reachable, so the signed designator is the listener's own
 /// bound designator regardless of `identity`. `identity` chooses only the
 /// signing key: `.ephemeral` draws a fresh random session key, and `.keyed`
-/// signs with a caller-held key — the responder half of key unification, when
+/// signs with a caller-held key, the responder half of key unification, when
 /// the key is the secret half of the netlayer endpoint's key and the bound
 /// designator already equals that key's node id. The keyed arm's `designator`
 /// field is unused here: a host names itself by where it listens.

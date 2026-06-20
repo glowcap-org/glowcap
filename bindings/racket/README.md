@@ -54,8 +54,8 @@ The raw `ffi/unsafe` layer is never required by a consumer; it follows Racket's
 - [`private/ffi-iroh.rkt`](private/ffi-iroh.rkt) — loads
   `libpancake_net_transport_iroh` lazily on first use, naming the build step
   (`zig build iroh-abi`, needs cargo) when it is absent.
-- [`private/constants.rkt`](private/constants.rkt) — the generated ABI
-  constants.
+- [`private/constants.rkt`](private/constants.rkt) — the ABI constants,
+  hand-mirrored from `pancake_ocapn.h` and held to it by `zig build meta-check`.
 
 Each transport archive keeps its own thread-local last-error, read through that
 archive's own reader (`tcp-last-error`, `inproc-last-error`), never the ocapn

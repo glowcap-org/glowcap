@@ -46,7 +46,7 @@ fn referencesEqualDepth(a: model.Reference, b: model.Reference, depth: usize) bo
     };
 }
 
-/// Locator identity on two `model.PeerLocator` values — the equality axis a
+/// Locator identity on two `model.PeerLocator` values, the equality axis a
 /// `SturdyRef` and a `PeerId` both re-derive. Per OCapN `Locators.md`, the
 /// designator and the transport are the only pieces that need to match: two
 /// locators that differ only in hints name the same peer, because hints are
@@ -159,7 +159,7 @@ fn setsEqualDepth(a: []const model.Argument, b: []const model.Argument, depth: u
 /// `Object.is` axis, *not* IEEE `==`. Two distinctions matter and IEEE `==` gets
 /// both wrong: every NaN bit-pattern is Equal to every other NaN (IEEE: never),
 /// and `+0.0` is *not* Equal to `-0.0` (IEEE: equal). So NaN is collapsed to a
-/// single Equal class and the remaining values compare by raw bits — which keeps
+/// single Equal class and the remaining values compare by raw bits, which keeps
 /// the sign-zero distinction the spec requires for round-trip JSON invariance.
 fn float64Equal(x: f64, y: f64) bool {
     const x_is_nan = std.math.isNan(x);

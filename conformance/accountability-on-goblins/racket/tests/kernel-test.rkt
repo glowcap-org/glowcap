@@ -87,7 +87,7 @@
     (set! already-run? #t)))
 
 (test-case
- "Step 2 — AID inception event is well-formed CESR"
+ "Step 2, AID inception event is well-formed CESR"
  (ensure-kernel-run)
  (define kel-files (directory-list (build-path D "kel")))
  (check-true (>= (length kel-files) 1) "at least one KEL file exists")
@@ -98,7 +98,7 @@
  (check-equal? (string-ref aid 0) #\E "AID has E-prefix (Blake3-256 SAID)"))
 
 (test-case
- "Step 2 — KEL has inception event"
+   "Step 2: KEL has inception event"
  (define kel (id:load-kel D (kel-aid)))
  (check-true (>= (length kel) 1) "at least one event")
  (define icp (hash-ref (car kel) 'event))
@@ -106,7 +106,7 @@
  (check-equal? (hash-ref icp 's) "0" "icp has seq=0"))
 
 (test-case
- "Step 6 — KEL has rotation event with pre-rotation commitment"
+ "Step 6: KEL has rotation event with pre-rotation commitment"
  (define kel (id:load-kel D (kel-aid)))
  (check-true (>= (length kel) 2) "at least two events (icp + rot)")
  (define rot (hash-ref (cadr kel) 'event))
@@ -122,12 +122,12 @@
  (check-equal? committed computed-cesr "rotation verkey matches inception commitment"))
 
 (test-case
- "Step 5/7 — exactly one Episode written"
+ "Step 5/7, exactly one Episode written"
  (define episodes (ep:load-episodes D))
  (check-equal? (length episodes) 1 "one Episode in episodes.jsonld"))
 
 (test-case
- "Step 5 — Episode has RDF-Star quad shape"
+ "Step 5: Episode has RDF-Star quad shape"
  (define episodes (ep:load-episodes D))
  (define ep (car episodes))
  (check-equal? (hash-ref ep '@type) "goblins:Episode")
@@ -139,13 +139,13 @@
  (check-true (hash-has-key? ep 'tx_time_start) "has tx_time_start"))
 
 (test-case
- "Step 6/8 — Episode signature chain verifies"
+ "Step 6/8, Episode signature chain verifies"
  (define episodes (ep:load-episodes D))
  (define ep (car episodes))
  (check-true (ep:verify-episode D ep) "verify-episode returns #t"))
 
 (test-case
- "Step 7 — transparency log records the Episode"
+ "Step 7, transparency log records the Episode"
  (define leaves (tlog:log-leaves D))
  (check-equal? (length leaves) 1 "one leaf in transparency.log")
  ;; Verify the Merkle root recomputes to the recorded value.
@@ -154,7 +154,7 @@
  (check-equal? recorded-root computed-root-hex "Merkle root matches"))
 
 (test-case
- "Step 6 — Episode anchored at seq=1 (post-rotation)"
+ "Step 6, Episode anchored at seq=1 (post-rotation)"
  (define episodes (ep:load-episodes D))
  (define ep (car episodes))
  (define seq (hash-ref (hash-ref ep 'kel_anchor) 'seq))

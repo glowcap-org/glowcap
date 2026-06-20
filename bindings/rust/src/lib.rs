@@ -43,7 +43,9 @@ mod connection;
 // `tcp_locator` builds a `tcp` locator from a literal host and port for the
 // common case; `listen`/`Server` host TCP partners.
 #[cfg(feature = "async")]
-pub use connection::{listen, tcp_locator, Caretaker, Connection, Machine, Ref, Server};
+pub use connection::{
+	encode_peer_locator, listen, tcp_locator, Caretaker, Connection, Node, Ref, Server,
+};
 
 // `connect` is the one dialer over an `ocapn://` locator, with one signature
 // across every build: `connect(uri, reachability)`. A `tcp` locator ignores the
@@ -62,7 +64,7 @@ pub use iroh::{listen_iroh, IrohServer};
 #[cfg(feature = "async")]
 mod wire;
 
-// The blocking transports — each its own à-la-carte archive, linked only when
+// The blocking transports, each its own à-la-carte archive, linked only when
 // its feature is on (ADR-0059). They share the core peer and type layout but
 // never each other; the core stands alone without any of them.
 #[cfg(feature = "inproc")]
@@ -75,7 +77,7 @@ pub mod tcp;
 #[cfg(feature = "iroh")]
 pub mod iroh;
 
-// OCapN locator URIs — core libpancake_ocapn vocabulary, so a TCP-only consumer reaches
+// OCapN locator URIs, core libpancake_ocapn vocabulary, so a TCP-only consumer reaches
 // the grammar without the iroh companion library. One grammar, no hand-rolled percent codec.
 mod uri;
 pub use uri::{format_peer_uri, parse_locator, parse_sturdyref, Locator};
@@ -96,7 +98,7 @@ pub enum AbortDomain {
 	Foreign,
 }
 
-/// The typed cause of a peer's most recent local dispatch failure — the safe
+/// The typed cause of a peer's most recent local dispatch failure, the safe
 /// projection of `pancake_peer_last_abort`. The flat `PANCAKE_ERR_*` code names
 /// the failure family; this names the member: which layer refused, the
 /// projected `op:abort` kind when one applies, and the diagnostic strings.
@@ -146,7 +148,7 @@ impl Error {
 
 	fn from_code(code: i32) -> Error {
 		// Snapshot the thread-local message now, while it still belongs to the
-		// call that just failed — matching the Python/Deno/Racket bindings.
+		// call that just failed, matching the Python/Deno/Racket bindings.
 		Error {
 			code,
 			detail: last_error(),
@@ -154,7 +156,7 @@ impl Error {
 		}
 	}
 
-	/// A binding-side failure with an explicit message — for a refusal the C ABI
+	/// A binding-side failure with an explicit message, for a refusal the C ABI
 	/// never saw (e.g. an `ocapn://` URI naming a transport this build cannot dial).
 	#[cfg(feature = "async")]
 	fn with_detail(code: i32, detail: String) -> Error {
@@ -496,7 +498,7 @@ impl Argument {
 
 // Native-value conversions so an argument list reads as plain Rust values:
 // `&[42.into(), "hi".into(), (&cap).into()]`. Integers and floats each take a
-// single concrete impl (`i64`, `f64`) so a bare literal still infers — `5.into()`
+// single concrete impl (`i64`, `f64`) so a bare literal still infers, `5.into()`
 // is unambiguous. `Ref` already converts in `connection.rs`.
 impl From<i64> for Argument {
 	fn from(v: i64) -> Argument {
@@ -765,6 +767,12 @@ unsafe extern "C" fn release_owned_vec(frame: *mut sys::PancakeManagedFrame) {
 /// ```
 pub struct Peer<'ctx> {
 	raw: *mut sys::PancakePeer,
+	// Whether this wrapper owns the peer and must release it on drop. A peer
+	// created here (`new`, `negotiated`, …) is owned; a peer borrowed from a
+	// `Node` (ADR-0066, via [`Peer::from_node_raw`]) is not, the node allocated
+	// it and frees it on `pancake_node_remove_conn`/`pancake_node_free`, so this
+	// wrapper must leave it alone.
+	owned: bool,
 	_ctx: PhantomData<&'ctx Context>,
 }
 
@@ -809,6 +817,7 @@ impl<'ctx> Peer<'ctx> {
 		check(unsafe { sys::pancake_peer_new(&mut raw) })?;
 		Ok(Peer {
 			raw,
+			owned: true,
 			_ctx: PhantomData,
 		})
 	}
@@ -820,6 +829,7 @@ impl<'ctx> Peer<'ctx> {
 		check(unsafe { sys::pancake_peer_new_in(context.raw, &mut raw) })?;
 		Ok(Peer {
 			raw,
+			owned: true,
 			_ctx: PhantomData,
 		})
 	}
@@ -833,6 +843,7 @@ impl<'ctx> Peer<'ctx> {
 		check(unsafe { sys::pancake_peer_new_negotiated(profile.id(), codec.to_c(), &mut raw) })?;
 		Ok(Peer {
 			raw,
+			owned: true,
 			_ctx: PhantomData,
 		})
 	}
@@ -849,6 +860,7 @@ impl<'ctx> Peer<'ctx> {
 		})?;
 		Ok(Peer {
 			raw,
+			owned: true,
 			_ctx: PhantomData,
 		})
 	}
@@ -859,8 +871,28 @@ impl<'ctx> Peer<'ctx> {
 		check(unsafe { sys::pancake_peer_new_raw_open(&mut raw) })?;
 		Ok(Peer {
 			raw,
+			owned: true,
 			_ctx: PhantomData,
 		})
+	}
+
+	/// Wrap a peer the [`Node`](crate::sys::PancakeNode)-backed router owns
+	/// (ADR-0066) for pumping, without taking ownership: the node allocated the
+	/// peer (already bound to its shared gift registry and identity) and frees it
+	/// on `pancake_node_remove_conn` / `pancake_node_free`, so this wrapper never
+	/// releases it.
+	///
+	/// # Safety
+	/// `raw` must be a live peer the node owns, and the node must outlive the
+	/// returned wrapper. Used by the high-level connection driver, which holds a
+	/// node handle for the connection's whole life and removes the connection
+	/// only after dropping this wrapper.
+	pub(crate) unsafe fn from_node_raw(raw: *mut sys::PancakePeer) -> Peer<'static> {
+		Peer {
+			raw,
+			owned: false,
+			_ctx: PhantomData,
+		}
 	}
 
 	/// Context-backed counterpart of [`Peer::new_raw_open`].
@@ -869,6 +901,7 @@ impl<'ctx> Peer<'ctx> {
 		check(unsafe { sys::pancake_peer_new_raw_open_in(context.raw, &mut raw) })?;
 		Ok(Peer {
 			raw,
+			owned: true,
 			_ctx: PhantomData,
 		})
 	}
@@ -877,7 +910,7 @@ impl<'ctx> Peer<'ctx> {
 	/// handshake speaks the profile the peer was constructed with
 	/// ([`Peer::new`] is v1.0, [`Peer::negotiated`] chooses). The 32-byte
 	/// `seed` is the session key; `transport`/`designator` form the locator
-	/// the partner verifies, so they must be what it expects — for a Goblins
+	/// the partner verifies, so they must be what it expects, for a Goblins
 	/// partner, `"tcp"` with `hints_empty_false` true (Goblins emits the empty
 	/// hints as the boolean `#f`). Flush it, then pump until
 	/// [`session_is_open`](Peer::session_is_open).
@@ -919,7 +952,7 @@ impl<'ctx> Peer<'ctx> {
 	}
 
 	/// Allocate and register the next free export position from the session's
-	/// one export allocator — the counter that also mints bootstrap and
+	/// one export allocator, the counter that also mints bootstrap and
 	/// resolver exports, so a spawned position can never alias one.
 	pub fn next_export(&mut self) -> Result<u64> {
 		let mut id: u64 = 0;
@@ -933,7 +966,7 @@ impl<'ctx> Peer<'ctx> {
 	}
 
 	/// Allocate the next outbound answer position from the session's one answer
-	/// allocator — the counter that backs every outbound question, so a
+	/// allocator, the counter that backs every outbound question, so a
 	/// privately-counted answer can never alias a live one.
 	pub fn next_answer(&mut self) -> Result<u64> {
 		let mut answer: u64 = 0;
@@ -964,7 +997,7 @@ impl<'ctx> Peer<'ctx> {
 
 	/// Begin enlivening the sturdyref published behind `swissnum` (ADR-0012):
 	/// the requester half over bootstrap-fetch with the dedup cache. Returns the
-	/// [`sys::PancakeEnlivenStart`] — a status plus either the cached far
+	/// [`sys::PancakeEnlivenStart`], a status plus either the cached far
 	/// reference (`import_position`/`kind`) or the `answer` to drive. Requires
 	/// the session to have negotiated the sturdyref feature and be open.
 	pub fn prepare_enliven(&mut self, swissnum: &[u8]) -> Result<sys::PancakeEnlivenStart> {
@@ -1045,7 +1078,7 @@ impl<'ctx> Peer<'ctx> {
 	/// whatever has accumulated from the wire so far; returns `Some(n)` when a
 	/// whole frame was consumed and dispatched (drop the first `n` bytes, then
 	/// call again to drain more), or `None` when `bytes` holds only part of a
-	/// frame (read more and retry). This is the sans-io stream-input primitive —
+	/// frame (read more and retry). This is the sans-io stream-input primitive,
 	/// the caller owns the socket; the peer never blocks. A reply or abort lands
 	/// on the outbound queue; drain it with [`take_outbound`](Peer::take_outbound),
 	/// and read events with [`poll`](Peer::poll). A refused frame carries the
@@ -1092,7 +1125,7 @@ impl<'ctx> Peer<'ctx> {
 	/// Advance to quiescence: `step` until both queues are empty, so a cascading
 	/// settlement (a resolve that drains a projection whose own resolve fires a
 	/// listener that queues a deliver) is fully encoded for one `take_outbound`
-	/// sweep. A single `step` does one unit of work; this runs them all — the
+	/// sweep. A single `step` does one unit of work; this runs them all, the
 	/// drive loops pump with this so a pipelined batch never strands its tail.
 	pub fn step_to_idle(&mut self) -> Result<()> {
 		check(unsafe { sys::pancake_peer_step_to_idle(self.raw) })
@@ -1187,17 +1220,10 @@ impl<'ctx> Peer<'ctx> {
 	/// `withdraw-gift` `op:deliver` to the exporter's bootstrap under `answer`.
 	/// Requires an open keyed session to the exporter opened with this same
 	/// 32-byte `seed` — that session key is what the exporter verifies the
-	/// receive against. `handoff_count` is the count of prior withdrawals from
-	/// this exporter session (0 for the first, rising monotonically), which the
-	/// exporter requires to increase. The withdrawn reference arrives as the
-	/// resolution of `answer`.
-	pub fn send_withdraw_gift(
-		&mut self,
-		give: &[u8],
-		seed: &[u8; 32],
-		handoff_count: u64,
-		answer: u64,
-	) -> Result<()> {
+	/// receive against. The monotonic handoff-count the exporter requires to
+	/// increase is minted by the peer's gift registry, not supplied here. The
+	/// withdrawn reference arrives as the resolution of `answer`.
+	pub fn send_withdraw_gift(&mut self, give: &[u8], seed: &[u8; 32], answer: u64) -> Result<()> {
 		check(unsafe {
 			sys::pancake_peer_send_withdraw_gift(
 				self.raw,
@@ -1205,7 +1231,6 @@ impl<'ctx> Peer<'ctx> {
 				give.len(),
 				seed.as_ptr(),
 				seed.len(),
-				handoff_count,
 				answer,
 			)
 		})
@@ -1265,7 +1290,7 @@ impl<'ctx> Peer<'ctx> {
 	/// Bind `registry` as this peer's shared gift registry (ADR-0056), so its
 	/// inbound `deposit-gift` / `withdraw-gift` resolve against the node-wide
 	/// table instead of the peer's private one. Set it before the handshake; the
-	/// registry must outlive the peer. Binding-internal: the node machine binds
+	/// registry must outlive the peer. Binding-internal: the node binds
 	/// its one shared gift registry on every connection it opens.
 	pub fn set_gift_registry(&mut self, registry: *mut sys::PancakeGiftRegistry) -> Result<()> {
 		check(unsafe { sys::pancake_peer_set_gift_registry(self.raw, registry) })
@@ -1434,7 +1459,10 @@ impl<'ctx> Peer<'ctx> {
 
 impl Drop for Peer<'_> {
 	fn drop(&mut self) {
-		unsafe { sys::pancake_peer_release(self.raw) };
+		// A node-owned peer (ADR-0066) is freed by its `Node`, never here.
+		if self.owned {
+			unsafe { sys::pancake_peer_release(self.raw) };
+		}
 	}
 }
 
@@ -1474,7 +1502,7 @@ mod tests {
 
 	#[test]
 	fn drives_ocapn_with_the_idiomatic_api() {
-		// Construct a call with typed args — no raw FFI in sight.
+		// Construct a call with typed args, no raw FFI in sight.
 		let mut caller = Peer::new_raw_open().unwrap();
 		caller.register_import(5).unwrap();
 		caller
@@ -1516,7 +1544,7 @@ mod tests {
 
 	#[test]
 	fn arguments_convert_from_and_into_native_rust_values() {
-		// Build an argument list out of plain Rust values — literals infer.
+		// Build an argument list out of plain Rust values, literals infer.
 		let args: Vec<Argument> = vec![42.into(), 3.5.into(), true.into(), "hi".into(), ().into()];
 		assert_eq!(args[0].as_i64(), Some(42));
 		assert_eq!(args[1].as_f64(), Some(3.5));
@@ -1631,7 +1659,7 @@ mod tests {
 		let mut peer = Peer::new_raw_open().unwrap();
 		let mut vat = Vat::over(&mut peer);
 
-		// Publish a counter at export 7 — a Rust closure, not a foreign callback.
+		// Publish a counter at export 7, a Rust closure, not a foreign callback.
 		let mut n: i64 = 10;
 		vat.publish(7, move |verb, args| match verb {
 			"add" => match args[0] {
@@ -1674,7 +1702,7 @@ mod tests {
 
 	#[test]
 	fn near_call_local_send_and_drive() {
-		use crate::actors::{Promise, Ref, Vat};
+		use crate::actors::{Vat, VatRef, Vow};
 		use std::cell::Cell;
 		use std::rc::Rc;
 
@@ -1698,13 +1726,15 @@ mod tests {
 		);
 
 		// Near-calling a far ref is illegal.
-		assert!(vat.call(&Ref::Far(Reference::far(5)), "add", &[]).is_err());
+		assert!(vat
+			.call(&VatRef::Far(Reference::far(5)), "add", &[])
+			.is_err());
 
 		// An eventual send queues a turn; drive settles its promise.
 		let captured = Rc::new(Cell::new(0i64));
 		let sink = captured.clone();
 		let promise = vat.send(&counter, "add", &[Argument::Integer(4)]).unwrap();
-		assert!(matches!(promise, Promise::Local(_)));
+		assert!(matches!(promise, Vow::Local(_)));
 		vat.on(promise, move |resolution| {
 			if let Resolution::Fulfill(Argument::Integer(v)) = resolution {
 				sink.set(v);
@@ -1716,7 +1746,7 @@ mod tests {
 
 	#[test]
 	fn far_send_routes_over_the_wire_and_settles_the_promise() {
-		use crate::actors::{Promise, Ref, Vat};
+		use crate::actors::{Vat, VatRef, Vow};
 		use std::cell::Cell;
 		use std::rc::Rc;
 
@@ -1744,9 +1774,13 @@ mod tests {
 		let captured = Rc::new(Cell::new(0i64));
 		let sink = captured.clone();
 		let promise = vat_a
-			.send(&Ref::Far(Reference::far(7)), "add", &[Argument::Integer(5)])
+			.send(
+				&VatRef::Far(Reference::far(7)),
+				"add",
+				&[Argument::Integer(5)],
+			)
 			.unwrap();
-		assert!(matches!(promise, Promise::Far(_)));
+		assert!(matches!(promise, Vow::Far(_)));
 		vat_a.on(promise, move |resolution| {
 			if let Resolution::Fulfill(Argument::Integer(v)) = resolution {
 				sink.set(v);
@@ -1825,7 +1859,7 @@ mod tests {
 			}
 		};
 
-		// Client: connect, call far(7), await the resolution — all async.
+		// Client: connect, call far(7), await the resolution, all async.
 		let client = async {
 			let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
 			let mut conn = AsyncConnection::from_stream(Peer::new_raw_open().unwrap(), stream);

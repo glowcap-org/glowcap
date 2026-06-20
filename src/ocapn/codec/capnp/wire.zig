@@ -50,7 +50,7 @@ pub const ListPtr = struct {
     /// Signed word offset from the word after the pointer to the list content.
     offset: i32,
     elem: ElementSize,
-    /// Element count (or, for composite lists, the word count — not used here).
+    /// Element count (or, for composite lists, the word count, not used here).
     count: u29,
 };
 

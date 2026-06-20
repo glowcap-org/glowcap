@@ -21,16 +21,16 @@ const host = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
 
 fn check(nick: []const u8, label: []const u8, passed: bool) bool {
-    std.debug.print("{s}: {s} — {s}\n", .{ nick, if (passed) "ok" else "FAIL", label });
+    std.debug.print("{s}: {s}, {s}\n", .{ nick, if (passed) "ok" else "FAIL", label });
     return passed;
 }
 
-/// True when the call fulfilled with an integer — the shape a clock answers.
+/// True when the call fulfilled with an integer, the shape a clock answers.
 fn fulfilledInteger(settled: driver.Settled) bool {
     return settled == .fulfilled and settled.fulfilled == .integer;
 }
 
-/// True when the call fulfilled with a string — the shape a file read answers.
+/// True when the call fulfilled with a string, the shape a file read answers.
 fn fulfilledString(settled: driver.Settled) bool {
     return settled == .fulfilled and settled.fulfilled == .string;
 }

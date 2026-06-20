@@ -29,7 +29,7 @@ function irohLibPresent(): boolean {
 		Deno.statSync(IROH_LIB);
 		return true;
 	} catch {
-		return false; // not built (no cargo) — skip the iroh tests
+		return false; // not built (no cargo), skip the iroh tests
 	}
 }
 
@@ -152,7 +152,7 @@ async function withIrohServer(
 	}
 }
 
-/** Enter the named room over `conn`, opening it if it does not exist — the
+/** Enter the named room over `conn`, opening it if it does not exist, the
  * directory dance every client does, inlined here so the tests drive the same
  * wire the clients do. */
 async function enterOrOpen(conn: Connection, room: string): Promise<Ref> {
@@ -678,7 +678,7 @@ Deno.test("racket one-shot client exits by its deadline while unrelated traffic 
 // The same room semantics over iroh's encrypted QUIC instead of TCP. These dial
 // the server's announced ocapn:// URI through the iroh ABI companion library, so they
 // skip cleanly when that optional library is not built (no cargo). The room's
-// wire and behavior are identical — only the transport differs.
+// wire and behavior are identical, only the transport differs.
 
 Deno.test("rooms server over iroh welcomes a subscriber by its ocapn:// URI", async () => {
 	if (!irohLibPresent()) return; // needs `zig build iroh-abi` (cargo)

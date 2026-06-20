@@ -1,7 +1,7 @@
 #lang racket/base
 ;; Rendering for the cross-implementation benchmark: a Markdown report (value
 ;; tables plus Mermaid bar charts that render on Codeberg/GitHub) and standalone
-;; SVG bar charts (self-contained, no JS — the same shape the site's hand-authored
+;; SVG bar charts (self-contained, no JS, the same shape the site's hand-authored
 ;; diagrams use). Pure string building over the orchestrator's results hash; no
 ;; measurement happens here.
 (require racket/string racket/list racket/format)
@@ -110,7 +110,7 @@
   (string-append
    "```mermaid\n"
    "xychart-beta\n"
-   (format "    title \"~a — bars in order: ~a\"\n" title (string-join BACKENDS ", "))
+   (format "    title \"~a, bars in order: ~a\"\n" title (string-join BACKENDS ", "))
    (format "    x-axis [~a]\n" (string-join suites ", "))
    (format "    y-axis \"~a\"\n" y-label)
    (apply string-append (for/list ([b (in-list BACKENDS)]) (format "    bar [~a]\n" (series b))))

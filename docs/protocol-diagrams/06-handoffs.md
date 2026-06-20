@@ -134,7 +134,7 @@ sequenceDiagram
     participant R as Receiver
     participant X as Exporter
     participant G as Gifter
-    R->>X: withdraw-gift (gift-id 7) — arrives first
+    R->>X: withdraw-gift (gift-id 7), arrives first
     Note over X: signatures valid, but gift-id 7 not yet deposited
     Note over X: withdrawal parked
     G->>X: deposit-gift (gift-id 7, gifted-ref)

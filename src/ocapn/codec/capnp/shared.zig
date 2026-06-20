@@ -96,7 +96,7 @@ pub const StructLoc = struct {
 /// frame (`UnsupportedSegmentCount`), a segment count whose length math
 /// overflows `usize` on a 32-bit target (`Truncated`, checked add/mul), and a
 /// buffer shorter than the `(seg_words + 1) * 8` bytes the header declares
-/// (`Truncated`) — so no caller can build a `Reader` whose declared segment
+/// (`Truncated`), so no caller can build a `Reader` whose declared segment
 /// extends past the bytes it borrows.
 pub fn readerFromFrame(bytes: []const u8) Error!Reader {
     if (bytes.len < wire.WORD_BYTES) return Error.Truncated;
@@ -111,7 +111,7 @@ pub fn readerFromFrame(bytes: []const u8) Error!Reader {
 
 /// Bounds-checked, segment-relative word reader over a framed message. Segment
 /// index `i` is frame word `i + 1` (frame word 0 is the segment table). Holds
-/// only a borrow of the frame bytes — copying nothing. Construct through
+/// only a borrow of the frame bytes, copying nothing. Construct through
 /// `readerFromFrame`, which validates the segment header first.
 pub const Reader = struct {
     bytes: []const u8,

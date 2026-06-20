@@ -59,7 +59,7 @@ const Board = struct {
     }
 };
 
-/// Host the board and serve until the client leaves — the pipelining test's
+/// Host the board and serve until the client leaves, the pipelining test's
 /// hosting half.
 fn serveBoardOnce(server: *driver.Server) anyerror!void {
     var conn = try server.accept();
@@ -122,7 +122,7 @@ test "driver loopback: promise pipelining drives create->assign->complete->statu
 }
 
 /// Accept one partner via `driver.acceptTcp` (responder keyed handshake inside),
-/// publish the greeter, and `serve` until the client leaves — whether it closes
+/// publish the greeter, and `serve` until the client leaves, whether it closes
 /// cleanly or just drops the socket once it has its reply.
 fn hostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
@@ -203,7 +203,7 @@ fn callOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !vo
 /// The one-call client convenience: `driver.connect` owns the peer and buffers,
 /// so the client connects, fetches, calls, and closes without peer or buffer
 /// setup. `call` returns the settled outcome materialized into the caller's
-/// arena — no ctx/callback dance.
+/// arena, no ctx/callback dance.
 fn connectOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
@@ -278,7 +278,7 @@ test "driver loopback: acceptTcp publishes and serves the keyed session connectT
 /// Dial an `ocapn://` URI via `driver.connectUri`: build the URI for the bound
 /// address, parse-and-dial it in one call against a caller-owned netlayer slice,
 /// then fetch + call. Proves the URI becomes a connection with no transport
-/// branch in the caller — the slice decides.
+/// branch in the caller, the slice decides.
 fn dialUriOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var designator_buf: [64]u8 = undefined;
     const designator = try std.fmt.bufPrint(&designator_buf, "{f}", .{address});
@@ -454,7 +454,7 @@ fn abortingHostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyer
     const cap = try cv.publish("greeter", Greeter, .{});
 
     // Pump until the client's deliver reaches the greeter's export, dropping
-    // the event instead of serving it — the abort below is the only answer.
+    // the event instead of serving it, the abort below is the only answer.
     outer: while (true) {
         while (cv.peer.pollEvent()) |event_value| {
             var event = event_value;
@@ -465,7 +465,7 @@ fn abortingHostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyer
                 else => continue,
             };
             const position = deliver.target.exportPosition() orelse continue;
-            if (position == cap.position) break :outer;
+            if (position.int() == cap.position) break :outer;
         }
         _ = try cv.conn.pump();
     }

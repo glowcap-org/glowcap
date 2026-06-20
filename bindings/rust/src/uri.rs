@@ -1,4 +1,4 @@
-//! OCapN locator URIs — the core grammar, for the safe Rust surface.
+//! OCapN locator URIs, the core grammar, for the safe Rust surface.
 //!
 //! The `ocapn://<designator>.<transport>[?hints]` form is core OCapN vocabulary,
 //! defined once in libpancake_ocapn's `pancake_uri_*` / `pancake_locator_*` surface, so

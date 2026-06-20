@@ -1,4 +1,4 @@
-//! Meta gate — checks that agent scaffolding and documented build commands stay
+//! Meta gate, checks that agent scaffolding and documented build commands stay
 //! aligned with the canonical project shape.
 //! Wired as `zig build meta-check` and into `zig build check`.
 
@@ -26,7 +26,7 @@ const expected_hook_command = "bash .agents/hooks/format-edited-file.sh";
 
 /// Command-citing surfaces that live outside the walked `docs/**` and
 /// `.agents/**` trees. Everything inside those trees is discovered by walking,
-/// so a new doc or rule is gated the moment it lands — no hand-maintained list
+/// so a new doc or rule is gated the moment it lands, no hand-maintained list
 /// to fall out of sync (which is exactly how `docs/vision.md` and
 /// `docs/ladder.md` once slipped past the command check).
 const fixed_command_docs = [_][]const u8{
@@ -60,6 +60,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try checkSkillCatalog(io, gpa, root, &violations);
     try checkAgentsRouting(io, gpa, root, &violations);
     try checkMarkdownLinks(io, gpa, root, &violations);
+    try checkSiteContentLinks(io, gpa, root, &violations);
     try checkDanglingReferenceLinks(io, gpa, root, &violations);
     try checkMermaidBlocks(io, gpa, root, &violations);
     try checkDocumentedBuildSteps(step, io, gpa, root, &violations);
@@ -78,7 +79,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try checkLayerOwnership(io, gpa, root, &violations);
     try checkTestPlacement(io, gpa, root, &violations);
     try checkTestSuiteWiring(io, gpa, root, &violations);
-    try checkGoblinsFixtureRegistry(io, gpa, root, &violations);
+    try checkOracleCorpusRegistry(io, gpa, root, &violations);
     try checkProtocolCheatsheet(io, gpa, root, &violations);
     try checkGeneratedStateIgnores(io, gpa, root, &violations, b.build_root.path orelse ".");
     try checkPrereleaseLanguage(io, gpa, root, &violations);
@@ -586,7 +587,24 @@ fn checkMarkdownLinks(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    try checkMarkdownLinksInFile(io, gpa, root, violations, "AGENTS.md");
+    // The first-read living-state surfaces that carry relative links: the root
+    // contracts, the bindings READMEs (every language), and the examples index.
+    // `site/content` is `.smd`, whose link syntax this `.md` walker does not
+    // parse; `checkSiteContentLinks` gates those references instead.
+    const files = [_][]const u8{
+        "AGENTS.md",
+        "README.md",
+        "CONTRIBUTING.md",
+        "bindings/README.md",
+        "bindings/rust/README.md",
+        "bindings/ts/README.md",
+        "bindings/python/README.md",
+        "bindings/racket/README.md",
+        "examples/README.md",
+    };
+    for (files) |path| {
+        try checkMarkdownLinksInFile(io, gpa, root, violations, path);
+    }
     try checkMarkdownLinksUnder(io, gpa, root, violations, ".agents");
     try checkMarkdownLinksUnder(io, gpa, root, violations, "docs");
 }
@@ -660,6 +678,88 @@ fn checkMarkdownLinksInFile(
             };
         }
     }
+}
+
+/// The site content pages are `.smd` (Zine), whose intra-site links use
+/// `$link.page('id')` and asset references use `$image.siteAsset('name')` rather
+/// than Markdown `](path)`. Zine resolves them when `zig build site` runs, but
+/// that is a sibling step; this gate holds the same references in the hermetic
+/// `check`. A `$link.page('id')` resolves to `site/content/id.smd` or
+/// `site/content/id/index.smd`; a `$image.siteAsset('name')` resolves to
+/// `site/assets/name`. (Absolute `https://` links carry their own Markdown
+/// `](url)` form and are not this gate's concern.)
+fn checkSiteContentLinks(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var dir = root.openDir(io, "site/content", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "site/content: failed to open for site link check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".smd")) continue;
+        const path = try std.fmt.allocPrint(gpa, "site/content/{s}", .{entry.path});
+        defer gpa.free(path);
+        try checkSiteContentLinksInFile(io, gpa, root, violations, path);
+    }
+}
+
+fn checkSiteContentLinksInFile(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+) !void {
+    const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for site link check with {s}", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(contents);
+
+    var rest = contents;
+    while (std.mem.indexOf(u8, rest, "$link.page('")) |start| {
+        const after = rest[start + "$link.page('".len ..];
+        const end = std.mem.indexOfScalar(u8, after, '\'') orelse break;
+        const id = after[0..end];
+        rest = after[end + 1 ..];
+        if (id.len == 0) continue;
+
+        const as_page = try std.fmt.allocPrint(gpa, "site/content/{s}.smd", .{id});
+        defer gpa.free(as_page);
+        const as_index = try std.fmt.allocPrint(gpa, "site/content/{s}/index.smd", .{id});
+        defer gpa.free(as_index);
+        if (!fileExists(io, root, as_page) and !fileExists(io, root, as_index)) {
+            try appendViolation(gpa, violations, "{s}: $link.page('{s}') resolves to neither `{s}` nor `{s}`", .{ path, id, as_page, as_index });
+        }
+    }
+
+    rest = contents;
+    while (std.mem.indexOf(u8, rest, "$image.siteAsset('")) |start| {
+        const after = rest[start + "$image.siteAsset('".len ..];
+        const end = std.mem.indexOfScalar(u8, after, '\'') orelse break;
+        const name = after[0..end];
+        rest = after[end + 1 ..];
+        if (name.len == 0) continue;
+
+        const asset = try std.fmt.allocPrint(gpa, "site/assets/{s}", .{name});
+        defer gpa.free(asset);
+        if (!fileExists(io, root, asset)) {
+            try appendViolation(gpa, violations, "{s}: $image.siteAsset('{s}') resolves to missing `{s}`", .{ path, name, asset });
+        }
+    }
+}
+
+fn fileExists(io: std.Io, root: std.Io.Dir, path: []const u8) bool {
+    root.access(io, path, .{}) catch return false;
+    return true;
 }
 
 fn resolveMarkdownTarget(gpa: std.mem.Allocator, source_path: []const u8, raw_target: []const u8) !?[]u8 {
@@ -799,7 +899,9 @@ fn checkDanglingReferenceLinks(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const markdown_files = [_][]const u8{ "AGENTS.md", "README.md", "CONTRIBUTING.md", "bindings/README.md" };
+    // `bindings/rust/README.md` is excluded: rustdoc resolves the bracketed
+    // code-span form, so it is a real link there (see the doc-voice rule).
+    const markdown_files = [_][]const u8{ "AGENTS.md", "README.md", "CONTRIBUTING.md", "bindings/README.md", "bindings/ts/README.md", "bindings/python/README.md", "bindings/racket/README.md" };
     for (markdown_files) |path| {
         try checkDanglingRefsInMarkdownFile(io, gpa, root, violations, path);
     }
@@ -822,7 +924,7 @@ fn checkDanglingReferenceLinks(
         }
     }
 
-    const zig_trees = [_][]const u8{ "src", "test", "bench", "examples", "tools", "conformance" };
+    const zig_trees = [_][]const u8{ "src", "test", "bench", "examples", "tools", "conformance", "interop" };
     for (zig_trees) |dir_path| {
         var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to open for dangling-reference check with {s}", .{ dir_path, @errorName(err) });
@@ -866,7 +968,7 @@ fn checkDanglingRefsInMarkdownFile(
         }
         if (in_fence) continue;
         if (danglingReferenceColumn(line) != null) {
-            try appendViolation(gpa, violations, "{s}:{d}: bracketed code span links nowhere — write a plain code span, or a real Markdown link with a target", .{ path, line_no });
+            try appendViolation(gpa, violations, "{s}:{d}: bracketed code span links nowhere, write a plain code span, or a real Markdown link with a target", .{ path, line_no });
         }
     }
 }
@@ -890,7 +992,7 @@ fn checkDanglingRefsInZigFile(
         const trimmed = std.mem.trimStart(u8, line, " \t");
         if (!std.mem.startsWith(u8, trimmed, "//")) continue;
         if (danglingReferenceColumn(line) != null) {
-            try appendViolation(gpa, violations, "{s}:{d}: bracketed code span in a comment is rustdoc link syntax that Zig docs do not resolve — write a plain code span", .{ path, line_no });
+            try appendViolation(gpa, violations, "{s}:{d}: bracketed code span in a comment is rustdoc link syntax that Zig docs do not resolve, write a plain code span", .{ path, line_no });
         }
     }
 }
@@ -1027,7 +1129,7 @@ fn checkPlanningDocRoles(
 }
 
 /// Collects every backtick span on the bullet lines of doc-drift's
-/// "Living-State Surfaces" section — the living-state registry. Spans are
+/// "Living-State Surfaces" section, the living-state registry. Spans are
 /// slices into `rule`, so they share its lifetime.
 fn collectLivingStateRegistry(rule: []const u8, out: *std.StringHashMap(void)) !?void {
     const heading = "## Living-State Surfaces";
@@ -1209,7 +1311,7 @@ fn collectBulletSpans(gpa: std.mem.Allocator, section: []const u8, out: *std.Arr
 
 /// A Cursor rule loads through its frontmatter: `globs` routes it to the files
 /// it governs and `alwaysApply: true` keeps it resident. A rule without
-/// frontmatter is never auto-attached — silently unloaded at exactly the moment
+/// frontmatter is never auto-attached, silently unloaded at exactly the moment
 /// it governs, which is how doc-voice once shipped unrouted. Every canonical
 /// rule must open with a frontmatter block carrying `description:` and either
 /// `globs:` or `alwaysApply: true`.
@@ -1239,7 +1341,7 @@ fn checkRuleFrontmatter(
         defer gpa.free(contents);
 
         const frontmatter = frontmatterBlock(contents) orelse {
-            try appendViolation(gpa, violations, ".agents/rules/{s}: missing frontmatter — without `globs` or `alwaysApply`, Cursor never loads this rule", .{entry.path});
+            try appendViolation(gpa, violations, ".agents/rules/{s}: missing frontmatter, without `globs` or `alwaysApply`, Cursor never loads this rule", .{entry.path});
             continue;
         };
         if (frontmatterValue(frontmatter, "description:") == null) {
@@ -1257,7 +1359,7 @@ fn checkRuleFrontmatter(
 /// bulleted layer resolves to a real `src/` directory. Reverse: every top-level
 /// directory under `src/`, and every immediate child of a grouping directory
 /// (`src/ocapn`, `src/c_abi` — see `checkGroupingChildren`), has a bullet — a
-/// layer that ships unnamed is unplaceable, which is how `src/conformance` once
+/// layer that ships unnamed is unplaceable, which is how `src/oracle` once
 /// went missing from the map.
 fn checkLayerOwnership(
     io: std.Io,
@@ -1314,7 +1416,7 @@ fn checkLayerOwnership(
 /// subdirectories (`src/ocapn`, `src/c_abi`) — is a family of layers, not a
 /// layer itself. Each immediate child is its own layer, so it must carry a
 /// `<group>/<child>` Layer Ownership bullet; an unnamed sub-layer is
-/// unplaceable, exactly how `src/conformance` once went missing from the map.
+/// unplaceable, exactly how `src/oracle` once went missing from the map.
 /// A directory with its own `.zig` files is a layer (its files belong to it),
 /// so it is skipped here. Recursion is one level: a child that is itself a
 /// grouping dir (e.g. `ocapn/codec` over `syrup`/`capnp`) keeps its sub-layers
@@ -1417,7 +1519,7 @@ const test_suite_roots = [_][]const u8{ "test/all_test.zig", "test/oracle_check.
 /// `zig build test` compiles the single root `test/all_test.zig`, and
 /// `zig build oracle-check` compiles `test/oracle_check.zig`. A `*_test.zig`
 /// file that neither root imports compiles nowhere and runs zero tests while
-/// the gate stays green — the same silently-unloaded failure mode the rule
+/// the gate stays green, the same silently-unloaded failure mode the rule
 /// overlay check kills. Forward: every `test/**/*_test.zig` appears as an
 /// `@import` in one of the roots. Reverse: every `*_test.zig` import in the
 /// roots resolves to a real file, so a stale import line fails here with a
@@ -1463,7 +1565,7 @@ fn checkTestSuiteWiring(
             if (std.mem.indexOf(u8, contents, needle) != null) imported = true;
         }
         if (!imported) {
-            try appendViolation(gpa, violations, "test/{s}: not imported by test/all_test.zig or test/oracle_check.zig — its tests silently never run", .{entry.path});
+            try appendViolation(gpa, violations, "test/{s}: not imported by test/all_test.zig or test/oracle_check.zig, its tests silently never run", .{entry.path});
         }
     }
 
@@ -1486,20 +1588,20 @@ fn checkTestSuiteWiring(
     }
 }
 
-/// The Goblins fixture corpus is the external conformance pressure, and
+/// The Syrup byte corpus is the oracle the codec is checked against, and
 /// `test/oracle/protocol_oracle.zig` is its registry. A `.bin` dropped into
-/// `test/oracles/goblins/expected/` without a `fixture("…")` row is embedded
+/// `test/oracle/corpus/` without a `fixture("…")` row is embedded
 /// nowhere and pressures nothing, silently. Forward: every registered name
 /// has its file on disk (a clearer failure than the `@embedFile` compile
 /// error). Reverse: every `.bin` on disk has a registry row.
-fn checkGoblinsFixtureRegistry(
+fn checkOracleCorpusRegistry(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
     const registry_path = "test/oracle/protocol_oracle.zig";
-    const corpus_path = "test/oracles/goblins/expected";
+    const corpus_path = "test/oracle/corpus";
 
     const registry_src = root.readFileAlloc(io, registry_path, gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to read for fixture-registry check with {s}", .{ registry_path, @errorName(err) });
@@ -1535,7 +1637,7 @@ fn checkGoblinsFixtureRegistry(
         if (!std.mem.endsWith(u8, entry.name, ".bin")) continue;
         try on_disk.put(try names_arena.allocator().dupe(u8, entry.name), {});
         if (!registered.contains(entry.name)) {
-            try appendViolation(gpa, violations, "{s}/{s}: fixture is not registered in {s} — it is embedded nowhere and pressures nothing", .{ corpus_path, entry.name, registry_path });
+            try appendViolation(gpa, violations, "{s}/{s}: fixture is not registered in {s}; it is embedded nowhere and pressures nothing", .{ corpus_path, entry.name, registry_path });
         }
     }
 
@@ -1996,7 +2098,7 @@ fn checkAbiFreeingVerb(
                 j -= 1;
             }
             if (!states_no_release) {
-                try appendViolation(gpa, violations, "{s}: {s} must state it closes \"without releasing\" the handle — release is the only freeing verb", .{ path, name });
+                try appendViolation(gpa, violations, "{s}: {s} must state it closes \"without releasing\" the handle; release is the only freeing verb", .{ path, name });
             }
             if (claims_free) {
                 try appendViolation(gpa, violations, "{s}: {s} claims to free in its doc; a freeing handle verb is spelled *_release", .{ path, name });
@@ -2068,7 +2170,7 @@ fn checkCAbiSurfaceShape(
         }
     }
 
-    // Invariant 1 — constructor-twin completeness.
+    // Invariant 1, constructor-twin completeness.
     for (names.items) |name| {
         if (std.mem.endsWith(u8, name, "_in")) {
             const base = name[0 .. name.len - "_in".len];
@@ -2091,7 +2193,7 @@ fn checkCAbiSurfaceShape(
         }
     }
 
-    // Invariant 2 — one error channel per archive, no extra spelling.
+    // Invariant 2, one error channel per archive, no extra spelling.
     const allowed_error_families = [_][]const u8{ "", "tcp", "inproc", "iroh" };
     for (names.items) |name| {
         if (!std.mem.endsWith(u8, name, "_last_error")) continue;
@@ -2314,7 +2416,7 @@ const CoarseAbiType = enum {
 /// the whole parameter text in all three syntaxes ("size_t out_cap",
 /// "out_cap: usize", "node_id: [*]const u8"): any pointer marker wins, then
 /// the scalar width tokens. An unmapped spelling classifies `unknown`, which
-/// never equals itself across surfaces — new types must be added here
+/// never equals itself across surfaces, new types must be added here
 /// consciously, not slip through.
 fn classifyAbiType(text: []const u8) CoarseAbiType {
     const t = std.mem.trim(u8, text, " \t\r\n");
@@ -2451,7 +2553,7 @@ fn checkIrohSidecarAbi(
             try extractCHeaderAbi(arena, contents, &maps[idx]);
         }
         if (maps[idx].count() == 0) {
-            try appendViolation(gpa, violations, "{s}: found no pancake_iroh_sidecar_ declarations — the ABI parity scanner no longer matches this surface", .{surface.path});
+            try appendViolation(gpa, violations, "{s}: found no pancake_iroh_sidecar_ declarations, the ABI parity scanner no longer matches this surface", .{surface.path});
             return;
         }
     }
@@ -2502,7 +2604,7 @@ fn checkIrohSidecarPins(
     violations: *std.ArrayList([]const u8),
 ) !void {
     root.access(io, "transports/iroh/Cargo.lock", .{}) catch {
-        try appendViolation(gpa, violations, "transports/iroh/Cargo.lock: missing — the sidecar lockfile is deliberately committed (ADR-0055) so iroh gates resolve the same dependency tree on every machine", .{});
+        try appendViolation(gpa, violations, "transports/iroh/Cargo.lock: missing, the sidecar lockfile is deliberately committed (ADR-0055) so iroh gates resolve the same dependency tree on every machine", .{});
     };
 
     const manifest_path = "transports/iroh/Cargo.toml";
@@ -2605,7 +2707,7 @@ fn checkApplicationSurfaceVerbs(
         defer gpa.free(contents);
         for (application_surface_verbs) |verb| {
             if (!mentionsVerbInCode(contents, verb)) {
-                try appendViolation(gpa, violations, "{s}: application-surface verb `{s}` is missing — the nine-verb vocabulary (connect, listen, fetch, publish, spawn, send, tell, serve, close) must be complete on every surface that lists it", .{ path, verb });
+                try appendViolation(gpa, violations, "{s}: application-surface verb `{s}` is missing, the nine-verb vocabulary (connect, listen, fetch, publish, spawn, send, tell, serve, close) must be complete on every surface that lists it", .{ path, verb });
             }
         }
     }

@@ -22,7 +22,8 @@ with the ownership and lifetime notes attached to the declarations that carry th
 The C surface is a set of composable archives with one header each. The base is
 [`pancake_ocapn.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_ocapn.h)
 for `libpancake_ocapn`, with `pancake_net_transport_tcp.h` and `pancake_net_transport_inproc.h` for the
-transport archives; each is generated from the same Zig declarations, so a header and
+transport archives (which also link the header-less net-core base `libpancake_net`);
+each is generated from the same Zig declarations, so a header and
 its archive can never silently disagree. The optional iroh transport adds
 [`pancake_net_transport_iroh.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_iroh.h)
 as a companion (it `#include`s `pancake_ocapn.h` and adds only the `pancake_iroh_*`

@@ -130,6 +130,16 @@ fn sessionRoundTrip(port: u16) !void {
         c.PANCAKE_ERR_INVALID_ARGUMENT,
         ct.pancake_tcp_session_call(session_ptr, &promise_ref, "echo", 4, &args, args.len, &rejected),
     );
+    // A near (local-export) object reference names a local object by its wire
+    // export position. This session is a client and hosts no exports, so a near
+    // target resolves to nothing and fails closed with INVALID_ARGUMENT, it is
+    // never coerced into a vat actor id (a different number space), which would
+    // silently dispatch to whatever actor happened to carry that id.
+    const near_ref = c.PancakeReference{ .kind = c.PANCAKE_REF_NEAR, .sub_kind = c.PANCAKE_REF_SUB_OBJECT, .id = 1 };
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        ct.pancake_tcp_session_call(session_ptr, &near_ref, "echo", 4, &args, args.len, &rejected),
+    );
 
     var settled: ct.PancakeSettled = undefined;
     try std.testing.expectEqual(c.PANCAKE_OK, ct.pancake_tcp_session_call(
@@ -253,6 +263,14 @@ fn pipelineRoundTrip(port: u16) !void {
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
         ct.pancake_tcp_session_send(session_ptr, &sturdy_ref, "create", 6, null, 0, &rejected),
+    );
+    // The same fail-closed contract as the blocking call: a near reference to an
+    // export this client does not host is refused, never dispatched to a vat
+    // actor id that happens to match the wire export position.
+    const near_ref = c.PancakeReference{ .kind = c.PANCAKE_REF_NEAR, .sub_kind = c.PANCAKE_REF_SUB_OBJECT, .id = 1 };
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        ct.pancake_tcp_session_send(session_ptr, &near_ref, "create", 6, null, 0, &rejected),
     );
 
     var create_arg: c.PancakeArgument = std.mem.zeroes(c.PancakeArgument);

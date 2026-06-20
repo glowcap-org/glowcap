@@ -64,7 +64,7 @@ pub fn decodePrefixWith(
         if (codec == spec.id) return spec.module.decodePrefix(bytes, max_frame_bytes);
     }
     // `model.CodecId` is non-exhaustive (ADR-0026, open registry), so an
-    // unregistered id is a representable input — a consumer that names a codec it
+    // unregistered id is a representable input, a consumer that names a codec it
     // never registered. Fail closed like the sibling decoders rather than reach
     // an `unreachable`: an unknown codec cannot frame, so its bytes are malformed.
     return .malformed;

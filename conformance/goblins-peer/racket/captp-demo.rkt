@@ -36,7 +36,7 @@
     (format "Hello ~a, this is ~a (over CapTP)!" your-name my-name)))
 
 ;; ============================================================================
-;; Set up the fake-intarwebs network — both peers route through it.
+;; Set up the fake-intarwebs network, both peers route through it.
 ;; ============================================================================
 ;; In a real netlayer (Tor, TCP, etc.) the `network` actor is replaced by
 ;; the actual transport. The CapTP machinery above the netlayer is unchanged.

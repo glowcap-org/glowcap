@@ -25,8 +25,8 @@ pub const Resolution = vat.Resolution;
 pub const Listener = vat.Listener;
 pub const Error = vat.Error;
 
-/// Object-capability membrane patterns — a revocable caretaker and a verb
-/// allow-list attenuator — forwarding proxies over any local or far reference.
+/// Object-capability forwarding proxies — a revocable caretaker and a verb
+/// allow-list attenuator — over any local or far reference.
 pub const ocap = ocap_mod;
 pub const Caretaker = ocap_mod.Caretaker;
 pub const caretaker = ocap_mod.caretaker;

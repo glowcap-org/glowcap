@@ -21,7 +21,7 @@
   [log-leaves (-> path-string? (listof bytes?))]
   ;; Compute the Merkle root over all leaves currently in the log.
   [log-root (-> path-string? bytes?)]
-  ;; Inclusion proof for a given leaf index — list of (sibling-bytes, side).
+  ;; Inclusion proof for a given leaf index, list of (sibling-bytes, side).
   [log-inclusion-proof (-> path-string? exact-nonnegative-integer?
                            (listof (cons/c bytes? symbol?)))]
   ;; Verify an inclusion proof.

@@ -71,7 +71,7 @@
   (or (findf (lambda (l) (regexp-match? #px"\"metric\"" l)) lines)
       (error 'run-client "no result from ~a/~a/~a" backend suite mode)))
 
-;; Sample a pid's RSS `n` times `dt` seconds apart and keep the minimum — the
+;; Sample a pid's RSS `n` times `dt` seconds apart and keep the minimum, the
 ;; floor closest to the live set after a GC cycle, stripping transient allocation
 ;; spikes symmetrically rather than catching a process mid-collection.
 (define (sample-min-rss pid n dt)
@@ -157,7 +157,7 @@
 
 (define report
   (string-append
-   "pancake vs Goblins — cross-implementation benchmark\n"
+   "pancake vs Goblins, cross-implementation benchmark\n"
    (format "mode=~a suites=~a lat_n=~a tput_n=~a conns=~a\n\n"
            (if smoke? "smoke" "full") (string-join SUITES ",") LAT-N TPUT-N CONNS)
    (string-join (for/list ([s (in-list SUITES)]) (row s)) "\n\n")
@@ -173,7 +173,7 @@
 (define txt-path (build-path out-dir (format "goblins-compare-~a.txt" stamp)))
 (call-with-output-file txt-path (lambda (o) (display report o)) #:exists 'replace)
 
-;; SVG bar charts (self-contained, no JS) — latency p50 and throughput.
+;; SVG bar charts (self-contained, no JS), latency p50 and throughput.
 (define (write-svg name title y-label key fmt)
   (define p (build-path out-dir (format "goblins-compare-~a-~a.svg" stamp name)))
   (define svg (render-svg-bars title y-label SUITES

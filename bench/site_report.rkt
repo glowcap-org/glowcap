@@ -6,7 +6,7 @@
 ;; Runs every bench in ReleaseFast, parses its output, renders a compact
 ;; grouped-bar SVG (codec, peer-scaling, goblins) and/or an HTML value table
 ;; (all four), and splices each into site/content/performance.smd between
-;; `<!-- bench:<name> -->` markers — the same "tool writes into a committed
+;; `<!-- bench:<name> -->` markers, the same "tool writes into a committed
 ;; file" pattern as gen-header. Surrounding prose is left untouched. There is no
 ;; stale-check: bench numbers vary by machine, so the page is a dated snapshot
 ;; you refresh on purpose, not a gated invariant.
@@ -145,7 +145,7 @@
 ;; color (listof real))), each values list aligned with groups. fmt: real->string
 ;; for the per-bar label.
 ;; bar-colors, when given, is a per-group color list that overrides the series
-;; color — used for single-series charts where each bar (not each series) needs
+;; color, used for single-series charts where each bar (not each series) needs
 ;; its own hue, e.g. tinting the Goblins reference row apart from the languages.
 (define (svg-bars groups series fmt #:bar-colors [bar-colors #f])
   (define W 380) (define H 210)
@@ -203,7 +203,7 @@
                         (lambda (v) (~r v #:precision 0))))
   (string-append
    (legend (list "Syrup" TEAL) (list "Cap'n Proto" AMBER))
-   (charts (figure "Encode / decode — nanoseconds per message, lower is better." svg))
+   (charts (figure "Encode / decode, nanoseconds per message, lower is better." svg))
    (html-table '("codec" "encode ns/op" "decode ns/op" "encode MB/s" "decode MB/s" "frame bytes")
                (list (list "Syrup" (r1 (cell "encode" "syrup" 'ns)) (r1 (cell "decode" "syrup" 'ns))
                            (commas (cell "encode" "syrup" 'mbps)) (commas (cell "decode" "syrup" 'mbps)) (cell "encode" "syrup" 'frame))
@@ -217,7 +217,7 @@
                         (list (list "bytes / connection" TEAL (map cadr rows)))
                         (lambda (v) (~r v #:precision 0))))
   (string-append
-   (charts (figure "Protocol-core bytes per connection — inline state plus heap, lower is better." svg))
+   (charts (figure "Protocol-core bytes per connection, inline state plus heap, lower is better." svg))
    (html-table '("connection state" "bytes / connection" "at 500k connections")
                (for/list ([row (in-list rows)])
                  (list (car row) (commas (cadr row)) (format "~a GiB" (~r (caddr row) #:precision 2)))))))
@@ -250,10 +250,14 @@
                     (lambda (v) (~r v #:precision 0))))))
   (string-append
    (legend (list "TCP (cleartext baseline)" TEAL) (list "iroh (encrypted QUIC)" AMBER))
-   (apply charts
-          (figure "Round-trip latency — µs, lower is better." lat)
-          (figure "Throughput — round-trips/s, higher is better." tput)
-          (if loop-fig (list loop-fig) '()))
+   (charts
+    (figure "Round-trip latency — µs, lower is better." lat)
+    (figure "Throughput — round-trips/s, higher is better." tput))
+   (if loop-fig
+       (string-append
+        "\n<p class=\"bench-note\">The chart below is iroh against itself, not the TCP baseline: the serial single stream above — one call in flight — beside iroh's own serving model, many connections multiplexed on one readiness loop. Both bars are iroh.</p>"
+        (charts loop-fig))
+       "")
    (html-table '("transport" "p50 latency (µs)" "p99 latency (µs)" "round-trips / s")
                (append
                 (list (list "TCP (cleartext)" (r1 (us (g "tcp" 'p50))) (r1 (us (g "tcp" 'p99))) (commas (g "tcp" 'rps)))
@@ -385,7 +389,7 @@
   (define racket-v
     (let ([m (regexp-match #px"v([0-9.]+) \\[(\\w+)\\]" (sh1 "racket --version"))])
       (if m (format "Racket v~a ~a" (list-ref m 1) (string-upcase (list-ref m 2))) "Racket")))
-  (format "<p class=\"bench-stamp\"><em>Measured ~a on one machine: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, with the <code>pancake</code> archives built by Zig ~a in ReleaseFast. One person's numbers — measure your own with the commands below.</em></p>"
+  (format "<p class=\"bench-stamp\"><em>Measured ~a on one machine: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, with the <code>pancake</code> archives built by Zig ~a in ReleaseFast. One person's numbers, measure your own with the commands below.</em></p>"
           (sh1 "date +%Y-%m-%d") (sh1 "uname -srm") (sh1 "nproc") gib
           racket-v goblins-v (sh1 "zig version")))
 

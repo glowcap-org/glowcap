@@ -164,11 +164,11 @@ terse. This is an additive model widening with no profile-name bump.
   Cap'n Proto paths decode the same wire-perspective reference to the same
   receiver-perspective model arm.
 - The sturdyref enliven cache preserves the resolved `ImportKind`.
-- Conformance scenarios under
-  [`src/conformance/`](../../../src/conformance/mod.zig) exercise each payload
+- Scenarios under
+  [`src/oracle/`](../../../src/oracle/mod.zig) exercise each payload
   descriptor in a fulfill argument, an `op:listen` slot, and an `op:deliver`
-  arg; the byte shapes are pinned against Goblins fixtures under
-  `zig build oracle-check`.
+  arg; the byte shapes are pinned against the pancake-authored Syrup oracle
+  corpus under `zig build oracle-check`.
 
 ## Forward compatibility
 

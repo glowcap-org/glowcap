@@ -4,7 +4,7 @@
 ;; Nothing here is public; `../pancake-tcp.rkt` is the ergonomic surface over it.
 ;; This loader opens ONLY the TCP transport archive (ADR-0059): it carries the
 ;; `pancake_tcp_*` family plus its own thread-local last-error, symbol-disjoint
-;; from libpancake_ocapn. Requiring it loads no other archive — a program that
+;; from libpancake_ocapn. Requiring it loads no other archive, a program that
 ;; never touches TCP never links it. The `_fun` signatures name the shared frame
 ;; cstructs from `ffi-shared.rkt`, which the TCP and core archives agree on by
 ;; layout; reading a frame back through `pancake_managed_frame_release` is a core
@@ -29,7 +29,7 @@
   (_fun _pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
 (define-pancake-tcp pancake_tcp_netlayer_release (_fun _pointer -> _void))
 ;; connect/accept/read/write park the calling thread on the socket, so
-;; #:blocking? lets the Racket scheduler and GC run while one waits — other
+;; #:blocking? lets the Racket scheduler and GC run while one waits, other
 ;; green threads keep going instead of the place freezing.
 (define-pancake-tcp pancake_tcp_connect
   (_fun #:blocking? #t _pointer _pointer _size _uint16 _uint32 _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))

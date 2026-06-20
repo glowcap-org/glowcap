@@ -23,7 +23,7 @@ const std = @import("std");
 
 const net = @import("net");
 
-// The shared C-ABI vocabulary leaf — *not* the ocapn root. Importing the leaf
+// The shared C-ABI vocabulary leaf, *not* the ocapn root. Importing the leaf
 // gives this transport ABI the same frame and context types
 // `pancake_ocapn.h` declares, with its own compiled copy of the helpers and
 // last-error slot, and pulls *none* of the ocapn archive's exported surface

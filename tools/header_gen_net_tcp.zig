@@ -69,7 +69,7 @@ comptime {
     }
 }
 
-/// Map a Zig type to its C spelling — reflection-driven, so a parameter type
+/// Map a Zig type to its C spelling, reflection-driven, so a parameter type
 /// change in `c_abi_net_transport_tcp` flows into the header automatically.
 fn cType(comptime T: type) []const u8 {
     return switch (T) {
@@ -284,7 +284,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     });
     try b.appendSlice(gpa, "\n");
 
-    try emitFn(&b, gpa, "pancake_tcp_session_connect", &.{ "netlayer", "host", "host_len", "port", "codec", "max_frame_bytes", "out_session" }, "Dial host:port, run the ephemeral keyed handshake, and return an owning\nsession framing on `codec` and refusing inbound frames over max_frame_bytes\n— the C twin of driver.connect(&.{tcp}, ., .ephemeral, .). Blocking; `host`\nis borrowed. PANCAKE_ERR_INVALID_ARGUMENT for a bad codec, a zero frame cap,\nor an unparseable address; PANCAKE_ERR_IO (see pancake_tcp_last_error) when\nthe dial fails. Release with pancake_tcp_session_release.");
+    try emitFn(&b, gpa, "pancake_tcp_session_connect", &.{ "netlayer", "host", "host_len", "port", "codec", "max_frame_bytes", "out_session" }, "Dial host:port, run the ephemeral keyed handshake, and return an owning\nsession framing on `codec` and refusing inbound frames over max_frame_bytes,\nthe C twin of driver.connect(&.{tcp}, ., .ephemeral, .). Blocking; `host`\nis borrowed. PANCAKE_ERR_INVALID_ARGUMENT for a bad codec, a zero frame cap,\nor an unparseable address; PANCAKE_ERR_IO (see pancake_tcp_last_error) when\nthe dial fails. Release with pancake_tcp_session_release.");
     try emitFn(&b, gpa, "pancake_tcp_session_fetch", &.{ "session", "name", "name_len", "out_reference" }, "Fetch the partner's published capability `name`, writing the resolved far\nobject reference into out_reference. Blocking. PANCAKE_ERR_BROKEN when the\npartner answers with a break (pancake_tcp_last_error names it),\nPANCAKE_ERR_UNSUPPORTED_VALUE when it fulfils with a non-capability,\nPANCAKE_ERR_CLOSED when the partner left. `name` is borrowed.");
     try emitFn(&b, gpa, "pancake_tcp_session_call", &.{ "session", "target", "verb", "verb_len", "args", "args_len", "out_settled" }, "Send verb/args to `target` and block until the reply settles, projecting the\noutcome into out_settled (release with pancake_tcp_settled_release). `target`\ncomes from a prior fetch or a received argument; only a near/far object\nreference is callable (else PANCAKE_ERR_INVALID_ARGUMENT). target, verb, and\nargs are borrowed. PANCAKE_ERR_CLOSED if the partner left before settling.");
 
@@ -306,7 +306,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_tcp_promise_release", &.{"promise"}, "Release an answer handle from pancake_tcp_session_send or\npancake_tcp_session_send_pipelined. The boxed promise dies; a settled\nprojection it produced (a PancakeSettled) is independent and freed separately.");
     try emitFn(&b, gpa, "pancake_tcp_session_release", &.{"session"}, "Tear down the session: close the connection (freeing the owned peer and\nbuffers) and free the handle. Do not use `session` afterward.");
 
-    try emitFn(&b, gpa, "pancake_tcp_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last TCP-transport error into out_buf — the tcp\nsibling of pancake_last_error, reading this archive's own per-thread slot. A\npancake_tcp_* call that returns PANCAKE_ERR_IO records its concrete cause here.\nCopies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0\nqueries the length. Returns the full message length, or 0 when none is set.");
+    try emitFn(&b, gpa, "pancake_tcp_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last TCP-transport error into out_buf, the tcp\nsibling of pancake_last_error, reading this archive's own per-thread slot. A\npancake_tcp_* call that returns PANCAKE_ERR_IO records its concrete cause here.\nCopies at most cap-1 bytes and NUL-terminates when cap>0; out_buf NULL or cap 0\nqueries the length. Returns the full message length, or 0 when none is set.");
     try emitFn(&b, gpa, "pancake_tcp_clear_last_error", &.{}, "Clear the calling thread's TCP-transport last-error slot.");
 
     try b.appendSlice(gpa,

@@ -33,7 +33,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::Notify;
 
 use crate::sys::iroh as ffi;
-use crate::{sys, Connection, Error, Reachability, Result};
+use crate::{sys, Connection, Error, Node, Reachability, Result};
 
 use ffi::{
 	PancakeIrohConn, PancakeIrohNetlayer, PancakeIrohReadyEvent, PANCAKE_IROH_EV_ACCEPT,
@@ -75,7 +75,7 @@ fn iroh_last_error() -> Option<String> {
 // The raw netlayer handle, released exactly once when the last owner drops. It
 // is shared (behind an `Arc`) between the public `IrohNetlayer`/`IrohServer` and
 // the readiness loop's dispatcher task, so the endpoint is released only after
-// *both* are done with it — the dispatcher can never call `drain_ready` on a
+// *both* are done with it, the dispatcher can never call `drain_ready` on a
 // freed endpoint, regardless of drop order.
 struct NetlayerRaw(*mut PancakeIrohNetlayer);
 
@@ -91,17 +91,18 @@ impl Drop for NetlayerRaw {
 	}
 }
 
-/// A bound iroh QUIC endpoint plus the sidecar runtime driving it — the iroh
+/// A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
 /// sibling of [`Netlayer`](crate::Netlayer). Dial with
 /// [`IrohNetlayer::connect_owned`] or host with [`IrohServer`]. Released on drop,
 /// after every connection minted from it is released.
 pub struct IrohNetlayer {
 	raw: Arc<NetlayerRaw>,
+	reachability: Reachability,
 }
 
 impl IrohNetlayer {
 	/// Bind an iroh endpoint with a fresh random Ed25519 key and the caller's
-	/// chosen [`Reachability`] — the mandatory posture deciding whether the
+	/// chosen [`Reachability`], the mandatory posture deciding whether the
 	/// endpoint uses relays or a discovery service. There is no default. Binds
 	/// the endpoint and arms its readiness loop.
 	pub fn new(reachability: Reachability) -> Result<IrohNetlayer> {
@@ -111,10 +112,11 @@ impl IrohNetlayer {
 		})?;
 		Ok(IrohNetlayer {
 			raw: Arc::new(NetlayerRaw(raw)),
+			reachability,
 		})
 	}
 
-	/// This endpoint's id — its Ed25519 public key as lowercase hex, the dialable
+	/// This endpoint's id, its Ed25519 public key as lowercase hex, the dialable
 	/// designator and the URI host.
 	pub fn node_id(&self) -> Result<String> {
 		let mut buf = [0u8; 64];
@@ -125,7 +127,7 @@ impl IrohNetlayer {
 		Ok(String::from_utf8_lossy(&buf[..len]).into_owned())
 	}
 
-	/// This endpoint's comma-separated direct socket addresses — the hint string a
+	/// This endpoint's comma-separated direct socket addresses, the hint string a
 	/// partner passes to dial it relay-less.
 	pub fn direct_addresses(&self) -> Result<String> {
 		// The endpoint with no direct addresses writes zero bytes; a buffer too
@@ -152,7 +154,7 @@ impl IrohNetlayer {
 	}
 
 	/// Close the endpoint without releasing the handle: later dials fail and the
-	/// readiness loop winds down. Idempotent — the shutdown lever a dropped dialer
+	/// readiness loop winds down. Idempotent, the shutdown lever a dropped dialer
 	/// or server pulls.
 	pub fn close(&self) {
 		unsafe { ffi::pancake_iroh_netlayer_close(self.raw.0) };
@@ -167,21 +169,28 @@ impl IrohNetlayer {
 	pub async fn connect_owned(self, node_id: &str, direct_addresses: &str) -> Result<IrohStream> {
 		let iloop = IrohLoop::start(Arc::clone(&self.raw))?;
 		let raw = self.raw.0 as usize;
-		let nid = node_id.to_string();
-		let hints = direct_addresses.to_string();
-		let conn = match tokio::task::spawn_blocking(move || {
-			try_dial(raw as *mut PancakeIrohNetlayer, &nid, &hints)
-		})
+		// A posture that resolves by id through a propagating discovery service
+		// (`Discovery` and `DiscoveryNoRelay`) can fail a dial-by-id with "no
+		// addressing information" until the exporter's pkarr record propagates
+		// (seconds, variable), so retry the dial on a bounded budget; every other
+		// posture dials once (Direct's addresses are in hand, LocalDiscovery
+		// resolves instantly). Mirrors the TS `dialResolving` and the Zig
+		// `iroh-reachability` driver.
+		let conn = match dial_resolving(
+			raw,
+			node_id,
+			direct_addresses,
+			matches!(
+				self.reachability,
+				Reachability::Discovery | Reachability::DiscoveryNoRelay
+			),
+		)
 		.await
 		{
-			Ok(Ok(conn)) => conn,
-			Ok(Err(e)) => {
+			Ok(conn) => conn,
+			Err(e) => {
 				iloop.shutdown();
 				return Err(e);
-			}
-			Err(_) => {
-				iloop.shutdown();
-				return Err(Error::from_code(sys::ERR_IO));
 			}
 		};
 		iloop.register(conn);
@@ -191,6 +200,39 @@ impl IrohNetlayer {
 			Some(self),
 			true,
 		))
+	}
+}
+
+// The discovery-posture dial retry budget: how long pkarr propagation is given
+// before each retry, and how many attempts (~72s total, covering n0 DNS/pkarr
+// propagation). Matches the TS `dialResolving` budget.
+const DISCOVERY_DIAL_RETRY_MS: u64 = 3_000;
+const DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = 24;
+
+// Dial, retrying only under a propagating-discovery posture while it resolves the
+// partner by id. A dial-stage error (the sidecar's "no addressing information"
+// during pkarr propagation) is retried on the budget; every other posture, and a
+// spawn join failure, surfaces immediately. Mirrors TS `dialResolving`.
+async fn dial_resolving(raw: usize, node_id: &str, hints: &str, retry: bool) -> Result<usize> {
+	let mut attempt: u32 = 1;
+	loop {
+		let nid = node_id.to_string();
+		let h = hints.to_string();
+		match tokio::task::spawn_blocking(move || {
+			try_dial(raw as *mut PancakeIrohNetlayer, &nid, &h)
+		})
+		.await
+		{
+			Ok(Ok(conn)) => return Ok(conn),
+			Ok(Err(e)) => {
+				if !retry || attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS {
+					return Err(e);
+				}
+			}
+			Err(_) => return Err(Error::from_code(sys::ERR_IO)),
+		}
+		attempt += 1;
+		tokio::time::sleep(std::time::Duration::from_millis(DISCOVERY_DIAL_RETRY_MS)).await;
 	}
 }
 
@@ -419,7 +461,7 @@ impl IrohLoop {
 // released). An accept record carries a null connection.
 fn dispatch(st: &mut LoopState, conn_key: usize, events: u32, wakers: &mut Vec<Waker>) {
 	if events & PANCAKE_IROH_EV_ACCEPT != 0 {
-		// Record the pending accept first, then wake any waiter — the woken
+		// Record the pending accept first, then wake any waiter, the woken
 		// `AcceptReady` re-polls and observes the pending count, so the signal is
 		// never lost to a wake that races the re-registration.
 		st.accept_pending += 1;
@@ -523,7 +565,7 @@ impl AsyncRead for IrohStream {
 				unsafe { ffi::pancake_iroh_conn_try_read(me.conn.0, dst.as_mut_ptr(), dst.len()) };
 			if n == sys::WOULD_BLOCK as isize {
 				// Nothing buffered yet: park on this connection's readiness. A
-				// missing/closed slot means the connection was torn down — a clean
+				// missing/closed slot means the connection was torn down, a clean
 				// EOF (zero bytes filled).
 				let mut st = me.iloop.state.lock().unwrap();
 				match st.conns.get_mut(&me.key) {
@@ -624,11 +666,17 @@ pub struct IrohServer {
 	// One readiness loop serves every accepted connection from one thread
 	// (ADR-0057), instead of a blocking accept and a read parked per connection.
 	iloop: Arc<IrohLoop>,
+	// Every accepted connection shares this node `Node` — its one retained
+	// identity and gift registry — exactly as the TCP [`Server`](crate::Server)
+	// does, so a node both serves recipients (accept) and dials the exporter it
+	// re-gifts from under one identity (the gifter half of a three-party handoff,
+	// ADR-0009).
+	node: Node,
 }
 
 impl IrohServer {
 	/// Bind an iroh endpoint with a fresh random Ed25519 key and the caller's
-	/// chosen [`Reachability`] — the mandatory posture, no default.
+	/// chosen [`Reachability`], the mandatory posture, no default.
 	pub fn bind(reachability: Reachability) -> Result<IrohServer> {
 		let netlayer = IrohNetlayer::new(reachability)?;
 		let node_id = netlayer.node_id()?;
@@ -637,10 +685,21 @@ impl IrohServer {
 			netlayer,
 			node_id,
 			iloop,
+			node: Node::new_node(),
 		})
 	}
 
-	/// This endpoint's id — the keyed locator designator and the URI host.
+	/// The node every accepted connection shares, its retained identity
+	/// and gift registry. Pass it to
+	/// [`Connection::connect_iroh_with_node`] to dial the exporter this node
+	/// re-gifts from under one identity (the gifter half of a three-party
+	/// handoff), and publish a node-giftable on it with
+	/// [`Node::publish_giftable`].
+	pub fn node(&self) -> Node {
+		self.node.clone()
+	}
+
+	/// This endpoint's id, the keyed locator designator and the URI host.
 	pub fn node_id(&self) -> &str {
 		&self.node_id
 	}
@@ -667,7 +726,12 @@ impl IrohServer {
 	pub async fn accept(&self) -> Result<Connection> {
 		let node_id = self.node_id().to_string();
 		let stream = self.accept_stream().await?;
-		Ok(Connection::over(stream, "iroh", node_id))
+		Ok(Connection::over_shared(
+			stream,
+			"iroh",
+			node_id,
+			self.node.clone(),
+		))
 	}
 
 	/// Wait (on the readiness loop, never a parked thread) for the next dial and
@@ -763,9 +827,25 @@ impl Connection {
 		// matching the Zig driver and the other bindings.
 		Ok(Connection::over(stream, "iroh", String::new()))
 	}
+
+	/// The node-keyed iroh dial behind a handoff redeem: dial the exporter
+	/// endpoint and bring the connection up under `node` rather than a fresh
+	/// node, so the redeemed capability and any further handoff it triggers share
+	/// the recipient's one identity and gift registry (ADR-0009/ADR-0056), the
+	/// iroh sibling of the TCP [`Connection::connect_with_node`]. Needs the
+	/// iroh ABI library (`zig build iroh-abi`).
+	pub async fn connect_iroh_with_node(
+		node_id: &str,
+		direct_addresses: &str,
+		reachability: Reachability,
+		node: Node,
+	) -> Result<Connection> {
+		let stream = IrohStream::connect(node_id, direct_addresses, reachability).await?;
+		Ok(Connection::over_shared(stream, "iroh", String::new(), node))
+	}
 }
 
-/// Bind an iroh endpoint and return an [`IrohServer`] to accept partners on — the
+/// Bind an iroh endpoint and return an [`IrohServer`] to accept partners on, the
 /// iroh sibling of [`listen`](crate::listen). `reachability` is the mandatory
 /// posture (no default). Needs the iroh ABI library (`zig build iroh-abi`).
 pub fn listen_iroh(reachability: Reachability) -> Result<IrohServer> {

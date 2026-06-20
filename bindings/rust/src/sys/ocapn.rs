@@ -24,7 +24,7 @@ pub struct PancakeContext {
 	_private: [u8; 0],
 }
 
-/// A parsed OCapN locator — one opaque handle carrying a peer or a sturdyref,
+/// A parsed OCapN locator, one opaque handle carrying a peer or a sturdyref,
 /// minted by `pancake_uri_parse_*` and read by the `pancake_locator_*`
 /// accessors.
 #[repr(C)]
@@ -38,6 +38,16 @@ pub struct PancakeLocator {
 /// on; it must outlive all of them.
 #[repr(C)]
 pub struct PancakeGiftRegistry {
+	_private: [u8; 0],
+}
+
+/// The sans-io cross-connection handoff router (`engine.Node`, ADR-0066): the
+/// thing distinct from a per-partner connection. Minted by `pancake_node_new`,
+/// it owns the retained node identity, the shared gift registry, one node-owned
+/// `PancakePeer` per registered connection, and the redeemed-token / foreign-home
+/// routing tables that make three-party handoff transparent.
+#[repr(C)]
+pub struct PancakeNode {
 	_private: [u8; 0],
 }
 
@@ -295,7 +305,6 @@ extern "C" {
 		give_len: usize,
 		seed: *const c_uchar,
 		seed_len: usize,
-		handoff_count: u64,
 		answer: u64,
 	) -> c_int;
 	// Gifter half of a three-party handoff (ADR-0009/ADR-0056). A gifter that
@@ -361,6 +370,24 @@ extern "C" {
 	) -> c_int;
 	// Release the owned give bytes `pancake_build_handoff_give` returned.
 	pub fn pancake_handoff_give_bytes_release(give: *mut c_uchar, give_len: usize);
+	// Build the verbatim exporter location-record bytes a give names, writing
+	// owned bytes into `out`/`out_len` (release with
+	// `pancake_peer_locator_bytes_release`). `transport`/`designator` name the
+	// exporter; a non-empty `direct_addresses` adds the exporter's comma-separated
+	// socket addresses as a `direct-addresses` hint (an iroh exporter reachable
+	// only by address). All inputs are borrowed.
+	pub fn pancake_encode_peer_locator(
+		transport: *const c_uchar,
+		transport_len: usize,
+		designator: *const c_uchar,
+		designator_len: usize,
+		direct_addresses: *const c_uchar,
+		direct_addresses_len: usize,
+		out: *mut *mut c_uchar,
+		out_len: *mut usize,
+	) -> c_int;
+	// Release the owned locator bytes `pancake_encode_peer_locator` returned.
+	pub fn pancake_peer_locator_bytes_release(locator: *mut c_uchar, locator_len: usize);
 	// Create a shared gift registry (the library allocator backs it). Bind it on
 	// every peer of a node with `pancake_peer_set_gift_registry` before they
 	// exchange handoff traffic, and free it last with
@@ -407,7 +434,7 @@ extern "C" {
 		answer: u64,
 	) -> c_int;
 
-	// OCapN locator URIs — core `libpancake_ocapn` vocabulary, so a TCP-only or
+	// OCapN locator URIs, core `libpancake_ocapn` vocabulary, so a TCP-only or
 	// even transport-free consumer reaches the grammar. One grammar, no
 	// hand-rolled percent codec.
 	pub fn pancake_uri_parse_peer(
@@ -482,4 +509,107 @@ extern "C" {
 		out_val_len: *mut usize,
 	) -> c_int;
 	pub fn pancake_locator_release(loc: *mut PancakeLocator);
+
+	// Cross-connection handoff router (PancakeNode, ADR-0066). A binding creates
+	// one node, registers each connection's node-owned peer, pumps it with the
+	// ordinary pancake_peer_* surface, and asks the node to route sends. Every
+	// route value is an integer conn_id or far id, so the router is pure data.
+	pub fn pancake_node_new(
+		seed: *const c_uchar,
+		seed_len: usize,
+		out_node: *mut *mut PancakeNode,
+	) -> c_int;
+	pub fn pancake_node_new_in(
+		context: *mut PancakeContext,
+		seed: *const c_uchar,
+		seed_len: usize,
+		out_node: *mut *mut PancakeNode,
+	) -> c_int;
+	pub fn pancake_node_free(node: *mut PancakeNode);
+	// Register a fresh connection: write its conn_id and the node-owned
+	// negotiating peer (already bound to the shared registry and node identity).
+	// Do not release the peer — the node owns it.
+	pub fn pancake_node_register_conn(
+		node: *mut PancakeNode,
+		out_conn_id: *mut u64,
+		out_peer: *mut *mut PancakePeer,
+	) -> c_int;
+	// Remove a registered connection: free its node-owned peer and retire the
+	// conn_id (never reused). The caller must have stopped pumping the peer.
+	pub fn pancake_node_remove_conn(node: *mut PancakeNode, conn_id: u64) -> c_int;
+	// Recipient half: sign a desc:handoff-receive over the give keyed by the node
+	// identity, mint the handoff-count from the shared registry, and queue
+	// withdraw-gift on the exporter connection under `answer`.
+	pub fn pancake_node_send_withdraw(
+		node: *mut PancakeNode,
+		exporter_conn: u64,
+		give: *const c_uchar,
+		give_len: usize,
+		answer: u64,
+	) -> c_int;
+	// Gifter half of a three-party handoff (ADR-0009), the mirror of
+	// pancake_node_send_withdraw: queue a deposit-gift of gifted_ref on
+	// exporter_conn, build a desc:handoff-give signed by the node identity and
+	// addressed to recipient_conn's partner, and queue it as the fulfillment of
+	// `answer` on recipient_conn. The binding flushes both connections (exporter
+	// first). gift_id keys the deposit and the give; exporter_location, when
+	// non-empty, is the verbatim exporter locator embedded in the give (empty uses
+	// the exporter session's own location record). All byte/reference inputs are
+	// borrowed.
+	pub fn pancake_node_originate_give(
+		node: *mut PancakeNode,
+		recipient_conn: u64,
+		exporter_conn: u64,
+		gifted_ref: *const PancakeReference,
+		gift_id: *const c_uchar,
+		gift_id_len: usize,
+		answer: u64,
+		exporter_location: *const c_uchar,
+		exporter_location_len: usize,
+	) -> c_int;
+	// Enroll a redeemed far-object capability (hosted on exporter_conn) under a
+	// fresh synthetic token, written to out_token; a later pancake_node_route of
+	// the token forwards to the exporter with far_id swapped back in.
+	pub fn pancake_node_enroll_redeemed(
+		node: *mut PancakeNode,
+		exporter_conn: u64,
+		far_id: u64,
+		out_token: *mut u64,
+	) -> c_int;
+	// Resolve where a deliver to far_id rides: a redeemed token routes to its
+	// exporter (with the real far id), any other far id rides default_conn. Writes
+	// the destination conn_id/far_id and 1/0 into out_routed (0 when a redeemed
+	// token's exporter is gone — drop the deliver).
+	pub fn pancake_node_route(
+		node: *mut PancakeNode,
+		default_conn: u64,
+		far_id: u64,
+		out_conn_id: *mut u64,
+		out_far_id: *mut u64,
+		out_routed: *mut c_uint,
+	) -> c_int;
+	// Record that the fetched far import far_id lives on connection `home`, so a
+	// later foreign-home return can be re-gifted (ADR-0009 gifter half).
+	pub fn pancake_node_record_foreign_home(
+		node: *mut PancakeNode,
+		far_id: u64,
+		home: u64,
+	) -> c_int;
+	// The connection a fetched far import lives on: writes the home conn_id and
+	// 1/0 into out_found (0 for any far id never recorded).
+	pub fn pancake_node_foreign_home(
+		node: *mut PancakeNode,
+		far_id: u64,
+		out_conn_id: *mut u64,
+		out_found: *mut c_uint,
+	) -> c_int;
+	// Whether far_id, used as a send/tell argument from default_conn, names a
+	// capability foreign to that connection (a redeemed token or a far recorded
+	// as living elsewhere): writes 1/0 into out_foreign.
+	pub fn pancake_node_arg_is_foreign(
+		node: *mut PancakeNode,
+		default_conn: u64,
+		far_id: u64,
+		out_foreign: *mut c_uint,
+	) -> c_int;
 }

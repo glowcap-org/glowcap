@@ -42,7 +42,7 @@ four [bindings]($link.page('bindings')): Rust, Python, Racket, and TypeScript.
 | [rooms over iroh](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/) | the same chat over encrypted QUIC | `zig build demo-rooms-iroh` (needs cargo) |
 | [tasks](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tasks/) | a shared task board: CRUD plus live state | `zig build demo-tasks` |
 | [tools](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tools/) | a capability showcase for AI agent harnesses: delegation, attenuation, revocation | `zig build demo-tools` |
-| [accountability](https://codeberg.org/jimisaacs/pancake/src/branch/main/conformance/accountability-on-pancake/) | a signed-call accountability app over a real OCapN/TCP session | `zig build demo-accountability` |
+| [accountability](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/accountability-on-pancake/) | a signed-call accountability app over a real OCapN/TCP session | `zig build demo-accountability` |
 
 The `rooms`, `tasks`, and `tools` demos need only `deno` and the always-built Zig
 client; the Python, Racket, and Rust clients join when their runtimes are present
@@ -56,7 +56,7 @@ chat, but the coordinator and clients reach each other over an encrypted
 [iroh]($link.page('transports/iroh')) channel instead of a local TCP port: each peer
 is addressed by a self-authenticating node id, and the bytes on the wire are keyed
 QUIC. It is the clearest demonstration that the encrypted, peer-to-peer transport is
-a drop-in under the same application surface — the app code does not change, only the
+a drop-in under the same application surface, the app code does not change, only the
 address does. It needs `cargo` for the iroh sidecar.
 
 Why an application at all? A protocol can pass every conformance scenario and still

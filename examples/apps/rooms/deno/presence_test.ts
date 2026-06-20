@@ -14,7 +14,7 @@ function assertEquals<T>(actual: T, expected: T): void {
 
 Deno.test("presence parser recognizes room roster messages", () => {
 	assertEquals(
-		parsePresenceEvent("welcome ada — 3 in the room: ada, grace, alan"),
+		parsePresenceEvent("welcome ada, 3 in the room: ada, grace, alan"),
 		{
 			kind: "roster",
 			names: ["ada", "grace", "alan"],

@@ -1,4 +1,4 @@
-//! Object-capability membrane patterns on the actor layer: a *caretaker* (a
+//! Object-capability forwarding proxies on the actor layer: a *caretaker* (a
 //! revocable forwarder) and an *attenuator* (a verb-allow-list forwarder).
 //!
 //! Both are forwarding proxies built on `Turn.forward`, so they wrap any

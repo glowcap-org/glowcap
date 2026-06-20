@@ -19,7 +19,7 @@
       ;; Status and assignee live in the behavior, not private boxes: `assign`
       ;; and `complete` become a new behavior carrying the updated state. That
       ;; keeps the state where the vat can see it, so a time-travel snapshot
-      ;; captures and can rewind it — boxes would hide it. Identical observable
+      ;; captures and can rewind it, boxes would hide it. Identical observable
       ;; behavior on every backend (`bcom` is the same on Goblins and pancake).
       (define (task bcom state who)
         (dispatch

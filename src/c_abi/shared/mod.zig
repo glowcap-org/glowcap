@@ -12,8 +12,9 @@
 //! `pancake_iroh_*` entry points in `c_abi_net_transport_iroh`; all reach this
 //! vocabulary through `@import("c_abi_shared")`. Because importing the leaf pulls the
 //! vocabulary without pulling either library's exported surface, `libpancake_ocapn`
-//! carries the core families and `libpancake_net_transport_iroh` carries only the iroh family
-//! — each reusing these types, and each from `pancake_ocapn.h` on the C side
+//! carries the core families and `libpancake_net_transport_iroh` carries only
+//! the iroh family, each reusing these types, and each from `pancake_ocapn.h`
+//! on the C side
 //! (ADR-0055 companion split). The two artifacts therefore share no exported
 //! core symbol; they share the *layout* of these types, exactly as a C consumer
 //! including both headers does.
@@ -73,7 +74,7 @@ pub const PANCAKE_ERR_NOT_FOUND: i32 = -15;
 /// Codec selector: the wire grammar a peer's session speaks
 /// (`pancake_peer_new_negotiated`) and the framing an endpoint delimits
 /// frames with (`pancake_tcp_connect` / `pancake_tcp_accept`). The
-/// two must match — the endpoint splits the stream with the same grammar the
+/// two must match, the endpoint splits the stream with the same grammar the
 /// session encodes in.
 pub const PANCAKE_CODEC_SYRUP: u32 = 0;
 pub const PANCAKE_CODEC_CAPNP: u32 = 1;
@@ -127,7 +128,7 @@ pub const ReleaseFn = *const fn (*PancakeManagedFrame) callconv(.c) void;
 
 /// A frame the engine *owns* and hands to the C caller (outbound frames, event
 /// frames). It is self-describing and self-releasing: the caller must invoke
-/// `release` exactly once to free it — never a host `free`.
+/// `release` exactly once to free it, never a host `free`.
 pub const PancakeManagedFrame = extern struct {
     bytes: ?[*]u8,
     len: usize,
@@ -180,7 +181,7 @@ fn releaseOwnedFrame(frame: *PancakeManagedFrame) callconv(.c) void {
 /// The surface is deliberately `alloc` + `free` only. With both sides told the
 /// size, the only sound resize policy for an opaque host allocator is "never
 /// resize in place" (see `HostAllocator`), which keeps `free`'s size argument
-/// exactly equal to `alloc`'s — correct even for a size-tracking host allocator.
+/// exactly equal to `alloc`'s, correct even for a size-tracking host allocator.
 /// A `realloc` callback cannot preserve that invariant or guarantee alignment of
 /// the relocated block, so it is intentionally absent rather than a footgun.
 pub const PancakeAllocFn = *const fn (user_data: ?*anyopaque, size: usize, alignment: usize) callconv(.c) ?*anyopaque;
@@ -197,7 +198,7 @@ pub const PancakeAllocator = extern struct {
 
 pub const PancakeContext = opaque {};
 
-/// The allocator the *simple* C ABI path uses — the constructors that take no
+/// The allocator the *simple* C ABI path uses, the constructors that take no
 /// `PancakeContext` (`pancake_peer_new`, `pancake_tcp_netlayer_new`) and
 /// everything those handles own. `smp_allocator` is a thread-safe
 /// general-purpose allocator: a managed frame per outbound message or event
@@ -278,7 +279,7 @@ pub fn ctxFromOpaque(context: ?*PancakeContext) ?*Context {
 // behind a flat `PANCAKE_ERR_IO`. This per-thread slot re-exposes it: a function
 // that returns `_IO` first records a human-readable cause here. Each library
 // that imports this leaf compiles its own copy of the slot, so libpancake_ocapn and
-// libpancake_net_transport_iroh keep independent last-error state — read each through its own
+// libpancake_net_transport_iroh keep independent last-error state, read each through its own
 // reader (`pancake_last_error` / `pancake_iroh_last_error`).
 
 threadlocal var last_error_buf: [256]u8 = undefined;
@@ -427,9 +428,9 @@ pub fn sliceFromC(ptr: ?[*]const u8, len: usize) MarshalError![]const u8 {
 pub fn referenceFromC(c_ref: PancakeReference) MarshalError!model.Reference {
     const promise_sub = c_ref.sub_kind == PANCAKE_REF_SUB_PROMISE;
     return switch (c_ref.kind) {
-        PANCAKE_REF_NEAR => .{ .near = .{ .export_position = c_ref.id, .kind = if (promise_sub) .promise else .object } },
-        PANCAKE_REF_FAR => .{ .far = .{ .import_position = c_ref.id, .kind = if (promise_sub) .promise else .object } },
-        PANCAKE_REF_PROMISE => .{ .promise = .{ .answer_position = c_ref.id } },
+        PANCAKE_REF_NEAR => .{ .near = .{ .export_position = model.ExportId.from(c_ref.id), .kind = if (promise_sub) .promise else .object } },
+        PANCAKE_REF_FAR => .{ .far = .{ .import_position = model.ImportId.from(c_ref.id), .kind = if (promise_sub) .promise else .object } },
+        PANCAKE_REF_PROMISE => .{ .promise = .{ .answer_position = model.AnswerId.from(c_ref.id) } },
         else => error.UnsupportedValue,
     };
 }
@@ -483,9 +484,9 @@ pub fn argsFromC(arena: std.mem.Allocator, items: ?[*]const PancakeArgument, len
 
 pub fn referenceToC(reference: model.Reference) PancakeReference {
     return switch (reference) {
-        .near => |near| .{ .kind = PANCAKE_REF_NEAR, .sub_kind = if (near.kind == .promise) PANCAKE_REF_SUB_PROMISE else PANCAKE_REF_SUB_OBJECT, .id = near.export_position },
-        .far => |far| .{ .kind = PANCAKE_REF_FAR, .sub_kind = if (far.kind == .promise) PANCAKE_REF_SUB_PROMISE else PANCAKE_REF_SUB_OBJECT, .id = far.import_position },
-        .promise => |promise| .{ .kind = PANCAKE_REF_PROMISE, .sub_kind = 0, .id = promise.answer_position },
+        .near => |near| .{ .kind = PANCAKE_REF_NEAR, .sub_kind = if (near.kind == .promise) PANCAKE_REF_SUB_PROMISE else PANCAKE_REF_SUB_OBJECT, .id = near.export_position.int() },
+        .far => |far| .{ .kind = PANCAKE_REF_FAR, .sub_kind = if (far.kind == .promise) PANCAKE_REF_SUB_PROMISE else PANCAKE_REF_SUB_OBJECT, .id = far.import_position.int() },
+        .promise => |promise| .{ .kind = PANCAKE_REF_PROMISE, .sub_kind = 0, .id = promise.answer_position.int() },
         .sturdy => .{ .kind = PANCAKE_REF_STURDY, .sub_kind = 0, .id = 0 },
         .broken => .{ .kind = PANCAKE_REF_BROKEN, .sub_kind = 0, .id = 0 },
     };

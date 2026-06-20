@@ -67,7 +67,7 @@
       (printf "BREAK OK: ~v~n" err)
       (exit 0)]
      [else
-      ;; Broken, but not with pancake's reason — e.g. a severed session after
+      ;; Broken, but not with pancake's reason, e.g. a severed session after
       ;; an unmarshal failure. That is the bug this scenario exists to catch.
       (printf "BREAK WRONG-REASON: ~v~n" err)
       (exit 1)])]

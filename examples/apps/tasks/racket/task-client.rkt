@@ -31,7 +31,7 @@
   a-board)
 
 ;; Send a request to the board and drive the connection until it settles,
-;; returning the reply value — `conn-send` aimed at the board.
+;; returning the reply value, `conn-send` aimed at the board.
 (define (board-call a-board verb . args)
   (apply conn-send (board-conn a-board) (board-far a-board) verb args))
 

@@ -51,7 +51,7 @@ pub const Event = struct {
     codec: model.CodecId,
     /// Off-wire answer-id for a Goblins V1.0 resolver-callback (ADR-0010). Set
     /// only when `tag == .resolve` and the frame is a translated deliver.
-    resolve_answer: ?u64 = null,
+    resolve_answer: ?model.AnswerId = null,
     /// Off-wire answer-id for an ordinary inbound deliver that carried a
     /// `resolve_me_desc` but no wire answer-position (the Goblins V1.0
     /// resolver-only call pattern). The session allocated a virtual inbound
@@ -59,7 +59,7 @@ pub const Event = struct {
     /// deliver must carry that virtual answer so the application's reply routes
     /// back through the resolver callback rather than dropping silently. Set
     /// only when `tag == .deliver`.
-    deliver_answer: ?u64 = null,
+    deliver_answer: ?model.AnswerId = null,
 
     pub fn kind(self: Event) EventKind {
         return self.tag;
@@ -137,7 +137,7 @@ pub fn resolutionFromResolverCallback(
 
 /// The one break-payload shape table: the reason text a break payload carries,
 /// or null when the shape has no usable text. Accepts every shape a live
-/// partner emits — pancake's own bare Symbol (mirroring the listener fire), a
+/// partner emits, pancake's own bare Symbol (mirroring the listener fire), a
 /// PreSpec `<error>` record, text, or a Goblins exception record such as
 /// `<exn:fail:mystery>`, whose tag is the only reason it carries. `anytype`
 /// over the borrowed `model.view.Argument` and the owned `model.Argument`, the

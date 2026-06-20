@@ -92,7 +92,7 @@ export interface NetConn {
 	/** Write every byte of `data`, awaiting the runtime's flush/backpressure. */
 	write(data: Uint8Array): Promise<void>;
 	close(): void;
-	/** This socket's own bound address — the locator a keyed start-session signs. */
+	/** This socket's own bound address, the locator a keyed start-session signs. */
 	localAddr(): { hostname: string; port: number };
 }
 
@@ -133,7 +133,7 @@ export function detectRuntime(): RuntimeName {
 
 async function loadAdapter(): Promise<RuntimeAdapter> {
 	// A computed specifier keeps a static analyzer (Deno's `deno check`, a
-	// bundler) from following into a runtime it cannot resolve — `bun.ts` imports
+	// bundler) from following into a runtime it cannot resolve, `bun.ts` imports
 	// `bun:ffi`, `node.ts` imports `node:ffi`, neither of which exists under the
 	// others. The matching adapter is the only one ever loaded at runtime.
 	const file = `./adapters/${detectRuntime()}.ts`;

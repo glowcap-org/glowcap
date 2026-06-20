@@ -1,4 +1,4 @@
-// pancake-zig — paths in containerEnv must match .devcontainer/pins.sh
+// pancake-zig, paths in containerEnv must match .devcontainer/pins.sh
 {
   "name": "pancake-zig",
   "build": {

@@ -2,7 +2,7 @@
    the sans-io ocapn surface (pancake_ocapn.h). This is the reference shape of a
    C event loop: pump bytes with recv_stream, advance with step, drain with
    take_outbound, and route events by peek_event into the typed polls. No
-   sockets — the two peers exchange their frames through plain memory, which is
+   sockets, the two peers exchange their frames through plain memory, which is
    exactly what the sans-I/O contract promises a host can do. It links the ocapn
    base plus the TCP transport archive (ADR-0059) to show a real composed link
    line stays symbol-disjoint even when the program drives only the base.

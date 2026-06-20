@@ -36,7 +36,7 @@
 (define iroh-ffi-cache (box #f))
 
 ;; Open the iroh ABI library and bind its symbols on first use, caching the
-;; table. Optional — a clear error names the build step when it is absent.
+;; table. Optional, a clear error names the build step when it is absent.
 (define (iroh-ffi)
   (or (unbox iroh-ffi-cache)
       (let ([table (load-iroh-ffi)])
@@ -65,7 +65,7 @@
    'conn-release   (get-ffi-obj 'pancake_iroh_conn_release L (_fun _pointer -> _void))
    ;; The event-driven loop surface (ADR-0057): the netlayer's one I/O model.
    ;; Park a green thread on the readiness fd (via `unsafe-file-descriptor->semaphore`),
-   ;; drain records when it signals, and drive non-blocking byte I/O — one place
+   ;; drain records when it signals, and drive non-blocking byte I/O, one place
    ;; serves many connections. `readiness-fd` returns the fd; `drain-ready` drains
    ;; into a caller-owned array (read with `ptr-ref`, so a plain pointer). Only
    ;; `try-connect` (the dial blocks) is #:blocking?; everything else never parks.

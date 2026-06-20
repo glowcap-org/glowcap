@@ -1,7 +1,7 @@
-//! Object-capability membrane patterns (ADR-0064): the caretaker (revocable
+//! Object-capability forwarding proxies (ADR-0064): the caretaker (revocable
 //! forwarder) and attenuator (verb allow-list) built on `Turn.forward`. The
 //! local tests prove forwarding and refusal through `near`; the over-the-wire
-//! test proves the deferred-answer path — a far caller delivers to a hosted
+//! test proves the deferred-answer path, a far caller delivers to a hosted
 //! caretaker proxy, which forwards to its target and settles the caller's answer
 //! when the forwarded send resolves, then breaks it once revoked.
 
@@ -99,7 +99,7 @@ test "a caretaker composes over an attenuator: a revocable read-only view" {
     const readonly = try actors.attenuate(&vat, target, &.{"get"});
     const care = try actors.caretaker(&vat, readonly);
 
-    // Read forwards through both membranes; write is refused by the attenuator.
+    // Read forwards through both proxies; write is refused by the attenuator.
     try std.testing.expectEqual(@as(i64, 3), (try vat.near(care.proxy, .{ .verb = "get" })).integer);
     try std.testing.expectError(
         actors.ocap.Error.Attenuated,

@@ -31,10 +31,10 @@ round-trip:
 ```zig
 const pancake = @import("pancake");
 
-// Dial by locator — the one dialer. The transport set is a bare slice naming
+// Dial by locator, the one dialer. The transport set is a bare slice naming
 // the transports this client can reach (here, just TCP); `tcp.at` turns a
 // `host:port` into a `tcp` locator with no caller buffer. Add `iroh` by
-// putting one more netlayer in the slice — the same call.
+// putting one more netlayer in the slice, the same call.
 var tcp_resident = pancake.net.tcp.Resident{ .io = io };
 
 const conn = try pancake.driver.connect(&.{tcp_resident.netlayer()}, allocator, pancake.net.tcp.at(designator), .ephemeral, .{});
@@ -86,7 +86,7 @@ runtime, start with
 [consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md).
 It walks the build, the artifacts, the ownership rules, and a first complete program
 in one place. The C surface is opaque handles, fixed-width return codes, `ptr + len` views, and explicit release
-functions — the shape that makes it pleasant to wrap.
+functions, the shape every binding wraps.
 
 ## In Rust, TypeScript, Python, or Racket
 

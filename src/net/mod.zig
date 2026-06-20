@@ -83,7 +83,7 @@ pub const kqueue = if (@import("builtin").os.tag.isDarwin()) @import("completion
 /// The ready-to-use completion loop for the host platform: the portable
 /// `completion.Loop` instantiated with this platform's backend. Linux uses
 /// io_uring, macOS/BSD use kqueue; on any other platform this is an empty
-/// struct — no completion backend is implemented there.
+/// struct, no completion backend is implemented there.
 pub const Loop = if (@import("builtin").os.tag == .linux)
     completion.Loop(uring.Backend)
 else if (@import("builtin").os.tag.isDarwin())

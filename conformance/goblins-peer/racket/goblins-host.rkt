@@ -1,5 +1,5 @@
 #lang racket
-;; goblins-host.rkt — a Goblins vat host for the live OCapN interop driver.
+;; goblins-host.rkt, a Goblins vat host for the live OCapN interop driver.
 ;;
 ;; Spawns one or more Goblins vats, each on its own real-OS TCP
 ;; port, each registering an `^echo` cap at the canonical OCapN
@@ -50,7 +50,7 @@
 (define ECHO-SWISS-NUM
   (string->bytes/latin-1 "IO58l1laTyhcrgDKbEzFOO32MDd6zE5w"))
 
-;; Echo behavior — `(lambda args args)` returns its arguments
+;; Echo behavior, `(lambda args args)` returns its arguments
 ;; unchanged. Mirrors seven-caps-peer.rkt's `^echo`.
 (define (^echo _bcom)
   (lambda args
@@ -64,7 +64,7 @@
 (define RECORD-SWISS-NUM
   (string->bytes/latin-1 "pancakeRecordSwissnumABCDEF12345"))
 
-;; Record behavior — returns an OCapN Struct (a string-keyed Racket
+;; Record behavior, returns an OCapN Struct (a string-keyed Racket
 ;; hash) carrying its argument, so a partner can pipeline `op:get`
 ;; against the call's answer and have a named field resolve out of it
 ;; (captp.rkt answers an inbound op:get with a `hash-ref` vow).
@@ -120,7 +120,7 @@
 (define (emit-ndjson event-fields)
   ;; Emit one JSON object per line. event-fields is an assoc list of
   ;; (key . string-value). Hand-roll the JSON to avoid pulling in
-  ;; another package just for this — keys are static, values are
+  ;; another package just for this, keys are static, values are
   ;; controlled, so escaping concerns are minimal.
   (define (escape s)
     (regexp-replace* #px"[\\\\\"]" s "\\\\\\0"))

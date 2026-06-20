@@ -3,7 +3,7 @@ id: ADR-0057
 status: accepted
 date: 2026-06-12
 tags: [net, netlayer, iroh, transport, driver, completion-loop, performance]
-decision: "iroh stays a sidecar (ADR-0055), and reaching pancake-scale concurrency over it is the netlayer's one I/O model: one tokio runtime per endpoint exposes a single readiness fd plus non-blocking try-read/try-write, and the host waits on that one fd and drains a ready-queue — so N iroh connections multiplex through one loop thread instead of N blocking threads. Shipped: the sidecar exposes the readiness fd + drain, the resident's `iroh.LoopHost` is the loop consumer, the public iroh netlayer C ABI (`pancake_iroh_netlayer_*`) is loop-only — `readiness_fd` + `drain_ready`, armed at construction, with no blocking frame surface — and `zig build iroh-loop` proves many concurrent connections served from one thread. Every binding parks on the readiness fd natively in its own idiom (gated by `bindings-iroh-loop`)."
+decision: "iroh stays a sidecar (ADR-0055), and reaching pancake-scale concurrency over it is the netlayer's one I/O model: one tokio runtime per endpoint exposes a single readiness fd plus non-blocking try-read/try-write, and the host waits on that one fd and drains a ready-queue — so N iroh connections multiplex through one loop thread instead of N blocking threads. Shipped: the sidecar exposes the readiness fd + drain, the resident's `iroh.LoopHost` is the loop consumer, the public iroh netlayer C ABI (`pancake_iroh_netlayer_*`) is loop-only — `readiness_fd` + `drain_ready`, armed at construction, with no blocking frame surface — and `zig build iroh-loop` proves many concurrent connections served from one thread. Every binding parks on the readiness fd natively in its own idiom (Python, Rust, and Racket gated by `bindings-iroh-loop`; Deno parks the same way without a member step)."
 supersedes: []
 superseded_by: []
 ---
@@ -177,7 +177,5 @@ the endpoint into its own reactor instead of dedicating a thread to it.
 
 ## Notes
 
-- Companion plan:
-  [`docs/planning/iroh-completion-loop-bridge.md`](../../planning/iroh-completion-loop-bridge.md).
 - Builds on ADR-0051 (completion-loop dialer), ADR-0053 (blocking pump / single
   fiber), and ADR-0055 (the iroh sidecar).

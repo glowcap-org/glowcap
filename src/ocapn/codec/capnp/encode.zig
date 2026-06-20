@@ -21,7 +21,7 @@ const PipelineOpKind = shared.PipelineOpKind;
 const HandoffKind = shared.HandoffKind;
 const StructLoc = shared.StructLoc;
 
-/// Encode for a wire profile — the codec-dispatch boundary's counterpart to
+/// Encode for a wire profile, the codec-dispatch boundary's counterpart to
 /// `syrup.encodeMessageForProfile`. Cap'n Proto is pancake's self-consistent
 /// dialect (ADR-0026): the struct schema always carries `resolve_me_desc` /
 /// `wants_partial`, and the engine applies the V1.0 semantic translation
@@ -88,7 +88,7 @@ fn encodeBody(b: *wire.Builder, allocator: std.mem.Allocator, message: model.Mes
         },
         .resolve => |resolve| blk: {
             const loc = try allocStruct(b, allocator, 1, 1);
-            b.set(loc.data_idx, resolve.answer);
+            b.set(loc.data_idx, resolve.answer.int());
             setStructPtr(b, ptrIndex(loc, 0), try encodeResolution(b, allocator, resolve.resolution));
             break :blk loc;
         },
@@ -102,7 +102,7 @@ fn encodeBody(b: *wire.Builder, allocator: std.mem.Allocator, message: model.Mes
         },
         .get => |get| blk: {
             const loc = try allocStruct(b, allocator, 1, 2);
-            b.set(loc.data_idx, get.answer);
+            b.set(loc.data_idx, get.answer.int());
             setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, get.receiver));
             try setData(b, allocator, loc, 1, get.field);
             break :blk loc;
@@ -110,13 +110,13 @@ fn encodeBody(b: *wire.Builder, allocator: std.mem.Allocator, message: model.Mes
         .index => |index| blk: {
             const loc = try allocStruct(b, allocator, 2, 1);
             b.set(loc.data_idx, @bitCast(index.index));
-            b.set(loc.data_idx + 1, index.answer);
+            b.set(loc.data_idx + 1, index.answer.int());
             setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, index.receiver));
             break :blk loc;
         },
         .untag => |untag| blk: {
             const loc = try allocStruct(b, allocator, 1, 2);
-            b.set(loc.data_idx, untag.answer);
+            b.set(loc.data_idx, untag.answer.int());
             setStructPtr(b, ptrIndex(loc, 0), try encodeReference(b, allocator, untag.receiver));
             try setData(b, allocator, loc, 1, untag.tag);
             break :blk loc;
@@ -131,7 +131,7 @@ fn encodeDeliver(b: *wire.Builder, allocator: std.mem.Allocator, deliver: model.
     var flags: u64 = 0;
     if (deliver.answer) |answer| {
         flags |= shared.deliver_has_answer;
-        b.set(loc.data_idx + 1, answer);
+        b.set(loc.data_idx + 1, answer.int());
     }
     if (deliver.resolve_me_desc != null) flags |= shared.deliver_has_resolve_me;
     b.set(loc.data_idx, flags);
@@ -206,15 +206,15 @@ fn encodeReference(b: *wire.Builder, allocator: std.mem.Allocator, reference: mo
     switch (reference) {
         .near => |near| {
             b.set(loc.data_idx, @intFromEnum(RefKind.near) | (if (near.kind == .promise) shared.data0_flag else 0));
-            b.set(loc.data_idx + 1, near.export_position);
+            b.set(loc.data_idx + 1, near.export_position.int());
         },
         .far => |far| {
             b.set(loc.data_idx, @intFromEnum(RefKind.far) | (if (far.kind == .promise) shared.data0_flag else 0));
-            b.set(loc.data_idx + 1, far.import_position);
+            b.set(loc.data_idx + 1, far.import_position.int());
         },
         .promise => |promise| {
             b.set(loc.data_idx, @intFromEnum(RefKind.promise));
-            b.set(loc.data_idx + 1, promise.answer_position);
+            b.set(loc.data_idx + 1, promise.answer_position.int());
             if (promise.path.ops.len != 0) setListPtr(b, ptrIndex(loc, 0), try encodePipelinePath(b, allocator, promise.path.ops));
         },
         .sturdy => |sturdy| {
@@ -415,7 +415,7 @@ fn lessByKeyBytes(keys: []const []u8, a: usize, b: usize) bool {
 }
 
 /// Encode a single `Argument` as a standalone Cap'n Proto message and return its
-/// owned bytes — the canonical sort key for set ordering. Caller owns the slice.
+/// owned bytes, the canonical sort key for set ordering. Caller owns the slice.
 fn encodeArgumentKey(allocator: std.mem.Allocator, arg: model.Argument) EncodeError![]u8 {
     var builder = wire.Builder{};
     defer builder.deinit(allocator);
