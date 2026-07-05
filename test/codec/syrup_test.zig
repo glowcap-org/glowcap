@@ -22,15 +22,6 @@ fn hexToOwned(allocator: std.mem.Allocator, comptime hex: []const u8) ![]u8 {
     return out;
 }
 
-test "Syrup refuses raw op:resolve for the v1.0 profile" {
-    try std.testing.expectError(syrup.Error.UnsupportedMessage, syrup.encodeMessageForProfile(std.testing.allocator, model.WireProfile.v1_0, .{
-        .resolve = .{
-            .answer = .from(7),
-            .resolution = .{ .fulfill = .{ .integer = 1 } },
-        },
-    }));
-}
-
 test "Syrup locator encoding uses typed locator and preserves empty false hints" {
     const allocator = std.testing.allocator;
     const pubkey = repeatedByte(32, 0xaa);
@@ -880,6 +871,23 @@ test "Syrup decode rejects non-byte frame shape" {
     try std.testing.expectError(syrup.Error.InvalidFrameShape, syrup.decodeBody(frame));
 }
 
+test "Syrup decodes a foreign record argument as Tagged, so a Goblins break payload survives" {
+    // The exact shape a live Goblins peer answers a refused withdraw with: a
+    // resolver-callback deliver whose break payload is a bare exception
+    // record. The record's label lands as the tag — the reason text
+    // `engine.events.breakReasonFromPayload` reads — instead of the whole
+    // frame dying as malformed.
+    const frame = "<10'op:deliver<11'desc:export1+>[5'break<16'exn:fail:mystery>]ff>";
+    const body = try syrup.decodeBody(.{ .bytes = frame, .shape = .byte });
+    const deliver = body.deliver;
+    const tag_arg = try deliver.args.at(0);
+    try std.testing.expectEqualStrings("break", tag_arg.symbol);
+    const payload = try deliver.args.at(1);
+    try std.testing.expect(payload == .tagged);
+    try std.testing.expectEqualStrings("exn:fail:mystery", payload.tagged.tag);
+    try std.testing.expectEqual(@as(usize, 0), try payload.tagged.value.len());
+}
+
 test "Syrup decode rejects malformed parser boundary cases" {
     const Case = struct {
         bytes: []const u8,
@@ -889,7 +897,6 @@ test "Syrup decode rejects malformed parser boundary cases" {
         .{ .bytes = "<8'op:abort4\"bye>", .expected = syrup.Error.MalformedFrame },
         .{ .bytes = "<8'op:abort5\"bye>", .expected = syrup.Error.MalformedFrame },
         .{ .bytes = "<10'op:deliver<11'desc:unknown7+>[]11+f>", .expected = syrup.Error.UnsupportedReference },
-        .{ .bytes = "<10'op:deliver<11'desc:export7+>[<7'unknown>]11+f>", .expected = syrup.Error.UnsupportedArgument },
         .{ .bytes = "<8'op:abort3\"bye>trailing", .expected = syrup.Error.MalformedFrame },
         .{ .bytes = "<13'op:gc-answers[11+13+>", .expected = syrup.Error.MalformedFrame },
     };

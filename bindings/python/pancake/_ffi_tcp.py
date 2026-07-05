@@ -23,9 +23,7 @@ def _load():
     # `pancake_tcp_last_error`, never the core family's `pancake_last_error`.
     tcp_sigs = {
         "pancake_tcp_last_error": ([ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t], ctypes.c_size_t),
-        "pancake_tcp_clear_last_error": ([], None),
         "pancake_tcp_netlayer_new": ([ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_tcp_netlayer_new_in": ([P, ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_tcp_netlayer_release": ([P], None),
         "pancake_tcp_connect": (
             [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint16, ctypes.c_uint32, ctypes.c_size_t, ctypes.POINTER(P)],

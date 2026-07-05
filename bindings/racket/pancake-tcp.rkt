@@ -6,9 +6,9 @@
 ;; handles for cleartext, loopback-grade TCP. Its private loader
 ;; (`private/ffi-tcp.rkt`) opens ONLY that archive, so requiring this module
 ;; never links a transport you do not use. It builds on the core peer and value
-;; machinery in `pancake.rkt` through the shared transport seam — they share the
-;; `PancakeContext` pointer and frame layout but no symbol — so a TCP consumer
-;; composes the two:
+;; machinery in `pancake.rkt` through the shared transport seam
+;; (`private/seam.rkt`) — they share the `PancakeContext` pointer and frame
+;; layout but no symbol — so a TCP consumer composes the two:
 ;;
 ;;   (require "pancake.rkt")
 ;;   (require "pancake-tcp.rkt")
@@ -27,11 +27,11 @@
 (require ffi/unsafe
          "private/constants.rkt"
          "private/ffi-tcp.rkt"
-         "pancake.rkt")
+         "private/seam.rkt")
 
-(provide make-netlayer make-netlayer/in netlayer-release! netlayer-listen netlayer-connect
-         listener-port listener-accept listener-close!
-         endpoint-read-frame endpoint-write-frame! endpoint-close!
+(provide make-netlayer netlayer-release! netlayer-listen netlayer-connect
+         listener-port listener-accept listener-release!
+         endpoint-read-frame endpoint-write-frame! endpoint-release!
          tcp-last-error)
 
 ;; (tcp-last-error) -> the calling thread's last error message from the TCP
@@ -56,22 +56,8 @@
 (struct listener (handle) #:mutable)
 (struct endpoint (handle) #:mutable)
 
-(define (host->ptr host)
-  (define bs (string->bytes/utf-8 host))
-  (define buf (malloc (max (bytes-length bs) 1) 'atomic-interior))
-  (memcpy buf bs (bytes-length bs))
-  (values buf (bytes-length bs)))
-
 (define (make-netlayer)
   (define-values (rc h) (pancake_tcp_netlayer_new))
-  (check/tcp rc)
-  (define nl (netlayer h))
-  (register-finalizer nl (lambda (q) (netlayer-release! q)))
-  nl)
-
-;; Allocate the netlayer (and every connection buffer it makes) through `ctx`.
-(define (make-netlayer/in ctx)
-  (define-values (rc h) (pancake_tcp_netlayer_new_in (context-handle ctx)))
   (check/tcp rc)
   (define nl (netlayer h))
   (register-finalizer nl (lambda (q) (netlayer-release! q)))
@@ -83,19 +69,19 @@
     (set-netlayer-handle! nl #f)))
 
 (define (netlayer-listen nl host [port 0])
-  (define-values (buf n) (host->ptr host))
-  (define-values (rc h) (pancake_tcp_listen (netlayer-handle nl) buf n port))
+  (define bs (string->bytes/utf-8 host))
+  (define-values (rc h) (pancake_tcp_listen (netlayer-handle nl) (pin-immobile bs) (bytes-length bs) port))
   (check/tcp rc)
   (define lst (listener h))
-  (register-finalizer lst (lambda (q) (listener-close! q)))
+  (register-finalizer lst (lambda (q) (listener-release! q)))
   lst)
 
 (define (netlayer-connect nl host port [codec 'syrup] [max-frame 4096])
-  (define-values (buf n) (host->ptr host))
-  (define-values (rc h) (pancake_tcp_connect (netlayer-handle nl) buf n port (codec-id codec) max-frame))
+  (define bs (string->bytes/utf-8 host))
+  (define-values (rc h) (pancake_tcp_connect (netlayer-handle nl) (pin-immobile bs) (bytes-length bs) port (codec-id codec) max-frame))
   (check/tcp rc)
   (define cn (endpoint h))
-  (register-finalizer cn (lambda (q) (endpoint-close! q)))
+  (register-finalizer cn (lambda (q) (endpoint-release! q)))
   cn)
 
 (define (listener-port lst)
@@ -107,10 +93,10 @@
   (define-values (rc h) (pancake_tcp_accept (listener-handle lst) (codec-id codec) max-frame))
   (check/tcp rc)
   (define cn (endpoint h))
-  (register-finalizer cn (lambda (q) (endpoint-close! q)))
+  (register-finalizer cn (lambda (q) (endpoint-release! q)))
   cn)
 
-(define (listener-close! lst)
+(define (listener-release! lst)
   (when (listener-handle lst)
     (pancake_tcp_listener_release (listener-handle lst))
     (set-listener-handle! lst #f)))
@@ -123,11 +109,10 @@
   out)
 
 (define (endpoint-write-frame! cn frame)
-  (define buf (malloc (max (bytes-length frame) 1) 'atomic-interior))
-  (memcpy buf frame (bytes-length frame))
+  (define buf (pin-immobile frame))
   (check/tcp (pancake_tcp_conn_write_frame (endpoint-handle cn) (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE))))
 
-(define (endpoint-close! cn)
+(define (endpoint-release! cn)
   (when (endpoint-handle cn)
     (pancake_tcp_conn_release (endpoint-handle cn))
     (set-endpoint-handle! cn #f)))

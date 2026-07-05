@@ -7,17 +7,18 @@ ZIG_VERSION="0.16.0"
 ZLS_VERSION="0.16.0"
 
 # --- Rust (C ABI dogfood) ---
-RUST_VERSION="1.96.0"
+RUST_VERSION="1.96.1"
 
 # --- JavaScript / TypeScript dogfood ---
-DENO_VERSION="2.8.2"
-NODE_VERSION="26.3.0"
+DENO_VERSION="2.9.1"
+NODE_VERSION="26.4.0"
 BUN_VERSION="1.3.14"
 
 # --- Python (uv) / agent tools ---
-UV_VERSION="0.11.19"
+UV_VERSION="0.11.26"
 SERENA_AGENT_VERSION="1.5.3"
 SERENA_PYTHON="3.13"
+CLAUDE_CODE_VERSION="2.1.198"
 
 # --- Racket / Spritely Goblins ---
 RACKET_VERSION="9.2"

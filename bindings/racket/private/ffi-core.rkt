@@ -29,19 +29,13 @@
   (_fun (major : (_ptr o _uint32)) (minor : (_ptr o _uint32)) (patch : (_ptr o _uint32))
         -> _void -> (values major minor patch)))
 (define-pancake pancake_last_error (_fun _pointer _size -> _size))
-(define-pancake pancake_clear_last_error (_fun -> _void))
-(define-pancake pancake_context_new (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
 (define-pancake pancake_context_new_with_allocator
   (_fun _PancakeAllocator-pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
 (define-pancake pancake_context_release (_fun _pointer -> _void))
-(define-pancake pancake_peer_new_in
-  (_fun _pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
 (define-pancake pancake_peer_feed_owned (_fun _pointer _PancakeManagedFrame-pointer -> _int32))
 (define-pancake pancake_peer_new (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
 (define-pancake pancake_peer_new_negotiated
   (_fun _uint32 _uint32 (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_peer_new_negotiated_in
-  (_fun _pointer _uint32 _uint32 (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
 (define-pancake pancake_peer_new_raw_open (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
 (define-pancake pancake_peer_new_raw_open_in
   (_fun _pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
@@ -69,8 +63,6 @@
   (_fun _pointer _pointer _size (consumed : (_ptr o _size)) -> (r : _int32) -> (values r consumed)))
 (define-pancake pancake_peer_take_outbound (_fun _pointer _PancakeManagedFrame-pointer -> _int32))
 (define-pancake pancake_managed_frame_release (_fun _PancakeManagedFrame-pointer -> _void))
-(define-pancake pancake_peer_poll_event (_fun _pointer _PancakeEvent-pointer -> _int32))
-(define-pancake pancake_event_release (_fun _PancakeEvent-pointer -> _void))
 (define-pancake pancake_peer_register_export (_fun _pointer _uint64 -> _int32))
 (define-pancake pancake_peer_next_export
   (_fun _pointer (out : (_ptr o _uint64)) -> (r : _int32) -> (values r out)))
@@ -78,15 +70,12 @@
 (define-pancake pancake_peer_next_answer
   (_fun _pointer (out : (_ptr o _uint64)) -> (r : _int32) -> (values r out)))
 (define-pancake pancake_peer_last_abort (_fun _pointer _PancakeLastAbort-pointer -> _int32))
-(define-pancake pancake_peer_peek_event (_fun _pointer -> _int32))
 (define-pancake pancake_peer_send_deliver
   (_fun _pointer _PancakeReference-pointer _pointer _size _uint32 _uint64 -> _int32))
 (define-pancake pancake_peer_send_resolve
   (_fun _pointer _uint64 _uint32 _PancakeArgument-pointer/null _pointer _size -> _int32))
-(define-pancake pancake_peer_poll_event_deliver (_fun _pointer _PancakeDeliver-pointer -> _int32))
-(define-pancake pancake_peer_poll_event_resolve (_fun _pointer _PancakeResolve-pointer -> _int32))
-(define-pancake pancake_deliver_release (_fun _PancakeDeliver-pointer -> _void))
-(define-pancake pancake_resolve_release (_fun _PancakeResolve-pointer -> _void))
+(define-pancake pancake_peer_next_event (_fun _pointer _PancakeAnyEvent-pointer -> _int32))
+(define-pancake pancake_any_event_release (_fun _PancakeAnyEvent-pointer -> _void))
 (define-pancake pancake_peer_register_bootstrap_cap
   (_fun _pointer _pointer _size (out : (_ptr o _uint64)) -> (r : _int32) -> (values r out)))
 (define-pancake pancake_peer_send_bootstrap_fetch
@@ -98,32 +87,9 @@
   (_fun _pointer _pointer _size _PancakeEnlivenStart-pointer -> _int32))
 (define-pancake pancake_peer_record_enlivenment
   (_fun _pointer _pointer _size _uint32 _uint64 _uint32 -> _int32))
-;; Recipient half of a three-party handoff: sign a desc:handoff-receive over the
-;; verbatim give bytes (keyed by the 32-byte seed) and queue a withdraw-gift
-;; deliver to the exporter's bootstrap under `answer`.
-(define-pancake pancake_peer_send_withdraw_gift
-  (_fun _pointer _pointer _size _pointer _size _uint64 -> _int32))
-;; Gifter (introducer) half of a three-party handoff (ADR-0009/ADR-0056). A
-;; gifter reads the partner's session key (the recipient key, the exporter key)
-;; and the exporter's verbatim location bytes off the two sessions it holds, then
-;; deposits the gift with the exporter and resolves the recipient's question with
-;; a signed `desc:handoff-give` it builds from those inputs.
-(define-pancake pancake_peer_partner_session_key
-  (_fun _pointer (p : (_ptr o _pointer)) (l : (_ptr o _size)) -> (r : _int32) -> (values r p l)))
-(define-pancake pancake_peer_partner_locator_raw
-  (_fun _pointer (p : (_ptr o _pointer)) (l : (_ptr o _size)) -> (r : _int32) -> (values r p l)))
-(define-pancake pancake_peer_send_deposit_gift
-  (_fun _pointer _pointer _size _PancakeReference-pointer -> _int32))
-(define-pancake pancake_peer_send_resolve_handoff_give
-  (_fun _pointer _uint64 _pointer _size -> _int32))
-(define-pancake pancake_build_handoff_give
-  (_fun _pointer _size _pointer _size _pointer _size _pointer _size _pointer _size
-        (give : (_ptr o _pointer)) (give-len : (_ptr o _size)) -> (r : _int32) -> (values r give give-len)))
-(define-pancake pancake_handoff_give_bytes_release (_fun _pointer _size -> _void))
 ;; Build the verbatim exporter location-record bytes a give names (transport +
-;; designator, plus optional comma-separated direct-addresses) — the
-;; construct-it-yourself counterpart of `pancake_peer_partner_locator_raw` for an
-;; iroh exporter reachable only by a dial hint.
+;; designator, plus optional comma-separated direct-addresses), for an iroh
+;; exporter reachable only by a dial hint.
 (define-pancake pancake_encode_peer_locator
   (_fun _pointer _size _pointer _size _pointer _size
         (out : (_ptr o _pointer)) (out-len : (_ptr o _size)) -> (r : _int32) -> (values r out out-len)))
@@ -133,34 +99,33 @@
 ;; in `src/c_abi/ocapn/node.zig`.
 (define-pancake pancake_node_new
   (_fun _pointer _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_node_new_in
-  (_fun _pointer _pointer _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
 (define-pancake pancake_node_free (_fun _pointer -> _void))
 (define-pancake pancake_node_register_conn
   (_fun _pointer (cid : (_ptr o _uint64)) (peer : (_ptr o _pointer))
         -> (r : _int32) -> (values r cid peer)))
 (define-pancake pancake_node_remove_conn (_fun _pointer _uint64 -> _int32))
-(define-pancake pancake_node_send_withdraw
-  (_fun _pointer _uint64 _pointer _size _uint64 -> _int32))
-(define-pancake pancake_node_originate_give
-  (_fun _pointer _uint64 _uint64 _PancakeReference-pointer _pointer _size _uint64 _pointer _size -> _int32))
-(define-pancake pancake_node_enroll_redeemed
-  (_fun _pointer _uint64 _uint64 (out : (_ptr o _uint64)) -> (r : _int32) -> (values r out)))
 (define-pancake pancake_node_route
   (_fun _pointer _uint64 _uint64 (cid : (_ptr o _uint64)) (fid : (_ptr o _uint64)) (routed : (_ptr o _uint32))
         -> (r : _int32) -> (values r cid fid routed)))
 (define-pancake pancake_node_record_foreign_home (_fun _pointer _uint64 _uint64 -> _int32))
-(define-pancake pancake_node_foreign_home
-  (_fun _pointer _uint64 (cid : (_ptr o _uint64)) (found : (_ptr o _uint32))
-        -> (r : _int32) -> (values r cid found)))
 (define-pancake pancake_node_arg_is_foreign
   (_fun _pointer _uint64 _uint64 (foreign : (_ptr o _uint32))
         -> (r : _int32) -> (values r foreign)))
-(define-pancake pancake_peer_codec
-  (_fun _pointer (out : (_ptr o _uint32)) -> (r : _int32) -> (values r out)))
+(define-pancake pancake_node_accept_give
+  (_fun _pointer _uint64 _uint64 _pointer _size _pointer _size -> _int32))
+(define-pancake pancake_node_exporter_dialed (_fun _pointer _uint64 _uint64 -> _int32))
+(define-pancake pancake_node_dial_failed (_fun _pointer _uint64 _pointer _size -> _int32))
+(define-pancake pancake_node_claim_resolve
+  (_fun _pointer _uint64 _uint64 _uint32 _uint64 _pointer _size (claimed : (_ptr o _uint32))
+        -> (r : _int32) -> (values r claimed)))
+(define-pancake pancake_node_intercept_fulfilled_ref
+  (_fun _pointer _uint64 _uint64 _uint64 (claimed : (_ptr o _uint32))
+        -> (r : _int32) -> (values r claimed)))
+(define-pancake pancake_node_provide_gift_id (_fun _pointer _uint64 _pointer _size -> _int32))
+(define-pancake pancake_node_set_exporter_location (_fun _pointer _uint64 _pointer _size -> _int32))
+(define-pancake pancake_node_next_action (_fun _pointer _PancakeNodeAction-pointer -> _int32))
 (define-pancake pancake_peer_send_gc_export
   (_fun _pointer _pointer _pointer _size -> _int32))
-(define-pancake pancake_peer_send_gc_answer (_fun _pointer _uint64 -> _int32))
 
 ;; OCapN locator URIs, core libpancake_ocapn vocabulary, so a TCP-only program reaches
 ;; the grammar without any transport companion. One grammar, no hand-rolled percent
@@ -172,17 +137,15 @@
 (define-pancake pancake_uri_format_peer
   (_fun _pointer _size _pointer _size _pointer _pointer _pointer _pointer _size
         _pointer _size (out-len : (_ptr o _size)) -> (r : _int32) -> (values r out-len)))
-(define-pancake pancake_uri_format_sturdyref
-  (_fun _pointer _size _pointer _size _pointer _size _pointer _pointer _pointer _pointer _size
-        _pointer _size (out-len : (_ptr o _size)) -> (r : _int32) -> (values r out-len)))
 (define-pancake pancake_locator_transport
   (_fun _pointer (p : (_ptr o _pointer)) (l : (_ptr o _size)) -> (r : _int32) -> (values r p l)))
 (define-pancake pancake_locator_designator
   (_fun _pointer (p : (_ptr o _pointer)) (l : (_ptr o _size)) -> (r : _int32) -> (values r p l)))
+(define-pancake pancake_locator_host_port
+  (_fun _pointer (p : (_ptr o _pointer)) (l : (_ptr o _size)) (port : (_ptr o _uint16))
+        -> (r : _int32) -> (values r p l port)))
 (define-pancake pancake_locator_swissnum
   (_fun _pointer (p : (_ptr o _pointer)) (l : (_ptr o _size)) -> (r : _int32) -> (values r p l)))
-(define-pancake pancake_locator_hint
-  (_fun _pointer _pointer _size (p : (_ptr o _pointer)) (l : (_ptr o _size)) -> (r : _int32) -> (values r p l)))
 (define-pancake pancake_locator_hint_count
   (_fun _pointer (c : (_ptr o _size)) -> (r : _int32) -> (values r c)))
 (define-pancake pancake_locator_hint_at

@@ -9,7 +9,7 @@
 //! exchange: `send` queues the `op:deliver` with a fresh answer, `serve`
 //! dispatches the inbound deliver and resolves it, and `on` fires the listener
 //! when the resolution arrives. The Goblins V1.0 resolver-callback translation
-//! (no wire `op:resolve`) is invisible; chapter 04 shows the raw `Peer`-level
+//! (no wire `op:resolve`) is invisible; chapter 05 shows the raw `Peer`-level
 //! deliver/resolve underneath all of it.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
@@ -57,6 +57,7 @@ fn onResolve(ctx: ?*anyopaque, resolution: actors.Resolution) void {
             @memcpy(result.text[0..n], reason[0..n]);
             result.text_len = n;
         },
+        .give => {},
     }
 }
 
@@ -70,7 +71,8 @@ pub fn main() !void {
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;
 
-    var host_vat = actors.Vat.initOver(allocator, host_peer);
+    // `pancake.Vat` is the front-door alias for `actors.Vat`.
+    var host_vat = pancake.Vat.initOver(allocator, host_peer);
     defer host_vat.deinit();
     const greeter = try host_vat.spawn(Greeter, .{ .greeting = "Howdy" });
     try host_vat.bindExport(greeter, 5);

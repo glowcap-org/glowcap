@@ -7,8 +7,9 @@
 ;; with no kernel transport and no file descriptors. Its private loader
 ;; (`private/ffi-inproc.rkt`) opens ONLY that archive, so requiring this module
 ;; links neither the TCP nor the iroh transport. It builds on the core peer and
-;; value machinery in `pancake.rkt` through the shared transport seam — same
-;; `PancakeContext` pointer and frame layout, no shared symbol:
+;; value machinery in `pancake.rkt` through the shared transport seam
+;; (`private/seam.rkt`) — same `PancakeContext` pointer and frame layout, no
+;; shared symbol:
 ;;
 ;;   (require "pancake.rkt")
 ;;   (require "pancake-inproc.rkt")
@@ -24,12 +25,12 @@
 (require ffi/unsafe
          "private/constants.rkt"
          "private/ffi-inproc.rkt"
-         "pancake.rkt")
+         "private/seam.rkt")
 
-(provide make-inproc-netlayer make-inproc-netlayer/in inproc-netlayer-release!
+(provide make-inproc-netlayer inproc-netlayer-release!
          inproc-netlayer-listen inproc-netlayer-connect
-         inproc-listener-accept inproc-listener-close!
-         inproc-endpoint-read-frame inproc-endpoint-write-frame! inproc-endpoint-close!
+         inproc-listener-accept inproc-listener-release!
+         inproc-endpoint-read-frame inproc-endpoint-write-frame! inproc-endpoint-release!
          inproc-last-error)
 
 ;; (inproc-last-error) -> the calling thread's last error message from the
@@ -55,22 +56,11 @@
 (struct inproc-endpoint (handle) #:mutable)
 
 ;; A designator is any opaque token; accept a string and pass its bytes.
-(define (designator->ptr designator)
-  (define bs (if (bytes? designator) designator (string->bytes/utf-8 designator)))
-  (define buf (malloc (max (bytes-length bs) 1) 'atomic-interior))
-  (memcpy buf bs (bytes-length bs))
-  (values buf (bytes-length bs)))
+(define (designator-bytes designator)
+  (if (bytes? designator) designator (string->bytes/utf-8 designator)))
 
 (define (make-inproc-netlayer)
   (define-values (rc h) (pancake_inproc_netlayer_new))
-  (check/inproc rc)
-  (define nl (inproc-netlayer h))
-  (register-finalizer nl (lambda (q) (inproc-netlayer-release! q)))
-  nl)
-
-;; Allocate the netlayer (and every connection buffer it makes) through `ctx`.
-(define (make-inproc-netlayer/in ctx)
-  (define-values (rc h) (pancake_inproc_netlayer_new_in (context-handle ctx)))
   (check/inproc rc)
   (define nl (inproc-netlayer h))
   (register-finalizer nl (lambda (q) (inproc-netlayer-release! q)))
@@ -82,29 +72,29 @@
     (set-inproc-netlayer-handle! nl #f)))
 
 (define (inproc-netlayer-listen nl designator)
-  (define-values (buf n) (designator->ptr designator))
-  (define-values (rc h) (pancake_inproc_listen (inproc-netlayer-handle nl) buf n))
+  (define bs (designator-bytes designator))
+  (define-values (rc h) (pancake_inproc_listen (inproc-netlayer-handle nl) (pin-immobile bs) (bytes-length bs)))
   (check/inproc rc)
   (define lst (inproc-listener h))
-  (register-finalizer lst (lambda (q) (inproc-listener-close! q)))
+  (register-finalizer lst (lambda (q) (inproc-listener-release! q)))
   lst)
 
 (define (inproc-netlayer-connect nl designator [codec 'syrup] [max-frame 4096])
-  (define-values (buf n) (designator->ptr designator))
-  (define-values (rc h) (pancake_inproc_connect (inproc-netlayer-handle nl) buf n (codec-id codec) max-frame))
+  (define bs (designator-bytes designator))
+  (define-values (rc h) (pancake_inproc_connect (inproc-netlayer-handle nl) (pin-immobile bs) (bytes-length bs) (codec-id codec) max-frame))
   (check/inproc rc)
   (define cn (inproc-endpoint h))
-  (register-finalizer cn (lambda (q) (inproc-endpoint-close! q)))
+  (register-finalizer cn (lambda (q) (inproc-endpoint-release! q)))
   cn)
 
 (define (inproc-listener-accept lst [codec 'syrup] [max-frame 4096])
   (define-values (rc h) (pancake_inproc_accept (inproc-listener-handle lst) (codec-id codec) max-frame))
   (check/inproc rc)
   (define cn (inproc-endpoint h))
-  (register-finalizer cn (lambda (q) (inproc-endpoint-close! q)))
+  (register-finalizer cn (lambda (q) (inproc-endpoint-release! q)))
   cn)
 
-(define (inproc-listener-close! lst)
+(define (inproc-listener-release! lst)
   (when (inproc-listener-handle lst)
     (pancake_inproc_listener_release (inproc-listener-handle lst))
     (set-inproc-listener-handle! lst #f)))
@@ -122,11 +112,10 @@
      out]))
 
 (define (inproc-endpoint-write-frame! cn frame)
-  (define buf (malloc (max (bytes-length frame) 1) 'atomic-interior))
-  (memcpy buf frame (bytes-length frame))
+  (define buf (pin-immobile frame))
   (check/inproc (pancake_inproc_conn_write_frame (inproc-endpoint-handle cn) (make-PancakeFrame buf (bytes-length frame) FRAME-SHAPE-BYTE))))
 
-(define (inproc-endpoint-close! cn)
+(define (inproc-endpoint-release! cn)
   (when (inproc-endpoint-handle cn)
     (pancake_inproc_conn_release (inproc-endpoint-handle cn))
     (set-inproc-endpoint-handle! cn #f)))

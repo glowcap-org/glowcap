@@ -88,9 +88,9 @@ Implemented Zig behavior includes:
   structural-equality predicate, the in-memory evidence for OCapN Pass
   Invariant Equality (ADR-0012): two references that name the same target
   compare equal regardless of which codec or profile carried them.
-  `engine.SessionRegistry` enforces one session per `PeerId` (`PeerAlreadyOpen`
-  on a duplicate open), so cross-session equality reduces to same-session
-  equality on `(import_position, kind)`; the sturdyref dedup cache supplies the
+  A host that keeps one session per peer pair (ADR-0012's session-pair
+  uniqueness) reduces cross-session equality to same-session equality on
+  `(import_position, kind)`; the sturdyref dedup cache supplies the
   sturdyref-vs-handoff collapse.
 - **Distributed GC (opt-in finalizers).** The engine sends and accounts the
   wire-delta GC messages (`op:gc-exports` / `op:gc-answers` decrement the matching
@@ -143,7 +143,18 @@ Implemented Zig behavior includes:
 - **C ABI and adapters.** The C ABI frame vocabulary is fixed-width and
   release-explicit: borrowed frames dispatch synchronously, managed frames
   transfer ownership without copying, and events return the originating frame in
-  the negotiated codec with explicit release and no re-encode. `std.Io` appears
+  the negotiated codec with explicit release and no re-encode.
+  `pancake_peer_next_event` is the one call a consumer's event loop needs: it
+  drives the engine to idle and hands back the next event fully projected. A
+  deliver or a resolve arrives as structured values, a handoff give included;
+  every other kind, and any value the typed surface cannot carry, arrives as
+  its originating wire frame. The pump-then-poll rule, the typed-or-opaque
+  routing, and the queue-always-advances rule therefore live in the waist, not
+  in each consumer. The locator surface carries the `host:port` designator
+  grammar the same way: `model.uri.splitHostPort` is the one split (bracketed
+  IPv6 unwrap included), the native TCP netlayer parses through it, and
+  `pancake_locator_host_port` hands the same verdict to a consumer dialing with
+  its own sockets. `std.Io` appears
   at the adapter boundary, not in the core. Allocation policy is a
   `PancakeContext`: the `*_in` constructors allocate a whole handle family
   through a context you supply and free it back through the same context
@@ -227,14 +238,42 @@ Implemented Zig behavior includes:
   against live Goblins. The demos need only `deno`; other-language participants
   join when their runtimes are present, and all run as siblings of the hermetic
   `check`.
-- **Transparent three-party handoff in every binding.** Each binding redeems a
-  received `desc:handoff-give` through the _same_ `connect` / `fetch` / `send`
-  surface, with no handoff choreography in application code: a connection router
+- **Crossed hellos collapse to one session.** When two peers dial each other
+  at once, the pair keeps the session the higher-keyed peer opened (ADR-0030):
+  `driver.Host` owns the tiebreak — a dial registers its outbound before bytes
+  move, accepted connections compare inbound start-sessions against the
+  registry, and a listening host signs its bound designator into every dial so
+  the comparison keys on a real address. A deterministic driver scenario
+  stages the collision and pins the verdict to the byte order of the two
+  public identifiers.
+
+- **Transparent three-party handoff in every binding, one explicit verb
+  natively.** Each binding redeems a received `desc:handoff-give` through the
+  _same_ `connect` / `fetch` / `send` surface, with no handoff choreography in
+  application code; a native Zig host speaks both halves through
+  `driver.Host` — the multi-connection tier that owns the node, the identity,
+  and the netlayer slice. `Host.redeem` consumes the typed `.give` arm a
+  settled call surfaces (the live `goblins-handoff` driver is its consumer),
+  and origination is the host's resolve interceptor: a published actor that
+  returns a foreign-homed capability answers with a signed give. The hermetic
+  three-host scenario (`test/driver/host_three_party_test.zig`) runs
+  originate, give, redeem, and the direct call over real loopback sockets. Underneath both: a connection router
   — the engine's sans-io `Node` (ADR-0066), the Goblins `mycapn` analogue
   (ADR-0009/ADR-0056), wrapped by each binding's thin `Node` handle — retains the
   connection's keyed identity, dials the named exporter with that same identity,
   signs the `desc:handoff-receive`, withdraws the gift, and hands back an
   ordinary capability, routing later sends to the exporter that hosts it. The
+  redeem and origination *sequencing* itself is also owned once, as a sans-io
+  serve step on the same node (ADR-0067): the node holds the exporter cache,
+  the pending dial/withdraw/gift state, and the per-exporter give-location
+  override, consumes feeds, and emits data actions (`dial`, `flush`, `settle`,
+  `fail`, `need_gift_id` — entropy is a requested host effect) that the host
+  executes, projected over the waist as the `pancake_node_*` serve verbs. All
+  four bindings and the native `goblins-handoff` driver are deliberately dumb
+  action executors over it: no consumer holds redeem or origination
+  orchestration, an exporter cache, or pending bookkeeping of its own, and a
+  claim is offered only on node-dialed exporter connections, so an ordinary
+  connection's reply path pays nothing for handoffs. The
   application never sees the give or the second connection, and the public ref /
   send surface is unchanged: every binding routes a redeemed capability through
   the node's reserved-id token (a synthetic far id the sans-io `Node` maps to the
@@ -248,10 +287,11 @@ Implemented Zig behavior includes:
 - **Transparent three-party handoff, gifter side (all four bindings).** Every
   binding now _originates_ a handoff as transparently as it redeems one: when a
   published actor returns a `Ref` whose home is a different connection than the
-  one asking, the binding asks the node to originate the give — the node deposits
-  the gift on the home connection and answers the caller with a signed
-  `desc:handoff-give` (`pancake_node_originate_give`, the gifter recipe sunk into
-  the sans-io `Node`) — no choreography in application code. This rests on **one
+  one asking, the node claims the reply through the serve step
+  (`pancake_node_intercept_fulfilled_ref`), asks the host for gift-id entropy,
+  deposits the gift on the home connection, and answers the caller with a
+  signed `desc:handoff-give` — the gifter recipe lives in the sans-io `Node`,
+  with no choreography in application code. This rests on **one
   identity and one gift registry per node**: a node's
   `Server`, `connect`, and redeem connections share a `Node`, so a gift
   deposited on one connection is withdrawable on another, the give's signer
@@ -263,11 +303,11 @@ Implemented Zig behavior includes:
   (each binding mints a give a _live_ Goblins recipient redeems against a live
   Goblins exporter); and `zig build demo-rooms-dm` (the rooms app introduces two
   members who then DM directly, the room never relays). The C ABI gifter
-  primitives and the shared-gift-registry surface are language-neutral, and each
-  binding records a fetched import's home in the node's foreign-home table
-  (`pancake_node_record_foreign_home` / `pancake_node_foreign_home`), so a
+  primitives are language-neutral, and each binding records a fetched import's
+  home in the node's foreign-home table (`pancake_node_record_foreign_home`,
+  read back through the shared `pancake_node_arg_is_foreign` verdict), so a
   returned foreign cap is recognized for re-gifting uniformly across the four.
-  Cross-process redeem over iroh ships in the Deno binding in **both** dial
+  Cross-process redeem over iroh ships in every binding in **both** dial
   postures, chosen by what the gift's exporter location names. When it carries the
   exporter's `direct-addresses` as signed hints (the give codec round-trips them
   through decode/view/owned/encode, and the C ABI redeem projection re-parses them
@@ -280,7 +320,7 @@ Implemented Zig behavior includes:
   for a no-relay policy via each binding's `set_redeem_reachability` knob. That
   the redeem honors the configured posture is proven hermetically per binding by
   `zig build bindings-iroh-redeem-posture`
-  (`python-`/`rust-`/`racket-iroh-redeem-posture`): each lowers its recipient
+  (`deno-`/`python-`/`rust-`/`racket-iroh-redeem-posture`): each lowers its recipient
   posture to `local_discovery` and redeems a hint-less give by resolving the
   exporter's id through an in-process book, discriminating, since the default
   `Discovery` would need the network. The
@@ -412,9 +452,8 @@ Implemented Zig behavior includes:
   `.keyed`), never a defaulted key; `driver.connectUriOwned` parses a published
   `ocapn://` URI string into a locator and dials it the same way. A literal
   address becomes a typed locator through the transport that owns its spelling
-  (`net.tcp.at(designator)` for a `host:port` string,
-  `net.inproc.locator(name)`), so a caller holding a literal address need not
-  hand-write the `PeerLocator`. Hosting is the symmetric twin: `driver.listen`
+  (`net.tcp.at(designator)` for a `host:port` string), so a caller holding a
+  literal address need not hand-write the `PeerLocator`. Hosting is the symmetric twin: `driver.listen`
   binds any `net.netlayer.Netlayer` per a `ListenConfig`, signs each accepted
   session with the same explicit `Identity`, and hands back an owning
   `driver.Server` — whose `localDesignator` reports the bound address to dial —

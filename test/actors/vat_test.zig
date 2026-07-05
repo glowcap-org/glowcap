@@ -67,7 +67,7 @@ fn captureInt(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     const slot: *i64 = @ptrCast(@alignCast(ctx.?));
     slot.* = switch (resolution) {
         .fulfilled => |value| value.integer,
-        .broken => -1,
+        .broken, .give => -1,
     };
 }
 
@@ -124,7 +124,7 @@ const Captured = struct {
         const self: *Captured = @ptrCast(@alignCast(ctx.?));
         const bytes = switch (resolution) {
             .fulfilled => |value| value.bytes,
-            .broken => return,
+            .broken, .give => return,
         };
         @memcpy(self.buf[0..bytes.len], bytes);
         self.len = bytes.len;
@@ -335,6 +335,7 @@ const ReentrantCapture = struct {
         const self: *ReentrantCapture = @ptrCast(@alignCast(ctx.?));
         const bytes = switch (resolution) {
             .fulfilled => |value| value.bytes,
+            .give => return,
             .broken => {
                 self.broke = true;
                 return;

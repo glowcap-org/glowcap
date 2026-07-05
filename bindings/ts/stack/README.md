@@ -47,9 +47,10 @@ it.
 
 The core is usable standalone. The transport modules build on it — they share the `Context` pointer
 and the frame/context type layout, and they are symbol-disjoint — but never on each other. The
-internal loaders live under [`internal/ffi/`](internal/ffi/) (one per archive) and the ABI
-constants, hand-mirrored from `pancake_ocapn.h`, in
-[`internal/constants.ts`](internal/constants.ts); a consumer never imports those.
+internal loaders live under [`internal/ffi/`](internal/ffi/) (one per archive), and the ABI
+constants and struct layouts are generated from the Zig source by `zig build gen-ts-abi` into
+[`internal/abi.ts`](internal/abi.ts) (re-exported through
+[`internal/constants.ts`](internal/constants.ts)); a consumer never imports those.
 
 ## The core
 

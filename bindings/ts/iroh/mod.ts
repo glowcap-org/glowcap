@@ -27,7 +27,6 @@
 
 import { Socket } from "node:net";
 import {
-	ab,
 	AsyncConnection,
 	Connection,
 	formatPeerUri,
@@ -35,13 +34,14 @@ import {
 	type KeyedLocator,
 	Node,
 	openKeyedSession,
-	outPointer,
 	PancakeError,
 	Peer,
 } from "@pancake/stack";
 import {
+	ab,
 	CLOSED,
 	ffi,
+	INVALID_ARGUMENT,
 	IROH_EV_ACCEPT,
 	IROH_EV_CLOSED,
 	IROH_EV_READABLE,
@@ -49,6 +49,7 @@ import {
 	IROH_READY_EVENT_SIZE,
 	NULL,
 	OK,
+	outPointer,
 	type Ptr,
 	type Symbols,
 	WOULD_BLOCK,
@@ -97,7 +98,10 @@ export class IrohNetlayer {
 	 * Ed25519 secret key for a stable id, or omitted for a fresh random key. */
 	constructor(reachability: Reachability, secretSeed?: Uint8Array) {
 		if (secretSeed !== undefined && secretSeed.length !== 32) {
-			throw new Error("an iroh secret seed must be 32 bytes");
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				"an iroh secret seed must be 32 bytes",
+			);
 		}
 		const seed = secretSeed ?? new Uint8Array(0);
 		const out = new Uint8Array(8);
@@ -768,7 +772,7 @@ export class IrohServer {
 		return this.#nodeId;
 	}
 
-	/** The node's shared node, its retained identity and gift registry. An
+	/** The server's shared node, its retained identity and gift registry. An
 	 * exporter application reads it to originate gifts that recipients withdraw
 	 * across the node's connections; the TCP `Server.node` sibling. */
 	get node(): Node {

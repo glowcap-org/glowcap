@@ -28,8 +28,8 @@ const model = @import("model");
 
 pub const PANCAKE_OK: i32 = 0;
 pub const PANCAKE_ERR_NULL_POINTER: i32 = -1;
-/// Reserved for a future stale-handle check; no function returns this today.
-pub const PANCAKE_ERR_INVALID_HANDLE: i32 = -2;
+// -2 is retired (an unimplemented stale-handle check); the value is never
+// reused, so an old consumer comparing against it cannot mistake a new code.
 /// A non-pointer argument was out of range or unparseable (e.g. a zero frame
 /// cap, or a host string that is not an address). Distinct from `_NULL_POINTER`
 /// (a required pointer was null) and `_IO` (the network itself failed).
@@ -47,9 +47,8 @@ pub const PANCAKE_ERR_IO: i32 = -9;
 pub const PANCAKE_ERR_MALFORMED: i32 = -10;
 /// An inbound frame exceeded the endpoint's `max_frame_bytes`.
 pub const PANCAKE_ERR_FRAME_TOO_LARGE: i32 = -11;
-/// A typed `poll_event_*` was called but the next event is a different kind.
-/// The event is left queued; route on `pancake_peer_peek_event` first.
-pub const PANCAKE_ERR_WRONG_EVENT: i32 = -12;
+// -12 is retired (the pairwise typed polls' wrong-kind refusal;
+// `pancake_peer_next_event` routes every kind itself). Never reused.
 /// A value *sent* across the typed surface uses a variant the C ABI cannot carry:
 /// a `handoff` argument, or a `sturdy`/`broken` reference target. Those are
 /// refused loudly with this code rather than marshalled wrong. (`set`, `tagged`,
@@ -104,7 +103,7 @@ pub fn frameShapeFromC(shape: u32) ?foundation.FrameShape {
     };
 }
 
-pub fn frameShapeToC(shape: foundation.FrameShape) u32 {
+fn frameShapeToC(shape: foundation.FrameShape) u32 {
     return switch (shape) {
         .byte => PANCAKE_FRAME_SHAPE_BYTE,
         .word => PANCAKE_FRAME_SHAPE_WORD,
@@ -582,4 +581,61 @@ pub fn freeProjectionArena(owner: ?*anyopaque) void {
     const child = arena.child_allocator;
     arena.deinit();
     child.destroy(arena);
+}
+
+// ── Transport connection payload lifecycle ───────────────────────────────────
+
+/// Modest caps on a stream-shaped transport endpoint's per-connection buffers.
+/// Neither buffer needs to hold a whole frame: `writeAll` streams a large
+/// outbound frame straight through the write buffer, and an inbound frame
+/// larger than the read buffer accumulates in the connection's bounded spill
+/// (`net.Spill`) while it is in flight. Steady per-connection memory is
+/// therefore these two buffers, not `max_frame_bytes`.
+pub const endpoint_read_buf_bytes: usize = 16 * 1024;
+pub const endpoint_write_buf_bytes: usize = 64 * 1024;
+
+/// The buffer/payload lifecycle every stream-shaped transport archive's
+/// connection handles share (tcp and inproc; iroh's loop connections carry no
+/// buffers). `Payload` declares `stream` (with `deinit`), `read_buf`,
+/// `write_buf`, and `allocator`. A comptime helper, not an `export fn`, so each
+/// archive compiles its own copy and the shared leaf stays symbol-free.
+pub fn ConnLifecycle(comptime Payload: type) type {
+    return struct {
+        /// Allocate a connection payload and its buffers, leaving `.stream` for
+        /// the caller to install once the connection is established. On any
+        /// failure before install, release it with `abort`.
+        pub fn begin(alloc: std.mem.Allocator, max_frame_bytes: usize) ?*Payload {
+            const read_buf = alloc.alloc(u8, @min(max_frame_bytes, endpoint_read_buf_bytes)) catch return null;
+            const write_buf = alloc.alloc(u8, @min(max_frame_bytes, endpoint_write_buf_bytes)) catch {
+                alloc.free(read_buf);
+                return null;
+            };
+            const payload = alloc.create(Payload) catch {
+                alloc.free(read_buf);
+                alloc.free(write_buf);
+                return null;
+            };
+            payload.read_buf = read_buf;
+            payload.write_buf = write_buf;
+            payload.allocator = alloc;
+            return payload;
+        }
+
+        /// Release a payload whose `.stream` was never installed.
+        pub fn abort(payload: *Payload) void {
+            const alloc = payload.allocator;
+            alloc.free(payload.read_buf);
+            alloc.free(payload.write_buf);
+            alloc.destroy(payload);
+        }
+
+        /// Release an established payload: close the stream, then the buffers.
+        pub fn destroy(payload: *Payload) void {
+            const alloc = payload.allocator;
+            payload.stream.deinit();
+            alloc.free(payload.read_buf);
+            alloc.free(payload.write_buf);
+            alloc.destroy(payload);
+        }
+    };
 }

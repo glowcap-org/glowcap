@@ -11,38 +11,22 @@
 //!
 //! Errors from a `pancake_inproc_*` call route through the transport archive's
 //! own thread-local last-error
-//! ([`pancake_inproc_last_error`](crate::sys::inproc::pancake_inproc_last_error)),
+//! (`pancake_inproc_last_error`),
 //! never the ocapn family's [`last_error`](crate::last_error).
 
 use core::marker::PhantomData;
 
 use crate::sys::inproc as ffi;
-use crate::{Codec, Context, Error, Result};
+use crate::transport_error::transport_error_slot;
+use crate::{Codec, Context, Result};
 
 // Like the core `check`, but for `pancake_inproc_*` calls: snapshot the
 // in-process transport's own thread-local last-error.
-fn check_inproc(code: i32) -> Result<()> {
-	if code == crate::sys::OK {
-		Ok(())
-	} else {
-		Err(Error::with_transport_detail(code, inproc_last_error()))
-	}
-}
-
-/// The calling thread's last error message from the in-process transport archive
-/// (`libpancake_net_transport_inproc`), or `None` if none is set. The transport
-/// keeps its own thread-local slot, so an inproc call's diagnostic is read here
-/// and never from the ocapn family's [`last_error`](crate::last_error).
-fn inproc_last_error() -> Option<String> {
-	let len = unsafe { ffi::pancake_inproc_last_error(core::ptr::null_mut(), 0) };
-	if len == 0 {
-		return None;
-	}
-	let mut buf = vec![0u8; len + 1];
-	let written = unsafe { ffi::pancake_inproc_last_error(buf.as_mut_ptr(), buf.len()) };
-	buf.truncate(written.min(buf.len()));
-	Some(String::from_utf8_lossy(&buf).into_owned())
-}
+transport_error_slot!(
+	check_inproc,
+	inproc_last_error,
+	ffi::pancake_inproc_last_error
+);
 
 /// Owns the in-process switchboard and its one I/O backend. Connections and
 /// listeners borrow it (via `&self`), so the borrow checker rejects an

@@ -25,14 +25,33 @@
 import {
 	ABORT_DOMAIN_CODEC,
 	ABORT_DOMAIN_SESSION,
+	ALLOCATOR_ALLOC_OFF,
+	ALLOCATOR_FREE_OFF,
+	ALLOCATOR_SIZE,
+	ALLOCATOR_USER_DATA_OFF,
+	ANY_EVENT_DELIVER_OFF,
+	ANY_EVENT_FRAME_OFF,
+	ANY_EVENT_KIND_OFF,
+	ANY_EVENT_PROJECTION_OFF,
+	ANY_EVENT_RESOLVE_OFF,
+	ANY_EVENT_SIZE,
 	ARG_BIG_INTEGER,
 	ARG_BOOLEAN,
+	ARG_BOOLEAN_OFF,
 	ARG_BYTES,
+	ARG_BYTES_LEN_OFF,
+	ARG_BYTES_OFF,
 	ARG_FLOAT64,
+	ARG_FLOAT64_OFF,
 	ARG_INTEGER,
+	ARG_INTEGER_OFF,
+	ARG_ITEMS_LEN_OFF,
+	ARG_ITEMS_OFF,
 	ARG_KEYWORD,
+	ARG_KIND_OFF,
 	ARG_LIST,
 	ARG_REFERENCE,
+	ARG_REFERENCE_OFF,
 	ARG_SET,
 	ARG_SIZE,
 	ARG_STRING,
@@ -44,27 +63,87 @@ import {
 	CAPTP_VERSION_V1_0,
 	CODEC_CAPNP,
 	CODEC_SYRUP,
+	DELIVER_ANSWER_OFF,
+	DELIVER_ARGS_LEN_OFF,
+	DELIVER_ARGS_OFF,
+	DELIVER_HAS_ANSWER_OFF,
+	DELIVER_TARGET_OFF,
 	ENLIVEN_CACHED,
 	ENLIVEN_OUTCOME_BROKEN,
 	ENLIVEN_OUTCOME_FULFILLED,
-	EVENT_DELIVER,
-	EVENT_RESOLVE,
+	ENLIVEN_START_ANSWER_OFF,
+	ENLIVEN_START_IMPORT_POSITION_OFF,
+	ENLIVEN_START_KIND_OFF,
+	ENLIVEN_START_SIZE,
+	ENLIVEN_START_STATUS_OFF,
+	FRAME_BYTES_OFF,
+	FRAME_LEN_OFF,
 	FRAME_SHAPE_BYTE,
+	FRAME_SHAPE_OFF,
+	FRAME_SIZE,
+	HANDOFF_GIVE_EXPORTER_LOCATOR_LEN_OFF,
+	HANDOFF_GIVE_EXPORTER_LOCATOR_OFF,
+	HANDOFF_GIVE_GIVE_LEN_OFF,
+	HANDOFF_GIVE_GIVE_OFF,
+	HANDOFF_GIVE_RECIPIENT_KEY_LEN_OFF,
+	HANDOFF_GIVE_RECIPIENT_KEY_OFF,
 	HINTS_EMPTY_FALSE,
 	HINTS_EMPTY_MAP,
 	INVALID_ARGUMENT,
+	LAST_ABORT_DOMAIN_OFF,
+	LAST_ABORT_ERROR_NAME_OFF,
+	LAST_ABORT_HAS_KIND_OFF,
+	LAST_ABORT_KIND_NAME_OFF,
+	LAST_ABORT_MESSAGE_OFF,
+	LAST_ABORT_SIZE,
+	MANAGED_FRAME_BYTES_OFF,
+	MANAGED_FRAME_LEN_OFF,
+	MANAGED_FRAME_PRIVATE_DATA_OFF,
+	MANAGED_FRAME_RELEASE_OFF,
+	MANAGED_FRAME_SHAPE_OFF,
+	MANAGED_FRAME_SIZE,
+	NODE_ACTION_ANSWER_OFF,
+	NODE_ACTION_CONN_ID_OFF,
+	NODE_ACTION_DIAL,
+	NODE_ACTION_FAIL,
+	NODE_ACTION_FLUSH,
+	NODE_ACTION_KIND_OFF,
+	NODE_ACTION_LOCATOR_LEN_OFF,
+	NODE_ACTION_LOCATOR_OFF,
+	NODE_ACTION_NEED_GIFT_ID,
+	NODE_ACTION_PENDING_OFF,
+	NODE_ACTION_REASON_LEN_OFF,
+	NODE_ACTION_REASON_OFF,
+	NODE_ACTION_SETTLE,
+	NODE_ACTION_SIZE,
+	NODE_ACTION_TOKEN_OFF,
 	OK,
+	PROJECTION_DELIVER,
+	PROJECTION_RESOLVE,
+	REDEEM_OUTCOME_BROKEN,
+	REDEEM_OUTCOME_FAR,
+	REDEEM_OUTCOME_NOT_CAPABILITY,
+	REDEEMED_TOKEN_BASE,
 	REF_BROKEN,
 	REF_FAR,
+	REF_ID_OFF,
+	REF_KIND_OFF,
 	REF_NEAR,
 	REF_PROMISE,
 	REF_SIZE,
 	REF_STURDY,
+	REF_SUB_KIND_OFF,
 	REF_SUB_OBJECT,
 	REF_SUB_PROMISE,
 	RESOLUTION_BREAK,
 	RESOLUTION_FULFILL,
 	RESOLUTION_HANDOFF,
+	RESOLVE_ANSWER_OFF,
+	RESOLVE_BREAK_MESSAGE_LEN_OFF,
+	RESOLVE_BREAK_MESSAGE_OFF,
+	RESOLVE_FULFILL_OFF,
+	RESOLVE_HANDOFF_OFF,
+	RESOLVE_RESOLUTION_KIND_OFF,
 	UNSUPPORTED_VALUE,
 	WOULD_BLOCK,
 } from "./internal/constants.ts";
@@ -78,6 +157,7 @@ import {
 	NULL,
 	type Ptr,
 } from "./internal/ffi/runtime.ts";
+import { ab, outPointer, readBytes } from "./internal/seam.ts";
 
 type Profile = "v1.0" | "pre-spec";
 
@@ -117,11 +197,6 @@ export function lastError(): string | null {
 	return new TextDecoder().decode(
 		buf.subarray(0, Math.min(written, buf.length)),
 	);
-}
-
-/** Clear the calling thread's last error. */
-export function clearLastError(): void {
-	s.pancake_clear_last_error();
 }
 
 /** The typed cause of a peer's most recent local dispatch failure, the
@@ -165,23 +240,17 @@ export class VowBroken extends PancakeError {
  * from a marshalling failure or a broken promise. `capabilityName` is the
  * swiss-number the fetch asked for. */
 export class FetchFailed extends PancakeError {
-	constructor(public readonly capabilityName: string) {
-		super(BROKEN, `fetch("${capabilityName}") did not resolve to a capability`);
+	constructor(public readonly capabilityName: string, detail?: string) {
+		super(
+			BROKEN,
+			detail ?? `fetch("${capabilityName}") did not resolve to a capability`,
+		);
 		this.name = "FetchFailed";
 	}
 }
 
 function check(code: number): void {
 	if (code !== OK) throw new PancakeError(code);
-}
-
-// Our buffers are always ArrayBuffer-backed; this bridges Deno's FFI/pointer
-// BufferSource typing, which rejects the `Uint8Array<ArrayBufferLike>` generic.
-// Exported as part of the core's binding-internal seam: the transport modules
-// marshal frames through the same helpers (see also `readBytes`, `outPointer`,
-// `releaseManagedFrame`).
-export function ab(b: Uint8Array): Uint8Array<ArrayBuffer> {
-	return b as Uint8Array<ArrayBuffer>;
 }
 
 // ── Value vocabulary ─────────────────────────────────────────────────────────
@@ -212,13 +281,11 @@ export const promise = (answer: bigint): Reference => ({
 export class Sym {
 	constructor(public readonly value: string) {}
 }
-export const sym = (value: string): Sym => new Sym(value);
 
 /** A string that marshals as an OCapN keyword. */
 export class Kw {
 	constructor(public readonly value: string) {}
 }
-export const kw = (value: string): Kw => new Kw(value);
 
 /** A set of values (an OCapN set; elements may be non-primitive). */
 export class PSet {
@@ -253,11 +320,10 @@ export type Argument =
 /** A `desc:handoff-give` an answer resolved to (ADR-0009/ADR-0056): the
  * recipient must redeem it against the named exporter rather than read an
  * immediate value. `give` is the verbatim signed envelope to relay unaltered to
- * the exporter (feed it to `Peer.sendWithdrawGift`); `exporterLocator` is the
- * exporter's dialable `ocapn://` URI, or `""` when the give's location is not a
- * flat locator; `recipientKey` is the 32-byte Ed25519 key the give is addressed
- * to. The high-level `Connection` redeems this transparently; a power user
- * driving a bare `Peer` does the dial + `sendWithdrawGift` itself. */
+ * the exporter; `exporterLocator` is the exporter's dialable `ocapn://` URI, or
+ * `""` when the give's location is not a flat locator; `recipientKey` is the
+ * 32-byte Ed25519 key the give is addressed to. The high-level `Connection`
+ * redeems this transparently through the node's serve step (ADR-0067). */
 export interface HandoffGive {
 	give: Uint8Array;
 	exporterLocator: string;
@@ -311,9 +377,9 @@ function writeReference(dv: DataView, off: number, ref: Reference): void {
 				"sturdy/broken ref not carried on send",
 			);
 	}
-	dv.setUint32(off, kind, true);
-	dv.setUint32(off + 4, sub, true);
-	dv.setBigUint64(off + 8, id, true);
+	dv.setUint32(off + REF_KIND_OFF, kind, true);
+	dv.setUint32(off + REF_SUB_KIND_OFF, sub, true);
+	dv.setBigUint64(off + REF_ID_OFF, id, true);
 }
 
 function refStruct(ref: Reference): Uint8Array {
@@ -340,9 +406,9 @@ function encodeArg(
 ): void {
 	const setBytes = (kind: number, bytes: Uint8Array) => {
 		keep.push(bytes);
-		dv.setUint32(off, kind, true);
-		dv.setBigUint64(off + 24, ffi.pointerOf(bytes), true);
-		dv.setBigUint64(off + 32, BigInt(bytes.length), true);
+		dv.setUint32(off + ARG_KIND_OFF, kind, true);
+		dv.setBigUint64(off + ARG_BYTES_OFF, ffi.pointerOf(bytes), true);
+		dv.setBigUint64(off + ARG_BYTES_LEN_OFF, BigInt(bytes.length), true);
 	};
 	if (typeof arg === "bigint") {
 		if (arg < -(2n ** 63n) || arg >= 2n ** 63n) {
@@ -353,17 +419,17 @@ function encodeArg(
 				ARG_BIG_INTEGER,
 				new TextEncoder().encode((negative ? -arg : arg).toString()),
 			);
-			dv.setUint32(off + 4, negative ? 1 : 0, true);
+			dv.setUint32(off + ARG_BOOLEAN_OFF, negative ? 1 : 0, true);
 		} else {
-			dv.setUint32(off, ARG_INTEGER, true);
-			dv.setBigInt64(off + 8, arg, true);
+			dv.setUint32(off + ARG_KIND_OFF, ARG_INTEGER, true);
+			dv.setBigInt64(off + ARG_INTEGER_OFF, arg, true);
 		}
 	} else if (typeof arg === "number") {
-		dv.setUint32(off, ARG_FLOAT64, true);
-		dv.setFloat64(off + 16, arg, true);
+		dv.setUint32(off + ARG_KIND_OFF, ARG_FLOAT64, true);
+		dv.setFloat64(off + ARG_FLOAT64_OFF, arg, true);
 	} else if (typeof arg === "boolean") {
-		dv.setUint32(off, ARG_BOOLEAN, true);
-		dv.setUint32(off + 4, arg ? 1 : 0, true);
+		dv.setUint32(off + ARG_KIND_OFF, ARG_BOOLEAN, true);
+		dv.setUint32(off + ARG_BOOLEAN_OFF, arg ? 1 : 0, true);
 	} else if (arg instanceof Uint8Array) {
 		setBytes(ARG_BYTES, arg);
 	} else if (arg instanceof Sym) {
@@ -373,10 +439,10 @@ function encodeArg(
 	} else if (typeof arg === "string") {
 		setBytes(ARG_STRING, new TextEncoder().encode(arg));
 	} else if (arg === null) {
-		dv.setUint32(off, ARG_VOID, true);
+		dv.setUint32(off + ARG_KIND_OFF, ARG_VOID, true);
 	} else if (isReference(arg)) {
-		dv.setUint32(off, ARG_REFERENCE, true);
-		writeReference(dv, off + 40, arg);
+		dv.setUint32(off + ARG_KIND_OFF, ARG_REFERENCE, true);
+		writeReference(dv, off + ARG_REFERENCE_OFF, arg);
 	} else if (Array.isArray(arg)) {
 		writeItems(ARG_LIST, arg);
 	} else if (arg instanceof PSet) {
@@ -389,19 +455,19 @@ function encodeArg(
 	}
 
 	function writeItems(kind: number, items: Argument[]): void {
-		dv.setUint32(off, kind, true);
+		dv.setUint32(off + ARG_KIND_OFF, kind, true);
 		const child = encodeArgs(items, keep);
-		dv.setBigUint64(off + 56, ffi.pointerOf(child), true);
-		dv.setBigUint64(off + 64, BigInt(items.length), true);
+		dv.setBigUint64(off + ARG_ITEMS_OFF, ffi.pointerOf(child), true);
+		dv.setBigUint64(off + ARG_ITEMS_LEN_OFF, BigInt(items.length), true);
 	}
 }
 
 // ── Marshalling (decode) ─────────────────────────────────────────────────────
 
 function readReference(view: DataView, off: number): Reference {
-	const kind = view.getUint32(off, true);
-	const sub = view.getUint32(off + 4, true);
-	const id = view.getBigUint64(off + 8, true);
+	const kind = view.getUint32(off + REF_KIND_OFF, true);
+	const sub = view.getUint32(off + REF_SUB_KIND_OFF, true);
+	const id = view.getBigUint64(off + REF_ID_OFF, true);
 	const promise = sub === REF_SUB_PROMISE;
 	switch (kind) {
 		case REF_NEAR:
@@ -417,93 +483,69 @@ function readReference(view: DataView, off: number): Reference {
 	}
 }
 
-export function readBytes(ptrValue: Ptr, len: bigint): Uint8Array {
-	if (ptrValue === NULL || len === 0n) return new Uint8Array(0);
-	return new Uint8Array(ffi.readMemory(ptrValue, Number(len)));
-}
-
-// Read a (pointer, length) out-pair a borrowed-view accessor filled, copying the
-// bytes out before the view's owner can change. Null pointer or zero length → null.
-function readViewCopy(
-	ptrBuf: Uint8Array,
-	lenBuf: Uint8Array,
-): Uint8Array | null {
-	const len = new DataView(lenBuf.buffer, lenBuf.byteOffset, 8).getBigUint64(
-		0,
-		true,
-	);
-	if (len === 0n) return null;
-	const ptr = new DataView(ptrBuf.buffer, ptrBuf.byteOffset, 8).getBigUint64(
-		0,
-		true,
-	);
-	if (ptr === NULL) return null;
-	return readBytes(ptr, len).slice();
-}
-
 function readArg(view: DataView, off: number): Argument {
-	const kind = view.getUint32(off, true);
+	const kind = view.getUint32(off + ARG_KIND_OFF, true);
 	switch (kind) {
 		case ARG_INTEGER:
-			return view.getBigInt64(off + 8, true);
+			return view.getBigInt64(off + ARG_INTEGER_OFF, true);
 		case ARG_FLOAT64:
-			return view.getFloat64(off + 16, true);
+			return view.getFloat64(off + ARG_FLOAT64_OFF, true);
 		case ARG_BOOLEAN:
-			return view.getUint32(off + 4, true) !== 0;
+			return view.getUint32(off + ARG_BOOLEAN_OFF, true) !== 0;
 		case ARG_BYTES:
 			return readBytes(
-				view.getBigUint64(off + 24, true),
-				view.getBigUint64(off + 32, true),
+				view.getBigUint64(off + ARG_BYTES_OFF, true),
+				view.getBigUint64(off + ARG_BYTES_LEN_OFF, true),
 			);
 		case ARG_STRING:
 			return new TextDecoder().decode(
 				readBytes(
-					view.getBigUint64(off + 24, true),
-					view.getBigUint64(off + 32, true),
+					view.getBigUint64(off + ARG_BYTES_OFF, true),
+					view.getBigUint64(off + ARG_BYTES_LEN_OFF, true),
 				),
 			);
 		case ARG_SYMBOL:
 			return new Sym(
 				new TextDecoder().decode(
 					readBytes(
-						view.getBigUint64(off + 24, true),
-						view.getBigUint64(off + 32, true),
+						view.getBigUint64(off + ARG_BYTES_OFF, true),
+						view.getBigUint64(off + ARG_BYTES_LEN_OFF, true),
 					),
 				),
 			);
 		case ARG_REFERENCE:
-			return readReference(view, off + 40);
+			return readReference(view, off + ARG_REFERENCE_OFF);
 		case ARG_LIST:
 			return readArgArray(
-				view.getBigUint64(off + 56, true),
-				view.getBigUint64(off + 64, true),
+				view.getBigUint64(off + ARG_ITEMS_OFF, true),
+				view.getBigUint64(off + ARG_ITEMS_LEN_OFF, true),
 			);
 		case ARG_SET:
 			return new PSet(
 				readArgArray(
-					view.getBigUint64(off + 56, true),
-					view.getBigUint64(off + 64, true),
+					view.getBigUint64(off + ARG_ITEMS_OFF, true),
+					view.getBigUint64(off + ARG_ITEMS_LEN_OFF, true),
 				),
 			);
 		case ARG_TAGGED:
 			return new Tagged(
 				new TextDecoder().decode(
 					readBytes(
-						view.getBigUint64(off + 24, true),
-						view.getBigUint64(off + 32, true),
+						view.getBigUint64(off + ARG_BYTES_OFF, true),
+						view.getBigUint64(off + ARG_BYTES_LEN_OFF, true),
 					),
 				),
 				readArgArray(
-					view.getBigUint64(off + 56, true),
-					view.getBigUint64(off + 64, true),
+					view.getBigUint64(off + ARG_ITEMS_OFF, true),
+					view.getBigUint64(off + ARG_ITEMS_LEN_OFF, true),
 				),
 			);
 		case ARG_KEYWORD:
 			return new Kw(
 				new TextDecoder().decode(
 					readBytes(
-						view.getBigUint64(off + 24, true),
-						view.getBigUint64(off + 32, true),
+						view.getBigUint64(off + ARG_BYTES_OFF, true),
+						view.getBigUint64(off + ARG_BYTES_LEN_OFF, true),
 					),
 				),
 			);
@@ -513,12 +555,12 @@ function readArg(view: DataView, off: number): Argument {
 			// Canonical decimal digits + sign flag back to a native bigint (ADR-0049).
 			const digits = new TextDecoder().decode(
 				readBytes(
-					view.getBigUint64(off + 24, true),
-					view.getBigUint64(off + 32, true),
+					view.getBigUint64(off + ARG_BYTES_OFF, true),
+					view.getBigUint64(off + ARG_BYTES_LEN_OFF, true),
 				),
 			);
 			const magnitude = BigInt(digits);
-			return view.getUint32(off + 4, true) !== 0 ? -magnitude : magnitude;
+			return view.getUint32(off + ARG_BOOLEAN_OFF, true) !== 0 ? -magnitude : magnitude;
 		}
 		default:
 			throw new PancakeError(
@@ -555,8 +597,8 @@ export interface HostAllocator {
 	free(block: Uint8Array, size: number, alignment: number): void;
 }
 
-/** An allocation scope. Peers and netlayers created with `Peer.newIn` /
- * `Netlayer.newIn` route every allocation through it. A context must outlive
+/** An allocation scope. A peer created with `Peer.rawOpenIn` routes every
+ * allocation through it. A context must outlive
  * every handle created in it; release it (via `using` / `[Symbol.dispose]`)
  * only after those handles. */
 export class Context {
@@ -570,13 +612,6 @@ export class Context {
 
 	private constructor(raw: Ptr) {
 		this.#raw = raw;
-	}
-
-	/** A context backed by the library-owned allocator. */
-	static default(): Context {
-		const out = new Uint8Array(8);
-		check(s.pancake_context_new(out));
-		return new Context(outPointer(out));
 	}
 
 	/** A context that routes every allocation through `allocator`. The host
@@ -614,12 +649,13 @@ export class Context {
 		ctx.#allocCb = allocCb;
 		ctx.#freeCb = freeCb;
 
-		// PancakeAllocator { alloc fn-ptr; free fn-ptr; user_data }, three pointers.
-		const allocStruct = new Uint8Array(24);
+		// PancakeAllocator, laid out by the generated ABI mirror.
+		const allocStruct = new Uint8Array(ALLOCATOR_SIZE);
 		const dv = new DataView(allocStruct.buffer);
-		dv.setBigUint64(0, allocCb.pointer, true);
-		dv.setBigUint64(8, freeCb.pointer, true);
-		dv.setBigUint64(16, 0n, true); // user_data unused; state lives in the closures
+		dv.setBigUint64(ALLOCATOR_ALLOC_OFF, allocCb.pointer, true);
+		dv.setBigUint64(ALLOCATOR_FREE_OFF, freeCb.pointer, true);
+		// user_data unused; state lives in the closures.
+		dv.setBigUint64(ALLOCATOR_USER_DATA_OFF, 0n, true);
 		ctx.#allocStruct = allocStruct;
 
 		const out = new Uint8Array(8);
@@ -633,7 +669,7 @@ export class Context {
 		return ctx;
 	}
 
-	/** Opaque handle, for use by `Peer.newIn` / `Netlayer.newIn`. */
+	/** Opaque handle, for use by `Peer.rawOpenIn`. */
 	get pointer(): Ptr {
 		return this.#raw;
 	}
@@ -695,13 +731,6 @@ export class Peer {
 		return self;
 	}
 
-	/** A negotiating peer whose allocations route through `context`; the context must outlive it. */
-	static newIn(context: Context): Peer {
-		const out = new Uint8Array(8);
-		check(s.pancake_peer_new_in(context.pointer, out));
-		return new Peer(outPointer(out));
-	}
-
 	/** A negotiating peer carrying an out-of-band negotiated profile and codec.
 	 * Both ends of a connection must construct with the same pair; the codec
 	 * must match the one the connection's endpoint frames with. */
@@ -709,24 +738,6 @@ export class Peer {
 		const out = new Uint8Array(8);
 		check(
 			s.pancake_peer_new_negotiated(profileId(profile), codecId(codec), out),
-		);
-		return new Peer(outPointer(out));
-	}
-
-	/** Context-backed counterpart of `Peer.negotiated`. */
-	static negotiatedIn(
-		context: Context,
-		profile: Profile,
-		codec: Codec = "syrup",
-	): Peer {
-		const out = new Uint8Array(8);
-		check(
-			s.pancake_peer_new_negotiated_in(
-				context.pointer,
-				profileId(profile),
-				codecId(codec),
-				out,
-			),
 		);
 		return new Peer(outPointer(out));
 	}
@@ -812,7 +823,7 @@ export class Peer {
 		hintsEmptyFalse?: boolean;
 	}): void {
 		if (opts.seed.length !== 32) {
-			throw new Error("a session seed must be 32 bytes");
+			throw new PancakeError(INVALID_ARGUMENT, "a session seed must be 32 bytes");
 		}
 		const transport = new TextEncoder().encode(opts.transport);
 		const designator = new TextEncoder().encode(opts.designator);
@@ -842,10 +853,7 @@ export class Peer {
 	 * the failure family; this names the member. Errors thrown by `feed`,
 	 * `feedOwned`, and `recvStream` carry it already as `err.abort`. */
 	lastAbort(): AbortDetail | null {
-		// PancakeLastAbort { domain(0) u32; has_kind(4) u32; kind_name(8);
-		//   kind_name_len(16); message(24); message_len(32); error_name(40);
-		//   error_name_len(48) } = 56 bytes, LP64.
-		const buf = new Uint8Array(56);
+		const buf = new Uint8Array(LAST_ABORT_SIZE);
 		const rc = s.pancake_peer_last_abort(this.#raw, buf);
 		if (rc === WOULD_BLOCK) return null;
 		check(rc);
@@ -854,16 +862,18 @@ export class Peer {
 			new TextDecoder().decode(
 				readBytes(dv.getBigUint64(off, true), dv.getBigUint64(off + 8, true)),
 			);
-		const domainNum = dv.getUint32(0, true);
+		const domainNum = dv.getUint32(LAST_ABORT_DOMAIN_OFF, true);
 		return {
 			domain: domainNum === ABORT_DOMAIN_CODEC
 				? "codec"
 				: domainNum === ABORT_DOMAIN_SESSION
 				? "session"
 				: "foreign",
-			kind: dv.getUint32(4, true) !== 0 ? text(8) : null,
-			message: text(24),
-			errorName: text(40),
+			kind: dv.getUint32(LAST_ABORT_HAS_KIND_OFF, true) !== 0
+				? text(LAST_ABORT_KIND_NAME_OFF)
+				: null,
+			message: text(LAST_ABORT_MESSAGE_OFF),
+			errorName: text(LAST_ABORT_ERROR_NAME_OFF),
 		};
 	}
 
@@ -881,11 +891,11 @@ export class Peer {
 	}
 
 	feed(frame: Uint8Array): void {
-		const f = new Uint8Array(24);
+		const f = new Uint8Array(FRAME_SIZE);
 		const dv = new DataView(f.buffer);
-		dv.setBigUint64(0, ffi.pointerOf(frame), true);
-		dv.setBigUint64(8, BigInt(frame.length), true);
-		dv.setUint32(16, FRAME_SHAPE_BYTE, true);
+		dv.setBigUint64(FRAME_BYTES_OFF, ffi.pointerOf(frame), true);
+		dv.setBigUint64(FRAME_LEN_OFF, BigInt(frame.length), true);
+		dv.setUint32(FRAME_SHAPE_OFF, FRAME_SHAPE_BYTE, true);
 		const rc = s.pancake_peer_feed_borrowed(this.#raw, f);
 		if (rc !== OK) throw this.#dispatchError(rc);
 	}
@@ -921,12 +931,12 @@ export class Peer {
 		const owned = new Uint8Array(data.length);
 		owned.set(data);
 
-		// PancakeManagedFrame { bytes(0); len(8); shape(16,+pad); release(24); private(32) } = 40.
-		const mf = new Uint8Array(40);
+		// PancakeManagedFrame, laid out by the generated ABI mirror.
+		const mf = new Uint8Array(MANAGED_FRAME_SIZE);
 		const dv = new DataView(mf.buffer);
-		dv.setBigUint64(0, ffi.pointerOf(owned), true);
-		dv.setBigUint64(8, BigInt(owned.length), true);
-		dv.setUint32(16, FRAME_SHAPE_BYTE, true);
+		dv.setBigUint64(MANAGED_FRAME_BYTES_OFF, ffi.pointerOf(owned), true);
+		dv.setBigUint64(MANAGED_FRAME_LEN_OFF, BigInt(owned.length), true);
+		dv.setUint32(MANAGED_FRAME_SHAPE_OFF, FRAME_SHAPE_BYTE, true);
 
 		// The release callback runs synchronously inside `feed_owned` / `step`.
 		// Closing a native callback from inside its own invocation frees the
@@ -940,8 +950,9 @@ export class Peer {
 			},
 		);
 		pin.release = cb;
-		dv.setBigUint64(24, cb.pointer, true);
-		dv.setBigUint64(32, 0n, true); // private_data unused; state lives in the closure
+		dv.setBigUint64(MANAGED_FRAME_RELEASE_OFF, cb.pointer, true);
+		// private_data unused; state lives in the closure.
+		dv.setBigUint64(MANAGED_FRAME_PRIVATE_DATA_OFF, 0n, true);
 		this.#pinnedFrames.add(pin);
 
 		const rc = s.pancake_peer_feed_owned(this.#raw, mf);
@@ -1023,7 +1034,7 @@ export class Peer {
 	prepareEnliven(
 		swissnum: Uint8Array,
 	): { status: number; kind: number; answer: bigint; importPosition: bigint } {
-		const out = new Uint8Array(24); // { u32 status, u32 kind, u64 answer, u64 import_position }
+		const out = new Uint8Array(ENLIVEN_START_SIZE);
 		check(
 			s.pancake_peer_prepare_enliven(
 				this.#raw,
@@ -1034,10 +1045,10 @@ export class Peer {
 		);
 		const view = new DataView(out.buffer);
 		return {
-			status: view.getUint32(0, true),
-			kind: view.getUint32(4, true),
-			answer: view.getBigUint64(8, true),
-			importPosition: view.getBigUint64(16, true),
+			status: view.getUint32(ENLIVEN_START_STATUS_OFF, true),
+			kind: view.getUint32(ENLIVEN_START_KIND_OFF, true),
+			answer: view.getBigUint64(ENLIVEN_START_ANSWER_OFF, true),
+			importPosition: view.getBigUint64(ENLIVEN_START_IMPORT_POSITION_OFF, true),
 		};
 	}
 
@@ -1059,14 +1070,6 @@ export class Peer {
 			importPosition,
 			kind,
 		));
-	}
-
-	/** The codec the session speaks (a `CODEC_*` value), so an opaque `other`
-	 * frame drained after a typed-poll refusal can be interpreted. */
-	codec(): number {
-		const out = new Uint8Array(4);
-		check(s.pancake_peer_codec(this.#raw, out));
-		return new DataView(out.buffer).getUint32(0, true);
 	}
 
 	/** Queue an `op:gc-export` releasing wire-delta counts on imports this peer
@@ -1095,11 +1098,6 @@ export class Peer {
 				BigInt(positions.length),
 			),
 		);
-	}
-
-	/** Queue an `op:gc-answer` releasing an answer this peer no longer needs. */
-	sendGcAnswer(answer: bigint): void {
-		check(s.pancake_peer_send_gc_answer(this.#raw, answer));
 	}
 
 	sendDeliver(
@@ -1168,101 +1166,14 @@ export class Peer {
 		);
 	}
 
-	/** Recipient half of a three-party handoff (ADR-0009/ADR-0056): sign a
-	 * `desc:handoff-receive` over the verbatim `give` bytes and queue a
-	 * `withdraw-gift` `op:deliver` to the exporter's bootstrap under `answer`.
-	 * Requires an open keyed session to the exporter opened with this same 32-byte
-	 * `seed` — that session key is what the exporter verifies the receive against.
-	 * The monotonic handoff-count the exporter requires to increase is minted by
-	 * the peer's gift registry, not supplied here. The withdrawn reference arrives
-	 * as the resolution of `answer`. */
-	sendWithdrawGift(
-		give: Uint8Array,
-		seed: Uint8Array,
-		answer: bigint,
-	): void {
-		if (seed.length !== 32) throw new Error("a session seed must be 32 bytes");
-		check(s.pancake_peer_send_withdraw_gift(
-			this.#raw,
-			ab(give),
-			BigInt(give.length),
-			ab(seed),
-			BigInt(seed.length),
-			answer,
-		));
-	}
-
-	/** The partner's session public key learned from its `op:start-session`, or
-	 * null before the handshake half arrives. A gifter reads it on the
-	 * to-recipient session for a give's recipient key and on the to-exporter
-	 * session to derive the gifter↔exporter session name. The bytes are copied
-	 * out of the borrowed view. */
-	partnerSessionKey(): Uint8Array | null {
-		const ptrBuf = new Uint8Array(8), lenBuf = new Uint8Array(8);
-		check(
-			s.pancake_peer_partner_session_key(this.#raw, ab(ptrBuf), ab(lenBuf)),
-		);
-		return readViewCopy(ptrBuf, lenBuf);
-	}
-
-	/** The partner's verbatim location-record bytes from its `op:start-session`,
-	 * or null when none were captured. A gifter embeds these as a give's exporter
-	 * location so a peer comparing locations matches byte-for-byte. Copied out of
-	 * the borrowed view. */
-	partnerLocatorRaw(): Uint8Array | null {
-		const ptrBuf = new Uint8Array(8), lenBuf = new Uint8Array(8);
-		check(
-			s.pancake_peer_partner_locator_raw(this.#raw, ab(ptrBuf), ab(lenBuf)),
-		);
-		return readViewCopy(ptrBuf, lenBuf);
-	}
-
-	/** Gifter half of a three-party handoff (ADR-0009/ADR-0056): deposit a gift
-	 * with this (exporter) session, a `deposit-gift` `op:deliver` to the
-	 * exporter's bootstrap carrying `giftId` and the `gifted` reference. The
-	 * exporter records the gift; a `withdraw-gift` that arrives first parks until
-	 * this deposit lands. Fire-and-forget (no answer). */
-	sendDepositGift(giftId: Uint8Array, gifted: Reference): void {
-		check(
-			s.pancake_peer_send_deposit_gift(
-				this.#raw,
-				ab(giftId),
-				BigInt(giftId.length),
-				ab(refStruct(gifted)),
-			),
-		);
-	}
-
-	/** Resolve `answer` (a question a recipient asked this gifter) with a signed
-	 * `desc:handoff-give`: an `op:resolve` whose fulfill carries `give` verbatim,
-	 * so the recipient redeems it transparently. */
-	sendResolveHandoffGive(answer: bigint, give: Uint8Array): void {
-		if (give.length === 0) throw new Error("a handoff give must be non-empty");
-		check(
-			s.pancake_peer_send_resolve_handoff_give(
-				this.#raw,
-				answer,
-				ab(give),
-				BigInt(give.length),
-			),
-		);
-	}
-
-	/** Bind a shared gift registry (or null to detach) onto this peer, so inbound
-	 * `deposit-gift` / `withdraw-gift` resolve against the shared table the
-	 * exporter node shares across its connections. Set before the handshake; the
-	 * registry must outlive the peer. Binding-internal. */
-	setGiftRegistry(registry: Ptr): void {
-		check(s.pancake_peer_set_gift_registry(this.#raw, registry));
-	}
-
 	sendResolve(answer: bigint, resolution: Resolution): void {
 		if ("handoff" in resolution) {
-			// A handoff *give* resolution is authored through `sendResolveHandoffGive`,
-			// which carries the verbatim signed bytes; the structured `Resolution` arm
+			// A handoff *give* resolution is minted and relayed by the node's serve
+			// step (ADR-0067); the structured `Resolution` arm is inbound-only and
 			// has no give bytes to emit, so refuse it here.
-			throw new Error(
-				"use sendResolveHandoffGive to send a handoff resolution",
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				"a handoff resolution is minted by the node, not sendResolve",
 			);
 		}
 		if ("fulfill" in resolution) {
@@ -1294,7 +1205,7 @@ export class Peer {
 	}
 
 	takeOutbound(): Uint8Array | null {
-		const frame = new Uint8Array(40);
+		const frame = new Uint8Array(MANAGED_FRAME_SIZE);
 		const rc = s.pancake_peer_take_outbound(this.#raw, frame);
 		if (rc === WOULD_BLOCK) return null;
 		// Any other non-OK code (e.g. an OOM after the frame was dequeued and freed)
@@ -1302,100 +1213,85 @@ export class Peer {
 		// and ending the drain as if the queue were empty.
 		check(rc);
 		const dv = new DataView(frame.buffer);
-		const ptr = dv.getBigUint64(0, true);
-		const len = dv.getBigUint64(8, true);
+		const ptr = dv.getBigUint64(MANAGED_FRAME_BYTES_OFF, true);
+		const len = dv.getBigUint64(MANAGED_FRAME_LEN_OFF, true);
 		const out = readBytes(ptr, len).slice();
 		s.pancake_managed_frame_release(frame);
 		return out;
 	}
 
+	/** Drive the engine to idle and take the next event, fully projected by the
+	 * core (`pancake_peer_next_event`): the waist owns the pump-then-poll rule
+	 * and the typed-or-opaque routing, so this only marshals the live arm into a
+	 * host event. Write queued outbound (`takeOutbound`) when it returns `null`,
+	 * before parking on a read. */
 	poll(): Event | null {
-		const kind = s.pancake_peer_peek_event(this.#raw);
-		if (kind === EVENT_DELIVER) return this.#pollDeliver();
-		if (kind === EVENT_RESOLVE) return this.#pollResolve();
-		if (kind === WOULD_BLOCK) return null;
-		// A negative code is a peek failure (e.g. a released peer), not an event
-		// kind; fail closed rather than fabricating an `other` event with kind 0.
-		if (kind < 0) throw new PancakeError(kind);
-		return this.#pollOther();
-	}
-
-	#pollDeliver(): Event {
-		const buf = new Uint8Array(56);
-		const rc = s.pancake_peer_poll_event_deliver(this.#raw, buf);
-		if (rc === UNSUPPORTED_VALUE) {
-			// The typed projection cannot carry this deliver (e.g. a handoff
-			// argument). The event stays queued, so drain it as an opaque `other` —
-			// throwing here would peek the same event forever.
-			return this.#pollOther();
-		}
+		const buf = new Uint8Array(ANY_EVENT_SIZE);
+		const rc = s.pancake_peer_next_event(this.#raw, buf);
+		if (rc === WOULD_BLOCK) return null;
 		check(rc);
 		const dv = new DataView(buf.buffer);
-		const target = readReference(dv, 0);
-		const args = readArgArray(
-			dv.getBigUint64(16, true),
-			dv.getBigUint64(24, true),
-		);
-		const hasAnswer = dv.getUint32(32, true) !== 0;
-		const answer = dv.getBigUint64(40, true);
-		s.pancake_deliver_release(buf);
-		return { kind: "deliver", target, args, answer: hasAnswer ? answer : null };
-	}
-
-	#pollResolve(): Event {
-		// PancakeResolve = answer(8) + kind(4,pad to 16) + fulfill(ARG_SIZE) +
-		// break_ptr(8) + break_len(8) + handoff PancakeHandoffGive(48) + owner(8).
-		const base = 16 + ARG_SIZE;
-		const buf = new Uint8Array(base + 16 + 48 + 8);
-		const rc = s.pancake_peer_poll_event_resolve(this.#raw, buf);
-		if (rc === UNSUPPORTED_VALUE) {
-			// Same leave-queued contract as #pollDeliver: drain the refused resolve
-			// as an opaque `other` so the loop survives.
-			return this.#pollOther();
-		}
-		check(rc);
-		const dv = new DataView(buf.buffer);
-		const answer = dv.getBigUint64(0, true);
-		const resKind = dv.getUint32(8, true);
-		let resolution: Resolution;
-		if (resKind === RESOLUTION_FULFILL) {
-			resolution = { fulfill: readArg(dv, 16) };
-		} else if (resKind === RESOLUTION_HANDOFF) {
-			// PancakeHandoffGive starts at base + break_ptr(8) + break_len(8).
-			const h = base + 16;
-			const give = readBytes(
-				dv.getBigUint64(h, true),
-				dv.getBigUint64(h + 8, true),
-			).slice();
-			const locator = new TextDecoder().decode(
-				readBytes(dv.getBigUint64(h + 16, true), dv.getBigUint64(h + 24, true)),
+		const kind = dv.getUint32(ANY_EVENT_KIND_OFF, true);
+		const projection = dv.getUint32(ANY_EVENT_PROJECTION_OFF, true);
+		let event: Event;
+		if (projection === PROJECTION_DELIVER) {
+			const d = ANY_EVENT_DELIVER_OFF;
+			const target = readReference(dv, d + DELIVER_TARGET_OFF);
+			const args = readArgArray(
+				dv.getBigUint64(d + DELIVER_ARGS_OFF, true),
+				dv.getBigUint64(d + DELIVER_ARGS_LEN_OFF, true),
 			);
-			const recipientKey = readBytes(
-				dv.getBigUint64(h + 32, true),
-				dv.getBigUint64(h + 40, true),
-			).slice();
-			resolution = {
-				handoff: { give, exporterLocator: locator, recipientKey },
+			const hasAnswer = dv.getUint32(d + DELIVER_HAS_ANSWER_OFF, true) !== 0;
+			const answer = dv.getBigUint64(d + DELIVER_ANSWER_OFF, true);
+			event = {
+				kind: "deliver",
+				target,
+				args,
+				answer: hasAnswer ? answer : null,
 			};
+		} else if (projection === PROJECTION_RESOLVE) {
+			const r = ANY_EVENT_RESOLVE_OFF;
+			const answer = dv.getBigUint64(r + RESOLVE_ANSWER_OFF, true);
+			const resKind = dv.getUint32(r + RESOLVE_RESOLUTION_KIND_OFF, true);
+			let resolution: Resolution;
+			if (resKind === RESOLUTION_FULFILL) {
+				resolution = { fulfill: readArg(dv, r + RESOLVE_FULFILL_OFF) };
+			} else if (resKind === RESOLUTION_HANDOFF) {
+				const h = r + RESOLVE_HANDOFF_OFF;
+				const give = readBytes(
+					dv.getBigUint64(h + HANDOFF_GIVE_GIVE_OFF, true),
+					dv.getBigUint64(h + HANDOFF_GIVE_GIVE_LEN_OFF, true),
+				).slice();
+				const locator = new TextDecoder().decode(
+					readBytes(
+						dv.getBigUint64(h + HANDOFF_GIVE_EXPORTER_LOCATOR_OFF, true),
+						dv.getBigUint64(h + HANDOFF_GIVE_EXPORTER_LOCATOR_LEN_OFF, true),
+					),
+				);
+				const recipientKey = readBytes(
+					dv.getBigUint64(h + HANDOFF_GIVE_RECIPIENT_KEY_OFF, true),
+					dv.getBigUint64(h + HANDOFF_GIVE_RECIPIENT_KEY_LEN_OFF, true),
+				).slice();
+				resolution = {
+					handoff: { give, exporterLocator: locator, recipientKey },
+				};
+			} else {
+				const ptr = dv.getBigUint64(r + RESOLVE_BREAK_MESSAGE_OFF, true);
+				const len = dv.getBigUint64(r + RESOLVE_BREAK_MESSAGE_LEN_OFF, true);
+				resolution = { break: new TextDecoder().decode(readBytes(ptr, len)) };
+			}
+			event = { kind: "resolve", answer, resolution };
 		} else {
-			const ptr = dv.getBigUint64(base, true);
-			const len = dv.getBigUint64(base + 8, true);
-			resolution = { break: new TextDecoder().decode(readBytes(ptr, len)) };
+			// The frame arm: an event with no typed projection (or whose value the
+			// typed surface cannot carry), as its original wire bytes.
+			const f = ANY_EVENT_FRAME_OFF;
+			const ptr = dv.getBigUint64(f + MANAGED_FRAME_BYTES_OFF, true);
+			const len = dv.getBigUint64(f + MANAGED_FRAME_LEN_OFF, true);
+			const frame = readBytes(ptr, len).slice();
+			event = { kind: "other", eventKind: kind, frame };
 		}
-		s.pancake_resolve_release(buf);
-		return { kind: "resolve", answer, resolution };
-	}
-
-	#pollOther(): Event {
-		const buf = new Uint8Array(48);
-		check(s.pancake_peer_poll_event(this.#raw, buf));
-		const dv = new DataView(buf.buffer);
-		const eventKind = dv.getUint32(0, true);
-		const ptr = dv.getBigUint64(8, true);
-		const len = dv.getBigUint64(16, true);
-		const frame = readBytes(ptr, len).slice();
-		s.pancake_event_release(buf);
-		return { kind: "other", eventKind, frame };
+		s.pancake_any_event_release(buf);
+		return event;
 	}
 }
 
@@ -1541,10 +1437,13 @@ export class FarVow {
  * rejection. `answer` is the outbound answer position a far send resolves, or
  * `null` for a local send (not pipelinable).
  *
- * The projection verbs `get`/`index`/`untag` (ADR-0050/ADR-0052) pipeline a
- * field, element, or untag access *at the answer*, before it resolves: each
- * returns a new `RemotePromise` for the projected value, addressed at this
- * answer, so `task.get("rows").index(0)` costs no extra round trip. */
+ * The projection verbs `index`/`untag` (ADR-0050/ADR-0052) pipeline an
+ * element or untag access *at the answer*, before it resolves: each returns a
+ * new `RemotePromise` for the projected value, addressed at this answer, so
+ * `task.untag("cell").index(0)` costs no extra round trip. The wire also
+ * speaks `op:get` (a Struct field projection), but the ABI carries no Struct
+ * argument, so no binding value could receive one; `Peer.sendGet` is the
+ * explicit spelling against a Struct-producing partner. */
 export class RemotePromise extends Promise<AppValue> {
 	readonly #begin: () => Promise<AppValue>;
 	#started = false;
@@ -1553,14 +1452,14 @@ export class RemotePromise extends Promise<AppValue> {
 	// Issues a projection op (get/index/untag) at this answer and returns the new
 	// RemotePromise; null for a local-send handle (no answer to project against).
 	readonly #project:
-		| ((op: "get" | "index" | "untag", key: string | bigint) => RemotePromise)
+		| ((op: "index" | "untag", key: string | bigint) => RemotePromise)
 		| null;
 
 	constructor(
 		public readonly answer: bigint | null,
 		begin: () => Promise<AppValue>,
 		project:
-			| ((op: "get" | "index" | "untag", key: string | bigint) => RemotePromise)
+			| ((op: "index" | "untag", key: string | bigint) => RemotePromise)
 			| null = null,
 	) {
 		// The executor only captures the settlement functions; it runs no flush, so
@@ -1578,21 +1477,16 @@ export class RemotePromise extends Promise<AppValue> {
 	}
 
 	#projectOp(
-		op: "get" | "index" | "untag",
+		op: "index" | "untag",
 		key: string | bigint,
 	): RemotePromise {
 		if (this.#project === null) {
-			throw new Error(
+			throw new PancakeError(
+				INVALID_ARGUMENT,
 				"cannot project a local-send promise; await it for a value",
 			);
 		}
 		return this.#project(op, key);
-	}
-
-	/** Pipeline an `op:get` for `field` at this answer (ADR-0050): a new
-	 * `RemotePromise` for the Struct field of whatever this resolves to. */
-	get(field: string): RemotePromise {
-		return this.#projectOp("get", field);
 	}
 
 	/** Pipeline an `op:index` for `i` at this answer (ADR-0050): a new
@@ -1694,16 +1588,6 @@ export class Vat {
 		const id = this.#nextActor++;
 		this.#actors.set(id, behavior);
 		return new LocalRef(id);
-	}
-
-	/** The synchronous near-call (`$`): run `ref`'s handler now and return its
-	 * value. Legal only for a local ref, a far ref must be reached with `send`.
-	 * Throws if `ref` names no actor; an actor that throws propagates here. */
-	call(ref: VatRef, verb: string, args: Argument[]): Argument | Forward {
-		if (ref.location === "far") {
-			throw new Error("cannot near-call a far ref; use send");
-		}
-		return this.#callLocal(ref.id, verb, args);
 	}
 
 	#callLocal(id: number, verb: string, args: Argument[]): Argument | Forward {
@@ -1941,37 +1825,11 @@ function fire(listener: VowListener, settlement: Settlement): void {
 	}
 }
 
-// ── Binding-internal seam ────────────────────────────────────────────────────
-//
-// These helpers are shared across the binding's modules, the transport modules
-// (`./transport/tcp.ts`, `./transport/inproc.ts`, and the `@pancake/iroh`
-// package) marshal frames through the same pointer and byte plumbing the core
-// uses. They are exported for those siblings, not for applications.
-
-export function outPointer(buf: Uint8Array): Ptr {
-	return new DataView(buf.buffer).getBigUint64(0, true);
-}
-
-/** Release a managed frame the core ABI filled (a transport module's blocking
- * `readFrame` returns one). Part of the binding-internal seam. */
-export function releaseManagedFrame(mf: Uint8Array): void {
-	s.pancake_managed_frame_release(ab(mf));
-}
-
-// The runtime socket seam, re-exported for transports and dogfood tests that
-// drive a raw connection (the keyed handshake, an unframed shuttle). An
-// application uses `connect` / `listen`, not these.
-export type { NetConn, NetListener } from "./internal/ffi/runtime.ts";
-
-/** Dial a raw TCP socket through the host runtime. Binding-internal. */
-export function connectTcp(host: string, port: number): Promise<NetConn> {
-	return net.connect(host, port);
-}
-
-/** Bind a raw TCP listener through the host runtime. Binding-internal. */
-export function listenTcp(host: string, port: number): Promise<NetListener> {
-	return net.listen(host, port);
-}
+// The binding-internal seam — the pointer, byte, and raw-socket plumbing every
+// module of the binding marshals frames through — lives in
+// `./internal/seam.ts`. This public entry never re-exports it: an in-package
+// sibling imports the seam file directly, and a companion package reaches it
+// through `@pancake/stack/ffi`.
 
 // The blocking transports are their own modules beside this one:
 // `./transport/tcp.ts` rides `libpancake_net_transport_tcp`,
@@ -1981,7 +1839,7 @@ export function listenTcp(host: string, port: number): Promise<NetListener> {
 // gate stays hermetic and this core stays pure Zig). The core reaches
 // `@pancake/iroh` only through `connect` for an `iroh` locator, a lazy
 // `import()` of that package, so it never hard-depends on the iroh artifact.
-// Each transport plugs into the binding-internal seam above plus the exported
+// Each transport plugs into the binding-internal seam plus the exported
 // `FramePump`/`KeyedLocator` contract, `AsyncConnection.fromPump`, and
 // `Connection.fromAsync`.
 
@@ -2102,17 +1960,6 @@ export class AsyncConnection {
 		this.#pump = pump;
 	}
 
-	/** Connect to `hostname:port` and complete the keyed OCapN handshake. */
-	static async connect(
-		hostname: string,
-		port: number,
-	): Promise<AsyncConnection> {
-		const conn = await net.connect(hostname, port);
-		const ac = new AsyncConnection(new Peer(), new TcpPump(conn));
-		await openKeyedSession(ac);
-		return ac;
-	}
-
 	/** Wrap an already-connected socket and a peer you have configured (registered
 	 * exports/imports, bootstrap caps, …). */
 	static fromConn(peer: Peer, conn: NetConn): AsyncConnection {
@@ -2191,21 +2038,16 @@ export class AsyncConnection {
 	 * `null` on a clean end of stream. */
 	async nextEvent(): Promise<Event | null> {
 		for (;;) {
-			// A surfaced event takes priority.
-			let ev = this.#peer.poll();
+			// The poll drives the engine to idle itself (a settlement cascade —
+			// resolve, drained projection, fired listener, queued deliver —
+			// surfaces in full), so a null means one thing: nothing to do until
+			// bytes move.
+			const ev = this.#peer.poll();
 			if (ev) return ev;
-			// Flush anything the last dispatch queued (replies, aborts). Stepping to
-			// idle settles answers, which drains their pipelined calls and
-			// projections into *fresh* events, so re-poll before blocking on the
-			// wire, otherwise those drained events sit unseen until the partner
-			// happens to send again, hanging a pipelined batch.
+			// Write what the drive queued, dispatch every whole frame already
+			// buffered, and only then block on the wire.
 			await this.#pumpOutbound();
-			ev = this.#peer.poll();
-			if (ev) return ev;
-			// Dispatch every whole frame already buffered; each may surface an event
-			// or queue outbound, so loop back to re-check.
 			if (this.#pump.dispatchBuffered(this.#peer)) continue;
-			// Block for more inbound; a clean end of stream ends the loop.
 			if (!(await this.#pump.receive(this.#peer))) return null;
 		}
 	}
@@ -2225,11 +2067,8 @@ export class AsyncConnection {
 	}
 
 	// Encode every pending outbound message and write the queued frames. Stepping
-	// to idle (not once) is what keeps a pipelined batch whole: a projection's
-	// settlement cascades — a resolve drains the projection, whose resolve fires a
-	// listener that queues a deliver — and each link is a separate step. A single
-	// step would strand the tail in the queue, deadlocking a partner parked on the
-	// answer it carries.
+	// to idle (not once) is what keeps a pipelined batch whole; a single step
+	// would strand a cascade's tail in the queue.
 	#pumpOutbound(): Promise<void> {
 		const prior = this.#writing;
 		let release!: () => void;
@@ -2352,7 +2191,9 @@ export async function openKeyedSession(
 	// passes its node's retained identity so the exporter recognizes it as the
 	// party the give names; an ordinary dial gets a fresh per-connection key.
 	seed = seed ?? crypto.getRandomValues(new Uint8Array(32));
-	if (seed.length !== 32) throw new Error("a session seed must be 32 bytes");
+	if (seed.length !== 32) {
+		throw new PancakeError(INVALID_ARGUMENT, "a session seed must be 32 bytes");
+	}
 	ac.peer.startSession({
 		transport: loc.transport,
 		designator: loc.designator,
@@ -2363,60 +2204,16 @@ export async function openKeyedSession(
 	await ac.driveUntilSessionOpen();
 }
 
-/** Author the signed `desc:handoff-give` a gifter returns to a recipient
- * (ADR-0009). `seed` is the gifter's 32-byte identity seed, the key it
- * presents on its session to the exporter, which signs the give and must equal
- * the deposit's provenance. `recipientKey` is the recipient's session public
- * key; `exporterLocatorRaw` the exporter's verbatim location bytes (read off the
- * gifter's session to the exporter with `Peer.partnerLocatorRaw`);
- * `exporterSessionKey` the exporter's session public key; `giftId` the deposited
- * gift's id. Returns owned give bytes. */
-export function buildHandoffGive(opts: {
-	seed: Uint8Array;
-	recipientKey: Uint8Array;
-	exporterLocatorRaw: Uint8Array;
-	exporterSessionKey: Uint8Array;
-	giftId: Uint8Array;
-}): Uint8Array {
-	if (opts.seed.length !== 32) {
-		throw new Error("a gifter seed must be 32 bytes");
-	}
-	const outGive = new Uint8Array(8), outLen = new Uint8Array(8);
-	check(s.pancake_build_handoff_give(
-		ab(opts.seed),
-		32n,
-		ab(opts.recipientKey),
-		BigInt(opts.recipientKey.length),
-		ab(opts.exporterLocatorRaw),
-		BigInt(opts.exporterLocatorRaw.length),
-		ab(opts.exporterSessionKey),
-		BigInt(opts.exporterSessionKey.length),
-		ab(opts.giftId),
-		BigInt(opts.giftId.length),
-		ab(outGive),
-		ab(outLen),
-	));
-	const ptr = new DataView(outGive.buffer).getBigUint64(0, true);
-	const len = new DataView(outLen.buffer).getBigUint64(0, true);
-	try {
-		return readBytes(ptr, len).slice();
-	} finally {
-		s.pancake_handoff_give_bytes_release(ptr, len);
-	}
-}
-
-/** Build the verbatim exporter location-record bytes a gifter embeds in a give
- * when the exporter is reachable only by a dial hint (ADR-0009), the
- * construct-it-yourself counterpart of `partnerLocatorRaw`, for an exporter whose
- * own session record carries no hint. `transport`/`designator` name the
- * exporter; a non-empty `directAddresses` adds the exporter's comma-separated
- * socket addresses as a `direct-addresses` hint, so a cross-process recipient
- * dials it directly with no discovery service (an iroh exporter reachable only by
- * address). An empty `directAddresses` yields a hint-less location identical to
- * the exporter's own signed session record, so a TCP or discovery-reachable
- * exporter keeps using `partnerLocatorRaw` instead. The bytes are in the handoff
- * codec (Syrup, as a give is); the result feeds `buildHandoffGive` as
- * `exporterLocatorRaw`. */
+/** Build the verbatim exporter location-record bytes to record on the node
+ * when the exporter is reachable only by a dial hint (ADR-0009), for an
+ * exporter whose own session record carries no hint. `transport`/`designator`
+ * name the exporter; a non-empty `directAddresses` adds the exporter's
+ * comma-separated socket addresses as a `direct-addresses` hint, so a
+ * cross-process recipient dials it directly with no discovery service (an iroh
+ * exporter reachable only by address). An empty `directAddresses` yields a
+ * hint-less location identical to the exporter's own signed session record.
+ * The bytes are in the handoff codec (Syrup, as a give is); the result feeds
+ * `Connection.setExporterLocator`. */
 export function encodePeerLocator(opts: {
 	transport: string;
 	designator: string;
@@ -2446,47 +2243,35 @@ export function encodePeerLocator(opts: {
 	}
 }
 
-/** A vat-scoped deposited-gift table a node shares across its peers (ADR-0056).
- * An exporter receives a gift's `deposit-gift` on the gifter session and its
- * `withdraw-gift` on the recipient's separate session; one registry bound on
- * both peers is what lets the second find what the first deposited. Borrowed by
- * every peer it is set on, it must outlive them, so `free` it last. */
-export class GiftRegistry {
-	#raw: Ptr;
-
-	constructor() {
-		const out = new Uint8Array(8);
-		check(s.pancake_gift_registry_new(ab(out)));
-		this.#raw = outPointer(out);
-	}
-
-	/** The opaque handle, for `Peer.setGiftRegistry`. Binding-internal. */
-	get pointer(): Ptr {
-		return this.#raw;
-	}
-
-	/** Release the registry and every gift row it still owns. Every peer it was
-	 * set on must already be released. Idempotent. */
-	free(): void {
-		if (this.#raw !== NULL) {
-			s.pancake_gift_registry_free(this.#raw);
-			this.#raw = NULL;
-		}
-	}
-
-	[Symbol.dispose](): void {
-		this.free();
-	}
+/** One serve-step action popped off the node (ADR-0067), its borrowed views
+ * already copied into host values. */
+interface NodeAction {
+	kind: number;
+	pending: bigint;
+	locator: string;
+	connId: bigint;
+	answer: bigint;
+	token: bigint;
+	reason: string;
 }
 
-// A redeemed-handoff token is a far id from a reserved high range, disjoint from
-// any wire import, so it can never alias one (mirrors `engine.Node.REDEEMED_TOKEN_BASE`).
-const REDEEMED_TOKEN_BASE = 1n << 60n;
+// Frees a raw node whose `NodeRaw` wrapper the GC reclaimed without an explicit
+// `free`. The node owns every registered peer, the routing tables, and the
+// shared gift registry, so a dropped wrapper must not leak the native handle.
+const nodeFinalizer = new FinalizationRegistry<Ptr>((raw) => {
+	s.pancake_node_free(raw);
+});
 
-/** Thin FFI marshalling over the `PancakeNode` (ADR-0066), the cross-connection
- * handoff router in the Zig core. The semantics are the node's
- * (`src/c_abi/ocapn/node.zig`); `Node` documents how the binding uses them and
- * keeps this alive while any connection borrows a node-owned peer. */
+/** Thin FFI marshalling over the `PancakeNode` (ADR-0066/ADR-0067), the
+ * cross-connection handoff router in the Zig core (`src/c_abi/ocapn/node.zig`),
+ * which owns every redeem decision. `registerConn`/`removeConn` manage the
+ * node-owned peers; `acceptGive`, `claimResolve`, and `interceptFulfilledRef`
+ * feed the redeem serve step; `nextAction` pops the actions it emits (dial,
+ * flush, settle, fail, need-gift-id), answered by `exporterDialed`,
+ * `dialFailed`, and `provideGiftId`; `route`, `recordForeignHome`, and
+ * `argIsForeign` resolve cross-connection routing. `Node` documents how the
+ * binding uses these and keeps this handle alive while any connection borrows
+ * a node-owned peer. */
 class NodeRaw {
 	#raw: Ptr;
 
@@ -2494,6 +2279,7 @@ class NodeRaw {
 		const out = new Uint8Array(8);
 		check(s.pancake_node_new(ab(seed), BigInt(seed.length), ab(out)));
 		this.#raw = outPointer(out);
+		nodeFinalizer.register(this, this.#raw, this);
 	}
 
 	/** The peer is node-owned: pump it, but do not free it (removeConn / free does). */
@@ -2510,43 +2296,99 @@ class NodeRaw {
 		if (this.#raw !== NULL) check(s.pancake_node_remove_conn(this.#raw, connId));
 	}
 
-	sendWithdraw(exporterConn: bigint, give: Uint8Array, answer: bigint): void {
-		check(s.pancake_node_send_withdraw(
-			this.#raw,
-			exporterConn,
-			ab(give),
-			BigInt(give.length),
-			answer,
-		));
-	}
-
-	originateGive(
+	acceptGive(
 		recipientConn: bigint,
-		exporterConn: bigint,
-		gifted: Reference,
-		giftId: Uint8Array,
 		answer: bigint,
-		exporterLocation: Uint8Array,
+		give: Uint8Array,
+		exporterLocator: string,
 	): void {
-		check(s.pancake_node_originate_give(
+		const loc = new TextEncoder().encode(exporterLocator);
+		check(s.pancake_node_accept_give(
 			this.#raw,
 			recipientConn,
-			exporterConn,
-			ab(refStruct(gifted)),
-			ab(giftId),
-			BigInt(giftId.length),
 			answer,
-			ab(exporterLocation),
-			BigInt(exporterLocation.length),
+			ab(give),
+			BigInt(give.length),
+			ab(loc),
+			BigInt(loc.length),
 		));
 	}
 
-	enrollRedeemed(exporterConn: bigint, farId: bigint): bigint {
-		const out = new Uint8Array(8);
+	exporterDialed(pending: bigint, exporterConn: bigint): void {
+		check(s.pancake_node_exporter_dialed(this.#raw, pending, exporterConn));
+	}
+
+	dialFailed(pending: bigint, reason: string): void {
+		const msg = new TextEncoder().encode(reason);
+		check(s.pancake_node_dial_failed(this.#raw, pending, ab(msg), BigInt(msg.length)));
+	}
+
+	claimResolve(
+		connId: bigint,
+		answer: bigint,
+		outcome: number,
+		farId: bigint,
+		reason: string,
+	): boolean {
+		const msg = new TextEncoder().encode(reason);
+		const out = new Uint8Array(4);
+		check(s.pancake_node_claim_resolve(
+			this.#raw,
+			connId,
+			answer,
+			outcome,
+			farId,
+			ab(msg),
+			BigInt(msg.length),
+			ab(out),
+		));
+		return new DataView(out.buffer).getUint32(0, true) !== 0;
+	}
+
+	interceptFulfilledRef(connId: bigint, answer: bigint, farId: bigint): boolean {
+		const out = new Uint8Array(4);
+		check(s.pancake_node_intercept_fulfilled_ref(this.#raw, connId, answer, farId, ab(out)));
+		return new DataView(out.buffer).getUint32(0, true) !== 0;
+	}
+
+	provideGiftId(ticket: bigint, giftId: Uint8Array): void {
+		check(s.pancake_node_provide_gift_id(this.#raw, ticket, ab(giftId), BigInt(giftId.length)));
+	}
+
+	setExporterLocation(connId: bigint, location: Uint8Array): void {
 		check(
-			s.pancake_node_enroll_redeemed(this.#raw, exporterConn, farId, ab(out)),
+			s.pancake_node_set_exporter_location(
+				this.#raw,
+				connId,
+				ab(location),
+				BigInt(location.length),
+			),
 		);
-		return new DataView(out.buffer).getBigUint64(0, true);
+	}
+
+	/** Pop the next serve-step action, its borrowed views copied out, or `null`
+	 * when none is pending. */
+	nextAction(): NodeAction | null {
+		const buf = new Uint8Array(NODE_ACTION_SIZE);
+		const rc = s.pancake_node_next_action(this.#raw, ab(buf));
+		if (rc === WOULD_BLOCK) return null;
+		check(rc);
+		const dv = new DataView(buf.buffer);
+		const locPtr = dv.getBigUint64(NODE_ACTION_LOCATOR_OFF, true);
+		const locLen = dv.getBigUint64(NODE_ACTION_LOCATOR_LEN_OFF, true);
+		const reasonPtr = dv.getBigUint64(NODE_ACTION_REASON_OFF, true);
+		const reasonLen = dv.getBigUint64(NODE_ACTION_REASON_LEN_OFF, true);
+		return {
+			kind: dv.getUint32(NODE_ACTION_KIND_OFF, true),
+			pending: dv.getBigUint64(NODE_ACTION_PENDING_OFF, true),
+			locator: locPtr !== 0n ? new TextDecoder().decode(readBytes(locPtr, locLen)) : "",
+			connId: dv.getBigUint64(NODE_ACTION_CONN_ID_OFF, true),
+			answer: dv.getBigUint64(NODE_ACTION_ANSWER_OFF, true),
+			token: dv.getBigUint64(NODE_ACTION_TOKEN_OFF, true),
+			reason: reasonPtr !== 0n
+				? new TextDecoder().decode(readBytes(reasonPtr, reasonLen))
+				: "",
+		};
 	}
 
 	/** `null` for an ordinary far id and for a token whose exporter is gone (fail closed). */
@@ -2576,15 +2418,6 @@ class NodeRaw {
 		check(s.pancake_node_record_foreign_home(this.#raw, farId, home));
 	}
 
-	foreignHome(farId: bigint): bigint | null {
-		const connOut = new Uint8Array(8), foundOut = new Uint8Array(4);
-		check(
-			s.pancake_node_foreign_home(this.#raw, farId, ab(connOut), ab(foundOut)),
-		);
-		if (new DataView(foundOut.buffer).getUint32(0, true) === 0) return null;
-		return new DataView(connOut.buffer).getBigUint64(0, true);
-	}
-
 	argIsForeign(defaultConn: bigint, farId: bigint): boolean {
 		const out = new Uint8Array(4);
 		check(s.pancake_node_arg_is_foreign(this.#raw, defaultConn, farId, ab(out)));
@@ -2595,6 +2428,7 @@ class NodeRaw {
 	 * gift registry. Idempotent. */
 	free(): void {
 		if (this.#raw !== NULL) {
+			nodeFinalizer.unregister(this);
 			s.pancake_node_free(this.#raw);
 			this.#raw = NULL;
 		}
@@ -2607,24 +2441,24 @@ class NodeRaw {
 
 /** The CapTP node — pancake's analogue of Goblins' `mycapn`,
  * kept deliberately distinct from the per-partner netlayer (`AsyncConnection`)
- * and the actor layer (`Vat`). The cross-connection handoff router lives in the
- * Zig core (`engine.Node`, ADR-0066): it owns the retained identity, the shared
- * gift registry, one node-owned peer per connection, and the redeemed-token /
- * foreign-home routing tables. This is the thin host-idiom residue over it — the
- * exporter-connection cache it dials to redeem gives, the `connId`→`Connection`
- * map the router resolves through, the node-giftable factories, and the iroh
- * redeem posture. A `Connection` delegates redemption and routing here; the
- * router lives below, so a redeemed capability is an ordinary token the
- * application sends to and the node forwards to its exporter transparently. */
+ * and the actor layer (`Vat`). The cross-connection handoff machinery lives in
+ * the Zig core (`engine.Node`, ADR-0066/ADR-0067): the retained identity, the
+ * shared gift registry, one node-owned peer per connection, the redeemed-token /
+ * foreign-home routing tables, and the whole redeem serve step — the exporter
+ * cache, the pending dials and withdraws, and every decision between them. This
+ * is the thin host-idiom residue over it: the `connId`→`Connection` map, the
+ * action executor that performs the I/O the serve step asks for (dial, flush,
+ * settle, entropy), the node-giftable factories, and the iroh redeem posture. */
 export class Node {
 	/** The peer's retained identity seed (32 bytes), reused for every dial. */
 	readonly seed: Uint8Array;
-	// The sans-io router in the core. Held for the node's whole life; every
-	// `Connection` references this `Node`, so the node (and the per-connection
-	// peers it owns) outlives every borrower and is freed only when the GC
-	// reclaims the last reference.
+	// The sans-io node in the core. Every `Connection` references this `Node`,
+	// so the node (and the per-connection peers it owns) outlives every
+	// borrower; when the GC reclaims the last reference, the `NodeRaw`
+	// finalizer frees the raw node and everything it owns.
 	readonly #node: NodeRaw;
-	readonly #exporters = new Map<string, Connection>();
+	// Whether the action executor is running; feeds kick it exactly once.
+	#draining = false;
 	// Every live connection by `connId`, so the router resolves a token's exporter
 	// to a `Connection` and a node-giftable object published once appears on all
 	// of them — including connections accepted later.
@@ -2648,7 +2482,7 @@ export class Node {
 	constructor(seed?: Uint8Array) {
 		this.seed = seed ?? crypto.getRandomValues(new Uint8Array(32));
 		if (this.seed.length !== 32) {
-			throw new Error("a session seed must be 32 bytes");
+			throw new PancakeError(INVALID_ARGUMENT, "a session seed must be 32 bytes");
 		}
 		this.#node = new NodeRaw(this.seed);
 	}
@@ -2677,43 +2511,13 @@ export class Node {
 		return this.#node.registerConn();
 	}
 
-	/** Free a connection's node-owned peer once its loop has stopped pumping.
-	 * Binding-internal: a `Connection` calls it during teardown. */
+	/** Free a connection's node-owned peer once its loop has stopped pumping,
+	 * then kick the executor: the core fails closed any withdraw stranded on
+	 * the removed connection, and the kick drains the FAIL actions that sweep
+	 * queues. Binding-internal: a `Connection` calls it during teardown. */
 	removeConn(connId: bigint): void {
 		this.#node.removeConn(connId);
-	}
-
-	/** Sign and queue the recipient half of a three-party handoff on the dialed
-	 * `exporterConn`: the node signs a `desc:handoff-receive` over `give` keyed by
-	 * its retained identity and queues `withdraw-gift` under `answer` (the one
-	 * definition shared with the native driver, ADR-0066). Binding-internal:
-	 * `Connection.withdrawGift` flushes and awaits it. */
-	sendWithdraw(exporterConn: bigint, give: Uint8Array, answer: bigint): void {
-		this.#node.sendWithdraw(exporterConn, give, answer);
-	}
-
-	/** Originate the gifter half of a three-party handoff (ADR-0009): queue a
-	 * deposit of `gifted` on `exporterConn`, build a `desc:handoff-give` signed by
-	 * the node identity and addressed to `recipientConn`'s partner, and queue it as
-	 * the fulfillment of `answer` on `recipientConn` (the one definition shared
-	 * with the native driver, ADR-0066). Binding-internal: `Connection`'s resolve
-	 * interceptor flushes both connections (exporter first). */
-	originateGive(
-		recipientConn: bigint,
-		exporterConn: bigint,
-		gifted: Reference,
-		giftId: Uint8Array,
-		answer: bigint,
-		exporterLocation: Uint8Array,
-	): void {
-		this.#node.originateGive(
-			recipientConn,
-			exporterConn,
-			gifted,
-			giftId,
-			answer,
-			exporterLocation,
-		);
+		this.kickActions();
 	}
 
 	/** Publish `behavior` under `name` on every connection of this node — those
@@ -2752,14 +2556,6 @@ export class Node {
 		if (reference.kind === "far") this.#node.recordForeignHome(reference.id, home);
 	}
 
-	/** The exporter `Connection` a fetched far `reference` lives on, if the node
-	 * recorded one, the gifter half reads it to originate. Binding-internal. */
-	foreignHome(reference: Reference): Connection | null {
-		if (reference.kind !== "far") return null;
-		const home = this.#node.foreignHome(reference.id);
-		return home !== null ? this.connectionFor(home) : null;
-	}
-
 	/** Whether `reference` names a capability foreign to `defaultConn` as a
 	 * `send`/`tell` argument — a redeemed token or a far the node recorded as
 	 * living on another connection (ADR-0066). The node owns the verdict; a send
@@ -2787,40 +2583,149 @@ export class Node {
 		return { conn, reference: far(routed.farId, false) };
 	}
 
-	/** Enroll a redeemed capability hosted on `exporterConn` under a fresh
-	 * routable token, returning the far reference the application receives,
-	 * indistinguishable from any other capability a partner hands back. Anything
-	 * but a far is no routable token and is handed back unchanged.
-	 * Binding-internal. */
-	enroll(exporterConn: bigint, reference: Reference): Reference {
-		if (reference.kind !== "far") return reference;
-		return far(this.#node.enrollRedeemed(exporterConn, reference.id), false);
+	/** Feed an intercepted handoff give to the core's serve step (ADR-0067): the
+	 * node decides what happens next — reuse a cached exporter, join a dial in
+	 * flight, or ask for a fresh dial — and this side only executes the actions.
+	 * Binding-internal: the serve loop calls it and kicks the executor. */
+	acceptGive(recipientConn: bigint, answer: bigint, give: HandoffGive): void {
+		this.#node.acceptGive(recipientConn, answer, give.give, give.exporterLocator);
 	}
 
-	/** Redeem a handoff give: dial the named exporter keyed with this node's
-	 * identity (reusing an open connection to it), withdraw the gift, and return
-	 * the live capability plus the exporter connection it lives on. The caller
-	 * enrolls the reference against that connection to mint a routable token. */
-	async redeem(
-		give: HandoffGive,
-	): Promise<{ conn: Connection; reference: Reference }> {
-		if (give.exporterLocator.length === 0) {
-			throw new Error("handoff give names no dialable exporter locator");
-		}
-		let conn = this.#exporters.get(give.exporterLocator);
-		if (conn === undefined) {
-			conn = await Connection.dialExporter(give.exporterLocator, this);
-			this.#exporters.set(give.exporterLocator, conn);
-			conn.serve();
-		}
-		const reference = await conn.withdrawGift(give.give);
-		return { conn, reference };
+	/** Record the verbatim exporter locator to embed in gives whose exporter is
+	 * `connId` (ADR-0009); the origination recipe in the core reads it.
+	 * Binding-internal: `Connection.setExporterLocator` forwards here. */
+	setExporterLocation(connId: bigint, location: Uint8Array): void {
+		this.#node.setExporterLocation(connId, location);
 	}
 
-	/** Close every exporter connection this node dialed. */
+	/** Offer a polled resolve to the core's serve step. True when it settled a
+	 * pending withdraw (the node consumed it; do not surface it); false when the
+	 * resolve is the application's. Binding-internal: only a node-dialed exporter
+	 * connection's loop offers, so an ordinary connection's reply path pays
+	 * nothing. */
+	claimResolve(
+		connId: bigint,
+		event: { answer: bigint; resolution: Resolution },
+	): boolean {
+		const resolution = event.resolution;
+		if (
+			"fulfill" in resolution && isReference(resolution.fulfill) &&
+			resolution.fulfill.kind === "far"
+		) {
+			return this.#node.claimResolve(
+				connId,
+				event.answer,
+				REDEEM_OUTCOME_FAR,
+				resolution.fulfill.id,
+				"",
+			);
+		}
+		if ("break" in resolution) {
+			return this.#node.claimResolve(
+				connId,
+				event.answer,
+				REDEEM_OUTCOME_BROKEN,
+				0n,
+				resolution.break,
+			);
+		}
+		// A non-capability fulfillment — a nested handoff give included: a
+		// withdraw must resolve to a capability, never recurse.
+		return this.#node.claimResolve(
+			connId,
+			event.answer,
+			REDEEM_OUTCOME_NOT_CAPABILITY,
+			0n,
+			"",
+		);
+	}
+
+	/** Feed a claimed gifter reply to the core's serve step. Binding-internal:
+	 * the `Connection` resolve interceptor forwards here. */
+	interceptFulfilledRef(connId: bigint, answer: bigint, farId: bigint): boolean {
+		return this.#node.interceptFulfilledRef(connId, answer, farId);
+	}
+
+	/** Run the serve step's action executor. Idempotent while a drain is already
+	 * running: feeds queue actions and the running drain picks them up (the
+	 * event loop is single-threaded, and the drain resets its flag with no await
+	 * between the empty check and the reset, so a kick can never race into a
+	 * lost action). Binding-internal. */
+	kickActions(): void {
+		if (this.#draining) return;
+		this.#draining = true;
+		void this.#drainActions();
+	}
+
+	async #drainActions(): Promise<void> {
+		try {
+			for (;;) {
+				const action = this.#node.nextAction();
+				if (action === null) return;
+				// One failing action must not strand the rest of the drain: a
+				// FLUSH to a connection whose socket just died throws here while
+				// the actions behind it belong to other, live connections. The
+				// failed connection tears itself down through its own serve loop
+				// (a DIAL failure is reported to the core inside the arm).
+				try {
+					await this.#runAction(action);
+				} catch {
+					// swallowed so the drain reaches every remaining action
+				}
+			}
+		} finally {
+			this.#draining = false;
+		}
+	}
+
+	// The executor is deliberately dumb: every decision was already made in the
+	// core; each arm is pure I/O or marshaling.
+	async #runAction(action: NodeAction): Promise<void> {
+		switch (action.kind) {
+			case NODE_ACTION_DIAL: {
+				let conn: Connection;
+				try {
+					conn = await Connection.dialExporter(action.locator, this);
+				} catch (err) {
+					// The node turns a failed dial into a broken answer.
+					const message = err instanceof Error ? err.message : String(err);
+					this.#node.dialFailed(action.pending, message);
+					return;
+				}
+				conn.nodeDialed = true;
+				conn.serve().catch(() => {});
+				this.#node.exporterDialed(action.pending, conn.connId);
+				return;
+			}
+			case NODE_ACTION_FLUSH:
+				await this.connectionFor(action.connId)?.flushOutbound();
+				return;
+			case NODE_ACTION_SETTLE:
+				this.connectionFor(action.connId)?.serveResolve(action.answer, {
+					fulfill: far(action.token, false),
+				});
+				return;
+			case NODE_ACTION_FAIL:
+				this.connectionFor(action.connId)?.serveResolve(action.answer, {
+					break: action.reason,
+				});
+				return;
+			case NODE_ACTION_NEED_GIFT_ID:
+				// Entropy is a host effect, drawn only when a reply actually becomes
+				// a gift.
+				this.#node.provideGiftId(
+					action.pending,
+					crypto.getRandomValues(new Uint8Array(32)),
+				);
+				return;
+		}
+	}
+
+	/** Close every exporter connection this node dialed for redeems. */
 	closeExporters(): void {
-		for (const conn of this.#exporters.values()) conn.closeTransport();
-		this.#exporters.clear();
+		for (const conn of [...this.#connections.values()]) {
+			if (conn.nodeDialed) conn.closeTransport();
+		}
 	}
 }
 
@@ -2843,14 +2748,11 @@ export class Connection {
 	#serving: Promise<void> | null = null;
 	#closing = false;
 
-	// When this connection is the exporter side of a handoff this node originates,
-	// the verbatim exporter-location bytes to embed in the give, set when the
-	// partner's signed `op:start-session` location is not dialable on its own. An
-	// iroh partner signs only its node id (no direct-address hints), so a gifter
-	// that learned the exporter's full `ocapn://…iroh?direct-addresses=…` out of
-	// band records it here; null falls back to `peer.partnerLocatorRaw()` (the TCP
-	// path, whose signed location carries the dialable host:port).
-	#exporterLocatorOverride: Uint8Array | null = null;
+	/** True for an exporter connection the node's serve step asked the executor
+	 * to dial: only such a connection's loop offers resolves to
+	 * `Node.claimResolve` (pending withdraws exist nowhere else), so an ordinary
+	 * connection's reply path pays nothing for handoffs. Binding-internal. */
+	nodeDialed = false;
 
 	// Distributed GC (ADR-0063), opt-in and off by default. When on, a `fetch`
 	// result is registered so its import is released — one `op:gc-exports` — once
@@ -2867,16 +2769,19 @@ export class Connection {
 		this.#vat = ac.vat();
 		this.#node = node;
 		this.#connId = connId;
-		// Originate a three-party handoff when a published actor returns a far
-		// capability that lives on another connection (the node recorded its
-		// foreign home at fetch, ADR-0009): claim the resolve and re-gift it rather
-		// than resolve a cross-connection reference.
+		// A published actor's reply that is a far capability living on another
+		// connection is the serve step's to originate as a three-party gift
+		// (ADR-0067): the node claims it, asks for gift entropy, deposits, signs
+		// the give, and orders the flushes; this side only kicks the executor.
 		this.#vat.setResolveInterceptor((answer, fulfilled) => {
 			if (!isReference(fulfilled) || fulfilled.kind !== "far") return false;
-			const exporter = this.#node.foreignHome(fulfilled);
-			if (exporter === null || exporter === this) return false;
-			void this.#originateHandoff(answer, fulfilled, exporter);
-			return true;
+			const claimed = this.#node.interceptFulfilledRef(
+				this.#connId,
+				answer,
+				fulfilled.id,
+			);
+			if (claimed) this.#node.kickActions();
+			return claimed;
 		});
 		// Join the node so any node-giftable object is published on this connection
 		// too, including this one, accepted after the giftable was registered.
@@ -2907,6 +2812,9 @@ export class Connection {
 			await openKeyedSession(ac, node.seed);
 			return new Connection(ac, node, connId);
 		} catch (err) {
+			// The socket opened but the handshake failed: release the fd rather
+			// than leave a half-open connection for the GC.
+			tcp.close();
 			node.removeConn(connId);
 			throw err;
 		}
@@ -2989,23 +2897,22 @@ export class Connection {
 				);
 			}
 			case "tcp": {
-				const colon = loc.designator.lastIndexOf(":");
-				if (colon < 0) {
+				if (loc.hostPort === null) {
 					throw new PancakeError(
 						INVALID_ARGUMENT,
 						`tcp locator designator is not host:port: ${loc.designator}`,
 					);
 				}
-				const tcp = await net.connect(
-					loc.designator.slice(0, colon),
-					Number(loc.designator.slice(colon + 1)),
-				);
+				const tcp = await net.connect(loc.hostPort.host, loc.hostPort.port);
 				const { connId, peer } = node.registerConn();
 				try {
 					const ac = AsyncConnection.fromConn(peer, tcp);
 					await openKeyedSession(ac, node.seed);
 					return new Connection(ac, node, connId);
 				} catch (err) {
+					// The socket opened but the handshake failed: release the fd
+					// rather than leave a half-open connection for the GC.
+					tcp.close();
 					node.removeConn(connId);
 					throw err;
 				}
@@ -3026,7 +2933,7 @@ export class Connection {
 	 * Binding-internal: the rooms directory sets it from a member's registered iroh
 	 * URI. Unset, origination falls back to the partner's signed location. */
 	setExporterLocator(rawLocator: Uint8Array): void {
-		this.#exporterLocatorOverride = rawLocator;
+		this.#node.setExporterLocation(this.#connId, rawLocator);
 	}
 
 	/** The underlying sans-io peer, the escape hatch for handoff, pipelining, and
@@ -3035,9 +2942,11 @@ export class Connection {
 		return this.#ac.peer;
 	}
 
-	/** The node's shared node, its retained identity and gift registry. Shared
-	 * by every connection of one node, so the gifter half of a handoff can reach a
-	 * sibling connection's session keys. Binding-internal. */
+	/** The connection's shared node, its retained identity and gift registry.
+	 * Shared by every connection of one node, so the gifter half of a handoff can
+	 * reach a sibling connection's session keys. An application reads it to
+	 * publish node-giftables (`Node.publishGiftable`), share one identity across
+	 * dials, or set the redeem posture. */
 	get node(): Node {
 		return this.#node;
 	}
@@ -3123,6 +3032,13 @@ export class Connection {
 		const result = await settled;
 		if (!isReference(result)) {
 			throw new FetchFailed(name);
+		}
+		if (result.kind !== "near" && result.kind !== "far") {
+			// A sturdy or broken reference is not a live capability; say which.
+			throw new FetchFailed(
+				name,
+				`fetch("${name}") resolved to a ${result.kind} reference, not a live capability`,
+			);
 		}
 		// Record the foreign home in the node: a fetched far capability lives on
 		// *this* connection. Used here it is an ordinary import; returned to another
@@ -3314,8 +3230,7 @@ export class Connection {
 			return liftArg(value);
 		};
 		const project = answer !== null
-			? (op: "get" | "index" | "untag", key: string | bigint) =>
-				this.#projectAnswer(answer, op, key)
+			? (op: "index" | "untag", key: string | bigint) => this.#projectAnswer(answer, op, key)
 			: null;
 		return new RemotePromise(answer, begin, project);
 	}
@@ -3326,7 +3241,7 @@ export class Connection {
 	// projections leaves the wire together. The result is itself projectable.
 	#projectAnswer(
 		sourceAnswer: bigint,
-		op: "get" | "index" | "untag",
+		op: "index" | "untag",
 		key: string | bigint,
 	): RemotePromise {
 		this.serve(); // the projected resolution arrives on the inbound loop
@@ -3334,9 +3249,6 @@ export class Connection {
 		const receiver = promise(sourceAnswer);
 		const answer = peer.nextAnswer();
 		switch (op) {
-			case "get":
-				peer.sendGet(receiver, key as string, answer);
-				break;
 			case "index":
 				peer.sendIndex(receiver, key as bigint, answer);
 				break;
@@ -3350,7 +3262,7 @@ export class Connection {
 			await this.#ac.flush();
 			return liftArg(await result);
 		};
-		const project = (op2: "get" | "index" | "untag", key2: string | bigint) =>
+		const project = (op2: "index" | "untag", key2: string | bigint) =>
 			this.#projectAnswer(answer, op2, key2);
 		return new RemotePromise(answer, begin, project);
 	}
@@ -3361,7 +3273,8 @@ export class Connection {
 	#targetVatRef(target: Ref | RemotePromise): VatRef {
 		if (target instanceof RemotePromise) {
 			if (target.answer === null) {
-				throw new Error(
+				throw new PancakeError(
+					INVALID_ARGUMENT,
 					"cannot pipeline against a local-send promise; await it for a Ref",
 				);
 			}
@@ -3428,24 +3341,6 @@ export class Connection {
 		this.#node.removeConn(this.#connId);
 	}
 
-	/** Withdraw a deposited gift from this (exporter) connection: the node signs
-	 * a `desc:handoff-receive` over `give` keyed by its retained identity and
-	 * delivers `withdraw-gift` to the exporter's bootstrap, returning the withdrawn
-	 * capability's reference once it resolves. Binding-internal: the node calls
-	 * this during redeem. */
-	async withdrawGift(give: Uint8Array): Promise<Reference> {
-		this.serve();
-		const answer = this.#ac.peer.nextAnswer();
-		const settled = settle(this.#vat, new FarVow(answer, this.#vat));
-		this.#node.sendWithdraw(this.#connId, give, answer);
-		await this.#ac.flush();
-		const value = await settled;
-		if (!isReference(value)) {
-			throw new Error("withdraw-gift did not resolve to a capability");
-		}
-		return value;
-	}
-
 	[Symbol.dispose](): void {
 		this.close();
 	}
@@ -3458,13 +3353,23 @@ export class Connection {
 	async #serveLoop(): Promise<void> {
 		try {
 			for await (const event of this.#ac) {
-				// A give arriving as a resolution is redeemed by the node, not the
-				// vat: dial the exporter keyed with our identity, withdraw, and settle
-				// the awaiting send with the live capability. Done off the loop so the
-				// redeem's own I/O does not stall this connection's reads.
-				if (event.kind === "resolve" && "handoff" in event.resolution) {
-					void this.#redeemHandoff(event.answer, event.resolution.handoff);
-					continue;
+				if (event.kind === "resolve") {
+					// A pending withdraw's resolution belongs to the core's serve
+					// step, and only a node-dialed exporter connection can carry one —
+					// an ordinary connection never pays this call.
+					if (this.nodeDialed && this.#node.claimResolve(this.#connId, event)) {
+						this.#node.kickActions();
+						continue;
+					}
+					// A give arriving as a resolution is the serve step's to redeem,
+					// never the vat's: feed it and execute the actions (dial, withdraw,
+					// settle) off this loop, so the redeem's own I/O does not stall
+					// this connection's reads.
+					if ("handoff" in event.resolution) {
+						this.#node.acceptGive(this.#connId, event.answer, event.resolution.handoff);
+						this.#node.kickActions();
+						continue;
+					}
 				}
 				this.#vat.serve(event);
 			}
@@ -3481,30 +3386,6 @@ export class Connection {
 			// an accepted connection whose partner has already hung up. Idempotent
 			// with an application `close()` (which has set `#closing`).
 			if (!this.#closing) this.closeTransport();
-		}
-	}
-
-	// Redeem a handoff give through the node, enroll the withdrawn capability
-	// against its exporter connection to mint a routable token (ADR-0066), then
-	// settle the original answer with that token, an ordinary far the application
-	// sends to and the node forwards to the exporter. A redeem failure breaks the
-	// awaiting send rather than hanging it.
-	async #redeemHandoff(answer: bigint, give: HandoffGive): Promise<void> {
-		try {
-			const { conn, reference } = await this.#node.redeem(give);
-			const token = this.#node.enroll(conn.connId, reference);
-			this.#vat.serve({
-				kind: "resolve",
-				answer,
-				resolution: { fulfill: token },
-			});
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			this.#vat.serve({
-				kind: "resolve",
-				answer,
-				resolution: { break: `handoff redeem failed: ${message}` },
-			});
 		}
 	}
 
@@ -3558,52 +3439,17 @@ export class Connection {
 		return this.#node.argIsForeign(this.#connId, ref);
 	}
 
-	// Originate the gifter half of a three-party handoff: deposit `gifted` (a
-	// capability that lives on the `exporter` connection) back with the exporter,
-	// then resolve the recipient's `answer` with a signed `desc:handoff-give` the
-	// recipient redeems transparently. Crypto inputs come from this gifter's two
-	// sessions — the recipient key from this (to-recipient) connection, the
-	// exporter locator and key from the exporter connection — signed with the
-	// node's one retained identity, which is also what the exporter saw on the
-	// deposit, so the give's signature and the deposit's provenance match. A
-	// failure breaks the recipient's answer rather than hanging it.
-	async #originateHandoff(
-		answer: bigint,
-		gifted: Reference,
-		exporter: Connection,
-	): Promise<void> {
-		try {
-			const giftId = crypto.getRandomValues(new Uint8Array(32));
-			// The node deposits on the exporter and signs the give addressed to this
-			// recipient in one recipe; the binding only draws the gift id and flushes
-			// both connections — the exporter first, so the deposit is on the wire
-			// before the recipient dials in to withdraw.
-			this.#node.originateGive(
-				this.connId,
-				exporter.connId,
-				gifted,
-				giftId,
-				answer,
-				exporter.#exporterLocatorOverride ?? new Uint8Array(0),
-			);
-			await exporter.#flushOutbound();
-			await this.#flushOutbound();
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			try {
-				this.peer.sendResolve(answer, {
-					break: `handoff origination failed: ${message}`,
-				});
-				await this.#flushOutbound();
-			} catch { /* the connection is already gone; nothing more to do */ }
-		}
+	/** Put whatever is queued on this connection's peer onto the wire now — how
+	 * the serve step's flush actions land, queued onto a peer whose own serve
+	 * loop may be parked in a read. Binding-internal. */
+	async flushOutbound(): Promise<void> {
+		await this.#ac.flush();
 	}
 
-	// Put whatever is queued on this connection's peer onto the wire now. Used by
-	// the cross-connection handoff origination, which queues onto a peer whose own
-	// serve loop may be parked in a read.
-	async #flushOutbound(): Promise<void> {
-		await this.#ac.flush();
+	/** Settle answer `answer` on this connection's vat — how the serve step's
+	 * `settle`/`fail` actions land. Binding-internal. */
+	serveResolve(answer: bigint, resolution: Resolution): void {
+		this.#vat.serve({ kind: "resolve", answer, resolution });
 	}
 }
 
@@ -3629,7 +3475,7 @@ export class Server {
 		this.#node = node;
 	}
 
-	/** The node's shared node, its retained identity and gift registry. An
+	/** The server's shared node, its retained identity and gift registry. An
 	 * exporter application reads it to originate gifts that recipients withdraw
 	 * across the node's connections. */
 	get node(): Node {
@@ -3645,7 +3491,8 @@ export class Server {
 	/** The bound TCP port. Throws until `ready()` has resolved the bind. */
 	get port(): number {
 		if (this.#listener === null) {
-			throw new Error(
+			throw new PancakeError(
+				INVALID_ARGUMENT,
 				"server not bound yet; await server.ready() before reading port",
 			);
 		}
@@ -3719,6 +3566,10 @@ export interface Locator {
 	/** Empty for a peer URI; the swiss bytes for a sturdyref. */
 	swissnum: string;
 	hints: Map<string, string>;
+	/** The designator's `host:port` split when the core grammar
+	 * (`pancake_locator_host_port`) accepts it, `null` otherwise; a socket
+	 * dialer consumes the split instead of re-deriving it. */
+	hostPort: { host: string; port: number } | null;
 }
 
 // Read a (pointer, length) view pair the locator accessors fill, decoding the
@@ -3794,11 +3645,33 @@ export function parseLocator(uri: string, sturdyref = false): Locator {
 			);
 			hints.set(readLocatorView(kPtr, kLen), readLocatorView(vPtr, vLen));
 		}
+		// The host:port split is the core grammar's verdict, read while the
+		// handle is alive: OK carries the split, INVALID_ARGUMENT means the
+		// designator is not host:port (an iroh node id, say), which is a fact,
+		// not a fault.
+		const hPtr = new Uint8Array(8), hLen = new Uint8Array(8);
+		const portBuf = new Uint8Array(2);
+		const hpRc = s.pancake_locator_host_port(
+			loc,
+			ab(hPtr),
+			ab(hLen),
+			ab(portBuf),
+		);
+		let hostPort: { host: string; port: number } | null = null;
+		if (hpRc === OK) {
+			hostPort = {
+				host: readLocatorView(hPtr, hLen),
+				port: new DataView(portBuf.buffer).getUint16(0, true),
+			};
+		} else if (hpRc !== INVALID_ARGUMENT) {
+			check(hpRc);
+		}
 		return {
 			transport: readLocatorField(s.pancake_locator_transport, loc),
 			designator: readLocatorField(s.pancake_locator_designator, loc),
 			swissnum: readLocatorField(s.pancake_locator_swissnum, loc),
 			hints,
+			hostPort,
 		};
 	} finally {
 		s.pancake_locator_release(loc);
@@ -3909,17 +3782,13 @@ export async function connect(
 			);
 		}
 		case "tcp": {
-			const colon = loc.designator.lastIndexOf(":");
-			if (colon < 0) {
+			if (loc.hostPort === null) {
 				throw new PancakeError(
 					INVALID_ARGUMENT,
 					`tcp locator designator is not host:port: ${loc.designator}`,
 				);
 			}
-			return Connection.connect(
-				loc.designator.slice(0, colon),
-				Number(loc.designator.slice(colon + 1)),
-			);
+			return Connection.connect(loc.hostPort.host, loc.hostPort.port);
 		}
 		default:
 			throw new PancakeError(

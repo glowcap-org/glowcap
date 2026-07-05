@@ -133,12 +133,14 @@ const ConnPayload = struct {
 /// the C ABI, not the sidecar's private byte-level sentinel.
 const PANCAKE_ERR_WOULD_BLOCK = c.PANCAKE_ERR_WOULD_BLOCK;
 
-/// Readiness event bits, mirroring the header's `PANCAKE_IROH_EV_*` and the
-/// resident/sidecar values. A drained record may carry several at once.
-const PANCAKE_IROH_EV_READABLE: u32 = 1;
-const PANCAKE_IROH_EV_WRITABLE: u32 = 2;
-const PANCAKE_IROH_EV_CLOSED: u32 = 4;
-const PANCAKE_IROH_EV_ACCEPT: u32 = 8;
+/// Readiness event bits, mirroring the header's `PANCAKE_IROH_EV_*`. Defined
+/// from the resident's `loop_ev_*` values so the compiler holds this mirror and
+/// the resident/sidecar values in lockstep; the header's `#define`s carry the
+/// same numbers. A drained record may carry several at once.
+const PANCAKE_IROH_EV_READABLE: u32 = iroh.loop_ev_readable;
+const PANCAKE_IROH_EV_WRITABLE: u32 = iroh.loop_ev_writable;
+const PANCAKE_IROH_EV_CLOSED: u32 = iroh.loop_ev_closed;
+const PANCAKE_IROH_EV_ACCEPT: u32 = iroh.loop_ev_accept;
 
 /// One readiness record handed to the host by `pancake_iroh_netlayer_drain_ready`:
 /// the connection that became ready and the `PANCAKE_IROH_EV_*` bitset. `conn`
@@ -467,7 +469,7 @@ fn drainInto(nl: *NetlayerPayload, dest: []PancakeIrohReadyEvent) usize {
         if (n <= 0) break;
         const count: usize = @intCast(n);
         for (raw[0..count]) |rec| {
-            if (rec.events & iroh.loop_ev_accept != 0) {
+            if (rec.events & PANCAKE_IROH_EV_ACCEPT != 0) {
                 dest[out_n] = .{ .conn = null, .events = rec.events };
                 out_n += 1;
             } else if (nl.loop_conns.get(rec.conn)) |payload| {

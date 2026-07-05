@@ -27,8 +27,10 @@ pub fn main() !void {
 
     var pair = try engine.pairing.paired(allocator);
     defer pair.deinit();
-    const phone = &pair.p1;
-    const speaker = &pair.p2;
+    // `pancake.Peer` is the front-door alias for `engine.Peer`, the type this
+    // whole chapter drives by hand.
+    const phone: *pancake.Peer = &pair.p1;
+    const speaker: *pancake.Peer = &pair.p2;
 
     try speaker.exportObject(1);
     try phone.importObject(1);

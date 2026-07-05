@@ -40,8 +40,9 @@ pub const ConnectionOptions = struct {
 /// accepts) with one call instead of stitching a negotiating peer, two
 /// buffers, and `connectVia` together by hand. Heap-pinned because the
 /// connected vat borrows the peer: the pointer `connect` and `Server.accept`
-/// return is stable for the connection's life, and `Connection.close` frees
-/// the whole bundle. The explicit `connectVia` / `acceptVia` (and the tcp-named
+/// return is stable for the connection's life, and `Connection.deinit` frees
+/// the whole bundle (`close` is the C vocabulary for a shutdown lever that
+/// never frees; native Zig frees through `deinit`). The explicit `connectVia` / `acceptVia` (and the tcp-named
 /// `connectTcp` / `acceptTcp`) path remains available when the caller wants to
 /// own the peer and buffers and see every allocation at the call site. This
 /// type is the native-Zig spelling of the `Connection` every binding exposes.
@@ -53,7 +54,7 @@ pub const Connection = struct {
     allocator: std.mem.Allocator,
 
     /// Tear down the connection and free the peer and buffers this owns.
-    pub fn close(self: *Connection) void {
+    pub fn deinit(self: *Connection) void {
         self.cv.deinit();
         self.freeShell();
     }
@@ -220,15 +221,15 @@ fn createShell(allocator: std.mem.Allocator, opts: ConnectionOptions) !*Connecti
 /// state) must outlive the returned `*Connection`. A caller that wants to own
 /// the peer and buffers directly uses the borrowing `connectVia` / `connectUri`.
 pub fn connect(
-    netlayers: []const net.netlayer.Netlayer,
     allocator: std.mem.Allocator,
+    netlayers: []const net.netlayer.Netlayer,
     locator: model.PeerLocator,
     identity: Identity,
     opts: ConnectionOptions,
 ) !*Connection {
     const self = try createShell(allocator, opts);
     errdefer self.freeShell();
-    self.cv = try connectVia(netlayers, allocator, &self.peer, locator, identity, self.read_buf, self.write_buf);
+    self.cv = try connectVia(allocator, netlayers, &self.peer, locator, identity, self.read_buf, self.write_buf);
     return self;
 }
 
@@ -239,15 +240,15 @@ pub fn connect(
 /// `connect`, signing with `identity`. `netlayers` must outlive the returned
 /// `*Connection`.
 pub fn connectUriOwned(
-    netlayers: []const net.netlayer.Netlayer,
     allocator: std.mem.Allocator,
+    netlayers: []const net.netlayer.Netlayer,
     uri_str: []const u8,
     identity: Identity,
     opts: ConnectionOptions,
 ) !*Connection {
     const locator = try model.uri.parsePeer(allocator, uri_str);
     defer model.freePeerLocator(allocator, locator);
-    return connect(netlayers, allocator, locator, identity, opts);
+    return connect(allocator, netlayers, locator, identity, opts);
 }
 
 /// The owning hosting half, bound by `listen` — the host twin of `connect`.
@@ -262,7 +263,7 @@ pub fn connectUriOwned(
 /// posture the keyed handshake uses on each accept.
 pub const Server = struct {
     listener: net.netlayer.Listener,
-    identity: Identity,
+    identity: driver.AcceptIdentity,
     allocator: std.mem.Allocator,
     opts: ConnectionOptions,
 
@@ -281,7 +282,7 @@ pub const Server = struct {
     pub fn accept(self: *Server) !*Connection {
         const conn = try createShell(self.allocator, self.opts);
         errdefer conn.freeShell();
-        conn.cv = try acceptVia(self.listener, self.allocator, &conn.peer, self.identity, conn.read_buf, conn.write_buf);
+        conn.cv = try acceptVia(self.allocator, self.listener, &conn.peer, self.identity, conn.read_buf, conn.write_buf);
         return conn;
     }
 
@@ -303,10 +304,10 @@ pub const Server = struct {
 /// `acceptTcp` instead. The `netlayer` (and the resident behind it, which can
 /// hold state) must outlive the returned `Server`.
 pub fn listen(
-    netlayer: net.netlayer.Netlayer,
     allocator: std.mem.Allocator,
+    netlayer: net.netlayer.Netlayer,
     config: net.netlayer.ListenConfig,
-    identity: Identity,
+    identity: driver.AcceptIdentity,
     opts: ConnectionOptions,
 ) !Server {
     return .{

@@ -28,8 +28,6 @@ pub fn encodeMessageForProfile(
     profile: model.WireProfile,
     message: model.Message,
 ) EncodeError!foundation.Frame {
-    if (profile.captp_version == .v1_0 and message == .resolve) return Error.UnsupportedMessage;
-
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(allocator);
 

@@ -5,15 +5,16 @@
 //! `(introducer 'get-greeter)` — the introduction. A three-party introduction
 //! hands the greeter over as a `desc:handoff-give` pointing at the exporter
 //! (Bob), so the recipient dials Bob directly and presents a
-//! `desc:handoff-receive`. The router that makes that transparent — the retained
-//! recipient identity, the shared gift registry, the signed receive, and the
-//! redeemed-token routing — is the sans-io `driver.Node`; this driver is the
-//! thin I/O shell over it. The Node owns each connection's peer (the embedder
-//! pumps `tcp.connect` over `node.peer(conn_id)`), mints the withdraw with
-//! `node.sendWithdraw`, enrolls the redeemed greeter under a token with
-//! `node.enrollRedeemed`, and resolves a call to that token back to the exporter
-//! with `node.routeReference`. That makes the router its own oracle against live
-//! Goblins.
+//! `desc:handoff-receive`. The whole redeem is sequenced by the node's sans-io
+//! serve step: this driver feeds the give in (`node.acceptGive`), executes the
+//! actions that come back (`dial`, `flush`), reports the dial's outcome
+//! (`node.exporterDialed`), offers the exporter's resolves back
+//! (`node.claimResolve`), and receives the `settle` action carrying the
+//! routable token, which `node.routeReference` forwards to the exporter with
+//! the real reference swapped in. The node owns every decision — the retained
+//! recipient identity, the exporter cache, the pending withdraw, the signed
+//! receive, the enrollment — and this driver owns only sockets, which makes
+//! the serve step its own oracle against live Goblins.
 //!
 //! Needs `racket` + the `goblins` collection on PATH; runs as the sibling step
 //! `zig build goblins-handoff`, not in the hermetic gate.
@@ -78,274 +79,87 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(swiss);
     std.debug.print("goblins-handoff: alice published introducer swiss={s} on {s}:{s}\n", .{ swiss, host, alice_port_str });
 
-    try recipientStep1(io, allocator, swiss, alice_port_str);
+    recipientStep1(io, allocator, swiss, alice_port_str) catch |err| {
+        goblins_child.dumpChildStderr(io, "goblins-handoff", &child);
+        return err;
+    };
 
     child.kill(io);
     reaped = true;
 }
 
-/// Dial Alice, enliven the introducer, call get-greeter, capture the give that
-/// the introduction resolves to, then redeem it through the node.
+/// Dial Alice, enliven the introducer, and call `get-greeter` through the
+/// typed surface: the introduction settles as a `.give`, `Host.redeem` dials
+/// Bob and withdraws under the host identity, and the routed call reaches the
+/// greeter directly. The serve step owns every decision; the driver holds one
+/// `Host` and its verbs, which makes the live Goblins conversation the native
+/// surface's oracle.
 fn recipientStep1(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, alice_port_str: []const u8) !void {
-    // The node's retained identity is drawn once at the I/O boundary (the sans-io
-    // node never generates entropy) and reused for every connection it opens, so
-    // the gift Alice deposits names this key and the later withdraw on Bob's
-    // session signs with the same one.
     var seed: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
-    var node = Node.init(allocator, seed);
-    defer node.deinit();
-
-    const recipient_conn = try node.registerConn();
-    const peer = node.peer(recipient_conn).?;
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var tcp_resident = tcp.Resident{ .io = io };
+    var h = pancake.driver.Host.initSeeded(allocator, io, &.{tcp_resident.netlayer()}, seed, .{ .frame_cap = frame_cap });
+    defer h.deinit();
 
     var designator_buf: [64]u8 = undefined;
     const alice_designator = try std.fmt.bufPrint(&designator_buf, "{s}:{s}", .{ host, alice_port_str });
-    const dial: model.PeerLocator = .{
+    const alice = try h.dial(.{
         .transport = tcp.transport_name,
         .designator = alice_designator,
         .hints = model.Hints.emptyFalse(),
-    };
-    var conn = try tcp.connect(io, peer, dial, read_buf, write_buf);
-    defer conn.deinit();
-
-    // Keyed handshake (a `tcp`/`#f`-hints locator so Goblins verifies our
-    // signature), signing with the node's retained identity.
-    try goblins_child.openKeyedSessionWith(peer, &conn, host ++ ":1", node.secretKey());
+    });
+    defer alice.deinit();
     std.debug.print("goblins-handoff: session open (pancake as recipient -> alice)\n", .{});
 
     // Enliven the introducer by its swiss-num.
-    const introducer = try goblins_child.fetchCap(allocator, peer, &conn, swiss);
+    const introducer = try goblins_child.fetchCap(allocator, alice.cv.peer, &alice.cv.conn, swiss);
     defer model.freeReference(allocator, introducer);
     std.debug.print("goblins-handoff: enlivened alice's introducer\n", .{});
 
-    // Call (introducer 'get-greeter): a leading symbol is the method verb.
-    const answer: u64 = 9100;
-    try peer.sendCopying(.{ .deliver = .{
-        .target = introducer,
-        .args = &.{.{ .symbol = "get-greeter" }},
-        .answer = model.AnswerId.from(answer),
-    } });
-
-    // The introduction resolves to a handoff-give that names the exporter (Bob).
-    // Capture the exporter's address and the give's *exact* signed bytes (the
-    // recipient forwards them verbatim so the exporter re-verifies the gifter's
-    // signature).
-    var exporter_designator: ?[]u8 = null;
-    defer if (exporter_designator) |d| allocator.free(d);
-    var raw_give: ?[]u8 = null;
-    defer if (raw_give) |g| allocator.free(g);
-    var settled = false;
-    while (!settled) {
-        const progress = try conn.pump();
-        while (peer.pollEvent()) |event_value| {
-            var event = event_value;
-            defer event.deinit();
-            const body = event.view() catch continue;
-            if (body == .resolve and body.resolve.answer.int() == answer) {
-                settled = true;
-                switch (body.resolve.resolution) {
-                    .fulfill => |arg| {
-                        if (arg == .handoff) {
-                            const give = arg.handoff.give;
-                            const designator = give.exporter_location.locator.designator;
-                            std.debug.print("goblins-handoff: get-greeter resolved to a handoff-give; exporter={s} gift_id.len={}\n", .{ designator, give.gift_id.len });
-                            exporter_designator = try allocator.dupe(u8, designator);
-                            const span = codec.syrup.spanSignedHandoffGive(event.bytes()) orelse return error.NoSignedGive;
-                            raw_give = try allocator.dupe(u8, span);
-                        } else {
-                            std.debug.print("goblins-handoff: get-greeter resolved to a {s} (expected a handoff)\n", .{@tagName(arg)});
-                        }
-                    },
-                    .@"break" => |b| std.debug.print("goblins-handoff: get-greeter BROKE: {s}\n", .{b.message}),
-                }
-            }
-        }
-        if (progress == .closed) break;
-    }
-    if (!settled) return error.IntroductionNeverSettled;
-
-    const designator = exporter_designator orelse return error.NoHandoffGive;
-    const give_bytes = raw_give orelse return error.NoHandoffGive;
-
-    // The recipient redeem: dial the exporter directly and withdraw through the node.
-    try withdrawAndCall(io, allocator, &node, recipient_conn, designator, give_bytes);
-}
-
-/// The recipient redeem, driven through the node: register a fresh exporter
-/// connection, dial Bob and open a keyed session under the node's retained
-/// identity, mint the signed `withdraw-gift` with `node.sendWithdraw` (the one
-/// definition of the recipient receive, with the handoff-count minted from the
-/// shared registry), enroll the resulting greeter under a node token, and ask
-/// the node where a call to that token routes, proving the redeemed cap is
-/// transparently addressable rather than hand-forwarded to the exporter.
-fn withdrawAndCall(
-    io: std.Io,
-    allocator: std.mem.Allocator,
-    node: *Node,
-    recipient_conn: pancake.driver.ConnId,
-    designator: []const u8,
-    give_bytes: []const u8,
-) !void {
-    const exporter_conn = try node.registerConn();
-    const peer = node.peer(exporter_conn).?;
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    const dial: model.PeerLocator = .{ .transport = tcp.transport_name, .designator = designator, .hints = model.Hints.emptyFalse() };
-    var conn = try tcp.connect(io, peer, dial, read_buf, write_buf);
-    defer conn.deinit();
-
-    // The node's retained identity: the deposited gift names that key as the
-    // recipient, so this session must present it.
-    try goblins_child.openKeyedSessionWith(peer, &conn, host ++ ":1", node.secretKey());
-    std.debug.print("goblins-handoff: session open (pancake -> exporter {s})\n", .{designator});
-
-    // Mint and send the signed `withdraw-gift` through the node, then flush it.
-    const withdraw_answer: u64 = 9200;
-    try node.sendWithdraw(exporter_conn, give_bytes, withdraw_answer);
-    _ = conn.pump() catch {};
-
-    const greeter = try awaitResolution(allocator, peer, &conn, withdraw_answer) orelse {
-        std.debug.print("goblins-handoff: withdraw did not resolve to a reference\n", .{});
-        return error.WithdrawFailed;
+    // Call (introducer 'get-greeter): the introduction settles as the typed
+    // third outcome, the give, with its verbatim envelope and dialable locator.
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const settled = try alice.call(.{ .far = introducer.far }, .{ .verb = "get-greeter", .args = &.{} }, arena.allocator());
+    const give = switch (settled) {
+        .give => |g| g,
+        .fulfilled => |arg| {
+            std.debug.print("goblins-handoff: get-greeter resolved to a {s} (expected a give)\n", .{@tagName(arg)});
+            return error.NoHandoffGive;
+        },
+        .broken => |reason| {
+            std.debug.print("goblins-handoff: get-greeter BROKE: {s}\n", .{reason});
+            return error.NoHandoffGive;
+        },
     };
-    defer model.freeReference(allocator, greeter);
+    std.debug.print("goblins-handoff: get-greeter resolved to a handoff-give; exporter={s}\n", .{give.exporter_locator_uri});
+
+    // Redeem: the host dials Bob under the node identity, withdraws, and hands
+    // back the greeter as an ordinary routable capability.
+    const greeter = try h.redeem(alice, give);
+    std.debug.print("goblins-handoff: session open (pancake -> exporter)\n", .{});
     std.debug.print("goblins-handoff: withdraw succeeded, got the greeter ref directly from the exporter\n", .{});
 
-    // Enroll the greeter under a node token, then route a call to that token: the
-    // node forwards it to the exporter connection with the real reference swapped
-    // in, so the application holds an ordinary far cap and the node owns the
-    // three-party transparency.
-    const token = try node.enrollRedeemed(exporter_conn, greeter);
-    defer model.freeReference(allocator, token);
-    const routed = node.routeReference(recipient_conn, token) orelse return error.TokenUnroutable;
-    const target_peer = node.peer(routed.conn_id).?;
-
-    const call_answer: u64 = 9300;
-    try target_peer.sendCopying(.{ .deliver = .{
-        .target = routed.target,
-        .args = &.{.{ .string = "pancake-carol" }},
-        .answer = model.AnswerId.from(call_answer),
-    } });
-    var greeted = false;
-    while (!greeted) {
-        const progress = try conn.pump();
-        while (peer.pollEvent()) |event_value| {
-            var event = event_value;
-            defer event.deinit();
-            const body = event.view() catch continue;
-            if (body == .resolve and body.resolve.answer.int() == call_answer) {
-                greeted = true;
-                switch (body.resolve.resolution) {
-                    // The greeter builds its reply around the caller's name:
-                    // assert the name we sent came back in the content, so the
-                    // handoff proves data integrity, not just choreography.
-                    .fulfill => |arg| {
-                        const reply: []const u8 = switch (arg) {
-                            .string, .bytes => |t| t,
-                            else => return error.GreeterWrongPayload,
-                        };
-                        if (std.mem.indexOf(u8, reply, "pancake-carol") == null) {
-                            return error.GreeterWrongPayload;
-                        }
-                        std.debug.print("goblins-handoff: greeter replied: {s}\n", .{reply});
-                    },
-                    .@"break" => |b| {
-                        std.debug.print("goblins-handoff: greeter call broke: {s}\n", .{b.message});
-                        return error.GreeterBroke;
-                    },
-                }
-            }
-        }
-        if (progress == .closed) break;
+    // Call the greeter (a Goblins lambda: no verb, one argument). The token
+    // routes through the node to Bob's connection.
+    const reply = try alice.call(greeter, .{ .verb = "", .args = &.{.{ .string = "pancake-carol" }} }, arena.allocator());
+    switch (reply) {
+        .fulfilled => |arg| {
+            const text: []const u8 = switch (arg) {
+                .string, .bytes => |t| t,
+                else => return error.GreeterWrongPayload,
+            };
+            // The greeter builds its reply around the caller's name: assert the
+            // name round-tripped, so the handoff proves data integrity, not
+            // just choreography.
+            if (std.mem.indexOf(u8, text, "pancake-carol") == null) return error.GreeterWrongPayload;
+            std.debug.print("goblins-handoff: greeter replied: {s}\n", .{text});
+        },
+        .broken => |reason| {
+            std.debug.print("goblins-handoff: greeter call broke: {s}\n", .{reason});
+            return error.GreeterBroke;
+        },
+        .give => return error.GreeterWrongPayload,
     }
-    if (!greeted) return error.GreeterNeverReplied;
     std.debug.print("goblins-handoff: OK, full three-party handoff: pancake withdrew a gift from Goblins and called it directly\n", .{});
-}
-
-/// Pump until answer `id` resolves; return the fulfilled reference (caller owns it)
-/// or null if it resolved to a non-reference / broke.
-fn awaitResolution(allocator: std.mem.Allocator, peer: *engine.Peer, conn: anytype, id: u64) !?model.Reference {
-    while (true) {
-        const progress = conn.pump() catch |e| {
-            const buffered = conn.r.buffered();
-            std.debug.print("goblins-handoff: withdraw response pump error {s}; {} bytes goblins sent:\n", .{ @errorName(e), buffered.len });
-            dumpFrameBytes(buffered);
-            return e;
-        };
-        while (peer.pollEvent()) |event_value| {
-            var event = event_value;
-            defer event.deinit();
-            const body = event.view() catch continue;
-            if (body == .resolve and body.resolve.answer.int() == id) {
-                switch (body.resolve.resolution) {
-                    .fulfill => |arg| {
-                        if (arg != .reference) {
-                            std.debug.print("goblins-handoff: answer {} resolved to a {s} (expected a reference)\n", .{ id, @tagName(arg) });
-                            return null;
-                        }
-                        // The owned decode is the raw V1.0 resolver-callback deliver
-                        // (`[fulfill <ref>]`), not a re-projected resolve, so pull the
-                        // reference from whichever shape it materializes as.
-                        const owned = try event.decodeOwned(allocator);
-                        defer model.freeMessage(allocator, owned);
-                        const ref = ownedFulfillReference(owned) orelse return null;
-                        return try model.cloneReference(allocator, ref);
-                    },
-                    .@"break" => |b| {
-                        std.debug.print("goblins-handoff: answer {} broke: {s}\n", .{ id, b.message });
-                        return null;
-                    },
-                }
-            }
-        }
-        if (progress == .closed) {
-            std.debug.print("goblins-handoff: connection closed before answer {} resolved\n", .{id});
-            return null;
-        }
-    }
-}
-
-/// Pull the fulfilled reference out of either an `op:resolve` or a V1.0
-/// resolver-callback deliver (`[fulfill <ref>]`).
-fn ownedFulfillReference(msg: model.Message) ?model.Reference {
-    return switch (msg) {
-        .resolve => |r| if (r.resolution == .fulfill and r.resolution.fulfill == .reference) r.resolution.fulfill.reference else null,
-        .deliver => |d| if (d.args.len >= 2 and d.args[1] == .reference) d.args[1].reference else null,
-        else => null,
-    };
-}
-
-/// Print a frame as a Syrup-readable ascii rendering (printables verbatim,
-/// non-printables as `\xNN`), so we can see exactly which descriptor goblins
-/// emitted that pancake's decoder rejected.
-fn dumpFrameBytes(bytes: []const u8) void {
-    var buf: [4096]u8 = undefined;
-    var w: usize = 0;
-    for (bytes) |b| {
-        if (w + 4 >= buf.len) break;
-        if (b >= 0x20 and b < 0x7f) {
-            buf[w] = b;
-            w += 1;
-        } else {
-            const hex = "0123456789abcdef";
-            buf[w] = '\\';
-            buf[w + 1] = 'x';
-            buf[w + 2] = hex[b >> 4];
-            buf[w + 3] = hex[b & 0xf];
-            w += 4;
-        }
-    }
-    std.debug.print("goblins-handoff:   {s}\n", .{buf[0..w]});
 }

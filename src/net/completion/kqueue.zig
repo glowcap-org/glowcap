@@ -36,7 +36,7 @@ const builtin = @import("builtin");
 const completion = @import("loop.zig");
 
 comptime {
-    if (!builtin.os.tag.isDarwin()) @compileError("net.kqueue is for Darwin (kqueue)");
+    if (!builtin.os.tag.isDarwin()) @compileError("the kqueue completion backend is for Darwin");
 }
 
 const c = std.c;
@@ -95,6 +95,9 @@ pub const Backend = struct {
         read_buffers: u16,
         read_buffer_bytes: u32,
     ) !Backend {
+        // kqueue has no submission ring to size: `queue_entries` is the
+        // io_uring backend's ring-depth hint, taken here only because both
+        // backends share the one `init` signature.
         _ = queue_entries;
         const kq = c.kqueue();
         if (kq < 0) return error.KqueueFailed;
@@ -344,7 +347,7 @@ pub const Backend = struct {
             .addr = std.mem.nativeToBig(u32, 0x7f00_0001), // 127.0.0.1
         };
         if (c.bind(fd, @ptrCast(&addr), @sizeOf(sockaddr_in)) < 0) return error.BindFailed;
-        if (c.listen(fd, 128) < 0) return error.ListenFailed;
+        if (c.listen(fd, completion.listen_backlog) < 0) return error.ListenFailed;
         return fd;
     }
 

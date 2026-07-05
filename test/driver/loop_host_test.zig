@@ -74,7 +74,7 @@ fn callOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
             try std.testing.expect(arg == .string);
             try std.testing.expectEqualStrings("hello pancake from the loop", arg.string);
         },
-        .broken => return error.CallBroke,
+        .broken, .give => return error.CallBroke,
     }
 }
 

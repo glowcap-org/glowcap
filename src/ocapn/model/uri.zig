@@ -28,6 +28,7 @@ pub const Error = error{
     MalformedHint,
     UnsupportedHintValue,
     UriParseError,
+    InvalidHostPort,
     OutOfMemory,
 };
 
@@ -152,6 +153,39 @@ pub fn parseSturdyref(allocator: std.mem.Allocator, uri_str: []const u8) Error!m
         .peer = .{ .transport = nl.transport, .designator = nl.designator, .hints = hints },
         .swissnum = swissnum,
     };
+}
+
+/// A `host:port` designator split into its two halves. `host` borrows the
+/// designator bytes (brackets already stripped from an IPv6 literal).
+pub const HostPort = struct {
+    host: []const u8,
+    port: u16,
+};
+
+/// Split a `host:port` designator — the address grammar a socket transport's
+/// locator designator carries. The split is on the **last** colon, so a
+/// bracketed IPv6 literal such as `[::1]:9000` keeps its address intact; the
+/// brackets are stripped from the returned host, which is what a host resolver
+/// expects. The port must be a decimal `u16` and the host must be non-empty.
+/// This is the one definition of that grammar: the native TCP netlayer and the
+/// C ABI locator surface both split through it, so a consumer dialing with its
+/// own sockets validates the same way the native dialer does.
+pub fn splitHostPort(designator: []const u8) Error!HostPort {
+    const colon = std.mem.lastIndexOfScalar(u8, designator, ':') orelse return Error.InvalidHostPort;
+    var host = designator[0..colon];
+    const port_text = designator[colon + 1 ..];
+    // Plain ASCII digits only: `parseInt` alone would admit Zig integer-literal
+    // spellings (`+80`, `9_000`) into a wire grammar.
+    if (port_text.len == 0) return Error.InvalidHostPort;
+    for (port_text) |ch| {
+        if (ch < '0' or ch > '9') return Error.InvalidHostPort;
+    }
+    const port = std.fmt.parseInt(u16, port_text, 10) catch return Error.InvalidHostPort;
+    if (host.len >= 2 and host[0] == '[' and host[host.len - 1] == ']') {
+        host = host[1 .. host.len - 1];
+    }
+    if (host.len == 0) return Error.InvalidHostPort;
+    return .{ .host = host, .port = port };
 }
 
 // ── Emit ─────────────────────────────────────────────────────────────────────

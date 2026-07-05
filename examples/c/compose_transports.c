@@ -7,9 +7,9 @@
    them down. The point is not the conversation (echo_peer.c proves that); it is
    that the three archives compose: their shared frame/context vocabulary agrees
    by header layout, each transport carries its own pancake_<family>_last_error
-   slot, and no symbol collides at link time. If this links and runs, Model A's
-   "embed the lower layers as local symbols" stays symbol-disjoint across the
-   whole set. */
+   slot, and no symbol collides at link time. If this links and runs, embedding
+   the lower layers as local symbols inside each archive stays symbol-disjoint
+   across the whole set. */
 
 #include "pancake_ocapn.h"
 #include "pancake_net_transport_tcp.h"

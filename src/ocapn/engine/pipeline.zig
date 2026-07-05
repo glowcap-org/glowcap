@@ -33,13 +33,10 @@ const resolution_math = @import("pipeline_resolution.zig");
 
 pub const rewriteDeliverTarget = resolution_math.rewriteDeliverTarget;
 pub const synthesizeListenerFire = resolution_math.synthesizeListenerFire;
-pub const DecomposedChain = resolution_math.DecomposedChain;
-pub const DecomposeError = resolution_math.DecomposeError;
 pub const decomposeOutboundDeliver = resolution_math.decomposeOutboundDeliver;
 pub const ListenerDrainAction = resolution_math.ListenerDrainAction;
 pub const classifyListenerDrain = resolution_math.classifyListenerDrain;
-pub const Projected = resolution_math.Projected;
-pub const projectResolution = resolution_math.projectResolution;
+const projectResolution = resolution_math.projectResolution;
 
 /// Register an inbound `op:listen`'s listener against the targeted answer so
 /// our eventual `op:resolve` fires it (ADR-0007 § op:listen). Mirrors the

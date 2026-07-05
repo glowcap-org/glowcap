@@ -8,7 +8,6 @@ pub const shared = @import("shared.zig");
 pub const wire = @import("wire.zig");
 
 pub const Error = shared.Error;
-pub const EncodeError = shared.EncodeError;
 pub const Kind = shared.Kind;
 
 pub const decodeMessageView = decode.decodeMessageView;
@@ -17,5 +16,3 @@ pub const decodePrefix = decode.decodePrefix;
 pub const decodeOwned = decode.decodeOwned;
 pub const encodeMessage = encode.encodeMessage;
 pub const encodeMessageForProfile = encode.encodeMessageForProfile;
-
-pub const MessageView = decode.MessageView;

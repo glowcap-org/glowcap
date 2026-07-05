@@ -219,7 +219,7 @@ pub fn freeArgument(allocator: std.mem.Allocator, argument: model.Argument) void
     }
 }
 
-pub fn cloneStructEntries(allocator: std.mem.Allocator, entries: []const model.StructEntry) std.mem.Allocator.Error![]model.StructEntry {
+fn cloneStructEntries(allocator: std.mem.Allocator, entries: []const model.StructEntry) std.mem.Allocator.Error![]model.StructEntry {
     const cloned = try allocator.alloc(model.StructEntry, entries.len);
     errdefer allocator.free(cloned);
 
@@ -239,7 +239,7 @@ pub fn cloneStructEntries(allocator: std.mem.Allocator, entries: []const model.S
     return cloned;
 }
 
-pub fn freeStructEntries(allocator: std.mem.Allocator, entries: []const model.StructEntry) void {
+fn freeStructEntries(allocator: std.mem.Allocator, entries: []const model.StructEntry) void {
     for (entries) |entry| {
         allocator.free(entry.key);
         freeArgument(allocator, entry.value);
@@ -266,14 +266,14 @@ pub fn cloneArgumentSlice(allocator: std.mem.Allocator, items: []const model.Arg
     return cloned;
 }
 
-pub fn freeArgumentSlice(allocator: std.mem.Allocator, items: []const model.Argument) void {
+fn freeArgumentSlice(allocator: std.mem.Allocator, items: []const model.Argument) void {
     for (items) |item| {
         freeArgument(allocator, item);
     }
     allocator.free(items);
 }
 
-pub fn cloneResolution(allocator: std.mem.Allocator, resolution: model.Resolution) std.mem.Allocator.Error!model.Resolution {
+fn cloneResolution(allocator: std.mem.Allocator, resolution: model.Resolution) std.mem.Allocator.Error!model.Resolution {
     return switch (resolution) {
         .fulfill => |arg| .{ .fulfill = try cloneArgument(allocator, arg) },
         .@"break" => |err| .{ .@"break" = try cloneBreakReason(allocator, err) },
@@ -287,11 +287,11 @@ pub fn freeResolution(allocator: std.mem.Allocator, resolution: model.Resolution
     }
 }
 
-pub fn cloneBreakReason(allocator: std.mem.Allocator, err: model.BreakReason) std.mem.Allocator.Error!model.BreakReason {
+fn cloneBreakReason(allocator: std.mem.Allocator, err: model.BreakReason) std.mem.Allocator.Error!model.BreakReason {
     return .{ .message = try allocator.dupe(u8, err.message) };
 }
 
-pub fn freeBreakReason(allocator: std.mem.Allocator, err: model.BreakReason) void {
+fn freeBreakReason(allocator: std.mem.Allocator, err: model.BreakReason) void {
     allocator.free(err.message);
 }
 
@@ -330,7 +330,7 @@ pub fn freeReference(allocator: std.mem.Allocator, reference: model.Reference) v
 /// Deep-clone a `PipelinePath`: the `ops` slice plus each op's payload (a
 /// `call`'s args, a `field`'s symbol). Free it with `freePipelinePath`. An empty
 /// path clones to the shared empty slice and allocates nothing.
-pub fn clonePipelinePath(allocator: std.mem.Allocator, path: model.PipelinePath) std.mem.Allocator.Error!model.PipelinePath {
+fn clonePipelinePath(allocator: std.mem.Allocator, path: model.PipelinePath) std.mem.Allocator.Error!model.PipelinePath {
     if (path.ops.len == 0) return .{};
     const ops = try allocator.alloc(model.PipelineOp, path.ops.len);
     errdefer allocator.free(ops);
@@ -349,7 +349,7 @@ pub fn clonePipelinePath(allocator: std.mem.Allocator, path: model.PipelinePath)
     return .{ .ops = ops };
 }
 
-pub fn freePipelinePath(allocator: std.mem.Allocator, path: model.PipelinePath) void {
+fn freePipelinePath(allocator: std.mem.Allocator, path: model.PipelinePath) void {
     for (path.ops) |op| {
         freePipelineOp(allocator, op);
     }
@@ -377,14 +377,14 @@ pub fn freePipelineOp(allocator: std.mem.Allocator, op: model.PipelineOp) void {
 /// allocate the box first, on purpose: if the clone then fails, we destroy the
 /// empty box and leak nothing, and if the box itself can't be allocated, there's
 /// nothing to clean up.
-pub fn cloneHandoffBoxed(allocator: std.mem.Allocator, handoff: model.Handoff) std.mem.Allocator.Error!*model.Handoff {
+fn cloneHandoffBoxed(allocator: std.mem.Allocator, handoff: model.Handoff) std.mem.Allocator.Error!*model.Handoff {
     const boxed = try allocator.create(model.Handoff);
     errdefer allocator.destroy(boxed);
     boxed.* = try cloneHandoff(allocator, handoff);
     return boxed;
 }
 
-pub fn cloneHandoff(allocator: std.mem.Allocator, handoff: model.Handoff) std.mem.Allocator.Error!model.Handoff {
+fn cloneHandoff(allocator: std.mem.Allocator, handoff: model.Handoff) std.mem.Allocator.Error!model.Handoff {
     return switch (handoff) {
         .give => |give| .{ .give = try cloneHandoffGive(allocator, give) },
         .receive => |receive| blk: {
@@ -422,7 +422,7 @@ pub fn freeHandoff(allocator: std.mem.Allocator, handoff: model.Handoff) void {
     }
 }
 
-pub fn cloneHandoffGive(allocator: std.mem.Allocator, give: model.HandoffGive) std.mem.Allocator.Error!model.HandoffGive {
+fn cloneHandoffGive(allocator: std.mem.Allocator, give: model.HandoffGive) std.mem.Allocator.Error!model.HandoffGive {
     const recipient_key = try allocator.dupe(u8, give.recipient_key);
     errdefer allocator.free(recipient_key);
     const exporter_location = try allocator.dupe(u8, give.exporter_location);
@@ -462,7 +462,7 @@ pub fn freeHandoffGive(allocator: std.mem.Allocator, give: model.HandoffGive) vo
 /// needs to hold onto a locator past the frame it came in on: a borrowed
 /// `op:start-session` or `desc:sturdyref` gets queued for sending, and it has to
 /// outlive the borrowed frame.
-pub fn clonePeerLocator(allocator: std.mem.Allocator, locator: model.PeerLocator) std.mem.Allocator.Error!model.PeerLocator {
+fn clonePeerLocator(allocator: std.mem.Allocator, locator: model.PeerLocator) std.mem.Allocator.Error!model.PeerLocator {
     const transport = try allocator.dupe(u8, locator.transport);
     errdefer allocator.free(transport);
     const designator = try allocator.dupe(u8, locator.designator);
@@ -510,7 +510,7 @@ pub fn freeHints(allocator: std.mem.Allocator, hints: model.Hints) void {
     allocator.free(hints.entries);
 }
 
-pub fn cloneHintEntry(allocator: std.mem.Allocator, entry: model.HintEntry) std.mem.Allocator.Error!model.HintEntry {
+fn cloneHintEntry(allocator: std.mem.Allocator, entry: model.HintEntry) std.mem.Allocator.Error!model.HintEntry {
     const name = try allocator.dupe(u8, entry.name);
     errdefer allocator.free(name);
     return .{

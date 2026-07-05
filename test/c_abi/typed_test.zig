@@ -39,9 +39,11 @@ test "C ABI typed surface carries set, tagged, and keyword arguments" {
     const frame = c.PancakeFrame{ .bytes = wire.ptr, .len = wire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(receiver, &frame));
 
-    var deliver: c.PancakeDeliver = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event_deliver(receiver, &deliver));
-    defer c.pancake_deliver_release(&deliver);
+    var polled: c.PancakeAnyEvent = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(receiver, &polled));
+    defer c.pancake_any_event_release(&polled);
+    try std.testing.expectEqual(c.PANCAKE_PROJECTION_DELIVER, polled.projection);
+    const deliver = polled.deliver;
 
     try std.testing.expectEqual(@as(usize, 3), deliver.args_len);
     const set_arg = deliver.args.?[0];
@@ -117,9 +119,11 @@ test "C ABI carries a big integer argument in both directions" {
     const frame = c.PancakeFrame{ .bytes = wire.ptr, .len = wire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(receiver, &frame));
 
-    var deliver: c.PancakeDeliver = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event_deliver(receiver, &deliver));
-    defer c.pancake_deliver_release(&deliver);
+    var polled: c.PancakeAnyEvent = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(receiver, &polled));
+    defer c.pancake_any_event_release(&polled);
+    try std.testing.expectEqual(c.PANCAKE_PROJECTION_DELIVER, polled.projection);
+    const deliver = polled.deliver;
     const big_arg = deliver.args.?[0];
     try std.testing.expectEqual(c.PANCAKE_ARG_BIG_INTEGER, big_arg.kind);
     try std.testing.expectEqual(@as(u8, 1), big_arg.boolean);
@@ -295,7 +299,7 @@ test "C ABI send projection refuses a null receiver" {
     );
 }
 
-test "C ABI poll_event_deliver reads an inbound delivery's target, args, and answer" {
+test "C ABI any-poll reads an inbound delivery's target, args, and answer" {
     var peer: ?*c.PancakePeer = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&peer));
     defer c.pancake_peer_release(peer);
@@ -307,9 +311,11 @@ test "C ABI poll_event_deliver reads an inbound delivery's target, args, and ans
 
     try std.testing.expectEqual(@as(i32, @intCast(c.PANCAKE_EVENT_DELIVER)), c.pancake_peer_peek_event(peer));
 
-    var deliver: c.PancakeDeliver = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event_deliver(peer, &deliver));
-    defer c.pancake_deliver_release(&deliver);
+    var polled: c.PancakeAnyEvent = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(peer, &polled));
+    defer c.pancake_any_event_release(&polled);
+    try std.testing.expectEqual(c.PANCAKE_PROJECTION_DELIVER, polled.projection);
+    const deliver = polled.deliver;
 
     try std.testing.expectEqual(@as(u64, 7), deliver.target.id);
     try std.testing.expectEqual(@as(usize, 1), deliver.args_len);
@@ -321,7 +327,7 @@ test "C ABI poll_event_deliver reads an inbound delivery's target, args, and ans
     try std.testing.expectEqualStrings("hello", arg0.bytes.?[0..arg0.bytes_len]);
 }
 
-test "C ABI typed poll routes by kind and leaves a mismatched event queued" {
+test "C ABI any-poll projects a non-typed kind as its opaque frame" {
     var peer: ?*c.PancakePeer = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&peer));
     defer c.pancake_peer_release(peer);
@@ -330,16 +336,18 @@ test "C ABI typed poll routes by kind and leaves a mismatched event queued" {
     const frame = c.PancakeFrame{ .bytes = wire.ptr, .len = wire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(peer, &frame));
 
-    // The next event is an abort, so a deliver poll refuses without consuming it.
+    // The next event is an abort: no typed projection, so the any-poll routes
+    // it to the frame arm carrying the originating wire bytes, in one call.
     try std.testing.expectEqual(@as(i32, @intCast(c.PANCAKE_EVENT_ABORT)), c.pancake_peer_peek_event(peer));
-    var deliver: c.PancakeDeliver = undefined;
-    try std.testing.expectEqual(c.PANCAKE_ERR_WRONG_EVENT, c.pancake_peer_poll_event_deliver(peer, &deliver));
+    var polled: c.PancakeAnyEvent = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(peer, &polled));
+    defer c.pancake_any_event_release(&polled);
+    try std.testing.expectEqual(c.PANCAKE_EVENT_ABORT, polled.kind);
+    try std.testing.expectEqual(c.PANCAKE_PROJECTION_FRAME, polled.projection);
+    try std.testing.expect(std.mem.indexOf(u8, polled.frame.bytes.?[0..polled.frame.len], "op:abort") != null);
 
-    // The abort is still there for the generic poll.
-    var event: c.PancakeEvent = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event(peer, &event));
-    defer c.pancake_event_release(&event);
-    try std.testing.expectEqual(c.PANCAKE_EVENT_ABORT, event.kind);
+    // Exactly one event was consumed.
+    try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, c.pancake_peer_peek_event(peer));
 }
 
 test "C ABI server flow: receive a call, then send_resolve its answer" {
@@ -352,11 +360,12 @@ test "C ABI server flow: receive a call, then send_resolve its answer" {
     const frame = c.PancakeFrame{ .bytes = wire.ptr, .len = wire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(peer, &frame));
 
-    var deliver: c.PancakeDeliver = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event_deliver(peer, &deliver));
-    const answer = deliver.answer;
+    var polled: c.PancakeAnyEvent = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(peer, &polled));
+    try std.testing.expectEqual(c.PANCAKE_PROJECTION_DELIVER, polled.projection);
+    const answer = polled.deliver.answer;
     try std.testing.expectEqual(@as(u64, 11), answer);
-    c.pancake_deliver_release(&deliver);
+    c.pancake_any_event_release(&polled);
 
     // Reply to the call we just received.
     const result = argInt(7);
@@ -387,12 +396,12 @@ test "C ABI send_deliver refuses an unsupported reference target loudly" {
     );
 }
 
-test "C ABI typed poll leaves a handoff deliver queued and the opaque poll drains it" {
-    // The loop-survives contract: a legitimate three-party handoff arrives as a
-    // deliver whose argument the typed projection cannot carry. The typed poll
-    // refuses with UNSUPPORTED_VALUE and leaves the event queued; the opaque
-    // poll drains it (interpreted via pancake_peer_codec), and the next poll
-    // proceeds instead of failing identically forever.
+test "C ABI any-poll falls back to the frame arm for a handoff deliver" {
+    // The loop-survives contract, owned by the waist: a legitimate three-party
+    // handoff arrives as a deliver whose argument the typed projection cannot
+    // carry. The any-poll routes it to the frame arm (interpreted via
+    // pancake_peer_codec) in the same call, so the queue always advances and no
+    // consumer re-derives a leave-queued fallback.
     const model = pancake.ocapn.model;
     const engine = pancake.ocapn.engine;
 
@@ -427,23 +436,20 @@ test "C ABI typed poll leaves a handoff deliver queued and the opaque poll drain
     const borrowed = c.PancakeFrame{ .bytes = wire.ptr, .len = wire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(receiver, &borrowed));
 
-    // The typed poll refuses the handoff argument and leaves the event queued.
-    try std.testing.expectEqual(@as(i32, @intCast(c.PANCAKE_EVENT_DELIVER)), c.pancake_peer_peek_event(receiver));
-    var deliver: c.PancakeDeliver = undefined;
-    try std.testing.expectEqual(c.PANCAKE_ERR_UNSUPPORTED_VALUE, c.pancake_peer_poll_event_deliver(receiver, &deliver));
-    try std.testing.expectEqual(@as(i32, @intCast(c.PANCAKE_EVENT_DELIVER)), c.pancake_peer_peek_event(receiver));
-
-    // The session codec names how to read the opaque frame.
+    // The session codec names how to read the frame arm.
     var codec_id: u32 = 99;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_codec(receiver, &codec_id));
     try std.testing.expectEqual(c.PANCAKE_CODEC_SYRUP, codec_id);
 
-    // The opaque poll drains the refused event with its original wire bytes.
-    var event: c.PancakeEvent = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event(receiver, &event));
-    defer c.pancake_event_release(&event);
-    try std.testing.expectEqual(c.PANCAKE_EVENT_DELIVER, event.kind);
-    try std.testing.expect(std.mem.indexOf(u8, event.frame.bytes.?[0..event.frame.len], "desc:handoff-give") != null);
+    // One call: the typed projection refuses the handoff argument internally
+    // and the same event comes back as its original wire bytes.
+    try std.testing.expectEqual(@as(i32, @intCast(c.PANCAKE_EVENT_DELIVER)), c.pancake_peer_peek_event(receiver));
+    var polled: c.PancakeAnyEvent = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(receiver, &polled));
+    defer c.pancake_any_event_release(&polled);
+    try std.testing.expectEqual(c.PANCAKE_EVENT_DELIVER, polled.kind);
+    try std.testing.expectEqual(c.PANCAKE_PROJECTION_FRAME, polled.projection);
+    try std.testing.expect(std.mem.indexOf(u8, polled.frame.bytes.?[0..polled.frame.len], "desc:handoff-give") != null);
 
     // The queue advanced: the loop survives.
     try std.testing.expectEqual(c.PANCAKE_ERR_WOULD_BLOCK, c.pancake_peer_peek_event(receiver));
@@ -510,9 +516,11 @@ test "C ABI resolve fulfilled with a handoff give projects to PANCAKE_RESOLUTION
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(receiver, &borrowed));
 
     try std.testing.expectEqual(@as(i32, @intCast(c.PANCAKE_EVENT_RESOLVE)), c.pancake_peer_peek_event(receiver));
-    var resolve: c.PancakeResolve = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event_resolve(receiver, &resolve));
-    defer c.pancake_resolve_release(&resolve);
+    var polled: c.PancakeAnyEvent = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(receiver, &polled));
+    defer c.pancake_any_event_release(&polled);
+    try std.testing.expectEqual(c.PANCAKE_PROJECTION_RESOLVE, polled.projection);
+    const resolve = polled.resolve;
 
     try std.testing.expectEqual(answer, resolve.answer);
     try std.testing.expectEqual(c.PANCAKE_RESOLUTION_HANDOFF, resolve.resolution_kind);
@@ -628,9 +636,11 @@ test "C ABI enliven round-trips over the wire, then a repeat enliven hits the ca
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_step(responder));
     try pumpFrames(responder, requester);
 
-    var resolve: c.PancakeResolve = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event_resolve(requester, &resolve));
-    defer c.pancake_resolve_release(&resolve);
+    var polled: c.PancakeAnyEvent = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(requester, &polled));
+    defer c.pancake_any_event_release(&polled);
+    try std.testing.expectEqual(c.PANCAKE_PROJECTION_RESOLVE, polled.projection);
+    const resolve = polled.resolve;
     try std.testing.expectEqual(answer, resolve.answer);
     try std.testing.expectEqual(c.PANCAKE_RESOLUTION_FULFILL, resolve.resolution_kind);
     try std.testing.expectEqual(c.PANCAKE_ARG_REFERENCE, resolve.fulfill.kind);

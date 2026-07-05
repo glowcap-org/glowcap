@@ -9,8 +9,8 @@
 //! ## Bring your own transport (ADR-0030)
 //!
 //! A stream transport gives pancake a `*std.Io.Reader` and `*std.Io.Writer`.
-//! `pumpOver` uses that pair for one peer step. `readFrameFrom` and
-//! `writeFrameTo` use it for raw whole-frame I/O. Any transport that can provide
+//! `pumpOver` uses that pair for one peer step, and the `FrameStream` family
+//! reads and writes raw whole frames over it. Any transport that can provide
 //! those interfaces can drive a peer here: TCP, TLS or Unix streams over `std.Io`,
 //! or an in-memory pipe. The residents live under `transport/`: `tcp` is the
 //! built-in TCP binding, the first resident, not a requirement.
@@ -37,14 +37,18 @@ const loop_mod = @import("completion/loop.zig");
 
 pub const Connection = connection.Connection;
 pub const Progress = connection.Progress;
-pub const PumpError = connection.PumpError;
 pub const pumpOver = connection.pumpOver;
 
 pub const FrameStream = frame_stream.FrameStream;
 pub const FrameError = frame_stream.FrameError;
 pub const Spill = frame_stream.Spill;
 pub const readFrameFrom = frame_stream.readFrameFrom;
-pub const writeFrameTo = frame_stream.writeFrameTo;
+
+/// The shared `std.Io` reader/writer scaffolding a byte-source transport wires
+/// its stream through: `stream_shim.Shim(Source)` turns a transport's blocking
+/// byte source into the interface pair the connection borrows. The inproc
+/// resident and the out-of-graph iroh resident both ride it.
+pub const stream_shim = @import("stream_shim.zig");
 
 pub const tcp = @import("transport/tcp.zig");
 
@@ -71,14 +75,15 @@ pub const netlayer = @import("netlayer.zig");
 pub const completion = loop_mod;
 
 /// The io_uring completion backend (Linux). Empty off Linux so other builds stay
-/// clean; it implements the `completion` backend interface.
-pub const uring = if (@import("builtin").os.tag == .linux) @import("completion/uring.zig") else struct {};
+/// clean; it implements the `completion` backend interface and is reached
+/// through `Loop` below.
+const uring = if (@import("builtin").os.tag == .linux) @import("completion/uring.zig") else struct {};
 
 /// The kqueue completion backend (macOS / BSD). Empty off Darwin. It implements
 /// the same `completion` backend interface, bridging kqueue's readiness model to
-/// the completion-shaped backend interface. A Windows (IOCP) backend is not
-/// implemented.
-pub const kqueue = if (@import("builtin").os.tag.isDarwin()) @import("completion/kqueue.zig") else struct {};
+/// the completion-shaped backend interface, and is reached through `Loop`
+/// below. A Windows (IOCP) backend is not implemented.
+const kqueue = if (@import("builtin").os.tag.isDarwin()) @import("completion/kqueue.zig") else struct {};
 
 /// The ready-to-use completion loop for the host platform: the portable
 /// `completion.Loop` instantiated with this platform's backend. Linux uses

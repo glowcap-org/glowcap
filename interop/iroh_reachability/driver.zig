@@ -66,7 +66,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(listener, allocator, &peer, .ephemeral, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
     std.debug.print("iroh-reachability: server accepted a discovered partner and opened the keyed session\n", .{});
 
@@ -126,7 +126,7 @@ fn callByIdOnly(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(netlayers, allocator, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
     std.debug.print("iroh-reachability: client dialed by node id alone and opened the keyed session\n", .{});
 
@@ -136,7 +136,7 @@ fn callByIdOnly(
     const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena_state.allocator());
     const ok = switch (settled) {
         .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
-        .broken => false,
+        .broken, .give => false,
     };
     if (!ok) return error.WrongReply;
     std.debug.print("iroh-reachability: client called greet over the discovered session and the reply matched\n", .{});

@@ -41,7 +41,7 @@ const Echo = struct {
 /// releases its session (graceful close).
 fn serveOnce(server: *driver.Server) anyerror!void {
     var conn = try server.accept();
-    defer conn.close();
+    defer conn.deinit();
     _ = try conn.publish("echo", Echo, .{});
     try conn.serve();
 }
@@ -55,8 +55,8 @@ test "c-abi owning session: connect + keyed handshake, fetch, call round-trips a
 
     var host_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
-        host_resident.netlayer(),
         allocator,
+        host_resident.netlayer(),
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         .{ .frame_cap = frame_cap },
@@ -189,7 +189,7 @@ const Board = struct {
 
 fn serveBoardOnce(server: *driver.Server) anyerror!void {
     var conn = try server.accept();
-    defer conn.close();
+    defer conn.deinit();
     _ = try conn.publish("root", Board, .{});
     try conn.serve();
 }
@@ -203,8 +203,8 @@ test "c-abi owning session: promise pipelining drives create->assign->complete->
 
     var host_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(
-        host_resident.netlayer(),
         allocator,
+        host_resident.netlayer(),
         .{ .designator = "127.0.0.1:0" },
         .ephemeral,
         .{ .frame_cap = frame_cap },

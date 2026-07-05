@@ -293,11 +293,11 @@ pub const ConnectedVat = struct {
     /// against `<desc:answer>` (see `Vat.sendToAnswer`). Returns a promise for
     /// this call's own result, itself pipelineable. The next `step` flushes it.
     /// A `.local` promise has no wire answer to pipeline against, so it is
-    /// refused with `UncallableTarget`.
+    /// refused with `NotPipelineable`.
     pub fn sendToAnswer(self: *ConnectedVat, promise: actors.Promise, msg: actors.Message) !actors.Promise {
         return switch (promise) {
             .far => |answer_pos| self.vat.sendToAnswer(answer_pos, msg),
-            .local => Error.UncallableTarget,
+            .local => Error.NotPipelineable,
         };
     }
 
@@ -443,6 +443,25 @@ const CaptureState = struct {
                 };
                 self.settled = .{ .fulfilled = owned_arg };
             },
+            .give => |give| {
+                const bytes = self.arena.dupe(u8, give.give_bytes) catch {
+                    self.failed = true;
+                    return;
+                };
+                const uri = self.arena.dupe(u8, give.exporter_locator_uri) catch {
+                    self.failed = true;
+                    return;
+                };
+                const key = self.arena.dupe(u8, give.recipient_key) catch {
+                    self.failed = true;
+                    return;
+                };
+                self.settled = .{ .give = .{
+                    .give_bytes = bytes,
+                    .exporter_locator_uri = uri,
+                    .recipient_key = key,
+                } };
+            },
             .broken => |reason| {
                 const owned_reason = self.arena.dupe(u8, reason) catch {
                     self.failed = true;
@@ -492,6 +511,7 @@ fn onFetch(ctx: ?*anyopaque, resolution: actors.Resolution) void {
             },
             else => .not_a_capability,
         },
+        .give => .not_a_capability,
         .broken => .broken,
     };
 }
@@ -581,8 +601,8 @@ pub fn acceptTcp(
 /// residents behind it) must outlive the returned vat. `connectTcp` is the
 /// tcp-named convenience over the same machinery.
 pub fn connectVia(
-    netlayers: []const net.netlayer.Netlayer,
     allocator: std.mem.Allocator,
+    netlayers: []const net.netlayer.Netlayer,
     peer: *engine.Peer,
     locator: model.PeerLocator,
     identity: Identity,
@@ -620,8 +640,8 @@ pub fn connectVia(
 /// parsed locator is freed before returning, because `connectVia` copies what
 /// the session retains during the handshake.
 pub fn connectUri(
-    netlayers: []const net.netlayer.Netlayer,
     allocator: std.mem.Allocator,
+    netlayers: []const net.netlayer.Netlayer,
     peer: *engine.Peer,
     uri_str: []const u8,
     identity: Identity,
@@ -630,7 +650,7 @@ pub fn connectUri(
 ) !ConnectedVat {
     const locator = try model.uri.parsePeer(allocator, uri_str);
     defer model.freePeerLocator(allocator, locator);
-    return connectVia(netlayers, allocator, peer, locator, identity, read_buf, write_buf);
+    return connectVia(allocator, netlayers, peer, locator, identity, read_buf, write_buf);
 }
 
 /// Accept one partner through a contract `net.netlayer.Listener`, bind a vat,
@@ -648,10 +668,10 @@ pub fn connectUri(
 /// designator already equals that key's node id. The keyed arm's `designator`
 /// field is unused here: a host names itself by where it listens.
 pub fn acceptVia(
-    listener: net.netlayer.Listener,
     allocator: std.mem.Allocator,
+    listener: net.netlayer.Listener,
     peer: *engine.Peer,
-    identity: Identity,
+    identity: driver.AcceptIdentity,
     read_buf: []u8,
     write_buf: []u8,
 ) !ConnectedVat {
@@ -666,7 +686,7 @@ pub fn acceptVia(
     };
     switch (identity) {
         .ephemeral => try vat.startKeyedSession(self_locator),
-        .keyed => |k| try vat.startKeyedSessionWithSecret(self_locator, k.secret),
+        .keyed => |secret| try vat.startKeyedSessionWithSecret(self_locator, secret),
     }
     return vat;
 }

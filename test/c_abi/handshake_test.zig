@@ -235,7 +235,7 @@ fn partnerLocatorRaw(peer: ?*c.PancakePeer) ![]const u8 {
 
 /// Drain queued events off `peer` until the next event is `want` (or none
 /// remains), discarding the handshake `START_SESSION` and any other interim
-/// events so a typed poll sees the resolution the test is after.
+/// events so the next event taken is the resolution the test is after.
 fn drainEventsUntil(peer: ?*c.PancakePeer, want: i32) void {
     while (true) {
         const kind = c.pancake_peer_peek_event(peer);
@@ -259,43 +259,40 @@ fn drainOutbound(peer: ?*c.PancakePeer) !void {
 }
 
 test "C ABI gifter deposit + shared-registry withdraw round-trips across two exporter peers" {
-    // The Phase 1 gap-fix proof: an exporter NODE serves a deposit on one
-    // connection (to the gifter) and the matching withdraw on another (the
-    // recipient's fresh dial). Both exporter peers share one gift registry, so
-    // the withdraw finds what the deposit recorded, a per-peer registry would
-    // park the withdraw forever. This exercises every new gifter primitive:
-    // pancake_build_handoff_give, pancake_peer_send_deposit_gift, and the
-    // registry new/set/free surface (the recipient leg reuses the shipped
-    // pancake_peer_send_withdraw_gift).
+    // An exporter node serves a deposit on one connection (to the gifter) and
+    // the matching withdraw on another (the recipient's fresh dial). Registering
+    // both exporter peers on one node is what shares the gift registry between
+    // them, so the withdraw finds what the deposit recorded; a per-peer registry
+    // would park the withdraw forever. The gifter and recipient legs drive the
+    // bare-peer gifter primitives: pancake_build_handoff_give,
+    // pancake_peer_send_deposit_gift, and pancake_peer_send_withdraw_gift.
     const crypto = pancake.foundation.crypto;
 
-    // The exporter node's two peers share one identity (one seed) and one
-    // registry, the shape the Deno binding will build per node in Phase 2.
+    // The exporter node's two peers share one identity (the node seed, which
+    // also signs each keyed start-session below) and the node's registry.
     const exporter_seed = [_]u8{0x22} ** 32;
     const gifter_seed = [_]u8{0x33} ** 32;
     const recipient_seed = [_]u8{0x11} ** 32;
 
-    var registry: ?*c.PancakeGiftRegistry = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_gift_registry_new(&registry));
-    defer c.pancake_gift_registry_free(registry);
+    var exporter_node: ?*c.PancakeNode = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_new(&exporter_seed, exporter_seed.len, &exporter_node));
+    defer c.pancake_node_free(exporter_node);
 
     // Exporter↔gifter session (deposit lands here) and exporter↔recipient session
-    // (withdraw lands here), both bound to the shared registry before any traffic.
+    // (withdraw lands here); the node owns both peers and frees them.
+    var conn_to_gifter: u64 = 0;
+    var conn_to_recipient: u64 = 0;
     var exporter_to_gifter: ?*c.PancakePeer = null;
     var exporter_to_recipient: ?*c.PancakePeer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_register_conn(exporter_node, &conn_to_gifter, &exporter_to_gifter));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_register_conn(exporter_node, &conn_to_recipient, &exporter_to_recipient));
+
     var gifter: ?*c.PancakePeer = null;
     var recipient_peer: ?*c.PancakePeer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new(&exporter_to_gifter));
-    defer c.pancake_peer_release(exporter_to_gifter);
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new(&exporter_to_recipient));
-    defer c.pancake_peer_release(exporter_to_recipient);
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new(&gifter));
     defer c.pancake_peer_release(gifter);
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new(&recipient_peer));
     defer c.pancake_peer_release(recipient_peer);
-
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_set_gift_registry(exporter_to_gifter, registry));
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_set_gift_registry(exporter_to_recipient, registry));
 
     // The exporter node hosts the gifted object as a bootstrap cap published
     // under one swissnum on *both* connections. The two sessions allocate it at
@@ -385,9 +382,11 @@ test "C ABI gifter deposit + shared-registry withdraw round-trips across two exp
 
     drainEventsUntil(recipient_peer, c.PANCAKE_EVENT_RESOLVE);
     try std.testing.expectEqual(@as(i32, @intCast(c.PANCAKE_EVENT_RESOLVE)), c.pancake_peer_peek_event(recipient_peer));
-    var resolve: c.PancakeResolve = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event_resolve(recipient_peer, &resolve));
-    defer c.pancake_resolve_release(&resolve);
+    var polled: c.PancakeAnyEvent = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(recipient_peer, &polled));
+    defer c.pancake_any_event_release(&polled);
+    try std.testing.expectEqual(c.PANCAKE_PROJECTION_RESOLVE, polled.projection);
+    const resolve = polled.resolve;
     try std.testing.expectEqual(withdraw_answer, resolve.answer);
     // FULFILL with a reference, not a BREAK (which a missing/unshared gift, or a
     // failed signature, would produce), proving the shared registry resolved it.
@@ -465,9 +464,11 @@ test "C ABI send_resolve_handoff_give emits a give the recipient projects as a h
     // verbatim signed envelope, ready for transparent redeem.
     drainEventsUntil(recipient_peer, c.PANCAKE_EVENT_RESOLVE);
     try std.testing.expectEqual(@as(i32, @intCast(c.PANCAKE_EVENT_RESOLVE)), c.pancake_peer_peek_event(recipient_peer));
-    var resolve: c.PancakeResolve = undefined;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_poll_event_resolve(recipient_peer, &resolve));
-    defer c.pancake_resolve_release(&resolve);
+    var polled: c.PancakeAnyEvent = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(recipient_peer, &polled));
+    defer c.pancake_any_event_release(&polled);
+    try std.testing.expectEqual(c.PANCAKE_PROJECTION_RESOLVE, polled.projection);
+    const resolve = polled.resolve;
     try std.testing.expectEqual(answer, resolve.answer);
     try std.testing.expectEqual(c.PANCAKE_RESOLUTION_HANDOFF, resolve.resolution_kind);
     try std.testing.expect(resolve.handoff.give != null);

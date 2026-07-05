@@ -16,10 +16,6 @@ pub const Error = ProjectError || std.mem.Allocator.Error;
 pub const BreakReason = struct {
     message: []const u8,
 
-    pub fn fromOwned(owned: *const model.BreakReason) BreakReason {
-        return .{ .message = owned.message };
-    }
-
     pub fn toOwned(self: BreakReason, allocator: std.mem.Allocator) Error!model.BreakReason {
         return .{ .message = try allocator.dupe(u8, self.message) };
     }
@@ -109,7 +105,7 @@ pub const HandoffGive = struct {
     signature: Signature,
     raw_signed: ?[]const u8 = null,
 
-    pub fn fromOwned(owned: *const model.HandoffGive) HandoffGive {
+    fn fromOwned(owned: *const model.HandoffGive) HandoffGive {
         return .{
             .recipient_key = owned.recipient_key,
             .exporter_location = .{ .raw = owned.exporter_location },
@@ -155,7 +151,7 @@ pub const HandoffReceive = struct {
     signed_give: HandoffGive,
     signature: Signature,
 
-    pub fn fromOwned(owned: *const model.HandoffReceive) HandoffReceive {
+    fn fromOwned(owned: *const model.HandoffReceive) HandoffReceive {
         return .{
             .receiving_session = owned.receiving_session,
             .receiving_side = owned.receiving_side,

@@ -22,12 +22,13 @@ pub const Ref = vat.Ref;
 pub const Promise = vat.Promise;
 pub const Message = vat.Message;
 pub const Resolution = vat.Resolution;
+pub const Give = vat.Give;
+pub const ResolveInterceptor = vat.ResolveInterceptor;
 pub const Listener = vat.Listener;
 pub const Error = vat.Error;
 
 /// Object-capability forwarding proxies — a revocable caretaker and a verb
 /// allow-list attenuator — over any local or far reference.
 pub const ocap = ocap_mod;
-pub const Caretaker = ocap_mod.Caretaker;
 pub const caretaker = ocap_mod.caretaker;
 pub const attenuate = ocap_mod.attenuate;

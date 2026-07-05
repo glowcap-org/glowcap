@@ -5,10 +5,10 @@
 ;; exercises the heart of CapTP — passing a live capability reference across the
 ;; connection and invoking it — as two sequential round-trips.
 ;;
-;; Promise pipelining (invoking the returned promise before it resolves) is a
-;; Goblins capability the pancake binding does not expose through `<-`, so the
-;; shared app deliberately resolves the capability first and then invokes it; that
-;; keeps one app source running identically on both substrates.
+;; Promise pipelining (invoking the returned promise before it resolves) is
+;; deliberately not exercised: the client resolves the capability first and then
+;; invokes it, so one app source runs the identical two-round-trip shape on both
+;; substrates and the comparison rewards neither side's pipelining.
 (require (file "/workspaces/pancake/bench/goblins/dispatch.rkt"))
 (provide app-name server-build client-prepare result-ok?)
 

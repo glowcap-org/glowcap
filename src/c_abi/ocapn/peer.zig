@@ -36,7 +36,6 @@ const PANCAKE_ERR_INTERNAL = c.PANCAKE_ERR_INTERNAL;
 const PANCAKE_ERR_WOULD_BLOCK = c.PANCAKE_ERR_WOULD_BLOCK;
 const PANCAKE_ERR_MALFORMED = c.PANCAKE_ERR_MALFORMED;
 const PANCAKE_ERR_FRAME_TOO_LARGE = c.PANCAKE_ERR_FRAME_TOO_LARGE;
-const PANCAKE_ERR_WRONG_EVENT = c.PANCAKE_ERR_WRONG_EVENT;
 const PANCAKE_ERR_UNSUPPORTED_VALUE = c.PANCAKE_ERR_UNSUPPORTED_VALUE;
 
 fn peerFromOpaque(peer: ?*PancakePeer) ?*engine.Peer {
@@ -378,7 +377,7 @@ pub export fn pancake_peer_session_is_open(peer: ?*PancakePeer) i32 {
 /// The codec the peer's session speaks, written into `out_codec` as a
 /// `PANCAKE_CODEC_*` value. Event frames and `take_outbound` frames are encoded
 /// in this codec, so a consumer that falls back to the opaque
-/// `pancake_peer_poll_event` (e.g. after a typed poll refused a value the C
+/// (reading a `PANCAKE_PROJECTION_FRAME` arm of `PancakeAnyEvent`).
 /// surface cannot carry) knows how to interpret the raw frame bytes.
 pub export fn pancake_peer_codec(peer: ?*const PancakePeer, out_codec: ?*u32) i32 {
     const ptr = peerFromOpaqueConst(peer) orelse return PANCAKE_ERR_NULL_POINTER;
@@ -435,17 +434,7 @@ pub export fn pancake_peer_send_bootstrap_fetch(
     // engine; this surface only routes it.
     const prepared = engine.fetch.prepareFetchSwissnum(ptr.allocator, &ptr.session_state, name_bytes) catch |err|
         return feedErrorToCode(err);
-    if (prepared.message.deliver.resolve_me_desc != null) {
-        // On a V1.0 session the prepared deliver advertises its own resolver
-        // export; commit the answer-to-resolver link the engine's encode-time
-        // synthesis would have installed, so the partner's resolver-callback
-        // deliver projects back as a resolve event keyed on `out_answer`.
-        ptr.session_state.installOutboundResolver(prepared.answer_position, prepared.resolver_export) catch |err| {
-            model.freeMessage(ptr.allocator, prepared.message);
-            return feedErrorToCode(err);
-        };
-    }
-    ptr.send(prepared.message) catch |err| return feedErrorToCode(err);
+    ptr.sendPreparedFetch(prepared) catch |err| return feedErrorToCode(err);
     slot.* = prepared.answer_position.int();
     return PANCAKE_OK;
 }
@@ -496,17 +485,10 @@ pub export fn pancake_peer_prepare_enliven(
             .import_position = 0,
         },
         .fresh => |prepared| {
-            if (prepared.message.deliver.resolve_me_desc != null) {
-                // V1.0: commit the answer-to-resolver link the engine's
-                // encode-time synthesis would install, so the partner's
-                // resolver-callback projects back as a resolve keyed on `answer`.
-                ptr.session_state.installOutboundResolver(prepared.answer_position, prepared.resolver_export) catch |err| {
-                    model.freeMessage(ptr.allocator, prepared.message);
-                    ptr.session_state.finishPendingEnliven(swiss);
-                    return feedErrorToCode(err);
-                };
-            }
-            ptr.send(prepared.message) catch |err| {
+            ptr.sendPreparedFetch(prepared) catch |err| {
+                // The fresh enliven recorded an in-flight marker; clear it so a
+                // failed send does not strand the swissnum as permanently
+                // in-flight.
                 ptr.session_state.finishPendingEnliven(swiss);
                 return feedErrorToCode(err);
             };
@@ -584,7 +566,7 @@ pub export fn pancake_peer_last_abort(peer: ?*PancakePeer, out: ?*PancakeLastAbo
 /// events. The bare-position sibling of `register_bootstrap_cap` (no swissnum).
 pub export fn pancake_peer_register_export(peer: ?*PancakePeer, export_position: u64) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    ptr.session_state.registerExport(model.ExportId.from(export_position)) catch |err| return feedErrorToCode(err);
+    ptr.exportObject(export_position) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
 
@@ -620,7 +602,7 @@ pub export fn pancake_peer_next_answer(peer: ?*PancakePeer, out_answer: ?*u64) i
 /// bootstrap import) directly.
 pub export fn pancake_peer_register_import(peer: ?*PancakePeer, import_position: u64) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    ptr.session_state.registerImport(model.ImportId.from(import_position)) catch |err| return feedErrorToCode(err);
+    ptr.importObject(import_position) catch |err| return feedErrorToCode(err);
     return PANCAKE_OK;
 }
 
@@ -659,8 +641,8 @@ const newProjectionArena = abi.newProjectionArena;
 const freeProjectionArena = abi.freeProjectionArena;
 
 /// The kind of the next queued event without consuming it: a positive
-/// `PANCAKE_EVENT_*`, or `PANCAKE_ERR_WOULD_BLOCK` when the queue is empty. Route
-/// to the matching typed `poll_event_*`.
+/// `PANCAKE_EVENT_*`, or `PANCAKE_ERR_WOULD_BLOCK` when the queue is empty. A non-consuming
+/// look; `pancake_peer_next_event` is the call that advances.
 pub export fn pancake_peer_peek_event(peer: ?*PancakePeer) i32 {
     const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const kind = ptr.peekEventKind() orelse return PANCAKE_ERR_WOULD_BLOCK;
@@ -958,9 +940,9 @@ pub export fn pancake_build_handoff_give(
     const secret = foundation.crypto.SecretKey.fromSeed(seed_bytes);
     const our_pubkey = secret.publicKey();
 
-    const gifter_side = engine.handoff_gifter.sideName(our_pubkey.asBytes()) catch return PANCAKE_ERR_INVALID_ARGUMENT;
-    const exporter_side = engine.handoff_gifter.sideName(exporter_key) catch return PANCAKE_ERR_INVALID_ARGUMENT;
-    const session = engine.handoff_gifter.sessionName(gifter_side, exporter_side);
+    const gifter_side = engine.handoff_recipient.sideName(our_pubkey.asBytes()) catch return PANCAKE_ERR_INVALID_ARGUMENT;
+    const exporter_side = engine.handoff_recipient.sideName(exporter_key) catch return PANCAKE_ERR_INVALID_ARGUMENT;
+    const session = engine.handoff_recipient.sessionName(gifter_side, exporter_side);
 
     const give_bytes = engine.handoff_gifter.buildSignedGive(
         ctx.library_allocator,
@@ -1082,22 +1064,14 @@ pub export fn pancake_peer_send_resolve_handoff_give(
     return PANCAKE_OK;
 }
 
-/// Take the next event as a structured `op:deliver`, writing it into `out`.
-/// Returns `_WRONG_EVENT` (event left queued) when the next event is not a
-/// deliver, `_WOULD_BLOCK` when none is queued. `_UNSUPPORTED_VALUE` and decode
-/// failures also leave the event queued; drain it with the opaque
-/// `pancake_peer_poll_event` (interpreting the raw frame via
-/// `pancake_peer_codec`) or the queue never advances. Release `out` with
-/// `pancake_deliver_release`.
-pub export fn pancake_peer_poll_event_deliver(peer: ?*PancakePeer, out: ?*PancakeDeliver) i32 {
-    const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
-    const next = ptr.peekEventKind() orelse return PANCAKE_ERR_WOULD_BLOCK;
-    if (next != .deliver) return PANCAKE_ERR_WRONG_EVENT;
-
+/// Project the queued head event (already peeked as a deliver) into `slot`,
+/// consuming it only when the whole projection succeeds. A failure code leaves
+/// the event queued, so `pancake_peer_next_event` can drain the same event
+/// through its opaque-frame arm and the queue always advances.
+fn projectDeliver(ptr: *engine.Peer, slot: *PancakeDeliver) i32 {
     // Marshal from a borrowed peek first; consume the event only once the whole
     // projection succeeds. An argument the C surface cannot represent (a handoff
-    // or error value) then leaves the deliver queued for the opaque `poll_event`
+    // or error value) then leaves the deliver queued for the opaque-frame
     // fallback instead of dequeuing it into the void.
     const peeked = ptr.peekEvent() orelse return PANCAKE_ERR_WOULD_BLOCK;
     const body = peeked.view() catch return PANCAKE_ERR_CODEC;
@@ -1131,24 +1105,17 @@ pub export fn pancake_peer_poll_event_deliver(peer: ?*PancakePeer, out: ?*Pancak
     return PANCAKE_OK;
 }
 
-/// Take the next event as a structured `op:resolve`. Same routing/return
-/// contract as `poll_event_deliver`: `_UNSUPPORTED_VALUE` and decode failures
-/// leave the event queued for the opaque `pancake_peer_poll_event`. Release
-/// `out` with `pancake_resolve_release`.
-pub export fn pancake_peer_poll_event_resolve(peer: ?*PancakePeer, out: ?*PancakeResolve) i32 {
-    const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
-    const next = ptr.peekEventKind() orelse return PANCAKE_ERR_WOULD_BLOCK;
-    if (next != .resolve) return PANCAKE_ERR_WRONG_EVENT;
-
+/// Project the queued head event (already peeked as a resolve) into `slot`,
+/// same consume-only-on-success contract as `projectDeliver`.
+fn projectResolve(ptr: *engine.Peer, slot: *PancakeResolve) i32 {
     // Marshal from a borrowed peek; consume only on full success, so a fulfill
     // value the C surface cannot represent leaves the resolve queued for the
-    // opaque `poll_event` fallback rather than being dequeued and lost.
+    // opaque-frame fallback rather than being dequeued and lost.
     const peeked = ptr.peekEvent() orelse return PANCAKE_ERR_WOULD_BLOCK;
     const body = peeked.view() catch return PANCAKE_ERR_CODEC;
 
     const arena = newProjectionArena(ptr.allocator) orelse return PANCAKE_ERR_INTERNAL;
-    // Same success-flag discipline as `poll_event_deliver`: the error-code
+    // Same success-flag discipline as `projectDeliver`: the error-code
     // returns below are not Zig errors, so only this defer reclaims the arena
     // on a refused projection.
     var projected = false;
@@ -1242,32 +1209,16 @@ fn resolveHandoffGive(
     const span = engine.spanSignedHandoffGive(event.bytes()) orelse return error.NotHandoff;
     const give_bytes = try a.dupe(u8, span);
 
-    // A flat transport locator becomes a dialable `ocapn://…` URI through the one
-    // core grammar — the binding parses it with the same `pancake_uri_*` surface,
-    // so the percent-encoding must round-trip (a hand-rolled format with a raw
-    // `:` in the designator does not). Any other exporter location leaves the
-    // locator empty (the binding cannot dial it) but still surfaces the give
-    // bytes and recipient key.
-    const locator: []const u8 = switch (give.exporter_location) {
-        .locator => |loc| blk: {
-            // Recover the exporter's dial hints (e.g. an iroh exporter's
-            // direct-address list) from the verbatim location record — the
-            // borrowed session reader drops hint entries, so the flat
-            // transport/designator above carries none. The arena `a` frees the
-            // parsed hints wholesale, so they are not freed individually.
-            if (loc.record.len > 0) {
-                var cursor: usize = 0;
-                const parsed = engine.readLocatorOwned(a, loc.record, &cursor) catch return error.OutOfMemory;
-                break :blk model.uri.writePeer(a, parsed) catch return error.OutOfMemory;
-            }
-            break :blk model.uri.writePeer(a, .{
-                .transport = loc.transport,
-                .designator = loc.designator,
-                .hints = model.Hints.emptyFalse(),
-            }) catch return error.OutOfMemory;
-        },
-        .raw => &.{},
-    };
+    // The one core projection turns the give's exporter location into a
+    // dialable `ocapn://…` URI (hints recovered from the verbatim record, the
+    // same grammar `pancake_uri_*` parses back). A `.raw` location the binding
+    // cannot dial leaves the locator empty but still surfaces the give bytes
+    // and recipient key; a record that no longer parses is not a redeemable
+    // give — fall through to the opaque-frame arm so the queue still advances.
+    const locator: []const u8 = (engine.handoff_recipient.exporterLocatorUri(a, give.exporter_location) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.MalformedLocatorRecord => return error.NotHandoff,
+    }) orelse &.{};
     const recipient_key = try a.dupe(u8, give.recipient_key);
 
     return .{
@@ -1283,20 +1234,107 @@ fn resolveHandoffGive(
     };
 }
 
-/// Release a `PancakeDeliver` projection; the `args` views aliasing its arena
-/// die with it. Idempotent: the struct is cleared, so releasing again (or a
-/// zero-initialized struct) is a no-op.
-pub export fn pancake_deliver_release(deliver: ?*PancakeDeliver) void {
-    const d = deliver orelse return;
+/// Clear a deliver projection: free its arena (the `args` views die with it)
+/// and zero the struct, so a repeat clear is a no-op.
+fn clearDeliver(d: *PancakeDeliver) void {
     freeProjectionArena(d.owner);
     d.* = .{ .target = zero_reference, .args = null, .args_len = 0, .has_answer = 0, .answer = 0, .owner = null };
 }
 
-/// Release a `PancakeResolve` projection; the `fulfill` and `break_message`
-/// views aliasing its arena die with it. Idempotent: the struct is cleared, so
-/// releasing again (or a zero-initialized struct) is a no-op.
-pub export fn pancake_resolve_release(resolve: ?*PancakeResolve) void {
-    const r = resolve orelse return;
+/// Clear a resolve projection: free its arena (the `fulfill`, `break_message`,
+/// and `handoff` views die with it) and zero the struct.
+fn clearResolve(r: *PancakeResolve) void {
     freeProjectionArena(r.owner);
     r.* = .{ .answer = 0, .resolution_kind = 0, .fulfill = zero_argument, .break_message = null, .break_message_len = 0, .handoff = zero_handoff_give, .owner = null };
+}
+
+const zero_deliver: PancakeDeliver = .{ .target = zero_reference, .args = null, .args_len = 0, .has_answer = 0, .answer = 0, .owner = null };
+const zero_resolve: PancakeResolve = .{ .answer = 0, .resolution_kind = 0, .fulfill = zero_argument, .break_message = null, .break_message_len = 0, .handoff = zero_handoff_give, .owner = null };
+const zero_managed_frame: c.PancakeManagedFrame = .{ .bytes = null, .len = 0, .shape = 0, .release = null, .private_data = null };
+
+/// Drive the engine to idle, then take the next event, fully projected — the
+/// one call a consumer's event loop needs. Driving first is what makes the
+/// loop's obvious shape the correct one: settling an answer can cascade (a
+/// resolve drains a pipelined projection, whose own resolve fires a listener,
+/// which queues a deliver), and each cascade step can mint fresh events and
+/// outbound frames; this call runs the engine to quiescence before it answers,
+/// so a caller never re-derives a "step to idle, then re-poll" rule. Write the
+/// queued outbound frames (`pancake_peer_take_outbound`) when this reports no
+/// event, before parking on the next read.
+///
+/// The event's kind lands in `kind` (`PANCAKE_EVENT_*`) and `projection` says
+/// which arm carries the value: a deliver projects into `deliver`, a resolve
+/// into `resolve` (including the `PANCAKE_RESOLUTION_HANDOFF` give), and every
+/// other kind — or a deliver/resolve whose value the typed surface cannot
+/// carry — lands in `frame` as the originating wire bytes in the negotiated
+/// codec (`pancake_peer_codec`). The queue always advances: exactly one event
+/// is consumed per `PANCAKE_OK`, so a caller never re-derives the
+/// typed-or-opaque routing or a leave-queued fallback either. Returns
+/// `PANCAKE_ERR_WOULD_BLOCK` when the engine is idle and no event is pending.
+/// Release `out` with `pancake_any_event_release` exactly once.
+pub export fn pancake_peer_next_event(peer: ?*PancakePeer, out: ?*c.PancakeAnyEvent) i32 {
+    const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
+    while ((ptr.step() catch |err| return feedErrorToCode(err)) != .idle) {}
+    const next = ptr.peekEventKind() orelse return PANCAKE_ERR_WOULD_BLOCK;
+
+    slot.* = .{
+        .kind = frame.eventKindToC(next),
+        .projection = c.PANCAKE_PROJECTION_NONE,
+        .deliver = zero_deliver,
+        .resolve = zero_resolve,
+        .frame = zero_managed_frame,
+    };
+
+    // Try the typed arm first. A projection failure other than a host fault
+    // (null pointer, allocation) leaves the event queued by contract, so it
+    // falls through to the opaque-frame arm below and the queue still advances.
+    switch (next) {
+        .deliver => {
+            const rc = projectDeliver(ptr, &slot.deliver);
+            if (rc == PANCAKE_OK) {
+                slot.projection = c.PANCAKE_PROJECTION_DELIVER;
+                return PANCAKE_OK;
+            }
+            if (rc == PANCAKE_ERR_NULL_POINTER or rc == PANCAKE_ERR_INTERNAL) return rc;
+        },
+        .resolve => {
+            const rc = projectResolve(ptr, &slot.resolve);
+            if (rc == PANCAKE_OK) {
+                slot.projection = c.PANCAKE_PROJECTION_RESOLVE;
+                return PANCAKE_OK;
+            }
+            if (rc == PANCAKE_ERR_NULL_POINTER or rc == PANCAKE_ERR_INTERNAL) return rc;
+        },
+        else => {},
+    }
+
+    // The opaque arm: hand over the originating frame bytes, owned.
+    var event = ptr.pollEvent() orelse return PANCAKE_ERR_WOULD_BLOCK;
+    slot.frame = frame.tryManagedFrame(ptr.allocator, event.frame) catch {
+        event.deinit();
+        return PANCAKE_ERR_INTERNAL;
+    };
+    slot.projection = c.PANCAKE_PROJECTION_FRAME;
+    return PANCAKE_OK;
+}
+
+/// Release a polled `PancakeAnyEvent`: frees whichever arm `projection` names
+/// (the deliver/resolve views or the owned frame) and zeroes the struct, so a
+/// repeat release — or releasing a zero-initialized struct — is a no-op.
+pub export fn pancake_any_event_release(event: ?*c.PancakeAnyEvent) void {
+    const ev = event orelse return;
+    switch (ev.projection) {
+        c.PANCAKE_PROJECTION_DELIVER => clearDeliver(&ev.deliver),
+        c.PANCAKE_PROJECTION_RESOLVE => clearResolve(&ev.resolve),
+        c.PANCAKE_PROJECTION_FRAME => frame.pancake_managed_frame_release(&ev.frame),
+        else => {},
+    }
+    ev.* = .{
+        .kind = c.PANCAKE_EVENT_NONE,
+        .projection = c.PANCAKE_PROJECTION_NONE,
+        .deliver = zero_deliver,
+        .resolve = zero_resolve,
+        .frame = zero_managed_frame,
+    };
 }

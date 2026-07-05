@@ -201,3 +201,46 @@ test "parse rejects null pointers" {
     // Releasing null is a no-op.
     c.pancake_locator_release(null);
 }
+
+test "host_port splits a tcp designator through the core grammar" {
+    const uri = "ocapn://127.0.0.1%3A9045.tcp";
+    var loc: ?*c.PancakeLocator = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_peer(uri.ptr, uri.len, &loc));
+    defer c.pancake_locator_release(loc);
+
+    var host_ptr: ?[*]const u8 = null;
+    var host_len: usize = 0;
+    var port: u16 = 0;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_host_port(loc, &host_ptr, &host_len, &port));
+    try std.testing.expectEqualStrings("127.0.0.1", host_ptr.?[0..host_len]);
+    try std.testing.expectEqual(@as(u16, 9045), port);
+}
+
+test "host_port unwraps a bracketed IPv6 designator" {
+    const uri = "ocapn://%5B%3A%3A1%5D%3A9046.tcp";
+    var loc: ?*c.PancakeLocator = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_peer(uri.ptr, uri.len, &loc));
+    defer c.pancake_locator_release(loc);
+
+    var host_ptr: ?[*]const u8 = null;
+    var host_len: usize = 0;
+    var port: u16 = 0;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_locator_host_port(loc, &host_ptr, &host_len, &port));
+    try std.testing.expectEqualStrings("::1", host_ptr.?[0..host_len]);
+    try std.testing.expectEqual(@as(u16, 9046), port);
+}
+
+test "host_port refuses a designator without the grammar" {
+    const uri = "ocapn://abc123nodeid.iroh";
+    var loc: ?*c.PancakeLocator = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_uri_parse_peer(uri.ptr, uri.len, &loc));
+    defer c.pancake_locator_release(loc);
+
+    var host_ptr: ?[*]const u8 = null;
+    var host_len: usize = 0;
+    var port: u16 = 0;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        c.pancake_locator_host_port(loc, &host_ptr, &host_len, &port),
+    );
+}

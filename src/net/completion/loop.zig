@@ -142,6 +142,12 @@ pub const FreeConnCtx = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void
 /// observable nowhere else.
 pub const OnClose = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque, opened: bool) void;
 
+/// The listen backlog both platform backends pass to `listen(2)`: pending,
+/// not-yet-accepted connections the kernel queues before refusing new ones.
+/// The loop re-arms its accept immediately after every completion, so the
+/// backlog only has to absorb a connect burst between two loop wakes.
+pub const listen_backlog: u31 = 128;
+
 pub const Options = struct {
     /// Cap on an accepted frame; should match the peers' `max_frame_bytes`. A
     /// frame larger than one pool buffer (but within this cap) accumulates in

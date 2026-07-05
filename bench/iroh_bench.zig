@@ -59,7 +59,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(listener, allocator, &peer, .ephemeral, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
     _ = try cv.publish("greeter", Greeter, .{});
     try cv.serve();
@@ -89,7 +89,7 @@ fn clientMeasure(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectVia(netlayers, allocator, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -118,7 +118,7 @@ fn callOnce(cv: *driver.ConnectedVat, greeter: anytype, arena: std.mem.Allocator
     const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena);
     return switch (settled) {
         .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
-        .broken => false,
+        .broken, .give => false,
     };
 }
 
@@ -265,7 +265,7 @@ fn loopClient(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(&entries, allocator, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");

@@ -42,6 +42,7 @@ COPY .devcontainer/pins.sh \
      .devcontainer/install-zls.sh \
      .devcontainer/install-rust.sh \
      .devcontainer/install-js-toolchains.sh \
+     .devcontainer/install-claude-code.sh \
      .devcontainer/install-uv.sh \
      .devcontainer/install-serena.sh \
      .devcontainer/install-racket-goblins.sh \
@@ -52,6 +53,7 @@ RUN bash "${PANCAKE_DEVCONTAINER_DIR}/install-zig.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-zls.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-rust.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-js-toolchains.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/install-claude-code.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-serena.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-racket-goblins.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/verify-toolchains.sh"

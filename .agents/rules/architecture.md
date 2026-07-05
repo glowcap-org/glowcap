@@ -63,7 +63,9 @@ not add CapTP semantics that the core lacks.
   binds the TCP socket. Not part of the no-I/O core.
 - `driver`: the native application surface above both `actors` and `net`;
   `ConnectedVat` binds a vat to a live `net.Connection` over a caller-owned
-  `engine.Peer`. Adds no CapTP semantics.
+  `engine.Peer`, and `driver.Host` is the multi-connection tier (one identity,
+  one `engine.Node`, crossed-hellos ownership, `Host.redeem` and
+  interceptor-driven origination, ADR-0068). Adds no CapTP semantics.
 - `c_abi/`: the public C ABI family under `src/c_abi/`, grouped the way
   `src/ocapn/` groups the protocol core. It ships as a set of composable
   archives that share types by _layout_, not symbols — `libpancake_ocapn`,
@@ -84,7 +86,9 @@ not add CapTP semantics that the core lacks.
     this in the generated headers). Header signatures and constant values are
     reflected from `src/c_abi/ocapn`, but their comment prose lives in
     `tools/header_gen.zig` — a C-contract change edits both the Zig doc comment
-    and the generator's string, then `zig build gen-header-ocapn`.
+    and the generator's string, then `zig build gen-header-ocapn`; `zig build
+    gen-ts-abi` reflects the same constants and struct layouts into the
+    TypeScript binding's generated mirror.
   - `c_abi/net_transport` is the grouping directory for the transport archives:
     it holds no source of its own, only one subdirectory per transport,
     mirroring the `libpancake_net_transport_{tcp,inproc,iroh}` archive family.

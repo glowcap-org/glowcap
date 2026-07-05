@@ -56,6 +56,10 @@ The raw `ffi/unsafe` layer is never required by a consumer; it follows Racket's
   (`zig build iroh-abi`, needs cargo) when it is absent.
 - [`private/constants.rkt`](private/constants.rkt) — the ABI constants,
   hand-mirrored from `pancake_ocapn.h` and held to it by `zig build meta-check`.
+- [`private/seam.rkt`](private/seam.rkt) — the transport seam: the shared core
+  machinery (`check-with`, `pin-immobile`, the frame cstructs, the connection
+  construction verbs) the three transport companions build on. It re-provides
+  `pancake.rkt`'s `seam` submodule, so none of it rides the public provide.
 
 Each transport archive keeps its own thread-local last-error, read through that
 archive's own reader (`tcp-last-error`, `inproc-last-error`), never the ocapn

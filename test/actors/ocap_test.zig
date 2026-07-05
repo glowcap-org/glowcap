@@ -38,7 +38,7 @@ fn captureInt(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     const slot: *i64 = @ptrCast(@alignCast(ctx.?));
     slot.* = switch (resolution) {
         .fulfilled => |value| value.integer,
-        .broken => -1,
+        .broken, .give => -1,
     };
 }
 

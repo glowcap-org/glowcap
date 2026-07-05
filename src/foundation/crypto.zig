@@ -211,25 +211,14 @@ pub fn derivePublicIdentifier(key: PeerKey) id.PeerId {
     return id.PeerId.fromBytes(outer);
 }
 
-/// Work out the `SessionId` for a pair of per-session public keys.
-///
-/// Derive both `PeerId`s, sort the two byte-ascending so it doesn't matter which
-/// side is local, then double-SHA256 over `"prot0"` followed by the first and
-/// the second. Because of the sort, both ends land on the same value even though
-/// one side dialed and the other answered.
-pub fn deriveSessionId(local_key: PeerKey, remote_key: PeerKey) id.SessionId {
-    return sessionIdFromPeerIds(
-        derivePublicIdentifier(local_key),
-        derivePublicIdentifier(remote_key),
-    );
-}
-
-/// Combine two already-derived `PeerId`s into the `SessionId` of their direct
-/// session: sort the pair byte-ascending so dial/answer order doesn't matter,
-/// then double-SHA256 over `"prot0"` and the sorted ids. `deriveSessionId` is
-/// this composed with `derivePublicIdentifier` on each key; the handoff layer,
-/// which already holds the sides (each a `PeerId`), calls this directly, so the
-/// session a handoff names can never drift from the one a handshake derives.
+/// Combine two derived `PeerId`s into the `SessionId` of their direct session:
+/// sort the pair byte-ascending so dial/answer order doesn't matter, then
+/// double-SHA256 over `"prot0"` and the sorted ids. Because of the sort, both
+/// ends land on the same value even though one side dialed and the other
+/// answered. A caller holding raw keys composes this with
+/// `derivePublicIdentifier` on each; the handoff layer, which already holds the
+/// sides (each a `PeerId`), calls this directly, so the session a handoff names
+/// can never drift from the one a handshake derives.
 pub fn sessionIdFromPeerIds(peer_a: id.PeerId, peer_b: id.PeerId) id.SessionId {
     const a = peer_a.bytes;
     const b = peer_b.bytes;

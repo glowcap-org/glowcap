@@ -47,7 +47,7 @@ fn grant(conn: *driver.Connection, tools: actors.Ref, verb: []const u8, which: [
             },
             else => error.NotACapability,
         },
-        .broken => error.NotACapability,
+        .broken, .give => error.NotACapability,
     };
 }
 
@@ -64,8 +64,8 @@ pub fn main(init: std.process.Init) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var designator_buf: [64]u8 = undefined;
     const designator = try std.fmt.bufPrint(&designator_buf, "{s}:{d}", .{ host, port });
-    var conn = try driver.connect(&.{tcp_resident.netlayer()}, allocator, tcp.at(designator), .ephemeral, .{ .frame_cap = frame_cap });
-    defer conn.close();
+    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.at(designator), .ephemeral, .{ .frame_cap = frame_cap });
+    defer conn.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();

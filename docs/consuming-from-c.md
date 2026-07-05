@@ -58,12 +58,12 @@ duplicate-symbol collision; `examples/c/compose_transports.c` links
 ## The first program
 
 Read [`examples/c/echo_peer.c`](../examples/c/echo_peer.c) before writing
-anything. It is a complete program — about 190 lines — in which two peers hold
-an echo conversation entirely in memory: the host publishes a capability behind
-a name, the client fetches it and calls it, and the reply round-trips. Every
-pattern a real consumer needs appears once: the `recv_stream` / `step` /
-`take_outbound` pump, event routing with `peek_event` and the typed polls, and a
-release call for everything the library hands over. `zig build examples`
+anything. It is a complete program in which two peers hold an echo
+conversation entirely in memory: the host publishes a capability behind a name,
+the client fetches it and calls it, and the reply round-trips. Every pattern a
+real consumer needs appears once: the `recv_stream` / `next_event` /
+`take_outbound` pump and a release call for everything the library hands
+over. `zig build examples`
 compiles and runs it, so it cannot drift from the header.
 
 The other two C examples are single-topic:
@@ -76,12 +76,19 @@ of a handle family's allocation through your own allocator with
 ## The shape of the ABI
 
 A `PancakePeer` is a sans-I/O protocol state machine. It owns no socket and
-never blocks: you feed it inbound bytes, you call `pancake_peer_step` to let it
-work, and you drain the frames it wants sent. Your event loop — sockets,
-threads, language runtime — stays entirely yours. For consumers that want the
-batteries, the ABI also ships a blocking TCP layer (`pancake_tcp_connect`,
+never blocks: you feed it inbound bytes, you take the events it surfaces, and
+you drain the frames it wants sent. Your event loop — sockets, threads,
+language runtime — stays entirely yours. For consumers that want the batteries,
+the ABI also ships a blocking TCP layer (`pancake_tcp_connect`,
 `pancake_tcp_listen`, `pancake_tcp_accept`) that pairs frame read/write calls
 with the same peer.
+
+Taking an event is one call. `pancake_peer_next_event` drives the peer to idle
+and hands back the next event fully projected: a deliver or a resolve arrives
+as structured values, and anything the typed surface cannot carry arrives as
+its originating wire frame. Release each event with
+`pancake_any_event_release`. `pancake_peer_step` is the manual gear underneath
+it, for a host that wants to advance one unit of work at a time.
 
 A consumer that only wants to dial a peer, fetch a capability, and call it does
 not have to run that pump at all. `libpancake_net_transport_tcp` also ships an
@@ -149,8 +156,8 @@ vocabulary is four rules.
    returning; the pointer stays yours.
 2. **You receive owned values, and you release them.** Anything the library
    fills for you to keep — a `PancakeManagedFrame` from `take_outbound`, a
-   `PancakeDeliver` or `PancakeResolve` from a typed poll, a `PancakeEvent` —
-   has a matching `pancake_*_release` function, and exactly one call to it.
+   `PancakeAnyEvent` from `next_event`, a `PancakeEvent` — has a matching
+   `pancake_*_release` function, and exactly one call to it.
 3. **Handles release through their constructor's family.** `pancake_peer_new`
    pairs with `pancake_peer_release`; the same holds for contexts, netlayers,
    connections, and listeners. The `*_in` constructors allocate the whole handle

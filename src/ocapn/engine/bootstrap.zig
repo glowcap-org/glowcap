@@ -286,7 +286,7 @@ pub const GiftRegistry = struct {
     /// the deposit named no node-local bootstrap cap. The cross-session withdraw
     /// path re-resolves a non-empty swiss against the withdrawing session; null
     /// if the gift is unknown.
-    pub fn giftedSwiss(self: *const GiftRegistry, gift_id: []const u8) ?[]const u8 {
+    fn giftedSwiss(self: *const GiftRegistry, gift_id: []const u8) ?[]const u8 {
         const entry = self.gifts.get(gift_id) orelse return null;
         return entry.gifted_swiss;
     }

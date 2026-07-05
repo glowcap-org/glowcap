@@ -41,7 +41,7 @@ const Greeter = struct {
 /// `accept`), publish the greeter by name, and serve until the partner leaves.
 fn host(server: *driver.Server) !void {
     var conn = try server.accept();
-    defer conn.close();
+    defer conn.deinit();
     _ = try conn.publish("greeter", Greeter, .{});
     try conn.serve();
 }
@@ -53,7 +53,7 @@ pub fn main(init: std.process.Init) !void {
     const io = threaded.io();
 
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-    var server = try driver.listen(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{});
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{});
     defer server.close();
 
     var addr_buf: [64]u8 = undefined;
@@ -61,7 +61,9 @@ pub fn main(init: std.process.Init) !void {
 
     var hosting = try io.concurrent(host, .{&server});
 
-    var conn = try driver.connect(&.{tcp_resident.netlayer()}, allocator, pancake.net.tcp.at(designator), .ephemeral, .{});
+    // `pancake.Connection` is the front-door alias for the owning
+    // `driver.Connection` this call hands back.
+    var conn: *pancake.Connection = try driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{});
     const greeter = try conn.fetch("greeter");
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -71,12 +73,12 @@ pub fn main(init: std.process.Init) !void {
         .args = &.{.{ .string = "world" }},
     }, arena_state.allocator());
 
-    conn.close();
+    conn.deinit();
     try hosting.await(io);
 
     const ok = switch (settled) {
         .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, "Hello, world"),
-        .broken => false,
+        .broken, .give => false,
     };
     if (!ok) return error.UnexpectedReply;
     std.debug.print("01: greeter fetched by name and called over a real OCapN/TCP session\n", .{});

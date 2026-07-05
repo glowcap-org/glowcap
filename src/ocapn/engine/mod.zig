@@ -42,14 +42,11 @@ pub const Node = node.Node;
 pub const ConnId = node.ConnId;
 pub const pairing = @import("pairing.zig");
 pub const pipeline = @import("pipeline.zig");
-pub const registry = @import("registry.zig");
 pub const sturdyref = @import("sturdyref.zig");
 pub const v1_0 = @import("v1_0.zig");
 
-pub const SessionRegistry = registry.SessionRegistry;
 pub const StepOutcome = events.StepOutcome;
 pub const EventKind = events.EventKind;
-pub const DecodeError = events.DecodeError;
 pub const Event = events.Event;
 
 /// Verbatim byte span of the `<desc:sig-envelope <desc:handoff-give …> …>` a
@@ -57,17 +54,10 @@ pub const Event = events.Event;
 /// projects a received give without reaching past the engine into the codec.
 pub const spanSignedHandoffGive = codec.syrup.spanSignedHandoffGive;
 
-/// Parse a verbatim `<ocapn-peer …>` Syrup record into a `model.PeerLocator`
-/// with heap-owned hint entries (free with `model.freeHints`). The C ABI redeem
-/// projection uses this to recover an exporter's direct-address dial hints from
-/// a give's exporter-location record, which the allocation-free borrowed reader
-/// drops. Surfaced here so the C ABI reads a locator without reaching past the
-/// engine into the codec.
-pub const readLocatorOwned = codec.syrup.readLocatorOwned;
-
 /// Encode a verbatim `<ocapn-peer …>` Syrup record carrying hint entries, so a
 /// gifter can name an exporter reachable only by a dial hint (an iroh exporter's
-/// direct addresses). The recipient re-parses it with `readLocatorOwned`.
+/// direct addresses). The recipient re-parses it with `codec.syrup.readLocatorOwned`
+/// (see `handoff_recipient.exporterLocatorUri`).
 /// Surfaced here so the C ABI builds a give location without reaching past the
 /// engine into the codec.
 pub const encodePeerLocatorRecord = codec.syrup.encodePeerLocatorRecord;
@@ -431,6 +421,26 @@ pub const Peer = struct {
         }
 
         return self.enqueueRecorded(message);
+    }
+
+    /// Commit a prepared bootstrap-fetch (`fetch.prepareFetchSwissnum`, or
+    /// `sturdyref.prepareEnliven`'s fresh arm) onto the wire. On a V1.0 session
+    /// the prepared deliver advertises its own resolver export in
+    /// `resolve_me_desc`; this installs the answer-to-resolver link the encoder's
+    /// own deliver synthesis would otherwise mint, so the partner's
+    /// resolver-callback deliver projects back as a resolve keyed on
+    /// `prepared.answer_position`. Consumes `prepared.message` (moved into `send`,
+    /// or freed if the resolver install fails). The V1.0 resolver link is engine
+    /// authority; callers route through this verb rather than touching the
+    /// session table.
+    pub fn sendPreparedFetch(self: *Peer, prepared: fetch.PreparedFetch) !void {
+        if (prepared.message.deliver.resolve_me_desc != null) {
+            self.session_state.installOutboundResolver(prepared.answer_position, prepared.resolver_export) catch |err| {
+                freeMessage(self.allocator, prepared.message);
+                return err;
+            };
+        }
+        try self.send(prepared.message);
     }
 
     /// Record and enqueue one *flat* (no-decomposition) `message` for outbound

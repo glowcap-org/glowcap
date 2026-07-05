@@ -12,7 +12,6 @@
 //      output the gates exercise.
 //   3. a bare library name (find) — otherwise hand the loader the plain name and
 //      let the OS dynamic-linker search resolve it (an installed/system lib).
-// The cached-download "ship" leg drops into slot 2.5 later without a rewrite.
 //
 // `node:process`/`node:fs` work on all three runtimes (Deno supports the `node:`
 // specifiers). A runtime that withholds the permission (Deno without

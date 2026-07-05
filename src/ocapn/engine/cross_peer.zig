@@ -4,10 +4,14 @@
 //! sessions — a three-party handoff, a third-party promise's forwarded
 //! resolution — is driven by the host that holds the peers. The engine's share
 //! of that work is here: the relayed-resolution drain that completes
-//! `Peer.relayResolution`, and the `SignatureVerifier` hook a host injects so
-//! the no-I/O core never depends on crypto. The frame routing itself (deposit
-//! the give with the exporter, send the receive, pump the frames) is host
-//! choreography, not engine semantics; the in-repo harness for it lives in
+//! `Peer.relayResolution`, and the `SignatureVerifier` hook a host injects when
+//! it routes handoff frames itself, so it can plug its own certificate
+//! verification into that boundary. The engine's own router does not need the
+//! hook: it verifies handoff and start-session certificates directly with
+//! `foundation.crypto`, which is pure byte math and so lives in the
+//! deterministic core. The frame routing itself (deposit the give with the
+//! exporter, send the receive, pump the frames) is host choreography, not
+//! engine semantics; the in-repo harness for it lives in
 //! `test/support/cross_peer.zig`.
 
 const model = @import("model");
@@ -50,9 +54,12 @@ pub fn drainRelayedResolutions(peer: *Peer) !bool {
     return true;
 }
 
-/// An injected signature-verification hook. The core treats signatures as opaque
-/// bytes and defers the cryptographic decision to the caller's substrate. A
-/// verifier that needs no state passes a null `context`.
+/// An injected signature-verification hook for a host that drives cross-peer
+/// handoff routing itself: it decides whether a give or receive certificate is
+/// authentic at the routing boundary, so the host can route each payload to the
+/// right key, or stub the check in a trusted test substrate. The engine's own
+/// router does not use this hook; it verifies certificates directly with
+/// `foundation.crypto`. A verifier that needs no state passes a null `context`.
 pub const SignatureVerifier = struct {
     context: ?*anyopaque,
     verify_fn: *const fn (context: ?*anyopaque, payload: []const u8, signature: []const u8) bool,

@@ -84,6 +84,26 @@ they can be worked concurrently. None of them is cross-cutting.
   id) would let durable capabilities span restarts on TCP too. It is a transport
   feature localized to the TCP netlayer and its session seam, not a core change.
 
+- **The fan-out tier under the Host.** `driver.Host` (ADR-0068) owns
+  identity, the node, and both handoff halves for blocking connections;
+  `LoopHost`/`LoopDialer` own fan-out over the completion loop but are
+  TCP-only and node-less, so handoff is unreachable at scale
+  (`docs/boundaries.md` names the edge). Growing the loop tier under a `Host`
+  — node-registered loop connections, the serve-step hooks on the completion
+  path — is the piece that retires that boundary; it is driver-layer work over
+  seams that already exist (the loop's per-connection hooks, the node's
+  actions).
+
+- **Lower-tier binding dedup.** The protocol choreography the four bindings
+  once re-derived is sunk into the waist (the one driving event poll, the
+  locator grammar, and the node serve step, ADR-0067), and the TypeScript
+  ABI mirror — the one binding that must read C structs by byte offset — is
+  generated from the Zig source of truth (`zig build gen-ts-abi`, held by
+  `gen-ts-abi-check` in `check`). What remains is small host-side residue
+  worth sorting by the "host idiom or protocol decision" test: each binding
+  maps the abort-domain discriminant to a host label, retries
+  `pancake_uri_format_peer` with a grown buffer, and re-checks seed lengths
+  the waist already validates.
 - **A hosted, versioned C release of the archives.** Every binding already
   resolves its archives through a shared cascade — `PANCAKE_LIB_DIR`
   (configure), then the repo's `zig-out/lib` (dev fallback), then the bare name

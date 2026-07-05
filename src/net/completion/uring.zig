@@ -28,7 +28,7 @@ const IoUring = linux.IoUring;
 const completion = @import("loop.zig");
 
 comptime {
-    if (builtin.os.tag != .linux) @compileError("net.uring is Linux-only (io_uring)");
+    if (builtin.os.tag != .linux) @compileError("the io_uring completion backend is Linux-only");
 }
 
 pub const Backend = struct {
@@ -212,7 +212,7 @@ pub const Backend = struct {
             .addr = std.mem.nativeToBig(u32, 0x7f00_0001), // 127.0.0.1
         };
         try check(linux.bind(fd, @ptrCast(&addr), @sizeOf(linux.sockaddr.in)));
-        try check(linux.listen(fd, 128));
+        try check(linux.listen(fd, completion.listen_backlog));
         return fd;
     }
 

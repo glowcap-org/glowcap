@@ -93,7 +93,7 @@ fn clientOnce(io: std.Io, allocator: std.mem.Allocator, server_id: []const u8) a
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(&entries, allocator, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -104,7 +104,7 @@ fn clientOnce(io: std.Io, allocator: std.mem.Allocator, server_id: []const u8) a
         const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena_state.allocator());
         const ok = switch (settled) {
             .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
-            .broken => false,
+            .broken, .give => false,
         };
         if (!ok) return error.WrongReply;
     }

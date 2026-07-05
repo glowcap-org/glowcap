@@ -8,7 +8,7 @@
 ;; Its private loader (`private/ffi-iroh.rkt`) opens ONLY the iroh companion
 ;; (`zig build iroh-abi`, needs cargo) — which exports only `pancake_iroh_*` —
 ;; and builds an `async-transport` over it through the transport seam
-;; `pancake.rkt` exports; the core calls come from there. Everything above the
+;; (`private/seam.rkt`); the core calls come from there. Everything above the
 ;; pump — vat, conn-* verbs, events — is the core's; only the transport differs.
 ;;
 ;; `connect` in the core dials an iroh locator by loading this module lazily, so a
@@ -19,14 +19,14 @@
          ffi/unsafe/port
          "private/constants.rkt"
          "private/ffi-iroh.rkt"
-         "pancake.rkt")
+         "private/seam.rkt")
 
 (provide connect-iroh
          connect-iroh/node
          listen-iroh
          IROH-REACH-DIRECT IROH-REACH-DISCOVERY IROH-REACH-DISCOVERY-NO-RELAY IROH-REACH-LOCAL-DISCOVERY
-         iroh-server? iroh-server-node-id iroh-server-direct-addresses
-         iroh-server-node iroh-server-uri iroh-server-accept iroh-server-close!)
+         iroh-server-node-id iroh-server-direct-addresses
+         iroh-server-node iroh-server-accept iroh-server-close!)
 
 ;; Reachability posture, REQUIRED on every public iroh constructor, with NO
 ;; default: a peer states how it is reachable, the binding never guesses. The
@@ -37,16 +37,35 @@
 (define IROH-REACH-LOCAL-DISCOVERY 3)    ; in-process address book; tests/same-process
 
 ;; ── netlayer FFI wrappers ─────────────────────────────────────────────────────
+;; (iroh-last-error) -> the calling thread's last error message from the iroh
+;; archive, or #f when there is none. The iroh archive keeps its own
+;; thread-local slot (`pancake_iroh_last_error`), symbol-disjoint from the
+;; ocapn family's `last-error`. Query the length first (NULL buffer), then read.
+(define (iroh-last-error)
+  (define len ((iroh-fn 'last-error) #f 0))
+  (cond
+    [(zero? len) #f]
+    [else
+     ;; The C side reserves one byte for a NUL and copies at most cap-1 message
+     ;; bytes, so allocate len + 1 to receive all `len` of them.
+     (define buf (make-bytes (+ len 1)))
+     (define written ((iroh-fn 'last-error) buf (+ len 1)))
+     (bytes->string/utf-8 (subbytes buf 0 (min written len)) #\uFFFD)]))
+
+;; Raise the same typed exn `check` raises, but read the diagnostic from the
+;; iroh archive's own last-error rather than the unrelated ocapn-family one.
+(define (check/iroh code) (check-with code iroh-last-error))
+
 ;; `reachability` is required, an IROH-REACH-* posture, no default.
 (define (iroh-netlayer-new reachability)
   (define-values (rc h) ((iroh-fn 'netlayer-new) #f 0 reachability)) ; #f/0 secret seed = a fresh random key
-  (check rc)
+  (check/iroh rc)
   h)
 
 (define (iroh-netlayer-node-id h)
   (define buf (make-bytes 64)) ; an endpoint id is 64 lowercase-hex bytes
   (define-values (rc len) ((iroh-fn 'node-id) h buf 64))
-  (check rc)
+  (check/iroh rc)
   (bytes->string/utf-8 (subbytes buf 0 len)))
 
 (define (iroh-netlayer-direct-addresses h)
@@ -57,7 +76,7 @@
     (define-values (rc len) ((iroh-fn 'direct-addrs) h buf cap))
     (cond
       [(and (= rc ERR-INVALID-ARGUMENT) (< cap (* 64 1024))) (loop (* cap 4))]
-      [else (check rc) (bytes->string/utf-8 (subbytes buf 0 len))])))
+      [else (check/iroh rc) (bytes->string/utf-8 (subbytes buf 0 len))])))
 
 ;; Dial a partner non-blockingly: the dial itself parks (it is #:blocking?), but
 ;; the returned connection is driven by the netlayer's readiness loop, so its
@@ -66,10 +85,10 @@
 (define (iroh-netlayer-try-connect h node-id hints)
   (define nb (string->bytes/utf-8 node-id))
   (define hb (string->bytes/utf-8 hints))
-  (define nbuf (malloc (max (bytes-length nb) 1) 'atomic-interior)) (memcpy nbuf nb (bytes-length nb))
-  (define hbuf (malloc (max (bytes-length hb) 1) 'atomic-interior)) (memcpy hbuf hb (bytes-length hb))
+  (define nbuf (pin-immobile nb))
+  (define hbuf (pin-immobile hb))
   (define-values (rc conn) ((iroh-fn 'try-connect) h nbuf (bytes-length nb) hbuf (bytes-length hb)))
-  (check rc)
+  (check/iroh rc)
   conn)
 
 (define (iroh-netlayer-close! h) ((iroh-fn 'netlayer-close) h))
@@ -230,17 +249,16 @@
    ;; the sidecar buffer is full. try-write is all-or-nothing: a non-negative
    ;; return means the whole frame went.
    (lambda (frame)
-     (define fbuf (malloc (max (bytes-length frame) 1) 'atomic-interior))
-     (memcpy fbuf frame (bytes-length frame))
+     (define fbuf (pin-immobile frame))
      (let loop ()
        (define n ((iroh-fn 'conn-try-write) conn fbuf (bytes-length frame)))
        (cond
          [(>= n 0) (void)]
          [(= n WOULD-BLOCK)
           (if (conn-waiters-closed? w)
-              (error 'iroh "connection closed while writing")
+              (raise-pancake 'iroh ERR-CLOSED "connection closed while writing")
               (begin (semaphore-wait (conn-waiters-writable w)) (loop)))]
-         [else (check n)])))
+         [else (check/iroh n)])))
    void ; each frame is its own try-write; nothing buffered here to flush
    ;; fill-inbox!: drain whatever bytes are buffered, then park on this
    ;; connection's readability — never a wire read. `closed?` (or an ERR-CLOSED
@@ -255,7 +273,7 @@
               eof
               (begin (semaphore-wait (conn-waiters-readable w)) (loop)))]
          [(= n ERR-CLOSED) eof]
-         [else (check n)])))
+         [else (check/iroh n)])))
    ;; close!: drop the routing entry (waking any parked waiter), release the
    ;; connection, and — for the dialer's owned loop — stop the loop and release
    ;; the ephemeral netlayer, in that order, so no foreign call touches the
@@ -342,9 +360,10 @@
 (struct iroh-server (netlayer node-id loop node))
 
 ;; Bind a fresh ephemeral iroh endpoint and return a server that accepts partners
-;; on it, all driven by one readiness loop. Read its dialable URI with
-;; `iroh-server-uri` and pass that to a partner's `connect`. `reachability` is
-;; required, an IROH-REACH-* posture, no default.
+;; on it, all driven by one readiness loop. A partner dials it by
+;; `iroh-server-node-id` (plus `iroh-server-direct-addresses` hints when it has
+;; no discovery path). `reachability` is required, an IROH-REACH-* posture, no
+;; default.
 (define (listen-iroh reachability)
   (define nl (iroh-netlayer-new reachability))
   (define lp (make-iroh-loop nl))
@@ -353,13 +372,6 @@
 ;; This endpoint's direct-address hints (comma-separated), the dialable
 ;; addresses with no relay, valid on loopback/LAN.
 (define (iroh-server-direct-addresses s) (iroh-netlayer-direct-addresses (iroh-server-netlayer s)))
-
-;; The `ocapn://<nodeid>.iroh?direct-addresses=…` URI a partner dials, rendered
-;; through the core locator grammar.
-(define (iroh-server-uri s)
-  (define addrs (iroh-server-direct-addresses s))
-  (format-peer-uri "iroh" (iroh-server-node-id s)
-                   (if (= 0 (string-length addrs)) (hash) (hash "direct-addresses" addrs))))
 
 ;; Claim the next partner, complete the responder handshake (signing the server's
 ;; endpoint id as the locator designator), and return a ready connection — served
@@ -387,9 +399,9 @@
          conn-built)]
       [(= rc WOULD-BLOCK)
        (if (iroh-loop-accept-closed? lp)
-           (error 'iroh-server-accept "server closed")
+           (raise-pancake 'iroh-server-accept ERR-CLOSED "server closed")
            (begin (semaphore-wait (iroh-loop-accept-sema lp)) (loop)))]
-      [else (check rc)])))
+      [else (check/iroh rc)])))
 
 ;; Stop accepting, stop the readiness loop (joining its thread), and release the
 ;; server's endpoint. Accepted connections are unaffected until their own

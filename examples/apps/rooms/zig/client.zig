@@ -141,7 +141,7 @@ fn onWelcome(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     state.welcomed = true;
     const text = switch (resolution) {
         .fulfilled => |value| if (value == .string) value.string else return,
-        .broken => return,
+        .broken, .give => return,
     };
     const marker = std.mem.indexOf(u8, text, " in the room: ") orelse return;
     var names = std.mem.splitSequence(u8, text[marker + " in the room: ".len ..], ", ");
@@ -184,7 +184,7 @@ pub fn main(init: std.process.Init) !void {
         }
     } else {
         var conn = try dialTcp(io, allocator, locator);
-        defer conn.close();
+        defer conn.deinit();
         try runRoom(conn, allocator, &state, room_name, nick, line);
     }
 
@@ -199,7 +199,7 @@ pub fn main(init: std.process.Init) !void {
 /// the one dialer against a TCP-only transport slice.
 fn dialTcp(io: std.Io, allocator: std.mem.Allocator, locator: []const u8) !*driver.Connection {
     var tcp_resident = tcp.Resident{ .io = io };
-    return driver.connect(&.{tcp_resident.netlayer()}, allocator, tcp.at(locator), .ephemeral, .{ .frame_cap = frame_cap });
+    return driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.at(locator), .ephemeral, .{ .frame_cap = frame_cap });
 }
 
 /// Dial an `ocapn://<nodeid>.iroh?direct-addresses=…` URI over iroh's encrypted
@@ -210,8 +210,8 @@ fn dialIroh(io: std.Io, allocator: std.mem.Allocator, uri: []const u8, state: *S
     const iroh = @import("iroh");
     var resident = try iroh.Resident.init(io, null, .direct);
     defer resident.deinit();
-    var conn = try driver.connectUriOwned(&.{resident.netlayer()}, allocator, uri, .ephemeral, .{ .frame_cap = frame_cap });
-    defer conn.close();
+    var conn = try driver.connectUriOwned(allocator, &.{resident.netlayer()}, uri, .ephemeral, .{ .frame_cap = frame_cap });
+    defer conn.deinit();
     try runRoom(conn, allocator, state, room_name, nick, line);
 }
 
@@ -242,6 +242,7 @@ fn enterOrOpen(conn: *driver.Connection, allocator: std.mem.Allocator, directory
             std.debug.print("rooms-client: enter \"{s}\" broke: {s}\n", .{ room_name, reason });
             return error.EnterFailed;
         },
+        .give => return error.EnterFailed,
     }
     switch (try conn.call(directory, .{ .verb = "open", .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
@@ -249,10 +250,12 @@ fn enterOrOpen(conn: *driver.Connection, allocator: std.mem.Allocator, directory
             std.debug.print("rooms-client: open \"{s}\" broke: {s}\n", .{ room_name, reason });
             return error.OpenFailed;
         },
+        .give => return error.UnexpectedIntroduction,
     }
     switch (try conn.call(directory, .{ .verb = "enter", .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => return error.EnterFailed,
+        .give => return error.UnexpectedIntroduction,
     }
 }
 
@@ -271,11 +274,13 @@ fn runRoom(conn: *driver.Connection, allocator: std.mem.Allocator, state: *State
         switch (try conn.call(directory, .{ .verb = "list", .args = &.{} }, scratch)) {
             .fulfilled => |arg| printRooms(nick, arg),
             .broken => |reason| std.debug.print("[{s}] list broke: {s}\n", .{ nick, reason }),
+            .give => {},
         }
         const watcher = try conn.spawn(Watcher, .{ .nick = nick });
         switch (try conn.call(directory, .{ .verb = "watch", .args = &.{watcher.arg()} }, scratch)) {
             .fulfilled => {}, // the snapshot reply; we already listed, so ignore it
             .broken => |reason| std.debug.print("[{s}] watch broke: {s}\n", .{ nick, reason }),
+            .give => {},
         }
     }
 

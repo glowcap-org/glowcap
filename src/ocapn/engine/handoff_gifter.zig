@@ -9,14 +9,6 @@ const std = @import("std");
 
 const codec = @import("codec");
 const crypto = @import("foundation").crypto;
-const recipient = @import("handoff_recipient.zig");
-
-/// Goblins side name for a session public key (`sha256d` of its Syrup encoding).
-pub const sideName = recipient.sideName;
-/// Goblins session name for two sorted side names.
-pub const sessionName = recipient.sessionName;
-/// Double-SHA-256 a gifter uses to derive a stable gift id from a swissnum.
-pub const sha256d = recipient.sha256d;
 
 /// Build a signed `desc:handoff-give` the gifter returns to the recipient,
 /// signed with the gifter's exporter-session key `secret`. `recipient_key` is

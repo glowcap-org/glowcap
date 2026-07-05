@@ -70,7 +70,7 @@ fn onReply(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     reply.done = true;
     reply.ok = switch (resolution) {
         .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, "Hello, world"),
-        .broken => false,
+        .broken, .give => false,
     };
 }
 

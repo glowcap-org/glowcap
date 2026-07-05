@@ -8,39 +8,19 @@
 //! whole CapTP frame at a time. The frame methods block.
 //!
 //! Errors from a `pancake_tcp_*` call route through the transport archive's own
-//! thread-local last-error ([`pancake_tcp_last_error`](crate::sys::tcp::pancake_tcp_last_error)),
+//! thread-local last-error (`pancake_tcp_last_error`),
 //! never the ocapn family's [`last_error`](crate::last_error).
 
 use core::marker::PhantomData;
 
 use crate::sys::tcp as ffi;
-use crate::{Codec, Context, Error, Result};
+use crate::transport_error::transport_error_slot;
+use crate::{Codec, Context, Result};
 
 // Like the core `check`, but for `pancake_tcp_*` calls: snapshot the TCP
 // transport's own thread-local last-error rather than the unrelated
 // ocapn-family one.
-fn check_tcp(code: i32) -> Result<()> {
-	if code == crate::sys::OK {
-		Ok(())
-	} else {
-		Err(Error::with_transport_detail(code, tcp_last_error()))
-	}
-}
-
-/// The calling thread's last error message from the TCP transport archive
-/// (`libpancake_net_transport_tcp`), or `None` if none is set. The transport
-/// keeps its own thread-local slot, so a tcp call's diagnostic is read here and
-/// never from the ocapn family's [`last_error`](crate::last_error).
-fn tcp_last_error() -> Option<String> {
-	let len = unsafe { ffi::pancake_tcp_last_error(core::ptr::null_mut(), 0) };
-	if len == 0 {
-		return None;
-	}
-	let mut buf = vec![0u8; len + 1];
-	let written = unsafe { ffi::pancake_tcp_last_error(buf.as_mut_ptr(), buf.len()) };
-	buf.truncate(written.min(buf.len()));
-	Some(String::from_utf8_lossy(&buf).into_owned())
-}
+transport_error_slot!(check_tcp, tcp_last_error, ffi::pancake_tcp_last_error);
 
 /// Owns the blocking-TCP I/O backend. Connections and listeners borrow it (via
 /// `&self`), so the borrow checker rejects an [`Endpoint`] or [`Listener`] that

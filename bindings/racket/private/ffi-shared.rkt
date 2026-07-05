@@ -25,9 +25,8 @@
 ;; zig-out/lib build output passed as `dev` (the dev fallback, an extension-less
 ;; runtime path), else the bare library name handed to the OS dynamic-linker
 ;; search (find). `stem` is the archive stem without the platform `lib`/suffix
-;; decoration; `ffi-lib` appends the platform-correct suffix in every case. The
-;; cached-download "ship" leg drops in between override and dev later. `fail`
-;; customizes the final error (the iroh loader names its build step).
+;; decoration; `ffi-lib` appends the platform-correct suffix in every case.
+;; `fail` customizes the final error (the iroh loader names its build step).
 (define (pancake-ffi-lib stem dev #:fail [fail #f])
   (define (try spec) (ffi-lib spec #:fail (lambda () #f)))
   (define name (string-append "lib" stem))
@@ -38,6 +37,15 @@
                (or fail
                    (lambda ()
                      (error 'pancake "could not load ~a from PANCAKE_LIB_DIR, zig-out/lib, or the system library path" name))))))
+
+;; Pin `bs` into immobile memory for one synchronous FFI call, returning the
+;; buffer (usable even for empty input, where C receives a valid pointer and a
+;; zero length). This is the one spelling of "copy bytes where the collector
+;; cannot move them"; every borrowed byte input the C side reads goes through it.
+(define (pin-immobile bs)
+  (define buf (malloc (max (bytes-length bs) 1) 'atomic-interior))
+  (when (> (bytes-length bs) 0) (memcpy buf bs (bytes-length bs)))
+  buf)
 
 (define-cstruct _PancakeFrame ([bytes _pointer] [len _size] [shape _uint32]) #:malloc-mode 'atomic-interior)
 (define-cstruct _PancakeManagedFrame
@@ -50,7 +58,6 @@
 (define _PancakeFreeFn (_fun _pointer _pointer _size _size -> _void))
 (define-cstruct _PancakeAllocator
   ([alloc _PancakeAllocFn] [free _PancakeFreeFn] [user-data _pointer]) #:malloc-mode 'atomic-interior)
-(define-cstruct _PancakeEvent ([kind _uint32] [frame _PancakeManagedFrame]) #:malloc-mode 'atomic-interior)
 (define-cstruct _PancakeReference ([kind _uint32] [sub-kind _uint32] [id _uint64]) #:malloc-mode 'atomic-interior)
 ;; Mirrors `PancakeEnlivenStart` in pancake_ocapn.h: the dedup-cache outcome of a
 ;; `prepare_enliven`. `status` selects the live fields — `answer` on FRESH/IN_FLIGHT,
@@ -67,7 +74,8 @@
 ;; Mirrors `PancakeHandoffGive` in pancake_ocapn.h: three (pointer, length) views.
 ;; Carried by value inside `PancakeResolve`, so its 48 bytes are part of that
 ;; struct's layout even when the binding never reads a handoff — dropping it
-;; makes `_PancakeResolve` too small and `poll_event_resolve` writes past it.
+;; makes `_PancakeResolve` too small and `pancake_peer_next_event` writes past
+;; it.
 (define-cstruct _PancakeHandoffGive
   ([give _pointer] [give-len _size]
    [exporter-locator _pointer] [exporter-locator-len _size]
@@ -76,6 +84,19 @@
   ([answer _uint64] [resolution-kind _uint32] [fulfill _PancakeArgument]
    [break-message _pointer] [break-message-len _size]
    [handoff _PancakeHandoffGive] [owner _pointer]) #:malloc-mode 'atomic-interior)
+;; Mirrors `PancakeNodeAction` in pancake_ocapn.h: one serve-step action.
+;; `kind` selects the live fields; the locator/reason views are node-owned and
+;; valid until the next `pancake_node_next_action`.
+(define-cstruct _PancakeNodeAction
+  ([kind _uint32] [pending _uint64] [locator _pointer] [locator-len _size]
+   [conn-id _uint64] [answer _uint64] [token _uint64]
+   [reason _pointer] [reason-len _size]) #:malloc-mode 'atomic-interior)
+;; Mirrors `PancakeAnyEvent` in pancake_ocapn.h: one polled event, fully
+;; projected. `projection` names the live arm (a PROJECTION-* value).
+(define-cstruct _PancakeAnyEvent
+  ([kind _uint32] [projection _uint32]
+   [deliver _PancakeDeliver] [resolve _PancakeResolve]
+   [frame _PancakeManagedFrame]) #:malloc-mode 'atomic-interior)
 ;; Mirrors `PancakeLastAbort` in pancake_ocapn.h: two leading u32s, then three
 ;; (pointer, length) views of process-static strings the library owns.
 (define-cstruct _PancakeLastAbort

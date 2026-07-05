@@ -67,6 +67,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try checkAbiVersionLockstep(io, gpa, root, &violations);
     try checkAbiFreeingVerb(io, gpa, root, &violations);
     try checkCAbiSurfaceShape(io, gpa, root, &violations);
+    try checkAbiExportsConsumed(io, gpa, root, &violations);
     try checkBindingConstants(io, gpa, root, &violations);
     try checkBindingMagicErrorCodes(io, gpa, root, &violations);
     try checkIrohSidecarAbi(io, gpa, root, &violations);
@@ -2232,6 +2233,133 @@ fn checkCAbiSurfaceShape(
 /// This parses each mirror's numeric values and asserts they match the matching
 /// `#define PANCAKE_…` value, so a hand-edit that desyncs a constant fails the
 /// gate instead of waiting for a live conversation to touch it.
+/// Every function the C headers export must have a consumer: a reference
+/// somewhere under `bindings/`, `examples/`, `interop/`, or `test/`. An export
+/// nobody consumes or exercises is dead surface — the drift mode is a verb the
+/// waist has superseded that keeps shipping because nothing points at it. The
+/// scan collects every `pancake_*` identifier the consumer trees mention (one
+/// pass, identifier boundaries), so `pancake_peer_step` cannot satisfy
+/// `pancake_peer_step_to_idle`.
+fn checkAbiExportsConsumed(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const headers = [_][]const u8{
+        "include/pancake_ocapn.h",
+        "include/pancake_net_transport_tcp.h",
+        "include/pancake_net_transport_inproc.h",
+        "include/pancake_net_transport_iroh.h",
+    };
+    const ret_types = [_][]const u8{ "void ", "int32_t ", "size_t ", "intptr_t " };
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // The exported names, parsed from function declarations only.
+    var exports: std.ArrayList(struct { name: []const u8, header: []const u8 }) = .empty;
+    defer exports.deinit(gpa);
+    for (headers) |path| {
+        const contents = root.readFileAlloc(io, path, arena, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for ABI consumer check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        var it = std.mem.splitScalar(u8, contents, '\n');
+        while (it.next()) |line| {
+            const trimmed = std.mem.trim(u8, line, " \t");
+            var matched = false;
+            for (ret_types) |rt| {
+                if (std.mem.startsWith(u8, trimmed, rt)) matched = true;
+            }
+            if (!matched) continue;
+            const space = std.mem.indexOfScalar(u8, trimmed, ' ') orelse continue;
+            const open = std.mem.indexOfScalar(u8, trimmed, '(') orelse continue;
+            if (open <= space + 1) continue;
+            const name = trimmed[space + 1 .. open];
+            if (!std.mem.startsWith(u8, name, "pancake_")) continue;
+            try exports.append(gpa, .{ .name = name, .header = path });
+        }
+    }
+
+    // Every pancake_* identifier the consumer trees mention, one walk.
+    var consumed = std.StringHashMap(void).init(gpa);
+    defer consumed.deinit();
+    const consumer_roots = [_][]const u8{ "bindings", "examples", "interop", "test" };
+    const consumer_exts = [_][]const u8{ ".rs", ".ts", ".py", ".rkt", ".c", ".h", ".zig", ".scm" };
+    const skip_dirs = [_][]const u8{ "target", "node_modules", "__pycache__", "compiled", ".zig-cache", "zig-out" };
+    for (consumer_roots) |dir_path| {
+        var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to open for ABI consumer check with {s}", .{ dir_path, @errorName(err) });
+            continue;
+        };
+        defer dir.close(io);
+        var walker = try dir.walkSelectively(gpa);
+        defer walker.deinit();
+        while (try walker.next(io)) |entry| {
+            if (entry.kind == .directory) {
+                var skip = false;
+                for (skip_dirs) |sd| {
+                    if (std.mem.eql(u8, entry.basename, sd)) skip = true;
+                }
+                if (!skip) try walker.enter(io, entry);
+                continue;
+            }
+            if (entry.kind != .file) continue;
+            var ext_ok = false;
+            for (consumer_exts) |ext| {
+                if (std.mem.endsWith(u8, entry.basename, ext)) ext_ok = true;
+            }
+            if (!ext_ok) continue;
+            const contents = dir.readFileAlloc(io, entry.path, gpa, .limited(1 << 24)) catch |err| {
+                try appendViolation(gpa, violations, "{s}/{s}: failed to read for ABI consumer check with {s}", .{ dir_path, entry.path, @errorName(err) });
+                continue;
+            };
+            defer gpa.free(contents);
+            var search: usize = 0;
+            while (std.mem.indexOfPos(u8, contents, search, "pancake_")) |start| {
+                var end = start;
+                while (end < contents.len and isIdentChar(contents[end])) end += 1;
+                search = end;
+                if (start > 0 and isIdentChar(contents[start - 1])) continue;
+                const ident = contents[start..end];
+                if (consumed.contains(ident)) continue;
+                try consumed.put(try arena.dupe(u8, ident), {});
+            }
+        }
+    }
+
+    var export_names = std.StringHashMap(void).init(gpa);
+    defer export_names.deinit();
+    for (exports.items) |exported| try export_names.put(exported.name, {});
+
+    for (exports.items) |exported| {
+        if (consumed.contains(exported.name)) continue;
+        // An allocator twin of an exported base constructor is structurally
+        // required by ADR-0059 (checkCAbiSurfaceShape holds the pairing), so
+        // its existence does not need a consumer of its own; everything else
+        // must earn its slot.
+        if (std.mem.endsWith(u8, exported.name, "_in")) {
+            const base = exported.name[0 .. exported.name.len - "_in".len];
+            if (export_names.contains(base)) continue;
+        }
+        if (std.mem.endsWith(u8, exported.name, "_with_allocator")) {
+            const base_len = exported.name.len - "_with_allocator".len;
+            const base = try std.fmt.allocPrint(arena, "{s}", .{exported.name[0..base_len]});
+            if (export_names.contains(base)) continue;
+        }
+        try appendViolation(gpa, violations, "{s}: exported `{s}` has no consumer under bindings/, examples/, interop/, or test/ — dead surface; retire it or give it the consumer that justifies it", .{ exported.header, exported.name });
+    }
+}
+
+fn isIdentChar(byte: u8) bool {
+    return switch (byte) {
+        'a'...'z', 'A'...'Z', '0'...'9', '_' => true,
+        else => false,
+    };
+}
+
 fn checkBindingConstants(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -2883,15 +3011,18 @@ fn checkDocumentedBuildSteps(
     try collectBuildSteps(gpa, build_zig, &steps);
 
     // The command-citing corpus: the fixed surfaces outside the walked trees,
-    // plus every Markdown file under `docs/**` and `.agents/**`. Paths are duped
-    // into an arena so they outlive the directory walkers.
+    // plus every Markdown file under `docs/**` and `.agents/**`, plus every
+    // SuperMD page under `site/content/**` (the site cites the same
+    // `zig build` steps and drifts the same way). Paths are duped into an
+    // arena so they outlive the directory walkers.
     var docs_arena = std.heap.ArenaAllocator.init(gpa);
     defer docs_arena.deinit();
     var command_docs: std.ArrayList([]const u8) = .empty;
     defer command_docs.deinit(gpa);
     for (fixed_command_docs) |path| try command_docs.append(gpa, path);
-    try collectMarkdownDocsUnder(io, gpa, docs_arena.allocator(), root, &command_docs, violations, "docs");
-    try collectMarkdownDocsUnder(io, gpa, docs_arena.allocator(), root, &command_docs, violations, ".agents");
+    try collectCommandDocsUnder(io, gpa, docs_arena.allocator(), root, &command_docs, violations, "docs", ".md");
+    try collectCommandDocsUnder(io, gpa, docs_arena.allocator(), root, &command_docs, violations, ".agents", ".md");
+    try collectCommandDocsUnder(io, gpa, docs_arena.allocator(), root, &command_docs, violations, "site/content", ".smd");
 
     // Every `zig build <token>` token found across the corpus. Used both
     // forward (each documented token must name a real step) and in reverse
@@ -2941,7 +3072,7 @@ fn checkDocumentedBuildSteps(
     }
 }
 
-fn collectMarkdownDocsUnder(
+fn collectCommandDocsUnder(
     io: std.Io,
     gpa: std.mem.Allocator,
     arena: std.mem.Allocator,
@@ -2949,6 +3080,7 @@ fn collectMarkdownDocsUnder(
     out: *std.ArrayList([]const u8),
     violations: *std.ArrayList([]const u8),
     dir_path: []const u8,
+    ext: []const u8,
 ) !void {
     var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
         try appendViolation(gpa, violations, "{s}: failed to open for command check with {s}", .{ dir_path, @errorName(err) });
@@ -2960,7 +3092,7 @@ fn collectMarkdownDocsUnder(
     defer walker.deinit();
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
-        if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
+        if (!std.mem.endsWith(u8, entry.path, ext)) continue;
         try out.append(gpa, try std.fmt.allocPrint(arena, "{s}/{s}", .{ dir_path, entry.path }));
     }
 }

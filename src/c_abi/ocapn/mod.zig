@@ -45,7 +45,6 @@ const abi = @import("c_abi_shared");
 const context = @import("context.zig");
 const frame = @import("frame.zig");
 const peer = @import("peer.zig");
-const gift_registry = @import("gift_registry.zig");
 const node = @import("node.zig");
 const uri = @import("uri.zig");
 
@@ -67,7 +66,6 @@ pub export fn pancake_abi_version(out_major: ?*u32, out_minor: ?*u32, out_patch:
 // Return codes and codec selector (shared leaf; re-exported for header reflection).
 pub const PANCAKE_OK = abi.PANCAKE_OK;
 pub const PANCAKE_ERR_NULL_POINTER = abi.PANCAKE_ERR_NULL_POINTER;
-pub const PANCAKE_ERR_INVALID_HANDLE = abi.PANCAKE_ERR_INVALID_HANDLE;
 pub const PANCAKE_ERR_INVALID_ARGUMENT = abi.PANCAKE_ERR_INVALID_ARGUMENT;
 pub const PANCAKE_ERR_SESSION = abi.PANCAKE_ERR_SESSION;
 pub const PANCAKE_ERR_CODEC = abi.PANCAKE_ERR_CODEC;
@@ -77,7 +75,6 @@ pub const PANCAKE_ERR_CLOSED = abi.PANCAKE_ERR_CLOSED;
 pub const PANCAKE_ERR_IO = abi.PANCAKE_ERR_IO;
 pub const PANCAKE_ERR_MALFORMED = abi.PANCAKE_ERR_MALFORMED;
 pub const PANCAKE_ERR_FRAME_TOO_LARGE = abi.PANCAKE_ERR_FRAME_TOO_LARGE;
-pub const PANCAKE_ERR_WRONG_EVENT = abi.PANCAKE_ERR_WRONG_EVENT;
 pub const PANCAKE_ERR_UNSUPPORTED_VALUE = abi.PANCAKE_ERR_UNSUPPORTED_VALUE;
 pub const PANCAKE_ERR_BROKEN = abi.PANCAKE_ERR_BROKEN;
 pub const PANCAKE_ERR_NOT_FOUND = abi.PANCAKE_ERR_NOT_FOUND;
@@ -123,17 +120,71 @@ pub const PancakeEvent = extern struct {
 
 pub const PancakePeer = opaque {};
 
-/// A vat-scoped deposited-gift table shared across the peers of one node, so an
-/// exporter's deposit (on the gifter session) and withdraw (on the recipient
-/// session) resolve against the same authority (ADR-0009/ADR-0056).
-pub const PancakeGiftRegistry = opaque {};
-
 /// The sans-io cross-connection handoff router (`engine.Node`, ADR-0066): a tier
 /// above `PancakePeer` that owns the retained node identity, the shared gift
 /// registry, one node-owned peer per registered connection, and the
 /// redeemed-token / foreign-home routing that makes three-party handoff
 /// transparent. Single-owner and not internally synchronized, like `PancakePeer`.
 pub const PancakeNode = opaque {};
+
+/// `PancakeNodeAction.kind`: what the host must do next for the node's serve
+/// step. `_NONE` is never returned by a successful `pancake_node_next_action`.
+pub const PANCAKE_NODE_ACTION_NONE: u32 = 0;
+/// Dial the exporter at the action's locator with the node identity, register
+/// the connection, open the keyed session, then report
+/// `pancake_node_exporter_dialed` (or `pancake_node_dial_failed`).
+pub const PANCAKE_NODE_ACTION_DIAL: u32 = 1;
+/// Pump the named connection's outbound queue to the wire.
+pub const PANCAKE_NODE_ACTION_FLUSH: u32 = 2;
+/// Settle the named application answer with the redeemed token (an ordinary
+/// far id the application can call).
+pub const PANCAKE_NODE_ACTION_SETTLE: u32 = 3;
+/// Break the named application answer with the action's reason.
+pub const PANCAKE_NODE_ACTION_FAIL: u32 = 4;
+/// Draw 32 bytes of gift-id entropy and answer with
+/// `pancake_node_provide_gift_id(ticket, bytes)`; the ticket rides the
+/// action's `pending` field. Entropy is a host effect like dialing — the
+/// sans-io node never generates it.
+pub const PANCAKE_NODE_ACTION_NEED_GIFT_ID: u32 = 5;
+
+/// How a pending withdraw's resolve settled, fed to
+/// `pancake_node_claim_resolve`: fulfilled with a far object capability,
+/// broken by the exporter, or fulfilled with something that is not a
+/// capability.
+pub const PANCAKE_REDEEM_OUTCOME_FAR: u32 = 0;
+pub const PANCAKE_REDEEM_OUTCOME_BROKEN: u32 = 1;
+pub const PANCAKE_REDEEM_OUTCOME_NOT_CAPABILITY: u32 = 2;
+
+/// The base of the reserved redeemed-handoff-token far-id range (ADR-0066): a
+/// far id at or above this names a capability the node redeemed and routes to
+/// its exporter connection, never a wire import, so a token can never alias a
+/// partner's import. A host that keys per-import state (GC, caches) by far id
+/// uses this bound to tell the two apart.
+pub const PANCAKE_REDEEMED_TOKEN_BASE: u64 = engine.Node.REDEEMED_TOKEN_BASE;
+
+/// One action from the node's serve step, filled by
+/// `pancake_node_next_action`. `kind` selects the live fields; the `locator`
+/// and `reason` views are node-owned and valid until the next
+/// `pancake_node_next_action` call (or node free) — copy what outlives that.
+pub const PancakeNodeAction = extern struct {
+    kind: u32,
+    /// `_DIAL`: the ticket `pancake_node_exporter_dialed` / `_dial_failed`
+    /// reports back. `_NEED_GIFT_ID`: the ticket
+    /// `pancake_node_provide_gift_id` answers.
+    pending: u64,
+    /// `_DIAL`: the exporter's dialable `ocapn://…` locator.
+    locator: ?[*]const u8,
+    locator_len: usize,
+    /// `_FLUSH` / `_SETTLE` / `_FAIL`: the connection the action names.
+    conn_id: u64,
+    /// `_SETTLE` / `_FAIL`: the application answer to settle or break.
+    answer: u64,
+    /// `_SETTLE`: the redeemed token's far id.
+    token: u64,
+    /// `_FAIL`: the break reason.
+    reason: ?[*]const u8,
+    reason_len: usize,
+};
 
 // ── Allocation context ───────────────────────────────────────────────────────
 
@@ -188,8 +239,9 @@ pub const PANCAKE_BOOTSTRAP_POSITION: u64 = engine.BOOTSTRAP_POSITION;
 pub const PancakeReference = abi.PancakeReference;
 pub const PancakeArgument = abi.PancakeArgument;
 
-/// A received `op:deliver` projected to C. `args` aliases an internal arena;
-/// release the whole projection with `pancake_deliver_release` exactly once.
+/// A received `op:deliver` projected to C. `args` aliases an internal arena
+/// owned by the enclosing `PancakeAnyEvent`; the views die with
+/// `pancake_any_event_release`.
 pub const PancakeDeliver = extern struct {
     target: PancakeReference,
     args: ?[*]const PancakeArgument,
@@ -207,7 +259,7 @@ pub const PancakeDeliver = extern struct {
 /// is not a flat transport locator (the binding then cannot dial it). `recipient_key`
 /// is the 32-byte Ed25519 public key the give is addressed to, so a binding can
 /// confirm the gift names its own identity. All views alias the owning
-/// `PancakeResolve`'s arena and die with `pancake_resolve_release`.
+/// projection's arena and die with `pancake_any_event_release`.
 pub const PancakeHandoffGive = extern struct {
     give: ?[*]const u8,
     give_len: usize,
@@ -219,7 +271,8 @@ pub const PancakeHandoffGive = extern struct {
 
 /// A received `op:resolve` projected to C. `resolution_kind` selects `fulfill`
 /// (a value), the `break_message` bytes, or `handoff` (a `desc:handoff-give` to
-/// redeem). Release with `pancake_resolve_release`.
+/// redeem). The views alias the enclosing `PancakeAnyEvent`'s arena and die
+/// with `pancake_any_event_release`.
 pub const PancakeResolve = extern struct {
     answer: u64,
     resolution_kind: u32,
@@ -228,6 +281,29 @@ pub const PancakeResolve = extern struct {
     break_message_len: usize,
     handoff: PancakeHandoffGive,
     owner: ?*anyopaque,
+};
+
+/// `PancakeAnyEvent.projection`: which arm of the polled event is live.
+/// `_NONE` is the released/empty sentinel `pancake_any_event_release` writes
+/// back; a successful poll never returns it.
+pub const PANCAKE_PROJECTION_NONE: u32 = 0;
+pub const PANCAKE_PROJECTION_DELIVER: u32 = 1;
+pub const PANCAKE_PROJECTION_RESOLVE: u32 = 2;
+pub const PANCAKE_PROJECTION_FRAME: u32 = 3;
+
+/// One polled event, fully projected — what `pancake_peer_next_event`
+/// fills. `kind` is the event's `PANCAKE_EVENT_*`; `projection` names the arm
+/// that carries it: a typed `deliver` or `resolve`, or the originating wire
+/// `frame` for every other kind and for a deliver/resolve whose value the typed
+/// surface cannot carry. Exactly one arm is live at a time. Release with
+/// `pancake_any_event_release` exactly once; the deliver/resolve views die with
+/// the release.
+pub const PancakeAnyEvent = extern struct {
+    kind: u32,
+    projection: u32,
+    deliver: PancakeDeliver,
+    resolve: PancakeResolve,
+    frame: PancakeManagedFrame,
 };
 
 /// `PancakeEnlivenStart.status`: how `pancake_peer_prepare_enliven` resolved
@@ -382,26 +458,24 @@ pub const pancake_encode_peer_locator = peer.pancake_encode_peer_locator;
 pub const pancake_peer_locator_bytes_release = peer.pancake_peer_locator_bytes_release;
 pub const pancake_peer_send_deposit_gift = peer.pancake_peer_send_deposit_gift;
 pub const pancake_peer_send_resolve_handoff_give = peer.pancake_peer_send_resolve_handoff_give;
-pub const pancake_gift_registry_new = gift_registry.pancake_gift_registry_new;
-pub const pancake_gift_registry_new_in = gift_registry.pancake_gift_registry_new_in;
-pub const pancake_gift_registry_free = gift_registry.pancake_gift_registry_free;
-pub const pancake_peer_set_gift_registry = gift_registry.pancake_peer_set_gift_registry;
 pub const pancake_node_new = node.pancake_node_new;
 pub const pancake_node_new_in = node.pancake_node_new_in;
 pub const pancake_node_free = node.pancake_node_free;
 pub const pancake_node_register_conn = node.pancake_node_register_conn;
 pub const pancake_node_remove_conn = node.pancake_node_remove_conn;
-pub const pancake_node_send_withdraw = node.pancake_node_send_withdraw;
-pub const pancake_node_originate_give = node.pancake_node_originate_give;
-pub const pancake_node_enroll_redeemed = node.pancake_node_enroll_redeemed;
 pub const pancake_node_route = node.pancake_node_route;
 pub const pancake_node_record_foreign_home = node.pancake_node_record_foreign_home;
-pub const pancake_node_foreign_home = node.pancake_node_foreign_home;
 pub const pancake_node_arg_is_foreign = node.pancake_node_arg_is_foreign;
-pub const pancake_peer_poll_event_deliver = peer.pancake_peer_poll_event_deliver;
-pub const pancake_peer_poll_event_resolve = peer.pancake_peer_poll_event_resolve;
-pub const pancake_deliver_release = peer.pancake_deliver_release;
-pub const pancake_resolve_release = peer.pancake_resolve_release;
+pub const pancake_node_accept_give = node.pancake_node_accept_give;
+pub const pancake_node_exporter_dialed = node.pancake_node_exporter_dialed;
+pub const pancake_node_dial_failed = node.pancake_node_dial_failed;
+pub const pancake_node_claim_resolve = node.pancake_node_claim_resolve;
+pub const pancake_node_intercept_fulfilled_ref = node.pancake_node_intercept_fulfilled_ref;
+pub const pancake_node_provide_gift_id = node.pancake_node_provide_gift_id;
+pub const pancake_node_set_exporter_location = node.pancake_node_set_exporter_location;
+pub const pancake_node_next_action = node.pancake_node_next_action;
+pub const pancake_peer_next_event = peer.pancake_peer_next_event;
+pub const pancake_any_event_release = peer.pancake_any_event_release;
 
 pub const pancake_uri_parse_peer = uri.pancake_uri_parse_peer;
 pub const pancake_uri_parse_sturdyref = uri.pancake_uri_parse_sturdyref;
@@ -409,6 +483,7 @@ pub const pancake_uri_format_peer = uri.pancake_uri_format_peer;
 pub const pancake_uri_format_sturdyref = uri.pancake_uri_format_sturdyref;
 pub const pancake_locator_transport = uri.pancake_locator_transport;
 pub const pancake_locator_designator = uri.pancake_locator_designator;
+pub const pancake_locator_host_port = uri.pancake_locator_host_port;
 pub const pancake_locator_swissnum = uri.pancake_locator_swissnum;
 pub const pancake_locator_hint = uri.pancake_locator_hint;
 pub const pancake_locator_hint_count = uri.pancake_locator_hint_count;
@@ -421,7 +496,6 @@ comptime {
     _ = context;
     _ = frame;
     _ = peer;
-    _ = gift_registry;
     _ = node;
     _ = uri;
 }

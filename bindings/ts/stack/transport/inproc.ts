@@ -22,19 +22,20 @@
 // `pancake_inproc_last_error`, so a failed call's diagnostic never scrapes the
 // core's unrelated `pancake_last_error`.
 
-import { FRAME_SHAPE_BYTE } from "../internal/constants.ts";
+import {
+	FRAME_BYTES_OFF,
+	FRAME_LEN_OFF,
+	FRAME_SHAPE_BYTE,
+	FRAME_SHAPE_OFF,
+	FRAME_SIZE,
+	MANAGED_FRAME_BYTES_OFF,
+	MANAGED_FRAME_LEN_OFF,
+	MANAGED_FRAME_SIZE,
+} from "../internal/constants.ts";
 import { inprocS } from "../internal/ffi/inproc.ts";
 import { ffi, NULL, type Ptr } from "../internal/ffi/runtime.ts";
-import {
-	ab,
-	type Codec,
-	codecId,
-	Context,
-	outPointer,
-	PancakeError,
-	readBytes,
-	releaseManagedFrame,
-} from "../mod.ts";
+import { ab, outPointer, readBytes, releaseManagedFrame } from "../internal/seam.ts";
+import { type Codec, codecId, PancakeError } from "../mod.ts";
 
 const OK = 0;
 
@@ -83,20 +84,22 @@ export class Endpoint {
 	}
 	/** Block for one whole frame. Throws PANCAKE_ERR_CLOSED on clean EOF. */
 	readFrame(): Uint8Array {
-		const mf = new Uint8Array(40);
+		const mf = new Uint8Array(MANAGED_FRAME_SIZE);
 		checkInproc(inprocS.pancake_inproc_conn_read_frame(this.#raw, mf));
 		const dv = new DataView(mf.buffer);
-		const out = readBytes(dv.getBigUint64(0, true), dv.getBigUint64(8, true))
-			.slice();
+		const out = readBytes(
+			dv.getBigUint64(MANAGED_FRAME_BYTES_OFF, true),
+			dv.getBigUint64(MANAGED_FRAME_LEN_OFF, true),
+		).slice();
 		releaseManagedFrame(mf);
 		return out;
 	}
 	writeFrame(frame: Uint8Array): void {
-		const f = new Uint8Array(24);
+		const f = new Uint8Array(FRAME_SIZE);
 		const dv = new DataView(f.buffer);
-		dv.setBigUint64(0, ffi.pointerOf(frame), true);
-		dv.setBigUint64(8, BigInt(frame.length), true);
-		dv.setUint32(16, FRAME_SHAPE_BYTE, true);
+		dv.setBigUint64(FRAME_BYTES_OFF, ffi.pointerOf(frame), true);
+		dv.setBigUint64(FRAME_LEN_OFF, BigInt(frame.length), true);
+		dv.setUint32(FRAME_SHAPE_OFF, FRAME_SHAPE_BYTE, true);
 		checkInproc(inprocS.pancake_inproc_conn_write_frame(this.#raw, f));
 	}
 }
@@ -147,14 +150,6 @@ export class Netlayer {
 		this.#raw = outPointer(out);
 	}
 
-	/** A netlayer whose switchboard, backend, and per-connection buffers allocate
-	 * through `context`; the context must outlive it and every endpoint made from
-	 * it. */
-	static newIn(context: Context): Netlayer {
-		const out = new Uint8Array(8);
-		checkInproc(inprocS.pancake_inproc_netlayer_new_in(context.pointer, out));
-		return new Netlayer(outPointer(out));
-	}
 	release(): void {
 		if (this.#raw !== NULL) {
 			inprocS.pancake_inproc_netlayer_release(this.#raw);

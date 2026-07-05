@@ -139,7 +139,10 @@ exercises the dispatch from outside the tree, though it rides tcp underneath.)
 Server-side hosting is at parity across the surface. The native driver hosts
 with `driver.listen` (each `accept` hands back an owning `driver.Connection`),
 with `driver.acceptTcp` as the buffer-explicit spelling, both proven by the
-driver loopback tests. Every binding listens as well as dials; the Rust
+driver loopback tests; above the one-connection face, `driver.Host` is the
+multi-connection tier that owns the identity, the node, and both three-party
+handoff halves (ADR-0068), proven hermetically by the three-host scenario and
+live by the `goblins-handoff` driver built on it. Every binding listens as well as dials; the Rust
 connection test and the Racket smoke gate their host sides. The inbound read
 path is production-shaped. Read buffers size the steady state, and an admissible
 frame larger than the buffer rides a bounded owned spill shared by every inbound

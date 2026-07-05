@@ -148,6 +148,33 @@ pub export fn pancake_locator_designator(loc: ?*PancakeLocator, out_ptr: ?*?[*]c
     return writeView(payload.peer.designator, out_ptr, out_len);
 }
 
+/// Split the locator's designator as `host:port` — the address grammar a socket
+/// transport's designator carries — writing a borrowed host view and the decimal
+/// port. The split is `model.uri.splitHostPort`, the same grammar the native TCP
+/// netlayer dials through: last-colon split, bracketed IPv6 literals unwrapped
+/// (`[::1]:9000` yields host `::1`), decimal `u16` port. A consumer dialing with
+/// its own sockets stops re-deriving that split per language, which is where the
+/// copies had already drifted. PANCAKE_ERR_INVALID_ARGUMENT (see
+/// pancake_last_error) when the designator does not carry the grammar. The host
+/// view aliases the handle until pancake_locator_release.
+pub export fn pancake_locator_host_port(
+    loc: ?*PancakeLocator,
+    out_host: ?*?[*]const u8,
+    out_host_len: ?*usize,
+    out_port: ?*u16,
+) i32 {
+    const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
+    const port_slot = out_port orelse return PANCAKE_ERR_NULL_POINTER;
+    const split = model.uri.splitHostPort(payload.peer.designator) catch {
+        setLastError("locator designator is not host:port: {s}", .{payload.peer.designator});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    };
+    const rc = writeView(split.host, out_host, out_host_len);
+    if (rc != PANCAKE_OK) return rc;
+    port_slot.* = split.port;
+    return PANCAKE_OK;
+}
+
 /// Borrow the locator's swissnum: zero-length for a peer URI, the swiss bytes for
 /// a sturdyref. The discriminator a C caller reads instead of a second handle type.
 pub export fn pancake_locator_swissnum(loc: ?*PancakeLocator, out_ptr: ?*?[*]const u8, out_len: ?*usize) i32 {

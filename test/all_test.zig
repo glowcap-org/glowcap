@@ -56,12 +56,13 @@ comptime {
     _ = @import("engine/fetch_test.zig");
     _ = @import("engine/bootstrap_test.zig");
     _ = @import("engine/sturdyref_test.zig");
-    _ = @import("engine/registry_test.zig");
     _ = @import("engine/gift_registry_test.zig");
     _ = @import("engine/cross_peer_test.zig");
     _ = @import("engine/pairing_test.zig");
     _ = @import("engine/node_test.zig");
     _ = @import("driver/connected_vat_test.zig");
+    _ = @import("driver/host_smoke_test.zig");
+    _ = @import("driver/host_three_party_test.zig");
     _ = @import("driver/crossed_hellos_test.zig");
     _ = @import("driver/gc_stateless_test.zig");
     _ = @import("driver/pluggability_test.zig");

@@ -31,7 +31,7 @@ fn captureInt(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     const slot: *i64 = @ptrCast(@alignCast(ctx.?));
     slot.* = switch (resolution) {
         .fulfilled => |value| value.integer,
-        .broken => -1,
+        .broken, .give => -1,
     };
 }
 
@@ -159,4 +159,176 @@ test "binding two actors to the same export position fails loud instead of orpha
     // Which local object answers export position 7 is authority: a second bind to
     // the same position would silently orphan `first`, so it is rejected.
     try std.testing.expectError(actors.Error.AlreadyPublished, server.bindExport(second, 7));
+}
+
+/// Captures a `.give` resolution's projection into fixed buffers so the test
+/// can assert on it after the bounded listener call returns.
+const GiveCapture = struct {
+    fired: bool = false,
+    typed: bool = false,
+    envelope: [512]u8 = undefined,
+    envelope_len: usize = 0,
+    uri: [128]u8 = undefined,
+    uri_len: usize = 0,
+    key: [64]u8 = undefined,
+    key_len: usize = 0,
+
+    fn fire(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        const self: *GiveCapture = @ptrCast(@alignCast(ctx.?));
+        self.fired = true;
+        switch (resolution) {
+            .give => |give| {
+                self.typed = true;
+                self.envelope_len = @min(give.give_bytes.len, self.envelope.len);
+                @memcpy(self.envelope[0..self.envelope_len], give.give_bytes[0..self.envelope_len]);
+                self.uri_len = @min(give.exporter_locator_uri.len, self.uri.len);
+                @memcpy(self.uri[0..self.uri_len], give.exporter_locator_uri[0..self.uri_len]);
+                self.key_len = @min(give.recipient_key.len, self.key.len);
+                @memcpy(self.key[0..self.key_len], give.recipient_key[0..self.key_len]);
+            },
+            .fulfilled, .broken => {},
+        }
+    }
+};
+
+test "a resolve carrying a handoff give fires the listener typed: verbatim envelope, dialable locator, recipient key" {
+    const crypto = pancake.foundation.crypto;
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.paired(allocator);
+    defer pair.deinit();
+
+    // The client vat asks a far object a question; the partner will answer it
+    // with an introduction instead of a value.
+    var client = actors.Vat.initOver(allocator, &pair.p1);
+    defer client.deinit();
+    try pair.p2.exportObject(7);
+    try pair.p1.importObject(7);
+    const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
+    const promise = try client.send(remote, .{ .verb = "introduce", .args = &.{} });
+    var captured = GiveCapture{};
+    try client.on(promise, .{ .ctx = &captured, .func = GiveCapture.fire });
+
+    try shuttle(&pair.p1, &pair.p2);
+    const answer = blk: {
+        var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
+        defer event.deinit();
+        const body = try event.view();
+        break :blk body.deliver.answer orelse return error.ExpectedAnswer;
+    };
+
+    // A genuine signed give whose exporter location is a verbatim locator
+    // record, exactly what a gifter node would have minted.
+    const gifter_secret = crypto.SecretKey.fromSeed([_]u8{7} ** crypto.SEED_BYTES);
+    const recipient_key = crypto.SecretKey.fromSeed([_]u8{9} ** crypto.SEED_BYTES).publicKey().asBytes();
+    const exporter_key = crypto.SecretKey.fromSeed([_]u8{8} ** crypto.SEED_BYTES).publicKey().asBytes();
+    const location = try engine.encodePeerLocatorRecord(allocator, .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:9070",
+        .hints = model.Hints.emptyFalse(),
+    });
+    defer allocator.free(location);
+    const gifter_side = try engine.handoff_recipient.sideName(gifter_secret.publicKey().asBytes());
+    const exporter_side = try engine.handoff_recipient.sideName(exporter_key);
+    const session = engine.handoff_recipient.sessionName(gifter_side, exporter_side);
+    const gift_id = [_]u8{0x5a} ** 32;
+    const give = try engine.handoff_gifter.buildSignedGive(
+        allocator,
+        gifter_secret,
+        recipient_key,
+        location,
+        &session,
+        &gifter_side,
+        &gift_id,
+    );
+    defer allocator.free(give);
+
+    try pair.p2.sendResolveHandoffGive(answer, give);
+    try shuttle(&pair.p2, &pair.p1);
+    {
+        var event = pair.p1.pollEvent() orelse return error.ExpectedResolve;
+        defer event.deinit();
+        try std.testing.expect(try client.serve(&event));
+    }
+
+    try std.testing.expect(captured.fired);
+    try std.testing.expect(captured.typed);
+    // The envelope is the verbatim signed give, byte-for-byte what the gifter
+    // minted — the recipient relays it unaltered inside its handoff-receive.
+    try std.testing.expectEqualStrings(give, captured.envelope[0..captured.envelope_len]);
+    // The exporter location projects through the one URI grammar, dialable.
+    try std.testing.expectEqualStrings("ocapn://127.0.0.1%3A9070.tcp", captured.uri[0..captured.uri_len]);
+    try std.testing.expectEqualSlices(u8, recipient_key, captured.key[0..captured.key_len]);
+}
+
+/// A resolve interceptor that claims replies fulfilling with an integer over
+/// 100, recording what it saw; smaller replies pass through untouched.
+const ClaimBigReplies = struct {
+    claimed: usize = 0,
+    seen_answer: u64 = 0,
+
+    fn fire(ctx: ?*anyopaque, answer: model.AnswerId, fulfilled: model.Argument) anyerror!bool {
+        const self: *ClaimBigReplies = @ptrCast(@alignCast(ctx.?));
+        if (fulfilled != .integer or fulfilled.integer <= 100) return false;
+        self.claimed += 1;
+        self.seen_answer = answer.int();
+        return true;
+    }
+};
+
+test "a resolve interceptor claims a served reply before it reaches the wire, and an unclaimed reply flows" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.paired(allocator);
+    defer pair.deinit();
+
+    var server = actors.Vat.initOver(allocator, &pair.p2);
+    defer server.deinit();
+    const counter = try server.spawn(Counter, .{ .n = 200 });
+    try server.bindExport(counter, 7);
+    try pair.p1.importObject(7);
+
+    var interceptor = ClaimBigReplies{};
+    server.setResolveInterceptor(.{ .ctx = &interceptor, .func = ClaimBigReplies.fire });
+
+    var client = actors.Vat.initOver(allocator, &pair.p1);
+    defer client.deinit();
+    const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
+
+    // First call replies 205: the interceptor claims it, so the client's
+    // promise stays unsettled — nothing crossed the wire back.
+    const claimed_promise = try client.send(remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+    var claimed_result: i64 = 0;
+    try client.on(claimed_promise, .{ .ctx = &claimed_result, .func = captureInt });
+    try shuttle(&pair.p1, &pair.p2);
+    {
+        var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
+        defer event.deinit();
+        try std.testing.expect(try server.serve(&event));
+    }
+    try std.testing.expectEqual(@as(usize, 1), interceptor.claimed);
+    _ = try pair.p2.step();
+    try std.testing.expect(pair.p2.takeOutbound() == null);
+    try std.testing.expectEqual(@as(i64, 0), claimed_result);
+
+    // Second call replies 5 (fresh counter at -100 → small): unclaimed, the
+    // ordinary resolve flows and the listener fires.
+    const small = try server.spawn(Counter, .{ .n = 0 });
+    try server.bindExport(small, 8);
+    try pair.p1.importObject(8);
+    const passed_promise = try client.send(.{ .far = model.FarRef.object(8) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+    var passed_result: i64 = 0;
+    try client.on(passed_promise, .{ .ctx = &passed_result, .func = captureInt });
+    try shuttle(&pair.p1, &pair.p2);
+    {
+        var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
+        defer event.deinit();
+        try std.testing.expect(try server.serve(&event));
+    }
+    try shuttle(&pair.p2, &pair.p1);
+    {
+        var event = pair.p1.pollEvent() orelse return error.ExpectedResolve;
+        defer event.deinit();
+        try std.testing.expect(try client.serve(&event));
+    }
+    try std.testing.expectEqual(@as(usize, 1), interceptor.claimed);
+    try std.testing.expectEqual(@as(i64, 5), passed_result);
 }

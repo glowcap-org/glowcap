@@ -39,6 +39,7 @@ const model = @import("model");
 const netlayer = @import("../netlayer.zig");
 const connection = @import("../connection.zig");
 const frame_stream = @import("../frame_stream.zig");
+const stream_shim = @import("../stream_shim.zig");
 
 const Io = std.Io;
 
@@ -55,7 +56,6 @@ const SpinLock = struct {
     }
 };
 const Connection = connection.Connection;
-const TransportHandle = connection.TransportHandle;
 const Netlayer = netlayer.Netlayer;
 const Listener = netlayer.Listener;
 const Buffers = netlayer.Buffers;
@@ -68,18 +68,6 @@ const AcceptError = netlayer.AcceptError;
 /// The transport symbol this resident registers under and signs into
 /// `op:start-session`. Matches the `pancake_inproc_*` C ABI family.
 pub const transport_name = "inproc";
-
-/// Build an `inproc` locator naming the switchboard `designator` to dial, the
-/// name a listener bound on the same `Network`. The transport owns this
-/// spelling, so a caller dials without writing the `model.PeerLocator` literal
-/// by hand. The designator is a caller-held name (not a formatted address), so
-/// it carries no buffer; the returned locator borrows it for the dial that
-/// copies what the session retains.
-pub fn locator(designator: []const u8) model.PeerLocator {
-    return .{ .transport = transport_name, .designator = designator, .hints = model.Hints.emptyFalse() };
-}
-
-const max_iovecs = 8;
 
 // ── The byte pipe ────────────────────────────────────────────────────────────
 
@@ -172,72 +160,30 @@ const Duplex = struct {
 
 // ── The stream over the pipes ────────────────────────────────────────────────
 
-const reader_vtable = Io.Reader.VTable{ .stream = StreamReader.streamImpl, .readVec = StreamReader.readVec };
-const writer_vtable = Io.Writer.VTable{ .drain = StreamWriter.drain };
-
-const StreamReader = struct {
-    interface: Io.Reader,
+/// The pipe as a `stream_shim` byte source: a blocking channel read that ends
+/// cleanly at the writer's close, and a write whose only fault is the pipe
+/// failing to allocate.
+const ChannelSource = struct {
     chan: *Channel,
 
-    fn streamImpl(io_r: *Io.Reader, io_w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
-        const dest = limit.slice(try io_w.writableSliceGreedy(1));
-        var data: [1][]u8 = .{dest};
-        const n = try readVec(io_r, &data);
-        io_w.advance(n);
-        return n;
-    }
-
-    fn readVec(io_r: *Io.Reader, data: [][]u8) Io.Reader.Error!usize {
-        const self: *StreamReader = @alignCast(@fieldParentPtr("interface", io_r));
-        var iovecs: [max_iovecs][]u8 = undefined;
-        const dest_n, const data_size = try io_r.writableVector(&iovecs, data);
-        const dest = iovecs[0..dest_n];
-        std.debug.assert(dest[0].len > 0);
-        // A short read into the first writable slice is allowed by the vtable
-        // contract; the pipe hands over whatever it has.
-        const n = self.chan.read(dest[0]);
+    pub fn readSome(self: ChannelSource, dest: []u8) Io.Reader.Error!usize {
+        const n = self.chan.read(dest);
         if (n == 0) return error.EndOfStream;
-        if (n > data_size) {
-            io_r.end += n - data_size;
-            return data_size;
-        }
         return n;
     }
-};
 
-const StreamWriter = struct {
-    interface: Io.Writer,
-    chan: *Channel,
-    failed: bool = false,
-
-    fn drain(io_w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
-        const self: *StreamWriter = @alignCast(@fieldParentPtr("interface", io_w));
-        var total: usize = 0;
-        const buffered = io_w.buffered();
-        if (buffered.len > 0) {
-            self.chan.write(buffered) catch return self.fail();
-            total += buffered.len;
-        }
-        const slices = data[0 .. data.len - 1];
-        for (slices) |slice| {
-            if (slice.len == 0) continue;
-            self.chan.write(slice) catch return self.fail();
-            total += slice.len;
-        }
-        const pattern = data[data.len - 1];
-        if (pattern.len > 0) {
-            var i: usize = 0;
-            while (i < splat) : (i += 1) self.chan.write(pattern) catch return self.fail();
-            total += pattern.len * splat;
-        }
-        return io_w.consume(total);
+    pub fn writeAll(self: ChannelSource, bytes: []const u8) Io.Writer.Error!void {
+        self.chan.write(bytes) catch return error.WriteFailed;
     }
 
-    fn fail(self: *StreamWriter) Io.Writer.Error {
-        self.failed = true;
-        return error.WriteFailed;
+    pub fn flush(self: ChannelSource) Io.Writer.Error!void {
+        _ = self; // The pipe buffers nothing outside the channel; no flush step.
     }
 };
+
+const Shim = stream_shim.Shim(ChannelSource);
+const StreamReader = Shim.Reader;
+const StreamWriter = Shim.Writer;
 
 /// One end of a connection, pinned so the `Connection`'s borrowed reader/writer
 /// interfaces hold a stable address (the vtable recovers the concrete stream from
@@ -260,14 +206,8 @@ const Endpoint = struct {
         self.* = .{
             .allocator = allocator,
             .duplex = duplex,
-            .reader = .{
-                .interface = .{ .vtable = &reader_vtable, .buffer = bufs.read, .seek = 0, .end = 0 },
-                .chan = read_chan,
-            },
-            .writer = .{
-                .interface = .{ .vtable = &writer_vtable, .buffer = bufs.write },
-                .chan = write_chan,
-            },
+            .reader = StreamReader.init(.{ .chan = read_chan }, bufs.read),
+            .writer = StreamWriter.init(.{ .chan = write_chan }, bufs.write),
         };
         return self;
     }
@@ -283,7 +223,7 @@ const Endpoint = struct {
     fn close(ctx: *anyopaque) void {
         const self: *Endpoint = @ptrCast(@alignCast(ctx));
         // Closing our write side gives the partner's reader a clean EOF.
-        self.writer.chan.close();
+        self.writer.source.chan.close();
         const duplex = self.duplex;
         self.allocator.destroy(self);
         duplex.release();
@@ -334,12 +274,6 @@ pub const InprocFrameStream = struct {
     /// Write one frame's borrowed bytes into the partner's pipe.
     pub fn writeFrame(self: *InprocFrameStream, bytes: []const u8) frame_stream.FrameError!void {
         return frame_stream.writeFrameTo(&self.endpoint.writer.interface, bytes);
-    }
-
-    /// Whether the last write failed (the in-process pipe could not allocate).
-    /// Inproc has no socket-level read fault, so there is no `lastReadError`.
-    pub fn writeFailed(self: *const InprocFrameStream) bool {
-        return self.endpoint.writer.failed;
     }
 
     pub fn deinit(self: *InprocFrameStream) void {

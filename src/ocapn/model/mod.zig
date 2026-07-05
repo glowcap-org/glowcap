@@ -33,21 +33,15 @@ pub const freeMessage = owned.freeMessage;
 pub const cloneArgument = owned.cloneArgument;
 pub const freeArgument = owned.freeArgument;
 pub const cloneArgumentSlice = owned.cloneArgumentSlice;
-pub const freeArgumentSlice = owned.freeArgumentSlice;
 pub const freePipelineOp = owned.freePipelineOp;
-pub const cloneResolution = owned.cloneResolution;
 pub const freeResolution = owned.freeResolution;
 pub const cloneReference = owned.cloneReference;
 pub const freeReference = owned.freeReference;
-pub const clonePipelinePath = owned.clonePipelinePath;
-pub const freePipelinePath = owned.freePipelinePath;
 pub const freeHandoffGive = owned.freeHandoffGive;
 pub const freeHandoff = owned.freeHandoff;
-pub const clonePeerLocator = owned.clonePeerLocator;
 pub const freePeerLocator = owned.freePeerLocator;
 pub const cloneHints = owned.cloneHints;
 pub const freeHints = owned.freeHints;
-pub const cloneHintEntry = owned.cloneHintEntry;
 pub const freeHintEntry = owned.freeHintEntry;
 pub const cloneHintValue = owned.cloneHintValue;
 pub const freeHintValue = owned.freeHintValue;
@@ -198,10 +192,6 @@ pub const PipelineOp = union(enum) {
 /// An empty path just means the answer itself.
 pub const PipelinePath = struct {
     ops: []const PipelineOp = &.{},
-
-    pub fn empty() PipelinePath {
-        return .{};
-    }
 
     pub fn isEmpty(self: PipelinePath) bool {
         return self.ops.len == 0;

@@ -180,3 +180,43 @@ test "a byte-array hint value has no URI form" {
     };
     try std.testing.expectError(uri.Error.UnsupportedHintValue, uri.writePeer(allocator, locator));
 }
+
+test "splitHostPort splits an IPv4 host:port designator" {
+    const split = try uri.splitHostPort("127.0.0.1:8080");
+    try std.testing.expectEqualStrings("127.0.0.1", split.host);
+    try std.testing.expectEqual(@as(u16, 8080), split.port);
+}
+
+test "splitHostPort unwraps a bracketed IPv6 literal" {
+    const split = try uri.splitHostPort("[::1]:9000");
+    try std.testing.expectEqualStrings("::1", split.host);
+    try std.testing.expectEqual(@as(u16, 9000), split.port);
+}
+
+test "splitHostPort keeps a hostname intact" {
+    const split = try uri.splitHostPort("example.test:1234");
+    try std.testing.expectEqualStrings("example.test", split.host);
+}
+
+test "splitHostPort rejects a designator with no port colon" {
+    try std.testing.expectError(uri.Error.InvalidHostPort, uri.splitHostPort("127.0.0.1"));
+}
+
+test "splitHostPort rejects a non-numeric port" {
+    try std.testing.expectError(uri.Error.InvalidHostPort, uri.splitHostPort("host:http"));
+}
+
+test "splitHostPort rejects a port past u16" {
+    try std.testing.expectError(uri.Error.InvalidHostPort, uri.splitHostPort("host:70000"));
+}
+
+test "splitHostPort rejects an empty host" {
+    try std.testing.expectError(uri.Error.InvalidHostPort, uri.splitHostPort(":9000"));
+    try std.testing.expectError(uri.Error.InvalidHostPort, uri.splitHostPort("[]:9000"));
+}
+
+test "splitHostPort rejects non-digit port spellings" {
+    // `parseInt` alone would admit these; a wire grammar must not.
+    try std.testing.expectError(uri.Error.InvalidHostPort, uri.splitHostPort("host:+80"));
+    try std.testing.expectError(uri.Error.InvalidHostPort, uri.splitHostPort("host:9_000"));
+}

@@ -154,7 +154,7 @@ pub const Reader = struct {
         return self.word(loc.data_idx + i);
     }
 
-    pub fn ptrWordRaw(self: Reader, loc: StructLoc, i: u16) Error!u64 {
+    fn ptrWordRaw(self: Reader, loc: StructLoc, i: u16) Error!u64 {
         if (i >= loc.ptr_words) return 0;
         return self.word(loc.data_idx + loc.data_words + i);
     }

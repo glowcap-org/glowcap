@@ -99,11 +99,15 @@ const InprocListenerPayload = struct {
     allocator: std.mem.Allocator,
 };
 
-// Same per-connection buffer caps as the TCP endpoints: neither holds a whole
-// frame (a large inbound frame spills, bounded by `max_frame_bytes`), so steady
-// per-connection memory is these two buffers.
-const endpoint_read_buf_bytes: usize = 16 * 1024;
-const endpoint_write_buf_bytes: usize = 64 * 1024;
+// The shared buffer/payload lifecycle (`c_abi_shared.ConnLifecycle`): allocate
+// with `begin`, release a never-installed payload with `abort`, an established
+// one with `destroy`. Buffer caps are the shared leaf's
+// `endpoint_read_buf_bytes` / `endpoint_write_buf_bytes`, the same as the TCP
+// endpoints.
+const conn_lifecycle = c.ConnLifecycle(InprocConnPayload);
+const beginConn = conn_lifecycle.begin;
+const abortConn = conn_lifecycle.abort;
+const destroyConn = conn_lifecycle.destroy;
 
 /// Create a netlayer handle allocating through the library-owned allocator.
 /// Release it with `pancake_inproc_netlayer_release` after closing every
@@ -138,38 +142,6 @@ pub export fn pancake_inproc_netlayer_release(netlayer: ?*PancakeInprocNetlayer)
     const alloc = payload.allocator;
     payload.network.deinit();
     payload.threaded.deinit();
-    alloc.destroy(payload);
-}
-
-fn beginConn(alloc: std.mem.Allocator, max_frame_bytes: usize) ?*InprocConnPayload {
-    const read_buf = alloc.alloc(u8, @min(max_frame_bytes, endpoint_read_buf_bytes)) catch return null;
-    const write_buf = alloc.alloc(u8, @min(max_frame_bytes, endpoint_write_buf_bytes)) catch {
-        alloc.free(read_buf);
-        return null;
-    };
-    const payload = alloc.create(InprocConnPayload) catch {
-        alloc.free(read_buf);
-        alloc.free(write_buf);
-        return null;
-    };
-    payload.read_buf = read_buf;
-    payload.write_buf = write_buf;
-    payload.allocator = alloc;
-    return payload;
-}
-
-fn abortConn(payload: *InprocConnPayload) void {
-    const alloc = payload.allocator;
-    alloc.free(payload.read_buf);
-    alloc.free(payload.write_buf);
-    alloc.destroy(payload);
-}
-
-fn destroyConn(payload: *InprocConnPayload) void {
-    const alloc = payload.allocator;
-    payload.stream.deinit();
-    alloc.free(payload.read_buf);
-    alloc.free(payload.write_buf);
     alloc.destroy(payload);
 }
 

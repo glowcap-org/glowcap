@@ -138,6 +138,52 @@
 
 (printf "racket zig-smoke OK: queued an authenticated PreSpec start-session\n")
 
+;; ── The codec selector end-to-end: a Cap'n Proto session ─────────────────────
+;; Two capnp peers complete the keyed handshake and carry a deliver whose
+;; arguments round-trip through the capnp codec — a big integer past int64 and
+;; a keyword included, so the two rare marshal arms are witnessed alongside the
+;; codec.
+(define capnp-a (make-peer #:codec 'capnp))
+(define capnp-b (make-peer #:codec 'capnp))
+(peer-start-session! capnp-a (make-bytes 32 1) #:designator "127.0.0.1:1")
+(peer-start-session! capnp-b (make-bytes 32 2) #:designator "127.0.0.1:2")
+(peer-step! capnp-a)
+(peer-step! capnp-b)
+(define (capnp-pump! src dst)
+  (let loop ([moved #f])
+    (define frame (peer-take-outbound src))
+    (cond
+      [frame
+       (define consumed (peer-recv-stream! dst frame))
+       (expect (equal? consumed (bytes-length frame)) "capnp: the whole frame is consumed")
+       (peer-step! dst)
+       (loop #t)]
+      [else moved])))
+(let handshake ([stalls 0])
+  (unless (and (peer-session-open? capnp-a) (peer-session-open? capnp-b))
+    (define moved-ab (capnp-pump! capnp-a capnp-b))
+    (define moved-ba (capnp-pump! capnp-b capnp-a))
+    (when (and (not moved-ab) (not moved-ba))
+      (expect (< stalls 4) "capnp: keyed handshake stalled"))
+    (handshake (add1 stalls))))
+(peer-register-export! capnp-b 7)
+(peer-register-import! capnp-a 7)
+(define capnp-big (expt 2 80))
+(peer-send-deliver! capnp-a (far-ref 7 #f) (list capnp-big (kw "prio") #"hi") #:answer 9)
+(peer-step! capnp-a)
+(void (capnp-pump! capnp-a capnp-b))
+(define capnp-ev
+  (let drain ()
+    (define ev (peer-poll capnp-b))
+    (if (or (not ev) (deliver-event? ev)) ev (drain)))) ; skip the surfaced start-session
+(expect (deliver-event? capnp-ev) "capnp: the deliver surfaced")
+(expect (equal? (deliver-event-args capnp-ev) (list capnp-big (kw "prio") #"hi"))
+        "capnp: big-integer + keyword + bytes args round-trip")
+(peer-release! capnp-a)
+(peer-release! capnp-b)
+
+(printf "racket zig-smoke OK: a capnp session opens and big-integer + keyword args round-trip\n")
+
 ;; ── The local|far seam: a vat far-send round-trip ────────────────────────────
 ;; peerB's vat publishes a counter at export 7; peerA's vat far-sends
 ;; `(<- (far 7) 'add 5)` through the seam, no hand-built wire message. Shuttle
@@ -541,7 +587,7 @@
 (printf "racket zig-smoke OK: promise pipelining drives create->assign->complete->status as one batch\n")
 
 ;; ── Pipelined projections (ADR-0050/ADR-0052) ─────────────────────────────────
-;; `conn-untag`/`conn-index`/`conn-get` project a tag/element/field out of a far
+;; `conn-untag`/`conn-index` project a tag/element out of a far
 ;; vow *before it settles*, each returning a new pipelinable vow. The board's
 ;; `make` returns a `("assigned" label 7)` row wrapped in a "task" tag; `untag`
 ;; unwraps the single-value tag to that row and `index 1` takes the label, a
@@ -588,6 +634,119 @@
 (server-close! pj-server)
 
 (printf "racket zig-smoke OK: pipelined projections untag->index reach a field, and a late source await still settles\n")
+
+;; ── Unawaited break + a real disconnect ───────────────────────────────────────
+;; Two failure contracts over a real socket. First: an unawaited
+;; `conn-send-promise` whose reply breaks stays silent — no listener means the
+;; broken vow crashes nothing, and the connection keeps answering. Second: a
+;; partner that hangs up mid-question settles the pending `conn-send` with a
+;; typed PANCAKE_ERR_CLOSED failure instead of hanging it forever.
+(define ub-server (listen "127.0.0.1" 0))
+(define ub-ready (make-semaphore 0))
+(define ub-host
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
+       (define hconn (accept ub-server))
+       (conn-publish hconn "svc"
+                     (lambda (bcom)
+                       (methods
+                        [(boom) (error "kaboom: refused")]
+                        [(ok) (sym "fine")])))
+       (semaphore-post ub-ready)
+       (conn-serve hconn)))))
+(define ub-conn (connect (tcp-locator "127.0.0.1" (server-port ub-server))))
+(semaphore-wait ub-ready)
+(define ub-cap (conn-fetch ub-conn "svc"))
+;; Fire the failing verb and never await it; the break arrives while the next
+;; call pumps and must stay silent.
+(void (conn-send-promise ub-conn ub-cap 'boom))
+(expect (equal? (sym "fine") (conn-send ub-conn ub-cap 'ok))
+        "unawaited: a later call still settles after an unawaited break")
+(connection-close! ub-conn)
+(server-close! ub-server)
+
+;; Real disconnect: a raw responder host completes the keyed handshake, then
+;; hangs up on the first `hang` deliver, leaving the client's question pending.
+(define dcs-listener (tcp-listen 0 4 #t "127.0.0.1"))
+(define-values (_dch dcs-port _dcrh _dcrp) (tcp-addresses dcs-listener #t))
+(define dcs-host
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
+       (define-values (sin sout) (tcp-accept dcs-listener))
+       (define hp (make-peer))
+       (peer-register-bootstrap-cap! hp #"svc")
+       (peer-start-session! hp (make-bytes 32 7) #:designator "127.0.0.1:2")
+       (define (pump!)
+         (peer-step-to-idle! hp)
+         (let drain () (define f (peer-take-outbound hp)) (when f (write-bytes f sout) (drain)))
+         (flush-output sout))
+       (pump!) ; ship the host's op:start-session before blocking on a read
+       (let loop ([inbox #""])
+         (define buf (make-bytes 65536))
+         (define n (read-bytes-avail! buf sin))
+         (unless (eof-object? n)
+           ;; Hang up the moment the `hang` deliver arrives, resolving nothing.
+           (cond
+             [(regexp-match? #rx#"hang" (subbytes buf 0 n))
+              (close-output-port sout)
+              (close-input-port sin)]
+             [else
+              (let consume ([bs (bytes-append inbox (subbytes buf 0 n))])
+                (define taken (peer-recv-stream! hp bs))
+                (cond
+                  [taken (consume (subbytes bs taken))]
+                  [else (pump!) (loop bs)]))])))))))
+(define dcs-conn (connect (tcp-locator "127.0.0.1" dcs-port)))
+(define dcs-cap (conn-fetch dcs-conn "svc"))
+(define dcs-err
+  (with-handlers ([exn:fail:pancake? (lambda (e) e)])
+    (conn-send dcs-conn dcs-cap 'hang)
+    #f))
+(expect (and dcs-err (= -8 (exn:fail:pancake-code dcs-err))) ; PANCAKE_ERR_CLOSED
+        "disconnect: the pending send failed typed ERR-CLOSED, never hung")
+(connection-close! dcs-conn)
+(void (sync/timeout 1 (thread-dead-evt dcs-host)))
+(tcp-close dcs-listener)
+
+(printf "racket zig-smoke OK: an unawaited break stays silent, and a real disconnect fails a pending send typed\n")
+
+;; ── A rude probe cannot close the listener ────────────────────────────────────
+;; A rude TCP probe — connect, say nothing, hang up — is that connection's
+;; failure, not the listener's. `accept` completes the keyed handshake, so the
+;; probe makes that one accept raise; the host catches it and keeps accepting,
+;; and the next, real client is served. Without that isolation one port scan
+;; takes a long-lived server down.
+(define rp-server (listen "127.0.0.1" 0))
+(define rp-ready (make-semaphore 0))
+(define rp-host
+  (thread
+   (lambda ()
+     (let accept-loop ()
+       (define hconn
+         (with-handlers ([(lambda (_) #t) (lambda (_e) #f)])
+           (accept rp-server)))
+       (cond
+         [hconn
+          (conn-publish hconn "svc" (lambda (bcom) (methods [(ping) (sym "alive")])))
+          (semaphore-post rp-ready)
+          (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
+            (conn-serve hconn))]
+         [else (accept-loop)])))))
+;; The probe: open a socket and immediately hang up.
+(define-values (rp-in rp-out) (tcp-connect "127.0.0.1" (server-port rp-server)))
+(close-output-port rp-out)
+(close-input-port rp-in)
+(define rp-conn (connect (tcp-locator "127.0.0.1" (server-port rp-server))))
+(semaphore-wait rp-ready)
+(define rp-cap (conn-fetch rp-conn "svc"))
+(expect (equal? (sym "alive") (conn-send rp-conn rp-cap 'ping))
+        "probe: the listener survived the rude probe and served the next client")
+(connection-close! rp-conn)
+(server-close! rp-server)
+
+(printf "racket zig-smoke OK: a rude probe cannot close the listener\n")
 
 ;; ── Object-capability forwarding proxies over the wire (ADR-0064) ─────────────
 ;; The client spawns a local tool and passes it as an argument to the host, which
@@ -766,9 +925,9 @@
    (lambda () (inproc-endpoint-read-frame inproc-server))
    (lambda (f) (inproc-endpoint-write-frame! inproc-server f))))
 (expect (equal? 15 inproc-total) "inproc: counter.add(5) round-tripped to 15 over the socket-free netlayer")
-(inproc-endpoint-close! inproc-client)
-(inproc-endpoint-close! inproc-server)
-(inproc-listener-close! inproc-lst)
+(inproc-endpoint-release! inproc-client)
+(inproc-endpoint-release! inproc-server)
+(inproc-listener-release! inproc-lst)
 (inproc-netlayer-release! inproc-nl)
 
 (printf "racket zig-smoke OK: drove OCapN over the socket-free in-process netlayer\n")
@@ -788,9 +947,9 @@
    (lambda () (endpoint-read-frame tcp-server))
    (lambda (f) (endpoint-write-frame! tcp-server f))))
 (expect (equal? 15 tcp-total) "tcp netlayer: counter.add(5) round-tripped to 15 over the C-ABI TCP transport")
-(endpoint-close! tcp-client)
-(endpoint-close! tcp-server)
-(listener-close! tcp-lst)
+(endpoint-release! tcp-client)
+(endpoint-release! tcp-server)
+(listener-release! tcp-lst)
 (netlayer-release! tcp-nl)
 
 (printf "racket zig-smoke OK: drove OCapN over the C-ABI TCP netlayer\n")

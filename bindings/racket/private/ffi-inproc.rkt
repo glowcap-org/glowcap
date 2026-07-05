@@ -23,10 +23,7 @@
 ;; The in-process transport archive carries the `pancake_inproc_*` family plus
 ;; its own thread-local last-error, read through `pancake_inproc_last_error`.
 (define-pancake-inproc pancake_inproc_last_error (_fun _pointer _size -> _size))
-(define-pancake-inproc pancake_inproc_clear_last_error (_fun -> _void))
 (define-pancake-inproc pancake_inproc_netlayer_new (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake-inproc pancake_inproc_netlayer_new_in
-  (_fun _pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
 (define-pancake-inproc pancake_inproc_netlayer_release (_fun _pointer -> _void))
 ;; connect/accept/read/write may park the calling thread on the in-process
 ;; pipes, so #:blocking? keeps the rest of the place running while one waits.

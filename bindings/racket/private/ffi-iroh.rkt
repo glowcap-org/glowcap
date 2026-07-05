@@ -54,6 +54,9 @@
                       "PANCAKE_LIB_DIR, zig-out/lib, or the system library path. "
                       "Build it with `zig build iroh-abi` (needs cargo).")))))
   (hasheq
+   ;; The iroh archive keeps its own thread-local last-error slot, read through
+   ;; `pancake_iroh_last_error` rather than the ocapn family's `pancake_last_error`.
+   'last-error     (get-ffi-obj 'pancake_iroh_last_error L (_fun _pointer _size -> _size))
    'netlayer-new   (get-ffi-obj 'pancake_iroh_netlayer_new L
                      (_fun _pointer _size _uint32 (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
    'netlayer-close (get-ffi-obj 'pancake_iroh_netlayer_close L (_fun _pointer -> _void))

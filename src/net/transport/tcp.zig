@@ -33,9 +33,8 @@ const Socket = std.Io.net.Socket;
 const Stream = std.Io.net.Stream;
 const Server = std.Io.net.Server;
 
-pub const Connection = connection.Connection;
-pub const TransportHandle = connection.TransportHandle;
-pub const FrameStream = frame_stream.FrameStream;
+const Connection = connection.Connection;
+const FrameStream = frame_stream.FrameStream;
 
 /// Set `TCP_NODELAY` on a freshly dialed or accepted `stream`, disabling Nagle's
 /// algorithm. OCapN is a request/response wire: a peer writes a frame — or, with
@@ -345,14 +344,10 @@ pub fn parseHostPort(host: []const u8, port: u16) Error!IpAddress {
 
 /// Parse a `host:port` designator (IPv4 / IPv6 literal) into an address. IPv6
 /// hosts must be bracketed, e.g. `[::1]:9000`, so the port colon is unambiguous.
-/// Splits the designator, then defers to `parseHostPort` so there is one
-/// address parser.
+/// The split itself is `model.uri.splitHostPort`, the one definition of the
+/// designator grammar; this defers to `parseHostPort` for the one address
+/// parser.
 pub fn parseDesignator(designator: []const u8) Error!IpAddress {
-    const colon = std.mem.lastIndexOfScalar(u8, designator, ':') orelse return Error.InvalidAddress;
-    var host = designator[0..colon];
-    const port = std.fmt.parseInt(u16, designator[colon + 1 ..], 10) catch return Error.InvalidAddress;
-    if (host.len >= 2 and host[0] == '[' and host[host.len - 1] == ']') {
-        host = host[1 .. host.len - 1];
-    }
-    return parseHostPort(host, port);
+    const split = model.uri.splitHostPort(designator) catch return Error.InvalidAddress;
+    return parseHostPort(split.host, split.port);
 }

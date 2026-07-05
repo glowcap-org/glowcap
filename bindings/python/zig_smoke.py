@@ -11,7 +11,7 @@ import threading
 import ctypes
 
 from pancake import (
-    AsyncConnection, Connection, Context, Deliver, Far, FetchFailed,
+    AsyncConnection, Connection, Context, Deliver, Far, FetchFailed, Keyword,
     Fulfill, Near, Other, PancakeError, Peer, Ref, Resolve, Set, Symbol,
     Tagged, Vat, VatRef, VowBroken, abi_version, listen,
 )
@@ -179,6 +179,45 @@ def main() -> int:
 
     print("python zig-smoke OK: queued an authenticated PreSpec start-session")
 
+    # The codec selector end-to-end: two Cap'n Proto peers complete the keyed
+    # handshake and carry a deliver whose arguments round-trip through the capnp
+    # codec — a big integer past int64 and a Keyword included, so the two rare
+    # marshal arms are witnessed alongside the codec.
+    with Peer("v1.0", "capnp") as capnp_a, Peer("v1.0", "capnp") as capnp_b:
+        capnp_a.start_session(bytes([0x01]) * 32, designator="127.0.0.1:1")
+        capnp_b.start_session(bytes([0x02]) * 32, designator="127.0.0.1:2")
+        capnp_a.step()
+        capnp_b.step()
+
+        def _pump(src: Peer, dst: Peer) -> bool:
+            moved = False
+            while (frame := src.take_outbound()) is not None:
+                consumed = dst.recv_stream(frame)
+                assert consumed == len(frame), (consumed, len(frame))
+                dst.step()
+                moved = True
+            return moved
+
+        stalls = 0
+        while not (capnp_a.session_is_open() and capnp_b.session_is_open()):
+            if not (_pump(capnp_a, capnp_b) | _pump(capnp_b, capnp_a)):
+                stalls += 1
+                assert stalls < 4, "capnp keyed handshake stalled"
+        capnp_b.register_export(7)
+        capnp_a.register_import(7)
+        big = 2 ** 80
+        capnp_a.send_deliver(Far(7), [big, Keyword("prio"), b"hi"], answer=9)
+        capnp_a.step()
+        _pump(capnp_a, capnp_b)
+        event = capnp_b.poll()
+        while event is not None and not isinstance(event, Deliver):
+            event = capnp_b.poll()  # skip the surfaced start-session
+        assert isinstance(event, Deliver), f"expected Deliver, got {event!r}"
+        assert event.args == [big, Keyword("prio"), b"hi"], event.args
+        assert isinstance(event.args[1], Keyword), type(event.args[1])
+
+    print("python zig-smoke OK: a capnp session opens and big-integer + keyword args round-trip")
+
     # Bounded inbox: a frame declaring more than max_frame_bytes is a typed
     # refusal, never "read more". A connection's inbox keeps growing only while
     # recv_stream returns None, so this is the contract that stops a hostile
@@ -277,6 +316,9 @@ def main() -> int:
 
     asyncio.run(_listen_surfaces_bound_port())
     print("python zig-smoke OK: high-level listen() surfaces the bound port and accepts")
+
+    asyncio.run(_rude_probe_cannot_close_the_listener())
+    print("python zig-smoke OK: a rude probe cannot close the listener")
 
     asyncio.run(_structured_args_round_trip())
     print("python zig-smoke OK: a Set round-trips as a Set, a nested capability stays sendable, a break is typed")
@@ -740,13 +782,14 @@ async def _fetch_failed_is_typed() -> None:
     srv = await asyncio.start_server(serve, "127.0.0.1", 0)
     port = srv.sockets[0].getsockname()[1]
     async with srv:
-        conn = await Connection.connect("127.0.0.1", port)
-        try:
-            await conn.fetch("not-a-capability")
-            raise AssertionError("a non-capability fetch must raise FetchFailed")
-        except FetchFailed as exc:
-            assert exc.name == "not-a-capability", exc
-        await conn.close()
+        # `async with` is the advertised lifecycle (README): exit closes the
+        # connection, the same path as an explicit `close()`.
+        async with await Connection.connect("127.0.0.1", port) as conn:
+            try:
+                await conn.fetch("not-a-capability")
+                raise AssertionError("a non-capability fetch must raise FetchFailed")
+            except FetchFailed as exc:
+                assert exc.name == "not-a-capability", exc
 
 
 async def _gc_releases_dropped_import() -> None:
@@ -833,6 +876,38 @@ async def _listen_surfaces_bound_port() -> None:
         await asyncio.wait_for(accept_task, timeout=5)
         assert len(accepted) == 1, "the dialed connection was accepted"
         await client.close()
+    finally:
+        server.close()
+
+
+async def _rude_probe_cannot_close_the_listener() -> None:
+    """A rude TCP probe — connect, say nothing, hang up — is that connection's
+    failure, not the listener's. The Server's iterator must skip the failed
+    handshake and keep accepting; without the skip, one port scan takes a
+    long-lived server down."""
+    server = await listen("127.0.0.1", 0)
+    try:
+        port = server.port
+
+        async def serve_one() -> None:
+            async for conn in server:
+                conn.publish("svc", lambda verb, args: Symbol("alive"))
+                asyncio.ensure_future(conn.serve())
+                break  # one real client is the proof
+
+        served = asyncio.ensure_future(serve_one())
+
+        # The probe: a raw socket that opens and immediately hangs up.
+        probe_reader, probe_writer = await asyncio.open_connection("127.0.0.1", port)
+        probe_writer.close()
+        del probe_reader
+
+        conn = await Connection.connect("127.0.0.1", port)
+        svc = await conn.fetch("svc")
+        reply = await conn.send(svc, "ping", [])
+        assert reply == Symbol("alive"), reply
+        await conn.close()
+        await asyncio.wait_for(served, timeout=5)
     finally:
         server.close()
 

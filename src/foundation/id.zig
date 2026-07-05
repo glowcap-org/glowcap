@@ -28,7 +28,7 @@ pub const PeerId = struct {
 };
 
 /// One direct session's identity: the double-SHA256 over `"prot0"` and both
-/// sides' sorted `PeerId`s. See `crypto.deriveSessionId`.
+/// sides' sorted `PeerId`s. See `crypto.sessionIdFromPeerIds`.
 pub const SessionId = struct {
     bytes: [32]u8,
 

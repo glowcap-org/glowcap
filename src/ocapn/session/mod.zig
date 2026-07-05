@@ -191,13 +191,11 @@ pub const AnswerDirection = enum { inbound, outbound };
 
 pub const AnswerStatus = answers.AnswerStatus;
 pub const ListenerEntry = answers.ListenerEntry;
-pub const ListenerList = answers.ListenerList;
+const ListenerList = answers.ListenerList;
 pub const Projection = answers.Projection;
 pub const ProjectionKind = answers.ProjectionKind;
 pub const deinitProjection = answers.deinitProjection;
-pub const AnswerPayload = answers.AnswerPayload;
-pub const AnswerEntry = answers.AnswerEntry;
-pub const AnswerView = answers.AnswerView;
+const AnswerView = answers.AnswerView;
 pub const AnswerTable = answers.AnswerTable;
 const ensureAnswerPayload = answers.ensureAnswerPayload;
 pub const deinitAnswerEntry = answers.deinitAnswerEntry;

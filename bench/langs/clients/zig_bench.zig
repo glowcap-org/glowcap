@@ -79,12 +79,12 @@ fn lessThanU64(_: void, a: u64, b: u64) bool {
 
 fn connectOne(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !*driver.Connection {
     var tcp_resident = tcp.Resident{ .io = io };
-    return driver.connect(&.{tcp_resident.netlayer()}, allocator, tcp.at(designator), .ephemeral, .{ .frame_cap = frame_cap });
+    return driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.at(designator), .ephemeral, .{ .frame_cap = frame_cap });
 }
 
 fn runLatency(io: std.Io, allocator: std.mem.Allocator, designator: []const u8, n: usize) !void {
     var conn = try connectOne(io, allocator, designator);
-    defer conn.close();
+    defer conn.deinit();
     const root = try conn.fetch("root");
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -116,7 +116,7 @@ fn runLatency(io: std.Io, allocator: std.mem.Allocator, designator: []const u8, 
 
 fn runThroughput(io: std.Io, allocator: std.mem.Allocator, designator: []const u8, n: usize) !void {
     var conn = try connectOne(io, allocator, designator);
-    defer conn.close();
+    defer conn.deinit();
     const root = try conn.fetch("root");
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -174,7 +174,7 @@ fn runConnections(io: std.Io, allocator: std.mem.Allocator, designator: []const 
 
 fn runCold(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !void {
     var conn = try connectOne(io, allocator, designator);
-    defer conn.close();
+    defer conn.deinit();
     const root = try conn.fetch("root");
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();

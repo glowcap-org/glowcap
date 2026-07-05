@@ -128,7 +128,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(listener, allocator, &peer, .ephemeral, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     _ = try cv.publish("greeter", Greeter, .{});
@@ -151,7 +151,7 @@ fn callOnce(netlayers: []const net.netlayer.Netlayer, designator: []const u8, al
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(netlayers, allocator, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -164,7 +164,7 @@ fn callOnce(netlayers: []const net.netlayer.Netlayer, designator: []const u8, al
             try std.testing.expect(arg == .string);
             try std.testing.expectEqualStrings("hello over x-loopback", arg.string);
         },
-        .broken => return error.CallBroke,
+        .broken, .give => return error.CallBroke,
     }
 }
 

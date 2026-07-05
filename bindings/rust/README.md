@@ -60,7 +60,7 @@ family's `last_error`.
 The base crate is dependency-free and sync — the `Peer` is sans-I/O and drives
 from any runtime. The `async` feature is purely additive: it brings in tokio and
 exposes `connect` / `listen` plus an application-surface `Connection`, the same
-nine verbs every binding speaks. `connect(uri, reachability)` is the one dialer,
+application verbs every binding speaks. `connect(uri, reachability)` is the one dialer,
 with one signature whether or not iroh is compiled in — a `tcp` locator ignores
 the reachability (pass `None`), an `iroh` locator requires it, and without the
 feature an `iroh` locator fails with a rebuild hint — so a call site never
@@ -94,3 +94,9 @@ cargo build --no-default-features --features tcp  # core + one transport
 cargo build                                       # default: core + tcp + inproc
 zig build iroh-abi && cargo build --features iroh # opt-in iroh companion links
 ```
+
+The crate's unit tests run under `--features async` (that is what
+`zig build rust-dogfood` drives), so the `iroh` module has no unit coverage of
+its own: its proof is the live example gates (`rust-iroh-handoff`,
+`rust-iroh-loop`, `rust-iroh-redeem-posture`), which link the sidecar and run
+real endpoints.

@@ -82,5 +82,5 @@ pub const WalkError = Error || std.mem.Allocator.Error || error{NoSpaceLeft};
 
 /// The public encode entry points' error set: the recursive walk's `WalkError`
 /// plus the frame constructor's shape refusal, the same named-set posture as
-/// `capnp.EncodeError`.
+/// the capnp codec's `shared.EncodeError`.
 pub const EncodeError = WalkError || foundation.Frame.Error;

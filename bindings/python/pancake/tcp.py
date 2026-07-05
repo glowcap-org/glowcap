@@ -140,18 +140,6 @@ class TcpNetlayer:
         self._raw = out
         self._context: Optional["Context"] = None
 
-    @classmethod
-    def new_in(cls, context: "Context") -> "TcpNetlayer":
-        """Create a netlayer whose backend and per-connection buffers allocate
-        through ``context``. The context must outlive the netlayer."""
-        self = cls.__new__(cls)
-        out = ctypes.c_void_p()
-        _check_tcp(_tcp_lib.pancake_tcp_netlayer_new_in(context._raw, ctypes.byref(out)))
-        self._raw = out
-        # Keep the context alive at least as long as this netlayer (see Peer.new_in).
-        self._context = context
-        return self
-
     def __enter__(self) -> "TcpNetlayer":
         return self
 

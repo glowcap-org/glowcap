@@ -102,8 +102,8 @@ pub fn main(init: std.process.Init) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var designator_buf: [64]u8 = undefined;
     const designator = try std.fmt.bufPrint(&designator_buf, "{s}:{d}", .{ host_addr, port });
-    var conn = try driver.connect(&.{tcp_resident.netlayer()}, allocator, tcp.at(designator), .ephemeral, .{ .frame_cap = frame_cap });
-    defer conn.close();
+    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.at(designator), .ephemeral, .{ .frame_cap = frame_cap });
+    defer conn.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
@@ -123,6 +123,7 @@ pub fn main(init: std.process.Init) !void {
             else => die(nick, "add did not return a task id"),
         },
         .broken => |reason| die(nick, reason),
+        .give => die(nick, "add resolved to an introduction"),
     };
     std.debug.print("[{s}] added task #{d}\n", .{ nick, added_id });
 
@@ -135,11 +136,13 @@ pub fn main(init: std.process.Init) !void {
             else => die(nick, "list did not return a list"),
         },
         .broken => |reason| die(nick, reason),
+        .give => return error.UnexpectedIntroduction,
     }
 
     switch (try conn.call(board, .{ .verb = "done", .args = &.{.{ .integer = added_id }} }, arena)) {
         .fulfilled => std.debug.print("[{s}] completed task #{d}\n", .{ nick, added_id }),
         .broken => |reason| die(nick, reason),
+        .give => return error.UnexpectedIntroduction,
     }
 
     const confirmed = switch (try conn.call(board, .{ .verb = "list", .args = &.{} }, arena)) {
@@ -148,6 +151,7 @@ pub fn main(init: std.process.Init) !void {
             else => die(nick, "list did not return a list"),
         },
         .broken => |reason| die(nick, reason),
+        .give => return error.UnexpectedIntroduction,
     };
 
     if (confirmed) {

@@ -62,7 +62,7 @@ const GcExportBatch = struct {
 /// tagged values, and structs — the same shape the session's import-install
 /// walk takes — so a nested introduction's refcount is released exactly like a
 /// top-level one and the wire-delta accounting balances.
-pub fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) void {
+fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) void {
     const body = event.view() catch return;
     const deliver = switch (body) {
         .deliver => |d| d,
@@ -126,7 +126,7 @@ fn addIntroducedFarsInStruct(batch: *GcExportBatch, entries: model.view.StructEn
 }
 
 /// After a semantic resolve event, emit `op:gc-answers` for the settled answer-pos.
-pub fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) void {
+fn emitAnswerForResolve(peer: *engine.Peer, event: *engine.Event) void {
     if (event.kind() != .resolve) return;
     const answer = event.resolve_answer orelse blk: {
         const body = event.view() catch return;

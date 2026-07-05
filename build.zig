@@ -558,7 +558,22 @@ pub fn build(b: *std.Build) void {
             }),
         },
     };
-    for (header_gens) |hg| {
+    // The TypeScript ABI mirror rides the same generator loop: JS FFI has no
+    // struct types, so the TS binding reads C structs through byte offsets, and
+    // this is the one binding mirror that must be generated rather than
+    // declared symbolically. Same check-or-regenerate discipline as the headers.
+    const ts_abi_gen = HeaderGen{
+        .check_step_name = "gen-ts-abi-check",
+        .check_desc = "Verify bindings/ts/stack/internal/abi.ts matches src/c_abi/ocapn (fails if stale)",
+        .write_step_name = "gen-ts-abi",
+        .write_desc = "Regenerate bindings/ts/stack/internal/abi.ts from src/c_abi/ocapn",
+        .check_tool = "tools/gen_ts_abi_check.zig",
+        .write_tool = "tools/gen_ts_abi_write.zig",
+        .import_name = "c_abi",
+        .import_module = host_mods[layerIndex("c_abi")],
+    };
+
+    for (header_gens ++ [_]HeaderGen{ts_abi_gen}) |hg| {
         const check_mod = b.createModule(.{
             .root_source_file = b.path(hg.check_tool),
             .target = target,
@@ -599,9 +614,10 @@ pub fn build(b: *std.Build) void {
     // lower-level library-mechanics walkthroughs.
     const zig_examples = [_]struct { name: []const u8, path: []const u8 }{
         .{ .name = "pancake-ex-01-connect-and-serve", .path = "examples/zig/01_connect_and_serve.zig" },
-        .{ .name = "pancake-ex-02-actor-far-send", .path = "examples/zig/02_actor_far_send.zig" },
-        .{ .name = "pancake-ex-03-look-up-by-name", .path = "examples/zig/03_look_up_by_name.zig" },
-        .{ .name = "pancake-ex-04-call-a-remote-method", .path = "examples/zig/04_call_a_remote_method.zig" },
+        .{ .name = "pancake-ex-02-introduce-and-redeem", .path = "examples/zig/02_introduce_and_redeem.zig" },
+        .{ .name = "pancake-ex-03-actor-far-send", .path = "examples/zig/03_actor_far_send.zig" },
+        .{ .name = "pancake-ex-04-look-up-by-name", .path = "examples/zig/04_look_up_by_name.zig" },
+        .{ .name = "pancake-ex-05-call-a-remote-method", .path = "examples/zig/05_call_a_remote_method.zig" },
         .{ .name = "pancake-readme-quick-start", .path = "examples/zig/readme_quick_start.zig" },
         .{ .name = "pancake-zig-frame-view", .path = "examples/zig/frame_view.zig" },
         .{ .name = "pancake-zig-connect-explicit-buffers", .path = "examples/zig/connect_explicit_buffers.zig" },
@@ -762,14 +778,25 @@ pub fn build(b: *std.Build) void {
     // `goblins` collection on PATH (like the binding dogfoods), so it is a
     // sibling of `check`, not part of the hermetic gate. The driver spawns and
     // tears down the Goblins vat itself.
-    const run_goblins_interop = addPancakeRun(b, lib_mod, target, optimize, "pancake-goblins-interop", "interop/goblins_interop/driver.zig");
+    const goblins_interop_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-goblins-interop", "interop/goblins_interop/driver.zig");
+    const run_goblins_interop = b.addRunArtifact(goblins_interop_exe);
+    run_goblins_interop.setCwd(b.path("."));
+    run_goblins_interop.has_side_effects = true;
     if (pin_port) |p| run_goblins_interop.addArg(b.fmt("--port={d}", .{p}));
     const goblins_interop_step = b.step("goblins-interop", "Live OCapN conversation vs a real Goblins vat, both directions (needs racket + goblins)");
     goblins_interop_step.dependOn(&run_goblins_interop.step);
+    // Running the live conversations needs racket + goblins, but *compiling*
+    // their drivers is hermetic: the check gate compiles them so an engine or
+    // model API change cannot silently rot a driver nothing ran.
+    check_step.dependOn(&goblins_interop_exe.step);
 
     // Live three-party handoff, pancake as recipient (needs racket + goblins).
     // It runs two Goblins listeners (alice, bob), so `-Dport=N` pins N and N+1.
-    const run_goblins_handoff = addPancakeRun(b, lib_mod, target, optimize, "pancake-goblins-handoff", "interop/goblins_interop/handoff_driver.zig");
+    const goblins_handoff_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-goblins-handoff", "interop/goblins_interop/handoff_driver.zig");
+    const run_goblins_handoff = b.addRunArtifact(goblins_handoff_exe);
+    run_goblins_handoff.setCwd(b.path("."));
+    run_goblins_handoff.has_side_effects = true;
+    check_step.dependOn(&goblins_handoff_exe.step);
     if (pin_port) |p| run_goblins_handoff.addArg(b.fmt("--port={d}", .{p}));
     const goblins_handoff_step = b.step("goblins-handoff", "Live three-party handoff vs Goblins, pancake as recipient (needs racket + goblins)");
     goblins_handoff_step.dependOn(&run_goblins_handoff.step);
@@ -989,6 +1016,32 @@ pub fn build(b: *std.Build) void {
     iroh_resident_mod.addImport("engine", host_mods[layerIndex("engine")]);
     iroh_resident_mod.addImport("actors", host_mods[layerIndex("actors")]);
     iroh_resident_mod.addImport("net", host_mods[layerIndex("net")]);
+
+    // Running any iroh driver needs cargo (the sidecar staticlib), but
+    // *compiling* its Zig is hermetic: `check` compiles each driver root as an
+    // object — externs stay unresolved, nothing links — so a core or model API
+    // change cannot silently rot a driver only the cargo-gated steps run.
+    const iroh_driver_roots = [_][]const u8{
+        "interop/iroh_interop/driver.zig",
+        "interop/iroh_reachability/driver.zig",
+        "interop/iroh_mesh/driver.zig",
+        "interop/iroh_loop/driver.zig",
+        "bench/iroh_bench.zig",
+    };
+    for (iroh_driver_roots) |root_path| {
+        const compile_mod = b.createModule(.{
+            .root_source_file = b.path(root_path),
+            .target = target,
+            .optimize = optimize,
+        });
+        compile_mod.addImport("pancake", lib_mod);
+        compile_mod.addImport("iroh", iroh_resident_mod);
+        const obj = b.addObject(.{
+            .name = b.fmt("iroh-driver-compile-{d}", .{std.hash.Crc32.hash(root_path)}),
+            .root_module = compile_mod,
+        });
+        check_step.dependOn(&obj.step);
+    }
 
     const iroh_interop_mod = b.createModule(.{
         .root_source_file = b.path("interop/iroh_interop/driver.zig"),
@@ -1256,6 +1309,11 @@ pub fn build(b: *std.Build) void {
         argv: []const []const u8,
         dashdash_before_args: bool = false,
     }{
+        .{
+            .step_name = "deno-iroh-redeem-posture",
+            .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Deno binding (needs cargo + deno)",
+            .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "interop/iroh_redeem_posture/deno_client.ts" },
+        },
         .{
             .step_name = "python-iroh-redeem-posture",
             .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Python binding (needs cargo + python3)",
@@ -1704,7 +1762,7 @@ pub fn build(b: *std.Build) void {
         "transports/iroh/Cargo.toml",
     };
     const bindings_fmt_step = b.step("bindings-fmt", "Format the Rust crates and TypeScript bindings in place (needs cargo + deno)");
-    const bindings_fmt_check_step = b.step("bindings-fmt-check", "Check Rust + TypeScript formatting without writing (needs cargo + deno)");
+    const bindings_fmt_check_step = b.step("bindings-fmt-check", "Check Rust + TypeScript formatting and the TypeScript lint rules without writing (needs cargo + deno)");
     for (rust_manifests) |manifest| {
         const write = b.addSystemCommand(&.{ "cargo", "fmt", "--manifest-path", manifest });
         write.has_side_effects = true;
@@ -1725,6 +1783,12 @@ pub fn build(b: *std.Build) void {
         check.setCwd(b.path(dir));
         bindings_fmt_check_step.dependOn(&check.step);
     }
+    // The `bindings/ts` workspace also carries a `deno.json` lint config; run it
+    // here so the lint rules gate alongside the formatter instead of rotting
+    // unwired.
+    const deno_lint = b.addSystemCommand(&.{ "deno", "lint" });
+    deno_lint.setCwd(b.path("bindings/ts"));
+    bindings_fmt_check_step.dependOn(&deno_lint.step);
 
     // Serena's SolidLSP ZLS adapter currently hard-codes build-on-save args to
     // `zig build build`; keep that editor-only alias pointed at the normal

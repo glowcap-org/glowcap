@@ -192,8 +192,10 @@ the work:
 
 - **Live Goblins interop.** pancake holds a real, two-way OCapN conversation with a
   [Spritely Goblins](https://spritely.institute/goblins/) peer, Goblins calling pancake
-  and pancake calling back, from every binding and not just from Zig, `zig build
-  goblins-interop`, an opt-in step needing Racket + Goblins on PATH.
+  and pancake calling back, from every binding and not just from Zig: `zig build
+  goblins-interop` runs the native peer, and `deno-`, `python-`, `rust-`, and
+  `racket-goblins-interop` run each binding. All are opt-in steps needing
+  Racket + Goblins on PATH.
 - **The upstream [OCapN test suite](https://github.com/ocapn/ocapn-test-suite).** Run with
   `zig build ocapn-conformance` against a pancake peer (opt-in; needs the suite via `uv`).
 - **Cross-codec replay.** The same conversation runs through Syrup and Cap'n Proto and

@@ -10,17 +10,6 @@ const crypto = @import("foundation").crypto;
 const session_mod = @import("session");
 const bootstrap = @import("bootstrap.zig");
 
-const Sha256 = std.crypto.hash.sha2.Sha256;
-
-/// Double-SHA256 a gifter uses to derive a stable gift id from a swissnum.
-pub fn sha256d(data: []const u8) [32]u8 {
-    var once: [32]u8 = undefined;
-    Sha256.hash(data, &once, .{});
-    var twice: [32]u8 = undefined;
-    Sha256.hash(&once, &twice, .{});
-    return twice;
-}
-
 /// Goblins "side name" for a session public key — the OCapN Public Identifier
 /// (`crypto.derivePublicIdentifier`), surfaced as its raw 32 bytes for the
 /// handoff records that carry it. Single-sourced against the foundation
@@ -102,4 +91,42 @@ pub fn signedReceiveFromGiveBytes(
     defer allocator.free(receive_signed);
     result.signature = crypto.sign(&secret, receive_signed).bytes;
     return result;
+}
+
+/// Project a give's exporter location into the dialable `ocapn://…` URI a
+/// recipient hands its dialer, through the one core URI grammar. A verbatim
+/// locator record re-parses with hints (an iroh exporter's direct addresses);
+/// a hint-less flat locator formats directly. Returns null for a `.raw` opaque
+/// location — the recipient cannot dial it — and `MalformedLocatorRecord` for
+/// a record that no longer parses. The caller owns the returned bytes.
+pub const LocatorUriError = error{ OutOfMemory, MalformedLocatorRecord };
+pub fn exporterLocatorUri(
+    allocator: std.mem.Allocator,
+    location: model.view.ExporterLocation,
+) LocatorUriError!?[]u8 {
+    switch (location) {
+        .raw => return null,
+        .locator => |loc| {
+            if (loc.record.len > 0) {
+                var cursor: usize = 0;
+                const parsed = codec.syrup.readLocatorOwned(allocator, loc.record, &cursor) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    else => return error.MalformedLocatorRecord,
+                };
+                defer model.freePeerLocator(allocator, parsed);
+                return model.uri.writePeer(allocator, parsed) catch |err| switch (err) {
+                    error.OutOfMemory => return error.OutOfMemory,
+                    else => return error.MalformedLocatorRecord,
+                };
+            }
+            return model.uri.writePeer(allocator, .{
+                .transport = loc.transport,
+                .designator = loc.designator,
+                .hints = model.Hints.emptyFalse(),
+            }) catch |err| switch (err) {
+                error.OutOfMemory => return error.OutOfMemory,
+                else => return error.MalformedLocatorRecord,
+            };
+        },
+    }
 }

@@ -15,12 +15,7 @@ const inprocS = ffi.dlopen(libPath("pancake_net_transport_inproc"), {
 		parameters: ["buffer", "usize"],
 		result: "usize",
 	},
-	pancake_inproc_clear_last_error: { parameters: [], result: "void" },
 	pancake_inproc_netlayer_new: { parameters: ["buffer"], result: "i32" },
-	pancake_inproc_netlayer_new_in: {
-		parameters: ["pointer", "buffer"],
-		result: "i32",
-	},
 	pancake_inproc_netlayer_release: { parameters: ["pointer"], result: "void" },
 	pancake_inproc_connect: {
 		parameters: ["pointer", "buffer", "usize", "u32", "usize", "buffer"],

@@ -30,7 +30,7 @@ const Greeter = struct {
 /// `accept`), publish the greeter by name, and serve until the partner leaves.
 fn host(server: *driver.Server) !void {
     var conn = try server.accept();
-    defer conn.close();
+    defer conn.deinit();
     _ = try conn.publish("greeter", Greeter, .{});
     try conn.serve();
 }
@@ -39,8 +39,8 @@ fn host(server: *driver.Server) !void {
 fn client(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !void {
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
 
-    const conn = try pancake.driver.connect(&.{tcp_resident.netlayer()}, allocator, pancake.net.tcp.at(designator), .ephemeral, .{});
-    defer conn.close();
+    const conn = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{});
+    defer conn.deinit();
 
     const greeter = try conn.fetch("greeter"); // a capability, by name
     var arena = std.heap.ArenaAllocator.init(allocator);
@@ -52,6 +52,9 @@ fn client(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !voi
     switch (settled) {
         .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
         .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
+        // The third outcome: an introduction to a capability on another peer,
+        // redeemed with `driver.Host.redeem`. This greeter never sends one.
+        .give => {},
     }
 }
 
@@ -62,7 +65,7 @@ pub fn main(init: std.process.Init) !void {
     const io = threaded.io();
 
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-    var server = try driver.listen(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{});
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{});
     defer server.close();
 
     var addr_buf: [64]u8 = undefined;

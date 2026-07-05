@@ -23,10 +23,7 @@
 ;; thread-local last-error: a tcp call's diagnostic is read through
 ;; `pancake_tcp_last_error`, never the ocapn family's `pancake_last_error`.
 (define-pancake-tcp pancake_tcp_last_error (_fun _pointer _size -> _size))
-(define-pancake-tcp pancake_tcp_clear_last_error (_fun -> _void))
 (define-pancake-tcp pancake_tcp_netlayer_new (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake-tcp pancake_tcp_netlayer_new_in
-  (_fun _pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
 (define-pancake-tcp pancake_tcp_netlayer_release (_fun _pointer -> _void))
 ;; connect/accept/read/write park the calling thread on the socket, so
 ;; #:blocking? lets the Racket scheduler and GC run while one waits, other

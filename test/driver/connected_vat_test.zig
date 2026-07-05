@@ -63,7 +63,7 @@ const Board = struct {
 /// hosting half.
 fn serveBoardOnce(server: *driver.Server) anyerror!void {
     var conn = try server.accept();
-    defer conn.close();
+    defer conn.deinit();
     _ = try conn.publish("root", Board, .{});
     try conn.serve();
 }
@@ -79,8 +79,8 @@ fn serveBoardOnce(server: *driver.Server) anyerror!void {
 fn pipelineUnitOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var conn = try driver.connect(&.{tcp_resident.netlayer()}, allocator, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
-    defer conn.close();
+    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
+    defer conn.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
@@ -97,7 +97,7 @@ fn pipelineUnitOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloca
             try std.testing.expect(arg == .bytes);
             try std.testing.expectEqualStrings("done", arg.bytes);
         },
-        .broken => return error.PipelinedStatusBroke,
+        .broken, .give => return error.PipelinedStatusBroke,
     }
 }
 
@@ -109,7 +109,7 @@ test "driver loopback: promise pipelining drives create->assign->complete->statu
     const io = threaded.io();
 
     var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
     defer server.close();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
@@ -161,7 +161,7 @@ fn onGreeting(ctx: ?*anyopaque, resolution: actors.Resolution) void {
             .string => |text| std.mem.eql(u8, text, "hello from the hosting vat"),
             else => false,
         },
-        .broken => false,
+        .broken, .give => false,
     };
 }
 
@@ -207,8 +207,8 @@ fn callOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !vo
 fn connectOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var conn = try driver.connect(&.{tcp_resident.netlayer()}, allocator, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
-    defer conn.close();
+    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
+    defer conn.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
@@ -220,7 +220,7 @@ fn connectOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) 
             try std.testing.expect(arg == .string);
             try std.testing.expectEqualStrings("hello from the hosting vat", arg.string);
         },
-        .broken => return error.CallBroke,
+        .broken, .give => return error.CallBroke,
     }
 }
 
@@ -229,7 +229,7 @@ fn connectOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) 
 /// parity `connect` gives the client.
 fn serveOnce(server: *driver.Server) anyerror!void {
     var conn = try server.accept();
-    defer conn.close();
+    defer conn.deinit();
     _ = try conn.publish("greeter", Greeter, .{});
     try conn.serve();
 }
@@ -242,7 +242,7 @@ test "driver loopback: connect and listen own peers and buffers, fetch + call ro
     const io = threaded.io();
 
     var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
     defer server.close();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
@@ -299,7 +299,7 @@ fn dialUriOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) 
     defer allocator.free(write_buf);
 
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-    var cv = try driver.connectUri(&.{tcp_resident.netlayer()}, allocator, &peer, uri, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectUri(allocator, &.{tcp_resident.netlayer()}, &peer, uri, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -355,7 +355,7 @@ fn fetchMissingOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloca
     defer arena_state.deinit();
     const settled = try cv.fetchSettled("nobody-published-this-either", arena_state.allocator());
     switch (settled) {
-        .fulfilled => return error.UnexpectedFulfillment,
+        .fulfilled, .give => return error.UnexpectedFulfillment,
         .broken => |reason| try std.testing.expectEqualStrings("unknown swissnum", reason),
     }
 }
@@ -397,8 +397,8 @@ const LocalPing = struct {
 fn callLocalOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
     var tcp_resident = tcp.Resident{ .io = io };
     var buf: [64]u8 = undefined;
-    var conn = try driver.connect(&.{tcp_resident.netlayer()}, allocator, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
-    defer conn.close();
+    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
+    defer conn.deinit();
 
     const cap = try conn.spawn(LocalPing, .{});
     const settled = try conn.call(cap.ref, .{ .verb = "ping" }, allocator);
@@ -408,7 +408,7 @@ fn callLocalOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator
             try std.testing.expect(arg == .string);
             try std.testing.expectEqualStrings("pong from this side", arg.string);
         },
-        .broken => return error.CallBroke,
+        .broken, .give => return error.CallBroke,
     }
 }
 
@@ -420,7 +420,7 @@ test "driver loopback: call on a locally spawned ref settles with no partner tra
     const io = threaded.io();
 
     var tcp_resident = tcp.Resident{ .io = io };
-    var server = try driver.listen(tcp_resident.netlayer(), allocator, .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
     defer server.close();
     var addr_buf: [64]u8 = undefined;
     const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
@@ -496,7 +496,7 @@ fn callAbortedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocat
     defer arena_state.deinit();
     const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "pancake" }} }, arena_state.allocator());
     switch (settled) {
-        .fulfilled => return error.UnexpectedFulfillment,
+        .fulfilled, .give => return error.UnexpectedFulfillment,
         .broken => |reason| try std.testing.expectEqualStrings(abort_diagnostic, reason),
     }
     try std.testing.expectEqualStrings(abort_diagnostic, cv.abortReason().?);
@@ -537,6 +537,6 @@ test "connectUri fails closed on a URI whose transport has no registered residen
     // the dial refuses rather than silently falling back to tcp.
     try std.testing.expectError(
         driver.Error.UnknownTransport,
-        driver.connectUri(&.{tcp_resident.netlayer()}, allocator, &peer, "ocapn://node123.quic", .ephemeral, &read_buf, &write_buf),
+        driver.connectUri(allocator, &.{tcp_resident.netlayer()}, &peer, "ocapn://node123.quic", .ephemeral, &read_buf, &write_buf),
     );
 }

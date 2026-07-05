@@ -7,9 +7,10 @@
 //! their *layout* (ADR-0059); a transport's own `sys/<t>.rs` declares only its
 //! handle types and `pancake_<t>_*` family.
 //!
-//! It declares the full core surface, so not every constant or extern is used
-//! by the safe wrapper yet (e.g. `ERR_CLOSED`, `REF_BROKEN` round out their
-//! enums). Dead code is expected of a `sys` layer and allowed only here.
+//! It declares the part of the core surface the safe wrappers consume, and not
+//! every constant or extern is used by the safe wrapper (e.g. `ERR_CLOSED`,
+//! `REF_BROKEN` round out their enums). Dead code is expected of a `sys` layer
+//! and allowed only here.
 #![allow(dead_code)]
 
 use core::ffi::{c_int, c_uchar, c_uint, c_void};
@@ -29,15 +30,6 @@ pub struct PancakeContext {
 /// accessors.
 #[repr(C)]
 pub struct PancakeLocator {
-	_private: [u8; 0],
-}
-
-/// A vat-scoped deposited-gift table a node shares across the peers of one node
-/// (ADR-0009/ADR-0056), minted by `pancake_gift_registry_new` and bound onto a
-/// peer with `pancake_peer_set_gift_registry`. Borrowed by every peer it is set
-/// on; it must outlive all of them.
-#[repr(C)]
-pub struct PancakeGiftRegistry {
 	_private: [u8; 0],
 }
 
@@ -77,12 +69,6 @@ pub struct PancakeManagedFrame {
 	pub shape: c_uint,
 	pub release: Option<unsafe extern "C" fn(*mut PancakeManagedFrame)>,
 	pub private_data: *mut c_void,
-}
-
-#[repr(C)]
-pub struct PancakeEvent {
-	pub kind: c_uint,
-	pub frame: PancakeManagedFrame,
 }
 
 #[repr(C)]
@@ -135,10 +121,35 @@ pub struct PancakeResolve {
 	pub break_message: *const c_uchar,
 	pub break_message_len: usize,
 	// Carried by value inside PancakeResolve even when the binding never reads a
-	// handoff; omitting it makes the struct too small and
-	// pancake_peer_poll_event_resolve writes past it.
+	// handoff; omitting it makes the struct too small and the poll writes past
+	// it.
 	pub handoff: PancakeHandoffGive,
 	pub owner: *mut c_void,
+}
+
+#[repr(C)]
+pub struct PancakeAnyEvent {
+	pub kind: c_uint,
+	pub projection: c_uint,
+	pub deliver: PancakeDeliver,
+	pub resolve: PancakeResolve,
+	pub frame: PancakeManagedFrame,
+}
+
+/// One serve-step action from the node (ADR-0067). `kind` selects the live
+/// fields; the `locator`/`reason` views are node-owned and valid until the
+/// next `pancake_node_next_action`.
+#[repr(C)]
+pub struct PancakeNodeAction {
+	pub kind: c_uint,
+	pub pending: u64,
+	pub locator: *const c_uchar,
+	pub locator_len: usize,
+	pub conn_id: u64,
+	pub answer: u64,
+	pub token: u64,
+	pub reason: *const c_uchar,
+	pub reason_len: usize,
 }
 
 #[repr(C)]
@@ -219,15 +230,12 @@ extern "C" {
 		peer: *mut PancakePeer,
 		frame: *mut PancakeManagedFrame,
 	) -> c_int;
-	pub fn pancake_peer_poll_event(peer: *mut PancakePeer, event: *mut PancakeEvent) -> c_int;
-	pub fn pancake_event_release(event: *mut PancakeEvent);
 	pub fn pancake_managed_frame_release(frame: *mut PancakeManagedFrame);
 	pub fn pancake_peer_register_export(peer: *mut PancakePeer, export_position: u64) -> c_int;
 	pub fn pancake_peer_next_export(peer: *mut PancakePeer, out_export_position: *mut u64)
 		-> c_int;
 	pub fn pancake_peer_next_answer(peer: *mut PancakePeer, out_answer: *mut u64) -> c_int;
 	pub fn pancake_peer_register_import(peer: *mut PancakePeer, import_position: u64) -> c_int;
-	pub fn pancake_peer_peek_event(peer: *mut PancakePeer) -> c_int;
 	pub fn pancake_peer_send_deliver(
 		peer: *mut PancakePeer,
 		target: *const PancakeReference,
@@ -244,16 +252,8 @@ extern "C" {
 		break_message: *const c_uchar,
 		break_message_len: usize,
 	) -> c_int;
-	pub fn pancake_peer_poll_event_deliver(
-		peer: *mut PancakePeer,
-		out: *mut PancakeDeliver,
-	) -> c_int;
-	pub fn pancake_peer_poll_event_resolve(
-		peer: *mut PancakePeer,
-		out: *mut PancakeResolve,
-	) -> c_int;
-	pub fn pancake_deliver_release(deliver: *mut PancakeDeliver);
-	pub fn pancake_resolve_release(resolve: *mut PancakeResolve);
+	pub fn pancake_peer_next_event(peer: *mut PancakePeer, out: *mut PancakeAnyEvent) -> c_int;
+	pub fn pancake_any_event_release(event: *mut PancakeAnyEvent);
 	pub fn pancake_peer_register_bootstrap_cap(
 		peer: *mut PancakePeer,
 		swissnum: *const c_uchar,
@@ -298,7 +298,9 @@ extern "C" {
 	) -> c_int;
 	// Recipient half of a three-party handoff: sign a desc:handoff-receive over
 	// the verbatim give bytes (keyed by the 32-byte seed) and queue a
-	// withdraw-gift deliver to the exporter's bootstrap under `answer`.
+	// withdraw-gift deliver to the exporter's bootstrap under `answer`. The
+	// binding's node serve step drives this path in the core; the extern rounds
+	// out the mirrored C family.
 	pub fn pancake_peer_send_withdraw_gift(
 		peer: *mut PancakePeer,
 		give: *const c_uchar,
@@ -307,23 +309,17 @@ extern "C" {
 		seed_len: usize,
 		answer: u64,
 	) -> c_int;
-	// Gifter half of a three-party handoff (ADR-0009/ADR-0056). A gifter that
-	// returns a capability whose home is another connection deposits it with the
-	// exporter and resolves the recipient's question with a signed
-	// `desc:handoff-give` the recipient redeems directly.
-	//
 	// Borrow the partner's session public key from its `op:start-session` (NULL +
-	// 0 before the handshake): the recipient key off the to-recipient session,
-	// the exporter key off the to-exporter session. The view is only valid until
-	// the next peer call; copy it out immediately.
+	// 0 before the handshake). The view is only valid until the next peer call;
+	// copy it out immediately.
 	pub fn pancake_peer_partner_session_key(
 		peer: *mut PancakePeer,
 		out_ptr: *mut *const c_uchar,
 		out_len: *mut usize,
 	) -> c_int;
 	// Borrow the partner's verbatim `<ocapn-peer …>` location-record bytes from
-	// its `op:start-session` (NULL + 0 when none were captured), for the give's
-	// exporter locator. Same borrow lifetime as the session key.
+	// its `op:start-session` (NULL + 0 when none were captured). Same borrow
+	// lifetime as the session key.
 	pub fn pancake_peer_partner_locator_raw(
 		peer: *mut PancakePeer,
 		out_ptr: *mut *const c_uchar,
@@ -339,37 +335,6 @@ extern "C" {
 		gift_id_len: usize,
 		gifted_ref: *const PancakeReference,
 	) -> c_int;
-	// Resolve the recipient's question with the verbatim signed `desc:handoff-give`
-	// built by `pancake_build_handoff_give`. `give` is borrowed and copied by the
-	// send.
-	pub fn pancake_peer_send_resolve_handoff_give(
-		peer: *mut PancakePeer,
-		answer: u64,
-		give: *const c_uchar,
-		give_len: usize,
-	) -> c_int;
-	// Author the signed `desc:handoff-give` a gifter returns to a recipient,
-	// writing owned bytes into `out_give`/`out_give_len` (release with
-	// `pancake_handoff_give_bytes_release`). `seed` is the gifter's 32-byte
-	// identity seed (must be 32). The recipient key, exporter locator bytes, and
-	// exporter session key are read off the gifter's two sessions; `gift_id` is
-	// the deposited gift's id.
-	pub fn pancake_build_handoff_give(
-		seed: *const c_uchar,
-		seed_len: usize,
-		recipient_key: *const c_uchar,
-		recipient_key_len: usize,
-		exporter_locator_raw: *const c_uchar,
-		exporter_locator_raw_len: usize,
-		exporter_session_key: *const c_uchar,
-		exporter_session_key_len: usize,
-		gift_id: *const c_uchar,
-		gift_id_len: usize,
-		out_give: *mut *mut c_uchar,
-		out_give_len: *mut usize,
-	) -> c_int;
-	// Release the owned give bytes `pancake_build_handoff_give` returned.
-	pub fn pancake_handoff_give_bytes_release(give: *mut c_uchar, give_len: usize);
 	// Build the verbatim exporter location-record bytes a give names, writing
 	// owned bytes into `out`/`out_len` (release with
 	// `pancake_peer_locator_bytes_release`). `transport`/`designator` name the
@@ -388,21 +353,6 @@ extern "C" {
 	) -> c_int;
 	// Release the owned locator bytes `pancake_encode_peer_locator` returned.
 	pub fn pancake_peer_locator_bytes_release(locator: *mut c_uchar, locator_len: usize);
-	// Create a shared gift registry (the library allocator backs it). Bind it on
-	// every peer of a node with `pancake_peer_set_gift_registry` before they
-	// exchange handoff traffic, and free it last with
-	// `pancake_gift_registry_free` once every peer that referenced it is released.
-	pub fn pancake_gift_registry_new(out_registry: *mut *mut PancakeGiftRegistry) -> c_int;
-	// Release a shared gift registry and every gift row it still owns. Every peer
-	// it was set on must already be released. NULL is a no-op.
-	pub fn pancake_gift_registry_free(registry: *mut PancakeGiftRegistry);
-	// Bind `registry` as `peer`'s shared gift registry, so the peer's inbound
-	// deposit/withdraw resolve against the shared table. The registry must
-	// outlive the peer; a NULL registry detaches the peer back to its own table.
-	pub fn pancake_peer_set_gift_registry(
-		peer: *mut PancakePeer,
-		registry: *mut PancakeGiftRegistry,
-	) -> c_int;
 	pub fn pancake_peer_send_gc_export(
 		peer: *mut PancakePeer,
 		positions: *const u64,
@@ -461,22 +411,6 @@ extern "C" {
 		cap: usize,
 		out_len: *mut usize,
 	) -> c_int;
-	pub fn pancake_uri_format_sturdyref(
-		transport: *const c_uchar,
-		transport_len: usize,
-		designator: *const c_uchar,
-		designator_len: usize,
-		swissnum: *const c_uchar,
-		swissnum_len: usize,
-		hint_keys: *const *const c_uchar,
-		hint_key_lens: *const usize,
-		hint_vals: *const *const c_uchar,
-		hint_val_lens: *const usize,
-		hint_count: usize,
-		out: *mut c_uchar,
-		cap: usize,
-		out_len: *mut usize,
-	) -> c_int;
 	pub fn pancake_locator_transport(
 		loc: *mut PancakeLocator,
 		out_ptr: *mut *const c_uchar,
@@ -486,6 +420,12 @@ extern "C" {
 		loc: *mut PancakeLocator,
 		out_ptr: *mut *const c_uchar,
 		out_len: *mut usize,
+	) -> c_int;
+	pub fn pancake_locator_host_port(
+		loc: *mut PancakeLocator,
+		out_host: *mut *const c_uchar,
+		out_host_len: *mut usize,
+		out_port: *mut u16,
 	) -> c_int;
 	pub fn pancake_locator_swissnum(
 		loc: *mut PancakeLocator,
@@ -519,12 +459,6 @@ extern "C" {
 		seed_len: usize,
 		out_node: *mut *mut PancakeNode,
 	) -> c_int;
-	pub fn pancake_node_new_in(
-		context: *mut PancakeContext,
-		seed: *const c_uchar,
-		seed_len: usize,
-		out_node: *mut *mut PancakeNode,
-	) -> c_int;
 	pub fn pancake_node_free(node: *mut PancakeNode);
 	// Register a fresh connection: write its conn_id and the node-owned
 	// negotiating peer (already bound to the shared registry and node identity).
@@ -540,42 +474,56 @@ extern "C" {
 	// Recipient half: sign a desc:handoff-receive over the give keyed by the node
 	// identity, mint the handoff-count from the shared registry, and queue
 	// withdraw-gift on the exporter connection under `answer`.
-	pub fn pancake_node_send_withdraw(
-		node: *mut PancakeNode,
-		exporter_conn: u64,
-		give: *const c_uchar,
-		give_len: usize,
-		answer: u64,
-	) -> c_int;
-	// Gifter half of a three-party handoff (ADR-0009), the mirror of
-	// pancake_node_send_withdraw: queue a deposit-gift of gifted_ref on
-	// exporter_conn, build a desc:handoff-give signed by the node identity and
-	// addressed to recipient_conn's partner, and queue it as the fulfillment of
-	// `answer` on recipient_conn. The binding flushes both connections (exporter
-	// first). gift_id keys the deposit and the give; exporter_location, when
-	// non-empty, is the verbatim exporter locator embedded in the give (empty uses
-	// the exporter session's own location record). All byte/reference inputs are
-	// borrowed.
-	pub fn pancake_node_originate_give(
+	pub fn pancake_node_accept_give(
 		node: *mut PancakeNode,
 		recipient_conn: u64,
+		answer: u64,
+		give: *const c_uchar,
+		give_len: usize,
+		exporter_locator: *const c_uchar,
+		exporter_locator_len: usize,
+	) -> c_int;
+	pub fn pancake_node_exporter_dialed(
+		node: *mut PancakeNode,
+		pending: u64,
 		exporter_conn: u64,
-		gifted_ref: *const PancakeReference,
+	) -> c_int;
+	pub fn pancake_node_dial_failed(
+		node: *mut PancakeNode,
+		pending: u64,
+		reason: *const c_uchar,
+		reason_len: usize,
+	) -> c_int;
+	pub fn pancake_node_claim_resolve(
+		node: *mut PancakeNode,
+		conn_id: u64,
+		answer: u64,
+		outcome: c_uint,
+		far_id: u64,
+		reason: *const c_uchar,
+		reason_len: usize,
+		out_claimed: *mut c_uint,
+	) -> c_int;
+	pub fn pancake_node_intercept_fulfilled_ref(
+		node: *mut PancakeNode,
+		conn_id: u64,
+		answer: u64,
+		far_id: u64,
+		out_claimed: *mut c_uint,
+	) -> c_int;
+	pub fn pancake_node_provide_gift_id(
+		node: *mut PancakeNode,
+		ticket: u64,
 		gift_id: *const c_uchar,
 		gift_id_len: usize,
-		answer: u64,
-		exporter_location: *const c_uchar,
-		exporter_location_len: usize,
 	) -> c_int;
-	// Enroll a redeemed far-object capability (hosted on exporter_conn) under a
-	// fresh synthetic token, written to out_token; a later pancake_node_route of
-	// the token forwards to the exporter with far_id swapped back in.
-	pub fn pancake_node_enroll_redeemed(
+	pub fn pancake_node_set_exporter_location(
 		node: *mut PancakeNode,
-		exporter_conn: u64,
-		far_id: u64,
-		out_token: *mut u64,
+		conn_id: u64,
+		location: *const c_uchar,
+		location_len: usize,
 	) -> c_int;
+	pub fn pancake_node_next_action(node: *mut PancakeNode, out: *mut PancakeNodeAction) -> c_int;
 	// Resolve where a deliver to far_id rides: a redeemed token routes to its
 	// exporter (with the real far id), any other far id rides default_conn. Writes
 	// the destination conn_id/far_id and 1/0 into out_routed (0 when a redeemed
@@ -594,14 +542,6 @@ extern "C" {
 		node: *mut PancakeNode,
 		far_id: u64,
 		home: u64,
-	) -> c_int;
-	// The connection a fetched far import lives on: writes the home conn_id and
-	// 1/0 into out_found (0 for any far id never recorded).
-	pub fn pancake_node_foreign_home(
-		node: *mut PancakeNode,
-		far_id: u64,
-		out_conn_id: *mut u64,
-		out_found: *mut c_uint,
 	) -> c_int;
 	// Whether far_id, used as a send/tell argument from default_conn, names a
 	// capability foreign to that connection (a redeemed token or a far recorded

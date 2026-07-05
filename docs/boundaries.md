@@ -127,9 +127,20 @@ Goblins recipient and exporter per binding (`zig build deno-goblins-gift`,
 `zig build python-goblins-gift`, `zig build rust-goblins-gift`, and
 `zig build racket-goblins-gift`), and as the rooms app's
 direct-message-by-introduction (`zig build demo-rooms-dm`).
-The C ABI gifter primitives and shared-registry surface are language-neutral, and
-each binding carries foreign-home detection in its own idiom (Deno/Python stamp
-the ref's `home`, Rust/Racket key it by ref identity). Cross-process redeem over
+The C ABI gifter primitives are language-neutral, and every binding records a
+fetched import's home in the node's foreign-home table
+(`pancake_node_record_foreign_home`, read back through the shared
+`pancake_node_arg_is_foreign` verdict), so a returned foreign cap is recognized
+for re-gifting uniformly across the four. The native Zig surface speaks both
+halves through `driver.Host`, the multi-connection tier: `Host.redeem` is the
+blocking recipient executor over the same serve step (proven by the live
+`zig build goblins-handoff` conversation it drives), and origination is the
+host's resolve interceptor — a published actor that returns a foreign-homed
+capability answers with a signed give, no choreography in application code.
+Where a binding does both invisibly inside `connect`, the native spelling is
+explicit I/O on an explicit host; the hermetic three-host scenario in
+`test/driver/host_three_party_test.zig` runs the whole choreography —
+originate, give, redeem, direct call — over real loopback sockets. Cross-process redeem over
 iroh ships in **every** binding in **both** dial postures, chosen by what the
 gift's exporter location names. A location carrying the exporter's
 `direct-addresses` as signed hints (the give codec and C ABI redeem projection
@@ -143,11 +154,11 @@ through iroh discovery and dialing by id, under the recipient machine's
 **configured redeem posture** — `Discovery` (n0 relays + DNS/pkarr) by default, the
 maximal-reach choice, lowerable to `DiscoveryNoRelay` for a no-relay deployment
 policy via each binding's `set_redeem_reachability` knob (`setRedeemReachability`
-in TS, `set-machine-redeem-reachability!` in Racket, the `redeem_reachability`
+in TS, `set-node-redeem-reachability!` in Racket, the `redeem_reachability`
 property in Python). A hinted give always dials `Direct` and ignores it. That the
 redeem actually honors the configured posture is proven hermetically per binding
 by the `zig build bindings-iroh-redeem-posture` gates
-(`python-`/`rust-`/`racket-iroh-redeem-posture`): each sets its recipient
+(`deno-`/`python-`/`rust-`/`racket-iroh-redeem-posture`): each sets its recipient
 machine's posture to `local_discovery` and redeems a hint-less give by resolving
 the exporter's id through an in-process address book, a discriminating proof,
 since the default `Discovery` would reach for n0's relays + DNS and fail with no
@@ -180,8 +191,7 @@ capability mesh, with no new protocol below the handoff substrate.
 Sturdyref enliven ships its initiator half (`engine.sturdyref`); its responder
 half is the same inbound-`'fetch` serving path (`Peer.registerBootstrapCap`),
 since an enliven is a `'fetch` against the local bootstrap exporter. Distributed
-equality ships the in-memory substrate (`model.referencesEqual`,
-`engine.SessionRegistry`). Container-type Pass Invariant Equality ships too:
+equality ships the in-memory substrate (`model.referencesEqual`). Container-type Pass Invariant Equality ships too:
 `model.argumentsEqual` compares value trees through List, Set, Tagged, and
 Struct shapes, with Set equality order-agnostic (a multiset) and Struct equality
 order-independent over its keys, so each compares Equal whichever codec's order
@@ -246,6 +256,14 @@ which reports there with `opened == false`. The returned `Slot` is recycled and
 only names its connection until that close. A loopback test pairs it with
 `driver.acceptTcp`: concurrent dialed clients fetch a hosted actor, call it, and
 receive every reply on the completion loop.
+
+The loop tier is single-transport and node-less today: `LoopHost` and
+`LoopDialer` speak TCP through the completion backends only, and neither joins
+a `driver.Host`'s node, so three-party handoff is not reachable at this scale
+tier — the blocking `Host` owns handoffs, the loop owns fan-out, and a host
+that needs both at once does not exist yet. Growing the loop under `Host` is
+the intended direction; the two tiers meeting is what would retire the
+boundary.
 
 The loop is also tested under churn. Hundreds of connection lifecycles recycle
 through a small slot pool, and abrupt mid-handshake drops exercise the teardown

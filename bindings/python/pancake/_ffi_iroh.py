@@ -4,7 +4,7 @@ The iroh companion library (``libpancake_net_transport_iroh``, ADR-0055) is
 optional — built only with cargo (``zig build iroh-abi``) — so it loads lazily on
 first ``_iroh()`` use and names how to produce it when absent rather than failing
 at import. It carries the ``pancake_iroh_*`` family plus its own thread-local
-last-error (``pancake_iroh_last_error`` / ``_clear``), symbol-disjoint from the
+last-error (``pancake_iroh_last_error``), symbol-disjoint from the
 core. Nothing here is public; :mod:`pancake.iroh` is the ergonomic surface over
 it. The read/write calls move frames through the shared ctypes ``Structure``
 types from :mod:`pancake._ffi_core`.
@@ -65,7 +65,6 @@ def _load_iroh():
         # returns PANCAKE_ERR_IO records its concrete cause here, read through
         # `pancake_iroh_last_error` rather than the core `pancake_last_error`.
         "pancake_iroh_last_error": ([u8p, ctypes.c_size_t], ctypes.c_size_t),
-        "pancake_iroh_clear_last_error": ([], None),
     }
     for name, (argtypes, restype) in sigs.items():
         fn = getattr(lib, name)

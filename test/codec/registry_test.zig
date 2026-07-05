@@ -15,7 +15,9 @@ const FixtureCodec = struct {
 
     pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
         _ = frame;
-        unreachable; // not exercised by this test
+        // Answer with the fixture's own typed error, so a test can prove the
+        // body decode dispatched to *this* codec and not a built-in.
+        return Error.Unused;
     }
 
     pub fn decodePrefix(bytes: []const u8, max_frame_bytes: usize) dispatch.Prefix {
@@ -46,6 +48,11 @@ test "a consumer codec registered past the built-ins routes through dispatch" {
     // proving a third codec dispatches with zero changes to the built-in set.
     const verdict = dispatch.decodePrefixWith(&specs, custom_id, "anything at all", 4096);
     try std.testing.expect(verdict == .too_large);
+
+    // The body decode routes through the same injected registry: the fixture
+    // answers with its own typed error, not a built-in's.
+    const frame = foundation.FrameView{ .bytes = "ignored", .shape = .byte };
+    try std.testing.expectError(error.Unused, dispatch.decodeBodyWith(&specs, custom_id, frame));
 }
 
 test "the built-in registry carries exactly syrup and capnp, both addressable" {

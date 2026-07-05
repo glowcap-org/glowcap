@@ -150,8 +150,10 @@ namespace.
   drain. The blocking pump stays a single fiber by contract: it serves
   cooperative request/response, and a partner that streams without draining
   belongs on the completion loop (ADR-0053). Crossed hellos sits one layer
-  higher. `driver.crossed_hellos` coordinates duplicate-session detection for a
-  caller-owned registry and asks the engine to emit the typed abort.
+  higher: `driver.crossed_hellos` holds the tiebreak registry, and
+  `driver.Host` owns it — a dial registers the outbound before bytes move,
+  accepted connections compare inbound start-sessions against it, and the
+  engine only projects the typed abort (ADR-0068).
 
 ## Application surface (`driver`)
 
@@ -168,7 +170,15 @@ call `ConnectedVat.serve`. The one-object face above this is the owning
 `accept` hands back a connection), each connection owns its peer and buffers,
 and one `frame_cap` option sizes the buffers and the session's frame limit
 together. `Connection.call` blocks until the reply settles and returns the
-outcome materialized into a caller-supplied arena. One layer down, the caller
+outcome materialized into a caller-supplied arena — fulfilled, broken, or a
+`.give`, the typed introduction a three-party handoff delivers. Above the
+one-connection face sits `driver.Host`, the multi-connection tier every
+binding builds inside its own `connect` (ADR-0068): one identity, one
+`engine.Node`, many node-registered connections. `Host.redeem` executes the
+serve step's recipient half as one blocking call, a served reply that returns
+a foreign-homed capability originates a give through the vat's resolve
+interceptor, and `call`/`send` route redeemed tokens to the connection that
+hosts them. One layer down, the caller
 owns the allocator, the buffers, and the peer itself: `connectTcp` dials and
 `acceptTcp` hosts; both name tcp at the constructor. The returned type stays
 transport-neutral, so a caller that already holds a `Connection` over another

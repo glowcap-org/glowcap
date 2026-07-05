@@ -99,7 +99,8 @@ Each suite is a self-contained app under [`apps/`](apps/), selected by
   capability; the client deposits into it. Capability creation plus stateful
   turns.
 - **`taskboard` (S3)** — `create` returns a task capability driven through
-  `assign` → `complete` → `status`. A returned capability invoked several times.
+  `assign`, then `complete`, then `status`. A returned capability invoked
+  several times.
 
 ### S5 — snapshot / restore (local time-travel)
 
@@ -162,12 +163,12 @@ per-turn cost and the one-time COW alongside the snapshot sweep.
   suite, both substrates start from a fresh, identically-warmed server, so the
   _backend-to-backend_ comparison is sound even where the absolute number is
   noisy.
-- **Promise pipelining is deliberately not exercised.** Goblins can invoke a
-  promise before it resolves; the pancake binding does not expose that through
-  `<-`. To keep one app source running identically on both, the registry suite
-  resolves a capability and _then_ invokes it (two sequential round-trips). The
-  benchmark therefore does not reward Goblins for pipelining, and that omission
-  is intentional, not an oversight.
+- **Promise pipelining is deliberately not exercised.** Both substrates can
+  invoke a returned promise before it resolves (Goblins natively, the pancake
+  binding through `<-` on a promise, ADR-0007), but the registry suite resolves
+  a capability and _then_ invokes it (two sequential round-trips) so both sides
+  run the identical conversation shape. The benchmark rewards neither side's
+  pipelining, and that omission is intentional, not an oversight.
 - **Driving is sequential.** One unit completes before the next begins; the
   suite does not measure in-flight concurrency. This keeps the comparison
   apples-to-apples; concurrent-load shapes are future work.

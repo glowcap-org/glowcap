@@ -24,7 +24,7 @@ zig build check
 | Zig         | `zig`, `zls` (versions must match)           | `install-zig.sh`, `install-zls.sh`            |
 | Conformance | Racket, Goblins                              | `install-racket-goblins.sh`                   |
 | Dogfood     | Rust, Deno, Node, npm, Bun                   | `install-rust.sh`, `install-js-toolchains.sh` |
-| Agents      | `uv`, Serena (`serena` on PATH)              | `install-uv.sh`, `install-serena.sh`          |
+| Agents      | `uv`, Serena, Claude Code (`claude` on PATH) | `install-uv.sh`, `install-serena.sh`, `install-claude-code.sh` |
 | Debug       | gdb, lldb, strace, valgrind, perf, hyperfine | apt in `Dockerfile`                           |
 
 Checksums for downloaded tarballs: [`checksums.sh`](checksums.sh).

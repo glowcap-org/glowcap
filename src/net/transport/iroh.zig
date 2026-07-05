@@ -72,7 +72,7 @@ pub const Reachability = enum(u32) {
 
     /// Whether a dial may omit the partner's direct-address hints because the
     /// endpoint can resolve the partner by id. Only `direct` cannot.
-    pub fn resolvesById(self: Reachability) bool {
+    fn resolvesById(self: Reachability) bool {
         return self != .direct;
     }
 };
@@ -143,96 +143,43 @@ pub const ReadyEvent = extern struct {
 
 // ── The stream over one QUIC connection ──────────────────────────────────────
 
-const reader_vtable = Io.Reader.VTable{ .stream = StreamReader.streamImpl, .readVec = StreamReader.readVec };
-const writer_vtable = Io.Writer.VTable{ .drain = StreamWriter.drain };
-
-const max_iovecs = 8;
-
-const StreamReader = struct {
-    interface: Io.Reader,
+/// The sidecar connection as a `net.stream_shim` byte source. The sidecar write
+/// is synchronous: it copies or sends the bytes before returning, so the caller
+/// may free them as soon as the call returns, unlike the completion loop's
+/// queued writes, which borrow until retire. QUIC sends written bytes eagerly,
+/// so `flush` only surfaces a connection that died under the writes.
+const ConnSource = struct {
     conn: *CConn,
 
-    fn streamImpl(io_r: *Io.Reader, io_w: *Io.Writer, limit: Io.Limit) Io.Reader.StreamError!usize {
-        const dest = limit.slice(try io_w.writableSliceGreedy(1));
-        var data: [1][]u8 = .{dest};
-        const n = try readVec(io_r, &data);
-        io_w.advance(n);
-        return n;
-    }
-
-    fn readVec(io_r: *Io.Reader, data: [][]u8) Io.Reader.Error!usize {
-        const self: *StreamReader = @alignCast(@fieldParentPtr("interface", io_r));
-        var iovecs: [max_iovecs][]u8 = undefined;
-        const dest_n, const data_size = try io_r.writableVector(&iovecs, data);
-        const dest = iovecs[0..dest_n];
-        std.debug.assert(dest[0].len > 0);
-        // A short read into the first writable slice is allowed by the vtable
-        // contract; the stream hands over whatever has arrived.
-        const n = pancake_iroh_sidecar_conn_read(self.conn, dest[0].ptr, dest[0].len);
+    pub fn readSome(self: ConnSource, dest: []u8) Io.Reader.Error!usize {
+        const n = pancake_iroh_sidecar_conn_read(self.conn, dest.ptr, dest.len);
         if (n == 0) return error.EndOfStream;
         if (n < 0) return error.ReadFailed;
-        const got: usize = @intCast(n);
-        if (got > data_size) {
-            io_r.end += got - data_size;
-            return data_size;
-        }
-        return got;
-    }
-};
-
-const StreamWriter = struct {
-    interface: Io.Writer,
-    conn: *CConn,
-
-    fn drain(io_w: *Io.Writer, data: []const []const u8, splat: usize) Io.Writer.Error!usize {
-        const self: *StreamWriter = @alignCast(@fieldParentPtr("interface", io_w));
-        var total: usize = 0;
-        const buffered = io_w.buffered();
-        if (buffered.len > 0) {
-            try self.writeAll(buffered);
-            total += buffered.len;
-        }
-        const slices = data[0 .. data.len - 1];
-        for (slices) |slice| {
-            if (slice.len == 0) continue;
-            try self.writeAll(slice);
-            total += slice.len;
-        }
-        const pattern = data[data.len - 1];
-        if (pattern.len > 0) {
-            var i: usize = 0;
-            while (i < splat) : (i += 1) try self.writeAll(pattern);
-            total += pattern.len * splat;
-        }
-        // QUIC sends written bytes eagerly; this only surfaces a connection
-        // that died under the writes.
-        if (pancake_iroh_sidecar_conn_flush(self.conn) != 0) return error.WriteFailed;
-        return io_w.consume(total);
+        return @intCast(n);
     }
 
-    /// The sidecar write is synchronous: it copies or sends `bytes` before
-    /// returning, so the caller may free them as soon as the call returns,
-    /// unlike the completion loop's queued writes, which borrow until retire.
-    fn writeAll(self: *StreamWriter, bytes: []const u8) Io.Writer.Error!void {
+    pub fn writeAll(self: ConnSource, bytes: []const u8) Io.Writer.Error!void {
         if (pancake_iroh_sidecar_conn_write(self.conn, bytes.ptr, bytes.len) < 0) return error.WriteFailed;
     }
+
+    pub fn flush(self: ConnSource) Io.Writer.Error!void {
+        if (pancake_iroh_sidecar_conn_flush(self.conn) != 0) return error.WriteFailed;
+    }
 };
+
+const Shim = net.stream_shim.Shim(ConnSource);
+const StreamReader = Shim.Reader;
+const StreamWriter = Shim.Writer;
 
 /// One dialed/accepted QUIC stream, pinned so its reader/writer interfaces hold
 /// a stable address for the `Connection`'s life (the connection borrows
 /// `*std.Io.Reader` / `*std.Io.Writer` into this wrapper, recovered from
 /// `&interface` by field offset). Allocated from the peer's allocator at
-/// connect/accept and freed by the connection's transport handle on `deinit` —
+/// connect/accept and freed by the connection's transport handle on `close` —
 /// the same one named per-connection allocation as tcp's `TcpStream`
 /// (ADR-0043). Closing it finishes the QUIC stream (the partner reads a clean
 /// end of stream) and frees the sidecar connection handle.
-///
-/// Public so the host-driven C ABI (`src/c_abi/net_transport/iroh/mod.zig`) can frame whole
-/// frames over `reader.interface` / `writer.interface` with the peer-less
-/// `net` frame readers — the iroh counterpart of `tcp.FrameStream`.
-/// The `Connection` path (peer reads as it streams) and the `FrameStream` path
-/// (host owns the peer) thus share one stream wrapper.
-pub const IrohStream = struct {
+const IrohStream = struct {
     reader: StreamReader,
     writer: StreamWriter,
     conn: *CConn,
@@ -241,14 +188,8 @@ pub const IrohStream = struct {
     fn create(allocator: std.mem.Allocator, conn: *CConn, bufs: Buffers) std.mem.Allocator.Error!*IrohStream {
         const self = try allocator.create(IrohStream);
         self.* = .{
-            .reader = .{
-                .interface = .{ .vtable = &reader_vtable, .buffer = bufs.read, .seek = 0, .end = 0 },
-                .conn = conn,
-            },
-            .writer = .{
-                .interface = .{ .vtable = &writer_vtable, .buffer = bufs.write },
-                .conn = conn,
-            },
+            .reader = StreamReader.init(.{ .conn = conn }, bufs.read),
+            .writer = StreamWriter.init(.{ .conn = conn }, bufs.write),
             .conn = conn,
             .allocator = allocator,
         };
@@ -267,33 +208,6 @@ pub const IrohStream = struct {
         const self: *IrohStream = @ptrCast(@alignCast(ctx));
         pancake_iroh_sidecar_conn_free(self.conn);
         self.allocator.destroy(self);
-    }
-
-    /// Free the sidecar connection and destroy this wrapper, the typed
-    /// counterpart of the `Connection`'s `close` hook, for the host-driven C
-    /// ABI frame path that holds the stream directly rather than behind a
-    /// `Connection`.
-    pub fn deinit(self: *IrohStream) void {
-        close(self);
-    }
-
-    /// Close the QUIC connection without freeing the wrapper: a blocking read or
-    /// write parked on this stream returns at once (the read sees a clean end of
-    /// stream). Idempotent and safe to call from another thread while a blocking
-    /// call is in flight; `deinit` still frees. The unblock half of a
-    /// teardown-safe release for the host-driven blocking frame path.
-    pub fn shutdown(self: *IrohStream) void {
-        pancake_iroh_sidecar_conn_close(self.conn);
-    }
-
-    /// The borrowed reader interface the peer-less frame readers fold over.
-    pub fn readerInterface(self: *IrohStream) *Io.Reader {
-        return &self.reader.interface;
-    }
-
-    /// The borrowed writer interface the peer-less frame writer drains to.
-    pub fn writerInterface(self: *IrohStream) *Io.Writer {
-        return &self.writer.interface;
     }
 
     fn socketHandle(ctx: *anyopaque) ?Io.net.Socket.Handle {
@@ -366,37 +280,6 @@ pub const Resident = struct {
         ) orelse return error.ConnectionLost;
     }
 
-    /// Dial a partner and hand back the pinned `IrohStream` so a host that owns
-    /// its own peer can frame whole frames over it (the C ABI's frame path).
-    /// `read_buf` / `write_buf` are caller-owned and back the stream's
-    /// reader/writer; the returned stream is freed with `IrohStream.deinit`.
-    pub fn dialStream(
-        self: *Resident,
-        allocator: std.mem.Allocator,
-        designator: []const u8,
-        direct_addrs: []const u8,
-        read_buf: []u8,
-        write_buf: []u8,
-    ) net.netlayer.DialError!*IrohStream {
-        const conn = try self.dialRawConn(designator, direct_addrs);
-        errdefer pancake_iroh_sidecar_conn_free(conn);
-        return IrohStream.create(allocator, conn, .{ .read = read_buf, .write = write_buf }) catch return error.OutOfMemory;
-    }
-
-    /// Block until a partner dials this endpoint and hand back the pinned
-    /// `IrohStream` for the host-driven frame path. `ConnectionLost` covers a
-    /// closed endpoint (the shutdown lever) as well as a network fault.
-    pub fn acceptStream(
-        self: *Resident,
-        allocator: std.mem.Allocator,
-        read_buf: []u8,
-        write_buf: []u8,
-    ) net.netlayer.AcceptError!*IrohStream {
-        const conn = pancake_iroh_sidecar_accept(self.endpoint) orelse return error.ConnectionLost;
-        errdefer pancake_iroh_sidecar_conn_free(conn);
-        return IrohStream.create(allocator, conn, .{ .read = read_buf, .write = write_buf }) catch return error.OutOfMemory;
-    }
-
     /// Write this endpoint's id — the dialable designator — into `out` and
     /// return the written slice (`node_id_len` bytes). The buffer is exactly
     /// id-sized, so a short buffer is unrepresentable; an empty return means
@@ -461,7 +344,7 @@ pub const Resident = struct {
         return conn;
     }
 
-    /// Dial a partner (blocking, like `dialStream`) and hand back a
+    /// Dial a partner (blocking, like the netlayer dial) and hand back a
     /// non-blocking connection handle for the loop surface, or the typed dial
     /// error. The dial itself blocks the calling thread; only subsequent frame
     /// I/O on the returned handle is non-blocking.

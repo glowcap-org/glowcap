@@ -1,6 +1,6 @@
 //! Idiomatic Rust API for pancake — an OCapN/CapTP peer you drive.
 //!
-//! The raw C ABI lives in the private [`sys`] module; nothing in it escapes.
+//! The raw C ABI lives in the private `sys` module; nothing in it escapes.
 //! What you use is a [`Peer`] that releases itself on drop, real Rust enums for
 //! [`Reference`]/[`Argument`]/[`Event`], `Result` for fallible calls, and owned
 //! values out of `poll` (no manual `free`). This is the dogfood consumer
@@ -44,7 +44,8 @@ mod connection;
 // common case; `listen`/`Server` host TCP partners.
 #[cfg(feature = "async")]
 pub use connection::{
-	encode_peer_locator, listen, tcp_locator, Caretaker, Connection, Node, Ref, Server,
+	encode_peer_locator, listen, tcp_locator, AsSendTarget, Caretaker, Connection, Node, Ref,
+	RemotePromise, Server,
 };
 
 // `connect` is the one dialer over an `ocapn://` locator, with one signature
@@ -63,6 +64,12 @@ pub use iroh::{listen_iroh, IrohServer};
 // handshake live once, here, so the copies cannot drift.
 #[cfg(feature = "async")]
 mod wire;
+
+// Each transport archive keeps its own thread-local last-error slot
+// (ADR-0059); this macro mints each transport module's checker/reader pair
+// over its archive's extern reader.
+#[cfg(any(feature = "tcp", feature = "inproc", feature = "iroh"))]
+mod transport_error;
 
 // The blocking transports, each its own à-la-carte archive, linked only when
 // its feature is on (ADR-0059). They share the core peer and type layout but
@@ -209,7 +216,8 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 
-type Result<T> = core::result::Result<T, Error>;
+/// The crate's result type: every fallible call fails with a typed [`Error`].
+pub type Result<T> = core::result::Result<T, Error>;
 
 fn check(code: i32) -> Result<()> {
 	if code == sys::OK {
@@ -239,11 +247,6 @@ pub fn last_error() -> Option<String> {
 	let written = unsafe { sys::pancake_last_error(buf.as_mut_ptr(), buf.len()) };
 	buf.truncate(written.min(buf.len()));
 	Some(String::from_utf8_lossy(&buf).into_owned())
-}
-
-/// Clear the calling thread's last error message.
-pub fn clear_last_error() {
-	unsafe { sys::pancake_clear_last_error() };
 }
 
 /// A host-supplied allocation backend for a [`Context`]. Every method must be
@@ -457,27 +460,10 @@ impl Argument {
 		}
 	}
 
-	/// The symbol name, if this is an [`Argument::Symbol`].
-	pub fn as_symbol(&self) -> Option<&str> {
-		match self {
-			Argument::Symbol(s) => Some(s),
-			_ => None,
-		}
-	}
-
 	/// The bytes, if this is an [`Argument::Bytes`].
 	pub fn as_bytes(&self) -> Option<&[u8]> {
 		match self {
 			Argument::Bytes(b) => Some(b),
-			_ => None,
-		}
-	}
-
-	/// The capability reference, if this is an [`Argument::Reference`].
-	/// Prefer [`Ref::try_from`] when you intend to `send` to it.
-	pub fn as_reference(&self) -> Option<&Reference> {
-		match self {
-			Argument::Reference(r) => Some(r),
 			_ => None,
 		}
 	}
@@ -563,12 +549,11 @@ impl From<Vec<Argument>> for Argument {
 /// A `desc:handoff-give` an answer resolved to (ADR-0009/ADR-0056): the
 /// recipient must redeem it against the named exporter rather than read an
 /// immediate value. `give` is the verbatim signed envelope to relay unaltered to
-/// the exporter (feed it to [`Peer::send_withdraw_gift`]); `exporter_locator` is
-/// the exporter's dialable `ocapn://` URI, or empty when the give's location is
-/// not a flat locator; `recipient_key` is the 32-byte Ed25519 key the give is
-/// addressed to. The high-level [`Connection`] redeems this transparently; a
-/// power user driving a bare [`Peer`] does the dial + [`Peer::send_withdraw_gift`]
-/// itself.
+/// the exporter; `exporter_locator` is the exporter's dialable `ocapn://` URI,
+/// or empty when the give's location is not a flat locator; `recipient_key` is
+/// the 32-byte Ed25519 key the give is addressed to. The high-level
+/// [`Connection`] redeems this transparently through the node's serve step
+/// (ADR-0067).
 #[derive(Debug, Clone, PartialEq)]
 pub struct HandoffGive {
 	pub give: Vec<u8>,
@@ -585,6 +570,22 @@ pub enum Resolution {
 	/// redeem against the named exporter (poll-only; the high-level
 	/// [`Connection`] redeems it transparently).
 	Handoff(HandoffGive),
+}
+
+/// How [`Peer::prepare_enliven`] began (ADR-0012): a cache hit hands back the
+/// previously enlivened far reference with no wire traffic; otherwise it names
+/// the answer whose resolution settles the enliven.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnlivenStart {
+	/// Cache hit: the far reference at `import_position` (`promise` selects the
+	/// far-promise kind), no wire traffic.
+	Cached { import_position: u64, promise: bool },
+	/// A fresh bootstrap fetch was queued; drive `answer` to settlement and
+	/// record the outcome with [`Peer::record_enlivenment`].
+	Fresh { answer: u64 },
+	/// An enliven of the same swissnum is already in flight; its shared
+	/// `answer` settles this one too.
+	InFlight { answer: u64 },
 }
 
 /// An application event surfaced by [`Peer::poll`].
@@ -887,6 +888,7 @@ impl<'ctx> Peer<'ctx> {
 	/// returned wrapper. Used by the high-level connection driver, which holds a
 	/// node handle for the connection's whole life and removes the connection
 	/// only after dropping this wrapper.
+	#[cfg(feature = "async")]
 	pub(crate) unsafe fn from_node_raw(raw: *mut sys::PancakePeer) -> Peer<'static> {
 		Peer {
 			raw,
@@ -974,15 +976,6 @@ impl<'ctx> Peer<'ctx> {
 		Ok(answer)
 	}
 
-	/// The codec the peer's session speaks (a `PANCAKE_CODEC_*` value), so an
-	/// opaque [`Event::Other`] frame drained after a typed-poll refusal can be
-	/// interpreted.
-	pub fn codec(&self) -> Result<u32> {
-		let mut codec: u32 = 0;
-		check(unsafe { sys::pancake_peer_codec(self.raw, &mut codec) })?;
-		Ok(codec)
-	}
-
 	/// Queue the canonical bootstrap `fetch` for the capability published
 	/// behind `name`, returning the answer position the partner's resolution
 	/// arrives on (as an [`Event::Resolve`]). Registers the bootstrap import
@@ -996,11 +989,11 @@ impl<'ctx> Peer<'ctx> {
 	}
 
 	/// Begin enlivening the sturdyref published behind `swissnum` (ADR-0012):
-	/// the requester half over bootstrap-fetch with the dedup cache. Returns the
-	/// [`sys::PancakeEnlivenStart`], a status plus either the cached far
-	/// reference (`import_position`/`kind`) or the `answer` to drive. Requires
-	/// the session to have negotiated the sturdyref feature and be open.
-	pub fn prepare_enliven(&mut self, swissnum: &[u8]) -> Result<sys::PancakeEnlivenStart> {
+	/// the requester half over bootstrap-fetch with the dedup cache. Returns an
+	/// [`EnlivenStart`] naming either the cached far reference or the answer to
+	/// drive. Requires the session to have negotiated the sturdyref feature and
+	/// be open.
+	pub fn prepare_enliven(&mut self, swissnum: &[u8]) -> Result<EnlivenStart> {
 		let mut out = sys::PancakeEnlivenStart {
 			status: 0,
 			kind: 0,
@@ -1010,7 +1003,14 @@ impl<'ctx> Peer<'ctx> {
 		check(unsafe {
 			sys::pancake_peer_prepare_enliven(self.raw, swissnum.as_ptr(), swissnum.len(), &mut out)
 		})?;
-		Ok(out)
+		Ok(match out.status {
+			sys::ENLIVEN_CACHED => EnlivenStart::Cached {
+				import_position: out.import_position,
+				promise: out.kind == sys::REF_SUB_PROMISE,
+			},
+			sys::ENLIVEN_IN_FLIGHT => EnlivenStart::InFlight { answer: out.answer },
+			_ => EnlivenStart::Fresh { answer: out.answer },
+		})
 	}
 
 	/// Settle a fresh enliven once its bootstrap-fetch resolution arrives: cache
@@ -1051,11 +1051,6 @@ impl<'ctx> Peer<'ctx> {
 				positions.len(),
 			)
 		})
-	}
-
-	/// Queue an `op:gc-answer` releasing an answer this peer no longer needs.
-	pub fn send_gc_answer(&mut self, answer: u64) -> Result<()> {
-		check(unsafe { sys::pancake_peer_send_gc_answer(self.raw, answer) })
 	}
 
 	/// Dispatch one inbound frame, borrowed for the call. A refusal carries the
@@ -1208,92 +1203,12 @@ impl<'ctx> Peer<'ctx> {
 					msg.len(),
 				)
 			}),
-			// Gifter origination is not yet a binding primitive; a handoff
-			// resolution is poll-only today, so refuse to encode one rather than
+			// A handoff *give* resolution is minted and relayed by the node's serve
+			// step (ADR-0067); the structured `Resolution` arm is inbound-only and
+			// has no give bytes to emit, so refuse to encode one rather than
 			// mis-send it.
 			Resolution::Handoff(_) => Err(Error::from_code(sys::ERR_UNSUPPORTED_VALUE)),
 		}
-	}
-
-	/// Recipient half of a three-party handoff (ADR-0009/ADR-0056): sign a
-	/// `desc:handoff-receive` over the verbatim `give` bytes and queue a
-	/// `withdraw-gift` `op:deliver` to the exporter's bootstrap under `answer`.
-	/// Requires an open keyed session to the exporter opened with this same
-	/// 32-byte `seed` — that session key is what the exporter verifies the
-	/// receive against. The monotonic handoff-count the exporter requires to
-	/// increase is minted by the peer's gift registry, not supplied here. The
-	/// withdrawn reference arrives as the resolution of `answer`.
-	pub fn send_withdraw_gift(&mut self, give: &[u8], seed: &[u8; 32], answer: u64) -> Result<()> {
-		check(unsafe {
-			sys::pancake_peer_send_withdraw_gift(
-				self.raw,
-				give.as_ptr(),
-				give.len(),
-				seed.as_ptr(),
-				seed.len(),
-				answer,
-			)
-		})
-	}
-
-	/// The partner's session public key, captured from its `op:start-session`
-	/// (ADR-0009). Empty before the keyed handshake opens the session. A gifter
-	/// reads the recipient key off the to-recipient session and the exporter key
-	/// off the to-exporter session, to embed in a `desc:handoff-give`. The C view
-	/// is borrowed for the call only, so this copies it into an owned `Vec`.
-	pub fn partner_session_key(&self) -> Vec<u8> {
-		let mut ptr: *const core::ffi::c_uchar = core::ptr::null();
-		let mut len: usize = 0;
-		let rc = unsafe { sys::pancake_peer_partner_session_key(self.raw, &mut ptr, &mut len) };
-		if rc != sys::OK || ptr.is_null() || len == 0 {
-			return Vec::new();
-		}
-		unsafe { core::slice::from_raw_parts(ptr, len) }.to_vec()
-	}
-
-	/// The partner's verbatim `<ocapn-peer …>` location-record bytes, captured
-	/// from its `op:start-session` (ADR-0009). Empty when none were captured. A
-	/// gifter embeds the exporter's bytes as a `desc:handoff-give`'s exporter
-	/// locator. The C view is borrowed for the call only, so this copies it out.
-	pub fn partner_locator_raw(&self) -> Vec<u8> {
-		let mut ptr: *const core::ffi::c_uchar = core::ptr::null();
-		let mut len: usize = 0;
-		let rc = unsafe { sys::pancake_peer_partner_locator_raw(self.raw, &mut ptr, &mut len) };
-		if rc != sys::OK || ptr.is_null() || len == 0 {
-			return Vec::new();
-		}
-		unsafe { core::slice::from_raw_parts(ptr, len) }.to_vec()
-	}
-
-	/// Gifter half of a three-party handoff (ADR-0009/ADR-0056): deposit `gifted`
-	/// with this (exporter) session by queueing a fire-and-forget `deposit-gift`
-	/// `op:deliver` to the exporter's bootstrap, carrying `gift_id` and the gifted
-	/// reference. The exporter records the gift; a recipient withdraws it on its
-	/// own session. [`step`](Peer::step) encodes the deliver.
-	pub fn send_deposit_gift(&mut self, gift_id: &[u8], gifted: &Reference) -> Result<()> {
-		let r = gifted.to_sys()?;
-		check(unsafe {
-			sys::pancake_peer_send_deposit_gift(self.raw, gift_id.as_ptr(), gift_id.len(), &r)
-		})
-	}
-
-	/// Resolve the recipient's question with the verbatim signed
-	/// `desc:handoff-give` from [`build_handoff_give`] (ADR-0009): the recipient
-	/// redeems it against the named exporter rather than reading an immediate
-	/// value. `give` is copied by the send; [`step`](Peer::step) encodes it.
-	pub fn send_resolve_handoff_give(&mut self, answer: u64, give: &[u8]) -> Result<()> {
-		check(unsafe {
-			sys::pancake_peer_send_resolve_handoff_give(self.raw, answer, give.as_ptr(), give.len())
-		})
-	}
-
-	/// Bind `registry` as this peer's shared gift registry (ADR-0056), so its
-	/// inbound `deposit-gift` / `withdraw-gift` resolve against the node-wide
-	/// table instead of the peer's private one. Set it before the handshake; the
-	/// registry must outlive the peer. Binding-internal: the node binds
-	/// its one shared gift registry on every connection it opens.
-	pub fn set_gift_registry(&mut self, registry: *mut sys::PancakeGiftRegistry) -> Result<()> {
-		check(unsafe { sys::pancake_peer_set_gift_registry(self.raw, registry) })
 	}
 
 	/// Take the next outbound frame as owned bytes, or `Ok(None)` when the queue
@@ -1312,101 +1227,87 @@ impl<'ctx> Peer<'ctx> {
 		Ok(Some(out))
 	}
 
-	/// Take the next application event as a typed [`Event`], or `Ok(None)` when
-	/// idle. A typed-poll failure (re-decode or allocation failure between the
-	/// peek and the poll) surfaces as `Err`, never as a fabricated event.
+	/// Drive the engine to idle and take the next application event as a typed
+	/// [`Event`], or `Ok(None)` when there is nothing to do until bytes move.
+	/// The core owns the pump-then-poll rule and the typed-or-opaque routing
+	/// (`pancake_peer_next_event`): a settlement cascade surfaces in full, a
+	/// deliver or resolve arrives projected, and every other kind — or a value
+	/// the typed surface cannot carry — arrives as [`Event::Other`] carrying the
+	/// originating wire bytes. Write queued outbound
+	/// ([`take_outbound`](Peer::take_outbound)) on `None`, before parking on a
+	/// read.
 	pub fn poll(&mut self) -> Result<Option<Event>> {
-		match unsafe { sys::pancake_peer_peek_event(self.raw) } {
-			sys::EVENT_DELIVER => Ok(Some(self.poll_deliver()?)),
-			sys::EVENT_RESOLVE => Ok(Some(self.poll_resolve()?)),
-			sys::WOULD_BLOCK => Ok(None),
-			kind if kind < 0 => Err(Error::from_code(kind)),
-			_ => Ok(Some(self.poll_other()?)),
-		}
-	}
-
-	fn poll_deliver(&mut self) -> Result<Event> {
-		let mut d: sys::PancakeDeliver = unsafe { core::mem::zeroed() };
-		let rc = unsafe { sys::pancake_peer_poll_event_deliver(self.raw, &mut d) };
-		if rc == sys::ERR_UNSUPPORTED_VALUE {
-			// The typed projection cannot carry this deliver (e.g. a handoff
-			// argument). The event stays queued, so drain it as an opaque
-			// `Event::Other` — failing here would peek the same event forever.
-			return self.poll_other();
+		let mut ev: sys::PancakeAnyEvent = unsafe { core::mem::zeroed() };
+		let rc = unsafe { sys::pancake_peer_next_event(self.raw, &mut ev) };
+		if rc == sys::WOULD_BLOCK {
+			return Ok(None);
 		}
 		check(rc)?;
-		let event = Event::Deliver {
-			target: Reference::from_sys(&d.target),
-			args: unsafe { args_from_sys(d.args, d.args_len) },
-			answer: if d.has_answer != 0 {
-				Some(d.answer)
-			} else {
-				None
-			},
-		};
-		unsafe { sys::pancake_deliver_release(&mut d) };
-		Ok(event)
-	}
-
-	fn poll_resolve(&mut self) -> Result<Event> {
-		let mut r: sys::PancakeResolve = unsafe { core::mem::zeroed() };
-		let rc = unsafe { sys::pancake_peer_poll_event_resolve(self.raw, &mut r) };
-		if rc == sys::ERR_UNSUPPORTED_VALUE {
-			// Same leave-queued contract as poll_deliver: drain the refused
-			// resolve as an opaque event so the loop survives.
-			return self.poll_other();
-		}
-		check(rc)?;
-		let resolution = if r.resolution_kind == sys::RESOLUTION_FULFILL {
-			Resolution::Fulfill(unsafe { arg_from_sys(&r.fulfill) })
-		} else if r.resolution_kind == sys::RESOLUTION_HANDOFF {
-			let view = |ptr: *const u8, len: usize| -> Vec<u8> {
-				if ptr.is_null() || len == 0 {
+		let event = match ev.projection {
+			sys::PROJECTION_DELIVER => {
+				let d = &ev.deliver;
+				Event::Deliver {
+					target: Reference::from_sys(&d.target),
+					args: unsafe { args_from_sys(d.args, d.args_len) },
+					answer: if d.has_answer != 0 {
+						Some(d.answer)
+					} else {
+						None
+					},
+				}
+			}
+			sys::PROJECTION_RESOLVE => {
+				let r = &ev.resolve;
+				let resolution = if r.resolution_kind == sys::RESOLUTION_FULFILL {
+					Resolution::Fulfill(unsafe { arg_from_sys(&r.fulfill) })
+				} else if r.resolution_kind == sys::RESOLUTION_HANDOFF {
+					let view = |ptr: *const u8, len: usize| -> Vec<u8> {
+						if ptr.is_null() || len == 0 {
+							Vec::new()
+						} else {
+							unsafe { core::slice::from_raw_parts(ptr, len) }.to_vec()
+						}
+					};
+					let h = &r.handoff;
+					Resolution::Handoff(HandoffGive {
+						give: view(h.give, h.give_len),
+						exporter_locator: String::from_utf8_lossy(&view(
+							h.exporter_locator,
+							h.exporter_locator_len,
+						))
+						.into_owned(),
+						recipient_key: view(h.recipient_key, h.recipient_key_len),
+					})
+				} else {
+					let msg = if r.break_message.is_null() {
+						String::new()
+					} else {
+						String::from_utf8_lossy(unsafe {
+							core::slice::from_raw_parts(r.break_message, r.break_message_len)
+						})
+						.into_owned()
+					};
+					Resolution::Break(msg)
+				};
+				Event::Resolve {
+					answer: r.answer,
+					resolution,
+				}
+			}
+			_ => {
+				let frame = if ev.frame.bytes.is_null() {
 					Vec::new()
 				} else {
-					unsafe { core::slice::from_raw_parts(ptr, len) }.to_vec()
+					unsafe { core::slice::from_raw_parts(ev.frame.bytes, ev.frame.len) }.to_vec()
+				};
+				Event::Other {
+					kind: ev.kind,
+					frame,
 				}
-			};
-			let h = &r.handoff;
-			Resolution::Handoff(HandoffGive {
-				give: view(h.give, h.give_len),
-				exporter_locator: String::from_utf8_lossy(&view(
-					h.exporter_locator,
-					h.exporter_locator_len,
-				))
-				.into_owned(),
-				recipient_key: view(h.recipient_key, h.recipient_key_len),
-			})
-		} else {
-			let msg = if r.break_message.is_null() {
-				String::new()
-			} else {
-				String::from_utf8_lossy(unsafe {
-					core::slice::from_raw_parts(r.break_message, r.break_message_len)
-				})
-				.into_owned()
-			};
-			Resolution::Break(msg)
+			}
 		};
-		let event = Event::Resolve {
-			answer: r.answer,
-			resolution,
-		};
-		unsafe { sys::pancake_resolve_release(&mut r) };
-		Ok(event)
-	}
-
-	fn poll_other(&mut self) -> Result<Event> {
-		let mut e: sys::PancakeEvent = unsafe { core::mem::zeroed() };
-		check(unsafe { sys::pancake_peer_poll_event(self.raw, &mut e) })?;
-		let frame = if e.frame.bytes.is_null() {
-			Vec::new()
-		} else {
-			unsafe { core::slice::from_raw_parts(e.frame.bytes, e.frame.len) }.to_vec()
-		};
-		let kind = e.kind;
-		unsafe { sys::pancake_event_release(&mut e) };
-		Ok(Event::Other { kind, frame })
+		unsafe { sys::pancake_any_event_release(&mut ev) };
+		Ok(Some(event))
 	}
 
 	/// The typed cause of this peer's most recent local dispatch failure, or
@@ -1599,7 +1500,7 @@ mod tests {
 		peer.feed(b"<8'op:abort3\"bye>").unwrap();
 		match peer.poll().unwrap().expect("an abort event") {
 			Event::Other { kind, frame } => {
-				assert_eq!(kind, 7); // PANCAKE_EVENT_ABORT
+				assert_eq!(kind, abi_constants::EVENT_ABORT as u32);
 				assert_eq!(frame, b"<8'op:abort3\"bye>");
 			}
 			other => panic!("expected abort, got {other:?}"),
@@ -1650,6 +1551,83 @@ mod tests {
 		assert!(wire
 			.windows(b"op:start-session".len())
 			.any(|window| window == b"op:start-session"));
+	}
+
+	// The codec selector end-to-end: two Cap'n Proto peers complete the keyed
+	// handshake and carry a deliver whose arguments round-trip through the
+	// capnp codec — a big integer past int64 and a Keyword included, so the
+	// two rare marshal arms are witnessed alongside the codec.
+	#[test]
+	fn capnp_peers_handshake_and_round_trip_big_integer_and_keyword() {
+		let mut a = Peer::negotiated(Profile::V1_0, Codec::Capnp).unwrap();
+		let mut b = Peer::negotiated(Profile::V1_0, Codec::Capnp).unwrap();
+		a.start_session(&[0x01; 32], "tcp", "127.0.0.1:1", true)
+			.unwrap();
+		b.start_session(&[0x02; 32], "tcp", "127.0.0.1:2", true)
+			.unwrap();
+		a.step().unwrap();
+		b.step().unwrap();
+
+		fn pump(src: &mut Peer, dst: &mut Peer) -> bool {
+			let mut moved = false;
+			while let Some(frame) = src.take_outbound().unwrap() {
+				let consumed = dst.recv_stream(&frame).unwrap();
+				assert_eq!(
+					consumed,
+					Some(frame.len()),
+					"the whole capnp frame is consumed"
+				);
+				dst.step().unwrap();
+				moved = true;
+			}
+			moved
+		}
+
+		let mut stalls = 0;
+		while !(a.session_is_open() && b.session_is_open()) {
+			let moved_ab = pump(&mut a, &mut b);
+			let moved_ba = pump(&mut b, &mut a);
+			if !moved_ab && !moved_ba {
+				stalls += 1;
+				assert!(stalls < 4, "capnp keyed handshake stalled");
+			}
+		}
+
+		b.register_export(7).unwrap();
+		a.register_import(7).unwrap();
+		// 2^80: past int64, so it must ride the ARG_BIG_INTEGER arm.
+		let big = Argument::BigInteger {
+			negative: false,
+			digits: "1208925819614629174706176".to_string(),
+		};
+		a.send_deliver(
+			&Reference::Far {
+				id: 7,
+				promise: false,
+			},
+			&[
+				big.clone(),
+				Argument::Keyword("prio".into()),
+				Argument::Bytes(b"hi".to_vec()),
+			],
+			Some(9),
+		)
+		.unwrap();
+		a.step().unwrap();
+		pump(&mut a, &mut b);
+		// Skip the surfaced start-session; the deliver follows.
+		let event = loop {
+			match b.poll().unwrap() {
+				Some(Event::Deliver { args, answer, .. }) => break (args, answer),
+				Some(_) => continue,
+				None => panic!("the capnp deliver never surfaced"),
+			}
+		};
+		let (args, answer) = event;
+		assert_eq!(answer, Some(9));
+		assert_eq!(args[0], big);
+		assert_eq!(args[1], Argument::Keyword("prio".into()));
+		assert_eq!(args[2], Argument::Bytes(b"hi".to_vec()));
 	}
 
 	#[test]

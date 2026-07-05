@@ -101,10 +101,13 @@ test "derivePublicIdentifier is deterministic and key-dependent" {
     );
 }
 
-test "deriveSessionId matches externally-computed known answer" {
+test "session id from derived peer ids matches externally-computed known answer" {
     const key_a = (SecretKey.fromSeed(SEED_A)).publicKey();
     const key_b = (SecretKey.fromSeed(SEED_B)).publicKey();
-    const session = crypto.deriveSessionId(key_a, key_b);
+    const session = crypto.sessionIdFromPeerIds(
+        crypto.derivePublicIdentifier(key_a),
+        crypto.derivePublicIdentifier(key_b),
+    );
     try std.testing.expectEqualSlices(
         u8,
         &hex32("c82ee84990a789fa8e1f14d910d1c5cbfd245814dd3a32740bbe309e31f1c2ed"),
@@ -112,18 +115,21 @@ test "deriveSessionId matches externally-computed known answer" {
     );
 }
 
-test "deriveSessionId is symmetric in peer order" {
-    const key_a = (SecretKey.fromSeed(SEED_A)).publicKey();
-    const key_b = (SecretKey.fromSeed(SEED_B)).publicKey();
+test "session id derivation is symmetric in peer order" {
+    const id_a = crypto.derivePublicIdentifier((SecretKey.fromSeed(SEED_A)).publicKey());
+    const id_b = crypto.derivePublicIdentifier((SecretKey.fromSeed(SEED_B)).publicKey());
     try std.testing.expect(
-        crypto.deriveSessionId(key_a, key_b).eql(crypto.deriveSessionId(key_b, key_a)),
+        crypto.sessionIdFromPeerIds(id_a, id_b).eql(crypto.sessionIdFromPeerIds(id_b, id_a)),
     );
 }
 
-test "deriveSessionId differs from either constituent peer id" {
+test "session id differs from either constituent peer id" {
     const key_a = (SecretKey.fromSeed(SEED_A)).publicKey();
     const key_b = (SecretKey.fromSeed(SEED_B)).publicKey();
-    const session = crypto.deriveSessionId(key_a, key_b);
+    const session = crypto.sessionIdFromPeerIds(
+        crypto.derivePublicIdentifier(key_a),
+        crypto.derivePublicIdentifier(key_b),
+    );
     try std.testing.expect(!session.eql(blk: {
         const pid = crypto.derivePublicIdentifier(key_a);
         break :blk pancake.foundation.SessionId.fromBytes(pid.bytes);

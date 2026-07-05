@@ -60,13 +60,13 @@ const no_limit: usize = std.math.maxInt(usize);
 
 /// Borrowed reference descriptor exactly as the wire carries it, before the
 /// projection into the codec-neutral `model.view.Reference`.
-pub const ReferenceView = union(enum) {
+const ReferenceView = union(enum) {
     near: model.NearRef,
     far: model.FarRef,
     promise: model.PromiseRef,
     sturdy: SturdyRefView,
 
-    pub const SturdyRefView = struct {
+    const SturdyRefView = struct {
         peer: model.PeerLocator,
         swissnum: []const u8,
     };
@@ -76,10 +76,6 @@ pub const ReferenceView = union(enum) {
 pub const SignatureView = struct {
     r: []const u8,
     s: []const u8,
-
-    pub fn len(self: SignatureView) usize {
-        return self.r.len + self.s.len;
-    }
 };
 
 /// Materialize an owned `model.Message` from a complete `frame`: the
@@ -268,10 +264,34 @@ fn readNeutralArgument(bytes: []const u8, cursor: *usize, depth: usize, limit: u
                     .swissnum = swissnum,
                 } } };
             }
-            break :blk Error.UnsupportedArgument;
+            // A record label pancake does not model is a foreign record — a
+            // Goblins exception such as `<exn:fail:mystery>` riding a break
+            // payload — projected as Tagged: the label is the tag, the fields
+            // the value, exactly the shape `engine.events.breakReasonFromPayload`
+            // reads a reason from. Decode-side leniency only (pancake's own
+            // Tagged spells `<user-record …>` on encode); whether a tagged
+            // value is admissible where it lands stays the session's verdict.
+            const fields = try sliceRecordFieldsNeutral(bytes, cursor, depth + 1, limit);
+            try readByte(bytes, cursor, '>');
+            break :blk .{ .tagged = .{ .tag = tag, .value = neutralArgs(fields) } };
         },
         else => Error.UnsupportedArgument,
     };
+}
+
+/// Slice a foreign record's field run: zero or more values up to the closing
+/// `>`, which stays for the caller to consume. Width and depth ride the same
+/// bounds as every collection walk.
+fn sliceRecordFieldsNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error![]const u8 {
+    const body_start = cursor.*;
+    var elements: usize = 0;
+    while (cursor.* < bytes.len and bytes[cursor.*] != '>') {
+        elements += 1;
+        if (elements > max_collection_elements) return Error.MalformedFrame;
+        _ = try readNeutralArgument(bytes, cursor, depth, limit);
+    }
+    if (cursor.* >= bytes.len) return Error.Incomplete;
+    return bytes[body_start..cursor.*];
 }
 
 /// Slice one delimited sequence body (between `open` and `close`) using the
@@ -485,7 +505,9 @@ fn decodeBodyAt(bytes: []const u8, cursor: *usize, limit: usize) Error!model.vie
 /// `cursor` to the byte after the closing `>`. `message_start` is the offset of
 /// the opening `<`; only the handoff decoder needs it (it re-parses the whole
 /// signed envelope from there), but every decoder takes it so the dispatch
-/// table is one uniform function-pointer type.
+/// table is one uniform function-pointer type. That is why each non-handoff
+/// decoder below opens with `_ = message_start;` — the discard is the uniform
+/// signature's price, not a forgotten parameter.
 const OpDecoder = *const fn (bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body;
 
 fn decoderFor(comptime kind: std.meta.Tag(model.Message)) OpDecoder {
@@ -944,7 +966,7 @@ fn readHints(bytes: []const u8, cursor: *usize, limit: usize) Error!model.Hints 
 /// duped so the result outlives the frame. Free with `model.freeHints`.
 /// Allocation failure propagates as `OutOfMemory`, never as a frame error:
 /// running out of heap is not evidence the partner sent hostile bytes.
-pub fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) shared.WalkError!model.Hints {
+fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) shared.WalkError!model.Hints {
     if (cursor.* >= bytes.len) return Error.Incomplete;
     if (bytes[cursor.*] == 'f') {
         cursor.* += 1;
@@ -1085,7 +1107,7 @@ fn rejectNonCanonicalDigits(bytes: []const u8, start: usize, end: usize) Error!v
     if (end - start > 1 and bytes[start] == '0') return Error.MalformedFrame;
 }
 
-pub fn readPositiveInt(bytes: []const u8, cursor: *usize) Error!u64 {
+fn readPositiveInt(bytes: []const u8, cursor: *usize) Error!u64 {
     const start = cursor.*;
     while (cursor.* < bytes.len and std.ascii.isDigit(bytes[cursor.*])) {
         cursor.* += 1;
@@ -1213,7 +1235,7 @@ fn readFloat64(bytes: []const u8, cursor: *usize) Error!f64 {
 /// hostile length fails closed (`Incomplete` / `MalformedFrame`) rather than
 /// reading out of bounds. Exposed so callers that need a raw byte-string at a
 /// known offset reuse this reader instead of re-deriving the wire grammar.
-pub fn readBytes(bytes: []const u8, cursor: *usize) Error![]const u8 {
+fn readBytes(bytes: []const u8, cursor: *usize) Error![]const u8 {
     return readBytesLimited(bytes, cursor, no_limit);
 }
 

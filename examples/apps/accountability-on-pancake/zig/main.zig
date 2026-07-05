@@ -242,6 +242,7 @@ pub fn main(init: std.process.Init) !void {
     const outcome = try invoke(&cv, affordance, &caller_id, request, false, call_arena.allocator());
     const result: []const u8 = switch (outcome) {
         .fulfilled => |arg| strArg(arg) orelse "",
+        .give => "",
         .broken => |reason| {
             std.debug.print("      invocation did not resolve fulfilled (reason='{s}')\n", .{reason});
             cv.deinit();
@@ -262,7 +263,7 @@ pub fn main(init: std.process.Init) !void {
     const refused = try invoke(&cv, affordance, &caller_id, request, true, call_arena.allocator());
     const refusal_reason: []const u8 = switch (refused) {
         .broken => |reason| reason,
-        .fulfilled => {
+        .fulfilled, .give => {
             std.debug.print("      a tampered invocation was NOT refused\n", .{});
             cv.deinit();
             _ = host_future.await(io) catch {};

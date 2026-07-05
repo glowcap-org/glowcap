@@ -104,7 +104,7 @@ fn hostExporter(listener: net.netlayer.Listener, allocator: std.mem.Allocator, g
     defer allocator.free(write_buf);
 
     const secret = crypto.SecretKey.fromSeed(c_seed);
-    var cv = try driver.acceptVia(listener, allocator, &peer, .{ .keyed = .{ .secret = secret, .designator = "" } }, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf);
     defer cv.deinit();
 
     const greeter = try cv.publish("greeter", Greeter, .{});
@@ -131,7 +131,7 @@ fn hostIntroducer(listener: net.netlayer.Listener, allocator: std.mem.Allocator,
     defer allocator.free(write_buf);
 
     const secret = crypto.SecretKey.fromSeed(a_seed);
-    var cv = try driver.acceptVia(listener, allocator, &peer, .{ .keyed = .{ .secret = secret, .designator = "" } }, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf);
     defer cv.deinit();
 
     _ = try cv.publish("introducer", Introducer, .{
@@ -163,7 +163,7 @@ fn fetchGive(
 
     const secret = crypto.SecretKey.fromSeed(b_seed);
     const locator: model.PeerLocator = .{ .transport = iroh.transport_name, .designator = a_id, .hints = model.Hints.emptyFalse() };
-    var cv = try driver.connectVia(netlayers, allocator, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = a_id } }, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = a_id } }, read_buf, write_buf);
     defer cv.deinit();
 
     const introducer = try cv.fetch("introducer");
@@ -173,7 +173,7 @@ fn fetchGive(
     try cv.peer.sendCopying(.{ .deliver = .{
         .target = target,
         .args = &.{.{ .symbol = "get-greeter" }},
-        .answer = answer,
+        .answer = model.AnswerId.from(answer),
     } });
 
     var settled = false;
@@ -183,7 +183,7 @@ fn fetchGive(
             var event = event_value;
             defer event.deinit();
             const body = event.view() catch continue;
-            if (body == .resolve and body.resolve.answer == answer) {
+            if (body == .resolve and body.resolve.answer.int() == answer) {
                 settled = true;
                 switch (body.resolve.resolution) {
                     .fulfill => |arg| {
@@ -231,7 +231,7 @@ fn withdrawAndCall(
 
     const secret = crypto.SecretKey.fromSeed(b_seed);
     const locator: model.PeerLocator = .{ .transport = iroh.transport_name, .designator = exporter_id, .hints = model.Hints.emptyFalse() };
-    var cv = try driver.connectVia(netlayers, allocator, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = b_id } }, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = b_id } }, read_buf, write_buf);
     defer cv.deinit();
     std.debug.print("iroh-mesh: B dialed the introduced exporter C over iroh, by the gifted node id\n", .{});
 
@@ -263,7 +263,7 @@ fn withdrawAndCall(
         .deliver = .{
             .target = .{ .far = model.FarRef.object(0) }, // the exporter's bootstrap
             .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff } },
-            .answer = withdraw_answer,
+            .answer = model.AnswerId.from(withdraw_answer),
         },
     });
 
@@ -275,7 +275,7 @@ fn withdrawAndCall(
     try cv.peer.sendCopying(.{ .deliver = .{
         .target = greeter,
         .args = &.{ .{ .symbol = "greet" }, .{ .string = "pancake-b" } },
-        .answer = call_answer,
+        .answer = model.AnswerId.from(call_answer),
     } });
 
     var greeted = false;
@@ -285,7 +285,7 @@ fn withdrawAndCall(
             var event = event_value;
             defer event.deinit();
             const body = event.view() catch continue;
-            if (body == .resolve and body.resolve.answer == call_answer) {
+            if (body == .resolve and body.resolve.answer.int() == call_answer) {
                 greeted = true;
                 switch (body.resolve.resolution) {
                     .fulfill => |arg| {
@@ -317,7 +317,7 @@ fn awaitFulfilledReference(allocator: std.mem.Allocator, peer: *engine.Peer, con
             var event = event_value;
             defer event.deinit();
             const body = event.view() catch continue;
-            if (body == .resolve and body.resolve.answer == id) {
+            if (body == .resolve and body.resolve.answer.int() == id) {
                 switch (body.resolve.resolution) {
                     .fulfill => |arg| {
                         if (arg != .reference) return null;

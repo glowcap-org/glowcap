@@ -178,50 +178,14 @@ const TcpListenerPayload = struct {
     allocator: std.mem.Allocator,
 };
 
-fn destroyConn(payload: *TcpConnPayload) void {
-    const alloc = payload.allocator;
-    payload.stream.deinit();
-    alloc.free(payload.read_buf);
-    alloc.free(payload.write_buf);
-    alloc.destroy(payload);
-}
-
-/// Modest caps on the per-connection buffers. Neither buffer needs to hold a
-/// whole frame: `writeAll` streams a large outbound frame straight through the
-/// write buffer, and an inbound frame larger than the read buffer accumulates
-/// in the connection's bounded spill (`net.Spill`) while it is in
-/// flight. Steady per-connection memory is therefore these two buffers, not
-/// `max_frame_bytes`.
-const endpoint_read_buf_bytes: usize = 16 * 1024;
-const endpoint_write_buf_bytes: usize = 64 * 1024;
-
-/// Allocate a connection payload and its buffers, leaving `.stream` for the
-/// caller to install once the socket is established. On any failure before
-/// install, release it with `abortConn`. Both endpoint constructors share this
-/// so the buffer/payload lifecycle lives in one place.
-fn beginConn(alloc: std.mem.Allocator, max_frame_bytes: usize) ?*TcpConnPayload {
-    const read_buf = alloc.alloc(u8, @min(max_frame_bytes, endpoint_read_buf_bytes)) catch return null;
-    const write_buf = alloc.alloc(u8, @min(max_frame_bytes, endpoint_write_buf_bytes)) catch {
-        alloc.free(read_buf);
-        return null;
-    };
-    const payload = alloc.create(TcpConnPayload) catch {
-        alloc.free(read_buf);
-        alloc.free(write_buf);
-        return null;
-    };
-    payload.read_buf = read_buf;
-    payload.write_buf = write_buf;
-    payload.allocator = alloc;
-    return payload;
-}
-
-fn abortConn(payload: *TcpConnPayload) void {
-    const alloc = payload.allocator;
-    alloc.free(payload.read_buf);
-    alloc.free(payload.write_buf);
-    alloc.destroy(payload);
-}
+// The shared buffer/payload lifecycle (`c_abi_shared.ConnLifecycle`): allocate
+// with `begin`, release a never-installed payload with `abort`, an established
+// one with `destroy`. Buffer caps are the shared leaf's
+// `endpoint_read_buf_bytes` / `endpoint_write_buf_bytes`.
+const conn_lifecycle = c.ConnLifecycle(TcpConnPayload);
+const beginConn = conn_lifecycle.begin;
+const abortConn = conn_lifecycle.abort;
+const destroyConn = conn_lifecycle.destroy;
 
 /// Connect to `host:port` and return an owned connection handle framing on
 /// `codec`. Blocking. Runs on `netlayer`'s I/O backend.
@@ -428,7 +392,7 @@ pub export fn pancake_tcp_session_connect(
     var loc_buf: [64]u8 = undefined;
     const locator = net.tcp.locator(&loc_buf, address);
     const netlayers = [_]net.netlayer.Netlayer{payload.resident.netlayer()};
-    payload.conn = driver.connect(&netlayers, nl.allocator, locator, .ephemeral, .{
+    payload.conn = driver.connect(nl.allocator, &netlayers, locator, .ephemeral, .{
         .frame_cap = max_frame_bytes,
         .codec = codec_id,
     }) catch |err| {
@@ -526,6 +490,8 @@ pub export fn pancake_tcp_session_call(
 /// aliases the reason bytes there. `pancake_tcp_settled_release` frees the arena
 /// and everything it owns. Returns `PANCAKE_OK`, or a marshal error code (the
 /// caller leaves `settled_ok` false so its `defer` frees the arena).
+const give_needs_redeem = "answer is a three-party introduction; redeem it through the node surface";
+
 fn fillSettled(arena: *std.heap.ArenaAllocator, settled: driver.Settled, out: *PancakeSettled) i32 {
     const a = arena.allocator();
     out.* = switch (settled) {
@@ -541,6 +507,16 @@ fn fillSettled(arena: *std.heap.ArenaAllocator, settled: driver.Settled, out: *P
             .fulfill = c.zero_argument,
             .break_message = if (reason.len == 0) null else reason.ptr,
             .break_message_len = reason.len,
+            .owner = @ptrCast(arena),
+        },
+        // The owning session is a single-connection client with no redeemer
+        // for a three-party introduction; the outcome is a typed break. A
+        // consumer that redeems drives the node surface instead.
+        .give => .{
+            .resolution_kind = c.PANCAKE_RESOLUTION_BREAK,
+            .fulfill = c.zero_argument,
+            .break_message = give_needs_redeem.ptr,
+            .break_message_len = give_needs_redeem.len,
             .owner = @ptrCast(arena),
         },
     };
@@ -685,7 +661,7 @@ pub export fn pancake_tcp_settled_release(settled: ?*PancakeSettled) void {
 pub export fn pancake_tcp_session_release(session: ?*PancakeTcpSession) void {
     const payload = sessionFromOpaque(session) orelse return;
     const alloc = payload.allocator;
-    payload.conn.close();
+    payload.conn.deinit();
     alloc.destroy(payload);
 }
 

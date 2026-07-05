@@ -75,7 +75,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(listener, allocator, &peer, .ephemeral, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
     std.debug.print("iroh-interop: server accepted a QUIC stream and opened the keyed session\n", .{});
 
@@ -125,7 +125,7 @@ fn callOnce(
         .designator = designator,
         .hints = .{ .entries = &hint_entries },
     };
-    var cv = try driver.connectVia(netlayers, allocator, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
     std.debug.print("iroh-interop: client dialed by endpoint id and opened the keyed session\n", .{});
 
@@ -137,7 +137,7 @@ fn callOnce(
     const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena_state.allocator());
     const ok = switch (settled) {
         .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
-        .broken => false,
+        .broken, .give => false,
     };
     if (!ok) return error.WrongReply;
     std.debug.print("iroh-interop: client called greet and the reply matched\n", .{});
@@ -166,7 +166,7 @@ fn callByIdOnly(
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(netlayers, allocator, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -175,7 +175,7 @@ fn callByIdOnly(
     const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena_state.allocator());
     const ok = switch (settled) {
         .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
-        .broken => false,
+        .broken, .give => false,
     };
     if (!ok) return error.WrongReply;
 }
@@ -204,7 +204,6 @@ fn hostUnified(
     listener: net.netlayer.Listener,
     allocator: std.mem.Allocator,
     secret: pancake.foundation.crypto.SecretKey,
-    self_id: []const u8,
     expect_partner_id: []const u8,
 ) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
@@ -216,7 +215,7 @@ fn hostUnified(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(listener, allocator, &peer, .{ .keyed = .{ .secret = secret, .designator = self_id } }, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf);
     defer cv.deinit();
     try assertPartnerIsNodeId(&cv, expect_partner_id);
 
@@ -249,7 +248,7 @@ fn callUnified(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(netlayers, allocator, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = self_id } }, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = self_id } }, read_buf, write_buf);
     defer cv.deinit();
     try assertPartnerIsNodeId(&cv, server_id);
 
@@ -259,7 +258,7 @@ fn callUnified(
     const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena_state.allocator());
     const ok = switch (settled) {
         .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
-        .broken => false,
+        .broken, .give => false,
     };
     if (!ok) return error.WrongReply;
 }
@@ -436,7 +435,7 @@ pub fn main(init: std.process.Init) !void {
         });
         defer u_listener.close();
 
-        var u_host = try io.concurrent(hostUnified, .{ u_listener, allocator, server_secret, u_server_id, u_client_id });
+        var u_host = try io.concurrent(hostUnified, .{ u_listener, allocator, server_secret, u_client_id });
         const u_client_result = callUnified(&u_client_entries, u_server_id, u_client_id, client_secret, allocator);
         if (u_client_result) |_| {} else |err| {
             std.debug.print("iroh-interop: key-unification client failed: {s}\n", .{@errorName(err)});

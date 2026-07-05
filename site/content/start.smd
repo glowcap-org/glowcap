@@ -37,7 +37,7 @@ const pancake = @import("pancake");
 // putting one more netlayer in the slice, the same call.
 var tcp_resident = pancake.net.tcp.Resident{ .io = io };
 
-const conn = try pancake.driver.connect(&.{tcp_resident.netlayer()}, allocator, pancake.net.tcp.at(designator), .ephemeral, .{});
+const conn = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{});
 defer conn.close();
 
 const greeter = try conn.fetch("greeter"); // a capability, by name

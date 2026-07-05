@@ -39,8 +39,7 @@ def _lib_file(stem: str) -> str:
 # The directory to load archives from, or None to use a bare name (OS search).
 # The cascade every pancake binding shares: an explicit ``PANCAKE_LIB_DIR``
 # override (configure) wins, else the repo's ``zig-out/lib`` build output when
-# running in-tree (the dev fallback). The cached-download "ship" leg drops in
-# between these two later without a rewrite.
+# running in-tree (the dev fallback).
 def _lib_dir() -> pathlib.Path | None:
     override = os.environ.get("PANCAKE_LIB_DIR")
     if override:
@@ -97,10 +96,6 @@ class _ManagedFrame(ctypes.Structure):
     ]
 
 
-class _Event(ctypes.Structure):
-    _fields_ = [("kind", ctypes.c_uint32), ("frame", _ManagedFrame)]
-
-
 # The release callback a managed frame carries: void (*)(PancakeManagedFrame*).
 _ManagedFrameRelease = ctypes.CFUNCTYPE(None, ctypes.POINTER(_ManagedFrame))
 
@@ -130,7 +125,7 @@ class _HandoffGive(ctypes.Structure):
     # PancakeHandoffGive: set on a _HANDOFF resolution. Carried by value inside
     # PancakeResolve, so its size is part of that struct's layout even when the
     # binding never reads a handoff, omitting it makes _Resolve too small and
-    # pancake_peer_poll_event_resolve overflows the buffer.
+    # pancake_peer_next_event overflows the buffer.
     _fields_ = [
         ("give", ctypes.c_void_p),
         ("give_len", ctypes.c_size_t),
@@ -150,6 +145,35 @@ class _Resolve(ctypes.Structure):
         ("break_message_len", ctypes.c_size_t),
         ("handoff", _HandoffGive),
         ("owner", ctypes.c_void_p),
+    ]
+
+
+class _NodeAction(ctypes.Structure):
+    # PancakeNodeAction: one serve-step action. `kind` selects the live fields;
+    # the locator/reason views are node-owned and valid until the next
+    # pancake_node_next_action.
+    _fields_ = [
+        ("kind", ctypes.c_uint32),
+        ("pending", ctypes.c_uint64),
+        ("locator", ctypes.c_void_p),
+        ("locator_len", ctypes.c_size_t),
+        ("conn_id", ctypes.c_uint64),
+        ("answer", ctypes.c_uint64),
+        ("token", ctypes.c_uint64),
+        ("reason", ctypes.c_void_p),
+        ("reason_len", ctypes.c_size_t),
+    ]
+
+
+class _AnyEvent(ctypes.Structure):
+    # PancakeAnyEvent: one polled event, fully projected. `projection` names the
+    # live arm; the others are zeroed by the core.
+    _fields_ = [
+        ("kind", ctypes.c_uint32),
+        ("projection", ctypes.c_uint32),
+        ("deliver", _Deliver),
+        ("resolve", _Resolve),
+        ("frame", _ManagedFrame),
     ]
 
 
@@ -203,14 +227,11 @@ def _load():
             None,
         ),
         "pancake_last_error": ([ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t], ctypes.c_size_t),
-        "pancake_clear_last_error": ([], None),
         "pancake_context_new": ([ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_context_new_with_allocator": ([ctypes.POINTER(_Allocator), ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_context_release": ([P], None),
         "pancake_peer_new": ([ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_peer_new_in": ([P, ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_peer_new_negotiated": ([ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_peer_new_negotiated_in": ([P, ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_peer_new_raw_open": ([ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_peer_new_raw_open_in": ([P, ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_peer_start_session": (
@@ -226,14 +247,11 @@ def _load():
         "pancake_peer_recv_stream": ([P, ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)], ctypes.c_int32),
         "pancake_peer_take_outbound": ([P, ctypes.POINTER(_ManagedFrame)], ctypes.c_int32),
         "pancake_managed_frame_release": ([ctypes.POINTER(_ManagedFrame)], None),
-        "pancake_peer_poll_event": ([P, ctypes.POINTER(_Event)], ctypes.c_int32),
-        "pancake_event_release": ([ctypes.POINTER(_Event)], None),
         "pancake_peer_last_abort": ([P, ctypes.POINTER(_LastAbort)], ctypes.c_int32),
         "pancake_peer_register_export": ([P, ctypes.c_uint64], ctypes.c_int32),
         "pancake_peer_next_export": ([P, ctypes.POINTER(ctypes.c_uint64)], ctypes.c_int32),
         "pancake_peer_next_answer": ([P, ctypes.POINTER(ctypes.c_uint64)], ctypes.c_int32),
         "pancake_peer_register_import": ([P, ctypes.c_uint64], ctypes.c_int32),
-        "pancake_peer_peek_event": ([P], ctypes.c_int32),
         "pancake_peer_send_deliver": (
             [P, ctypes.POINTER(_Reference), ctypes.POINTER(_Argument), ctypes.c_size_t, ctypes.c_uint32, ctypes.c_uint64],
             ctypes.c_int32,
@@ -242,80 +260,51 @@ def _load():
             [P, ctypes.c_uint64, ctypes.c_uint32, ctypes.POINTER(_Argument), ctypes.c_void_p, ctypes.c_size_t],
             ctypes.c_int32,
         ),
-        "pancake_peer_poll_event_deliver": ([P, ctypes.POINTER(_Deliver)], ctypes.c_int32),
-        "pancake_peer_poll_event_resolve": ([P, ctypes.POINTER(_Resolve)], ctypes.c_int32),
-        "pancake_deliver_release": ([ctypes.POINTER(_Deliver)], None),
-        "pancake_resolve_release": ([ctypes.POINTER(_Resolve)], None),
+        "pancake_peer_next_event": ([P, ctypes.POINTER(_AnyEvent)], ctypes.c_int32),
+        "pancake_any_event_release": ([ctypes.POINTER(_AnyEvent)], None),
         "pancake_peer_register_bootstrap_cap": ([P, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)], ctypes.c_int32),
         "pancake_peer_send_bootstrap_fetch": ([P, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint64)], ctypes.c_int32),
         "pancake_peer_prepare_enliven": ([P, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(_EnlivenStart)], ctypes.c_int32),
         "pancake_peer_record_enlivenment": ([P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.c_uint64, ctypes.c_uint32], ctypes.c_int32),
-        # Recipient half of a three-party handoff: sign a desc:handoff-receive over
-        # the verbatim give bytes (keyed by the 32-byte seed) and queue a
-        # withdraw-gift deliver to the exporter's bootstrap under `answer`.
-        "pancake_peer_send_withdraw_gift": (
-            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64],
-            ctypes.c_int32,
-        ),
-        # Gifter (introducer) half of a three-party handoff (ADR-0009): the
-        # accessors surface the partner's session key and verbatim locator bytes,
-        # `send_deposit_gift` plants the gift with the exporter, `build_handoff_give`
-        # signs the give the recipient redeems, and `send_resolve_handoff_give`
-        # answers the recipient with it. The shared gift registry lets one node's
-        # deposit (on the gifter session) and withdraw (on the recipient session)
-        # resolve against one table.
-        "pancake_peer_partner_session_key": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
-        "pancake_peer_partner_locator_raw": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
-        "pancake_peer_send_deposit_gift": (
-            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(_Reference)],
-            ctypes.c_int32,
-        ),
-        "pancake_peer_send_resolve_handoff_give": (
-            [P, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_size_t],
-            ctypes.c_int32,
-        ),
-        "pancake_build_handoff_give": (
-            [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
-             ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
-             ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p), size_p],
-            ctypes.c_int32,
-        ),
-        "pancake_handoff_give_bytes_release": ([ctypes.c_void_p, ctypes.c_size_t], None),
         "pancake_encode_peer_locator": (
             [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
              ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p), size_p],
             ctypes.c_int32,
         ),
         "pancake_peer_locator_bytes_release": ([ctypes.c_void_p, ctypes.c_size_t], None),
-        "pancake_gift_registry_new": ([ctypes.POINTER(ctypes.c_void_p)], ctypes.c_int32),
-        "pancake_gift_registry_free": ([ctypes.c_void_p], None),
-        "pancake_peer_set_gift_registry": ([P, ctypes.c_void_p], ctypes.c_int32),
         # Cross-connection handoff router (PancakeNode, ADR-0066): the sans-io node
         # owns the per-connection peers, the shared gift registry, the retained
         # identity, and the redeemed-token / foreign-home routing tables. A binding
         # registers each connection's node-owned peer, pumps it, and routes by
         # conn_id — every route value an integer, so the router is pure data.
         "pancake_node_new": ([ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_node_new_in": ([P, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_node_free": ([P], None),
         "pancake_node_register_conn": ([P, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_node_remove_conn": ([P, ctypes.c_uint64], ctypes.c_int32),
-        "pancake_node_send_withdraw": ([P, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64], ctypes.c_int32),
-        "pancake_node_originate_give": (
-            [P, ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(_Reference), ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_size_t],
-            ctypes.c_int32,
-        ),
-        "pancake_node_enroll_redeemed": ([P, ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64)], ctypes.c_int32),
         "pancake_node_route": (
             [P, ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_uint32)],
             ctypes.c_int32,
         ),
         "pancake_node_record_foreign_home": ([P, ctypes.c_uint64, ctypes.c_uint64], ctypes.c_int32),
-        "pancake_node_foreign_home": ([P, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_uint32)], ctypes.c_int32),
         "pancake_node_arg_is_foreign": ([P, ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint32)], ctypes.c_int32),
-        "pancake_peer_codec": ([P, ctypes.POINTER(ctypes.c_uint32)], ctypes.c_int32),
+        "pancake_node_accept_give": (
+            [P, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t],
+            ctypes.c_int32,
+        ),
+        "pancake_node_exporter_dialed": ([P, ctypes.c_uint64, ctypes.c_uint64], ctypes.c_int32),
+        "pancake_node_dial_failed": ([P, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_size_t], ctypes.c_int32),
+        "pancake_node_claim_resolve": (
+            [P, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint32, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_size_t,
+             ctypes.POINTER(ctypes.c_uint32)],
+            ctypes.c_int32,
+        ),
+        "pancake_node_intercept_fulfilled_ref": (
+            [P, ctypes.c_uint64, ctypes.c_uint64, ctypes.c_uint64, ctypes.POINTER(ctypes.c_uint32)], ctypes.c_int32,
+        ),
+        "pancake_node_provide_gift_id": ([P, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_size_t], ctypes.c_int32),
+        "pancake_node_set_exporter_location": ([P, ctypes.c_uint64, ctypes.c_void_p, ctypes.c_size_t], ctypes.c_int32),
+        "pancake_node_next_action": ([P, ctypes.POINTER(_NodeAction)], ctypes.c_int32),
         "pancake_peer_send_gc_export": ([P, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(ctypes.c_uint64), ctypes.c_size_t], ctypes.c_int32),
-        "pancake_peer_send_gc_answer": ([P, ctypes.c_uint64], ctypes.c_int32),
         # Pipelined projections (ADR-0050/ADR-0052): export a fresh promise at
         # `answer` that resolves to a field / element / untag-payload of whatever
         # `receiver` resolves to. `field` and `tag` are borrowed.
@@ -333,18 +322,12 @@ def _load():
              ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)],
             ctypes.c_int32,
         ),
-        "pancake_uri_format_sturdyref": (
-            [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
-             ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
-             ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)],
-            ctypes.c_int32,
-        ),
         "pancake_locator_transport": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
         "pancake_locator_designator": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
-        "pancake_locator_swissnum": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
-        "pancake_locator_hint": (
-            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32,
+        "pancake_locator_host_port": (
+            [P, ctypes.POINTER(ctypes.c_void_p), size_p, ctypes.POINTER(ctypes.c_uint16)], ctypes.c_int32,
         ),
+        "pancake_locator_swissnum": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
         "pancake_locator_hint_count": ([P, size_p], ctypes.c_int32),
         "pancake_locator_hint_at": (
             [P, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p), size_p, ctypes.POINTER(ctypes.c_void_p), size_p],

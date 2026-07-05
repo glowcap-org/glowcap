@@ -45,7 +45,7 @@ fn onGreeting(ctx: ?*anyopaque, resolution: actors.Resolution) void {
             .string => |text| std.mem.eql(u8, text, "hello over inproc"),
             else => false,
         },
-        .broken => false,
+        .broken, .give => false,
     };
 }
 
@@ -62,7 +62,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(listener, allocator, &peer, .ephemeral, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf);
     defer cv.deinit();
 
     _ = try cv.publish("greeter", Greeter, .{});
@@ -82,7 +82,7 @@ fn callOnce(network: *inproc.Network, allocator: std.mem.Allocator) !void {
     defer allocator.free(write_buf);
 
     const netlayers = [_]net.netlayer.Netlayer{network.netlayer()};
-    var cv = try driver.connectVia(&netlayers, allocator, &peer, .{
+    var cv = try driver.connectVia(allocator, &netlayers, &peer, .{
         .transport = inproc.transport_name,
         .designator = node_designator,
         .hints = model.Hints.emptyFalse(),
@@ -136,7 +136,7 @@ test "inproc netlayer: dialing an unbound designator fails closed" {
     var write_buf: [256]u8 = undefined;
 
     const netlayers = [_]net.netlayer.Netlayer{network.netlayer()};
-    try std.testing.expectError(error.ConnectionLost, driver.connectVia(&netlayers, allocator, &peer, .{
+    try std.testing.expectError(error.ConnectionLost, driver.connectVia(allocator, &netlayers, &peer, .{
         .transport = inproc.transport_name,
         .designator = "no-such-node",
         .hints = model.Hints.emptyFalse(),

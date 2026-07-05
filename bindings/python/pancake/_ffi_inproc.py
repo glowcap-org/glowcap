@@ -23,9 +23,7 @@ def _load():
     P = ctypes.c_void_p
     inproc_sigs = {
         "pancake_inproc_last_error": ([ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t], ctypes.c_size_t),
-        "pancake_inproc_clear_last_error": ([], None),
         "pancake_inproc_netlayer_new": ([ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_inproc_netlayer_new_in": ([P, ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_inproc_netlayer_release": ([P], None),
         "pancake_inproc_connect": (
             [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.c_size_t, ctypes.POINTER(P)],

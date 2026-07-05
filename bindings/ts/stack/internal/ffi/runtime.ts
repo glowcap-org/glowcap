@@ -123,7 +123,7 @@ const g = globalThis as any;
  * is the fall-through. */
 export type RuntimeName = "deno" | "bun" | "node";
 
-export function detectRuntime(): RuntimeName {
+function detectRuntime(): RuntimeName {
 	if (typeof g.Bun !== "undefined") return "bun";
 	if (typeof g.Deno !== "undefined" && typeof g.Deno.dlopen === "function") {
 		return "deno";

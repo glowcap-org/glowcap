@@ -53,24 +53,29 @@ accepted partner from `listen`. Rust binds a `Server` whose `accept` returns
 one. Racket's `(accept (listen host port))` returns the same `connection` that
 `connect` does.
 
-Receiving a three-party handoff is transparent on the application surface: a
-binding's `Connection` redeems a `desc:handoff-give` itself — its node router
-dials the named exporter with the connection's retained identity, withdraws the
-gift, and resolves the `send`/`fetch` to an ordinary capability that later sends
-route to the exporter — so application code calls a handed-off capability
-through the same `send` it uses for any other, never touching the give or the
-second connection. It is proven per binding against a live Goblins introducer by
-the `deno-goblins-handoff`, `python-goblins-handoff`, `rust-goblins-handoff`,
-and `racket-goblins-handoff` build steps.
+Receiving a three-party handoff is transparent on the application surface, and
+the *decisions* behind it live in the core, not the binding: the node's sans-io
+serve step (ADR-0067) owns the exporter cache, the pending withdraw, and every
+step of the redeem, and the binding is a dumb executor that performs the
+actions the step emits — dial this locator with the node identity, flush that
+connection, settle this answer with the routable token. Application code calls
+a handed-off capability through the same `send` it uses for any other, never
+touching the give or the second connection. It is proven per binding against a
+live Goblins introducer by the `deno-goblins-handoff`,
+`python-goblins-handoff`, `rust-goblins-handoff`, and `racket-goblins-handoff`
+build steps.
 
-Originating a handoff is transparent too, across every binding: when a published
-actor returns a `Ref` whose home is a different connection than the one asking,
-the binding deposits the gift on the home connection and answers with a signed
-`desc:handoff-give` — no choreography in application code. This rests on one
-identity and one gift registry per node: a node's `Server`, `connect`, and
-redeem connections share a `Node` (read it as `server.node`), so a gift
-deposited on one connection is withdrawable on another and a pancake node serves
-direct redeems as the exporter. It is proven by the `deno-gifter-handoff`
+Originating a handoff is transparent too, and owned the same way: when a
+published actor returns a `Ref` whose home is a different connection than the
+one asking, the serve step claims the reply, asks the host for gift-id entropy
+(an explicit `need_gift_id` action, so the ordinary reply path draws nothing),
+deposits the gift on the home connection, answers with a signed
+`desc:handoff-give`, and orders the flushes exporter-first — no choreography in
+application or binding code. This rests on one identity and one gift registry
+per node: a node's `Server`, `connect`, and redeem connections share a `Node`
+(read it as `server.node`), so a gift deposited on one connection is
+withdrawable on another and a pancake node serves direct redeems as the
+exporter. It is proven by the `deno-gifter-handoff`
 (all-pancake, broker out of the path), the per-binding `deno-goblins-gift`,
 `python-goblins-gift`, `rust-goblins-gift`, and `racket-goblins-gift` gates
 (pancake as gifter, live Goblins recipient + exporter), and `demo-rooms-dm`
@@ -164,12 +169,16 @@ own archive and header, `libpancake_net_transport_tcp`
   settles. Because the proxy is a plain actor it answers the host's own near-call
   exactly as it answers a partner's delivery. Each binding owns this in its serve
   loop; the C ABI stays the same low-level deliver/resolve surface.
-  `pancake_peer_peek_event`, `pancake_peer_poll_event_deliver`, and
-  `pancake_peer_poll_event_resolve` read inbound deliveries and resolutions as
-  structured values; a value the typed surface cannot carry (e.g. a handoff
-  argument) leaves the event queued, and the consumer drains it with the opaque
-  `pancake_peer_poll_event`, reading the raw frame in the codec
-  `pancake_peer_codec` reports. `pancake_peer_register_export` and
+  `pancake_peer_next_event` is the one call a consumer's event loop needs: it
+  drives the engine to idle (a settlement cascade surfaces in full, so there is
+  no "step, then re-poll" rule to learn), then hands back the next event fully
+  projected — a deliver or resolve as structured values (a handoff give
+  included), and every other event kind — or a value the typed surface cannot
+  carry — as its originating wire frame, read in the codec `pancake_peer_codec`
+  reports. The pump-then-poll rule and the typed-or-opaque routing live in the
+  waist, so no binding re-derives either; the non-consuming
+  `pancake_peer_peek_event` and the opaque, non-driving `pancake_peer_poll_event`
+  remain for a caller that wants to look or drain by hand. `pancake_peer_register_export` and
   `pancake_peer_register_import` name the served and called positions, and
   `pancake_peer_next_export` and `pancake_peer_next_answer` allocate fresh
   export and answer positions from the session's own counters, so a binding
@@ -260,8 +269,13 @@ from pancake.tcp import TcpNetlayer
 pancake = { version = "*", features = ["iroh"] }   # implies the async feature
 ```
 
-Each binding keeps its raw FFI and its hand-mirrored ABI constants in clearly-internal
-modules grouped per archive the way the C ABI is, idiomatic to its ecosystem —
+Each binding keeps its raw FFI and its ABI constants in clearly-internal
+modules grouped per archive the way the C ABI is, idiomatic to its ecosystem.
+Three bindings declare struct layouts symbolically (ctypes, `define-cstruct`,
+`#[repr(C)]`); TypeScript's FFI has no struct types, so its mirror — constant
+values, struct sizes, and field offsets — is *generated* from the Zig source of
+truth (`bindings/ts/stack/internal/abi.ts`, `zig build gen-ts-abi`, held by
+`gen-ts-abi-check` inside `check`), never hand-derived. The internal modules —
 Rust's private `sys` (`sys/{ocapn,tcp,inproc,iroh}.rs`) and `abi_constants`, the
 JS binding's per-archive loaders and runtime FFI shim under
 [`ts/stack/internal/ffi/`](ts/stack/internal/ffi/), Python's `_`-private
@@ -414,9 +428,10 @@ surface. Every binding parks on that fd natively, each in its own idiom: Deno's
 `IrohLoop` (a `node:net` socket on a dup'd fd), Python's `_IrohLoop` (asyncio
 `add_reader`), Rust's `AsyncFd` task, and Racket's
 `unsafe-file-descriptor->semaphore` park — no dedicated polling thread, no
-busy-poll. Each is held to the same scale bar by a many-connection gate —
-`zig build bindings-iroh-loop` runs `python-iroh-loop`, `rust-iroh-loop`, and
-`racket-iroh-loop`, the binding siblings of `iroh-loop`. The
+busy-poll. The Python, Rust, and Racket loops are each held to the same scale
+bar by a many-connection gate — `zig build bindings-iroh-loop` runs
+`python-iroh-loop`, `rust-iroh-loop`, and `racket-iroh-loop`, the binding
+siblings of `iroh-loop`. The
 `examples/apps/rooms/` clients dial a transport-neutral locator, so
 `zig build demo-rooms-iroh` runs the same cross-language room over iroh; a
 binding joins when its runtime and the iroh library are both present.
@@ -442,9 +457,10 @@ binding's `set_redeem_reachability` knob (`setRedeemReachability` in TS, the
 `redeem_reachability` property in Python, `set-node-redeem-reachability!` in
 Racket); a hinted give always dials `Direct`. That the redeem honors the
 configured posture is proven hermetically per binding by `zig build
-bindings-iroh-redeem-posture` — each lowers its recipient to `local_discovery`
-and redeems a hint-less give by id through an in-process book (the default
-`Discovery` would need the network). Its
+bindings-iroh-redeem-posture`
+(`deno-`/`python-`/`rust-`/`racket-iroh-redeem-posture`) — each lowers its
+recipient to `local_discovery` and redeems a hint-less give by id through an
+in-process book (the default `Discovery` would need the network). Its
 offline, deterministic dial-by-id form (`local_discovery`) is proven by the
 `*-iroh-loop` gates; the live public-internet form is proven per binding by the
 opt-in `zig build bindings-iroh-reachability` (`python-`/`rust-`/`racket-iroh-reachability`),

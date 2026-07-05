@@ -13,12 +13,7 @@ import { ffi } from "./runtime.ts";
 
 const tcpS = ffi.dlopen(libPath("pancake_net_transport_tcp"), {
 	pancake_tcp_last_error: { parameters: ["buffer", "usize"], result: "usize" },
-	pancake_tcp_clear_last_error: { parameters: [], result: "void" },
 	pancake_tcp_netlayer_new: { parameters: ["buffer"], result: "i32" },
-	pancake_tcp_netlayer_new_in: {
-		parameters: ["pointer", "buffer"],
-		result: "i32",
-	},
 	pancake_tcp_netlayer_release: { parameters: ["pointer"], result: "void" },
 	pancake_tcp_connect: {
 		parameters: ["pointer", "buffer", "usize", "u16", "u32", "usize", "buffer"],

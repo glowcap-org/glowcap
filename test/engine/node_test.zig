@@ -36,19 +36,46 @@ test "registerConn yields stable, non-reused ids and node-owned peers" {
     try std.testing.expect(c != b);
 }
 
-test "redeemed token routes to its exporter with the real reference swapped in" {
+/// Mint a routable redeemed token through the public redeem flow: accept a
+/// give on `recipient`, report `exporter` (whose keyed session is open) as the
+/// dialed connection, and claim the withdraw's resolve with `far_id`. Returns
+/// the settled synthetic token id.
+fn mintRedeemedToken(
+    node: *Node,
+    recipient: engine.ConnId,
+    exporter: engine.ConnId,
+    answer: u64,
+    far_id: u64,
+    locator: []const u8,
+) !u64 {
+    try node.acceptGive(recipient, answer, "give-bytes", locator);
+    const dial = node.nextAction().?;
+    try node.exporterDialed(dial.dial.pending, exporter);
+    _ = node.nextAction().?; // the withdraw flush
+    var keys = node.pending_withdraws.keyIterator();
+    const withdraw_key = keys.next().?.*;
+    if (!try node.claimResolve(exporter, withdraw_key.answer, .{ .far = far_id })) return error.NotClaimed;
+    const settle = node.nextAction().?;
+    if (settle.settle.answer != answer) return error.WrongAnswerSettled;
+    return settle.settle.token;
+}
+
+test "a redeemed token routes to its exporter with the real reference swapped in" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, [_]u8{9} ** crypto.SEED_BYTES);
     defer node.deinit();
 
     const recipient_conn = try node.registerConn();
     const exporter_conn = try node.registerConn();
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter_conn).?, [_]u8{16} ** crypto.SEED_BYTES);
+    defer counterpart.deinit();
 
-    // The real exporter-side reference the redeemed token stands in for.
-    const real: model.Reference = .{ .far = model.FarRef.object(42) };
-    const token_ref = try node.enrollRedeemed(exporter_conn, real);
+    // Redeem a give against the live exporter; the claimed resolve enrolls the
+    // real exporter-side reference (far 42) under a fresh synthetic token.
+    const token = try mintRedeemedToken(&node, recipient_conn, exporter_conn, 71, 42, "ocapn://127.0.0.1%3A9055.tcp");
     // The application receives an opaque far token in the reserved range.
-    try std.testing.expect(token_ref.far.import_position.int() >= Node.REDEEMED_TOKEN_BASE);
+    try std.testing.expect(token >= Node.REDEEMED_TOKEN_BASE);
+    const token_ref: model.Reference = .{ .far = model.FarRef.object(token) };
 
     // A send to the token routes to the exporter connection with the real ref.
     const routed = node.routeReference(recipient_conn, token_ref).?;
@@ -92,45 +119,332 @@ test "send-argument routability: a capability on another connection is foreign, 
     const unknown: model.Reference = .{ .far = model.FarRef.object(9) };
     try std.testing.expect(!node.argIsForeign(here, unknown));
 
-    // A redeemed token is foreign from any connection of the node.
-    const token = try node.enrollRedeemed(elsewhere, .{ .far = model.FarRef.object(1) });
+    // A redeemed token is foreign from any connection of the node, its home
+    // included: route rewriting applies to send targets only, so a token in
+    // argument position would reach the wire as its synthetic id. (For the same
+    // reason a token never lands in the foreign-home table; the reserved range
+    // alone decides its verdict.)
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(elsewhere).?, [_]u8{17} ** crypto.SEED_BYTES);
+    defer counterpart.deinit();
+    const token_id = try mintRedeemedToken(&node, here, elsewhere, 81, 1, "ocapn://127.0.0.1%3A9056.tcp");
+    const token: model.Reference = .{ .far = model.FarRef.object(token_id) };
     try std.testing.expect(node.argIsForeign(here, token));
     try std.testing.expect(node.argIsForeign(elsewhere, token));
 }
 
-test "originateGive fails closed on unknown connections and before sessions open" {
+test "origination fails closed when the gift's home connection is gone" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, [_]u8{5} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn();
-    const exporter = try node.registerConn();
-    const gifted: model.Reference = .{ .far = model.FarRef.object(4) };
+    const here = try node.registerConn();
+    const elsewhere = try node.registerConn();
+
+    // A foreign-home reply is claimed and the node asks for gift-id entropy;
+    // the home connection then dies before the entropy answer arrives, so the
+    // origination fails closed as a broken answer on the vanished connection
+    // instead of mis-encoding a cross-connection reference. The negotiating
+    // (session-never-opened) fail-closed arm is pinned by the
+    // `interceptFulfilledRef` test below; the live positive proof is the
+    // `*-goblins-gift` matrix.
+    try node.recordForeignHome(.{ .far = model.FarRef.object(4) }, elsewhere);
+    try std.testing.expect(try node.interceptFulfilledRef(here, 61, 4));
+    const ask = node.nextAction().?;
+    node.removeConn(elsewhere);
     const gift_id = [_]u8{0xAB} ** 32;
-
-    // An unknown connection on either side fails closed before any wire work.
-    try std.testing.expectError(error.UnknownConnection, node.originateGive(999, exporter, gifted, &gift_id, 1, ""));
-    try std.testing.expectError(error.UnknownConnection, node.originateGive(recipient, 999, gifted, &gift_id, 1, ""));
-
-    // Both peers are still negotiating (no handshake), so neither partner session
-    // key is known: origination needs open keyed sessions to both ends. The live
-    // positive proof that the same recipe drives a real handoff is the
-    // `*-goblins-gift` gates.
-    try std.testing.expectError(error.NoRecipientKey, node.originateGive(recipient, exporter, gifted, &gift_id, 1, ""));
+    try node.provideGiftId(ask.need_gift_id.ticket, &gift_id);
+    const action = node.nextAction().?;
+    try std.testing.expectEqual(here, action.fail.conn_id);
+    try std.testing.expectEqual(@as(u64, 61), action.fail.answer);
+    try std.testing.expect(std.mem.startsWith(u8, action.fail.reason, "handoff origination failed:"));
 }
 
-test "foreign homes record wire imports only, never redeemed tokens" {
+// ── The serve step: the sans-io redeem state machine ─────────────────────────
+//
+// These prove the *decisions* the serve step owns — interception, the exporter
+// cache, dial dedup, pending withdraws, token settlement, fail-closed arms —
+// as data in and actions out, with no socket. The live proof that the same
+// step drives a real three-party redeem is `zig build goblins-handoff`.
+
+test "acceptGive with no dialable exporter locator fails the answer closed" {
     const allocator = std.testing.allocator;
-    var node = Node.init(allocator, [_]u8{1} ** crypto.SEED_BYTES);
+    var node = Node.init(allocator, [_]u8{2} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const home = try node.registerConn();
-    const import: model.Reference = .{ .far = model.FarRef.object(5) };
-    try node.recordForeignHome(import, home);
-    try std.testing.expectEqual(home, node.foreignHome(import).?);
+    const recipient = try node.registerConn();
+    try node.acceptGive(recipient, 7, "give-bytes", "");
 
-    // A synthetic redeemed token is never a wire import: recording is a no-op.
-    const token: model.Reference = .{ .far = model.FarRef.object(Node.REDEEMED_TOKEN_BASE + 1) };
-    try node.recordForeignHome(token, home);
-    try std.testing.expect(node.foreignHome(token) == null);
+    const action = node.nextAction().?;
+    try std.testing.expectEqual(recipient, action.fail.conn_id);
+    try std.testing.expectEqual(@as(u64, 7), action.fail.answer);
+    try std.testing.expectEqualStrings("handoff give names no dialable exporter locator", action.fail.reason);
+    try std.testing.expect(node.nextAction() == null);
+}
+
+test "an unknown exporter becomes one dial action; a second give joins it" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{4} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerConn();
+    const locator = "ocapn://127.0.0.1%3A9050.tcp";
+    try node.acceptGive(recipient, 11, "give-one", locator);
+    // A second redeem naming the same exporter joins the pending dial instead
+    // of opening a second connection.
+    try node.acceptGive(recipient, 12, "give-two", locator);
+
+    const action = node.nextAction().?;
+    try std.testing.expectEqualStrings(locator, action.dial.locator);
+    try std.testing.expect(node.nextAction() == null);
+
+    // The dial failing breaks both waiting answers, in order.
+    try node.dialFailed(action.dial.pending, "connection refused");
+    const first = node.nextAction().?;
+    try std.testing.expectEqual(@as(u64, 11), first.fail.answer);
+    try std.testing.expectEqualStrings("handoff redeem failed: connection refused", first.fail.reason);
+    const second = node.nextAction().?;
+    try std.testing.expectEqual(@as(u64, 12), second.fail.answer);
+    try std.testing.expect(node.nextAction() == null);
+
+    // The settled ticket is retired: reporting it again is a no-op.
+    try node.dialFailed(action.dial.pending, "late");
+    try std.testing.expect(node.nextAction() == null);
+}
+
+test "a dialed exporter whose session never opened fails the redeem closed" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{6} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerConn();
+    try node.acceptGive(recipient, 21, "give-bytes", "ocapn://127.0.0.1%3A9051.tcp");
+    const dial = node.nextAction().?;
+
+    // The embedder registers the exporter conn but the keyed session is not
+    // open (no partner key), so the withdraw cannot be signed: the redeem
+    // breaks instead of hanging.
+    const exporter = try node.registerConn();
+    try node.exporterDialed(dial.dial.pending, exporter);
+    const action = node.nextAction().?;
+    try std.testing.expectEqual(recipient, action.fail.conn_id);
+    try std.testing.expectEqual(@as(u64, 21), action.fail.answer);
+    try std.testing.expect(std.mem.startsWith(u8, action.fail.reason, "handoff redeem failed:"));
+}
+
+/// Open a keyed session between the node-owned peer `p` (signing with the
+/// node's retained identity) and a fresh standalone counterpart, driving both
+/// handshakes to quiescence in memory. Returns the counterpart; the caller
+/// deinits it.
+fn openKeyedSessionWithCounterpart(
+    allocator: std.mem.Allocator,
+    node: *Node,
+    p: *engine.Peer,
+    counterpart_seed: [crypto.SEED_BYTES]u8,
+) !engine.Peer {
+    const codec = pancake.ocapn.codec;
+    var counterpart = engine.Peer.initNegotiating(allocator);
+    errdefer counterpart.deinit();
+
+    const node_secret = node.secretKey();
+    const partner_secret = crypto.SecretKey.fromSeed(counterpart_seed);
+
+    const node_loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyMap() };
+    const partner_loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:2", .hints = model.Hints.emptyMap() };
+
+    const node_signed = try codec.syrup.canonicalLocationSignedBytes(allocator, node_loc);
+    defer allocator.free(node_signed);
+    const partner_signed = try codec.syrup.canonicalLocationSignedBytes(allocator, partner_loc);
+    defer allocator.free(partner_signed);
+
+    const node_sig = crypto.sign(&node_secret, node_signed);
+    const partner_sig = crypto.sign(&partner_secret, partner_signed);
+
+    try p.sendCopying(.{ .start_session = .{
+        .captp_version = p.session_state.wire_profile.captp_version,
+        .session_pubkey = .{ .bytes = node_secret.publicKey().asBytes() },
+        .acceptable_location = node_loc,
+        .acceptable_location_sig = .{ .bytes = node_sig.asBytes() },
+    } });
+    try counterpart.sendCopying(.{ .start_session = .{
+        .captp_version = counterpart.session_state.wire_profile.captp_version,
+        .session_pubkey = .{ .bytes = partner_secret.publicKey().asBytes() },
+        .acceptable_location = partner_loc,
+        .acceptable_location_sig = .{ .bytes = partner_sig.asBytes() },
+    } });
+    if (try engine.pairing.shuttleUntilQuiescent(p, &counterpart) != .quiescent) {
+        return error.HandshakeDidNotQuiesce;
+    }
+    while (p.pollEvent()) |ev| {
+        var event = ev;
+        event.deinit();
+    }
+    while (counterpart.pollEvent()) |ev| {
+        var event = ev;
+        event.deinit();
+    }
+    return counterpart;
+}
+
+test "a live exporter withdraws immediately and the claimed resolve settles a routable token" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{8} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerConn();
+    const exporter = try node.registerConn();
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{9} ** crypto.SEED_BYTES);
+    defer counterpart.deinit();
+
+    const locator = "ocapn://127.0.0.1%3A9052.tcp";
+    try node.acceptGive(recipient, 31, "give-bytes", locator);
+    const dial = node.nextAction().?;
+    try node.exporterDialed(dial.dial.pending, exporter);
+
+    // The withdraw went out on the exporter connection: one flush action, one
+    // pending withdraw.
+    const flush = node.nextAction().?;
+    try std.testing.expectEqual(exporter, flush.flush);
+    try std.testing.expect(node.nextAction() == null);
+    try std.testing.expectEqual(@as(usize, 1), node.pending_withdraws.count());
+    var key_it = node.pending_withdraws.keyIterator();
+    const withdraw_key = key_it.next().?.*;
+    try std.testing.expectEqual(exporter, withdraw_key.conn_id);
+
+    // An unrelated resolve is not claimed.
+    try std.testing.expect(!try node.claimResolve(exporter, withdraw_key.answer + 100, .{ .far = 5 }));
+
+    // The pending withdraw's resolve is claimed, the capability enrolled, and
+    // the application answer settles with a routable token.
+    try std.testing.expect(try node.claimResolve(exporter, withdraw_key.answer, .{ .far = 6 }));
+    const settle = node.nextAction().?;
+    try std.testing.expectEqual(recipient, settle.settle.conn_id);
+    try std.testing.expectEqual(@as(u64, 31), settle.settle.answer);
+    try std.testing.expect(settle.settle.token >= Node.REDEEMED_TOKEN_BASE);
+    const routed = node.routeReference(recipient, .{ .far = model.FarRef.object(settle.settle.token) }).?;
+    try std.testing.expectEqual(exporter, routed.conn_id);
+    try std.testing.expectEqual(@as(u64, 6), routed.target.far.import_position.int());
+
+    // The exporter is cached: a later give for the same locator withdraws
+    // immediately, no dial action.
+    try node.acceptGive(recipient, 32, "give-more", locator);
+    const flush_again = node.nextAction().?;
+    try std.testing.expectEqual(exporter, flush_again.flush);
+    try std.testing.expect(node.nextAction() == null);
+}
+
+test "a broken or non-capability withdraw breaks the application answer" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{10} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerConn();
+    const exporter = try node.registerConn();
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{11} ** crypto.SEED_BYTES);
+    defer counterpart.deinit();
+
+    const locator = "ocapn://127.0.0.1%3A9053.tcp";
+    try node.acceptGive(recipient, 41, "give-a", locator);
+    const dial = node.nextAction().?;
+    try node.exporterDialed(dial.dial.pending, exporter);
+    _ = node.nextAction().?; // the flush
+    var keys = node.pending_withdraws.keyIterator();
+    const first_key = keys.next().?.*;
+
+    try std.testing.expect(try node.claimResolve(exporter, first_key.answer, .{ .broken = "no such gift" }));
+    const broke = node.nextAction().?;
+    try std.testing.expectEqual(@as(u64, 41), broke.fail.answer);
+    try std.testing.expectEqualStrings("handoff redeem failed: no such gift", broke.fail.reason);
+
+    // A withdraw fulfilled with a non-capability breaks with the named reason.
+    try node.acceptGive(recipient, 42, "give-b", locator);
+    _ = node.nextAction().?; // the flush (exporter already cached)
+    var keys2 = node.pending_withdraws.keyIterator();
+    const second_key = keys2.next().?.*;
+    try std.testing.expect(try node.claimResolve(exporter, second_key.answer, .not_capability));
+    const refused = node.nextAction().?;
+    try std.testing.expectEqualStrings("withdraw-gift did not resolve to a capability", refused.fail.reason);
+}
+
+test "interceptFulfilledRef claims only a foreign-home reply, entropy as an effect" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{12} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const here = try node.registerConn();
+    const elsewhere = try node.registerConn();
+
+    // No recorded home, or a home on this very connection: not claimed, the
+    // embedder resolves the reply itself — and no entropy is ever requested
+    // for an ordinary reply.
+    try std.testing.expect(!try node.interceptFulfilledRef(here, 51, 5));
+    try node.recordForeignHome(.{ .far = model.FarRef.object(5) }, here);
+    try std.testing.expect(!try node.interceptFulfilledRef(here, 51, 5));
+    try std.testing.expect(node.nextAction() == null);
+
+    // A foreign home is claimed: the node asks for gift-id entropy (a host
+    // effect, like dialing) rather than receiving it speculatively.
+    try node.recordForeignHome(.{ .far = model.FarRef.object(6) }, elsewhere);
+    try std.testing.expect(try node.interceptFulfilledRef(here, 52, 6));
+    const ask = node.nextAction().?;
+    const ticket = ask.need_gift_id.ticket;
+
+    // The sessions here are not open, so the origination fails closed into a
+    // broken answer rather than a mis-encoded cross-connection reference; the
+    // live positive proof is the `*-goblins-gift` matrix.
+    const gift_id = [_]u8{0xCD} ** 32;
+    try node.provideGiftId(ticket, &gift_id);
+    const action = node.nextAction().?;
+    try std.testing.expectEqual(@as(u64, 52), action.fail.answer);
+    try std.testing.expect(std.mem.startsWith(u8, action.fail.reason, "handoff origination failed:"));
+
+    // A settled ticket is retired: answering it again is a no-op.
+    try node.provideGiftId(ticket, &gift_id);
+    try std.testing.expect(node.nextAction() == null);
+}
+
+test "setExporterLocation records, replaces, and clears the give-location override" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{13} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const conn = try node.registerConn();
+    try node.setExporterLocation(conn, "<ocapn-peer ...>");
+    try node.setExporterLocation(conn, "<ocapn-peer replaced>");
+    // Clearing returns the give to the exporter session's own signed record.
+    try node.setExporterLocation(conn, "");
+    // Removal frees a recorded override with the connection.
+    try node.setExporterLocation(conn, "<ocapn-peer again>");
+    node.removeConn(conn);
+}
+
+test "removeConn evicts the exporter cache and fails stranded withdraws closed" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{14} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerConn();
+    const exporter = try node.registerConn();
+    var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{15} ** crypto.SEED_BYTES);
+    defer counterpart.deinit();
+
+    const locator = "ocapn://127.0.0.1%3A9054.tcp";
+    try node.acceptGive(recipient, 61, "give-bytes", locator);
+    const dial = node.nextAction().?;
+    try node.exporterDialed(dial.dial.pending, exporter);
+    _ = node.nextAction().?; // the flush
+
+    // The exporter dies mid-withdraw: the pending withdraw fails closed (the
+    // recipient's answer breaks instead of hanging) and the cache row is
+    // evicted, so the next give for the same exporter dials fresh instead of
+    // failing against the dead connection forever.
+    node.removeConn(exporter);
+    const failed = node.nextAction().?;
+    try std.testing.expectEqual(recipient, failed.fail.conn_id);
+    try std.testing.expectEqual(@as(u64, 61), failed.fail.answer);
+    try std.testing.expectEqualStrings("handoff redeem failed: exporter connection closed", failed.fail.reason);
+    try std.testing.expect(node.nextAction() == null);
+
+    try node.acceptGive(recipient, 62, "give-again", locator);
+    const redial = node.nextAction().?;
+    try std.testing.expectEqualStrings(locator, redial.dial.locator);
 }

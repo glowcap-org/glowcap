@@ -210,7 +210,8 @@ here.
   Materializing the array from a borrowed slice is an inherent, bounded copy at
   the verification boundary. `std.crypto` offers no allocator pattern to avoid
   it.
-- **Authoritative session state: `model.clonePeerLocator`, plus the per-session
+- **Authoritative session state: the owned locator clone (`owned.zig`'s
+  module-private `clonePeerLocator`), plus the per-session
   byte key arena.** Session tables are the source of truth and outlive any
   borrowed frame, so an owned `op:start-session` locator is duped into
   session-owned storage. The byte-keyed tables are position/key-keyed hash maps
@@ -286,7 +287,7 @@ here.
   carries an integer and dupes nothing.) Freed exactly once through
   `deinitProjection` — on fire, break, re-anchor failure, or answer teardown —
   and bounded per answer by `max_listeners_per_target` (ADR-0050).
-- **Boxed handoff argument: `model.owned.cloneHandoffBoxed` (one alloc per
+- **Boxed handoff argument: `owned.zig`'s module-private `cloneHandoffBoxed` (one alloc per
   `desc:handoff-*` _argument_).** The owned `Argument.handoff` arm is
   `*Handoff`, not inline: a handoff payload is ~160 bytes and would otherwise
   set the size of _every_ `Argument`, so an ordinary integer arg in a deliver

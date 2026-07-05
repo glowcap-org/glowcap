@@ -118,6 +118,39 @@ pub const Message = struct {
 pub const Resolution = union(enum) {
     fulfilled: model.Argument,
     broken: []const u8,
+    /// The promise fulfilled with a three-party introduction: a signed
+    /// `desc:handoff-give` the holder redeems (dial the exporter, withdraw)
+    /// before the capability is usable — `driver.Host.redeem` is that verb.
+    /// Like `fulfilled`, the payload is borrowed for the listener call.
+    give: Give,
+};
+
+/// A projected three-party introduction, built where the wire event is still
+/// in hand so the verbatim signed envelope survives (a decoded argument alone
+/// cannot recover it).
+pub const Give = struct {
+    /// The verbatim signed `desc:handoff-give` envelope, relayed unaltered to
+    /// the exporter inside the recipient's `desc:handoff-receive`.
+    give_bytes: []const u8,
+    /// The give's exporter location as a dialable `ocapn://…` URI, or empty
+    /// when the location is not dialable.
+    exporter_locator_uri: []const u8,
+    /// The recipient session key the give is addressed to; the withdraw must
+    /// sign with its secret half.
+    recipient_key: []const u8,
+};
+
+/// A served reply's interceptor: fires before the vat resolves an inbound
+/// answer with a fulfilled value, and returning true claims the reply — the
+/// vat sends nothing, and the interceptor owns resolving the answer by other
+/// means. This is the seam a handoff-originating host installs so a reply that
+/// fulfills with a capability homed on another connection becomes a signed
+/// give instead of a mis-encoded reference (ADR-0067); it adds no semantics a
+/// plain resolve lacks. The value is turn-borrowed, exactly like a handler's
+/// own reply.
+pub const ResolveInterceptor = struct {
+    ctx: ?*anyopaque,
+    func: *const fn (ctx: ?*anyopaque, answer: model.AnswerId, fulfilled: model.Argument) anyerror!bool,
 };
 
 /// A one-shot promise listener: `func(ctx, resolution)` fires when the promise
@@ -330,6 +363,10 @@ fn forwardListener(ctx: ?*anyopaque, resolution: Resolution) void {
     switch (resolution) {
         .fulfilled => |value| fc.vat.resolveFulfill(fc.answer, value) catch {},
         .broken => |message| fc.vat.resolveBreak(fc.answer, message) catch {},
+        // A give is addressed to THIS vat's session key; a forwarded copy
+        // could never be redeemed by the partner, so the honest relay is a
+        // break naming why.
+        .give => fc.vat.resolveBreak(fc.answer, "introduction not forwardable") catch {},
     }
 }
 
@@ -346,6 +383,7 @@ pub const Vat = struct {
     /// hosting require it; the vat still owns no I/O. It only enqueues onto the
     /// peer's outbound queue and reads its events.
     peer: ?*engine.Peer = null,
+    resolve_interceptor: ?ResolveInterceptor = null,
     actors: std.AutoHashMapUnmanaged(u64, Cell) = .{},
     queue: std.ArrayList(Queued) = .empty,
     listeners: std.AutoHashMapUnmanaged(u64, Listener) = .{},
@@ -945,6 +983,15 @@ pub const Vat = struct {
                         return true;
                     }
                 };
+                if (self.resolve_interceptor) |interceptor| {
+                    if (answer) |ans| {
+                        const claimed = interceptor.func(interceptor.ctx, ans, reply) catch |err| {
+                            try self.resolveBreak(answer, @errorName(err));
+                            return true;
+                        };
+                        if (claimed) return true;
+                    }
+                }
                 try self.resolveFulfill(answer, reply);
                 return true;
             },
@@ -952,6 +999,31 @@ pub const Vat = struct {
                 const entry = self.far_listeners.fetchRemove(resolve.answer) orelse return false;
                 switch (resolve.resolution) {
                     .fulfill => |value| {
+                        // A fulfillment carrying a handoff give fires typed:
+                        // the verbatim envelope span lives only in the event's
+                        // frame, so this is the one place it can be projected.
+                        // A give whose envelope or location does not project
+                        // falls through and fires as the plain argument.
+                        if (value == .handoff and value.handoff == .give) {
+                            if (engine.spanSignedHandoffGive(event.bytes())) |span| {
+                                const uri = engine.handoff_recipient.exporterLocatorUri(
+                                    self.allocator,
+                                    value.handoff.give.exporter_location,
+                                ) catch |err| switch (err) {
+                                    error.OutOfMemory => return error.OutOfMemory,
+                                    error.MalformedLocatorRecord => null,
+                                };
+                                if (uri) |locator_uri| {
+                                    defer self.allocator.free(locator_uri);
+                                    entry.value.func(entry.value.ctx, .{ .give = .{
+                                        .give_bytes = span,
+                                        .exporter_locator_uri = locator_uri,
+                                        .recipient_key = value.handoff.give.recipient_key,
+                                    } });
+                                    return true;
+                                }
+                            }
+                        }
                         // Deliberately the vat allocator, not the turn arena: a
                         // listener may legitimately open a top-level turn
                         // (`near` or `drive`) while it runs, and that turn's
@@ -987,7 +1059,16 @@ pub const Vat = struct {
                 entry.value.func(entry.value.ctx, .{ .fulfilled = owned });
             },
             .broken => entry.value.func(entry.value.ctx, resolution),
+            // Local settlement never carries a wire introduction; only the
+            // far-resolve path in `serve` constructs `.give`.
+            .give => unreachable,
         }
+    }
+
+    /// Install (or clear, with null) the served-reply interceptor. One per
+    /// vat: the host that owns cross-connection routing is the only consumer.
+    pub fn setResolveInterceptor(self: *Vat, interceptor: ?ResolveInterceptor) void {
+        self.resolve_interceptor = interceptor;
     }
 
     fn resolveFulfill(self: *Vat, answer: ?model.AnswerId, reply: model.Argument) !void {

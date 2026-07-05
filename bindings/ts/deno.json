@@ -1,16 +1,26 @@
 {
-  "workspace": ["./stack", "./iroh"],
+  "workspace": [
+    "./stack",
+    "./iroh"
+  ],
   "fmt": {
     "useTabs": true,
     "indentWidth": 4,
     "lineWidth": 100,
     "semiColons": true,
     "singleQuote": false,
-    "include": ["**/*.ts"]
+    "include": [
+      "**/*.ts"
+    ],
+    "exclude": [
+      "stack/internal/abi.ts"
+    ]
   },
   "lint": {
     "rules": {
-      "tags": ["recommended"]
+      "tags": [
+        "recommended"
+      ]
     }
   }
 }

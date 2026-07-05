@@ -38,7 +38,7 @@ zig build meta-check
 zig build fmt                # format Zig sources in place (zig fmt)
 zig build fmt-check          # check Zig formatting (zig fmt --check), part of check
 zig build bindings-fmt       # format the Rust crates + TypeScript bindings in place (needs cargo + deno)
-zig build bindings-fmt-check # check Rust + TypeScript formatting (needs cargo + deno)
+zig build bindings-fmt-check # check Rust + TypeScript formatting and the TypeScript lint rules (needs cargo + deno)
 zig build docs              # generate the Zig API reference (autodoc) under zig-out/docs/
 zig build site              # build the documentation site (Zine + autodoc) under zig-out/site/
 zig build docs-serve        # serve the documentation site locally at http://127.0.0.1:1990/pancake/
@@ -79,6 +79,7 @@ zig build python-iroh-handoff # three-party handoff over iroh: the Python bindin
 zig build rust-iroh-handoff # three-party handoff over iroh: the Rust binding mints and redeems an iroh handoff give in one process (needs cargo)
 zig build racket-iroh-handoff # three-party handoff over iroh: the Racket binding mints and redeems an iroh handoff give in one process (needs cargo + racket)
 zig build bindings-iroh-redeem-posture # per-binding hermetic proof that a configured redeem posture governs a hint-less iroh give, every binding (needs cargo + the runtimes)
+zig build deno-iroh-redeem-posture # hermetic configured-redeem-posture proof for a hint-less iroh give: the Deno binding (needs cargo + deno)
 zig build python-iroh-redeem-posture # hermetic configured-redeem-posture proof for a hint-less iroh give: the Python binding (needs cargo + python3)
 zig build rust-iroh-redeem-posture # hermetic configured-redeem-posture proof for a hint-less iroh give: the Rust binding (needs cargo)
 zig build racket-iroh-redeem-posture # hermetic configured-redeem-posture proof for a hint-less iroh give: the Racket binding (needs cargo + racket)
@@ -103,6 +104,8 @@ zig build demo-accountability        # cross-language accountability demo: Zig h
 zig build examples
 zig build gen-header-ocapn          # regenerate include/pancake_ocapn.h from src/c_abi/ocapn
 zig build gen-header-ocapn-check    # verify include/pancake_ocapn.h matches src/c_abi/ocapn (fails if stale), part of check
+zig build gen-ts-abi                # regenerate bindings/ts/stack/internal/abi.ts (constants + struct layouts) from src/c_abi/ocapn
+zig build gen-ts-abi-check          # verify bindings/ts/stack/internal/abi.ts matches src/c_abi/ocapn (fails if stale), part of check
 zig build gen-header-net-transport-tcp        # regenerate include/pancake_net_transport_tcp.h from src/c_abi/net_transport/tcp
 zig build gen-header-net-transport-tcp-check  # verify include/pancake_net_transport_tcp.h matches src/c_abi/net_transport/tcp (fails if stale), part of check
 zig build gen-header-net-transport-inproc        # regenerate include/pancake_net_transport_inproc.h from src/c_abi/net_transport/inproc

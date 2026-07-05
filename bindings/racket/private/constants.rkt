@@ -2,7 +2,11 @@
 
 ;; Private ABI constants for the Racket pancake binding.
 
-(provide OK WOULD-BLOCK FRAME-SHAPE-BYTE EVENT-DELIVER EVENT-RESOLVE
+(provide OK WOULD-BLOCK FRAME-SHAPE-BYTE
+         PROJECTION-DELIVER PROJECTION-RESOLVE PROJECTION-FRAME
+         NODE-ACTION-DIAL NODE-ACTION-FLUSH NODE-ACTION-SETTLE
+         NODE-ACTION-FAIL NODE-ACTION-NEED-GIFT-ID
+         REDEEM-OUTCOME-FAR REDEEM-OUTCOME-BROKEN REDEEM-OUTCOME-NOT-CAPABILITY
          REF-NEAR REF-FAR REF-PROMISE REF-STURDY REF-BROKEN
          REF-OBJECT REF-PROMISE-KIND
          ARG-INTEGER ARG-FLOAT64 ARG-BOOLEAN ARG-BYTES
@@ -15,13 +19,24 @@
          ABORT-DOMAIN-CODEC ABORT-DOMAIN-SESSION ABORT-DOMAIN-FOREIGN
          ENLIVEN-FRESH ENLIVEN-CACHED ENLIVEN-IN-FLIGHT
          ENLIVEN-OUTCOME-FULFILLED ENLIVEN-OUTCOME-BROKEN
+         REDEEMED-TOKEN-BASE
          ERR-UNSUPPORTED-VALUE ERR-BROKEN ERR-CLOSED ERR-INVALID-ARGUMENT)
 
 (define OK 0)
 (define WOULD-BLOCK -7)
 (define FRAME-SHAPE-BYTE 0)
-(define EVENT-DELIVER 1)
-(define EVENT-RESOLVE 2)
+;; PancakeAnyEvent.projection: which arm of a polled event is live; mirrors
+;; PANCAKE_PROJECTION_* in pancake_ocapn.h.
+(define PROJECTION-DELIVER 1)
+(define PROJECTION-RESOLVE 2)
+(define PROJECTION-FRAME 3)
+;; PancakeNodeAction.kind: what the host must do next for the node's serve
+;; step; mirrors PANCAKE_NODE_ACTION_* in pancake_ocapn.h.
+(define NODE-ACTION-DIAL 1) (define NODE-ACTION-FLUSH 2) (define NODE-ACTION-SETTLE 3)
+(define NODE-ACTION-FAIL 4) (define NODE-ACTION-NEED-GIFT-ID 5)
+;; pancake_node_claim_resolve outcome; mirrors PANCAKE_REDEEM_OUTCOME_* in
+;; pancake_ocapn.h.
+(define REDEEM-OUTCOME-FAR 0) (define REDEEM-OUTCOME-BROKEN 1) (define REDEEM-OUTCOME-NOT-CAPABILITY 2)
 (define REF-NEAR 0) (define REF-FAR 1) (define REF-PROMISE 2)
 (define REF-STURDY 3) (define REF-BROKEN 4)
 (define REF-OBJECT 0) (define REF-PROMISE-KIND 1)
@@ -45,6 +60,10 @@
 ;; PANCAKE_ENLIVEN_* in pancake_ocapn.h.
 (define ENLIVEN-FRESH 0) (define ENLIVEN-CACHED 1) (define ENLIVEN-IN-FLIGHT 2)
 (define ENLIVEN-OUTCOME-FULFILLED 0) (define ENLIVEN-OUTCOME-BROKEN 1)
+;; The reserved redeemed-handoff-token far-id range (ADR-0066): far ids at or
+;; above this are node-minted tokens, never wire imports; mirrors
+;; PANCAKE_REDEEMED_TOKEN_BASE in pancake_ocapn.h.
+(define REDEEMED-TOKEN-BASE 1152921504606846976)
 (define ERR-UNSUPPORTED-VALUE -13)
 (define ERR-BROKEN -14)
 (define ERR-CLOSED -8)

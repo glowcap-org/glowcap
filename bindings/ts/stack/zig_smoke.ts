@@ -1,3 +1,7 @@
+// deno-lint-ignore-file no-inner-declarations -- each smoke scenario lives in
+// its own bare block with local `server`/`client` function declarations; the
+// block scoping is the point (handles cannot leak across scenarios), so the
+// module-root rule is deliberately waived for this file.
 // Cross-runtime dogfood of the Zig pancake C ABI archives, through the idiomatic
 // composable modules (`mod.ts` core + `tcp.ts`/`inproc.ts` transports): drive
 // OCapN with native values and typed events, no FFI in sight. It runs
@@ -5,6 +9,8 @@
 // binding is runtime-neutral. This is the consumer `zig build bindings` runs.
 
 import process from "node:process";
+import { EVENT_ABORT } from "./internal/abi.ts";
+import { connectTcp, listenTcp } from "./internal/seam.ts";
 import {
 	abiVersion,
 	type AbortDetail,
@@ -12,16 +18,14 @@ import {
 	type Argument,
 	AsyncConnection,
 	Connection,
-	connectTcp,
 	Context,
 	type Event,
 	far,
 	FarRef,
 	FetchFailed,
 	type HostAllocator,
+	Kw,
 	listen,
-	listenTcp,
-	type NetConn,
 	PancakeError,
 	Peer,
 	PSet,
@@ -150,7 +154,7 @@ try {
 	peer.feed(new TextEncoder().encode("<8'op:abort3\"bye>"));
 	const abort = peer.poll();
 	assert(
-		abort?.kind === "other" && abort.eventKind === 7,
+		abort?.kind === "other" && abort.eventKind === EVENT_ABORT,
 		"abort surfaced as a typed event",
 	);
 	assert(peer.poll() === null, "no further events");
@@ -298,6 +302,81 @@ function counterBehavior(
 		peer.release();
 	}
 	ok("queued an authenticated PreSpec start-session");
+}
+
+// The codec selector end-to-end: two Cap'n Proto peers complete the keyed
+// handshake and carry a deliver whose arguments round-trip through the capnp
+// codec — a big integer past int64 and a Kw (keyword) included, so the two
+// rare marshal arms are witnessed alongside the codec.
+{
+	const a = Peer.negotiated("v1.0", "capnp");
+	const b = Peer.negotiated("v1.0", "capnp");
+	try {
+		a.startSession({
+			transport: "tcp",
+			designator: "127.0.0.1:1",
+			seed: new Uint8Array(32).fill(0x01),
+		});
+		b.startSession({
+			transport: "tcp",
+			designator: "127.0.0.1:2",
+			seed: new Uint8Array(32).fill(0x02),
+		});
+		a.step();
+		b.step();
+		const pump = (src: Peer, dst: Peer): boolean => {
+			let moved = false;
+			let frame: Uint8Array | null;
+			while ((frame = src.takeOutbound()) !== null) {
+				const consumed = dst.recvStream(frame);
+				assert(
+					consumed === frame.length,
+					`the whole capnp frame is consumed, got ${consumed}`,
+				);
+				dst.step();
+				moved = true;
+			}
+			return moved;
+		};
+		let stalls = 0;
+		while (!(a.sessionIsOpen() && b.sessionIsOpen())) {
+			const moved = pump(a, b);
+			if (!pump(b, a) && !moved) {
+				stalls++;
+				assert(stalls < 4, "capnp keyed handshake stalled");
+			}
+		}
+		b.registerExport(7n);
+		a.registerImport(7n);
+		const big = 2n ** 80n;
+		a.sendDeliver(far(7n), [big, new Kw("prio"), new TextEncoder().encode("hi")], 9n);
+		a.step();
+		pump(a, b);
+		let event = b.poll();
+		while (event !== null && event.kind !== "deliver") {
+			event = b.poll(); // skip the surfaced start-session
+		}
+		assert(
+			event !== null && event.kind === "deliver",
+			`expected a deliver, got ${event?.kind}`,
+		);
+		if (event !== null && event.kind === "deliver") {
+			assert(event.args[0] === big, `big integer survives capnp: ${event.args[0]}`);
+			assert(
+				event.args[1] instanceof Kw && event.args[1].value === "prio",
+				"a keyword survives capnp as a Kw",
+			);
+			assert(
+				event.args[2] instanceof Uint8Array &&
+					new TextDecoder().decode(event.args[2] as Uint8Array) === "hi",
+				"bytes survive capnp",
+			);
+		}
+	} finally {
+		a.release();
+		b.release();
+	}
+	ok("a capnp session opens and big-integer + keyword args round-trip");
 }
 
 // Far-send round-trip across the local|far seam. Two fresh peers (no handshake):

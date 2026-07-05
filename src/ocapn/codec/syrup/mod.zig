@@ -8,14 +8,10 @@ pub const encode = @import("encode.zig");
 pub const canonical = @import("canonical.zig");
 
 pub const Error = shared.Error;
-pub const WalkError = shared.WalkError;
-pub const EncodeError = shared.EncodeError;
 
 pub const decodeBody = decode.decodeBody;
 pub const decodePrefix = decode.decodePrefix;
 pub const decodeOwned = decode.decodeOwned;
-pub const readBytes = decode.readBytes;
-pub const readHintsOwned = decode.readHintsOwned;
 pub const readLocatorOwned = decode.readLocatorOwned;
 pub const spanSignedHandoffGive = decode.spanSignedHandoffGive;
 

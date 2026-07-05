@@ -6,6 +6,12 @@
 //! Cargo feature, so a build declares the FFI for exactly the archives it links.
 //! Nothing in here escapes the crate; the safe wrappers above wrap it.
 //!
+//! The mirror is deliberately wider than what the wrappers call: an extern
+//! declared here counts as a consumer for `zig build meta-check`'s
+//! every-C-export-has-a-consumer gate, so the declaration set doubles as the
+//! crate's statement of which ABI symbols it stands behind. Prune an extern
+//! only together with the C export it mirrors.
+//!
 //! The shared frame, context, and value types are declared once in [`ocapn`]
 //! and re-exported here, because the transport archives agree on their *layout*
 //! rather than re-exporting the symbols.

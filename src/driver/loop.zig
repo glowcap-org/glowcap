@@ -278,22 +278,8 @@ pub const LoopDialer = struct {
             return self.vat.send(target, msg);
         }
 
-        pub fn tell(self: *Client, target: actors.Ref, msg: actors.Message) !void {
-            return self.vat.tell(target, msg);
-        }
-
         pub fn on(self: *Client, promise: actors.Promise, listener: actors.Listener) !void {
             return self.vat.on(promise, listener);
-        }
-
-        /// Spawn a local actor at a fresh export position (the shared `spawnAt`
-        /// definition), so a dialed client can hand the partner a callback.
-        pub fn spawn(self: *Client, comptime Behavior: type, initial: Behavior) !Capability {
-            return spawnAt(&self.vat, Behavior, initial);
-        }
-
-        pub fn publish(self: *Client, name: []const u8, comptime Behavior: type, initial: Behavior) !Capability {
-            return publishNamed(&self.vat, name, Behavior, initial);
         }
     };
 

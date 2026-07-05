@@ -8,12 +8,13 @@
 //! dialer/listener here.
 //!
 //! The frame unit is identical to TCP's — one codec-self-delimited CapTP
-//! message — so the [`Connection`](crate::Connection) driver is unchanged: it
+//! message — so the [`Connection`] driver is unchanged: it
 //! drives the same sans-io peer over a byte stream. [`IrohStream`] is that byte
 //! stream, sourcing inbound bytes through the sidecar's non-blocking `try_read`
 //! and sending outbound bytes through `try_write`. Both ride the netlayer's one
 //! I/O model (ADR-0057): the endpoint exposes a single readiness fd, and
-//! [`IrohLoop`] registers it with tokio (`AsyncFd`) and, when it signals, drains
+//! the private `IrohLoop` registers it with tokio (`AsyncFd`) and, when it
+//! signals, drains
 //! the readiness records and wakes the parked `poll_read`/`poll_write`. One
 //! reactor multiplexes every connection — no thread per connection, no parked
 //! blocking read.
@@ -49,28 +50,11 @@ const DRAIN_READY_CAP: usize = 64;
 // transport's own thread-local last-error rather than the unrelated
 // ocapn-family one. A `pancake_iroh_*` call that returns PANCAKE_ERR_IO records
 // its concrete cause in this slot.
-fn check_iroh(code: i32) -> Result<()> {
-	if code == sys::OK {
-		Ok(())
-	} else {
-		Err(Error::with_transport_detail(code, iroh_last_error()))
-	}
-}
-
-/// The calling thread's last error message from the iroh transport archive
-/// (`libpancake_net_transport_iroh`), or `None` if none is set. The transport
-/// keeps its own thread-local slot, so an iroh call's diagnostic is read here
-/// and never from the ocapn family's [`last_error`](crate::last_error).
-fn iroh_last_error() -> Option<String> {
-	let len = unsafe { ffi::pancake_iroh_last_error(core::ptr::null_mut(), 0) };
-	if len == 0 {
-		return None;
-	}
-	let mut buf = vec![0u8; len + 1];
-	let written = unsafe { ffi::pancake_iroh_last_error(buf.as_mut_ptr(), buf.len()) };
-	buf.truncate(written.min(buf.len()));
-	Some(String::from_utf8_lossy(&buf).into_owned())
-}
+crate::transport_error::transport_error_slot!(
+	check_iroh,
+	iroh_last_error,
+	ffi::pancake_iroh_last_error
+);
 
 // The raw netlayer handle, released exactly once when the last owner drops. It
 // is shared (behind an `Arc`) between the public `IrohNetlayer`/`IrohServer` and
@@ -92,7 +76,7 @@ impl Drop for NetlayerRaw {
 }
 
 /// A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
-/// sibling of [`Netlayer`](crate::Netlayer). Dial with
+/// sibling of the TCP `Netlayer`. Dial with
 /// [`IrohNetlayer::connect_owned`] or host with [`IrohServer`]. Released on drop,
 /// after every connection minted from it is released.
 pub struct IrohNetlayer {
@@ -486,7 +470,7 @@ fn dispatch(st: &mut LoopState, conn_key: usize, events: u32, wakers: &mut Vec<W
 }
 
 /// A byte stream over one iroh QUIC connection: the iroh sibling of a
-/// `TcpStream` for the [`Connection`](crate::Connection) driver. Inbound bytes
+/// `TcpStream` for the [`Connection`] driver. Inbound bytes
 /// come from the sidecar's non-blocking `try_read`; the peer re-frames them.
 /// Outbound bytes go through `try_write`, re-arming on the next writable record
 /// when the sidecar buffer is full. Its readiness loop, not a parked blocking
@@ -520,7 +504,7 @@ impl IrohStream {
 	}
 
 	/// Dial an iroh partner by endpoint id and direct-address hints, returning the
-	/// byte stream the [`Connection`](crate::Connection) driver carries the
+	/// byte stream the [`Connection`] driver carries the
 	/// session over. The local endpoint is ephemeral, created with the caller's
 	/// chosen [`Reachability`] (no default), and released with the stream.
 	pub async fn connect(
@@ -811,7 +795,7 @@ impl Future for AcceptReady<'_> {
 // `libpancake_net_transport_iroh` split the other bindings mirror.
 
 impl Connection {
-	/// The iroh dial mechanism behind [`connect`]: take an endpoint id and
+	/// The iroh dial mechanism behind [`connect`](crate::connect): take an endpoint id and
 	/// direct-address hints, complete the keyed OCapN handshake over the
 	/// encrypted-QUIC transport, and return a ready connection. The local
 	/// endpoint is ephemeral (a fresh key), created with the caller's chosen

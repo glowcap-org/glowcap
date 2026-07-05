@@ -216,7 +216,7 @@ fn fetchThenCall(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!v
             s.done = true;
             s.ok = switch (resolution) {
                 .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, "hi from the loop"),
-                .broken => false,
+                .broken, .give => false,
             };
         }
     };

@@ -598,9 +598,9 @@ fn gifterExportGive(cv: *driver.ConnectedVat, hook: *HookCtx, request: GifterReq
     // 3. Sign a desc:handoff-give that names this exporter session and the gift.
     const our_pubkey = hook.handoff_secret.publicKey();
     const exporter_key = peer.session_state.partnerSessionKey() orelse return error.GifterNoExporterKey;
-    const our_side = try engine.handoff_gifter.sideName(our_pubkey.asBytes());
-    const exporter_side = try engine.handoff_gifter.sideName(exporter_key);
-    const session = engine.handoff_gifter.sessionName(our_side, exporter_side);
+    const our_side = try engine.handoff_recipient.sideName(our_pubkey.asBytes());
+    const exporter_side = try engine.handoff_recipient.sideName(exporter_key);
+    const session = engine.handoff_recipient.sessionName(our_side, exporter_side);
     return engine.handoff_gifter.buildSignedGive(
         allocator,
         hook.handoff_secret,

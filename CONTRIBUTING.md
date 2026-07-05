@@ -91,7 +91,7 @@ zig build oracle-check   # protocol manifest + Syrup fixture parity
 zig build arch-check     # layer dependency DAG + no-std.Io-in-core gate
 zig build examples       # build and run the public examples
 zig build rust-dogfood   # Rust consumes the C ABI
-zig build bindings       # rust + deno + python + racket C ABI smokes
+zig build bindings       # rust + deno + bun + python + racket C ABI smokes
 zig build bench-codec    # codec / dispatch throughput
 ```
 

@@ -525,9 +525,10 @@ class _IrohLoopPump(_FramePump):
         self._loop.unregister(self._conn)
         self._conn.release()
         if self._owns_loop:
-            # The dialing pump owns the loop and netlayer: stop the loop (joining
-            # its readiness thread) before releasing the netlayer, so no FFI call
-            # is still touching the endpoint when it is freed.
+            # The dialing pump owns the loop and netlayer: close the loop
+            # (removing the readiness-fd reader and waking every waiter) before
+            # releasing the netlayer, so no callback still touches the endpoint
+            # when it is freed.
             await self._loop.close()
             if self._owned_netlayer is not None:
                 self._owned_netlayer.release()
@@ -668,7 +669,7 @@ class IrohServer:
 
     @property
     def node(self) -> Node:
-        """The node's shared node: one retained identity and gift registry
+        """The server's shared node: one retained identity and gift registry
         across every accepted connection. Pass it to
         :func:`connect_iroh_with_node` so a fetched capability and the dialing
         connection share one node — the gifter side of a three-party handoff —
@@ -712,9 +713,10 @@ class IrohServer:
                 continue
 
     async def close(self) -> None:
-        """Stop accepting and release the endpoint. Stops the readiness loop and
-        joins its thread before freeing the netlayer, so no FFI call is still
-        touching the endpoint when it is released."""
+        """Stop accepting and release the endpoint. Closes the readiness loop
+        (removing its fd reader and waking every waiter) before freeing the
+        netlayer, so no callback still touches the endpoint when it is
+        released."""
         if self._closed:
             return
         self._closed = True

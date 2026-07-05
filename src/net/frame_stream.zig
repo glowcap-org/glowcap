@@ -66,7 +66,7 @@ pub const Fill = enum { filled, closed };
 /// The full-buffer refusal is the spill-less floor; `fillThroughSpill` turns
 /// that same condition into a bounded owned accumulation instead, and is what
 /// the frame readers drive.
-pub fn fillStep(r: *std.Io.Reader) FillError!Fill {
+fn fillStep(r: *std.Io.Reader) FillError!Fill {
     if (r.buffer.len > 0 and r.bufferedLen() == r.buffer.len) return error.FrameTooLarge;
 
     r.fillMore() catch |err| switch (err) {

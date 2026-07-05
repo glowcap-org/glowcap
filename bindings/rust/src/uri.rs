@@ -25,6 +25,10 @@ pub struct Locator {
 	pub swissnum: String,
 	/// The locator's hints, keyed by name (e.g. `direct-addresses`).
 	pub hints: BTreeMap<String, String>,
+	/// The designator's `host:port` split when the core grammar
+	/// (`pancake_locator_host_port`) accepts it, `None` otherwise; a socket
+	/// dialer consumes the split instead of re-deriving it.
+	pub host_port: Option<(String, u16)>,
 }
 
 /// Parse an `ocapn://` peer URI into its structured locator fields through the
@@ -73,11 +77,26 @@ unsafe fn read_locator(loc: *mut sys::PancakeLocator) -> Result<Locator> {
 		))?;
 		hints.insert(view_to_string(kp, kl), view_to_string(vp, vl));
 	}
+	// The host:port split is the core grammar's verdict, read while the handle
+	// is alive: OK carries the split, ERR_INVALID_ARGUMENT means the designator
+	// is not host:port (an iroh node id, say), which is a fact, not a fault.
+	let mut host_ptr: *const c_uchar = core::ptr::null();
+	let mut host_len: usize = 0;
+	let mut port: u16 = 0;
+	let hp_rc = sys::pancake_locator_host_port(loc, &mut host_ptr, &mut host_len, &mut port);
+	let host_port = if hp_rc == sys::ERR_INVALID_ARGUMENT {
+		None
+	} else {
+		check(hp_rc)?;
+		Some((view_to_string(host_ptr, host_len), port))
+	};
+
 	Ok(Locator {
 		transport,
 		designator,
 		swissnum,
 		hints,
+		host_port,
 	})
 }
 

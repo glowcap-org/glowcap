@@ -20,3 +20,16 @@ export {
 } from "./internal/ffi/runtime.ts";
 export { libFile, libPath } from "./internal/ffi/load.ts";
 export * from "./internal/constants.ts";
+// The binding-internal seam (`./internal/seam.ts`): the pointer, byte, and
+// raw-socket helpers a companion transport marshals frames through. The public
+// `.` entry never exports these.
+export {
+	ab,
+	connectTcp,
+	listenTcp,
+	type NetConn,
+	type NetListener,
+	outPointer,
+	readBytes,
+	releaseManagedFrame,
+} from "./internal/seam.ts";

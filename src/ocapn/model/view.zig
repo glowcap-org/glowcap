@@ -86,7 +86,7 @@ fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type) type {
             next: *const fn (Ctx, *u64) ProjectError!?ViewElem,
         };
 
-        pub const Backed = struct {
+        const Backed = struct {
             ctx: Ctx,
             vtable: *const VTable,
         };
@@ -221,7 +221,7 @@ pub const StructEntry = struct {
     key: []const u8,
     value: Argument,
 
-    pub fn fromOwned(owned: *const model.StructEntry) StructEntry {
+    fn fromOwned(owned: *const model.StructEntry) StructEntry {
         return .{ .key = owned.key, .value = Argument.fromOwned(&owned.value) };
     }
 

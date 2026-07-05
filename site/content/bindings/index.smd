@@ -78,6 +78,6 @@ zig build bindings        # rust + deno + bun + python + racket dogfoods
 zig build rust-dogfood    # just the Rust consumer
 ```
 
-These need `cargo`, `deno`, `python3`, and `racket` on PATH. The
+These need `cargo`, `deno`, `bun`, `python3`, and `racket` on PATH. The
 [devcontainer](https://codeberg.org/jimisaacs/pancake/src/branch/main/.devcontainer/)
-provides all four.
+provides all five.

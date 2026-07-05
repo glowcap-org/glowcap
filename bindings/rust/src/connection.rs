@@ -28,7 +28,9 @@ use tokio::sync::{mpsc, oneshot};
 
 use crate::actors::{Behavior, Vat, VatRef, Vow};
 use crate::wire;
-use crate::{sys, Argument, Error, HandoffGive, Peer, Reference, Resolution, Result};
+use crate::{
+	sys, Argument, EnlivenStart, Error, Event, HandoffGive, Peer, Reference, Resolution, Result,
+};
 
 /// A capability, a reference to an object you can `send` to, wherever it lives.
 ///
@@ -145,10 +147,10 @@ type Reply<T> = oneshot::Sender<Result<T>>;
 // an ordinary far reference drawn from this range — above any wire-allocated
 // import position — and a later `send`/`tell` to it is routed to the exporter
 // with the real reference swapped in, so the public `Ref`/`send` surface is
-// untouched. This mirrors `engine.Node.REDEEMED_TOKEN_BASE` (the node is the one
-// owner of the token model); the binding keeps the boundary only to skip the GC
-// death rite on a synthetic token (`lift_import`).
-const REDEEMED_TOKEN_BASE: u64 = 1u64 << 60;
+// untouched. The bound is the C ABI's `PANCAKE_REDEEMED_TOKEN_BASE` mirror
+// (the node is the one owner of the token model); the binding keeps the
+// boundary only to skip the GC death rite on a synthetic token (`lift_import`).
+const REDEEMED_TOKEN_BASE: u64 = sys::REDEEMED_TOKEN_BASE;
 
 // Where a redeemed token routes: the destination connection's command channel
 // and the real exporter-side reference to swap in when forwarding. Resolved by
@@ -221,10 +223,16 @@ pub struct Node {
 	// gift registry, retained identity, and the redeemed-token / foreign-home
 	// routing tables. Shared across clones; freed when the last clone drops.
 	node: Rc<NodeRaw>,
-	// Exporter connections dialed to redeem gives, keyed by `ocapn://` locator,
-	// reused across redeems. Held here to keep their driver tasks alive for the
-	// life of this node; dropped (and closed) when the node is.
-	exporters: Rc<RefCell<HashMap<String, Connection>>>,
+	// Exporter connections the serve step asked the executor to dial, by
+	// `conn_id`. The core owns the exporter *cache* (a second give for one
+	// locator reuses the connection); this map keeps a dialed connection's
+	// driver task alive until that connection closes (`unregister` drops the
+	// entry) and marks whose serve loops must offer resolves to `claim_resolve`
+	// — pending withdraws exist nowhere else, so an ordinary connection's reply
+	// path pays nothing for handoffs.
+	dialed_exporters: Rc<RefCell<HashMap<u64, Connection>>>,
+	// Whether the serve step's action executor is running; feeds kick it once.
+	draining: Rc<Cell<bool>>,
 	// Every live connection of this node, by the node's `conn_id`, so a routed
 	// deliver to a redeemed token's exporter (or a node-giftable publish) reaches
 	// the task that pumps that connection's peer. The node routes by `conn_id`;
@@ -255,7 +263,8 @@ impl Node {
 		Node {
 			seed,
 			node: Rc::new(node),
-			exporters: Rc::new(RefCell::new(HashMap::new())),
+			dialed_exporters: Rc::new(RefCell::new(HashMap::new())),
+			draining: Rc::new(Cell::new(false)),
 			channels: Rc::new(RefCell::new(HashMap::new())),
 			giftables: Rc::new(RefCell::new(HashMap::new())),
 			redeem_reachability: Rc::new(Cell::new(Reachability::Discovery)),
@@ -323,9 +332,12 @@ impl Node {
 		}
 	}
 
-	// Stop tracking a closed connection. Binding-internal.
+	// Stop tracking a closed connection. Dropping any dialed-exporter entry here
+	// breaks the reference cycle node → `dialed_exporters` → `Connection` → node
+	// that would otherwise keep both alive forever. Binding-internal.
 	fn unregister(&self, conn_id: u64) {
 		self.channels.borrow_mut().remove(&conn_id);
+		self.dialed_exporters.borrow_mut().remove(&conn_id);
 	}
 
 	// The command channel of the connection the node routed a deliver to, if it
@@ -363,18 +375,6 @@ impl Node {
 		if let Reference::Far { id, .. } = reference {
 			let _ = unsafe { sys::pancake_node_record_foreign_home(self.node.raw, *id, home) };
 		}
-	}
-
-	// The node `conn_id` a fetched far `far_id` was recorded as living on, if any
-	// (ADR-0009). Drives the gifter-origination home lookup.
-	fn foreign_home_conn(&self, far_id: u64) -> Option<u64> {
-		let mut out_conn: u64 = 0;
-		let mut found: core::ffi::c_uint = 0;
-		crate::check(unsafe {
-			sys::pancake_node_foreign_home(self.node.raw, far_id, &mut out_conn, &mut found)
-		})
-		.ok()?;
-		(found != 0).then_some(out_conn)
 	}
 
 	// Whether far `far_id`, sent as a `send`/`tell` argument from `default_conn`,
@@ -430,120 +430,279 @@ impl Node {
 		))
 	}
 
-	// Enroll a redeemed capability hosted on `exporter_conn` under a fresh
-	// reserved token and return the far reference the application receives,
-	// indistinguishable from any other capability a partner hands back. A
-	// withdraw always resolves to a far capability; anything else cannot be a
-	// routable token, so it is handed back unchanged.
-	fn enroll(&self, exporter_conn: u64, reference: Reference) -> Reference {
-		let far_id = match reference {
-			Reference::Far { id, .. } => id,
-			other => return other,
-		};
-		let mut token: u64 = 0;
-		crate::check(unsafe {
-			sys::pancake_node_enroll_redeemed(self.node.raw, exporter_conn, far_id, &mut token)
-		})
-		.expect("the node enrolls a redeemed capability");
-		Reference::Far {
-			id: token,
-			promise: false,
-		}
-	}
-
-	// Recipient half of a three-party handoff, issued on the dialed exporter
-	// connection: sign the `desc:handoff-receive` over the verbatim `give` bytes
-	// keyed by the node identity, mint the handoff-count from the shared registry,
-	// and queue `withdraw-gift` to the exporter's bootstrap under `answer` — the
-	// one definition `engine.Node.sendWithdraw` shares with the native driver, so
-	// the binding hands it bytes and an answer rather than re-signing a receive.
-	fn send_withdraw(&self, exporter_conn: u64, give: &[u8], answer: u64) -> Result<()> {
-		crate::check(unsafe {
-			sys::pancake_node_send_withdraw(
-				self.node.raw,
-				exporter_conn,
-				give.as_ptr(),
-				give.len(),
-				answer,
-			)
-		})
-	}
-
-	// Gifter half of a three-party handoff (ADR-0009), the mirror of
-	// `send_withdraw`: queue a deposit of `gifted` on `exporter_conn`, build a
-	// `desc:handoff-give` signed by the node identity and addressed to
-	// `recipient_conn`'s partner, and queue it as the fulfillment of `answer` on
-	// `recipient_conn` — the one definition `engine.Node.originateGive` shares with
-	// the native driver. `exporter_location`, when non-empty, is the verbatim
-	// exporter locator embedded in the give (empty uses the exporter session's own
-	// location record). The caller flushes both connections (exporter first).
-	fn originate_give(
-		&self,
-		recipient_conn: u64,
-		exporter_conn: u64,
-		gifted: &Reference,
-		gift_id: &[u8],
-		answer: u64,
-		exporter_location: &[u8],
-	) -> Result<()> {
-		let r = gifted.to_sys()?;
-		crate::check(unsafe {
-			sys::pancake_node_originate_give(
+	// Feed an intercepted handoff give to the core's serve step (ADR-0067): the
+	// node decides what happens next — reuse a cached exporter, join a dial in
+	// flight, or ask for a fresh dial — and the executor only performs it.
+	fn accept_give(&self, recipient_conn: u64, answer: u64, give: &HandoffGive) {
+		let locator = give.exporter_locator.as_bytes();
+		let _ = crate::check(unsafe {
+			sys::pancake_node_accept_give(
 				self.node.raw,
 				recipient_conn,
-				exporter_conn,
-				&r,
-				gift_id.as_ptr(),
-				gift_id.len(),
 				answer,
-				exporter_location.as_ptr(),
-				exporter_location.len(),
+				give.give.as_ptr(),
+				give.give.len(),
+				locator.as_ptr(),
+				locator.len(),
 			)
-		})
+		});
 	}
 
-	// Redeem one give: dial the named exporter keyed with the retained identity
-	// (reusing an open connection to it), withdraw the gift, and return the
-	// exporter's `conn_id` plus the live capability's reference. The caller
-	// enrolls the reference against the `conn_id` to mint a routable token.
-	async fn redeem(&self, give: HandoffGive) -> Result<(u64, Reference)> {
-		if give.exporter_locator.is_empty() {
-			return Err(Error::broken(
-				"handoff give names no dialable exporter locator".to_string(),
-			));
+	// Offer a polled resolve to the core's serve step. True when it settled a
+	// pending withdraw (the node consumed it; do not surface it); false when the
+	// resolve is the application's.
+	fn claim_resolve(&self, conn_id: u64, answer: u64, resolution: &Resolution) -> bool {
+		let (outcome, far_id, reason): (core::ffi::c_uint, u64, &str) = match resolution {
+			Resolution::Fulfill(Argument::Reference(Reference::Far { id, .. })) => {
+				(sys::REDEEM_OUTCOME_FAR, *id, "")
+			}
+			Resolution::Break(message) => (sys::REDEEM_OUTCOME_BROKEN, 0, message.as_str()),
+			// A non-capability fulfillment — a nested handoff give included: a
+			// withdraw must resolve to a capability, never recurse.
+			_ => (sys::REDEEM_OUTCOME_NOT_CAPABILITY, 0, ""),
+		};
+		let mut claimed: core::ffi::c_uint = 0;
+		crate::check(unsafe {
+			sys::pancake_node_claim_resolve(
+				self.node.raw,
+				conn_id,
+				answer,
+				outcome,
+				far_id,
+				reason.as_ptr(),
+				reason.len(),
+				&mut claimed,
+			)
+		})
+		.is_ok_and(|()| claimed != 0)
+	}
+
+	// Feed a claimed gifter reply to the core's serve step (the vat's resolve
+	// interceptor forwards here). True claims the reply: the node asks for gift
+	// entropy, deposits, signs the give, and orders the flushes.
+	fn intercept_fulfilled_ref(&self, conn_id: u64, answer: u64, far_id: u64) -> bool {
+		let mut claimed: core::ffi::c_uint = 0;
+		crate::check(unsafe {
+			sys::pancake_node_intercept_fulfilled_ref(
+				self.node.raw,
+				conn_id,
+				answer,
+				far_id,
+				&mut claimed,
+			)
+		})
+		.is_ok_and(|()| claimed != 0)
+	}
+
+	// Record the verbatim exporter locator to embed in gives whose exporter is
+	// `conn_id` (ADR-0009); the origination recipe in the core reads it.
+	fn set_exporter_location(&self, conn_id: u64, location: &[u8]) {
+		let _ = crate::check(unsafe {
+			sys::pancake_node_set_exporter_location(
+				self.node.raw,
+				conn_id,
+				location.as_ptr(),
+				location.len(),
+			)
+		});
+	}
+
+	// Whether the serve step asked the executor to dial `conn_id`: only such a
+	// connection's loop offers resolves to `claim_resolve`.
+	fn is_node_dialed(&self, conn_id: u64) -> bool {
+		self.dialed_exporters.borrow().contains_key(&conn_id)
+	}
+
+	// One serve-step action popped off the node, its borrowed views already
+	// copied into owned values, or `None` when the queue is dry.
+	fn next_action(&self) -> Option<NodeAction> {
+		let mut raw: sys::PancakeNodeAction = unsafe { core::mem::zeroed() };
+		let rc = unsafe { sys::pancake_node_next_action(self.node.raw, &mut raw) };
+		if rc == sys::WOULD_BLOCK {
+			return None;
 		}
-		let locator = give.exporter_locator.clone();
-		// Find the open exporter connection, or dial a fresh one, the borrow on
-		// `exporters` is dropped before any await.
-		let existing = self
-			.exporters
-			.borrow()
-			.get(&locator)
-			.map(|c| (c.conn_id, c.cmd_sender()));
-		let (conn_id, channel) = match existing {
-			Some(pair) => pair,
-			None => {
-				let conn = Connection::dial_exporter(&locator, self.clone()).await?;
-				let pair = (conn.conn_id, conn.cmd_sender());
-				self.exporters.borrow_mut().insert(locator.clone(), conn);
-				pair
+		crate::check(rc).ok()?;
+		let view = |ptr: *const core::ffi::c_uchar, len: usize| -> String {
+			if ptr.is_null() || len == 0 {
+				String::new()
+			} else {
+				String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) })
+					.into_owned()
 			}
 		};
-		let reference = withdraw_on(&channel, give.give).await?;
-		Ok((conn_id, reference))
+		match raw.kind {
+			sys::NODE_ACTION_DIAL => Some(NodeAction::Dial {
+				pending: raw.pending,
+				locator: view(raw.locator, raw.locator_len),
+			}),
+			sys::NODE_ACTION_FLUSH => Some(NodeAction::Flush {
+				conn_id: raw.conn_id,
+			}),
+			sys::NODE_ACTION_SETTLE => Some(NodeAction::Settle {
+				conn_id: raw.conn_id,
+				answer: raw.answer,
+				token: raw.token,
+			}),
+			sys::NODE_ACTION_FAIL => Some(NodeAction::Fail {
+				conn_id: raw.conn_id,
+				answer: raw.answer,
+				reason: view(raw.reason, raw.reason_len),
+			}),
+			sys::NODE_ACTION_NEED_GIFT_ID => Some(NodeAction::NeedGiftId {
+				ticket: raw.pending,
+			}),
+			kind => {
+				// A kind this executor does not know means the core and the
+				// binding disagree on the action vocabulary: loud in debug,
+				// tolerated (the action is dropped) in release.
+				debug_assert!(false, "unknown node action kind {kind}");
+				None
+			}
+		}
+	}
+
+	// Run the serve step's action executor. Idempotent while a drain is already
+	// running: feeds queue actions and the running drain picks them up (the
+	// `LocalSet` is single-threaded, and the drain resets its flag with no await
+	// between the empty check and the reset, so a kick can never race into a
+	// lost action).
+	fn kick_actions(&self) {
+		if self.draining.get() {
+			return;
+		}
+		self.draining.set(true);
+		let node = self.clone();
+		tokio::task::spawn_local(async move {
+			loop {
+				let Some(action) = node.next_action() else {
+					break;
+				};
+				node.run_action(action).await;
+			}
+			node.draining.set(false);
+		});
+	}
+
+	// The executor is deliberately dumb: every decision was already made in the
+	// core; each arm is pure I/O or marshaling.
+	async fn run_action(&self, action: NodeAction) {
+		match action {
+			NodeAction::Dial { pending, locator } => {
+				match Connection::dial_exporter(&locator, self.clone()).await {
+					Ok(conn) => {
+						// The driver completes the keyed handshake before it
+						// serves any command, so one served round-trip is the
+						// session-open signal the withdraw's signing needs.
+						let (tx, rx) = oneshot::channel();
+						let opened = conn.cmd_tx.send(Cmd::AwaitOpen { reply: tx }).is_ok()
+							&& matches!(rx.await, Ok(Ok(())));
+						if !opened {
+							let message = "exporter handshake failed";
+							let _ = crate::check(unsafe {
+								sys::pancake_node_dial_failed(
+									self.node.raw,
+									pending,
+									message.as_ptr(),
+									message.len(),
+								)
+							});
+							return;
+						}
+						let conn_id = conn.conn_id;
+						// Keeping the dialed connection's driver task alive is
+						// this map's only job; the exporter cache lives in the
+						// core. Inserted before the dial is reported, so the
+						// withdraw's resolve always finds the claim offer on.
+						self.dialed_exporters.borrow_mut().insert(conn_id, conn);
+						let _ = crate::check(unsafe {
+							sys::pancake_node_exporter_dialed(self.node.raw, pending, conn_id)
+						});
+					}
+					Err(e) => {
+						// The node turns a failed dial into a broken answer.
+						let message = e.to_string();
+						let _ = crate::check(unsafe {
+							sys::pancake_node_dial_failed(
+								self.node.raw,
+								pending,
+								message.as_ptr(),
+								message.len(),
+							)
+						});
+					}
+				}
+			}
+			NodeAction::Flush { conn_id } => {
+				if let Some(tx) = self.channel_for(conn_id) {
+					let _ = tx.send(Cmd::FlushOutbound);
+				}
+			}
+			NodeAction::Settle {
+				conn_id,
+				answer,
+				token,
+			} => {
+				if let Some(tx) = self.channel_for(conn_id) {
+					let _ = tx.send(Cmd::ServeResolve {
+						answer,
+						outcome: Ok(token),
+					});
+				}
+			}
+			NodeAction::Fail {
+				conn_id,
+				answer,
+				reason,
+			} => {
+				if let Some(tx) = self.channel_for(conn_id) {
+					let _ = tx.send(Cmd::ServeResolve {
+						answer,
+						outcome: Err(reason),
+					});
+				}
+			}
+			NodeAction::NeedGiftId { ticket } => {
+				// Entropy is a host effect, drawn only when a reply actually
+				// becomes a gift. The OS RNG failing is not a recoverable
+				// condition, the same stance `new_node` takes.
+				let mut gift_id = [0u8; 32];
+				getrandom::getrandom(&mut gift_id).expect("the OS RNG provides gift-id entropy");
+				let _ = crate::check(unsafe {
+					sys::pancake_node_provide_gift_id(
+						self.node.raw,
+						ticket,
+						gift_id.as_ptr(),
+						gift_id.len(),
+					)
+				});
+			}
+		}
 	}
 }
 
-// Withdraw a deposited gift over an exporter connection's command channel: queue
-// the `WithdrawGift` command and await the withdrawn capability's reference. The
-// node signs the receive with its own retained identity (the recipient withdraw
-// lives in `engine.Node`), so the caller passes only the give bytes.
-async fn withdraw_on(exporter: &mpsc::UnboundedSender<Cmd>, give: Vec<u8>) -> Result<Reference> {
-	let (tx, rx) = oneshot::channel();
-	exporter
-		.send(Cmd::WithdrawGift { give, reply: tx })
-		.map_err(|_| Error::from_code(sys::ERR_IO))?;
-	rx.await.map_err(|_| Error::from_code(sys::ERR_IO))?
+// One serve-step action popped off the node (ADR-0067), its borrowed views
+// already copied into owned values.
+enum NodeAction {
+	Dial {
+		pending: u64,
+		locator: String,
+	},
+	Flush {
+		conn_id: u64,
+	},
+	Settle {
+		conn_id: u64,
+		answer: u64,
+		token: u64,
+	},
+	Fail {
+		conn_id: u64,
+		answer: u64,
+		reason: String,
+	},
+	NeedGiftId {
+		ticket: u64,
+	},
 }
 
 // Where a `send` is addressed. A `Ref` names a capability (a near export or a far
@@ -624,37 +783,24 @@ enum Cmd {
 		verb: String,
 		args: Vec<Argument>,
 	},
-	// Recipient half of a three-party handoff, issued on the exporter
-	// connection: the node signs a `desc:handoff-receive` over `give` keyed by
-	// its retained identity, delivers `withdraw-gift` to the exporter's
-	// bootstrap, and replies with the withdrawn capability's reference once it
-	// resolves. Binding-internal — the node router issues it during `redeem`.
-	WithdrawGift {
-		give: Vec<u8>,
-		reply: Reply<Reference>,
-	},
-	// Gifter half of a three-party handoff (ADR-0009), issued on the *exporter*
-	// connection (which owns the exporter peer and the dial-hint locator
-	// override): the node deposits `gifted` here, signs a `desc:handoff-give`
-	// addressed to `recipient_conn`'s partner, and queues it as the resolution of
-	// `answer` on the recipient peer; this loop flushes the deposit, then signals
-	// the recipient loop to flush the resolve. Binding-internal — the resolve
-	// interceptor issues it when a published actor returns a foreign-home cap.
-	OriginateGive {
-		recipient_conn: u64,
-		recipient_tx: mpsc::UnboundedSender<Cmd>,
-		answer: u64,
-		gifted: Reference,
-	},
-	// Flush this connection's queued outbound frames. Issued on the to-recipient
-	// connection so it puts the give the node queued onto the wire from its own
-	// loop (the loop that owns the stream).
+	// Flush this connection's queued outbound frames — how the serve step's
+	// flush actions land, queued onto a peer whose own loop owns the stream.
 	FlushOutbound,
-	// Break the recipient's question when origination fails, so the recipient's
-	// send settles as a break carrying the reason rather than hanging.
-	ResolveBreak {
+	// Reply once the keyed session is open. The driver serves commands only
+	// after its handshake completes, so answering at all *is* the signal; the
+	// serve step's executor awaits it before reporting a dial done, because the
+	// withdraw the node then sends must be signed against the exporter's
+	// session key.
+	AwaitOpen {
+		reply: Reply<()>,
+	},
+	// Settle (or break) an application answer this connection asked — how the
+	// serve step's settle/fail actions land (ADR-0067): fired through the vat so
+	// the awaiting listener resolves exactly as an ordinary reply. `Ok` carries
+	// the redeemed token's far id, `Err` the break reason.
+	ServeResolve {
 		answer: u64,
-		message: String,
+		outcome: std::result::Result<u64, String>,
 	},
 	Close,
 }
@@ -718,13 +864,6 @@ impl RemotePromise {
 		}
 	}
 
-	/// Pipeline an `op:get` for `field` at this answer (ADR-0050): a new
-	/// [`RemotePromise`] for the Struct field of whatever this resolves to,
-	/// projected before this answer settles.
-	pub fn get(&self, field: &str) -> RemotePromise {
-		self.project(ProjectOp::Get(field.to_string()))
-	}
-
 	/// Pipeline an `op:index` for `i` at this answer (ADR-0050): a new
 	/// [`RemotePromise`] for the List element of whatever this resolves to.
 	pub fn index(&self, i: i64) -> RemotePromise {
@@ -742,7 +881,6 @@ impl RemotePromise {
 // Which projection a `RemotePromise` issues against its answer; the driver maps
 // it to the matching `op:get` / `op:index` / `op:untag` send.
 enum ProjectOp {
-	Get(String),
 	Index(i64),
 	Untag(String),
 }
@@ -807,16 +945,6 @@ pub struct Connection {
 	// it, routes redeemed-token sends to it, and the driver pumps it. A redeem
 	// reads it to enroll the withdrawn capability against this exporter.
 	conn_id: u64,
-	// An optional dialable exporter location this connection's gifter origination
-	// signs into a give instead of the exporter's own signed session record
-	// (ADR-0009). Set by [`set_exporter_locator`](Connection::set_exporter_locator)
-	// when the gifter learned the exporter's full `ocapn://…?direct-addresses=…`
-	// out of band — the only way a give can name an iroh exporter reachable by a
-	// dial hint under the relay-less `Direct` posture. Shared (`Rc`) with the
-	// driver task, which reads it when it deposits a gift. Unset, origination falls
-	// back to the partner's signed location (a TCP host:port, or an iroh node id
-	// resolvable by `Discovery`).
-	exporter_locator: Rc<RefCell<Option<Vec<u8>>>>,
 }
 
 impl Connection {
@@ -896,8 +1024,6 @@ impl Connection {
 			.expect("the node registers a connection");
 		node.register(conn_id, &self_tx);
 		let drive_node = node.clone();
-		let exporter_locator: Rc<RefCell<Option<Vec<u8>>>> = Rc::new(RefCell::new(None));
-		let drive_exporter_locator = Rc::clone(&exporter_locator);
 		// `peer_raw` is a node-owned peer pointer (`!Send`); the driver wraps it
 		// without owning it and the node frees it on `remove_conn` at task end.
 		let driver = tokio::task::spawn_local(async move {
@@ -906,11 +1032,9 @@ impl Connection {
 				&transport,
 				&designator,
 				cmd_rx,
-				self_tx,
 				drive_node,
 				conn_id,
 				peer_raw,
-				drive_exporter_locator,
 			)
 			.await;
 		});
@@ -921,7 +1045,6 @@ impl Connection {
 			gc: Cell::new(false),
 			node,
 			conn_id,
-			exporter_locator,
 		}
 	}
 
@@ -942,7 +1065,7 @@ impl Connection {
 	/// only by a dial hint under the relay-less `Direct` posture. Unset, origination
 	/// uses the partner's signed location.
 	pub fn set_exporter_locator(&self, raw: Vec<u8>) {
-		*self.exporter_locator.borrow_mut() = Some(raw);
+		self.node.set_exporter_location(self.conn_id, &raw);
 	}
 
 	/// Opt this connection into distributed GC (ADR-0063), off by default. Once
@@ -977,12 +1100,6 @@ impl Connection {
 		}
 	}
 
-	// A clone of this connection's command channel, for the node router to
-	// forward redeemed-capability sends to an exporter connection it owns.
-	fn cmd_sender(&self) -> mpsc::UnboundedSender<Cmd> {
-		self.cmd_tx.clone()
-	}
-
 	// Dial an exporter named by a handoff give's `ocapn://` locator, keyed with
 	// `node`'s retained identity and bound to that same node, so the
 	// redeemed capability shares one node identity, gift registry, and connection
@@ -999,7 +1116,18 @@ impl Connection {
 		let loc = crate::uri::parse_locator(uri)?;
 		match loc.transport.as_str() {
 			"tcp" => {
-				let stream = TcpStream::connect(loc.designator.as_str())
+				// The host:port split (and its validation) is the core
+				// grammar's, read off the parsed locator.
+				let (host, port) = loc.host_port.clone().ok_or_else(|| {
+					Error::with_detail(
+						sys::ERR_INVALID_ARGUMENT,
+						format!(
+							"tcp locator designator is not host:port: {}",
+							loc.designator
+						),
+					)
+				})?;
+				let stream = TcpStream::connect((host.as_str(), port))
 					.await
 					.map_err(|_| Error::from_code(sys::ERR_IO))?;
 				let designator = stream
@@ -1168,15 +1296,6 @@ impl Connection {
 		}))
 	}
 
-	/// Eventual-send `verb(args)` to `target` and return a [`RemotePromise`] for
-	/// the reply. `await` it for the value (a capability via `Ref::try_from`; a
-	/// typed `Err` on a partner break), exactly as before.
-	///
-	/// `target` is a capability `&Ref` *or* a `&RemotePromise` from an earlier
-	/// send: passing the latter pipelines (ADR-0007) — the call is addressed at
-	/// the answer that send will resolve, so a dependent chain costs one round
-	/// trip instead of one per link. `args` may contain capabilities via
-	/// `Into<Argument>`.
 	// Whether `reference` names a capability that lives on a *different*
 	// connection of this node: a redeemed-handoff token (the node routes it to
 	// its exporter) or a far the node recorded as fetched on another connection.
@@ -1223,6 +1342,15 @@ impl Connection {
 		Ok(())
 	}
 
+	/// Eventual-send `verb(args)` to `target` and return a [`RemotePromise`] for
+	/// the reply. `await` it for the value (a capability via `Ref::try_from`; a
+	/// typed `Err` on a partner break).
+	///
+	/// `target` is a capability `&Ref` *or* a `&RemotePromise` from an earlier
+	/// send: passing the latter pipelines (ADR-0007) — the call is addressed at
+	/// the answer that send will resolve, so a dependent chain costs one round
+	/// trip instead of one per link. `args` may contain capabilities via
+	/// `Into<Argument>`.
 	pub fn send<T: AsSendTarget>(&self, target: T, verb: &str, args: &[Argument]) -> RemotePromise {
 		let ticket = self.next_ticket.get();
 		self.next_ticket.set(ticket.wrapping_add(1));
@@ -1262,6 +1390,21 @@ impl Connection {
 	/// rather than a deliver plus a reply.
 	pub fn tell(&self, target: &Ref, verb: &str, args: &[Argument]) -> Result<()> {
 		self.assert_no_foreign_args(args)?;
+		// A redeemed-handoff token rides its exporter connection. When that
+		// connection is gone the node fails the route closed, and a
+		// fire-and-forget deliver has no reply to break later, so the dead token
+		// is refused here — typed, at the call site — the same fault a `send` to
+		// it reports on its awaited promise.
+		if let Reference::Far { id, .. } = &target.reference {
+			if *id >= REDEEMED_TOKEN_BASE
+				&& self.node.route(self.conn_id, &target.reference).is_none()
+			{
+				return Err(Error::with_detail(
+					sys::ERR_INVALID_ARGUMENT,
+					"the redeemed capability's exporter connection is closed".to_string(),
+				));
+			}
+		}
 		self.cmd_tx
 			.send(Cmd::Tell {
 				target: target.reference.clone(),
@@ -1273,7 +1416,10 @@ impl Connection {
 
 	/// Run the inbound event loop in the background (it already runs from
 	/// `connect`); the returned future completes when the connection closes.
-	/// Calling it without awaiting is fine, the driver runs regardless.
+	/// Calling it without awaiting is fine, the driver runs regardless. The
+	/// `Connection` handle must stay alive while the loop should serve:
+	/// dropping an accepted connection after `spawn_local(conn.serve())`
+	/// closes it under the partner, because the handle owns the socket.
 	pub fn serve(&self) -> impl std::future::Future<Output = ()> {
 		let handle = self.driver.take();
 		async move {
@@ -1400,7 +1546,17 @@ pub enum Reachability {
 pub async fn connect(uri: &str, reachability: Option<Reachability>) -> Result<Connection> {
 	let loc = crate::uri::parse_locator(uri)?;
 	match loc.transport.as_str() {
-        "tcp" => Connection::connect(loc.designator.as_str()).await,
+        "tcp" => {
+            // The host:port split (and its validation) is the core grammar's,
+            // read off the parsed locator — not a re-derived string split.
+            let (host, port) = loc.host_port.clone().ok_or_else(|| {
+                Error::with_detail(
+                    sys::ERR_INVALID_ARGUMENT,
+                    format!("tcp locator designator is not host:port: {}", loc.designator),
+                )
+            })?;
+            Connection::connect((host.as_str(), port)).await
+        }
         #[cfg(feature = "iroh")]
         "iroh" => {
             let reachability = reachability.ok_or_else(|| {
@@ -1424,11 +1580,6 @@ pub async fn connect(uri: &str, reachability: Option<Reachability>) -> Result<Co
     }
 }
 
-/// Build a `tcp` locator from a literal host and port: `ocapn://host:port.tcp`,
-/// rendered through the core grammar. The convenience for the common case — a
-/// caller holding a host and port passes `connect(&tcp_locator(host, port))`
-/// instead of hand-formatting the URI. `host:port` is not a dial of its own; it
-/// is a locator like any other.
 /// Build the verbatim exporter location-record bytes a gifter embeds in a give
 /// when the exporter is reachable only by a dial hint (ADR-0009) — the
 /// construct-it-yourself counterpart of the partner's signed session record, for
@@ -1467,6 +1618,11 @@ pub fn encode_peer_locator(
 	Ok(bytes)
 }
 
+/// Build a `tcp` locator from a literal host and port: `ocapn://host:port.tcp`,
+/// rendered through the core grammar. The convenience for the common case — a
+/// caller holding a host and port passes `connect(&tcp_locator(host, port))`
+/// instead of hand-formatting the URI. `host:port` is not a dial of its own; it
+/// is a locator like any other.
 pub fn tcp_locator(host: &str, port: u16) -> String {
 	crate::uri::format_peer_uri(
 		"tcp",
@@ -1509,11 +1665,9 @@ async fn drive<S>(
 	transport: &str,
 	designator: &str,
 	mut cmd_rx: mpsc::UnboundedReceiver<Cmd>,
-	self_tx: mpsc::UnboundedSender<Cmd>,
 	node: Node,
 	conn_id: u64,
 	peer_raw: *mut sys::PancakePeer,
-	exporter_locator: Rc<RefCell<Option<Vec<u8>>>>,
 ) -> Result<()>
 where
 	S: AsyncRead + AsyncWrite + Unpin,
@@ -1548,9 +1702,8 @@ where
 	// consults this before resolving a delivered answer.
 	{
 		let node = node.clone();
-		let self_tx = self_tx.clone();
 		vat.set_resolve_interceptor(move |answer, value| {
-			try_originate(&node, &self_tx, conn_id, answer, value)
+			try_originate(&node, conn_id, answer, value)
 		});
 	}
 	// This connection's command channel was registered with the node (and its
@@ -1571,7 +1724,6 @@ where
 		&enliven_records,
 		&node,
 		conn_id,
-		&exporter_locator,
 	)
 	.await;
 	// The wire is gone, cleanly or by a transport fault: break every send still
@@ -1587,6 +1739,10 @@ where
 	drop(peer);
 	node.unregister(conn_id);
 	node.remove_conn(conn_id);
+	// The core fails any withdraw stranded on this connection closed when it is
+	// removed; kick the executor so those `Fail` actions drain and a waiter whose
+	// exporter died mid-withdraw settles as a break instead of hanging.
+	node.kick_actions();
 	served
 }
 
@@ -1603,7 +1759,6 @@ async fn serve_loop<S>(
 	enliven_records: &EnlivenRecords,
 	node: &Node,
 	conn_id: u64,
-	exporter_locator: &Rc<RefCell<Option<Vec<u8>>>>,
 ) -> Result<()>
 where
 	S: AsyncRead + AsyncWrite + Unpin,
@@ -1618,22 +1773,10 @@ where
 	while let Ok(cmd) = cmd_rx.try_recv() {
 		match cmd {
 			Cmd::Close => return Ok(()),
-			other => {
-				handle(
-					vat,
-					stream,
-					other,
-					tickets,
-					enliven_records,
-					node,
-					conn_id,
-					exporter_locator,
-				)
-				.await?
-			}
+			other => handle(vat, stream, other, tickets, enliven_records, node, conn_id).await?,
 		}
 	}
-	dispatch_buffered(vat, stream, inbox).await?;
+	dispatch_buffered(vat, stream, inbox, node, conn_id).await?;
 
 	loop {
 		// Fold any enliven that settled on the previous turn into the dedup cache
@@ -1645,14 +1788,14 @@ where
 			maybe = cmd_rx.recv() => {
 				match maybe {
 					None | Some(Cmd::Close) => return Ok(()),
-					Some(cmd) => handle(vat, stream, cmd, tickets, enliven_records, node, conn_id, exporter_locator).await?,
+					Some(cmd) => handle(vat, stream, cmd, tickets, enliven_records, node, conn_id).await?,
 				}
 			}
 			read = stream.read(&mut *chunk) => {
 				let n = read.map_err(wire::io_err)?;
 				if n == 0 { return Ok(()); }
 				inbox.extend_from_slice(&chunk[..n]);
-				dispatch_buffered(vat, stream, inbox).await?;
+				dispatch_buffered(vat, stream, inbox, node, conn_id).await?;
 			}
 		}
 	}
@@ -1662,7 +1805,13 @@ where
 // events through the vat, and flush any replies. Shared by the serve loop's
 // pre-loop drain (the frames the handshake left buffered) and its read branch
 // (a fresh chunk just appended), so both dispatch buffered bytes identically.
-async fn dispatch_buffered<S>(vat: &mut Vat<'_>, stream: &mut S, inbox: &mut Vec<u8>) -> Result<()>
+async fn dispatch_buffered<S>(
+	vat: &mut Vat<'_>,
+	stream: &mut S,
+	inbox: &mut Vec<u8>,
+	node: &Node,
+	conn_id: u64,
+) -> Result<()>
 where
 	S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -1672,19 +1821,32 @@ where
 			inbox.drain(..consumed);
 		}
 	}
-	// Flush first, then poll, and loop until both are quiet. Applying inbound
-	// frames can queue outbound work that surfaces *no* event of its own: a
-	// projection resolves its answer, a listener fires a deliver. Flushing only
-	// after a served event (the old shape) stranded those frames, hanging a
-	// pipelined projection whose partner waits on the resolution. Flushing first
-	// pumps to idle, which also drains a settled answer's pipelined calls into
-	// fresh events; re-polling after returns them, so a `create -> assign ->
-	// status` chain or an `untag(...).index(...)` projection drains in full
-	// before this returns and the loop parks on the next read.
+	// The poll drives the engine to idle itself (a settlement cascade —
+	// resolve, drained projection, fired listener, queued deliver — surfaces
+	// in full), so this loop is the obvious one: serve events until there are
+	// none, then flush the queued frames before parking on the next read.
 	loop {
-		flush(vat, stream).await?;
 		match vat.peer().expect("a peer-bound vat").poll()? {
 			Some(event) => {
+				if let Event::Resolve { answer, resolution } = &event {
+					// A pending withdraw's resolution belongs to the core's serve
+					// step, and only a node-dialed exporter connection can carry
+					// one — an ordinary connection never pays this call.
+					if node.is_node_dialed(conn_id)
+						&& node.claim_resolve(conn_id, *answer, resolution)
+					{
+						node.kick_actions();
+						continue;
+					}
+					// A give arriving as a resolution is the serve step's to
+					// redeem, never the vat's: feed it and let the executor
+					// perform the dial, withdraw, and settle (ADR-0067).
+					if let Resolution::Handoff(give) = resolution {
+						node.accept_give(conn_id, *answer, give);
+						node.kick_actions();
+						continue;
+					}
+				}
 				vat.serve(&event).ok();
 				// A forwarding actor that sent on to a far target parks the caller's
 				// answer until that send settles; drain those resolves now so the
@@ -1696,6 +1858,7 @@ where
 			None => break,
 		}
 	}
+	flush(vat, stream).await?;
 	Ok(())
 }
 
@@ -1712,7 +1875,6 @@ async fn handle<S>(
 	enliven_records: &EnlivenRecords,
 	node: &Node,
 	conn_id: u64,
-	exporter_locator: &Rc<RefCell<Option<Vec<u8>>>>,
 ) -> Result<()>
 where
 	S: AsyncRead + AsyncWrite + Unpin,
@@ -1796,14 +1958,14 @@ where
 							Resolution::Break(message) => {
 								let _ = reply.send(Err(Error::broken(message)));
 							}
-							// A bootstrap fetch that resolves to a three-party
-							// handoff give: redeem it transparently off the loop
-							// (dial the exporter keyed with this node's
-							// identity, withdraw the gift) and hand back the live
-							// capability under a reserved token, so `fetch` returns
-							// an ordinary `Ref`.
-							Resolution::Handoff(give) => {
-								redeem_off_loop(node, give, reply, |reference| reference);
+							// Unreachable by construction: the serve step
+							// intercepts a handoff resolution before the vat
+							// fires listeners (ADR-0067), so a give can never
+							// reach this arm; refuse loudly if it somehow does.
+							Resolution::Handoff(_) => {
+								let _ = reply.send(Err(Error::broken(
+									"handoff resolution reached a listener".to_string(),
+								)));
 							}
 						}
 					});
@@ -1820,27 +1982,33 @@ where
 			// the answer, and queues the deliver — exactly the fetch path, keyed by
 			// swissnum instead of a bootstrap name.
 			let peer = vat.peer().expect("a peer-bound vat");
-			let start = match peer.prepare_enliven(&swissnum) {
-				Ok(start) => start,
+			let answer = match peer.prepare_enliven(&swissnum) {
+				Ok(EnlivenStart::Cached {
+					import_position,
+					promise,
+				}) => {
+					// Cache hit: reconstruct the far reference, no wire traffic.
+					let reference = Reference::Far {
+						id: import_position,
+						promise,
+					};
+					let _ = reply.send(Ok(reference));
+					return Ok(());
+				}
+				// Fresh or in flight: drive the (possibly shared) answer to
+				// settlement.
+				Ok(EnlivenStart::Fresh { answer }) | Ok(EnlivenStart::InFlight { answer }) => {
+					answer
+				}
 				Err(e) => {
 					let _ = reply.send(Err(e));
 					return Ok(());
 				}
 			};
-			if start.status == sys::ENLIVEN_CACHED {
-				// Cache hit: reconstruct the far reference, no wire traffic.
-				let reference = Reference::Far {
-					id: start.import_position,
-					promise: start.kind == sys::REF_SUB_PROMISE,
-				};
-				let _ = reply.send(Ok(reference));
-				return Ok(());
-			}
-			// FRESH or IN_FLIGHT: drive the (possibly shared) answer to settlement.
 			// The resolution callback cannot reach the peer, so it defers the cache
 			// record onto the shared queue the serve loop drains with peer access.
 			let records = enliven_records.clone();
-			vat.on(Vow::Far(start.answer), move |resolution| match resolution {
+			vat.on(Vow::Far(answer), move |resolution| match resolution {
 				Resolution::Fulfill(Argument::Reference(reference)) => {
 					let (import_position, kind) = match &reference {
 						Reference::Far { id, promise } => (
@@ -1952,7 +2120,6 @@ where
 						tickets.borrow_mut().insert(ticket, answer);
 					}
 					let tickets = Rc::clone(tickets);
-					let node = node.clone();
 					vat.on(vow, move |resolution| {
 						tickets.borrow_mut().remove(&ticket);
 						match resolution {
@@ -1962,13 +2129,14 @@ where
 							Resolution::Break(message) => {
 								let _ = reply.send(Err(Error::broken(message)));
 							}
-							// The send resolved to a three-party handoff give:
-							// redeem it transparently off the loop and settle the
-							// send with the live capability (a reserved-token far
-							// reference), so the application's `Ref::try_from`
-							// yields an ordinary capability it can `send` to.
-							Resolution::Handoff(give) => {
-								redeem_off_loop(node, give, reply, Argument::Reference);
+							// Unreachable by construction: the serve step
+							// intercepts a handoff resolution before the vat
+							// fires listeners (ADR-0067), so a give can never
+							// reach this arm; refuse loudly if it somehow does.
+							Resolution::Handoff(_) => {
+								let _ = reply.send(Err(Error::broken(
+									"handoff resolution reached a listener".to_string(),
+								)));
 							}
 						}
 					});
@@ -2021,7 +2189,6 @@ where
 					answer: source_answer,
 				};
 				let issued = match &op {
-					ProjectOp::Get(field) => peer.send_get(&receiver, field, answer),
 					ProjectOp::Index(i) => peer.send_index(&receiver, *i, answer),
 					ProjectOp::Untag(tag) => peer.send_untag(&receiver, tag, answer),
 				};
@@ -2093,97 +2260,30 @@ where
 				}
 			}
 		}
-		Cmd::WithdrawGift { give, reply } => {
-			// Issued on the exporter connection by the node router: allocate the
-			// answer, then ask the node to sign and deliver the `withdraw-gift`
-			// (one definition shared with the native driver, keyed by the node's
-			// retained identity), and settle the reply with the withdrawn
-			// capability's reference when the answer resolves. A failed allocation
-			// or deliver replies its typed error.
-			let answer = match vat.peer().expect("a peer-bound vat").next_answer() {
-				Ok(answer) => answer,
-				Err(e) => {
-					let _ = reply.send(Err(e));
-					return Ok(());
-				}
-			};
-			if let Err(e) = node.send_withdraw(conn_id, &give, answer) {
-				let _ = reply.send(Err(e));
-				return Ok(());
-			}
-			vat.on(Vow::Far(answer), move |resolution| {
-				let out = match resolution {
-					Resolution::Fulfill(Argument::Reference(reference)) => Ok(reference),
-					Resolution::Fulfill(_) => Err(Error::broken(
-						"withdraw-gift did not resolve to a capability".to_string(),
-					)),
-					Resolution::Break(message) => Err(Error::broken(message)),
-					Resolution::Handoff(_) => Err(Error::broken(
-						"withdraw-gift resolved to a nested handoff give".to_string(),
-					)),
-				};
-				let _ = reply.send(out);
-			});
-			flush(vat, stream).await?;
-		}
-		Cmd::OriginateGive {
-			recipient_conn,
-			recipient_tx,
-			answer,
-			gifted,
-		} => {
-			// Gifter origination on the exporter connection (ADR-0009): the node
-			// deposits `gifted` here, signs the give addressed to the recipient's
-			// partner, and queues it as the recipient's resolution. This loop owns
-			// the exporter peer and the dial-hint override; the recipient loop owns
-			// its own stream, so flush the deposit here and signal the recipient to
-			// flush the resolve. The deposit lands first, before the recipient
-			// dials in to withdraw.
-			let mut gift_id = [0u8; 32];
-			if getrandom::getrandom(&mut gift_id).is_err() {
-				let _ = recipient_tx.send(Cmd::ResolveBreak {
-					answer,
-					message: "handoff origination failed: gift-id entropy unavailable".to_string(),
-				});
-				return Ok(());
-			}
-			// Sign the give with the override location when the gifter recorded the
-			// exporter's dialable URI out of band (an iroh exporter reachable only
-			// by a Direct dial hint); empty uses the exporter's own session record.
-			let location = exporter_locator.borrow().clone().unwrap_or_default();
-			if let Err(e) = node.originate_give(
-				recipient_conn,
-				conn_id,
-				&gifted,
-				&gift_id,
-				answer,
-				&location,
-			) {
-				let _ = recipient_tx.send(Cmd::ResolveBreak {
-					answer,
-					message: format!("handoff origination failed: {e}"),
-				});
-				return Ok(());
-			}
-			flush(vat, stream).await?;
-			let _ = recipient_tx.send(Cmd::FlushOutbound);
-		}
 		Cmd::FlushOutbound => {
-			// Put the give the node queued onto the wire from the recipient's own
-			// loop (the loop that owns this stream).
+			// Put what the serve step queued on this peer onto the wire from the
+			// loop that owns this stream.
 			flush(vat, stream).await?;
 		}
-		Cmd::ResolveBreak { answer, message } => {
-			// Origination failed: break the recipient's question so its send
-			// settles with the reason rather than hanging. Best-effort.
-			let queued = {
-				let peer = vat.peer().expect("a peer-bound vat");
-				peer.send_resolve(answer, &Resolution::Break(message))
-					.is_ok()
+		Cmd::AwaitOpen { reply } => {
+			// Serving this at all means the handshake finished; see the enum arm.
+			let _ = reply.send(Ok(()));
+		}
+		Cmd::ServeResolve { answer, outcome } => {
+			// The serve step settles (or breaks) an application answer this
+			// connection asked (ADR-0067): fire it through the vat so the awaiting
+			// listener resolves exactly as an ordinary reply.
+			let resolution = match outcome {
+				Ok(token) => Resolution::Fulfill(Argument::Reference(Reference::Far {
+					id: token,
+					promise: false,
+				})),
+				Err(message) => Resolution::Break(message),
 			};
-			if queued {
-				flush(vat, stream).await?;
-			}
+			vat.serve(&Event::Resolve { answer, resolution }).ok();
+			vat.flush_forward_resolves()?;
+			vat.flush_forward_local_resolves();
+			flush(vat, stream).await?;
 		}
 		Cmd::GcDrop { position } => {
 			// A wire-lifted import's last handle dropped (ADR-0063): release one
@@ -2204,32 +2304,6 @@ where
 	Ok(())
 }
 
-// Redeem a handoff give off the driver loop: dial the exporter (keyed with the
-// node's retained identity) and withdraw the gift on a spawned task, so the
-// dial's I/O does not stall this connection's reads, then settle the awaiting
-// command's reply with the live capability under a reserved token. `into` adapts
-// the redeemed reference to the command's reply type (a bare `Reference` for
-// `fetch`, an `Argument::Reference` for `send`). A redeem failure breaks the
-// command rather than leaving it pending.
-fn redeem_off_loop<T: 'static>(
-	node: Node,
-	give: HandoffGive,
-	reply: Reply<T>,
-	into: impl FnOnce(Reference) -> T + 'static,
-) {
-	tokio::task::spawn_local(async move {
-		match node.redeem(give).await {
-			Ok((exporter_conn, reference)) => {
-				let token = node.enroll(exporter_conn, reference);
-				let _ = reply.send(Ok(into(token)));
-			}
-			Err(e) => {
-				let _ = reply.send(Err(e));
-			}
-		}
-	});
-}
-
 async fn flush<S>(vat: &mut Vat<'_>, stream: &mut S) -> Result<()>
 where
 	S: AsyncRead + AsyncWrite + Unpin,
@@ -2237,48 +2311,22 @@ where
 	wire::pump_outbound(vat.peer().expect("a peer-bound vat"), stream).await
 }
 
-// The vat's resolve interceptor (ADR-0009, the gifter half): claim a delivered
-// answer whose reply is a capability living on another connection of this node,
-// and originate a three-party handoff for it instead of letting the vat encode a
-// cross-connection reference. Returns whether the answer was claimed; an
-// ordinary reply (or one whose home is this very connection) falls through.
-fn try_originate(
-	node: &Node,
-	self_tx: &mpsc::UnboundedSender<Cmd>,
-	conn_id: u64,
-	answer: u64,
-	value: &Argument,
-) -> bool {
-	let reference = match value {
-		Argument::Reference(reference) => reference,
+// The vat's resolve interceptor (ADR-0067, the gifter half): offer a delivered
+// answer's capability reply to the node's serve step. A reply whose recorded
+// home is another connection is claimed — the node asks for gift entropy,
+// deposits, signs the give, and orders the flushes; this side only kicks the
+// executor. An ordinary reply (or one whose home is this very connection)
+// falls through to the plain resolve.
+fn try_originate(node: &Node, conn_id: u64, answer: u64, value: &Argument) -> bool {
+	let id = match value {
+		Argument::Reference(Reference::Far { id, .. }) => *id,
 		_ => return false,
 	};
-	let id = match reference {
-		Reference::Far { id, .. } => *id,
-		_ => return false,
-	};
-	let exporter_conn = match node.foreign_home_conn(id) {
-		Some(exporter_conn) => exporter_conn,
-		None => return false,
-	};
-	// A capability whose home is this very connection is not a gift to pass on.
-	if exporter_conn == conn_id {
-		return false;
+	let claimed = node.intercept_fulfilled_ref(conn_id, answer, id);
+	if claimed {
+		node.kick_actions();
 	}
-	let exporter_tx = match node.channel_for(exporter_conn) {
-		Some(exporter_tx) => exporter_tx,
-		None => return false,
-	};
-	// Origination runs on the exporter loop (it owns the exporter peer and the
-	// dial-hint locator override): the node deposits, signs the give, and queues
-	// it on our peer, then the exporter loop signals us to flush the resolution.
-	let _ = exporter_tx.send(Cmd::OriginateGive {
-		recipient_conn: conn_id,
-		recipient_tx: self_tx.clone(),
-		answer,
-		gifted: reference.clone(),
-	});
-	true
+	claimed
 }
 
 #[cfg(test)]
@@ -2464,6 +2512,193 @@ mod tests {
 				assert_eq!(err.code(), crate::sys::ERR_BROKEN);
 				conn.close();
 				server.await.unwrap();
+			})
+			.await;
+	}
+
+	// A rude TCP probe — connect, say nothing, hang up — is that connection's
+	// failure, not the listener's: the host keeps accepting past it (a probe
+	// can surface as an accept error or as a connection that dies on its own)
+	// and serves the next, real client. Without that isolation one port scan
+	// takes a long-lived server down.
+	#[tokio::test]
+	async fn a_rude_probe_cannot_close_the_listener() {
+		let local = LocalSet::new();
+		local
+			.run_until(async {
+				let server = listen("127.0.0.1:0").await.unwrap();
+				let addr = server.local_addr().unwrap();
+
+				// Host loop: accept every partner, publish on each, serve each,
+				// and report each accept so the client can order its fetch
+				// after its own connection's publish.
+				let (accepted_tx, mut accepted_rx) = tokio::sync::mpsc::unbounded_channel::<()>();
+				let host = tokio::task::spawn_local(async move {
+					loop {
+						let conn = match server.accept().await {
+							Ok(conn) => conn,
+							Err(_) => {
+								let _ = accepted_tx.send(());
+								continue;
+							}
+						};
+						let _ = conn
+							.publish("svc", |_verb, _args| Ok(Argument::Symbol("alive".into())))
+							.await;
+						// The task owns the connection: dropping it here would
+						// close it under the partner.
+						tokio::task::spawn_local(async move {
+							conn.serve().await;
+						});
+						let _ = accepted_tx.send(());
+					}
+				});
+
+				// The probe: open a socket and immediately hang up.
+				let probe = tokio::net::TcpStream::connect(addr).await.unwrap();
+				drop(probe);
+
+				let conn = Connection::connect(addr).await.unwrap();
+				// Both the probe and this client must have been accepted (and
+				// this client's `svc` published) before the fetch leaves.
+				accepted_rx.recv().await.unwrap();
+				accepted_rx.recv().await.unwrap();
+				let cap = conn.fetch("svc").await.unwrap();
+				let reply = conn.send(&cap, "ping", &[]).await.unwrap();
+				assert_eq!(reply, Argument::Symbol("alive".into()));
+				conn.close();
+				host.abort();
+				let _ = host.await;
+			})
+			.await;
+	}
+
+	// `tell` is the fire-and-forget eventual-send (Goblins `<-np`): no answer is
+	// allocated and nothing settles, but the deliver still flushes to the wire
+	// in order, so a `send` issued after two tells observes their effect. This
+	// pins the queued-flush semantics: a tell queued on the command channel
+	// leaves before the ordered send's own deliver.
+	#[tokio::test]
+	async fn tell_flushes_in_order_before_a_following_send() {
+		let local = LocalSet::new();
+		local
+			.run_until(async {
+				let server = listen("127.0.0.1:0").await.unwrap();
+				let addr = server.local_addr().unwrap();
+
+				let (ready_tx, ready_rx) = oneshot::channel::<()>();
+				let host = tokio::task::spawn_local(async move {
+					let conn = server.accept().await.unwrap();
+					let mut count: i64 = 0;
+					conn.publish("counter", move |verb, _args| match verb {
+						"bump" => {
+							count += 1;
+							Ok(Argument::Void)
+						}
+						"get" => Ok(Argument::Integer(count)),
+						other => Err(format!("no such method: {other}")),
+					})
+					.await
+					.unwrap();
+					ready_tx.send(()).unwrap();
+					conn.serve().await;
+				});
+
+				let conn = Connection::connect(addr).await.unwrap();
+				ready_rx.await.unwrap();
+				let cap = conn.fetch("counter").await.unwrap();
+				conn.tell(&cap, "bump", &[]).unwrap();
+				conn.tell(&cap, "bump", &[]).unwrap();
+				let got = conn.send(&cap, "get", &[]).await.unwrap();
+				assert_eq!(got, Argument::Integer(2));
+				conn.close();
+				host.await.unwrap();
+			})
+			.await;
+	}
+
+	// A partner that disconnects mid-question must reject the outstanding send
+	// with a typed break, never hang it: the driver breaks every far vow when
+	// the stream ends.
+	#[tokio::test]
+	async fn an_outstanding_send_rejects_on_disconnect() {
+		let local = LocalSet::new();
+		local
+			.run_until(async {
+				let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+				let addr = listener.local_addr().unwrap();
+
+				// Server: handshake, let the engine auto-answer the fetch, then
+				// hang up on the first application deliver, leaving the client's
+				// question unresolved.
+				let server = tokio::task::spawn_local(async move {
+					let (stream, _) = listener.accept().await.unwrap();
+					let mut peer = Peer::new().unwrap();
+					peer.register_bootstrap_cap(b"svc").unwrap();
+					peer.start_session(&[7u8; 32], "tcp", "127.0.0.1:2", true)
+						.unwrap();
+					let mut conn = AsyncConnection::from_stream(peer, stream);
+					while !conn.peer().session_is_open() {
+						if conn.next_event().await.unwrap().is_none() {
+							panic!("server connection closed during the handshake");
+						}
+					}
+					while let Some(event) = conn.next_event().await.unwrap() {
+						if let Event::Deliver { args, .. } = &event {
+							let verb = match args.first() {
+								Some(Argument::Symbol(s)) => s.as_str(),
+								_ => "",
+							};
+							if verb == "hang" {
+								// Hang up instead of resolving.
+								return;
+							}
+						}
+					}
+				});
+
+				let conn = Connection::connect(addr).await.unwrap();
+				let _serve = conn.serve();
+				let cap = conn.fetch("svc").await.unwrap();
+				let err = conn.send(&cap, "hang", &[]).await.unwrap_err();
+				assert_eq!(err.code(), crate::sys::ERR_BROKEN);
+				assert_eq!(err.message().as_deref(), Some("connection closed"));
+				conn.close();
+				server.await.unwrap();
+			})
+			.await;
+	}
+
+	// A fetch that cannot yield a capability rejects typed — a broken failure,
+	// never a hang and never a transport error — the same family the Python
+	// binding spells `FetchFailed`. The engine breaks an unknown swissnum's
+	// fetch itself, so the failed fetch is observable without a doctored
+	// partner.
+	#[tokio::test]
+	async fn a_failed_fetch_rejects_typed() {
+		let local = LocalSet::new();
+		local
+			.run_until(async {
+				let server = listen("127.0.0.1:0").await.unwrap();
+				let addr = server.local_addr().unwrap();
+
+				let (ready_tx, ready_rx) = oneshot::channel::<()>();
+				let host = tokio::task::spawn_local(async move {
+					let conn = server.accept().await.unwrap();
+					conn.publish("svc", |_verb, _args| Ok(Argument::Void))
+						.await
+						.unwrap();
+					ready_tx.send(()).unwrap();
+					conn.serve().await;
+				});
+
+				let conn = Connection::connect(addr).await.unwrap();
+				ready_rx.await.unwrap();
+				let err = conn.fetch("not-a-capability").await.unwrap_err();
+				assert_eq!(err.code(), crate::sys::ERR_BROKEN);
+				assert_eq!(err.message().as_deref(), Some("unknown swissnum"));
+				conn.close();
+				host.await.unwrap();
 			})
 			.await;
 	}

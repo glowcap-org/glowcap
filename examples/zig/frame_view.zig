@@ -17,7 +17,7 @@ pub fn main() !void {
     storage[1] = 0xfe;
     storage[2] = 0x00;
 
-    var frame = try pancake.foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1));
+    var frame = try pancake.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1));
     defer frame.deinit();
 
     const view = frame.view();

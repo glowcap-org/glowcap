@@ -77,7 +77,6 @@ test "C header struct layouts match the Zig c_abi source" {
 test "C header return codes match the Zig c_abi source" {
     try expectConst(c.PANCAKE_OK, cabi.PANCAKE_OK);
     try expectConst(c.PANCAKE_ERR_NULL_POINTER, cabi.PANCAKE_ERR_NULL_POINTER);
-    try expectConst(c.PANCAKE_ERR_INVALID_HANDLE, cabi.PANCAKE_ERR_INVALID_HANDLE);
     try expectConst(c.PANCAKE_ERR_INVALID_ARGUMENT, cabi.PANCAKE_ERR_INVALID_ARGUMENT);
     try expectConst(c.PANCAKE_ERR_SESSION, cabi.PANCAKE_ERR_SESSION);
     try expectConst(c.PANCAKE_ERR_CODEC, cabi.PANCAKE_ERR_CODEC);
@@ -87,7 +86,6 @@ test "C header return codes match the Zig c_abi source" {
     try expectConst(c.PANCAKE_ERR_IO, cabi.PANCAKE_ERR_IO);
     try expectConst(c.PANCAKE_ERR_MALFORMED, cabi.PANCAKE_ERR_MALFORMED);
     try expectConst(c.PANCAKE_ERR_FRAME_TOO_LARGE, cabi.PANCAKE_ERR_FRAME_TOO_LARGE);
-    try expectConst(c.PANCAKE_ERR_WRONG_EVENT, cabi.PANCAKE_ERR_WRONG_EVENT);
     try expectConst(c.PANCAKE_ERR_UNSUPPORTED_VALUE, cabi.PANCAKE_ERR_UNSUPPORTED_VALUE);
     try expectConst(c.PANCAKE_ERR_BROKEN, cabi.PANCAKE_ERR_BROKEN);
     try expectConst(c.PANCAKE_ERR_NOT_FOUND, cabi.PANCAKE_ERR_NOT_FOUND);

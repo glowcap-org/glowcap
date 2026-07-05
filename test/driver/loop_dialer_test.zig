@@ -103,7 +103,7 @@ const Flow = struct {
                     return;
                 },
             },
-            .broken => {
+            .broken, .give => {
                 self.shared.err = error.FetchFailed;
                 return;
             },
@@ -132,7 +132,7 @@ const Flow = struct {
                     self.shared.err = error.BadReply;
                 }
             },
-            .broken => self.shared.err = error.CallBroke,
+            .broken, .give => self.shared.err = error.CallBroke,
         }
     }
 };

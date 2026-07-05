@@ -61,8 +61,8 @@ const pancake = @import("pancake");
 // putting one more netlayer in the slice, the same call.
 var tcp_resident = pancake.net.tcp.Resident{ .io = io };
 
-const conn = try pancake.driver.connect(&.{tcp_resident.netlayer()}, allocator, pancake.net.tcp.at(designator), .ephemeral, .{});
-defer conn.close();
+const conn = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{});
+defer conn.deinit();
 
 const greeter = try conn.fetch("greeter"); // a capability, by name
 var arena = std.heap.ArenaAllocator.init(allocator);
@@ -74,6 +74,9 @@ const settled = try conn.call(greeter, .{
 switch (settled) {
     .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
     .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
+    // The third outcome: an introduction to a capability on another peer,
+    // redeemed with `driver.Host.redeem`. This greeter never sends one.
+    .give => {},
 }
 ```
 

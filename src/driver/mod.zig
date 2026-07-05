@@ -74,6 +74,9 @@ pub const Error = error{
     /// a `sturdy`, `broken`, or bare `promise` reference. Only a near (local
     /// export) or far (partner-hosted) object reference is callable.
     UncallableTarget,
+    /// The promise is vat-local: pipelining rides a wire answer, and a local
+    /// promise has none. Await it and send to the settled value instead.
+    NotPipelineable,
 };
 
 /// Draw a fresh random session secret from `io` at the I/O boundary, never in the
@@ -120,6 +123,18 @@ pub const Identity = union(enum) {
     }
 };
 
+/// The responder's signing posture for `listen` / `acceptVia`. An accepting
+/// host always signs its listener's own bound designator — the address a
+/// partner can actually dial — so unlike the dialer's `Identity` there is no
+/// designator to carry: `ephemeral` draws a fresh key per accepted session,
+/// and `keyed` signs with the caller-held secret (a handoff exporter that must
+/// present one stable key across sessions, or key unification where the
+/// secret is the netlayer endpoint's own key).
+pub const AcceptIdentity = union(enum) {
+    ephemeral,
+    keyed: crypto.SecretKey,
+};
+
 /// A handle to the eventual result of a `Connection.send` / `sendToAnswer` —
 /// `actors.Promise`, re-exported so a consumer holding only the driver
 /// vocabulary (the C ABI session archive) can name it without reaching into the
@@ -159,14 +174,25 @@ pub const Capability = struct {
 pub const Settled = union(enum) {
     fulfilled: model.Argument,
     broken: []const u8,
+    /// The answer fulfilled with a three-party introduction: a signed
+    /// `desc:handoff-give` addressed to this connection's session key. Redeem
+    /// it with `Host.redeem` to reach the capability; the payload is
+    /// materialized into the call's allocator like any other outcome.
+    give: actors.Give,
 
     /// Free what `call` / `fetchSettled` materialized into `allocator`: the
-    /// fulfilled argument's deep clone, or the broken reason's dupe. A caller
-    /// that settled into an arena it resets never needs this.
+    /// fulfilled argument's deep clone, the broken reason's dupe, or the
+    /// give projection's three byte slices. A caller that settled into an
+    /// arena it resets never needs this.
     pub fn deinit(self: Settled, allocator: std.mem.Allocator) void {
         switch (self) {
             .fulfilled => |argument| model.freeArgument(allocator, argument),
             .broken => |reason| allocator.free(reason),
+            .give => |give| {
+                allocator.free(give.give_bytes);
+                allocator.free(give.exporter_locator_uri);
+                allocator.free(give.recipient_key);
+            },
         }
     }
 };
@@ -205,6 +231,12 @@ pub const acceptVia = connected_vat.acceptVia;
 /// shared gift registry, and the redeemed-token / foreign-home routing tables
 /// that make three-party handoff transparent; the vat stays above it.
 pub const Node = engine.Node;
+/// The native multi-connection tier (ADR-0066/0067): one identity, one node,
+/// many connections; `Host.redeem` is the blocking recipient executor over the
+/// node serve step. The decisions live in `Node`; the host executes them.
+pub const host = @import("host.zig");
+pub const Host = host.Host;
+pub const HostConnection = host.HostConnection;
 /// A `Node` connection handle (`engine.ConnId`), re-exported so embedders name an
 /// exporter/recipient connection as `driver.ConnId`.
 pub const ConnId = engine.ConnId;

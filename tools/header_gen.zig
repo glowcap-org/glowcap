@@ -20,45 +20,51 @@ const version_consts = [_][]const u8{
     "PANCAKE_VERSION_MAJOR", "PANCAKE_VERSION_MINOR", "PANCAKE_VERSION_PATCH",
 };
 const error_consts = [_][]const u8{
-    "PANCAKE_OK",                 "PANCAKE_ERR_NULL_POINTER",
-    "PANCAKE_ERR_INVALID_HANDLE", "PANCAKE_ERR_INVALID_ARGUMENT",
-    "PANCAKE_ERR_SESSION",        "PANCAKE_ERR_CODEC",
-    "PANCAKE_ERR_INTERNAL",       "PANCAKE_ERR_WOULD_BLOCK",
-    "PANCAKE_ERR_CLOSED",         "PANCAKE_ERR_IO",
-    "PANCAKE_ERR_MALFORMED",      "PANCAKE_ERR_FRAME_TOO_LARGE",
-    "PANCAKE_ERR_WRONG_EVENT",    "PANCAKE_ERR_UNSUPPORTED_VALUE",
-    "PANCAKE_ERR_BROKEN",         "PANCAKE_ERR_NOT_FOUND",
+    "PANCAKE_OK",                   "PANCAKE_ERR_NULL_POINTER",
+    "PANCAKE_ERR_INVALID_ARGUMENT", "PANCAKE_ERR_SESSION",
+    "PANCAKE_ERR_CODEC",            "PANCAKE_ERR_INTERNAL",
+    "PANCAKE_ERR_WOULD_BLOCK",      "PANCAKE_ERR_CLOSED",
+    "PANCAKE_ERR_IO",               "PANCAKE_ERR_MALFORMED",
+    "PANCAKE_ERR_FRAME_TOO_LARGE",  "PANCAKE_ERR_UNSUPPORTED_VALUE",
+    "PANCAKE_ERR_BROKEN",           "PANCAKE_ERR_NOT_FOUND",
 };
 const discriminant_consts = [_][]const u8{
-    "PANCAKE_CODEC_SYRUP",            "PANCAKE_CODEC_CAPNP",
-    "PANCAKE_FRAME_SHAPE_BYTE",       "PANCAKE_FRAME_SHAPE_WORD",
-    "PANCAKE_EVENT_NONE",             "PANCAKE_EVENT_DELIVER",
-    "PANCAKE_EVENT_RESOLVE",          "PANCAKE_EVENT_GC_EXPORT",
-    "PANCAKE_EVENT_GC_ANSWER",        "PANCAKE_EVENT_HANDOFF",
-    "PANCAKE_EVENT_START_SESSION",    "PANCAKE_EVENT_ABORT",
-    "PANCAKE_EVENT_LISTEN",           "PANCAKE_EVENT_GET",
-    "PANCAKE_EVENT_INDEX",            "PANCAKE_EVENT_UNTAG",
-    "PANCAKE_REF_NEAR",               "PANCAKE_REF_FAR",
-    "PANCAKE_REF_PROMISE",            "PANCAKE_REF_STURDY",
-    "PANCAKE_REF_BROKEN",             "PANCAKE_REF_SUB_OBJECT",
-    "PANCAKE_REF_SUB_PROMISE",        "PANCAKE_ARG_INTEGER",
-    "PANCAKE_ARG_FLOAT64",            "PANCAKE_ARG_BOOLEAN",
-    "PANCAKE_ARG_BYTES",              "PANCAKE_ARG_STRING",
-    "PANCAKE_ARG_SYMBOL",             "PANCAKE_ARG_VOID",
-    "PANCAKE_ARG_REFERENCE",          "PANCAKE_ARG_LIST",
-    "PANCAKE_ARG_SET",                "PANCAKE_ARG_TAGGED",
-    "PANCAKE_ARG_KEYWORD",            "PANCAKE_ARG_BIG_INTEGER",
-    "PANCAKE_RESOLUTION_FULFILL",     "PANCAKE_RESOLUTION_BREAK",
-    "PANCAKE_RESOLUTION_HANDOFF",     "PANCAKE_HINTS_EMPTY_MAP",
-    "PANCAKE_HINTS_EMPTY_FALSE",      "PANCAKE_CAPTP_VERSION_V1_0",
-    "PANCAKE_CAPTP_VERSION_PRE_SPEC", "PANCAKE_ABORT_DOMAIN_CODEC",
-    "PANCAKE_ABORT_DOMAIN_SESSION",   "PANCAKE_ABORT_DOMAIN_FOREIGN",
-    "PANCAKE_ENLIVEN_FRESH",          "PANCAKE_ENLIVEN_CACHED",
-    "PANCAKE_ENLIVEN_IN_FLIGHT",      "PANCAKE_ENLIVEN_OUTCOME_FULFILLED",
-    "PANCAKE_ENLIVEN_OUTCOME_BROKEN",
+    "PANCAKE_CODEC_SYRUP",                   "PANCAKE_CODEC_CAPNP",
+    "PANCAKE_FRAME_SHAPE_BYTE",              "PANCAKE_FRAME_SHAPE_WORD",
+    "PANCAKE_EVENT_NONE",                    "PANCAKE_EVENT_DELIVER",
+    "PANCAKE_EVENT_RESOLVE",                 "PANCAKE_EVENT_GC_EXPORT",
+    "PANCAKE_EVENT_GC_ANSWER",               "PANCAKE_EVENT_HANDOFF",
+    "PANCAKE_EVENT_START_SESSION",           "PANCAKE_EVENT_ABORT",
+    "PANCAKE_EVENT_LISTEN",                  "PANCAKE_EVENT_GET",
+    "PANCAKE_EVENT_INDEX",                   "PANCAKE_EVENT_UNTAG",
+    "PANCAKE_PROJECTION_NONE",               "PANCAKE_PROJECTION_DELIVER",
+    "PANCAKE_PROJECTION_RESOLVE",            "PANCAKE_PROJECTION_FRAME",
+    "PANCAKE_NODE_ACTION_NONE",              "PANCAKE_NODE_ACTION_DIAL",
+    "PANCAKE_NODE_ACTION_FLUSH",             "PANCAKE_NODE_ACTION_SETTLE",
+    "PANCAKE_NODE_ACTION_FAIL",              "PANCAKE_NODE_ACTION_NEED_GIFT_ID",
+    "PANCAKE_REDEEM_OUTCOME_FAR",            "PANCAKE_REDEEM_OUTCOME_BROKEN",
+    "PANCAKE_REDEEM_OUTCOME_NOT_CAPABILITY", "PANCAKE_REF_NEAR",
+    "PANCAKE_REF_FAR",                       "PANCAKE_REF_PROMISE",
+    "PANCAKE_REF_STURDY",                    "PANCAKE_REF_BROKEN",
+    "PANCAKE_REF_SUB_OBJECT",                "PANCAKE_REF_SUB_PROMISE",
+    "PANCAKE_ARG_INTEGER",                   "PANCAKE_ARG_FLOAT64",
+    "PANCAKE_ARG_BOOLEAN",                   "PANCAKE_ARG_BYTES",
+    "PANCAKE_ARG_STRING",                    "PANCAKE_ARG_SYMBOL",
+    "PANCAKE_ARG_VOID",                      "PANCAKE_ARG_REFERENCE",
+    "PANCAKE_ARG_LIST",                      "PANCAKE_ARG_SET",
+    "PANCAKE_ARG_TAGGED",                    "PANCAKE_ARG_KEYWORD",
+    "PANCAKE_ARG_BIG_INTEGER",               "PANCAKE_RESOLUTION_FULFILL",
+    "PANCAKE_RESOLUTION_BREAK",              "PANCAKE_RESOLUTION_HANDOFF",
+    "PANCAKE_HINTS_EMPTY_MAP",               "PANCAKE_HINTS_EMPTY_FALSE",
+    "PANCAKE_CAPTP_VERSION_V1_0",            "PANCAKE_CAPTP_VERSION_PRE_SPEC",
+    "PANCAKE_ABORT_DOMAIN_CODEC",            "PANCAKE_ABORT_DOMAIN_SESSION",
+    "PANCAKE_ABORT_DOMAIN_FOREIGN",          "PANCAKE_ENLIVEN_FRESH",
+    "PANCAKE_ENLIVEN_CACHED",                "PANCAKE_ENLIVEN_IN_FLIGHT",
+    "PANCAKE_ENLIVEN_OUTCOME_FULFILLED",     "PANCAKE_ENLIVEN_OUTCOME_BROKEN",
 };
 const protocol_consts = [_][]const u8{
     "PANCAKE_BOOTSTRAP_POSITION",
+    "PANCAKE_REDEEMED_TOKEN_BASE",
 };
 
 // One curated comment line per constant that needs one (every return code, plus
@@ -67,7 +73,6 @@ const protocol_consts = [_][]const u8{
 const const_docs = [_]struct { name: []const u8, doc: []const u8 }{
     .{ .name = "PANCAKE_OK", .doc = "Success." },
     .{ .name = "PANCAKE_ERR_NULL_POINTER", .doc = "A required pointer argument was NULL." },
-    .{ .name = "PANCAKE_ERR_INVALID_HANDLE", .doc = "Reserved for a future stale-handle check; no function returns this today." },
     .{ .name = "PANCAKE_ERR_INVALID_ARGUMENT", .doc = "A non-pointer argument was out of range or unparseable (a bad shape/codec discriminant, a zero frame cap, an unparseable host address)." },
     .{ .name = "PANCAKE_ERR_SESSION", .doc = "The session state machine refused the operation (a protocol violation, a resource cap, an already-closed session)." },
     .{ .name = "PANCAKE_ERR_CODEC", .doc = "Inbound bytes failed codec decode, or outbound work failed to encode." },
@@ -77,8 +82,7 @@ const const_docs = [_]struct { name: []const u8, doc: []const u8 }{
     .{ .name = "PANCAKE_ERR_IO", .doc = "An underlying socket read/write failed; pancake_last_error carries the concrete cause." },
     .{ .name = "PANCAKE_ERR_MALFORMED", .doc = "Inbound bytes were not a structurally valid frame." },
     .{ .name = "PANCAKE_ERR_FRAME_TOO_LARGE", .doc = "An inbound frame exceeded the endpoint's max_frame_bytes." },
-    .{ .name = "PANCAKE_ERR_WRONG_EVENT", .doc = "A typed poll_event_* was called but the next event is a different kind. The event stays queued; call pancake_peer_peek_event first." },
-    .{ .name = "PANCAKE_ERR_UNSUPPORTED_VALUE", .doc = "A value crossed the typed surface that the C ABI cannot carry (e.g. a handoff argument); on a typed poll the event stays queued for pancake_peer_poll_event." },
+    .{ .name = "PANCAKE_ERR_UNSUPPORTED_VALUE", .doc = "A value SENT across the typed surface uses a variant the C ABI cannot carry (a handoff argument, a sturdy/broken reference target): refused loudly rather than marshalled wrong. Received values never earn this code — pancake_peer_next_event projects an uncarriable inbound value as its raw wire frame instead." },
     .{ .name = "PANCAKE_ERR_BROKEN", .doc = "Never returned by a C ABI function: the shared code a binding surfaces when a partner breaks a promise (the break arrives as a PANCAKE_RESOLUTION_BREAK resolve event)." },
     .{ .name = "PANCAKE_ERR_NOT_FOUND", .doc = "A well-formed lookup found nothing: pancake_locator_hint named a key absent from the locator. Distinct from _INVALID_ARGUMENT (a malformed request)." },
     .{ .name = "PANCAKE_FRAME_SHAPE_WORD", .doc = "Word-aligned storage: pointer 8-byte aligned, length divisible by 8; anything else is PANCAKE_ERR_INVALID_ARGUMENT." },
@@ -115,7 +119,7 @@ comptime {
 // must appear in an emitted group, so adding a constant without listing it for
 // the header fails to compile instead of silently dropping from pancake_ocapn.h.
 comptime {
-    @setEvalBranchQuota(20000);
+    @setEvalBranchQuota(40000);
     const all = version_consts ++ error_consts ++ discriminant_consts ++ protocol_consts;
     for (@typeInfo(c).@"struct".decls) |decl| {
         if (!std.mem.startsWith(u8, decl.name, "PANCAKE_")) continue;
@@ -184,26 +188,24 @@ const emitted_fns = [_][]const u8{
     "pancake_peer_locator_bytes_release",
     "pancake_peer_send_deposit_gift",
     "pancake_peer_send_resolve_handoff_give",
-    "pancake_gift_registry_new",
-    "pancake_gift_registry_new_in",
-    "pancake_gift_registry_free",
-    "pancake_peer_set_gift_registry",
     "pancake_node_new",
     "pancake_node_new_in",
     "pancake_node_free",
     "pancake_node_register_conn",
     "pancake_node_remove_conn",
-    "pancake_node_send_withdraw",
-    "pancake_node_originate_give",
-    "pancake_node_enroll_redeemed",
     "pancake_node_route",
     "pancake_node_record_foreign_home",
-    "pancake_node_foreign_home",
     "pancake_node_arg_is_foreign",
-    "pancake_peer_poll_event_deliver",
-    "pancake_peer_poll_event_resolve",
-    "pancake_deliver_release",
-    "pancake_resolve_release",
+    "pancake_node_accept_give",
+    "pancake_node_exporter_dialed",
+    "pancake_node_dial_failed",
+    "pancake_node_claim_resolve",
+    "pancake_node_intercept_fulfilled_ref",
+    "pancake_node_provide_gift_id",
+    "pancake_node_set_exporter_location",
+    "pancake_node_next_action",
+    "pancake_peer_next_event",
+    "pancake_any_event_release",
     "pancake_last_error",
     "pancake_clear_last_error",
     "pancake_uri_parse_peer",
@@ -212,6 +214,7 @@ const emitted_fns = [_][]const u8{
     "pancake_uri_format_sturdyref",
     "pancake_locator_transport",
     "pancake_locator_designator",
+    "pancake_locator_host_port",
     "pancake_locator_swissnum",
     "pancake_locator_hint",
     "pancake_locator_hint_count",
@@ -469,7 +472,8 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitDoc(&b, gpa,
         \\Orientation: a PancakePeer is a sans-I/O CapTP state machine. It owns no
         \\socket and never blocks: feed inbound bytes with pancake_peer_recv_stream,
-        \\advance with pancake_peer_step, and drain outbound frames with
+        \\take the next application event with pancake_peer_next_event (it drives
+        \\the engine to idle itself), and drain outbound frames with
         \\pancake_peer_take_outbound; sockets, threads, and scheduling stay in the
         \\host. examples/c/echo_peer.c is a complete in-memory conversation built
         \\from exactly those calls, and docs/consuming-from-c.md is the guided
@@ -518,7 +522,6 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
         \\typedef struct PancakeManagedFrame PancakeManagedFrame;
         \\typedef struct PancakePeer PancakePeer;
-        \\typedef struct PancakeGiftRegistry PancakeGiftRegistry;
         \\typedef struct PancakeNode PancakeNode;
         \\typedef void (*PancakeReleaseFn)(PancakeManagedFrame *frame);
         \\
@@ -582,8 +585,8 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_peer_feed_borrowed", &.{ "peer", "frame" }, "Dispatch a borrowed frame synchronously; the caller retains ownership.");
     try emitFn(&b, gpa, "pancake_peer_feed_owned", &.{ "peer", "frame" }, "Transfer a managed frame into the inbound queue for `pancake_peer_step`.\nOwnership always transfers once peer, frame, and frame->bytes are non-NULL:\non failure the frame is released through its own callback and the caller's\nstruct is cleared, so a late pancake_managed_frame_release is a no-op. Only\nPANCAKE_ERR_NULL_POINTER leaves the caller owning the frame.");
     try emitFn(&b, gpa, "pancake_peer_recv_stream", &.{ "peer", "bytes", "len", "out_consumed" }, "Frame and dispatch one inbound frame from a byte-stream buffer, writing the\nbytes consumed into `out_consumed`. PANCAKE_ERR_WOULD_BLOCK (out_consumed 0)\nmeans the buffer holds only part of a frame — read more and retry; an empty\nbuffer (len == 0, bytes may be NULL) reports the same. The sans-I/O\nstream-input primitive: the caller owns the socket and buffer.");
-    try emitFn(&b, gpa, "pancake_peer_step", &.{"peer"}, "Advance the peer: validate and apply queued inbound frames and encode\npending outbound work. No I/O happens here — drain\npancake_peer_take_outbound and pancake_peer_poll_event afterward.");
-    try emitFn(&b, gpa, "pancake_peer_step_to_idle", &.{"peer"}, "Advance the peer to quiescence: step until both the inbound and pending\noutbound queues are empty. A single pancake_peer_step does one unit of work,\nso a cascading settlement (a resolve that drains a projection whose own\nresolve fires a listener that queues a deliver) needs several steps to fully\nencode; this runs them all so one pancake_peer_take_outbound sweep drains\nevery queued frame. No I/O — drain pancake_peer_take_outbound and\npancake_peer_poll_event afterward, as for pancake_peer_step.");
+    try emitFn(&b, gpa, "pancake_peer_step", &.{"peer"}, "Advance the peer: validate and apply queued inbound frames and encode\npending outbound work. No I/O happens here — drain\npancake_peer_take_outbound and pancake_peer_poll_event afterward.\nOr let pancake_peer_next_event drive and project in one call.");
+    try emitFn(&b, gpa, "pancake_peer_step_to_idle", &.{"peer"}, "Advance the peer to quiescence: step until both the inbound and pending\noutbound queues are empty. A single pancake_peer_step does one unit of work,\nso a cascading settlement (a resolve that drains a projection whose own\nresolve fires a listener that queues a deliver) needs several steps to fully\nencode; this runs them all so one pancake_peer_take_outbound sweep drains\nevery queued frame. No I/O — drain pancake_peer_take_outbound and\npancake_peer_poll_event afterward, as for pancake_peer_step.\nOr let pancake_peer_next_event drive and project in one call.");
     try emitFn(&b, gpa, "pancake_peer_take_outbound", &.{ "peer", "out_frame" }, "Take the next outbound frame as an owned managed frame, or\nPANCAKE_ERR_WOULD_BLOCK when the queue is empty. On PANCAKE_ERR_INTERNAL the\ndequeued frame could not be wrapped for C and was freed; it is not\nretrievable.");
     try emitFn(&b, gpa, "pancake_peer_poll_event", &.{ "peer", "out_event" }, "Take the next event (opaque frame in the negotiated codec), or\nPANCAKE_ERR_WOULD_BLOCK when none is queued.");
     try emitFn(&b, gpa, "pancake_peer_codec", &.{ "peer", "out_codec" }, "The codec the peer's session speaks, as a PANCAKE_CODEC_* value. Event and\noutbound frames are encoded in it, so a consumer that drains an event\nthrough the opaque pancake_peer_poll_event knows how to read the raw frame.");
@@ -654,7 +657,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     });
     try b.appendSlice(gpa, "\n");
     try emitStruct(&b, gpa, c.PancakeDeliver, "PancakeDeliver", &.{
-        "", "aliases an internal arena", "", "", "", "release with pancake_deliver_release",
+        "", "aliases the enclosing PancakeAnyEvent's arena", "", "", "", "freed by pancake_any_event_release",
     });
     try b.appendSlice(gpa, "\n");
     try emitStruct(&b, gpa, c.PancakeHandoffGive, "PancakeHandoffGive", &.{
@@ -664,9 +667,20 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     });
     try b.appendSlice(gpa, "\n");
     try emitStruct(&b, gpa, c.PancakeResolve, "PancakeResolve", &.{
-        "", "fulfill, break, or handoff", "", "", "", "set when resolution_kind is _HANDOFF", "release with pancake_resolve_release",
+        "", "fulfill, break, or handoff", "", "", "", "set when resolution_kind is _HANDOFF", "freed by pancake_any_event_release",
     });
     try b.appendSlice(gpa, "\n");
+    try emitStruct(&b, gpa, c.PancakeAnyEvent, "PancakeAnyEvent", &.{
+        "the event's PANCAKE_EVENT_*",
+        "which arm is live: PANCAKE_PROJECTION_*",
+        "live when projection is _DELIVER",
+        "live when projection is _RESOLVE",
+        "live when projection is _FRAME: the originating wire bytes (see pancake_peer_codec)",
+    });
+    try b.appendSlice(gpa, "\n");
+    try section(&b, gpa, "The event loop");
+    try emitFn(&b, gpa, "pancake_peer_next_event", &.{ "peer", "out" }, "Drive the engine to idle, then take the next event, fully projected — the\none call a consumer's event loop needs. Driving first makes the loop's\nobvious shape the correct one: settling an answer can cascade (a resolve\ndrains a pipelined projection, whose own resolve fires a listener, which\nqueues a deliver), and each cascade step can mint fresh events and outbound\nframes; this call runs the engine to quiescence before it answers, so a\ncaller never re-derives a step-then-re-poll rule. Write the queued outbound\nframes (pancake_peer_take_outbound) when this reports no event, before\nparking on the next read. `kind` carries the event's PANCAKE_EVENT_* and\n`projection` names the live arm: a deliver projects into `deliver`, a\nresolve into `resolve` (including the PANCAKE_RESOLUTION_HANDOFF give), and\nevery other kind — or a deliver/resolve whose value the typed surface cannot\ncarry — lands in `frame` as the originating wire bytes in the negotiated\ncodec (pancake_peer_codec). Exactly one event is consumed per PANCAKE_OK.\nPANCAKE_ERR_WOULD_BLOCK when the engine is idle and no event is pending.\nRelease `out` with pancake_any_event_release exactly once.");
+    try emitFn(&b, gpa, "pancake_any_event_release", &.{"event"}, "Release a polled PancakeAnyEvent: frees whichever arm `projection` names (the\ndeliver/resolve views or the owned frame) and zeroes the struct, so a repeat\nrelease — or releasing a zero-initialized struct — is a no-op.");
     try emitFn(&b, gpa, "pancake_peer_peek_event", &.{"peer"}, "The kind of the next event without consuming it: a positive PANCAKE_EVENT_*\nor PANCAKE_ERR_WOULD_BLOCK.");
     try emitFn(&b, gpa, "pancake_peer_send_deliver", &.{ "peer", "target", "args", "args_len", "has_answer", "answer" }, "Construct and queue an op:deliver. When `has_answer` is nonzero the call\nexpects a reply on `answer`, which must come from pancake_peer_next_answer\non this same peer (a privately-counted id eventually aliases a live answer).\nWhen `has_answer` is zero, `answer` is ignored.");
     try emitFn(&b, gpa, "pancake_peer_send_resolve", &.{ "peer", "answer", "resolution_kind", "fulfill", "break_message", "break_message_len" }, "Construct and queue an op:resolve settling `answer`.");
@@ -684,29 +698,47 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_peer_locator_bytes_release", &.{ "locator", "locator_len" }, "Release locator bytes returned by pancake_encode_peer_locator. NULL is a no-op.");
     try emitFn(&b, gpa, "pancake_peer_send_deposit_gift", &.{ "peer", "gift_id", "gift_id_len", "gifted_ref" }, "Deposit a gift with this (exporter) session: queue a deposit-gift op:deliver\nto the exporter's bootstrap object (far object 0) carrying the gift id and\nthe gifted reference. Fire-and-forget (no answer): the exporter records the\ngift and parks any withdraw-gift that arrives first until this deposit lands.\ngift_id is borrowed; gifted_ref is borrowed and cloned by the send.");
     try emitFn(&b, gpa, "pancake_peer_send_resolve_handoff_give", &.{ "peer", "answer", "give", "give_len" }, "Resolve `answer` (a question the recipient asked this gifter) with a signed\ndesc:handoff-give: queue an op:resolve whose fulfill carries `give` verbatim,\nso the encoder emits the exact bytes the gifter signed and the recipient\nredeems them transparently. `give` is borrowed for the call.");
-    try emitFn(&b, gpa, "pancake_gift_registry_new", &.{"out_registry"}, "Create a shared gift registry backed by the library allocator, writing the\nhandle into out_registry. Bind it onto each peer of a node with\npancake_peer_set_gift_registry before the peers exchange handoff traffic, and\nrelease it with pancake_gift_registry_free only after every peer that\nreferenced it is released.");
-    try emitFn(&b, gpa, "pancake_gift_registry_new_in", &.{ "context", "out_registry" }, "Context-backed counterpart of pancake_gift_registry_new: the registry and\nevery gift row it owns allocate and free through `context`'s allocator\n(ADR-0059). The context must outlive the registry.");
-    try emitFn(&b, gpa, "pancake_gift_registry_free", &.{"registry"}, "Release a shared gift registry and every gift row it still owns. The caller\nmust have released (or never set this registry on) every peer first. NULL is\na no-op.");
-    try emitFn(&b, gpa, "pancake_peer_set_gift_registry", &.{ "peer", "registry" }, "Bind `registry` as `peer`'s shared gift registry, so the peer's inbound\ndeposit-gift / withdraw-gift resolve against the shared table instead of its\nprivate one. Set this before the peer's handshake; the registry must outlive\nthe peer. A NULL registry detaches the peer back to its own table.");
 
     try section(&b, gpa, "Cross-connection handoff router (PancakeNode, ADR-0066)");
+    try emitDoc(&b, gpa,
+        \\The base of the reserved redeemed-handoff-token far-id range: a far id at
+        \\or above this names a capability the node redeemed and routes to its
+        \\exporter connection, never a wire import, so a token can never alias a
+        \\partner's import. A host that keys per-import state (GC, caches) by far
+        \\id uses this bound to tell the two apart. Emitted with the ULL suffix,
+        \\the one constant too large for the plain-int convention above.
+    );
+    try line(&b, gpa, "#define PANCAKE_REDEEMED_TOKEN_BASE {d}ULL", .{c.PANCAKE_REDEEMED_TOKEN_BASE});
+    try b.appendSlice(gpa, "\n");
     try emitFn(&b, gpa, "pancake_node_new", &.{ "seed", "seed_len", "out_node" }, "Create a node bound to the 32-byte identity `seed`, writing the handle into\nout_node. The seed is reused for every connection the node opens so an\nexporter verifies a desc:handoff-receive against one key; draw it at the\nhost's I/O boundary (the sans-io node never generates entropy). Release with\npancake_node_free. `seed` is borrowed; seed_len must be 32.");
     try emitFn(&b, gpa, "pancake_node_new_in", &.{ "context", "seed", "seed_len", "out_node" }, "Context-backed counterpart of pancake_node_new: the node, its per-connection\npeers, and the shared gift registry allocate and free through `context`'s\nallocator (ADR-0059). The context must outlive the node.");
     try emitFn(&b, gpa, "pancake_node_free", &.{"node"}, "Release a node: free every registered peer, the routing tables and the\nreferences they own, and the shared gift registry. The caller must have\nfinished pumping every connection's peer first (those peers are node-owned).\nNULL is a no-op.");
-    try emitFn(&b, gpa, "pancake_node_register_conn", &.{ "node", "out_conn_id", "out_peer" }, "Register a fresh connection, writing its conn_id into out_conn_id and the\nnode-owned negotiating peer into out_peer. Pump out_peer with the ordinary\npancake_peer_* surface (it is already bound to the node's gift registry and\nsigns op:start-session with the node seed). Do NOT free out_peer: the node\nowns it and frees it on pancake_node_remove_conn / pancake_node_free.");
+    try emitFn(&b, gpa, "pancake_node_register_conn", &.{ "node", "out_conn_id", "out_peer" }, "Register a fresh connection, writing its conn_id into out_conn_id and the\nnode-owned negotiating peer into out_peer. Pump out_peer with the ordinary\npancake_peer_* surface; it is already bound to the node's shared gift\nregistry. The HOST completes the keyed op:start-session (it owns the socket\nand the entropy) and must sign with the same 32-byte seed it gave\npancake_node_new — a different key silently breaks give verification at the\nexporter. Do NOT free out_peer: the node owns it and frees it on\npancake_node_remove_conn / pancake_node_free.");
     try emitFn(&b, gpa, "pancake_node_remove_conn", &.{ "node", "conn_id" }, "Remove a registered connection: free its node-owned peer and retire the\nconn_id (never reused). A later route to a redeemed token whose exporter was\nthis connection fails closed. Stop pumping this connection's peer first. An\nunknown conn_id is a no-op.");
-    try emitFn(&b, gpa, "pancake_node_send_withdraw", &.{ "node", "exporter_conn", "give", "give_len", "answer" }, "Mint and queue the recipient half of a three-party handoff on the dialed\nexporter connection: sign a desc:handoff-receive over the verbatim signed\n`give` bytes keyed by the node identity, mint the monotonic handoff-count from\nthe shared registry, and queue withdraw-gift under `answer`. Flush by pumping\nexporter_conn's peer; the withdrawn reference arrives as a resolve keyed on\n`answer`. The exporter session must be open (PANCAKE_ERR_SESSION otherwise).\n`give` is borrowed.");
-    try emitFn(&b, gpa, "pancake_node_originate_give", &.{ "node", "recipient_conn", "exporter_conn", "gifted_ref", "gift_id", "gift_id_len", "answer", "exporter_location", "exporter_location_len" }, "Gifter half of a three-party handoff (ADR-0009), the mirror of\npancake_node_send_withdraw: queue a deposit-gift of `gifted_ref` on\nexporter_conn, build a desc:handoff-give signed by the node identity and\naddressed to recipient_conn's partner, and queue it as the fulfillment of\n`answer` on recipient_conn. Flush both connections (exporter first) so the\ndeposit lands before the recipient dials in to withdraw. `gift_id` keys the\ndeposit and the give (host-drawn). `exporter_location`, when non-NULL and\nnon-empty, is the verbatim exporter locator embedded in the give (an iroh\nexporter reachable only by a Direct dial hint); NULL or empty uses the\nexporter session's own location record. Both sessions must be open\n(PANCAKE_ERR_SESSION otherwise). All byte and reference inputs are borrowed.");
-    try emitFn(&b, gpa, "pancake_node_enroll_redeemed", &.{ "node", "exporter_conn", "far_id", "out_token" }, "Enroll a redeemed far-object capability `far_id` (the reference a withdraw\nresolved to, hosted on exporter_conn) under a fresh synthetic token, writing\nthe token's far id into out_token. Hand the token to the application as an\nordinary far capability; a later pancake_node_route of it forwards to\nexporter_conn with far_id swapped back in. The token is drawn from a reserved\nhigh range disjoint from any wire import.");
     try emitFn(&b, gpa, "pancake_node_route", &.{ "node", "default_conn", "far_id", "out_conn_id", "out_far_id", "out_routed" }, "Resolve where a deliver to far-object `far_id` rides. A redeemed token routes\nto its exporter connection with the real far id; any other far id rides\ndefault_conn unchanged. Writes the destination conn_id / far id and 1/0 into\nout_routed (0 when a redeemed token names an exporter connection that is gone,\nso the deliver must be dropped).");
     try emitFn(&b, gpa, "pancake_node_record_foreign_home", &.{ "node", "far_id", "home" }, "Record that the fetched far import `far_id` lives on connection `home`, so a\nlater foreign-home return is re-gifted instead of mis-encoding a\ncross-connection reference (ADR-0009 gifter half). A synthetic redeemed token\n(a high far id) is never a wire import, so recording it is a no-op.");
-    try emitFn(&b, gpa, "pancake_node_foreign_home", &.{ "node", "far_id", "out_conn_id", "out_found" }, "The connection a fetched far import `far_id` lives on. Writes the home conn_id\ninto out_conn_id and 1/0 into out_found (0 for any far id that was never\nrecorded, including a redeemed token).");
     try emitFn(&b, gpa, "pancake_node_arg_is_foreign", &.{ "node", "default_conn", "far_id", "out_foreign" }, "Whether far-object `far_id`, used as a send/tell argument from default_conn,\nnames a capability foreign to that connection: a redeemed handoff token (the\nnode routes it to a different exporter) or a far the node recorded as fetched\non another connection. Writes 1/0 into out_foreign. A binding fails closed on\n1 rather than mis-encoding the reference for this partner; the gifter half\nre-gifts such a capability when it is returned (ADR-0009).");
-
-    try emitFn(&b, gpa, "pancake_peer_poll_event_deliver", &.{ "peer", "out" }, "Take the next event as a structured deliver, or PANCAKE_ERR_WRONG_EVENT /\nPANCAKE_ERR_WOULD_BLOCK. PANCAKE_ERR_WRONG_EVENT, PANCAKE_ERR_UNSUPPORTED_VALUE,\nand decode failures leave the event queued; drain it with\npancake_peer_poll_event or the queue never advances (pancake_peer_codec names\nthe raw frame's codec). Release with the matching *_release.");
-    try emitFn(&b, gpa, "pancake_peer_poll_event_resolve", &.{ "peer", "out" }, "Take the next event as a structured resolve; same routing contract as\npancake_peer_poll_event_deliver, including the leave-queued fallback to\npancake_peer_poll_event on PANCAKE_ERR_UNSUPPORTED_VALUE and decode failures.");
-    try emitFn(&b, gpa, "pancake_deliver_release", &.{"deliver"}, "Release a deliver projection; the `args` views aliasing its arena die with\nit. Idempotent: the struct is cleared, so releasing again (or a\nzero-initialized struct) is a no-op.");
-    try emitFn(&b, gpa, "pancake_resolve_release", &.{"resolve"}, "Release a resolve projection; the `fulfill` and `break_message` views\naliasing its arena die with it. Idempotent: the struct is cleared, so\nreleasing again (or a zero-initialized struct) is a no-op.");
+    try b.appendSlice(gpa, "\n");
+    try emitStruct(&b, gpa, c.PancakeNodeAction, "PancakeNodeAction", &.{
+        "PANCAKE_NODE_ACTION_*, selects the live fields",
+        "_DIAL: the ticket exporter_dialed / dial_failed reports back; _NEED_GIFT_ID: the ticket provide_gift_id answers",
+        "_DIAL: the exporter's dialable ocapn:// locator (borrowed until the next next_action)",
+        "",
+        "_FLUSH/_SETTLE/_FAIL: the connection the action names",
+        "_SETTLE/_FAIL: the application answer to settle or break",
+        "_SETTLE: the redeemed token's far id",
+        "_FAIL: the break reason (borrowed until the next next_action)",
+        "",
+    });
+    try b.appendSlice(gpa, "\n");
+    try emitFn(&b, gpa, "pancake_node_accept_give", &.{ "node", "recipient_conn", "answer", "give", "give_len", "exporter_locator", "exporter_locator_len" }, "Recipient intercept for the node's serve step: the application answer\n`answer` on recipient_conn resolved to a handoff give instead of a value (the\nhost saw PANCAKE_RESOLUTION_HANDOFF and must not surface it). The node decides\nwhat happens next — a live exporter for exporter_locator withdraws\nimmediately, a dial already in flight is joined, an unknown exporter becomes a\n_DIAL action, an empty locator fails the answer closed — and queues the\nactions; drain them with pancake_node_next_action. `give` is the verbatim\nsigned envelope; both byte inputs are borrowed (the node copies what it\nkeeps).");
+    try emitFn(&b, gpa, "pancake_node_exporter_dialed", &.{ "node", "pending", "exporter_conn" }, "Report a _DIAL action's success: the exporter is registered as exporter_conn\nwith an open keyed session under the node identity. The node caches the\nexporter and withdraws every give waiting on the ticket (a _FLUSH action\nfollows per withdraw). An already-settled `pending` is a no-op.");
+    try emitFn(&b, gpa, "pancake_node_dial_failed", &.{ "node", "pending", "reason", "reason_len" }, "Report a _DIAL action's failure: every redeem waiting on the ticket breaks\nwith `reason` (borrowed). An already-settled `pending` is a no-op.");
+    try emitFn(&b, gpa, "pancake_node_claim_resolve", &.{ "node", "conn_id", "answer", "outcome", "far_id", "reason", "reason_len", "out_claimed" }, "Offer a resolve the host polled on conn_id to the node. Writes 1 into\nout_claimed when it settles a pending withdraw — the node consumes it\n(enrolling the redeemed capability under a token and queueing _SETTLE, or\nqueueing _FAIL), and the host must not surface it to the application; 0 means\nthe resolve is the application's, untouched. `outcome` is a\nPANCAKE_REDEEM_OUTCOME_*: _FAR carries the fulfilled far id in far_id, _BROKEN\nthe break reason in `reason` (borrowed), _NOT_CAPABILITY a fulfillment that is\nnot a capability.");
+    try emitFn(&b, gpa, "pancake_node_intercept_fulfilled_ref", &.{ "node", "conn_id", "answer", "far_id", "out_claimed" }, "Gifter intercept for the node's serve step: the application answer `answer`\non conn_id fulfilled to the far capability far_id. When that capability's\nrecorded home is another connection, the node claims the reply and queues a\n_NEED_GIFT_ID action — entropy is a host effect, requested only when a reply\nactually becomes a gift — and writes 1 into out_claimed (the host must not\nalso send a plain resolve; it draws 32 bytes and answers with\npancake_node_provide_gift_id). 0 means the reply is ordinary and the host\nresolves it itself.");
+    try emitFn(&b, gpa, "pancake_node_provide_gift_id", &.{ "node", "ticket", "gift_id", "gift_id_len" }, "Answer a _NEED_GIFT_ID action with the host-drawn gift_id: the node\noriginates the claimed handoff (deposit on the exporter, signed give\nresolving the claimed answer, using any recorded\npancake_node_set_exporter_location override) and queues the two _FLUSH\nactions — exporter first, so the deposit is on the wire before the recipient\ndials in. A failed origination breaks the claimed answer instead. An\nalready-settled `ticket` is a no-op. gift_id is borrowed and must be\nnon-empty.");
+    try emitFn(&b, gpa, "pancake_node_set_exporter_location", &.{ "node", "conn_id", "location", "location_len" }, "Record the verbatim exporter locator to embed in gives whose exporter is\nconn_id — an exporter reachable only by a dial hint (an iroh endpoint's\ndirect addresses), where the session's own signed location record is not\ndialable. `location` is borrowed (the node copies it); NULL or empty clears\nthe override back to the session record.");
+    try emitFn(&b, gpa, "pancake_node_next_action", &.{ "node", "out" }, "Pop the next serve-step action into `out`. The previous action's byte views\nare freed by this call, so a popped action's locator/reason views are valid\nuntil the next pancake_node_next_action (or pancake_node_free); copy what\noutlives that. PANCAKE_ERR_WOULD_BLOCK when no action is pending.");
 
     try section(&b, gpa, "Per-thread last error");
     try emitFn(&b, gpa, "pancake_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last error into `out_buf`. Copies at most cap - 1\nbytes and always NUL-terminates when cap > 0. Returns the full message\nlength; to receive the whole message pass a buffer of that length plus one.\nout_buf == NULL or cap == 0 queries the length.");
@@ -738,6 +770,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_uri_format_sturdyref", &.{ "transport", "transport_len", "designator", "designator_len", "swissnum", "swissnum_len", "hint_keys", "hint_key_lens", "hint_vals", "hint_val_lens", "hint_count", "out", "cap", "out_len" }, "Format a sturdyref locator (peer plus swissnum) as an ocapn://.../s/<swiss>\nURI. Same hint-array and buffer contract as pancake_uri_format_peer;\n`swissnum` is borrowed.");
     try emitFn(&b, gpa, "pancake_locator_transport", &.{ "loc", "out_ptr", "out_len" }, "Borrow the locator's transport (\"tcp\", \"iroh\", \"inproc\", ...): the field a\ndispatcher reads to pick a netlayer. The view aliases the handle until\nrelease.");
     try emitFn(&b, gpa, "pancake_locator_designator", &.{ "loc", "out_ptr", "out_len" }, "Borrow the locator's designator — the transport-specific address (a TCP\nhost:port string, an iroh node id, an inproc designator).");
+    try emitFn(&b, gpa, "pancake_locator_host_port", &.{ "loc", "out_host", "out_host_len", "out_port" }, "Split the locator's designator as host:port — the address grammar a socket\ntransport's designator carries. Last-colon split, bracketed IPv6 literals\nunwrapped ([::1]:9000 yields host ::1), decimal uint16 port; the one grammar\nthe native TCP netlayer dials through, so a consumer dialing with its own\nsockets validates the same way. PANCAKE_ERR_INVALID_ARGUMENT (see\npancake_last_error) when the designator does not carry the grammar. The host\nview aliases the handle until pancake_locator_release.");
     try emitFn(&b, gpa, "pancake_locator_swissnum", &.{ "loc", "out_ptr", "out_len" }, "Borrow the locator's swissnum: zero-length (NULL pointer) for a peer URI, the\nswiss bytes for a sturdyref. The discriminator a C caller reads instead of a\nsecond handle type.");
     try emitFn(&b, gpa, "pancake_locator_hint", &.{ "loc", "key", "key_len", "out_ptr", "out_len" }, "Borrow the value of the hint named by `key` (e.g. \"direct-addresses\").\nPANCAKE_ERR_NOT_FOUND when no hint carries that key. `key` is borrowed.");
     try emitFn(&b, gpa, "pancake_locator_hint_count", &.{ "loc", "out_count" }, "The number of hints on the locator, for index enumeration with\npancake_locator_hint_at.");
