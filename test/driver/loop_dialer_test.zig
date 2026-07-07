@@ -167,7 +167,7 @@ test "driver.LoopDialer: dialed clients fetch and call through the completion lo
     const server_thread = try std.Thread.spawn(.{}, serveMany, .{&server_ctx});
 
     var shared = Shared{ .allocator = allocator };
-    var dialer = try driver.LoopDialer.init(io, allocator, .{
+    var dialer = try driver.LoopDialer.init(allocator, io, .{
         .frame_cap = frame_cap,
         .max_conns = 16,
         .on_open = startClient,
@@ -218,7 +218,7 @@ test "driver.LoopDialer: a refused dial fires on_close with opened == false and 
     listener.deinit();
 
     var state = CloseState{};
-    var dialer = try driver.LoopDialer.init(io, allocator, .{
+    var dialer = try driver.LoopDialer.init(allocator, io, .{
         .frame_cap = frame_cap,
         .max_conns = 1,
         .on_close = CloseState.onClose,

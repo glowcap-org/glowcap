@@ -18,6 +18,7 @@
          racket/runtime-path
          racket/tcp
          racket/async-channel
+         racket/match
          racket/random
          "private/constants.rkt"
          "private/ffi-core.rkt"
@@ -296,8 +297,16 @@
 ;; ── The peer ─────────────────────────────────────────────────────────────────
 ;; `owned?` is #t for a peer this binding allocated (its finalizer releases it),
 ;; and #f for a node-owned peer handed back by `node-raw-register-conn!`: the node
-;; frees that one on remove-conn / node-free, so the binding must not double-free.
-(struct peer (handle [owned? #:auto]) #:mutable #:auto-value #t)
+;; frees that one on remove-conn / node-release, so the binding must not double-free.
+;; `context` strongly retains the owning allocation context for an `*_in` peer, or
+;; is #f: a peer allocated through a context routes every allocation through it, so
+;; the context MUST outlive the peer. Holding it here makes the release order
+;; structural — the Racket finalizer idiom never finalizes a context still
+;; reachable from a live peer — rather than a documented obligation on the caller.
+;; `owned?` stays a trailing #:auto field so it keeps its #t default; `context` is
+;; a normal constructor field because #:auto-value is a single shared value and
+;; `context` must default to #f, not #t.
+(struct peer (handle context [owned? #:auto]) #:mutable #:auto-value #t)
 
 (define (profile-id version)
   (case version
@@ -323,7 +332,7 @@
         (pancake_peer_new)
         (pancake_peer_new_negotiated (profile-id version) (codec-id codec))))
   (check rc)
-  (define p (peer h))
+  (define p (peer h #f))
   (register-finalizer p (lambda (q) (peer-release! q)))
   p)
 
@@ -331,14 +340,17 @@
 (define (make-peer/raw-open)
   (define-values (rc h) (pancake_peer_new_raw_open))
   (check rc)
-  (define p (peer h))
+  (define p (peer h #f))
   (register-finalizer p (lambda (q) (peer-release! q)))
   p)
 
+;; A raw-open peer allocated through `ctx`. The peer strongly retains `ctx` so the
+;; context cannot be finalized (and its allocator freed) out from under a still-live
+;; peer that allocates through it.
 (define (make-peer/raw-open/in ctx)
   (define-values (rc h) (pancake_peer_new_raw_open_in (context-handle ctx)))
   (check rc)
-  (define p (peer h))
+  (define p (peer h ctx))
   (register-finalizer p (lambda (q) (peer-release! q)))
   p)
 
@@ -346,14 +358,16 @@
 ;; No finalizer is registered and `peer-release!` will not free it; the node frees
 ;; it on `node-raw-remove-conn!` / `node-raw-free!`.
 (define (peer/from-node-raw raw)
-  (define p (peer raw))
+  (define p (peer raw #f))
   (set-peer-owned?! p #f)
   p)
 
 (define (peer-release! p)
   (when (peer-handle p)
     (when (peer-owned? p) (pancake_peer_release (peer-handle p)))
-    (set-peer-handle! p #f)))
+    (set-peer-handle! p #f)
+    ;; Drop the retained context so an explicitly-released peer stops pinning it.
+    (set-peer-context! p #f)))
 
 (define (peer-register-export! p id) (check (pancake_peer_register_export (peer-handle p) id)))
 ;; Allocate and register the next free export position from the session's one
@@ -448,7 +462,7 @@
 ;; connection first. Idempotent; the finalizer reclaims an idle node.
 (define (node-raw-free! nh)
   (when (node-raw-ptr nh)
-    (pancake_node_free (node-raw-ptr nh))
+    (pancake_node_release (node-raw-ptr nh))
     (set-node-raw-ptr! nh #f)))
 
 ;; A fresh connection's conn-id and its node-owned peer. The binding pumps the
@@ -484,12 +498,10 @@
 ;; never recurse.
 (define (node-raw-claim-resolve! nh conn-id answer resolution)
   (define-values (outcome far-id reason)
-    (cond
-      [(and (fulfill? resolution) (far-ref? (fulfill-value resolution)))
-       (values REDEEM-OUTCOME-FAR (far-ref-id (fulfill-value resolution)) #"")]
-      [(brk? resolution)
-       (values REDEEM-OUTCOME-BROKEN 0 (string->bytes/utf-8 (brk-message resolution)))]
-      [else (values REDEEM-OUTCOME-NOT-CAPABILITY 0 #"")]))
+    (match resolution
+      [(fulfill (? far-ref? f)) (values REDEEM-OUTCOME-FAR (far-ref-id f) #"")]
+      [(brk message) (values REDEEM-OUTCOME-BROKEN 0 (string->bytes/utf-8 message))]
+      [_ (values REDEEM-OUTCOME-NOT-CAPABILITY 0 #"")]))
   (define-values (rc claimed)
     (pancake_node_claim_resolve (node-raw-ptr nh) conn-id answer outcome far-id
                                 (pin-immobile reason) (bytes-length reason)))
@@ -515,10 +527,19 @@
   (check (pancake_node_set_exporter_location (node-raw-ptr nh) conn-id
                                              (pin-immobile location) (bytes-length location))))
 
+;; The serve-step actions, one struct per kind with named fields (ADR-0067). The
+;; `settle` action's routable `token` and the `fail` action's break `reason` are
+;; DISTINCT named fields on distinct structs, never a shared positional slot, so a
+;; consumer can never mis-read one for the other. The executor (`run-node-action!`)
+;; and the redeem pump (`drive-redeem!`) consume these through `match`/accessors.
+(struct act-dial (pending locator) #:transparent)
+(struct act-flush (conn-id) #:transparent)
+(struct act-settle (conn-id answer token) #:transparent)
+(struct act-fail (conn-id answer reason) #:transparent)
+(struct act-need-gift-id (ticket) #:transparent)
+
 ;; One serve-step action popped off the node, its borrowed views copied into
-;; Racket values, or #f when the queue is dry. The action is a list:
-;; (dial pending locator) | (flush conn-id) | (settle conn-id answer token) |
-;; (fail conn-id answer reason) | (need-gift-id ticket).
+;; Racket values, or #f when the queue is dry.
 (define (node-raw-next-action! nh)
   (define a (make-PancakeNodeAction 0 0 #f 0 0 0 0 #f 0))
   (define rc (pancake_node_next_action (node-raw-ptr nh) a))
@@ -531,15 +552,15 @@
      (define kind (PancakeNodeAction-kind a))
      (cond
        [(= kind NODE-ACTION-DIAL)
-        (list 'dial (PancakeNodeAction-pending a)
-              (bytes->string/utf-8 (view (PancakeNodeAction-locator a) (PancakeNodeAction-locator-len a)) #\uFFFD))]
-       [(= kind NODE-ACTION-FLUSH) (list 'flush (PancakeNodeAction-conn-id a))]
+        (act-dial (PancakeNodeAction-pending a)
+                  (bytes->string/utf-8 (view (PancakeNodeAction-locator a) (PancakeNodeAction-locator-len a)) #\uFFFD))]
+       [(= kind NODE-ACTION-FLUSH) (act-flush (PancakeNodeAction-conn-id a))]
        [(= kind NODE-ACTION-SETTLE)
-        (list 'settle (PancakeNodeAction-conn-id a) (PancakeNodeAction-answer a) (PancakeNodeAction-token a))]
-       [(= kind NODE-ACTION-NEED-GIFT-ID) (list 'need-gift-id (PancakeNodeAction-pending a))]
+        (act-settle (PancakeNodeAction-conn-id a) (PancakeNodeAction-answer a) (PancakeNodeAction-token a))]
+       [(= kind NODE-ACTION-NEED-GIFT-ID) (act-need-gift-id (PancakeNodeAction-pending a))]
        [(= kind NODE-ACTION-FAIL)
-        (list 'fail (PancakeNodeAction-conn-id a) (PancakeNodeAction-answer a)
-              (bytes->string/utf-8 (view (PancakeNodeAction-reason a) (PancakeNodeAction-reason-len a)) #\uFFFD))]
+        (act-fail (PancakeNodeAction-conn-id a) (PancakeNodeAction-answer a)
+                  (bytes->string/utf-8 (view (PancakeNodeAction-reason a) (PancakeNodeAction-reason-len a)) #\uFFFD))]
        [else (error 'pancake "unknown node action kind: ~a" kind)])]))
 
 ;; (dest-conn-id . real-far-id) for a redeemed token, else #f, including a token
@@ -844,7 +865,12 @@
 ;; listener was registered, so a later `on` / `conn-await` for that answer still
 ;; settles (a reply that lands before its listener — e.g. a source vow awaited
 ;; after a sibling projection already pumped the loop). Mirrors the Deno/Python
-;; binding stash; cleared on disconnect by `break-far-vows!`.
+;; binding stash; cleared on disconnect by `break-far-vows!`. It is bounded FIFO
+;; at `MAX-FAR-RESOLUTIONS`: an answer whose vow is never awaited would otherwise
+;; sit here for the whole connection, so at the cap the oldest stashed resolution
+;; is evicted with a logged drop (an evicted answer's later `on` then waits for the
+;; disconnect break rather than settling from the stash). `far-res-seq` is the
+;; monotonic insertion counter the FIFO eviction reads to find the oldest entry.
 ;; `resolve-interceptor` is a box holding an optional hook the connection installs
 ;; to originate a three-party handoff: when a published actor's reply is a
 ;; capability that lives on a *different* connection, the ordinary resolve would
@@ -856,7 +882,7 @@
 ;; `conn-revoke!` can flip the flag the proxy actor reads — the revoke lever held
 ;; beside the actor, the way Zig's `RevokeCell` is shared (ADR-0064). It never
 ;; takes part in dispatch; the proxy is an ordinary actor in `cells`.
-(struct vat (peer cells next queue listeners far-listeners far-resolutions exports revocables tt resolve-interceptor) #:transparent)
+(struct vat (peer cells next queue listeners far-listeners far-resolutions far-res-seq exports revocables tt resolve-interceptor) #:transparent)
 
 ;; A behavior's tail-forward of its answer to another reference — the binding's
 ;; `Turn.forward` (ADR-0064). A behavior returns `(forward target method args)`
@@ -885,7 +911,7 @@
 ;; `vat-restore!`; the default vat keeps no history and its turn path is the
 ;; in-place box write below, unchanged.
 (define (make-vat #:peer [peer #f] #:time-travel? [time-travel? #f])
-  (vat peer (make-hasheqv) (box 1) (box '()) (make-hasheqv) (make-hasheqv) (make-hasheqv) (make-hasheqv) (make-hasheqv)
+  (vat peer (make-hasheqv) (box 1) (box '()) (make-hasheqv) (make-hasheqv) (make-hasheqv) (box 0) (make-hasheqv) (make-hasheqv)
        (and time-travel? (time-travel (box (hasheqv)) (box '())))
        (box #f)))
 
@@ -1018,11 +1044,16 @@
     [(or (far-ref? ref) (promise-ref? ref)) (far-send ref method args #:answer? #f) (void)]
     [else (error '<-np "not a reference: ~a" ref)]))
 
+;; One queued local eventual-send: the target actor, the turn's method and args,
+;; and the `local-vow` id its result settles. `queue-local-send` conses these
+;; onto the vat queue and `drive` drains them.
+(struct queued-send (ref method args vow-id) #:transparent)
+
 (define (queue-local-send ref method args)
   (define v (actor-ref-vat ref))
   (define id (unbox (vat-next v)))
   (set-box! (vat-next v) (add1 id))
-  (set-box! (vat-queue v) (cons (vector ref method args id) (unbox (vat-queue v))))
+  (set-box! (vat-queue v) (cons (queued-send ref method args id) (unbox (vat-queue v))))
   (local-vow v id))
 
 (define (far-send ref method args #:answer? answer?)
@@ -1058,7 +1089,7 @@
   ;; the finally, and — when chaining — settles the returned vow.
   (define (listener value broken?)
     (define outcome
-      (with-handlers ([(lambda (_) #t) (lambda (e) (cons 'broken (exn->message e)))])
+      (with-handlers ([converts-to-broken? (lambda (e) (cons 'broken (exn->message e)))])
         (cond
           [broken? (if on-broken (cons 'ok (on-broken value)) (cons 'broken value))]
           [else (if on-fulfilled (cons 'ok (on-fulfilled value)) (cons 'ok value))])))
@@ -1077,13 +1108,24 @@
      (cond
        [stashed
         (hash-remove! (vat-far-resolutions v) answer)
-        (if (fulfill? stashed) (listener (fulfill-value stashed) #f) (listener (brk-message stashed) #t))]
+        ;; The stash stores `(cons seq resolution)` for FIFO eviction; unwrap it.
+        (define res (cdr stashed))
+        (if (fulfill? res) (listener (fulfill-value res) #f) (listener (brk-message res) #t))]
        [else (hash-set! (vat-far-listeners v) answer listener)])]
     [else (error 'on "not a vow: ~a" a-vow)])
   ;; Match Goblins: `on` is a statement unless the caller asked to chain.
   (if promise? chained (void)))
 
 (define (exn->message e) (if (exn? e) (exn-message e) (format "~a" e)))
+
+;; The predicate for the `with-handlers` clauses that turn a raised value into a
+;; broken vow. It catches an actor's arbitrary `raise`d value (Goblins semantics)
+;; and every `exn:fail`, but lets `exn:break?` propagate: a `break-thread` — the
+;; standard Racket cancellation and timeout mechanism — aimed at a thread pumping
+;; a blocking `conn-send`/`conn-await`/`conn-fetch` loop must terminate that thread,
+;; not be absorbed into a broken vow and swallowed. Every convert-to-broken handler
+;; uses this rather than a bare `(lambda (_) #t)` so the loops stay interruptible.
+(define (converts-to-broken? e) (not (exn:break? e)))
 
 ;; Fire a local vow's listener, if one is registered, and drop it (one-shot).
 (define (settle-local v id value broken?)
@@ -1102,12 +1144,9 @@
     (unless (null? pending)
       (set-box! (vat-queue v) '())
       (for ([entry (in-list pending)])
-        (define ref (vector-ref entry 0))
-        (define method (vector-ref entry 1))
-        (define args (vector-ref entry 2))
-        (define vow-id (vector-ref entry 3))
+        (match-define (queued-send ref method args vow-id) entry)
         (define-values (value broken?)
-          (with-handlers ([(lambda (_) #t) (lambda (e) (values (exn->message e) #t))])
+          (with-handlers ([converts-to-broken? (lambda (e) (values (exn->message e) #t))])
             (values (run-turn ref method args) #f)))
         (if broken?
             (settle-local v vow-id value #t)
@@ -1135,7 +1174,7 @@
      (cond
        [(actor-ref? target)
         (define-values (inner broken?)
-          (with-handlers ([(lambda (_) #t) (lambda (e) (values (exn->message e) #t))])
+          (with-handlers ([converts-to-broken? (lambda (e) (values (exn->message e) #t))])
             (values (run-turn target method args) #f)))
         (if broken? (on-break inner) (resolve-behavior v inner on-fulfill on-break))]
        [else
@@ -1183,7 +1222,7 @@
 
 (define (serve-actor-deliver v actor-id method rest answer)
   (define-values (value broken?)
-    (with-handlers ([(lambda (_) #t) (lambda (e) (values (exn->message e) #t))])
+    (with-handlers ([converts-to-broken? (lambda (e) (values (exn->message e) #t))])
       (values (run-turn (actor-ref v actor-id) method rest) #f)))
   (cond
     [broken?
@@ -1207,6 +1246,32 @@
         (when answer (peer-send-resolve! (vat-peer v) answer (brk message)))))])
   #t)
 
+;; The FIFO cap on the far-resolution stash: an answer whose vow is never awaited
+;; would otherwise sit stashed for the whole connection, so past this many the
+;; oldest is evicted (see `stash-far-resolution!`).
+(define MAX-FAR-RESOLUTIONS 1024)
+
+;; Stash `resolution` for `answer` under the bounded FIFO. Each entry carries its
+;; insertion sequence so eviction can find the oldest; the `on` reader unwraps it.
+;; At the cap the oldest live entry is dropped with a logged warning.
+(define (stash-far-resolution! v answer resolution)
+  (define table (vat-far-resolutions v))
+  (define seq-box (vat-far-res-seq v))
+  (define seq (unbox seq-box))
+  (set-box! seq-box (add1 seq))
+  (hash-set! table answer (cons seq resolution))
+  (when (> (hash-count table) MAX-FAR-RESOLUTIONS)
+    (define-values (oldest-answer _oldest-seq)
+      (for/fold ([best-answer #f] [best-seq #f]) ([(a entry) (in-hash table)])
+        (if (or (not best-seq) (< (car entry) best-seq))
+            (values a (car entry))
+            (values best-answer best-seq))))
+    (when oldest-answer
+      (hash-remove! table oldest-answer)
+      (log-warning
+       "pancake: far-resolution stash at cap ~a; evicted un-awaited answer ~a"
+       MAX-FAR-RESOLUTIONS oldest-answer))))
+
 (define (serve-resolve v event)
   (define answer (resolve-event-answer event))
   (define listener (hash-ref (vat-far-listeners v) answer #f))
@@ -1215,7 +1280,7 @@
      ;; No listener yet: stash the resolution so a later `on` / `conn-await` for
      ;; this answer still settles. A resolve-event is always for an answer this
      ;; peer issued, so it belongs to this vat (returns #t).
-     (hash-set! (vat-far-resolutions v) answer (resolve-event-resolution event))
+     (stash-far-resolution! v answer (resolve-event-resolution event))
      #t]
     [else
      (hash-remove! (vat-far-listeners v) answer)
@@ -1424,7 +1489,7 @@
 ;; managed-frame release bindings are the shared frame ABI all the archives
 ;; speak by layout.
 (module* seam #f
-  (provide async-transport async-connection/transport make-fresh-node
+  (provide async-transport async-transport-close! async-connection/transport make-fresh-node
            build-connection node-register-conn! node-remove-conn! node-seed
            open-keyed-session! check check-with raise-pancake bytes<-c codec-id
            pin-immobile
@@ -1503,7 +1568,7 @@
         (if id (loop (cons id acc)) acc)))
     (unless (null? drained)
       (for ([id (in-list drained)])
-        (with-handlers ([(lambda (_) #t) void])
+        (with-handlers ([converts-to-broken? void])
           (peer-send-gc-export! (conn-peer c) (list id) (list 1))))
       (async-flush! (conn-async c)))))
 
@@ -1764,10 +1829,19 @@
 ;; connections — the gifter side of a three-party handoff, where the same node
 ;; both serves recipients (via `listen`/`accept`) and dials the exporter it
 ;; re-gifts from. Omit it for a standalone connection with a fresh identity. Only
-;; the `tcp` branch threads it today; an iroh locator builds its own node.
+;; the `tcp` branch threads it today; supplying `#:node` with a non-tcp (iroh)
+;; locator fails closed rather than silently dropping the shared identity and
+;; dialing on a fresh node — a mis-encoded handoff with no error at the call that
+;; caused it. Matches the Python binding's guard.
 (define (connect uri [reachability #f] #:node [node #f])
   (define loc (parse-locator uri))
   (define transport (locator-transport loc))
+  ;; Fail closed on a shared node the transport cannot honor. Dropping it silently
+  ;; would dial on a different node than `node`, so a capability fetched here and
+  ;; re-gifted is not recognized against the shared gift registry.
+  (when (and node (not (string=? transport "tcp")))
+    (raise-pancake 'connect ERR-INVALID-ARGUMENT
+                   "a shared node is supported only for tcp locators today"))
   (cond
     [(string=? transport "iroh")
      (unless reachability
@@ -1973,13 +2047,18 @@
 
 ;; Revoke a caretaker `proxy` (the near capability `conn-caretaker` returned):
 ;; every later call through it breaks with "Revoked". Idempotent. Clears the
-;; shared `live` flag the proxy actor reads.
+;; shared `live` flag the proxy actor reads, then drops the lookup entry so the
+;; revocables table does not grow one row per caretaker for the vat's whole life
+;; (the proxy holds the flag by closure, so it stays revoked without the entry).
 (define (conn-revoke! c proxy)
   (unless (near-ref? proxy)
     (raise-pancake 'conn-revoke! ERR-INVALID-ARGUMENT
                    "revoke target is not a caretaker proxy: ~a" proxy))
-  (define live (hash-ref (vat-revocables (conn-vat c)) (near-ref-id proxy) #f))
-  (when live (set-box! live #f)))
+  (define revocables (vat-revocables (conn-vat c)))
+  (define live (hash-ref revocables (near-ref-id proxy) #f))
+  (when live
+    (set-box! live #f)
+    (hash-remove! revocables (near-ref-id proxy))))
 
 ;; Publish a node-giftable `behavior` (an actor behavior `(lambda (method . args)
 ;; …)`) under `name` on connection `c`. Binding-internal: `node-register!` and
@@ -2045,41 +2124,41 @@
 ;; settle/fail is dispatched to its own connection's vat. #f otherwise.
 (define (run-node-action! m a watch)
   (define nh (node-core m))
-  (case (car a)
-    [(dial)
-     (define pending (cadr a))
+  ;; Settle/fail `watch` back to the caller, or dispatch the resolve to its own
+  ;; connection's vat. `conn-id`/`answer` name the resolved question; `res` is the
+  ;; already-built `fulfill`/`brk` resolution.
+  (define (settle-or-dispatch conn-id answer res)
+    (define ev (resolve-event answer res))
+    (if (and watch (= conn-id (car watch)) (= answer (cdr watch)))
+        ev
+        (let ([conn (node-connection-for m conn-id)])
+          (when conn (vat-serve! (conn-vat conn) ev))
+          #f)))
+  (match a
+    [(act-dial pending locator)
      (with-handlers ([exn:fail? (lambda (e)
                                   (node-raw-dial-failed! nh pending (exn-message e))
                                   #f)])
-       (define conn (dial-exporter (caddr a) m))
+       (define conn (dial-exporter locator m))
        ;; Keeping the dialed connection alive is this map's only job; the
        ;; exporter cache itself lives in the core.
        (hash-set! (node-dialed m) (connection-conn-id conn) conn)
        (node-raw-exporter-dialed! nh pending (connection-conn-id conn))
        #f)]
-    [(flush)
-     (define conn (node-connection-for m (cadr a)))
+    [(act-flush conn-id)
+     (define conn (node-connection-for m conn-id))
      (when conn (async-flush! (conn-async conn)))
      #f]
-    [(need-gift-id)
+    [(act-need-gift-id ticket)
      ;; Entropy is a host effect, drawn only when a reply actually becomes a
      ;; gift.
-     (node-raw-provide-gift-id! nh (cadr a) (crypto-random-bytes 32))
+     (node-raw-provide-gift-id! nh ticket (crypto-random-bytes 32))
      #f]
-    [(settle)
-     (define ev (resolve-event (caddr a) (fulfill (far (cadddr a)))))
-     (if (and watch (= (cadr a) (car watch)) (= (caddr a) (cdr watch)))
-         ev
-         (let ([conn (node-connection-for m (cadr a))])
-           (when conn (vat-serve! (conn-vat conn) ev))
-           #f))]
-    [(fail)
-     (define ev (resolve-event (caddr a) (brk (cadddr a))))
-     (if (and watch (= (cadr a) (car watch)) (= (caddr a) (cdr watch)))
-         ev
-         (let ([conn (node-connection-for m (cadr a))])
-           (when conn (vat-serve! (conn-vat conn) ev))
-           #f))]))
+    [(act-settle conn-id answer token)
+     (settle-or-dispatch conn-id answer (fulfill (far token)))]
+    [(act-fail conn-id answer reason)
+     (settle-or-dispatch conn-id answer (brk reason))]
+    [_ (error 'run-node-action! "unknown node action: ~a" a)]))
 
 ;; Drain queued actions without waiting on anything — the gifter path, whose
 ;; origination never blocks (deposit + give + two flushes). No-ops while a
@@ -2117,7 +2196,7 @@
           (define settled (run-node-action! m a watch))
           (cond
             [settled settled]
-            [(and (not pump-c) (eq? (car a) 'flush) (node-connection-for m (cadr a)))
+            [(and (not pump-c) (act-flush? a) (node-connection-for m (act-flush-conn-id a)))
              => loop]
             [else (loop pump-c)])]
          [(not pump-c)
@@ -2253,9 +2332,9 @@
   vow)
 
 ;; ── Pipelined projections (ADR-0050) ─────────────────────────────────────────
-;; Project a field, element, or unwrapped tag out of a far vow WITHOUT waiting
+;; Project an element or unwrapped tag out of a far vow WITHOUT waiting
 ;; for it to settle, returning a new `promise-ref` for the projected value. The
-;; projection rides the wire as `op:get` / `op:index` / `op:untag` against the
+;; projection rides the wire as `op:index` / `op:untag` against the
 ;; receiver's answer (ADR-0052), so it pipelines exactly like a dependent call:
 ;; `(conn-untag c vow "row")` then `(conn-index c that 0)` reaches the first
 ;; element of an unwrapped tagged record in one batch, before the source resolves.
@@ -2335,7 +2414,10 @@
        (raise-pancake 'conn-fetch ERR-BROKEN "fetch \"~a\" broke: ~a" name (cdr r))]
       [else
        (define val (cdr r))
-       (unless (or (near-ref? val) (far-ref? val) (promise-ref? val))
+       ;; Only a live near/far reference is a capability. A promise reference is
+       ;; an unsettled pointer, not a live capability, so it is rejected here like
+       ;; the other bindings and the Zig reference do, rather than handed back.
+       (unless (or (near-ref? val) (far-ref? val))
          (raise-pancake 'conn-fetch ERR-UNSUPPORTED-VALUE
                         "fetch \"~a\" did not resolve to a capability: ~a" name val))
        ;; Stamp the home: a fetched capability lives on *this* connection. Used on

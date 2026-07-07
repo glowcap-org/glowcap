@@ -12,7 +12,6 @@ const pancake = @import("pancake");
 
 const c = @import("c_abi");
 
-const Node = pancake.ocapn.engine.Node;
 const SEED_BYTES = pancake.foundation.crypto.SEED_BYTES;
 
 /// Move every queued outbound frame from one peer into the other, dispatching
@@ -73,7 +72,7 @@ test "node ABI: two nodes and a gifter run a three-party handoff hermetically" {
     // its connections; registering the peers on one node shares its registry.
     var exporter_node: ?*c.PancakeNode = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_new(&exporter_seed, exporter_seed.len, &exporter_node));
-    defer c.pancake_node_free(exporter_node);
+    defer c.pancake_node_release(exporter_node);
     var conn_to_gifter: u64 = 0;
     var conn_to_recipient: u64 = 0;
     var exp_to_gifter: ?*c.PancakePeer = null;
@@ -90,7 +89,7 @@ test "node ABI: two nodes and a gifter run a three-party handoff hermetically" {
     // exporter connection the serve step asks for.
     var recipient_node: ?*c.PancakeNode = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_new(&recipient_seed, recipient_seed.len, &recipient_node));
-    defer c.pancake_node_free(recipient_node);
+    defer c.pancake_node_release(recipient_node);
     var conn_up: u64 = 0;
     var recipient_up: ?*c.PancakePeer = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_register_conn(recipient_node, &conn_up, &recipient_up));
@@ -185,7 +184,7 @@ test "node ABI: two nodes and a gifter run a three-party handoff hermetically" {
     try std.testing.expectEqual(conn_up, action.conn_id);
     try std.testing.expectEqual(@as(u64, 31), action.answer);
     const token = action.token;
-    try std.testing.expect(token >= Node.REDEEMED_TOKEN_BASE);
+    try std.testing.expect(token >= c.PANCAKE_REDEEMED_TOKEN_BASE);
 
     // A send to the token rides the exporter connection with the real far id;
     // an ordinary far id rides the connection the application addressed.
@@ -256,7 +255,7 @@ test "node ABI: context-backed constructor allocates through the caller's alloca
     var conn: u64 = 0;
     var peer: ?*c.PancakePeer = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_register_conn(node, &conn, &peer));
-    c.pancake_node_free(node);
+    c.pancake_node_release(node);
 
     // Everything the node family allocated came back through the same policy.
     try std.testing.expect(counting.allocs > base_allocs);
@@ -277,14 +276,14 @@ test "node ABI: argument validation" {
     var conn: u64 = 0;
     var peer: ?*c.PancakePeer = null;
     try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_node_register_conn(null, &conn, &peer));
-    c.pancake_node_free(null);
+    c.pancake_node_release(null);
 }
 
 test "node ABI: the serve step feeds a give and drains actions" {
     var node: ?*c.PancakeNode = null;
     const seed = [_]u8{6} ** SEED_BYTES;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_new(&seed, seed.len, &node));
-    defer c.pancake_node_free(node);
+    defer c.pancake_node_release(node);
 
     var recipient: u64 = 0;
     var peer: ?*c.PancakePeer = null;

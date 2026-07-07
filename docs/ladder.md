@@ -154,30 +154,19 @@ backend proves the exact park and resume order. `driver.LoopHost` packages the
 accepted actor-hosting side, and `driver.LoopDialer` packages the client fan-out
 side: both run keyed sessions through the same loop-backed connection lifecycle.
 
-Open work on this rung is the live 500k footprint measurement that turns rung
-2's budget into a number under real socket load, and a Windows completion
-backend. Binding-side adoption of the loop surface has landed: every binding
-(Deno, Python, Rust, Racket) wraps it; Python, Rust, and Racket are each gated
-by a many-connection proof under `bindings-iroh-loop`, and Deno implements the
-same surface. The encrypted channel itself exists, pancake to
-pancake, behind ADR-0043 (`zig build iroh-interop` is the live proof), and its
-identity-and-discovery capstones have since landed on the same gate:
-**dial-by-id discovery** (a configurable, no-default `Reachability`; the gate
-dials by node id alone with no direct-address hints), **key unification** (one
-Ed25519 key as node id, locator designator, and session signing key), and
-**durable identity** (a sturdyref outlives an endpoint restart). The endpoint id
-is OCapN's self-authenticating designator, relays and hole-punching are
-sidecar-internal, and `ocapn://<nodeid>.iroh` URI dialing reaches every binding
-through the `libpancake_net_transport_iroh` C ABI companion library with an
-explicit reachability. What remains is the **live-socket 500k measurement**: the
-at-scale substrate itself has landed, the event-driven completion loop of
-ADR-0057 (`iroh.LoopHost`, gated by `iroh-loop`) is the iroh netlayer's one I/O
-model and multiplexes many connections through one readiness fd, not a thread
-per connection, and `bench-peer-scaling`'s `served` row measures its
-per-connection core state. The TCP blocking pump stays a single fiber by
-contract (ADR-0053): it serves cooperative request/response, and a partner that
-streams without draining is the completion loop's workload, not a pending fiber
-split.
+Open work on this rung is the **live-socket 500k measurement** that turns rung
+2's budget into a number under real load, plus a Windows completion backend.
+Everything else has landed: the encrypted channel pancake to pancake
+(`iroh-interop`), its dial-by-id discovery, key unification, and durable-identity
+capstones on the same gate, and every binding's adoption of the loop surface
+(`bindings-iroh-loop`, Deno matching it without a gated row). The at-scale
+substrate is the ADR-0057 completion loop (`iroh.LoopHost`, gated by
+`iroh-loop`), the iroh netlayer's one I/O model, multiplexing many connections
+through one readiness fd rather than a thread apiece; `bench-peer-scaling`'s
+`served` row measures its per-connection core state. The TCP blocking pump stays
+a single fiber by contract (ADR-0053): it serves cooperative request/response,
+and a partner that streams without draining is the completion loop's workload,
+not a pending fiber split.
 
 ## Reading the ladder
 

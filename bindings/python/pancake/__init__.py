@@ -43,7 +43,7 @@ import ctypes
 import secrets
 import weakref
 from dataclasses import dataclass, field
-from typing import Callable, NamedTuple, Optional, Union
+from typing import Callable, NamedTuple, Optional, TypeAlias
 
 from . import _constants as _abi
 from ._ffi_core import (
@@ -61,6 +61,68 @@ from ._ffi_core import (
     _Reference,
     _lib,
 )
+
+
+__all__ = [
+    # Version and diagnostics
+    "abi_version",
+    "last_error",
+    "AbortDetail",
+    # Exceptions
+    "PancakeException",
+    "PancakeError",
+    "VowBroken",
+    "FetchFailed",
+    # Reference and value vocabulary
+    "Near",
+    "Far",
+    "Promise",
+    "Sturdy",
+    "Broken",
+    "Reference",
+    "Symbol",
+    "Keyword",
+    "Set",
+    "Tagged",
+    "Argument",
+    "Value",
+    "Behavior",
+    "VatBehavior",
+    # Resolutions and events
+    "Fulfill",
+    "Break",
+    "Handoff",
+    "Resolution",
+    "Deliver",
+    "Resolve",
+    "Other",
+    "Event",
+    # The sans-io peer and its allocation scope
+    "Context",
+    "Peer",
+    # Actors
+    "Vat",
+    "VatRef",
+    "Vow",
+    "Ref",
+    "Forward",
+    "RemotePromise",
+    # Application surface
+    "AsyncConnection",
+    "Connection",
+    "Server",
+    "Node",
+    "Caretaker",
+    "connect",
+    "listen",
+    # Locator grammar
+    "Locator",
+    "parse_locator",
+    "format_peer_uri",
+    "tcp_locator",
+    "encode_peer_locator",
+    "REDEEMED_TOKEN_BASE",
+]
 
 
 _OK = _abi.OK
@@ -153,7 +215,17 @@ class AbortDetail:
     error_name: str
 
 
-class PancakeError(Exception):
+class PancakeException(Exception):
+    """The base of every exception this library raises.
+
+    Catch ``pancake.PancakeException`` to handle anything pancake raised,
+    whatever the category: a C ABI failure (:class:`PancakeError`), an awaited
+    vow that settled broken (:class:`VowBroken`), or a ``fetch`` that answered
+    with something other than a capability (:class:`FetchFailed`).
+    """
+
+
+class PancakeError(PancakeException):
     """A failed C ABI call, carrying the negative ``PANCAKE_ERR_*`` code.
 
     When a per-thread error message is available it is captured at raise time
@@ -212,7 +284,7 @@ class Broken:
     pass
 
 
-Reference = Union[Near, Far, Promise, Sturdy, Broken]
+Reference: TypeAlias = Near | Far | Promise | Sturdy | Broken
 
 
 class Symbol(str):
@@ -238,18 +310,19 @@ class Tagged:
 # An argument is a native Python value or a wrapper:
 #   int, float, bool, bytes, str, Symbol, Keyword, None (void), Reference, list,
 #   Set, Tagged.
-Argument = Union[int, float, bool, bytes, str, "Symbol", "Keyword", None, Reference, list, "Set", "Tagged"]
+Argument: TypeAlias = int | float | bool | bytes | str | Symbol | Keyword | None | Reference | list | Set | Tagged
 
 # An application value mirrors an Argument but carries a capability as a `Ref`
 # (the binding marshals it to/from a wire reference at the boundary), so an app
 # works with capabilities as ordinary values; this is the vocabulary the
-# application-surface `Connection` speaks. See :class:`Connection`.
-Value = Union[int, float, bool, bytes, str, "Symbol", "Keyword", None, "Ref", list, "Set", "Tagged"]
+# application-surface `Connection` speaks. See :class:`Connection`. `Ref` is
+# defined below, so the alias is a string the type checker resolves.
+Value: TypeAlias = "int | float | bool | bytes | str | Symbol | Keyword | None | Ref | list | Set | Tagged"
 
 # An actor: handle a ``(verb, args)`` call and return a reply (``None`` is the
 # OCapN void). ``args`` may contain :class:`Ref`s (capabilities handed to you);
 # raise to break the caller's promise.
-Behavior = Callable[[str, "list[Value]"], "Optional[Value]"]
+Behavior: TypeAlias = Callable[[str, "list[Value]"], "Value | None"]
 
 
 @dataclass(frozen=True)
@@ -278,7 +351,7 @@ class Handoff:
     recipient_key: bytes
 
 
-Resolution = Union[Fulfill, Break, Handoff]
+Resolution: TypeAlias = Fulfill | Break | Handoff
 
 
 @dataclass(frozen=True)
@@ -302,7 +375,7 @@ class Other:
     frame: bytes
 
 
-Event = Union[Deliver, Resolve, Other]
+Event: TypeAlias = Deliver | Resolve | Other
 
 
 # ── Marshalling ──────────────────────────────────────────────────────────────
@@ -460,8 +533,15 @@ class Context:
         self._callbacks: tuple = ()
 
     @classmethod
-    def with_allocator(cls, alloc, free) -> "Context":
-        """A context that routes every allocation through host callables."""
+    def with_allocator(
+        cls,
+        alloc: "Callable[[int, int], int]",
+        free: "Callable[[int, int, int], None]",
+    ) -> "Context":
+        """A context that routes every allocation through host callables.
+
+        ``alloc(size, alignment)`` returns the address of a fresh block (or 0 on
+        failure); ``free(ptr, size, alignment)`` releases one."""
         self = cls.__new__(cls)
         self._raw = None
 
@@ -762,7 +842,7 @@ class Peer:
         :meth:`step` does one unit of work; this runs them all."""
         _check(_lib.pancake_peer_step_to_idle(self._raw))
 
-    def recv_stream(self, data: "Union[bytes, bytearray]") -> Optional[int]:
+    def recv_stream(self, data: "bytes | bytearray") -> Optional[int]:
         """Frame and dispatch one whole frame out of a streamed read buffer.
 
         Returns the number of bytes consumed when a whole frame was framed and
@@ -785,6 +865,26 @@ class Peer:
         if rc == _WOULD_BLOCK:
             return None
         # The error carries the thread-local message and the typed abort cause.
+        raise self._dispatch_error(rc)
+
+    def recv_stream_at(self, buf: "ctypes.Array", offset: int, length: int) -> Optional[int]:
+        """Frame and dispatch one whole frame out of an already-copied ctypes
+        byte buffer, starting ``offset`` bytes in with ``length`` valid bytes
+        remaining. This is :meth:`recv_stream` without the per-call copy: a pump
+        copies a whole read burst into ``buf`` once and walks it frame by frame
+        by advancing ``offset``, so a K-frame burst copies once, not K times.
+
+        Returns the bytes consumed, ``None`` on a partial tail (read more), and
+        raises :class:`PancakeError` on a fatal framing or dispatch error."""
+        if length <= 0:
+            return None
+        ptr = ctypes.cast(ctypes.addressof(buf) + offset, ctypes.POINTER(ctypes.c_uint8))
+        consumed = ctypes.c_size_t(0)
+        rc = _lib.pancake_peer_recv_stream(self._raw, ptr, length, ctypes.byref(consumed))
+        if rc == _OK:
+            return consumed.value
+        if rc == _WOULD_BLOCK:
+            return None
         raise self._dispatch_error(rc)
 
     def register_bootstrap_cap(self, swissnum: bytes) -> int:
@@ -1034,11 +1134,11 @@ class Ref:
         raise PancakeError(_ERR_UNSUPPORTED_VALUE, "this ref has no wire reference to marshal")
 
 
-class VowBroken(Exception):
+class VowBroken(PancakeException):
     """Raised when an awaited vow settles broken; the message is the break reason."""
 
 
-class FetchFailed(Exception):
+class FetchFailed(PancakeException):
     """Raised when a ``fetch`` settles, but not with a capability.
 
     This is the application-level outcome — the partner answered, and the
@@ -1121,7 +1221,7 @@ class RemotePromise(asyncio.Future):
         super().__init__()
         self._answer = answer
         self._begin = begin
-        # Issues a projection op (get/index/untag) at this answer and returns the
+        # Issues a projection op (index/untag) at this answer and returns the
         # new RemotePromise; None for a local-send handle (no answer to project).
         self._project = project
         self._started = False
@@ -1201,6 +1301,19 @@ class Forward:
         self.args = list(args or [])
 
 
+# An actor hosted in a :class:`Vat`: handle a ``(verb, args)`` turn and return a
+# reply. This is the lower, actor-layer vocabulary, distinct from the
+# application-surface :data:`Behavior` (which speaks :class:`Ref`/:data:`Value`):
+# a Vat behavior receives :data:`Argument`s (a wire-marshalled arg carries a
+# :class:`VatRef`) and may return an :data:`Argument`, a :class:`VatRef`, a
+# :class:`Forward` (to tail-forward its answer), or ``None`` (the OCapN void).
+VatBehavior: TypeAlias = Callable[[str, "list[Argument]"], "Argument | VatRef | Forward | None"]
+
+# Cap on stashed far resolutions whose vow is never awaited, so the stash cannot
+# grow without bound; the oldest un-awaited entry is evicted at the cap.
+_MAX_FAR_RESOLUTIONS = 1024
+
+
 class Vat:
     """A turn loop over a heap of actors, local and remote alike.
 
@@ -1249,14 +1362,14 @@ class Vat:
         """The bound peer, to feed/step/take_outbound around :meth:`serve`."""
         return self._peer
 
-    def spawn(self, behavior) -> VatRef:
+    def spawn(self, behavior: "VatBehavior") -> VatRef:
         """Spawn a local actor with ``behavior``, returning a local :class:`VatRef`."""
         actor_id = self._next_actor
         self._next_actor += 1
         self._actors[actor_id] = behavior
         return VatRef.local(actor_id)
 
-    def call(self, ref: VatRef, verb: str, args: Optional[list] = None):
+    def call(self, ref: VatRef, verb: str, args: Optional[list] = None) -> "Optional[Argument]":
         """The synchronous near-call (``$``): run ``ref``'s handler now and
         return its value. Legal only for a *local* ref, a far ref raises, since
         only :meth:`send` reaches one. Raises if no such actor exists, or
@@ -1331,6 +1444,9 @@ class Vat:
         # vow, and mutating the dict mid-iteration would lose it.
         pending = list(self._far_listeners.values())
         self._far_listeners.clear()
+        # Drop any stashed resolutions too: the connection is gone, so a late `on`
+        # for an un-awaited answer settles as this break, not from a stale stash.
+        self._far_resolutions.clear()
         for listener in pending:
             if listener.on_broken is not None:
                 listener.on_broken(message)
@@ -1378,7 +1494,7 @@ class Vat:
             vow = self.send(target, value.verb, value.args)
             self.on(vow, on_fulfilled=on_fulfilled, on_broken=on_broken)
 
-    def publish(self, export_position: int, behavior) -> VatRef:
+    def publish(self, export_position: int, behavior: "VatBehavior") -> VatRef:
         """Spawn ``behavior`` and publish it at ``export_position`` so a partner's
         deliveries to that export run the actor (dispatched by :meth:`serve`).
         Requires a bound peer. Returns the new local :class:`VatRef`."""
@@ -1458,8 +1574,14 @@ class Vat:
         if listener is None:
             # No one is awaiting this answer yet. It may be awaited later (a source
             # handle awaited after its projection pumped the loop), so stash the
-            # resolution for a late `on`. Still ours to claim.
+            # resolution for a late `on`. Still ours to claim. Bounded FIFO: an
+            # answer whose vow is never awaited would otherwise pin its resolution
+            # forever, so at the cap the oldest un-awaited entry is evicted (its
+            # vow settles as a disconnect break instead of from the stash).
             self._far_resolutions[event.answer] = resolution
+            while len(self._far_resolutions) > _MAX_FAR_RESOLUTIONS:
+                oldest = next(iter(self._far_resolutions))
+                del self._far_resolutions[oldest]
             return True
         self._fire(listener, resolution)
         return True
@@ -1537,24 +1659,40 @@ class _TcpPump(_FramePump):
         self._reader = reader
         self._writer = writer
         self._inbox = bytearray()
+        # A burst that framing walks one frame at a time is copied into `_cache`
+        # once, then advanced over by `_off` — not recopied per frame (which is
+        # quadratic over a K-frame burst). While `_cache` is live `_inbox` is not
+        # mutated, so `_inbox[:_off]` is exactly the frames already dispatched;
+        # `receive` drops that prefix and drops the cache before appending.
+        self._cache: Optional["ctypes.Array"] = None
+        self._off = 0
 
     def locator(self) -> _KeyedLocator:
         host, port, *_ = self._writer.get_extra_info("sockname")
         return _KeyedLocator("tcp", f"{host}:{port}")
 
     def dispatch_buffered(self, peer: Peer) -> bool:
-        if not self._inbox:
-            return False
-        consumed = peer.recv_stream(self._inbox)
+        if self._cache is None:
+            if not self._inbox:
+                return False
+            self._cache = (ctypes.c_uint8 * len(self._inbox)).from_buffer_copy(self._inbox)
+            self._off = 0
+        consumed = peer.recv_stream_at(self._cache, self._off, len(self._cache) - self._off)
         if consumed is None:
             return False
-        del self._inbox[:consumed]
+        self._off += consumed
         return True
 
     async def receive(self, peer: Peer) -> bool:
         chunk = await self._reader.read(self._READ_CHUNK)
         if chunk == b"":
             return False  # clean EOF
+        # Drop the dispatched prefix and invalidate the cache before appending, so
+        # the next dispatch recopies only the true remainder (tail + new chunk).
+        if self._cache is not None:
+            del self._inbox[: self._off]
+            self._cache = None
+            self._off = 0
         self._inbox.extend(chunk)
         return True
 
@@ -1590,6 +1728,14 @@ class AsyncConnection:
         self._peer = peer
         self._pump = pump
         self._vat: Optional[Vat] = None
+        # A single StreamWriter must not have drain() awaited by two coroutines
+        # at once (asyncio's FlowControlMixin._drain_helper asserts the waiter is
+        # free), and the iroh loop's single writable-waiter slot has the mirror
+        # constraint. _pump_outbound is reachable concurrently — the serve loop,
+        # flush(), and every begin()/send that flushes cross-task — so serialize
+        # all pumping through one lock. asyncio.Lock is loop-agnostic at
+        # construction on 3.10+, so eager creation here is safe.
+        self._pump_lock = asyncio.Lock()
 
     @classmethod
     async def connect(cls, host: str, port: int) -> "AsyncConnection":
@@ -1703,10 +1849,14 @@ class AsyncConnection:
     async def _pump_outbound(self) -> None:
         """Encode every pending outbound message and write the queued frames.
         Stepping to idle (not once) is what makes a pipelined batch leave
-        whole; a single step would strand a cascade's tail in the queue."""
-        self._peer.step_to_idle()
-        while (frame := self._peer.take_outbound()) is not None:
-            await self._pump.write_frame(frame)
+        whole; a single step would strand a cascade's tail in the queue.
+
+        Held under ``_pump_lock`` so a concurrent flush cannot drive the same
+        StreamWriter's ``drain()`` (or the iroh writable-waiter) from two tasks."""
+        async with self._pump_lock:
+            self._peer.step_to_idle()
+            while (frame := self._peer.take_outbound()) is not None:
+                await self._pump.write_frame(frame)
 
     def shutdown(self) -> bool:
         """Unblock a transport read parked on a worker thread (see
@@ -1906,7 +2056,7 @@ class _NodeRaw:
         """Release the node, every registered peer, the routing tables, and the
         shared gift registry. Idempotent."""
         if self._raw:
-            _lib.pancake_node_free(self._raw)
+            _lib.pancake_node_release(self._raw)
             self._raw = ctypes.c_void_p()
 
     def __del__(self):
@@ -2184,7 +2334,7 @@ class Connection:
         self._gc = False
         self._gc_pending: "list[int]" = []
         self._gc_drain_task: Optional[asyncio.Task] = None
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
         # True for an exporter connection the node's serve step asked the
         # executor to dial: only such a connection's loop offers resolves to
         # `Node.claim_resolve` (pending withdraws exist nowhere else), so an
@@ -2817,7 +2967,19 @@ class Server:
         return self._node
 
     def close(self) -> None:
+        """Stop accepting new partners. This closes the listening socket only.
+        The shared :attr:`node` is refcounted and outlives the server through the
+        :class:`Connection`\\ s it accepted, so it is left to that teardown, the
+        same posture as :class:`pancake.iroh.IrohServer`."""
         self._server.close()
+
+    async def __aenter__(self) -> "Server":
+        return self
+
+    async def __aexit__(self, *exc) -> None:
+        # asyncio server close is synchronous; the shared node is deliberately
+        # left to refcount teardown (see close()).
+        self.close()
 
     def __aiter__(self) -> "Server":
         return self

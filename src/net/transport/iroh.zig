@@ -533,6 +533,12 @@ pub const LoopHost = struct {
         /// How many readiness records to drain per call into the loop's fixed
         /// stack buffer; a deeper queue drains across more calls.
         ready_batch: usize = 256,
+        /// The outbound backpressure mark (ADR-0042). While a connection's
+        /// pending outbound bytes exceed it, the loop stops draining that
+        /// connection's inbound from the sidecar, so the sidecar's inbound
+        /// buffer fills and QUIC flow control throttles the partner instead of
+        /// this loop's memory growing unbounded. `null` resolves to `frame_cap`.
+        outbound_high_water: ?usize = null,
         /// Poll timeout in milliseconds: the loop re-checks its stop condition
         /// this often even with no readiness traffic.
         poll_timeout_ms: i32 = 200,
@@ -558,14 +564,26 @@ pub const LoopHost = struct {
         /// until the next `ev_writable`).
         outbound: std.ArrayList(u8) = .empty,
         out_off: usize = 0,
+        /// True while inbound draining is paused under ADR-0042 backpressure:
+        /// the outbound queue crossed the high-water mark, so the loop leaves
+        /// the sidecar's inbound buffered (throttling the partner) until the
+        /// outbound drains back below it. `flush`'s full-drain resumes reading.
+        read_parked: bool = false,
         /// Intrusive free-list link, meaningful only while the slot is free.
         next_free: usize = 0,
     };
+
+    /// Burst outbound capacity above this bound is freed when the queue fully
+    /// drains, so one slow-reader episode does not pin its high-water bytes for
+    /// the connection's life. Shared with the TCP loop in one home so the
+    /// ladder's per-connection footprint budget cannot split between them.
+    const steady_outbound_bytes: usize = net.steady_outbound_bytes;
 
     resident: *Resident,
     secret: crypto.SecretKey,
     node_id_buf: [node_id_len]u8 = undefined,
     frame_cap: usize,
+    outbound_high_water: usize,
     verify_partner: bool,
     poll_timeout_ms: i32,
     publish_fn: Publish,
@@ -591,8 +609,8 @@ pub const LoopHost = struct {
     /// connection I/O). `io` draws the one server identity key at the I/O
     /// boundary. The caller owns the returned host at a stable address.
     pub fn init(
-        io: Io,
         allocator: std.mem.Allocator,
+        io: Io,
         resident: *Resident,
         publish_fn: Publish,
         publish_ctx: ?*anyopaque,
@@ -618,6 +636,7 @@ pub const LoopHost = struct {
             .resident = resident,
             .secret = secret,
             .frame_cap = options.frame_cap,
+            .outbound_high_water = options.outbound_high_water orelse options.frame_cap,
             .verify_partner = options.verify_partner,
             .poll_timeout_ms = options.poll_timeout_ms,
             .publish_fn = publish_fn,
@@ -692,7 +711,15 @@ pub const LoopHost = struct {
         }
         if (ev.events & ev_writable != 0) {
             // serviceReadable above may have closed the connection, so re-resolve.
-            if (self.by_ptr.get(ev.conn)) |slot| self.flush(slot);
+            if (self.by_ptr.get(ev.conn)) |slot| {
+                const was_parked = self.conns[slot].read_parked;
+                self.flush(slot);
+                // If the writable drained a read parked at the mark (ADR-0042),
+                // resume draining the sidecar's throttled inbound now.
+                if (was_parked and self.conns[slot].state == .open and !self.conns[slot].read_parked) {
+                    self.serviceReadable(slot);
+                }
+            }
         }
     }
 
@@ -753,60 +780,58 @@ pub const LoopHost = struct {
     /// Drain this connection's buffered inbound bytes through the peer, run the
     /// surfaced events through its vat, then drive and flush the reply.
     fn serviceReadable(self: *LoopHost, slot: usize) void {
-        const c = &self.conns[slot];
+        // Read → apply → drive out, repeating only while a read parked at the
+        // outbound mark and the drive's flush then drained it back below the
+        // mark. Each pass makes progress (drains fully and continues, or blocks
+        // / stays parked and stops), so this is a bounded loop, never recursion.
         while (true) {
-            const n = pancake_iroh_sidecar_conn_try_read(c.cconn.?, self.read_scratch.ptr, self.read_scratch.len);
-            if (n == would_block) break;
-            if (n <= 0) {
-                // 0 is clean end of stream, negative a read error: both close.
-                self.closeConn(slot);
-                return;
-            }
-            switch (self.feed(c, self.read_scratch[0..@intCast(n)])) {
-                .ok => {},
-                .fail => {
-                    self.failConn(slot);
-                    return;
-                },
-                .close => {
+            const c = &self.conns[slot];
+            var parked = false;
+            while (true) {
+                // Backpressure (ADR-0042): once outbound crosses the mark, stop
+                // draining inbound. The sidecar's inbound buffer fills and QUIC
+                // flow control throttles the partner instead of this loop's
+                // memory growing unbounded.
+                if (self.pendingOut(c) > self.outbound_high_water) {
+                    c.read_parked = true;
+                    parked = true;
+                    break;
+                }
+                const n = pancake_iroh_sidecar_conn_try_read(c.cconn.?, self.read_scratch.ptr, self.read_scratch.len);
+                if (n == would_block) break;
+                if (n <= 0) {
+                    // 0 is clean end of stream, negative a read error: both close.
                     self.closeConn(slot);
                     return;
-                },
+                }
+                switch (self.feed(c, self.read_scratch[0..@intCast(n)])) {
+                    .ok => {},
+                    .fail => {
+                        self.failConn(slot);
+                        return;
+                    },
+                    .close => {
+                        self.closeConn(slot);
+                        return;
+                    },
+                }
             }
+            self.runEvents(slot);
+            if (self.conns[slot].state != .open) return;
+            self.driveOut(slot);
+            // If the drive's flush drained a parked read back below the mark,
+            // loop to resume reading the sidecar's buffered inbound (the drain
+            // is edge-triggered, so no fresh readable event will arrive).
+            if (!(parked and !self.conns[slot].read_parked and self.conns[slot].state == .open)) return;
         }
-        self.runEvents(slot);
-        if (self.conns[slot].state != .open) return;
-        self.driveOut(slot);
     }
 
-    const FeedResult = enum { ok, fail, close };
-
     /// Apply every whole frame in `bytes` to the peer, carrying a partial tail in
-    /// the spill, the same boundary handling the TCP completion loop uses
-    /// (`completion.onRecvConsume`), driven by `try_read` chunks instead of a
-    /// shared pool buffer.
-    fn feed(self: *LoopHost, c: *Conn, bytes: []const u8) FeedResult {
-        const from_spill = c.spill.isActive();
-        if (from_spill) c.spill.absorbBytes(self.allocator, bytes) catch return .close;
-        var offset: usize = 0;
-        while (true) {
-            const supply = if (from_spill) c.spill.bytes() else bytes[offset..];
-            if (supply.len == 0) break;
-            const outcome = c.peer.recvStreamPrefix(supply) catch return .fail;
-            switch (outcome) {
-                .incomplete => {
-                    if (supply.len >= self.frame_cap) return .fail;
-                    break;
-                },
-                .consumed => |used| {
-                    if (from_spill) c.spill.consume(self.allocator, used) else offset += used;
-                },
-            }
-        }
-        if (!from_spill and offset < bytes.len) {
-            c.spill.absorbBytes(self.allocator, bytes[offset..]) catch return .close;
-        }
-        return .ok;
+    /// the spill. This is the same inbound drain the TCP completion loop runs,
+    /// shared in `net.drainWholeFrames`, driven here by `try_read` chunks instead
+    /// of a shared pool buffer.
+    fn feed(self: *LoopHost, c: *Conn, bytes: []const u8) net.DrainVerdict {
+        return net.drainWholeFrames(&c.peer, &c.spill, bytes, self.allocator);
     }
 
     /// Run every surfaced event through the connection's vat. A vat error closes
@@ -851,14 +876,34 @@ pub const LoopHost = struct {
             const remaining = c.outbound.items[c.out_off..];
             const n = pancake_iroh_sidecar_conn_try_write(c.cconn.?, remaining.ptr, remaining.len);
             if (n == would_block) return;
-            if (n < 0) {
+            // would_block is already handled above, so any non-positive result is
+            // a fault: closing this one connection is better than advancing the
+            // offset by zero and spinning the single loop thread forever.
+            if (n <= 0) {
                 self.closeConn(slot);
                 return;
             }
             c.out_off += @intCast(n);
         }
-        c.outbound.clearRetainingCapacity();
+        // Fully drained. Free burst capacity above the steady bound so a
+        // slow-reader episode does not pin its high-water bytes for life
+        // (ADR-0041/0042 posture); steady-sized capacity is retained so
+        // ordinary reply traffic never reallocates.
+        if (c.outbound.capacity > steady_outbound_bytes) {
+            c.outbound.clearAndFree(self.allocator);
+        } else {
+            c.outbound.clearRetainingCapacity();
+        }
         c.out_off = 0;
+        // Fully drained means below the mark: lift any read park so the caller
+        // (`serviceReadable`'s loop, or the next `ev_writable`) resumes reading.
+        c.read_parked = false;
+    }
+
+    /// Pending outbound bytes not yet accepted by the sidecar.
+    fn pendingOut(self: *LoopHost, c: *const Conn) usize {
+        _ = self;
+        return c.outbound.items.len - c.out_off;
     }
 
     /// Best-effort flush of whatever the engine projected for a dispatch failure

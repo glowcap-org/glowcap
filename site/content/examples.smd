@@ -7,16 +7,17 @@
 ---
 
 The surest way to trust a protocol is to watch it run. pancake ships runnable
-examples at two levels: short Zig chapters that peel the library one layer at a
-time, and full cross-language apps where a coordinator in one language talks to
-clients in four others over real [OCapN](https://github.com/ocapn/ocapn). Every one
-compiles and runs under the build, so the code on the page cannot drift from the
-library.
+examples at three levels: short Zig chapters that peel the library one layer at a
+time, small C programs that exercise the same library through its C ABI, and full
+cross-language apps where a coordinator in one language talks to clients in four
+others over real [OCapN](https://github.com/ocapn/ocapn). Every one compiles and
+runs under the build, so the code on the page cannot drift from the library.
 
 ## The Zig chapters
 
-They read top-down. Chapter 01 is the surface an application rides; each later
-chapter peels one layer beneath it, ending at the raw engine.
+They read top-down. Chapter 01 is the surface an application rides; chapter 02
+widens it to the multi-connection `Host` tier; chapters 03–05 then descend one
+layer at a time to the raw engine.
 
 | # | Chapter | What it shows |
 | --- | --- | --- |
@@ -31,16 +32,29 @@ chapter peels one layer beneath it, ending at the raw engine.
 [example chapters](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/README.md)
 carry the full source and a few lower-level mechanics besides.
 
+## The C programs
+
+Four C programs prove the same library from the other side of the C ABI, under
+the same `zig build examples` step as the chapters.
+
+| Program | What it shows |
+| --- | --- |
+| [echo_peer.c](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/c/echo_peer.c) | a full in-process echo conversation between two peers, the reference shape of a C host event loop over the sans-io surface |
+| [frame_view.c](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/c/frame_view.c) | frame ownership over the C ABI: a borrowed frame view over caller-owned bytes |
+| [context_alloc.c](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/c/context_alloc.c) | a C embedder owning every pancake allocation through the context's host-allocator callbacks |
+| [compose_transports.c](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/c/compose_transports.c) | the à-la-carte archives composing: three headers, one link line, no symbol collisions |
+
 ## The cross-language apps
 
-Each app is built on the same small surface (connect, fetch, publish, spawn, send,
-serve, close), written once per language, so the app reads the same in Zig and the
-four [bindings]($link.page('bindings')): Rust, Python, Racket, and TypeScript.
+Each app is built on the same small surface of application verbs — connect,
+fetch, publish, spawn, send, serve, close — written once per language, so the
+app reads the same in Zig and the four [bindings]($link.page('bindings')):
+Rust, Python, Racket, and TypeScript.
 
 | App | What it is | Run it |
 | --- | --- | --- |
 | [rooms](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/) | a capability-secure chat room, real-time | `zig build demo-rooms` |
-| [rooms over iroh](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/) | the same chat over encrypted QUIC | `zig build demo-rooms-iroh` (needs cargo) |
+| rooms over iroh | the same chat over encrypted QUIC | `zig build demo-rooms-iroh` (needs cargo) |
 | [tasks](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tasks/) | a shared task board: CRUD plus live state | `zig build demo-tasks` |
 | [tools](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tools/) | a capability showcase for AI agent harnesses: delegation, attenuation, revocation | `zig build demo-tools` |
 | [accountability](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/accountability-on-pancake/) | a signed-call accountability app over a real OCapN/TCP session | `zig build demo-accountability` |
@@ -49,17 +63,17 @@ The `rooms`, `tasks`, and `tools` demos need only `deno` and the always-built Zi
 client; the Python, Racket, and Rust clients join when their runtimes are present
 and are skipped with a note otherwise. The `accountability` demo pairs a Zig host
 with Deno and Python callers. Each binds an ephemeral port by default; pin it with
-`-Dport`, or add `-Dattach=true` to join a server you already started. They run as
-siblings of `check`, not as part of the hermetic gate.
+`-Dport`, or add `-Dattach=true` to join a server you already started.
+`accountability` refuses `-Dattach` because each caller needs a fresh host. The
+demos run as siblings of `check`, not as part of the hermetic gate.
 
-The `rooms over iroh` variant is the one to watch. It runs the same five-language
-chat, but the coordinator and clients reach each other over an encrypted
-[iroh]($link.page('transports/iroh')) channel instead of a local TCP port: each peer
-is addressed by a self-authenticating node id, and the bytes on the wire are keyed
-QUIC. It is the clearest demonstration that the encrypted, peer-to-peer transport is
-a drop-in under the same application surface, the app code does not change, only the
-address does. It needs `cargo` for the iroh sidecar.
+The `rooms over iroh` variant is the one to watch: the same five-language chat,
+but the coordinator and clients reach each other over an encrypted
+[iroh]($link.page('transports/iroh')) channel instead of a local TCP port. Each
+peer is addressed by a self-authenticating node id, the bytes on the wire are
+keyed QUIC, and the app code does not change; only the address does. It needs
+`cargo` for the iroh sidecar.
 
 Why an application at all? A protocol can pass every conformance scenario and still
 be miserable to build on. These apps are where the surface meets a real program, in
-five languages at once, and where the rough edges no fixture reaches show up.
+five languages at once, and where the rough edges show up that no fixture reaches.

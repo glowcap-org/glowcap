@@ -55,7 +55,9 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
    their constructor's family (peer, context, netlayer, connection,
    listener). Release is the only verb that frees; a *_close is a
    shutdown lever that leaves the handle alive. pancake_peer_feed_owned
-   is the one call that takes ownership from you, and only on success.
+   is the one call that takes ownership from you: it takes the frame on
+   every outcome except a NULL-pointer refusal, and on failure it releases
+   the frame for you (see its own contract below).
 
    Threading: a PancakePeer is a single-owner state machine. Serialize every
    call on a given peer onto one thread or behind one lock. pancake_last_error
@@ -68,31 +70,33 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 /* Success. */
 #define PANCAKE_OK 0
 /* A required pointer argument was NULL. */
-#define PANCAKE_ERR_NULL_POINTER -1
+#define PANCAKE_ERR_NULL_POINTER (-1)
+/* -2 retired, never reused */
 /* A non-pointer argument was out of range or unparseable (a bad shape/codec discriminant, a zero frame cap, an unparseable host address). */
-#define PANCAKE_ERR_INVALID_ARGUMENT -3
+#define PANCAKE_ERR_INVALID_ARGUMENT (-3)
 /* The session state machine refused the operation (a protocol violation, a resource cap, an already-closed session). */
-#define PANCAKE_ERR_SESSION -4
+#define PANCAKE_ERR_SESSION (-4)
 /* Inbound bytes failed codec decode, or outbound work failed to encode. */
-#define PANCAKE_ERR_CODEC -5
+#define PANCAKE_ERR_CODEC (-5)
 /* A host-internal failure (allocation, ...). */
-#define PANCAKE_ERR_INTERNAL -6
+#define PANCAKE_ERR_INTERNAL (-6)
 /* Nothing to do right now: an empty queue, or a partial frame awaiting more bytes. */
-#define PANCAKE_ERR_WOULD_BLOCK -7
+#define PANCAKE_ERR_WOULD_BLOCK (-7)
 /* The peer closed the stream gracefully on a frame boundary (clean EOF). */
-#define PANCAKE_ERR_CLOSED -8
+#define PANCAKE_ERR_CLOSED (-8)
 /* An underlying socket read/write failed; pancake_last_error carries the concrete cause. */
-#define PANCAKE_ERR_IO -9
+#define PANCAKE_ERR_IO (-9)
 /* Inbound bytes were not a structurally valid frame. */
-#define PANCAKE_ERR_MALFORMED -10
+#define PANCAKE_ERR_MALFORMED (-10)
 /* An inbound frame exceeded the endpoint's max_frame_bytes. */
-#define PANCAKE_ERR_FRAME_TOO_LARGE -11
-/* A value SENT across the typed surface uses a variant the C ABI cannot carry (a handoff argument, a sturdy/broken reference target): refused loudly rather than marshalled wrong. Received values never earn this code — pancake_peer_next_event projects an uncarriable inbound value as its raw wire frame instead. */
-#define PANCAKE_ERR_UNSUPPORTED_VALUE -13
-/* Never returned by a C ABI function: the shared code a binding surfaces when a partner breaks a promise (the break arrives as a PANCAKE_RESOLUTION_BREAK resolve event). */
-#define PANCAKE_ERR_BROKEN -14
+#define PANCAKE_ERR_FRAME_TOO_LARGE (-11)
+/* -12 retired, never reused */
+/* A value SENT across the typed surface uses a variant the C ABI cannot carry (a handoff argument, an OCapN Struct argument, or a sturdy/broken reference target): refused loudly rather than marshalled wrong. There is no PANCAKE_ARG_STRUCT, so a Struct cannot be built as an argument. Received values never earn this code — pancake_peer_next_event projects an uncarriable inbound value (a Struct among them) as its raw wire frame instead. */
+#define PANCAKE_ERR_UNSUPPORTED_VALUE (-13)
+/* A partner broke a promise. The sans-io libpancake_ocapn surface never returns this: a break arrives there as a PANCAKE_RESOLUTION_BREAK resolve event. The owning-session transport surfaces do return it — pancake_tcp_session_fetch (pancake_net_transport_tcp.h) reports a partner break this way, and any future transport twin the same — and bindings reuse the code for that meaning. */
+#define PANCAKE_ERR_BROKEN (-14)
 /* A well-formed lookup found nothing: pancake_locator_hint named a key absent from the locator. Distinct from _INVALID_ARGUMENT (a malformed request). */
-#define PANCAKE_ERR_NOT_FOUND -15
+#define PANCAKE_ERR_NOT_FOUND (-15)
 
 /* ── Discriminants ── */
 /* codec for pancake_peer_new_negotiated and the transport endpoints: Syrup. The session's grammar and the endpoint's framing must carry the same value. */
@@ -194,6 +198,8 @@ struct PancakeManagedFrame {
     uint8_t *bytes;
     size_t len;
     uint32_t shape;
+    /* Internal self-release hook; never call it directly. Free the frame with
+       `pancake_managed_frame_release`, which is idempotent and nulls this first. */
     PancakeReleaseFn release;
     void *private_data;
 };
@@ -429,7 +435,12 @@ int32_t pancake_peer_session_is_open(PancakePeer *peer);
    `bytes`/`bytes_len` and the value list in `items`/`items_len`.
    _BIG_INTEGER carries the canonical decimal magnitude in `bytes`/`bytes_len`
    (ASCII digits, no leading zero) and the sign in `boolean` (1 = negative);
-   a magnitude that fits int64_t belongs in _INTEGER and is refused here. */
+   a magnitude that fits int64_t belongs in _INTEGER and is refused here.
+
+   The OCapN Struct has no PANCAKE_ARG_* kind and cannot cross this typed
+   surface: sending one is refused with PANCAKE_ERR_UNSUPPORTED_VALUE, and an
+   inbound deliver carrying a Struct lands in the PancakeAnyEvent `frame` arm
+   as raw wire bytes (see pancake_peer_codec) rather than a projected argument. */
 typedef struct PancakeReference {
     /* _NEAR export position, _FAR import position, or _PROMISE answer position. */
     uint32_t kind;
@@ -639,7 +650,7 @@ int32_t pancake_peer_send_resolve_handoff_give(PancakePeer *peer, uint64_t answe
    out_node. The seed is reused for every connection the node opens so an
    exporter verifies a desc:handoff-receive against one key; draw it at the
    host's I/O boundary (the sans-io node never generates entropy). Release with
-   pancake_node_free. `seed` is borrowed; seed_len must be 32. */
+   pancake_node_release. `seed` is borrowed; seed_len must be 32. */
 int32_t pancake_node_new(const uint8_t *seed, size_t seed_len, PancakeNode **out_node);
 /* Context-backed counterpart of pancake_node_new: the node, its per-connection
    peers, and the shared gift registry allocate and free through `context`'s
@@ -649,7 +660,7 @@ int32_t pancake_node_new_in(PancakeContext *context, const uint8_t *seed, size_t
    references they own, and the shared gift registry. The caller must have
    finished pumping every connection's peer first (those peers are node-owned).
    NULL is a no-op. */
-void pancake_node_free(PancakeNode *node);
+void pancake_node_release(PancakeNode *node);
 /* Register a fresh connection, writing its conn_id into out_conn_id and the
    node-owned negotiating peer into out_peer. Pump out_peer with the ordinary
    pancake_peer_* surface; it is already bound to the node's shared gift
@@ -657,7 +668,7 @@ void pancake_node_free(PancakeNode *node);
    and the entropy) and must sign with the same 32-byte seed it gave
    pancake_node_new — a different key silently breaks give verification at the
    exporter. Do NOT free out_peer: the node owns it and frees it on
-   pancake_node_remove_conn / pancake_node_free. */
+   pancake_node_remove_conn / pancake_node_release. */
 int32_t pancake_node_register_conn(PancakeNode *node, uint64_t *out_conn_id, PancakePeer **out_peer);
 /* Remove a registered connection: free its node-owned peer and retire the
    conn_id (never reused). A later route to a redeemed token whose exporter was
@@ -755,7 +766,7 @@ int32_t pancake_node_provide_gift_id(PancakeNode *node, uint64_t ticket, const u
 int32_t pancake_node_set_exporter_location(PancakeNode *node, uint64_t conn_id, const uint8_t *location, size_t location_len);
 /* Pop the next serve-step action into `out`. The previous action's byte views
    are freed by this call, so a popped action's locator/reason views are valid
-   until the next pancake_node_next_action (or pancake_node_free); copy what
+   until the next pancake_node_next_action (or pancake_node_release); copy what
    outlives that. PANCAKE_ERR_WOULD_BLOCK when no action is pending. */
 int32_t pancake_node_next_action(PancakeNode *node, PancakeNodeAction *out);
 

@@ -1,5 +1,5 @@
-//! Local actor model: spawn, near-call (`$`), eventual-send (`<-`) + promises,
-//! and "become" expressed as mutating the actor's own state.
+//! Local actor model: spawn, near-call (`$`), eventual-send (`<-`) with
+//! promises, and "become" expressed as mutating the actor's own state.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -61,6 +61,47 @@ test "a cyclic near-call chain is refused before overflowing the stack" {
 
     const r = try vat.spawn(SelfRecurser, .{});
     try std.testing.expectError(error.NearCallTooDeep, vat.near(r, .{ .verb = "recurse" }));
+}
+
+/// A persistent actor that becomes and then reentrant-near-calls itself, whose
+/// inner frame also becomes. The outer frame reads its own `self` after the
+/// reentrant call: a become installed at the inner frame's return would free the
+/// box the outer frame still holds as `self`, so this read must still see the
+/// original state and the install must wait for the outermost frame.
+const ReentrantBecomer = struct {
+    pub const snapshot_persistent = true;
+    n: i64,
+
+    pub fn handle(self: *const ReentrantBecomer, turn: *Turn, msg: Message) !model.Argument {
+        if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
+        if (std.mem.eql(u8, msg.verb, "outer")) {
+            try turn.become(ReentrantBecomer, .{ .n = self.n + 1 });
+            _ = try turn.near(turn.me(), .{ .verb = "inner" });
+            // Read after the reentrant inner become: the outer frame's box is
+            // still live because the install is deferred to this outermost frame.
+            return .{ .integer = self.n };
+        }
+        if (std.mem.eql(u8, msg.verb, "inner")) {
+            try turn.become(ReentrantBecomer, .{ .n = self.n + 100 });
+            return .{ .void = {} };
+        }
+        return error.NoSuchMethod;
+    }
+};
+
+test "a reentrant near-call that becomes leaves the outer frame's self intact" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    const a = try vat.spawn(ReentrantBecomer, .{ .n = 7 });
+    // The outer handler reads self after a reentrant self-near-call that itself
+    // becomes; deferring the install to the outermost frame keeps that read valid.
+    const read = try vat.near(a, .{ .verb = "outer" });
+    try std.testing.expectEqual(@as(i64, 7), read.integer);
+    // The outermost frame runs last, so its become is the installed state; the
+    // inner frame's staged become is superseded and freed, not leaked.
+    try std.testing.expectEqual(@as(i64, 8), (try vat.near(a, .{ .verb = "get" })).integer);
 }
 
 fn captureInt(ctx: ?*anyopaque, resolution: actors.Resolution) void {
@@ -354,6 +395,53 @@ const ReentrantCapture = struct {
     }
 };
 
+/// Bumps a test-owned counter every handler run, so a re-entrant drive that
+/// re-executes queued turns shows up as an inflated count without the test
+/// reaching into vat internals.
+const RunCounter = struct {
+    runs: *u32,
+    pub fn handle(self: *RunCounter, turn: *Turn, msg: Message) !model.Argument {
+        _ = turn;
+        _ = msg;
+        self.runs.* += 1;
+        return .{ .void = {} };
+    }
+};
+
+/// A listener that opens a nested drive the first time it fires.
+const DriveOnce = struct {
+    vat: *actors.Vat,
+    fired: bool = false,
+    fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        _ = resolution;
+        const self: *DriveOnce = @ptrCast(@alignCast(ctx.?));
+        if (self.fired) return;
+        self.fired = true;
+        self.vat.drive() catch {};
+    }
+};
+
+test "a re-entrant drive runs each queued turn exactly once" {
+    const allocator = std.testing.allocator;
+    var vat = actors.Vat.init(allocator);
+    defer vat.deinit();
+
+    var runs: u32 = 0;
+    const counter = try vat.spawn(RunCounter, .{ .runs = &runs });
+    // Two queued sends; the first's listener opens a nested drive while the
+    // second is still pending. A drive that restarted at zero would re-run the
+    // first (and the second would run under both drives): the shared cursor
+    // must hold each to a single execution.
+    const first = try vat.send(counter, .{ .verb = "poke" });
+    _ = try vat.send(counter, .{ .verb = "poke" });
+    var driver = DriveOnce{ .vat = &vat };
+    try vat.on(first, .{ .ctx = &driver, .func = DriveOnce.record });
+    try vat.drive();
+
+    try std.testing.expect(driver.fired);
+    try std.testing.expectEqual(@as(u32, 2), runs);
+}
+
 test "a local listener that re-enters drive still reads an intact fulfilled value" {
     const allocator = std.testing.allocator;
     var vat = actors.Vat.init(allocator);
@@ -540,7 +628,7 @@ const PersistentCounter = struct {
     pub const snapshot_persistent = true;
     n: i64,
 
-    pub fn handle(self: *PersistentCounter, turn: *Turn, msg: Message) !model.Argument {
+    pub fn handle(self: *const PersistentCounter, turn: *Turn, msg: Message) !model.Argument {
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "increment")) {
             try turn.become(PersistentCounter, .{ .n = self.n + 1 });
@@ -595,4 +683,51 @@ test "a handler error discards the pending become" {
     try std.testing.expectError(error.Boom, vat.near(counter, .{ .verb = "bump-then-fail" }));
     // The staged become(999) was discarded; the actor keeps its prior state.
     try std.testing.expectEqual(@as(i64, 7), try getN(&vat, counter));
+}
+
+/// An actor that owns a heap blob and records that its `deinit` ran, so a spawn
+/// that fails can prove `makeBox` reclaimed the state it was handed.
+const OwnsBlob = struct {
+    ran: *bool,
+    blob: []u8,
+    blob_allocator: std.mem.Allocator,
+
+    pub fn handle(self: *OwnsBlob, turn: *Turn, msg: Message) !model.Argument {
+        _ = self;
+        _ = turn;
+        _ = msg;
+        return error.NoSuchMethod;
+    }
+
+    pub fn deinit(self: *OwnsBlob, allocator: std.mem.Allocator) void {
+        _ = allocator;
+        self.ran.* = true;
+        self.blob_allocator.free(self.blob);
+    }
+};
+
+test "spawn whose first allocation fails reclaims the initial state (makeBox contract)" {
+    // The vat runs on a failing allocator; the blob the actor owns is drawn
+    // from the leak-checking allocator, so an unreclaimed blob is a reported
+    // leak, not just a silent drop.
+    var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
+    var vat = actors.Vat.init(failing.allocator());
+    defer vat.deinit();
+
+    var ran = false;
+    const blob = try std.testing.allocator.alloc(u8, 16);
+
+    // Arm the very next vat allocation to fail: that is `makeBox`'s
+    // `create(Behavior)`, the first allocation `spawn` makes.
+    failing.fail_index = failing.alloc_index;
+    try std.testing.expectError(
+        error.OutOfMemory,
+        vat.spawn(OwnsBlob, .{ .ran = &ran, .blob = blob, .blob_allocator = std.testing.allocator }),
+    );
+    // `makeBox` ran the actor's `deinit`, which freed the blob; nothing leaks.
+    try std.testing.expect(ran);
+
+    // Disarm so vat teardown allocates freely (a failed alloc leaves the index
+    // parked on `fail_index`, failing every later allocation otherwise).
+    failing.fail_index = std.math.maxInt(usize);
 }

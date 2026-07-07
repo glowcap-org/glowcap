@@ -375,24 +375,23 @@ fn neutralStructEntry(reader: Reader, elem: StructLoc) Error!model.view.StructEn
     return .{ .key = key, .value = try neutralArgument(reader, value_loc) };
 }
 
-/// Build the lazy struct backing, refusing duplicate keys up front. The walk
-/// enforces the OCapN Struct key rule at the codec boundary (ADR-0046 /
-/// Model.md § Struct): every key must be non-Equal to every other, so each
-/// entry's key — borrowed text at pointer 0, a String by construction — is
-/// compared against every prior key the moment the backing is built. Borrowed
-/// slices only, no allocation — the same eager codec-boundary refusal the
-/// Syrup decoder applies while scanning a dict; width is bounded by the frame
-/// cap.
+/// Build the lazy struct backing, enforcing the OCapN Struct key rule at the
+/// codec boundary (ADR-0046 / Model.md § Struct): keys must be pairwise
+/// non-Equal, and pancake's own capnp encoder emits them sorted ascending by
+/// raw key bytes (`canonicalStructOrder`). Decode therefore requires strictly
+/// ascending keys — one comparison of each key against its predecessor, the
+/// same O(n) refusal the Syrup decoder applies (`sliceStructNeutral`). A
+/// duplicate is never strictly ascending, so this refuses it without the
+/// all-pairs scan an attacker could drive to n² over a frame-cap-many struct.
+/// Borrowed slices only, no allocation; width is bounded by the frame cap.
 fn neutralStructBacking(reader: Reader, loc: StructLoc, i: u16) Error!model.view.StructEntries {
     const clist = (try compositeList(reader, loc, i)) orelse
         return model.view.StructEntries.fromBacking(.{ .bytes = reader.bytes }, &neutral_struct_vtable);
     var idx: usize = 1;
     while (idx < clist.element_count) : (idx += 1) {
         const key = try borrowedData(reader, clist.elem(idx), 0);
-        var prior: usize = 0;
-        while (prior < idx) : (prior += 1) {
-            if (std.mem.eql(u8, key, try borrowedData(reader, clist.elem(prior), 0))) return Error.MalformedFrame;
-        }
+        const prior = try borrowedData(reader, clist.elem(idx - 1), 0);
+        if (std.mem.order(u8, prior, key) != .lt) return Error.MalformedFrame;
     }
     return model.view.StructEntries.fromBacking(ctxFromComposite(reader, clist), &neutral_struct_vtable);
 }

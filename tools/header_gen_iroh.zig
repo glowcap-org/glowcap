@@ -18,6 +18,7 @@
 
 const std = @import("std");
 const c = @import("c_abi_net_transport_iroh");
+const header_emit = @import("header_emit.zig");
 
 pub const header_path = "include/pancake_net_transport_iroh.h";
 
@@ -26,7 +27,7 @@ pub const header_path = "include/pancake_net_transport_iroh.h";
 // `c_abi_net_transport_iroh` declarations in both directions, so a new
 // `pub export fn pancake_iroh_*`
 // cannot silently miss the header while the gate stays green.
-const emitted_fns = [_][]const u8{
+const emitted_fn_names = [_][]const u8{
     "pancake_iroh_netlayer_new",
     "pancake_iroh_netlayer_new_in",
     "pancake_iroh_netlayer_close",
@@ -44,110 +45,22 @@ const emitted_fns = [_][]const u8{
     "pancake_iroh_clear_last_error",
 };
 
+// The reflection machinery is shared with the other header generators; this
+// `Spec` binds it to `libpancake_net_transport_iroh`. No function-pointer
+// typedefs and no `#define`s, so it supplies only the module and the table.
+const Spec = struct {
+    pub const c = @import("c_abi_net_transport_iroh");
+    pub const emitted_fns: []const []const u8 = &emitted_fn_names;
+};
+const E = header_emit.Emit(Spec);
+const Buf = header_emit.Buf;
+const emitDoc = header_emit.emitDoc;
+const emitFn = E.emitFn;
+
 // Coverage guard, both directions: every `pub export fn pancake_iroh_*` in
-// `c_abi_net_transport_iroh` must be listed, and every listed name must be a real
-// function.
+// `c_abi_net_transport_iroh` must be listed, and every listed name must be real.
 comptime {
-    @setEvalBranchQuota(20000);
-    for (@typeInfo(c).@"struct".decls) |decl| {
-        if (!std.mem.startsWith(u8, decl.name, "pancake_iroh_")) continue;
-        if (@typeInfo(@TypeOf(@field(c, decl.name))) != .@"fn") continue;
-        var found = false;
-        for (emitted_fns) |name| {
-            if (std.mem.eql(u8, name, decl.name)) found = true;
-        }
-        if (!found) @compileError("function in c_abi_net_transport_iroh but not emitted to pancake_net_transport_iroh.h: " ++ decl.name);
-    }
-    for (emitted_fns) |name| {
-        if (!@hasDecl(c, name)) @compileError("emitted_fns lists '" ++ name ++ "' but c_abi_net_transport_iroh has no such declaration");
-        if (@typeInfo(@TypeOf(@field(c, name))) != .@"fn") @compileError("emitted_fns entry '" ++ name ++ "' is not a c_abi_net_transport_iroh function");
-    }
-}
-
-/// Map a Zig type to its C spelling, reflection-driven, so a parameter type
-/// change in `c_abi_net_transport_iroh` flows into the header automatically.
-fn cType(comptime T: type) []const u8 {
-    return switch (T) {
-        u8 => "uint8_t",
-        u16 => "uint16_t",
-        u32 => "uint32_t",
-        u64 => "uint64_t",
-        i32 => "int32_t",
-        i64 => "int64_t",
-        usize => "size_t",
-        isize => "intptr_t",
-        void => "void",
-        anyopaque => "void",
-        else => switch (@typeInfo(T)) {
-            .optional => |o| cType(o.child),
-            .pointer => |p| blk: {
-                const child = cType(p.child);
-                if (child.len > 0 and child[child.len - 1] == '*') break :blk child ++ "*";
-                const prefix = if (p.is_const) "const " else "";
-                break :blk prefix ++ child ++ " *";
-            },
-            .@"struct", .@"opaque" => baseName(T),
-            else => @compileError("no C mapping for " ++ @typeName(T)),
-        },
-    };
-}
-
-/// `c_abi_net_transport_iroh.PancakeIrohConn` → `PancakeIrohConn` (strip the module path).
-fn baseName(comptime T: type) []const u8 {
-    const name = @typeName(T);
-    const dot = std.mem.lastIndexOfScalar(u8, name, '.');
-    return if (dot) |i| name[i + 1 ..] else name;
-}
-
-const Buf = std.ArrayList(u8);
-
-fn line(b: *Buf, gpa: std.mem.Allocator, comptime fmt: []const u8, args: anytype) !void {
-    try b.print(gpa, fmt ++ "\n", args);
-}
-
-fn emitDoc(b: *Buf, gpa: std.mem.Allocator, comptime doc: []const u8) !void {
-    const lines = comptime blk: {
-        @setEvalBranchQuota(8000);
-        var ls: []const []const u8 = &.{};
-        var it = std.mem.splitScalar(u8, doc, '\n');
-        while (it.next()) |l| ls = ls ++ .{l};
-        break :blk ls;
-    };
-    inline for (lines, 0..) |l, i| {
-        const prefix = if (i == 0) "/* " else if (l.len == 0) "" else "   ";
-        const suffix = if (i == lines.len - 1) " */" else "";
-        try line(b, gpa, "{s}{s}{s}", .{ prefix, l, suffix });
-    }
-}
-
-fn emitFn(
-    b: *Buf,
-    gpa: std.mem.Allocator,
-    comptime fn_name: []const u8,
-    comptime param_names: []const []const u8,
-    comptime doc: []const u8,
-) !void {
-    comptime {
-        var listed = false;
-        for (emitted_fns) |name| {
-            if (std.mem.eql(u8, name, fn_name)) listed = true;
-        }
-        if (!listed) @compileError("emitFn called for '" ++ fn_name ++ "' which is missing from emitted_fns");
-        if (doc.len == 0) @compileError("prototype '" ++ fn_name ++ "' has no header doc; write the contract here");
-    }
-    const info = @typeInfo(@TypeOf(@field(c, fn_name))).@"fn";
-    if (info.params.len != param_names.len) @compileError("param name count mismatch for " ++ fn_name);
-    try emitDoc(b, gpa, doc);
-
-    try b.print(gpa, "{s} {s}(", .{ comptime cType(info.return_type.?), fn_name });
-    if (info.params.len == 0) try b.appendSlice(gpa, "void");
-    inline for (info.params, param_names, 0..) |p, pname, i| {
-        const ty = comptime cType(p.type.?);
-        const sep = if (i == 0) "" else ", ";
-        const space = if (ty.len > 0 and ty[ty.len - 1] == '*') "" else " ";
-        try b.print(gpa, "{s}{s}{s}{s}", .{ sep, ty, space, pname });
-    }
-    try b.appendSlice(gpa, ");\n");
+    E.guardFns("c_abi_net_transport_iroh", "pancake_iroh_");
 }
 
 /// Build the full header text. Caller owns the returned bytes.
@@ -306,11 +219,6 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\
     );
 
-    inline for (emitted_fns) |name| {
-        if (std.mem.indexOf(u8, b.items, " " ++ name ++ "(") == null) {
-            std.debug.print("gen-header-net-transport-iroh: emitted_fns lists `{s}` but no emitFn call emitted it\n", .{name});
-            return error.MissingEmittedFunction;
-        }
-    }
+    try E.assertAllEmitted(&b, "gen-header-net-transport-iroh");
     return b.toOwnedSlice(gpa);
 }

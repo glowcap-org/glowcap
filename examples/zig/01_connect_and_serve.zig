@@ -1,8 +1,9 @@
 //! 01 — The application surface: connect, listen, fetch, call, serve, close.
 //!
 //! This chapter is the surface an application actually rides — the same nine
-//! verbs every binding exposes, in native Zig. Chapters 02–04 go one layer
-//! deeper underneath, down to the raw engine. Each side holds one owning
+//! verbs every binding exposes, in native Zig. Chapter 02 widens this surface
+//! to the multi-connection `Host` tier; chapters 03–05 then go one layer
+//! deeper apiece underneath, down to the raw engine. Each side holds one owning
 //! `driver.Connection` over a real TCP socket with the keyed, authenticated
 //! `op:start-session`
 //! handshake on both ends. The host listens, accepts a partner, publishes an

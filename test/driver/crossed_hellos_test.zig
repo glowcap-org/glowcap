@@ -3,9 +3,10 @@
 //! partner, and the registry must steer both sides onto the *same* surviving
 //! session with no coordination beyond a local comparison. The rule is the byte
 //! order of the two Public Identifiers: the side whose identifier is not lower
-//! aborts its inbound; the strictly lower-keyed side aborts its outbound. Run from
-//! both seats that converges on the higher-keyed peer's outbound session, the
-//! load-bearing property this module exists to hold.
+//! aborts its inbound; the strictly lower-keyed side aborts its outbound. These
+//! scenarios run the collision from both seats, and both converge on the
+//! higher-keyed peer's outbound session. That convergence is the load-bearing
+//! property this module exists to hold.
 
 const std = @import("std");
 const pancake = @import("pancake");

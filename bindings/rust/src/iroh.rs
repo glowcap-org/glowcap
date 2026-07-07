@@ -63,9 +63,13 @@ crate::transport_error::transport_error_slot!(
 // freed endpoint, regardless of drop order.
 struct NetlayerRaw(*mut PancakeIrohNetlayer);
 
-// The pointer is touched by one owner at a time (the public handle's accessors,
-// or the dispatcher's drain), never aliased into a concurrent dereference; the
-// `Arc` only keeps it alive and addresses it by value across threads.
+// SAFETY: sharing `&NetlayerRaw` across threads only exposes reads of the raw
+// pointer *value*, which is trivially safe. Concurrent *FFI use* of the endpoint
+// behind it — the dispatcher's `drain_ready` on the reactor thread versus the
+// public handle's accessors/`close` on a caller thread — is defined because the
+// sidecar endpoint behind `pancake_iroh_netlayer_*` is internally synchronized:
+// iroh's `Endpoint` is `Send + Sync` and the readiness queue is mutex-guarded.
+// The `Arc` only keeps the handle alive and moves its release across threads.
 unsafe impl Send for NetlayerRaw {}
 unsafe impl Sync for NetlayerRaw {}
 
@@ -82,6 +86,27 @@ impl Drop for NetlayerRaw {
 pub struct IrohNetlayer {
 	raw: Arc<NetlayerRaw>,
 	reachability: Reachability,
+}
+
+// Shuts a freshly-started loop down if the `connect_owned` future is dropped
+// before the dial completes. `IrohLoop::run` never returns until `shutdown`, and
+// `IrohLoop` has no `Drop`, so a cancelled dial would otherwise leak the endpoint
+// (a live QUIC socket), the duped readiness fd, and the parked dispatcher task
+// through the task's retained `Arc<IrohLoop>`. Disarmed the instant the dial
+// succeeds and the loop moves into the returned `IrohStream` (whose `Drop` then
+// owns the shutdown). Holds its own `Arc` clone so the loop can still move into
+// the stream while the guard lives out the enclosing scope.
+struct LoopGuard {
+	iloop: Arc<IrohLoop>,
+	armed: bool,
+}
+
+impl Drop for LoopGuard {
+	fn drop(&mut self) {
+		if self.armed {
+			self.iloop.shutdown();
+		}
+	}
 }
 
 impl IrohNetlayer {
@@ -152,7 +177,14 @@ impl IrohNetlayer {
 	/// lifetime (an ephemeral dialing endpoint released with the connection).
 	pub async fn connect_owned(self, node_id: &str, direct_addresses: &str) -> Result<IrohStream> {
 		let iloop = IrohLoop::start(Arc::clone(&self.raw))?;
-		let raw = self.raw.0 as usize;
+		// If this future is dropped (cancelled) while the dial is awaiting, the
+		// guard's `Drop` shuts the loop down so the dispatcher task releases its
+		// endpoint rather than leaking it. The `?` below routes an early dial
+		// failure through the same shutdown, subsuming the old explicit error arm.
+		let mut guard = LoopGuard {
+			iloop: Arc::clone(&iloop),
+			armed: true,
+		};
 		// A posture that resolves by id through a propagating discovery service
 		// (`Discovery` and `DiscoveryNoRelay`) can fail a dial-by-id with "no
 		// addressing information" until the exporter's pkarr record propagates
@@ -160,8 +192,8 @@ impl IrohNetlayer {
 		// posture dials once (Direct's addresses are in hand, LocalDiscovery
 		// resolves instantly). Mirrors the TS `dialResolving` and the Zig
 		// `iroh-reachability` driver.
-		let conn = match dial_resolving(
-			raw,
+		let conn = dial_resolving(
+			self.raw.0 as usize,
 			node_id,
 			direct_addresses,
 			matches!(
@@ -169,14 +201,10 @@ impl IrohNetlayer {
 				Reachability::Discovery | Reachability::DiscoveryNoRelay
 			),
 		)
-		.await
-		{
-			Ok(conn) => conn,
-			Err(e) => {
-				iloop.shutdown();
-				return Err(e);
-			}
-		};
+		.await?;
+		// Dial succeeded: ownership of the loop moves into the returned stream,
+		// whose `Drop` now owns the shutdown, so disarm the cancel guard.
+		guard.armed = false;
 		iloop.register(conn);
 		Ok(IrohStream::new(
 			conn as *mut PancakeIrohConn,

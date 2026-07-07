@@ -149,10 +149,14 @@ pub const OnClose = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque, opened: 
 pub const listen_backlog: u31 = 128;
 
 pub const Options = struct {
-    /// Cap on an accepted frame; should match the peers' `max_frame_bytes`. A
-    /// frame larger than one pool buffer (but within this cap) accumulates in
-    /// the connection's bounded spill while in flight, so per-connection memory
-    /// does not scale with the cap.
+    /// Sizes the shared read-buffer pool (each buffer is `min(frame_cap,
+    /// 16 KiB)`) and defaults the outbound high-water mark. It is not the
+    /// frame-admission cap: the authority for how large an inbound frame may be
+    /// is each peer's own `max_frame_bytes` (what the codec scans against and
+    /// the loop's incomplete-at-cap mirror honors), so a peer configured with a
+    /// larger `max_frame_bytes` than this is served correctly, not aborted. A
+    /// frame larger than one pool buffer accumulates in the connection's bounded
+    /// spill while in flight, so per-connection memory does not scale with it.
     frame_cap: usize = 1 << 16,
     max_conns: usize = 1024,
     /// Backend completion-queue depth hint.
@@ -217,12 +221,10 @@ fn slotOf(ud: u64) usize {
 /// pool's memory is not set by `frame_cap`.
 const loop_read_buf_bytes: usize = 16 * 1024;
 
-/// Outbound queue capacity a drained `front` retains (ADR-0042): capacity past
-/// this is burst from a slow-reader episode and frees on drain, so one episode
-/// never pins its high-water bytes for the connection's life; capacity at or
-/// under it is steady reply traffic and stays, so the steady state never
-/// reallocates.
-const steady_outbound_bytes: usize = 16 * 1024;
+/// Outbound queue capacity a drained `front` retains (ADR-0042). Shared with the
+/// iroh loop in one home so the ladder's per-connection footprint budget cannot
+/// split between them.
+const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 
 /// How recv-completion consumption ended, decided by `onRecvConsume` while
 /// the completion's pool buffer is still borrowed and acted on by
@@ -616,48 +618,17 @@ pub fn Loop(comptime Backend: type) type {
 
             const incoming = comp.recv_bytes orelse &.{};
 
-            // A frame already accumulating in the spill owns every newly
-            // received byte: extend it so the prefix stays contiguous. The
-            // supply stays the spill for this whole completion even if it
-            // drains mid-loop, `incoming` has been absorbed and must not be
-            // re-read.
-            const from_spill = c.spill.isActive();
-            if (from_spill) {
-                c.spill.absorbBytes(self.allocator, incoming) catch return .close;
-            }
-
-            // Apply every whole frame available (the spill while it carries the
-            // prefix, the borrowed completion bytes otherwise). recvStreamPrefix
-            // projects an op:abort for a malformed or oversize frame before
-            // erroring; the fail verdict flushes it, then closes.
-            var offset: usize = 0;
-            while (true) {
-                const supply = if (from_spill) c.spill.bytes() else incoming[offset..];
-                if (supply.len == 0) break;
-                const outcome = c.peer.recvStreamPrefix(supply) catch return .fail;
-                switch (outcome) {
-                    .incomplete => {
-                        // Defensive mirror of the codec's cap-during-scan
-                        // contract (ADR-0029): an incomplete prefix at or past
-                        // the cap can never complete within it.
-                        if (supply.len >= self.frame_cap) return .fail;
-                        break;
-                    },
-                    .consumed => |used| {
-                        if (from_spill) c.spill.consume(self.allocator, used) else offset += used;
-                    },
-                }
-            }
-
-            // A partial frame tail cannot stay in the pool buffer (it is
-            // recycled the moment this returns), so it absorbs into the bounded
-            // spill and waits for the next completion. This is the one bounded
-            // copy a frame split across recv boundaries pays (ADR-0054).
-            if (!from_spill and offset < incoming.len) {
-                c.spill.absorbBytes(self.allocator, incoming[offset..]) catch return .close;
-            }
-
-            return .proceed;
+            // Apply every whole frame in this completion's bytes, carrying a
+            // partial tail into the connection's spill. recvStreamPrefix projects
+            // an op:abort for a malformed or oversize frame before erroring; the
+            // .fail verdict flushes it, then closes. The drain, its cap mirror,
+            // and the tail-to-spill copy are shared with the iroh loop in
+            // `frame_stream.drainWholeFrames`, so the two cannot drift.
+            return switch (frame_stream.drainWholeFrames(&c.peer, &c.spill, incoming, self.allocator)) {
+                .ok => .proceed,
+                .fail => .fail,
+                .close => .close,
+            };
         }
 
         /// Act on `onRecvConsume`'s verdict, after the completion's pool

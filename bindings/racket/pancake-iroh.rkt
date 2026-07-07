@@ -56,24 +56,34 @@
 ;; iroh archive's own last-error rather than the unrelated ocapn-family one.
 (define (check/iroh code) (check-with code iroh-last-error))
 
+;; The iroh endpoint handle, wrapped in a mutable struct the way the TCP netlayer
+;; is (`pancake-tcp.rkt`'s `(struct netlayer (handle) #:mutable)`). Wrapping lets
+;; close/release null the handle and stay idempotent, so a finalizer fallback can
+;; release the endpoint (and its OS fd) when the caller drops the owner without an
+;; explicit close, exactly the release-fallback parity every other handle in this
+;; binding already has (ADR-0057's loop still roots the live netlayer through
+;; `lp`, so no weak box is involved — the fallback rides the owner wrappers the
+;; loop thread does not root).
+(struct iroh-netlayer (handle) #:mutable)
+
 ;; `reachability` is required, an IROH-REACH-* posture, no default.
 (define (iroh-netlayer-new reachability)
   (define-values (rc h) ((iroh-fn 'netlayer-new) #f 0 reachability)) ; #f/0 secret seed = a fresh random key
   (check/iroh rc)
-  h)
+  (iroh-netlayer h))
 
-(define (iroh-netlayer-node-id h)
+(define (iroh-netlayer-node-id nl)
   (define buf (make-bytes 64)) ; an endpoint id is 64 lowercase-hex bytes
-  (define-values (rc len) ((iroh-fn 'node-id) h buf 64))
+  (define-values (rc len) ((iroh-fn 'node-id) (iroh-netlayer-handle nl) buf 64))
   (check/iroh rc)
   (bytes->string/utf-8 (subbytes buf 0 len)))
 
-(define (iroh-netlayer-direct-addresses h)
+(define (iroh-netlayer-direct-addresses nl)
   ;; A buffer too small is ERR-INVALID-ARGUMENT; grow until the comma-separated
   ;; hint string fits (loopback hints are short, but be safe).
   (let loop ([cap 256])
     (define buf (make-bytes cap))
-    (define-values (rc len) ((iroh-fn 'direct-addrs) h buf cap))
+    (define-values (rc len) ((iroh-fn 'direct-addrs) (iroh-netlayer-handle nl) buf cap))
     (cond
       [(and (= rc ERR-INVALID-ARGUMENT) (< cap (* 64 1024))) (loop (* cap 4))]
       [else (check/iroh rc) (bytes->string/utf-8 (subbytes buf 0 len))])))
@@ -82,17 +92,26 @@
 ;; the returned connection is driven by the netlayer's readiness loop, so its
 ;; reads and writes never park a thread. Pin the borrowed inputs in immobile
 ;; memory, the call may run while the GC moves Racket-managed blocks.
-(define (iroh-netlayer-try-connect h node-id hints)
+(define (iroh-netlayer-try-connect nl node-id hints)
   (define nb (string->bytes/utf-8 node-id))
   (define hb (string->bytes/utf-8 hints))
   (define nbuf (pin-immobile nb))
   (define hbuf (pin-immobile hb))
-  (define-values (rc conn) ((iroh-fn 'try-connect) h nbuf (bytes-length nb) hbuf (bytes-length hb)))
+  (define-values (rc conn) ((iroh-fn 'try-connect) (iroh-netlayer-handle nl) nbuf (bytes-length nb) hbuf (bytes-length hb)))
   (check/iroh rc)
   conn)
 
-(define (iroh-netlayer-close! h) ((iroh-fn 'netlayer-close) h))
-(define (iroh-netlayer-release! h) ((iroh-fn 'netlayer-release) h))
+;; Close then release the endpoint, nulling the handle FIRST so a second teardown
+;; — an explicit close racing the finalizer, or the reverse — sees #f and does
+;; nothing, never a double close or double release. The caller must have stopped
+;; the readiness loop first (`loop-stop!` joins its thread), so no foreign call
+;; still touches the endpoint when this runs.
+(define (iroh-netlayer-close/release! nl)
+  (define h (iroh-netlayer-handle nl))
+  (when h
+    (set-iroh-netlayer-handle! nl #f)
+    ((iroh-fn 'netlayer-close) h)
+    ((iroh-fn 'netlayer-release) h)))
 
 ;; ── the iroh readiness loop (ADR-0057) ────────────────────────────────────────
 ;; The Racket sibling of the Deno binding's `IrohLoop`, the Python binding's
@@ -179,7 +198,7 @@
 (define (loop-drain! lp)
   (define buf (iroh-loop-buf lp))
   (let drain ()
-    (define n ((iroh-fn 'drain-ready) (iroh-loop-netlayer lp) buf DRAIN-READY-CAP))
+    (define n ((iroh-fn 'drain-ready) (iroh-netlayer-handle (iroh-loop-netlayer lp)) buf DRAIN-READY-CAP))
     (cond
       [(< n 0) #f]
       [(= n 0) #t]
@@ -195,7 +214,7 @@
 ;; place's poller and posts the semaphore when it is readable — so the thread
 ;; truly sleeps without freezing the place.
 (define (loop-run lp)
-  (define fd ((iroh-fn 'readiness-fd) (iroh-loop-netlayer lp)))
+  (define fd ((iroh-fn 'readiness-fd) (iroh-netlayer-handle (iroh-loop-netlayer lp))))
   ;; The netlayer arms the loop at construction, so the readiness fd is always a
   ;; live, pollable handle (a non-blocking socketpair end). A negative fd or an fd
   ;; rktio cannot register is a broken invariant, not a transient state — so it is
@@ -277,15 +296,20 @@
    ;; close!: drop the routing entry (waking any parked waiter), release the
    ;; connection, and — for the dialer's owned loop — stop the loop and release
    ;; the ephemeral netlayer, in that order, so no foreign call touches the
-   ;; endpoint after it is freed.
-   (lambda ()
-     (loop-unregister! lp conn)
-     ((iroh-fn 'conn-release) conn)
-     (when owns-loop?
-       (loop-stop! lp)
-       (when owned-netlayer
-         (iroh-netlayer-close! owned-netlayer)
-         (iroh-netlayer-release! owned-netlayer))))))
+   ;; endpoint after it is freed. Idempotent through a `closed?` guard so it is
+   ;; harmless when the finalizer fallback runs after an explicit
+   ;; `connection-close!` (or vice versa) — `conn-release` in particular must not
+   ;; run twice.
+   (let ([closed? (box #f)])
+     (lambda ()
+       (unless (unbox closed?)
+         (set-box! closed? #t)
+         (loop-unregister! lp conn)
+         ((iroh-fn 'conn-release) conn)
+         (when owns-loop?
+           (loop-stop! lp)
+           (when owned-netlayer
+             (iroh-netlayer-close/release! owned-netlayer))))))))
 
 ;; ── dial ─────────────────────────────────────────────────────────────────────
 ;; The iroh dial behind the core's `connect`: take an endpoint id and
@@ -342,14 +366,25 @@
     (define lp (make-iroh-loop netlayer))
     (define conn
       (with-handlers ([(lambda (_) #t)
-                       (lambda (e) (loop-stop! lp) (iroh-netlayer-release! netlayer) (raise e))])
+                       (lambda (e) (loop-stop! lp) (iroh-netlayer-close/release! netlayer) (raise e))])
         (dial-resolving netlayer node-id direct-addresses
                         (or (= reachability IROH-REACH-DISCOVERY)
                             (= reachability IROH-REACH-DISCOVERY-NO-RELAY)))))
     (loop-register! lp conn)
-    (define ac (async-connection/transport peer (iroh-loop-transport lp conn netlayer #t)))
+    (define transport (iroh-loop-transport lp conn netlayer #t))
+    (define ac (async-connection/transport peer transport))
     (open-keyed-session! ac "" #:transport "iroh" #:seed (node-seed m))
-    (build-connection ac peer m conn-id)))
+    (define c (build-connection ac peer m conn-id))
+    ;; Release fallback: the dialer owns its ephemeral netlayer, readiness loop
+    ;; thread, and connection. If the caller drops `c` without an explicit
+    ;; `connection-close!`, run the transport's (idempotent) close lambda — the
+    ;; same teardown that stops the loop thread and releases the endpoint fd. The
+    ;; loop thread roots only `lp`, never `c` or its `transport`, so `c` stays
+    ;; collectable and this fires; the close guard makes it harmless after an
+    ;; explicit close. Capturing `transport` (not `c`) keeps the finalizer from
+    ;; rooting the very object whose collection triggers it.
+    (register-finalizer c (lambda (_) ((async-transport-close! transport))))
+    c))
 
 ;; ── host ─────────────────────────────────────────────────────────────────────
 ;; `node` is the one node shared by every connection this server
@@ -367,7 +402,14 @@
 (define (listen-iroh reachability)
   (define nl (iroh-netlayer-new reachability))
   (define lp (make-iroh-loop nl))
-  (iroh-server nl (iroh-netlayer-node-id nl) lp (make-fresh-node)))
+  (define s (iroh-server nl (iroh-netlayer-node-id nl) lp (make-fresh-node)))
+  ;; Release fallback: if the caller drops the server without `iroh-server-close!`,
+  ;; the finalizer stops the readiness loop thread (a live GC root that would
+  ;; otherwise pin the whole graph forever) and releases the endpoint fd. The loop
+  ;; thread roots only `lp`, never `s`, so `s` stays collectable and this fires;
+  ;; `iroh-server-close!` is idempotent, so it is harmless after an explicit close.
+  (register-finalizer s (lambda (q) (iroh-server-close! q)))
+  s)
 
 ;; This endpoint's direct-address hints (comma-separated), the dialable
 ;; addresses with no relay, valid on loopback/LAN.
@@ -380,7 +422,7 @@
 (define (iroh-server-accept s)
   (define lp (iroh-server-loop s))
   (let loop ()
-    (define-values (rc conn) ((iroh-fn 'try-accept) (iroh-server-netlayer s)))
+    (define-values (rc conn) ((iroh-fn 'try-accept) (iroh-netlayer-handle (iroh-server-netlayer s))))
     (cond
       [(= rc OK)
        (define m (iroh-server-node s))
@@ -408,5 +450,4 @@
 ;; `connection-close!`.
 (define (iroh-server-close! s)
   (loop-stop! (iroh-server-loop s))
-  (iroh-netlayer-close! (iroh-server-netlayer s))
-  (iroh-netlayer-release! (iroh-server-netlayer s)))
+  (iroh-netlayer-close/release! (iroh-server-netlayer s)))

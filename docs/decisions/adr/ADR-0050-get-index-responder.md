@@ -48,7 +48,7 @@ have been refused as unknown.
   translation applies unchanged (no resolver means the stored resolution feeds
   `op:listen`, which is how Goblins consumes it).
 - **No recursion, two bounds.** Encode deferral makes the drain iterative: a
-  projected resolve is _queued_, never recursed, so projections-on- projections
+  projected resolve is _queued_, never recursed, so projections-on-projections
   settle one step at a time and total work is bounded by what the caps admitted.
   The one synchronous walk — following _stored_ resolutions that are themselves
   promises, for a late op against a settled chain — is hop-bounded by

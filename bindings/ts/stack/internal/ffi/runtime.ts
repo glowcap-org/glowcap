@@ -116,8 +116,9 @@ export interface RuntimeAdapter {
 	net: RuntimeNet;
 }
 
-// deno-lint-ignore no-explicit-any
-const g = globalThis as any;
+// The two runtime globals this binding probes for. Bun and Deno each expose a
+// namesake global; Node has neither, so it is the fall-through.
+const g = globalThis as { Bun?: unknown; Deno?: { dlopen?: unknown } };
 
 /** The detected host runtime. Bun and Deno each expose a namesake global; Node
  * is the fall-through. */

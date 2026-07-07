@@ -147,6 +147,73 @@ test "a Struct with duplicate keys is refused on the live view path" {
     try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, view));
 }
 
+test "the Cap'n Proto encoder refuses a Set carrying a duplicate element" {
+    // Symmetric with the Syrup codec and the duplicate-key struct: a set's
+    // elements are unique, so a model with two equal elements is refused at
+    // encode with UnsupportedArgument rather than emitted.
+    const allocator = std.testing.allocator;
+    const dup = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 1 } };
+    const args = [_]model.Argument{.{ .set = dup[0..] }};
+    try std.testing.expectError(capnp.Error.UnsupportedArgument, capnp.encodeMessage(allocator, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &args,
+        .answer = .from(3),
+        .resolve_me_desc = null,
+    } }));
+}
+
+test "the Cap'n Proto encoder refuses a Struct carrying a duplicate key" {
+    // Symmetric refusal (ADR-0003): the decoder rejects a duplicate-key struct,
+    // so the encoder must not emit one. A model built with two "a" entries is
+    // refused at encode with UnsupportedArgument rather than shipped as a frame
+    // the partner would reject remotely.
+    const allocator = std.testing.allocator;
+    const entries = [_]model.StructEntry{
+        .{ .key = "a", .value = .{ .integer = 1 } },
+        .{ .key = "a", .value = .{ .integer = 2 } },
+    };
+    const args = [_]model.Argument{.{ .@"struct" = entries[0..] }};
+    try std.testing.expectError(capnp.Error.UnsupportedArgument, capnp.encodeMessage(allocator, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &args,
+        .answer = .from(3),
+        .resolve_me_desc = null,
+    } }));
+}
+
+test "a Struct with descending keys is refused: decode requires the encoder's ascending order" {
+    const allocator = std.testing.allocator;
+
+    // pancake's capnp encoder emits struct keys sorted ascending by raw bytes
+    // (`canonicalStructOrder`), so decode requires strictly ascending keys —
+    // one comparison per key, not an all-pairs scan an attacker could drive to
+    // n². A distinct-but-descending pair is non-canonical and refused, exactly
+    // as a duplicate is (equal is also not strictly ascending). Here the
+    // encoder produces [k1, k2]; patching k1 -> k3 leaves [k3, k2], descending.
+    const entries = [_]model.StructEntry{
+        .{ .key = "k1", .value = .{ .integer = 1 } },
+        .{ .key = "k2", .value = .{ .integer = 2 } },
+    };
+    const args = [_]model.Argument{.{ .@"struct" = entries[0..] }};
+    var frame = try capnp.encodeMessage(allocator, .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(7) },
+        .args = &args,
+        .answer = .from(3),
+        .resolve_me_desc = null,
+    } });
+    defer frame.deinit();
+
+    const buf = try allocator.dupe(u8, frame.bytes());
+    defer allocator.free(buf);
+    const first_key = std.mem.indexOf(u8, buf, "k1") orelse return error.TestUnexpectedResult;
+    @memcpy(buf[first_key .. first_key + 2], "k3");
+    const view = pancake.foundation.FrameView{ .bytes = buf, .shape = .word };
+
+    const body = try capnp.decodeBody(view);
+    try std.testing.expectError(error.MalformedView, body.deliver.args.at(0));
+    try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, view));
+}
+
 test "a big integer argument round-trips through the Cap'n Proto codec" {
     const allocator = std.testing.allocator;
 

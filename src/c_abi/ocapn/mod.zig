@@ -165,7 +165,8 @@ pub const PANCAKE_REDEEMED_TOKEN_BASE: u64 = engine.Node.REDEEMED_TOKEN_BASE;
 /// One action from the node's serve step, filled by
 /// `pancake_node_next_action`. `kind` selects the live fields; the `locator`
 /// and `reason` views are node-owned and valid until the next
-/// `pancake_node_next_action` call (or node free) — copy what outlives that.
+/// `pancake_node_next_action` call (or `pancake_node_release`); copy what
+/// outlives that.
 pub const PancakeNodeAction = extern struct {
     kind: u32,
     /// `_DIAL`: the ticket `pancake_node_exporter_dialed` / `_dial_failed`
@@ -460,7 +461,7 @@ pub const pancake_peer_send_deposit_gift = peer.pancake_peer_send_deposit_gift;
 pub const pancake_peer_send_resolve_handoff_give = peer.pancake_peer_send_resolve_handoff_give;
 pub const pancake_node_new = node.pancake_node_new;
 pub const pancake_node_new_in = node.pancake_node_new_in;
-pub const pancake_node_free = node.pancake_node_free;
+pub const pancake_node_release = node.pancake_node_release;
 pub const pancake_node_register_conn = node.pancake_node_register_conn;
 pub const pancake_node_remove_conn = node.pancake_node_remove_conn;
 pub const pancake_node_route = node.pancake_node_route;

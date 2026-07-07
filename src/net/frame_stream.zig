@@ -31,6 +31,16 @@ const engine = @import("engine");
 
 const Stream = std.Io.net.Stream;
 
+/// The per-connection outbound-queue capacity a drained queue retains (ADR-0042).
+/// Capacity past this is burst from a slow-reader episode and frees on drain, so
+/// one episode never pins its high-water bytes for the connection's life;
+/// capacity at or under it is steady reply traffic and stays, so the steady state
+/// never reallocates. Both readiness loops — the TCP completion `Loop` and the
+/// iroh `LoopHost` — honor the same bound, so it lives here in one place: it is a
+/// per-connection footprint number the ladder's 500k-connection budget owns, and
+/// a divergence between the two loops would silently split that budget.
+pub const steady_outbound_bytes: usize = 16 * 1024;
+
 /// Outcome of reading one frame off the stream. A malformed / oversize frame is
 /// a transport-fatal condition here (there is no session to project an abort
 /// onto — that is the host peer's job once the frame is fed in); the concrete
@@ -236,6 +246,70 @@ pub fn readFrameFrom(
             .closed => return error.Closed,
         }
     }
+}
+
+/// The verdict of draining whole frames from one received chunk.
+pub const DrainVerdict = enum {
+    /// Every whole frame applied; any partial tail is now in the spill.
+    ok,
+    /// A frame was malformed or oversize. The peer has already queued an
+    /// `op:abort` to flush before the connection closes.
+    fail,
+    /// A spill allocation failed; close the connection.
+    close,
+};
+
+/// Apply every whole frame in `chunk` to `peer`, carrying a partial frame tail
+/// into `spill` so the next chunk continues it. This is the one inbound drain
+/// both readiness loops run — the TCP completion loop over recycled pool buffers
+/// and the iroh loop over sidecar `try_read` chunks — so the frame-boundary,
+/// cap-mirror, and spill handling live in a single place and cannot drift.
+///
+/// A frame already accumulating in the spill absorbs `chunk` and stays the decode
+/// prefix; otherwise whole frames apply straight from the borrowed `chunk` and
+/// only a trailing partial frame copies into the spill (the one bounded copy a
+/// frame split across chunk boundaries pays, ADR-0054). The cap is read from the
+/// peer's own `max_frame_bytes` — the same authority the codec scans against — so
+/// neither loop can pass a divergent cap.
+pub fn drainWholeFrames(
+    peer: *engine.Peer,
+    spill: *Spill,
+    chunk: []const u8,
+    allocator: std.mem.Allocator,
+) DrainVerdict {
+    // A frame already in the spill owns every newly received byte: extend it so
+    // the prefix stays contiguous. The supply then stays the spill for this whole
+    // call even if it drains mid-loop, `chunk` has been absorbed and must not be
+    // re-read.
+    const from_spill = spill.isActive();
+    if (from_spill) spill.absorbBytes(allocator, chunk) catch return .close;
+    var offset: usize = 0;
+    while (true) {
+        const supply = if (from_spill) spill.bytes() else chunk[offset..];
+        if (supply.len == 0) break;
+        const outcome = peer.recvStreamPrefix(supply) catch return .fail;
+        switch (outcome) {
+            .incomplete => {
+                // Defensive mirror of the codec's cap-during-scan contract
+                // (ADR-0029): an incomplete prefix at or past the cap can never
+                // complete within it, so a codec that failed to refuse it fails
+                // closed here instead of growing the spill.
+                if (supply.len >= peer.session_state.limits.max_frame_bytes) return .fail;
+                break;
+            },
+            .consumed => |used| {
+                if (from_spill) spill.consume(allocator, used) else offset += used;
+            },
+        }
+    }
+    // A partial frame tail cannot stay in the caller's buffer (a pool buffer is
+    // recycled the moment the completion returns; a `try_read` chunk is
+    // transient), so it absorbs into the bounded spill and waits for the next
+    // chunk.
+    if (!from_spill and offset < chunk.len) {
+        spill.absorbBytes(allocator, chunk[offset..]) catch return .close;
+    }
+    return .ok;
 }
 
 /// Write one frame's bytes and flush. `bytes` are borrowed for the call.

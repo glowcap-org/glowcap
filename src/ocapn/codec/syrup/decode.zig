@@ -326,9 +326,34 @@ fn sliceArgumentListNeutral(bytes: []const u8, cursor: *usize, depth: usize, lim
     return sliceSequenceNeutral(bytes, cursor, depth, limit, '[', ']');
 }
 
-/// Slice a `# … $` set body, advancing `cursor` past the closing `$`.
+/// Slice a `# … $` set body, advancing `cursor` past the closing `$`. Unlike an
+/// argument list, a set is unordered and its elements are unique, so the wire
+/// form is canonical only in strictly-ascending encoded-element order — the same
+/// rule `sliceStructNeutral` enforces on keys, and the encode-side partner of
+/// `writeCanonicalSet`, which sorts elements by their encoding. Syrup encodings
+/// are self-delimiting and therefore prefix-free, so a non-ascending element is a
+/// non-canonical spelling and an equal element is a duplicate; both are refused
+/// `MalformedFrame` here rather than admitted as a second spelling of one set.
 fn sliceSetNeutral(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error![]const u8 {
-    return sliceSequenceNeutral(bytes, cursor, depth, limit, '#', '$');
+    try readByte(bytes, cursor, '#');
+    const body_start = cursor.*;
+    var previous_element: ?[]const u8 = null;
+    var elements: usize = 0;
+    while (cursor.* < bytes.len and bytes[cursor.*] != '$') {
+        elements += 1;
+        if (elements > max_collection_elements) return Error.MalformedFrame;
+        const element_start = cursor.*;
+        _ = try readNeutralArgument(bytes, cursor, depth, limit);
+        const element = bytes[element_start..cursor.*];
+        if (previous_element) |previous| {
+            if (std.mem.order(u8, previous, element) != .lt) return Error.MalformedFrame;
+        }
+        previous_element = element;
+    }
+    if (cursor.* >= bytes.len) return Error.Incomplete;
+    const body = bytes[body_start..cursor.*];
+    cursor.* += 1;
+    return body;
 }
 
 /// Slice a `{ … }` dictionary body (between the braces) into the bytes the lazy

@@ -66,8 +66,12 @@
 //!     next turn can mutate it, so the snapshot's copy is never touched.
 //!   * **Persistent + `become`.** An actor that declares `pub const
 //!     snapshot_persistent = true;` never mutates `self`; it produces its next
-//!     state with `Turn.become`. Because the value is never mutated in place, the
-//!     snapshot can share it with no copy-on-write — full Goblins parity.
+//!     state with `Turn.become`. Its `handle` receives `self: *const @This()`, so
+//!     an accidental `self.field = x` fails to compile rather than writing through
+//!     the pointer a live snapshot shares (shallow immutability: an interior
+//!     pointer the actor owns is still its own to keep unmutated). Because the
+//!     value is never mutated in place, the snapshot shares it with no
+//!     copy-on-write — full Goblins parity.
 //! An actor that is neither cloneable nor persistent makes `snapshot` fail with
 //! `NotSnapshottable`, so a silent partial snapshot is impossible.
 //!
@@ -238,11 +242,24 @@ const StateBox = struct {
     persistent: bool,
 };
 
-/// One actor slot in the vat's heap: a single owning reference to a `StateBox`.
-const Cell = struct { box: *StateBox };
+/// One actor slot in the vat's heap: a single owning reference to a `StateBox`,
+/// plus the bookkeeping that keeps a `become` safe under reentrant near-calls.
+const Cell = struct {
+    box: *StateBox,
+    /// Frames currently executing this actor. Near-calls can re-enter the same
+    /// actor (a handler near-calls itself, directly or through a cycle), so this
+    /// nests. A staged `become` installs only when it returns to zero, so the
+    /// box an outer frame still holds as `self` is never freed under it.
+    running: u32 = 0,
+    /// The next state box, promoted here by a frame that returned successfully
+    /// and installed when `running` reaches zero. Last write wins across the
+    /// frames of one reentrant run, matching Goblins's last-`bcom`-wins.
+    pending_become: ?*StateBox = null,
+};
 
-/// A staged `Turn.become`: the next state box, installed when the turn frame
-/// returns successfully and discarded if the handler errors.
+/// A staged `Turn.become`: the next state box, held on the turn until the frame
+/// returns. On success it is promoted onto the actor's `Cell`; on a handler
+/// error it is discarded, so a failed turn leaves the actor unchanged.
 const PendingBecome = struct { id: u64, box: *StateBox };
 
 /// Release one reference to `box`, freeing its state and the box itself when the
@@ -323,10 +340,12 @@ pub const Turn = struct {
     /// Functional "become" for a persistent actor (mirrors Goblins `bcom`): stage
     /// `next` as this actor's state. The new value is installed when this turn
     /// frame returns successfully and discarded if the handler errors, so a failed
-    /// turn leaves the actor unchanged. A persistent actor never mutates its
-    /// `self`; it calls `become` instead, which is why a snapshot can share its
-    /// state with no copy-on-write. Calling it twice in one turn keeps the last
-    /// value. Legal only for a local self-ref.
+    /// turn leaves the actor unchanged. If the frame is a reentrant near-call into
+    /// an actor already running an outer frame, the install waits for that outer
+    /// frame, so the box the outer frame holds as `self` is never freed under it.
+    /// A persistent actor never mutates its `self`; it calls `become` instead,
+    /// which is why a snapshot can share its state with no copy-on-write. Calling
+    /// it twice in one turn keeps the last value. Legal only for a local self-ref.
     pub fn become(self: *Turn, comptime Behavior: type, next: Behavior) Error!void {
         return self.vat.stageBecome(self, Behavior, next);
     }
@@ -386,6 +405,10 @@ pub const Vat = struct {
     resolve_interceptor: ?ResolveInterceptor = null,
     actors: std.AutoHashMapUnmanaged(u64, Cell) = .{},
     queue: std.ArrayList(Queued) = .empty,
+    /// The drain cursor into `queue`, shared across nested drives so a listener
+    /// that opens a re-entrant drive continues where the outer left off instead
+    /// of re-running already-executed turns. Only the outermost drive resets it.
+    queue_head: usize = 0,
     listeners: std.AutoHashMapUnmanaged(u64, Listener) = .{},
     /// Listener for a far send's promise, keyed by outbound answer position.
     far_listeners: std.AutoHashMapUnmanaged(model.AnswerId, Listener) = .{},
@@ -437,14 +460,40 @@ pub const Vat = struct {
 
     pub fn deinit(self: *Vat) void {
         var it = self.actors.valueIterator();
-        while (it.next()) |cell| releaseBox(self.allocator, cell.box);
+        while (it.next()) |cell| {
+            // A become promoted by the last frame but never installed (a vat torn
+            // down mid-run) still owns its box.
+            if (cell.pending_become) |box| releaseBox(self.allocator, box);
+            releaseBox(self.allocator, cell.box);
+        }
         self.actors.deinit(self.allocator);
         self.queue.deinit(self.allocator);
+        // Reclaim only the listener contexts the vat itself allocated, keyed by
+        // function-pointer identity: a local `forward` heap-allocates a
+        // `ForwardContext` whose only free path is the listener firing, which a
+        // never-drained queue at teardown skips. Every other listener context is
+        // caller-owned (an `on` caller's stack state), so it must be left alone.
+        self.freeOwnedForwardContexts(&self.listeners);
+        self.freeOwnedForwardContexts(&self.far_listeners);
         self.listeners.deinit(self.allocator);
         self.far_listeners.deinit(self.allocator);
         self.exports.deinit(self.allocator);
         self.turn_arena.deinit();
         self.queue_arena.deinit();
+    }
+
+    /// Free the vat-owned `ForwardContext` behind every `forwardListener` entry
+    /// in `map`, identified by function-pointer identity so caller-owned listener
+    /// contexts are never touched. A fired listener removes its entry, so only
+    /// unfired forwards remain here, making a double-free impossible.
+    fn freeOwnedForwardContexts(self: *Vat, map: anytype) void {
+        var it = map.valueIterator();
+        while (it.next()) |listener| {
+            if (listener.func == forwardListener) {
+                const fc: *ForwardContext = @ptrCast(@alignCast(listener.ctx.?));
+                self.allocator.destroy(fc);
+            }
+        }
     }
 
     /// Allocate a fresh `StateBox` (`refs = 1`) owning a heap copy of `initial`,
@@ -454,6 +503,17 @@ pub const Vat = struct {
     fn makeBox(self: *Vat, comptime Behavior: type, initial: Behavior) Error!*StateBox {
         const Glue = struct {
             fn handle(erased: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
+                // A persistent actor never mutates `self` (that is why a snapshot
+                // may share its state with no copy-on-write), so it is dispatched
+                // through a `*const` receiver: the ordinary `self.field = x` then
+                // fails to compile instead of silently writing through the pointer
+                // a live snapshot shares. This enforces shallow immutability only;
+                // a persistent actor still must not mutate through an interior
+                // pointer it owns, which `*const self` cannot reach.
+                if (comptime behaviorIsPersistent(Behavior)) {
+                    const behavior: *const Behavior = @ptrCast(@alignCast(erased));
+                    return behavior.handle(turn, msg);
+                }
                 const behavior: *Behavior = @ptrCast(@alignCast(erased));
                 return behavior.handle(turn, msg);
             }
@@ -475,7 +535,14 @@ pub const Vat = struct {
             }
         };
 
-        const state = try self.allocator.create(Behavior);
+        const state = self.allocator.create(Behavior) catch |e| {
+            // `initial` was never moved into heap state, but the contract still
+            // promises its resources are reclaimed. `initial` is a by-value
+            // parameter, so take a mutable local to reach its `deinit`.
+            var orphan = initial;
+            if (@hasDecl(Behavior, "deinit")) orphan.deinit(self.allocator);
+            return e;
+        };
         // Move `initial` into the heap state *before* the next fallible step, so
         // the failure path's `deinit` reclaims a fully-formed value (the doc
         // contract) rather than reading uninitialized memory.
@@ -577,11 +644,16 @@ pub const Vat = struct {
         // Read the box pointer out before the handler runs: a handler may spawn,
         // which can resize `actors` and invalidate `cell`.
         const box = cell.box;
+        cell.running += 1;
         const arena = self.beginTurn();
         defer self.endTurn();
+        // Install any promoted `become` only when this actor's outermost frame
+        // unwinds, so a reentrant inner become never frees the box the outer
+        // frame is still running as `self`.
+        defer self.finishCellRun(id);
         var turn = Turn{ .vat = self, .self_ref = .{ .local = id }, .arena = arena, .near_call = true };
         if (box.handle(box.ptr, &turn, msg)) |value| {
-            if (turn.pending_become) |pending| self.installBecome(pending);
+            if (turn.pending_become) |pending| self.promoteBecome(pending);
             return value;
         } else |err| {
             if (turn.pending_become) |pending| releaseBox(self.allocator, pending.box);
@@ -601,17 +673,34 @@ pub const Vat = struct {
         turn.pending_become = .{ .id = id, .box = box };
     }
 
-    /// Install a staged become: swap the actor's live box for the new one,
-    /// releasing the old live reference (a snapshot that shares it keeps it alive).
-    fn installBecome(self: *Vat, pending: PendingBecome) void {
+    /// Promote a successful frame's staged become onto the actor's `Cell`, to be
+    /// installed when the actor's outermost running frame unwinds. Last write
+    /// wins across the frames of one reentrant run: an earlier promoted box that
+    /// never installed is released here.
+    fn promoteBecome(self: *Vat, pending: PendingBecome) void {
         const cell = self.actors.getPtr(pending.id) orelse {
             // The actor vanished mid-turn (it cannot, today — a running actor is
             // never removed — but keep the release total rather than leak).
             releaseBox(self.allocator, pending.box);
             return;
         };
+        if (cell.pending_become) |prev| releaseBox(self.allocator, prev);
+        cell.pending_become = pending.box;
+    }
+
+    /// End one frame of an actor's reentrant run. When the last frame unwinds,
+    /// install any promoted `become`: swap the actor's live box for the new one,
+    /// releasing the old live reference (a snapshot that shares it keeps it
+    /// alive). Deferring the swap to zero depth is what keeps a running outer
+    /// frame's `self` valid across a reentrant inner become.
+    fn finishCellRun(self: *Vat, id: u64) void {
+        const cell = self.actors.getPtr(id) orelse return;
+        cell.running -= 1;
+        if (cell.running != 0) return;
+        const next = cell.pending_become orelse return;
+        cell.pending_become = null;
         releaseBox(self.allocator, cell.box);
-        cell.box = pending.box;
+        cell.box = next;
     }
 
     /// The eventual send (`<-`): location-transparent. A local target queues a
@@ -828,7 +917,7 @@ pub const Vat = struct {
     }
 
     /// The local `Ref` bound to wire export `position`, or null when no actor is
-    /// exported there, the inverse of `bindExport`'s position → actor map. A
+    /// exported there, the inverse of `bindExport`'s position-to-actor map. A
     /// surface that receives a near reference (which names an object by its wire
     /// export position, not its vat-local actor id) resolves it through here so a
     /// position is never mistaken for an actor id; `Vat.serve` resolves an inbound
@@ -902,18 +991,26 @@ pub const Vat = struct {
     pub fn drive(self: *Vat) Error!void {
         self.drive_depth += 1;
         defer self.drive_depth -= 1;
-        var index: usize = 0;
-        while (index < self.queue.items.len) {
-            const queued = self.queue.items[index];
-            index += 1;
+        // The cursor lives on the vat, not the stack: a listener firing inside
+        // `settleLocal` may open a nested drive, and it must continue past the
+        // turns already run rather than restart at zero and execute them twice.
+        while (self.queue_head < self.queue.items.len) {
+            const queued = self.queue.items[self.queue_head];
+            self.queue_head += 1;
             const resolution: Resolution = if (self.callLocal(queued.target, queued.msg)) |value|
                 .{ .fulfilled = value }
             else |err|
                 .{ .broken = @errorName(err) };
             try self.settleLocal(queued.promise, resolution);
         }
-        self.queue.clearRetainingCapacity();
-        if (self.drive_depth == 1) _ = self.queue_arena.reset(.retain_capacity);
+        // Only the outermost drive empties the queue and reclaims its arena; a
+        // nested drive leaves both for the outer to finish, since its own
+        // returns unwind back into the outer's loop.
+        if (self.drive_depth == 1) {
+            self.queue.clearRetainingCapacity();
+            self.queue_head = 0;
+            _ = self.queue_arena.reset(.retain_capacity);
+        }
     }
 
     /// Dispatch one inbound peer event: a deliver to a published actor runs its
@@ -941,62 +1038,76 @@ pub const Vat = struct {
                     }
                     break :blk @as(?model.AnswerId, null);
                 } else null;
-                const reply = reply: {
-                    // The depth and actor checks run before the turn opens,
-                    // ordered exactly as `callLocal` orders them, so a refusal
-                    // never resets the arena.
-                    if (self.turn_depth >= max_near_call_depth) {
-                        try self.resolveBreak(answer, @errorName(Error.NearCallTooDeep));
-                        return true;
-                    }
-                    const cell = self.actors.getPtr(local_id) orelse {
-                        try self.resolveBreak(answer, @errorName(Error.NoSuchActor));
-                        return true;
-                    };
-                    // Copy-on-write a shared box before the inbound turn can
-                    // mutate it, ordered with the checks above so a refusal
-                    // never resets the arena.
-                    try self.ensureUnshared(cell);
-                    const box = cell.box;
-                    // Materialize the borrowed wire args *inside* the turn
-                    // window: `beginTurn`'s depth-0 reset has already run, so
-                    // the args land in the turn arena and the next outermost
-                    // turn's reset reclaims them — bump-and-reset instead of a
-                    // per-event allocate/free walk on the vat allocator. The
-                    // handler contract is already turn-scoped (module header),
-                    // so nothing may retain them past this window anyway; the
-                    // reply (which may alias the args) stays valid until the
-                    // next outermost turn, exactly as documented.
-                    const arena = self.beginTurn();
-                    defer self.endTurn();
-                    const args = try deliver.args.toOwnedSlice(arena);
-                    var turn = Turn{ .vat = self, .self_ref = .{ .local = local_id }, .arena = arena, .inbound_answer = answer };
-                    if (box.handle(box.ptr, &turn, messageFor(args))) |value| {
-                        if (turn.pending_become) |pending| self.installBecome(pending);
-                        // A forwarding actor handed its answer to another send's
-                        // promise; that promise resolves it, not this return.
-                        if (turn.forwarded) return true;
-                        break :reply value;
-                    } else |err| {
-                        if (turn.pending_become) |pending| releaseBox(self.allocator, pending.box);
-                        try self.resolveBreak(answer, @errorName(err));
-                        return true;
-                    }
-                };
-                if (self.resolve_interceptor) |interceptor| {
-                    if (answer) |ans| {
-                        const claimed = interceptor.func(interceptor.ctx, ans, reply) catch |err| {
-                            try self.resolveBreak(answer, @errorName(err));
-                            return true;
-                        };
-                        if (claimed) return true;
-                    }
+                // The depth and actor checks run before the turn opens, ordered
+                // exactly as `callLocal` orders them, so a refusal never resets
+                // the arena or marks a frame running.
+                if (self.turn_depth >= max_near_call_depth) {
+                    try self.resolveBreak(answer, @errorName(Error.NearCallTooDeep));
+                    return true;
                 }
-                try self.resolveFulfill(answer, reply);
-                return true;
+                const cell = self.actors.getPtr(local_id) orelse {
+                    try self.resolveBreak(answer, @errorName(Error.NoSuchActor));
+                    return true;
+                };
+                // Copy-on-write a shared box before the inbound turn can mutate
+                // it, ordered with the checks above so a refusal never resets the
+                // arena.
+                try self.ensureUnshared(cell);
+                const box = cell.box;
+                cell.running += 1;
+                // Materialize the borrowed wire args *inside* the turn window:
+                // `beginTurn`'s depth-0 reset has already run, so the args land
+                // in the turn arena and the next outermost turn's reset reclaims
+                // them — bump-and-reset instead of a per-event allocate/free walk
+                // on the vat allocator. The handler contract is already
+                // turn-scoped (module header), so nothing may retain them past
+                // this window anyway; the reply (which may alias the args) stays
+                // valid until the next outermost turn, exactly as documented.
+                const arena = self.beginTurn();
+                defer self.endTurn();
+                // Install any promoted `become` only when this actor's outermost
+                // frame unwinds. The reply and the interceptor both read `value`
+                // while `running >= 1`, so the box `value` may alias is never
+                // freed before the fulfill is sent.
+                defer self.finishCellRun(local_id);
+                const args = try deliver.args.toOwnedSlice(arena);
+                var turn = Turn{ .vat = self, .self_ref = .{ .local = local_id }, .arena = arena, .inbound_answer = answer };
+                if (box.handle(box.ptr, &turn, messageFor(args))) |value| {
+                    if (turn.pending_become) |pending| self.promoteBecome(pending);
+                    // A forwarding actor handed its answer to another send's
+                    // promise; that promise resolves it, not this return.
+                    if (turn.forwarded) return true;
+                    // The interceptor runs inside the turn (`turn_depth >= 1`), so
+                    // any top-level turn it opens is nested and never resets the
+                    // arena `value` may live in — the value is turn-borrowed,
+                    // exactly like a handler's own reply.
+                    if (self.resolve_interceptor) |interceptor| {
+                        if (answer) |ans| {
+                            const claimed = interceptor.func(interceptor.ctx, ans, value) catch |err| {
+                                try self.resolveBreak(answer, @errorName(err));
+                                return true;
+                            };
+                            if (claimed) return true;
+                        }
+                    }
+                    try self.resolveFulfill(answer, value);
+                    return true;
+                } else |err| {
+                    if (turn.pending_become) |pending| releaseBox(self.allocator, pending.box);
+                    try self.resolveBreak(answer, @errorName(err));
+                    return true;
+                }
             },
             .resolve => |resolve| {
-                const entry = self.far_listeners.fetchRemove(resolve.answer) orelse return false;
+                // Peek the listener rather than remove it: the fulfilled and give
+                // arms do fallible allocation before firing, and an error return
+                // must leave the entry in the map so teardown
+                // (`freeOwnedForwardContexts`) or `breakFarPromises` still reclaims
+                // it — a `forwardListener` frees its heap `ForwardContext` only
+                // when it fires. Each arm removes the entry immediately before it
+                // fires, preserving the remove-before-fire order a listener that
+                // registers a new far promise relies on.
+                const listener = self.far_listeners.get(resolve.answer) orelse return false;
                 switch (resolve.resolution) {
                     .fulfill => |value| {
                         // A fulfillment carrying a handoff give fires typed:
@@ -1015,7 +1126,8 @@ pub const Vat = struct {
                                 };
                                 if (uri) |locator_uri| {
                                     defer self.allocator.free(locator_uri);
-                                    entry.value.func(entry.value.ctx, .{ .give = .{
+                                    _ = self.far_listeners.fetchRemove(resolve.answer);
+                                    listener.func(listener.ctx, .{ .give = .{
                                         .give_bytes = span,
                                         .exporter_locator_uri = locator_uri,
                                         .recipient_key = value.handoff.give.recipient_key,
@@ -1029,12 +1141,17 @@ pub const Vat = struct {
                         // (`near` or `drive`) while it runs, and that turn's
                         // depth-0 arena reset would free this value mid-call.
                         // It is one argument freed right here, not a per-event
-                        // slice walk.
+                        // slice walk. Materialized before the remove so an OOM
+                        // leaves the listener parked, not stranded.
                         const owned = try value.toOwned(self.allocator);
                         defer model.freeArgument(self.allocator, owned);
-                        entry.value.func(entry.value.ctx, .{ .fulfilled = owned });
+                        _ = self.far_listeners.fetchRemove(resolve.answer);
+                        listener.func(listener.ctx, .{ .fulfilled = owned });
                     },
-                    .@"break" => |reason| entry.value.func(entry.value.ctx, .{ .broken = reason.message }),
+                    .@"break" => |reason| {
+                        _ = self.far_listeners.fetchRemove(resolve.answer);
+                        listener.func(listener.ctx, .{ .broken = reason.message });
+                    },
                 }
                 return true;
             },

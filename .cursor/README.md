@@ -12,5 +12,4 @@ the canonical agent guidance lives.
 - `settings.json` enables shared agent plugins.
 
 Edit canonical guidance in `.agents/`; keep this overlay thin.
-`zig build
-meta-check` verifies the symlink shape and hook/MCP wiring.
+`zig build meta-check` verifies the symlink shape and hook/MCP wiring.

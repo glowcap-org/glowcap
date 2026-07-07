@@ -75,9 +75,13 @@ test "a warmed session holds its per-connection footprint budget" {
         var j: u64 = 0;
         while (j < created) : (j += 1) peers[j].deinit();
     }
-    while (created < sample) : (created += 1) {
-        peers[created] = engine.Peer.init(tracked);
-        try warmPeer(&peers[created]);
+    while (created < sample) {
+        const peer = &peers[created];
+        peer.* = engine.Peer.init(tracked);
+        // Count the peer before warming it, so a warm-up failure's errdefer
+        // deinits the just-initialized peer instead of leaking it.
+        created += 1;
+        try warmPeer(peer);
     }
     const after = tracker.liveBytes();
 

@@ -53,7 +53,7 @@ fn nodeFromOpaque(node: ?*PancakeNode) ?*engine.Node {
 /// `out_node`. The seed is the node's stable session identity, reused for every
 /// connection it opens so an exporter verifies a `desc:handoff-receive` against
 /// one key; draw it at the host's I/O boundary (the sans-io node never generates
-/// entropy). Release with `pancake_node_free`. `seed` is borrowed; `seed_len`
+/// entropy). Release with `pancake_node_release`. `seed` is borrowed; `seed_len`
 /// must be 32.
 pub export fn pancake_node_new(seed: ?[*]const u8, seed_len: usize, out_node: ?*?*PancakeNode) i32 {
     return nodeNewIn(ctx.library_allocator, seed, seed_len, out_node);
@@ -80,10 +80,10 @@ fn nodeNewIn(alloc: std.mem.Allocator, seed: ?[*]const u8, seed_len: usize, out_
 
 /// Release a node: free every registered peer, the routing tables and the
 /// references they own, and the shared gift registry. The caller must have
-/// finished pumping every connection's peer first, those peers are node-owned
+/// finished pumping every connection's peer first. Those peers are node-owned
 /// and freed here, so a live connection still borrowing one would dereference
 /// freed memory. NULL is a no-op.
-pub export fn pancake_node_free(node: ?*PancakeNode) void {
+pub export fn pancake_node_release(node: ?*PancakeNode) void {
     const ptr = nodeFromOpaque(node) orelse return;
     const alloc = ptr.allocator;
     ptr.deinit();
@@ -98,7 +98,7 @@ pub export fn pancake_node_free(node: ?*PancakeNode) void {
 /// and must sign with the same 32-byte seed it gave `pancake_node_new` — a
 /// different key silently breaks give verification at the exporter. Do **not**
 /// free `out_peer`: the node owns it and frees it on `pancake_node_remove_conn`
-/// / `pancake_node_free`.
+/// / `pancake_node_release`.
 pub export fn pancake_node_register_conn(node: ?*PancakeNode, out_conn_id: ?*u64, out_peer: ?*?*PancakePeer) i32 {
     const ptr = nodeFromOpaque(node) orelse return PANCAKE_ERR_NULL_POINTER;
     const id_slot = out_conn_id orelse return PANCAKE_ERR_NULL_POINTER;
@@ -304,7 +304,7 @@ pub export fn pancake_node_set_exporter_location(node: ?*PancakeNode, conn_id: u
 
 /// Pop the next serve-step action into `out`. The previous action's byte views
 /// are freed by this call, so a popped action's `locator`/`reason` views are
-/// valid until the next `pancake_node_next_action` (or `pancake_node_free`);
+/// valid until the next `pancake_node_next_action` (or `pancake_node_release`);
 /// copy what outlives that. Returns `PANCAKE_ERR_WOULD_BLOCK` when no action is
 /// pending.
 pub export fn pancake_node_next_action(node: ?*PancakeNode, out: ?*c.PancakeNodeAction) i32 {

@@ -43,6 +43,8 @@ from . import (
 from ._ffi_core import _lib
 from ._ffi_inproc import _inproc_lib
 
+__all__ = ["InprocNetlayer", "InprocListener", "InprocConn"]
+
 
 def _inproc_last_error() -> Optional[str]:
     """The calling thread's last error message from the in-process transport

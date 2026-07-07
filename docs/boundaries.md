@@ -84,9 +84,9 @@ and Racket's `unsafe-file-descriptor->semaphore` park, no dedicated polling
 thread, no busy-poll. Python, Rust, and Racket are each proven by a per-binding
 many-connection gate: `bindings-iroh-loop` runs `python-iroh-loop`,
 `rust-iroh-loop`, and `racket-iroh-loop` together, the binding siblings of
-`iroh-loop`; Deno implements the same park without a `bindings-iroh-loop` member. What remains
-on scale is a live 500k-connection socket run, which still wants a load harness
-(`bench-peer-scaling` Phase 2). Two boundaries remain on the cluster: **Goblins
+`iroh-loop`; Deno implements the same park without a `bindings-iroh-loop` member.
+What remains on scale is a live 500k-connection socket run, which still wants a
+load harness (`bench-peer-scaling` Phase 2). Two boundaries remain on the cluster: **Goblins
 interop over iroh** is externally blocked (Goblins ships no iroh netlayer); and
 a **native Zig QUIC** path stays rejected until iroh's protocols stabilize and a
 production Zig QUIC stack exists (ADR-0055's flip condition). The cross-language
@@ -115,7 +115,7 @@ never surfacing to application code (the `deno-goblins-handoff`,
 `python-goblins-handoff`, `rust-goblins-handoff`, and `racket-goblins-handoff`
 build steps).
 
-The gifter half is now transparent too, across every binding: returning a `Ref`
+The gifter half is transparent too, across every binding: returning a `Ref`
 whose home is a different connection deposits the gift and answers with a signed
 `desc:handoff-give`, no choreography in application code. This rides one
 identity and one gift registry per node, a node's accept, dial, and redeem
@@ -135,8 +135,8 @@ for re-gifting uniformly across the four. The native Zig surface speaks both
 halves through `driver.Host`, the multi-connection tier: `Host.redeem` is the
 blocking recipient executor over the same serve step (proven by the live
 `zig build goblins-handoff` conversation it drives), and origination is the
-host's resolve interceptor — a published actor that returns a foreign-homed
-capability answers with a signed give, no choreography in application code.
+host's resolve interceptor: a published actor that returns a foreign-homed
+capability answers with a signed give.
 Where a binding does both invisibly inside `connect`, the native spelling is
 explicit I/O on an explicit host; the hermetic three-host scenario in
 `test/driver/host_three_party_test.zig` runs the whole choreography —
@@ -170,8 +170,8 @@ an in-process address book, no hints — is proven hermetically per binding by t
 `*-iroh-loop` gates; the live public-internet form is proven per binding by the
 opt-in `zig build bindings-iroh-reachability` gates (two `Discovery`-posture
 endpoints reaching each other by node id alone over n0 relays + DNS/pkarr), and
-the full handoff-over-discovery by the opt-in `zig build
-demo-rooms-dm-iroh-discovery`. The live discovery gates are kept out of `check`
+the full handoff-over-discovery by the opt-in
+`zig build demo-rooms-dm-iroh-discovery`. The live discovery gates are kept out of `check`
 for the same publish-propagation-timing reason as `iroh-reachability`. Both halves
 of an iroh handoff — the gifter minting a give whose exporter location names an
 iroh endpoint, and the recipient redeeming it transparently — thus ship in every
@@ -212,7 +212,7 @@ live Racket bignum in the `goblins-interop` echo. OCapN Undefined is the `.void`
 arm: Goblins marshals the unspecified value as the `<void>` record, and pancake
 speaks the same record. Null is held fail-closed deliberately: Goblins has no
 Null marshalling and the upstream encoding is unsettled, so inventing one would
-not interop. That is a fail-closed boundary, not a silent gap.
+not interop.
 
 On the pipelining side, all three projection ops are answered: receiving
 `op:get`, `op:index`, or `op:untag` exports a promise at the new answer
@@ -235,8 +235,8 @@ send; `tell` uses it).
 The scalable I/O path hosts and connects actors through driver APIs. The
 completion loop takes per-connection hooks: `completion.Options.make_conn_ctx`,
 `serve`, and `free_conn_ctx`. Those hooks bind an application context to each
-connection, run it for every surfaced event, and free it at close. `net` still
-remains actor-agnostic; it owns no actor layer.
+connection, run it for every surfaced event, and free it at close. `net` remains
+actor-agnostic; it owns no actor layer.
 
 `driver.LoopHost` packages those hooks behind a vat factory. It draws one server
 identity key, hosts a fresh `Vat` per connection, and runs the keyed handshake
@@ -245,7 +245,7 @@ connection's objects with `driver.publishNamed`. A loopback test proves the
 whole round-trip on the io_uring backend: concurrent clients complete the real
 keyed handshake through `driver.connectTcp`, fetch a `LoopHost`-published actor,
 call it, and receive their replies. That proves objects can answer through the
-same nine-verb surface without a thread per connection.
+same application surface without a thread per connection.
 
 `driver.LoopDialer` packages the outbound half. It draws one dialer identity
 key, dials many TCP sessions through `completion.Loop.dialTcp`, binds a fresh
@@ -260,9 +260,17 @@ receive every reply on the completion loop.
 The loop tier is single-transport and node-less today: `LoopHost` and
 `LoopDialer` speak TCP through the completion backends only, and neither joins
 a `driver.Host`'s node, so three-party handoff is not reachable at this scale
-tier — the blocking `Host` owns handoffs, the loop owns fan-out, and a host
-that needs both at once does not exist yet. Growing the loop under `Host` is
-the intended direction; the two tiers meeting is what would retire the
+tier. The blocking `Host` owns handoffs, the loop owns fan-out, and a host that
+needs both at once does not exist yet. Growing the loop under `Host` is the
+intended direction, and two concrete steps stand between here and there. The
+node side is ready: `engine.Node.registerConnOver` adopts a peer the embedder
+already owns and pins, so the completion loop, whose fixed slots hold each peer
+inline at a stable address, can register its connections without surrendering
+them, joining them to one node's routing and gift registry. The loop side is
+the open work: origination deposits its gift on the exporter connection, which
+is not the connection being served, and the completion loop today arms an
+outbound write only for the connection it just drove. Cross-connection outbound
+arming is the mechanism the loop still lacks, and it is what retires the
 boundary.
 
 The loop is also tested under churn. Hundreds of connection lifecycles recycle
@@ -275,10 +283,9 @@ Bootstrap capabilities are process-lifetime, not durable. If a host restarts, a
 saved sturdyref re-enlivens against an empty registry until the app re-registers
 the object.
 
-Per-connection memory is the gated core state: the loop's read buffers are a
-shared pool (256 buffers of 16 KiB by default, tunable via
-`Options.read_buffers`), not a per-connection cost. The core's part of that
-budget is gated, not just measured: `engine.Peer` carries a compile-time ceiling
+Per-connection memory is the gated core state. The shared read-buffer pool above
+defaults to 256 buffers of 16 KiB (`Options.read_buffers`); the core's own part
+of the budget is gated, not just measured: `engine.Peer` carries a compile-time ceiling
 on its struct size, a test holds a warmed session's core state under 2 KiB per
 connection, and `zig build bench-peer-scaling` reports the live numbers
 ([ADR-0045](decisions/adr/ADR-0045-per-session-footprint-budget.md)). The
@@ -291,15 +298,13 @@ The Cap'n Proto codec ([`src/ocapn/codec/capnp/`](../src/ocapn/codec/capnp/),
 engine-integrated and selectable on a live session: a peer pair negotiates it
 (`engine.pairing.pairedWithCodec`), and the handshake plus all subsequent
 traffic ride that codec through the codec-dispatch boundary (`session.codec`).
-The same choice is reachable over the C ABI — `pancake_peer_new_negotiated`
+The same choice is reachable over the C ABI (`pancake_peer_new_negotiated`
 constructs the peer and the tcp endpoints frame with the matching
-`PANCAKE_CODEC_*` value — and every binding spells it in its own idiom. The
-session state machine is codec-neutral, so the Goblins-v1.0 resolver-callback
-translation is codec-blind. Cross-codec semantic parity is proven: the
-deliver/resolve and bootstrap-fetch conformance scenarios produce identical
-_observable_ traces on Syrup and Cap'n Proto: the state machine is
-codec-neutral, so the behavior does not depend on which codec carried it (the
-two wire encodings differ; the observable trace does not). Authenticated
+`PANCAKE_CODEC_*` value), and every binding spells it in its own idiom. The
+session state machine is codec-neutral: the Goblins-v1.0 resolver-callback
+translation is codec-blind, and the deliver/resolve and bootstrap-fetch
+conformance scenarios produce identical _observable_ traces on Syrup and Cap'n
+Proto, so the behavior does not depend on which codec carried it. Authenticated
 `op:start-session` verification uses the profile-level canonical
 `<my-location …>` signing input, so Cap'n Proto sessions do not get a weaker
 handshake path. The two codecs trade off differently: Cap'n Proto's frames are
@@ -323,7 +328,7 @@ fields. The consequence is that hardcoding Syrup in the gifter's
 location-record encoder (`pancake_encode_peer_locator`, the signed-give builder)
 is correct regardless of session codec, not a codec leak.
 
-That cross-codec contract is now first-class and gated. `reEncodeHandoff`
+That cross-codec contract is gated. `reEncodeHandoff`
 ([`handoff_re_encode.zig`](../src/ocapn/engine/handoff_re_encode.zig)) names the
 move — take a decoded `model.Handoff` and the target session's codec/profile,
 emit the frame that session would put on the wire, signature bytes riding along
@@ -353,7 +358,7 @@ codec, the shape this seam now matches.
 The engine sends and accounts the wire-delta GC messages: an outbound
 `op:gc-exports` or `op:gc-answers` decrements the matching table rows, and the
 inbound side balances them (`session.retainSentExports`,
-`applyGcExportDecrement`). Every binding now drives those messages from a dropped
+`applyGcExportDecrement`). Every binding drives those messages from a dropped
 handle behind an opt-in, off by default (ADR-0063): a connection put into GC mode
 (`with_gc` / `withGc` / `with-gc!`) registers a language finalizer on each far
 reference returned by `fetch`, so when the collector reclaims the handle the

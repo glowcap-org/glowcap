@@ -7,58 +7,63 @@
 ---
 
 pancake ships a set of composable C ABI archives and four ways to hold them from
-another language, one of the three consumption [surfaces]($link.page('surfaces')).
-Each binding mirrors that archive set: a standalone core module over
-`libpancake_ocapn`, plus one composable per-transport module that loads or links
-only its own archive. You compose transports à la carte — import or enable the
-core, then add only the transports a program reaches for — exactly as a C
-consumer links archives or a Zig consumer imports modules. Every module presents
-an idiomatic API on top, so what you write is Rust, TypeScript, Python, or Racket
-rather than foreign function calls. Each binding also dogfoods the C ABI on every
-build: a real OCapN round-trip through a foreign-language consumer, so wire-shape
-or ABI regressions surface where they would in production.
+another language; together the bindings are one of the three consumption
+[surfaces]($link.page('surfaces')).
+Each binding mirrors the archive set: a core module over `libpancake_ocapn`, plus
+one per-transport module that loads or links only its own archive. You add
+transports à la carte, exactly as a C consumer links archives or a Zig consumer
+imports modules.
+
+Every module presents an idiomatic API on top, so what you write is Rust,
+TypeScript, Python, or Racket rather than foreign function calls. Each binding
+has its own dogfood build step (`rust-dogfood`, `deno-dogfood`, and their
+siblings) that drives a real OCapN round-trip, so wire-shape or ABI regressions
+surface where they would in production.
 
 [All four bindings wrap the same C ABI. The shared surface is what lets an app read the same way in every language.]($image.siteAsset('diagram-bindings.svg'))
 
 ## One surface, four idioms
 
-An application holds one object, a `Connection`, and uses one small vocabulary. That
-vocabulary is the small set of application verbs that the
+An application holds one object, a `Connection`, and uses the small set of
+application verbs the
 [bindings contract](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/README.md)
-enumerates and defines. The contract is the authoritative description of the surface
-and the value model beneath it, and this section is the friendlier per-language tour.
+defines. The contract is the authoritative description of the
+surface and the value model beneath it; this section is the per-language tour.
 
 The shape is uniform on purpose. You fetch a [capability]($link.page('concepts')) by
-name, spawn a local object, and hand a partner a reference to it, and then the partner
-calls it back.
-There is no export-position bookkeeping, no manual flush, and no hand-rolled receive
-loop anywhere in your code. A capability is a `Ref`, and a `Ref` marshals itself to
+name, spawn a local object, and hand a partner a reference to it, and the partner
+calls it back. There is no export-position bookkeeping, no manual flush, and no
+hand-rolled receive loop. A capability is a `Ref`, and a `Ref` marshals itself to
 the right wire reference when you pass it as an argument. That one move is why
-delegation, attenuation, and revocation are ordinary `spawn` and `send` code instead
-of special APIs.
+delegation, attenuation, and revocation are ordinary `spawn` and `send` code
+instead of special APIs.
 
 > **Ref** — the binding's word for a capability in hand: a live reference to an
 > object, yours or a partner's. Holding one is the right to call that object, and
 > the only way to get one is to be given it. Passing a `Ref` as an argument is how
 > that authority moves between peers.
 
-| Binding | Idiomatic entry | Async idiom | Actor idiom |
+| Binding | Entry point | Async idiom | Actor idiom |
 | --- | --- | --- | --- |
-| [Rust]($link.page('bindings/rust')) | `Peer`, typed enums | tokio (opt-in `async`) | `Vat` over closures |
-| [TypeScript]($link.page('bindings/ts')) | `Peer` class | native promises | `Vat` over callbacks |
-| [Python]($link.page('bindings/python')) | `Peer`, native values | `asyncio` | `Vat` over callables |
-| [Racket]($link.page('bindings/racket')) | `peer`, event structs | green threads + ports | Goblins-faithful |
+| [Rust]($link.page('bindings/rust')) | `connect`, `Connection`, typed enums | tokio (opt-in `async`) | `Vat` over closures |
+| [TypeScript]($link.page('bindings/ts')) | `connect`, `Connection` class | native promises | `Vat` over callbacks |
+| [Python]($link.page('bindings/python')) | `connect`, `Connection`, native values | `asyncio` | `Vat` over callables |
+| [Racket]($link.page('bindings/racket')) | `connect`, `connection`, event structs | green threads + ports | Goblins-faithful |
+
+Every binding enters the same way: `connect` takes a locator and returns the
+`Connection` described above. The synchronous `Peer` sits beneath it, for
+programs that want to drive frames themselves.
 
 ## Sync, async, and the actor layer
 
-Each binding gives you three levels, and you stay at the one your app actually needs.
-The synchronous peer drives frames directly. The async connection runs that same
-sans-io peer over the language's own non-blocking sockets, with no thread per call and
-no blocking netlayer anywhere in that path. The actor layer is the Goblins-shaped top,
-where a `Vat` holds local actors and an eventual-send to a partner-hosted reference
-travels over the wire and settles a promise. Racket's layer is the reference shape for
-all of this, because it reads the way a
-[Spritely Goblins](https://spritely.institute/goblins/) programmer already expects.
+Each binding gives you three levels, and you stay at the one your app needs. The
+synchronous peer drives frames directly. The async connection runs the same
+sans-io peer over the language's own non-blocking sockets, with no thread per
+call and no blocking netlayer. The actor layer is the Goblins-shaped top, where a
+`Vat` holds local actors and an eventual-send to a partner-hosted reference
+travels over the wire and settles a promise. Racket's layer is the reference
+shape, because it reads the way a
+[Spritely Goblins](https://spritely.institute/goblins/) programmer expects.
 
 > **Vat** — a single-threaded home for local objects. Each call runs as one *turn*
 > before the next begins. The [modules page]($link.page('modules')) draws the full picture.
@@ -71,7 +76,19 @@ Cleartext TCP ships in the pure-Zig archives. Encrypted transport is
 `iroh` locator. See [Transports]($link.page('transports')) for how hosting and
 dialing differ from TCP.
 
-## Run them
+## Getting the archives
+
+No prebuilt archives ship yet. Every binding opens the shared pancake archives,
+so build them with `zig build` in a pancake checkout; a Zig toolchain is the one
+prerequisite. Each binding finds them the same way: an explicit
+`PANCAKE_LIB_DIR` wins, a binding running in-tree falls back to
+the checkout's `zig-out/lib`, and otherwise the OS dynamic-linker search resolves
+the plain library name from the system library path.
+
+## Run the dogfoods
+
+The dogfoods are the repository's own verification gates, run from a checkout
+rather than a consumer install:
 
 ```sh
 zig build bindings        # rust + deno + bun + python + racket dogfoods

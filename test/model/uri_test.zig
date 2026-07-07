@@ -153,6 +153,22 @@ test "an escaped dot is data, never the transport delimiter" {
     try std.testing.expectEqualStrings("tcp", locator.transport);
 }
 
+test "a dotted transport round-trips: writePeer escapes the '.' so it is not re-split" {
+    const allocator = std.testing.allocator;
+    // The transport is the last-dot split, so a bare '.' in the transport would
+    // re-split on parse into a different locator. writePeer escapes it as `%2E`;
+    // a designator dot stays bare (it lands left of the delimiter).
+    const original: model.PeerLocator = .{ .transport = "a.b", .designator = "x.y", .hints = model.Hints.emptyFalse() };
+    const emitted = try uri.writePeer(allocator, original);
+    defer allocator.free(emitted);
+    try std.testing.expectEqualStrings("ocapn://x.y.a%2Eb", emitted);
+
+    const reparsed = try uri.parsePeer(allocator, emitted);
+    defer uri.freePeer(allocator, reparsed);
+    try std.testing.expectEqualStrings("a.b", reparsed.transport);
+    try std.testing.expectEqualStrings("x.y", reparsed.designator);
+}
+
 test "truncated percent escape passes through as literal bytes" {
     const allocator = std.testing.allocator;
     // std.Uri treats a truncated `%2` as literal bytes (lenient per RFC 3986).

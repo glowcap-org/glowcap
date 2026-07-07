@@ -207,6 +207,13 @@ pub const Backend = struct {
         const fd: Fd = @intCast(fd_rc);
         errdefer _ = linux.close(fd);
 
+        // Allow rebinding a port still in TIME_WAIT, matching the blocking
+        // `tcp.Listener` (which passes `reuse_address = true`). A loop restarted
+        // on a pinned port (`-Dport=N`) would otherwise fail to bind for the
+        // TIME_WAIT window where the blocking listener succeeds.
+        const enable: u32 = 1;
+        try check(linux.setsockopt(fd, linux.SOL.SOCKET, linux.SO.REUSEADDR, std.mem.asBytes(&enable), @sizeOf(u32)));
+
         var addr: linux.sockaddr.in = .{
             .port = std.mem.nativeToBig(u16, port),
             .addr = std.mem.nativeToBig(u32, 0x7f00_0001), // 127.0.0.1

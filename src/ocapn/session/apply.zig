@@ -299,7 +299,10 @@ fn installIntroducedStructImports(self: *Session, entries: anytype, depth: usize
 /// export survives for re-export rather than being dropped mid-session. The
 /// bootstrap export (0) is permanent and excluded, symmetric with the
 /// import-side bootstrap exclusion. Runs in apply, after `validateSend` has
-/// proven every `near` is a held export.
+/// proven every `near` on a deliver/listen/projection is a held export. A
+/// resolve's fulfill `near` is the exception: resolving an answer with a
+/// `.near` is how the application first exports that object, so `retain` mints
+/// the row here rather than finding one validation already proved.
 fn retainSentExports(self: *Session, message: model.Message) !void {
     switch (message) {
         .deliver => |deliver| {

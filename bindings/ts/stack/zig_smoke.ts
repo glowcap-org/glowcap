@@ -17,6 +17,7 @@ import {
 	type AppValue,
 	type Argument,
 	AsyncConnection,
+	connect,
 	Connection,
 	Context,
 	type Event,
@@ -33,6 +34,7 @@ import {
 	Sym,
 	Tagged,
 	tagged,
+	tcpLocator,
 	Vat,
 	VowBroken,
 } from "./mod.ts";
@@ -187,7 +189,7 @@ try {
 					ev.args.length === 1 && ev.args[0] === 42n,
 					"server deliver has one integer arg 42",
 				);
-				await ac.sendResolve(ev.answer!, { fulfill: 1337n });
+				await ac.sendResolve(ev.answer!, { kind: "fulfill", value: 1337n });
 			}
 		} finally {
 			ac.close();
@@ -204,10 +206,13 @@ try {
 			assert(ev?.kind === "resolve", `client saw a resolve, got ${ev?.kind}`);
 			if (ev?.kind === "resolve") {
 				assert(ev.answer === 9n, "client resolve settles answer 9");
-				assert("fulfill" in ev.resolution, "client resolve is a fulfill");
-				if ("fulfill" in ev.resolution) {
+				assert(
+					ev.resolution.kind === "fulfill",
+					"client resolve is a fulfill",
+				);
+				if (ev.resolution.kind === "fulfill") {
 					assert(
-						ev.resolution.fulfill === 1337n,
+						ev.resolution.value === 1337n,
 						"client resolve fulfills with 1337",
 					);
 				}
@@ -471,7 +476,7 @@ function counterBehavior(
 	}
 
 	async function client(): Promise<void> {
-		const conn = await Connection.connect("127.0.0.1", port);
+		const conn = await connect(tcpLocator("127.0.0.1", port));
 		conn.serve().catch(() => {}); // a disconnect ends the serve loop; expected here
 		conn.peer.registerImport(7n);
 		let rejected = false;
@@ -554,7 +559,7 @@ function counterBehavior(
 			assert(verb === "probe", `server expected probe, got ${verb}`);
 			const probeSet = args[0];
 			assert(probeSet instanceof PSet, "a Set argument arrives as a PSet");
-			const items = (probeSet as PSet).items as AppValue[];
+			const items = (probeSet as PSet<AppValue>).items;
 			assert(items[0] === 1n, "the set's plain item survived");
 			const nested = items[1];
 			assert(
@@ -564,7 +569,7 @@ function counterBehavior(
 			const note = args[1];
 			assert(note instanceof Tagged, "a Tagged argument arrives as a Tagged");
 			assert(
-				((note as Tagged).value as AppValue[])[0] instanceof Ref,
+				(note as Tagged<AppValue>).value[0] instanceof Ref,
 				"a capability inside a Tagged lifts to a Ref",
 			);
 			// The nested capability is sendable: poke back through it.
@@ -575,7 +580,7 @@ function counterBehavior(
 	}
 
 	async function client(): Promise<void> {
-		const conn = await Connection.connect("127.0.0.1", port);
+		const conn = await connect(tcpLocator("127.0.0.1", port));
 		conn.serve().catch(() => {});
 		let pokeArrived!: () => void;
 		const poked = new Promise<void>((resolve) => (pokeArrived = resolve));
@@ -584,14 +589,14 @@ function counterBehavior(
 		});
 		const svc = await conn.fetch("svc");
 		const reply = await conn.send(svc, "probe", [
-			new PSet([1n, inbox] as unknown as Argument[]),
-			new Tagged("note", [inbox] as unknown as Argument[]),
+			new PSet<AppValue>([1n, inbox]),
+			new Tagged<AppValue>("note", [inbox]),
 		]);
 		assert(
 			reply instanceof PSet,
 			"a PSet reply survives the round-trip as a PSet",
 		);
-		const items = (reply as PSet).items as AppValue[];
+		const items = (reply as PSet<AppValue>).items;
 		assert(
 			items[0] instanceof Sym && (items[0] as Sym).value === "ok",
 			"the set's symbol survived",
@@ -643,7 +648,7 @@ function counterBehavior(
 	}
 
 	async function client(): Promise<void> {
-		const conn = await Connection.connect("127.0.0.1", port);
+		const conn = await connect(tcpLocator("127.0.0.1", port));
 		conn.serve().catch(() => {});
 		// The connection is already open to the peer; enliven keys on the
 		// sturdyref's swissnum, which the URI carries as `/s/greeter`.
@@ -714,7 +719,7 @@ function counterBehavior(
 	}
 
 	async function client(): Promise<void> {
-		const conn = (await Connection.connect("127.0.0.1", port)).withGc();
+		const conn = (await connect(tcpLocator("127.0.0.1", port))).withGc();
 		conn.serve().catch(() => {});
 		let cap: Ref | null = await conn.fetch("svc");
 		assert(cap.reference.kind === "far", "the fetched cap is a far import");
@@ -780,7 +785,7 @@ function counterBehavior(
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await Connection.connect("127.0.0.1", port);
+		const conn = await connect(tcpLocator("127.0.0.1", port));
 		conn.serve().catch(() => {});
 		const root = await conn.fetch("root");
 		// The four verbs leave together: none awaits `create`'s reply, and `assign`
@@ -830,7 +835,7 @@ function counterBehavior(
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await Connection.connect("127.0.0.1", port);
+		const conn = await connect(tcpLocator("127.0.0.1", port));
 		conn.serve().catch(() => {});
 		const root = await conn.fetch("root");
 		// None of these await a prior reply: the projections ride the unresolved
@@ -887,7 +892,7 @@ function counterBehavior(
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await Connection.connect("127.0.0.1", port);
+		const conn = await connect(tcpLocator("127.0.0.1", port));
 		conn.serve().catch(() => {});
 		const root = await conn.fetch("root");
 		const anchor = conn.send(root, "explode", []);
@@ -1008,7 +1013,7 @@ function counterBehavior(
 	}
 
 	async function client(): Promise<void> {
-		const conn = await Connection.connect("127.0.0.1", port);
+		const conn = await connect(tcpLocator("127.0.0.1", port));
 		let failed: FetchFailed | null = null;
 		try {
 			await conn.fetch("not-a-capability");
@@ -1052,7 +1057,7 @@ function counterBehavior(
 	probe.close();
 
 	async function client(): Promise<void> {
-		const conn = await Connection.connect("127.0.0.1", port);
+		const conn = await connect(tcpLocator("127.0.0.1", port));
 		conn.serve().catch(() => {});
 		const svc = await conn.fetch("svc");
 		const reply = await conn.send(svc, "ping", []);
@@ -1144,7 +1149,7 @@ function counterBehavior(
 	}
 
 	async function client(): Promise<void> {
-		const conn = await Connection.connect("127.0.0.1", port);
+		const conn = await connect(tcpLocator("127.0.0.1", port));
 		conn.serve().catch(() => {}); // serve so the server's forwarded call arrives
 		conn.publish("tool", (verb, args) => {
 			if (verb === "add") {
@@ -1224,7 +1229,7 @@ function counterBehavior(
 	}
 
 	async function client(): Promise<void> {
-		const conn = await Connection.connect("127.0.0.1", port);
+		const conn = await connect(tcpLocator("127.0.0.1", port));
 		conn.serve().catch(() => {});
 
 		// A caretaker over a local tool, called locally by its own host.

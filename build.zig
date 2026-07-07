@@ -38,16 +38,16 @@ const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "pancake", .prefix = "root.zig", .imports = &.{ "foundation", "model", "codec", "session", "engine", "actors", "net", "driver", "c_abi" }, .core = false },
 };
 
-/// The composable C ABI archive set and its dependency DAG (ADR-0059), declared
-/// once beside `layer_table`. Each row names the installed archive, the
-/// `layer_table` row whose module is its C ABI root (the source of its export
-/// family), the public header it ships (none for the inert net-core base), and
-/// the archives a consumer links alongside it (the dependency edges). The build
-/// generates every artifact and header from this table, and `tools/meta_check.zig`
-/// consumes it to verify each declared archive is built, headered, and that each
-/// edge is real, the same "tables carry the edges the code uses" law ADR-0040
-/// established for layers. Under Model A every transport embeds its lower layers
-/// as local symbols, so `pancake_net` exports nothing yet; it is first-class in
+/// The composable C ABI archive set (ADR-0059), declared once beside
+/// `layer_table`. Each row names an installed archive, the `layer_table` row
+/// whose module supplies its C ABI root (the source of its export family), and
+/// the public header it ships (none for the inert net-core base). This table
+/// drives the per-archive header install loop below and a comptime check that
+/// each row's `layer` names a real `layer_table` row. The archives themselves
+/// are built at their use sites, where each needs its own root module and link
+/// handling; a consumer's link-alongside set is the real link line each C
+/// example spells. Under Model A every transport embeds its lower layers as
+/// local symbols, so `pancake_net` exports nothing yet; it is first-class in
 /// the contract so the Model-A→B migration never adds an archive to a link line.
 const ArchiveSpec = struct {
     /// Installed library name: `lib<artifact>.a` / `.so`.
@@ -56,34 +56,22 @@ const ArchiveSpec = struct {
     layer: []const u8,
     /// The public header this archive installs, or null for an export-less base.
     header: ?[]const u8 = null,
-    /// The archives a consumer links alongside this one (the dependency DAG).
-    edges: []const []const u8 = &.{},
     /// False for an archive that links a non-Zig sidecar and so installs only
     /// behind its own sibling step (iroh), never on the default build.
     default_install: bool = true,
 };
 const archive_table = [_]ArchiveSpec{
     .{ .artifact = "pancake_ocapn", .layer = "c_abi", .header = "pancake_ocapn.h" },
-    .{ .artifact = "pancake_net", .layer = "net", .edges = &.{"pancake_ocapn"} },
-    .{ .artifact = "pancake_net_transport_tcp", .layer = "c_abi_net_transport_tcp", .header = "pancake_net_transport_tcp.h", .edges = &.{ "pancake_net", "pancake_ocapn" } },
-    .{ .artifact = "pancake_net_transport_inproc", .layer = "c_abi_net_transport_inproc", .header = "pancake_net_transport_inproc.h", .edges = &.{ "pancake_net", "pancake_ocapn" } },
-    .{ .artifact = "pancake_net_transport_iroh", .layer = "c_abi_net_transport_iroh", .header = "pancake_net_transport_iroh.h", .edges = &.{ "pancake_net", "pancake_ocapn" }, .default_install = false },
+    .{ .artifact = "pancake_net", .layer = "net" },
+    .{ .artifact = "pancake_net_transport_tcp", .layer = "c_abi_net_transport_tcp", .header = "pancake_net_transport_tcp.h" },
+    .{ .artifact = "pancake_net_transport_inproc", .layer = "c_abi_net_transport_inproc", .header = "pancake_net_transport_inproc.h" },
+    .{ .artifact = "pancake_net_transport_iroh", .layer = "c_abi_net_transport_iroh", .header = "pancake_net_transport_iroh.h", .default_install = false },
 };
 
 comptime {
     // Hold `archive_table` honest against `layer_table`: every archive's root
-    // layer and every dependency edge's archive must name a real row, so a
-    // typo or a removed layer fails the build instead of drifting.
-    for (archive_table) |arch| {
-        _ = layerIndex(arch.layer);
-        for (arch.edges) |edge| {
-            var found = false;
-            for (archive_table) |other| {
-                if (std.mem.eql(u8, other.artifact, edge)) found = true;
-            }
-            if (!found) @compileError("archive_table edge '" ++ edge ++ "' names no archive");
-        }
-    }
+    // layer must name a real row, so a typo or a removed layer fails the build.
+    for (archive_table) |arch| _ = layerIndex(arch.layer);
 }
 
 /// Index of `name` in `layer_table`; edges may only point at earlier rows.
@@ -284,6 +272,42 @@ fn irohAbiModule(
     });
 }
 
+/// Link the iroh Rust sidecar staticlib into `mod`, plus the libc and unwind
+/// runtime its panic machinery needs (ADR-0055). Every runnable iroh artifact
+/// shares this recipe: the drivers and bench, the public C ABI companion, and
+/// the iroh-enabled rooms client. The artifact that consumes `mod` must still
+/// depend on the `iroh-lib` cargo step so the staticlib exists before the link.
+fn linkIrohSidecar(b: *std.Build, mod: *std.Build.Module) void {
+    mod.addObjectFile(b.path("transports/iroh/target/release/libpancake_iroh_sidecar.a"));
+    mod.link_libc = true;
+    mod.linkSystemLibrary("unwind", .{});
+}
+
+/// A fresh module over an iroh driver root with the `pancake` and injected
+/// `iroh` resident imports, the shape the iroh drivers, the iroh bench, and the
+/// iroh-enabled rooms client share. Minted per call so the hermetic
+/// compile-only object and the sidecar-linked executable can each root their
+/// own (no source file lands in two modules of one compilation). The caller
+/// adds `linkIrohSidecar` for a runnable artifact and leaves it off for the
+/// hermetic object, whose externs stay unresolved.
+fn irohDriverModule(
+    b: *std.Build,
+    t: std.Build.ResolvedTarget,
+    o: std.builtin.OptimizeMode,
+    lib_mod: *std.Build.Module,
+    resident: *std.Build.Module,
+    root_source: []const u8,
+) *std.Build.Module {
+    const mod = b.createModule(.{
+        .root_source_file = b.path(root_source),
+        .target = t,
+        .optimize = o,
+    });
+    mod.addImport("pancake", lib_mod);
+    mod.addImport("iroh", resident);
+    return mod;
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -300,7 +324,7 @@ pub fn build(b: *std.Build) void {
     const pin_port = b.option(u16, "port", "Pin the listening TCP port for demo and interop steps (default: ephemeral for demos, each step's documented fixed port for interop)");
     const attach = b.option(bool, "attach", "With -Dport: demo orchestrators join an already-running server on that port instead of spawning one") orelse false;
     if (attach and pin_port == null) {
-        std.debug.panic("-Dattach requires -Dport: there is no server to join without a port", .{});
+        std.process.fatal("-Dattach requires -Dport: there is no server to join without a port", .{});
     }
 
     // ── Internal layer modules (ADR-0040, ADR-0048) ─────────────────────────
@@ -378,8 +402,9 @@ pub fn build(b: *std.Build) void {
         .install_dir = .prefix,
         .install_subdir = "docs",
     });
-    const docs_step = b.step("docs", "Generate the Zig API reference (autodoc) under zig-out/docs/");
-    docs_step.dependOn(&install_docs.step);
+    // The `docs` step itself is registered with the site steps below, so
+    // `check` leads the `zig build -l` listing and the doc-generation steps
+    // group together.
 
     // ── The gate ─────────────────────────────────────────────────────────────
     // Steps below are declared in newcomer priority order — `zig build -l`
@@ -651,48 +676,44 @@ pub fn build(b: *std.Build) void {
     }
 
     // ── Benchmarks ───────────────────────────────────────────────────────────
-    // The benchmark trio, table-driven like the examples: one executable over
-    // `pancake`, one run that forwards `zig build <step> -- <args>`, one step.
-    const benches = [_]struct { name: []const u8, path: []const u8 }{
-        .{ .name = "frame-view-bench", .path = "bench/frame_view_bench.zig" },
-        .{ .name = "codec-bench", .path = "bench/codec_bench.zig" },
-        .{ .name = "peer-scaling-bench", .path = "bench/peer_scaling_bench.zig" },
-        .{ .name = "snapshot-bench", .path = "bench/snapshot_bench.zig" },
+    // Table-driven like the examples: each row builds one executable over
+    // `pancake` and registers its public step, whose run forwards
+    // `zig build <step> -- <args>`. Each row also gets a dedicated gate run that
+    // never sees `b.args`, so `zig build check -- <args>` cannot leak user
+    // arguments into the gate; `smoke_on_check` passes `--smoke` on that gate
+    // run so the heavier benches prove they still run cheaply, without writing
+    // report artifacts into zig-out as a side effect of the gate (the footprint
+    // budget itself is gated by test/engine/footprint_budget_test.zig).
+    const benches = [_]struct {
+        step_name: []const u8,
+        description: []const u8,
+        name: []const u8,
+        path: []const u8,
+        smoke_on_check: bool = false,
+        /// The snapshot bench measures the persistent-actor divergence path, so
+        /// it imports the persistent-collections leaf module directly, the same
+        /// way the test module does; it is not on the public `pancake`
+        /// namespace (ADR-0061).
+        needs_persistent: bool = false,
+    }{
+        .{ .step_name = "bench-frame-view", .description = "Run frame/view benchmark", .name = "frame-view-bench", .path = "bench/frame_view_bench.zig" },
+        .{ .step_name = "bench-codec", .description = "Run codec/dispatch throughput benchmark", .name = "codec-bench", .path = "bench/codec_bench.zig" },
+        .{ .step_name = "bench-peer-scaling", .description = "Measure per-connection memory footprint and extrapolate to 500k", .name = "peer-scaling-bench", .path = "bench/peer_scaling_bench.zig", .smoke_on_check = true },
+        .{ .step_name = "bench-snapshot", .description = "Measure vat snapshot/restore: O(objects), flat in object size, off by default", .name = "snapshot-bench", .path = "bench/snapshot_bench.zig", .smoke_on_check = true, .needs_persistent = true },
     };
-    var bench_exes: [benches.len]*std.Build.Step.Compile = undefined;
-    var bench_runs: [benches.len]*std.Build.Step.Run = undefined;
-    for (benches, 0..) |bench, i| {
-        bench_exes[i] = pancakeExecutable(b, lib_mod, target, optimize, bench.name, bench.path);
-        bench_runs[i] = b.addRunArtifact(bench_exes[i]);
-        if (b.args) |args| {
-            bench_runs[i].addArgs(args);
+    for (benches) |bench| {
+        const exe = pancakeExecutable(b, lib_mod, target, optimize, bench.name, bench.path);
+        if (bench.needs_persistent) {
+            exe.root_module.addImport("persistent", host_mods[layerIndex("persistent")]);
         }
-    }
-    // The snapshot bench measures the persistent-actor divergence path, so it
-    // imports the persistent-collections leaf module directly, the same way the
-    // test module does; it is not on the public `pancake` namespace (ADR-0061).
-    bench_exes[3].root_module.addImport("persistent", host_mods[layerIndex("persistent")]);
-    b.step("bench-frame-view", "Run frame/view benchmark").dependOn(&bench_runs[0].step);
-    b.step("bench-codec", "Run codec/dispatch throughput benchmark").dependOn(&bench_runs[1].step);
-    b.step("bench-peer-scaling", "Measure per-connection memory footprint and extrapolate to 500k").dependOn(&bench_runs[2].step);
-    b.step("bench-snapshot", "Measure vat snapshot/restore: O(objects), flat in object size, off by default").dependOn(&bench_runs[3].step);
+        const run = b.addRunArtifact(exe);
+        if (b.args) |args| run.addArgs(args);
+        b.step(bench.step_name, bench.description).dependOn(&run.step);
 
-    // The gate runs are dedicated Run artifacts that never see `b.args`, so
-    // `zig build check -- <args>` cannot leak user arguments into the gate.
-    // The footprint budget itself is gated by
-    // test/engine/footprint_budget_test.zig; `check` runs the peer-scaling
-    // bench only in `--smoke` mode: prove it still runs, cheaply, without
-    // writing report artifacts into zig-out as a side effect of the gate.
-    const gate_frame_view_bench = b.addRunArtifact(bench_exes[0]);
-    const gate_codec_bench = b.addRunArtifact(bench_exes[1]);
-    const smoke_peer_scaling_bench = b.addRunArtifact(bench_exes[2]);
-    smoke_peer_scaling_bench.addArg("--smoke");
-    const smoke_snapshot_bench = b.addRunArtifact(bench_exes[3]);
-    smoke_snapshot_bench.addArg("--smoke");
-    check_step.dependOn(&gate_frame_view_bench.step);
-    check_step.dependOn(&gate_codec_bench.step);
-    check_step.dependOn(&smoke_peer_scaling_bench.step);
-    check_step.dependOn(&smoke_snapshot_bench.step);
+        const gate = b.addRunArtifact(exe);
+        if (bench.smoke_on_check) gate.addArg("--smoke");
+        check_step.dependOn(&gate.step);
+    }
 
     // ── C ABI dogfoods (siblings of `check`) ─────────────────────────────────
     // Per-language dogfood of the Zig C ABI archives. Each consumer loads the
@@ -758,18 +779,6 @@ pub fn build(b: *std.Build) void {
     run_gifter_handoff.step.dependOn(b.getInstallStep());
     b.step("deno-gifter-handoff", "Pancake-only 3-node three-party handoff: a broker introduces a recipient to an exporter, who is then messaged directly (needs deno)")
         .dependOn(&run_gifter_handoff.step);
-
-    // The rooms-app face of the gifter handoff: a rendezvous room introduces two
-    // members who then DM directly, room out of the path. Exercises the real
-    // rooms directory's `register`/`introduce` and a member's exported `dm`
-    // object, the three proofs (live cap, brand-new inbound, no relay) asserted.
-    const run_rooms_dm = b.addSystemCommand(&.{
-        "deno",                           "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
-        "examples/apps/rooms/dm_demo.ts",
-    });
-    run_rooms_dm.step.dependOn(b.getInstallStep());
-    b.step("demo-rooms-dm", "Rooms direct-message-by-introduction over TCP: a room introduces two members who then DM directly, room out of the path (needs deno)")
-        .dependOn(&run_rooms_dm.step);
 
     // ── Live Goblins interop (siblings of `check`) ───────────────────────────
     // Live interop proof against a real Spritely Goblins vat: a pancake peer
@@ -977,6 +986,15 @@ pub fn build(b: *std.Build) void {
     b.step("bench-langs", "Per-language consumer-cost benchmark: fixed Zig host, swap client (Zig always; joins deno/python3/cargo/racket+goblins when present)")
         .dependOn(&run_bench_langs.step);
 
+    // The langs host and Zig client consume the same driver API as any consumer,
+    // but they only compile inside the ReleaseFast `bench-langs` sibling of
+    // `check`, so an API change can rot them unnoticed (a missing `.give` arm, a
+    // Connection `close` that became `deinit`). Compile them under `check`,
+    // compile-only with no run and no cross-language runtime, so the gate catches
+    // that rot the same way it catches an example that stops compiling.
+    check_step.dependOn(&langs_host_exe.step);
+    check_step.dependOn(&langs_zig_client_exe.step);
+
     // Regenerate the performance page's charts and tables from live ReleaseFast
     // runs of every bench (codec, peer-scaling, frame-view) plus the Goblins
     // comparison, splicing the results into site/content/performance.smd between
@@ -1017,156 +1035,60 @@ pub fn build(b: *std.Build) void {
     iroh_resident_mod.addImport("actors", host_mods[layerIndex("actors")]);
     iroh_resident_mod.addImport("net", host_mods[layerIndex("net")]);
 
-    // Running any iroh driver needs cargo (the sidecar staticlib), but
-    // *compiling* its Zig is hermetic: `check` compiles each driver root as an
-    // object — externs stay unresolved, nothing links — so a core or model API
-    // change cannot silently rot a driver only the cargo-gated steps run.
-    const iroh_driver_roots = [_][]const u8{
-        "interop/iroh_interop/driver.zig",
-        "interop/iroh_reachability/driver.zig",
-        "interop/iroh_mesh/driver.zig",
-        "interop/iroh_loop/driver.zig",
-        "bench/iroh_bench.zig",
+    // The iroh driver family, table-driven. Each row is both a runnable sibling
+    // of `check` (linking the sidecar through `linkIrohSidecar`, so it needs
+    // cargo) and a hermetic compile-only object that rides `check`: *compiling*
+    // a driver's Zig is cargo-free because externs stay unresolved and nothing
+    // links, so a core or model API change cannot silently rot a driver only the
+    // cargo-gated steps run. Per-row posture:
+    //   iroh-interop  — live encrypted conversation, two pancake peers over real
+    //                   iroh endpoints, dialed by id with direct-address hints.
+    //   iroh-reachability — Milestone 1: dial by node id alone over n0's public
+    //                   relays and DNS/pkarr discovery, no hints. Touches public
+    //                   discovery infrastructure with propagation timing, so it
+    //                   is opt-in and never a hermetic gate.
+    //   iroh-mesh     — Milestone 2: a three-party handoff, A introduces B to C
+    //                   and B reaches C by the gifted node id. Deterministic
+    //                   (in-process discovery book).
+    //   iroh-loop     — Milestone 3 (ADR-0057): many concurrent connections
+    //                   served from one thread through the event-driven sidecar
+    //                   superset. Deterministic.
+    //   bench-iroh    — round-trip latency/throughput over real keyed QUIC vs a
+    //                   same-machine cleartext TCP baseline; reports numbers,
+    //                   gates none, and forwards `-- <args>`. `bench-site-report`
+    //                   runs it to refresh the performance page.
+    const iroh_drivers = [_]struct {
+        step_name: []const u8,
+        description: []const u8,
+        exe_name: []const u8,
+        root_source: []const u8,
+        forwards_args: bool = false,
+    }{
+        .{ .step_name = "iroh-interop", .description = "Live encrypted OCapN conversation: two pancake peers over real iroh endpoints (needs cargo)", .exe_name = "pancake-iroh-interop", .root_source = "interop/iroh_interop/driver.zig" },
+        .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "pancake-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig" },
+        .{ .step_name = "iroh-mesh", .description = "Live three-party handoff over iroh: recipient reaches the introduced exporter by node id (needs cargo)", .exe_name = "pancake-iroh-mesh", .root_source = "interop/iroh_mesh/driver.zig" },
+        .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)", .exe_name = "pancake-iroh-loop", .root_source = "interop/iroh_loop/driver.zig" },
+        .{ .step_name = "bench-iroh", .description = "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)", .exe_name = "pancake-iroh-bench", .root_source = "bench/iroh_bench.zig", .forwards_args = true },
     };
-    for (iroh_driver_roots) |root_path| {
-        const compile_mod = b.createModule(.{
-            .root_source_file = b.path(root_path),
-            .target = target,
-            .optimize = optimize,
-        });
-        compile_mod.addImport("pancake", lib_mod);
-        compile_mod.addImport("iroh", iroh_resident_mod);
-        const obj = b.addObject(.{
-            .name = b.fmt("iroh-driver-compile-{d}", .{std.hash.Crc32.hash(root_path)}),
-            .root_module = compile_mod,
-        });
-        check_step.dependOn(&obj.step);
+    for (iroh_drivers) |drv| {
+        // Hermetic compile-only object (no sidecar), rides `check`.
+        const compile_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, drv.root_source);
+        const compile_obj = b.addObject(.{ .name = b.fmt("{s}-compile", .{drv.exe_name}), .root_module = compile_mod });
+        check_step.dependOn(&compile_obj.step);
+
+        // Runnable sibling of `check`: links the sidecar and runs from the root.
+        const run_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, drv.root_source);
+        linkIrohSidecar(b, run_mod);
+        const exe = b.addExecutable(.{ .name = drv.exe_name, .root_module = run_mod });
+        exe.step.dependOn(&iroh_lib.step);
+        const run = b.addRunArtifact(exe);
+        run.setCwd(b.path("."));
+        run.has_side_effects = true;
+        if (drv.forwards_args) {
+            if (b.args) |args| run.addArgs(args);
+        }
+        b.step(drv.step_name, drv.description).dependOn(&run.step);
     }
-
-    const iroh_interop_mod = b.createModule(.{
-        .root_source_file = b.path("interop/iroh_interop/driver.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    iroh_interop_mod.addImport("pancake", lib_mod);
-    iroh_interop_mod.addImport("iroh", iroh_resident_mod);
-    iroh_interop_mod.addObjectFile(b.path("transports/iroh/target/release/libpancake_iroh_sidecar.a"));
-    iroh_interop_mod.link_libc = true;
-    iroh_interop_mod.linkSystemLibrary("unwind", .{});
-    const iroh_interop_exe = b.addExecutable(.{
-        .name = "pancake-iroh-interop",
-        .root_module = iroh_interop_mod,
-    });
-    iroh_interop_exe.step.dependOn(&iroh_lib.step);
-    const run_iroh_interop = b.addRunArtifact(iroh_interop_exe);
-    run_iroh_interop.setCwd(b.path("."));
-    run_iroh_interop.has_side_effects = true;
-    const iroh_interop_step = b.step("iroh-interop", "Live encrypted OCapN conversation: two pancake peers over real iroh endpoints (needs cargo)");
-    iroh_interop_step.dependOn(&run_iroh_interop.step);
-
-    // Live real-internet reachability (Milestone 1): two peers reach each other
-    // by node id alone over n0's public relays and DNS/pkarr discovery, no
-    // direct-address hints. Touches public discovery infrastructure, so it is
-    // opt-in and never part of `check` or the deterministic `iroh-interop`;
-    // discovery-propagation timing makes it unsuitable as a hermetic gate.
-    const iroh_reach_mod = b.createModule(.{
-        .root_source_file = b.path("interop/iroh_reachability/driver.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    iroh_reach_mod.addImport("pancake", lib_mod);
-    iroh_reach_mod.addImport("iroh", iroh_resident_mod);
-    iroh_reach_mod.addObjectFile(b.path("transports/iroh/target/release/libpancake_iroh_sidecar.a"));
-    iroh_reach_mod.link_libc = true;
-    iroh_reach_mod.linkSystemLibrary("unwind", .{});
-    const iroh_reach_exe = b.addExecutable(.{
-        .name = "pancake-iroh-reachability",
-        .root_module = iroh_reach_mod,
-    });
-    iroh_reach_exe.step.dependOn(&iroh_lib.step);
-    const run_iroh_reach = b.addRunArtifact(iroh_reach_exe);
-    run_iroh_reach.setCwd(b.path("."));
-    run_iroh_reach.has_side_effects = true;
-    const iroh_reach_step = b.step("iroh-reachability", "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)");
-    iroh_reach_step.dependOn(&run_iroh_reach.step);
-
-    // The mesh (Milestone 2): a three-party handoff over iroh, A introduces B
-    // to C, and B reaches C by the gifted node id and calls the gifted cap.
-    // Deterministic (in-process discovery book), the same gate posture as
-    // `iroh-interop`.
-    const iroh_mesh_mod = b.createModule(.{
-        .root_source_file = b.path("interop/iroh_mesh/driver.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    iroh_mesh_mod.addImport("pancake", lib_mod);
-    iroh_mesh_mod.addImport("iroh", iroh_resident_mod);
-    iroh_mesh_mod.addObjectFile(b.path("transports/iroh/target/release/libpancake_iroh_sidecar.a"));
-    iroh_mesh_mod.link_libc = true;
-    iroh_mesh_mod.linkSystemLibrary("unwind", .{});
-    const iroh_mesh_exe = b.addExecutable(.{
-        .name = "pancake-iroh-mesh",
-        .root_module = iroh_mesh_mod,
-    });
-    iroh_mesh_exe.step.dependOn(&iroh_lib.step);
-    const run_iroh_mesh = b.addRunArtifact(iroh_mesh_exe);
-    run_iroh_mesh.setCwd(b.path("."));
-    run_iroh_mesh.has_side_effects = true;
-    const iroh_mesh_step = b.step("iroh-mesh", "Live three-party handoff over iroh: recipient reaches the introduced exporter by node id (needs cargo)");
-    iroh_mesh_step.dependOn(&run_iroh_mesh.step);
-
-    // Scale (Milestone 3, ADR-0057): many concurrent iroh connections served
-    // from one thread through the event-driven sidecar superset — the readiness
-    // fd, the drained ready-queue, and non-blocking frame I/O — instead of a
-    // thread per connection. Deterministic (in-process discovery book), the same
-    // gate posture as `iroh-interop`.
-    const iroh_loop_mod = b.createModule(.{
-        .root_source_file = b.path("interop/iroh_loop/driver.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    iroh_loop_mod.addImport("pancake", lib_mod);
-    iroh_loop_mod.addImport("iroh", iroh_resident_mod);
-    iroh_loop_mod.addObjectFile(b.path("transports/iroh/target/release/libpancake_iroh_sidecar.a"));
-    iroh_loop_mod.link_libc = true;
-    iroh_loop_mod.linkSystemLibrary("unwind", .{});
-    const iroh_loop_exe = b.addExecutable(.{
-        .name = "pancake-iroh-loop",
-        .root_module = iroh_loop_mod,
-    });
-    iroh_loop_exe.step.dependOn(&iroh_lib.step);
-    const run_iroh_loop = b.addRunArtifact(iroh_loop_exe);
-    run_iroh_loop.setCwd(b.path("."));
-    run_iroh_loop.has_side_effects = true;
-    const iroh_loop_step = b.step("iroh-loop", "Live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)");
-    iroh_loop_step.dependOn(&run_iroh_loop.step);
-
-    // iroh round-trip benchmark: full OCapN call latency/throughput over real
-    // keyed QUIC endpoints, with a same-machine cleartext TCP baseline so the
-    // encrypted transport's overhead is visible. Reports numbers, gates none;
-    // links the sidecar, so it is a sibling of `check` like the other iroh
-    // steps. `bench-site-report` runs it to refresh the performance page.
-    const iroh_bench_mod = b.createModule(.{
-        .root_source_file = b.path("bench/iroh_bench.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    iroh_bench_mod.addImport("pancake", lib_mod);
-    iroh_bench_mod.addImport("iroh", iroh_resident_mod);
-    iroh_bench_mod.addObjectFile(b.path("transports/iroh/target/release/libpancake_iroh_sidecar.a"));
-    iroh_bench_mod.link_libc = true;
-    iroh_bench_mod.linkSystemLibrary("unwind", .{});
-    const iroh_bench_exe = b.addExecutable(.{
-        .name = "pancake-iroh-bench",
-        .root_module = iroh_bench_mod,
-    });
-    iroh_bench_exe.step.dependOn(&iroh_lib.step);
-    const run_iroh_bench = b.addRunArtifact(iroh_bench_exe);
-    run_iroh_bench.setCwd(b.path("."));
-    run_iroh_bench.has_side_effects = true;
-    if (b.args) |args| run_iroh_bench.addArgs(args);
-    const iroh_bench_step = b.step("bench-iroh", "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)");
-    iroh_bench_step.dependOn(&run_iroh_bench.step);
 
     // Hermetic type-check of the resident: compile it to an object, where its
     // externs need no definition, so plain `zig build check` catches resident
@@ -1187,9 +1109,7 @@ pub fn build(b: *std.Build) void {
     // running it needs cargo, so it is a sibling of `check`, the same posture as
     // `iroh-interop`.
     const iroh_abi_link_mod = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod);
-    iroh_abi_link_mod.addObjectFile(b.path("transports/iroh/target/release/libpancake_iroh_sidecar.a"));
-    iroh_abi_link_mod.link_libc = true;
-    iroh_abi_link_mod.linkSystemLibrary("unwind", .{});
+    linkIrohSidecar(b, iroh_abi_link_mod);
     const iroh_abi_shared = b.addLibrary(.{
         .name = "pancake_net_transport_iroh",
         .linkage = .dynamic,
@@ -1237,8 +1157,6 @@ pub fn build(b: *std.Build) void {
     };
     for (iroh_loop_clients) |client| {
         const run = addInstalledSystemRun(b, client.argv);
-        run.setCwd(b.path("."));
-        run.has_side_effects = true;
         run.step.dependOn(iroh_abi_step);
         if (pin_port) |p| {
             if (client.dashdash_before_args) run.addArg("--");
@@ -1282,8 +1200,6 @@ pub fn build(b: *std.Build) void {
     };
     for (iroh_handoff_clients) |client| {
         const run = addInstalledSystemRun(b, client.argv);
-        run.setCwd(b.path("."));
-        run.has_side_effects = true;
         run.step.dependOn(iroh_abi_step);
         if (pin_port) |p| {
             if (client.dashdash_before_args) run.addArg("--");
@@ -1333,8 +1249,6 @@ pub fn build(b: *std.Build) void {
     };
     for (iroh_redeem_clients) |client| {
         const run = addInstalledSystemRun(b, client.argv);
-        run.setCwd(b.path("."));
-        run.has_side_effects = true;
         run.step.dependOn(iroh_abi_step);
         if (pin_port) |p| {
             if (client.dashdash_before_args) run.addArg("--");
@@ -1380,8 +1294,6 @@ pub fn build(b: *std.Build) void {
     };
     for (iroh_reach_clients) |client| {
         const run = addInstalledSystemRun(b, client.argv);
-        run.setCwd(b.path("."));
-        run.has_side_effects = true;
         run.step.dependOn(iroh_abi_step);
         if (pin_port) |p| {
             if (client.dashdash_before_args) run.addArg("--");
@@ -1513,24 +1425,29 @@ pub fn build(b: *std.Build) void {
     const rooms_demo_step = b.step("demo-rooms", "Run the cross-language rooms chat demo (needs deno; joins python3/racket/cargo clients when present)");
     rooms_demo_step.dependOn(&rooms_demo.step);
 
+    // The rooms-app face of the gifter handoff (`deno-gifter-handoff`): a
+    // rendezvous room introduces two members who then DM directly, room out of
+    // the path. Exercises the real rooms directory's `register`/`introduce` and
+    // a member's exported `dm` object, the three proofs (live cap, brand-new
+    // inbound, no relay) asserted. Its iroh sibling is `demo-rooms-dm-iroh`.
+    const run_rooms_dm = b.addSystemCommand(&.{
+        "deno",                           "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
+        "examples/apps/rooms/dm_demo.ts",
+    });
+    run_rooms_dm.step.dependOn(b.getInstallStep());
+    b.step("demo-rooms-dm", "Rooms direct-message-by-introduction over TCP: a room introduces two members who then DM directly, room out of the path (needs deno)")
+        .dependOn(&run_rooms_dm.step);
+
     // The same rooms demo over iroh's encrypted QUIC. The Zig client is built as
     // a second, iroh-enabled artifact that links the Rust sidecar (so it can dial
     // an ocapn:// URI), and the cross-language clients reach the room through the
     // iroh C ABI companion library. Needs cargo (sidecar + iroh ABI) and deno, so
     // it is a sibling of `check`, like `iroh-interop`.
-    const rooms_client_iroh_mod = b.createModule(.{
-        .root_source_file = b.path("examples/apps/rooms/zig/client.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    rooms_client_iroh_mod.addImport("pancake", lib_mod);
-    rooms_client_iroh_mod.addImport("iroh", iroh_resident_mod);
+    const rooms_client_iroh_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "examples/apps/rooms/zig/client.zig");
     const rooms_iroh_opts = b.addOptions();
     rooms_iroh_opts.addOption(bool, "iroh_enabled", true);
     rooms_client_iroh_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
-    rooms_client_iroh_mod.addObjectFile(b.path("transports/iroh/target/release/libpancake_iroh_sidecar.a"));
-    rooms_client_iroh_mod.link_libc = true;
-    rooms_client_iroh_mod.linkSystemLibrary("unwind", .{});
+    linkIrohSidecar(b, rooms_client_iroh_mod);
     const rooms_client_iroh_exe = b.addExecutable(.{ .name = "pancake-rooms-client-iroh", .root_module = rooms_client_iroh_mod });
     rooms_client_iroh_exe.step.dependOn(&iroh_lib.step);
 
@@ -1679,6 +1596,12 @@ pub fn build(b: *std.Build) void {
     // is compiled only when these steps run, the same way the cargo, deno, and
     // racket sibling steps reach for their tool at run time. The hermetic
     // `check` graph never imports it, so the root build stays dependency-free.
+    // The autodoc-only step, grouped here with the site steps that also render
+    // documentation; it emits the public `pancake` module's reference under
+    // zig-out/docs/ from the artifact built in the autodoc section above.
+    const docs_step = b.step("docs", "Generate the Zig API reference (autodoc) under zig-out/docs/");
+    docs_step.dependOn(&install_docs.step);
+
     const site_cache_dir = b.pathJoin(&.{ b.build_root.path.?, ".zig-cache" });
     const render_site = b.addSystemCommand(&.{
         b.graph.zig_exe, "build",

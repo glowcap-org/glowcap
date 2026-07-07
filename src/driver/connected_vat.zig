@@ -257,7 +257,7 @@ pub const ConnectedVat = struct {
     pub fn openKeyedSession(self: *ConnectedVat) !void {
         try self.startKeyedSession(.{
             .transport = "tcp",
-            .designator = "127.0.0.1:0",
+            .designator = driver.unreachable_client_designator,
             .hints = model.Hints.emptyFalse(),
         });
     }
@@ -528,8 +528,8 @@ fn onFetch(ctx: ?*anyopaque, resolution: actors.Resolution) void {
 /// one-call `connect` derives buffers and the session limit from a single
 /// `frame_cap` so they cannot drift apart.
 pub fn connectTcp(
-    io: std.Io,
     allocator: std.mem.Allocator,
+    io: std.Io,
     peer: *engine.Peer,
     address: std.Io.net.IpAddress,
     read_buf: []u8,
@@ -665,8 +665,9 @@ pub fn connectUri(
 /// signing key: `.ephemeral` draws a fresh random session key, and `.keyed`
 /// signs with a caller-held key, the responder half of key unification, when
 /// the key is the secret half of the netlayer endpoint's key and the bound
-/// designator already equals that key's node id. The keyed arm's `designator`
-/// field is unused here: a host names itself by where it listens.
+/// designator already equals that key's node id. Unlike the dialer's
+/// `Identity`, the accept posture carries no designator to advertise: a host
+/// names itself by where it listens.
 pub fn acceptVia(
     allocator: std.mem.Allocator,
     listener: net.netlayer.Listener,

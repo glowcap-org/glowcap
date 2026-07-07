@@ -38,9 +38,10 @@ pub const Action = union(enum) {
     withdraw_gift: WithdrawRequest,
 };
 
-/// One deposited gift awaiting withdrawal. The registry owns every slice and the
-/// optional gifted reference; rows are freed precisely, on overwrite or at
-/// `deinit`.
+/// One deposited, not-yet-consumed gift. The registry owns every slice and the
+/// optional gifted reference; rows are freed precisely, on overwrite, on withdraw
+/// (a consumed gift's whole row is removed — replay stays blocked by the
+/// monotonic `handoff_counts`, so no spent marker accrues), or at `deinit`.
 const GiftEntry = struct {
     /// The recipient session key the gifter named at deposit, or empty when the
     /// deposit carried none (a bootstrap `deposit-gift` names no recipient — the
@@ -51,7 +52,6 @@ const GiftEntry = struct {
     /// against the key the exporter learned at deposit (ADR-0009). Empty only
     /// for a gift deposited without a known gifter key.
     gifter_key: []const u8,
-    withdrawn: bool,
     /// The capability the gifter deposited, returned on a successful withdraw.
     /// Null when the deposit recorded only provenance (the cross-peer give
     /// routing path, where no capability rides with the deposit).
@@ -77,6 +77,10 @@ const GiftEntry = struct {
 /// locking around every operation that can touch it — the conformance host
 /// wraps its shared-registry dispatch in a host-owned blocking mutex.
 pub const GiftRegistry = struct {
+    /// Deposited, not-yet-consumed gifts. A consumed gift's whole row is removed
+    /// at withdraw, so the row count _is_ the live-gift count, and
+    /// `max_deposited_gifts` bounds it directly: a process-lifetime registry that
+    /// has served many completed handoffs keeps accepting new deposits.
     gifts: std.StringHashMapUnmanaged(GiftEntry) = .empty,
     /// Highest accepted `handoff_count` per receiving session id — the monotonic
     /// replay guard. Vat-scoped on purpose: a receiving session's counter is
@@ -92,14 +96,20 @@ pub const GiftRegistry = struct {
     /// expects.
     emitted_handoff_counts: std.StringHashMapUnmanaged(u64) = .empty,
 
+    /// Free everything a gift row owns. Used at deinit, on re-deposit overwrite,
+    /// and on the removed row a withdraw pulls out of the map.
+    fn freeGiftEntry(allocator: std.mem.Allocator, entry: *GiftEntry) void {
+        allocator.free(entry.recipient_key);
+        allocator.free(entry.gifter_key);
+        allocator.free(entry.gifted_swiss);
+        if (entry.gifted) |gifted| model.freeReference(allocator, gifted);
+    }
+
     pub fn deinit(self: *GiftRegistry, allocator: std.mem.Allocator) void {
         var gift_it = self.gifts.iterator();
         while (gift_it.next()) |entry| {
             allocator.free(entry.key_ptr.*);
-            allocator.free(entry.value_ptr.recipient_key);
-            allocator.free(entry.value_ptr.gifter_key);
-            allocator.free(entry.value_ptr.gifted_swiss);
-            if (entry.value_ptr.gifted) |gifted| model.freeReference(allocator, gifted);
+            freeGiftEntry(allocator, entry.value_ptr);
         }
         self.gifts.deinit(allocator);
 
@@ -210,19 +220,19 @@ pub const GiftRegistry = struct {
             const gifter_copy = try allocator.dupe(u8, gifter_key);
             errdefer allocator.free(gifter_copy);
             const swiss_copy = try allocator.dupe(u8, gifted_swiss);
-            allocator.free(entry.recipient_key);
-            allocator.free(entry.gifter_key);
-            allocator.free(entry.gifted_swiss);
-            if (entry.gifted) |old| model.freeReference(allocator, old);
+            // A live row is being re-deposited (a consumed gift's row is removed
+            // at withdraw, so a hit is always live): replace it in place, the
+            // live count is unchanged.
+            freeGiftEntry(allocator, entry);
             entry.* = .{
                 .recipient_key = recipient_copy,
                 .gifter_key = gifter_copy,
-                .withdrawn = false,
                 .gifted = gifted,
                 .gifted_swiss = swiss_copy,
             };
             return;
         }
+        // A consumed gift's row is removed, so the row count is the live count.
         if (self.gifts.count() >= limits.max_deposited_gifts) {
             return session_mod.Error.DepositedGiftCapExceeded;
         }
@@ -240,28 +250,18 @@ pub const GiftRegistry = struct {
         gop.value_ptr.* = .{
             .recipient_key = recipient_copy,
             .gifter_key = gifter_copy,
-            .withdrawn = false,
             .gifted = gifted,
             .gifted_swiss = swiss_copy,
         };
     }
 
-    pub fn giftDeposited(self: *const GiftRegistry, gift_id: []const u8) bool {
-        return self.gifts.contains(gift_id);
-    }
-
-    pub fn giftWithdrawn(self: *const GiftRegistry, gift_id: []const u8) bool {
-        const entry = self.gifts.get(gift_id) orelse return false;
-        return entry.withdrawn;
-    }
-
-    /// Whether `gift_id` names a deposited, not-yet-consumed gift, the only
-    /// rows a withdraw can take. A consumed row reads as not live, so an early
-    /// or repeated `withdraw-gift` parks awaiting a (re-)deposit instead of
-    /// verifying against a stale row's key.
+    /// Whether `gift_id` names a live, not-yet-consumed gift — equivalently,
+    /// whether a row is present, since a consumed gift's row is removed. It is the
+    /// only kind of gift a withdraw can take: a missing row (consumed or never
+    /// deposited) reads as not live, so an early or repeated `withdraw-gift` parks
+    /// awaiting a (re-)deposit rather than verifying against a stale row's key.
     pub fn giftLive(self: *const GiftRegistry, gift_id: []const u8) bool {
-        const entry = self.gifts.get(gift_id) orelse return false;
-        return !entry.withdrawn;
+        return self.gifts.contains(gift_id);
     }
 
     /// The session public key the depositing gifter signed its `desc:handoff-give`
@@ -273,10 +273,10 @@ pub const GiftRegistry = struct {
         return entry.gifter_key;
     }
 
-    /// The gifted reference for `gift_id` *regardless of withdrawn status*. The
-    /// withdraw path reads this only after `applyWithdraw` has marked the gift —
-    /// exactly when the capability must still be delivered — so it is not
-    /// filtered by the withdrawn flag.
+    /// The gifted reference for `gift_id`, or null when the deposit recorded only
+    /// provenance. The withdraw path reads this on a still-live gift, before
+    /// `applyWithdraw` reclaims the row's payload, and clones it out — a consumed
+    /// gift holds no reference to return.
     pub fn giftedCap(self: *const GiftRegistry, gift_id: []const u8) ?model.Reference {
         const entry = self.gifts.get(gift_id) orelse return null;
         return entry.gifted;
@@ -291,13 +291,12 @@ pub const GiftRegistry = struct {
         return entry.gifted_swiss;
     }
 
-    /// The withdrawal authority check: gift existence, not-yet-withdrawn,
-    /// recipient match when the deposit named a recipient, and monotonic
-    /// handoff-count replay rejection. Validate before `applyWithdraw`; the two
-    /// stay split so a refusal never mutates state.
+    /// The withdrawal authority check: gift existence (a consumed gift's row is
+    /// gone, so it reads as unknown), recipient match when the deposit named a
+    /// recipient, and monotonic handoff-count replay rejection. Validate before
+    /// `applyWithdraw`; the two stay split so a refusal never mutates state.
     pub fn validateWithdraw(self: *const GiftRegistry, receive: model.HandoffReceive) session_mod.Error!void {
         const gift = self.gifts.get(receive.signed_give.gift_id) orelse return session_mod.Error.InvalidGift;
-        if (gift.withdrawn) return session_mod.Error.InvalidGift;
         if (gift.recipient_key.len > 0 and
             !std.mem.eql(u8, gift.recipient_key, receive.signed_give.recipient_key))
         {
@@ -314,11 +313,19 @@ pub const GiftRegistry = struct {
         limits: session_mod.SessionLimits,
         receive: model.HandoffReceive,
     ) !void {
-        // Record the count first (the only fallible step); marking the gift
-        // withdrawn afterwards cannot fail, so the apply stays atomic.
+        // Record the count first (the only fallible step); removing the gift
+        // afterwards cannot fail, so the apply stays atomic.
         try self.recordHandoffCount(allocator, limits, receive.receiving_session, receive.handoff_count);
-        if (self.gifts.getPtr(receive.signed_give.gift_id)) |gift| {
-            gift.withdrawn = true;
+        // Remove the whole row the moment the gift is consumed: no spent marker
+        // accrues, so a process-lifetime registry pins neither a capability nor a
+        // row per handoff it ever served, and the live count cannot be driven
+        // past its cap by re-arming a marker. Replay stays blocked by the
+        // monotonic handoff-count above, and a legitimate re-deposit simply
+        // creates a fresh row.
+        if (self.gifts.fetchRemove(receive.signed_give.gift_id)) |kv| {
+            allocator.free(kv.key);
+            var entry = kv.value;
+            freeGiftEntry(allocator, &entry);
         }
     }
 
@@ -486,7 +493,7 @@ pub fn resolveForWithdraw(
     // it, so verification never runs against a stale row's gifter key.
     if (!registry.giftLive(receive.signed_give.gift_id)) return .awaiting_deposit;
     const gifter_key_bytes = registry.giftGifterKey(receive.signed_give.gift_id).?;
-    if (!verifyHandoffReceiveWithGifterKey(allocator, receive, gifter_key_bytes)) {
+    if (!try verifyHandoffReceiveWithGifterKey(allocator, receive, gifter_key_bytes)) {
         return .{ .settled = .{ .resolve = .{
             .answer = request.answer,
             .resolution = .{ .@"break" = .{ .message = "invalid handoff signature" } },
@@ -499,7 +506,14 @@ pub fn resolveForWithdraw(
             .resolution = .{ .@"break" = .{ .message = withdrawRefusalReason(err) } },
         } } };
     };
-    try registry.applyWithdraw(allocator, session.limits, receive);
+
+    // Consume the gift only once the object is confirmed deliverable.
+    // `applyWithdraw` records the monotonic handoff-count and reclaims the
+    // gift's payload, so a break returned *after* it would permanently burn a
+    // legitimately-deposited gift on a recoverable condition — the recipient
+    // could never retry, since a re-withdraw parks and the recorded count makes
+    // a same-count retry a replay. So each arm confirms it can deliver before it
+    // calls `applyWithdraw`.
 
     // A gift that named a node-local bootstrap cap is re-resolved against *this*
     // (the withdrawing) session: the deposit-session near is meaningless here, so
@@ -509,30 +523,37 @@ pub fn resolveForWithdraw(
     // session differ, so a verbatim near would point at nothing on the wire.
     const gifted_swiss = registry.giftedSwiss(receive.signed_give.gift_id) orelse "";
     if (gifted_swiss.len > 0) {
-        if (session.bootstrapLookup(gifted_swiss)) |export_position| {
+        const export_position = session.bootstrapLookup(gifted_swiss) orelse {
+            // The object is not published on this session yet: the node owns the
+            // gift's identity but has not exported it here. Leave the gift live
+            // and its handoff-count unrecorded so a later publish plus retry can
+            // succeed, rather than burning it on a recoverable condition.
             return .{ .settled = .{ .resolve = .{
                 .answer = request.answer,
-                .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = export_position } } } },
+                .resolution = .{ .@"break" = .{ .message = "gift object not hosted on this session" } },
             } } };
-        }
-        // The object is not published on this session: the node owns the gift's
-        // identity but has not exported it here. Refuse rather than hand back a
-        // dangling deposit-session near.
+        };
+        try registry.applyWithdraw(allocator, session.limits, receive);
         return .{ .settled = .{ .resolve = .{
             .answer = request.answer,
-            .resolution = .{ .@"break" = .{ .message = "gift object not hosted on this session" } },
+            .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = export_position } } } },
         } } };
     }
 
-    // Read the unfiltered gifted cap: `applyWithdraw` above just marked the gift
-    // withdrawn, and a withdraw is exactly when we deliver the gifted reference.
+    // A verbatim gifted cap: clone it out before `applyWithdraw` reclaims the
+    // row's payload, guarding the clone because `applyWithdraw` is still fallible
+    // (a handoff-count cap or OOM would otherwise leak the clone).
     const gifted = registry.giftedCap(receive.signed_give.gift_id) orelse {
+        // Provenance-only deposit with nothing to hand back here. Leave the gift
+        // live rather than consume a gift this session cannot satisfy.
         return .{ .settled = .{ .resolve = .{
             .answer = request.answer,
             .resolution = .{ .@"break" = .{ .message = "gift not deposited" } },
         } } };
     };
     const gifted_copy = try model.cloneReference(allocator, gifted);
+    errdefer model.freeReference(allocator, gifted_copy);
+    try registry.applyWithdraw(allocator, session.limits, receive);
     return .{ .settled = .{ .resolve = .{
         .answer = request.answer,
         .resolution = .{ .fulfill = .{ .reference = gifted_copy } },
@@ -545,25 +566,38 @@ pub fn resolveForWithdraw(
 fn withdrawRefusalReason(err: session_mod.Error) []const u8 {
     return switch (err) {
         session_mod.Error.HandoffReplay => "handoff-receive replayed or out-of-order handoff-count",
-        session_mod.Error.InvalidGift => "gift is unknown, already withdrawn, or names a different recipient",
+        session_mod.Error.InvalidGift => "gift is unknown or consumed, or names a different recipient",
         else => "invalid handoff withdraw",
     };
 }
 
+/// Whether both handoff signatures verify. An `OutOfMemory` building the
+/// canonical signing bytes is a host failure and propagates as itself, never
+/// folded into `false` — a `false` here becomes a permanent "invalid handoff
+/// signature" break, and disguising a transient host condition as a partner
+/// protocol violation is exactly the doctrine `gc.zig` states in this layer.
+/// Malformed `raw_signed` bytes and every crypto parse/verify failure stay
+/// `false`: those are attacker-controlled and a genuine signature refusal.
 fn verifyHandoffReceiveWithGifterKey(
     allocator: std.mem.Allocator,
     receive: model.HandoffReceive,
     gifter_key_bytes: []const u8,
-) bool {
+) error{OutOfMemory}!bool {
     const give = receive.signed_give;
-    const give_signed = codec.syrup.canonicalHandoffGiveSignedBytes(allocator, give) catch return false;
+    const give_signed = codec.syrup.canonicalHandoffGiveSignedBytes(allocator, give) catch |err| {
+        if (err == error.OutOfMemory) return error.OutOfMemory;
+        return false;
+    };
     defer allocator.free(give_signed);
 
     const gifter_key = crypto.PeerKey.fromSlice(gifter_key_bytes) catch return false;
     const give_sig = crypto.Signature.fromSlice(give.signature) catch return false;
     crypto.verify(gifter_key, give_signed, give_sig) catch return false;
 
-    const receive_signed = codec.syrup.canonicalHandoffReceiveSignedBytes(allocator, receive) catch return false;
+    const receive_signed = codec.syrup.canonicalHandoffReceiveSignedBytes(allocator, receive) catch |err| {
+        if (err == error.OutOfMemory) return error.OutOfMemory;
+        return false;
+    };
     defer allocator.free(receive_signed);
 
     const recipient_key = crypto.PeerKey.fromSlice(give.recipient_key) catch return false;

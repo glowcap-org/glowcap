@@ -79,6 +79,15 @@ pub const Error = error{
     NotPipelineable,
 };
 
+/// The `tcp` designator a dialer that does not itself listen signs as its own
+/// dialable address: a placeholder no partner can reach. A dialer advertises
+/// this because the keyed session's identity is its signing key, not its
+/// address, so a partner verifies the signature over these bytes rather than
+/// dialing them back. Every never-listening dialer signs the one value —
+/// `ConnectedVat.openKeyedSession`, `LoopDialer`, and a `Host` that never
+/// binds a listener — so the placeholder never drifts between them.
+pub const unreachable_client_designator = "127.0.0.1:0";
+
 /// Draw a fresh random session secret from `io` at the I/O boundary, never in the
 /// no-I/O core. The raw seed is wiped off the stack after `fromSeed` consumes it,
 /// so the ephemeral secret does not linger. The `ConnectedVat` handshake halves

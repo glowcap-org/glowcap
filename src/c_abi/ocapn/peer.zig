@@ -376,9 +376,9 @@ pub export fn pancake_peer_session_is_open(peer: ?*PancakePeer) i32 {
 
 /// The codec the peer's session speaks, written into `out_codec` as a
 /// `PANCAKE_CODEC_*` value. Event frames and `take_outbound` frames are encoded
-/// in this codec, so a consumer that falls back to the opaque
-/// (reading a `PANCAKE_PROJECTION_FRAME` arm of `PancakeAnyEvent`).
-/// surface cannot carry) knows how to interpret the raw frame bytes.
+/// in this codec, so a consumer reading the `PANCAKE_PROJECTION_FRAME` arm of a
+/// `PancakeAnyEvent` (or an opaque `poll_event` frame) knows how to interpret
+/// the raw bytes.
 pub export fn pancake_peer_codec(peer: ?*const PancakePeer, out_codec: ?*u32) i32 {
     const ptr = peerFromOpaqueConst(peer) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_codec orelse return PANCAKE_ERR_NULL_POINTER;

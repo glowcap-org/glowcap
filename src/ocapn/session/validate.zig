@@ -27,6 +27,7 @@ const Error = session.Error;
 const RecvViewError = session.RecvViewError;
 const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 const VIRTUAL_INBOUND_ANSWER_BASE = session.VIRTUAL_INBOUND_ANSWER_BASE;
+const REDEEMED_TOKEN_BASE = session.REDEEMED_TOKEN_BASE;
 
 pub fn validateRecvView(self: *Session, body: model.view.Body) !void {
     // State admission is gated at the dispatch head (`admitInState`); this is
@@ -123,6 +124,23 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
             const entry = self.inbound_answers.getPtr(resolve.answer) orelse
                 return Error.InvalidReference;
             if (entry.status != .pending) return Error.UnexpectedMessage;
+            // The fulfill payload's `near` references are deliberately *not*
+            // validated as held here: resolving an answer with a `.near` is how
+            // the application exports that object for the first time, so
+            // `retainSentExports` mints the export row (`ExportTable.retain`
+            // inserts at count 1). This is the send-side asymmetry with
+            // `validateInboundResolve`, where a partner-named `near` must already
+            // be one of our exports. The depth is still bounded here, before
+            // `retainSentExports` walks the same payload and enforces the cap
+            // mid-mutation: without this a too-deep fulfill would mint the
+            // shallow export at count 1 and then trip `NestingTooDeep`, leaving
+            // a refcount inflated that never went on the wire and no partner
+            // `op:gc-exports` will ever release — the all-or-nothing breach the
+            // deliver path already closes.
+            switch (resolve.resolution) {
+                .fulfill => |arg| try validateArgument(self, arg, 0, .skip),
+                .@"break" => {},
+            }
         },
         .gc_export => |gc_export| {
             if (!self.features.wire_delta) return Error.FeatureNotNegotiated;
@@ -229,7 +247,7 @@ fn validateOutboundDeliver(self: *Session, deliver: model.Deliver) !void {
     if (deliver.resolve_me_desc) |reference| {
         try validateReference(self, reference, .held_import);
     }
-    try validateArguments(self, deliver.args);
+    try validateArguments(self, deliver.args, 0, .held_import);
 }
 
 // ── Inbound reference / argument validation (single walker) ─────────────
@@ -311,7 +329,9 @@ const FarPolicy = enum {
     held_import,
     /// The `far` is a fresh introduction — the partner handing us a new
     /// `<desc:import-object>` in argument or fulfill-payload position — accepted
-    /// here and installed in apply.
+    /// here and installed in apply, except in the reserved redeemed-token range
+    /// (see `REDEEMED_TOKEN_BASE`), which is refused so a partner cannot alias a
+    /// node-minted handoff token.
     introduction,
 };
 
@@ -326,7 +346,7 @@ fn validateReference(self: *Session, reference: anytype, comptime far_policy: Fa
             .held_import => if (far.import_position.int() != BOOTSTRAP_POSITION and
                 !self.imports.contains(far.import_position))
                 return Error.InvalidReference,
-            .introduction => {},
+            .introduction => if (far.import_position.int() >= REDEEMED_TOKEN_BASE) return Error.InvalidReference,
         },
         .promise, .broken => {},
         .sturdy => if (!self.features.sturdyref) return Error.FeatureNotNegotiated,
@@ -390,19 +410,43 @@ fn validateInboundStructEntries(
     }
 }
 
-fn validateArguments(self: *Session, args: []const model.Argument) Error!void {
+/// How the send-side walker treats a leaf `reference`. The two send paths
+/// share one depth-bounded walk and differ only here: a deliver's arguments
+/// must each name a held import (`.held_import`), while a resolve's fulfill
+/// payload does not — resolving with a `.near` is how the application first
+/// exports that object (the export-on-resolve asymmetry), so its references
+/// are only depth-bounded (`.skip`).
+const SendRefCheck = enum { held_import, skip };
+
+/// Validate a send-side argument tree: bound the nesting past
+/// `max_nesting_depth`, and check each leaf reference per `ref_check`. The
+/// depth bound is the twin of the apply-side `retainSentExportArgs` cap: on
+/// both send paths a too-deep locally-built message would otherwise pass
+/// validation and then trip `NestingTooDeep` mid-walk in `retainSentExports`,
+/// over-retaining every shallow export mention before the refusal and
+/// breaching apply's all-or-nothing contract. One walk, one depth threshold,
+/// so the cap cannot drift between the deliver and resolve paths. `ref_check`
+/// is comptime, so the reference branch folds away per call site.
+fn validateArguments(self: *Session, args: []const model.Argument, depth: usize, comptime ref_check: SendRefCheck) Error!void {
+    if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
     for (args) |arg| {
-        try validateArgument(self, arg);
+        try validateArgument(self, arg, depth, ref_check);
     }
 }
 
-fn validateArgument(self: *Session, arg: model.Argument) Error!void {
+fn validateArgument(self: *Session, arg: model.Argument, depth: usize, comptime ref_check: SendRefCheck) Error!void {
     switch (arg) {
-        .reference => |reference| try validateReference(self, reference, .held_import),
-        .list => |items| try validateArguments(self, items),
-        .set => |items| try validateArguments(self, items),
-        .tagged => |tagged| try validateArguments(self, tagged.value),
-        .@"struct" => |entries| for (entries) |entry| try validateArgument(self, entry.value),
+        .reference => |reference| switch (ref_check) {
+            .held_import => try validateReference(self, reference, .held_import),
+            .skip => {},
+        },
+        .list => |items| try validateArguments(self, items, depth + 1, ref_check),
+        .set => |items| try validateArguments(self, items, depth + 1, ref_check),
+        .tagged => |tagged| try validateArguments(self, tagged.value, depth + 1, ref_check),
+        .@"struct" => |entries| {
+            if (depth + 1 > self.limits.max_nesting_depth) return Error.NestingTooDeep;
+            for (entries) |entry| try validateArgument(self, entry.value, depth + 1, ref_check);
+        },
         // Exhaustive on purpose, see `validateInboundArgument`.
         .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
     }

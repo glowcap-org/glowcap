@@ -278,7 +278,7 @@ def _load():
         # registers each connection's node-owned peer, pumps it, and routes by
         # conn_id — every route value an integer, so the router is pure data.
         "pancake_node_new": ([ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_node_free": ([P], None),
+        "pancake_node_release": ([P], None),
         "pancake_node_register_conn": ([P, ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_node_remove_conn": ([P, ctypes.c_uint64], ctypes.c_int32),
         "pancake_node_route": (

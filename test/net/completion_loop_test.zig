@@ -1184,3 +1184,115 @@ test "completion loop: an in-flight send's bytes stay frozen while replies queue
     // Every successful recv's pool buffer was recycled exactly once.
     try std.testing.expectEqual(loop.backend.handed, loop.backend.recycles);
 }
+
+test "completion loop: the listener sets SO_REUSEADDR, parity with the blocking tcp.Listener" {
+    if (!(builtin.os.tag == .linux or builtin.os.tag.isDarwin())) return error.SkipZigTest;
+
+    const allocator = std.testing.allocator;
+
+    var loop = try Loop.init(allocator, makeServerPeer, null, .{
+        .frame_cap = frame_cap,
+        .max_conns = 4,
+        .listen = 0,
+    });
+    defer loop.deinit();
+
+    // The blocking `tcp.Listener` binds with `reuse_address = true`; the
+    // completion backends must match, or a loop restarted on a pinned port
+    // (`-Dport=N`) fails to bind for the TIME_WAIT window. Read the option back
+    // off the bound listener fd to prove the backend set it.
+    const fd = loop.listen_fd.?;
+    const sys = std.posix.system;
+    var value: c_int = 0;
+    var len: std.posix.socklen_t = @sizeOf(c_int);
+    const rc = sys.getsockopt(fd, sys.SOL.SOCKET, sys.SO.REUSEADDR, @ptrCast(&value), &len);
+    try std.testing.expect(rc == 0);
+    try std.testing.expect(value != 0);
+}
+
+/// A server peer whose `max_frame_bytes` is set deliberately *above* the loop's
+/// `frame_cap`, to prove the loop admits a frame the peer would accept rather
+/// than aborting it at its own smaller `frame_cap`.
+fn makeBigFramePeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engine.Peer {
+    _ = ctx;
+    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    errdefer peer.deinit();
+    peer.session_state.limits.max_frame_bytes = big_frame_max;
+    _ = try peer.registerBootstrapCap("thermostat");
+    try peer.sendCopying(startSession("server"));
+    return peer;
+}
+
+const big_frame_max = 1 << 16; // 64 KiB, far above `frame_cap` (4 KiB)
+
+/// Build a large but structurally valid `op:deliver` frame in the negotiated
+/// codec: the client handshakes against a server twin, then sends a fetch whose
+/// swissnum is padded to many kilobytes, so the frame is well over the loop's
+/// `frame_cap` yet well under the peers' `max_frame_bytes`. Returns the client's
+/// start-session bytes and the big deliver bytes, both owned by the caller.
+fn buildBigDeliverScript(
+    allocator: std.mem.Allocator,
+    client_ss: *std.ArrayList(u8),
+    big_deliver: *std.ArrayList(u8),
+) !void {
+    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    defer client.deinit();
+    client.session_state.limits.max_frame_bytes = big_frame_max;
+
+    try client.sendCopying(startSession("client"));
+    try drainOutboundBytes(&client, allocator, client_ss);
+
+    var server_twin = try makeBigFramePeer(null, allocator);
+    defer server_twin.deinit();
+    var server_ss: std.ArrayList(u8) = .empty;
+    defer server_ss.deinit(allocator);
+    try drainOutboundBytes(&server_twin, allocator, &server_ss);
+    _ = try client.recvStreamPrefix(server_ss.items);
+    fetch_pump.drainEvents(&client);
+
+    // A fetch is an op:deliver to the bootstrap; padding the swissnum makes the
+    // frame arbitrarily large while staying structurally valid.
+    const big_swiss = try allocator.alloc(u8, 12 * 1024);
+    defer allocator.free(big_swiss);
+    @memset(big_swiss, 'x');
+    const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, big_swiss);
+    try client.send(prepared.message);
+    try drainOutboundBytes(&client, allocator, big_deliver);
+}
+
+test "completion loop: an incomplete prefix over frame_cap but under the peer's max_frame_bytes is not aborted" {
+    const allocator = std.testing.allocator;
+
+    var client_ss: std.ArrayList(u8) = .empty;
+    defer client_ss.deinit(allocator);
+    var big_deliver: std.ArrayList(u8) = .empty;
+    defer big_deliver.deinit(allocator);
+    try buildBigDeliverScript(allocator, &client_ss, &big_deliver);
+
+    // Feed the big frame only in prefix: the first prefix chunk alone already
+    // crosses `frame_cap` (4 KiB) while the frame stays incomplete. A loop that
+    // mirrors the cap at its own `frame_cap` (the bug) aborts the connection on
+    // this first prefix and never requests the second chunk. A loop that mirrors
+    // the peer's `max_frame_bytes` (the fix) keeps reading, so the second prefix
+    // chunk is handed out and the connection ends only at the scripted EOF.
+    try std.testing.expect(big_deliver.items.len > 5500);
+    const prefix1 = big_deliver.items[0..5000];
+    const prefix2 = big_deliver.items[5000..5500];
+
+    ScriptBackend.chunks = &.{ client_ss.items, prefix1, prefix2 };
+    defer ScriptBackend.chunks = &.{};
+
+    var loop = try completion.Loop(ScriptBackend).init(allocator, makeBigFramePeer, null, .{
+        .frame_cap = frame_cap, // 4 KiB, below both prefix chunks' running total
+        .max_conns = 4,
+        .listen = 0,
+    });
+    defer loop.deinit();
+
+    try loop.run(.{ .after_closed = 1 });
+
+    try std.testing.expectEqual(@as(usize, 1), loop.closed_count);
+    // Both prefix chunks were consumed (3 = client_ss + prefix1 + prefix2): the
+    // admissible-but-incomplete frame was never falsely aborted at `frame_cap`.
+    try std.testing.expectEqual(@as(usize, 3), loop.backend.chunk_idx[0]);
+}

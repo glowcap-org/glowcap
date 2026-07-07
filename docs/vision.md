@@ -66,8 +66,8 @@ in the ABI, not in the binding.
 Performance and canonicality are necessary but not sufficient. The third thing
 pancake competes on is how obvious it is to build with. An application developer
 in any binding holds one object — a `Connection` — and uses one small
-vocabulary: the nine verbs the [bindings contract](../bindings/README.md)
-enumerates. They fetch a capability by name, spawn a local object, and hand a
+verb vocabulary, the application surface the
+[bindings contract](../bindings/README.md) enumerates. They fetch a capability by name, spawn a local object, and hand a
 partner a reference to it; the partner calls it back. There is no
 export-position bookkeeping, no manual flush, no hand-rolled receive loop in
 application code, and no protocol vocabulary in the happy path.
@@ -76,10 +76,10 @@ This surface is composition, not abstraction. Every layer underneath stays
 present and visible: the `Connection` composes the sans-io peer, the actor vat,
 and the I/O adapter, and a consumer who outgrows it finds the peer one property
 access away (`conn.peer`) for handoff, pipelining, and session control. The
-capability patterns that make object-capability networking worth choosing —
-delegation (passing a reference), attenuation (a view that forwards only the
-safe verbs), revocation (a forwarder you can sever) — are ordinary
-`spawn`/`send` code, not special APIs. They are the reason pancake fits
+capability patterns that make object-capability networking worth choosing are
+ordinary code: delegation is passing a reference, while attenuation (a view
+that forwards only the allow-listed verbs) and revocation (a forwarder you can
+sever) are one `conn.attenuate` or `conn.caretaker` call each (ADR-0064). They are the reason pancake fits
 services, real-time apps, and AI agent harnesses equally, and each is proven by
 a runnable cross-language example (`zig build demo-rooms`, `demo-tasks`,
 `demo-tools`). The bar is that a developer reads thirty lines and builds, and
@@ -152,27 +152,17 @@ about.
   pancake or Goblins peer can do can be exercised, replayed, and attacked under
   test.
 
-"Library first" applies to the core. Actors and griddle are the framework-shaped
-conveniences, and they live above the library line so the core never pays for
-them. The actor layer is real in every binding, reached through one small
-application surface — `connect`, `listen`, `fetch`, `publish`, `spawn`, `send`,
-`tell`, `serve`, `close` — that each binding exposes in its own idioms. Native
-Zig speaks the same verbs through one owning `driver.Connection`, above both the
-actor and I/O layers: `driver.connect` dials and `driver.listen` hosts (each
-`accept` hands back a connection), `call` blocks until the reply settles and
-returns the outcome, and a hosted connection runs under `serve` (or one explicit
-`step` at a time) with promises observed through `on`. The buffer-explicit
-spellings, `connectTcp` and `acceptTcp`, stay public for a caller that owns the
-peer and buffers at the call site. Three runnable cross-language applications
-exercise the dial half of that surface on one wire and assert the result:
-`zig build demo-rooms` (real-time chat), `zig build
-demo-tasks` (CRUD with
-promises and live updates), and `zig build demo-tools` (an agent harness proving
-delegation, attenuation, and revocation), each joining clients in Zig, Rust,
-Python, Racket, and Deno; the hosting half is exercised by the accountability
-application's Zig host and the driver loopback test. `griddle` is not
-implemented. Say where each one actually stands when asked; do not narrate the
-unbuilt parts as if they already run.
+"Library first" applies to the core; actors and griddle live above the library
+line so the core never pays for them. The actor layer is real in every binding
+and in native Zig, reached through the one application surface described above.
+Three runnable cross-language applications prove the dial half on one wire:
+`zig build demo-rooms` (real-time chat), `demo-tasks` (CRUD with promises and
+live updates), and `demo-tools` (an agent harness proving delegation,
+attenuation, and revocation), each joining clients in Zig, Rust, Python, Racket,
+and Deno; the accountability application's Zig host and the driver loopback test
+prove the hosting half. `griddle` is not implemented. Say where each piece
+actually stands when asked; do not narrate the unbuilt parts as if they already
+run.
 
 ## What Never Gets Traded
 

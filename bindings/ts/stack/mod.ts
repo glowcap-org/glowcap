@@ -215,7 +215,7 @@ export class PancakeError extends Error {
 	readonly detail: string | null;
 	/** The typed abort cause, attached when a peer refused an inbound frame. */
 	abort: AbortDetail | null = null;
-	constructor(public code: number, detail?: string) {
+	constructor(public readonly code: number, detail?: string) {
 		// For a code an FFI call returned, capture the thread-local message now.
 		// A client-side validation throw passes an explicit `detail` instead, so it
 		// never scrapes an unrelated thread-local left by some earlier call.
@@ -287,17 +287,22 @@ export class Kw {
 	constructor(public readonly value: string) {}
 }
 
-/** A set of values (an OCapN set; elements may be non-primitive). */
-export class PSet {
-	constructor(public readonly items: Argument[]) {}
+/** A set of values (an OCapN set; elements may be non-primitive). The element
+ * type is a parameter so the wire vocabulary (`PSet<Argument>`) and the
+ * application vocabulary (`PSet<AppValue>`, whose elements may be capability
+ * `Ref`s) are each exact, with no `as` cast hiding a nested reference. */
+export class PSet<T = Argument> {
+	constructor(public readonly items: T[]) {}
 }
-export const set = (items: Argument[]): PSet => new PSet(items);
+export const set = (items: Argument[]): PSet<Argument> => new PSet(items);
 
-/** An OCapN tagged record: a tag over a value list. */
-export class Tagged {
-	constructor(public readonly tag: string, public readonly value: Argument[]) {}
+/** An OCapN tagged record: a tag over a value list. The value type is a
+ * parameter for the same reason as `PSet`, so a capability nested one container
+ * deep is a first-class `Ref` in the application vocabulary. */
+export class Tagged<T = Argument> {
+	constructor(public readonly tag: string, public readonly value: T[]) {}
 }
-export const tagged = (tag: string, value: Argument[]): Tagged => new Tagged(tag, value);
+export const tagged = (tag: string, value: Argument[]): Tagged<Argument> => new Tagged(tag, value);
 
 // An argument is a native value or a wrapper:
 //   bigint (integer), number (float64), boolean, Uint8Array (bytes), string,
@@ -330,10 +335,38 @@ export interface HandoffGive {
 	recipientKey: Uint8Array;
 }
 
+/** How an iroh endpoint becomes reachable, a required, explicit posture with no
+ * default. The caller owns the reach/privacy tradeoff at every dialer and
+ * constructor:
+ * - `Direct`: dial by id + direct-address hints; relay-less, no discovery.
+ * - `Discovery`: n0 relays + DNS discovery; dial by id alone.
+ * - `DiscoveryNoRelay`: DNS discovery, no relays.
+ * - `LocalDiscovery`: in-process address book (tests / same process).
+ *
+ * The type lives in the core so `connect` and `Node` name the posture without a
+ * runtime dependency on the optional `@pancake/iroh` package (which re-exports
+ * this enum); the values match `libpancake_net_transport_iroh`'s C ABI. A `tcp`
+ * locator ignores it. */
+export enum Reachability {
+	Direct = 0,
+	Discovery = 1,
+	DiscoveryNoRelay = 2,
+	LocalDiscovery = 3,
+}
+
 export type Resolution =
-	| { fulfill: Argument }
-	| { break: string }
-	| { handoff: HandoffGive };
+	| { kind: "fulfill"; value: Argument }
+	| { kind: "break"; message: string }
+	| { kind: "handoff"; give: HandoffGive };
+
+/** Assert a discriminated union has been narrowed exhaustively: a `never`
+ * binding makes a missing case a compile error, not a silent runtime fall-through. */
+function unreachable(x: never): never {
+	throw new PancakeError(
+		INVALID_ARGUMENT,
+		`unreachable union member: ${String(x)}`,
+	);
+}
 
 export type Event =
 	| {
@@ -1167,40 +1200,46 @@ export class Peer {
 	}
 
 	sendResolve(answer: bigint, resolution: Resolution): void {
-		if ("handoff" in resolution) {
-			// A handoff *give* resolution is minted and relayed by the node's serve
-			// step (ADR-0067); the structured `Resolution` arm is inbound-only and
-			// has no give bytes to emit, so refuse it here.
-			throw new PancakeError(
-				INVALID_ARGUMENT,
-				"a handoff resolution is minted by the node, not sendResolve",
-			);
-		}
-		if ("fulfill" in resolution) {
-			const keep: Uint8Array[] = [];
-			const buf = encodeArgs([resolution.fulfill], keep);
-			check(
-				s.pancake_peer_send_resolve(
-					this.#raw,
-					answer,
-					RESOLUTION_FULFILL,
-					ab(buf),
-					new Uint8Array(0),
-					0n,
-				),
-			);
-		} else {
-			const msg = new TextEncoder().encode(resolution.break);
-			check(
-				s.pancake_peer_send_resolve(
-					this.#raw,
-					answer,
-					RESOLUTION_BREAK,
-					new Uint8Array(0),
-					msg,
-					BigInt(msg.length),
-				),
-			);
+		switch (resolution.kind) {
+			case "handoff":
+				// A handoff *give* resolution is minted and relayed by the node's serve
+				// step (ADR-0067); the structured `Resolution` arm is inbound-only and
+				// has no give bytes to emit, so refuse it here.
+				throw new PancakeError(
+					INVALID_ARGUMENT,
+					"a handoff resolution is minted by the node, not sendResolve",
+				);
+			case "fulfill": {
+				const keep: Uint8Array[] = [];
+				const buf = encodeArgs([resolution.value], keep);
+				check(
+					s.pancake_peer_send_resolve(
+						this.#raw,
+						answer,
+						RESOLUTION_FULFILL,
+						ab(buf),
+						new Uint8Array(0),
+						0n,
+					),
+				);
+				return;
+			}
+			case "break": {
+				const msg = new TextEncoder().encode(resolution.message);
+				check(
+					s.pancake_peer_send_resolve(
+						this.#raw,
+						answer,
+						RESOLUTION_BREAK,
+						new Uint8Array(0),
+						msg,
+						BigInt(msg.length),
+					),
+				);
+				return;
+			}
+			default:
+				unreachable(resolution);
 		}
 	}
 
@@ -1215,7 +1254,7 @@ export class Peer {
 		const dv = new DataView(frame.buffer);
 		const ptr = dv.getBigUint64(MANAGED_FRAME_BYTES_OFF, true);
 		const len = dv.getBigUint64(MANAGED_FRAME_LEN_OFF, true);
-		const out = readBytes(ptr, len).slice();
+		const out = readBytes(ptr, len);
 		s.pancake_managed_frame_release(frame);
 		return out;
 	}
@@ -1255,13 +1294,16 @@ export class Peer {
 			const resKind = dv.getUint32(r + RESOLVE_RESOLUTION_KIND_OFF, true);
 			let resolution: Resolution;
 			if (resKind === RESOLUTION_FULFILL) {
-				resolution = { fulfill: readArg(dv, r + RESOLVE_FULFILL_OFF) };
+				resolution = {
+					kind: "fulfill",
+					value: readArg(dv, r + RESOLVE_FULFILL_OFF),
+				};
 			} else if (resKind === RESOLUTION_HANDOFF) {
 				const h = r + RESOLVE_HANDOFF_OFF;
 				const give = readBytes(
 					dv.getBigUint64(h + HANDOFF_GIVE_GIVE_OFF, true),
 					dv.getBigUint64(h + HANDOFF_GIVE_GIVE_LEN_OFF, true),
-				).slice();
+				);
 				const locator = new TextDecoder().decode(
 					readBytes(
 						dv.getBigUint64(h + HANDOFF_GIVE_EXPORTER_LOCATOR_OFF, true),
@@ -1271,14 +1313,18 @@ export class Peer {
 				const recipientKey = readBytes(
 					dv.getBigUint64(h + HANDOFF_GIVE_RECIPIENT_KEY_OFF, true),
 					dv.getBigUint64(h + HANDOFF_GIVE_RECIPIENT_KEY_LEN_OFF, true),
-				).slice();
+				);
 				resolution = {
-					handoff: { give, exporterLocator: locator, recipientKey },
+					kind: "handoff",
+					give: { give, exporterLocator: locator, recipientKey },
 				};
 			} else {
 				const ptr = dv.getBigUint64(r + RESOLVE_BREAK_MESSAGE_OFF, true);
 				const len = dv.getBigUint64(r + RESOLVE_BREAK_MESSAGE_LEN_OFF, true);
-				resolution = { break: new TextDecoder().decode(readBytes(ptr, len)) };
+				resolution = {
+					kind: "break",
+					message: new TextDecoder().decode(readBytes(ptr, len)),
+				};
 			}
 			event = { kind: "resolve", answer, resolution };
 		} else {
@@ -1287,7 +1333,7 @@ export class Peer {
 			const f = ANY_EVENT_FRAME_OFF;
 			const ptr = dv.getBigUint64(f + MANAGED_FRAME_BYTES_OFF, true);
 			const len = dv.getBigUint64(f + MANAGED_FRAME_LEN_OFF, true);
-			const frame = readBytes(ptr, len).slice();
+			const frame = readBytes(ptr, len);
 			event = { kind: "other", eventKind: kind, frame };
 		}
 		s.pancake_any_event_release(buf);
@@ -1358,7 +1404,9 @@ export class Forward {
 }
 
 /** How a vow settled. */
-export type Settlement = { fulfilled: Argument } | { broken: string };
+export type Settlement =
+	| { kind: "fulfilled"; value: Argument }
+	| { kind: "broken"; message: string };
 
 /** A one-shot listener on a vow: `onFulfilled` runs with the value on a
  * fulfill, `onBroken` with the message on a break. */
@@ -1449,7 +1497,7 @@ export class RemotePromise extends Promise<AppValue> {
 	#started = false;
 	readonly #resolve: (value: AppValue | PromiseLike<AppValue>) => void;
 	readonly #reject: (reason?: unknown) => void;
-	// Issues a projection op (get/index/untag) at this answer and returns the new
+	// Issues a projection op (index/untag) at this answer and returns the new
 	// RemotePromise; null for a local-send handle (no answer to project against).
 	readonly #project:
 		| ((op: "index" | "untag", key: string | bigint) => RemotePromise)
@@ -1540,6 +1588,11 @@ export class RemotePromise extends Promise<AppValue> {
  * The vat owns no I/O and no scheduler; you drive it. Around `serve`, callers
  * feed frames to the peer, step it, take outbound frames, and hand surfaced
  * events back to the vat. */
+
+/** Cap on stashed far resolutions whose vow is never awaited, so the stash
+ * cannot grow without bound; the oldest un-awaited entry is evicted at the cap. */
+const MAX_FAR_RESOLUTIONS = 1024;
+
 export class Vat {
 	#peer: Peer | null;
 	#actors = new Map<number, Behavior>();
@@ -1651,6 +1704,9 @@ export class Vat {
 		// another far vow, and mutating the map mid-iteration would lose it.
 		const pending = [...this.#farListeners.values()];
 		this.#farListeners.clear();
+		// Drop any stashed resolutions too: the connection is gone, so a late `on`
+		// for an un-awaited answer settles as this break, not from a stale stash.
+		this.#farResolutions.clear();
 		for (const listener of pending) listener.onBroken?.(message);
 	}
 
@@ -1665,15 +1721,16 @@ export class Vat {
 				value = this.#callLocal(queued.id, queued.verb, queued.args);
 			} catch (err) {
 				this.#settleLocal(queued.vow, {
-					broken: err instanceof Error ? err.message : String(err),
+					kind: "broken",
+					message: err instanceof Error ? err.message : String(err),
 				});
 				continue;
 			}
 			const vow = queued.vow;
 			this.#resolveBehavior(
 				value,
-				(v) => this.#settleLocal(vow, { fulfilled: v }),
-				(m) => this.#settleLocal(vow, { broken: m }),
+				(v) => this.#settleLocal(vow, { kind: "fulfilled", value: v }),
+				(m) => this.#settleLocal(vow, { kind: "broken", message: m }),
 			);
 		}
 	}
@@ -1762,7 +1819,8 @@ export class Vat {
 		} catch (err) {
 			if (answer !== null && peer !== null) {
 				peer.sendResolve(answer, {
-					break: err instanceof Error ? err.message : String(err),
+					kind: "break",
+					message: err instanceof Error ? err.message : String(err),
 				});
 			}
 			return true;
@@ -1779,12 +1837,12 @@ export class Vat {
 				// A capability whose home is another connection cannot be resolved as
 				// a plain fulfill here; let the router above originate a handoff.
 				if (!this.#resolveInterceptor?.(answer, reply)) {
-					peer.sendResolve(answer, { fulfill: reply });
+					peer.sendResolve(answer, { kind: "fulfill", value: reply });
 				}
 			},
 			(message) => {
 				if (answer !== null && peer !== null) {
-					peer.sendResolve(answer, { break: message });
+					peer.sendResolve(answer, { kind: "break", message });
 				}
 			},
 		);
@@ -1793,22 +1851,39 @@ export class Vat {
 
 	#serveResolve(event: Event & { kind: "resolve" }): boolean {
 		let settlement: Settlement;
-		if ("fulfill" in event.resolution) {
-			settlement = { fulfilled: event.resolution.fulfill };
-		} else if ("handoff" in event.resolution) {
-			// A handoff give reaches the vat only when no dial-capable layer above it
-			// intercepted it first (the `Connection` redeems transparently). The vat
-			// cannot dial, so break the vow rather than hang it forever.
-			settlement = { broken: "handoff give arrived at a vat with no redeemer" };
-		} else {
-			settlement = { broken: event.resolution.break };
+		switch (event.resolution.kind) {
+			case "fulfill":
+				settlement = { kind: "fulfilled", value: event.resolution.value };
+				break;
+			case "handoff":
+				// A handoff give reaches the vat only when no dial-capable layer above it
+				// intercepted it first (the `Connection` redeems transparently). The vat
+				// cannot dial, so break the vow rather than hang it forever.
+				settlement = {
+					kind: "broken",
+					message: "handoff give arrived at a vat with no redeemer",
+				};
+				break;
+			case "break":
+				settlement = { kind: "broken", message: event.resolution.message };
+				break;
+			default:
+				unreachable(event.resolution);
 		}
 		const listener = this.#farListeners.get(event.answer);
 		if (listener === undefined) {
 			// No one is awaiting this answer yet. It may be observed later (a source
 			// handle awaited after its projection pumped the loop), so stash the
 			// resolution for a late `on`. Still ours to claim, return true.
+			// Bounded FIFO: an answer whose vow is never awaited would otherwise
+			// pin its resolution forever, so at the cap the oldest un-awaited entry
+			// is evicted (its vow settles as a disconnect break instead).
 			this.#farResolutions.set(event.answer, settlement);
+			while (this.#farResolutions.size > MAX_FAR_RESOLUTIONS) {
+				const oldest = this.#farResolutions.keys().next().value;
+				if (oldest === undefined) break;
+				this.#farResolutions.delete(oldest);
+			}
 			return true;
 		}
 		this.#farListeners.delete(event.answer); // one-shot
@@ -1818,10 +1893,15 @@ export class Vat {
 }
 
 function fire(listener: VowListener, settlement: Settlement): void {
-	if ("fulfilled" in settlement) {
-		listener.onFulfilled?.(settlement.fulfilled);
-	} else {
-		listener.onBroken?.(settlement.broken);
+	switch (settlement.kind) {
+		case "fulfilled":
+			listener.onFulfilled?.(settlement.value);
+			return;
+		case "broken":
+			listener.onBroken?.(settlement.message);
+			return;
+		default:
+			unreachable(settlement);
 	}
 }
 
@@ -2137,8 +2217,8 @@ export type AppValue =
 	| null
 	| Ref
 	| AppValue[]
-	| PSet
-	| Tagged;
+	| PSet<AppValue>
+	| Tagged<AppValue>;
 
 // Lower an application value to the wire vocabulary: a `Ref` becomes its
 // underlying `Reference`; everything else passes through, recursing into
@@ -2148,10 +2228,10 @@ function lowerArg(arg: AppValue): Argument {
 	if (arg instanceof Ref) return arg.reference;
 	if (Array.isArray(arg)) return arg.map(lowerArg);
 	if (arg instanceof PSet) {
-		return new PSet((arg.items as AppValue[]).map(lowerArg));
+		return new PSet(arg.items.map(lowerArg));
 	}
 	if (arg instanceof Tagged) {
-		return new Tagged(arg.tag, (arg.value as AppValue[]).map(lowerArg));
+		return new Tagged(arg.tag, arg.value.map(lowerArg));
 	}
 	return arg;
 }
@@ -2164,10 +2244,10 @@ function liftArg(arg: Argument): AppValue {
 	if (isReference(arg)) return new Ref(arg);
 	if (Array.isArray(arg)) return arg.map(liftArg);
 	if (arg instanceof PSet) {
-		return new PSet(arg.items.map(liftArg) as Argument[]);
+		return new PSet(arg.items.map(liftArg));
 	}
 	if (arg instanceof Tagged) {
-		return new Tagged(arg.tag, arg.value.map(liftArg) as Argument[]);
+		return new Tagged(arg.tag, arg.value.map(liftArg));
 	}
 	return arg;
 }
@@ -2237,7 +2317,7 @@ export function encodePeerLocator(opts: {
 	const ptr = new DataView(outLoc.buffer).getBigUint64(0, true);
 	const len = new DataView(outLen.buffer).getBigUint64(0, true);
 	try {
-		return readBytes(ptr, len).slice();
+		return readBytes(ptr, len);
 	} finally {
 		s.pancake_peer_locator_bytes_release(ptr, len);
 	}
@@ -2259,7 +2339,7 @@ interface NodeAction {
 // `free`. The node owns every registered peer, the routing tables, and the
 // shared gift registry, so a dropped wrapper must not leak the native handle.
 const nodeFinalizer = new FinalizationRegistry<Ptr>((raw) => {
-	s.pancake_node_free(raw);
+	s.pancake_node_release(raw);
 });
 
 /** Thin FFI marshalling over the `PancakeNode` (ADR-0066/ADR-0067), the
@@ -2429,7 +2509,7 @@ class NodeRaw {
 	free(): void {
 		if (this.#raw !== NULL) {
 			nodeFinalizer.unregister(this);
-			s.pancake_node_free(this.#raw);
+			s.pancake_node_release(this.#raw);
 			this.#raw = NULL;
 		}
 	}
@@ -2475,9 +2555,9 @@ export class Node {
 	// the recipient must resolve it by id. Defaults to `Discovery` (n0 relays +
 	// DNS/pkarr, the maximal-reach choice); a relay-policy deployment lowers it to
 	// `DiscoveryNoRelay`. A hinted give always dials `Direct` (addresses in hand)
-	// and ignores this. Stored as the numeric `Reachability` value so the core
-	// never hard-depends on the optional iroh package.
-	#redeemReachability = 1; // Reachability.Discovery
+	// and ignores this. The core owns the `Reachability` type, so naming it here
+	// adds no runtime dependency on the optional iroh package.
+	#redeemReachability: Reachability = Reachability.Discovery;
 
 	constructor(seed?: Uint8Array) {
 		this.seed = seed ?? crypto.getRandomValues(new Uint8Array(32));
@@ -2490,7 +2570,7 @@ export class Node {
 	/** The iroh reachability posture used to redeem a hint-less handoff give
 	 * (exporter named by node id alone). Binding-internal: `dialExporter` reads it
 	 * when a give carries no direct-address hints. */
-	get redeemReachability(): number {
+	get redeemReachability(): Reachability {
 		return this.#redeemReachability;
 	}
 
@@ -2498,9 +2578,8 @@ export class Node {
 	 * handoff give (the exporter named by node id alone, with no direct-address
 	 * hints). Defaults to `Discovery` (n0 relays + DNS/pkarr); set
 	 * `DiscoveryNoRelay` to honor a no-relay deployment policy. A hinted give
-	 * always dials `Direct` and ignores this. Pass a `Reachability` from
-	 * `@pancake/iroh` (its numeric value). */
-	setRedeemReachability(reachability: number): void {
+	 * always dials `Direct` and ignores this. */
+	setRedeemReachability(reachability: Reachability): void {
 		this.#redeemReachability = reachability;
 	}
 
@@ -2609,24 +2688,24 @@ export class Node {
 	): boolean {
 		const resolution = event.resolution;
 		if (
-			"fulfill" in resolution && isReference(resolution.fulfill) &&
-			resolution.fulfill.kind === "far"
+			resolution.kind === "fulfill" && isReference(resolution.value) &&
+			resolution.value.kind === "far"
 		) {
 			return this.#node.claimResolve(
 				connId,
 				event.answer,
 				REDEEM_OUTCOME_FAR,
-				resolution.fulfill.id,
+				resolution.value.id,
 				"",
 			);
 		}
-		if ("break" in resolution) {
+		if (resolution.kind === "break") {
 			return this.#node.claimResolve(
 				connId,
 				event.answer,
 				REDEEM_OUTCOME_BROKEN,
 				0n,
-				resolution.break,
+				resolution.message,
 			);
 		}
 		// A non-capability fulfillment — a nested handoff give included: a
@@ -2702,12 +2781,14 @@ export class Node {
 				return;
 			case NODE_ACTION_SETTLE:
 				this.connectionFor(action.connId)?.serveResolve(action.answer, {
-					fulfill: far(action.token, false),
+					kind: "fulfill",
+					value: far(action.token, false),
 				});
 				return;
 			case NODE_ACTION_FAIL:
 				this.connectionFor(action.connId)?.serveResolve(action.answer, {
-					break: action.reason,
+					kind: "break",
+					message: action.reason,
 				});
 				return;
 			case NODE_ACTION_NEED_GIFT_ID:
@@ -2797,9 +2878,9 @@ export class Connection {
 	/** Dial `host:port`, complete the keyed OCapN handshake, and return a ready
 	 * connection. The session is open (the `op:start-session` exchange has
 	 * completed) before this resolves, so a `fetch`/`send` rides an established
-	 * session, the same handshake a real Goblins peer requires. (TCP today; a
-	 * future transport is a constructor option, never a different `Connection`
-	 * type.) */
+	 * session, the same handshake a real Goblins peer requires. Prefer the
+	 * transport-neutral `connect(tcpLocator(host, port))`; this stays for the tcp
+	 * branch of `connect` and the exporter redeem to share one dial path. */
 	static async connect(
 		host: string,
 		port: number,
@@ -2882,17 +2963,11 @@ export class Connection {
 				// it, exactly as the transport-neutral `connect` does. Keyed with this
 				// node so the withdraw rides the recipient's retained identity.
 				const iroh = await import("@pancake/iroh");
-				// `redeemReachability` is stored as a plain number so the core never
-				// statically depends on the optional iroh package; widen it to the
-				// enum's value type via the runtime import for the typed call.
-				type IrohReachability = (typeof iroh.Reachability)[keyof typeof iroh.Reachability];
 				const hints = loc.hints.get("direct-addresses") ?? "";
 				return iroh.connectIroh(
 					loc.designator,
 					hints,
-					hints.length > 0
-						? iroh.Reachability.Direct
-						: (node.redeemReachability as IrohReachability),
+					hints.length > 0 ? Reachability.Direct : node.redeemReachability,
 					node,
 				);
 			}
@@ -2903,19 +2978,7 @@ export class Connection {
 						`tcp locator designator is not host:port: ${loc.designator}`,
 					);
 				}
-				const tcp = await net.connect(loc.hostPort.host, loc.hostPort.port);
-				const { connId, peer } = node.registerConn();
-				try {
-					const ac = AsyncConnection.fromConn(peer, tcp);
-					await openKeyedSession(ac, node.seed);
-					return new Connection(ac, node, connId);
-				} catch (err) {
-					// The socket opened but the handshake failed: release the fd
-					// rather than leave a half-open connection for the GC.
-					tcp.close();
-					node.removeConn(connId);
-					throw err;
-				}
+				return Connection.connect(loc.hostPort.host, loc.hostPort.port, node);
 			}
 			default:
 				throw new PancakeError(
@@ -3235,7 +3298,7 @@ export class Connection {
 		return new RemotePromise(answer, begin, project);
 	}
 
-	// Pipeline a projection (op:get / op:index / op:untag) at `sourceAnswer`
+	// Pipeline a projection (op:index / op:untag) at `sourceAnswer`
 	// (ADR-0050/ADR-0052). Like `send`, the op is queued now and the flush is
 	// deferred to the returned handle's first observation, so a chain of
 	// projections leaves the wire together. The result is itself projectable.
@@ -3365,8 +3428,8 @@ export class Connection {
 					// never the vat's: feed it and execute the actions (dial, withdraw,
 					// settle) off this loop, so the redeem's own I/O does not stall
 					// this connection's reads.
-					if ("handoff" in event.resolution) {
-						this.#node.acceptGive(this.#connId, event.answer, event.resolution.handoff);
+					if (event.resolution.kind === "handoff") {
+						this.#node.acceptGive(this.#connId, event.answer, event.resolution.give);
 						this.#node.kickActions();
 						continue;
 					}
@@ -3425,9 +3488,9 @@ export class Connection {
 		if (Array.isArray(value)) {
 			for (const v of value) this.#assertNoForeignRef(v);
 		} else if (value instanceof PSet) {
-			for (const v of value.items as AppValue[]) this.#assertNoForeignRef(v);
+			for (const v of value.items) this.#assertNoForeignRef(v);
 		} else if (value instanceof Tagged) {
-			for (const v of value.value as AppValue[]) this.#assertNoForeignRef(v);
+			for (const v of value.value) this.#assertNoForeignRef(v);
 		}
 	}
 
@@ -3542,7 +3605,9 @@ export class Server {
 
 /** Accept connections on `host:port`, returning a `Server` you iterate for each
  * accepted `Connection`. The bind completes asynchronously; `await
- * server.ready()` for the bound port. */
+ * server.ready()` for the bound port. The server holds one node identity and
+ * gift registry, read as `server.node` — a dialed sibling connection shares it
+ * with `connect(locator, reachability, server.node)` for a three-party handoff. */
 export function listen(
 	host: string,
 	port: number,
@@ -3755,15 +3820,19 @@ function lengthArray(bufs: Uint8Array<ArrayBuffer>[]): Uint8Array<ArrayBuffer> {
  * A `tcp` locator needs only this core module. An `iroh` locator reaches into
  * the `@pancake/iroh` package (the optional encrypted-QUIC artifact), loaded
  * lazily with `import()` so the core never hard-depends on it — the import only
- * resolves if the consumer added that package; `reachability`
- * (a `Reachability` from `@pancake/iroh`, its numeric value) sets the iroh
- * dialer's posture and is required only for an `iroh` locator. A `tcp` locator
- * ignores it, so a plain TCP dial needs nothing but the locator. An iroh locator
- * with no posture fails closed rather than guessing one. Identical in shape to
- * the Python, Rust, and Racket bindings. */
+ * resolves if the consumer added that package; `reachability` (a `Reachability`)
+ * sets the iroh dialer's posture and is required only for an `iroh` locator. A
+ * `tcp` locator ignores it, so a plain TCP dial needs nothing but the locator.
+ * An iroh locator with no posture fails closed rather than guessing one.
+ *
+ * `node` shares one identity and gift registry across a server and its dialed
+ * sibling connections — the gifter half of a three-party handoff (read it as
+ * `server.node`). Only the `tcp` branch threads it today; an `iroh` locator
+ * builds its own node. Identical in shape to the Python and Racket bindings. */
 export async function connect(
 	uri: string,
-	reachability?: number,
+	reachability?: Reachability,
+	node?: Node,
 ): Promise<Connection> {
 	const loc = parseLocator(uri);
 	switch (loc.transport) {
@@ -3788,7 +3857,7 @@ export async function connect(
 					`tcp locator designator is not host:port: ${loc.designator}`,
 				);
 			}
-			return Connection.connect(loc.hostPort.host, loc.hostPort.port);
+			return Connection.connect(loc.hostPort.host, loc.hostPort.port, node);
 		}
 		default:
 			throw new PancakeError(

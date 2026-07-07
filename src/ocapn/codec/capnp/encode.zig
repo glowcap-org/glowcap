@@ -352,14 +352,24 @@ fn encodeStructEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: 
     return .{ .data_idx = tag_idx, .elem = .composite, .count = ordered.len * stride };
 }
 
-/// Return a struct's entries in canonical key order. Keys are unique Strings, so a
-/// shallow copy sorted by raw key bytes is deterministic; the caller owns and frees
+/// Return a struct's entries in canonical key order. The caller owns and frees
 /// the returned slice (the entries' bytes stay borrowed from the model).
+///
+/// Symmetric refusal (ADR-0003): the decoder rejects a struct whose keys are not
+/// strictly ascending as `MalformedFrame`, which a duplicate key violates, so an
+/// encoder that emitted one would ship a frame pancake and a Goblins peer both
+/// reject remotely. A duplicate key is refused here with `UnsupportedArgument`,
+/// the same shape the big-integer arm uses, rather than shipped. Keys are
+/// adjacent after the sort, so one linear pass finds any repeat.
 fn canonicalStructOrder(allocator: std.mem.Allocator, entries: []const model.StructEntry) EncodeError![]model.StructEntry {
     const ordered = try allocator.alloc(model.StructEntry, entries.len);
     errdefer allocator.free(ordered);
     for (entries, 0..) |entry, i| ordered[i] = entry;
     std.mem.sort(model.StructEntry, ordered, {}, lessByEntryKey);
+    var i: usize = 1;
+    while (i < ordered.len) : (i += 1) {
+        if (std.mem.eql(u8, ordered[i - 1].key, ordered[i].key)) return Error.UnsupportedArgument;
+    }
     return ordered;
 }
 
@@ -406,6 +416,12 @@ fn canonicalSetOrder(allocator: std.mem.Allocator, args: []const model.Argument)
     defer allocator.free(order);
     for (order, 0..) |*o, i| o.* = i;
     std.mem.sort(usize, order, keys, lessByKeyBytes);
+    // Symmetric refusal (ADR-0003): a set's elements are unique, so a duplicate
+    // element (equal canonical key, adjacent after the sort) is refused here
+    // rather than emitted, matching the Syrup codec and the duplicate-key struct.
+    for (order[1..], 1..) |src, i| {
+        if (std.mem.eql(u8, keys[order[i - 1]], keys[src])) return Error.UnsupportedArgument;
+    }
     for (order, 0..) |src, i| ordered[i] = args[src];
     return ordered;
 }

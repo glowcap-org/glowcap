@@ -44,7 +44,7 @@ fn makeKeyedPeer(
     verify_partner: bool,
     designator: []const u8,
     secret: crypto.SecretKey,
-) anyerror!engine.Peer {
+) !engine.Peer {
     var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = verify_partner, .limits = .{ .max_frame_bytes = frame_cap } });
     errdefer peer.deinit();
     try peer.sendKeyedStartSession(.v1_0, .{
@@ -59,7 +59,7 @@ fn makeKeyedPeer(
 /// connection's vat, then emit stateless `op:gc-*` for what this deliver /
 /// resolve introduced but the vat did not retain. The loop's own drive flushes
 /// the gc frames in the same step that drained the event.
-fn serveThroughVat(vat: *actors.Vat, gc_stateless: bool, peer: *engine.Peer, event: *engine.Event) anyerror!void {
+fn serveThroughVat(vat: *actors.Vat, gc_stateless: bool, peer: *engine.Peer, event: *engine.Event) !void {
     _ = try vat.serve(event);
     if (gc_stateless) gc.emitStatelessAfter(peer, event);
 }
@@ -142,8 +142,8 @@ pub const LoopHost = struct {
     /// the I/O boundary, never in the core). The caller owns the returned host at
     /// a stable address. `run` binds the loop's hooks back to it.
     pub fn init(
-        io: std.Io,
         allocator: std.mem.Allocator,
+        io: std.Io,
         publish_fn: Publish,
         publish_ctx: ?*anyopaque,
         options: Options,
@@ -308,7 +308,7 @@ pub const LoopDialer = struct {
     gc_stateless: bool,
     allocator: std.mem.Allocator,
 
-    pub fn init(io: std.Io, allocator: std.mem.Allocator, options: Options) !LoopDialer {
+    pub fn init(allocator: std.mem.Allocator, io: std.Io, options: Options) !LoopDialer {
         const secret = try drawSessionSecret(io);
         // No `.listen`: a dialer-only loop must not open a socket that accepts
         // strangers under the dialer's identity.
@@ -355,7 +355,7 @@ pub const LoopDialer = struct {
         // A loop-dialed client does not itself listen, so it signs the
         // placeholder designator; the session identity is the key, not the
         // address, exactly as in `ConnectedVat.openKeyedSession`.
-        return makeKeyedPeer(allocator, self.frame_cap, self.verify_partner, "127.0.0.1:0", self.secret);
+        return makeKeyedPeer(allocator, self.frame_cap, self.verify_partner, mod.unreachable_client_designator, self.secret);
     }
 
     fn makeConnCtx(ctx: ?*anyopaque, peer: *engine.Peer) anyerror!?*anyopaque {

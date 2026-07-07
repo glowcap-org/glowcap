@@ -14,6 +14,35 @@ const crypto = pancake.foundation.crypto;
 
 const Node = engine.Node;
 
+test "registerConnOver adopts a peer the embedder owns without freeing it" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{8} ** crypto.SEED_BYTES);
+
+    // A peer the test owns and pins, standing in for the completion loop's
+    // inline per-connection peer at its stable slot address.
+    var adopted = engine.Peer.initNegotiating(allocator);
+    defer adopted.deinit();
+
+    const id = try node.registerConnOver(&adopted);
+    // The adopted peer is the one the node routes to, and it now shares the
+    // node's gift registry — the whole point of joining the node.
+    try std.testing.expectEqual(&adopted, node.peer(id).?);
+    try std.testing.expectEqual(&node.gifts, adopted.giftRegistry());
+
+    // removeConn unregisters the slot but must not free the borrowed peer: the
+    // test's own `defer adopted.deinit()` is the single free. std.testing's
+    // allocator would flag a double-free or use-after-free here.
+    node.removeConn(id);
+    try std.testing.expect(node.peer(id) == null);
+
+    // A second adopted registration outlives node.deinit for the same reason:
+    // the node frees only what it owns.
+    var adopted2 = engine.Peer.initNegotiating(allocator);
+    defer adopted2.deinit();
+    _ = try node.registerConnOver(&adopted2);
+    node.deinit();
+}
+
 test "registerConn yields stable, non-reused ids and node-owned peers" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, [_]u8{7} ** crypto.SEED_BYTES);
@@ -36,6 +65,19 @@ test "registerConn yields stable, non-reused ids and node-owned peers" {
     try std.testing.expect(c != b);
 }
 
+/// The answer id the node assigned the one withdraw it has parked on
+/// `exporter`. In production the exporter echoes this id on its resolve frame,
+/// so a host reads it off the wire; a white-box test drives `claimResolve`
+/// directly and recovers it from the node's single pending withdraw. Asserts
+/// exactly one withdraw is parked, on `exporter`.
+fn pendingWithdrawAnswer(node: *Node, exporter: engine.ConnId) u64 {
+    std.testing.expectEqual(@as(usize, 1), node.pending_withdraws.count()) catch unreachable;
+    var it = node.pending_withdraws.keyIterator();
+    const key = it.next().?.*;
+    std.testing.expectEqual(exporter, key.conn_id) catch unreachable;
+    return key.answer;
+}
+
 /// Mint a routable redeemed token through the public redeem flow: accept a
 /// give on `recipient`, report `exporter` (whose keyed session is open) as the
 /// dialed connection, and claim the withdraw's resolve with `far_id`. Returns
@@ -52,9 +94,8 @@ fn mintRedeemedToken(
     const dial = node.nextAction().?;
     try node.exporterDialed(dial.dial.pending, exporter);
     _ = node.nextAction().?; // the withdraw flush
-    var keys = node.pending_withdraws.keyIterator();
-    const withdraw_key = keys.next().?.*;
-    if (!try node.claimResolve(exporter, withdraw_key.answer, .{ .far = far_id })) return error.NotClaimed;
+    const withdraw_answer = pendingWithdrawAnswer(node, exporter);
+    if (!try node.claimResolve(exporter, withdraw_answer, .{ .far = far_id })) return error.NotClaimed;
     const settle = node.nextAction().?;
     if (settle.settle.answer != answer) return error.WrongAnswerSettled;
     return settle.settle.token;
@@ -305,17 +346,14 @@ test "a live exporter withdraws immediately and the claimed resolve settles a ro
     const flush = node.nextAction().?;
     try std.testing.expectEqual(exporter, flush.flush);
     try std.testing.expect(node.nextAction() == null);
-    try std.testing.expectEqual(@as(usize, 1), node.pending_withdraws.count());
-    var key_it = node.pending_withdraws.keyIterator();
-    const withdraw_key = key_it.next().?.*;
-    try std.testing.expectEqual(exporter, withdraw_key.conn_id);
+    const withdraw_answer = pendingWithdrawAnswer(&node, exporter);
 
     // An unrelated resolve is not claimed.
-    try std.testing.expect(!try node.claimResolve(exporter, withdraw_key.answer + 100, .{ .far = 5 }));
+    try std.testing.expect(!try node.claimResolve(exporter, withdraw_answer + 100, .{ .far = 5 }));
 
     // The pending withdraw's resolve is claimed, the capability enrolled, and
     // the application answer settles with a routable token.
-    try std.testing.expect(try node.claimResolve(exporter, withdraw_key.answer, .{ .far = 6 }));
+    try std.testing.expect(try node.claimResolve(exporter, withdraw_answer, .{ .far = 6 }));
     const settle = node.nextAction().?;
     try std.testing.expectEqual(recipient, settle.settle.conn_id);
     try std.testing.expectEqual(@as(u64, 31), settle.settle.answer);
@@ -347,10 +385,9 @@ test "a broken or non-capability withdraw breaks the application answer" {
     const dial = node.nextAction().?;
     try node.exporterDialed(dial.dial.pending, exporter);
     _ = node.nextAction().?; // the flush
-    var keys = node.pending_withdraws.keyIterator();
-    const first_key = keys.next().?.*;
+    const first_answer = pendingWithdrawAnswer(&node, exporter);
 
-    try std.testing.expect(try node.claimResolve(exporter, first_key.answer, .{ .broken = "no such gift" }));
+    try std.testing.expect(try node.claimResolve(exporter, first_answer, .{ .broken = "no such gift" }));
     const broke = node.nextAction().?;
     try std.testing.expectEqual(@as(u64, 41), broke.fail.answer);
     try std.testing.expectEqualStrings("handoff redeem failed: no such gift", broke.fail.reason);
@@ -358,9 +395,8 @@ test "a broken or non-capability withdraw breaks the application answer" {
     // A withdraw fulfilled with a non-capability breaks with the named reason.
     try node.acceptGive(recipient, 42, "give-b", locator);
     _ = node.nextAction().?; // the flush (exporter already cached)
-    var keys2 = node.pending_withdraws.keyIterator();
-    const second_key = keys2.next().?.*;
-    try std.testing.expect(try node.claimResolve(exporter, second_key.answer, .not_capability));
+    const second_answer = pendingWithdrawAnswer(&node, exporter);
+    try std.testing.expect(try node.claimResolve(exporter, second_answer, .not_capability));
     const refused = node.nextAction().?;
     try std.testing.expectEqualStrings("withdraw-gift did not resolve to a capability", refused.fail.reason);
 }

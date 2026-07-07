@@ -10,15 +10,14 @@ Every conversation pancake has on the wire is built from a small, fixed vocabula
 defined by the
 [OCapN specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications):
 the CapTP messages, the descriptors they carry, and the locators that say where a peer
-lives. This page is the one-glance map of it: what each part is for, in a sentence. For
+lives. This page is the one-glance map: what each part is for, in a sentence. For
 the why behind them, [Concepts]($link.page('concepts')) tells the story and the
 [protocol diagrams](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/README.md)
-draw the flows. Here we just name the parts.
+draw the flows.
 
-The list is not decorative, and it is not hand-kept. A build check pins every entry on
-this page to the labels the Syrup codec actually reads and writes, so if the protocol
-surface ever grows a label or drops one, this page has to move with it or the gate
-goes red.
+The list is not hand-kept: a build check pins every entry on this page to the
+labels the Syrup codec reads and writes. If the protocol surface grows a label
+or drops one, this page moves with it or the gate goes red.
 
 ## Operations
 
@@ -66,7 +65,7 @@ later. The `ocapn://` URI you paste into a config is one of these records, in te
 | `ocapn-peer` | A peer's location: its transport (`tcp`, `iroh`), the designator to reach it at, and any connection hints. An `ocapn://<designator>.<transport>` URI is this record. |
 | `ocapn-sturdyref` | A peer location plus a swiss number: a restorable, long-lived reference to one object, the thing an `ocapn://…/s/<swiss>` URI names. |
 
-If a name here is new, do not start with the table. Start with
-[Concepts]($link.page('concepts')), which introduces capabilities, promises, and the
-three-party handoff before any of these labels appear. The
-[Transports]($link.page('transports')) page covers the netlayers a locator can name.
+If a name here is new, start with [Concepts]($link.page('concepts')), which
+introduces capabilities, promises, and the three-party handoff before any of these
+labels appear. The [Transports]($link.page('transports')) page covers the netlayers
+a locator can name.

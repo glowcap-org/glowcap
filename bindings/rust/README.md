@@ -60,11 +60,11 @@ family's `last_error`.
 The base crate is dependency-free and sync — the `Peer` is sans-I/O and drives
 from any runtime. The `async` feature is purely additive: it brings in tokio and
 exposes `connect` / `listen` plus an application-surface `Connection`, the same
-application verbs every binding speaks. `connect(uri, reachability)` is the one dialer,
-with one signature whether or not iroh is compiled in — a `tcp` locator ignores
-the reachability (pass `None`), an `iroh` locator requires it, and without the
-feature an `iroh` locator fails with a rebuild hint — so a call site never
-changes when iroh is turned on. The core driver
+application verbs every binding speaks. `connect(uri, reachability)` is the one
+dialer, one signature whether or not iroh is compiled in: a `tcp` locator
+ignores the reachability (pass `None`), an `iroh` locator requires it, and
+without the feature an `iroh` locator fails with a rebuild hint. A call site
+never changes when iroh is turned on. The core driver
 ([`src/connection.rs`](src/connection.rs)) carries that dialer and the
 `Reachability` posture; the optional `iroh` feature links
 `libpancake_net_transport_iroh` and adds the iroh-touching surface

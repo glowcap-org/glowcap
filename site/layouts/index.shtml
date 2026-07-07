@@ -33,9 +33,9 @@
 			<h3>iroh: encrypted P2P</h3>
 			<p>Reach a peer by a self-authenticating key over encrypted QUIC — no server in the middle.</p>
 		</a>
-		<a class="card" href="$site.page('reference').link()">
-			<h3>API reference</h3>
-			<p>The generated Zig API and the C header, straight from the code.</p>
+		<a class="card" href="$site.page('examples').link()">
+			<h3>Examples &amp; demo apps</h3>
+			<p>Watch a five-language chat, a task board, and a capability showcase run over real OCapN.</p>
 		</a>
 		<a class="card" href="$site.page('project').link()">
 			<h3>Project &amp; status</h3>

@@ -1,8 +1,8 @@
-//! 04 — Call a remote method on the raw engine.
+//! 05 — Call a remote method on the raw engine.
 //!
 //! A phone calls `speaker.queue("Hot Knife")` on the kitchen speaker. This is
 //! the basic CapTP move — invoke a method on a remote object and read the
-//! answer back — made one layer below everything chapters 01–03 ride: the bare
+//! answer back — made one layer below everything chapters 01–04 ride: the bare
 //! `engine.Peer`, with manual exports and imports, explicit `step`, and
 //! hand-shuttled frames.
 //!

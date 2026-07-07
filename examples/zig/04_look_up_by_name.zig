@@ -1,4 +1,4 @@
-//! 03, Look up a service by name.
+//! 04 — Look up a service by name.
 //!
 //! A client asks the server's bootstrap object for a capability, naming it with
 //! a swiss-number. This is the engine-level machinery beneath the fetch-by-name

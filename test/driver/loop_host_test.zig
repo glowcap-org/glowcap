@@ -61,7 +61,7 @@ fn callOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
     defer allocator.free(write_buf);
 
     const address = try pancake.net.tcp.parseHostPort("127.0.0.1", port);
-    var cv = try driver.connectTcp(io, allocator, &peer, address, read_buf, write_buf);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
     defer cv.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -88,7 +88,7 @@ test "driver.LoopHost: hosted actors answer keyed calls at fan-out over the comp
     const io = threaded.io();
 
     // The host at a stable address (run binds the loop's hooks back to it).
-    var host = try driver.LoopHost.init(io, allocator, publishGreeter, null, .{
+    var host = try driver.LoopHost.init(allocator, io, publishGreeter, null, .{
         .frame_cap = frame_cap,
         .max_conns = 32,
         .port = 0,

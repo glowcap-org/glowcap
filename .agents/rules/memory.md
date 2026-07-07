@@ -146,7 +146,15 @@ here.
   across both buffers, park that connection's reads, so no new inbound frames
   can mint new replies. Deleting the copy would mean writing borrowed frame
   bytes asynchronously, which is the same lifetime bug. Deleting the bound
-  reopens the slow-reader memory hole.
+  reopens the slow-reader memory hole. The iroh `LoopHost` shares
+  this posture over its single `outbound` buffer (ADR-0057): a `try_write` that
+  returns `WOULD_BLOCK` leaves the tail queued, and while pending outbound
+  exceeds `Options.outbound_high_water` (default `frame_cap`) the loop stops
+  draining that connection's inbound from the sidecar, so the sidecar's inbound
+  buffer fills and QUIC flow control throttles the partner; the read resumes
+  when a writable drains the queue below the mark, which also frees burst
+  capacity above `steady_outbound_bytes`. It is one buffer, not two, because
+  the iroh path copies into the sidecar rather than lending the kernel a slice.
 - **Pinned tcp stream wrapper: `net.tcp` per connection (ADR-0043).** A
   transport-generic `Connection` borrows `*std.Io.Reader` / `*std.Io.Writer` and
   is moved by value, but `std.Io.Reader`'s vtable recovers its concrete
@@ -236,9 +244,16 @@ here.
   the rows live on the gpa with precise per-row frees, never in a bump arena (an
   arena cannot reclaim an overwritten row and would leak every re-deposit). Each
   deposit dupes the gift id, recipient key, and gifter key and adopts the gifted
-  reference (bounded by `max_deposited_gifts`); each first-seen recipient
-  session dupes its session id (bounded by `max_seen_handoff_counts`); every row
-  is freed precisely, on overwrite or registry deinit.
+  reference; each first-seen recipient session dupes its session id (bounded by
+  `max_seen_handoff_counts`); every row is freed precisely, on overwrite or
+  registry deinit. A consumed gift's whole row is removed at withdraw (id key,
+  all three keys, and the gifted reference freed), so a process-lifetime registry
+  pins neither a capability nor a row per handoff it ever served; replay stays
+  blocked by the monotonic `handoff_counts`, not a retained marker. Because a
+  consumed row is gone, the row count _is_ the live-gift count, so
+  `max_deposited_gifts` bounds `gifts.count()` directly — no parallel counter to
+  drift — and a node that has served many completed handoffs keeps accepting new
+  deposits.
 - **Parked withdraw: one owned handoff-receive per early `withdraw-gift`
   (`Peer.pending_withdraws`, ADR-0056).** A `withdraw-gift` whose gift has no
   live deposit must outlive the borrowed frame that carried it, so the receive

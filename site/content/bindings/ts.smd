@@ -7,53 +7,143 @@
 ---
 
 The JavaScript/TypeScript binding is one source that runs on Deno, Bun, and
-experimental Node: all runtime coupling lives behind a thin FFI/socket seam that
-loads the matching adapter at startup. It loads the installed shared pancake
-archives over the host's FFI and mirrors the à-la-carte archive set as a Deno
-workspace of two packages. The core
-[`bindings/ts/stack/mod.ts`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/stack/mod.ts)
-(`@pancake/stack`, over `libpancake_ocapn`) presents a `Peer` class, with the
-built-in transports `@pancake/stack/transport/tcp` and
-`@pancake/stack/transport/inproc`; the optional encrypted-QUIC transport is the
-separate `@pancake/iroh` package, reached lazily by the core's `connect` for an
-`iroh` locator. Each opens only its own archive. Wire values arrive as
-discriminated unions, so a delivery is a value you switch on with the type
-narrowing you already expect from TypeScript.
+experimental Node; all runtime coupling lives behind a thin FFI/socket seam that
+loads the matching adapter at startup. The binding reaches the installed shared
+pancake archives over the host's FFI and mirrors the à-la-carte archive set as
+two packages. `@pancake/stack`
+([`bindings/ts/stack/mod.ts`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/stack/mod.ts))
+is the core over `libpancake_ocapn`: the `Peer` class, wire values, events, a
+`Vat`, and the built-in transports `@pancake/stack/transport/tcp` and
+`@pancake/stack/transport/inproc`. The optional `@pancake/iroh` package adds the
+encrypted-QUIC transport, and the core's `connect` loads it lazily on the first
+`iroh` locator. Each module opens only its own archive, so importing the core
+never loads a transport. Wire values arrive as
+discriminated unions, so a delivery is a value you switch on with ordinary type
+narrowing.
+
+## What you need
+
+- The packages are consumed from a pancake checkout today; there is no
+  registry release yet.
+- The binding `dlopen`s `libpancake_ocapn` and its transport siblings, so
+  build them once with `zig build` in the checkout — the iroh tabs additionally
+  need `zig build iroh-abi`, which needs cargo — and point
+  `PANCAKE_LIB_DIR` at the build output (or install the archives on the system
+  library path).
+- Deno and Bun are the tested and gated runtimes: run with
+  `deno run --allow-ffi --allow-read`, add `--allow-net` for any program that
+  dials or listens over TCP, and add `--allow-env` when `PANCAKE_LIB_DIR` does
+  the pointing.
+- Node is experimental: it needs Node 26 or newer with `--experimental-ffi`,
+  and it consumes transpiled JavaScript (for example through the JSR npm
+  bridge) rather than raw `.ts`.
 
 ## The same round-trip
 
-The round-trip the [Start building]($link.page('start')) page walks through in Zig —
-connect, fetch a capability by name, call it, and handle the reply — reads like this in
-TypeScript. Starting `serve` runs the inbound loop so the reply arrives.
+The [Start building]($link.page('start')) round-trip — connect, fetch, call,
+handle the reply — reads like this in TypeScript. `serve` keeps the connection
+dispatching until close; `fetch` and `send` start the inbound loop on demand.
 
-```ts
-import { connect } from "@pancake/stack";
+> []($block.attrs('code-tabs'))
+> **tcp**
+> ```ts
+> import { connect, tcpLocator } from "@pancake/stack";
+>
+> // tcp: the peer is a place, a cleartext host and port.
+> const partner = tcpLocator("127.0.0.1", 9099);
+>
+> const conn = await connect(partner);
+> conn.serve().catch(() => {});
+> const greeter = await conn.fetch("greeter"); // a capability, by name
+> try {
+>   const reply = await conn.send(greeter, "greet", ["world"]);
+>   console.log(reply);
+> } catch (reason) {
+>   console.error("the greeter refused:", reason);
+> }
+> conn.close();
+> ```
+> **iroh**
+> ```ts
+> import { connect } from "@pancake/stack";
+> import { Reachability } from "@pancake/iroh";
+>
+> // iroh reachability: the peer is a key, not a place. Discovery resolves
+> // the bare node id over the open internet; no address in hand.
+> const partner = "ocapn://3b6a…da29.iroh";
+>
+> const conn = await connect(partner, Reachability.Discovery);
+> conn.serve().catch(() => {});
+> const greeter = await conn.fetch("greeter"); // a capability, by name
+> try {
+>   const reply = await conn.send(greeter, "greet", ["world"]);
+>   console.log(reply);
+> } catch (reason) {
+>   console.error("the greeter refused:", reason);
+> }
+> conn.close();
+> ```
 
-const conn = await connect("ocapn://127.0.0.1:9099.tcp"); // the partner's locator
-conn.serve().catch(() => {});
-const greeter = await conn.fetch("greeter"); // a capability, by name
-try {
-  const reply = await conn.send(greeter, "greet", ["world"]);
-  console.log(reply);
-} catch (reason) {
-  console.error("the greeter refused:", reason);
-}
-conn.close();
-```
+The iroh tab swaps the built host-and-port locator for a bare node id and adds
+the posture import; everything below `connect` is the tcp tab, line for line. The node id itself still arrives out of band, exactly like a
+host and port; discovery turns a name you were given into a route, it does
+not browse for peers.
+
+The `serve` promise resolves when the connection closes cleanly and rejects on
+a transport or protocol error. When the loop ends, every `send` still awaiting
+a reply breaks too. Failures surface on the calls you await; the bare
+`catch` only keeps the loop's own rejection from going unhandled.
+
+## Hosting the other half
+
+The hosting side reads the same way. `listen` binds a port and returns a
+`Server` you iterate for each accepted `Connection`, `publish` makes an actor
+fetchable by name, and `serve` dispatches the partner's calls to it.
+
+> []($block.attrs('code-tabs'))
+> **tcp**
+> ```ts
+> import { listen } from "@pancake/stack";
+>
+> // tcp: bind a place you chose, a host and port.
+> const server = listen("127.0.0.1", 9099);
+> for await (const conn of server) {
+>   conn.publish("greeter", (_verb, args) => `hello, ${args[0]}`);
+>   conn.serve().catch(() => {});
+> }
+> ```
+> **iroh**
+> ```ts
+> import { listenIroh, Reachability } from "@pancake/iroh";
+>
+> // iroh reachability: bind a key, not a place. The endpoint publishes its
+> // identity, and partners dial the id from anywhere.
+> const server = listenIroh(Reachability.Discovery);
+> console.log(server.uri); // ocapn://<node-id>.iroh?direct-addresses=… — hand this to partners
+> for await (const conn of server) {
+>   conn.publish("greeter", (_verb, args) => `hello, ${args[0]}`);
+>   conn.serve().catch(() => {});
+> }
+> ```
+
+Over iroh there is no host and port to bind: `listenIroh` takes the posture,
+and the server tells you its own locator through `server.uri`.
 
 ## Async
 
-The async surface returns native `Promise`s and supports `using`, so a connection
-cleans itself up at the end of a block. An `AsyncConnection` runs the peer over
-the host runtime's own sockets. You read events as a stream with
-`for await (const event of conn)` and await a result directly with
-`await vat.send(ref, verb, args)`: no polling, no callback registration.
+The async surface returns native `Promise`s and supports `using`, so a
+connection cleans itself up at the end of a block. The quick-start's
+`Connection` is the surface you hold: `await conn.send(ref, verb, args)` awaits
+a result there, with no polling and no callback registration. Beneath it, an
+`AsyncConnection` runs the peer over the host runtime's own sockets and exposes
+the raw events as `for await (const event of conn)`.
 
 ## Actors
 
-The actor layer is a `Vat` over `(verb, args) => Argument` callbacks. A local actor
-is a plain function; an eventual-send to a partner-hosted reference resolves the
-returned promise when the answer settles.
+The actor layer is a `Vat` over `(verb, args) => Argument` callbacks. A local
+actor is a plain function. At the vat layer an eventual-send returns a `Vow`
+you observe with `Vat.on`; at the `Connection` surface the same send arrives as
+an awaitable promise.
 
 ## Dogfood and example
 

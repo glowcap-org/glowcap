@@ -59,6 +59,16 @@ from ._ffi_iroh import (
     _IROH_EV_WRITABLE,
 )
 
+__all__ = [
+    "Reachability",
+    "IrohServer",
+    "IrohNetlayer",
+    "IrohConn",
+    "listen_iroh",
+    "connect_iroh",
+    "connect_iroh_with_node",
+]
+
 
 def _iroh_last_error() -> "Optional[str]":
     """The calling thread's last error message from the iroh transport archive
@@ -145,6 +155,12 @@ class IrohConn:
         if n < 0:
             raise PancakeError(n, _iroh_last_error() or f"iroh conn try_write failed (code {n})")
         return n
+
+    def __enter__(self) -> "IrohConn":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.release()
 
     def release(self) -> None:
         if self._raw:
@@ -241,6 +257,12 @@ class IrohNetlayer:
             ctypes.byref(out),
         ))
         return IrohConn(out)
+
+    def __enter__(self) -> "IrohNetlayer":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.release()
 
     def close(self) -> None:
         if self._raw:
@@ -470,20 +492,33 @@ class _IrohLoopPump(_FramePump):
         self._owned_netlayer = owned_netlayer
         self._inbox = bytearray()
         self._read_buf = (ctypes.c_uint8 * self._READ_CHUNK)()
+        # See _TcpPump: a burst is copied into `_cache` once and walked by `_off`,
+        # not recopied per frame. While `_cache` is live `_inbox` is untouched.
+        self._cache: Optional["ctypes.Array"] = None
+        self._off = 0
 
     def locator(self) -> _KeyedLocator:
         return _KeyedLocator("iroh", self._designator)
 
     def dispatch_buffered(self, peer: Peer) -> bool:
-        if not self._inbox:
-            return False
-        consumed = peer.recv_stream(self._inbox)
+        if self._cache is None:
+            if not self._inbox:
+                return False
+            self._cache = (ctypes.c_uint8 * len(self._inbox)).from_buffer_copy(self._inbox)
+            self._off = 0
+        consumed = peer.recv_stream_at(self._cache, self._off, len(self._cache) - self._off)
         if consumed is None:
             return False
-        del self._inbox[:consumed]
+        self._off += consumed
         return True
 
     async def receive(self, peer: Peer) -> bool:
+        # Drop the dispatched prefix and invalidate the cache before appending, so
+        # the next dispatch recopies only the true remainder (tail + new bytes).
+        if self._cache is not None:
+            del self._inbox[: self._off]
+            self._cache = None
+            self._off = 0
         while True:
             # Drain every byte currently available (the readiness signal is
             # edge-ish, so leaving bytes buffered in the sidecar could stall until

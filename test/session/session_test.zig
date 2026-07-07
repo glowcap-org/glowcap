@@ -196,6 +196,45 @@ test "inbound deliver to an unheld far target is rejected on both recv paths" {
     );
 }
 
+test "a partner introduction in the reserved redeemed-token range is refused" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(.from(0)); // bootstrap, a held target to deliver to
+
+    // A redeemed handoff token (>= REDEEMED_TOKEN_BASE) is minted by the
+    // cross-connection node and never travels the wire, so a partner
+    // *introducing* a far import in that range could only alias one — the
+    // node's router would reroute the application's send to a different
+    // connection's capability. The introduction gate refuses it. Here the
+    // partner delivers to the held bootstrap and hands us, in an argument, a
+    // far import at exactly the token base.
+    const token_far = model.Argument{ .reference = .{ .far = .{ .import_position = .from(session.REDEEMED_TOKEN_BASE) } } };
+    const poisoned = model.Message{
+        .deliver = .{
+            .target = .{ .far = .{ .import_position = .from(0) } },
+            .args = &.{token_far},
+            .answer = .from(1),
+        },
+    };
+    try std.testing.expectError(
+        session.Error.InvalidReference,
+        s.recordRecvView(model.view.Body.fromOwned(&poisoned)),
+    );
+
+    // One below the base is an ordinary introduction and accepted, so the gate
+    // refuses only the reserved range, not every large import position.
+    const ok_far = model.Argument{ .reference = .{ .far = .{ .import_position = .from(session.REDEEMED_TOKEN_BASE - 1) } } };
+    const clean = model.Message{
+        .deliver = .{
+            .target = .{ .far = .{ .import_position = .from(0) } },
+            .args = &.{ok_far},
+            .answer = .from(2),
+        },
+    };
+    try s.recordRecvView(model.view.Body.fromOwned(&clean));
+}
+
 test "inbound deliver to a held far target is accepted through the borrowed path" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
@@ -1011,6 +1050,71 @@ test "inbound resolve whose fulfill names an unheld near export is rejected like
     } };
     try s.recordRecvView(model.view.Body.fromOwned(&good));
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, s.outboundAnswer(.from(11)).?.status);
+}
+
+test "send-side deliver nested past max_nesting_depth is refused before any export retain" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{
+        .wire_profile = model.WireProfile.pre_spec,
+        .limits = .{ .max_nesting_depth = 1 },
+    });
+    defer s.deinit();
+    try s.registerExport(.from(1));
+
+    // args = [ near(1), list(list([])) ]. The walk validates the shallow near
+    // first (which apply would retain), then the over-deep list. Deciding
+    // `NestingTooDeep` in validate — before apply mutates — keeps the retain
+    // walk all-or-nothing: export 1's refcount must be untouched.
+    const too_deep = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(1) } },
+        .args = &.{
+            .{ .reference = .{ .near = .{ .export_position = .from(1) } } },
+            .{ .list = &.{.{ .list = &.{} }} },
+        },
+        .answer = null,
+    } };
+    try std.testing.expectError(session.Error.NestingTooDeep, s.recordSend(too_deep));
+    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(1)));
+}
+
+test "send-side resolve fulfill nested past max_nesting_depth is refused before any export retain" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{
+        .wire_profile = model.WireProfile.pre_spec,
+        .limits = .{ .max_nesting_depth = 1 },
+    });
+    defer s.deinit();
+    try s.registerExport(.from(1));
+
+    // A partner asks a question, giving us a pending inbound answer to resolve.
+    try s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(1) } },
+        .args = &.{},
+        .answer = .from(11),
+    } });
+
+    // We resolve it with fulfill = list([ near(1), list(list([])) ]). The retain
+    // walk would descend the list, retain the shallow near (export 1), then hit
+    // the over-deep sublist and trip NestingTooDeep — mid-mutation. Deciding the
+    // depth in validate, before apply retains, keeps it all-or-nothing: export
+    // 1's refcount must be untouched. This is the resolve twin of the deliver
+    // depth guard; the fix that closed the deliver path had left this one open.
+    // The payload is heap-built with the session allocator: `recordSend`
+    // consumes a resolve's resolution (moved into the store on success, freed
+    // on refusal), so a comptime literal would be freed as if it were heap.
+    const inner_empty = try allocator.alloc(model.Argument, 0);
+    const inner = try allocator.alloc(model.Argument, 1);
+    inner[0] = .{ .list = inner_empty };
+    const top = try allocator.alloc(model.Argument, 2);
+    top[0] = .{ .reference = .{ .near = .{ .export_position = .from(1) } } };
+    top[1] = .{ .list = inner };
+    const too_deep = model.Message{ .resolve = .{
+        .answer = .from(11),
+        .resolution = .{ .fulfill = .{ .list = top } },
+    } };
+    // recordSend frees the resolution on this refusal; the test does not.
+    try std.testing.expectError(session.Error.NestingTooDeep, s.recordSend(too_deep));
+    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(1)));
 }
 
 test "inbound answers are bounded by max_inbound_answers (ADR-0025)" {

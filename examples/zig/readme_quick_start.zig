@@ -37,9 +37,12 @@ fn host(server: *driver.Server) !void {
 
 /// The client half, the README's Quick Start snippet, verbatim.
 fn client(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !void {
+    // tcp: the peer is a place, a cleartext `host:port`. The slice names the
+    // transports this client can reach; `tcp.at` spells the designator as a locator.
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
+    const partner = pancake.net.tcp.at(designator);
 
-    const conn = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{});
+    const conn = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, partner, .ephemeral, .{});
     defer conn.deinit();
 
     const greeter = try conn.fetch("greeter"); // a capability, by name

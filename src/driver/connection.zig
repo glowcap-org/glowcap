@@ -177,7 +177,7 @@ pub const Connection = struct {
         return self.cv.abortReason();
     }
 
-    /// Free everything `createShell` allocated, in reverse. `close` runs this
+    /// Free everything `createShell` allocated, in reverse. `deinit` runs this
     /// after the connected vat is down; a constructor runs it when the
     /// handshake fails after the shell exists.
     fn freeShell(self: *Connection) void {
@@ -217,7 +217,7 @@ fn createShell(allocator: std.mem.Allocator, opts: ConnectionOptions) !*Connecti
 /// `connectUriOwned`, which parses it and calls this. `identity` is the signing
 /// posture, explicit and never defaulted: `.ephemeral` is the ordinary client,
 /// `.keyed` signs with a caller-held key. The returned `*Connection` is freed by
-/// `Connection.close`. `netlayers` (and the residents behind it, which can hold
+/// `Connection.deinit`. `netlayers` (and the residents behind it, which can hold
 /// state) must outlive the returned `*Connection`. A caller that wants to own
 /// the peer and buffers directly uses the borrowing `connectVia` / `connectUri`.
 pub fn connect(
@@ -278,7 +278,7 @@ pub const Server = struct {
     /// Accept one partner into its own owned `*Connection`. The responder
     /// keyed handshake completes inside (this is `acceptVia` underneath,
     /// signing with `self.identity`), so the returned connection rides an open
-    /// session. Freed by `Connection.close`.
+    /// session. Freed by `Connection.deinit`.
     pub fn accept(self: *Server) !*Connection {
         const conn = try createShell(self.allocator, self.opts);
         errdefer conn.freeShell();
@@ -287,7 +287,7 @@ pub const Server = struct {
     }
 
     /// Stop listening. Connections already accepted live on; each one is torn
-    /// down by its own `Connection.close`.
+    /// down by its own `Connection.deinit`.
     pub fn close(self: *Server) void {
         self.listener.close();
     }

@@ -62,8 +62,9 @@ into the core archive would drag cargo into every consumer of the pure-Zig core
 — the rejected alternative below, applied one layer up. So the iroh transport
 ships as its own _optional_ public archive built from
 `src/c_abi/net_transport/iroh/`, kept out of the hermetic core: the `iroh-abi`
-and `gen-header-iroh` steps are cargo siblings of `check`, while `check` still
-type-checks the ABI module as a cargo-free object plus `gen-header-iroh-check`.
+and `gen-header-net-transport-iroh` steps are cargo siblings of `check`, while
+`check` still type-checks the ABI module as a cargo-free object plus
+`gen-header-net-transport-iroh-check`.
 Its composition and naming — a standalone companion archive that shares the core
 C types by layout rather than re-exporting them — are governed by
 [ADR-0059](ADR-0059-composable-c-abi-archives.md). On that artifact, all four
@@ -81,7 +82,8 @@ public-internet dialing.
 **Amendment (2026-06-12): the seam and the public ABI carry distinct symbol
 prefixes.** iroh exposes both a private byte-level seam (the Rust sidecar's C
 ABI, consumed only by `src/net/transport/iroh.zig`) and a public frame-level ABI
-(`src/c_abi/iroh/mod.zig`, the binding-facing surface), and the two link into
+(`src/c_abi/net_transport/iroh/mod.zig`, the binding-facing surface), and the
+two link into
 one library without colliding. They are split by prefix and by artifact name:
 
 - The **private seam** is `pancake_iroh_sidecar_*`, declared in

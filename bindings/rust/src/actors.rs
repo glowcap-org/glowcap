@@ -539,7 +539,7 @@ impl<'a> Vat<'a> {
 	/// Dispatch one inbound peer event. A deliver to a published export runs the
 	/// actor (leading symbol = verb) and resolves the answer with its reply; a
 	/// resolve for a pending far promise fires its listener. Returns whether the
-	/// event belonged to this vat (false → not ours; the caller handles it).
+	/// event belonged to this vat (false means not ours; the caller handles it).
 	pub fn serve(&mut self, event: &Event) -> Result<bool> {
 		match event {
 			Event::Deliver {

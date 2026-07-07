@@ -5,7 +5,7 @@
 //! append. The log is the tamper-evidence layer: an auditor who has the root can
 //! confirm an Episode was logged and that the log was not rewritten.
 //!
-//! This owns no protocol semantics, it is a local file-backed structure the
+//! This owns no protocol semantics. It is a local file-backed structure the
 //! accountability adapter writes to. The hash is Blake3 (matching the identity
 //! layer); the tree is a standard binary Merkle tree with duplicate-promotion of
 //! a lone right node, the RFC 6962 shape minus its domain-separation prefixes

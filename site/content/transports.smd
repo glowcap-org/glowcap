@@ -6,20 +6,23 @@
 .draft = false,
 ---
 
-A transport, a *netlayer*, is how a session's bytes actually move between two
-peers. pancake treats it as a contract, not a built-in: the core hands each frame
-to whichever netlayer a [locator]($link.page('concepts'))'s transport symbol names,
-and never learns which one carried it. Three residents ship today.
+A transport, a *netlayer*, is how a session's bytes move between two peers: the
+core hands each frame to whichever netlayer a
+[locator]($link.page('concepts'))'s transport symbol names, and never learns which
+one carried it. Three residents ship today.
+
+> **Netlayer** — pancake's word for a transport: a resident you register with the
+> driver, met by a contract (produce a connection over a stream) rather than a
+> privileged built-in.
 
 ## A transport is a resident, not a privilege
 
 The driver holds a slice of netlayers and dispatches `connectVia` and
-`acceptVia` on the transport symbol it reads off a locator, over one
-transport-generic `Connection`. Every resident funnels through that same
-`Connection`, a reader, a writer, and a close handle, so it reuses the one
-framing core instead of reinventing it. The proof the contract holds is that the
-in-process and iroh residents each registered as new files, with no edit to the
-driver or the core: a new transport is a new resident, not a new privilege.
+`acceptVia` on the transport symbol it reads off a locator. Every resident funnels
+through one transport-generic `Connection`, a reader, a writer, and a close handle,
+so it reuses the one framing core instead of reinventing it. A new transport is one
+new resident and a registry entry; the driver and the core do not change to admit
+it.
 
 | Transport | Symbol | Channel | Addressed by | Reach for it when |
 | --- | --- | --- | --- | --- |
@@ -31,8 +34,7 @@ driver or the core: a new transport is a new resident, not a new privilege.
 
 The default real-network transport, and the one that addresses a Goblins peer. It
 is cleartext, no TLS, because `tcp` has to speak the same wire as Goblins' cleartext
-`tcp`; confidentiality is a separate netlayer's job, not a TLS upgrade waiting to land
-on this one. It is proven against a
+`tcp`. It is proven against a
 live [Goblins](https://spritely.institute/goblins/) vat over a real socket, then
 re-exposed over the C ABI as blocking
 endpoint handles. Two I/O paths sit above it: a blocking pump for
@@ -54,32 +56,19 @@ carried by an [iroh](https://www.iroh.computer/) Rust sidecar staticlib, kept in
 *separate optional library*, `libpancake_net_transport_iroh`, so the base archives
 stay pure Zig. A peer is reached by its self-authenticating Ed25519 endpoint id in an
 `ocapn://<node-id>.iroh` URI rather than a `host:port`, and that one key is at once
-the network route, the OCapN designator, and the session signing key. A peer is
-reachable three ways — by direct-address hints, by a deterministic local address
-book, and by node id alone over the public n0 relays and DNS/pkarr discovery — and a
+the network route, the OCapN designator, and the session signing key. A dial
+resolves three ways: by direct-address hints, by a deterministic local address
+book, and by node id alone over the public n0 relays and DNS/pkarr discovery. A
 loop host can serve many connections from one thread. The dedicated
-[iroh page]($link.page('transports/iroh')) covers all of it; this row is just where
-it sits beside the other residents.
+[iroh page]($link.page('transports/iroh')) covers all of it.
 
 ## Encryption is the netlayer's job
 
 Confidentiality is something a netlayer provides, not a flag the API sets. The
-contract a transport meets is only "produce a connection over a stream," and it says
-nothing about whether that stream is encrypted, so each netlayer answers that for
-itself. Plain `tcp` is cleartext because it has to match the `tcp` netlayer Goblins
-speaks, byte for byte. `iroh` is encrypted because its QUIC channel is keyed. A
-confidential TCP, TLS over a socket, would be another netlayer under the same
-contract, with its own transport symbol. Nothing forbids it; it just is not written
-yet. So "encrypted" is not a synonym for iroh: iroh is the one encrypted netlayer that
-ships, not the definition of encryption.
-
-iroh does carry one wrinkle of its own: it lives in a separate compiled artifact,
-`libpancake_net_transport_iroh`, that you link in addition to the base. That is not
-encryption modeled as a build step. It is iroh being a Rust library, kept out of the
-pure-Zig archives so the base stays dependency-free; a pure-Zig TLS netlayer would
-need no second artifact at all. The [iroh page]($link.page('transports/iroh')) walks
-through that split and how the bindings load it lazily.
-
-An encrypted, NAT-traversing netlayer behind the same contract as TCP already ships
-as iroh, above. Where pancake heads beyond today's transports lives in the
+contract a transport meets says nothing about whether the stream is encrypted, so
+each netlayer answers that for itself: `tcp` stays cleartext to match Goblins byte
+for byte, and `iroh` is encrypted because its QUIC channel is keyed. A confidential
+TCP, TLS over a socket, would be another netlayer under the same contract with its
+own transport symbol; nothing forbids it, and it is not written yet. Where pancake
+heads beyond today's transports lives in the
 [vision](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/vision.md).

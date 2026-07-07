@@ -6,12 +6,11 @@ compared on latency, throughput, connection setup, and server memory. The point
 is a _fair_ head-to-head: the only variable between two runs is the substrate
 underneath the same application.
 
-This swaps the substrate beneath one fixed application. For the opposite
-question — one fixed pancake host, the _client language_ swapped per row — see
-the per-language consumer-cost bench in
-[`../langs/README.md`](../langs/README.md) (`zig build bench-langs`). The two
-are deliberately separate: this one measures the substrate, that one measures
-the cost of consuming pancake from each language.
+For the opposite question — one fixed pancake host, the _client language_
+swapped per row — see the per-language consumer-cost bench in
+[`../langs/README.md`](../langs/README.md) (`zig build bench-langs`). That one
+measures the cost of consuming pancake from each language; this one measures the
+substrate.
 
 Run it (needs `racket` and the `goblins` collection on PATH):
 
@@ -168,10 +167,10 @@ per-turn cost and the one-time COW alongside the snapshot sweep.
   binding through `<-` on a promise, ADR-0007), but the registry suite resolves
   a capability and _then_ invokes it (two sequential round-trips) so both sides
   run the identical conversation shape. The benchmark rewards neither side's
-  pipelining, and that omission is intentional, not an oversight.
-- **Driving is sequential.** One unit completes before the next begins; the
-  suite does not measure in-flight concurrency. This keeps the comparison
-  apples-to-apples; concurrent-load shapes are future work.
+  pipelining.
+- **Driving is sequential.** One unit completes before the next begins, so the
+  suite does not measure concurrent load. This keeps the comparison even across
+  substrates.
 
 ## Layout
 

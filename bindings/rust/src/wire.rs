@@ -17,8 +17,13 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 pub(crate) const READ_CHUNK: usize = 16 * 1024;
 
-pub(crate) fn io_err(_: std::io::Error) -> Error {
-	Error::from_code(sys::ERR_IO)
+/// Map a transport `std::io::Error` to a pancake [`Error`], carrying the
+/// original message through the detail channel so a consumer can tell
+/// connection-refused from timeout from reset (the public `Error` keeps its
+/// `Clone`/`PartialEq` derives, so it holds the message string, not a
+/// `Box<dyn Error>` source). The flat code stays `PANCAKE_ERR_IO`.
+pub(crate) fn io_err(e: std::io::Error) -> Error {
+	Error::with_detail(sys::ERR_IO, e.to_string())
 }
 
 /// Encode every pending outbound message and write the queued frames, then

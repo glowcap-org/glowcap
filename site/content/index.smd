@@ -24,15 +24,16 @@ the line all stay visible at the boundary that owns them.
 
 Two peers can reach each other directly, with no server in the middle. The
 [iroh transport]($link.page('transports/iroh')) carries a session over encrypted
-QUIC and names each peer by a self-authenticating key, so the address you dial *is*
-the identity you connected to, one Ed25519 key is at once the network route, the
-capability you name, and the key that signs the session. It rides an optional
-artifact, so a program that only speaks TCP never pays for it.
+QUIC and names each peer by a self-authenticating key: one Ed25519 key is at once
+the network route, the name you dial, and the key that signs the session. It rides
+an optional artifact, so a program that only speaks TCP never pays for it.
 
 You can reach the same library three ways. It is a Zig package you import directly,
 it is a plain C ABI you can call from anything, and it is four language bindings that
 each feel native in Rust, TypeScript, Python, and Racket.
 
-This site is the front door. The deep documentation lives next to the source, so a
-claim about the code travels in the same change as the code itself. Pick a path
+This site is the front door. The
+[deep documentation](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs)
+lives next to the source, so a claim about the code travels in the same change as
+the code itself. Pick a path
 below, or wander the modules from the sidebar.

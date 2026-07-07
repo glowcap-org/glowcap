@@ -150,7 +150,7 @@ const coreS = ffi.dlopen(libPath("pancake_ocapn"), {
 	// registers each connection's node-owned peer, pumps it, and routes by
 	// conn_id — every route value an integer, so the routing decision lives in Zig.
 	pancake_node_new: { parameters: ["buffer", "usize", "buffer"], result: "i32" },
-	pancake_node_free: { parameters: ["pointer"], result: "void" },
+	pancake_node_release: { parameters: ["pointer"], result: "void" },
 	pancake_node_register_conn: {
 		parameters: ["pointer", "buffer", "buffer"],
 		result: "i32",

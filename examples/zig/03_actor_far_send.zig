@@ -1,8 +1,8 @@
-//! 02 — Actor far-send with a promise.
+//! 03 — Actor far-send with a promise.
 //!
 //! A caller's `Vat` eventual-sends to a host's published actor over a paired
 //! session and observes the promise. One vat publishes an object, the other
-//! imports it and calls it, and the answer comes back as a settled promise —
+//! imports it and calls it, and the answer comes back as a settled promise,
 //! the same exchange chapter 01's `call` drives over a real socket.
 //!
 //! One layer down from chapter 01, the `actors.Vat` is what runs that

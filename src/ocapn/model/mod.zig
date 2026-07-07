@@ -214,14 +214,28 @@ pub const SturdyRef = struct {
     swissnum: []const u8,
 };
 
-pub const BrokenRef = struct {
-    message: []const u8,
-};
+/// A broken reference's reason. The same shape as a promise's `BreakReason` and
+/// an `error` argument's payload — a borrowed-or-owned message string — so it is
+/// that one type under a name that reads at the `Reference.broken` use site. The
+/// borrowed view already collapses all three to one `view.records.BreakReason`.
+pub const BrokenRef = BreakReason;
 
 pub const Reference = union(enum) {
     near: NearRef,
     far: FarRef,
     promise: PromiseRef,
+    // This arm is inline, not boxed, and unlike `Argument.handoff` that is
+    // deliberate. At 72 bytes (a `PeerLocator` plus a swissnum slice) `sturdy`
+    // does set the width of the whole union — `Reference` is 80 bytes and
+    // `Argument` 88, where every other reference arm is at most 32 — so a
+    // `*SturdyRef` box would roughly halve both, exactly the handoff-box
+    // arithmetic. But a `Reference` is a plain value constructed all over the
+    // codebase, including as a deliver *target* and as a `referencesEqual`
+    // operand, on the stack with no allocator in reach. A handoff never appears
+    // as a reference value — only in argument position, always built through the
+    // owned-clone path — so boxing it costs an allocation nothing else pays. A
+    // sturdyref would pay that allocation on every construction. The 40 bytes on
+    // a rare arm are cheaper than an owner on a common value type.
     sturdy: SturdyRef,
     broken: BrokenRef,
 

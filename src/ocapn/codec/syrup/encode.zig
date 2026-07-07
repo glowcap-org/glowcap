@@ -316,6 +316,14 @@ fn writeCanonicalSet(allocator: std.mem.Allocator, out: *std.ArrayList(u8), item
     }
 
     std.mem.sort([]u8, encoded, {}, lessByteSlice);
+    // Symmetric refusal (ADR-0003): the decoder rejects a set whose elements are
+    // not strictly ascending, which a duplicate element violates, so an encoder
+    // that emitted one would ship a frame pancake's own decoder rejects. A set
+    // element is its whole value, so two equal elements encode to equal bytes and
+    // land adjacent after the sort — one linear pass finds a duplicate.
+    for (encoded[1..], 1..) |element, i| {
+        if (std.mem.eql(u8, encoded[i - 1], element)) return Error.UnsupportedArgument;
+    }
     for (encoded) |element| try out.appendSlice(allocator, element);
 }
 
@@ -323,16 +331,43 @@ fn lessByteSlice(_: void, a: []u8, b: []u8) bool {
     return std.mem.lessThan(u8, a, b);
 }
 
+fn lessConstByteSlice(_: void, a: []const u8, b: []const u8) bool {
+    return std.mem.lessThan(u8, a, b);
+}
+
+/// Refuse a struct carrying two entries with the same key. Sorts a shallow copy
+/// of the keys so a repeat is an adjacent pair, an O(n log n) pass over the
+/// borrowed key slices with no value encoding.
+fn refuseDuplicateStructKeys(allocator: std.mem.Allocator, entries: []const model.StructEntry) WalkError!void {
+    if (entries.len < 2) return;
+    const keys = try allocator.alloc([]const u8, entries.len);
+    defer allocator.free(keys);
+    for (entries, 0..) |entry, i| keys[i] = entry.key;
+    std.mem.sort([]const u8, keys, {}, lessConstByteSlice);
+    var i: usize = 1;
+    while (i < keys.len) : (i += 1) {
+        if (std.mem.eql(u8, keys[i - 1], keys[i])) return Error.UnsupportedArgument;
+    }
+}
+
 /// Encode a struct's entries in canonical key order: each entry is encoded as its
 /// String key followed by its value, the encoded entries are sorted
 /// lexicographically by byte, and emitted in that order. The upstream Syrup
 /// encoder sorts dictionary entries by the fully-encoded key; sorting whole
-/// `key ++ value` encodings is equivalent here because keys are unique, self-
-/// delimiting netstrings, so no key encoding is a prefix of another and two
-/// entries always first differ within their key bytes. This is the encode-side
-/// partner of the order-independent struct equality in `model.equality`.
+/// `key ++ value` encodings is equivalent here because keys are self-delimiting
+/// netstrings, so no key encoding is a prefix of another and two entries always
+/// first differ within their key bytes. This is the encode-side partner of the
+/// order-independent struct equality in `model.equality`.
+///
+/// Symmetric refusal (ADR-0003): the decoder rejects a struct whose keys are not
+/// strictly ascending as `MalformedFrame`, which a duplicate key violates, so a
+/// duplicate is refused here rather than shipped. The check is on the model keys,
+/// not the `key ++ value` encodings, because two entries with the same key and
+/// different values encode to distinct, strictly-ordered byte strings that a
+/// full-encoding compare would miss.
 fn writeCanonicalStruct(allocator: std.mem.Allocator, out: *std.ArrayList(u8), entries: []const model.StructEntry) WalkError!void {
     if (entries.len == 0) return;
+    try refuseDuplicateStructKeys(allocator, entries);
 
     const encoded = try allocator.alloc([]u8, entries.len);
     var built: usize = 0;
@@ -627,8 +662,11 @@ fn writeSignedMagnitude(allocator: std.mem.Allocator, out: *std.ArrayList(u8), v
 }
 
 fn writeTargetReference(allocator: std.mem.Allocator, out: *std.ArrayList(u8), reference: model.Reference) !void {
-    // A target is the partner's export or an answer, never one of our own nears.
-    if (reference == .near) return Error.UnsupportedReference;
+    // A target is the partner's export or an answer, never one of our own nears,
+    // and never a sturdyref: you enliven a sturdyref (a bootstrap fetch), you do
+    // not deliver to one. Cap'n Proto carries a sturdy target; Syrup deliberately
+    // refuses it (the ADR-0003 dialect boundary the codec-equivalence test names).
+    if (reference == .near or reference == .sturdy) return Error.UnsupportedReference;
     return writePayloadReference(allocator, out, reference);
 }
 
@@ -658,6 +696,20 @@ fn writePayloadReference(allocator: std.mem.Allocator, out: *std.ArrayList(u8), 
             try beginRecord(allocator, out);
             try writeSymbol(allocator, out, "desc:answer");
             try writePositiveInt(allocator, out, promise.answer_position.int());
+            try endRecord(allocator, out);
+        },
+        // A sturdyref rides argument / fulfill position as `<ocapn-sturdyref
+        // <ocapn-peer …> swissnum>`, the exact grammar the decoder reads back
+        // (`readNeutralArgument`), so a Syrup-decoded sturdyref argument
+        // re-encodes and round-trips like its Cap'n Proto twin. A hint-carrying
+        // locator is refused loudly by `writeLocator`, the standing Syrup posture
+        // for payload locators. A sturdyref *deliver target* never reaches here:
+        // `writeTargetReference` refuses it first.
+        .sturdy => |sturdy| {
+            try beginRecord(allocator, out);
+            try writeSymbol(allocator, out, "ocapn-sturdyref");
+            try writeLocator(allocator, out, sturdy.peer);
+            try writeBytes(allocator, out, sturdy.swissnum);
             try endRecord(allocator, out);
         },
         else => return Error.UnsupportedReference,

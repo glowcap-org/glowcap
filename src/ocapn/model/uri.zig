@@ -213,7 +213,12 @@ fn writeInto(
     try out.appendSlice(allocator, "ocapn://");
     try appendPercentEncoded(allocator, out, locator.designator, safeNetloc);
     try out.append(allocator, '.');
-    try appendPercentEncoded(allocator, out, locator.transport, safeNetloc);
+    // The transport uses `safeTransport`, not `safeNetloc`: a bare '.' in the
+    // transport would re-split on parse (`splitNetloc` cuts on the last dot),
+    // turning a dotted transport into a different locator. A designator dot stays
+    // bare — it lands left of the delimiter and survives the last-dot split — so
+    // only the transport half escapes '.'.
+    try appendPercentEncoded(allocator, out, locator.transport, safeTransport);
     if (swissnum) |swiss| {
         try out.appendSlice(allocator, sturdyref_path_prefix);
         try appendPercentEncoded(allocator, out, swiss, safePath);
@@ -254,6 +259,13 @@ fn safeNetloc(c: u8) bool {
         '!', '$', '&', '\'', '(', ')', '*', '+', ',', ';', '=' => true,
         else => false,
     };
+}
+
+/// The transport half of a netloc: `safeNetloc` minus '.', which is the
+/// structural designator/transport delimiter. Escaping '.' here (as `%2E`) keeps
+/// a dotted transport from re-splitting when `splitNetloc` cuts on the last dot.
+fn safeTransport(c: u8) bool {
+    return c != '.' and safeNetloc(c);
 }
 
 fn safePath(c: u8) bool {

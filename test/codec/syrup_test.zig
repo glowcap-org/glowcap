@@ -353,6 +353,62 @@ test "Struct key order compares the fully-encoded key, not the raw key bytes" {
     );
 }
 
+test "Syrup refuses to encode a Struct carrying a duplicate key" {
+    // Symmetric refusal (ADR-0003): the decoder rejects a duplicate-key struct as
+    // malformed, so the encoder must not emit one, or it would ship a frame the
+    // partner rejects with no local signal. A model built with two "a" entries is
+    // refused at encode, the same shape a non-canonical big integer is.
+    const allocator = std.testing.allocator;
+    const target = model.Reference{ .far = .{ .import_position = .from(7) } };
+    const entries = [_]model.StructEntry{
+        .{ .key = "a", .value = .{ .integer = 1 } },
+        .{ .key = "a", .value = .{ .integer = 2 } },
+    };
+    const args = [_]model.Argument{.{ .@"struct" = entries[0..] }};
+    try std.testing.expectError(
+        syrup.Error.UnsupportedArgument,
+        syrup.encodeMessage(allocator, .{ .deliver = .{ .target = target, .args = args[0..] } }),
+    );
+}
+
+test "Syrup refuses to encode a Set carrying a duplicate element" {
+    // Symmetric refusal (ADR-0003): the decoder rejects a set with a duplicate
+    // element, so the encoder must not emit one — otherwise a model with a
+    // duplicate-element set would encode locally and pancake's own decoder would
+    // reject it. Refused at encode with UnsupportedArgument, like a duplicate key.
+    const allocator = std.testing.allocator;
+    const target = model.Reference{ .far = .{ .import_position = .from(7) } };
+    const dup = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 1 } };
+    const args = [_]model.Argument{.{ .set = dup[0..] }};
+    try std.testing.expectError(
+        syrup.Error.UnsupportedArgument,
+        syrup.encodeMessage(allocator, .{ .deliver = .{ .target = target, .args = args[0..] } }),
+    );
+}
+
+test "Syrup decode refuses a Set whose elements are out of canonical order" {
+    // A set's wire form is canonical only in strictly-ascending encoded-element
+    // order (the encode-side partner of writeCanonicalSet). `#3+1+2+$` spells the
+    // same set as `#1+2+3+$`, so a lenient read would admit a second spelling of
+    // one set; it is refused like a non-canonical struct key.
+    const frame = "<10'op:deliver<11'desc:export7+>[#3+1+2+$]42+f>";
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.decodeBody(.{ .bytes = frame, .shape = .byte }),
+    );
+}
+
+test "Syrup decode refuses a Set carrying a duplicate element" {
+    // Set elements are unique. `#1+1+$` repeats `1+`; an equal element is never
+    // strictly ascending, so the same ordering check that rejects a non-canonical
+    // set also rejects a duplicate, fail-closed.
+    const frame = "<10'op:deliver<11'desc:export7+>[#1+1+$]42+f>";
+    try std.testing.expectError(
+        syrup.Error.MalformedFrame,
+        syrup.decodeBody(.{ .bytes = frame, .shape = .byte }),
+    );
+}
+
 test "a single collection wider than the decode element cap is refused" {
     // Collection width is attacker-controlled, and every later walk over a
     // collection — the lazy view's len/at, session validation, owned

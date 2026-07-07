@@ -43,6 +43,15 @@ pub const Error = error{
 /// One identity, one node, many connections. `netlayers` is borrowed and must
 /// outlive the host; every connection the host mints shares `opts`. Free with
 /// `deinit`, after every `HostConnection` the host handed out is closed.
+///
+/// One thread drives all of a host's connections. The node tables, the
+/// connection map, and the redeem bookkeeping are unsynchronized, so two
+/// threads serving different `HostConnection`s of the same host would race
+/// them. The multiplexing primitive for a single thread is
+/// `HostConnection.stepReadable`, round-robined across the connections. The
+/// embedded crossed-hellos `Registry` locks its own state for the moment an
+/// accepted connection compares an inbound start-session against an outbound
+/// dial, not to license cross-thread serving.
 pub const Host = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -68,7 +77,10 @@ pub const Host = struct {
     self_designator: [64]u8 = undefined,
     self_designator_len: usize = 0,
 
-    const REDEEM_ANSWER_BASE: u64 = 1 << 62;
+    /// Synthetic answers `redeem` keys its serve-step bookkeeping on, drawn
+    /// from a range no wire answer reaches so a redeem's internal answer can
+    /// never collide with a partner-named one.
+    pub const REDEEM_ANSWER_BASE: u64 = 1 << 62;
 
     /// Create a host with a fresh identity drawn at this I/O boundary; the
     /// node reuses it for every connection, so an exporter verifies a
@@ -80,6 +92,7 @@ pub const Host = struct {
         opts: ConnectionOptions,
     ) !Host {
         var seed: [crypto.SEED_BYTES]u8 = undefined;
+        defer std.crypto.secureZero(u8, &seed);
         try io.randomSecure(&seed);
         return initSeeded(allocator, io, netlayers, seed, opts);
     }
@@ -287,10 +300,11 @@ pub const Host = struct {
     }
 
     /// The designator this host's dials sign: the first listener's bound
-    /// address, or the unreachable-client placeholder for a host that never
-    /// listens (a partner verifies the signature over it, not reachability).
+    /// address, or the shared unreachable-client placeholder for a host that
+    /// never listens (a partner verifies the signature over it, not
+    /// reachability), the same placeholder every never-listening dialer signs.
     fn selfDesignator(self: *const Host) []const u8 {
-        if (self.self_designator_len == 0) return "127.0.0.1:1";
+        if (self.self_designator_len == 0) return driver.unreachable_client_designator;
         return self.self_designator[0..self.self_designator_len];
     }
 
@@ -469,21 +483,29 @@ pub const HostConnection = struct {
         _ = host.connections.remove(self.conn_id);
         self.cv.deinit();
         host.node.removeConn(self.conn_id);
-        // Drain the fail-closed sweep the removal queued; nothing is waiting.
-        while (host.node.nextAction()) |action| {
-            if (action != .fail) break;
-        }
+        // `removeConn` queues fail-closed actions for the withdraws pending on
+        // this connection, and those actions break *sibling* connections'
+        // answers. They stay on the shared node queue for the driving loop
+        // (`driveRedeem`) to consume, or for `Node.deinit` to free. Teardown
+        // must never pop them: a pop-and-discard here would eat a settle a
+        // redeem still in flight needs, or strand a sibling's fail.
         host.allocator.free(self.read_buf);
         host.allocator.free(self.write_buf);
         host.allocator.destroy(self);
     }
 
     /// Fetch a partner capability by name, recording its home so a later
-    /// foreign return can be recognized and re-gifted (the gifter half).
+    /// foreign return can be recognized and re-gifted (the gifter half). The
+    /// home record is load-bearing, not best-effort: without it the resolve
+    /// interceptor cannot recognize this capability when a served reply returns
+    /// it, so the reply would encode the far's import position onto the wrong
+    /// connection. If the routing table cannot record the home, the fetch fails
+    /// loud with that allocator error rather than hand back a capability that
+    /// would later mis-route.
     pub fn fetch(self: *HostConnection, name: []const u8) !actors.Ref {
         const ref = try self.cv.fetch(name);
         if (ref == .far) {
-            self.host.node.recordForeignHome(.{ .far = ref.far }, self.conn_id) catch {};
+            try self.host.node.recordForeignHome(.{ .far = ref.far }, self.conn_id);
         }
         return ref;
     }
@@ -495,12 +517,25 @@ pub const HostConnection = struct {
         return routed.conn.cv.call(routed.target, msg, arena);
     }
 
-    /// `send` with node routing; the promise lives on the routed connection's
-    /// vat, so settle it there (`settlePromise` on the same handle is safe:
-    /// it also routes).
+    /// `send` with node routing; the returned promise lives on the routed
+    /// connection's vat (a redeemed token routes to its exporter connection, an
+    /// ordinary reference stays on this one). Settle it with `settlePromise`,
+    /// re-passing the same `target` so the settle drives the connection the
+    /// send left on.
     pub fn send(self: *HostConnection, target: actors.Ref, msg: actors.Message) !actors.Promise {
         const routed = try self.host.route(self, target);
         return routed.conn.cv.send(routed.target, msg);
+    }
+
+    /// Drive the routed connection until `promise` — returned by `send` to
+    /// `target` — settles, materializing the outcome into `arena`. Routing
+    /// keys on the target reference, not the promise, so the caller re-passes
+    /// the `target` it sent to: this re-routes to the same connection the send
+    /// left on and settles there. An ordinary reference settles on this
+    /// connection; a redeemed token settles on its exporter connection.
+    pub fn settlePromise(self: *HostConnection, target: actors.Ref, promise: actors.Promise, arena: std.mem.Allocator) !Settled {
+        const routed = try self.host.route(self, target);
+        return routed.conn.cv.settlePromise(promise, arena);
     }
 
     /// Fire-and-forget with node routing.

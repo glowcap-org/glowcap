@@ -4,7 +4,7 @@
   width="760"
   height="372"
   role="img"
-  aria-label="How two peers settle a version and codec. Each peer brings a preference-ordered menu: the CapTP versions and codecs it can speak, best first. Each side sees both menus, in hand when the peers share a process, or carried as a hint on the partner's ocapn locator over a network, and both run the same rule, keeping the most-preferred version and codec the two share. The result, here pancake-pre-spec over Cap'n Proto, is what op:start-session carries, with no extra round trip. If the two menus share no version or codec, no session opens."
+  aria-label="How two peers settle a version and codec. Each peer brings a preference-ordered menu: the CapTP versions and codecs it can speak, best first. Each side sees both menus, in hand when the peers share a process, or set by configuration on each side over a network, and both run the same rule, keeping the most-preferred version and codec the two share. The result, here pancake-pre-spec over Cap'n Proto, is what op:start-session carries, with no extra round trip. If the two menus share no version or codec, no session opens."
 >
   <defs>
     <marker
@@ -107,7 +107,7 @@
     y="150"
     text-anchor="middle"
     class="small muted"
-  >in hand, or a hint on its locator</text>
+  >in hand, or set by configuration</text>
 
   <path
     d="M184 164 C 184 186 250 194 300 202"

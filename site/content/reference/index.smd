@@ -6,8 +6,8 @@
 .draft = false,
 ---
 
-This is the exact, machine-generated API: both halves of it produced from the same
-Zig declarations the library compiles, so neither can drift away from the code it
+This is the exact, machine-generated API: both halves produced from the same Zig
+declarations the library compiles, so neither can drift from the code it
 describes. For *which* surface to reach for and how to start, see
 [Surfaces]($link.page('surfaces')); this page is the lookup.
 
@@ -19,13 +19,19 @@ with the ownership and lifetime notes attached to the declarations that carry th
 
 ## The C ABI
 
-The C surface is a set of composable archives with one header each. The base is
-[`pancake_ocapn.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_ocapn.h)
-for `libpancake_ocapn`, with `pancake_net_transport_tcp.h` and `pancake_net_transport_inproc.h` for the
-transport archives (which also link the header-less net-core base `libpancake_net`);
-each is generated from the same Zig declarations, so a header and
-its archive can never silently disagree. The optional iroh transport adds
-[`pancake_net_transport_iroh.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_iroh.h)
-as a companion (it `#include`s `pancake_ocapn.h` and adds only the `pancake_iroh_*`
-family; link it alongside the core archives). For the route from a build to a first complete C program, read
+The C surface is a set of composable archives, and this table is the site's one
+inventory of them. Each header is generated from the Zig declarations its
+archive compiles.
+
+| Archive | Header | What it carries |
+| --- | --- | --- |
+| `libpancake_ocapn` | [`pancake_ocapn.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_ocapn.h) | the sans-io peer and the shared vocabulary |
+| `libpancake_net` | none; it appears in the link line only | the shared net core beneath every transport |
+| `libpancake_net_transport_tcp` | [`pancake_net_transport_tcp.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_tcp.h) | cleartext TCP |
+| `libpancake_net_transport_inproc` | [`pancake_net_transport_inproc.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_inproc.h) | in-process byte pipes, no sockets |
+| `libpancake_net_transport_iroh` | [`pancake_net_transport_iroh.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_iroh.h) | encrypted QUIC; optional, links the Rust sidecar |
+
+The iroh header is a companion: it `#include`s `pancake_ocapn.h` and adds only the
+`pancake_iroh_*` family, and a consumer links its archive alongside the core ones.
+For the route from a build to a first complete C program, read
 [consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md).

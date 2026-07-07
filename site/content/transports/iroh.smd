@@ -11,14 +11,12 @@ other without a server in the middle. A session's bytes ride
 [QUIC](https://www.rfc-editor.org/rfc/rfc9000.html) carried by
 [iroh](https://www.iroh.computer/), and a peer is named by a self-authenticating
 key rather than a `host:port`. Everything above the wire stays the same OCapN
-pancake speaks over TCP, so the only thing that changes when you switch to iroh is
-how a peer is addressed and the fact that the channel is now encrypted and
-authenticated end to end.
+pancake speaks over TCP, so switching to iroh changes only two things: how a peer
+is addressed, and that its channel is now encrypted and authenticated end to end.
 
 ## One key does three jobs
 
-The piece worth understanding first is what an iroh peer's identity *is*. Each
-endpoint is an Ed25519 keypair, and pancake makes that single key carry three
+Each endpoint is an Ed25519 keypair, and pancake makes that single key carry three
 roles at once:
 
 - it is the **iroh node id** the transport authenticates the QUIC channel against;
@@ -26,17 +24,17 @@ roles at once:
   `ocapn://<node-id>.iroh` URI;
 - it is the **session signing key** that signs the `op:start-session` handshake.
 
-Because one key fills all three roles, the peer you cryptographically connected to,
-the name you dialed, and the identity that signed the session are provably the same
-party. `zig build iroh-interop` checks that knot on a live wire from both ends: the
-partner's verified session pubkey equals the node id the transport authenticated
-equals the signed locator designator. There is no separate certificate to trust and
-no address to spoof, because the address *is* the key.
+[One keypair fills all three roles, so the peer you dialed is provably the peer that signed the session.]($image.siteAsset('diagram-iroh-key.svg'))
 
-That identity also outlives the process that minted it. An endpoint bound from the
-same seed comes back with the same node id at a fresh network address, so a
-sturdyref — a node id plus a swiss-number — still names the same capability after a
-restart. The interop gate proves that too, by tearing an endpoint down and reaching
+`zig build iroh-interop` checks that knot on a live wire from both ends: the
+session public key the partner proved, the node id the transport authenticated, and
+the designator in the signed locator are all the same key. There is no separate
+certificate to trust and no address to spoof, because the address *is* the key.
+
+The identity also outlives the process that minted it: an endpoint bound from the
+same seed comes back with the same node id at a fresh network address. A
+sturdyref, a node id plus a swiss number, therefore still names the same
+capability after a restart. The interop gate proves that too, by tearing an endpoint down and reaching
 the same published cap through the locator recorded before the restart.
 
 ## Reaching a peer
@@ -48,54 +46,59 @@ posture* you choose when you bind the endpoint. pancake exposes four:
 | --- | --- | --- |
 | `direct` | the dialer carries the peer's direct socket addresses as locator hints | `zig build iroh-interop` |
 | `local_discovery` | an in-process address book resolves the id, no relay, fully deterministic | `zig build iroh-interop` |
-| `discovery` | the public number-0 relays plus DNS/pkarr resolve the id over the open internet | `zig build iroh-reachability` |
-| `discovery_no_relay` | DNS/pkarr resolve the id, but with relay fallback disabled — published direct addresses only | `zig build bindings-iroh-redeem-posture` |
+| `discovery` | the public n0 relays plus DNS/pkarr resolve the id over the open internet | `zig build iroh-reachability` |
+| `discovery_no_relay` | DNS/pkarr resolve the id, but with relay fallback disabled — published direct addresses only | posture governance only: `zig build bindings-iroh-redeem-posture` |
 
 `direct` and `local_discovery` are deterministic and run as the standard interop
 gate. `discovery` reaches real n0 infrastructure: a server publishes its node info
-to pkarr on bind, and a client dials by the 64-hex id alone with an empty hint set,
-so a session that opens proves the route was discovered, not hinted. Because it
-depends on public infrastructure and propagation timing, it is opt-in and never part
-of the hermetic `zig build check`. `discovery_no_relay` is the same discovery path
-with relay fallback disabled; that a hint-less give is governed by the configured
-posture is proven hermetically by `zig build bindings-iroh-redeem-posture`.
+to pkarr on bind, and a client dials by the 64-hex id with no hints. A session
+that opens therefore proves the route was discovered, not hinted. Because it depends on public
+infrastructure and propagation timing, it is opt-in and never part of the hermetic
+`zig build check`. `discovery_no_relay` is the same path with relay fallback
+disabled. No gate dials it live — that would need a publicly addressable host —
+so its cited gate proves something narrower and hermetic: a hint-less give is
+governed by whatever posture the endpoint configured, this one included.
 
 ## A separate artifact, by design
 
-iroh's QUIC stack is a Rust library, so it rides a Rust sidecar staticlib that
-pancake keeps in its own compiled artifact, `libpancake_net_transport_iroh`
+iroh's QUIC stack is Rust, so it rides a sidecar staticlib that pancake keeps in
+its own compiled artifact, `libpancake_net_transport_iroh`
 ([ADR-0055](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
 The base archives stay pure Zig and dependency-free; a program links iroh only when
 it wants it. `zig build iroh-abi` builds that companion archive and its header
 (it needs `cargo`).
 
 The same split shows up in the bindings. Each one keeps iroh in a per-transport
-module — the `@pancake/iroh` package, `pancake.iroh`, `pancake-iroh.rkt`, and Rust's opt-in
-`iroh` feature — and `connect` loads it lazily the first time it sees an `iroh`
-locator. A program that only ever speaks TCP never loads the iroh artifact. Hosting
-over iroh adds one verb, `listen_iroh`; dialing a peer over iroh goes through the
-same `connect` as TCP, and the only difference a caller sees is the address.
+module: the `@pancake/iroh` package, `pancake.iroh`, `pancake-iroh.rkt`, and Rust's opt-in
+`iroh` feature. `connect` loads that module lazily the first time it sees an `iroh`
+locator (Rust compiles it in behind the feature instead), so a program that only
+ever speaks TCP never loads it. Hosting
+over iroh adds one verb, a listen-over-iroh call each binding spells its own way
+(`listenIroh` in TypeScript, `listen_iroh` in Python). Dialing a peer over iroh goes
+through the same `connect` as TCP, and the only difference a caller sees is the
+address.
 
 ## Scale: many connections, one thread
 
-The shipped iroh resident serves one connection per OS thread, the
-one-thread-per-connection path that `iroh-interop` proves correct. For the fan-out pancake targets
-elsewhere, that caps too early, so iroh also has an event-driven path
-([ADR-0057](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0057-iroh-readiness-loop.md)):
-a loop host registers the sidecar's single readiness descriptor once and drives
+The shipped iroh resident serves one connection per OS thread, the path
+`iroh-interop` proves correct. That caps too early for the fan-out
+pancake targets elsewhere, so iroh also has an event-driven path
+([ADR-0057](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0057-iroh-completion-loop-bridge.md)).
+A loop host registers the sidecar's single readiness descriptor once and drives
 non-blocking frame I/O across every connection from one thread. `zig build iroh-loop`
-proves it by dialing many endpoints at the server at once and checking that every
-call on every connection returns correct, so the one loop thread is provably
-multiplexing them rather than serving them in turn. The Python, Rust, and
+proves it by dialing the server from many endpoints at once and checking that every
+call on every connection returns the right answer. The one loop thread is
+provably multiplexing rather than serving them in turn. The Python, Rust, and
 Racket bindings prove the same shape over the C ABI through `python-iroh-loop`,
 `rust-iroh-loop`, and `racket-iroh-loop` (or `bindings-iroh-loop` for all
-three).
+three). The TypeScript binding drives its iroh connections through the same
+internal readiness loop, mirroring the Zig loop host, but exposes no public loop
+type and has no loop gate of its own.
 
 What the encrypted channel costs per call is measured too: the
 [Performance]($link.page('performance')) page times a full OCapN round-trip over iroh
-beside a cleartext TCP baseline on one machine, so the price of QUIC and encryption is
-a number you can read rather than a guess. The per-connection memory this path adds
-lives in the Rust sidecar's heap, separate from the sans-io core that page also
+beside a cleartext TCP baseline on one machine. The per-connection memory this path
+adds lives in the Rust sidecar's heap, separate from the sans-io core that page also
 measures.
 
 ## Three-party handoff over iroh

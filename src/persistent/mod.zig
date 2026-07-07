@@ -303,9 +303,10 @@ pub fn PersistentMap(comptime V: type) type {
         /// Path-copy `node` without `key`. `removed` is false when `key` was
         /// absent, in which case `node` is returned unchanged (the caller shares
         /// it). Nodes are not canonicalized on the way down: a branch may shrink to
-        /// a single entry or (at the root) to none. `get`/`len`/`remove` stay
-        /// correct over such a node, and `deinit` frees it; the only cost is a
-        /// little wasted depth, never a leak or a wrong answer.
+        /// a single entry, or to none, at any level, not only the root.
+        /// `get`/`len`/`remove` stay correct over such a node, and `deinit` frees
+        /// it; the only cost is a little wasted depth, never a leak or a wrong
+        /// answer.
         fn nodeRemove(
             allocator: std.mem.Allocator,
             node: *Node,
@@ -327,8 +328,9 @@ pub fn PersistentMap(comptime V: type) type {
                 .node => |child| {
                     const sub = try nodeRemove(allocator, child, key, shift + chunk_bits);
                     if (!sub.removed) return .{ .node = node, .removed = false };
-                    // The child still has at least one entry (an empty child would
-                    // have been a single leaf, handled above), so replace it.
+                    // Replace the child unconditionally: `sub.node` may be empty or
+                    // single-leaf (remove does not canonicalize), which `get` and
+                    // `deinit` tolerate.
                     errdefer releaseNode(allocator, sub.node);
                     const children = try allocator.alloc(Slot, old.len);
                     @memcpy(children, old);
@@ -347,9 +349,12 @@ pub fn PersistentMap(comptime V: type) type {
         }
 
         /// A fresh copy of `node` with the slot at `pos` (chunk `bit`) dropped,
-        /// sharing the surviving children. `node` always keeps at least one other
-        /// slot here: a node with a single leaf is only ever reached as a `leaf`
-        /// case one level up, never as a standalone node to shrink to empty.
+        /// sharing the surviving children. Remove does not canonicalize, so at any
+        /// level this can leave a node holding a single slot, or none — a two-leaf
+        /// node whose other leaf a later remove also drops becomes empty in place,
+        /// not collapsed into its parent. `get`, `len`, `remove`, and `deinit` are
+        /// all written to tolerate empty and single-entry interior nodes; the only
+        /// cost is a little wasted depth, bounded by the ~11-level key ceiling.
         fn dropSlot(allocator: std.mem.Allocator, node: *Node, pos: usize, bit: u64) std.mem.Allocator.Error!*Node {
             const old = node.children;
             const children = try allocator.alloc(Slot, old.len - 1);

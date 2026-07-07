@@ -6,7 +6,6 @@ const memory_endpoint_support = @import("../support/memory_endpoint.zig");
 
 test "memory endpoint transfers owned frames without copying" {
     const allocator = std.testing.allocator;
-    const io = std.testing.io;
 
     var endpoint = memory_endpoint_support.MemoryEndpoint.init(allocator);
     defer endpoint.deinit();
@@ -15,9 +14,9 @@ test "memory endpoint transfers owned frames without copying" {
     const storage_ptr = @intFromPtr(storage.ptr);
     const frame = try foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1));
 
-    try endpoint.writeFrameOwned(io, frame);
+    try endpoint.writeFrameOwned(frame);
 
-    var read = (try endpoint.readFrame(io, allocator)).?;
+    var read = endpoint.readFrame().?;
     defer read.deinit();
 
     try std.testing.expectEqual(storage_ptr, @intFromPtr(read.bytes().ptr));
@@ -26,7 +25,6 @@ test "memory endpoint transfers owned frames without copying" {
 
 test "memory endpoint copy path is explicit" {
     const allocator = std.testing.allocator;
-    const io = std.testing.io;
 
     var endpoint = memory_endpoint_support.MemoryEndpoint.init(allocator);
     defer endpoint.deinit();
@@ -34,12 +32,12 @@ test "memory endpoint copy path is explicit" {
     var bytes = [_]u8{ 'a', 'b', 'c' };
     const source_ptr = @intFromPtr(bytes[0..].ptr);
 
-    try memory_endpoint_support.writeFrameCopy(&endpoint, io, .{
+    try memory_endpoint_support.writeFrameCopy(&endpoint, .{
         .bytes = bytes[0..],
         .shape = .byte,
     });
 
-    var read = (try endpoint.readFrame(io, allocator)).?;
+    var read = endpoint.readFrame().?;
     defer read.deinit();
 
     try std.testing.expect(source_ptr != @intFromPtr(read.bytes().ptr));

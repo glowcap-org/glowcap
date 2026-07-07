@@ -8,8 +8,8 @@
 
 The quickest way to get a feel for pancake is to watch one program call another.
 So let us write the calling half, look at every line, and then point you at the
-[surface]($link.page('surfaces')) that matches your language. The build compiles and runs it under `zig build examples`, which is what keeps it from
-drifting away from the library.
+[surface]($link.page('surfaces')) that matches your language. The C, Rust,
+TypeScript, Python, and Racket entry points sit just below the Zig walkthrough.
 
 ## In Zig
 
@@ -28,48 +28,99 @@ exe.root_module.addImport("pancake", pancake.module("pancake"));
 The client itself is one object and a handful of verbs. Here is the entire
 round-trip:
 
-```zig
-const pancake = @import("pancake");
-
-// Dial by locator, the one dialer. The transport set is a bare slice naming
-// the transports this client can reach (here, just TCP); `tcp.at` turns a
-// `host:port` into a `tcp` locator with no caller buffer. Add `iroh` by
-// putting one more netlayer in the slice, the same call.
-var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-
-const conn = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{});
-defer conn.close();
-
-const greeter = try conn.fetch("greeter"); // a capability, by name
-var arena = std.heap.ArenaAllocator.init(allocator);
-defer arena.deinit();
-const settled = try conn.call(greeter, .{
-    .verb = "greet",
-    .args = &.{.{ .string = "world" }},
-}, arena.allocator());
-switch (settled) {
-    .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
-    .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
-}
-```
+> []($block.attrs('code-tabs'))
+> **tcp**
+> ```zig
+> const std = @import("std");
+> const pancake = @import("pancake");
+>
+> // tcp: the peer is a place, a cleartext `host:port`. The slice names the
+> // transports this client can reach; `tcp.at` spells the designator as a locator.
+> var tcp_resident = pancake.net.tcp.Resident{ .io = io };
+> const partner = pancake.net.tcp.at(designator);
+>
+> const conn = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, partner, .ephemeral, .{});
+> defer conn.deinit();
+>
+> const greeter = try conn.fetch("greeter"); // a capability, by name
+> var arena = std.heap.ArenaAllocator.init(allocator);
+> defer arena.deinit();
+> const settled = try conn.call(greeter, .{
+>     .verb = "greet",
+>     .args = &.{.{ .string = "world" }},
+> }, arena.allocator());
+> switch (settled) {
+>     .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
+>     .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
+>     // The third outcome: an introduction to a capability on another peer,
+>     // redeemed with `driver.Host.redeem`. This greeter never sends one.
+>     .give => {},
+> }
+> ```
+> **iroh**
+> ```zig
+> const std = @import("std");
+> const pancake = @import("pancake");
+> // In-repo builds only: `iroh` is wiring beside the package, not part of it.
+> // From C and the bindings this transport is `libpancake_net_transport_iroh`.
+> const iroh = @import("iroh");
+>
+> // iroh reachability: the peer is a key, not a place. `.discovery` resolves
+> // the bare node id over the open internet; no address in hand.
+> var iroh_resident = try iroh.Resident.init(io, null, .discovery);
+> defer iroh_resident.deinit();
+> const partner = "ocapn://3b6a…da29.iroh";
+>
+> const conn = try pancake.driver.connectUriOwned(allocator, &.{iroh_resident.netlayer()}, partner, .ephemeral, .{});
+> defer conn.deinit();
+>
+> const greeter = try conn.fetch("greeter"); // a capability, by name
+> var arena = std.heap.ArenaAllocator.init(allocator);
+> defer arena.deinit();
+> const settled = try conn.call(greeter, .{
+>     .verb = "greet",
+>     .args = &.{.{ .string = "world" }},
+> }, arena.allocator());
+> switch (settled) {
+>     .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
+>     .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
+>     // The third outcome: an introduction to a capability on another peer,
+>     // redeemed with `driver.Host.redeem`. This greeter never sends one.
+>     .give => {},
+> }
+> ```
 
 Read it as four moves:
 
-1. **Connect.** `pancake.driver.connect` opens a session over a netlayer and hands
-   you one owning `Connection`. The `defer conn.close()` on the next line is the
-   only connection cleanup the program needs; the arena's `deinit` reclaims the
-   reply values.
+1. **Connect.** `pancake.driver.connect` opens a session over a netlayer and
+   hands you one owning `Connection`; the iroh tab's `connectUriOwned` parses
+   the locator string and calls it. A netlayer is pancake's word for a
+   transport; the [Transports]($link.page('transports')) page introduces them.
+   The `defer conn.deinit()` on the next line is the only connection cleanup the
+   program needs; the arena's `deinit` reclaims the reply values.
 2. **Fetch a capability.** `conn.fetch("greeter")` asks the partner for the object it
    published under the name `greeter`. What comes back is a capability, not a copy, so
    from here on you are calling the partner's object, not your own.
 3. **Call it.** `conn.call` sends the `greet` method with one string argument. The
    arena you pass in owns whatever the reply allocates, so you free the result by
    dropping the arena rather than tracking each piece.
-4. **Switch on the outcome.** A call settles one of two ways. It is `fulfilled` with
-   a value, or it is `broken` with a reason, and the compiler makes you handle both.
+4. **Switch on the outcome.** A call settles one of three ways: `fulfilled` with a
+   value, `broken` with a reason, or `give` — an introduction to a capability on
+   another peer, which `driver.Host.redeem` turns into a live reference. The
+   compiler makes you handle every arm; this client meets a plain greeter, so its
+   `give` arm is empty.
 
-That snippet is checked verbatim by
-[`examples/zig/readme_quick_start.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/readme_quick_start.zig).
+The tcp snippet is carried verbatim by
+[`examples/zig/readme_quick_start.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/readme_quick_start.zig),
+which `zig build examples` compiles and runs, and `zig build meta-check` holds
+this page to the example's lines, so the page cannot drift away from the
+library. The iroh tab is the
+[rooms client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/zig/client.zig)'s
+shape: the endpoint bind gains a reachability posture, the locator shrinks to
+the partner's bare node id, and fetch, call, and the settled switch do not
+move. The id itself still arrives out of band, exactly like a host and port;
+discovery turns a name you were given into a route, it does not browse for
+peers.
 The hosting half, the program that publishes `greeter` and answers the call, has the
 same shape, and
 [`examples/zig/01_connect_and_serve.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/01_connect_and_serve.zig)
@@ -81,17 +132,20 @@ keep going down, from this application surface all the way to the raw engine, on
 ## From C, or any FFI host
 
 The same library is also a plain C ABI, and that is the door for everyone not
-writing Zig. If you are embedding pancake in a C program or binding it from another
-runtime, start with
-[consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md).
-It walks the build, the artifacts, the ownership rules, and a first complete program
-in one place. The C surface is opaque handles, fixed-width return codes, `ptr + len` views, and explicit release
-functions, the shape every binding wraps.
+writing Zig. It comes in two shapes. To dial, fetch, and call, use the owning
+session: `pancake_tcp_session_connect` through `pancake_tcp_session_release`.
+When your program owns the event loop, drive the sans-io peer instead:
+`pancake_peer_recv_stream` in, `pancake_peer_next_event` and
+`pancake_peer_take_outbound` out. Either way the surface is opaque handles,
+fixed-width return codes, `ptr + len` views, callbacks, and explicit release,
+the shape every binding wraps. Start with
+[consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md)
+for the build, the artifacts, the ownership rules, and a first complete program.
 
 ## In Rust, TypeScript, Python, or Racket
 
 If you write one of these four, a binding already did the wrapping for you. Each one
-consumes the C ABI as a genuine foreign-language consumer and then presents an
+is a genuine foreign-language consumer of the C ABI and presents an
 idiomatic API on top, so you write the language you already know instead of foreign
 function calls. Start at the [bindings overview]($link.page('bindings')) for the
 shape they share, then jump to your language:

@@ -103,12 +103,15 @@ outcome, declared in `pancake_net_transport_tcp.h` beside its only producer. The
 session is a client: it pairs with an actor-runtime host (a Zig `driver.Server`,
 a binding, or a Goblins vat), the same hosting half the Zig `Connection` dials;
 the sans-io peer below it is the right primitive when _you_ own the loop and the
-host. `test/c_abi/tcp_session_test.zig` is the worked round trip. The same
-handle shape has a socket-free sibling, the in-process layer
+host. `test/c_abi/tcp_session_test.zig` is the worked round trip.
+
+The same handle shape has a socket-free sibling, the in-process layer
 (`pancake_inproc_connect`, `pancake_inproc_listen`, `pancake_inproc_accept`):
 two peers wired by in-process pipes, addressed by a string designator instead of
-`host:port` — the path a smoke test dials to run a full OCapN conversation
-without touching a socket. Addresses themselves are core OCapN vocabulary:
+`host:port`, the path a smoke test dials to run a full OCapN conversation
+without touching a socket.
+
+Addresses themselves are core OCapN vocabulary:
 `pancake_uri_parse_peer` / `pancake_uri_format_peer` (and the sturdyref pair)
 convert an `ocapn://` URI to and from a `PancakeLocator` read through the
 `pancake_locator_*` accessors, so a consumer dispatches on the parsed

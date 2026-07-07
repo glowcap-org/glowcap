@@ -14,7 +14,7 @@ superseded_by: []
 
 The three-party handoff router — Goblins' `mycapn`, the thing distinct from a
 per-partner connection — existed four times: once in each binding's `Machine`
-(Rust `[bindings/rust/src/connection.rs](../../../bindings/rust/src/connection.rs)`,
+(Rust [`bindings/rust/src/connection.rs`](../../../bindings/rust/src/connection.rs),
 and its Python/TypeScript/Racket peers), in two divergent designs, and nowhere
 in native Zig. Each copy holds the same state: a retained node `seed` reused for
 every connection (so an exporter verifies a `desc:handoff-receive` against one
@@ -36,7 +36,7 @@ connection object (a `tokio` channel, an `asyncio` task). The native Zig
 `ConnectedVat` had no router at all.
 
 The conformance host
-(`[conformance/ocapn-conformance/pancake_peer.zig](../../../conformance/ocapn-conformance/pancake_peer.zig)`)
+([`conformance/ocapn-conformance/pancake_peer.zig`](../../../conformance/ocapn-conformance/pancake_peer.zig))
 is not a fifth copy of this router: its `GifterHub` is a *host-thread* mechanism
 — it serves each connection on its own thread and hands a gifter request/result
 between threads under a mutex, while each thread still calls the engine handoff

@@ -14,7 +14,7 @@ test "Host: seeded lifecycle and body analysis" {
     const allocator = std.testing.allocator;
     var host = driver.Host.initSeeded(allocator, undefined, &.{}, [_]u8{7} ** 32, .{});
     defer host.deinit();
-    try std.testing.expect(host.next_redeem_answer >= (1 << 62));
+    try std.testing.expect(host.next_redeem_answer >= driver.Host.REDEEM_ANSWER_BASE);
     // An unknown transport fails closed before any I/O touches the undefined io.
     try std.testing.expectError(driver.host.Error.UnknownTransport, host.dial(.{
         .transport = "nope",

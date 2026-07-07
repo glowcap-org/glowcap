@@ -276,7 +276,7 @@ test "C ABI gifter deposit + shared-registry withdraw round-trips across two exp
 
     var exporter_node: ?*c.PancakeNode = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_new(&exporter_seed, exporter_seed.len, &exporter_node));
-    defer c.pancake_node_free(exporter_node);
+    defer c.pancake_node_release(exporter_node);
 
     // Exporter↔gifter session (deposit lands here) and exporter↔recipient session
     // (withdraw lands here); the node owns both peers and frees them.

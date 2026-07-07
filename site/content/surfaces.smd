@@ -8,17 +8,15 @@
 
 pancake is one library you can hold three ways. It is a [Zig](https://ziglang.org/)
 package you import directly, a plain C ABI you can call from any FFI host, and four
-language bindings
-that wrap that C ABI in a native idiom. Same core underneath, and the surface you pick
-never changes the bytes a session puts on the wire, so you choose whichever matches the
-language you are writing in.
+language bindings that wrap that C ABI in a native idiom. Same core underneath, so
+you choose whichever matches the language you are writing in.
 
-[One library, held three ways. Zig imports the core directly; C and FFI hosts call the C ABI; the four bindings wrap that same C ABI. One core underneath all of them, so the surface never changes what a session puts on the wire.]($image.siteAsset('diagram-surfaces.svg'))
+[One core under all three surfaces, so the one you hold never changes what a session puts on the wire.]($image.siteAsset('diagram-surfaces.svg'))
 
 | Surface | You write | Reach for it when |
 | --- | --- | --- |
 | [Zig package]($link.page('start')) | Zig | you are in Zig, or want the full engine and its types |
-| C ABI | C, or any FFI host | you are embedding in C, or wrapping from a runtime with no binding yet |
+| [C ABI](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md) | C, or any FFI host | you are embedding in C, or wrapping from a runtime with no binding yet |
 | [Bindings]($link.page('bindings')) | Rust, TypeScript, Python, Racket | you are in one of those four languages |
 
 ## The Zig package
@@ -35,20 +33,16 @@ declarations you import, with their ownership and lifetime notes, are the genera
 ## The C ABI
 
 The same code compiles to a set of composable archives, linked à la carte, each in
-static (`.a`) and shared (`.so`) form: `libpancake_ocapn` carries the sans-io peer
-and the shared vocabulary in `pancake_ocapn.h`, and each transport is its own archive
-and header (`libpancake_net_transport_tcp` with `pancake_net_transport_tcp.h`,
-`libpancake_net_transport_inproc` with `pancake_net_transport_inproc.h`). A transport
-links over the shared net-core base `libpancake_net`, which carries no header and
-exports nothing of its own but must appear in the link line. The surface is
-deliberately boring: opaque handles, fixed-width return codes, `ptr + len` views,
-callbacks, and explicit release functions. That is what lets a consumer wrap it well
-without knowing any Zig. Each header is generated from the same Zig declarations the
-archive compiles, so it can never silently disagree with the binary, and the optional
-iroh transport adds `pancake_net_transport_iroh.h` as a companion (it includes `pancake_ocapn.h` and
-adds only the `pancake_iroh_*` family; a consumer links it alongside the core archives).
-[Consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md)
-walks the build, the artifacts, the ownership rules, and a first complete program.
+static and shared form (`.a` plus the platform's shared library). The base
+`libpancake_ocapn` carries the sans-io peer, and each transport is its own archive
+and header beside it. Every header is generated from the same Zig declarations its
+archive compiles, so a header can never silently disagree with the binary. The
+surface is deliberately boring: opaque handles, fixed-width return codes,
+`ptr + len` views, callbacks, and explicit release functions, so a consumer can
+wrap it well without knowing any Zig. The full archive-and-header
+inventory lives on the [API reference]($link.page('reference')) page, and the
+consuming-from-C guide linked in the table above walks the build, the ownership
+rules, and a first complete program.
 
 ## The bindings
 
@@ -58,15 +52,16 @@ each one dogfoods the archives through its own `*-dogfood` step.
 
 ## One library, one build, one engine
 
-There is no separate "C build" or "Zig build" of the protocol. The bindings call
-the same C ABI that wraps the same Zig core, so the surface never changes behavior or
-the bytes on the wire: a Zig peer, a C consumer, and a peer written against any binding
-hold the same OCapN conversation, byte for byte. What a session does *negotiate*, its
-codec and CapTP version, is settled per session against whoever answers, not by which
-surface you built on, so one instance can run many sessions speaking different codecs at
-once; the [Concepts]($link.page('concepts')) page walks that handshake. The surfaces
+There is no separate "C build" or "Zig build" of the protocol: a Zig peer, a C
+consumer, and a peer written against any binding hold the same OCapN conversation,
+byte for byte. A session *does* negotiate its codec and CapTP version, settled
+with whoever answers rather than by which surface you built on. One instance
+can therefore run many sessions speaking different codecs at once; the
+[Concepts]($link.page('concepts')) page walks that handshake.
+
+The surfaces
 also come from one build: every artifact above is produced by `zig build`, and
-`zig build check` runs the hermetic gate, tests, oracle and conformance scenarios,
+`zig build check` runs the hermetic gate: tests, oracle and conformance scenarios,
 examples, and the structure checks. The cross-language dogfoods and live interop run
 as sibling steps, since they need non-Zig runtimes on PATH. The full step catalog lives in
 [the build catalog](https://codeberg.org/jimisaacs/pancake/src/branch/main/README.md#build).

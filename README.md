@@ -27,10 +27,9 @@ vocabulary before any code appears.
 
 It targets OCapN, the open object-capability network protocol from
 [Spritely Institute](https://spritely.institute/) and the OCapN community. You
-use it as a library, and you manage its memory yourself. Nothing important
-hides: where a copy happens, where something is allocated, which wire format is
-in play, where I/O and scheduling live: all of it stays visible at the boundary
-that owns it.
+use it as a library and manage its memory yourself. Nothing hides: every copy,
+every allocation, the wire format in play, and where I/O and scheduling live all
+stay visible at the boundary that owns them.
 
 <p align="center">
   <img src="assets/pancake-goblin-512.png" alt="a purple goblin studying a smiling stack of pancakes" width="320" />
@@ -53,15 +52,15 @@ A client is one object and a handful of verbs: connect, fetch a capability by
 name, call it, switch on the settled outcome, close.
 
 ```zig
+const std = @import("std");
 const pancake = @import("pancake");
 
-// Dial by locator, the one dialer. The transport set is a bare slice naming
-// the transports this client can reach (here, just TCP); `tcp.at` turns a
-// `host:port` into a `tcp` locator with no caller buffer. Add `iroh` by
-// putting one more netlayer in the slice, the same call.
+// tcp: the peer is a place, a cleartext `host:port`. The slice names the
+// transports this client can reach; `tcp.at` spells the designator as a locator.
 var tcp_resident = pancake.net.tcp.Resident{ .io = io };
+const partner = pancake.net.tcp.at(designator);
 
-const conn = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{});
+const conn = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, partner, .ephemeral, .{});
 defer conn.deinit();
 
 const greeter = try conn.fetch("greeter"); // a capability, by name
@@ -82,7 +81,8 @@ switch (settled) {
 
 That snippet is machine-checked:
 [`examples/zig/readme_quick_start.zig`](examples/zig/readme_quick_start.zig)
-carries the same code verbatim and runs under `zig build examples`. The hosting
+carries the same code verbatim, runs under `zig build examples`, and
+`zig build meta-check` holds the two identical. The hosting
 half is the same shape;
 [`examples/zig/01_connect_and_serve.zig`](examples/zig/01_connect_and_serve.zig)
 is the runnable version of both halves.
@@ -90,13 +90,14 @@ is the runnable version of both halves.
 Not writing Zig? The same library is a C ABI with bindings:
 [`docs/consuming-from-c.md`](docs/consuming-from-c.md) is the route for C and
 FFI consumers, and [`bindings/`](bindings/README.md) holds the Rust, Deno,
-Python, and Racket surfaces, each speaking the same nine application verbs.
+Python, and Racket surfaces, each exposing the same small application surface.
 
 ## Learn by example
 
 The [example chapters](examples/README.md) read top-down, from the application
-surface to the raw engine: connect and serve, actors and far-sends, lookup by
-name, then explicit frames one `step` at a time. Three full applications then
+surface to the raw engine: connect and serve, an introduction redeemed into a
+direct connection, actors and far-sends, lookup by name, then explicit frames
+one `step` at a time. Three full applications then
 run the same code across every binding on one wire: a capability-secure chat
 room (`zig build demo-rooms`), a shared task board (`zig build demo-tasks`), and
 an AI-agent tool harness with delegation, attenuation, and revocation

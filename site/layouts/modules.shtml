@@ -7,16 +7,17 @@
 		<p>pancake is one library, but it reads as a stack of small modules. Each
 		one rests on the modules below it and may import only downward, so a
 		layer's name tells you what it owns before you open the file. The teal
-		band is the sans-io protocol core. The amber band above it is where I/O,
-		the C boundary, and the other languages live.</p>
+		band is the sans-io protocol core. The neutral band is the local actor
+		layer, which rests on the core without being part of it. The amber band
+		is where I/O, the C boundary, and the other languages live.</p>
 		<div class="stack" aria-hidden="true">
 			<div class="layer is-adapter"><strong>Bindings</strong> <span class="tag tag-adapter">consumers</span><small>Rust, TypeScript, Python, Racket, the same library in four idioms</small></div>
 			<div class="layer is-adapter"><strong>c_abi</strong> <span class="tag tag-adapter">surface</span><small>the C ABI every binding wraps</small></div>
-			<div class="layer is-adapter"><strong>driver</strong> <span class="tag tag-adapter">application</span><small>the owning Connection and the nine application verbs</small></div>
+			<div class="layer is-adapter"><strong>driver</strong> <span class="tag tag-adapter">application</span><small>the owning Connection and the shared application verbs</small></div>
 			<div class="layer is-adapter"><strong>net</strong> <span class="tag tag-adapter">netlayers</span><small>where std.Io enters: TCP, in-memory, and iroh</small></div>
-			<div class="layer is-core"><strong>actors</strong> <span class="tag tag-core">core</span><small>the Goblins-shaped Vat: spawn, near-call, eventual-send</small></div>
+			<div class="layer is-local"><strong>actors</strong> <span class="tag tag-local">above the core</span><small>the Goblins-shaped Vat: spawn, near-call, eventual-send</small></div>
 			<div class="layer is-core"><strong>engine</strong> <span class="tag tag-core">core</span><small>the caller-owned Peer: step, dispatch, outbound drain</small></div>
-			<div class="layer is-core"><strong>session</strong> <span class="tag tag-core">core</span><small>authoritative tables: imports, exports, answers, releases</small></div>
+			<div class="layer is-core"><strong>session</strong> <span class="tag tag-core">core</span><small>authoritative tables: imports, exports, and answers</small></div>
 			<div class="layer is-core"><strong>codec</strong> <span class="tag tag-core">core</span><small>Syrup and Cap'n Proto, parsing bytes without deciding authority</small></div>
 			<div class="layer is-core"><strong>model</strong> <span class="tag tag-core">core</span><small>codec-neutral CapTP semantic types</small></div>
 			<div class="layer is-core"><strong>foundation</strong> <span class="tag tag-core">core</span><small>frames, byte ownership, and IDs</small></div>

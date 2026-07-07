@@ -33,7 +33,9 @@ pub const CountingAllocator = struct {
 
     fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
         const self: *CountingAllocator = @ptrCast(@alignCast(ctx));
-        return self.backing.rawResize(memory, alignment, new_len, ret_addr);
+        const ok = self.backing.rawResize(memory, alignment, new_len, ret_addr);
+        if (ok and new_len > memory.len) self.allocs += 1;
+        return ok;
     }
 
     fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
@@ -49,14 +51,13 @@ pub const CountingAllocator = struct {
     }
 };
 
-/// Tracks live (outstanding) heap bytes and the peak by accumulating the signed
-/// delta of every allocator operation. The live count after a set of peers is
-/// built and warmed, with every transient frame already freed, is the steady
-/// heap those peers hold.
+/// Tracks live (outstanding) heap bytes by accumulating the signed delta of
+/// every allocator operation. The live count after a set of peers is built and
+/// warmed, with every transient frame already freed, is the steady heap those
+/// peers hold.
 pub const LiveBytesAllocator = struct {
     backing: std.mem.Allocator,
     live: i128 = 0,
-    peak: i128 = 0,
 
     pub fn allocator(self: *LiveBytesAllocator) std.mem.Allocator {
         return .{
@@ -67,7 +68,6 @@ pub const LiveBytesAllocator = struct {
 
     fn note(self: *LiveBytesAllocator, delta: i128) void {
         self.live += delta;
-        if (self.live > self.peak) self.peak = self.live;
     }
 
     fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {

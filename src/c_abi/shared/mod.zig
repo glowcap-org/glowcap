@@ -50,18 +50,22 @@ pub const PANCAKE_ERR_FRAME_TOO_LARGE: i32 = -11;
 // -12 is retired (the pairwise typed polls' wrong-kind refusal;
 // `pancake_peer_next_event` routes every kind itself). Never reused.
 /// A value *sent* across the typed surface uses a variant the C ABI cannot carry:
-/// a `handoff` argument, or a `sturdy`/`broken` reference target. Those are
-/// refused loudly with this code rather than marshalled wrong. (`set`, `tagged`,
-/// and `keyword` arguments do carry, both directions.) A *received* `sturdy` or
-/// `broken` reference is a separate case: it projects lossily — the kind is
-/// reported but its swissnum/detail is dropped — since the deliver was authored
-/// by the partner, not refused on this consumer's behalf.
+/// a `handoff` argument, an OCapN Struct argument (there is no `PANCAKE_ARG_STRUCT`),
+/// or a `sturdy`/`broken` reference target. Those are refused loudly with this
+/// code rather than marshalled wrong. (`set`, `tagged`, and `keyword` arguments
+/// do carry, both directions.) A *received* Struct, `sturdy`, or `broken` value
+/// is a separate case: a Struct projects as its raw wire frame, and a `sturdy`/
+/// `broken` reference projects lossily — the kind is reported but its
+/// swissnum/detail is dropped — since the deliver was authored by the partner,
+/// not refused on this consumer's behalf.
 pub const PANCAKE_ERR_UNSUPPORTED_VALUE: i32 = -13;
 /// A promise the partner broke: a `send`/`fetch` the remote side refused with a
-/// reason, not a fault in this peer or the transport. No C ABI function *returns*
-/// this — a break arrives as a `PANCAKE_RESOLUTION_BREAK` resolve event carrying
-/// its message — but it is the shared code a binding surfaces when it turns that
-/// break into its own error type, so the reason is distinct from a real failure.
+/// reason, not a fault in this peer or the transport. The sans-io peer surface
+/// never *returns* this — a break arrives there as a `PANCAKE_RESOLUTION_BREAK`
+/// resolve event carrying its message. The owning-session transport surfaces do
+/// return it: `pancake_tcp_session_fetch` reports a partner break with this code,
+/// and a binding reuses it when it turns that break into its own error type, so
+/// the reason stays distinct from a real failure.
 pub const PANCAKE_ERR_BROKEN: i32 = -14;
 /// A lookup found nothing: the `pancake_locator_hint` key names no hint on the
 /// locator. Distinct from `_INVALID_ARGUMENT` (the request was malformed) — the
@@ -121,13 +125,16 @@ pub const PancakeFrame = extern struct {
     shape: u32,
 };
 
-/// Release hook a `PancakeManagedFrame` carries; the caller invokes it once to
-/// free the frame.
+/// Internal self-release hook a `PancakeManagedFrame` carries. Do not invoke
+/// this pointer directly: free the frame through `pancake_managed_frame_release`,
+/// which is idempotent and nulls the hook first. Calling it directly after the
+/// wrapper has run is a null function-pointer call.
 pub const ReleaseFn = *const fn (*PancakeManagedFrame) callconv(.c) void;
 
 /// A frame the engine *owns* and hands to the C caller (outbound frames, event
-/// frames). It is self-describing and self-releasing: the caller must invoke
-/// `release` exactly once to free it, never a host `free`.
+/// frames). It is self-describing and self-releasing: free it exactly once
+/// through `pancake_managed_frame_release` (idempotent), never with a host `free`
+/// and never by calling the `release` field directly.
 pub const PancakeManagedFrame = extern struct {
     bytes: ?[*]u8,
     len: usize,
@@ -557,7 +564,12 @@ pub fn argumentToC(arena: std.mem.Allocator, arg: model.Argument) MarshalError!P
             c_arg.bytes = big.digits.ptr;
             c_arg.bytes_len = big.digits.len;
         },
-        else => return error.UnsupportedValue,
+        // Exhaustive on purpose: the model arms with no C mapping are named
+        // here, so a new `model.Argument` arm stops this build at the boundary
+        // that must decide how (or whether) the typed surface carries it,
+        // rather than degrading silently to the opaque-frame fallback. `.@"struct"`
+        // has no PANCAKE_ARG_STRUCT and rides the raw-frame projection instead.
+        .@"error", .handoff, .@"struct" => return error.UnsupportedValue,
     }
     return c_arg;
 }

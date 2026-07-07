@@ -7,42 +7,34 @@
 ---
 
 This is where pancake stands: what runs today, where the edges are, and where the
-project is going. The code is the truth about the present. The documents linked
-below argue the direction without ever pretending unfinished work has already
-landed.
+project is going. The code is the truth about the present; the documents linked
+below argue the direction without pretending unfinished work has landed.
 
-## What ships today
+```=html
+<nav class="cards" aria-label="Project status">
+	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/shipped.md">
+		<h3>What ships today</h3>
+		<p>The gated inventory of implemented behavior: the wire operation surface, both codecs, three netlayers, the actor layer, third-party handoffs, and live Goblins interop from every binding. A claim that stops matching the tree is treated as a bug.</p>
+	</a>
+	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/boundaries.md">
+		<h3>Where the edges are</h3>
+		<p>Where the implemented surface ends, plainly: transport is cleartext TCP with encryption riding the separate iroh artifact, bootstrap registrations live for the process, and the OCapN Null (the spec's placeholder value) fails closed.</p>
+	</a>
+	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/vision.md">
+		<h3>Where it is going</h3>
+		<p>The goal is to be the most performant OCapN implementation there is, fully canonical and proven by interop, with performance held to a measured contract rather than asserted.</p>
+	</a>
+	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/README.md">
+		<h3>Why the boundaries sit here</h3>
+		<p>The accepted decision records: the netlayer contract, the one-parser framing, the C ABI allocation context, the iroh sidecar, and the rest. When a boundary moves, a superseding record explains the move.</p>
+	</a>
+</nav>
+```
 
-[What ships today](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/shipped.md)
-is the gated inventory of implemented behavior: the wire operation surface, both
-codecs, three netlayers, the actor layer, third-party handoffs, and live
-[Goblins](https://spritely.institute/goblins/) interop from every binding. Each claim there is held by a gate, a scenario, or a
-live interop run, and a claim that stops matching the tree is treated as a bug.
-
-## Where the edges are
-
-[The boundaries](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/boundaries.md)
-name where the implemented surface ends, plainly: transport is cleartext TCP with
-encryption riding the separate iroh artifact, bootstrap registrations live for the
-process, the OCapN Null fails closed, and the `griddle` network simulator is not
-built yet. Reading the edges is the surest way to know what you can rely on.
-
-## Where it is going
-
-Three documents carry the direction. The
-[vision](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/vision.md) is the
-goal: to be the most performant OCapN implementation there is, fully canonical
-and proven by interop, with that performance held to a measured contract rather than
-asserted. The
+Two more documents carry the route in detail: the
 [ladder](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/ladder.md) is the
-ordered route to 1.0 with each rung's standing, and the
+ordered climb to 1.0 with each rung's standing, and the
 [roadmap](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/roadmap.md) is the
-concrete remaining work.
-
-## Why the boundaries sit where they do
-
-The [decision records](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/README.md)
-are the accepted ADRs: the netlayer contract, the one-parser framing, the C ABI
-allocation context, the iroh sidecar, and the rest. When a boundary moves, a
-superseding record explains the move rather than leaving the old reasoning to
-mislead.
+concrete remaining work. Each claim in the shipped inventory is held by a gate, a
+scenario, or a live interop run against
+[Spritely Goblins](https://spritely.institute/goblins/).

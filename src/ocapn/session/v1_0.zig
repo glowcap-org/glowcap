@@ -36,7 +36,7 @@ pub fn installOutboundResolver(self: *Session, answer: model.AnswerId, resolver_
 
 /// Mint a synthesized V1.0 resolver export for `answer` and commit, in one
 /// place, the whole wire-delta accounting its on-wire mention requires:
-/// allocate the export, install the answer→resolver link, and take the
+/// allocate the export, install the answer-to-resolver link, and take the
 /// export's wire-delta retain. The V1.0 encode hooks
 /// (`engine.v1_0.installResolverForOutboundDeliver` for an answered deliver,
 /// `installListenerForOutboundProjection` for a projection listener) put the
@@ -97,7 +97,13 @@ pub fn answerForResolverImport(self: *const Session, resolver_import: model.Impo
 /// from the partner-refused range above `VIRTUAL_INBOUND_ANSWER_BASE`.
 pub fn allocateInboundAnswer(self: *Session) model.AnswerId {
     const id = self.next_virtual_inbound_answer;
-    self.next_virtual_inbound_answer +%= 1;
+    // A plain `+=`, not a wrapping `+%=`: this counter must never wrap. Wrapping
+    // past `maxInt(u64)` would re-enter the partner-named range below
+    // `VIRTUAL_INBOUND_ANSWER_BASE` and alias a real inbound answer — the exact
+    // collision the range reservation exists to prevent. A Debug/ReleaseSafe
+    // overflow trap is the correct fail-loud verdict for an invariant that
+    // cannot be reached in practice (2^63 virtual fetches on one session).
+    self.next_virtual_inbound_answer += 1;
     return model.AnswerId.from(id);
 }
 

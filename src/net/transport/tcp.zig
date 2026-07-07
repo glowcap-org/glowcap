@@ -136,14 +136,23 @@ pub fn connectAddress(
     return connectionOver(io, peer, stream, read_buf, write_buf);
 }
 
+/// The width of the caller storage `locator` formats a `host:port` designator
+/// into. A bracketed IPv6 literal with a port is the widest designator, and it
+/// runs to 47 bytes (`[` + 39 hex-and-colon characters + `]` + `:` + a
+/// five-digit port), so a 64-byte array holds any designator with room to
+/// spare. The buffer being a fixed array of this width is what makes the format
+/// in `locator` infallible.
+pub const designator_buf_len = 64;
+
 /// Build a `tcp` locator for a literal `address`, formatting its `host:port`
 /// designator into caller storage `buf`. The transport owns this spelling, so a
 /// caller holding a typed address dials without writing the `model.PeerLocator`
-/// literal or the designator format by hand. `buf` need only outlive the dial
-/// that copies what the session retains; 64 bytes holds any IPv4 or
-/// bracketed-IPv6 designator. The owning `driver.connect` takes the returned
-/// locator directly.
-pub fn locator(buf: []u8, address: IpAddress) model.PeerLocator {
+/// literal or the designator format by hand. `buf` is a fixed
+/// `designator_buf_len`-byte array because that width holds any designator, so
+/// the format cannot run out of room and the `bufPrint` cannot fail. `buf` need
+/// only outlive the dial that copies what the session retains. The owning
+/// `driver.connect` takes the returned locator directly.
+pub fn locator(buf: *[designator_buf_len]u8, address: IpAddress) model.PeerLocator {
     const designator = std.fmt.bufPrint(buf, "{f}", .{address}) catch unreachable;
     return .{ .transport = transport_name, .designator = designator, .hints = model.Hints.emptyFalse() };
 }

@@ -1,5 +1,5 @@
 //! A rooms chat client, written on pancake actors in native Zig. Zig is the home
-//! language, this runs on the same core every binding wraps, and it drives the
+//! language; this runs on the same core every binding wraps, and it drives the
 //! real TCP netlayer pancake ships.
 //!
 //! On the driver surface this reads like the other languages: one owning

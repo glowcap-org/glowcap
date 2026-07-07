@@ -119,3 +119,25 @@ test "tcp loopback: handshake to open + bootstrap fetch round-trip" {
     try client_result;
     try server_result;
 }
+
+test "tcp.locator formats a host:port designator into fixed-width caller storage" {
+    // `locator` takes a `*[designator_buf_len]u8`, so a short buffer cannot be
+    // passed and the internal format is infallible. The widest designator (a
+    // bracketed IPv6 literal with a five-digit port) still fits with room to
+    // spare, so both families round-trip.
+    var buf: [tcp.designator_buf_len]u8 = undefined;
+
+    const v4 = try tcp.parseHostPort("127.0.0.1", 9000);
+    const loc4 = tcp.locator(&buf, v4);
+    try std.testing.expectEqualStrings(tcp.transport_name, loc4.transport);
+    try std.testing.expectEqualStrings("127.0.0.1:9000", loc4.designator);
+    const back4 = try tcp.parseDesignator(loc4.designator);
+    try std.testing.expect(back4.eql(&v4));
+
+    const v6 = try tcp.parseHostPort("::1", 65535);
+    const loc6 = tcp.locator(&buf, v6);
+    try std.testing.expectEqualStrings("[::1]:65535", loc6.designator);
+    try std.testing.expect(loc6.designator.len <= tcp.designator_buf_len);
+    const back6 = try tcp.parseDesignator(loc6.designator);
+    try std.testing.expect(back6.eql(&v6));
+}

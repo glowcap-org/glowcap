@@ -13,7 +13,7 @@
 // separate Carol↔Bob connection, against one node-wide object identity.
 
 import process from "node:process";
-import { Connection, listen, Ref } from "./mod.ts";
+import { connect, listen, Ref, tcpLocator } from "./mod.ts";
 
 function fail(message: string): never {
 	console.error(`gifter-handoff: FAIL, ${message}`);
@@ -43,9 +43,9 @@ async function main(): Promise<void> {
 	// The broker dials Bob as a member would — keyed with the broker node's own
 	// identity — and fetches Bob's giftable dm. The fetched ref's home is this
 	// broker↔Bob connection, which is what lets the broker re-gift it.
-	const brokerToBob = await Connection.connect(
-		"127.0.0.1",
-		bobPort,
+	const brokerToBob = await connect(
+		tcpLocator("127.0.0.1", bobPort),
+		undefined,
 		broker.node,
 	);
 	brokerToBob.serve().catch(() => {});
@@ -59,7 +59,7 @@ async function main(): Promise<void> {
 	);
 
 	// ── Recipient (Carol): get introduced, redeem transparently, DM directly ─────
-	const carol = await Connection.connect("127.0.0.1", brokerPort);
+	const carol = await connect(tcpLocator("127.0.0.1", brokerPort));
 	carol.serve().catch(() => {});
 	const introducer = await carol.fetch("introducer");
 	const introduced = await carol.send(introducer, "introduce", []);

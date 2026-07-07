@@ -43,6 +43,9 @@ pub const FrameStream = frame_stream.FrameStream;
 pub const FrameError = frame_stream.FrameError;
 pub const Spill = frame_stream.Spill;
 pub const readFrameFrom = frame_stream.readFrameFrom;
+pub const drainWholeFrames = frame_stream.drainWholeFrames;
+pub const DrainVerdict = frame_stream.DrainVerdict;
+pub const steady_outbound_bytes = frame_stream.steady_outbound_bytes;
 
 /// The shared `std.Io` reader/writer scaffolding a byte-source transport wires
 /// its stream through: `stream_shim.Shim(Source)` turns a transport's blocking

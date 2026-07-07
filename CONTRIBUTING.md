@@ -28,8 +28,8 @@ decisions.
 
 **Out of scope:** new authority models; `std.Io` in the sync no-I/O core
 (`foundation` / `model` / `codec` / `session` / `engine`); authority decisions
-pushed down into codecs or adapters; TLS over TCP, which is not implemented,
-the encrypted channel is the iroh netlayer (ADR-0055).
+pushed down into codecs or adapters; TLS over TCP (not implemented, since the
+encrypted channel is the iroh netlayer, ADR-0055).
 
 ## Decision records
 

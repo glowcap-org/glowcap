@@ -24,6 +24,13 @@
 //! here in one process over real loopback sockets: a widget service (the
 //! exporter), a directory that knows it (the gifter), and a client that only
 //! knows the directory (the recipient).
+//!
+//! `main` comes first and holds the whole lesson: dial the directory, `call`
+//! for an introduction, read the `.give`, `redeem` it, then call the widget
+//! directly. Everything below `main` is scaffolding — the honest price of three
+//! genuine peers in one process, not part of the capability pattern.
+//!
+//! Run: `zig build examples` (it also runs under `zig build check`).
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -34,6 +41,87 @@ const driver = pancake.driver;
 const tcp = pancake.net.tcp;
 
 const frame_cap = 4096;
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    var resident = tcp.Resident{ .io = io };
+
+    // Bind all three hosts up front, sharing this thread's `io`, so every
+    // address is known before any task runs — no shared mailbox, no spin-wait.
+    // Each `Host` keeps one identity across every connection it makes, which is
+    // what lets a gift addressed to "the peer on this session" stay redeemable
+    // on the fresh dial that `redeem` opens.
+    var widget_host = try driver.Host.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
+    defer widget_host.deinit();
+    var widget_server = try widget_host.listen(resident.netlayer(), .{ .designator = "127.0.0.1:0" });
+    defer widget_server.close();
+    var widget_buf: [64]u8 = undefined;
+    const widget_designator = widget_server.localDesignator(&widget_buf);
+
+    var directory_host = try driver.Host.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
+    defer directory_host.deinit();
+    var directory_server = try directory_host.listen(resident.netlayer(), .{ .designator = "127.0.0.1:0" });
+    defer directory_server.close();
+    var directory_buf: [64]u8 = undefined;
+    const directory_designator = directory_server.localDesignator(&directory_buf);
+
+    var client_host = try driver.Host.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
+    defer client_host.deinit();
+
+    // The exporter and the gifter each get a thread; the client is `main`.
+    var shared = Shared{};
+    var widget_task = try io.concurrent(widgetService, .{ &widget_server, &shared });
+    var directory_task = try io.concurrent(directory, .{ &directory_server, widget_designator, &shared });
+    defer {
+        shared.done.store(true, .release);
+        _ = widget_task.await(io) catch {};
+        _ = directory_task.await(io) catch {};
+    }
+
+    // --- The lesson: the client knows only the directory ---
+
+    // Dial the directory and fetch its introducer. The client has never heard
+    // of the widget service — no address, no name, nothing.
+    const to_directory = try client_host.dial(tcp.at(directory_designator));
+    const introducer = try to_directory.fetch("introducer");
+
+    // Ask for an introduction. The answer is not a value and not a broken
+    // promise: it is the third outcome, a gift to redeem.
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    const settled = try to_directory.call(introducer, .{ .verb = "introduce", .args = &.{} }, arena.allocator());
+    const give = switch (settled) {
+        .give => |g| g,
+        .fulfilled, .broken => return error.ExpectedAnIntroduction,
+    };
+    std.debug.print("02: introduced to a capability hosted at {s}\n", .{give.exporter_locator_uri});
+
+    // Redeem it: the host dials the widget service, withdraws the gift under
+    // its own identity, and returns an ordinary reference.
+    const widget = try client_host.redeem(to_directory, give);
+
+    // Call it. The send routes to the widget service's connection by itself —
+    // the directory is no longer in the path.
+    switch (try to_directory.call(widget, .{ .verb = "poke", .args = &.{} }, arena.allocator())) {
+        .fulfilled => |arg| std.debug.print("02: {s}\n", .{arg.string}),
+        .broken => |reason| {
+            std.debug.print("02: poke broke: {s}\n", .{reason});
+            return error.PokeBroke;
+        },
+        .give => return error.ExpectedAValue,
+    }
+}
+
+// ── Scaffolding ─────────────────────────────────────────────────────────
+// Below `main` is the honest price of three genuine peers in one process,
+// not part of the capability pattern: the two published objects and the two
+// server tasks. Each host drives its own connections from its own thread,
+// and a single thread cannot both block in `accept` and service a live
+// connection, so each server task round-robins bounded `stepReadable` steps
+// and two atomic flags sequence the accepts.
 
 /// The service being introduced. It never learns about the directory's
 /// clients; whoever holds a reference can poke it, and nobody else can.
@@ -59,52 +147,27 @@ const Introducer = struct {
     }
 };
 
-/// One bound address, published by the task that owns the listener and read
-/// by the task that dials it.
-const Addr = struct {
-    buf: [64]u8 = undefined,
-    len: std.atomic.Value(usize) = .init(0),
-
-    fn publish(self: *Addr, designator: []const u8) void {
-        @memcpy(self.buf[0..designator.len], designator);
-        self.len.store(designator.len, .release);
-    }
-    fn wait(self: *Addr, io: std.Io) []const u8 {
-        while (true) {
-            const n = self.len.load(.acquire);
-            if (n != 0) return self.buf[0..n];
-            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
-        }
-    }
-};
-
+/// The scaffolding's two sequencing flags. `directory_ready` holds the widget
+/// on the directory connection until the directory has fetched the widget, so
+/// the widget does not block in the client's `accept` too early; `done` ends
+/// both round-robin loops once `main` has redeemed and made its direct call.
 const Shared = struct {
-    widget_addr: Addr = .{},
-    directory_addr: Addr = .{},
     directory_ready: std.atomic.Value(bool) = .init(false),
     done: std.atomic.Value(bool) = .init(false),
 };
 
-/// The widget service: publish the widget on each accepted connection and
-/// serve. It will accept two partners — the directory (which fetches the
-/// widget to hold it) and, later, the client the directory introduced (whose
-/// gift withdrawal and direct call both arrive here). Serving two connections
-/// from one thread is a round-robin of bounded steps; a withdrawal that beats
-/// its gift deposit simply parks until the deposit lands (ADR-0056).
-fn widgetService(allocator: std.mem.Allocator, shared: *Shared) anyerror!void {
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-    var resident = tcp.Resident{ .io = io };
-    var host = try driver.Host.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
-    defer host.deinit();
-    var server = try host.listen(resident.netlayer(), .{ .designator = "127.0.0.1:0" });
-    defer server.close();
-    var addr_buf: [64]u8 = undefined;
-    shared.widget_addr.publish(server.localDesignator(&addr_buf));
-
+/// The widget service (exporter): publish the widget on each accepted
+/// connection and serve. It accepts two partners — the directory (which
+/// fetches the widget to hold it) and, later, the client the directory
+/// introduced (whose gift withdrawal and direct call both arrive here).
+/// Serving two connections from one thread is a round-robin of bounded steps;
+/// a withdrawal that beats its gift deposit simply parks until the deposit
+/// lands (ADR-0056).
+fn widgetService(server: *driver.host.HostServer, shared: *Shared) anyerror!void {
     const to_directory = try server.accept();
     _ = try to_directory.publish("widget", Widget, .{});
+    // `stepReadable(n)` waits up to n ms for readable bytes, then services one
+    // bounded step — here, enough to answer the directory's fetch.
     while (!shared.directory_ready.load(.acquire)) {
         _ = try to_directory.stepReadable(10);
     }
@@ -116,81 +179,20 @@ fn widgetService(allocator: std.mem.Allocator, shared: *Shared) anyerror!void {
     }
 }
 
-/// The directory: fetch the widget (the host records where it lives), publish
-/// an introducer that returns it, and serve. Origination happens inside
-/// `stepReadable`'s serving, in the host's interceptor — there is no gifter
-/// verb to call.
-fn directory(allocator: std.mem.Allocator, shared: *Shared) anyerror!void {
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-    var resident = tcp.Resident{ .io = io };
-    var host = try driver.Host.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
-    defer host.deinit();
-
-    const to_widget = try host.dial(tcp.at(shared.widget_addr.wait(io)));
+/// The directory (gifter): dial the widget through this server's host — the
+/// same host that will accept the client, so one identity spans both
+/// connections — fetch the widget, publish an introducer that returns it, and
+/// serve. Origination happens inside `stepReadable`'s serving, in the host's
+/// interceptor; there is no gifter verb to call.
+fn directory(server: *driver.host.HostServer, widget_designator: []const u8, shared: *Shared) anyerror!void {
+    const to_widget = try server.host.dial(tcp.at(widget_designator));
     const widget = try to_widget.fetch("widget");
 
-    var server = try host.listen(resident.netlayer(), .{ .designator = "127.0.0.1:0" });
-    defer server.close();
-    var addr_buf: [64]u8 = undefined;
-    shared.directory_addr.publish(server.localDesignator(&addr_buf));
     shared.directory_ready.store(true, .release);
-
     const to_client = try server.accept();
     _ = try to_client.publish("introducer", Introducer, .{ .widget = widget });
     while (!shared.done.load(.acquire)) {
         _ = try to_client.stepReadable(5);
         _ = try to_widget.stepReadable(5);
-    }
-}
-
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-
-    var shared = Shared{};
-    var widget_task = try io.concurrent(widgetService, .{ allocator, &shared });
-    var directory_task = try io.concurrent(directory, .{ allocator, &shared });
-    defer {
-        shared.done.store(true, .release);
-        _ = widget_task.await(io) catch {};
-        _ = directory_task.await(io) catch {};
-    }
-
-    // The client knows only the directory. It has never heard of the widget
-    // service — no address, no name, nothing.
-    var resident = tcp.Resident{ .io = io };
-    var host = try driver.Host.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
-    defer host.deinit();
-    const to_directory = try host.dial(tcp.at(shared.directory_addr.wait(io)));
-    const introducer = try to_directory.fetch("introducer");
-
-    // Ask for an introduction. The answer is not a value and not a broken
-    // promise: it is the third outcome, a gift to redeem.
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const settled = try to_directory.call(introducer, .{ .verb = "introduce", .args = &.{} }, arena.allocator());
-    const give = switch (settled) {
-        .give => |g| g,
-        .fulfilled, .broken => return error.ExpectedAnIntroduction,
-    };
-    std.debug.print("02: introduced to a capability hosted at {s}\n", .{give.exporter_locator_uri});
-
-    // Redeem it: the host dials the widget service, withdraws the gift under
-    // its own identity, and returns an ordinary reference.
-    const widget = try host.redeem(to_directory, give);
-
-    // Call it. The send routes to the widget service's connection by itself —
-    // the directory is no longer in the path.
-    switch (try to_directory.call(widget, .{ .verb = "poke", .args = &.{} }, arena.allocator())) {
-        .fulfilled => |arg| std.debug.print("02: {s}\n", .{arg.string}),
-        .broken => |reason| {
-            std.debug.print("02: poke broke: {s}\n", .{reason});
-            return error.PokeBroke;
-        },
-        .give => return error.ExpectedAValue,
     }
 }

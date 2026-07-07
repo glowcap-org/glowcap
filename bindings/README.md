@@ -21,7 +21,7 @@ across the bindings:
 | `conn.fetch(name)`             | Fetch a partner's published capability by name; returns a `Ref`                                                                                                                                        |
 | `conn.enliven(sturdyref)`      | Bring a durable `ocapn://…/s/<swiss>` sturdyref to life on the open session; returns a `Ref`, with a dedup cache (ADR-0012)                                                                            |
 | `conn.spawn(behavior)`         | Create a local actor; returns a `Ref` that auto-marshals in args                                                                                                                                       |
-| `conn.caretaker(ref)`          | Wrap any `Ref` (local or far) in a revocable forwarding proxy; returns the proxy `Ref` plus a `revoke` lever — calls forward until revoked, then break `Revoked` (ADR-0064)                              |
+| `conn.caretaker(ref)`          | Wrap any `Ref` (local or far) in a revocable forwarding proxy; returns the proxy `Ref` plus a `revoke` lever: the proxy forwards until revoked, then breaks every call `Revoked` (ADR-0064)                              |
 | `conn.attenuate(ref, verbs)`   | Wrap any `Ref` in a proxy that forwards only the allow-listed `verbs` and breaks every other call `Attenuated` (ADR-0064)                                                                                |
 | `conn.send(ref, verb, args)`   | Call a method on a capability and await the reply                                                                                                                                                      |
 | `conn.tell(ref, verb, args)`   | Fire-and-forget send (Goblins `<-np`): no answer, no reply. Use it for notifications and broadcasts.                                                                                                   |
@@ -38,15 +38,11 @@ Each language renders the surface in its own idiom. Deno returns native
 returns `impl Future` from a `!Send` `Connection`; create and use it on one task
 inside a `LocalSet`. Racket keeps the Goblins verbs, including `spawn`, `$`,
 `<-`, `on`, `bcom`, and `methods`, and adds `connect`, `conn-fetch`, and
-`conn-send`. Native Zig speaks the same verbs through one owning
-`driver.Connection`: `driver.connect` dials and `driver.listen` hosts (each
-`accept` hands back a connection), `call` drives one request to its reply, and a
-hosted connection runs under `serve` or one explicit `step` at a time. The
-buffer-explicit spellings, `driver.connectTcp` and `driver.acceptTcp`, stay
-public for a caller that owns the peer and buffers at the call site. A selector
-a binding exposes follows the same discipline: profile and codec are spelled in
-each language's idiom (a string union, a symbol, an enum), and a selector
-parameter accepts every value the library supports, not a single hard-wired one.
+`conn-send`. Native Zig speaks the same verbs through one owning `driver.Connection`, spelled
+in [architecture](../docs/architecture.md). A selector a binding exposes follows
+the same discipline: profile and codec are spelled in each language's idiom (a
+string union, a symbol, an enum), and a selector parameter accepts every value
+the library supports, not a single hard-wired one.
 
 Every binding hosts as well as dials. Deno and Python yield a `Connection` per
 accepted partner from `listen`. Rust binds a `Server` whose `accept` returns
@@ -172,9 +168,9 @@ own archive and header, `libpancake_net_transport_tcp`
   `pancake_peer_next_event` is the one call a consumer's event loop needs: it
   drives the engine to idle (a settlement cascade surfaces in full, so there is
   no "step, then re-poll" rule to learn), then hands back the next event fully
-  projected — a deliver or resolve as structured values (a handoff give
-  included), and every other event kind — or a value the typed surface cannot
-  carry — as its originating wire frame, read in the codec `pancake_peer_codec`
+  projected. A deliver or resolve arrives as structured values, a handoff give
+  included; every other kind, and any value the typed surface cannot carry,
+  arrives as its originating wire frame, read in the codec `pancake_peer_codec`
   reports. The pump-then-poll rule and the typed-or-opaque routing live in the
   waist, so no binding re-derives either; the non-consuming
   `pancake_peer_peek_event` and the opaque, non-driving `pancake_peer_poll_event`
@@ -186,8 +182,9 @@ own archive and header, `libpancake_net_transport_tcp`
   drive OCapN directly instead of shuttling opaque frames.
 - **Per-thread last error.** `pancake_last_error` and `pancake_clear_last_error`
   (in `libpancake_ocapn`) expose the concrete cause behind a flat error code.
-  Each transport archive carries its own reader — `pancake_tcp_last_error` and
-  `pancake_inproc_last_error` — because the archives are symbol-disjoint, so a
+  Each transport archive carries its own reader — `pancake_tcp_last_error`,
+  `pancake_inproc_last_error`, and `pancake_iroh_last_error` — because the
+  archives are symbol-disjoint, so a
   TCP error is read through `pancake_tcp_last_error`, not the peer's reader.
 - **Blocking TCP endpoint handles (cleartext; no TLS).** Carried by
   `libpancake_net_transport_tcp` (`pancake_net_transport_tcp.h`), the endpoint
@@ -275,14 +272,15 @@ Three bindings declare struct layouts symbolically (ctypes, `define-cstruct`,
 `#[repr(C)]`); TypeScript's FFI has no struct types, so its mirror — constant
 values, struct sizes, and field offsets — is *generated* from the Zig source of
 truth (`bindings/ts/stack/internal/abi.ts`, `zig build gen-ts-abi`, held by
-`gen-ts-abi-check` inside `check`), never hand-derived. The internal modules —
-Rust's private `sys` (`sys/{ocapn,tcp,inproc,iroh}.rs`) and `abi_constants`, the
-JS binding's per-archive loaders and runtime FFI shim under
+`gen-ts-abi-check` inside `check`), never hand-derived. The internal modules sit
+where the C ABI's own split puts them: Rust's private `sys`
+(`sys/{ocapn,tcp,inproc,iroh}.rs`) and `abi_constants`, the JS binding's
+per-archive loaders and runtime FFI shim under
 [`ts/stack/internal/ffi/`](ts/stack/internal/ffi/), Python's `_`-private
 `_ffi_core`/`_ffi_tcp`/`_ffi_inproc`/`_ffi_iroh` modules inside the
-[`pancake`](python/pancake/) package, Racket's per-archive
+[`pancake`](python/pancake/) package, and Racket's per-archive
 [`racket/private/`](racket/private/) `ffi-*` modules over a shared
-`ffi-shared.rkt` that opens no library — so each public module reads as just the
+`ffi-shared.rkt` that opens no library. Each public module then reads as just the
 ergonomic API it offers.
 
 Each binding also exposes an async connection in its language-native idiom. It

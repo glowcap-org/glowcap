@@ -9,11 +9,10 @@ living-state surface, it should describe the repository as it is.
 ## How this is ordered
 
 The sections below are ordered by dependency, not priority, and most of the work
-they describe has already landed. The QUIC/iroh netlayer was the capstone: the
-highest-leverage piece, built to plug into a substrate that was already complete
-rather than to force that substrate into existence. So the substrate landed first
-and iroh landed on top of it, and the sections keep that order so a reader meets
-each layer before the one that rests on it.
+they describe has already landed. The QUIC/iroh netlayer was the capstone, built
+to plug into a substrate that was already complete rather than to force that
+substrate into existence, so the sections meet each layer before the one that
+rests on it.
 
 1. **Cross-cutting foundations** come first. They touch several layers at once
    (the data model, the protocol core, the handoff substrate), and both the
@@ -159,8 +158,8 @@ same `iroh-interop` gate:
   deterministically; the public-internet posture is the same path against n0
   relays and pkarr/DNS. Relays and hole-punching are sidecar-internal (iroh
   performs them); the posture is pancake's visible, opt-in choice.
-- **Key-as-designator identity, shipped.** One Ed25519 key per peer is now at
-  once the iroh node id, the OCapN locator designator, and the session signing
+- **Key-as-designator identity, shipped.** One Ed25519 key per peer is at once
+  the iroh node id, the OCapN locator designator, and the session signing
   key. `driver.connectVia` / `acceptVia` with a `.keyed` `Identity` sign the
   keyed handshake with the endpoint's own key, and `iroh-interop` verifies on
   both halves that the partner's session pubkey equals the node id equals the
@@ -170,7 +169,7 @@ same `iroh-interop` gate:
   rebinds from the same seed (same key, same node id at a fresh address), and
   reaches the same published cap through the locator recorded before the
   restart. Bootstrap-cap _contents_ stay process-lifetime (an app re-registers
-  on restart), but the durable _identity_ the sturdyref names is now stable.
+  on restart), but the durable _identity_ the sturdyref names is stable.
 
 What remains on the cluster is **scale and external blocks**, each named:
 

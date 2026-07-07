@@ -318,6 +318,8 @@ p, li {
 
 .prose figure img {
   display: block;
+  /* Full-width means a diagram's viewBox width sets its display scale: the
+     hand-drawn SVGs share a 760-unit canvas, and a narrower canvas magnifies. */
   width: 100%;
   height: auto;
   margin: 0 auto;
@@ -589,15 +591,7 @@ hr {
   }
 }
 
-/* ── Pizazz: lead paragraph, cards, the module stack ─────────────────────── */
-
-/* A larger opening line: the first paragraph after the hero on the landing. */
-.lead {
-  font-size: 1.2rem;
-  color: var(--ink-soft);
-  /* A one- or two-line opener: balance it rather than tune only the tail. */
-  text-wrap: balance;
-}
+/* ── Pizazz: cards and the module stack ──────────────────────────────────── */
 
 /* Route cards: a responsive grid a content page builds with a fenced block of
    links. Authored in SuperMD as an HTML block. */
@@ -676,6 +670,13 @@ hr {
   border-left-color: var(--accent);
 }
 
+/* The local actor layer: sync and sans-io like the core, but resting on it
+   rather than inside it, so it gets its own neutral band. */
+.layer.is-local {
+  background: color-mix(in srgb, var(--ink-soft) 7%, var(--paper-raised));
+  border-left-color: var(--ink-soft);
+}
+
 .layer small {
   display: block;
   color: var(--ink-soft);
@@ -703,6 +704,11 @@ hr {
 .tag-adapter {
   color: var(--accent-deep);
   background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.tag-local {
+  color: var(--ink);
+  background: color-mix(in srgb, var(--ink-soft) 18%, transparent);
 }
 
 /* ── Footer ──────────────────────────────────────────────────────────────── */
@@ -768,4 +774,65 @@ hr {
   #content {
     padding-top: 1rem;
   }
+}
+
+/* ── Code tabs ───────────────────────────────────────────────────────────────
+   A `code-tabs` block holds label/code pairs (authored as bold one-word
+   paragraphs before each fence). The script in the base template turns the
+   pairs into tabs; without JavaScript the pairs render as labeled, stacked
+   code blocks, which is the intended fallback. */
+.code-tabs .tab-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.3rem;
+  /* The bar sits directly on the panel below; the buttons themselves overlap
+     the panel's top border (see `margin-bottom` below), so the strip and the
+     code block read as one shape rather than two stacked boxes. */
+  position: relative;
+  z-index: 1;
+}
+
+.code-tabs .tab-bar button {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+  background: color-mix(in srgb, var(--ink) 5%, var(--code-bg));
+  border: 1px solid var(--rule);
+  border-radius: 8px 8px 0 0;
+  padding: 0.3rem 0.9rem;
+  cursor: pointer;
+  /* Drop onto the panel's 1px top border so the active tab can punch through
+     it and unselected tabs share the same baseline. */
+  margin-bottom: -1px;
+}
+
+.code-tabs .tab-bar button[aria-selected="true"] {
+  color: var(--teal-deep);
+  /* Same fill as the panel, with the seam erased where they meet, so the
+     selected tab opens straight into the code block. */
+  background: var(--code-bg);
+  border-bottom-color: var(--code-bg);
+}
+
+.code-tabs .tab-bar button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+/* Once the script has built a bar, every panel behind it drops its top margin
+   (`pre` keeps the browser default elsewhere) and squares its top corners so
+   the tabs sit flush on the panel; the bottom stays rounded. The no-JS
+   fallback has no bar, so its stacked blocks keep the normal `pre` shape. */
+.code-tabs .tab-bar ~ pre {
+  margin-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* The no-JS fallback labels. The script removes them when it builds the bar. */
+.code-tabs > p {
+  margin: 0.6rem 0 -0.6rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
 }

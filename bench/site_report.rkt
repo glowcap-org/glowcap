@@ -172,8 +172,8 @@
       (define by (- base bh))
       (define fill (if bar-colors (list-ref bar-colors i) (cadr s)))
       (p "<rect x=\"" (r1 bx) "\" y=\"" (r1 by) "\" width=\"" (r1 barw) "\" height=\"" (r1 bh) "\" fill=\"" fill "\" rx=\"2\"/>")
-      (p "<text x=\"" (r1 (+ bx (/ barw 2))) "\" y=\"" (r1 (- by 3)) "\" text-anchor=\"middle\" font-size=\"8\" fill=\"" INK "\">" (fmt v) "</text>"))
-    (p "<text x=\"" (r1 cx) "\" y=\"" (+ base 16) "\" text-anchor=\"middle\" font-size=\"10.5\" fill=\"" SOFT "\">" g "</text>"))
+      (p "<text x=\"" (r1 (+ bx (/ barw 2))) "\" y=\"" (r1 (- by 3)) "\" text-anchor=\"middle\" font-size=\"9.5\" fill=\"" INK "\">" (fmt v) "</text>"))
+    (p "<text x=\"" (r1 cx) "\" y=\"" (+ base 16) "\" text-anchor=\"middle\" font-size=\"11\" fill=\"" SOFT "\">" g "</text>"))
   (p "</svg>")
   (get-output-string o))
 

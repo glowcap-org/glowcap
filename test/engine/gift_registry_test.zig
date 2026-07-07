@@ -46,13 +46,12 @@ test "registry deposits a gift and accepts a matching withdrawal" {
     defer registry.deinit(allocator);
 
     try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
-    try std.testing.expect(registry.giftDeposited("gift-1"));
-    try std.testing.expect(!registry.giftWithdrawn("gift-1"));
+    try std.testing.expect(registry.giftLive("gift-1"));
 
     const receive = makeReceive("gift-1", "recipient-key", "session-a", 1);
     try registry.validateWithdraw(receive);
     try registry.applyWithdraw(allocator, default_limits, receive);
-    try std.testing.expect(registry.giftWithdrawn("gift-1"));
+    try std.testing.expect(!registry.giftLive("gift-1"));
 }
 
 test "the generic inbound path moves no gift-withdrawal authority" {
@@ -74,7 +73,7 @@ test "the generic inbound path moves no gift-withdrawal authority" {
     try exporter.session_state.recordRecv(.{
         .handoff = .{ .receive = makeReceive("gift-1", "recipient-key", "session-a", 1) },
     });
-    try std.testing.expect(!exporter.giftRegistry().giftWithdrawn("gift-1"));
+    try std.testing.expect(exporter.giftRegistry().giftLive("gift-1"));
 }
 
 test "registry rejects withdrawal of an unknown gift" {
@@ -98,7 +97,7 @@ test "registry rejects withdrawal with a mismatched recipient key" {
         session.Error.InvalidGift,
         registry.validateWithdraw(makeReceive("gift-1", "imposter-key", "session-a", 1)),
     );
-    try std.testing.expect(!registry.giftWithdrawn("gift-1"));
+    try std.testing.expect(registry.giftLive("gift-1"));
 }
 
 test "registry rejects a replayed or out-of-order handoff count" {
@@ -116,7 +115,7 @@ test "registry rejects a replayed or out-of-order handoff count" {
         session.Error.HandoffReplay,
         registry.validateWithdraw(makeReceive("gift-2", "recipient-key", "session-a", 1)),
     );
-    try std.testing.expect(!registry.giftWithdrawn("gift-2"));
+    try std.testing.expect(registry.giftLive("gift-2"));
 }
 
 test "a withdrawn gift cannot be withdrawn twice" {
@@ -130,8 +129,8 @@ test "a withdrawn gift cannot be withdrawn twice" {
     try registry.applyWithdraw(allocator, default_limits, first);
 
     // A fresh signed receive with a higher handoff count is not a replay, so
-    // the refusal here is the withdrawn flag itself: a gift is spent exactly
-    // once, even across an otherwise-valid second certificate.
+    // the refusal here is the consumed gift's row being gone: a gift is spent
+    // exactly once, even across an otherwise-valid second certificate.
     try std.testing.expectError(
         session.Error.InvalidGift,
         registry.validateWithdraw(makeReceive("gift-1", "recipient-key", "session-a", 2)),
@@ -152,8 +151,8 @@ test "a re-deposit of the same gift id replaces the prior row and frees it" {
     const second = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "second") } };
     try registry.depositOwned(allocator, default_limits, "gift-1", second, "gifter-key-b");
 
-    // The replacement also resets the withdrawn flag and the provenance: a
-    // withdraw now yields the second capability under the second gifter key.
+    // The replacement also swaps the provenance: a withdraw now yields the
+    // second capability under the second gifter key.
     try std.testing.expectEqualStrings("gifter-key-b", registry.giftGifterKey("gift-1").?);
     try std.testing.expectEqualStrings("second", registry.giftedCap("gift-1").?.broken.message);
 }
@@ -167,14 +166,14 @@ test "a re-deposit after withdrawal re-arms the gift" {
     const first = makeReceive("gift-1", "recipient-key", "session-a", 1);
     try registry.validateWithdraw(first);
     try registry.applyWithdraw(allocator, default_limits, first);
-    try std.testing.expect(registry.giftWithdrawn("gift-1"));
+    try std.testing.expect(!registry.giftLive("gift-1"));
 
     // Re-authorizing the same gift id replaces the consumed row. Replay stays
     // blocked by the monotonic handoff count, not by refusing the deposit: the
     // first certificate cannot be presented again, but a fresh higher-count
     // receive withdraws the re-armed gift.
     try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
-    try std.testing.expect(!registry.giftWithdrawn("gift-1"));
+    try std.testing.expect(registry.giftLive("gift-1"));
     try std.testing.expectError(
         session.Error.HandoffReplay,
         registry.validateWithdraw(makeReceive("gift-1", "recipient-key", "session-a", 1)),
@@ -182,7 +181,7 @@ test "a re-deposit after withdrawal re-arms the gift" {
     const fresh = makeReceive("gift-1", "recipient-key", "session-a", 2);
     try registry.validateWithdraw(fresh);
     try registry.applyWithdraw(allocator, default_limits, fresh);
-    try std.testing.expect(registry.giftWithdrawn("gift-1"));
+    try std.testing.expect(!registry.giftLive("gift-1"));
 }
 
 test "deposited gifts are bounded by max_deposited_gifts (ADR-0025)" {
@@ -196,8 +195,52 @@ test "deposited gifts are bounded by max_deposited_gifts (ADR-0025)" {
         session.Error.DepositedGiftCapExceeded,
         registry.deposit(allocator, limits, "gift-b", "recipient", ""),
     );
-    try std.testing.expect(registry.giftDeposited("gift-a"));
-    try std.testing.expect(!registry.giftDeposited("gift-b"));
+    try std.testing.expect(registry.giftLive("gift-a"));
+    try std.testing.expect(!registry.giftLive("gift-b"));
+}
+
+test "consumed gifts do not count toward max_deposited_gifts" {
+    const allocator = std.testing.allocator;
+    var registry: GiftRegistry = .{};
+    defer registry.deinit(allocator);
+    // A registry that has already served max_deposited_gifts *completed*
+    // handoffs must keep accepting new deposits: a spent gift no longer counts.
+    const limits: session.SessionLimits = .{ .max_deposited_gifts = 1 };
+
+    var buf: [8]u8 = undefined;
+    var i: u64 = 0;
+    while (i < 5) : (i += 1) {
+        const id = try std.fmt.bufPrint(&buf, "gift-{d}", .{i});
+        // Only one gift is ever live at a time, so a cap of 1 admits every
+        // deposit once its predecessor has been withdrawn.
+        try registry.deposit(allocator, limits, id, "recipient", "");
+        const receive = makeReceive(id, "recipient", "session-a", i + 1);
+        try registry.validateWithdraw(receive);
+        try registry.applyWithdraw(allocator, limits, receive);
+    }
+}
+
+test "re-arming a consumed gift still respects max_deposited_gifts" {
+    const allocator = std.testing.allocator;
+    var registry: GiftRegistry = .{};
+    defer registry.deinit(allocator);
+    // The live-gift cap must hold across re-arm: consuming a gift and re-depositing
+    // its id is a fresh row through the cap check, not a bypass that inflates the
+    // live count past the bound.
+    const limits: session.SessionLimits = .{ .max_deposited_gifts = 2 };
+
+    try registry.deposit(allocator, limits, "gift-a", "recipient", "");
+    try registry.deposit(allocator, limits, "gift-b", "recipient", "");
+    const withdraw_a = makeReceive("gift-a", "recipient", "session-a", 1);
+    try registry.validateWithdraw(withdraw_a);
+    try registry.applyWithdraw(allocator, limits, withdraw_a); // a consumed, one slot free
+    try registry.deposit(allocator, limits, "gift-c", "recipient", ""); // fills the free slot
+    // Re-depositing the consumed gift-a would push live gifts to three; the cap
+    // refuses it just as it refuses any third live deposit.
+    try std.testing.expectError(
+        session.Error.DepositedGiftCapExceeded,
+        registry.deposit(allocator, limits, "gift-a", "recipient", ""),
+    );
 }
 
 test "the registry mints monotonic emitted handoff counts per receiving session" {

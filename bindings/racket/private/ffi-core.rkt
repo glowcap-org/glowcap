@@ -99,7 +99,7 @@
 ;; in `src/c_abi/ocapn/node.zig`.
 (define-pancake pancake_node_new
   (_fun _pointer _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake pancake_node_free (_fun _pointer -> _void))
+(define-pancake pancake_node_release (_fun _pointer -> _void))
 (define-pancake pancake_node_register_conn
   (_fun _pointer (cid : (_ptr o _uint64)) (peer : (_ptr o _pointer))
         -> (r : _int32) -> (values r cid peer)))

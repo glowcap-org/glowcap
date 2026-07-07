@@ -459,7 +459,7 @@ extern "C" {
 		seed_len: usize,
 		out_node: *mut *mut PancakeNode,
 	) -> c_int;
-	pub fn pancake_node_free(node: *mut PancakeNode);
+	pub fn pancake_node_release(node: *mut PancakeNode);
 	// Register a fresh connection: write its conn_id and the node-owned
 	// negotiating peer (already bound to the shared registry and node identity).
 	// Do not release the peer — the node owns it.

@@ -1,20 +1,21 @@
 //! Live three-party handoff, with pancake as the recipient (Carol), driven
-//! through `driver.Node` (ADR-0066).
+//! through the native `driver.Host` tier (ADR-0068).
 //!
-//! pancake dials a Goblins introducer (Alice), enlivens it, and calls
-//! `(introducer 'get-greeter)` — the introduction. A three-party introduction
-//! hands the greeter over as a `desc:handoff-give` pointing at the exporter
-//! (Bob), so the recipient dials Bob directly and presents a
-//! `desc:handoff-receive`. The whole redeem is sequenced by the node's sans-io
-//! serve step: this driver feeds the give in (`node.acceptGive`), executes the
-//! actions that come back (`dial`, `flush`), reports the dial's outcome
-//! (`node.exporterDialed`), offers the exporter's resolves back
-//! (`node.claimResolve`), and receives the `settle` action carrying the
-//! routable token, which `node.routeReference` forwards to the exporter with
-//! the real reference swapped in. The node owns every decision — the retained
-//! recipient identity, the exporter cache, the pending withdraw, the signed
-//! receive, the enrollment — and this driver owns only sockets, which makes
-//! the serve step its own oracle against live Goblins.
+//! pancake dials a Goblins introducer (Alice) through one `Host`, enlivens the
+//! introducer, and calls `get-greeter`. A three-party introduction hands the
+//! greeter over as a `desc:handoff-give` naming the exporter (Bob), and the
+//! host surfaces that as the typed third call outcome: the call settles to a
+//! `.give` carrying the give's verbatim signed envelope and its dialable
+//! exporter locator. `Host.redeem` then dials Bob under the host's own
+//! identity, presents the signed `desc:handoff-receive`, withdraws the gift,
+//! and hands back the greeter as an ordinary routable reference. Calling that
+//! reference routes through the host to Bob's connection, and the greeter
+//! replies directly.
+//!
+//! The host owns every handoff decision: the retained recipient identity, the
+//! exporter connection, the pending withdraw, and the signed receive. This
+//! driver holds one `Host` and calls its verbs, which makes the live Goblins
+//! conversation the native tier's oracle.
 //!
 //! Needs `racket` + the `goblins` collection on PATH; runs as the sibling step
 //! `zig build goblins-handoff`, not in the hermetic gate.
@@ -28,7 +29,6 @@ const engine = pancake.ocapn.engine;
 const codec = pancake.ocapn.codec;
 const crypto = pancake.foundation.crypto;
 const tcp = pancake.net.tcp;
-const Node = pancake.driver.Node;
 
 const host = "127.0.0.1";
 /// Alice's and Bob's listening ports. `--port=N` (from

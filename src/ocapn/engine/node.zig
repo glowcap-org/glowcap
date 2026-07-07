@@ -39,6 +39,7 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("mod.zig");
+const session_mod = @import("session");
 
 const crypto = foundation.crypto;
 
@@ -55,11 +56,14 @@ const Route = struct {
     reference: model.Reference,
 };
 
-/// One registered connection: the node-owned peer plus liveness. The peer is
-/// heap-pinned so the embedder's live connection can borrow its stable address.
-const Conn = struct {
+/// One registered connection: the peer plus who frees it. `registerConn` mints
+/// a node-owned peer (`owned = true`, freed on removal and at `deinit`);
+/// `registerConnOver` adopts a peer the embedder pins and frees itself
+/// (`owned = false`, only unregistered here), which is how a peer-owning driver
+/// like the completion loop joins the node without surrendering its inline peer.
+const ConnSlot = struct {
     peer: *engine.Peer,
-    live: bool,
+    owned: bool,
 };
 
 pub const Node = struct {
@@ -74,7 +78,7 @@ pub const Node = struct {
     /// disjoint from real session import ids, so a redeemed token can never alias
     /// a partner's import. This is the cross-binding token model ADR-0066
     /// standardizes (retiring the per-binding `Ref.home` field).
-    pub const REDEEMED_TOKEN_BASE: u64 = 1 << 60;
+    pub const REDEEMED_TOKEN_BASE: u64 = session_mod.REDEEMED_TOKEN_BASE;
 
     allocator: std.mem.Allocator,
     /// The retained 32-byte node identity, reused for every connection this node
@@ -85,9 +89,12 @@ pub const Node = struct {
     /// node registers, so an exporter's deposit (on the gifter connection) and
     /// withdraw (on the recipient connection) resolve against the same table.
     gifts: engine.bootstrap.GiftRegistry = .{},
-    /// Registered connections, indexed by `conn_id`. A removed slot holds null so
-    /// ids stay stable and are never reused.
-    conns: std.ArrayListUnmanaged(?Conn) = .empty,
+    /// Registered connections, indexed by `conn_id`: the node-owned, heap-pinned
+    /// peer for each live connection, whose stable address the embedder's live
+    /// connection borrows. A removed slot holds null, so null is the entire
+    /// liveness marker; a `conn_id` is never reused, so an index stays stable
+    /// for the node's life.
+    conns: std.ArrayListUnmanaged(?ConnSlot) = .empty,
     /// token -> exporter route. A redeemed-handoff capability the application
     /// holds as a far ref `>= REDEEMED_TOKEN_BASE` resolves here.
     redeemed: std.AutoHashMapUnmanaged(u64, Route) = .empty,
@@ -137,9 +144,11 @@ pub const Node = struct {
     /// peer is gone.
     pub fn deinit(self: *Node) void {
         for (self.conns.items) |slot| {
-            if (slot) |conn| {
-                conn.peer.deinit();
-                self.allocator.destroy(conn.peer);
+            if (slot) |s| {
+                if (s.owned) {
+                    s.peer.deinit();
+                    self.allocator.destroy(s.peer);
+                }
             }
         }
         self.conns.deinit(self.allocator);
@@ -188,7 +197,22 @@ pub const Node = struct {
         new_peer.shared_gift_registry = &self.gifts;
 
         const id: ConnId = self.conns.items.len;
-        try self.conns.append(self.allocator, .{ .peer = new_peer, .live = true });
+        try self.conns.append(self.allocator, .{ .peer = new_peer, .owned = true });
+        return id;
+    }
+
+    /// Register a connection over a peer the embedder already owns and pins at a
+    /// stable address, joining it to the node's routing and shared gift registry
+    /// without the node taking ownership. `removeConn` and `deinit` unregister
+    /// the slot but never free `peer`; the embedder frees it. This is how a
+    /// peer-owning driver — the completion loop, whose fixed-slot `conns` hold
+    /// each peer inline — puts its connections under one node so a redeemed token
+    /// routes to them and a served reply can originate a gift. `peer` must
+    /// outlive its registration.
+    pub fn registerConnOver(self: *Node, adopted: *engine.Peer) !ConnId {
+        adopted.shared_gift_registry = &self.gifts;
+        const id: ConnId = self.conns.items.len;
+        try self.conns.append(self.allocator, .{ .peer = adopted, .owned = false });
         return id;
     }
 
@@ -196,10 +220,23 @@ pub const Node = struct {
     /// later route to a redeemed token whose exporter was this connection fails
     /// closed (the peer is gone), rather than forwarding onto a dead socket. The
     /// `conn_id` is never reused.
+    ///
+    /// The exporter cache, pending withdraws, and pending gifts naming this
+    /// connection are swept below. The `redeemed` routes are deliberately *not*:
+    /// a route's `conn_id` going dead is exactly what `routeReference` reads to
+    /// fail the token closed (its `connAt` returns null). Removing the row would
+    /// instead make the synthetic token fall through `route`'s "not a token I
+    /// hold" branch and get sent to a partner as an ordinary far — a meaningless
+    /// high id. The dead rows are reclaimed at `deinit`.
     pub fn removeConn(self: *Node, conn_id: ConnId) void {
-        const conn = self.connAt(conn_id) orelse return;
-        conn.peer.deinit();
-        self.allocator.destroy(conn.peer);
+        if (conn_id >= self.conns.items.len) return;
+        const slot = self.conns.items[conn_id] orelse return;
+        // Only a node-owned peer is freed here; an adopted (`registerConnOver`)
+        // peer is the embedder's to free, so the node only unregisters the slot.
+        if (slot.owned) {
+            slot.peer.deinit();
+            self.allocator.destroy(slot.peer);
+        }
         self.conns.items[conn_id] = null;
         if (self.exporter_locations.fetchRemove(conn_id)) |prev| self.allocator.free(prev.value);
 
@@ -260,13 +297,13 @@ pub const Node = struct {
     /// connection. The embedder pumps I/O through this peer; the node routes
     /// across them.
     pub fn peer(self: *Node, conn_id: ConnId) ?*engine.Peer {
-        const conn = self.connAt(conn_id) orelse return null;
-        return conn.peer;
+        return self.connAt(conn_id);
     }
 
-    fn connAt(self: *Node, conn_id: ConnId) ?Conn {
+    fn connAt(self: *Node, conn_id: ConnId) ?*engine.Peer {
         if (conn_id >= self.conns.items.len) return null;
-        return self.conns.items[conn_id];
+        const slot = self.conns.items[conn_id] orelse return null;
+        return slot.peer;
     }
 
     // ── Redeemed-token routing (the recipient half) ──────────────────────────
@@ -276,12 +313,14 @@ pub const Node = struct {
     /// far capability a partner handed back. A later `routeReference` of that
     /// reference forwards to `exporter_conn` with `reference` (the real
     /// exporter-side ref) swapped in. The node adopts a clone of `reference`; the
-    /// caller keeps its own.
+    /// caller keeps its own. The caller reserves one slot in `redeemed` first, so
+    /// the only fallible step here is the clone — which commits nothing on
+    /// failure. Without that, a plain `put` failing after the clone would leave a
+    /// half-committed row and a bumped token behind a returned error.
     fn enrollRedeemed(self: *Node, exporter_conn: ConnId, reference: model.Reference) !model.Reference {
         const owned = try model.cloneReference(self.allocator, reference);
-        errdefer model.freeReference(self.allocator, owned);
         const token = self.next_token;
-        try self.redeemed.put(self.allocator, token, .{ .conn_id = exporter_conn, .reference = owned });
+        self.redeemed.putAssumeCapacity(token, .{ .conn_id = exporter_conn, .reference = owned });
         self.next_token += 1;
         return .{ .far = model.FarRef.object(token) };
     }
@@ -377,21 +416,6 @@ pub const Node = struct {
     /// `desc:handoff-receive` against it.
     pub fn secretKey(self: *const Node) crypto.SecretKey {
         return crypto.SecretKey.fromSeed(self.seed);
-    }
-
-    /// Recipient half of a three-party handoff, issued on the dialed exporter
-    /// connection: sign a `desc:handoff-receive` over `give_bytes` keyed by the
-    /// node's retained identity, mint the monotonic handoff-count from the shared
-    /// registry (ADR-0056), and queue `withdraw-gift` to the exporter's bootstrap
-    /// under `answer`. This is the one definition of the recipient withdraw the
-    /// bindings and the native driver share, replacing the per-caller hand-rolled
-    /// receive. The embedder pumps `exporter_conn` to flush it and awaits the
-    /// resolution; on a fulfilled reference it calls `enrollRedeemed` so the cap
-    /// becomes routable. The exporter session must be open, its partner key
-    /// drives the receive's session name.
-    fn sendWithdraw(self: *Node, exporter_conn: ConnId, give_bytes: []const u8, answer: u64) !void {
-        const conn = self.connAt(exporter_conn) orelse return error.UnknownConnection;
-        try conn.peer.sendWithdrawGift(self.secretKey(), give_bytes, model.AnswerId.from(answer));
     }
 
     // ── The serve step: the sans-io redeem state machine ─────────────────────
@@ -577,17 +601,19 @@ pub const Node = struct {
     }
 
     /// Send one withdraw on a live exporter connection and record it pending.
-    /// `give` is borrowed. The tracking row and the flush action are reserved
-    /// before the withdraw is queued: once the withdraw is on the wire,
-    /// failing to track it would let its resolve surface to the application
-    /// as an answer it never asked.
+    /// `give` is borrowed. The `desc:handoff-receive` is signed by the node's
+    /// retained identity (`secretKey`), so the exporter verifies it against the
+    /// one key it saw across the introducer and the direct connection. The
+    /// tracking row and the flush action are reserved before the withdraw is
+    /// queued: once the withdraw is on the wire, failing to track it would let
+    /// its resolve surface to the application as an answer it never asked.
     fn beginWithdraw(self: *Node, exporter_conn: ConnId, recipient_conn: ConnId, answer: u64, give: []const u8) !void {
         const conn = self.connAt(exporter_conn) orelse
             return self.queueFail(recipient_conn, answer, "handoff redeem failed: exporter connection is gone");
         try self.pending_withdraws.ensureUnusedCapacity(self.allocator, 1);
         try self.actions.ensureUnusedCapacity(self.allocator, 1);
-        const withdraw_answer = conn.peer.allocateAnswer();
-        self.sendWithdraw(exporter_conn, give, withdraw_answer) catch |err| switch (err) {
+        const withdraw_answer = conn.allocateAnswer();
+        conn.sendWithdrawGift(self.secretKey(), give, model.AnswerId.from(withdraw_answer)) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => {
                 var buf: [128]u8 = undefined;
@@ -623,10 +649,14 @@ pub const Node = struct {
         } else {
             cached.value_ptr.* = exporter_conn;
         }
-        // Reserve for the whole batch so an allocation failure cannot orphan
-        // the tail waiters after the head's withdraws are already queued.
-        try self.pending_withdraws.ensureUnusedCapacity(self.allocator, @intCast(entry.waiters.items.len));
-        try self.actions.ensureUnusedCapacity(self.allocator, entry.waiters.items.len);
+        // Each `beginWithdraw` self-reserves its own node-table rows, so the
+        // node tables never fail a waiter mid-batch. The one fallible step it
+        // cannot reserve away is the peer-side `sendWithdrawGift` allocation: a
+        // mid-batch OOM there returns the error with the head waiters' withdraws
+        // already on the wire and the tail waiters dropped (their answers hang,
+        // to be broken by the recipient's own disconnect handling). The defer
+        // frees every waiter's give on every path, so this is best-effort, not
+        // leaky — the same posture `removeConn` documents.
         for (entry.waiters.items) |waiter| {
             try self.beginWithdraw(exporter_conn, waiter.recipient_conn, waiter.answer, waiter.give);
         }
@@ -671,8 +701,14 @@ pub const Node = struct {
         const pending = self.pending_withdraws.get(key) orelse return false;
         switch (outcome) {
             .far => |far_id| {
+                // Reserve both tables before the enroll clones, so the enroll
+                // (row install + token bump) and the settle queue are one
+                // all-or-nothing step: an OOM can only fire before anything
+                // commits, and the retriable withdraw never strands a token.
+                try self.redeemed.ensureUnusedCapacity(self.allocator, 1);
+                try self.actions.ensureUnusedCapacity(self.allocator, 1);
                 const token = try self.enrollRedeemed(conn_id, .{ .far = model.FarRef.object(far_id) });
-                try self.queueAction(.{ .settle = .{
+                self.actions.appendAssumeCapacity(.{ .settle = .{
                     .conn_id = pending.recipient_conn,
                     .answer = pending.answer,
                     .token = token.far.import_position.int(),
@@ -722,14 +758,20 @@ pub const Node = struct {
         const reference: model.Reference = .{ .far = model.FarRef.object(far_id) };
         const home = self.foreignHome(reference) orelse return false;
         if (home == conn_id) return false;
+        // Reserve the ticket table and the action queue before either commits,
+        // so the row install and the `need_gift_id` queue are one all-or-nothing
+        // step: an OOM fires before anything commits and never orphans a ticket
+        // whose action the embedder never sees.
+        try self.pending_gifts.ensureUnusedCapacity(self.allocator, 1);
+        try self.actions.ensureUnusedCapacity(self.allocator, 1);
         const ticket = self.next_pending;
-        try self.pending_gifts.put(self.allocator, ticket, .{
+        self.pending_gifts.putAssumeCapacity(ticket, .{
             .recipient_conn = conn_id,
             .answer = answer,
             .far_id = far_id,
         });
         self.next_pending += 1;
-        try self.queueAction(.{ .need_gift_id = .{ .ticket = ticket } });
+        self.actions.appendAssumeCapacity(.{ .need_gift_id = .{ .ticket = ticket } });
         return true;
     }
 
@@ -765,7 +807,7 @@ pub const Node = struct {
     }
 
     /// Gifter half of a three-party handoff (ADR-0009), the mirror of
-    /// `sendWithdraw`: queue a `deposit-gift` of `gifted` on the exporter
+    /// `beginWithdraw`: queue a `deposit-gift` of `gifted` on the exporter
     /// connection, build a `desc:handoff-give` signed by the node identity and
     /// addressed to the recipient connection's partner, and queue it as the
     /// fulfillment of `answer` on the recipient connection. This is the one
@@ -792,10 +834,8 @@ pub const Node = struct {
         answer: u64,
         exporter_location: []const u8,
     ) !void {
-        const recipient = self.connAt(recipient_conn) orelse return error.UnknownConnection;
-        const exporter = self.connAt(exporter_conn) orelse return error.UnknownConnection;
-        const rp = recipient.peer;
-        const ep = exporter.peer;
+        const rp = self.connAt(recipient_conn) orelse return error.UnknownConnection;
+        const ep = self.connAt(exporter_conn) orelse return error.UnknownConnection;
 
         const recipient_key = rp.session_state.partnerSessionKey() orelse return error.NoRecipientKey;
         const exporter_key = ep.session_state.partnerSessionKey() orelse return error.NoExporterKey;

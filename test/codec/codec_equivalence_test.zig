@@ -107,6 +107,23 @@ test "deliver arms are codec-equivalent across every target and argument kind" {
     } });
 }
 
+test "a sturdyref argument is codec-equivalent (the sturdy dialect boundary is the target, not the payload)" {
+    // A sturdyref in *argument* position is a passable OCapN value both codecs
+    // carry: Cap'n Proto encodes it inline, and Syrup renders it as
+    // `<ocapn-sturdyref <ocapn-peer …> swissnum>`, the exact record the decoder
+    // reads back. Only a sturdy *deliver target* is codec-dialect-specific.
+    try expectCodecEquivalent(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(4) },
+        .args = &.{
+            .{ .reference = .{ .sturdy = .{
+                .peer = .{ .transport = "tcp", .designator = "host:9000" },
+                .swissnum = &.{ 0xde, 0xad, 0xbe, 0xef },
+            } } },
+        },
+        .answer = .from(7),
+    } });
+}
+
 test "resolve / gc / abort / listen / get / index arms are codec-equivalent" {
     try expectCodecEquivalent(.{ .resolve = .{ .answer = .from(42), .resolution = .{ .fulfill = .{ .integer = -7 } } } });
     try expectCodecEquivalent(.{ .resolve = .{

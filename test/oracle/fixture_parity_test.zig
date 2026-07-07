@@ -68,7 +68,7 @@ test "oracle-check exercises a three-peer handoff give and withdrawal" {
     defer exporter.deinit();
 
     try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, handoff_fixtures.give(), "");
-    try std.testing.expect(exporter.giftRegistry().giftDeposited(handoff_fixtures.gift_id[0..]));
+    try std.testing.expect(exporter.giftRegistry().giftLive(handoff_fixtures.gift_id[0..]));
 
     {
         var event = recipient_from_gifter.pollEvent().?;
@@ -82,7 +82,7 @@ test "oracle-check exercises a three-peer handoff give and withdrawal" {
         handoff_fixtures.receive(),
         cross_peer.acceptingVerifier(),
     );
-    try std.testing.expect(exporter.giftRegistry().giftWithdrawn(handoff_fixtures.gift_id[0..]));
+    try std.testing.expect(!exporter.giftRegistry().giftLive(handoff_fixtures.gift_id[0..]));
 
     {
         var event = exporter.pollEvent().?;

@@ -29,8 +29,6 @@
 //! [`Connection`] over native sockets and links no transport archive of its own,
 //! so it composes freely with whichever transport archives are enabled.
 
-#![allow(clippy::missing_safety_doc)]
-
 mod abi_constants;
 
 #[cfg(feature = "async")]
@@ -121,9 +119,57 @@ pub struct AbortInfo {
 	pub error_name: String,
 }
 
+/// The failure family behind an [`Error`], the matchable form of its
+/// [`code`](Error::code). Each variant names one `PANCAKE_ERR_*` family the C
+/// ABI returns, so a caller distinguishes a partner break from a transport fault
+/// or a malformed frame without comparing against raw negative integers.
+///
+/// It is `#[non_exhaustive]` because the ABI may name a new family later; match
+/// with a `_` (or [`Other`](ErrorKind::Other)) arm. [`Other`](ErrorKind::Other)
+/// also carries any code with no named family (for example an internally-handled
+/// would-block that surfaced as an error).
+#[non_exhaustive]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ErrorKind {
+	/// A required pointer argument was null (`PANCAKE_ERR_NULL_POINTER`).
+	NullPointer,
+	/// An argument was out of range or otherwise invalid (`PANCAKE_ERR_INVALID_ARGUMENT`).
+	InvalidArgument,
+	/// The session refused the frame on authority or table grounds (`PANCAKE_ERR_SESSION`).
+	Session,
+	/// The codec could not parse or render the frame (`PANCAKE_ERR_CODEC`).
+	Codec,
+	/// An internal invariant failed (`PANCAKE_ERR_INTERNAL`).
+	Internal,
+	/// The session or connection is closed (`PANCAKE_ERR_CLOSED`); on a blocking
+	/// transport read this is a clean EOF.
+	Closed,
+	/// A transport I/O operation failed (`PANCAKE_ERR_IO`); the underlying
+	/// `std::io::Error` message rides [`Error::message`].
+	Io,
+	/// The frame was malformed (`PANCAKE_ERR_MALFORMED`).
+	Malformed,
+	/// The frame declared or reached past the peer's `max_frame_bytes` cap
+	/// (`PANCAKE_ERR_FRAME_TOO_LARGE`).
+	FrameTooLarge,
+	/// A value the passable tree cannot carry (`PANCAKE_ERR_UNSUPPORTED_VALUE`),
+	/// e.g. a handoff, sturdy, or broken target where an immediate value is
+	/// required.
+	UnsupportedValue,
+	/// The partner broke a `send`/`fetch` (`PANCAKE_ERR_BROKEN`); the break
+	/// reason rides [`Error::message`].
+	Broken,
+	/// A named lookup found nothing (`PANCAKE_ERR_NOT_FOUND`).
+	NotFound,
+	/// Any other code with no named family (unknown or retired). The raw
+	/// [`code`](Error::code) is preserved.
+	Other(i32),
+}
+
 /// A failed pancake call. It always carries the negative `PANCAKE_ERR_*` code;
-/// when a `send` was broken by the partner it also carries the break reason, so
-/// the reason a partner gave for refusing a call is not lost behind a code.
+/// match its family with [`kind`](Error::kind) rather than the raw integer. When
+/// a `send` was broken by the partner it also carries the break reason, so the
+/// reason a partner gave for refusing a call is not lost behind a code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Error {
 	code: i32,
@@ -137,12 +183,35 @@ impl Error {
 		self.code
 	}
 
+	/// The matchable failure family behind [`code`](Error::code). Prefer this to
+	/// comparing the raw integer: `err.kind() == ErrorKind::Broken` reads a
+	/// partner break, `ErrorKind::FrameTooLarge` a refused oversize frame,
+	/// `ErrorKind::Io` a transport fault.
+	pub fn kind(&self) -> ErrorKind {
+		match self.code {
+			sys::ERR_NULL_POINTER => ErrorKind::NullPointer,
+			sys::ERR_INVALID_ARGUMENT => ErrorKind::InvalidArgument,
+			sys::ERR_SESSION => ErrorKind::Session,
+			sys::ERR_CODEC => ErrorKind::Codec,
+			sys::ERR_INTERNAL => ErrorKind::Internal,
+			sys::ERR_CLOSED => ErrorKind::Closed,
+			sys::ERR_IO => ErrorKind::Io,
+			sys::ERR_MALFORMED => ErrorKind::Malformed,
+			sys::ERR_FRAME_TOO_LARGE => ErrorKind::FrameTooLarge,
+			sys::ERR_UNSUPPORTED_VALUE => ErrorKind::UnsupportedValue,
+			sys::ERR_BROKEN => ErrorKind::Broken,
+			sys::ERR_NOT_FOUND => ErrorKind::NotFound,
+			other => ErrorKind::Other(other),
+		}
+	}
+
 	/// The diagnostic message for this failure. For a broken `send` it is the
 	/// partner's break reason; otherwise it is the calling thread's C ABI message
 	/// captured at the moment the failure was raised, so a later fallible call on
-	/// the same thread cannot overwrite it. `None` when neither was set.
-	pub fn message(&self) -> Option<String> {
-		self.detail.clone()
+	/// the same thread cannot overwrite it. `None` when neither was set. Borrowed
+	/// from the error; clone it if you need it to outlive the `Error`.
+	pub fn message(&self) -> Option<&str> {
+		self.detail.as_deref()
 	}
 
 	/// The typed abort cause the peer recorded when this failure refused an
@@ -190,7 +259,8 @@ impl Error {
 	/// A broken promise carrying the partner's reason: a `send`/`fetch` the
 	/// remote side refused, distinct from a fault in this peer or the transport.
 	/// Carries `PANCAKE_ERR_BROKEN` so a caller can tell a refusal apart from a
-	/// real failure by `code()`, with the reason on `detail`.
+	/// real failure by [`kind`](Error::kind) (`ErrorKind::Broken`), with the
+	/// reason on `detail`.
 	#[cfg(feature = "async")]
 	fn broken(message: String) -> Error {
 		Error {
@@ -724,10 +794,22 @@ unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Argument {
 }
 
 unsafe fn bytes_from_sys(c: &sys::PancakeArgument) -> Vec<u8> {
-	if c.bytes.is_null() || c.bytes_len == 0 {
+	owned_from_view(c.bytes, c.bytes_len)
+}
+
+/// Copy a borrowed C byte view (`ptr`, `len`) into an owned `Vec`, guarding the
+/// null/empty case: `core::slice::from_raw_parts` requires a non-null pointer
+/// even for `len == 0`, so a null `bytes` on a successful dequeue becomes an
+/// empty `Vec` here rather than instant UB.
+///
+/// # Safety
+/// When `ptr` is non-null and `len > 0`, it must point to `len` initialized,
+/// readable bytes valid for the duration of the call.
+pub(crate) unsafe fn owned_from_view(ptr: *const u8, len: usize) -> Vec<u8> {
+	if ptr.is_null() || len == 0 {
 		Vec::new()
 	} else {
-		core::slice::from_raw_parts(c.bytes, c.bytes_len).to_vec()
+		core::slice::from_raw_parts(ptr, len).to_vec()
 	}
 }
 
@@ -771,7 +853,7 @@ pub struct Peer<'ctx> {
 	// Whether this wrapper owns the peer and must release it on drop. A peer
 	// created here (`new`, `negotiated`, …) is owned; a peer borrowed from a
 	// `Node` (ADR-0066, via [`Peer::from_node_raw`]) is not, the node allocated
-	// it and frees it on `pancake_node_remove_conn`/`pancake_node_free`, so this
+	// it and frees it on `pancake_node_remove_conn`/`pancake_node_release`, so this
 	// wrapper must leave it alone.
 	owned: bool,
 	_ctx: PhantomData<&'ctx Context>,
@@ -880,7 +962,7 @@ impl<'ctx> Peer<'ctx> {
 	/// Wrap a peer the [`Node`](crate::sys::PancakeNode)-backed router owns
 	/// (ADR-0066) for pumping, without taking ownership: the node allocated the
 	/// peer (already bound to its shared gift registry and identity) and frees it
-	/// on `pancake_node_remove_conn` / `pancake_node_free`, so this wrapper never
+	/// on `pancake_node_remove_conn` / `pancake_node_release`, so this wrapper never
 	/// releases it.
 	///
 	/// # Safety
@@ -1222,7 +1304,7 @@ impl<'ctx> Peer<'ctx> {
 			return Ok(None);
 		}
 		check(rc)?;
-		let out = unsafe { core::slice::from_raw_parts(frame.bytes, frame.len) }.to_vec();
+		let out = unsafe { owned_from_view(frame.bytes, frame.len) };
 		unsafe { sys::pancake_managed_frame_release(&mut frame) };
 		Ok(Some(out))
 	}
@@ -1261,22 +1343,16 @@ impl<'ctx> Peer<'ctx> {
 				let resolution = if r.resolution_kind == sys::RESOLUTION_FULFILL {
 					Resolution::Fulfill(unsafe { arg_from_sys(&r.fulfill) })
 				} else if r.resolution_kind == sys::RESOLUTION_HANDOFF {
-					let view = |ptr: *const u8, len: usize| -> Vec<u8> {
-						if ptr.is_null() || len == 0 {
-							Vec::new()
-						} else {
-							unsafe { core::slice::from_raw_parts(ptr, len) }.to_vec()
-						}
-					};
 					let h = &r.handoff;
 					Resolution::Handoff(HandoffGive {
-						give: view(h.give, h.give_len),
-						exporter_locator: String::from_utf8_lossy(&view(
-							h.exporter_locator,
-							h.exporter_locator_len,
-						))
+						give: unsafe { owned_from_view(h.give, h.give_len) },
+						exporter_locator: String::from_utf8_lossy(&unsafe {
+							owned_from_view(h.exporter_locator, h.exporter_locator_len)
+						})
 						.into_owned(),
-						recipient_key: view(h.recipient_key, h.recipient_key_len),
+						recipient_key: unsafe {
+							owned_from_view(h.recipient_key, h.recipient_key_len)
+						},
 					})
 				} else {
 					let msg = if r.break_message.is_null() {
@@ -1294,17 +1370,10 @@ impl<'ctx> Peer<'ctx> {
 					resolution,
 				}
 			}
-			_ => {
-				let frame = if ev.frame.bytes.is_null() {
-					Vec::new()
-				} else {
-					unsafe { core::slice::from_raw_parts(ev.frame.bytes, ev.frame.len) }.to_vec()
-				};
-				Event::Other {
-					kind: ev.kind,
-					frame,
-				}
-			}
+			_ => Event::Other {
+				kind: ev.kind,
+				frame: unsafe { owned_from_view(ev.frame.bytes, ev.frame.len) },
+			},
 		};
 		unsafe { sys::pancake_any_event_release(&mut ev) };
 		Ok(Some(event))
@@ -1382,7 +1451,30 @@ mod tests {
 		let err = peer
 			.recv_stream(b"<10'op:deliver<11'desc:export7+>[2000000:")
 			.unwrap_err();
+		// The matchable family, not a hand-copied magic negative.
+		assert_eq!(err.kind(), ErrorKind::FrameTooLarge);
 		assert_eq!(err.code(), sys::ERR_FRAME_TOO_LARGE);
+	}
+
+	// The public `ErrorKind` maps each known `PANCAKE_ERR_*` family, and an
+	// unknown or retired code falls through to `Other` with the raw value, so the
+	// enum cannot silently diverge from a code a consumer still sees.
+	#[test]
+	fn error_kind_names_the_families() {
+		assert_eq!(Error::from_code(sys::ERR_BROKEN).kind(), ErrorKind::Broken);
+		assert_eq!(Error::from_code(sys::ERR_IO).kind(), ErrorKind::Io);
+		assert_eq!(Error::from_code(sys::ERR_CLOSED).kind(), ErrorKind::Closed);
+		assert_eq!(
+			Error::from_code(sys::ERR_UNSUPPORTED_VALUE).kind(),
+			ErrorKind::UnsupportedValue
+		);
+		// A code outside every known family falls through to Other, carrying the
+		// raw value so a consumer can still read it.
+		let unrecognized = -999;
+		assert_eq!(
+			Error::from_code(unrecognized).kind(),
+			ErrorKind::Other(unrecognized)
+		);
 	}
 
 	// A refused frame is diagnosable beyond the flat family code: the typed

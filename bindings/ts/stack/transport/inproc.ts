@@ -87,10 +87,12 @@ export class Endpoint {
 		const mf = new Uint8Array(MANAGED_FRAME_SIZE);
 		checkInproc(inprocS.pancake_inproc_conn_read_frame(this.#raw, mf));
 		const dv = new DataView(mf.buffer);
+		// `readBytes` already returns JS-owned storage (the seam copies out of
+		// native memory), so it outlives the frame we release next — no extra copy.
 		const out = readBytes(
 			dv.getBigUint64(MANAGED_FRAME_BYTES_OFF, true),
 			dv.getBigUint64(MANAGED_FRAME_LEN_OFF, true),
-		).slice();
+		);
 		releaseManagedFrame(mf);
 		return out;
 	}

@@ -44,21 +44,26 @@ use crate::{
 pub struct Ref {
 	reference: Reference,
 	// Distributed-GC death rite (ADR-0063), present only on a far reference the
-	// connection lifted from the wire while GC was opted in. `Arc` so clones of
+	// connection lifted from the wire while GC was opted in. `Rc` so clones of
 	// this `Ref` share the one wire-count unit; the last clone's drop fires the
-	// guard, which enqueues the single `op:gc-exports` delta. `None` for near
+	// guard, which enqueues the single `op:gc-exports` delta. It is `Rc`, not
+	// `Arc`, because the whole handle graph is `!Send` and pinned to the
+	// connection's `LocalSet` thread (see `ImportGuard`). `None` for near
 	// references, refs minted with GC off, and the context-free `try_from` lift.
 	//
 	// Held only for its `Drop`: the release fires when the last clone falls, so
 	// the field is never read by name.
 	#[allow(dead_code)]
-	guard: Option<std::sync::Arc<ImportGuard>>,
+	guard: Option<Rc<ImportGuard>>,
 }
 
-// Drops to one `op:gc-exports` delta of 1 for `position` (ADR-0063). The sender
-// is a clone of the connection's command channel, so the release rides the same
-// queue the serve loop already drains, and `Drop` running on any thread is safe
-// because the channel sender is `Send`.
+// Drops to one `op:gc-exports` delta of 1 for `position` (ADR-0063). The whole
+// handle graph is `!Send` — `Cmd` carries a non-`Send` `Behavior`, so `Cmd`, the
+// `UnboundedSender<Cmd>`, `ImportGuard`, and `Ref` are all `!Send` — and pinned
+// to the connection's current-thread `LocalSet`, so this `Drop` runs on that
+// thread. The release only enqueues a `GcDrop` the serve loop later applies with
+// peer access; the drop itself touches no peer state, and rides the same queue
+// the serve loop already drains.
 #[derive(Debug)]
 struct ImportGuard {
 	position: u64,
@@ -193,7 +198,7 @@ impl Drop for NodeRaw {
 		// own, and the shared gift registry. Safe: every driver task that pumped
 		// a node-owned peer holds a `Node` clone (hence this `Rc`), so this
 		// drop — the last clone falling — runs only after they have all ended.
-		unsafe { sys::pancake_node_free(self.raw) };
+		unsafe { sys::pancake_node_release(self.raw) };
 	}
 }
 
@@ -573,10 +578,7 @@ impl Node {
 		self.draining.set(true);
 		let node = self.clone();
 		tokio::task::spawn_local(async move {
-			loop {
-				let Some(action) = node.next_action() else {
-					break;
-				};
+			while let Some(action) = node.next_action() {
 				node.run_action(action).await;
 			}
 			node.draining.set(false);
@@ -740,8 +742,9 @@ enum Cmd {
 	},
 	// A wire-lifted far import's last `Ref` was dropped (ADR-0063): release one
 	// wire-count unit to the partner so it can release the matching export. Sent
-	// by an `ImportGuard::drop`, which may run on any thread — the channel sender
-	// is `Send`, and the serve loop applies the release with peer access.
+	// by `ImportGuard::drop`, which runs on the connection's `LocalSet` thread
+	// (the handle graph is `!Send`); the serve loop applies the release with peer
+	// access.
 	GcDrop {
 		position: u64,
 	},
@@ -829,7 +832,7 @@ pub struct RemotePromise {
 	ticket: u64,
 	reply: oneshot::Receiver<Result<Argument>>,
 	// A handle back to the driver, so this promise can issue a projection
-	// (`op:get` / `op:index` / `op:untag`) against its own still-pending answer
+	// (`op:index` / `op:untag`) against its own still-pending answer
 	// and a fresh ticket from the same per-connection sequence.
 	cmd_tx: mpsc::UnboundedSender<Cmd>,
 	next_ticket: Rc<Cell<u64>>,
@@ -879,7 +882,7 @@ impl RemotePromise {
 }
 
 // Which projection a `RemotePromise` issues against its answer; the driver maps
-// it to the matching `op:get` / `op:index` / `op:untag` send.
+// it to the matching `op:index` / `op:untag` send.
 enum ProjectOp {
 	Index(i64),
 	Untag(String),
@@ -964,9 +967,7 @@ impl Connection {
 	/// is recognized as foreign and re-gifted rather than mis-encoded. Must be
 	/// called inside a `LocalSet`.
 	pub async fn connect_with_node<A: ToSocketAddrs>(addr: A, node: Node) -> Result<Connection> {
-		let stream = TcpStream::connect(addr)
-			.await
-			.map_err(|_| Error::from_code(sys::ERR_IO))?;
+		let stream = TcpStream::connect(addr).await.map_err(wire::io_err)?;
 		let designator = stream
 			.local_addr()
 			.map(|a| a.to_string())
@@ -1091,7 +1092,7 @@ impl Connection {
 		match reference {
 			Reference::Far { id, .. } if id != 0 && id < REDEEMED_TOKEN_BASE => Ref {
 				reference,
-				guard: Some(std::sync::Arc::new(ImportGuard {
+				guard: Some(Rc::new(ImportGuard {
 					position: id,
 					cmd_tx: self.cmd_tx.clone(),
 				})),
@@ -1129,7 +1130,7 @@ impl Connection {
 				})?;
 				let stream = TcpStream::connect((host.as_str(), port))
 					.await
-					.map_err(|_| Error::from_code(sys::ERR_IO))?;
+					.map_err(wire::io_err)?;
 				let designator = stream
 					.local_addr()
 					.map(|a| a.to_string())
@@ -1459,11 +1460,7 @@ impl Server {
 	/// is registered as a bootstrap cap before a dialer's pipelined fetch is
 	/// answered. Must be called inside a `LocalSet` (the peer is `!Send`).
 	pub async fn accept(&self) -> Result<Connection> {
-		let (stream, _) = self
-			.listener
-			.accept()
-			.await
-			.map_err(|_| Error::from_code(sys::ERR_IO))?;
+		let (stream, _) = self.listener.accept().await.map_err(wire::io_err)?;
 		let designator = stream
 			.local_addr()
 			.map(|a| a.to_string())
@@ -1478,9 +1475,7 @@ impl Server {
 
 	/// The bound local address, read the port off it when you bound port 0.
 	pub fn local_addr(&self) -> Result<std::net::SocketAddr> {
-		self.listener
-			.local_addr()
-			.map_err(|_| Error::from_code(sys::ERR_IO))
+		self.listener.local_addr().map_err(wire::io_err)
 	}
 
 	/// This server's node [`Node`], one retained identity and gift registry
@@ -1498,9 +1493,7 @@ impl Server {
 /// on, the host-side counterpart of [`connect`]. The server is one node with a
 /// fresh retained identity shared across every accepted connection.
 pub async fn listen<A: ToSocketAddrs>(addr: A) -> Result<Server> {
-	let listener = TcpListener::bind(addr)
-		.await
-		.map_err(|_| Error::from_code(sys::ERR_IO))?;
+	let listener = TcpListener::bind(addr).await.map_err(wire::io_err)?;
 	Ok(Server {
 		listener,
 		node: Node::new_node(),
@@ -1825,38 +1818,31 @@ where
 	// resolve, drained projection, fired listener, queued deliver — surfaces
 	// in full), so this loop is the obvious one: serve events until there are
 	// none, then flush the queued frames before parking on the next read.
-	loop {
-		match vat.peer().expect("a peer-bound vat").poll()? {
-			Some(event) => {
-				if let Event::Resolve { answer, resolution } = &event {
-					// A pending withdraw's resolution belongs to the core's serve
-					// step, and only a node-dialed exporter connection can carry
-					// one — an ordinary connection never pays this call.
-					if node.is_node_dialed(conn_id)
-						&& node.claim_resolve(conn_id, *answer, resolution)
-					{
-						node.kick_actions();
-						continue;
-					}
-					// A give arriving as a resolution is the serve step's to
-					// redeem, never the vat's: feed it and let the executor
-					// perform the dial, withdraw, and settle (ADR-0067).
-					if let Resolution::Handoff(give) = resolution {
-						node.accept_give(conn_id, *answer, give);
-						node.kick_actions();
-						continue;
-					}
-				}
-				vat.serve(&event).ok();
-				// A forwarding actor that sent on to a far target parks the caller's
-				// answer until that send settles; drain those resolves now so the
-				// next flush sends them (a wire answer) or settles them (a local
-				// send awaiting a far-proxy reply) (ADR-0064).
-				vat.flush_forward_resolves()?;
-				vat.flush_forward_local_resolves();
+	while let Some(event) = vat.peer().expect("a peer-bound vat").poll()? {
+		if let Event::Resolve { answer, resolution } = &event {
+			// A pending withdraw's resolution belongs to the core's serve
+			// step, and only a node-dialed exporter connection can carry
+			// one — an ordinary connection never pays this call.
+			if node.is_node_dialed(conn_id) && node.claim_resolve(conn_id, *answer, resolution) {
+				node.kick_actions();
+				continue;
 			}
-			None => break,
+			// A give arriving as a resolution is the serve step's to
+			// redeem, never the vat's: feed it and let the executor
+			// perform the dial, withdraw, and settle (ADR-0067).
+			if let Resolution::Handoff(give) = resolution {
+				node.accept_give(conn_id, *answer, give);
+				node.kick_actions();
+				continue;
+			}
 		}
+		vat.serve(&event).ok();
+		// A forwarding actor that sent on to a far target parks the caller's
+		// answer until that send settles; drain those resolves now so the
+		// next flush sends them (a wire answer) or settles them (a local
+		// send awaiting a far-proxy reply) (ADR-0064).
+		vat.flush_forward_resolves()?;
+		vat.flush_forward_local_resolves();
 	}
 	flush(vat, stream).await?;
 	Ok(())
@@ -1938,7 +1924,14 @@ where
 					let node = node.clone();
 					vat.on(vow, move |resolution| {
 						match resolution {
-							Resolution::Fulfill(Argument::Reference(reference)) => {
+							// Only a live near/far reference is a capability. A promise,
+							// sturdyref, or broken reference is not, and falls through to
+							// the non-capability break below, matching the other bindings
+							// and the Zig reference (`driver.onFetch`) rather than handing
+							// back a Ref that breaks opaquely on its first send.
+							Resolution::Fulfill(Argument::Reference(
+								reference @ (Reference::Near { .. } | Reference::Far { .. }),
+							)) => {
 								// Stamp the home: a fetched capability lives on
 								// *this* connection. Returned to another connection
 								// (a gift to pass on), the recorded home lets the
@@ -2507,7 +2500,7 @@ mod tests {
 				let _serve = conn.serve();
 				let cap = conn.fetch("svc").await.unwrap();
 				let err = conn.send(&cap, "do", &[]).await.unwrap_err();
-				assert_eq!(err.message().as_deref(), Some("nope: revoked"));
+				assert_eq!(err.message(), Some("nope: revoked"));
 				// A break is PANCAKE_ERR_BROKEN, not a transport or value error.
 				assert_eq!(err.code(), crate::sys::ERR_BROKEN);
 				conn.close();
@@ -2662,7 +2655,7 @@ mod tests {
 				let cap = conn.fetch("svc").await.unwrap();
 				let err = conn.send(&cap, "hang", &[]).await.unwrap_err();
 				assert_eq!(err.code(), crate::sys::ERR_BROKEN);
-				assert_eq!(err.message().as_deref(), Some("connection closed"));
+				assert_eq!(err.message(), Some("connection closed"));
 				conn.close();
 				server.await.unwrap();
 			})
@@ -2696,7 +2689,7 @@ mod tests {
 				ready_rx.await.unwrap();
 				let err = conn.fetch("not-a-capability").await.unwrap_err();
 				assert_eq!(err.code(), crate::sys::ERR_BROKEN);
-				assert_eq!(err.message().as_deref(), Some("unknown swissnum"));
+				assert_eq!(err.message(), Some("unknown swissnum"));
 				conn.close();
 				host.await.unwrap();
 			})

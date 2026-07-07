@@ -342,6 +342,13 @@ pub const Backend = struct {
         // accept), so the listener must never block the loop in accept(2).
         if (!setNonblocking(fd)) return error.SocketFailed;
 
+        // Allow rebinding a port still in TIME_WAIT, matching the blocking
+        // `tcp.Listener` (which passes `reuse_address = true`). A loop restarted
+        // on a pinned port (`-Dport=N`) would otherwise fail to bind for the
+        // TIME_WAIT window where the blocking listener succeeds.
+        const enable: c_int = 1;
+        if (c.setsockopt(fd, c.SOL.SOCKET, c.SO.REUSEADDR, &enable, @sizeOf(c_int)) < 0) return error.SocketFailed;
+
         var addr: sockaddr_in = .{
             .port = std.mem.nativeToBig(u16, port),
             .addr = std.mem.nativeToBig(u32, 0x7f00_0001), // 127.0.0.1

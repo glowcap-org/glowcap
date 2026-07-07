@@ -136,6 +136,18 @@ pub const BOOTSTRAP_POSITION: u64 = 0;
 /// only that refusal makes the virtual namespace collision-free.
 pub const VIRTUAL_INBOUND_ANSWER_BASE: u64 = 0x8000_0000_0000_0000;
 
+/// The base of the reserved redeemed-handoff-token far-id range (ADR-0066): the
+/// cross-connection node (`engine.Node`) mints application-facing tokens from
+/// this value upward and routes any far id at or above it to a redeemed
+/// capability. Those tokens never travel the wire, so a partner-introduced far
+/// import at or above this base could only alias one — the node would reroute
+/// the application's send to a different connection's capability. Session
+/// validation refuses a partner introduction in this range, exactly as it
+/// refuses a partner answer claim in the virtual range above, so a far id the
+/// application holds at or above the base is provably a node token, never a
+/// partner import. `engine.Node` re-exports this as `REDEEMED_TOKEN_BASE`.
+pub const REDEEMED_TOKEN_BASE: u64 = 1 << 60;
+
 comptime {
     // The virtual inbound-answer base must sit above the partner-named answer
     // range it reserves against; a base of 0 would reserve everything and admit
@@ -143,6 +155,9 @@ comptime {
     // and V1.0 resolver alike — is minted by the one session allocator
     // (`allocateExport`), so export collision is impossible by construction.
     std.debug.assert(0 < VIRTUAL_INBOUND_ANSWER_BASE);
+    // The two reserved ranges must not overlap: the token range sits strictly
+    // below the virtual-answer range, so refusing one never admits the other.
+    std.debug.assert(REDEEMED_TOKEN_BASE < VIRTUAL_INBOUND_ANSWER_BASE);
 }
 
 /// Goblins V1.0 resolver-callback bookkeeping (ADR-0010). V1.0 has no wire

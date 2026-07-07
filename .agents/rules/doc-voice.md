@@ -20,6 +20,7 @@ The human-first surfaces, the ones someone reads to understand the system:
 - `README.md`, `docs/vision.md`, `docs/architecture.md`, and other first-read
   docs;
 - `docs/protocol-diagrams/**`;
+- `site/content/**`, the documentation site's pages;
 - the `//!` file headers and the `///` doc comments on exported Zig
   declarations;
 - the narration in `examples/**`.
@@ -32,6 +33,15 @@ rather than dialog:
 - the `.agents/**` rule and skill files, which are short agent-facing
   instructions;
 - ordinary inline comments inside function bodies.
+
+## Neighbors And Citations
+
+- The projects pancake stands on — Spritely Goblins, OCapN, E, iroh, Zig, Syrup,
+  Cap'n Proto — are spoken of only with respect. State pancake's own
+  measurements plainly and let a chart carry any ordering; prose never ranks a
+  neighbor downward.
+- Cite an external project with a link at its first or most appropriate mention
+  on a page, and leave later mentions on that page as plain text.
 
 ## Write Like This
 
@@ -50,6 +60,10 @@ rather than dialog:
 ## Not Like This
 
 These are the tells that prose has drifted into a private notation:
+
+- Saying it twice. The commonest drift is stating an idea, restating it in
+  different words, then qualifying it; and giving a minor topic as many words as
+  a major one. Each idea gets said once, well, and small topics stay small.
 
 - Self-awarded praise. Prose that calls the project's own arithmetic "honest," a
   surface "elegant," or a path "instant" is congratulation, not information.

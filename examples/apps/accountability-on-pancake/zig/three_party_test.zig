@@ -3,7 +3,7 @@
 //! Three in-memory peers prove the load-bearing claim: when A introduces B to C
 //! via a three-party handoff, C's Episode attributes B (the true caller), not A
 //! (the introducer). The capability that B reaches C through is distinct from
-//! A's — so "who called" is answered by the reference itself.
+//! A's, so "who called" is answered by the reference itself.
 //!
 //! This is the in-memory protocol-level proof. The host application owns the
 //! handoff routing itself (ADR-0009) — the engine keeps the

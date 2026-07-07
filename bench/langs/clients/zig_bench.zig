@@ -34,6 +34,9 @@ fn runUnit(conn: *driver.Connection, root: actors.Ref, arena: std.mem.Allocator)
             else => return error.CreateNotACapability,
         },
         .broken => return error.CreateBroke,
+        // The board's `create` answers with the task capability directly, never
+        // an introduction; a give here is a protocol surprise, not a benchmark.
+        .give => return error.CreateGaveIntroduction,
     };
     _ = try conn.call(task, .{ .verb = "assign", .args = &.{.{ .bytes = "alice" }} }, arena);
     _ = try conn.call(task, .{ .verb = "complete", .args = &.{} }, arena);
@@ -168,8 +171,8 @@ fn runConnections(io: std.Io, allocator: std.mem.Allocator, designator: []const 
     );
     // Hold every connection open while the orchestrator takes its loaded sample.
     try io.sleep(std.Io.Duration.fromMilliseconds(2500), .awake);
-    for (handles) |h| h.close();
-    for (warm) |h| h.close();
+    for (handles) |h| h.deinit();
+    for (warm) |h| h.deinit();
 }
 
 fn runCold(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !void {

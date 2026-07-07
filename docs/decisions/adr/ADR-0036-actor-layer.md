@@ -15,8 +15,8 @@ superseded_by: []
 The vision asks for actors like Goblins so applications are built on pancake the
 way they are built on Goblins, with the rest of the vision (Goblins interop, all
 bindings) true for them too. The engine already carries the _wire_ half of a vat
-(deliver/resolve, promises, exports/imports, listener fan-out), but ADR-0007 and
-ADR-0007 explicitly left "actor-model synthesis — running a method and
+(deliver/resolve, promises, exports/imports, listener fan-out), but ADR-0007
+explicitly left "actor-model synthesis — running a method and
 materializing a value — not implemented; the engine surfaces a deliver event for
 the application to dispatch." That gap is an actor layer's job.
 

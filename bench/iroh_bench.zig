@@ -300,7 +300,7 @@ fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls:
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const server_id = server.nodeId(&id_buf);
 
-    var host = try iroh.LoopHost.init(io, allocator, &server, publishGreeterLoop, null, .{
+    var host = try iroh.LoopHost.init(allocator, io, &server, publishGreeterLoop, null, .{
         .frame_cap = frame_cap,
         .max_conns = 64,
         .verify_partner = true,

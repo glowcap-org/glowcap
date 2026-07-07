@@ -127,7 +127,7 @@ pub fn main(init: std.process.Init) !void {
     const server_id = server.nodeId(&id_buf);
     std.debug.print("iroh-loop: server endpoint id {s}\n", .{server_id});
 
-    var host = try iroh.LoopHost.init(io, allocator, &server, publishGreeter, null, .{
+    var host = try iroh.LoopHost.init(allocator, io, &server, publishGreeter, null, .{
         .frame_cap = frame_cap,
         .max_conns = 64,
         .verify_partner = true,

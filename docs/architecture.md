@@ -61,11 +61,10 @@ The canonical core owns protocol semantics and nothing else:
 - no hidden scheduler;
 - no process-level runtime object.
 
-This is also why the driving layer is named `engine`, not `runtime`. In this
-codebase "runtime" means exactly the thing above that the core refuses to be,
-an ambient executor with its own scheduler and tasks. The engine is the
-explicit, caller-driven alternative: it dispatches a session synchronously and
-nothing more.
+This is why the driving layer is named `engine`, not `runtime`. A runtime is the
+ambient executor with its own scheduler and tasks that the core refuses to be;
+the engine is the caller-driven alternative, dispatching a session synchronously
+and nothing more.
 
 The layering itself is compiler-enforced: each `src/` layer is an internal
 build.zig module with a one-way import table (ADR-0040), so a cross-layer reach
@@ -91,16 +90,6 @@ The netlayer is the one place `std.Io` enters; the arch gate
 `session`, `engine`, `actors`, and `persistent` — and the build.zig layer module
 tables (ADR-0040) are what admit `net` as a non-core module imported by `c_abi`,
 the `driver` layer, and the public root.
-
-The `actors` layer also owns opt-in local time-travel: a `Vat` can `snapshot`
-its local actor heap and `restore` it, sharing each actor's state behind a
-non-atomic refcounted box (O(objects), no byte copy), with copy-on-write for
-mutable actors and functional `become` for persistent ones (ADR-0060). It is
-local-only, a snapshot never captures session state and a restore never rewinds
-a peer. The sibling `persistent` leaf supplies one refcounted-HAMT
-`PersistentMap` (ADR-0061) so a persistent actor's incremental `become` is O(log
-n) with structural sharing; it imports nothing and is not on the public
-namespace.
 
 - **One parser (ADR-0029).** Stream frame boundaries are found by the active
   codec's own decoder (`codec.dispatch.decodePrefix`), which distinguishes
@@ -130,11 +119,10 @@ namespace.
   byte pipes, with no sockets at all, so a full OCapN conversation can run
   inside one process. The iroh QUIC netlayer is the third, through the resident
   in `src/net/transport/iroh.zig` (ADR-0055). The inproc and iroh residents each
-  registered without an edit to the driver or the core, which is the proof this
-  contract holds: a new transport is a new resident, not a new privilege. The
-  completion loop stays outside this contract. It is an fd-based option that a
-  raw-fd transport may offer beside the netlayer API, not a capability every
-  netlayer must satisfy.
+  registered without an edit to the driver or the core: a new transport is a new
+  resident, not a new privilege. The completion loop stays outside this contract,
+  an fd-based option a raw-fd transport may offer beside the netlayer API, not a
+  capability every netlayer must satisfy.
 - **Bounded per-connection memory (ADR-0030, ADR-0041, ADR-0042).** Inbound
   frame size is capped by `SessionLimits.max_frame_bytes`, so an oversized frame
   is refused as `too_large` and projected to a `resource_exhausted` abort. The
@@ -155,40 +143,50 @@ namespace.
   accepted connections compare inbound start-sessions against it, and the
   engine only projects the typed abort (ADR-0068).
 
+## Actors and local time-travel (`actors`, `persistent`)
+
+The `actors` layer owns opt-in local time-travel: a `Vat` can `snapshot`
+its local actor heap and `restore` it, sharing each actor's state behind a
+non-atomic refcounted box (O(objects), no byte copy), with copy-on-write for
+mutable actors and functional `become` for persistent ones (ADR-0060). It is
+local-only, a snapshot never captures session state and a restore never rewinds
+a peer. The sibling `persistent` leaf supplies one refcounted-HAMT
+`PersistentMap` (ADR-0061) so a persistent actor's incremental `become` is O(log
+n) with structural sharing; it imports nothing and is not on the public
+namespace.
+
 ## Application surface (`driver`)
 
-The `driver` layer sits above both the actor turn loop and the netlayer. It is
-the one place that may touch `std.Io` and the actor vat at the same time.
-`driver.ConnectedVat` binds an `actors.Vat` to a live `net.Connection` over one
-caller-owned `engine.Peer`. That saves a networked app from hand-writing the
-same open, pump, and dispatch loop.
+The `driver` layer sits above both the actor turn loop and the netlayer, the one
+place that may touch `std.Io` and the actor vat at once.
 
-The composition hides nothing. Every read and write is one explicit
-`ConnectedVat.step`. A host that wants to answer until the partner leaves can
-call `ConnectedVat.serve`. The one-object face above this is the owning
-`driver.Connection`: `driver.connect` dials and `driver.listen` hosts (each
-`accept` hands back a connection), each connection owns its peer and buffers,
-and one `frame_cap` option sizes the buffers and the session's frame limit
-together. `Connection.call` blocks until the reply settles and returns the
-outcome materialized into a caller-supplied arena — fulfilled, broken, or a
-`.give`, the typed introduction a three-party handoff delivers. Above the
-one-connection face sits `driver.Host`, the multi-connection tier every
-binding builds inside its own `connect` (ADR-0068): one identity, one
-`engine.Node`, many node-registered connections. `Host.redeem` executes the
-serve step's recipient half as one blocking call, a served reply that returns
-a foreign-homed capability originates a give through the vat's resolve
-interceptor, and `call`/`send` route redeemed tokens to the connection that
-hosts them. One layer down, the caller
-owns the allocator, the buffers, and the peer itself: `connectTcp` dials and
-`acceptTcp` hosts; both name tcp at the constructor. The returned type stays
-transport-neutral, so a caller that already holds a `Connection` over another
-stream can use `ConnectedVat.over` directly. `LoopHost` and `LoopDialer` are the
-high-fan-out TCP counterparts above the completion loop: one packages accepted
-actor hosting, the other packages outbound client fan-out. Both keep actor/vat
-policy in `driver`; `net` only owns fd readiness/completion and peer I/O. This
-is the native-Zig face of the cross-binding application surface, and a consumer
-who outgrows it reaches the peer through `ConnectedVat.peer` or the loop's
-explicit hooks.
+`driver.ConnectedVat` binds an `actors.Vat` to a live `net.Connection` over one
+caller-owned `engine.Peer`, sparing a networked app the hand-written open, pump,
+and dispatch loop. It hides nothing: every read and write is one explicit
+`ConnectedVat.step`, and a host that answers until the partner leaves calls
+`ConnectedVat.serve`.
+
+The one-object face above it is the owning `driver.Connection`. `driver.connect`
+dials and `driver.listen` hosts, each `accept` handing back a connection; each
+connection owns its peer and buffers, and one `frame_cap` sizes the buffers and
+the session's frame limit together. `Connection.call` blocks until the reply
+settles and returns the outcome into a caller-supplied arena: fulfilled, broken,
+or a `.give`, the typed introduction a three-party handoff delivers.
+
+`driver.Host` is the multi-connection tier every binding builds inside its own
+`connect` (ADR-0068): one identity, one `engine.Node`, many node-registered
+connections. `Host.redeem` runs the serve step's recipient half in one blocking
+call, a served reply that returns a foreign-homed capability originates a give
+through the vat's resolve interceptor, and `call`/`send` route redeemed tokens to
+the connection that hosts them.
+
+Below these are the explicit-ownership escapes. `connectTcp` and `acceptTcp` hand
+the caller the allocator, buffers, and peer directly, both naming tcp at the
+constructor; `ConnectedVat.over` wraps a `Connection` the caller already holds
+over any stream; and `LoopHost` and `LoopDialer` package accepted hosting and
+outbound fan-out above the completion loop. All keep actor policy in `driver`,
+leaving `net` only fd readiness and peer I/O. A consumer who outgrows the whole
+surface reaches the raw peer through `ConnectedVat.peer`.
 
 ## Session Representation
 

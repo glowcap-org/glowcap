@@ -84,8 +84,8 @@ pancake speaks a Goblins convention that the draft spec does not yet pin down.
 pancake is the systems-language entry to that ecosystem: the protocol core in
 Zig, a C ABI above it, and bindings so the same capability discipline is
 reachable from Rust, Python, Deno, and Racket. What that costs in memory and
-allocations is part of the contract, the [architecture](architecture.md) doc is
-the place where those budgets are named.
+allocations is part of the contract. The [architecture](architecture.md) doc
+is where those budgets are named.
 
 ## Glossary
 

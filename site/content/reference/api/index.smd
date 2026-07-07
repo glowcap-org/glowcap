@@ -1,11 +1,12 @@
 ---
-.title = "Zig API Reference",
+.title = "Zig API reference",
 .date = @date("2026-06-12T00:00:00"),
 .author = "Jim Isaacs",
 .layout = "page.shtml",
 .draft = false,
 ---
 
-The API reference is generated from the public `pancake` Zig module during
-`zig build site`. The generated autodoc artifact is installed at this route as
-part of the same build step.
+This route serves the generated Zig API reference for the public `pancake`
+module. If you are reading this text instead of the reference, the site was
+built without the autodoc step; the [API reference]($link.page('reference'))
+page describes both halves of the generated API.

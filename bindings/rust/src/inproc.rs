@@ -128,8 +128,16 @@ impl Listener<'_> {
 	}
 }
 
-// A listener handle is safe to move to the accepting thread (use a scoped
-// thread, since it borrows the netlayer and so is not `'static`).
+// SAFETY: a `Listener` owns a self-contained payload — its own bound
+// switchboard slot plus a copy of the netlayer's allocator — and shares no
+// per-handle mutable state with the netlayer or sibling handles, so moving it to
+// the accepting thread and calling `accept` there touches only its own state.
+// The state it shares with the netlayer is thread-safe: the allocator
+// (`std.heap.smp_allocator` for `Netlayer::new`, or a bounded `Send + Sync`
+// `HostAllocator` for `new_in`) and the in-process switchboard/`std.Io.Threaded`
+// backend, which tolerates the concurrent connect-on-origin / accept-off-thread
+// rendezvous the committed scoped-thread test exercises. Borrowing the netlayer
+// keeps it non-`'static`, so callers move it into a scoped thread.
 unsafe impl Send for Listener<'_> {}
 
 impl Drop for Listener<'_> {
@@ -151,7 +159,7 @@ impl Endpoint<'_> {
 	pub fn read_frame(&mut self) -> Result<Vec<u8>> {
 		let mut frame: crate::sys::PancakeManagedFrame = unsafe { core::mem::zeroed() };
 		check_inproc(unsafe { ffi::pancake_inproc_conn_read_frame(self.raw, &mut frame) })?;
-		let out = unsafe { core::slice::from_raw_parts(frame.bytes, frame.len) }.to_vec();
+		let out = unsafe { crate::owned_from_view(frame.bytes, frame.len) };
 		unsafe { crate::sys::pancake_managed_frame_release(&mut frame) };
 		Ok(out)
 	}
@@ -167,6 +175,13 @@ impl Endpoint<'_> {
 	}
 }
 
+// SAFETY: an `Endpoint` owns a self-contained payload — its own in-process pipe
+// half plus a copy of the netlayer's allocator — and shares no per-handle
+// mutable state with the netlayer or sibling handles, so moving it to another
+// thread and doing frame I/O on it touches only its own state. The allocator and
+// the switchboard/`std.Io.Threaded` backend it shares are thread-safe under the
+// concurrent blocking calls a borrowed handle makes off-thread (see `Listener`
+// above).
 unsafe impl Send for Endpoint<'_> {}
 
 impl Drop for Endpoint<'_> {

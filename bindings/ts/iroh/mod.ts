@@ -36,7 +36,13 @@ import {
 	openKeyedSession,
 	PancakeError,
 	Peer,
+	Reachability,
 } from "@pancake/stack";
+
+// The `Reachability` posture type is owned by the core `@pancake/stack` (so its
+// `connect` and `Node` name it without depending on this optional package); the
+// iroh package re-exports it as the transport that gives it meaning.
+export { Reachability } from "@pancake/stack";
 import {
 	ab,
 	CLOSED,
@@ -71,19 +77,6 @@ function readUsize(buf: Uint8Array): number {
 
 // Mirrors the core's read chunk; raw inbound bytes are framed by the peer above.
 const READ_CHUNK = 64 * 1024;
-
-/** How an iroh endpoint becomes reachable, a required, explicit posture with
- * no default. The caller owns the reach/privacy tradeoff at every constructor:
- * - `Direct`: dial by id + direct-address hints; relay-less, no discovery.
- * - `Discovery`: n0 relays + DNS discovery; dial by id alone.
- * - `DiscoveryNoRelay`: DNS discovery, no relays.
- * - `LocalDiscovery`: in-process address book (tests / same process). */
-export enum Reachability {
-	Direct = 0,
-	Discovery = 1,
-	DiscoveryNoRelay = 2,
-	LocalDiscovery = 3,
-}
 
 /** A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
  * sibling of the TCP `Netlayer`, but it is also its own listener (there is no
@@ -277,6 +270,10 @@ export class IrohConn {
 			irohS().pancake_iroh_conn_release(this.#raw);
 			this.#raw = NULL;
 		}
+	}
+
+	[Symbol.dispose](): void {
+		this.release();
 	}
 }
 
@@ -660,7 +657,7 @@ async function dialResolving(
 			return await netlayer.tryConnect(nodeId, directAddresses);
 		} catch (e) {
 			if (attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS) throw e;
-			await new Promise((r) => setTimeout(r, DISCOVERY_DIAL_RETRY_MS));
+			await new Promise<void>((r) => setTimeout(r, DISCOVERY_DIAL_RETRY_MS));
 		}
 	}
 }
@@ -701,14 +698,19 @@ export async function connectIroh(
 	// (a give's `recipient_key`) and the node's identity/gift registry agree —
 	// what a three-party handoff requires (ADR-0009/ADR-0056).
 	const { connId, peer } = node.registerConn();
+	// The pump owns the dialer-minted connection, loop, and ephemeral netlayer
+	// (`ownsLoop`); on a handshake failure its `close` is what unregisters and
+	// releases the connection, stops the readiness loop (closing the dup'd fd),
+	// and releases the netlayer. The node-owned peer is freed by `removeConn`, so
+	// closing the pump and removing the connection frees every acquired resource,
+	// the same symmetry the tcp dialer keeps.
+	const pump = new IrohPump(conn, "", loop, netlayer, true);
 	try {
-		const ac = AsyncConnection.fromPump(
-			peer,
-			new IrohPump(conn, "", loop, netlayer, true),
-		);
+		const ac = AsyncConnection.fromPump(peer, pump);
 		await openKeyedSession(ac, node.seed);
 		return Connection.fromAsync(ac, node, connId);
 	} catch (e) {
+		pump.close();
 		node.removeConn(connId);
 		throw e;
 	}

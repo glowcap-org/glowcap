@@ -41,6 +41,8 @@ from . import (
 from ._ffi_core import _lib
 from ._ffi_tcp import _tcp_lib
 
+__all__ = ["TcpNetlayer", "TcpListener", "TcpEndpoint"]
+
 
 def _tcp_last_error() -> Optional[str]:
     """The calling thread's last error message from the TCP transport archive

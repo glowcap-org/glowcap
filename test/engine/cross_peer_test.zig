@@ -158,7 +158,7 @@ test "third-party handoff authorizes a withdrawal under real Ed25519 with keys r
         .recipient_key = try crypto.PeerKey.fromSlice(give.recipient_key),
     };
     try cross_peer.withdrawGift(&recipient_to_exporter, &exporter, receive, verifier_ctx.make());
-    try std.testing.expect(exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(!exporter.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
 test "withdraw fulfills with the deposited capability, and a re-deposit replaces the first" {
@@ -213,10 +213,9 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
         gifter_pub.asBytes(),
     );
 
-    // Withdraw it. `resolveForWithdraw` reads the gifted cap *after*
-    // `applyWithdraw` marks the row withdrawn, which is why `giftedCap` does not
-    // filter by the withdrawn flag, otherwise the resolution would break with
-    // "gift not deposited" instead of fulfilling with the deposited reference.
+    // Withdraw it. `resolveForWithdraw` clones the gifted cap out while the gift
+    // is still live and only then calls `applyWithdraw`, which reclaims the row's
+    // payload, so the resolution fulfills with the deposited reference.
     const handoff = model.Handoff{ .receive = receive };
     const view_handoff = model.view.Handoff.fromOwned(&handoff);
     const resolution_msg = switch (try engine.bootstrap.resolveForWithdraw(allocator, &peer.session_state, peer.giftRegistry(), .{
@@ -234,7 +233,7 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
         .@"break" => return error.TestUnexpectedBreak,
     };
     try std.testing.expectEqual(@as(u64, 10), fulfilled.reference.far.import_position.int());
-    try std.testing.expect(peer.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(!peer.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
 // The exporter half of a three-party handoff across two sessions: a gift whose
@@ -305,7 +304,7 @@ test "a withdraw of a node-local swiss gift re-resolves against the withdrawing 
         .@"break" => return error.TestUnexpectedBreak,
     };
     try std.testing.expectEqual(dm_here, fulfilled.reference.near.export_position);
-    try std.testing.expect(exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(!exporter.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
 // A swiss-named gift withdrawn on a session that does not publish the object is
@@ -416,10 +415,12 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
         event.deinit();
     }
 
-    // Not refused, parked: no answer left the peer and the entry is held.
+    // Not refused, parked: no answer left the peer and the entry is held. The
+    // gift is not in the registry yet — the deposit lands below — so the parked
+    // withdraw created no row.
     try std.testing.expect(exporter.takeOutbound() == null);
     try std.testing.expectEqual(@as(usize, 1), exporter.pending_withdraws.items.len);
-    try std.testing.expect(!exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(!exporter.giftRegistry().giftLive(gift_id_a[0..]));
 
     // The deposit lands on the vat's registry (in production, via the gifter's
     // session to this same vat).
@@ -438,7 +439,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     var settled = exporter.takeOutbound() orelse return error.TestNoSettlement;
     defer settled.deinit();
     try std.testing.expectEqual(@as(usize, 0), exporter.pending_withdraws.items.len);
-    try std.testing.expect(exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(!exporter.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
 test "third-party handoff rejects a give signed by a key other than the recorded gifter" {
@@ -495,7 +496,7 @@ test "third-party handoff rejects a give signed by a key other than the recorded
         cross_peer.Error.SignatureRejected,
         cross_peer.withdrawGift(&recipient_to_exporter, &exporter, receive, verifier_ctx.make()),
     );
-    try std.testing.expect(!exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(exporter.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
 test "third-party handoff routes a give and authorizes a withdrawal across peers" {
@@ -516,8 +517,8 @@ test "third-party handoff routes a give and authorizes a withdrawal across peers
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.handoff, event.kind());
     }
-    try std.testing.expect(exporter.giftRegistry().giftDeposited(gift_id_a[0..]));
-    try std.testing.expect(!exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(exporter.giftRegistry().giftLive(gift_id_a[0..]));
+    try std.testing.expect(exporter.giftRegistry().giftLive(gift_id_a[0..]));
 
     try cross_peer.withdrawGift(
         &recipient_to_exporter,
@@ -531,7 +532,7 @@ test "third-party handoff routes a give and authorizes a withdrawal across peers
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.handoff, event.kind());
     }
-    try std.testing.expect(exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(!exporter.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
 test "third-party handoff rejects a replayed handoff count across peers" {
@@ -561,7 +562,7 @@ test "third-party handoff rejects a replayed handoff count across peers" {
         receiveWith(gift_id_b[0..], 1, receive_signature[0..]),
         cross_peer.acceptingVerifier(),
     ));
-    try std.testing.expect(!exporter.giftRegistry().giftWithdrawn(gift_id_b[0..]));
+    try std.testing.expect(exporter.giftRegistry().giftLive(gift_id_b[0..]));
 }
 
 test "third-party handoff rejects a withdrawal whose signature fails verification" {
@@ -583,7 +584,7 @@ test "third-party handoff rejects a withdrawal whose signature fails verificatio
         receiveWith(gift_id_a[0..], 1, receive_signature[0..]),
         RejectingVerifier.make(),
     ));
-    try std.testing.expect(!exporter.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(exporter.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
 test "the exporter authorizes a withdrawal against the gifter key it learned from the handshake" {
@@ -643,7 +644,7 @@ test "the exporter authorizes a withdrawal against the gifter key it learned fro
         .recipient_key = try crypto.PeerKey.fromSlice(give.recipient_key),
     };
     try cross_peer.withdrawGift(&recipient_to_exporter, &gx.p2, receive, verifier_ctx.make());
-    try std.testing.expect(gx.p2.giftRegistry().giftWithdrawn(gift_id_a[0..]));
+    try std.testing.expect(!gx.p2.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
 test "canonical handoff-give bytes are a stable Ed25519 signing domain an embedder can verify" {

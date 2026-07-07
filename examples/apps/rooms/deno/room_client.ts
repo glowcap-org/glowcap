@@ -1,6 +1,6 @@
 // A small, friendly client for the rooms chat, built on pancake actors.
 //
-// This is the layer that knows about OCapN — and on the connection API it is
+// This is the layer that knows about OCapN, and on the connection API it is
 // barely a layer at all: connect, fetch the directory by name, ask it to open or
 // enter a room (which hands back a live reference to that room), spawn an inbox
 // the room can call back, subscribe by handing it that capability, and surface

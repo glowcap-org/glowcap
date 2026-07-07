@@ -180,7 +180,7 @@ fn callOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !vo
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(io, allocator, &peer, address, read_buf, write_buf);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -346,7 +346,7 @@ fn fetchMissingOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloca
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(io, allocator, &peer, address, read_buf, write_buf);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
     defer cv.deinit();
 
     try std.testing.expectError(driver.Error.FetchBroken, cv.fetch("nobody-published-this"));
@@ -487,7 +487,7 @@ fn callAbortedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocat
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(io, allocator, &peer, address, read_buf, write_buf);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");

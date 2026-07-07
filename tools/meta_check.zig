@@ -49,21 +49,22 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
 
     const root = b.build_root.handle;
 
-    try expectSymlink(step, io, gpa, root, &violations, "CLAUDE.md", "AGENTS.md");
-    try expectSymlink(step, io, gpa, root, &violations, ".claude/rules", "../.agents/rules");
-    try expectSymlink(step, io, gpa, root, &violations, ".claude/skills", "../.agents/skills");
-    try expectSymlink(step, io, gpa, root, &violations, ".cursor/skills", "../.agents/skills");
+    try expectSymlink(io, gpa, root, &violations, "CLAUDE.md", "AGENTS.md");
+    try expectSymlink(io, gpa, root, &violations, ".claude/rules", "../.agents/rules");
+    try expectSymlink(io, gpa, root, &violations, ".claude/skills", "../.agents/skills");
+    try expectSymlink(io, gpa, root, &violations, ".cursor/skills", "../.agents/skills");
 
-    try checkCursorRuleOverlay(step, io, gpa, root, &violations);
-    try checkRequiredSubstrings(step, io, gpa, root, &violations);
+    try checkCursorRuleOverlay(io, gpa, root, &violations);
+    try checkRequiredSubstrings(io, gpa, root, &violations);
     try checkRuleIndexAgreement(io, gpa, root, &violations);
     try checkSkillCatalog(io, gpa, root, &violations);
     try checkAgentsRouting(io, gpa, root, &violations);
     try checkMarkdownLinks(io, gpa, root, &violations);
     try checkSiteContentLinks(io, gpa, root, &violations);
+    try checkQuickStartSnippet(io, gpa, root, &violations);
     try checkDanglingReferenceLinks(io, gpa, root, &violations);
     try checkMermaidBlocks(io, gpa, root, &violations);
-    try checkDocumentedBuildSteps(step, io, gpa, root, &violations);
+    try checkDocumentedBuildSteps(io, gpa, root, &violations);
     try checkAbiVersionLockstep(io, gpa, root, &violations);
     try checkAbiFreeingVerb(io, gpa, root, &violations);
     try checkCAbiSurfaceShape(io, gpa, root, &violations);
@@ -93,7 +94,6 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
 }
 
 fn expectSymlink(
-    step: *Step,
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
@@ -135,12 +135,9 @@ fn expectSymlink(
             target,
         });
     }
-
-    _ = step;
 }
 
 fn checkCursorRuleOverlay(
-    step: *Step,
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
@@ -165,7 +162,7 @@ fn checkCursorRuleOverlay(
         const cursor_path = try std.fmt.allocPrint(gpa, ".cursor/rules/{s}.mdc", .{stem});
         const expected_target = try std.fmt.allocPrint(gpa, "../../.agents/rules/{s}", .{entry.path});
 
-        try expectSymlink(step, io, gpa, root, violations, cursor_path, expected_target);
+        try expectSymlink(io, gpa, root, violations, cursor_path, expected_target);
     }
 
     var cursor_rules = root.openDir(io, ".cursor/rules", .{ .iterate = true }) catch |err| {
@@ -228,14 +225,11 @@ fn checkCursorRuleOverlay(
 }
 
 fn checkRequiredSubstrings(
-    step: *Step,
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    _ = step;
-
     try expectCursorHook(io, gpa, root, violations);
     try expectClaudeHook(io, gpa, root, violations);
     try expectMcpServer(io, gpa, root, violations, ".mcp.json", &.{
@@ -758,6 +752,143 @@ fn checkSiteContentLinksInFile(
     }
 }
 
+/// The README and the start page both quote the tcp quick-start snippet and
+/// claim `examples/zig/readme_quick_start.zig` carries it verbatim. This makes
+/// the claim mechanical: each doc's fenced block must equal the example's
+/// import pair plus the dedented `client` fn body, line for line.
+fn checkQuickStartSnippet(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const example_path = "examples/zig/readme_quick_start.zig";
+    const example = root.readFileAlloc(io, example_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read with {s}", .{ example_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(example);
+
+    var expected: std.ArrayList([]const u8) = .empty;
+    defer expected.deinit(gpa);
+    const import_lines = [_][]const u8{
+        "const std = @import(\"std\");",
+        "const pancake = @import(\"pancake\");",
+    };
+    for (import_lines) |import_line| {
+        if (std.mem.indexOf(u8, example, import_line) == null) {
+            try appendViolation(gpa, violations, "{s}: missing quick-start import `{s}`", .{ example_path, import_line });
+            return;
+        }
+        try expected.append(gpa, import_line);
+    }
+    try expected.append(gpa, "");
+
+    var in_body = false;
+    var found_client = false;
+    var lines = std.mem.splitScalar(u8, example, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trimEnd(u8, raw, " \t\r");
+        if (!in_body) {
+            if (std.mem.startsWith(u8, line, "fn client(")) {
+                in_body = true;
+                found_client = true;
+            }
+            continue;
+        }
+        if (std.mem.eql(u8, line, "}")) {
+            in_body = false;
+            break;
+        }
+        if (line.len == 0) {
+            try expected.append(gpa, line);
+            continue;
+        }
+        if (!std.mem.startsWith(u8, line, "    ")) {
+            try appendViolation(gpa, violations, "{s}: `fn client` body line not indented one level: `{s}`", .{ example_path, line });
+            return;
+        }
+        try expected.append(gpa, line[4..]);
+    }
+    if (!found_client or in_body) {
+        try appendViolation(gpa, violations, "{s}: could not extract the `fn client` body for the quick-start check", .{example_path});
+        return;
+    }
+
+    try compareQuickStartDoc(io, gpa, root, violations, "README.md", expected.items, false);
+    try compareQuickStartDoc(io, gpa, root, violations, "site/content/start.smd", expected.items, true);
+}
+
+/// Find the doc's tcp quick-start fence (the one ```zig block carrying the
+/// tcp marker comment) and hold it identical to the expected lines.
+fn compareQuickStartDoc(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    expected: []const []const u8,
+    blockquoted: bool,
+) !void {
+    const marker = "// tcp: the peer is a place";
+    const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for the quick-start check with {s}", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(contents);
+
+    var fence: std.ArrayList([]const u8) = .empty;
+    defer fence.deinit(gpa);
+
+    var capturing = false;
+    var found = false;
+    var lines = std.mem.splitScalar(u8, contents, '\n');
+    while (lines.next()) |raw| {
+        var line = std.mem.trimEnd(u8, raw, " \t\r");
+        if (blockquoted) {
+            if (std.mem.startsWith(u8, line, "> ")) {
+                line = line[2..];
+            } else if (std.mem.eql(u8, line, ">")) {
+                line = "";
+            }
+        }
+        if (!capturing) {
+            if (std.mem.eql(u8, line, "```zig")) {
+                capturing = true;
+                fence.clearRetainingCapacity();
+            }
+            continue;
+        }
+        if (std.mem.eql(u8, line, "```")) {
+            capturing = false;
+            var has_marker = false;
+            for (fence.items) |l| {
+                if (std.mem.indexOf(u8, l, marker) != null) has_marker = true;
+            }
+            if (has_marker) {
+                found = true;
+                break;
+            }
+            continue;
+        }
+        try fence.append(gpa, line);
+    }
+    if (!found) {
+        try appendViolation(gpa, violations, "{s}: no ```zig fence carries the tcp quick-start marker `{s}`", .{ path, marker });
+        return;
+    }
+    if (fence.items.len != expected.len) {
+        try appendViolation(gpa, violations, "{s}: tcp quick-start snippet is {d} lines but examples/zig/readme_quick_start.zig carries {d}; the two must match line for line", .{ path, fence.items.len, expected.len });
+        return;
+    }
+    for (fence.items, expected, 0..) |got, want, i| {
+        if (!std.mem.eql(u8, got, want)) {
+            try appendViolation(gpa, violations, "{s}: tcp quick-start drifts from examples/zig/readme_quick_start.zig at snippet line {d}: `{s}` vs `{s}`", .{ path, i + 1, got, want });
+            return;
+        }
+    }
+}
+
 fn fileExists(io: std.Io, root: std.Io.Dir, path: []const u8) bool {
     root.access(io, path, .{}) catch return false;
     return true;
@@ -1196,7 +1327,7 @@ fn checkLivingStateRegistry(
     };
     defer docs.close(io);
     var docs_it = docs.iterate();
-    while (docs_it.next(io) catch null) |entry| {
+    while (try docs_it.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".md")) continue;
         var needle_buf: [160]u8 = undefined;
@@ -1238,7 +1369,7 @@ fn checkLivingStateRegistry(
     };
     defer planning.close(io);
     var planning_it = planning.iterate();
-    while (planning_it.next(io) catch null) |entry| {
+    while (try planning_it.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".md")) continue;
         const contents = planning.readFileAlloc(io, entry.name, gpa, .limited(1 << 20)) catch continue;
@@ -1402,7 +1533,7 @@ fn checkLayerOwnership(
     };
     defer src.close(io);
     var src_it = src.iterate();
-    while (src_it.next(io) catch null) |entry| {
+    while (try src_it.next(io)) |entry| {
         if (entry.kind != .directory) continue;
         if (!named.contains(entry.name)) {
             try appendViolation(gpa, violations, "{s}: `src/{s}` has no Layer Ownership bullet", .{ rule_path, entry.name });
@@ -1443,7 +1574,7 @@ fn checkGroupingChildren(
     }
     var has_zig = false;
     var it = dir.iterate();
-    while (it.next(io) catch null) |entry| {
+    while (try it.next(io)) |entry| {
         if (entry.kind == .file and std.mem.endsWith(u8, entry.name, ".zig")) {
             has_zig = true;
         } else if (entry.kind == .directory) {
@@ -1503,7 +1634,7 @@ fn checkTestPlacement(
     };
     defer test_dir.close(io);
     var it = test_dir.iterate();
-    while (it.next(io) catch null) |entry| {
+    while (try it.next(io)) |entry| {
         if (entry.kind != .directory) continue;
         var needle_buf: [160]u8 = undefined;
         const needle = std.fmt.bufPrint(&needle_buf, "test/{s}", .{entry.name}) catch continue;
@@ -1633,7 +1764,7 @@ fn checkOracleCorpusRegistry(
     var names_arena = std.heap.ArenaAllocator.init(gpa);
     defer names_arena.deinit();
     var it = corpus.iterate();
-    while (it.next(io) catch null) |entry| {
+    while (try it.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".bin")) continue;
         try on_disk.put(try names_arena.allocator().dupe(u8, entry.name), {});
@@ -1884,7 +2015,7 @@ fn checkPrereleaseLanguage(
     };
     defer docs.close(io);
     var docs_it = docs.iterate();
-    while (docs_it.next(io) catch null) |entry| {
+    while (try docs_it.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".md")) continue;
         try files.append(gpa, try std.fmt.allocPrint(arena, "docs/{s}", .{entry.name}));
@@ -1916,6 +2047,11 @@ const binding_constants_files = [_]ConstantsFile{
     .{ .path = "bindings/python/pancake/_constants.py" },
     .{ .path = "bindings/ts/stack/internal/constants.ts" },
     .{ .path = "bindings/racket/private/constants.rkt", .racket = true },
+    // The per-binding iroh FFI mirrors of the `PANCAKE_IROH_*` transport
+    // constants, held against include/pancake_net_transport_iroh.h.
+    .{ .path = "bindings/rust/src/sys/iroh.rs" },
+    .{ .path = "bindings/python/pancake/_ffi_iroh.py" },
+    .{ .path = "bindings/racket/private/ffi-iroh.rkt", .racket = true },
 };
 
 fn parseLeadingInt(s: []const u8) ?i64 {
@@ -2041,7 +2177,9 @@ fn checkAbiVersionLockstep(
     }
 }
 
-/// `_release` is the only C ABI verb that frees a handle. The endpoint
+/// `_release` is the only C ABI verb that frees a handle: a `*_free` export
+/// is rejected outright, and a `*_close` must document that it does not free.
+/// The endpoint
 /// surfaces converged on that law — every handle frees through exactly one
 /// `pancake_*_release`, and a `pancake_*_close` is a shutdown lever that
 /// leaves the handle alive — so this holds it in the generated headers:
@@ -2070,18 +2208,28 @@ fn checkAbiFreeingVerb(
 
         var lines: std.ArrayList([]const u8) = .empty;
         defer lines.deinit(gpa);
-        var it = std.mem.splitScalar(u8, contents, '\n');
-        while (it.next()) |line| try lines.append(gpa, line);
+        var line_it = std.mem.splitScalar(u8, contents, '\n');
+        while (line_it.next()) |line| try lines.append(gpa, line);
 
-        for (lines.items, 0..) |line, i| {
-            const trimmed = std.mem.trim(u8, line, " \t");
-            const is_decl = std.mem.startsWith(u8, trimmed, "void pancake_") or
-                std.mem.startsWith(u8, trimmed, "int32_t pancake_");
-            if (!is_decl) continue;
-            const open = std.mem.indexOfScalar(u8, trimmed, '(') orelse continue;
-            const space = std.mem.indexOfScalar(u8, trimmed, ' ') orelse continue;
-            const name = trimmed[space + 1 .. open];
+        var decls: std.ArrayList(HeaderDecl) = .empty;
+        defer decls.deinit(gpa);
+        try collectHeaderDeclarations(gpa, contents, &decls);
+        if (decls.items.len == 0) {
+            try appendViolation(gpa, violations, "{s}: found no pancake_ declarations; the ABI freeing-verb scanner no longer matches this header", .{path});
+            continue;
+        }
+
+        for (decls.items) |decl| {
+            const name = decl.name;
+            // `*_free` is not an allowed freeing spelling: a handle that frees
+            // is `*_release`, so a `pancake_*_free` export is the inconsistency
+            // this rule exists to prevent, not merely a `*_close` to document.
+            if (std.mem.endsWith(u8, name, "_free")) {
+                try appendViolation(gpa, violations, "{s}: {s} frees a handle but is not spelled *_release; the one freeing verb is *_release", .{ path, name });
+                continue;
+            }
             if (!std.mem.endsWith(u8, name, "_close")) continue;
+            const i = lineIndexOfOffset(contents, decl.offset);
 
             if (i == 0 or !std.mem.endsWith(u8, std.mem.trimEnd(u8, lines.items[i - 1], " \t"), "*/")) {
                 try appendViolation(gpa, violations, "{s}: {s} has no doc comment; a *_close must state it closes \"without releasing\" the handle", .{ path, name });
@@ -2131,8 +2279,6 @@ fn checkCAbiSurfaceShape(
         "include/pancake_net_transport_inproc.h",
         "include/pancake_net_transport_iroh.h",
     };
-    const ret_types = [_][]const u8{ "void ", "int32_t ", "size_t ", "intptr_t " };
-
     // Collect every exported function name. The name slices reference the header
     // contents, so keep the buffers alive for the whole check.
     var contents_buffers: std.ArrayList([]u8) = .empty;
@@ -2152,22 +2298,17 @@ fn checkCAbiSurfaceShape(
         };
         try contents_buffers.append(gpa, contents);
 
-        var it = std.mem.splitScalar(u8, contents, '\n');
-        while (it.next()) |line| {
-            const trimmed = std.mem.trim(u8, line, " \t");
-            var matched = false;
-            for (ret_types) |rt| {
-                if (std.mem.startsWith(u8, trimmed, rt)) matched = true;
-            }
-            if (!matched) continue;
-            const space = std.mem.indexOfScalar(u8, trimmed, ' ') orelse continue;
-            const open = std.mem.indexOfScalar(u8, trimmed, '(') orelse continue;
-            if (open <= space + 1) continue;
-            const name = trimmed[space + 1 .. open];
-            if (!std.mem.startsWith(u8, name, "pancake_")) continue;
-            if (name_set.contains(name)) continue;
-            try name_set.put(name, {});
-            try names.append(gpa, name);
+        var decls: std.ArrayList(HeaderDecl) = .empty;
+        defer decls.deinit(gpa);
+        try collectHeaderDeclarations(gpa, contents, &decls);
+        if (decls.items.len == 0) {
+            try appendViolation(gpa, violations, "{s}: found no pancake_ declarations; the ABI surface-shape scanner no longer matches this header", .{path});
+            continue;
+        }
+        for (decls.items) |decl| {
+            if (name_set.contains(decl.name)) continue;
+            try name_set.put(decl.name, {});
+            try names.append(gpa, decl.name);
         }
     }
 
@@ -2226,13 +2367,6 @@ fn checkCAbiSurfaceShape(
     }
 }
 
-/// Every per-binding ABI constant mirror restates discriminants and return codes
-/// from `include/pancake_ocapn.h` by hand. The header itself cannot drift (the
-/// parity test reflects it from the Zig c_abi source), but the four mirror files
-/// can.
-/// This parses each mirror's numeric values and asserts they match the matching
-/// `#define PANCAKE_…` value, so a hand-edit that desyncs a constant fails the
-/// gate instead of waiting for a live conversation to touch it.
 /// Every function the C headers export must have a consumer: a reference
 /// somewhere under `bindings/`, `examples/`, `interop/`, or `test/`. An export
 /// nobody consumes or exercises is dead surface — the drift mode is a verb the
@@ -2252,8 +2386,6 @@ fn checkAbiExportsConsumed(
         "include/pancake_net_transport_inproc.h",
         "include/pancake_net_transport_iroh.h",
     };
-    const ret_types = [_][]const u8{ "void ", "int32_t ", "size_t ", "intptr_t " };
-
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -2266,21 +2398,14 @@ fn checkAbiExportsConsumed(
             try appendViolation(gpa, violations, "{s}: failed to read for ABI consumer check with {s}", .{ path, @errorName(err) });
             continue;
         };
-        var it = std.mem.splitScalar(u8, contents, '\n');
-        while (it.next()) |line| {
-            const trimmed = std.mem.trim(u8, line, " \t");
-            var matched = false;
-            for (ret_types) |rt| {
-                if (std.mem.startsWith(u8, trimmed, rt)) matched = true;
-            }
-            if (!matched) continue;
-            const space = std.mem.indexOfScalar(u8, trimmed, ' ') orelse continue;
-            const open = std.mem.indexOfScalar(u8, trimmed, '(') orelse continue;
-            if (open <= space + 1) continue;
-            const name = trimmed[space + 1 .. open];
-            if (!std.mem.startsWith(u8, name, "pancake_")) continue;
-            try exports.append(gpa, .{ .name = name, .header = path });
+        var decls: std.ArrayList(HeaderDecl) = .empty;
+        defer decls.deinit(gpa);
+        try collectHeaderDeclarations(gpa, contents, &decls);
+        if (decls.items.len == 0) {
+            try appendViolation(gpa, violations, "{s}: found no pancake_ declarations; the ABI consumer scanner no longer matches this header", .{path});
+            continue;
         }
+        for (decls.items) |decl| try exports.append(gpa, .{ .name = decl.name, .header = path });
     }
 
     // Every pancake_* identifier the consumer trees mention, one walk.
@@ -2345,8 +2470,7 @@ fn checkAbiExportsConsumed(
             if (export_names.contains(base)) continue;
         }
         if (std.mem.endsWith(u8, exported.name, "_with_allocator")) {
-            const base_len = exported.name.len - "_with_allocator".len;
-            const base = try std.fmt.allocPrint(arena, "{s}", .{exported.name[0..base_len]});
+            const base = exported.name[0 .. exported.name.len - "_with_allocator".len];
             if (export_names.contains(base)) continue;
         }
         try appendViolation(gpa, violations, "{s}: exported `{s}` has no consumer under bindings/, examples/, interop/, or test/ — dead surface; retire it or give it the consumer that justifies it", .{ exported.header, exported.name });
@@ -2360,24 +2484,94 @@ fn isIdentChar(byte: u8) bool {
     };
 }
 
+/// One exported function declaration found in a generated header: its name and
+/// the byte offset of that name in the header text (so a caller can locate the
+/// declaration's line for its doc comment).
+const HeaderDecl = struct { name: []const u8, offset: usize };
+
+/// Collect every C ABI function declaration in a generated header: a `pancake_`
+/// identifier at an identifier boundary directly followed by `(`, found after
+/// blanking `/* */` comments so a prose mention of a name is never mistaken for
+/// a prototype. Matching on that call shape rather than on a set of allowed
+/// return-type spellings keeps a new export visible whatever its return type is,
+/// whether `uint64_t`, a `double`, or a pointer. Each appended `name` slice
+/// references `contents`, so the caller must keep it alive; callers also read
+/// the declaration count, and a zero there means the scanner has stopped
+/// matching the header.
+fn collectHeaderDeclarations(
+    gpa: std.mem.Allocator,
+    contents: []const u8,
+    out: *std.ArrayList(HeaderDecl),
+) !void {
+    const text = try gpa.dupe(u8, contents);
+    defer gpa.free(text);
+    var i: usize = 0;
+    while (std.mem.indexOfPos(u8, text, i, "/*")) |open| {
+        const close = std.mem.indexOfPos(u8, text, open + 2, "*/") orelse break;
+        @memset(text[open .. close + 2], ' ');
+        i = close + 2;
+    }
+    var search: usize = 0;
+    while (std.mem.indexOfPos(u8, text, search, "pancake_")) |start| {
+        var end = start;
+        while (end < text.len and isIdentChar(text[end])) end += 1;
+        search = end;
+        if (start > 0 and isIdentChar(text[start - 1])) continue;
+        if (end >= text.len or text[end] != '(') continue;
+        // Blanking preserves byte length, so offsets index the original.
+        try out.append(gpa, .{ .name = contents[start..end], .offset = start });
+    }
+}
+
+/// The 0-based line index of `offset` within `contents` (the newline count
+/// before it), so a declaration found by offset can be tied to its doc comment.
+fn lineIndexOfOffset(contents: []const u8, offset: usize) usize {
+    return std.mem.count(u8, contents[0..offset], "\n");
+}
+
+/// Every per-binding ABI constant mirror restates discriminants and return codes
+/// from the generated headers by hand. The headers themselves cannot drift (the
+/// parity tests reflect them from the Zig c_abi source), but the mirror files
+/// can. This parses each mirror's numeric values and asserts they match the
+/// matching `#define PANCAKE_…` value, so a hand-edit that desyncs a constant
+/// fails the gate instead of waiting for a live conversation to touch it.
+///
+/// The header values come from all four generated headers, not just the ocapn
+/// base, so the iroh archive's `PANCAKE_IROH_*` mirrors are held too. The mirror
+/// files span both the ocapn constant files and the per-binding iroh FFI files
+/// (`binding_constants_files`), and `lookupHeaderConst` tolerates the `PANCAKE_`
+/// or leading-`_` prefix a private FFI mirror spells its names with.
 fn checkBindingConstants(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const header = root.readFileAlloc(io, "include/pancake_ocapn.h", gpa, .limited(1 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "include/pancake_ocapn.h: failed to read for constant-mirror check with {s}", .{@errorName(err)});
-        return;
+    const headers = [_][]const u8{
+        "include/pancake_ocapn.h",
+        "include/pancake_net_transport_tcp.h",
+        "include/pancake_net_transport_inproc.h",
+        "include/pancake_net_transport_iroh.h",
     };
-    defer gpa.free(header);
+    // The header buffers back the `header_vals` key slices, so keep them alive
+    // for the whole check.
+    var header_buffers: std.ArrayList([]u8) = .empty;
+    defer {
+        for (header_buffers.items) |buf| gpa.free(buf);
+        header_buffers.deinit(gpa);
+    }
 
-    // Map the header's `#define PANCAKE_<NAME> <int>` values, keyed by the name
+    // Map every header's `#define PANCAKE_<NAME> <int>` value, keyed by the name
     // after the `PANCAKE_` prefix. Mirrors drop `ERR_` from `WOULD_BLOCK`, so
     // each `ERR_<X>` also registers a bare `<X>` alias.
     var header_vals = std.StringHashMap(i64).init(gpa);
     defer header_vals.deinit();
-    {
+    for (headers) |header_path| {
+        const header = root.readFileAlloc(io, header_path, gpa, .limited(1 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for constant-mirror check with {s}", .{ header_path, @errorName(err) });
+            continue;
+        };
+        try header_buffers.append(gpa, header);
         var rest = header;
         const needle = "#define PANCAKE_";
         while (std.mem.indexOf(u8, rest, needle)) |start| {
@@ -2447,10 +2641,27 @@ fn compareConstant(
     if (raw_name.len > norm_buf.len) return;
     var name = norm_buf[0..raw_name.len];
     for (raw_name, 0..) |c, i| name[i] = if (c == '-') '_' else std.ascii.toUpper(c);
-    const expected = header_vals.get(name) orelse return; // no header counterpart (e.g. struct sizes)
+    const expected = lookupHeaderConst(header_vals, name) orelse return; // no header counterpart (e.g. struct sizes)
     if (expected != value) {
-        try appendViolation(gpa, violations, "{s}: constant {s} = {d} drifts from include/pancake_ocapn.h PANCAKE_{s} = {d}", .{ path, raw_name, value, name, expected });
+        try appendViolation(gpa, violations, "{s}: constant {s} = {d} drifts from header PANCAKE_… = {d}", .{ path, raw_name, value, expected });
     }
+}
+
+/// Look up a mirror constant's expected header value, tolerating the two prefix
+/// conventions a private FFI mirror uses: an iroh Rust mirror spells the full
+/// `PANCAKE_IROH_EV_*`, a Python one spells `_IROH_EV_*`, while the header keys
+/// are stripped of `PANCAKE_`. The direct hit is tried first; a prefix strip
+/// only ever turns a would-be silent skip into a match, never an existing match
+/// into a miss.
+fn lookupHeaderConst(header_vals: *std.StringHashMap(i64), name: []const u8) ?i64 {
+    if (header_vals.get(name)) |v| return v;
+    if (std.mem.startsWith(u8, name, "PANCAKE_")) {
+        if (header_vals.get(name["PANCAKE_".len..])) |v| return v;
+    }
+    if (std.mem.startsWith(u8, name, "_")) {
+        if (header_vals.get(name[1..])) |v| return v;
+    }
+    return null;
 }
 
 /// The per-binding spellings of "raise this ABI error code". A numeric literal
@@ -2865,7 +3076,7 @@ fn checkExampleIndex(
     defer dir.close(io);
 
     var it = dir.iterate();
-    while (it.next(io) catch null) |entry| {
+    while (try it.next(io)) |entry| {
         if (entry.kind != .file) continue;
         // Numbered chapters only: a leading digit. Helpers like `frame_view.zig`
         // are linked from the lower-level section, not the chapter table.
@@ -2889,7 +3100,7 @@ fn checkExampleIndex(
     defer c_dir.close(io);
 
     var c_it = c_dir.iterate();
-    while (c_it.next(io) catch null) |entry| {
+    while (try c_it.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.name, ".c")) continue;
 
@@ -2991,14 +3202,11 @@ const CommandScan = struct {
 };
 
 fn checkDocumentedBuildSteps(
-    step: *Step,
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    _ = step;
-
     const build_zig = root.readFileAlloc(io, "build.zig", gpa, .limited(1 << 20)) catch |err| {
         try appendViolation(gpa, violations, "build.zig: failed to read with {s}", .{@errorName(err)});
         return;

@@ -234,7 +234,7 @@
     height="60"
     rx="14"
     fill="#fff9ee"
-    stroke="#8a7a63"
+    stroke="#8a7862"
     stroke-width="1.8"
   >
   </rect>
@@ -243,7 +243,7 @@
     y="280"
     text-anchor="middle"
     class="chip"
-    fill="#3a3128"
+    fill="#3a3027"
   >the same message</text>
   <text
     x="380"

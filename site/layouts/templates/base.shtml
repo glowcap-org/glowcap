@@ -26,16 +26,6 @@
 				<nav class="nav" aria-label="Documentation">
 					<span class="nav-heading">Build</span>
 					<a class="$site.page('start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('start').link()">Start building</a>
-					<a class="$site.page('examples').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('examples').link()">Examples &amp; demo apps</a>
-					<span class="nav-heading">Explore</span>
-					<a class="$site.page('concepts').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('concepts').link()">Concepts</a>
-					<a class="$site.page('codecs').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('codecs').link()">Codecs</a>
-					<a class="$site.page('transports').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('transports').link()">Transports</a>
-					<div class="nav-sub">
-						<a class="$site.page('transports/iroh').isCurrent().then('is-current', '')" href="$site.page('transports/iroh').link()">iroh (encrypted P2P)</a>
-					</div>
-					<a class="$site.page('modules').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('modules').link()">The modules</a>
-					<span class="nav-heading">Consume</span>
 					<a class="$site.page('surfaces').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('surfaces').link()">Surfaces</a>
 					<a class="$site.page('bindings').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('bindings').link()">Bindings</a>
 					<div class="nav-sub">
@@ -44,10 +34,21 @@
 						<a class="$site.page('bindings/python').isCurrent().then('is-current', '')" href="$site.page('bindings/python').link()">Python</a>
 						<a class="$site.page('bindings/racket').isCurrent().then('is-current', '')" href="$site.page('bindings/racket').link()">Racket</a>
 					</div>
+					<a class="$site.page('examples').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('examples').link()">Examples &amp; demo apps</a>
+					<span class="nav-heading">Explore</span>
+					<a class="$site.page('concepts').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('concepts').link()">Concepts</a>
+					<a class="$site.page('modules').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('modules').link()">The modules</a>
+					<a class="$site.page('codecs').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('codecs').link()">Codecs</a>
+					<a class="$site.page('transports').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('transports').link()">Transports</a>
+					<div class="nav-sub">
+						<a class="$site.page('transports/iroh').isCurrent().then('is-current', '')" href="$site.page('transports/iroh').link()">iroh (encrypted peer-to-peer)</a>
+					</div>
 					<span class="nav-heading">Know</span>
 					<a class="$site.page('protocol').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('protocol').link()">Protocol cheatsheet</a>
 					<a class="$site.page('reference').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('reference').link()">API reference</a>
-					<a class="$site.page('reference/api').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('reference/api').link()">Zig API (autodoc)</a>
+					<div class="nav-sub">
+						<a class="$site.page('reference/api').isCurrent().then('is-current', '')" href="$site.page('reference/api').link()">Zig API (autodoc)</a>
+					</div>
 					<a class="$site.page('performance').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('performance').link()">Performance</a>
 					<a class="$site.page('project').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('project').link()">Project &amp; status</a>
 				</nav>
@@ -63,5 +64,36 @@
 				<a href="https://codeberg.org/jimisaacs/pancake">Codeberg</a>
 			</p>
 		</footer>
+		<script>
+			// Progressive enhancement for `code-tabs` blocks: label/fence pairs
+			// become tabs. Without this script they stay labeled, stacked code.
+			for (const box of document.querySelectorAll(".block.code-tabs")) {
+				const pairs = [];
+				let label = null;
+				for (const el of Array.from(box.children)) {
+					if (el.tagName === "P") label = el;
+					else if (el.tagName === "PRE") { pairs.push([label, el]); label = null; }
+				}
+				if (pairs.length < 2) continue;
+				const bar = document.createElement("div");
+				bar.className = "tab-bar";
+				bar.setAttribute("role", "tablist");
+				const select = (active) => {
+					pairs.forEach(([, pre], i) => { pre.hidden = i !== active; });
+					Array.from(bar.children).forEach((b, i) => b.setAttribute("aria-selected", String(i === active)));
+				};
+				pairs.forEach(([lab, pre], i) => {
+					const btn = document.createElement("button");
+					btn.type = "button";
+					btn.setAttribute("role", "tab");
+					btn.textContent = lab ? lab.textContent.trim() : "tab " + (i + 1);
+					if (lab) lab.remove();
+					btn.addEventListener("click", () => select(i));
+					bar.append(btn);
+				});
+				box.prepend(bar);
+				select(0);
+			}
+		</script>
 	</body>
 </html>

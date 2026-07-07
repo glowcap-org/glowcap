@@ -309,8 +309,8 @@ test "a resolve interceptor claims a served reply before it reaches the wire, an
     try std.testing.expect(pair.p2.takeOutbound() == null);
     try std.testing.expectEqual(@as(i64, 0), claimed_result);
 
-    // Second call replies 5 (fresh counter at -100 → small): unclaimed, the
-    // ordinary resolve flows and the listener fires.
+    // Second call replies 5 (fresh counter at 0 plus 5, under the 100
+    // threshold): unclaimed, the ordinary resolve flows and the listener fires.
     const small = try server.spawn(Counter, .{ .n = 0 });
     try server.bindExport(small, 8);
     try pair.p1.importObject(8);

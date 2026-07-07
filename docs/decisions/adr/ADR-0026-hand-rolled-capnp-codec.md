@@ -45,9 +45,9 @@ against the wire format. [`wire.zig`](../../../src/ocapn/codec/capnp/wire.zig)
 is the mechanical substrate — segment framing, pointer bit-packing
 (`encodeStructPointer` / `encodeListPointer` and their decoders), a
 single-segment `Builder` that back-patches pointers, and a bounds-checked word
-`Reader`. [`core.zig`](../../../src/ocapn/codec/capnp/decode.zig) maps the
-codec-neutral [`model.Message`](../../../src/ocapn/model/mod.zig) tree onto that
-substrate.
+`Reader`. [`decode.zig`](../../../src/ocapn/codec/capnp/decode.zig) and
+[`encode.zig`](../../../src/ocapn/codec/capnp/encode.zig) map the codec-neutral
+[`model.Message`](../../../src/ocapn/model/mod.zig) tree onto that substrate.
 
 Three commitments fix the shape:
 
@@ -81,7 +81,7 @@ is local-only and rejected on encode (`Error.UnsupportedReference`).
 
 ### Live-session integration
 
-The codec is selectable on a live session. `core.zig` also projects
+The codec is selectable on a live session. `decode.zig` also projects
 [`decodeBody`](../../../src/ocapn/codec/capnp/decode.zig) — the shared
 codec-neutral [`model.view.Body`](../../../src/ocapn/model/view.zig) the engine
 dispatches on — directly over the frame's words, the sibling of Syrup's

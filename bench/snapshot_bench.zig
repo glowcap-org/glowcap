@@ -102,7 +102,7 @@ const MapPersistent = struct {
     pub const snapshot_persistent = true;
     map: PMap,
 
-    pub fn handle(self: *MapPersistent, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+    pub fn handle(self: *const MapPersistent, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         if (msg.verb.len > 0 and msg.verb[0] == 't') {
             var next = try self.map.put(0, (self.map.get(0) orelse 0) +% 1);
             turn.become(MapPersistent, .{ .map = next }) catch |e| {

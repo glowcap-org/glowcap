@@ -12,6 +12,7 @@
 
 const std = @import("std");
 const c = @import("c_abi");
+const header_emit = @import("header_emit.zig");
 
 // The constant names the header emits, grouped for section comments. The version
 // macros are emitted inline; these three groups plus the version triple are the
@@ -70,7 +71,7 @@ const protocol_consts = [_][]const u8{
 // One curated comment line per constant that needs one (every return code, plus
 // the discriminants whose meaning is not obvious from the name). `emitConst`
 // consults this table; the guard below keeps every return code documented.
-const const_docs = [_]struct { name: []const u8, doc: []const u8 }{
+const const_doc_entries = [_]struct { name: []const u8, doc: []const u8 }{
     .{ .name = "PANCAKE_OK", .doc = "Success." },
     .{ .name = "PANCAKE_ERR_NULL_POINTER", .doc = "A required pointer argument was NULL." },
     .{ .name = "PANCAKE_ERR_INVALID_ARGUMENT", .doc = "A non-pointer argument was out of range or unparseable (a bad shape/codec discriminant, a zero frame cap, an unparseable host address)." },
@@ -82,8 +83,8 @@ const const_docs = [_]struct { name: []const u8, doc: []const u8 }{
     .{ .name = "PANCAKE_ERR_IO", .doc = "An underlying socket read/write failed; pancake_last_error carries the concrete cause." },
     .{ .name = "PANCAKE_ERR_MALFORMED", .doc = "Inbound bytes were not a structurally valid frame." },
     .{ .name = "PANCAKE_ERR_FRAME_TOO_LARGE", .doc = "An inbound frame exceeded the endpoint's max_frame_bytes." },
-    .{ .name = "PANCAKE_ERR_UNSUPPORTED_VALUE", .doc = "A value SENT across the typed surface uses a variant the C ABI cannot carry (a handoff argument, a sturdy/broken reference target): refused loudly rather than marshalled wrong. Received values never earn this code — pancake_peer_next_event projects an uncarriable inbound value as its raw wire frame instead." },
-    .{ .name = "PANCAKE_ERR_BROKEN", .doc = "Never returned by a C ABI function: the shared code a binding surfaces when a partner breaks a promise (the break arrives as a PANCAKE_RESOLUTION_BREAK resolve event)." },
+    .{ .name = "PANCAKE_ERR_UNSUPPORTED_VALUE", .doc = "A value SENT across the typed surface uses a variant the C ABI cannot carry (a handoff argument, an OCapN Struct argument, or a sturdy/broken reference target): refused loudly rather than marshalled wrong. There is no PANCAKE_ARG_STRUCT, so a Struct cannot be built as an argument. Received values never earn this code — pancake_peer_next_event projects an uncarriable inbound value (a Struct among them) as its raw wire frame instead." },
+    .{ .name = "PANCAKE_ERR_BROKEN", .doc = "A partner broke a promise. The sans-io libpancake_ocapn surface never returns this: a break arrives there as a PANCAKE_RESOLUTION_BREAK resolve event. The owning-session transport surfaces do return it — pancake_tcp_session_fetch (pancake_net_transport_tcp.h) reports a partner break this way, and any future transport twin the same — and bindings reuse the code for that meaning." },
     .{ .name = "PANCAKE_ERR_NOT_FOUND", .doc = "A well-formed lookup found nothing: pancake_locator_hint named a key absent from the locator. Distinct from _INVALID_ARGUMENT (a malformed request)." },
     .{ .name = "PANCAKE_FRAME_SHAPE_WORD", .doc = "Word-aligned storage: pointer 8-byte aligned, length divisible by 8; anything else is PANCAKE_ERR_INVALID_ARGUMENT." },
     .{ .name = "PANCAKE_EVENT_NONE", .doc = "The no-event sentinel pancake_event_release zeroes a released event's kind to; never returned by a successful poll." },
@@ -108,7 +109,7 @@ comptime {
     @setEvalBranchQuota(20000);
     for (error_consts) |name| {
         var documented = false;
-        for (const_docs) |entry| {
+        for (const_doc_entries) |entry| {
             if (std.mem.eql(u8, entry.name, name)) documented = true;
         }
         if (!documented) @compileError("return code missing a header comment in const_docs: " ++ name);
@@ -138,7 +139,7 @@ comptime {
 // the real `c_abi` declarations in both directions, and `generate` verifies
 // every listed name landed in the output text, so a new `pub fn pancake_*`
 // in c_abi cannot silently miss pancake_ocapn.h while the check stays green.
-const emitted_fns = [_][]const u8{
+const emitted_fn_names = [_][]const u8{
     "pancake_abi_version",
     "pancake_managed_frame_release",
     "pancake_event_release",
@@ -190,7 +191,7 @@ const emitted_fns = [_][]const u8{
     "pancake_peer_send_resolve_handoff_give",
     "pancake_node_new",
     "pancake_node_new_in",
-    "pancake_node_free",
+    "pancake_node_release",
     "pancake_node_register_conn",
     "pancake_node_remove_conn",
     "pancake_node_route",
@@ -222,210 +223,35 @@ const emitted_fns = [_][]const u8{
     "pancake_locator_release",
 };
 
-// Compile-time coverage guard for functions, both directions: every
-// `pub fn pancake_*` in c_abi must be listed in `emitted_fns`, and every table
-// entry must name a real c_abi function (a stale entry is a broken promise).
+// The reflection machinery is shared with the transport generators; this `Spec`
+// is what makes `Emit` speak `libpancake_ocapn`: the reflected module, the
+// prototype table, the curated `#define` comments, and the three
+// function-pointer typedefs the base C spelling has no case for.
+const Spec = struct {
+    pub const c = @import("c_abi");
+    pub const emitted_fns: []const []const u8 = &emitted_fn_names;
+    pub const const_docs = &const_doc_entries;
+    pub fn special(comptime T: type) ?[]const u8 {
+        if (T == Spec.c.ReleaseFn or T == ?Spec.c.ReleaseFn) return "PancakeReleaseFn";
+        if (T == Spec.c.PancakeAllocFn or T == ?Spec.c.PancakeAllocFn) return "PancakeAllocFn";
+        if (T == Spec.c.PancakeFreeFn or T == ?Spec.c.PancakeFreeFn) return "PancakeFreeFn";
+        return null;
+    }
+};
+const E = header_emit.Emit(Spec);
+const Buf = header_emit.Buf;
+const line = header_emit.line;
+const emitDoc = header_emit.emitDoc;
+const section = header_emit.section;
+const emitConst = E.emitConst;
+const emitStruct = E.emitStruct;
+const emitBareStruct = E.emitBareStruct;
+const emitFn = E.emitFn;
+
+// Coverage guard, both directions: every `pub fn pancake_*` in `c_abi` must be
+// listed in `emitted_fns`, and every table entry must name a real function.
 comptime {
-    @setEvalBranchQuota(40000);
-    for (@typeInfo(c).@"struct".decls) |decl| {
-        if (!std.mem.startsWith(u8, decl.name, "pancake_")) continue;
-        if (@typeInfo(@TypeOf(@field(c, decl.name))) != .@"fn") continue;
-        var found = false;
-        for (emitted_fns) |name| {
-            if (std.mem.eql(u8, name, decl.name)) found = true;
-        }
-        if (!found) @compileError("function in c_abi but not emitted to pancake_ocapn.h: " ++ decl.name);
-    }
-    for (emitted_fns) |name| {
-        if (!@hasDecl(c, name)) @compileError("emitted_fns lists '" ++ name ++ "' but c_abi has no such declaration");
-        if (@typeInfo(@TypeOf(@field(c, name))) != .@"fn") @compileError("emitted_fns entry '" ++ name ++ "' is not a c_abi function");
-    }
-}
-
-/// Map a Zig type to its C spelling. Reflection-driven, so a field/parameter
-/// type change in `c_abi` flows into the header automatically.
-fn cType(comptime T: type) []const u8 {
-    // The three function-pointer typedefs the header names.
-    if (T == c.ReleaseFn or T == ?c.ReleaseFn) return "PancakeReleaseFn";
-    if (T == c.PancakeAllocFn or T == ?c.PancakeAllocFn) return "PancakeAllocFn";
-    if (T == c.PancakeFreeFn or T == ?c.PancakeFreeFn) return "PancakeFreeFn";
-
-    return switch (T) {
-        u8 => "uint8_t",
-        u16 => "uint16_t",
-        u32 => "uint32_t",
-        u64 => "uint64_t",
-        i32 => "int32_t",
-        i64 => "int64_t",
-        usize => "size_t",
-        f64 => "double",
-        void => "void",
-        anyopaque => "void",
-        else => switch (@typeInfo(T)) {
-            .optional => |o| cType(o.child), // nullable in C is the same spelling
-            .pointer => |p| blk: {
-                const child = cType(p.child);
-                if (child.len > 0 and child[child.len - 1] == '*') break :blk child ++ "*";
-                const prefix = if (p.is_const) "const " else "";
-                break :blk prefix ++ child ++ " *";
-            },
-            .@"struct", .@"opaque" => baseName(T),
-            else => @compileError("no C mapping for " ++ @typeName(T)),
-        },
-    };
-}
-
-/// `c_abi.PancakeFrame` → `PancakeFrame` (strip the module path).
-fn baseName(comptime T: type) []const u8 {
-    const name = @typeName(T);
-    const dot = std.mem.lastIndexOfScalar(u8, name, '.');
-    return if (dot) |i| name[i + 1 ..] else name;
-}
-
-const Buf = std.ArrayList(u8);
-
-fn line(b: *Buf, gpa: std.mem.Allocator, comptime fmt: []const u8, args: anytype) !void {
-    try b.print(gpa, fmt ++ "\n", args);
-}
-
-/// Emit `#define NAME <value>` with the value reflected from `c_abi`. Values
-/// are plain decimal literals (C type `int`) on purpose: every constant is a
-/// small discriminant that callers compare against both `int32_t` returns
-/// (`pancake_peer_peek_event`) and `uint32_t` struct fields, and a `u` suffix
-/// would force a cast or a sign-compare warning on the signed side. A constant
-/// listed in `const_docs` gets its one curated comment line first.
-fn emitConst(b: *Buf, gpa: std.mem.Allocator, comptime name: []const u8) !void {
-    inline for (const_docs) |entry| {
-        if (comptime std.mem.eql(u8, entry.name, name)) {
-            try line(b, gpa, "/* {s} */", .{entry.doc});
-        }
-    }
-    try line(b, gpa, "#define {s} {d}", .{ name, @field(c, name) });
-}
-
-/// Emit a struct typedef, fields reflected from the real `c_abi` type. `docs`
-/// gives an optional `/* ... */` line per field (in field order; "" to skip).
-fn emitStruct(
-    b: *Buf,
-    gpa: std.mem.Allocator,
-    comptime T: type,
-    comptime name: []const u8,
-    comptime docs: []const []const u8,
-) !void {
-    try emitStructBody(b, gpa, T, name, docs, true);
-}
-
-/// `emitStruct` without the typedef wrapper, for a struct whose typedef was
-/// already forward-declared (a second `typedef struct X X;` would redeclare it).
-fn emitBareStruct(
-    b: *Buf,
-    gpa: std.mem.Allocator,
-    comptime T: type,
-    comptime name: []const u8,
-    comptime docs: []const []const u8,
-) !void {
-    try emitStructBody(b, gpa, T, name, docs, false);
-}
-
-fn emitStructBody(
-    b: *Buf,
-    gpa: std.mem.Allocator,
-    comptime T: type,
-    comptime name: []const u8,
-    comptime docs: []const []const u8,
-    comptime use_typedef: bool,
-) !void {
-    const fields = @typeInfo(T).@"struct".fields;
-    if (docs.len != fields.len) @compileError("field doc count mismatch for " ++ name);
-    if (use_typedef) {
-        try line(b, gpa, "typedef struct {s} {{", .{name});
-    } else {
-        try line(b, gpa, "struct {s} {{", .{name});
-    }
-    inline for (fields, docs) |f, doc| {
-        if (doc.len != 0) try line(b, gpa, "    /* {s} */", .{doc});
-        // A struct that references itself uses `struct Name *` in C.
-        const ty = comptime selfRef(T, f.type, name);
-        const space = if (ty.len > 0 and ty[ty.len - 1] == '*') "" else " ";
-        try line(b, gpa, "    {s}{s}{s};", .{ ty, space, f.name });
-    }
-    if (use_typedef) {
-        try line(b, gpa, "}} {s};", .{name});
-    } else {
-        try b.appendSlice(gpa, "};\n");
-    }
-}
-
-/// A pointer-to-self field must spell `const struct Name *` in C (the typedef is
-/// not complete yet at that point).
-fn selfRef(comptime Owner: type, comptime FieldT: type, comptime name: []const u8) []const u8 {
-    if (@typeInfo(FieldT) == .optional) {
-        const child = @typeInfo(FieldT).optional.child;
-        if (@typeInfo(child) == .pointer and @typeInfo(child).pointer.child == Owner) {
-            const prefix = if (@typeInfo(child).pointer.is_const) "const " else "";
-            return prefix ++ "struct " ++ name ++ " *";
-        }
-    }
-    return cType(FieldT);
-}
-
-/// Emit a function prototype: return type and parameter types are reflected from
-/// the real export; `param_names` and `doc` are curated here. A parameter added
-/// in `c_abi` without a name here is a compile error.
-fn emitFn(
-    b: *Buf,
-    gpa: std.mem.Allocator,
-    comptime fn_name: []const u8,
-    comptime param_names: []const []const u8,
-    comptime doc: []const u8,
-) !void {
-    comptime {
-        var listed = false;
-        for (emitted_fns) |name| {
-            if (std.mem.eql(u8, name, fn_name)) listed = true;
-        }
-        if (!listed) @compileError("emitFn called for '" ++ fn_name ++ "' which is missing from emitted_fns");
-        // The header is the C consumer's only surface, so a bare prototype is
-        // an undocumented function no matter what the Zig source says.
-        if (doc.len == 0) @compileError("prototype '" ++ fn_name ++ "' has no header doc; write the contract here");
-    }
-    const info = @typeInfo(@TypeOf(@field(c, fn_name))).@"fn";
-    if (info.params.len != param_names.len) @compileError("param name count mismatch for " ++ fn_name);
-    if (doc.len != 0) try emitDoc(b, gpa, doc);
-
-    try b.print(gpa, "{s} {s}(", .{ comptime cType(info.return_type.?), fn_name });
-    // A zero-parameter C prototype must spell `(void)`: a bare `()` is a
-    // K&R-style unchecked parameter list, not "no parameters".
-    if (info.params.len == 0) try b.appendSlice(gpa, "void");
-    inline for (info.params, param_names, 0..) |p, pname, i| {
-        const ty = comptime cType(p.type.?);
-        const sep = if (i == 0) "" else ", ";
-        const space = if (ty.len > 0 and ty[ty.len - 1] == '*') "" else " ";
-        try b.print(gpa, "{s}{s}{s}{s}", .{ sep, ty, space, pname });
-    }
-    try b.appendSlice(gpa, ");\n");
-}
-
-fn emitDoc(b: *Buf, gpa: std.mem.Allocator, comptime doc: []const u8) !void {
-    const lines = comptime blk: {
-        @setEvalBranchQuota(8000);
-        var ls: []const []const u8 = &.{};
-        var it = std.mem.splitScalar(u8, doc, '\n');
-        while (it.next()) |l| ls = ls ++ .{l};
-        break :blk ls;
-    };
-    inline for (lines, 0..) |l, i| {
-        // An empty doc line separates paragraphs; emit it bare so the header
-        // carries no trailing whitespace.
-        const prefix = if (i == 0) "/* " else if (l.len == 0) "" else "   ";
-        const suffix = if (i == lines.len - 1) " */" else "";
-        try line(b, gpa, "{s}{s}{s}", .{ prefix, l, suffix });
-    }
-}
-
-fn section(b: *Buf, gpa: std.mem.Allocator, comptime title: []const u8) !void {
-    try b.appendSlice(gpa, "\n");
-    try line(b, gpa, "/* ── {s} ── */", .{title});
+    E.guardFns("c_abi", "pancake_");
 }
 
 pub const header_path = "include/pancake_ocapn.h";
@@ -497,7 +323,9 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\their constructor's family (peer, context, netlayer, connection,
         \\listener). Release is the only verb that frees; a *_close is a
         \\shutdown lever that leaves the handle alive. pancake_peer_feed_owned
-        \\is the one call that takes ownership from you, and only on success.
+        \\is the one call that takes ownership from you: it takes the frame on
+        \\every outcome except a NULL-pointer refusal, and on failure it releases
+        \\the frame for you (see its own contract below).
         \\
         \\Threading: a PancakePeer is a single-owner state machine. Serialize every
         \\call on a given peer onto one thread or behind one lock. pancake_last_error
@@ -508,7 +336,17 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     );
 
     try section(&b, gpa, "Return codes");
-    inline for (error_consts) |name| try emitConst(&b, gpa, name);
+    inline for (error_consts) |name| {
+        try emitConst(&b, gpa, name);
+        // The retired codes carry no macro (a consumer must never compare
+        // against a reused value), but the gap in the sequence is a statement,
+        // not a mystery: -2 (a stale-handle check) and -12 (a wrong-kind typed
+        // poll) were removed and their numbers are never reused.
+        if (comptime std.mem.eql(u8, name, "PANCAKE_ERR_NULL_POINTER"))
+            try line(&b, gpa, "/* -2 retired, never reused */", .{});
+        if (comptime std.mem.eql(u8, name, "PANCAKE_ERR_FRAME_TOO_LARGE"))
+            try line(&b, gpa, "/* -12 retired, never reused */", .{});
+    }
 
     try section(&b, gpa, "Discriminants");
     inline for (discriminant_consts) |name| try emitConst(&b, gpa, name);
@@ -530,7 +368,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         "Owned and self-releasing: release with `pancake_managed_frame_release`.",
         "",
         "",
-        "",
+        "Internal self-release hook; never call it directly. Free the frame with\n       `pancake_managed_frame_release`, which is idempotent and nulls this first.",
         "",
     });
     try b.appendSlice(gpa, "\n");
@@ -639,6 +477,11 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\_BIG_INTEGER carries the canonical decimal magnitude in `bytes`/`bytes_len`
         \\(ASCII digits, no leading zero) and the sign in `boolean` (1 = negative);
         \\a magnitude that fits int64_t belongs in _INTEGER and is refused here.
+        \\
+        \\The OCapN Struct has no PANCAKE_ARG_* kind and cannot cross this typed
+        \\surface: sending one is refused with PANCAKE_ERR_UNSUPPORTED_VALUE, and an
+        \\inbound deliver carrying a Struct lands in the PancakeAnyEvent `frame` arm
+        \\as raw wire bytes (see pancake_peer_codec) rather than a projected argument.
     );
     try emitStruct(&b, gpa, c.PancakeReference, "PancakeReference", &.{
         "_NEAR export position, _FAR import position, or _PROMISE answer position.", "object/promise for near/far", "",
@@ -710,10 +553,10 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     );
     try line(&b, gpa, "#define PANCAKE_REDEEMED_TOKEN_BASE {d}ULL", .{c.PANCAKE_REDEEMED_TOKEN_BASE});
     try b.appendSlice(gpa, "\n");
-    try emitFn(&b, gpa, "pancake_node_new", &.{ "seed", "seed_len", "out_node" }, "Create a node bound to the 32-byte identity `seed`, writing the handle into\nout_node. The seed is reused for every connection the node opens so an\nexporter verifies a desc:handoff-receive against one key; draw it at the\nhost's I/O boundary (the sans-io node never generates entropy). Release with\npancake_node_free. `seed` is borrowed; seed_len must be 32.");
+    try emitFn(&b, gpa, "pancake_node_new", &.{ "seed", "seed_len", "out_node" }, "Create a node bound to the 32-byte identity `seed`, writing the handle into\nout_node. The seed is reused for every connection the node opens so an\nexporter verifies a desc:handoff-receive against one key; draw it at the\nhost's I/O boundary (the sans-io node never generates entropy). Release with\npancake_node_release. `seed` is borrowed; seed_len must be 32.");
     try emitFn(&b, gpa, "pancake_node_new_in", &.{ "context", "seed", "seed_len", "out_node" }, "Context-backed counterpart of pancake_node_new: the node, its per-connection\npeers, and the shared gift registry allocate and free through `context`'s\nallocator (ADR-0059). The context must outlive the node.");
-    try emitFn(&b, gpa, "pancake_node_free", &.{"node"}, "Release a node: free every registered peer, the routing tables and the\nreferences they own, and the shared gift registry. The caller must have\nfinished pumping every connection's peer first (those peers are node-owned).\nNULL is a no-op.");
-    try emitFn(&b, gpa, "pancake_node_register_conn", &.{ "node", "out_conn_id", "out_peer" }, "Register a fresh connection, writing its conn_id into out_conn_id and the\nnode-owned negotiating peer into out_peer. Pump out_peer with the ordinary\npancake_peer_* surface; it is already bound to the node's shared gift\nregistry. The HOST completes the keyed op:start-session (it owns the socket\nand the entropy) and must sign with the same 32-byte seed it gave\npancake_node_new — a different key silently breaks give verification at the\nexporter. Do NOT free out_peer: the node owns it and frees it on\npancake_node_remove_conn / pancake_node_free.");
+    try emitFn(&b, gpa, "pancake_node_release", &.{"node"}, "Release a node: free every registered peer, the routing tables and the\nreferences they own, and the shared gift registry. The caller must have\nfinished pumping every connection's peer first (those peers are node-owned).\nNULL is a no-op.");
+    try emitFn(&b, gpa, "pancake_node_register_conn", &.{ "node", "out_conn_id", "out_peer" }, "Register a fresh connection, writing its conn_id into out_conn_id and the\nnode-owned negotiating peer into out_peer. Pump out_peer with the ordinary\npancake_peer_* surface; it is already bound to the node's shared gift\nregistry. The HOST completes the keyed op:start-session (it owns the socket\nand the entropy) and must sign with the same 32-byte seed it gave\npancake_node_new — a different key silently breaks give verification at the\nexporter. Do NOT free out_peer: the node owns it and frees it on\npancake_node_remove_conn / pancake_node_release.");
     try emitFn(&b, gpa, "pancake_node_remove_conn", &.{ "node", "conn_id" }, "Remove a registered connection: free its node-owned peer and retire the\nconn_id (never reused). A later route to a redeemed token whose exporter was\nthis connection fails closed. Stop pumping this connection's peer first. An\nunknown conn_id is a no-op.");
     try emitFn(&b, gpa, "pancake_node_route", &.{ "node", "default_conn", "far_id", "out_conn_id", "out_far_id", "out_routed" }, "Resolve where a deliver to far-object `far_id` rides. A redeemed token routes\nto its exporter connection with the real far id; any other far id rides\ndefault_conn unchanged. Writes the destination conn_id / far id and 1/0 into\nout_routed (0 when a redeemed token names an exporter connection that is gone,\nso the deliver must be dropped).");
     try emitFn(&b, gpa, "pancake_node_record_foreign_home", &.{ "node", "far_id", "home" }, "Record that the fetched far import `far_id` lives on connection `home`, so a\nlater foreign-home return is re-gifted instead of mis-encoding a\ncross-connection reference (ADR-0009 gifter half). A synthetic redeemed token\n(a high far id) is never a wire import, so recording it is a no-op.");
@@ -738,7 +581,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_node_intercept_fulfilled_ref", &.{ "node", "conn_id", "answer", "far_id", "out_claimed" }, "Gifter intercept for the node's serve step: the application answer `answer`\non conn_id fulfilled to the far capability far_id. When that capability's\nrecorded home is another connection, the node claims the reply and queues a\n_NEED_GIFT_ID action — entropy is a host effect, requested only when a reply\nactually becomes a gift — and writes 1 into out_claimed (the host must not\nalso send a plain resolve; it draws 32 bytes and answers with\npancake_node_provide_gift_id). 0 means the reply is ordinary and the host\nresolves it itself.");
     try emitFn(&b, gpa, "pancake_node_provide_gift_id", &.{ "node", "ticket", "gift_id", "gift_id_len" }, "Answer a _NEED_GIFT_ID action with the host-drawn gift_id: the node\noriginates the claimed handoff (deposit on the exporter, signed give\nresolving the claimed answer, using any recorded\npancake_node_set_exporter_location override) and queues the two _FLUSH\nactions — exporter first, so the deposit is on the wire before the recipient\ndials in. A failed origination breaks the claimed answer instead. An\nalready-settled `ticket` is a no-op. gift_id is borrowed and must be\nnon-empty.");
     try emitFn(&b, gpa, "pancake_node_set_exporter_location", &.{ "node", "conn_id", "location", "location_len" }, "Record the verbatim exporter locator to embed in gives whose exporter is\nconn_id — an exporter reachable only by a dial hint (an iroh endpoint's\ndirect addresses), where the session's own signed location record is not\ndialable. `location` is borrowed (the node copies it); NULL or empty clears\nthe override back to the session record.");
-    try emitFn(&b, gpa, "pancake_node_next_action", &.{ "node", "out" }, "Pop the next serve-step action into `out`. The previous action's byte views\nare freed by this call, so a popped action's locator/reason views are valid\nuntil the next pancake_node_next_action (or pancake_node_free); copy what\noutlives that. PANCAKE_ERR_WOULD_BLOCK when no action is pending.");
+    try emitFn(&b, gpa, "pancake_node_next_action", &.{ "node", "out" }, "Pop the next serve-step action into `out`. The previous action's byte views\nare freed by this call, so a popped action's locator/reason views are valid\nuntil the next pancake_node_next_action (or pancake_node_release); copy what\noutlives that. PANCAKE_ERR_WOULD_BLOCK when no action is pending.");
 
     try section(&b, gpa, "Per-thread last error");
     try emitFn(&b, gpa, "pancake_last_error", &.{ "out_buf", "cap" }, "Copy the calling thread's last error into `out_buf`. Copies at most cap - 1\nbytes and always NUL-terminates when cap > 0. Returns the full message\nlength; to receive the whole message pass a buffer of that length plus one.\nout_buf == NULL or cap == 0 queries the length.");
@@ -791,11 +634,6 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     // generated text, so a table entry whose `emitFn` call was dropped fails
     // the generator (and with it `zig build check`) instead of shipping a
     // header without the function.
-    inline for (emitted_fns) |name| {
-        if (std.mem.indexOf(u8, b.items, " " ++ name ++ "(") == null) {
-            std.debug.print("gen-header: emitted_fns lists `{s}` but no emitFn call emitted it\n", .{name});
-            return error.MissingEmittedFunction;
-        }
-    }
+    try E.assertAllEmitted(&b, "gen-header");
     return b.toOwnedSlice(gpa);
 }

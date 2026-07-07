@@ -17,7 +17,7 @@
 //! it and eventual-sends an `invoke`. Attribution is not a trusted
 //! header: the caller signs the request with its KERI key, and the host refuses
 //! to account for an invocation it cannot attest. That signed attribution is the
-//! thing an ambient-authority HTTP call structurally cannot produce — see
+//! thing an ambient-authority HTTP call structurally cannot produce. See
 //! `../why-this-couldnt-be-http.md`.
 
 const std = @import("std");
@@ -223,7 +223,7 @@ pub fn main(init: std.process.Init) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectTcp(io, allocator, &peer, address, read_buf, write_buf);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
     std.debug.print("      session open over TCP {f}\n", .{address});
 
     const affordance = try cv.fetch(AFFORDANCE_NAME);
@@ -232,8 +232,8 @@ pub fn main(init: std.process.Init) !void {
     const request = "read-thermostat";
 
     banner(4, "Caller writes an Attempt Episode, then invokes the capability");
-    // The Attempt Episode is durable *before* the wire send, intent recorded
-    // first, exactly as the documented seam requires.
+    // The Attempt Episode is durable *before* the wire send: intent is
+    // recorded first, exactly as the documented seam requires.
     _ = try caller_store.record(.attempt, caller_id.aidSlice(), "demo", request);
 
     var call_arena = std.heap.ArenaAllocator.init(allocator);

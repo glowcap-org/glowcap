@@ -4,8 +4,9 @@ Runnable CapTP/OCapN walkthroughs. Each program carries its narrative in a `//!`
 header and runs under `zig build examples` (and `zig build check`), so the prose
 and the API calls can't drift from each other.
 
-The chapters read top-down: chapter 01 is the surface an application rides, and
-each later chapter goes one layer deeper, ending at the raw engine.
+The chapters read top-down: chapter 01 is the surface an application rides,
+chapter 02 widens it to the multi-connection `Host` tier, and chapters 03–05
+then descend one layer at a time, ending at the raw engine.
 
 | #  | Program                                                              | What it does                                                                                                                                                                                                                                 |
 | -- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

@@ -7,11 +7,12 @@
 //! peer here, above the `Peer`/`Vat` line, exactly as the project guardrails
 //! require.
 //!
-//! Fidelity, stated honestly: the cryptography is real. An AID is self-certifying
-//! — it is derived from the inception event, which commits to the current Ed25519
-//! verkey and to a *digest* of the next verkey (pre-rotation: the next key is
-//! committed before it is ever exposed). Rotation reveals the committed next key,
-//! signs the new event with the current key, and commits to a fresh next digest.
+//! Fidelity: the cryptography is real. An AID is
+//! self-certifying: it is derived from the inception event, which commits to the
+//! current Ed25519 verkey and to a *digest* of the next verkey (pre-rotation:
+//! the next key is committed before it is ever exposed). Rotation reveals the
+//! committed next key, signs the new event with the current key, and commits to
+//! a fresh next digest.
 //! These are the load-bearing KERI properties.
 //!
 //! What is NOT claimed: byte-for-byte CESR / keripy conformance. The AID is an

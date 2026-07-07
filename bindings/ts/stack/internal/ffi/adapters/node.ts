@@ -43,9 +43,14 @@ function nodeSig(def: SymbolDef): { arguments: string[]; return: string } {
 	};
 }
 
-// The most recently loaded library; callbacks register against it. The core
-// archive loads first and stays loaded, so it is always available here.
-let lastLib: {
+// The library that owns node:ffi callback trampolines: node:ffi registers a
+// callback against one specific loaded library, so it must be the archive whose
+// code invokes it. The à-la-carte archive model loads transport archives *after*
+// the core on demand (ADR-0059), so the most-recently-loaded library is not a
+// safe target. Every current callback consumer is a core-Peer operation
+// (`Peer.feedOwned`'s release trampoline), so pin the first-loaded archive — the
+// core (`libpancake_ocapn`) — and never overwrite it when a transport loads.
+let callbackLib: {
 	registerCallback: (sig: unknown, fn: unknown) => bigint;
 	unregisterCallback: (p: bigint) => void;
 	refCallback: (p: bigint) => void;
@@ -58,7 +63,10 @@ const ffi: RuntimeFfi = {
 			definitions[name] = nodeSig(def);
 		}
 		const { lib, functions } = ffiMod.dlopen(path, definitions);
-		lastLib = lib;
+		// Capture the first archive loaded (the core) as the callback owner and
+		// never overwrite it, so a later transport dlopen cannot steal callback
+		// registration from the core.
+		if (callbackLib === null) callbackLib = lib;
 		// Node pointers are bigint already; the resolved wrappers need no per-call
 		// conversion, so they are the seam's symbols directly.
 		return functions as Symbols;
@@ -71,19 +79,24 @@ const ffi: RuntimeFfi = {
 
 	readMemory(p: Ptr, len: number): ArrayBuffer {
 		if (p === 0n || len === 0) return new ArrayBuffer(0);
-		return ffiMod.toArrayBuffer(p, len, true);
+		// Copy into a JS-owned ArrayBuffer, the invariant `readBytes` relies on: the
+		// caller reads the result after the native storage is freed. `.slice(0)`
+		// guarantees ownership regardless of node:ffi's `toArrayBuffer(…, true)`
+		// copy semantics (stability-1, unverified), matching the Deno and Bun
+		// adapters, which also `.slice(0)`.
+		return ffiMod.toArrayBuffer(p, len, true).slice(0);
 	},
 
 	makeCallback(
 		def: SymbolDef,
 		fn: (...args: unknown[]) => unknown,
 	): NativeCallback {
-		if (lastLib === null) {
+		if (callbackLib === null) {
 			throw new Error(
 				"node:ffi callback requested before any library was loaded",
 			);
 		}
-		const lib = lastLib;
+		const lib = callbackLib;
 		const pointer = lib.registerCallback(nodeSig(def), fn);
 		lib.refCallback(pointer);
 		return {
