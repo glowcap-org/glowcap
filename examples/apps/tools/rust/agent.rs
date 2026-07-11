@@ -4,14 +4,12 @@
 //!
 //!   cargo run --bin tools-agent -- 127.0.0.1 9099 rs-agent
 
-use std::time::Duration;
+#[path = "../../_demo/rust/run_local.rs"]
+mod demo_run;
+#[path = "../../_demo/rust/tools_check.rs"]
+mod tools_check;
 
 use pancake::{connect, tcp_locator, Argument, Ref};
-
-fn check(nick: &str, label: &str, passed: bool) -> bool {
-	println!("{nick}: {}, {label}", if passed { "ok" } else { "FAIL" });
-	passed
-}
 
 fn cap(arg: &Argument) -> Result<Ref, String> {
 	Ref::try_from(arg).map_err(|_| "grant did not return a capability".to_string())
@@ -32,7 +30,7 @@ async fn run(locator: &str, nick: &str) -> Result<(), String> {
 		.await
 		.map_err(|e| format!("grant clock: {e:?}"))?)?;
 	let now = conn.send(&clock, "now", &[]).await;
-	ok &= check(
+	ok &= tools_check::check(
 		nick,
 		"delegation: was handed a clock and called it",
 		matches!(now, Ok(Argument::Integer(_))),
@@ -43,7 +41,7 @@ async fn run(locator: &str, nick: &str) -> Result<(), String> {
 		.await
 		.map_err(|e| format!("grant files: {e:?}"))?)?;
 	let read = conn.send(&files, "read", &["report.txt".into()]).await;
-	ok &= check(
+	ok &= tools_check::check(
 		nick,
 		"attenuation: read through the read-only view",
 		matches!(read, Ok(Argument::String(_))),
@@ -51,13 +49,13 @@ async fn run(locator: &str, nick: &str) -> Result<(), String> {
 	let write = conn
 		.send(&files, "write", &["report.txt".into(), "tampered".into()])
 		.await;
-	ok &= check(nick, "attenuation: write is refused", write.is_err());
+	ok &= tools_check::check(nick, "attenuation: write is refused", write.is_err());
 
 	let revocable = cap(&conn
 		.send(&tools, "grant-revocable", &["clock".into()])
 		.await
 		.map_err(|e| format!("grant-revocable: {e:?}"))?)?;
-	ok &= check(
+	ok &= tools_check::check(
 		nick,
 		"revocation: the handle works before revoke",
 		conn.send(&revocable, "now", &[]).await.is_ok(),
@@ -65,7 +63,7 @@ async fn run(locator: &str, nick: &str) -> Result<(), String> {
 	conn.send(&tools, "revoke-last", &[])
 		.await
 		.map_err(|e| format!("revoke-last: {e:?}"))?;
-	ok &= check(
+	ok &= tools_check::check(
 		nick,
 		"revocation: the handle breaks after revoke",
 		conn.send(&revocable, "now", &[]).await.is_err(),
@@ -94,21 +92,6 @@ async fn main() {
 	let locator = tcp_locator(&args[1], port);
 	let nick = args[3].clone();
 
-	let local = tokio::task::LocalSet::new();
-	let result = local
-		.run_until(async {
-			match tokio::time::timeout(Duration::from_secs(15), run(&locator, &nick)).await {
-				Ok(inner) => inner,
-				Err(_) => Err(format!("{nick} timed out")),
-			}
-		})
-		.await;
-
-	match result {
-		Ok(()) => std::process::exit(0),
-		Err(err) => {
-			eprintln!("agent {nick} failed: {err}");
-			std::process::exit(1);
-		}
-	}
+	let result = demo_run::run_with_timeout(&nick, 15, run(&locator, &nick)).await;
+	demo_run::exit_on_result(&nick, "agent", result);
 }

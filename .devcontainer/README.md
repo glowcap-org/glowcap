@@ -54,6 +54,42 @@ container persists crates in a volume.
 Ptrace requires `runArgs` in `devcontainer.json`. `perf` may still depend on
 host kernel policy. `raco` has no `--version` flag, use `racket --version`.
 
+## Sharing host configuration
+
+The editor already shares the two configs people reach for most, so the
+container mounts nothing for them:
+
+- **git identity and HTTPS credentials.** VS Code and Cursor copy your host
+  `~/.gitconfig` into the container on attach and reuse your host credential
+  helper, so commits carry your identity with no setup.
+- **SSH keys.** The host SSH agent is forwarded automatically (`SSH_AUTH_SOCK`
+  is set in the container). Bind-mounting `~/.ssh` directly is the less-safe
+  path most guides warn against; rely on the forwarded agent instead.
+
+What the editor does not share is bind-mounted from the host in
+[`devcontainer.json`](devcontainer.json), so the login survives a rebuild:
+
+| Tool        | Bind mount                                 | Why it is not automatic |
+| ----------- | ------------------------------------------ | ----------------------- |
+| Claude Code | `~/.claude` → `/home/vscode/.claude`       | skills, memory, login   |
+| GitHub CLI  | `~/.config/gh` → `/home/vscode/.config/gh` | `gh`'s own auth store   |
+
+`initializeCommand` creates each host path first, so a fresh machine binds an
+empty directory rather than the root-owned one Docker would otherwise make.
+Both resolve per-user through `${localEnv:HOME}`, so a teammate mounts their
+own, and either line can be dropped.
+
+Two caveats on the `gh` mount. If you ran `gh auth login` on a desktop that
+keeps the token in a system keyring (GNOME Keyring, macOS Keychain), the token
+is not in `~/.config/gh/hosts.yml`, so the mount carries no login; set
+`GH_TOKEN` in the container or log in again inside it. And the `gh` binary
+itself is installed by the `Dockerfile`, not shared from the host.
+
+GPG signing is not forwarded: install `gnupg2` and forward the gpg-agent socket
+yourself if you sign commits. Personal shell dotfiles belong in the editor's
+`dotfiles.repository` setting, which clones them into every container without
+touching this repo.
+
 ## Layout
 
 | File                                           | Role                               |

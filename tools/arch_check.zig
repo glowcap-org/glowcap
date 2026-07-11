@@ -11,6 +11,11 @@
 //!   * every granted edge is alive — a layer whose files never `@import` a
 //!     granted module name fails the gate, so the table carries the edges the
 //!     code uses, never a wider silent allowance (ADR-0040);
+//!   * every layer-module import is declared — a claimed file that `@import`s
+//!     a layer name outside its row's granted edges fails, so an
+//!     injected-module seam (a module wired outside `graphFromTable`) cannot
+//!     widen the real dependency graph invisibly; the sanctioned injections
+//!     are allowlisted per file in `injected_layer_imports` below;
 //!   * every file belongs to a declared layer — under a module graph an
 //!     unwired directory is silently-dead code, so an unclaimed file fails
 //!     loud instead;
@@ -127,6 +132,42 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
             if (std.mem.indexOf(u8, contents, needle) != null) seen.* = true;
         }
 
+        // Undeclared-edge ban, the liveness check's converse: a claimed file
+        // importing a layer module its row never granted widens the real
+        // dependency graph past the declared one. The compiler cannot catch it
+        // when the file's module is minted outside `graphFromTable` (an
+        // injected resident), so the gate holds it: every layer-name import
+        // must be a granted edge, the layer's own name, or a sanctioned
+        // injection declared in `injected_layer_imports`.
+        {
+            var line_no: usize = 1;
+            var lines = std.mem.splitScalar(u8, contents, '\n');
+            while (lines.next()) |line| : (line_no += 1) {
+                const trimmed = std.mem.trimStart(u8, line, " \t");
+                if (std.mem.startsWith(u8, trimmed, "//")) continue;
+                var rest = line;
+                while (std.mem.indexOf(u8, rest, "@import(\"")) |start| {
+                    rest = rest[start + "@import(\"".len ..];
+                    const end = std.mem.indexOfScalar(u8, rest, '"') orelse break;
+                    const imported = rest[0..end];
+                    rest = rest[end..];
+                    if (!isLayerName(table, imported)) continue;
+                    if (std.mem.eql(u8, imported, spec.name)) continue;
+                    var granted = false;
+                    for (spec.imports) |edge| {
+                        if (std.mem.eql(u8, edge, imported)) granted = true;
+                    }
+                    if (!granted and !isInjectedImport(file_path, imported)) {
+                        try violations.append(gpa, try std.fmt.allocPrint(
+                            gpa,
+                            "{s}:{d}: imports layer module '{s}' but layer '{s}' grants no such edge — add the edge to build.zig's layer_table or declare the injection in tools/arch_check.zig's injected_layer_imports",
+                            .{ file_path, line_no, imported, spec.name },
+                        ));
+                    }
+                }
+            }
+        }
+
         // No-I/O-in-core ban. `std.Io` is the I/O seam, but the core must also
         // not reach a socket or the filesystem directly — `std.net` and
         // `std.fs.File` are I/O the adapters own, so a core layer touching them
@@ -143,12 +184,17 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
 
         // No-scheduler / no-threading-in-core ban. The Core Boundary
         // (docs/architecture.md) forbids background tasks and hidden schedulers,
-        // not only std.Io. `std.Thread` is never allowed in a core layer. The one
-        // sanctioned `std.atomic` is the engine's GiftRegistry table lock, which
-        // guards a host-shared gift table without pulling in std.Io (ADR-0009);
-        // it is allowlisted by path so any other core atomic still fails loud.
+        // not only std.Io. `std.Thread` is never allowed in a core layer for
+        // spawning or scheduling. Two sanctioned exceptions:
+        // - `std.atomic` in the engine's GiftRegistry table lock, which guards
+        //   a host-shared gift table without pulling in std.Io (ADR-0009);
+        // - `std.Thread.getCurrentId` in the byte-fed Host, which asserts the
+        //   single-owning-thread contract already in prose (ADR-0072) — affinity
+        //   only, never spawn. Both are allowlisted by path so any other core
+        //   atomic / Thread still fails loud.
         const allows_atomic = std.mem.endsWith(u8, file_path, "engine/bootstrap.zig");
-        if (spec.core and std.mem.indexOf(u8, contents, "std.Thread") != null) {
+        const allows_thread_id = std.mem.endsWith(u8, file_path, "driver/core/host.zig");
+        if (spec.core and !allows_thread_id and std.mem.indexOf(u8, contents, "std.Thread") != null) {
             try violations.append(gpa, try std.fmt.allocPrint(
                 gpa,
                 "{s}: core layer '{s}' references std.Thread — the core owns no threads or scheduler",
@@ -222,6 +268,40 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
         for (violations.items) |msg| std.debug.print("arch-check: {s}\n", .{msg});
         return step.fail("arch-check found {d} violation(s)", .{violations.items.len});
     }
+}
+
+/// The sanctioned injected-module seams: files whose build module is minted
+/// outside `graphFromTable` with layer imports the claiming layer's row does
+/// not grant. Each row is a declared exception the gate would otherwise
+/// reject, so an injection is visible here instead of silent in a module
+/// constructor. Keep this list to injections that genuinely cannot be a DAG
+/// edge.
+const injected_layer_imports = [_]struct { path: []const u8, imports: []const []const u8 }{
+    // The iroh resident's module (`iroh_resident_mod` in build.zig) is minted
+    // outside `graphFromTable` because it links the Rust sidecar, and its
+    // `LoopHost` serves through the shared serve core, so it is injected with
+    // the actor and serve-core modules. The serve half is `driver`-tier code
+    // standing in a `net` file because the sidecar's injected module cannot be
+    // a DAG edge for `driver` to import; this row is that seam's declared
+    // boundary.
+    .{ .path = "net/transport/iroh.zig", .imports = &.{ "actors", "driver_core" } },
+};
+
+fn isLayerName(table: []const LayerSpec, name: []const u8) bool {
+    for (table) |spec| {
+        if (std.mem.eql(u8, spec.name, name)) return true;
+    }
+    return false;
+}
+
+fn isInjectedImport(file_path: []const u8, imported: []const u8) bool {
+    for (injected_layer_imports) |row| {
+        if (!std.mem.eql(u8, row.path, file_path)) continue;
+        for (row.imports) |name| {
+            if (std.mem.eql(u8, name, imported)) return true;
+        }
+    }
+    return false;
 }
 
 /// The table row that claims `file_path` (relative to `src/`): the longest

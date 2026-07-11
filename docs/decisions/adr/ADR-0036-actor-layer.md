@@ -3,7 +3,7 @@ id: ADR-0036
 status: accepted
 date: 2026-06-07
 tags: [actors, vat, layer, sans-io]
-decision: "pancake provides a Goblins-shaped actor layer (`src/actors/`) as a new sync, no-I/O layer above the engine. A `Vat` is a turn loop over local actors: typed `spawn`, synchronous near-call (`$`), eventual-send (`<-`) returning a `Promise` with one-shot listeners, and 'become' expressed as mutating an actor's own `self`. A peer-bound vat also binds actors to wire exports and meets the OCapN engine at one location-transparent seam, with a per-turn reply arena. It owns no I/O and adds no CapTP semantics the engine lacks."
+decision: "pancake provides a Goblins-shaped actor layer (`src/actors/`) as a new sync, no-I/O layer above the engine. A `Vat` is a turn loop over local actors: typed `spawn`, synchronous near-call (`$`), eventual-send (`<-`) returning a `Vow` with one-shot listeners, and 'become' expressed as mutating an actor's own `self`. A peer-bound vat also binds actors to wire exports and meets the OCapN engine at one location-transparent seam, with a per-turn reply arena. It owns no I/O and adds no CapTP semantics the engine lacks."
 supersedes: []
 superseded_by: []
 ---
@@ -41,13 +41,13 @@ actors.
 - **`spawn`** is comptime-typed (type-safe construction) and stores actors
   type-erased, so one vat holds heterogeneous actors with no runtime type tax
   beyond one indirect call per turn.
-- **`call`** is the synchronous near-call (`$`): run the handler now, return its
+- **`near`** is the synchronous near-call (`$`): run the handler now, return its
   value. **`send`** is the eventual send (`<-`): queue the message, return a
-  `Promise`; **`drive`** runs queued turns to quiescence (FIFO, so a send chain
-  bottoms out before it returns) and settles each promise — fulfilled with the
+  `Vow`; **`drive`** runs queued turns to quiescence (FIFO, so a send chain
+  bottoms out before it returns) and settles each vow — fulfilled with the
   handler's value, or broken on a handler error — firing any one-shot listener
   registered with **`on`**.
-- **`Turn`** is the per-turn context (spawn/call/send + the actor's own `Ref`).
+- **`Turn`** is the per-turn context (spawn/near/send + the actor's own `Ref`).
   It is an explicit argument, never global — the Zig answer to Goblins's
   `current-syscaller`.
 
@@ -91,7 +91,7 @@ engine export positions. Publish an actor as an export, and an inbound
 the actor's reply, or breaks it on a handler error. A delivered argument list
 led by a symbol reads as a method call (a verb plus its args). The engine and
 the actor architecture meet at one seam: a unified `Ref` (a local actor or a far
-import) and a `Promise` (local or a wire-answer), routed by the peer-bound vat.
+import) and a `Vow` (local or a wire-answer), routed by the peer-bound vat.
 Eventual-send (`<-`) is location-transparent — a local target queues a turn, a
 far target leaves as an `op:deliver` over the peer — while near-call (`$`) stays
 local-only. The vat rides the engine (it publishes an actor as an export,

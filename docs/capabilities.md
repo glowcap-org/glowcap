@@ -16,8 +16,8 @@ permission names to match. The question never comes up, because an unauthorized
 caller has nothing to make the call _with_.
 
 The contrast is what security people call ambient authority. In most systems a
-program runs with a pool of permissions attached to its identity — its user
-account, its API key, its service role — and every library it links shares that
+program runs with a pool of permissions attached to its identity (its user
+account, its API key, its service role) and every library it links shares that
 whole pool. A capability system has no pool. Authority arrives one reference at
 a time, from whoever chose to hand it over, and a function can use exactly what
 it was passed and nothing else.
@@ -41,30 +41,38 @@ is what lets it cross a network.
 
 ## What CapTP adds
 
-CapTP — the Capability Transport Protocol, an idea inherited from the
-[E language](http://erights.org/elib/distrib/captp/) — extends those references
+CapTP (the Capability Transport Protocol, an idea inherited from the
+[E language](http://erights.org/elib/distrib/captp/)) extends those references
 over a connection. Two programs open a session, and each can hand the other
 references to its local objects. A reference that crosses the wire arrives as
 unforgeable on the far side as it was at home: the protocol's tables, not the
 application's diligence, make it impossible to name an object you were never
 given.
 
+That sentence also locates the trust boundary. It sits at the wire and its
+session tables, not inside one process: within a single vat, code that holds
+the vat handle can reach any object the vat hosts (in pancake, a vat-local
+actor id is a plain integer, exactly as an object reference inside one Zig or
+JavaScript program is reachable by anything in that program). The capability
+discipline begins where two mutually suspicious parties meet — the session —
+and there the tables validate every position a partner names.
+
 Beyond carrying references, CapTP carries _promises_. Calling a remote object
-returns immediately with a promise for the answer, and you may call methods on
-that promise before it resolves, the call is forwarded to wherever the answer
-turns out to live. This is promise pipelining, and it collapses what would be
-ping-pong round trips into a single flight. The protocol also keeps distributed
+returns immediately with a promise for the answer. You may call methods on that
+promise before it resolves, and the call is forwarded to wherever the answer
+turns out to live. This is promise pipelining, and it collapses ping-pong round
+trips into a single flight. The protocol also keeps distributed
 garbage-collection accounts, so when neither side can reach an exported object
 anymore, its slot is reclaimed.
 
-When three parties are involved — Alice holds a capability to Carol's object and
-wants to give it to Bob — CapTP defines the _handoff_: a signed, verifiable
+When three parties are involved (Alice holds a capability to Carol's object and
+wants to give it to Bob), CapTP defines the _handoff_: a signed, verifiable
 introduction that lets Bob present his grant to Carol directly, without Alice
 having to proxy every later call.
 
 ## What OCapN is, and where Goblins fits
 
-[OCapN](https://github.com/ocapn/ocapn) — the Object Capability Network — is the
+[OCapN](https://github.com/ocapn/ocapn) (the Object Capability Network) is the
 standards effort, stewarded by the
 [Spritely Institute](https://spritely.institute/) and a community group, that
 turns CapTP from a family of implementations into one interoperable protocol: an
@@ -76,8 +84,8 @@ this repository vendors a copy under
 [Spritely Goblins](https://spritely.institute/goblins/) is the reference
 implementation in practice: a Racket (and Guile) library whose wire behavior
 defines what interoperating actually means today. pancake treats Goblins as its
-conformance authority — `zig build goblins-interop` holds a live conversation
-with a real Goblins vat in both directions — and the
+conformance authority: `zig build goblins-interop` holds a live conversation
+with a real Goblins vat in both directions. The
 [protocol diagrams](protocol-diagrams/README.md) flag the few places where
 pancake speaks a Goblins convention that the draft spec does not yet pin down.
 
@@ -104,9 +112,9 @@ without stopping to re-introduce them.
 | export / import    | The session-table positions a shared object occupies: an export on the side that owns it, an import on the side that received it. |
 | promise            | A reference to an answer that has not arrived yet; it later resolves to a value or breaks with a reason.                          |
 | promise pipelining | Calling through a promise before it resolves, so dependent calls travel in one flight instead of round trips.                     |
-| swiss number       | An unguessable name a host registers an object under, so a partner can fetch it through the bootstrap object.                     |
+| swiss number       | A high-entropy name the host chooses and registers an object under, so a partner can fetch it through the bootstrap object. The substrate carries it unforgeably but does not mint it: the entropy is the host's to supply. |
 | bootstrap object   | The one well-known capability a fresh session starts with; everything else is fetched or passed from there.                       |
-| sturdyref          | A durable, out-of-band token — peer plus swiss number — that can be turned back into a live reference later.                      |
+| sturdyref          | A durable, out-of-band token (peer plus swiss number) that can be turned back into a live reference later.                      |
 | locator            | The `ocapn://` URI form that names a peer (and optionally a sturdyref) so a netlayer can dial it.                                 |
 | handoff            | The signed three-party introduction that moves a capability from one session to another without proxying.                         |
 | netlayer           | The transport a session runs over; pancake ships TCP, an in-process (`inproc`) pair, and an encrypted iroh/QUIC resident.         |

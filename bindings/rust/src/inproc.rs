@@ -16,15 +16,15 @@
 
 use core::marker::PhantomData;
 
+use crate::error_slot::error_slot;
 use crate::sys::inproc as ffi;
-use crate::transport_error::transport_error_slot;
 use crate::{Codec, Context, Result};
 
-// Like the core `check`, but for `pancake_inproc_*` calls: snapshot the
-// in-process transport's own thread-local last-error.
-transport_error_slot!(
-	check_inproc,
-	inproc_last_error,
+error_slot!(
+	// Like the core `check`, but for `pancake_inproc_*` calls: snapshot the
+	// in-process transport's own thread-local last-error.
+	fn check_inproc;
+	fn inproc_last_error;
 	ffi::pancake_inproc_last_error
 );
 

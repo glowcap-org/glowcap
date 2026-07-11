@@ -3,7 +3,7 @@ id: ADR-0053
 status: accepted
 date: 2026-06-11
 tags: [net, driver, runtime, resilience]
-decision: "The blocking pump stays a single fiber by contract: its workload is cooperative request/response, where each side drains the replies it asked for. The read/write fiber split is refused, not pending — a second fiber over a single-threaded peer means a lock (a hidden runtime), and a bounded nonblocking write inside the pump means an fd-readiness dependency that breaks the type-erased transport contract and duplicates ADR-0042. Concurrent streaming and non-draining partners ride the completion loop, which both directions package (LoopHost, LoopDialer)."
+decision: "The blocking pump stays a single fiber by contract: its workload is cooperative request/response, where each side drains the replies it asked for. The read/write fiber split is refused, not pending — a second fiber over a single-threaded peer means a lock (a hidden runtime), and a bounded nonblocking write inside the pump means an fd-readiness dependency that breaks the type-erased transport contract and duplicates ADR-0042. Concurrent streaming and non-draining partners ride a completion loop — `net.Loop` at the byte tier, or iroh's `LoopHost`."
 supersedes: []
 superseded_by: []
 ---
@@ -33,7 +33,7 @@ in `step` / `call` / `serve` between requests is draining, not flooding. A
 partner that streams without draining is outside the contract, and the surface
 for that partner already exists: the completion loop bounds outbound bytes and
 parks reads (ADR-0042), and both directions are packaged above it
-(`driver.LoopHost`, `driver.LoopDialer`, ADR-0051). pancake deliberately has one
+(`net.Loop`, ADR-0051; iroh's `LoopHost`, ADR-0057). pancake deliberately has one
 duplex runtime, not two.
 
 ## Scope (what this does not decide)

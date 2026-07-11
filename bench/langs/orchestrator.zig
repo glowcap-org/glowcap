@@ -74,6 +74,11 @@ const Row = struct {
     conn_ms: []const u8 = "-",
     per_conn_kb: []const u8 = "-",
     cold_ms: []const u8 = "-",
+    local_in_ns: []const u8 = "-",
+    local_in_p99_ns: []const u8 = "-",
+    local_via_ns: []const u8 = "-",
+    local_via_p99_ns: []const u8 = "-",
+    local_ratio: []const u8 = "-",
 };
 
 const Ctx = struct {
@@ -90,6 +95,7 @@ const Ctx = struct {
     tput_n: usize,
     conns: usize,
     cold_samples: usize,
+    local_n: usize,
     pinned_port: ?u16,
 };
 
@@ -139,6 +145,7 @@ pub fn main(init: std.process.Init) !void {
         .tput_n = if (smoke) 20 else 2000,
         .conns = if (smoke) 4 else 50,
         .cold_samples = if (smoke) 3 else 5,
+        .local_n = if (smoke) 20 else 2000,
         .pinned_port = pinned_port,
     };
 
@@ -304,6 +311,19 @@ fn benchOne(ctx: *Ctx, def: ClientDef) !Row {
         var host = try startHost(ctx);
         defer host.kill(ctx.io);
         row.cold_ms = try runCold(ctx, def, host.port, ctx.cold_samples);
+    }
+    {
+        // `local` is self-contained (contract.md): the client ignores the
+        // host/port arguments, so no host is spawned and the port is 0. The
+        // goblins-ref row reports its via_host fields as JSON null.
+        const line = try runMetric(ctx, def, "local", 0, ctx.local_n);
+        if (line) |l| {
+            row.local_in_ns = jfDash(l, "\"in_lang_ns\"");
+            row.local_in_p99_ns = jfDash(l, "\"in_lang_p99_ns\"");
+            row.local_via_ns = jfDash(l, "\"via_host_ns\"");
+            row.local_via_p99_ns = jfDash(l, "\"via_host_p99_ns\"");
+            row.local_ratio = jfDash(l, "\"ratio\"");
+        }
     }
     return row;
 }
@@ -508,6 +528,14 @@ fn readVmRssKb(ctx: *Ctx, pid: std.posix.pid_t) ?u64 {
     return std.fmt.parseInt(u64, text[start..i], 10) catch null;
 }
 
+/// `jf`, with a JSON `null` (or a missing key) rendered as `-`: the
+/// goblins-ref row's `local` line carries null via_host fields (contract.md).
+fn jfDash(line: []const u8, key: []const u8) []const u8 {
+    const value = jf(line, key) orelse return "-";
+    if (std.mem.eql(u8, value, "null")) return "-";
+    return value;
+}
+
 /// Pull a `"key":num` or `"key":"str"` value out of an NDJSON line (a subslice
 /// of `line`, so it lives as long as the caller's line). `key` includes its
 /// surrounding quotes, e.g. `"\"p50_ms\""`.
@@ -546,9 +574,9 @@ fn report(ctx: *Ctx, rows: []const Row, skipped: []const ClientDef) !void {
     var term: std.ArrayList(u8) = .empty;
     defer term.deinit(ctx.gpa);
     try term.appendSlice(ctx.gpa, "pancake per-language consumer cost (NOT a leaderboard)\n");
-    try term.print(ctx.gpa, "mode={s} lat_n={d} tput_n={d} conns={d} cold_samples={d}\n\n", .{ mode_str, ctx.lat_n, ctx.tput_n, ctx.conns, ctx.cold_samples });
+    try term.print(ctx.gpa, "mode={s} lat_n={d} tput_n={d} conns={d} cold_samples={d} local_n={d}\n\n", .{ mode_str, ctx.lat_n, ctx.tput_n, ctx.conns, ctx.cold_samples, ctx.local_n });
     for (rows) |r| {
-        try term.print(ctx.gpa, "  {s} ({s})  p50={s}ms p99={s}ms p999={s}ms mean={s}ms rps={s} setup={s}ms/conn per_conn={s}kB cold={s}ms\n", .{ r.name, r.runtime, r.p50, r.p99, r.p999, r.mean, r.rps, r.conn_ms, r.per_conn_kb, r.cold_ms });
+        try term.print(ctx.gpa, "  {s} ({s})  p50={s}ms p99={s}ms p999={s}ms mean={s}ms rps={s} setup={s}ms/conn per_conn={s}kB cold={s}ms local={s}ns local_p99={s}ns via_host={s}ns via_p99={s}ns via/local={s}\n", .{ r.name, r.runtime, r.p50, r.p99, r.p999, r.mean, r.rps, r.conn_ms, r.per_conn_kb, r.cold_ms, r.local_in_ns, r.local_in_p99_ns, r.local_via_ns, r.local_via_p99_ns, r.local_ratio });
     }
     try out(ctx.io, "{s}", .{term.items});
 
@@ -671,13 +699,13 @@ fn renderMarkdown(ctx: *Ctx, rows: []const Row, mode: []const u8, stamp: i64) ![
     var s: std.ArrayList(u8) = .empty;
     const a = ctx.arena;
     try s.appendSlice(a, "# pancake per-language consumer cost\n\n");
-    try s.print(a, "Mode **{s}** \u{b7} latency n={d} \u{b7} throughput n={d} \u{b7} connections={d} \u{b7} cold-start samples={d}. One native Zig host, the client language swapped per row, over real loopback TCP.\n\n", .{ mode, ctx.lat_n, ctx.tput_n, ctx.conns, ctx.cold_samples });
+    try s.print(a, "Mode **{s}** \u{b7} latency n={d} \u{b7} throughput n={d} \u{b7} connections={d} \u{b7} cold-start samples={d} \u{b7} local n={d}. One native Zig host, the client language swapped per row, over real loopback TCP.\n\n", .{ mode, ctx.lat_n, ctx.tput_n, ctx.conns, ctx.cold_samples, ctx.local_n });
     try s.appendSlice(a, "> This is **not** a language leaderboard. Each row is a whole consumer stack — runtime, that language's binding, the app rewritten in it, and its garbage collector — over one pancake host. A faster row does not mean pancake's wire is faster in that language; it means that whole stack was faster on this one machine on this one day. Reproduce with `zig build bench-langs`, and read [`bench/langs/README.md`](README.md) for the fairness model and caveats.\n\n");
     try s.appendSlice(a, "## Results\n\n");
-    try s.appendSlice(a, "| client | runtime | p50 ms | p99 ms | p999 ms | mean ms | req/s | setup ms/conn | mem kB/conn | cold ms |\n");
-    try s.appendSlice(a, "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
+    try s.appendSlice(a, "| client | runtime | p50 ms | p99 ms | p999 ms | mean ms | req/s | setup ms/conn | mem kB/conn | cold ms | local ns/turn | local p99 ns | via-host ns/turn | via-host p99 ns | via/local |\n");
+    try s.appendSlice(a, "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n");
     for (rows) |r| {
-        try s.print(a, "| {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} |\n", .{ r.name, r.runtime, r.p50, r.p99, r.p999, r.mean, r.rps, r.conn_ms, r.per_conn_kb, r.cold_ms });
+        try s.print(a, "| {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} | {s} |\n", .{ r.name, r.runtime, r.p50, r.p99, r.p999, r.mean, r.rps, r.conn_ms, r.per_conn_kb, r.cold_ms, r.local_in_ns, r.local_in_p99_ns, r.local_via_ns, r.local_via_p99_ns, r.local_ratio });
     }
     try s.print(a, "\n## Latency — p50, milliseconds (lower is better)\n\n![latency p50](langs-compare-{d}-latency.svg)\n", .{stamp});
     try s.print(a, "\n## Throughput — requests/second (higher is better)\n\n![throughput](langs-compare-{d}-throughput.svg)\n", .{stamp});

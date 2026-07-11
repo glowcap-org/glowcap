@@ -48,8 +48,8 @@ test "registerConn yields stable, non-reused ids and node-owned peers" {
     var node = Node.init(allocator, [_]u8{7} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const a = try node.registerConn();
-    const b = try node.registerConn();
+    const a = try node.registerConn(.{});
+    const b = try node.registerConn(.{});
     try std.testing.expect(a != b);
     try std.testing.expect(node.peer(a) != null);
     try std.testing.expect(node.peer(b) != null);
@@ -60,12 +60,12 @@ test "registerConn yields stable, non-reused ids and node-owned peers" {
     node.removeConn(a);
     try std.testing.expect(node.peer(a) == null);
     // A removed id is not reused: the next registration gets a fresh id past it.
-    const c = try node.registerConn();
+    const c = try node.registerConn(.{});
     try std.testing.expect(c != a);
     try std.testing.expect(c != b);
 }
 
-/// The answer id the node assigned the one withdraw it has parked on
+/// The answer position the node assigned the one withdraw it has parked on
 /// `exporter`. In production the exporter echoes this id on its resolve frame,
 /// so a host reads it off the wire; a white-box test drives `claimResolve`
 /// directly and recovers it from the node's single pending withdraw. Asserts
@@ -106,8 +106,8 @@ test "a redeemed token routes to its exporter with the real reference swapped in
     var node = Node.init(allocator, [_]u8{9} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient_conn = try node.registerConn();
-    const exporter_conn = try node.registerConn();
+    const recipient_conn = try node.registerConn(.{});
+    const exporter_conn = try node.registerConn(.{});
     var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter_conn).?, [_]u8{16} ** crypto.SEED_BYTES);
     defer counterpart.deinit();
 
@@ -139,32 +139,29 @@ test "send-argument routability: a capability on another connection is foreign, 
     var node = Node.init(allocator, [_]u8{3} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const here = try node.registerConn();
-    const elsewhere = try node.registerConn();
+    const here = try node.registerConn(.{});
+    const elsewhere = try node.registerConn(.{});
 
     // The verdict every binding's send-argument guard computes from the node: a
     // far is foreign in argument position when it is a redeemed token (reserved
-    // range) or its recorded home is a connection other than the one sending.
-    // `Node.argIsForeign` is the one definition; every binding's fail-closed
-    // guard projects it through `pancake_node_arg_is_foreign` rather than
-    // hand-rolling a copy (ADR-0009 gifter half; argument-position origination is
-    // the lift that retires the guard).
-    const import: model.Reference = .{ .far = model.FarRef.object(8) };
-    try node.recordForeignHome(import, elsewhere);
+    // range, no wire home) or a fetched-import token addressed away from its home.
+    // `Node.argIsForeign` is the one definition; every binding's fail-closed guard
+    // projects it through `pancake_node_arg_is_foreign` rather than hand-rolling a
+    // copy (ADR-0069).
+    const import = try node.enrollForeign(elsewhere, .{ .far = model.FarRef.object(8) });
     // Foreign when sent from `here` (it lives on `elsewhere`)…
     try std.testing.expect(node.argIsForeign(here, import));
     // …native when sent from its own home.
     try std.testing.expect(!node.argIsForeign(elsewhere, import));
 
-    // An unrecorded far rides its own connection: not foreign.
+    // An ordinary wire far, below the reserved token range, rides its own
+    // connection: not foreign.
     const unknown: model.Reference = .{ .far = model.FarRef.object(9) };
     try std.testing.expect(!node.argIsForeign(here, unknown));
 
     // A redeemed token is foreign from any connection of the node, its home
-    // included: route rewriting applies to send targets only, so a token in
-    // argument position would reach the wire as its synthetic id. (For the same
-    // reason a token never lands in the foreign-home table; the reserved range
-    // alone decides its verdict.)
+    // included: it has no wire home, so it can only be re-routed as a send target,
+    // never marshalled as an argument.
     var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(elsewhere).?, [_]u8{17} ** crypto.SEED_BYTES);
     defer counterpart.deinit();
     const token_id = try mintRedeemedToken(&node, here, elsewhere, 81, 1, "ocapn://127.0.0.1%3A9056.tcp");
@@ -178,8 +175,8 @@ test "origination fails closed when the gift's home connection is gone" {
     var node = Node.init(allocator, [_]u8{5} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const here = try node.registerConn();
-    const elsewhere = try node.registerConn();
+    const here = try node.registerConn(.{});
+    const elsewhere = try node.registerConn(.{});
 
     // A foreign-home reply is claimed and the node asks for gift-id entropy;
     // the home connection then dies before the entropy answer arrives, so the
@@ -188,8 +185,8 @@ test "origination fails closed when the gift's home connection is gone" {
     // (session-never-opened) fail-closed arm is pinned by the
     // `interceptFulfilledRef` test below; the live positive proof is the
     // `*-goblins-gift` matrix.
-    try node.recordForeignHome(.{ .far = model.FarRef.object(4) }, elsewhere);
-    try std.testing.expect(try node.interceptFulfilledRef(here, 61, 4));
+    const gift = try node.enrollForeign(elsewhere, .{ .far = model.FarRef.object(4) });
+    try std.testing.expect(try node.interceptFulfilledRef(here, 61, gift.far.import_position.int()));
     const ask = node.nextAction().?;
     node.removeConn(elsewhere);
     const gift_id = [_]u8{0xAB} ** 32;
@@ -212,7 +209,7 @@ test "acceptGive with no dialable exporter locator fails the answer closed" {
     var node = Node.init(allocator, [_]u8{2} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn();
+    const recipient = try node.registerConn(.{});
     try node.acceptGive(recipient, 7, "give-bytes", "");
 
     const action = node.nextAction().?;
@@ -227,7 +224,7 @@ test "an unknown exporter becomes one dial action; a second give joins it" {
     var node = Node.init(allocator, [_]u8{4} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn();
+    const recipient = try node.registerConn(.{});
     const locator = "ocapn://127.0.0.1%3A9050.tcp";
     try node.acceptGive(recipient, 11, "give-one", locator);
     // A second redeem naming the same exporter joins the pending dial instead
@@ -257,14 +254,14 @@ test "a dialed exporter whose session never opened fails the redeem closed" {
     var node = Node.init(allocator, [_]u8{6} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn();
+    const recipient = try node.registerConn(.{});
     try node.acceptGive(recipient, 21, "give-bytes", "ocapn://127.0.0.1%3A9051.tcp");
     const dial = node.nextAction().?;
 
     // The embedder registers the exporter conn but the keyed session is not
     // open (no partner key), so the withdraw cannot be signed: the redeem
     // breaks instead of hanging.
-    const exporter = try node.registerConn();
+    const exporter = try node.registerConn(.{});
     try node.exporterDialed(dial.dial.pending, exporter);
     const action = node.nextAction().?;
     try std.testing.expectEqual(recipient, action.fail.conn_id);
@@ -331,8 +328,8 @@ test "a live exporter withdraws immediately and the claimed resolve settles a ro
     var node = Node.init(allocator, [_]u8{8} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn();
-    const exporter = try node.registerConn();
+    const recipient = try node.registerConn(.{});
+    const exporter = try node.registerConn(.{});
     var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{9} ** crypto.SEED_BYTES);
     defer counterpart.deinit();
 
@@ -375,8 +372,8 @@ test "a broken or non-capability withdraw breaks the application answer" {
     var node = Node.init(allocator, [_]u8{10} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn();
-    const exporter = try node.registerConn();
+    const recipient = try node.registerConn(.{});
+    const exporter = try node.registerConn(.{});
     var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{11} ** crypto.SEED_BYTES);
     defer counterpart.deinit();
 
@@ -406,21 +403,23 @@ test "interceptFulfilledRef claims only a foreign-home reply, entropy as an effe
     var node = Node.init(allocator, [_]u8{12} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const here = try node.registerConn();
-    const elsewhere = try node.registerConn();
+    const here = try node.registerConn(.{});
+    const elsewhere = try node.registerConn(.{});
 
-    // No recorded home, or a home on this very connection: not claimed, the
-    // embedder resolves the reply itself — and no entropy is ever requested
-    // for an ordinary reply.
+    // No enrollment, or a home on this very connection: not claimed, the embedder
+    // resolves the reply itself — and no entropy is ever requested for an ordinary
+    // reply. A token homed here is returned to its own owner, so the chokepoint
+    // lowers it and no re-gift is needed.
     try std.testing.expect(!try node.interceptFulfilledRef(here, 51, 5));
-    try node.recordForeignHome(.{ .far = model.FarRef.object(5) }, here);
-    try std.testing.expect(!try node.interceptFulfilledRef(here, 51, 5));
+    const home_here = try node.enrollForeign(here, .{ .far = model.FarRef.object(5) });
+    try std.testing.expect(!try node.interceptFulfilledRef(here, 51, home_here.far.import_position.int()));
     try std.testing.expect(node.nextAction() == null);
 
-    // A foreign home is claimed: the node asks for gift-id entropy (a host
-    // effect, like dialing) rather than receiving it speculatively.
-    try node.recordForeignHome(.{ .far = model.FarRef.object(6) }, elsewhere);
-    try std.testing.expect(try node.interceptFulfilledRef(here, 52, 6));
+    // A capability homed on another connection is claimed: the node asks for
+    // gift-id entropy (a host effect, like dialing) rather than receiving it
+    // speculatively.
+    const home_else = try node.enrollForeign(elsewhere, .{ .far = model.FarRef.object(6) });
+    try std.testing.expect(try node.interceptFulfilledRef(here, 52, home_else.far.import_position.int()));
     const ask = node.nextAction().?;
     const ticket = ask.need_gift_id.ticket;
 
@@ -438,18 +437,112 @@ test "interceptFulfilledRef claims only a foreign-home reply, entropy as an effe
     try std.testing.expect(node.nextAction() == null);
 }
 
+test "a fetched foreign import is enrolled under a node-unique token; two at one position never collide and each routes home (ADR-0069)" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{18} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const conn_a = try node.registerConn(.{});
+    const conn_b = try node.registerConn(.{});
+
+    // Two capabilities fetched over different connections land at the SAME wire
+    // position (imports are numbered per session). Enrolling each yields a
+    // distinct node-unique token, so the node-global collision the old
+    // position-keyed home map had — where the second fetch clobbered the first —
+    // cannot happen.
+    const wire: model.Reference = .{ .far = model.FarRef.object(1) };
+    const token_a = try node.enrollForeign(conn_a, wire);
+    const token_b = try node.enrollForeign(conn_b, wire);
+    const a = token_a.far.import_position.int();
+    const b = token_b.far.import_position.int();
+    try std.testing.expect(a != b);
+    try std.testing.expect(a >= Node.REDEEMED_TOKEN_BASE);
+
+    // Each token routes to its OWN home, lowered to the real wire reference. This
+    // is the same swap the served-reply interceptor uses to keep a token off the
+    // wire when a fetched capability is returned to its own owner.
+    const ra = node.routeReference(conn_a, token_a).?;
+    try std.testing.expectEqual(conn_a, ra.conn_id);
+    try std.testing.expectEqual(@as(u64, 1), ra.target.far.import_position.int());
+    const rb = node.routeReference(conn_b, token_b).?;
+    try std.testing.expectEqual(conn_b, rb.conn_id);
+    try std.testing.expectEqual(@as(u64, 1), rb.target.far.import_position.int());
+
+    // In argument position each token is native on its home, foreign elsewhere.
+    try std.testing.expect(!node.argIsForeign(conn_a, token_a));
+    try std.testing.expect(node.argIsForeign(conn_b, token_a));
+    try std.testing.expect(!node.argIsForeign(conn_b, token_b));
+    try std.testing.expect(node.argIsForeign(conn_a, token_b));
+
+    // A served reply returning a token on its OWN home is not re-gifted (the
+    // interceptor lowers it); returned elsewhere it would be. Same-home returns
+    // false and queues nothing — proving each token's home is its own connection,
+    // not the last one enrolled.
+    try std.testing.expect(!try node.interceptFulfilledRef(conn_a, 70, a));
+    try std.testing.expect(!try node.interceptFulfilledRef(conn_b, 71, b));
+    try std.testing.expect(node.nextAction() == null);
+
+    // Reclamation + fail-closed: closing conn_a reclaims token_a's enrollment, and
+    // using the retired token fails closed rather than leaking the synthetic id
+    // onto the wire. token_b, whose home is live, still routes.
+    node.removeConn(conn_a);
+    try std.testing.expect(node.routeReference(conn_b, token_a) == null);
+    try std.testing.expectEqual(conn_b, node.routeReference(conn_b, token_b).?.conn_id);
+}
+
+test "lowerForConn swaps a token to its wire reference on its home and fails closed elsewhere (ADR-0069)" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{21} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const home = try node.registerConn(.{});
+    const other = try node.registerConn(.{});
+
+    // A plain wire reference, below the reserved token range, is the fast path:
+    // it lowers to itself with no lookup, on any connection.
+    const plain: model.Reference = .{ .far = model.FarRef.object(4) };
+    try std.testing.expectEqual(@as(u64, 4), (try node.lowerForConn(home, plain)).far.import_position.int());
+    try std.testing.expectEqual(@as(u64, 4), (try node.lowerForConn(other, plain)).far.import_position.int());
+    // A near reference is not a token either; it passes through untouched.
+    const near: model.Reference = .{ .near = .{ .export_position = .from(2) } };
+    try std.testing.expect((try node.lowerForConn(home, near)) == .near);
+
+    // A foreign-import token lowers to its real wire import on its home
+    // connection — this is the swap the outbound chokepoint (`Peer.send`) makes so
+    // the token never reaches the wire — and fails closed on any other connection,
+    // where it has no wire name.
+    const token = try node.enrollForeign(home, .{ .far = model.FarRef.object(7) });
+    try std.testing.expectEqual(@as(u64, 7), (try node.lowerForConn(home, token)).far.import_position.int());
+    try std.testing.expectError(error.TokenNotLiftable, node.lowerForConn(other, token));
+
+    // Enrolling the first token latched the walk gate on; a node that never
+    // fetched a foreign capability leaves it off so every send skips the walk.
+    try std.testing.expect(node.foreign_active);
+
+    // A synthetic id the node never enrolled (a retired or fabricated token) has
+    // no route and fails closed rather than reaching the wire as its bare id.
+    const ghost: model.Reference = .{ .far = model.FarRef.object(Node.REDEEMED_TOKEN_BASE + 999) };
+    try std.testing.expectError(error.TokenNotLiftable, node.lowerForConn(home, ghost));
+}
+
 test "setExporterLocation records, replaces, and clears the give-location override" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, [_]u8{13} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const conn = try node.registerConn();
-    try node.setExporterLocation(conn, "<ocapn-peer ...>");
-    try node.setExporterLocation(conn, "<ocapn-peer replaced>");
+    const conn = try node.registerConn(.{});
+    const first = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7001.tcp");
+    defer model.freePeerLocator(allocator, first);
+    try node.setExporterLocation(conn, first);
+    const replaced = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7002.tcp");
+    defer model.freePeerLocator(allocator, replaced);
+    try node.setExporterLocation(conn, replaced);
     // Clearing returns the give to the exporter session's own signed record.
-    try node.setExporterLocation(conn, "");
+    try node.setExporterLocation(conn, null);
     // Removal frees a recorded override with the connection.
-    try node.setExporterLocation(conn, "<ocapn-peer again>");
+    const again = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7003.tcp");
+    defer model.freePeerLocator(allocator, again);
+    try node.setExporterLocation(conn, again);
     node.removeConn(conn);
 }
 
@@ -458,8 +551,8 @@ test "removeConn evicts the exporter cache and fails stranded withdraws closed" 
     var node = Node.init(allocator, [_]u8{14} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn();
-    const exporter = try node.registerConn();
+    const recipient = try node.registerConn(.{});
+    const exporter = try node.registerConn(.{});
     var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{15} ** crypto.SEED_BYTES);
     defer counterpart.deinit();
 

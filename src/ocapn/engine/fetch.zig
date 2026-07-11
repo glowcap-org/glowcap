@@ -27,8 +27,8 @@ const events = @import("events.zig");
 /// `Peer.send`).
 pub const PreparedFetch = struct {
     message: model.Message,
-    answer_position: model.AnswerId,
-    resolver_export: model.ExportId,
+    answer_position: model.AnswerPosition,
+    resolver_export: model.ExportPosition,
 };
 
 /// How a fetch settles. Owned: `fulfilled` carries a cloned reference, `broken`
@@ -60,7 +60,7 @@ pub const FetchMatch = union(enum) {
 /// the session-state allocations run last — `allocateExport` (the only fallible
 /// one) after every heap allocation, then the infallible `allocateOutboundAnswer`
 /// — so an `error` leaves the session's export table and answer counter exactly
-/// as they were. A failed prepare never burns an export slot or an answer id.
+/// as they were. A failed prepare never burns an export slot or an answer position.
 pub fn prepareFetchSwissnum(
     allocator: std.mem.Allocator,
     session: *session_mod.Session,
@@ -102,8 +102,8 @@ pub fn prepareFetchSwissnum(
 /// handed back unchanged for the caller to re-own.
 pub fn tryMatchFetchOutcome(
     allocator: std.mem.Allocator,
-    resolver_export: model.ExportId,
-    answer_position: model.AnswerId,
+    resolver_export: model.ExportPosition,
+    answer_position: model.AnswerPosition,
     msg: model.Message,
 ) !FetchMatch {
     switch (msg) {
@@ -116,7 +116,7 @@ pub fn tryMatchFetchOutcome(
         .deliver => |deliver| {
             // The resolver is one of *our* exports, so only a `.near` target can
             // settle the fetch (`exportPosition`); a `.far` deliver whose
-            // partner-named import id collides with the resolver id is unrelated
+            // partner-named import position collides with the resolver position is unrelated
             // traffic, not a settlement.
             const target_export = deliver.target.exportPosition() orelse return .{ .unrelated = msg };
             if (target_export != resolver_export) return .{ .unrelated = msg };

@@ -17,12 +17,18 @@ A gate passes by its exit code, not by its output: piping through `tail` or
 `grep` reports the pipe's status and turns a failing build into a false green.
 Run `zig build` from the repository root: run from a subdirectory it drops
 `zig-out/` and `.zig-cache/` debris where it stands and resolves relative
-manifest paths wrong.
+manifest paths wrong. Test runs are exclusive: the suite and the interop steps
+bind real loopback ports, so two concurrent runs — a second agent, an editor's
+build-on-save, a stale run a crashed session left behind — wedge each other's
+test binaries in silent socket waits that look like hangs. Before diagnosing a
+"hung" gate, sweep for orphaned `.zig-cache/o/*/test` processes from a dead
+session and run the gate alone.
 
 `zig build check` runs the Zig-hermetic gate: architecture checks, meta
 scaffolding checks, Zig formatting (`zig fmt --check`), correctness tests,
 public examples, protocol/Goblins oracle checks, the accountability application
-and its three-party attribution test, and benchmark smoke checks. Cross-language
+and its three-party attribution test, benchmark smoke checks, and the
+ReleaseFast wall-clock tripwire (`perf-check`). Cross-language
 C ABI dogfood, the live Goblins interop, and the Rust/TypeScript formatting check
 run as sibling steps because they require non-Zig runtimes on PATH. Indentation
 policy lives in `.editorconfig` (tabs displayed four wide, with space overrides
@@ -35,10 +41,11 @@ zig build test
 zig build test -Dtest-filter=substring   # only tests whose names match
 zig build arch-check
 zig build meta-check
+zig build perf-check           # gate ReleaseFast wall-clock cost: warm dispatch + outbound send vs docs/ladder.md rung 2 ceilings, plus the gc-storm linearity ratio; part of check
 zig build fmt                # format Zig sources in place (zig fmt)
 zig build fmt-check          # check Zig formatting (zig fmt --check), part of check
 zig build bindings-fmt       # format the Rust crates + TypeScript bindings in place (needs cargo + deno)
-zig build bindings-fmt-check # check Rust + TypeScript formatting and the TypeScript lint rules (needs cargo + deno)
+zig build bindings-fmt-check # check Rust + TypeScript formatting, the TypeScript lint rules, and the TypeScript type-check (needs cargo + deno)
 zig build docs              # generate the Zig API reference (autodoc) under zig-out/docs/
 zig build site              # build the documentation site (Zine + autodoc) under zig-out/site/
 zig build docs-serve        # serve the documentation site locally at http://127.0.0.1:1990/pancake/
@@ -70,6 +77,7 @@ zig build iroh-interop      # live encrypted OCapN conversation: two pancake pee
 zig build iroh-reachability # opt-in: live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (needs cargo + internet)
 zig build iroh-mesh         # live three-party handoff over iroh: recipient reaches the introduced exporter by node id (needs cargo)
 zig build iroh-loop         # live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)
+zig build tcp-loop          # live TCP scale: many concurrent connections served from one loop thread through the Host bridge (ADR-0076)
 zig build bindings-iroh-loop # per-binding iroh scale proof: many connections served from one loop, every binding (needs cargo + the runtimes)
 zig build python-iroh-loop  # live iroh scale: the Python binding serves many connections from one readiness loop (ADR-0057; needs cargo + python3)
 zig build rust-iroh-loop    # live iroh scale: the Rust binding serves many connections from one readiness loop (ADR-0057; needs cargo)
@@ -88,6 +96,7 @@ zig build python-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr 
 zig build rust-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr discovery: the Rust binding (opt-in; needs cargo + internet)
 zig build racket-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr discovery: the Racket binding (opt-in; needs cargo + racket + internet)
 zig build iroh-abi          # build libpancake_net_transport_iroh, the iroh transport's public C ABI companion (needs cargo)
+zig build release-pack      # stage the installed archives, headers, and licenses into one versioned, checksummed per-target tarball under zig-out/release/ (needs cargo; .github/workflows/release.yml runs it per platform on a version tag)
 zig build fixture-gen-check # regenerate the Syrup fixture corpus via the upstream Racket Syrup encoder and diff against the committed bytes (needs racket + syrup)
 zig build ocapn-conformance # run the upstream OCapN test suite against a pancake peer (needs uv + the ocapn-conformance submodule)
 zig build demo-rooms             # cross-language rooms chat: Zig/Rust/Python/Racket/Deno in one room (needs deno; joins python3/racket/cargo clients when present)
@@ -96,6 +105,8 @@ zig build demo-rooms-dm          # rooms direct-message-by-introduction over TCP
 zig build demo-rooms-dm-iroh     # rooms DM-by-introduction over iroh's encrypted QUIC: cross-endpoint three-party handoff where the gift names the exporter's direct addresses, redeemed by a direct dial (needs cargo + deno)
 zig build demo-rooms-dm-iroh-discovery # opt-in: the same rooms DM-by-introduction over iroh, but the gift names the exporter by node id ALONE and the recipient resolves it through n0 discovery (relays + DNS/pkarr), no direct-address hints (needs cargo + deno + internet)
 zig build rooms-client           # run the native Zig rooms chat client (one-shot) against a room you started; pass `-- <locator> <nick> <line> [roster]`
+zig build rooms-web              # serve the rooms browser UI over TCP (public rooms + direct messages by introduction); open the printed URL (needs deno). `-Dport` pins the HTTP port (default 8000)
+zig build rooms-web-iroh         # serve the rooms browser UI over iroh's encrypted QUIC (public rooms + direct messages by introduction); open the printed URL (needs cargo + deno)
 zig build demo-tasks             # cross-language tasks board: Zig/Rust/Python/Racket/Deno on one board (needs deno; joins python3/racket/cargo clients when present)
 zig build demo-tools        # cross-language capability showcase: delegation/attenuation/revocation for AI agent harnesses (needs deno; joins python3/racket/cargo agents when present)
 zig build accountability             # accountability application on pancake's own runtime over a real loopback TCP socket
@@ -104,8 +115,10 @@ zig build demo-accountability        # cross-language accountability demo: Zig h
 zig build examples
 zig build gen-header-ocapn          # regenerate include/pancake_ocapn.h from src/c_abi/ocapn
 zig build gen-header-ocapn-check    # verify include/pancake_ocapn.h matches src/c_abi/ocapn (fails if stale), part of check
-zig build gen-ts-abi                # regenerate bindings/ts/stack/internal/abi.ts (constants + struct layouts) from src/c_abi/ocapn
-zig build gen-ts-abi-check          # verify bindings/ts/stack/internal/abi.ts matches src/c_abi/ocapn (fails if stale), part of check
+zig build gen-header-driver         # regenerate include/pancake_driver.h from src/c_abi/driver
+zig build gen-header-driver-check   # verify include/pancake_driver.h matches src/c_abi/driver (fails if stale), part of check
+zig build gen-ts-abi                # regenerate bindings/ts/stack/internal/abi.ts (constants + struct layouts) from src/c_abi (the ocapn and driver archives)
+zig build gen-ts-abi-check          # verify bindings/ts/stack/internal/abi.ts matches src/c_abi (fails if stale), part of check
 zig build gen-header-net-transport-tcp        # regenerate include/pancake_net_transport_tcp.h from src/c_abi/net_transport/tcp
 zig build gen-header-net-transport-tcp-check  # verify include/pancake_net_transport_tcp.h matches src/c_abi/net_transport/tcp (fails if stale), part of check
 zig build gen-header-net-transport-inproc        # regenerate include/pancake_net_transport_inproc.h from src/c_abi/net_transport/inproc
@@ -114,6 +127,8 @@ zig build gen-header-net-transport-iroh        # regenerate include/pancake_net_
 zig build gen-header-net-transport-iroh-check  # verify include/pancake_net_transport_iroh.h matches src/c_abi/net_transport/iroh/mod.zig (fails if stale), part of check
 zig build bench-frame-view
 zig build bench-codec
+zig build bench-dispatch-scaling # measure inbound dispatch ns/turn across N warmed peers (cold-cache regime) with p50/p99; writes a report under zig-out/bench-reports/
+zig build bench-outbound     # measure the outbound engine path (send/step/takeOutbound per answered deliver) and the op:gc-answers release-storm shape; writes a report under zig-out/bench-reports/
 zig build bench-peer-scaling # measure per-connection memory footprint and extrapolate to 500k connections; writes a report under zig-out/bench-reports/
 zig build bench-snapshot     # measure vat snapshot/restore (S5): O(objects), flat in object size, off by default; writes a report under zig-out/bench-reports/
 zig build bench-goblins      # cross-implementation benchmark: pancake's Racket binding vs Spritely Goblins, one shared app (needs racket + goblins); `-- --smoke`/`--suite=<name>` forwarded, writes a report under zig-out/bench-reports/
@@ -166,3 +181,8 @@ manual cleanup.
 
 Agents do not mutate git history. Read-only git commands are fine: `status`,
 `diff`, `log`, `show`, `blame`, `branch`, `rev-parse`, `ls-files`.
+
+`git checkout -- <path>` and `git restore` are working-tree writes, not reads:
+on a tree carrying uncommitted work they destroy that work. To undo a probe
+edit, restore from a copy saved beside the scratchpad before probing, never
+from git.

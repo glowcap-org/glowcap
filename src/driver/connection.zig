@@ -29,7 +29,9 @@ const Identity = driver.Identity;
 /// buffers and the session's `max_frame_bytes` limit together, so the buffers
 /// and the limit cannot drift apart. `codec` is the wire grammar the negotiating
 /// peer encodes in; it defaults to `.syrup`, the Goblins-interop target, and a
-/// caller speaking Cap'n Proto sets `.capnp`.
+/// caller speaking Cap'n Proto sets `.capnp`. There is deliberately no
+/// `verify_partner` knob here: the application tier always verifies, and only
+/// the harness-facing loop and core options can turn verification off.
 pub const ConnectionOptions = struct {
     frame_cap: usize = 1 << 16,
     codec: model.CodecId = .syrup,
@@ -104,19 +106,19 @@ pub const Connection = struct {
         const ref = self.refForTarget(target) orelse return driver.Error.UncallableTarget;
         return self.cv.call(ref, .{ .verb = verb, .args = args }, arena);
     }
-    /// Eventual-send `msg` to `target`, returning a promise (see `ConnectedVat.send`).
-    pub fn send(self: *Connection, target: actors.Ref, msg: actors.Message) !actors.Promise {
+    /// Eventual-send `msg` to `target`, returning a vow (see `ConnectedVat.send`).
+    pub fn send(self: *Connection, target: actors.Ref, msg: actors.Message) !actors.Vow {
         return self.cv.send(target, msg);
     }
     /// `send` addressed by a wire `model.Reference`, the non-blocking,
     /// reference-keyed twin of `callReference` for a non-Zig surface (the owning
-    /// C session's `pancake_tcp_session_send`). Returns the answer `Promise` to
-    /// pipeline against (`sendToAnswer`) or await (`settlePromise`); the flush is
+    /// C session's `pancake_tcp_session_send`). Returns the answer `Vow` to
+    /// pipeline against (`sendToAnswer`) or await (`settleVow`); the flush is
     /// the caller's, deferred to the next `step`/settle so a batch of sends
     /// leaves together. Only a near or far object reference is an eventual-send
     /// target; a `promise`, `sturdy`, or `broken` reference is refused with
     /// `Error.UncallableTarget`.
-    pub fn sendReference(self: *Connection, target: model.Reference, verb: []const u8, args: []const model.Argument) !actors.Promise {
+    pub fn sendReference(self: *Connection, target: model.Reference, verb: []const u8, args: []const model.Argument) !actors.Vow {
         const ref = self.refForTarget(target) orelse return driver.Error.UncallableTarget;
         return self.cv.send(ref, .{ .verb = verb, .args = args });
     }
@@ -132,28 +134,28 @@ pub const Connection = struct {
     fn refForTarget(self: *Connection, target: model.Reference) ?actors.Ref {
         return switch (target) {
             .far => |far_ref| .{ .far = far_ref },
-            .near => |near_ref| self.cv.vat.refForExport(near_ref.export_position.int()),
+            .near => |near_ref| self.cv.served.vat.refForExport(near_ref.export_position.int()),
             .promise, .sturdy, .broken => null,
         };
     }
-    /// Promise pipelining: eventual-send `msg` to a far `promise` a prior
+    /// Promise pipelining: eventual-send `msg` to a far `vow` a prior
     /// `send`/`sendToAnswer` returned, before it resolves (see
     /// `ConnectedVat.sendToAnswer`).
-    pub fn sendToAnswer(self: *Connection, promise: actors.Promise, msg: actors.Message) !actors.Promise {
-        return self.cv.sendToAnswer(promise, msg);
+    pub fn sendToAnswer(self: *Connection, vow: actors.Vow, msg: actors.Message) !actors.Vow {
+        return self.cv.sendToAnswer(vow, msg);
     }
-    /// Drive until `promise` settles and return the outcome materialized into
-    /// `arena` (see `ConnectedVat.settlePromise`).
-    pub fn settlePromise(self: *Connection, promise: actors.Promise, arena: std.mem.Allocator) !Settled {
-        return self.cv.settlePromise(promise, arena);
+    /// Drive until `vow` settles and return the outcome materialized into
+    /// `arena` (see `ConnectedVat.settleVow`).
+    pub fn settleVow(self: *Connection, vow: actors.Vow, arena: std.mem.Allocator) !Settled {
+        return self.cv.settleVow(vow, arena);
     }
     /// Fire-and-forget eventual-send (see `ConnectedVat.tell`).
     pub fn tell(self: *Connection, target: actors.Ref, msg: actors.Message) !void {
         return self.cv.tell(target, msg);
     }
-    /// Register a one-shot listener on `promise` (see `ConnectedVat.on`).
-    pub fn on(self: *Connection, promise: actors.Promise, listener: actors.Listener) !void {
-        return self.cv.on(promise, listener);
+    /// Register a one-shot listener on `vow` (see `ConnectedVat.on`).
+    pub fn on(self: *Connection, vow: actors.Vow, listener: actors.Listener) !void {
+        return self.cv.on(vow, listener);
     }
     /// Spawn a local actor and return a capability to it (see `ConnectedVat.spawn`).
     pub fn spawn(self: *Connection, comptime Behavior: type, initial: Behavior) !Capability {

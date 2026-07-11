@@ -165,6 +165,39 @@ test "removing the last key empties the map" {
     try std.testing.expectEqual(@as(i64, 99), refilled.get(42).?);
 }
 
+test "an interior node emptied by removes still frees its whole block" {
+    const allocator = std.testing.allocator;
+
+    // Keys 1 and 1|64 share chunk 1 at shift 0, so both live under one
+    // interior node. Removing both leaves that node empty in place (remove
+    // does not canonicalize); the final deinit must free the emptied node's
+    // single block correctly — sized from its stored capacity, which the
+    // testing allocator verifies against the allocation.
+    const k1: u64 = 1;
+    const k2: u64 = 1 | (1 << 6);
+
+    var cur = Map.init(allocator);
+    {
+        const a = try cur.put(k1, 10);
+        cur.deinit();
+        cur = a;
+        const b = try cur.put(k2, 20);
+        cur.deinit();
+        cur = b;
+        const c = try cur.remove(k1);
+        cur.deinit();
+        cur = c;
+        const d = try cur.remove(k2);
+        cur.deinit();
+        cur = d;
+    }
+    defer cur.deinit();
+
+    try std.testing.expectEqual(@as(usize, 0), cur.len());
+    try std.testing.expect(cur.get(k1) == null);
+    try std.testing.expect(cur.get(k2) == null);
+}
+
 test "a hundred coexisting versions share structure and free leak-free" {
     const allocator = std.testing.allocator;
 

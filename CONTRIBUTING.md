@@ -5,15 +5,15 @@ behavior and Spritely Goblins fixtures are the conformance authority.
 
 ## Read first
 
-1. [docs/vision.md](docs/vision.md) — where the project is going; read before
+1. [docs/vision.md](docs/vision.md): where the project is going; read before
    scoping.
-2. [docs/architecture.md](docs/architecture.md) — memory, C ABI, and layer
+2. [docs/architecture.md](docs/architecture.md): memory, C ABI, and layer
    boundaries, plus the session representation.
-3. [AGENTS.md](AGENTS.md) — first principles, the Start Here router, and the
+3. [AGENTS.md](AGENTS.md): first principles, the Start Here router, and the
    invariants every change preserves.
-4. [.agents/rules/](.agents/rules/) — the focused rules (`project-values`,
+4. [.agents/rules/](.agents/rules/): the focused rules (`project-values`,
    `architecture`, `memory`, `tests`, `resilience`, `cli`, …).
-5. [docs/decisions/adr/](docs/decisions/adr/) — the accepted decision records.
+5. [docs/decisions/adr/](docs/decisions/adr/): the accepted decision records.
 
 Substantial changes (features, sweeps, architectural moves) also follow
 [.agents/skills/work/SKILL.md](.agents/skills/work/SKILL.md).
@@ -55,11 +55,10 @@ flip it to `accepted` _before_ code is built against it.
 
 ## Review cadence
 
-This is a one-person project ([@jimisaacs](https://codeberg.org/jimisaacs)).
-Reviews are best-effort. The fastest path to merge is a green gate and a change
-scoped to a single layer. Questions go through the
-[Codeberg issue tracker](https://codeberg.org/jimisaacs/pancake/issues);
-turnaround is best-effort too.
+This is a one-person project ([@jimisaacs](https://codeberg.org/jimisaacs)), so
+reviews and issue-tracker replies are both best-effort. The fastest path to
+merge is a green gate and a change scoped to a single layer. Questions go through
+the [Codeberg issue tracker](https://codeberg.org/jimisaacs/pancake/issues).
 
 ## Dev environment
 

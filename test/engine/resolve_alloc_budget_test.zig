@@ -26,14 +26,12 @@ const engine = pancake.ocapn.engine;
 const model = pancake.ocapn.model;
 const session = pancake.ocapn.session;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
+const peer_fixture = @import("../support/peer_fixture.zig");
 
 test "recording an outbound resolve moves the resolution into the store, copying nothing" {
     var counter = CountingAllocator{ .backing = std.testing.allocator };
     const gpa = counter.allocator();
-    var peer = engine.Peer.initWithSession(gpa, session.Session.initWith(
-        gpa,
-        .{ .wire_profile = model.WireProfile.pre_spec },
-    ));
+    var peer = peer_fixture.openPeer(gpa);
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 

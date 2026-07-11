@@ -14,7 +14,7 @@ const wire = shared.wire;
 const Error = shared.Error;
 const EncodeError = shared.EncodeError;
 const Kind = shared.Kind;
-const RefKind = shared.RefKind;
+const RefTag = shared.RefTag;
 const ArgKind = shared.ArgKind;
 const ResolutionKind = shared.ResolutionKind;
 const PipelineOpKind = shared.PipelineOpKind;
@@ -205,20 +205,20 @@ fn encodeReference(b: *wire.Builder, allocator: std.mem.Allocator, reference: mo
     const loc = try allocStruct(b, allocator, 2, 2);
     switch (reference) {
         .near => |near| {
-            b.set(loc.data_idx, @intFromEnum(RefKind.near) | (if (near.kind == .promise) shared.data0_flag else 0));
+            b.set(loc.data_idx, @intFromEnum(RefTag.near) | (if (near.kind == .promise) shared.data0_flag else 0));
             b.set(loc.data_idx + 1, near.export_position.int());
         },
         .far => |far| {
-            b.set(loc.data_idx, @intFromEnum(RefKind.far) | (if (far.kind == .promise) shared.data0_flag else 0));
+            b.set(loc.data_idx, @intFromEnum(RefTag.far) | (if (far.kind == .promise) shared.data0_flag else 0));
             b.set(loc.data_idx + 1, far.import_position.int());
         },
         .promise => |promise| {
-            b.set(loc.data_idx, @intFromEnum(RefKind.promise));
+            b.set(loc.data_idx, @intFromEnum(RefTag.promise));
             b.set(loc.data_idx + 1, promise.answer_position.int());
             if (promise.path.ops.len != 0) setListPtr(b, ptrIndex(loc, 0), try encodePipelinePath(b, allocator, promise.path.ops));
         },
         .sturdy => |sturdy| {
-            b.set(loc.data_idx, @intFromEnum(RefKind.sturdy));
+            b.set(loc.data_idx, @intFromEnum(RefTag.sturdy));
             setStructPtr(b, ptrIndex(loc, 0), try encodePeerLocator(b, allocator, sturdy.peer));
             try setData(b, allocator, loc, 1, sturdy.swissnum);
         },

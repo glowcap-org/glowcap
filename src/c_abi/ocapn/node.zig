@@ -103,9 +103,9 @@ pub export fn pancake_node_register_conn(node: ?*PancakeNode, out_conn_id: ?*u64
     const ptr = nodeFromOpaque(node) orelse return PANCAKE_ERR_NULL_POINTER;
     const id_slot = out_conn_id orelse return PANCAKE_ERR_NULL_POINTER;
     const peer_slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    const conn_id = ptr.registerConn() catch return PANCAKE_ERR_INTERNAL;
+    const conn_id = ptr.registerConn(.{}) catch return PANCAKE_ERR_INTERNAL;
     const peer = ptr.peer(conn_id) orelse return PANCAKE_ERR_INTERNAL;
-    id_slot.* = conn_id;
+    id_slot.* = conn_id.int();
     peer_slot.* = @ptrCast(peer);
     return PANCAKE_OK;
 }
@@ -116,7 +116,7 @@ pub export fn pancake_node_register_conn(node: ?*PancakeNode, out_conn_id: ?*u64
 /// connection's peer. An unknown `conn_id` is a no-op.
 pub export fn pancake_node_remove_conn(node: ?*PancakeNode, conn_id: u64) i32 {
     const ptr = nodeFromOpaque(node) orelse return PANCAKE_ERR_NULL_POINTER;
-    ptr.removeConn(conn_id);
+    ptr.removeConn(.from(conn_id));
     return PANCAKE_OK;
 }
 
@@ -132,7 +132,7 @@ pub export fn pancake_node_route(node: ?*PancakeNode, default_conn: u64, far_id:
     const far_slot = out_far_id orelse return PANCAKE_ERR_NULL_POINTER;
     const routed_slot = out_routed orelse return PANCAKE_ERR_NULL_POINTER;
     const target: model.Reference = .{ .far = model.FarRef.object(far_id) };
-    const routed = ptr.routeReference(default_conn, target) orelse {
+    const routed = ptr.routeReference(.from(default_conn), target) orelse {
         routed_slot.* = 0;
         return PANCAKE_OK;
     };
@@ -140,21 +140,27 @@ pub export fn pancake_node_route(node: ?*PancakeNode, default_conn: u64, far_id:
         .far => |f| f.import_position.int(),
         else => return PANCAKE_ERR_INTERNAL,
     };
-    conn_slot.* = routed.conn_id;
+    conn_slot.* = routed.conn_id.int();
     far_slot.* = resolved_id;
     routed_slot.* = 1;
     return PANCAKE_OK;
 }
 
-/// Record that the fetched far import `far_id` lives on connection `home`: a
-/// `fetch` stamps every far import it returns so a later foreign-home return can
-/// be recognized and re-gifted (ADR-0009 gifter half) instead of mis-encoding a
-/// cross-connection reference. A synthetic redeemed token (a high far id) is
-/// never a wire import, so recording it is a no-op.
-pub export fn pancake_node_record_foreign_home(node: ?*PancakeNode, far_id: u64, home: u64) i32 {
+/// Enroll the fetched far import `far_id` (a wire position on connection `home`)
+/// under a node-unique token and write the token into `out_token` (ADR-0069). The
+/// binding holds the token as the capability's identity instead of the wire
+/// position, so two capabilities fetched at the same wire position on different
+/// connections get distinct tokens and never collide in the node's routing
+/// tables. A send to the token routes to `home` with the real wire reference
+/// swapped back in; returning it to another connection re-gifts the right home.
+/// Every binding holds a fetched capability's identity this way (ADR-0069); a
+/// `fetch` calls this on the far reference the partner returns.
+pub export fn pancake_node_enroll_foreign(node: ?*PancakeNode, home: u64, far_id: u64, out_token: ?*u64) i32 {
     const ptr = nodeFromOpaque(node) orelse return PANCAKE_ERR_NULL_POINTER;
-    const import: model.Reference = .{ .far = model.FarRef.object(far_id) };
-    ptr.recordForeignHome(import, home) catch return PANCAKE_ERR_INTERNAL;
+    const token_slot = out_token orelse return PANCAKE_ERR_NULL_POINTER;
+    const wire: model.Reference = .{ .far = model.FarRef.object(far_id) };
+    const token = ptr.enrollForeign(.from(home), wire) catch return PANCAKE_ERR_INTERNAL;
+    token_slot.* = token.far.import_position.int();
     return PANCAKE_OK;
 }
 
@@ -170,7 +176,7 @@ pub export fn pancake_node_arg_is_foreign(node: ?*PancakeNode, default_conn: u64
     const ptr = nodeFromOpaque(node) orelse return PANCAKE_ERR_NULL_POINTER;
     const foreign_slot = out_foreign orelse return PANCAKE_ERR_NULL_POINTER;
     const reference: model.Reference = .{ .far = model.FarRef.object(far_id) };
-    foreign_slot.* = if (ptr.argIsForeign(default_conn, reference)) 1 else 0;
+    foreign_slot.* = if (ptr.argIsForeign(.from(default_conn), reference)) 1 else 0;
     return PANCAKE_OK;
 }
 
@@ -197,7 +203,7 @@ pub export fn pancake_node_accept_give(
     const give_ptr = give orelse return PANCAKE_ERR_NULL_POINTER;
     if (give_len == 0) return PANCAKE_ERR_INVALID_ARGUMENT;
     const locator = sliceFromC(exporter_locator, exporter_locator_len) catch |err| return marshalErrorToCode(err);
-    ptr.acceptGive(recipient_conn, answer, give_ptr[0..give_len], locator) catch return PANCAKE_ERR_INTERNAL;
+    ptr.acceptGive(.from(recipient_conn), answer, give_ptr[0..give_len], locator) catch return PANCAKE_ERR_INTERNAL;
     return PANCAKE_OK;
 }
 
@@ -208,7 +214,7 @@ pub export fn pancake_node_accept_give(
 /// no-op.
 pub export fn pancake_node_exporter_dialed(node: ?*PancakeNode, pending: u64, exporter_conn: u64) i32 {
     const ptr = nodeFromOpaque(node) orelse return PANCAKE_ERR_NULL_POINTER;
-    ptr.exporterDialed(pending, exporter_conn) catch return PANCAKE_ERR_INTERNAL;
+    ptr.exporterDialed(pending, .from(exporter_conn)) catch return PANCAKE_ERR_INTERNAL;
     return PANCAKE_OK;
 }
 
@@ -242,13 +248,13 @@ pub export fn pancake_node_claim_resolve(
     const ptr = nodeFromOpaque(node) orelse return PANCAKE_ERR_NULL_POINTER;
     const claimed_slot = out_claimed orelse return PANCAKE_ERR_NULL_POINTER;
     const message = sliceFromC(reason, reason_len) catch |err| return marshalErrorToCode(err);
-    const withdraw_outcome: engine.Node.WithdrawOutcome = switch (outcome) {
+    const withdraw_outcome: engine.Node.RedeemOutcome = switch (outcome) {
         c.PANCAKE_REDEEM_OUTCOME_FAR => .{ .far = far_id },
         c.PANCAKE_REDEEM_OUTCOME_BROKEN => .{ .broken = message },
         c.PANCAKE_REDEEM_OUTCOME_NOT_CAPABILITY => .not_capability,
         else => return PANCAKE_ERR_INVALID_ARGUMENT,
     };
-    const claimed = ptr.claimResolve(conn_id, answer, withdraw_outcome) catch return PANCAKE_ERR_INTERNAL;
+    const claimed = ptr.claimResolve(.from(conn_id), answer, withdraw_outcome) catch return PANCAKE_ERR_INTERNAL;
     claimed_slot.* = if (claimed) 1 else 0;
     return PANCAKE_OK;
 }
@@ -269,7 +275,7 @@ pub export fn pancake_node_intercept_fulfilled_ref(
 ) i32 {
     const ptr = nodeFromOpaque(node) orelse return PANCAKE_ERR_NULL_POINTER;
     const claimed_slot = out_claimed orelse return PANCAKE_ERR_NULL_POINTER;
-    const claimed = ptr.interceptFulfilledRef(conn_id, answer, far_id) catch return PANCAKE_ERR_INTERNAL;
+    const claimed = ptr.interceptFulfilledRef(.from(conn_id), answer, far_id) catch return PANCAKE_ERR_INTERNAL;
     claimed_slot.* = if (claimed) 1 else 0;
     return PANCAKE_OK;
 }
@@ -290,15 +296,26 @@ pub export fn pancake_node_provide_gift_id(node: ?*PancakeNode, ticket: u64, gif
     return PANCAKE_OK;
 }
 
-/// Record the verbatim exporter locator to embed in gives whose exporter is
+/// Record the exporter locator to embed in gives whose exporter is
 /// `conn_id` — an exporter reachable only by a dial hint (an iroh endpoint's
 /// direct addresses), where the session's own signed location record is not
-/// dialable. `location` is borrowed (the node copies it); NULL or empty clears
-/// the override back to the session record.
+/// dialable. `location` is borrowed: it must be a Syrup `<ocapn-peer …>`
+/// record; NULL or empty clears the override. A URI or other non-record
+/// spelling fails with `PANCAKE_ERR_INVALID_ARGUMENT`.
 pub export fn pancake_node_set_exporter_location(node: ?*PancakeNode, conn_id: u64, location: ?[*]const u8, location_len: usize) i32 {
     const ptr = nodeFromOpaque(node) orelse return PANCAKE_ERR_NULL_POINTER;
     const bytes = sliceFromC(location, location_len) catch |err| return marshalErrorToCode(err);
-    ptr.setExporterLocation(conn_id, bytes) catch return PANCAKE_ERR_INTERNAL;
+    if (bytes.len == 0) {
+        ptr.setExporterLocation(.from(conn_id), null) catch return PANCAKE_ERR_INTERNAL;
+        return PANCAKE_OK;
+    }
+    var cursor: usize = 0;
+    const parsed = engine.readLocatorOwned(ptr.allocator, bytes, &cursor) catch {
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    };
+    defer model.freePeerLocator(ptr.allocator, parsed);
+    if (cursor != bytes.len) return PANCAKE_ERR_INVALID_ARGUMENT;
+    ptr.setExporterLocation(.from(conn_id), parsed) catch return PANCAKE_ERR_INTERNAL;
     return PANCAKE_OK;
 }
 
@@ -331,17 +348,17 @@ pub export fn pancake_node_next_action(node: ?*PancakeNode, out: ?*c.PancakeNode
         },
         .flush => |conn_id| {
             slot.kind = c.PANCAKE_NODE_ACTION_FLUSH;
-            slot.conn_id = conn_id;
+            slot.conn_id = conn_id.int();
         },
         .settle => |s| {
             slot.kind = c.PANCAKE_NODE_ACTION_SETTLE;
-            slot.conn_id = s.conn_id;
+            slot.conn_id = s.conn_id.int();
             slot.answer = s.answer;
             slot.token = s.token;
         },
         .fail => |f| {
             slot.kind = c.PANCAKE_NODE_ACTION_FAIL;
-            slot.conn_id = f.conn_id;
+            slot.conn_id = f.conn_id.int();
             slot.answer = f.answer;
             slot.reason = if (f.reason.len == 0) null else f.reason.ptr;
             slot.reason_len = f.reason.len;

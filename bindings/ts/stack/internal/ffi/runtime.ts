@@ -3,17 +3,16 @@
 // The whole binding is runtime-neutral TypeScript except for two seams: the FFI
 // that loads the pancake archives and calls their symbols, and the sockets the
 // async transport rides. This module declares both as interfaces, detects which
-// JavaScript runtime is hosting the binding (Deno, Bun, or Node), and loads the
+// JavaScript runtime is hosting the binding (Deno or Bun), and loads the
 // matching adapter. Everything above — `mod.ts`, the transport modules, the
 // actor and connection layers — speaks these interfaces and never names a
 // runtime.
 //
 // The adapter is pulled in with a dynamic `import()` keyed on the detected
-// runtime, so a runtime-specific module (`bun:ffi`, `node:ffi`) is only ever
-// resolved on the runtime that has it. Selection happens at module load through
-// top-level await; every dependent module that imports `ffi` / `net` waits for
-// it, so the symbol tables and sockets are ready by the time application code
-// runs.
+// runtime, so a runtime-specific module (`bun:ffi`) is only ever resolved on
+// the runtime that has it. Selection happens at module load through top-level
+// await; every dependent module that imports `ffi` / `net` waits for it, so
+// the symbol tables and sockets are ready by the time application code runs.
 //
 // Pointers cross this seam as `bigint` addresses (`0n` is null). Deno's opaque
 // `PointerValue` and Bun's numeric pointers are converted to and from `bigint`
@@ -44,7 +43,7 @@ export type NativeType =
 
 /** A C function signature: the parameter types and the result type. `nonblocking`
  * asks the runtime to run the call off the event-loop thread and return a
- * promise (honored by Deno; the other adapters run it synchronously). */
+ * promise (honored by Deno; the Bun adapter runs it synchronously). */
 export interface SymbolDef {
 	parameters: readonly NativeType[];
 	result: NativeType;
@@ -65,22 +64,29 @@ export interface NativeCallback {
 	close(): void;
 }
 
-/** The FFI seam: load an archive, take the address of a JS buffer, read native
- * memory, make a callback, and name the platform's shared-library suffix. */
+/** The FFI seam: load an archive, mint a native callback, take the address of a
+ * JS buffer, read and write native memory, and name the platform's
+ * shared-library suffix. */
 export interface RuntimeFfi {
 	/** Load the shared library at `path`, resolving `defs` into callable symbols.
 	 * Throws if the library or a symbol is missing. */
 	dlopen(path: string, defs: Record<string, SymbolDef>): Symbols;
+	/** A native callback over `fn` with signature `def`. Deno and Bun both
+	 * register callbacks globally (a callback pointer is callable from any
+	 * loaded archive), so one runtime-level factory serves every library. Keep
+	 * the handle alive while native code may invoke it; `close` releases it. */
+	// deno-lint-ignore no-explicit-any
+	makeCallback(def: SymbolDef, fn: (...args: any[]) => any): NativeCallback;
 	/** The address of `buf`'s backing memory, stable only for the synchronous
 	 * window in which it is used. `0n` for an empty buffer. */
 	pointerOf(buf: Uint8Array): Ptr;
 	/** A freshly-owned copy of `len` bytes at `ptr`. Empty for a null pointer or
 	 * zero length. */
 	readMemory(ptr: Ptr, len: number): ArrayBuffer;
-	/** A native callback over `fn` with signature `def`. Keep the handle alive
-	 * while native code may invoke it; `close` releases it. */
-	// deno-lint-ignore no-explicit-any
-	makeCallback(def: SymbolDef, fn: (...args: any[]) => any): NativeCallback;
+	/** Write `bytes` into native memory at `ptr` (the inverse of `readMemory`),
+	 * for filling a C out-parameter a callback is handed by pointer. No-op for a
+	 * null pointer. */
+	writeMemory(ptr: Ptr, bytes: Uint8Array): void;
 	/** The platform's shared-library suffix: `so`, `dylib`, or `dll`. */
 	libSuffix(): "so" | "dylib" | "dll";
 }
@@ -117,26 +123,25 @@ export interface RuntimeAdapter {
 }
 
 // The two runtime globals this binding probes for. Bun and Deno each expose a
-// namesake global; Node has neither, so it is the fall-through.
+// namesake global; anything else is unsupported and fails loud.
 const g = globalThis as { Bun?: unknown; Deno?: { dlopen?: unknown } };
 
-/** The detected host runtime. Bun and Deno each expose a namesake global; Node
- * is the fall-through. */
-export type RuntimeName = "deno" | "bun" | "node";
+/** The detected host runtime. */
+export type RuntimeName = "deno" | "bun";
 
 function detectRuntime(): RuntimeName {
 	if (typeof g.Bun !== "undefined") return "bun";
 	if (typeof g.Deno !== "undefined" && typeof g.Deno.dlopen === "function") {
 		return "deno";
 	}
-	return "node";
+	throw new Error("unsupported runtime (Deno and Bun are supported)");
 }
 
 async function loadAdapter(): Promise<RuntimeAdapter> {
 	// A computed specifier keeps a static analyzer (Deno's `deno check`, a
-	// bundler) from following into a runtime it cannot resolve, `bun.ts` imports
-	// `bun:ffi`, `node.ts` imports `node:ffi`, neither of which exists under the
-	// others. The matching adapter is the only one ever loaded at runtime.
+	// bundler) from following into a runtime it cannot resolve: `bun.ts` imports
+	// `bun:ffi`, which does not exist under Deno. The matching adapter is the
+	// only one ever loaded at runtime.
 	const file = `./adapters/${detectRuntime()}.ts`;
 	return (await import(file)).adapter;
 }

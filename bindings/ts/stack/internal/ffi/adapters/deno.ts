@@ -3,8 +3,9 @@
 // Deno's FFI (`Deno.dlopen`, `Deno.UnsafePointer`, `Deno.UnsafePointerView`,
 // `Deno.UnsafeCallback`) and its native sockets (`Deno.connect`/`Deno.listen`)
 // implement the runtime seams declared in `../runtime.ts`. Pointers cross the
-// seam as `bigint`; this adapter converts to and from Deno's opaque
-// `PointerValue` at each call so the layers above hold one representation.
+// seam as `bigint`; the shared spine in `ptr_wrap.ts` converts to and from
+// Deno's opaque `PointerValue` at each call so the layers above hold one
+// representation.
 
 import type {
 	NativeCallback,
@@ -18,6 +19,7 @@ import type {
 	SymbolDef,
 	Symbols,
 } from "../runtime.ts";
+import { type PtrBridge, wrapCallbackFn, wrapSymbols } from "./ptr_wrap.ts";
 
 // deno-lint-ignore no-explicit-any
 const D = (globalThis as any).Deno;
@@ -35,13 +37,14 @@ function denoDef(def: SymbolDef): Deno.ForeignFunction {
 	};
 }
 
-function toPtr(p: Deno.PointerValue): Ptr {
-	return p === null ? 0n : BigInt(D.UnsafePointer.value(p));
-}
-
-function fromPtr(p: Ptr): Deno.PointerValue {
-	return D.UnsafePointer.create(p);
-}
+const bridge: PtrBridge<Deno.PointerValue> = {
+	toPtr(p: Deno.PointerValue): Ptr {
+		return p === null ? 0n : BigInt(D.UnsafePointer.value(p));
+	},
+	fromPtr(p: Ptr): Deno.PointerValue {
+		return D.UnsafePointer.create(p);
+	},
+};
 
 const ffi: RuntimeFfi = {
 	dlopen(path: string, defs: Record<string, SymbolDef>): Symbols {
@@ -49,64 +52,41 @@ const ffi: RuntimeFfi = {
 		for (const [name, def] of Object.entries(defs)) {
 			denoDefs[name] = denoDef(def);
 		}
-		const lib = D.dlopen(path, denoDefs);
-		const out: Symbols = {};
-		for (const [name, def] of Object.entries(defs)) {
-			const fn = lib.symbols[name];
-			const ptrParams: number[] = [];
-			def.parameters.forEach((t, i) => {
-				if (t === "pointer") ptrParams.push(i);
-			});
-			const ptrResult = def.result === "pointer";
-			if (ptrParams.length === 0 && !ptrResult) {
-				out[name] = fn;
-				continue;
-			}
-			// deno-lint-ignore no-explicit-any
-			out[name] = (...args: any[]) => {
-				for (const i of ptrParams) args[i] = fromPtr(args[i] as Ptr);
-				const r = fn(...args);
-				return ptrResult ? toPtr(r as Deno.PointerValue) : r;
-			};
-		}
-		return out;
-	},
-
-	pointerOf(buf: Uint8Array): Ptr {
-		return toPtr(D.UnsafePointer.of(buf));
-	},
-
-	readMemory(ptr: Ptr, len: number): ArrayBuffer {
-		if (ptr === 0n || len === 0) return new ArrayBuffer(0);
-		const view = new D.UnsafePointerView(fromPtr(ptr));
-		// getArrayBuffer copies; slice keeps the result owned regardless.
-		return (view.getArrayBuffer(len) as ArrayBuffer).slice(0);
+		return wrapSymbols(defs, D.dlopen(path, denoDefs).symbols, bridge);
 	},
 
 	makeCallback(
 		def: SymbolDef,
 		fn: (...args: unknown[]) => unknown,
 	): NativeCallback {
-		const ptrParams: number[] = [];
-		def.parameters.forEach((t, i) => {
-			if (t === "pointer") ptrParams.push(i);
-		});
-		const ptrResult = def.result === "pointer";
-		const cb = new D.UnsafeCallback(
-			denoDef(def),
-			// deno-lint-ignore no-explicit-any
-			(...args: any[]) => {
-				for (const i of ptrParams) {
-					args[i] = toPtr(args[i] as Deno.PointerValue);
-				}
-				const r = fn(...args);
-				return ptrResult ? fromPtr(r as Ptr) : r;
-			},
-		);
+		const cb = new D.UnsafeCallback(denoDef(def), wrapCallbackFn(def, fn, bridge));
 		return {
-			pointer: toPtr(cb.pointer),
+			pointer: bridge.toPtr(cb.pointer),
 			close: () => cb.close(),
 		};
+	},
+
+	pointerOf(buf: Uint8Array): Ptr {
+		// 0n for an empty buffer, matching the RuntimeFfi contract and the bun
+		// adapter explicitly rather than relying on `UnsafePointer.of` returning
+		// null for a zero-length view.
+		if (buf.byteLength === 0) return 0n;
+		return bridge.toPtr(D.UnsafePointer.of(buf));
+	},
+
+	readMemory(ptr: Ptr, len: number): ArrayBuffer {
+		if (ptr === 0n || len === 0) return new ArrayBuffer(0);
+		const view = new D.UnsafePointerView(bridge.fromPtr(ptr));
+		// getArrayBuffer copies; slice keeps the result owned regardless.
+		return (view.getArrayBuffer(len) as ArrayBuffer).slice(0);
+	},
+
+	writeMemory(ptr: Ptr, bytes: Uint8Array): void {
+		if (ptr === 0n || bytes.length === 0) return;
+		// getArrayBuffer here is a live view over the native memory, so writing
+		// through it writes the pointer's bytes directly.
+		const view = new D.UnsafePointerView(bridge.fromPtr(ptr));
+		new Uint8Array(view.getArrayBuffer(bytes.length) as ArrayBuffer).set(bytes);
 	},
 
 	libSuffix() {

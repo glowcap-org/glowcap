@@ -17,26 +17,22 @@
 //   console.log(server.uri);              // hand this to a partner
 //   for await (const conn of server) conn.serve();
 //
-// The frame unit is identical to TCP's — one codec-self-delimited CapTP message
-// — so the same `AsyncConnection` pump drives a peer over it; only the addressing
-// differs (an endpoint id + direct-address hints, no host:port). The sidecar's
-// loop surface (ADR-0057) is the netlayer's one I/O model: `IrohLoop` parks the
-// event loop on the endpoint's single readiness fd (a `node:net` socket over a
-// dup of it) and drains the readiness records when it signals, so one loop serves
-// many connections with no per-connection task.
+// The byte unit is identical to TCP's — the core's stream delimiter owns
+// framing — so the same byte-fed `Connection` serve loop drives a session over
+// it; only the addressing differs (an endpoint id + direct-address hints, no
+// host:port). The sidecar's loop surface (ADR-0057) is the netlayer's one I/O
+// model: `IrohLoop` parks the event loop on the endpoint's single readiness fd
+// (a `node:net` socket over a dup of it) and drains the readiness records when
+// it signals, so one loop serves many connections with no per-connection task.
 
 import { Socket } from "node:net";
 import {
-	AsyncConnection,
 	Connection,
 	formatPeerUri,
-	type FramePump,
-	type KeyedLocator,
 	Node,
-	openKeyedSession,
 	PancakeError,
-	Peer,
 	Reachability,
+	type Transport,
 } from "@pancake/stack";
 
 // The `Reachability` posture type is owned by the core `@pancake/stack` (so its
@@ -47,7 +43,6 @@ import {
 	ab,
 	CLOSED,
 	ffi,
-	INVALID_ARGUMENT,
 	IROH_EV_ACCEPT,
 	IROH_EV_CLOSED,
 	IROH_EV_READABLE,
@@ -57,17 +52,28 @@ import {
 	OK,
 	outPointer,
 	type Ptr,
+	readErrorSlot,
 	type Symbols,
 	WOULD_BLOCK,
 } from "@pancake/stack/ffi";
 import { irohS } from "./ffi.ts";
 
-// As the core's `check`, but for iroh ABI calls: the iroh library carries its
-// own thread-local last-error, so pass an explicit detail rather than scraping
-// libpancake_ocapn's unrelated one.
+// The calling thread's last error from the iroh transport, or null when there
+// is none. The transport keeps its own thread-local slot, so an iroh call's
+// diagnostic is read here, never from the core's `pancake_last_error`.
+function irohLastError(): string | null {
+	return readErrorSlot(irohS().pancake_iroh_last_error);
+}
+
+// A failed iroh-transport call: read its diagnostic from the transport's own
+// thread-local last-error and pass it explicitly, so `PancakeError` never
+// scrapes the unrelated core-family `pancake_last_error`.
 function irohCheck(code: number): void {
 	if (code !== OK) {
-		throw new PancakeError(code, `iroh transport call failed (code ${code})`);
+		throw new PancakeError(
+			code,
+			irohLastError() ?? `iroh transport call failed (code ${code})`,
+		);
 	}
 }
 
@@ -75,7 +81,8 @@ function readUsize(buf: Uint8Array): number {
 	return Number(new DataView(buf.buffer).getBigUint64(0, true));
 }
 
-// Mirrors the core's read chunk; raw inbound bytes are framed by the peer above.
+// Mirrors the core's read chunk; raw inbound bytes are framed by the host's
+// stream delimiter above.
 const READ_CHUNK = 64 * 1024;
 
 /** A bound iroh QUIC endpoint plus the sidecar runtime driving it, the iroh
@@ -90,12 +97,6 @@ export class IrohNetlayer {
 	 * reach/privacy posture, with no default. `secretSeed` is a 32-byte
 	 * Ed25519 secret key for a stable id, or omitted for a fresh random key. */
 	constructor(reachability: Reachability, secretSeed?: Uint8Array) {
-		if (secretSeed !== undefined && secretSeed.length !== 32) {
-			throw new PancakeError(
-				INVALID_ARGUMENT,
-				"an iroh secret seed must be 32 bytes",
-			);
-		}
 		const seed = secretSeed ?? new Uint8Array(0);
 		const out = new Uint8Array(8);
 		irohCheck(
@@ -152,7 +153,10 @@ export class IrohNetlayer {
 	readinessFd(): number {
 		const fd = irohS().pancake_iroh_netlayer_readiness_fd(this.#raw);
 		if (fd < 0) {
-			throw new PancakeError(fd, `iroh readiness_fd failed (code ${fd})`);
+			throw new PancakeError(
+				fd,
+				irohLastError() ?? `iroh readiness_fd failed (code ${fd})`,
+			);
 		}
 		return fd;
 	}
@@ -166,7 +170,9 @@ export class IrohNetlayer {
 			ab(buf),
 			BigInt(cap),
 		);
-		if (n < 0) throw new PancakeError(n, `iroh drain_ready failed (code ${n})`);
+		if (n < 0) {
+			throw new PancakeError(n, irohLastError() ?? `iroh drain_ready failed (code ${n})`);
+		}
 		return n;
 	}
 
@@ -244,7 +250,10 @@ export class IrohConn {
 		);
 		if (n === WOULD_BLOCK || n === CLOSED) return n;
 		if (n < 0) {
-			throw new PancakeError(n, `iroh conn try_read failed (code ${n})`);
+			throw new PancakeError(
+				n,
+				irohLastError() ?? `iroh conn try_read failed (code ${n})`,
+			);
 		}
 		return n;
 	}
@@ -260,7 +269,10 @@ export class IrohConn {
 		);
 		if (n === WOULD_BLOCK) return n;
 		if (n < 0) {
-			throw new PancakeError(n, `iroh conn try_write failed (code ${n})`);
+			throw new PancakeError(
+				n,
+				irohLastError() ?? `iroh conn try_write failed (code ${n})`,
+			);
 		}
 		return n;
 	}
@@ -459,7 +471,7 @@ class IrohLoop {
 	#onReady(): void {
 		if (this.#closed) return;
 		const dv = new DataView(this.#buf.buffer);
-		for (;;) {
+		while (true) {
 			let n: number;
 			try {
 				n = this.#netlayer.drainReady(this.#buf, DRAIN_READY_CAP);
@@ -510,99 +522,71 @@ class IrohLoop {
 	}
 }
 
-/** The iroh pump: a non-blocking `IrohConn` driven by an `IrohLoop` (ADR-0057).
- * It sources raw inbound bytes through the sidecar's non-blocking `try_read`,
- * buffers them, and lets the peer frame them — exactly like the core's `TcpPump`,
- * since the frame unit is identical; the readiness loop, not a parked blocking
- * read, decides when bytes are available. Outbound frames go through the
- * non-blocking `try_write`, re-arming on the next writable record if the sidecar
- * buffer is full. The keyed locator signs the `iroh` transport with the local
- * endpoint id as designator (empty for a dialer, matching the Zig driver).
+/** The iroh transport: a non-blocking `IrohConn` driven by an `IrohLoop`
+ * (ADR-0057), reshaped into the byte transport a `Connection`'s serve loop
+ * reads. `read` sources raw inbound bytes through the sidecar's non-blocking
+ * `try_read` — the readiness loop, not a parked blocking read, decides when
+ * bytes are available — and the host's stream delimiter frames them above.
+ * `write` goes through the non-blocking `try_write`, re-arming on the next
+ * writable record when the sidecar buffer is full (the serve loop's FLUSH
+ * drain serializes the writes, so the retry never interleaves frames).
  *
- * Lifetime: a server-accepted pump borrows the server's loop and netlayer; a
- * dialing pump minted its own netlayer and loop (`ownsLoop`) and tears both down
- * on close. No call ever parks on this connection, so `close` cannot race a
- * parked read — the teardown hazard the blocking pump had. */
-class IrohPump implements FramePump {
+ * Lifetime: a server-accepted transport borrows the server's loop and
+ * netlayer; a dialing transport minted its own netlayer and loop (`ownsLoop`)
+ * and tears both down on close. No call ever parks on this connection, so
+ * `close` cannot race a parked read — the teardown hazard a blocking pump
+ * would have. */
+class IrohTransport implements Transport {
 	#conn: IrohConn;
-	#designator: string;
 	#loop: IrohLoop;
 	#ownsLoop: boolean;
 	#ownedNetlayer: IrohNetlayer | null;
-	// Inbound bytes read from the wire but not yet framed into whole frames.
-	#inbox: Uint8Array = new Uint8Array(0);
 	#readBuf = new Uint8Array(READ_CHUNK);
 
 	constructor(
 		conn: IrohConn,
-		designator: string,
 		loop: IrohLoop,
 		ownedNetlayer: IrohNetlayer | null = null,
 		ownsLoop = false,
 	) {
 		this.#conn = conn;
-		this.#designator = designator;
 		this.#loop = loop;
 		this.#ownsLoop = ownsLoop;
 		this.#ownedNetlayer = ownedNetlayer;
 	}
 
-	locator(): KeyedLocator {
-		return {
-			transport: "iroh",
-			designator: this.#designator,
-			hintsEmptyFalse: true,
-		};
-	}
-
-	dispatchBuffered(peer: Peer): boolean {
-		if (this.#inbox.length === 0) return false;
-		const consumed = peer.recvStream(this.#inbox);
-		if (consumed === null) return false;
-		this.#inbox = this.#inbox.subarray(consumed);
-		return true;
-	}
-
-	async receive(_peer: Peer): Promise<boolean> {
-		for (;;) {
-			// Drain every byte currently available (the readiness signal is edge-ish,
-			// so leaving bytes buffered in the sidecar could stall until fresh data),
-			// then frame them above.
-			let got = false;
-			for (;;) {
+	async read(): Promise<Uint8Array | null> {
+		while (true) {
+			// Drain every byte currently available (the readiness signal is
+			// edge-ish, so leaving bytes buffered in the sidecar could stall until
+			// fresh data); the chunks are copied out so the read buffer can be
+			// reused by the next read.
+			const chunks: Uint8Array[] = [];
+			while (true) {
 				const n = this.#conn.tryReadInto(this.#readBuf);
 				if (n === WOULD_BLOCK) break;
-				if (n === CLOSED) return got; // drained, then a clean end of stream
-				this.#appendInbox(this.#readBuf.subarray(0, n));
-				got = true;
+				if (n === CLOSED) {
+					// Drained, then a clean end of stream: hand back what arrived
+					// first; the next read reports the close.
+					return chunks.length > 0 ? join(chunks) : null;
+				}
+				chunks.push(this.#readBuf.slice(0, n));
 			}
-			if (got) return true;
-			// Nothing buffered yet: park on this connection's readiness, not a wire
-			// read. A false here means the connection was released/closed under us.
-			if (!(await this.#loop.waitReadable(this.#conn))) return false;
+			if (chunks.length > 0) return join(chunks);
+			// Nothing buffered yet: park on this connection's readiness, not a
+			// wire read. A false here means it was released/closed under us.
+			if (!(await this.#loop.waitReadable(this.#conn))) return null;
 		}
 	}
 
-	async writeFrame(frame: Uint8Array): Promise<void> {
-		for (;;) {
-			const n = this.#conn.tryWrite(frame);
-			if (n !== WOULD_BLOCK) return; // the whole frame went (all-or-nothing)
+	async write(data: Uint8Array): Promise<void> {
+		while (true) {
+			const n = this.#conn.tryWrite(data);
+			if (n !== WOULD_BLOCK) return; // the whole slice went (all-or-nothing)
 			if (!(await this.#loop.waitWritable(this.#conn))) {
 				throw new Error("iroh connection closed while writing");
 			}
 		}
-	}
-
-	#appendInbox(bytes: Uint8Array): void {
-		if (this.#inbox.length === 0) {
-			// Copy out of the read buffer so the next read can reuse it.
-			this.#inbox = bytes.slice();
-			return;
-		}
-		const grown = new Uint8Array(this.#inbox.length + bytes.length);
-		grown.set(this.#inbox, 0);
-		grown.set(bytes, this.#inbox.length);
-		this.#inbox = grown;
 	}
 
 	close(): void {
@@ -611,13 +595,26 @@ class IrohPump implements FramePump {
 		this.#loop.unregister(this.#conn);
 		this.#conn.release();
 		if (this.#ownsLoop) {
-			// The dialing pump owns the loop and netlayer: stop the loop (destroying
-			// its readiness socket) before releasing the netlayer, so no callback is
-			// still touching the endpoint when it is freed.
+			// The dialing transport owns the loop and netlayer: stop the loop
+			// (destroying its readiness socket) before releasing the netlayer, so
+			// no callback is still touching the endpoint when it is freed.
 			this.#loop.close();
 			this.#ownedNetlayer?.release();
 		}
 	}
+}
+
+function join(chunks: Uint8Array[]): Uint8Array {
+	if (chunks.length === 1) return chunks[0];
+	let total = 0;
+	for (const c of chunks) total += c.length;
+	const grown = new Uint8Array(total);
+	let off = 0;
+	for (const c of chunks) {
+		grown.set(c, off);
+		off += c.length;
+	}
+	return grown;
 }
 
 // iroh discovery resolves a peer by node id alone, but the exporter's pkarr
@@ -691,57 +688,42 @@ export async function connectIroh(
 	}
 	loop.register(conn);
 	loop.start();
-	// A dialer signs an empty designator (its identity is the session key),
-	// matching the Zig driver; the pump owns the ephemeral netlayer and loop. The
-	// peer is node-owned (ADR-0066): registering the connection with the node's
-	// node returns its `connId` and the peer to pump, so the session's public key
-	// (a give's `recipient_key`) and the node's identity/gift registry agree —
-	// what a three-party handoff requires (ADR-0009/ADR-0056).
-	const { connId, peer } = node.registerConn();
-	// The pump owns the dialer-minted connection, loop, and ephemeral netlayer
-	// (`ownsLoop`); on a handshake failure its `close` is what unregisters and
-	// releases the connection, stops the readiness loop (closing the dup'd fd),
-	// and releases the netlayer. The node-owned peer is freed by `removeConn`, so
-	// closing the pump and removing the connection frees every acquired resource,
-	// the same symmetry the tcp dialer keeps.
-	const pump = new IrohPump(conn, "", loop, netlayer, true);
-	try {
-		const ac = AsyncConnection.fromPump(peer, pump);
-		await openKeyedSession(ac, node.seed);
-		return Connection.fromAsync(ac, node, connId);
-	} catch (e) {
-		pump.close();
-		node.removeConn(connId);
-		throw e;
-	}
+	// The transport owns the dialer-minted connection, loop, and ephemeral
+	// netlayer (`ownsLoop`); on a handshake failure `establishDialed` abandons
+	// the half-built connection, and its transport close is what unregisters
+	// and releases the sidecar connection, stops the readiness loop (closing
+	// the dup'd fd), and releases the netlayer. The connection is minted
+	// against `node`, so the session's identity (a give's `recipient_key`) and
+	// the node's gift registry agree — what a three-party handoff requires
+	// (ADR-0009/ADR-0056).
+	const transport = new IrohTransport(conn, loop, netlayer, true);
+	return Connection.establishDialed(
+		node,
+		formatPeerUri("iroh", nodeId),
+		transport,
+	);
 }
 
 /** Complete the responder handshake over an accepted iroh connection, signing
- * the server's endpoint id as the locator designator (used by `IrohServer`). The
- * accepted connection's loop and netlayer belong to the server, not this
+ * the server's endpoint id as the locator designator (used by `IrohServer`).
+ * The accepted connection's loop and netlayer belong to the server, not this
  * connection. */
-async function acceptIroh(
+function acceptIroh(
 	conn: IrohConn,
 	localNodeId: string,
 	loop: IrohLoop,
 	node: Node = new Node(),
 ): Promise<Connection> {
-	// As `connectIroh`: the peer is node-owned (ADR-0066), so a node's accepted
-	// connections share one identity and gift registry, what lets an exporter
-	// match a gift's deposit (on the gifter session) and withdraw (on the recipient
-	// session).
-	const { connId, peer } = node.registerConn();
-	try {
-		const ac = AsyncConnection.fromPump(
-			peer,
-			new IrohPump(conn, localNodeId, loop),
-		);
-		await openKeyedSession(ac, node.seed);
-		return Connection.fromAsync(ac, node, connId);
-	} catch (e) {
-		node.removeConn(connId);
-		throw e;
-	}
+	// As `connectIroh`: the connection is minted against the server's node, so
+	// its accepted connections share one identity and gift registry — what lets
+	// an exporter match a gift's deposit (on the gifter session) and withdraw
+	// (on the recipient session).
+	return Connection.establishAccepted(
+		node,
+		"iroh",
+		localNodeId,
+		new IrohTransport(conn, loop),
+	);
 }
 
 /** A listening iroh endpoint. Iterate it for an accepted `Connection` per
@@ -801,7 +783,7 @@ export class IrohServer {
 			// Wait for an accept record, then claim every connection now pending — a
 			// single wake may cover several near-simultaneous dials.
 			if (!(await this.#loop.nextAccept())) return;
-			for (;;) {
+			while (true) {
 				const conn = this.#netlayer.tryAccept();
 				if (conn === null) break; // nothing more pending right now
 				this.#loop.register(conn);

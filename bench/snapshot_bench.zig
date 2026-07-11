@@ -59,12 +59,9 @@ const Blob = struct {
         return .{ .integer = self.data[0] };
     }
 
-    pub fn clone(self: *const Blob, allocator: std.mem.Allocator) std.mem.Allocator.Error!*Blob {
-        const fresh = try allocator.create(Blob);
-        errdefer allocator.destroy(fresh);
+    pub fn clone(self: *const Blob, allocator: std.mem.Allocator) std.mem.Allocator.Error!Blob {
         const data = try allocator.dupe(u8, self.data);
-        fresh.* = .{ .allocator = allocator, .data = data };
-        return fresh;
+        return .{ .allocator = allocator, .data = data };
     }
 
     pub fn deinit(self: *Blob, allocator: std.mem.Allocator) void {
@@ -85,12 +82,9 @@ const MapMut = struct {
         return .{ .integer = @bitCast(self.entries[0]) };
     }
 
-    pub fn clone(self: *const MapMut, allocator: std.mem.Allocator) std.mem.Allocator.Error!*MapMut {
-        const fresh = try allocator.create(MapMut);
-        errdefer allocator.destroy(fresh);
+    pub fn clone(self: *const MapMut, allocator: std.mem.Allocator) std.mem.Allocator.Error!MapMut {
         const entries = try allocator.dupe(u64, self.entries);
-        fresh.* = .{ .allocator = allocator, .entries = entries };
-        return fresh;
+        return .{ .allocator = allocator, .entries = entries };
     }
 
     pub fn deinit(self: *MapMut, allocator: std.mem.Allocator) void {

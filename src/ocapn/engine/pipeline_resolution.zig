@@ -11,11 +11,12 @@
 //! this module's surface.
 //!
 //! On ownership: anything here that produces an owned message takes ownership of
-//! what you pass in, like the queued call or the listener target, and moves its
-//! heap into the result. It moves, it doesn't copy. The one exception is the
-//! partial-listener case, where a single resolution has to both fire the listener
-//! immediately and re-anchor it on the next answer, so there it makes one
-//! `model.cloneReference`.
+//! what you pass in, like the queued call, and moves its heap into the result.
+//! It moves, it doesn't copy. The listener-fire math never owns anything: a
+//! drain decision is POD (`ListenerDrainAction`), and the fire deliver itself is
+//! a *borrowed* stack message (`borrowedListenerFire`) whose payload borrows the
+//! stored resolution — the engine's carrier queue and encode-time borrow own the
+//! lifecycle, never a clone.
 
 const std = @import("std");
 
@@ -39,47 +40,33 @@ pub fn rewriteDeliverTarget(
     } };
 }
 
-/// Build the `op:deliver` that fires a listener with `resolution`, taking
-/// ownership of `listener_target` (moved into the deliver's target) and cloning
-/// the resolution payload. Per the OCapN `op:listen` notification shape (the
-/// upstream conformance suite is the authority), the args are
-/// `[Symbol("fulfill"), payload]` for a fulfillment or `[Symbol("break"),
-/// Symbol(reason)]` for a break. On any failure `listener_target` and every
-/// partial allocation are released.
-pub fn synthesizeListenerFire(
-    allocator: std.mem.Allocator,
-    listener_target: model.Reference,
+/// Build the *borrowed* `op:deliver` that fires a listener with `resolution`,
+/// on the caller's stack: the method symbol is a static string, the payload
+/// borrows `resolution` (for a break, the reason rides as a bare Symbol), and
+/// the two-slot args array is the caller-supplied `args`. Nothing is allocated
+/// and nothing is owned — the returned message is valid only while `args` and
+/// the borrowed resolution live, and must never reach `model.freeMessage`. Per
+/// the OCapN `op:listen` notification shape (the upstream conformance suite is
+/// the authority), the args are `[Symbol("fulfill"), payload]` for a
+/// fulfillment or `[Symbol("break"), Symbol(reason)]` for a break — the reason
+/// as a bare Symbol, not an `<error>` record: the upstream suite asserts
+/// exactly that for `test_op_listen_to_promise_and_break`, and Goblins'
+/// unmarshaller rejects unknown records, so an `<error>` payload would kill
+/// the break on a live Goblins partner. The listener target is rebuilt as
+/// `FarRef.object(listener_position)` — listener entries are only ever built
+/// that shape (`pipeline.installAnswerListener` / the imported-promise
+/// install), so a bare position loses nothing.
+pub fn borrowedListenerFire(
+    listener_position: u64,
     resolution: model.Resolution,
-) !model.Message {
-    var target_owned = true;
-    errdefer if (target_owned) model.freeReference(allocator, listener_target);
-
-    const method = switch (resolution) {
-        .fulfill => "fulfill",
-        .@"break" => "break",
+    args: *[2]model.Argument,
+) model.Message {
+    args.* = switch (resolution) {
+        .fulfill => |arg| .{ .{ .symbol = "fulfill" }, arg },
+        .@"break" => |err| .{ .{ .symbol = "break" }, .{ .symbol = err.message } },
     };
-    const method_symbol = try allocator.dupe(u8, method);
-    errdefer allocator.free(method_symbol);
-
-    const payload: model.Argument = switch (resolution) {
-        .fulfill => |arg| try model.cloneArgument(allocator, arg),
-        // The `op:listen` break notification carries the reason as a bare
-        // Symbol, not an `<error>` record, the upstream OCapN suite asserts
-        // `[Symbol("break"), Symbol(reason)]` for `test_op_listen_to_promise_and_break`,
-        // and `v1_0.encodeResolveAsCallback` renders its V1.0 break the same
-        // way (Goblins' unmarshaller rejects unknown records, so an `<error>`
-        // payload would kill the break on a live Goblins partner).
-        .@"break" => |err| try model.cloneArgument(allocator, .{ .symbol = err.message }),
-    };
-    errdefer model.freeArgument(allocator, payload);
-
-    const args = try allocator.alloc(model.Argument, 2);
-    args[0] = .{ .symbol = method_symbol };
-    args[1] = payload;
-
-    target_owned = false;
     return .{ .deliver = .{
-        .target = listener_target,
+        .target = .{ .far = model.FarRef.object(listener_position) },
         .args = args,
         .answer = null,
         .resolve_me_desc = null,
@@ -166,36 +153,43 @@ pub fn decomposeOutboundDeliver(
 }
 
 /// What draining one listener against a resolution produces, per ADR-0007
-/// § Listener fire matrix. The engine applies the action (send the fire, reinstall the
-/// entry). Each variant owns the heap it carries.
+/// § Listener fire matrix. The engine applies the action (queue the fire
+/// carrier, reinstall the entry). Every variant is POD: a fire is a ticket —
+/// the far export position the fire targets — that the engine's queue-time
+/// accounting and encode-time borrow turn into the wire deliver
+/// (`borrowedListenerFire`); a listener entry is a POD `FarRef` with no heap.
 pub const ListenerDrainAction = union(enum) {
     /// Fire the listener once with the resolution and drop the entry. Every
-    /// resolution shape except `Fulfill(Promise(_))` lands here.
-    fire: model.Message,
+    /// resolution shape except `Fulfill(Promise(_))` lands here. The payload
+    /// is the far export position the fire targets.
+    fire: u64,
     /// Fire the listener with the partial promise AND re-anchor the entry on
-    /// `next_answer`. `wants_partial` × `Fulfill(Promise(_))` only.
+    /// `next_answer`. `wants_partial` × `Fulfill(Promise(_))` only. The
+    /// listener both fires now and stays anchored — an entry is a plain
+    /// value, so keeping both costs nothing.
     fire_and_reinstall: struct {
-        fire: model.Message,
-        next_answer: model.AnswerId,
+        fire: u64,
+        next_answer: model.AnswerPosition,
         entry: session.ListenerEntry,
     },
     /// Re-anchor the entry on `next_answer` without firing. Spec-strict
     /// `Fulfill(Promise(_))` (no `wants_partial`).
     reinstall: struct {
-        next_answer: model.AnswerId,
+        next_answer: model.AnswerPosition,
         entry: session.ListenerEntry,
     },
 };
 
-/// Decide how `entry` drains against `resolution` (ADR-0007 § Listener fire matrix),
-/// taking ownership of `entry.listener`. `Fulfill(Promise(_))` re-anchors the
-/// listener on the promise's answer (firing first only when `wants_partial`);
-/// every other resolution fires once. On failure `entry.listener` is released.
+/// Decide how `entry` drains against `resolution` (ADR-0007 § Listener fire matrix).
+/// `Fulfill(Promise(_))` re-anchors the listener on the promise's answer
+/// (firing first only when `wants_partial`); every other resolution fires
+/// once. Pure and infallible: listener entries are POD `FarRef` values, so
+/// the decision moves values and touches no heap.
 pub fn classifyListenerDrain(
-    allocator: std.mem.Allocator,
     entry: session.ListenerEntry,
     resolution: model.Resolution,
-) !ListenerDrainAction {
+) ListenerDrainAction {
+    const fire_position = entry.listener.import_position.int();
     if (resolution == .fulfill and
         resolution.fulfill == .reference and
         resolution.fulfill.reference == .promise)
@@ -204,23 +198,9 @@ pub fn classifyListenerDrain(
         if (!entry.wants_partial) {
             return .{ .reinstall = .{ .next_answer = next_answer, .entry = entry } };
         }
-        // The one place a resolution is duplicated: the listener both fires now
-        // (with the partial promise) and stays anchored on the next answer.
-        const listener_clone = model.cloneReference(allocator, entry.listener) catch |err| {
-            model.freeReference(allocator, entry.listener);
-            return err;
-        };
-        const fire = synthesizeListenerFire(allocator, listener_clone, resolution) catch |err| {
-            model.freeReference(allocator, entry.listener);
-            return err;
-        };
-        return .{ .fire_and_reinstall = .{ .fire = fire, .next_answer = next_answer, .entry = entry } };
+        return .{ .fire_and_reinstall = .{ .fire = fire_position, .next_answer = next_answer, .entry = entry } };
     }
-
-    // synthesizeListenerFire consumes entry.listener (and frees it on its own
-    // error), so no further cleanup is needed here.
-    const fire = try synthesizeListenerFire(allocator, entry.listener, resolution);
-    return .{ .fire = fire };
+    return .{ .fire = fire_position };
 }
 
 /// What `projectResolution` decided for one `op:get` / `op:index`
@@ -231,7 +211,7 @@ pub const Projected = union(enum) {
     resolved: model.Resolution,
     /// The resolution was itself a promise; re-anchor the projection on that
     /// promise's answer.
-    reanchor: model.AnswerId,
+    reanchor: model.AnswerPosition,
 };
 
 /// Compute an `op:get` / `op:index` / `op:untag` projection over a settled

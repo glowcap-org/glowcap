@@ -1,58 +1,81 @@
 # bindings/python
 
-A Python (`ctypes`, standard library only) consumer of the pancake C ABI
-archives. The C ABI ships as a set of composable, symbol-disjoint archives
-(ADR-0059), and this package mirrors that à la carte: a core package over
-`libpancake_ocapn`, plus one submodule per transport. See
+This package is a Python consumer of the pancake C ABI archives, built on
+`ctypes` with the standard library alone. The C ABI ships as a set of
+composable, symbol-disjoint archives (ADR-0059), and this package mirrors that
+split à la carte: a core package over `libpancake_ocapn` plus its byte-fed host
+companion `libpancake_driver` (ADR-0072), and one submodule per transport. See
 [`../README.md`](../README.md) for the shipped C ABI surface and how the
 bindings are gated.
 
 ## Composable submodules, one per archive
 
-Each module loads only its own archive, so importing the core never loads a
-transport and importing one transport never loads another. Compose what you
-need, exactly as a C consumer links archives à la carte:
+Each module loads only its own archive, so importing one transport never loads
+another. Compose what you need, exactly as a C consumer links archives à la
+carte:
 
-| Module           | Archive it loads                  | Surface                                                                                                                                                                |
-| ---------------- | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pancake` (core) | `libpancake_ocapn`                | `Peer`, `Context`, `Vat`, the value/event vocabulary, the locator grammar, and the async transport-neutral `connect` / `listen` / `Connection` (pure asyncio over TCP) |
-| `pancake.tcp`    | `libpancake_net_transport_tcp`    | `TcpNetlayer`, `TcpListener`, `TcpEndpoint` — the blocking `pancake_tcp_*` frame shuttle                                                                               |
-| `pancake.inproc` | `libpancake_net_transport_inproc` | `InprocNetlayer`, `InprocListener`, `InprocConn` — the socket-free in-process shuttle                                                                                  |
-| `pancake.iroh`   | `libpancake_net_transport_iroh`   | `listen_iroh`, `connect_iroh`, `Reachability` — encrypted-QUIC (loaded lazily, on first use)                                                                           |
+| Module           | Archive it loads                                    | Surface                                                                                                                                                     |
+| ---------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `pancake` (core) | `libpancake_ocapn` + `libpancake_driver` (ADR-0072) | `connect` / `listen` / `Connection` / `Node` over the byte-fed host, `Context`, the value vocabulary, and the locator grammar (pure asyncio over TCP)       |
+| `pancake.tcp`    | `libpancake_net_transport_tcp`                      | `TcpNetlayer`, `TcpListener`, `TcpEndpoint`: the blocking `pancake_tcp_*` frame shuttle                                                                    |
+| `pancake.inproc` | `libpancake_net_transport_inproc`                   | `InprocNetlayer`, `InprocListener`, `InprocConn`: the socket-free in-process shuttle                                                                       |
+| `pancake.iroh`   | `libpancake_net_transport_iroh`                     | `listen_iroh`, `connect_iroh`, `Reachability`: encrypted-QUIC (loaded lazily, on first use)                                                                |
 
-The internal per-archive `ctypes` loaders — [`_ffi_core`](pancake/_ffi_core.py),
-[`_ffi_tcp`](pancake/_ffi_tcp.py), [`_ffi_inproc`](pancake/_ffi_inproc.py), and
-[`_ffi_iroh`](pancake/_ffi_iroh.py) — and the ABI constants in
-[`_constants`](pancake/_constants.py) are `_`-private and never imported by a
-consumer. Each transport reuses the core's `ctypes` `Structure` types by layout,
-the same way the C headers share `pancake_ocapn.h`, and routes its own errors
-through its own `pancake_<transport>_last_error` slot. The package ships a
-`py.typed` marker, so type checkers read its inline annotations (PEP 561).
+The internal per-archive `ctypes` loaders ([`_ffi_ocapn`](pancake/_ffi_ocapn.py),
+[`_ffi_driver`](pancake/_ffi_driver.py), [`_ffi_tcp`](pancake/_ffi_tcp.py),
+[`_ffi_inproc`](pancake/_ffi_inproc.py), and [`_ffi_iroh`](pancake/_ffi_iroh.py))
+and the ABI constants in [`_constants`](pancake/_constants.py) are `_`-private
+and never imported by a consumer. Each companion archive reuses the core's
+`ctypes` `Structure` types by layout, the same way the C headers share
+`pancake_ocapn.h`, and routes its own errors through its own
+`pancake_<family>_last_error` slot. The struct mirrors are hand-declared — the
+same standing gap the Racket binding names — so a C-side layout change is swept
+into the `_ffi_*` modules by hand. The package ships a `py.typed` marker, so
+type checkers read its inline annotations (PEP 561).
+
+The core public surface is itself split by responsibility across `_`-private
+submodules that the package `__init__` re-exports as a barrel: the typed errors
+in [`_errors`](pancake/_errors.py), the value and reference vocabulary in
+[`_value`](pancake/_value.py), the `ctypes` argument codec in
+[`_codec`](pancake/_codec.py), the allocation `Context` in
+[`_context`](pancake/_context.py), the locator URI grammar in
+[`_locator`](pancake/_locator.py), the shared behavior trampoline in
+[`_trampoline`](pancake/_trampoline.py), the CapTP `Node` (the host handle, the
+vow table, and the action drain) in [`_host`](pancake/_host.py), and the
+`Connection` / `Server` application surface in
+[`_connection`](pancake/_connection.py). Import every name from `pancake`. The
+submodule layout is internal and may change.
 
 ## The API
 
-What you use is a `Peer` context manager, native Python values as arguments, and
-typed event objects. The default `Peer()` is a negotiating authenticated
-session; use `Peer.raw_open()` only for low-level fixtures that inject frames
-directly:
+What you hold is a `Connection` over the byte-fed host: the library owns
+framing, routing, three-party redemption, and gift origination, and the binding
+moves bytes and honors the host's action queue. Values are native Python —
+`int`, `float`, `bool`, `bytes`, `str`, `list`, plus `Symbol` / `Keyword` /
+`Set` / `Tagged` and the capability `Ref`:
 
 ```python
-from pancake import Peer, Far
+from pancake import connect, tcp_locator
 
-with Peer.raw_open() as peer:
-    peer.register_import(5)
-    peer.send_deliver(Far(5), [42, b"hi"], answer=9)   # native int, bytes
-    peer.step()
-    frame = peer.take_outbound()
-    # ...and poll() returns Deliver / Resolve / Other dataclasses
+conn = await connect(tcp_locator("127.0.0.1", 9099))
+conn.serve()
+greeter = await conn.fetch("greeter")            # a capability, by name
+reply = await conn.send(greeter, "greet", ["world"])
+await conn.close()
 ```
 
-A transport is one import away. The async application surface (`connect`,
-`listen`, `Connection`) lives in the core and drives TCP over asyncio without a
-transport archive; the blocking shuttles are à la carte:
+Hosting is the same surface from the other side: `await listen(host, 0)`
+returns a `Server` whose iterator yields a ready `Connection` per partner, and
+`conn.publish(name, behavior)` / `conn.spawn(behavior)` host plain callables as
+actors. A `send` returns a `RemotePromise` (a real `asyncio.Future`) that is
+itself a valid `send` target, so a dependent chain pipelines in one round trip.
+A node's identity and gift registry are shared through `server.node` /
+`connect(..., node=...)`, which is what makes a three-party handoff
+transparent.
+
+The blocking shuttles are à la carte:
 
 ```python
-from pancake import Peer
 from pancake.tcp import TcpNetlayer        # or pancake.inproc / pancake.iroh
 
 with TcpNetlayer() as nl:

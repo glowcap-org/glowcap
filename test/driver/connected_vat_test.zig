@@ -17,6 +17,7 @@ const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
 const tcp = pancake.net.tcp;
+const crypto = pancake.foundation.crypto;
 
 const ip = std.Io.net;
 
@@ -91,7 +92,7 @@ fn pipelineUnitOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Alloca
     _ = try conn.sendToAnswer(created, .{ .verb = "complete" });
     const status = try conn.sendToAnswer(created, .{ .verb = "status" });
 
-    const settled = try conn.settlePromise(status, arena_state.allocator());
+    const settled = try conn.settleVow(status, arena_state.allocator());
     switch (settled) {
         .fulfilled => |arg| {
             try std.testing.expect(arg == .bytes);
@@ -456,7 +457,7 @@ fn abortingHostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyer
     // Pump until the client's deliver reaches the greeter's export, dropping
     // the event instead of serving it, the abort below is the only answer.
     outer: while (true) {
-        while (cv.peer.pollEvent()) |event_value| {
+        while (cv.served.peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
             const body = event.view() catch continue;
@@ -470,7 +471,7 @@ fn abortingHostOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) anyer
         _ = try cv.conn.pump();
     }
 
-    try cv.peer.sendCopying(.{ .abort = .{ .kind = .unauthorized, .message = abort_diagnostic } });
+    try cv.served.peer.sendCopying(.{ .abort = .{ .kind = .unauthorized, .message = abort_diagnostic } });
     cv.conn.flush() catch {};
 }
 
@@ -539,4 +540,208 @@ test "connectUri fails closed on a URI whose transport has no registered residen
         driver.Error.UnknownTransport,
         driver.connectUri(allocator, &.{tcp_resident.netlayer()}, &peer, "ocapn://node123.quic", .ephemeral, &read_buf, &write_buf),
     );
+}
+
+// ── Byte-fed drive (ADR-0072) ────────────────────────────────────────────────
+//
+// A `driver.Served` owns no socket: the caller feeds inbound frames with
+// `feedBorrowed` and drains outbound with `takeOutbound`, owning the loop
+// itself. This is the sans-io driving mode `libpancake_driver` and a browser
+// ride. The test shuttles a real eventual-send and its resolution between two
+// byte-fed vats over an already-open in-memory session, with no `net.Connection`
+// on either side, so the byte-fed path serves identically to the socket path.
+
+const Adder = struct {
+    n: i64,
+    pub fn handle(self: *Adder, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = turn;
+        if (!std.mem.eql(u8, msg.verb, "add")) return error.NoSuchMethod;
+        self.n += msg.arg(0).integer;
+        return .{ .integer = self.n };
+    }
+};
+
+fn captureFedInt(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+    const slot: *i64 = @ptrCast(@alignCast(ctx.?));
+    slot.* = switch (resolution) {
+        .fulfilled => |value| value.integer,
+        .broken, .give => -1,
+    };
+}
+
+/// Encode `from`'s pending outbound and hand every frame to `to`, borrowed. The
+/// byte-fed analogue of the socket shuttle: no sockets, frames moved by value.
+fn shuttleFed(from: *driver.Served, to: *driver.Served) !void {
+    try from.driveFed();
+    while (from.takeOutbound()) |frame_value| {
+        var frame = frame_value;
+        defer frame.deinit();
+        try to.feedBorrowed(frame.view());
+    }
+}
+
+test "byte-fed Served serves an eventual-send with no socket (ADR-0072)" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.paired(allocator);
+    defer pair.deinit();
+
+    // Both sides are byte-fed: no `net.Connection`, the test owns the loop.
+    var server = driver.Served.over(allocator, &pair.p2);
+    defer server.deinit();
+    const adder = try server.vat.spawn(Adder, .{ .n = 10 });
+    try server.vat.bindExport(adder, 7);
+    // Hand-wired pairing: the client addresses position 7 out-of-band, so the
+    // bound position takes an explicit grant.
+    try pair.p2.exportObject(7);
+    try pair.p1.importObject(7);
+
+    var client = driver.Served.over(allocator, &pair.p1);
+    defer client.deinit();
+    const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
+    const promise = try client.vat.send(remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+
+    var result: i64 = 0;
+    try client.vat.on(promise, .{ .ctx = &result, .func = captureFedInt });
+
+    // The deliver flows client -> server (the server's `feedBorrowed` runs the
+    // actor and encodes the resolve); the resolve flows server -> client (the
+    // client's `feedBorrowed` fires the promise listener). No socket touched.
+    try shuttleFed(&client, &server);
+    try shuttleFed(&server, &client);
+
+    try std.testing.expectEqual(@as(i64, 15), result);
+}
+
+test "byte-fed Served opens a keyed session from scratch and serves (ADR-0072)" {
+    const allocator = std.testing.allocator;
+    var p_server = engine.Peer.initNegotiating(allocator);
+    defer p_server.deinit();
+    var p_client = engine.Peer.initNegotiating(allocator);
+    defer p_client.deinit();
+
+    // Each side proactively signs and queues its own keyed start-session, as a
+    // real handshake does; the whole exchange then runs byte-fed, no socket.
+    const loc_s: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
+    const loc_c: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:2", .hints = model.Hints.emptyFalse() };
+    try p_server.sendKeyedStartSession(.v1_0, loc_s, crypto.SecretKey.fromSeed([_]u8{0x51} ** crypto.SEED_BYTES));
+    try p_client.sendKeyedStartSession(.v1_0, loc_c, crypto.SecretKey.fromSeed([_]u8{0x52} ** crypto.SEED_BYTES));
+
+    var server = driver.Served.over(allocator, &p_server);
+    defer server.deinit();
+    var client = driver.Served.over(allocator, &p_client);
+    defer client.deinit();
+
+    // Shuttle the handshake frames between the two byte-fed vats until both
+    // sessions open — the full connection lifecycle, driven by the caller.
+    var i: usize = 0;
+    while (i < 16 and !(p_server.sessionIsOpen() and p_client.sessionIsOpen())) : (i += 1) {
+        try shuttleFed(&client, &server);
+        try shuttleFed(&server, &client);
+    }
+    try std.testing.expect(p_server.sessionIsOpen());
+    try std.testing.expect(p_client.sessionIsOpen());
+
+    // Serve real work over the byte-fed, self-opened session.
+    const adder = try server.vat.spawn(Adder, .{ .n = 100 });
+    try server.vat.bindExport(adder, 9);
+    try p_server.exportObject(9);
+    try p_client.importObject(9);
+    const remote: actors.Ref = .{ .far = model.FarRef.object(9) };
+    const promise = try client.vat.send(remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+    var result: i64 = 0;
+    try client.vat.on(promise, .{ .ctx = &result, .func = captureFedInt });
+    try shuttleFed(&client, &server);
+    try shuttleFed(&server, &client);
+    try std.testing.expectEqual(@as(i64, 105), result);
+}
+
+/// The grant-on-marshal fixture (ADR-0074): `make` spawns two capabilities and
+/// marshals exactly one into its reply. The other's export position leaks only
+/// as an integer, which is data, not authority.
+const TwoSpawner = struct {
+    pub fn handle(self: *TwoSpawner, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = self;
+        if (!std.mem.eql(u8, msg.verb, "make")) return error.NoSuchMethod;
+        const granted = try driver.spawnAt(turn.vat, Greeter, .{});
+        const reserved = try driver.spawnAt(turn.vat, Greeter, .{});
+        const items = try turn.arena.alloc(model.Argument, 2);
+        items[0] = granted.arg();
+        items[1] = .{ .integer = @intCast(reserved.position) };
+        return .{ .list = items };
+    }
+};
+
+/// Host the factory and serve. The client's probe of the reserved position is
+/// a protocol violation on this side: the session refuses it exactly like a
+/// deliver to a nonexistent export, and the pump surfaces the typed abort.
+fn serveGrantOnMarshalOnce(server: *driver.Server) anyerror!void {
+    var conn = try server.accept();
+    defer conn.deinit();
+    _ = try conn.publish("factory", TwoSpawner, .{});
+    try std.testing.expectError(error.ProtocolAbort, conn.serve());
+}
+
+/// Fetch the factory, prove the marshaled capability answers, then probe the
+/// reserved position learned out-of-band and prove it is unaddressable.
+fn probeReservedOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
+    var tcp_resident = tcp.Resident{ .io = io };
+    var buf: [64]u8 = undefined;
+    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, .{ .frame_cap = frame_cap });
+    defer conn.deinit();
+
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const factory = try conn.fetch("factory");
+    const made = try conn.call(factory, .{ .verb = "make" }, arena);
+    try std.testing.expect(made == .fulfilled);
+    const items = made.fulfilled.list;
+    try std.testing.expectEqual(@as(usize, 2), items.len);
+    const granted = items[0].reference;
+    try std.testing.expect(granted == .far);
+    const reserved_position: u64 = @intCast(items[1].integer);
+
+    // The capability that rode the reply is addressable: its marshal was the
+    // grant, and the actor's turn runs.
+    const greeted = try conn.call(.{ .far = granted.far }, .{ .verb = "greet" }, arena);
+    try std.testing.expect(greeted == .fulfilled);
+
+    // The reserved position — learned out-of-band, as a number — is not a
+    // capability. The host refuses the deliver like a nonexistent export and
+    // tears the session down, so the probe's vow breaks instead of reaching
+    // the actor. (`importObject` is only this side's own bookkeeping; it moves
+    // no authority on the host.)
+    try conn.peer.importObject(reserved_position);
+    const probed = conn.call(
+        .{ .far = model.FarRef.object(reserved_position) },
+        .{ .verb = "greet" },
+        arena,
+    ) catch |err| switch (err) {
+        // The teardown can also race the settle wait; a closed connection is
+        // the same refusal observed one step later.
+        error.ConnectionClosed => return,
+        else => return err,
+    };
+    try std.testing.expect(probed == .broken);
+}
+
+test "driver loopback: a spawned capability is unreachable until first marshaled (ADR-0074)" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
+    defer server.close();
+    var addr_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
+
+    var host_future = try io.concurrent(serveGrantOnMarshalOnce, .{&server});
+    const client_result = probeReservedOnce(io, address, allocator);
+    const host_result = host_future.await(io);
+    try client_result;
+    try host_result;
 }

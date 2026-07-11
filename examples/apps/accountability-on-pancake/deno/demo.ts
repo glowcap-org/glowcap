@@ -12,59 +12,36 @@
 // port. `--attach` is rejected: a host serves exactly one caller and exits, so
 // there is no long-lived server to join.
 
-const positional: string[] = [];
-let pinPort = 0;
-for (const a of Deno.args) {
-	if (a === "--attach") {
-		console.error(
-			"demo.ts: --attach is not supported here, each caller needs a fresh host (drop -Dattach)",
-		);
-		Deno.exit(2);
-	} else if (a.startsWith("--port=")) {
-		pinPort = Number(a.slice("--port=".length));
-	} else positional.push(a);
-}
-if (!Number.isInteger(pinPort) || pinPort < 0 || pinPort > 65535) {
-	console.error("demo.ts: --port must be an integer in 1..65535");
-	Deno.exit(2);
-}
+import {
+	onPath,
+	parseCliArgs,
+	pythonCanImport,
+	readPort,
+	rejectAttach,
+	runChild,
+	stopSpawnedServer,
+	validatePortOptions,
+} from "../../_demo/orchestrator.ts";
 
-const ROOT = new URL("../../../..", import.meta.url).pathname;
-const HOST_BIN = positional[0] ?? `${ROOT}/zig-out/bin/accountability-host`;
+const positional: string[] = [];
+const cliArgs: string[] = [];
+for (const a of Deno.args) {
+	if (a === "--attach" || a.startsWith("--port=")) cliArgs.push(a);
+	else positional.push(a);
+}
+const { pinPort, attach } = parseCliArgs(cliArgs);
+rejectAttach(
+	attach,
+	"demo.ts",
+	"--attach is not supported here, each caller needs a fresh host (drop -Dattach)",
+);
+validatePortOptions(pinPort, false, "demo.ts");
+
+const ROOT = Deno.cwd();
+const HOST_BIN = positional[0] ??
+	`${ROOT}/zig-out/bin/accountability-host`;
 const DENO_CALLER = new URL("./caller.ts", import.meta.url).pathname;
 const PYTHON_CALLER = `${ROOT}/examples/apps/accountability-on-pancake/python/caller.py`;
-
-async function readPort(proc: Deno.ChildProcess): Promise<number> {
-	const reader = proc.stderr.getReader();
-	const decoder = new TextDecoder();
-	let buf = "";
-	const deadline = Date.now() + 10_000;
-	while (Date.now() < deadline) {
-		const { value, done } = await reader.read();
-		if (done) break;
-		buf += decoder.decode(value, { stream: true });
-		const m = buf.match(/ACCOUNTABILITY-HOST-LISTENING (\d+)/);
-		if (m) {
-			reader.releaseLock();
-			return Number(m[1]);
-		}
-	}
-	reader.releaseLock();
-	throw new Error("host never announced its port");
-}
-
-async function onPath(cmd: string): Promise<boolean> {
-	try {
-		await new Deno.Command(cmd, {
-			args: ["--version"],
-			stdout: "null",
-			stderr: "null",
-		}).output();
-		return true;
-	} catch {
-		return false;
-	}
-}
 
 interface CallerSpec {
 	name: string;
@@ -89,22 +66,14 @@ const callers: CallerSpec[] = [
 	},
 ];
 
-// Python is optional, skip with a note if not on PATH or pynacl missing.
-if (await onPath("python3")) {
-	const check = await new Deno.Command("python3", {
-		args: ["-c", "import nacl.signing"],
-		stdout: "null",
-		stderr: "null",
-	}).output();
-	if (check.code === 0) {
-		callers.push({
-			name: "python",
-			cmd: "python3",
-			args: (p) => [PYTHON_CALLER, String(p)],
-		});
-	} else {
-		console.log("  skipping python (pynacl not installed)");
-	}
+if (await pythonCanImport("nacl.signing")) {
+	callers.push({
+		name: "python",
+		cmd: "python3",
+		args: (p) => [PYTHON_CALLER, String(p)],
+	});
+} else if (await onPath("python3")) {
+	console.log("  skipping python (pynacl not installed)");
 } else {
 	console.log("  skipping python (python3 not on PATH)");
 }
@@ -117,7 +86,6 @@ console.log(
 
 let failed = false;
 for (const caller of callers) {
-	// Each caller gets its own fresh host so the session is clean.
 	const host = new Deno.Command(HOST_BIN, {
 		args: pinPort > 0 ? [`--port=${pinPort}`] : [],
 		cwd: ROOT,
@@ -126,26 +94,22 @@ for (const caller of callers) {
 	}).spawn();
 
 	try {
-		const port = await readPort(host);
+		const port = await readPort(
+			host,
+			/ACCOUNTABILITY-HOST-LISTENING (\d+)/,
+			"host never announced its port",
+		);
 		console.log(`──── ${caller.name} (host on 127.0.0.1:${port}) ────`);
 
-		const result = await new Deno.Command(caller.cmd, {
-			args: caller.args(port),
-			cwd: ROOT,
-			stdout: "inherit",
-			stderr: "inherit",
-		}).output();
-
+		const result = await runChild(caller.cmd, caller.args(port), ROOT);
+		console.log(result.out.trimEnd());
 		if (result.code !== 0) {
 			console.error(`  ${caller.name} caller FAILED (exit ${result.code})`);
 			failed = true;
 		}
 		console.log("");
 	} finally {
-		try {
-			host.kill("SIGTERM");
-		} catch { /* already gone */ }
-		await host.status;
+		await stopSpawnedServer(host);
 	}
 }
 
@@ -153,7 +117,7 @@ if (failed) {
 	console.error("cross-seam demo FAILED");
 	Deno.exit(1);
 } else {
-	const langs = callers.length + 1; // +1 for Zig host
+	const langs = callers.length + 1;
 	console.log(
 		`cross-seam demo OK: ${langs} languages held one OCapN accountability conversation`,
 	);

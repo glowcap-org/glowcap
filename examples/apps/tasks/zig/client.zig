@@ -16,6 +16,8 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
+const demo_usage = @import("demo_usage");
+
 const model = pancake.ocapn.model;
 const actors = pancake.actors;
 const driver = pancake.driver;
@@ -163,6 +165,5 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn fail(message: []const u8) error{Usage} {
-    std.debug.print("usage: pancake-tasks-client <port> <nick> <task-text>\n  ({s})\n", .{message});
-    return error.Usage;
+    return demo_usage.usage("usage: pancake-tasks-client <port> <nick> <task-text>", message);
 }

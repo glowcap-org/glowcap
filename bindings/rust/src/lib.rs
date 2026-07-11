@@ -1,50 +1,55 @@
-//! Idiomatic Rust API for pancake — an OCapN/CapTP peer you drive.
+//! Idiomatic Rust API for pancake — an OCapN/CapTP node you hold as a
+//! [`Connection`].
 //!
 //! The raw C ABI lives in the private `sys` module; nothing in it escapes.
-//! What you use is a [`Peer`] that releases itself on drop, real Rust enums for
-//! [`Reference`]/[`Argument`]/[`Event`], `Result` for fallible calls, and owned
-//! values out of `poll` (no manual `free`). This is the dogfood consumer
+//! What you use is the application surface every pancake binding speaks —
+//! [`connect`]/[`listen`], a [`Connection`] with `fetch`/`send`/`tell`/
+//! `spawn`/`publish`, a [`Ref`] capability, real Rust enums for
+//! [`Reference`]/[`Argument`], and `Result` for fallible calls — over the
+//! byte-fed host archive `libpancake_driver` (ADR-0072). The host owns
+//! routing, three-party redemption, and gift origination; this crate moves
+//! bytes and honors the host's action queue. This is the dogfood consumer
 //! `zig build rust-dogfood` runs, so the ergonomic surface stays honest.
 //!
 //! # Composable modules, à la carte
 //!
 //! pancake's C ABI ships as a set of symbol-disjoint archives (ADR-0059), and
-//! this crate mirrors that shape: the core OCapN peer is always available at the
-//! crate root, and each transport is a module behind a Cargo feature that links
-//! exactly its archive — you pay (in linked archive and symbols) only for the
-//! transports you enable. The core stands alone; the transport modules build on
-//! it but never on each other.
+//! this crate mirrors that shape: the core value/locator vocabulary and the
+//! byte-fed host are always available at the crate root, and each transport is
+//! a module behind a Cargo feature that links exactly its archive — you pay
+//! (in linked archive and symbols) only for the transports you enable. The
+//! core stands alone; the transport modules build on it but never on each
+//! other.
 //!
 //! | Feature | Module | Archive linked | Default |
 //! | --- | --- | --- | --- |
-//! | (always) | crate root + [`actors`] + [`Locator`] | `libpancake_ocapn` | yes |
+//! | (always) | crate root + [`Locator`] | `libpancake_ocapn` + `libpancake_driver` | yes |
 //! | `tcp` | [`tcp`] | `libpancake_net_transport_tcp` | yes |
 //! | `inproc` | [`inproc`] | `libpancake_net_transport_inproc` | yes |
 //! | `iroh` | [`iroh`] | `libpancake_net_transport_iroh` (dynamic) | no |
-//! | `async` | [`Connection`], [`AsyncConnection`] | (none — native tokio) | no |
+//! | `async` | [`Connection`], [`Node`], [`connect`]/[`listen`] | (none — native tokio) | no |
 //!
 //! `tcp` and `inproc` are on by default. `iroh` is opt-in and implies `async`
 //! (the tokio driver it rides); it needs the companion library built by
 //! `zig build iroh-abi`. The `async` feature adds the tokio-driven
-//! [`Connection`] over native sockets and links no transport archive of its own,
-//! so it composes freely with whichever transport archives are enabled.
+//! [`Connection`] over native sockets and links no transport archive of its
+//! own, so it composes freely with whichever transport archives are enabled.
 
 mod abi_constants;
 
 #[cfg(feature = "async")]
-mod async_io;
-#[cfg(feature = "async")]
-pub use async_io::AsyncConnection;
-
-#[cfg(feature = "async")]
 mod connection;
-// `tcp_locator` builds a `tcp` locator from a literal host and port for the
-// common case; `listen`/`Server` host TCP partners.
+// `listen`/`Server` host TCP partners.
 #[cfg(feature = "async")]
 pub use connection::{
-	encode_peer_locator, listen, tcp_locator, AsSendTarget, Caretaker, Connection, Node, Ref,
-	RemotePromise, Server,
+	listen, listen_with_node, AsSendTarget, Caretaker, Connection, Ref, RemotePromise, Server,
 };
+#[cfg(feature = "async")]
+mod host;
+#[cfg(feature = "async")]
+pub use host::Node;
+#[cfg(feature = "async")]
+mod trampoline;
 
 // `connect` is the one dialer over an `ocapn://` locator, with one signature
 // across every build: `connect(uri, reachability)`. A `tcp` locator ignores the
@@ -58,42 +63,43 @@ pub use connection::{connect, Reachability};
 #[cfg(feature = "iroh")]
 pub use iroh::{listen_iroh, IrohServer};
 
-// Socket driving the two async surfaces share: the outbound pump and the keyed
-// handshake live once, here, so the copies cannot drift.
-#[cfg(feature = "async")]
-mod wire;
-
-// Each transport archive keeps its own thread-local last-error slot
-// (ADR-0059); this macro mints each transport module's checker/reader pair
-// over its archive's extern reader.
-#[cfg(any(feature = "tcp", feature = "inproc", feature = "iroh"))]
-mod transport_error;
+// Every pancake archive keeps its own thread-local last-error slot (ADR-0059);
+// this macro mints each family's checker/reader pair over its archive's extern
+// reader — the ocapn core here at the root, the host in `host`, and each
+// transport in its module. Unconditional: the core pair below is its first user.
+mod error_slot;
 
 // The blocking transports, each its own à-la-carte archive, linked only when
-// its feature is on (ADR-0059). They share the core peer and type layout but
-// never each other; the core stands alone without any of them.
+// its feature is on (ADR-0059). They share the core value layout but never
+// each other; the core stands alone without any of them.
 #[cfg(feature = "inproc")]
 pub mod inproc;
 #[cfg(feature = "tcp")]
 pub mod tcp;
 
 // The iroh transport (its own optional companion library, ADR-0055): the
-// encrypted-QUIC byte-stream bridge the `Connection` driver carries a peer over.
+// encrypted-QUIC byte-stream bridge the `Connection` pump carries a session over.
 #[cfg(feature = "iroh")]
 pub mod iroh;
 
 // OCapN locator URIs, core libpancake_ocapn vocabulary, so a TCP-only consumer reaches
-// the grammar without the iroh companion library. One grammar, no hand-rolled percent codec.
+// the grammar without the iroh companion library. One grammar, no hand-rolled
+// percent codec. `tcp_locator` and `encode_peer_locator` are pure grammar over
+// the always-linked core too, so they ship in every build, async or not.
 mod uri;
-pub use uri::{format_peer_uri, parse_locator, parse_sturdyref, Locator};
-
-pub mod actors;
-
-use core::marker::PhantomData;
+pub use uri::{
+	encode_peer_locator, format_peer_uri, parse_locator, parse_sturdyref, tcp_locator, Locator,
+};
 
 mod sys;
 
-/// Which layer of the peer refused a frame: the codec (parsing), the session
+/// An actor behavior: handle a `(verb, args)` call, returning a reply or an
+/// error message (which becomes a broken answer carrying those words). This is
+/// what [`Connection::spawn`]/[`Connection::publish`] host and what a
+/// [`Node::publish_giftable`] factory mints.
+pub type Behavior = Box<dyn FnMut(&str, &[Argument]) -> std::result::Result<Argument, String>>;
+
+/// Which layer of the session refused a frame: the codec (parsing), the session
 /// (authority and table validity), or a foreign failure surfaced through
 /// dispatch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,10 +109,23 @@ pub enum AbortDomain {
 	Foreign,
 }
 
-/// The typed cause of a peer's most recent local dispatch failure, the safe
-/// projection of `pancake_peer_last_abort`. The flat `PANCAKE_ERR_*` code names
-/// the failure family; this names the member: which layer refused, the
-/// projected `op:abort` kind when one applies, and the diagnostic strings.
+impl AbortDomain {
+	/// Map `PancakeLastAbort.domain` to the host label the waist defines.
+	/// Read by the async connection's feed-refusal path alone.
+	#[cfg(feature = "async")]
+	pub(crate) fn from_abi(domain: u32) -> Self {
+		match domain {
+			abi_constants::ABORT_DOMAIN_CODEC => AbortDomain::Codec,
+			abi_constants::ABORT_DOMAIN_SESSION => AbortDomain::Session,
+			_ => AbortDomain::Foreign,
+		}
+	}
+}
+
+/// The typed cause of a connection's most recent local dispatch failure, the
+/// safe projection of `pancake_host_conn_last_abort`. The flat `PANCAKE_ERR_*`
+/// code names the failure family; this names the member: which layer refused,
+/// the projected `op:abort` kind when one applies, and the diagnostic strings.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AbortInfo {
 	/// Which layer refused the frame.
@@ -149,7 +168,7 @@ pub enum ErrorKind {
 	Io,
 	/// The frame was malformed (`PANCAKE_ERR_MALFORMED`).
 	Malformed,
-	/// The frame declared or reached past the peer's `max_frame_bytes` cap
+	/// The frame declared or reached past the connection's frame cap
 	/// (`PANCAKE_ERR_FRAME_TOO_LARGE`).
 	FrameTooLarge,
 	/// A value the passable tree cannot carry (`PANCAKE_ERR_UNSUPPORTED_VALUE`),
@@ -214,9 +233,8 @@ impl Error {
 		self.detail.as_deref()
 	}
 
-	/// The typed abort cause the peer recorded when this failure refused an
-	/// inbound frame ([`Peer::feed`], [`Peer::feed_owned`],
-	/// [`Peer::recv_stream`]); `None` for other failures. The flat
+	/// The typed abort cause the connection recorded when this failure refused
+	/// an inbound frame; `None` for other failures. The flat
 	/// [`code`](Error::code) names the failure family; this names the member.
 	pub fn abort(&self) -> Option<&AbortInfo> {
 		self.abort.as_ref()
@@ -243,11 +261,10 @@ impl Error {
 		}
 	}
 
-	/// A transport-archive failure carrying the diagnostic the transport's own
-	/// thread-local last-error recorded (`pancake_<t>_last_error`), not the
-	/// ocapn-family slot. The per-transport `check_*` helpers build their `Err`
-	/// through this so a transport diagnostic is never read from the wrong slot.
-	#[cfg(any(feature = "tcp", feature = "inproc", feature = "iroh"))]
+	/// A failure carrying the diagnostic its own archive's thread-local
+	/// last-error slot recorded (`pancake_last_error`, `pancake_host_last_error`,
+	/// `pancake_<t>_last_error`). Every `error_slot!`-minted checker builds its
+	/// `Err` through this, so a diagnostic is never read from the wrong slot.
 	pub(crate) fn with_transport_detail(code: i32, detail: Option<String>) -> Error {
 		Error {
 			code,
@@ -257,7 +274,7 @@ impl Error {
 	}
 
 	/// A broken promise carrying the partner's reason: a `send`/`fetch` the
-	/// remote side refused, distinct from a fault in this peer or the transport.
+	/// remote side refused, distinct from a fault in this node or the transport.
 	/// Carries `PANCAKE_ERR_BROKEN` so a caller can tell a refusal apart from a
 	/// real failure by [`kind`](Error::kind) (`ErrorKind::Broken`), with the
 	/// reason on `detail`.
@@ -270,6 +287,7 @@ impl Error {
 		}
 	}
 
+	#[cfg(feature = "async")]
 	fn with_abort(mut self, abort: Option<AbortInfo>) -> Error {
 		self.abort = abort;
 		self
@@ -289,13 +307,16 @@ impl std::error::Error for Error {}
 /// The crate's result type: every fallible call fails with a typed [`Error`].
 pub type Result<T> = core::result::Result<T, Error>;
 
-fn check(code: i32) -> Result<()> {
-	if code == sys::OK {
-		Ok(())
-	} else {
-		Err(Error::from_code(code))
-	}
-}
+error_slot::error_slot!(
+	// Maps a non-OK ocapn-family return code to an `Error` carrying the
+	// message the slot recorded at the moment the call failed.
+	fn check;
+	/// The calling thread's last recorded ocapn-family error message, or `None` if
+	/// none is set. The host family and each transport keep their own slots, read
+	/// by their own family errors internally.
+	pub fn last_error;
+	sys::pancake_last_error
+);
 
 /// The linked `libpancake_ocapn`'s ABI version as `(major, minor, patch)`. Compare it
 /// against the header constants the binding was built against to detect skew.
@@ -303,20 +324,6 @@ pub fn abi_version() -> (u32, u32, u32) {
 	let (mut major, mut minor, mut patch) = (0u32, 0u32, 0u32);
 	unsafe { sys::pancake_abi_version(&mut major, &mut minor, &mut patch) };
 	(major, minor, patch)
-}
-
-/// The calling thread's last recorded error message, or `None` if none is set.
-pub fn last_error() -> Option<String> {
-	let len = unsafe { sys::pancake_last_error(core::ptr::null_mut(), 0) };
-	if len == 0 {
-		return None;
-	}
-	// The C side reserves one byte for a NUL terminator and copies at most
-	// `cap - 1` message bytes, so pass `len + 1` to receive all `len` of them.
-	let mut buf = vec![0u8; len + 1];
-	let written = unsafe { sys::pancake_last_error(buf.as_mut_ptr(), buf.len()) };
-	buf.truncate(written.min(buf.len()));
-	Some(String::from_utf8_lossy(&buf).into_owned())
 }
 
 /// A host-supplied allocation backend for a [`Context`]. Every method must be
@@ -333,13 +340,20 @@ pub trait HostAllocator: Send + Sync {
 	unsafe fn free(&self, ptr: *mut u8, size: usize, alignment: usize);
 }
 
+// A panic must never cross an extern "C" frame (that is undefined behavior),
+// and a `HostAllocator` is user code: a panicking alloc degrades to the null
+// the C side already handles as out-of-memory, and a panicking free is
+// swallowed (the block leaks, the process survives).
 unsafe extern "C" fn alloc_trampoline(
 	user_data: *mut core::ffi::c_void,
 	size: usize,
 	alignment: usize,
 ) -> *mut core::ffi::c_void {
-	let allocator = &*(user_data as *const Box<dyn HostAllocator>);
-	allocator.alloc(size, alignment) as *mut core::ffi::c_void
+	std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+		let allocator = &*(user_data as *const Box<dyn HostAllocator>);
+		allocator.alloc(size, alignment) as *mut core::ffi::c_void
+	}))
+	.unwrap_or(core::ptr::null_mut())
 }
 
 unsafe extern "C" fn free_trampoline(
@@ -348,15 +362,17 @@ unsafe extern "C" fn free_trampoline(
 	size: usize,
 	alignment: usize,
 ) {
-	let allocator = &*(user_data as *const Box<dyn HostAllocator>);
-	allocator.free(ptr as *mut u8, size, alignment);
+	let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+		let allocator = &*(user_data as *const Box<dyn HostAllocator>);
+		allocator.free(ptr as *mut u8, size, alignment);
+	}));
 }
 
-/// An allocation scope. Peers and netlayers created [in](Peer::new_in) a context
-/// route every allocation through it. Release order matters: drop the context
-/// only after every handle created in it. Released on drop.
+/// An allocation scope. Hosts and netlayers created in a context route every
+/// allocation through it. Release order matters: drop the context only after
+/// every handle created in it. Released on drop.
 pub struct Context {
-	raw: *mut sys::PancakeContext,
+	pub(crate) raw: *mut sys::PancakeContext,
 	// Kept alive (and freed after `pancake_context_release`) for the custom
 	// allocator path; null for the default-allocator context.
 	allocator: *mut Box<dyn HostAllocator>,
@@ -408,12 +424,13 @@ impl Drop for Context {
 /// A capability reference.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Reference {
-	/// A local export this peer hosts.
+	/// A local export this node hosts.
 	Near {
 		id: u64,
 		promise: bool,
 	},
-	/// A partner-hosted import this peer holds.
+	/// A partner-hosted capability this node holds, under a node-unique token
+	/// (ADR-0069) — the id the application sees is never a raw wire position.
 	Far {
 		id: u64,
 		promise: bool,
@@ -431,8 +448,13 @@ impl Reference {
 	pub fn far(id: u64) -> Reference {
 		Reference::Far { id, promise: false }
 	}
+}
 
-	fn to_sys(&self) -> Result<sys::PancakeReference> {
+// The C marshaling layer: used only by the async host tier, so it compiles
+// only with it — dead-code linting stays live instead of blanket-allowed.
+#[cfg(feature = "async")]
+impl Reference {
+	pub(crate) fn to_sys(&self) -> Result<sys::PancakeReference> {
 		let (kind, sub, id) = match *self {
 			Reference::Near { id, promise } => (sys::REF_NEAR, sub(promise), id),
 			Reference::Far { id, promise } => (sys::REF_FAR, sub(promise), id),
@@ -448,7 +470,7 @@ impl Reference {
 		})
 	}
 
-	fn from_sys(r: &sys::PancakeReference) -> Reference {
+	pub(crate) fn from_sys(r: &sys::PancakeReference) -> Reference {
 		let promise = r.sub_kind == sys::REF_SUB_PROMISE;
 		match r.kind {
 			sys::REF_NEAR => Reference::Near { id: r.id, promise },
@@ -460,6 +482,7 @@ impl Reference {
 	}
 }
 
+#[cfg(feature = "async")]
 fn sub(promise: bool) -> u32 {
 	if promise {
 		sys::REF_SUB_PROMISE
@@ -616,75 +639,23 @@ impl From<Vec<Argument>> for Argument {
 	}
 }
 
-/// A `desc:handoff-give` an answer resolved to (ADR-0009/ADR-0056): the
-/// recipient must redeem it against the named exporter rather than read an
-/// immediate value. `give` is the verbatim signed envelope to relay unaltered to
-/// the exporter; `exporter_locator` is the exporter's dialable `ocapn://` URI,
-/// or empty when the give's location is not a flat locator; `recipient_key` is
-/// the 32-byte Ed25519 key the give is addressed to. The high-level
-/// [`Connection`] redeems this transparently through the node's serve step
-/// (ADR-0067).
-#[derive(Debug, Clone, PartialEq)]
-pub struct HandoffGive {
-	pub give: Vec<u8>,
-	pub exporter_locator: String,
-	pub recipient_key: Vec<u8>,
-}
-
-/// How a promise settled.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Resolution {
-	Fulfill(Argument),
-	Break(String),
-	/// The answer resolved to a three-party handoff give the recipient must
-	/// redeem against the named exporter (poll-only; the high-level
-	/// [`Connection`] redeems it transparently).
-	Handoff(HandoffGive),
-}
-
-/// How [`Peer::prepare_enliven`] began (ADR-0012): a cache hit hands back the
-/// previously enlivened far reference with no wire traffic; otherwise it names
-/// the answer whose resolution settles the enliven.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EnlivenStart {
-	/// Cache hit: the far reference at `import_position` (`promise` selects the
-	/// far-promise kind), no wire traffic.
-	Cached { import_position: u64, promise: bool },
-	/// A fresh bootstrap fetch was queued; drive `answer` to settlement and
-	/// record the outcome with [`Peer::record_enlivenment`].
-	Fresh { answer: u64 },
-	/// An enliven of the same swissnum is already in flight; its shared
-	/// `answer` settles this one too.
-	InFlight { answer: u64 },
-}
-
-/// An application event surfaced by [`Peer::poll`].
-#[derive(Debug, Clone, PartialEq)]
-pub enum Event {
-	Deliver {
-		target: Reference,
-		args: Vec<Argument>,
-		answer: Option<u64>,
-	},
-	Resolve {
-		answer: u64,
-		resolution: Resolution,
-	},
-	/// Any other surfaced event (abort, gc, handoff, …), with its raw frame.
-	Other {
-		kind: u32,
-		frame: Vec<u8>,
-	},
-}
-
-/// Owns nested C argument arrays for the duration of one send call.
+/// Owns nested C argument arrays for the duration of one send call. The leaf
+/// byte pointers borrow the source [`Argument`]'s own heap payloads (a
+/// `String`/`Vec` buffer is address-stable when the enum value moves), so the
+/// marshalled tree stays valid as long as the source value and this arena both
+/// live.
+#[cfg(feature = "async")]
 #[derive(Default)]
-struct SendArena {
+pub(crate) struct SendArena {
 	boxes: Vec<Box<[sys::PancakeArgument]>>,
 }
 
+#[cfg(feature = "async")]
 impl SendArena {
-	fn build(&mut self, args: &[Argument]) -> Result<(*const sys::PancakeArgument, usize)> {
+	pub(crate) fn build(
+		&mut self,
+		args: &[Argument],
+	) -> Result<(*const sys::PancakeArgument, usize)> {
 		let mut out = Vec::with_capacity(args.len());
 		for a in args {
 			out.push(self.one(a)?);
@@ -696,7 +667,7 @@ impl SendArena {
 		Ok((ptr, len))
 	}
 
-	fn one(&mut self, a: &Argument) -> Result<sys::PancakeArgument> {
+	pub(crate) fn one(&mut self, a: &Argument) -> Result<sys::PancakeArgument> {
 		let mut c: sys::PancakeArgument = unsafe { core::mem::zeroed() };
 		match a {
 			Argument::Integer(v) => {
@@ -749,6 +720,11 @@ impl SendArena {
 	}
 }
 
+// A Rust slice's pointer is non-null even at length zero (`NonNull`'s dangling
+// stand-in), so a zero-length byte view — a methodless positional verb, an
+// empty payload — marshals as the non-NULL `ptr + 0` the host requires, with
+// no special case here.
+#[cfg(feature = "async")]
 fn set_bytes(c: &mut sys::PancakeArgument, kind: u32, b: &[u8]) {
 	c.kind = kind;
 	c.bytes = b.as_ptr();
@@ -756,7 +732,12 @@ fn set_bytes(c: &mut sys::PancakeArgument, kind: u32, b: &[u8]) {
 }
 
 /// Project a received C argument tree into owned Rust values.
-unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Argument {
+///
+/// # Safety
+/// `c` must point to a valid `PancakeArgument` whose borrowed views are live
+/// for the duration of the call.
+#[cfg(feature = "async")]
+pub(crate) unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Argument {
 	match c.kind {
 		sys::ARG_INTEGER => Argument::Integer(c.integer),
 		sys::ARG_FLOAT64 => Argument::Float(c.float64),
@@ -793,6 +774,7 @@ unsafe fn arg_from_sys(c: &sys::PancakeArgument) -> Argument {
 	}
 }
 
+#[cfg(feature = "async")]
 unsafe fn bytes_from_sys(c: &sys::PancakeArgument) -> Vec<u8> {
 	owned_from_view(c.bytes, c.bytes_len)
 }
@@ -805,6 +787,7 @@ unsafe fn bytes_from_sys(c: &sys::PancakeArgument) -> Vec<u8> {
 /// # Safety
 /// When `ptr` is non-null and `len > 0`, it must point to `len` initialized,
 /// readable bytes valid for the duration of the call.
+#[cfg(any(feature = "async", feature = "tcp", feature = "inproc"))]
 pub(crate) unsafe fn owned_from_view(ptr: *const u8, len: usize) -> Vec<u8> {
 	if ptr.is_null() || len == 0 {
 		Vec::new()
@@ -813,70 +796,21 @@ pub(crate) unsafe fn owned_from_view(ptr: *const u8, len: usize) -> Vec<u8> {
 	}
 }
 
-unsafe fn args_from_sys(ptr: *const sys::PancakeArgument, len: usize) -> Vec<Argument> {
+/// Project a borrowed C argument array into owned Rust values.
+///
+/// # Safety
+/// `ptr` must point to `len` valid `PancakeArgument`s (or be null) whose
+/// borrowed views are live for the duration of the call.
+#[cfg(feature = "async")]
+pub(crate) unsafe fn args_from_sys(ptr: *const sys::PancakeArgument, len: usize) -> Vec<Argument> {
 	if ptr.is_null() {
 		return Vec::new();
 	}
 	(0..len).map(|i| arg_from_sys(&*ptr.add(i))).collect()
 }
 
-/// Reclaim the `Vec<u8>` backing an owned frame once the library is done with
-/// it (or when a failed `feed_owned` hands ownership back). Idempotent: a null
-/// `bytes` means the descriptor was already reclaimed.
-unsafe extern "C" fn release_owned_vec(frame: *mut sys::PancakeManagedFrame) {
-	let frame = &mut *frame;
-	if frame.bytes.is_null() {
-		return;
-	}
-	let capacity = frame.private_data as usize;
-	drop(Vec::from_raw_parts(frame.bytes, frame.len, capacity));
-	frame.bytes = core::ptr::null_mut();
-}
-
-/// An OCapN/CapTP peer. Released on drop.
-///
-/// The `'ctx` lifetime ties a context-backed peer to the [`Context`] it was
-/// created in, so the borrow checker rejects dropping the context while the peer
-/// is still live. A peer on the library-owned allocator is `Peer<'static>`.
-///
-/// A context-backed peer cannot outlive its context:
-///
-/// ```compile_fail
-/// use pancake_rust_dogfood::{Context, Peer};
-/// let _peer = {
-///     let ctx = Context::new().unwrap();
-///     Peer::new_in(&ctx).unwrap()
-/// }; // ctx is dropped here, so the borrow checker rejects keeping the peer.
-/// ```
-pub struct Peer<'ctx> {
-	raw: *mut sys::PancakePeer,
-	// Whether this wrapper owns the peer and must release it on drop. A peer
-	// created here (`new`, `negotiated`, …) is owned; a peer borrowed from a
-	// `Node` (ADR-0066, via [`Peer::from_node_raw`]) is not, the node allocated
-	// it and frees it on `pancake_node_remove_conn`/`pancake_node_release`, so this
-	// wrapper must leave it alone.
-	owned: bool,
-	_ctx: PhantomData<&'ctx Context>,
-}
-
-/// Authenticated OCapN profile to negotiate for a peer.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Profile {
-	V1_0,
-	PreSpec,
-}
-
-impl Profile {
-	fn id(self) -> u32 {
-		match self {
-			Profile::V1_0 => sys::CAPTP_VERSION_V1_0,
-			Profile::PreSpec => sys::CAPTP_VERSION_PRE_SPEC,
-		}
-	}
-}
-
-/// The wire codec a peer's session speaks and a TCP endpoint frames with. A
-/// session and the endpoint that carries it must use the same value.
+/// The wire codec a node's sessions speak and a TCP endpoint frames with. Both
+/// ends of a connection must use the same value.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Codec {
 	Syrup,
@@ -884,7 +818,8 @@ pub enum Codec {
 }
 
 impl Codec {
-	fn to_c(self) -> u32 {
+	#[cfg(any(feature = "async", feature = "tcp", feature = "inproc"))]
+	pub(crate) fn to_c(self) -> u32 {
 		match self {
 			Codec::Syrup => sys::CODEC_SYRUP,
 			Codec::Capnp => sys::CODEC_CAPNP,
@@ -892,569 +827,9 @@ impl Codec {
 	}
 }
 
-impl<'ctx> Peer<'ctx> {
-	/// Create an authenticated v1.0 peer in the negotiating state using the
-	/// library-owned allocator.
-	pub fn new() -> Result<Peer<'ctx>> {
-		let mut raw: *mut sys::PancakePeer = core::ptr::null_mut();
-		check(unsafe { sys::pancake_peer_new(&mut raw) })?;
-		Ok(Peer {
-			raw,
-			owned: true,
-			_ctx: PhantomData,
-		})
-	}
-
-	/// Create a negotiating peer whose allocations route through `context`. The
-	/// context must outlive the peer.
-	pub fn new_in(context: &'ctx Context) -> Result<Peer<'ctx>> {
-		let mut raw: *mut sys::PancakePeer = core::ptr::null_mut();
-		check(unsafe { sys::pancake_peer_new_in(context.raw, &mut raw) })?;
-		Ok(Peer {
-			raw,
-			owned: true,
-			_ctx: PhantomData,
-		})
-	}
-
-	/// Create a negotiating peer carrying an out-of-band negotiated profile
-	/// and codec. Both ends of a connection must construct with the same
-	/// pair, and the codec must match the one the connection's endpoint
-	/// frames with.
-	pub fn negotiated(profile: Profile, codec: Codec) -> Result<Peer<'ctx>> {
-		let mut raw: *mut sys::PancakePeer = core::ptr::null_mut();
-		check(unsafe { sys::pancake_peer_new_negotiated(profile.id(), codec.to_c(), &mut raw) })?;
-		Ok(Peer {
-			raw,
-			owned: true,
-			_ctx: PhantomData,
-		})
-	}
-
-	/// Context-backed counterpart of [`Peer::negotiated`].
-	pub fn negotiated_in(
-		context: &'ctx Context,
-		profile: Profile,
-		codec: Codec,
-	) -> Result<Peer<'ctx>> {
-		let mut raw: *mut sys::PancakePeer = core::ptr::null_mut();
-		check(unsafe {
-			sys::pancake_peer_new_negotiated_in(context.raw, profile.id(), codec.to_c(), &mut raw)
-		})?;
-		Ok(Peer {
-			raw,
-			owned: true,
-			_ctx: PhantomData,
-		})
-	}
-
-	/// Create an already-open peer for tests and low-level direct-frame fixtures.
-	pub fn new_raw_open() -> Result<Peer<'ctx>> {
-		let mut raw: *mut sys::PancakePeer = core::ptr::null_mut();
-		check(unsafe { sys::pancake_peer_new_raw_open(&mut raw) })?;
-		Ok(Peer {
-			raw,
-			owned: true,
-			_ctx: PhantomData,
-		})
-	}
-
-	/// Wrap a peer the [`Node`](crate::sys::PancakeNode)-backed router owns
-	/// (ADR-0066) for pumping, without taking ownership: the node allocated the
-	/// peer (already bound to its shared gift registry and identity) and frees it
-	/// on `pancake_node_remove_conn` / `pancake_node_release`, so this wrapper never
-	/// releases it.
-	///
-	/// # Safety
-	/// `raw` must be a live peer the node owns, and the node must outlive the
-	/// returned wrapper. Used by the high-level connection driver, which holds a
-	/// node handle for the connection's whole life and removes the connection
-	/// only after dropping this wrapper.
-	#[cfg(feature = "async")]
-	pub(crate) unsafe fn from_node_raw(raw: *mut sys::PancakePeer) -> Peer<'static> {
-		Peer {
-			raw,
-			owned: false,
-			_ctx: PhantomData,
-		}
-	}
-
-	/// Context-backed counterpart of [`Peer::new_raw_open`].
-	pub fn new_raw_open_in(context: &'ctx Context) -> Result<Peer<'ctx>> {
-		let mut raw: *mut sys::PancakePeer = core::ptr::null_mut();
-		check(unsafe { sys::pancake_peer_new_raw_open_in(context.raw, &mut raw) })?;
-		Ok(Peer {
-			raw,
-			owned: true,
-			_ctx: PhantomData,
-		})
-	}
-
-	/// Sign and queue `op:start-session` from this negotiating peer. The
-	/// handshake speaks the profile the peer was constructed with
-	/// ([`Peer::new`] is v1.0, [`Peer::negotiated`] chooses). The 32-byte
-	/// `seed` is the session key; `transport`/`designator` form the locator
-	/// the partner verifies, so they must be what it expects, for a Goblins
-	/// partner, `"tcp"` with `hints_empty_false` true (Goblins emits the empty
-	/// hints as the boolean `#f`). Flush it, then pump until
-	/// [`session_is_open`](Peer::session_is_open).
-	pub fn start_session(
-		&mut self,
-		seed: &[u8; 32],
-		transport: &str,
-		designator: &str,
-		hints_empty_false: bool,
-	) -> Result<()> {
-		check(unsafe {
-			sys::pancake_peer_start_session(
-				self.raw,
-				transport.as_ptr(),
-				transport.len(),
-				designator.as_ptr(),
-				designator.len(),
-				if hints_empty_false {
-					sys::HINTS_EMPTY_FALSE
-				} else {
-					sys::HINTS_EMPTY_MAP
-				},
-				seed.as_ptr(),
-				seed.len(),
-			)
-		})
-	}
-
-	/// Whether the authenticated handshake has completed and the session is open for
-	/// traffic. Pump the connection and poll this before sending application
-	/// messages.
-	pub fn session_is_open(&self) -> bool {
-		unsafe { sys::pancake_peer_session_is_open(self.raw) == 1 }
-	}
-
-	/// Publish a local export so inbound deliveries to it surface as events.
-	pub fn register_export(&mut self, id: u64) -> Result<()> {
-		check(unsafe { sys::pancake_peer_register_export(self.raw, id) })
-	}
-
-	/// Allocate and register the next free export position from the session's
-	/// one export allocator, the counter that also mints bootstrap and
-	/// resolver exports, so a spawned position can never alias one.
-	pub fn next_export(&mut self) -> Result<u64> {
-		let mut id: u64 = 0;
-		check(unsafe { sys::pancake_peer_next_export(self.raw, &mut id) })?;
-		Ok(id)
-	}
-
-	/// Track a partner-hosted import this peer holds, so a deliver to it is admitted.
-	pub fn register_import(&mut self, id: u64) -> Result<()> {
-		check(unsafe { sys::pancake_peer_register_import(self.raw, id) })
-	}
-
-	/// Allocate the next outbound answer position from the session's one answer
-	/// allocator, the counter that backs every outbound question, so a
-	/// privately-counted answer can never alias a live one.
-	pub fn next_answer(&mut self) -> Result<u64> {
-		let mut answer: u64 = 0;
-		check(unsafe { sys::pancake_peer_next_answer(self.raw, &mut answer) })?;
-		Ok(answer)
-	}
-
-	/// Queue the canonical bootstrap `fetch` for the capability published
-	/// behind `name`, returning the answer position the partner's resolution
-	/// arrives on (as an [`Event::Resolve`]). Registers the bootstrap import
-	/// and allocates the answer from the session's own counters.
-	pub fn send_bootstrap_fetch(&mut self, name: &[u8]) -> Result<u64> {
-		let mut answer: u64 = 0;
-		check(unsafe {
-			sys::pancake_peer_send_bootstrap_fetch(self.raw, name.as_ptr(), name.len(), &mut answer)
-		})?;
-		Ok(answer)
-	}
-
-	/// Begin enlivening the sturdyref published behind `swissnum` (ADR-0012):
-	/// the requester half over bootstrap-fetch with the dedup cache. Returns an
-	/// [`EnlivenStart`] naming either the cached far reference or the answer to
-	/// drive. Requires the session to have negotiated the sturdyref feature and
-	/// be open.
-	pub fn prepare_enliven(&mut self, swissnum: &[u8]) -> Result<EnlivenStart> {
-		let mut out = sys::PancakeEnlivenStart {
-			status: 0,
-			kind: 0,
-			answer: 0,
-			import_position: 0,
-		};
-		check(unsafe {
-			sys::pancake_peer_prepare_enliven(self.raw, swissnum.as_ptr(), swissnum.len(), &mut out)
-		})?;
-		Ok(match out.status {
-			sys::ENLIVEN_CACHED => EnlivenStart::Cached {
-				import_position: out.import_position,
-				promise: out.kind == sys::REF_SUB_PROMISE,
-			},
-			sys::ENLIVEN_IN_FLIGHT => EnlivenStart::InFlight { answer: out.answer },
-			_ => EnlivenStart::Fresh { answer: out.answer },
-		})
-	}
-
-	/// Settle a fresh enliven once its bootstrap-fetch resolution arrives: cache
-	/// the fulfilled far reference (`import_position`/`kind`, an
-	/// `ENLIVEN_OUTCOME_*` outcome) under `swissnum` so a repeat
-	/// short-circuits, or clear the in-flight marker on a break.
-	pub fn record_enlivenment(
-		&mut self,
-		swissnum: &[u8],
-		outcome: u32,
-		import_position: u64,
-		kind: u32,
-	) -> Result<()> {
-		check(unsafe {
-			sys::pancake_peer_record_enlivenment(
-				self.raw,
-				swissnum.as_ptr(),
-				swissnum.len(),
-				outcome,
-				import_position,
-				kind,
-			)
-		})
-	}
-
-	/// Queue an `op:gc-export` releasing wire-delta counts on imports this peer
-	/// holds: `positions[i]` is released by `deltas[i]`. The slices are
-	/// parallel and must be non-empty and the same length.
-	pub fn send_gc_export(&mut self, positions: &[u64], deltas: &[u64]) -> Result<()> {
-		if positions.len() != deltas.len() {
-			return Err(Error::from_code(sys::ERR_INVALID_ARGUMENT));
-		}
-		check(unsafe {
-			sys::pancake_peer_send_gc_export(
-				self.raw,
-				positions.as_ptr(),
-				deltas.as_ptr(),
-				positions.len(),
-			)
-		})
-	}
-
-	/// Dispatch one inbound frame, borrowed for the call. A refusal carries the
-	/// typed abort cause on [`Error::abort`].
-	pub fn feed(&mut self, frame: &[u8]) -> Result<()> {
-		let f = sys::PancakeFrame {
-			bytes: frame.as_ptr(),
-			len: frame.len(),
-			shape: sys::FRAME_SHAPE_BYTE,
-		};
-		let rc = unsafe { sys::pancake_peer_feed_borrowed(self.raw, &f) };
-		if rc == sys::OK {
-			Ok(())
-		} else {
-			Err(Error::from_code(rc).with_abort(self.last_abort()))
-		}
-	}
-
-	/// Frame and dispatch one inbound frame from a byte-stream buffer. `bytes` is
-	/// whatever has accumulated from the wire so far; returns `Some(n)` when a
-	/// whole frame was consumed and dispatched (drop the first `n` bytes, then
-	/// call again to drain more), or `None` when `bytes` holds only part of a
-	/// frame (read more and retry). This is the sans-io stream-input primitive,
-	/// the caller owns the socket; the peer never blocks. A reply or abort lands
-	/// on the outbound queue; drain it with [`take_outbound`](Peer::take_outbound),
-	/// and read events with [`poll`](Peer::poll). A refused frame carries the
-	/// typed abort cause on [`Error::abort`].
-	pub fn recv_stream(&mut self, bytes: &[u8]) -> Result<Option<usize>> {
-		let mut consumed: usize = 0;
-		let rc = unsafe {
-			sys::pancake_peer_recv_stream(self.raw, bytes.as_ptr(), bytes.len(), &mut consumed)
-		};
-		match rc {
-			sys::OK => Ok(Some(consumed)),
-			sys::WOULD_BLOCK => Ok(None),
-			_ => Err(Error::from_code(rc).with_abort(self.last_abort())),
-		}
-	}
-
-	/// Transfer owned `frame` bytes into the inbound queue for the next
-	/// [`step`](Peer::step) — no borrow to keep alive, no copy by the library.
-	pub fn feed_owned(&mut self, frame: Vec<u8>) -> Result<()> {
-		let mut frame = frame;
-		let mut managed = sys::PancakeManagedFrame {
-			bytes: frame.as_mut_ptr(),
-			len: frame.len(),
-			shape: sys::FRAME_SHAPE_BYTE,
-			release: Some(release_owned_vec),
-			// Carry the capacity so the release callback can rebuild the Vec.
-			private_data: frame.capacity() as *mut core::ffi::c_void,
-		};
-		core::mem::forget(frame); // ownership now lives in `managed`
-		let rc = unsafe { sys::pancake_peer_feed_owned(self.raw, &mut managed) };
-		if rc != sys::OK {
-			// The descriptor was not adopted; reclaim the bytes ourselves.
-			unsafe { release_owned_vec(&mut managed) };
-			return Err(Error::from_code(rc).with_abort(self.last_abort()));
-		}
-		Ok(())
-	}
-
-	/// Advance the peer (apply queued inbound, encode pending outbound).
-	pub fn step(&mut self) -> Result<()> {
-		check(unsafe { sys::pancake_peer_step(self.raw) })
-	}
-
-	/// Advance to quiescence: `step` until both queues are empty, so a cascading
-	/// settlement (a resolve that drains a projection whose own resolve fires a
-	/// listener that queues a deliver) is fully encoded for one `take_outbound`
-	/// sweep. A single `step` does one unit of work; this runs them all, the
-	/// drive loops pump with this so a pipelined batch never strands its tail.
-	pub fn step_to_idle(&mut self) -> Result<()> {
-		check(unsafe { sys::pancake_peer_step_to_idle(self.raw) })
-	}
-
-	/// Queue an `op:get` projection (ADR-0050) at `receiver` (a `desc:answer` of
-	/// an earlier far send): resolve `answer` with the named Struct field of
-	/// whatever `receiver` settles to, before it settles. Allocate `answer` with
-	/// [`next_answer`](Peer::next_answer); [`step`](Peer::step) encodes it.
-	pub fn send_get(&mut self, receiver: &Reference, field: &str, answer: u64) -> Result<()> {
-		let r = receiver.to_sys()?;
-		check(unsafe {
-			sys::pancake_peer_send_get(self.raw, &r, field.as_ptr(), field.len(), answer)
-		})
-	}
-
-	/// Queue an `op:index` projection (ADR-0050): like [`send_get`](Peer::send_get)
-	/// but for a List position rather than a Struct field.
-	pub fn send_index(&mut self, receiver: &Reference, index: i64, answer: u64) -> Result<()> {
-		let r = receiver.to_sys()?;
-		check(unsafe { sys::pancake_peer_send_index(self.raw, &r, index, answer) })
-	}
-
-	/// Queue an `op:untag` projection (ADR-0052): resolve `answer` with the
-	/// payload of whatever `receiver` settles to, which must be a Tagged record
-	/// whose tag equals `tag`.
-	pub fn send_untag(&mut self, receiver: &Reference, tag: &str, answer: u64) -> Result<()> {
-		let r = receiver.to_sys()?;
-		check(unsafe {
-			sys::pancake_peer_send_untag(self.raw, &r, tag.as_ptr(), tag.len(), answer)
-		})
-	}
-
-	/// Construct and queue a call to `target`. `answer` requests a reply.
-	pub fn send_deliver(
-		&mut self,
-		target: &Reference,
-		args: &[Argument],
-		answer: Option<u64>,
-	) -> Result<()> {
-		let t = target.to_sys()?;
-		let mut arena = SendArena::default();
-		let (args_ptr, args_len) = arena.build(args)?;
-		check(unsafe {
-			sys::pancake_peer_send_deliver(
-				self.raw,
-				&t,
-				args_ptr,
-				args_len,
-				u32::from(answer.is_some()),
-				answer.unwrap_or(0),
-			)
-		})
-	}
-
-	/// Construct and queue a reply settling `answer`.
-	pub fn send_resolve(&mut self, answer: u64, resolution: &Resolution) -> Result<()> {
-		match resolution {
-			Resolution::Fulfill(value) => {
-				let mut arena = SendArena::default();
-				let v = arena.one(value)?;
-				check(unsafe {
-					sys::pancake_peer_send_resolve(
-						self.raw,
-						answer,
-						sys::RESOLUTION_FULFILL,
-						&v,
-						core::ptr::null(),
-						0,
-					)
-				})
-			}
-			Resolution::Break(msg) => check(unsafe {
-				sys::pancake_peer_send_resolve(
-					self.raw,
-					answer,
-					sys::RESOLUTION_BREAK,
-					core::ptr::null(),
-					msg.as_ptr(),
-					msg.len(),
-				)
-			}),
-			// A handoff *give* resolution is minted and relayed by the node's serve
-			// step (ADR-0067); the structured `Resolution` arm is inbound-only and
-			// has no give bytes to emit, so refuse to encode one rather than
-			// mis-send it.
-			Resolution::Handoff(_) => Err(Error::from_code(sys::ERR_UNSUPPORTED_VALUE)),
-		}
-	}
-
-	/// Take the next outbound frame as owned bytes, or `Ok(None)` when the queue
-	/// is empty. Any other failure (e.g. an OOM after the frame was already
-	/// dequeued and freed) surfaces as `Err` — swallowing it would silently drop
-	/// an outbound frame and end the drain as if the queue were empty.
-	pub fn take_outbound(&mut self) -> Result<Option<Vec<u8>>> {
-		let mut frame: sys::PancakeManagedFrame = unsafe { core::mem::zeroed() };
-		let rc = unsafe { sys::pancake_peer_take_outbound(self.raw, &mut frame) };
-		if rc == sys::WOULD_BLOCK {
-			return Ok(None);
-		}
-		check(rc)?;
-		let out = unsafe { owned_from_view(frame.bytes, frame.len) };
-		unsafe { sys::pancake_managed_frame_release(&mut frame) };
-		Ok(Some(out))
-	}
-
-	/// Drive the engine to idle and take the next application event as a typed
-	/// [`Event`], or `Ok(None)` when there is nothing to do until bytes move.
-	/// The core owns the pump-then-poll rule and the typed-or-opaque routing
-	/// (`pancake_peer_next_event`): a settlement cascade surfaces in full, a
-	/// deliver or resolve arrives projected, and every other kind — or a value
-	/// the typed surface cannot carry — arrives as [`Event::Other`] carrying the
-	/// originating wire bytes. Write queued outbound
-	/// ([`take_outbound`](Peer::take_outbound)) on `None`, before parking on a
-	/// read.
-	pub fn poll(&mut self) -> Result<Option<Event>> {
-		let mut ev: sys::PancakeAnyEvent = unsafe { core::mem::zeroed() };
-		let rc = unsafe { sys::pancake_peer_next_event(self.raw, &mut ev) };
-		if rc == sys::WOULD_BLOCK {
-			return Ok(None);
-		}
-		check(rc)?;
-		let event = match ev.projection {
-			sys::PROJECTION_DELIVER => {
-				let d = &ev.deliver;
-				Event::Deliver {
-					target: Reference::from_sys(&d.target),
-					args: unsafe { args_from_sys(d.args, d.args_len) },
-					answer: if d.has_answer != 0 {
-						Some(d.answer)
-					} else {
-						None
-					},
-				}
-			}
-			sys::PROJECTION_RESOLVE => {
-				let r = &ev.resolve;
-				let resolution = if r.resolution_kind == sys::RESOLUTION_FULFILL {
-					Resolution::Fulfill(unsafe { arg_from_sys(&r.fulfill) })
-				} else if r.resolution_kind == sys::RESOLUTION_HANDOFF {
-					let h = &r.handoff;
-					Resolution::Handoff(HandoffGive {
-						give: unsafe { owned_from_view(h.give, h.give_len) },
-						exporter_locator: String::from_utf8_lossy(&unsafe {
-							owned_from_view(h.exporter_locator, h.exporter_locator_len)
-						})
-						.into_owned(),
-						recipient_key: unsafe {
-							owned_from_view(h.recipient_key, h.recipient_key_len)
-						},
-					})
-				} else {
-					let msg = if r.break_message.is_null() {
-						String::new()
-					} else {
-						String::from_utf8_lossy(unsafe {
-							core::slice::from_raw_parts(r.break_message, r.break_message_len)
-						})
-						.into_owned()
-					};
-					Resolution::Break(msg)
-				};
-				Event::Resolve {
-					answer: r.answer,
-					resolution,
-				}
-			}
-			_ => Event::Other {
-				kind: ev.kind,
-				frame: unsafe { owned_from_view(ev.frame.bytes, ev.frame.len) },
-			},
-		};
-		unsafe { sys::pancake_any_event_release(&mut ev) };
-		Ok(Some(event))
-	}
-
-	/// The typed cause of this peer's most recent local dispatch failure, or
-	/// `None` when none has been recorded. The frame-feeding calls
-	/// ([`feed`](Peer::feed), [`feed_owned`](Peer::feed_owned),
-	/// [`recv_stream`](Peer::recv_stream)) already attach this to the `Err`
-	/// they return; read it there via [`Error::abort`].
-	pub fn last_abort(&self) -> Option<AbortInfo> {
-		let mut raw: sys::PancakeLastAbort = unsafe { core::mem::zeroed() };
-		if unsafe { sys::pancake_peer_last_abort(self.raw, &mut raw) } != sys::OK {
-			return None;
-		}
-		// The C views are process-static; copy them into owned strings so the
-		// info outlives any later peer call.
-		let text = |ptr: *const u8, len: usize| -> String {
-			if ptr.is_null() || len == 0 {
-				String::new()
-			} else {
-				String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) })
-					.into_owned()
-			}
-		};
-		Some(AbortInfo {
-			domain: match raw.domain {
-				sys::ABORT_DOMAIN_CODEC => AbortDomain::Codec,
-				sys::ABORT_DOMAIN_SESSION => AbortDomain::Session,
-				_ => AbortDomain::Foreign,
-			},
-			kind: (raw.has_kind != 0).then(|| text(raw.kind_name, raw.kind_name_len)),
-			message: text(raw.message, raw.message_len),
-			error_name: text(raw.error_name, raw.error_name_len),
-		})
-	}
-
-	/// Publish a local capability behind `swissnum` for inbound bootstrap-fetch;
-	/// returns the allocated export id.
-	pub fn register_bootstrap_cap(&mut self, swissnum: &[u8]) -> Result<u64> {
-		let mut id: u64 = 0;
-		check(unsafe {
-			sys::pancake_peer_register_bootstrap_cap(
-				self.raw,
-				swissnum.as_ptr(),
-				swissnum.len(),
-				&mut id,
-			)
-		})?;
-		Ok(id)
-	}
-}
-
-impl Drop for Peer<'_> {
-	fn drop(&mut self) {
-		// A node-owned peer (ADR-0066) is freed by its `Node`, never here.
-		if self.owned {
-			unsafe { sys::pancake_peer_release(self.raw) };
-		}
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
-
-	// Bounded inbox: a frame declaring more than max_frame_bytes is a typed
-	// refusal, never "read more". A connection's inbox keeps growing only
-	// while recv_stream returns Ok(None), so this is the contract that stops
-	// a hostile partner from growing it without bound.
-	#[test]
-	fn recv_stream_refuses_an_over_cap_frame_typed() {
-		let mut peer = Peer::new_raw_open().unwrap();
-		peer.register_export(7).unwrap();
-		let err = peer
-			.recv_stream(b"<10'op:deliver<11'desc:export7+>[2000000:")
-			.unwrap_err();
-		// The matchable family, not a hand-copied magic negative.
-		assert_eq!(err.kind(), ErrorKind::FrameTooLarge);
-		assert_eq!(err.code(), sys::ERR_FRAME_TOO_LARGE);
-	}
 
 	// The public `ErrorKind` maps each known `PANCAKE_ERR_*` family, and an
 	// unknown or retired code falls through to `Other` with the raw value, so the
@@ -1464,6 +839,10 @@ mod tests {
 		assert_eq!(Error::from_code(sys::ERR_BROKEN).kind(), ErrorKind::Broken);
 		assert_eq!(Error::from_code(sys::ERR_IO).kind(), ErrorKind::Io);
 		assert_eq!(Error::from_code(sys::ERR_CLOSED).kind(), ErrorKind::Closed);
+		assert_eq!(
+			Error::from_code(sys::ERR_FRAME_TOO_LARGE).kind(),
+			ErrorKind::FrameTooLarge
+		);
 		assert_eq!(
 			Error::from_code(sys::ERR_UNSUPPORTED_VALUE).kind(),
 			ErrorKind::UnsupportedValue
@@ -1475,64 +854,6 @@ mod tests {
 			Error::from_code(unrecognized).kind(),
 			ErrorKind::Other(unrecognized)
 		);
-	}
-
-	// A refused frame is diagnosable beyond the flat family code: the typed
-	// abort cause (domain, kind, message, error name) rides the error from
-	// `feed`, mirrored from `pancake_peer_last_abort` — the same member the
-	// Zig `Peer.lastAbort` names.
-	#[test]
-	fn a_refused_frame_carries_the_typed_abort_cause() {
-		let mut peer = Peer::new_raw_open().unwrap();
-		let err = peer.feed(b"this is not a syrup frame").unwrap_err();
-		let abort = err.abort().expect("the typed abort cause");
-		assert_eq!(abort.domain, AbortDomain::Codec);
-		assert!(!abort.message.is_empty());
-		assert!(!abort.error_name.is_empty());
-		// The same cause is readable straight off the peer.
-		assert_eq!(peer.last_abort().as_ref(), Some(abort));
-	}
-
-	#[test]
-	fn drives_ocapn_with_the_idiomatic_api() {
-		// Construct a call with typed args, no raw FFI in sight.
-		let mut caller = Peer::new_raw_open().unwrap();
-		caller.register_import(5).unwrap();
-		caller
-			.send_deliver(
-				&Reference::far(5),
-				&[Argument::Integer(42), Argument::Bytes(b"hi".to_vec())],
-				Some(9),
-			)
-			.unwrap();
-		caller.step().unwrap();
-		let wire = caller.take_outbound().unwrap().expect("an outbound frame");
-		assert!(wire.starts_with(b"<10'op:deliver"));
-
-		// Inspect an inbound delivery as a typed Event.
-		let mut callee = Peer::new_raw_open().unwrap();
-		callee.register_export(7).unwrap();
-		callee
-			.feed(b"<10'op:deliver<11'desc:export7+>[5:hello]11+f>")
-			.unwrap();
-		match callee.poll().unwrap().expect("a deliver event") {
-			Event::Deliver {
-				target,
-				args,
-				answer,
-			} => {
-				assert_eq!(
-					target,
-					Reference::Near {
-						id: 7,
-						promise: false
-					}
-				);
-				assert_eq!(answer, Some(11));
-				assert_eq!(args, vec![Argument::Bytes(b"hello".to_vec())]);
-			}
-			other => panic!("expected a deliver, got {other:?}"),
-		}
 	}
 
 	#[test]
@@ -1561,441 +882,35 @@ mod tests {
 	}
 
 	#[test]
-	fn carries_set_tagged_and_keyword_arguments() {
-		let mut peer = Peer::new_raw_open().unwrap();
-		peer.register_export(7).unwrap();
-		peer.feed(b"<10'op:deliver<11'desc:export7+>[#1+2+$<11'user-record5'Point[3+4+]><2'kw5'color>]11+f>")
-            .unwrap();
-		match peer.poll().unwrap().expect("a deliver") {
-			Event::Deliver { args, .. } => {
-				assert_eq!(args.len(), 3);
-				assert_eq!(
-					args[0],
-					Argument::Set(vec![Argument::Integer(1), Argument::Integer(2)])
-				);
-				assert_eq!(
-					args[1],
-					Argument::Tagged {
-						tag: "Point".into(),
-						value: vec![Argument::Integer(3), Argument::Integer(4)],
-					}
-				);
-				assert_eq!(args[2], Argument::Keyword("color".into()));
-			}
-			other => panic!("expected a deliver, got {other:?}"),
-		}
-	}
-
-	#[test]
-	fn surfaces_an_abort_as_a_typed_event() {
-		let mut peer = Peer::new_raw_open().unwrap();
-		peer.feed(b"<8'op:abort3\"bye>").unwrap();
-		match peer.poll().unwrap().expect("an abort event") {
-			Event::Other { kind, frame } => {
-				assert_eq!(kind, abi_constants::EVENT_ABORT as u32);
-				assert_eq!(frame, b"<8'op:abort3\"bye>");
-			}
-			other => panic!("expected abort, got {other:?}"),
-		}
-		assert!(peer.poll().unwrap().is_none());
-	}
-
-	#[test]
-	fn server_replies_to_a_received_call() {
-		let mut peer = Peer::new_raw_open().unwrap();
-		peer.register_export(7).unwrap();
-		peer.feed(b"<10'op:deliver<11'desc:export7+>[5:hello]11+<19'desc:import-promise99+>>")
-			.unwrap();
-		let answer = match peer.poll().unwrap().unwrap() {
-			Event::Deliver { answer, .. } => answer.unwrap(),
-			other => panic!("expected deliver, got {other:?}"),
-		};
-		peer.send_resolve(answer, &Resolution::Fulfill(Argument::Integer(7)))
-			.unwrap();
-		peer.step().unwrap();
-		let wire = peer
-			.take_outbound()
-			.unwrap()
-			.expect("a resolver-callback frame");
-		let text = core::str::from_utf8(&wire).unwrap();
-		assert!(text.contains("op:deliver"));
-		assert!(text.contains("fulfill"));
-	}
-
-	#[test]
 	fn reports_a_nonzero_abi_version() {
 		let (major, minor, patch) = abi_version();
 		assert!(major + minor + patch > 0);
 	}
 
+	// A marshalled argument round-trips through the C layout: the send arena
+	// builds the C tree over borrowed payloads and the lift copies it back into
+	// owned values, so the two halves of the boundary agree on every kind.
 	#[test]
-	fn prespec_peer_queues_matching_start_session() {
-		let mut peer = Peer::negotiated(Profile::PreSpec, Codec::Syrup).unwrap();
-		let seed = [0x77; 32];
-		// The peer signs with the profile it was constructed with.
-		peer.start_session(&seed, "tcp", "127.0.0.1:77", true)
-			.unwrap();
-		peer.step().unwrap();
-		let wire = peer
-			.take_outbound()
-			.unwrap()
-			.expect("a PreSpec start-session frame");
-		assert!(wire
-			.windows(b"op:start-session".len())
-			.any(|window| window == b"op:start-session"));
-	}
-
-	// The codec selector end-to-end: two Cap'n Proto peers complete the keyed
-	// handshake and carry a deliver whose arguments round-trip through the
-	// capnp codec — a big integer past int64 and a Keyword included, so the
-	// two rare marshal arms are witnessed alongside the codec.
-	#[test]
-	fn capnp_peers_handshake_and_round_trip_big_integer_and_keyword() {
-		let mut a = Peer::negotiated(Profile::V1_0, Codec::Capnp).unwrap();
-		let mut b = Peer::negotiated(Profile::V1_0, Codec::Capnp).unwrap();
-		a.start_session(&[0x01; 32], "tcp", "127.0.0.1:1", true)
-			.unwrap();
-		b.start_session(&[0x02; 32], "tcp", "127.0.0.1:2", true)
-			.unwrap();
-		a.step().unwrap();
-		b.step().unwrap();
-
-		fn pump(src: &mut Peer, dst: &mut Peer) -> bool {
-			let mut moved = false;
-			while let Some(frame) = src.take_outbound().unwrap() {
-				let consumed = dst.recv_stream(&frame).unwrap();
-				assert_eq!(
-					consumed,
-					Some(frame.len()),
-					"the whole capnp frame is consumed"
-				);
-				dst.step().unwrap();
-				moved = true;
-			}
-			moved
-		}
-
-		let mut stalls = 0;
-		while !(a.session_is_open() && b.session_is_open()) {
-			let moved_ab = pump(&mut a, &mut b);
-			let moved_ba = pump(&mut b, &mut a);
-			if !moved_ab && !moved_ba {
-				stalls += 1;
-				assert!(stalls < 4, "capnp keyed handshake stalled");
-			}
-		}
-
-		b.register_export(7).unwrap();
-		a.register_import(7).unwrap();
-		// 2^80: past int64, so it must ride the ARG_BIG_INTEGER arm.
-		let big = Argument::BigInteger {
-			negative: false,
-			digits: "1208925819614629174706176".to_string(),
-		};
-		a.send_deliver(
-			&Reference::Far {
-				id: 7,
-				promise: false,
+	fn arguments_round_trip_through_the_c_layout() {
+		let original = Argument::List(vec![
+			Argument::Integer(7),
+			Argument::String("hi".into()),
+			Argument::Bytes(vec![1, 2, 3]),
+			Argument::Tagged {
+				tag: "point".into(),
+				value: vec![Argument::Integer(3), Argument::Integer(4)],
 			},
-			&[
-				big.clone(),
-				Argument::Keyword("prio".into()),
-				Argument::Bytes(b"hi".to_vec()),
-			],
-			Some(9),
-		)
-		.unwrap();
-		a.step().unwrap();
-		pump(&mut a, &mut b);
-		// Skip the surfaced start-session; the deliver follows.
-		let event = loop {
-			match b.poll().unwrap() {
-				Some(Event::Deliver { args, answer, .. }) => break (args, answer),
-				Some(_) => continue,
-				None => panic!("the capnp deliver never surfaced"),
-			}
-		};
-		let (args, answer) = event;
-		assert_eq!(answer, Some(9));
-		assert_eq!(args[0], big);
-		assert_eq!(args[1], Argument::Keyword("prio".into()));
-		assert_eq!(args[2], Argument::Bytes(b"hi".to_vec()));
-	}
-
-	#[test]
-	fn hosts_an_actor_that_serves_a_delivered_call() {
-		use crate::actors::Vat;
-
-		let mut peer = Peer::new_raw_open().unwrap();
-		let mut vat = Vat::over(&mut peer);
-
-		// Publish a counter at export 7, a Rust closure, not a foreign callback.
-		let mut n: i64 = 10;
-		vat.publish(7, move |verb, args| match verb {
-			"add" => match args[0] {
-				Argument::Integer(x) => {
-					n += x;
-					Ok(Argument::Integer(n))
-				}
-				_ => Err("add expects an integer".into()),
+			Argument::Keyword("color".into()),
+			Argument::BigInteger {
+				negative: false,
+				digits: "1208925819614629174706176".into(),
 			},
-			other => Err(format!("no such method: {other}")),
-		})
-		.unwrap();
-
-		// A partner delivers counter.add(5) with answer 11 and a V1.0 resolver callback.
-		vat.peer()
-			.unwrap()
-			.feed(b"<10'op:deliver<11'desc:export7+>[3'add5+]11+<19'desc:import-promise99+>>")
-			.unwrap();
-		let event = vat
-			.peer()
-			.unwrap()
-			.poll()
-			.unwrap()
-			.expect("a deliver event");
-		assert!(vat.serve(&event).unwrap());
-
-		vat.peer().unwrap().step().unwrap();
-		let wire = vat
-			.peer()
-			.unwrap()
-			.take_outbound()
-			.unwrap()
-			.expect("a resolver-callback frame");
-		let text = core::str::from_utf8(&wire).unwrap();
-		assert!(text.contains("op:deliver"));
-		assert!(text.contains("fulfill"));
-		// The reply carries the new count, 15.
-		assert!(text.contains("15+"));
-	}
-
-	#[test]
-	fn near_call_local_send_and_drive() {
-		use crate::actors::{Vat, VatRef, Vow};
-		use std::cell::Cell;
-		use std::rc::Rc;
-
-		let mut vat = Vat::new();
-		let mut n: i64 = 0;
-		let counter = vat.spawn(move |verb, args| match verb {
-			"add" => match args[0] {
-				Argument::Integer(x) => {
-					n += x;
-					Ok(Argument::Integer(n))
-				}
-				_ => Err("add expects an integer".into()),
-			},
-			other => Err(format!("no such method: {other}")),
-		});
-
-		// Near-call is synchronous and local-only.
-		assert_eq!(
-			vat.call(&counter, "add", &[Argument::Integer(3)]).unwrap(),
-			Argument::Integer(3)
-		);
-
-		// Near-calling a far ref is illegal.
-		assert!(vat
-			.call(&VatRef::Far(Reference::far(5)), "add", &[])
-			.is_err());
-
-		// An eventual send queues a turn; drive settles its promise.
-		let captured = Rc::new(Cell::new(0i64));
-		let sink = captured.clone();
-		let promise = vat.send(&counter, "add", &[Argument::Integer(4)]).unwrap();
-		assert!(matches!(promise, Vow::Local(_)));
-		vat.on(promise, move |resolution| {
-			if let Resolution::Fulfill(Argument::Integer(v)) = resolution {
-				sink.set(v);
-			}
-		});
-		vat.drive();
-		assert_eq!(captured.get(), 7); // 3 + 4
-	}
-
-	#[test]
-	fn far_send_routes_over_the_wire_and_settles_the_promise() {
-		use crate::actors::{Vat, VatRef, Vow};
-		use std::cell::Cell;
-		use std::rc::Rc;
-
-		// PeerB publishes a counter at export 7.
-		let mut peer_b = Peer::new_raw_open().unwrap();
-		let mut vat_b = Vat::over(&mut peer_b);
-		let mut n: i64 = 10;
-		vat_b
-			.publish(7, move |verb, args| match verb {
-				"add" => match args[0] {
-					Argument::Integer(x) => {
-						n += x;
-						Ok(Argument::Integer(n))
-					}
-					_ => Err("add expects an integer".into()),
-				},
-				other => Err(format!("no such method: {other}")),
-			})
-			.unwrap();
-
-		// PeerA far-sends counter.add(5) and listens on the returned promise.
-		let mut peer_a = Peer::new_raw_open().unwrap();
-		peer_a.register_import(7).unwrap();
-		let mut vat_a = Vat::over(&mut peer_a);
-		let captured = Rc::new(Cell::new(0i64));
-		let sink = captured.clone();
-		let promise = vat_a
-			.send(
-				&VatRef::Far(Reference::far(7)),
-				"add",
-				&[Argument::Integer(5)],
-			)
-			.unwrap();
-		assert!(matches!(promise, Vow::Far(_)));
-		vat_a.on(promise, move |resolution| {
-			if let Resolution::Fulfill(Argument::Integer(v)) = resolution {
-				sink.set(v);
-			}
-		});
-
-		// Shuttle A's outbound deliver to B.
-		vat_a.peer().unwrap().step().unwrap();
-		let to_b = vat_a
-			.peer()
-			.unwrap()
-			.take_outbound()
-			.unwrap()
-			.expect("A's deliver frame");
-		vat_b.peer().unwrap().feed(&to_b).unwrap();
-
-		// B serves the deliver: runs the counter (10 + 5 = 15) and resolves.
-		let deliver = vat_b
-			.peer()
-			.unwrap()
-			.poll()
-			.unwrap()
-			.expect("a deliver event");
-		assert!(vat_b.serve(&deliver).unwrap());
-
-		// Shuttle B's outbound resolve back to A.
-		vat_b.peer().unwrap().step().unwrap();
-		let to_a = vat_b
-			.peer()
-			.unwrap()
-			.take_outbound()
-			.unwrap()
-			.expect("B's resolve frame");
-		vat_a.peer().unwrap().feed(&to_a).unwrap();
-
-		// A serves the resolve: fires the far promise's listener.
-		let resolve = vat_a
-			.peer()
-			.unwrap()
-			.poll()
-			.unwrap()
-			.expect("a resolve event");
-		assert!(vat_a.serve(&resolve).unwrap());
-
-		assert_eq!(captured.get(), 15);
-	}
-
-	#[cfg(feature = "async")]
-	#[tokio::test]
-	async fn async_loopback_deliver_and_resolve() {
-		use tokio::net::TcpListener;
-
-		let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-		let addr = listener.local_addr().unwrap();
-
-		// Server: accept, drive a peer over the socket, reply to the first call.
-		let server = async {
-			let (stream, _) = listener.accept().await.unwrap();
-			let mut peer = Peer::new_raw_open().unwrap();
-			peer.register_export(7).unwrap();
-			let mut conn = AsyncConnection::from_stream(peer, stream);
-			match conn.next_event().await.unwrap().expect("a deliver") {
-				Event::Deliver { target, answer, .. } => {
-					assert_eq!(
-						target,
-						Reference::Near {
-							id: 7,
-							promise: false
-						}
-					);
-					conn.send_resolve(answer.unwrap(), &Resolution::Fulfill(Argument::Integer(7)))
-						.await
-						.unwrap();
-				}
-				other => panic!("server expected a deliver, got {other:?}"),
-			}
-		};
-
-		// Client: connect, call far(7), await the resolution, all async.
-		let client = async {
-			let stream = tokio::net::TcpStream::connect(addr).await.unwrap();
-			let mut conn = AsyncConnection::from_stream(Peer::new_raw_open().unwrap(), stream);
-			conn.peer().register_import(7).unwrap();
-			conn.send_deliver(&Reference::far(7), &[Argument::Integer(42)], Some(9))
-				.await
-				.unwrap();
-			match conn.next_event().await.unwrap().expect("a resolve") {
-				Event::Resolve { answer, resolution } => {
-					assert_eq!(answer, 9);
-					assert_eq!(resolution, Resolution::Fulfill(Argument::Integer(7)));
-				}
-				other => panic!("client expected a resolve, got {other:?}"),
-			}
-		};
-
-		tokio::join!(server, client);
-	}
-
-	#[test]
-	fn drives_a_peer_in_a_context_with_a_custom_allocator() {
-		use std::sync::atomic::{AtomicUsize, Ordering};
-		use std::sync::Arc;
-
-		struct Counting {
-			allocs: Arc<AtomicUsize>,
-		}
-		impl HostAllocator for Counting {
-			fn alloc(&self, size: usize, alignment: usize) -> *mut u8 {
-				self.allocs.fetch_add(1, Ordering::Relaxed);
-				let layout = std::alloc::Layout::from_size_align(size, alignment).unwrap();
-				unsafe { std::alloc::alloc(layout) }
-			}
-			unsafe fn free(&self, ptr: *mut u8, size: usize, alignment: usize) {
-				let layout = std::alloc::Layout::from_size_align(size, alignment).unwrap();
-				std::alloc::dealloc(ptr, layout);
-			}
-		}
-
-		let allocs = Arc::new(AtomicUsize::new(0));
-		let ctx = Context::with_allocator(Box::new(Counting {
-			allocs: allocs.clone(),
-		}))
-		.unwrap();
-		let mut peer = Peer::new_raw_open_in(&ctx).unwrap();
-		peer.register_export(7).unwrap();
-
-		// feed_owned transfers the bytes into the inbound queue; step applies them.
-		peer.feed_owned(b"<10'op:deliver<11'desc:export7+>[5:hello]11+f>".to_vec())
-			.unwrap();
-		peer.step().unwrap();
-		match peer.poll().unwrap().expect("a deliver event") {
-			Event::Deliver { target, .. } => assert_eq!(
-				target,
-				Reference::Near {
-					id: 7,
-					promise: false
-				}
-			),
-			other => panic!("expected a deliver, got {other:?}"),
-		}
-		// The host allocator actually serviced the context-backed peer.
-		assert!(allocs.load(Ordering::Relaxed) > 0);
-
-		// Release the peer before the context it was created in.
-		drop(peer);
-		drop(ctx);
+			Argument::Reference(Reference::far(5)),
+			Argument::Void,
+		]);
+		let mut arena = SendArena::default();
+		let c = arena.one(&original).unwrap();
+		let lifted = unsafe { arg_from_sys(&c) };
+		assert_eq!(lifted, original);
 	}
 }

@@ -26,7 +26,10 @@ import asyncio
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bindings" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
+from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
+
+insert_bindings_path()
 
 from pancake.iroh import (  # noqa: E402
     Reachability,
@@ -36,17 +39,7 @@ from pancake.iroh import (  # noqa: E402
 
 NAME = "python-iroh-world"
 
-for _arg in sys.argv[1:]:
-    # The gate takes no arguments; accept and ignore a `--port=` for parity with
-    # the other binding gates' build wiring.
-    if not _arg.startswith("--port="):
-        print(f"python-iroh-reachability: unknown argument '{_arg}'", file=sys.stderr)
-        raise SystemExit(2)
-
-
-def fail(msg: str) -> None:
-    print(f"python-iroh-reachability FAILED: {msg}", file=sys.stderr)
-    raise SystemExit(1)
+ignore_port_args("python-iroh-reachability")
 
 
 def greeter(verb: str, args: list):
@@ -84,7 +77,7 @@ async def run() -> None:
     greeter_ref = await client.fetch("greeter")
     reply = await client.send(greeter_ref, "greet", [NAME])
     if not isinstance(reply, str) or NAME not in reply:
-        fail(f"greeter reply did not carry the name back: {reply!r}")
+        fail("python-iroh-reachability", f"greeter reply did not carry the name back: {reply!r}")
     print(f"python-iroh-reachability: greeter replied: {reply}")
 
     print(

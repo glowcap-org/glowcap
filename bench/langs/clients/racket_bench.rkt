@@ -116,11 +116,86 @@
   (connection-close! c)
   (printf "{\"v\":1,\"event\":\"cold-done\",\"client\":\"~a\"}\n" CLIENT))
 
+;; The local-turn counter: `hit` increments and returns the count, any other
+;; verb errors. Spawned fresh per use, so the two paths of run-local never
+;; share a count.
+(define (^counter bcom)
+  (define count (box 0))
+  (lambda (method . args)
+    (unless (eq? method 'hit) (error 'counter "no such method ~a" method))
+    (set-box! count (add1 (unbox count)))
+    (unbox count)))
+
+;; min(N, 500) warmup hits, forced collections, then N measured sequential
+;; send→settle units against `target`, asserting the final count equals
+;; WARMUP + N. Returns the per-turn latencies in nanoseconds.
+(define (measure-hits c target)
+  (for ([_ (in-range WARMUP)]) (conn-send c target 'hit))
+  (collect-garbage) (collect-garbage) (collect-garbage)
+  (define final (box 0))
+  (define lats
+    (for/list ([_ (in-range N)])
+      (define s (now))
+      (set-box! final (conn-send c target 'hit))
+      (* (- (now) s) 1e6)))
+  (unless (equal? (unbox final) (+ WARMUP N))
+    (error 'racket-bench "bad final count ~v (expected ~a)" (unbox final) (+ WARMUP N)))
+  lats)
+
+;; The `local` mode (see contract.md): (a) in_lang — a counter spawned on this
+;; connection, dispatched in process by the binding's own local path; (b)
+;; via_host — the same behavior published across a loopback pair inside this
+;; process (listen on 127.0.0.1:0 + connect to itself), so every turn pays wire
+;; codec, feed, trampoline, and marshal both ways. The orchestrator's host/port
+;; arguments are unused; the pair is self-contained.
+(define (run-local)
+  (define srv (listen "127.0.0.1" 0))
+  ;; The accept half on its own thread: accept the one dialer, publish the
+  ;; counter (before serving, so the dialer's fetch cannot race it), and serve
+  ;; until the dialer leaves.
+  (thread
+   (lambda ()
+     ;; A failure before serving would strand the dialer in a blocked fetch,
+     ;; so it fails the process loudly instead of dying quietly.
+     (define conn
+       (with-handlers ([(lambda (_) #t)
+                        (lambda (e)
+                          (eprintf "racket-bench local: accept/publish failed: ~a\n" e)
+                          (exit 1))])
+         (define conn (accept srv))
+         (conn-publish conn "counter" ^counter)
+         conn))
+     (with-handlers ([(lambda (_) #t) void]) (conn-serve conn))))
+  (define c (connect (tcp-locator "127.0.0.1" (server-port srv))))
+
+  ;; (a) in_lang: the binding's in-process actor dispatch.
+  (define local-counter (conn-spawn c ^counter))
+  (define in-lang (measure-hits c local-counter))
+
+  ;; (b) via_host: the published counter across the loopback pair.
+  (define far-counter (conn-fetch c "counter"))
+  (define via-host (measure-hits c far-counter))
+
+  (connection-close! c)
+  (server-close! srv)
+
+  (define in-mean (mean in-lang))
+  (define via-mean (mean via-host))
+  (printf "{\"v\":1,\"metric\":\"local\",\"client\":\"~a\",\"suite\":\"local-turn\",\"n\":~a,\"in_lang_ns\":~a,\"in_lang_p99_ns\":~a,\"via_host_ns\":~a,\"via_host_p99_ns\":~a,\"ratio\":~a,\"runtime\":\"~a\",\"warmup_n\":~a}\n"
+          CLIENT N
+          (real->decimal-string in-mean 1)
+          (real->decimal-string (percentile in-lang 0.99) 1)
+          (real->decimal-string via-mean 1)
+          (real->decimal-string (percentile via-host 0.99) 1)
+          (real->decimal-string (if (> in-mean 0) (/ via-mean in-mean) 0) 2)
+          RUNTIME WARMUP))
+
 (case mode
   [("latency") (run-latency)]
   [("throughput") (run-throughput)]
   [("connections") (run-connections)]
   [("cold") (run-cold)]
+  [("local") (run-local)]
   [else (error 'racket-bench "unknown mode ~a" mode)])
 
 (flush-output)

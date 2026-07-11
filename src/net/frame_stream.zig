@@ -41,6 +41,38 @@ const Stream = std.Io.net.Stream;
 /// a divergence between the two loops would silently split that budget.
 pub const steady_outbound_bytes: usize = 16 * 1024;
 
+/// Append every encoded outbound frame `peer` holds onto `list`, freeing each
+/// frame as its bytes are copied — the one take-outbound drain shape both
+/// readiness loops ride. It lives here beside `steady_outbound_bytes` for the
+/// same reason that bound does: forked copies in the two loops would drift.
+/// On an append failure the current frame is still freed and the remaining
+/// frames stay on the peer (freed with it), so the caller only decides what
+/// the failed connection does next.
+pub fn queueOutboundBytes(
+    peer: *engine.Peer,
+    allocator: std.mem.Allocator,
+    list: *std.ArrayList(u8),
+) std.mem.Allocator.Error!void {
+    while (peer.takeOutbound()) |frame_value| {
+        var frame = frame_value;
+        defer frame.deinit();
+        try list.appendSlice(allocator, frame.bytes());
+    }
+}
+
+/// Reclaim a drained outbound list: burst capacity above `bound` frees (one
+/// slow-reader episode must not pin its high-water bytes for the connection's
+/// life, the ADR-0041/0042 posture), capacity at or under it stays so steady
+/// reply traffic never reallocates. The one spelling of the drain-point
+/// reclaim both loops honor.
+pub fn reclaimBurst(list: *std.ArrayList(u8), allocator: std.mem.Allocator, bound: usize) void {
+    if (list.capacity > bound) {
+        list.clearAndFree(allocator);
+    } else {
+        list.clearRetainingCapacity();
+    }
+}
+
 /// Outcome of reading one frame off the stream. A malformed / oversize frame is
 /// a transport-fatal condition here (there is no session to project an abort
 /// onto — that is the host peer's job once the frame is fed in); the concrete
@@ -252,8 +284,10 @@ pub fn readFrameFrom(
 pub const DrainVerdict = enum {
     /// Every whole frame applied; any partial tail is now in the spill.
     ok,
-    /// A frame was malformed or oversize. The peer has already queued an
-    /// `op:abort` to flush before the connection closes.
+    /// The stream is unrecoverable. When the codec refused the frame, the
+    /// peer has already queued an `op:abort` to flush before the connection
+    /// closes; the incomplete-at-cap defensive mirror closes without one
+    /// (nothing was refused, the frame simply cannot complete).
     fail,
     /// A spill allocation failed; close the connection.
     close,
@@ -294,7 +328,7 @@ pub fn drainWholeFrames(
                 // (ADR-0029): an incomplete prefix at or past the cap can never
                 // complete within it, so a codec that failed to refuse it fails
                 // closed here instead of growing the spill.
-                if (supply.len >= peer.session_state.limits.max_frame_bytes) return .fail;
+                if (supply.len >= peer.limits().max_frame_bytes) return .fail;
                 break;
             },
             .consumed => |used| {

@@ -108,9 +108,9 @@ fn hostExporter(listener: net.netlayer.Listener, allocator: std.mem.Allocator, g
     defer cv.deinit();
 
     const greeter = try cv.publish("greeter", Greeter, .{});
-    try cv.peer.giftRegistry().depositOwned(
-        cv.peer.allocator,
-        cv.peer.session_state.limits,
+    try cv.served.peer.giftRegistry().depositOwned(
+        cv.served.peer.allocator,
+        cv.served.peer.session_state.limits,
         &gift_id,
         greeter.nearRef(),
         gifter_key,
@@ -170,16 +170,16 @@ fn fetchGive(
     const target: model.Reference = .{ .far = introducer.far };
 
     const answer: u64 = 7001;
-    try cv.peer.sendCopying(.{ .deliver = .{
+    try cv.served.peer.sendCopying(.{ .deliver = .{
         .target = target,
         .args = &.{.{ .symbol = "get-greeter" }},
-        .answer = model.AnswerId.from(answer),
+        .answer = model.AnswerPosition.from(answer),
     } });
 
     var settled = false;
     while (!settled) {
         const progress = try cv.conn.pump();
-        while (cv.peer.pollEvent()) |event_value| {
+        while (cv.served.peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
             const body = event.view() catch continue;
@@ -259,29 +259,29 @@ fn withdrawAndCall(
 
     var handoff = model.Handoff{ .receive = receive };
     const withdraw_answer: u64 = 7100;
-    try cv.peer.sendCopying(.{
+    try cv.served.peer.sendCopying(.{
         .deliver = .{
             .target = .{ .far = model.FarRef.object(0) }, // the exporter's bootstrap
             .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff } },
-            .answer = model.AnswerId.from(withdraw_answer),
+            .answer = model.AnswerPosition.from(withdraw_answer),
         },
     });
 
-    const greeter = try awaitFulfilledReference(allocator, cv.peer, &cv.conn, withdraw_answer) orelse return error.WithdrawFailed;
+    const greeter = try awaitFulfilledReference(allocator, cv.served.peer, &cv.conn, withdraw_answer) orelse return error.WithdrawFailed;
     defer model.freeReference(allocator, greeter);
     std.debug.print("iroh-mesh: C verified both certificates and handed B the greeter directly\n", .{});
 
     const call_answer: u64 = 7200;
-    try cv.peer.sendCopying(.{ .deliver = .{
+    try cv.served.peer.sendCopying(.{ .deliver = .{
         .target = greeter,
         .args = &.{ .{ .symbol = "greet" }, .{ .string = "pancake-b" } },
-        .answer = model.AnswerId.from(call_answer),
+        .answer = model.AnswerPosition.from(call_answer),
     } });
 
     var greeted = false;
     while (!greeted) {
         const progress = try cv.conn.pump();
-        while (cv.peer.pollEvent()) |event_value| {
+        while (cv.served.peer.pollEvent()) |event_value| {
             var event = event_value;
             defer event.deinit();
             const body = event.view() catch continue;

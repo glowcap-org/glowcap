@@ -51,8 +51,44 @@ pub const CryptoError = error{
 pub const PeerKey = struct {
     bytes: [PEER_KEY_BYTES]u8,
 
+    /// Width in bytes of a key designator: the key printed as lowercase hex,
+    /// two characters per key byte.
+    pub const designator_len: usize = PEER_KEY_BYTES * 2;
+
     pub fn fromBytes(bytes: [PEER_KEY_BYTES]u8) PeerKey {
         return .{ .bytes = bytes };
+    }
+
+    /// This key as a locator designator: exactly `designator_len` lowercase hex
+    /// digits. This is the one canonical spelling a key-designator transport
+    /// (iroh's node id, keyed TCP's listener designator) prints and parses, so
+    /// the two ends of a dial can never disagree on what a key looks like.
+    pub fn toDesignator(self: PeerKey) [designator_len]u8 {
+        return std.fmt.bytesToHex(self.bytes, .lower);
+    }
+
+    /// Parse a locator designator back into a key, or null when `designator`
+    /// is not the canonical spelling. Strict on purpose: exactly
+    /// `designator_len` characters, lowercase hex only, so a designator either
+    /// round-trips through `toDesignator` byte-for-byte or is refused — there
+    /// is no second spelling for a dialer to alias a key under.
+    pub fn fromDesignator(designator: []const u8) ?PeerKey {
+        if (designator.len != designator_len) return null;
+        var out: [PEER_KEY_BYTES]u8 = undefined;
+        for (&out, 0..) |*byte, i| {
+            const hi = hexNibble(designator[i * 2]) orelse return null;
+            const lo = hexNibble(designator[i * 2 + 1]) orelse return null;
+            byte.* = hi << 4 | lo;
+        }
+        return .{ .bytes = out };
+    }
+
+    fn hexNibble(c: u8) ?u8 {
+        return switch (c) {
+            '0'...'9' => c - '0',
+            'a'...'f' => c - 'a' + 10,
+            else => null,
+        };
     }
 
     /// Pull a fixed-size key out of a borrowed wire slice, like a decoded

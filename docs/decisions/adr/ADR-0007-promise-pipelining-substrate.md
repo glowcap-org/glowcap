@@ -70,9 +70,12 @@ decides each listener's fate against the resolution and its `wants_partial`
 flag. A `Fulfill(Promise(_))` resolution re-anchors the listener on the next
 answer — firing the partial first only when `wants_partial` — while every other
 resolution fires the listener once via
-[`pipeline.synthesizeListenerFire`](../../../src/ocapn/engine/pipeline.zig),
+[`pipeline.borrowedListenerFire`](../../../src/ocapn/engine/pipeline.zig),
 which builds the resolver-method `op:deliver` (`[Symbol("fulfill"), payload]` or
-`[Symbol("break"), <error>]`). Drain order is arrival order: FIFO matches
+`[Symbol("break"), Symbol(reason)]`, the shape the upstream suite pins) as a
+borrowed stack message over the stored resolution; the queue holds only a POD
+carrier stamped with the store row's identity, so a fire staled by the row's
+release cannot emit a reused row's payload. Drain order is arrival order: FIFO matches
 Goblins's promise-queue draining and the transitive forwarding the OCapN spec
 describes (Model.md § Promise).
 

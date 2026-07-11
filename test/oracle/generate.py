@@ -162,6 +162,25 @@ def op_deliver_v1_0_with_resolve_me_desc() -> Record:
     return Record(Symbol("op:deliver"), (target, args, 42, resolve_me_desc))
 
 
+def op_deliver_listen_break_notification() -> Record:
+    """``<op:deliver <desc:export 9> ['break 'target unreachable] #f #f>``.
+
+    The ``op:listen`` break-notification fire the engine emits
+    (``borrowedListenerFire`` in
+    ``src/ocapn/engine/pipeline_resolution.zig``): a no-answer deliver
+    to the listener whose args are ``[Symbol("break"), Symbol(reason)]``
+    — the reason as a *bare* Symbol, never an ``<error>`` record.
+    Goblins' unmarshaller rejects unknown records and the upstream
+    conformance suite's ``test_op_listen_to_promise_and_break`` asserts
+    exactly this shape, so a regression to an ``<error>``-record payload
+    must fail hermetically against this fixture, not only under the
+    opt-in live-Goblins gates.
+    """
+    target = Record(Symbol("desc:export"), (9,))
+    args = [Symbol("break"), Symbol("target unreachable")]
+    return Record(Symbol("op:deliver"), (target, args, False, False))
+
+
 # ── Stage 2 / ADR-0008 fixtures ────────────────────────────────────
 
 
@@ -669,6 +688,8 @@ FIXTURES = {
     "op_listen_v1_0_wants_partial_false.bin": op_listen_v1_0_wants_partial_false,
     "op_listen_v1_0_wants_partial_true.bin": op_listen_v1_0_wants_partial_true,
     "op_deliver_v1_0_with_resolve_me_desc.bin": op_deliver_v1_0_with_resolve_me_desc,
+    # op:listen break-notification fire (bare-Symbol reason)
+    "op_deliver_listen_break_notification.bin": op_deliver_listen_break_notification,
     "op_gc_exports.bin": op_gc_exports,
     "op_gc_answers.bin": op_gc_answers,
     "op_handoff_give.bin": op_handoff_give,

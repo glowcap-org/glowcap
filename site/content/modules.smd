@@ -45,6 +45,9 @@ The framework-shaped pieces sit on top of the core, never inside it.
   `$`, send it eventually with `<-`, and observe the promise that comes back. It
   adds no protocol semantics the engine lacks; it is the friendlier face on the
   substrate.
+- **driver/core** is the sans-io multi-connection serve core (`Served`, the
+  byte-fed `Host`). It owns identity, the node, vows, and crossed hellos, and
+  the build bans sockets there so they cannot creep back in.
 - **net** is the one place `std.Io` enters. A netlayer is a contract
   the core dispatches against rather than a privileged built-in, so a transport is a
   resident you register. Three ship today: cleartext TCP, an in-process switchboard
@@ -52,13 +55,13 @@ The framework-shaped pieces sit on top of the core, never inside it.
   encrypted QUIC as a separate optional artifact. The
   [Transports]($link.page('transports')) page walks all three.
 
-> **Vat** — one single-threaded container of objects, the unit
+> **Vat**: one single-threaded container of objects, the unit
 > [Spritely Goblins](https://spritely.institute/goblins/) and
 > the wider ocap world organize around. Every call into a vat runs as one *turn*,
 > start to finish, before the next begins, so an object never sees a half-applied
 > state and you reason about it the way you reason about a single thread.
 
-> **Near-call (`$`) and eventual-send (`<-`)** — two ways to invoke an object,
+> **Near-call (`$`) and eventual-send (`<-`)**: two ways to invoke an object,
 > borrowed from the [E language](http://erights.org/). A near-call runs now and returns the result, because
 > the object lives in your own vat. An eventual-send queues the call for a later turn
 > and hands back a promise; it is also the only way to call across a session, since a
@@ -71,10 +74,11 @@ Two surfaces carry pancake out to the people building on it, and the
 
 - **c_abi** is the deliberate public surface: opaque
   handles, fixed-width return codes, `ptr + len` views, callbacks, and explicit
-  release, so a consumer can wrap it well without knowing any Zig.
-- **driver** is the native application surface. It binds an actor vat to a live
-  connection over one peer, so a networked app holds one owning `Connection` and a
-  small vocabulary of verbs instead of hand-writing an open-pump-dispatch loop.
+  release, so a consumer can wrap it well without knowing any Zig. The host archive
+  (`libpancake_driver`) is the multi-connection byte-fed face bindings wrap.
+- **driver** is the native Zig application surface above `driver/core`. It offers
+  one-connection `Connection`, blocking multi-connection `BlockingHost`, and the
+  TCP scale-path `LoopBridge` that feeds the same host from `net.Loop`.
 
 The [bindings]($link.page('bindings')) are that same application surface once more, in
 Rust, TypeScript, Python, and Racket. Each consumes the C ABI and presents it in its own

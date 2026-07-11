@@ -265,7 +265,7 @@ pub const SturdyRef = struct {
 
 /// Borrowed mirror of `model.PromiseRef`.
 pub const PromiseRef = struct {
-    answer_position: model.AnswerId,
+    answer_position: model.AnswerPosition,
     path: PipelinePath = PipelinePath.empty(),
 };
 
@@ -293,11 +293,11 @@ pub const Reference = union(enum) {
 
     /// The local export position this reference names, but only when it is a
     /// `.near` export this peer hosts, typed, so it cannot be mistaken for a
-    /// partner-named import id. A resolver-export lookup must use this, never
-    /// `position`: keying an export-indexed map on a `.far` import id (the same
+    /// partner-named import position. A resolver-export lookup must use this, never
+    /// `position`: keying an export-indexed map on a `.far` import position (the same
     /// integer space) would let a coincidental collision misclassify an ordinary
     /// deliver as a resolver callback.
-    pub fn exportPosition(self: Reference) ?model.ExportId {
+    pub fn exportPosition(self: Reference) ?model.ExportPosition {
         return switch (self) {
             .near => |near| near.export_position,
             else => null,
@@ -489,12 +489,12 @@ pub const Handoff = records.Handoff;
 pub const Deliver = struct {
     target: Reference,
     args: Args,
-    answer: ?model.AnswerId = null,
+    answer: ?model.AnswerPosition = null,
     resolve_me_desc: ?Reference = null,
 };
 
 pub const Resolve = struct {
-    answer: model.AnswerId,
+    answer: model.AnswerPosition,
     resolution: Resolution,
 };
 
@@ -507,19 +507,19 @@ pub const Listen = struct {
 pub const Get = struct {
     receiver: Reference,
     field: []const u8,
-    answer: model.AnswerId,
+    answer: model.AnswerPosition,
 };
 
 pub const Index = struct {
     receiver: Reference,
     index: i64,
-    answer: model.AnswerId,
+    answer: model.AnswerPosition,
 };
 
 pub const Untag = struct {
     receiver: Reference,
     tag: []const u8,
-    answer: model.AnswerId,
+    answer: model.AnswerPosition,
 };
 
 pub const GcExport = struct {

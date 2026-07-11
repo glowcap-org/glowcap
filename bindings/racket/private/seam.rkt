@@ -7,10 +7,10 @@
 ;; `pancake.rkt` — the typed-error raisers (`check`, `check-with`,
 ;; `raise-pancake`), the pin/copy helpers (`pin-immobile`, `bytes<-c`),
 ;; `codec-id`, the connection-construction seam (`async-transport`,
-;; `async-connection/transport`, `open-keyed-session!`, `build-connection`, the
-;; node registration verbs), and the shared frame cstructs with their
-;; managed-frame release. Not a public API: `pancake.rkt`'s public provide never
-;; exports these, and an application reaches a transport through its companion
-;; module's own surface.
+;; `establish-dialed-connection`, `establish-accepted-connection`,
+;; `make-fresh-node`, `node-set-self-designator!`), and the shared frame
+;; cstructs with their managed-frame release. Not a public API: `pancake.rkt`'s
+;; public provide never exports these, and an application reaches a transport
+;; through its companion module's own surface.
 (require (submod "../pancake.rkt" seam))
 (provide (all-from-out (submod "../pancake.rkt" seam)))

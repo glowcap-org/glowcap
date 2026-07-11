@@ -12,6 +12,7 @@
 // `zig build deno-goblins-interop`.
 
 import { connect, tcpLocator } from "@pancake/stack";
+import { fail, readSwiss } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
 // The Goblins vat's fixed port; `--port=N` (from
@@ -19,18 +20,13 @@ const HOST = "127.0.0.1";
 let PORT = 22098;
 for (const a of Deno.args) {
 	if (a.startsWith("--port=")) PORT = Number(a.slice("--port=".length));
-	else fail(`unknown argument '${a}'`);
+	else fail("deno-goblins-interop", `unknown argument '${a}'`);
 }
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65535) {
-	fail("--port must be an integer in 1..65535");
+	fail("deno-goblins-interop", "--port must be an integer in 1..65535");
 }
 const RACKET = "/usr/local/bin/racket";
 const HOST_SCRIPT = "conformance/goblins-peer/racket/goblins-host.rkt";
-
-function fail(msg: string): never {
-	console.error(`deno-goblins-interop FAILED: ${msg}`);
-	Deno.exit(1);
-}
 
 const child = new Deno.Command(RACKET, {
 	args: [HOST_SCRIPT, HOST, String(PORT)],
@@ -40,23 +36,13 @@ const child = new Deno.Command(RACKET, {
 
 const stdoutReader = child.stdout.getReader();
 
-async function readSwiss(): Promise<string> {
-	const decoder = new TextDecoder();
-	let buf = "";
-	const deadline = Date.now() + 30_000;
-	while (Date.now() < deadline) {
-		const { value, done } = await stdoutReader.read();
-		if (done) break;
-		buf += decoder.decode(value, { stream: true });
-		const m = buf.match(/"swiss":"([^"]+)"/);
-		if (m) return m[1];
-	}
-	fail("never saw the Goblins echo cap readiness line");
-}
-
 let ok = false;
 try {
-	const swiss = await readSwiss();
+	const swiss = await readSwiss(
+		stdoutReader,
+		"deno-goblins-interop",
+		"never saw the Goblins echo cap readiness line",
+	);
 	console.log(
 		`deno-goblins-interop: goblins published echo swiss=${swiss} on ${HOST}:${PORT}`,
 	);

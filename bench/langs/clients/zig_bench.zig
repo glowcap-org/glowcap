@@ -7,7 +7,9 @@
 //!   zig_bench <mode> <host> <port> <n>
 //!
 //! Modes: `latency`, `throughput`, `connections`, `cold` (one settled unit from
-//! a fresh process, for the orchestrator's spawn-to-first-settle timing).
+//! a fresh process, for the orchestrator's spawn-to-first-settle timing), and
+//! `local` (the local-turn instrument: in-process actor dispatch vs the same
+//! behavior forced across an in-process loopback pair; host/port unused).
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -57,7 +59,7 @@ fn runUnitPipelined(conn: *driver.Connection, root: actors.Ref, arena: std.mem.A
     _ = try conn.sendToAnswer(create, .{ .verb = "assign", .args = &.{.{ .bytes = "alice" }} });
     _ = try conn.sendToAnswer(create, .{ .verb = "complete", .args = &.{} });
     const status_promise = try conn.sendToAnswer(create, .{ .verb = "status", .args = &.{} });
-    const status = try conn.settlePromise(status_promise, arena);
+    const status = try conn.settleVow(status_promise, arena);
     const ok = status == .fulfilled and status.fulfilled == .bytes and
         std.mem.eql(u8, status.fulfilled.bytes, "done");
     if (!ok) return error.StatusNotDone;
@@ -175,6 +177,118 @@ fn runConnections(io: std.Io, allocator: std.mem.Allocator, designator: []const 
     for (warm) |h| h.deinit();
 }
 
+/// The local-turn counter: `hit` increments and returns the count, any other
+/// verb refuses. The same behavior serves both paths of `runLocal`, spawned
+/// in-vat for the in-language figure and published across the loopback pair
+/// for the via-host one.
+const Counter = struct {
+    count: i64 = 0,
+
+    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = turn;
+        if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
+        self.count += 1;
+        return .{ .integer = self.count };
+    }
+};
+
+/// The accept half of the `local` mode's loopback pair: accept the one dialer,
+/// publish the counter, and serve until it leaves. Runs on its own fiber; a
+/// failure here would strand the dialing half in a blocked read, so it fails
+/// the process loudly instead of returning quietly.
+fn serveLocalCounter(server: *driver.Server) void {
+    const conn = server.accept() catch |err| {
+        std.debug.print("zig_bench local: accept failed: {t}\n", .{err});
+        std.process.exit(1);
+    };
+    defer conn.deinit();
+    _ = conn.publish("counter", Counter, .{}) catch |err| {
+        std.debug.print("zig_bench local: publish failed: {t}\n", .{err});
+        std.process.exit(1);
+    };
+    conn.serve() catch {};
+}
+
+/// Run `n` sequential hit units against `target` on `conn`, one settle per
+/// send, returning the sorted per-turn latencies (ns). Asserts the final count
+/// equals `n` (native Zig is ahead-of-time, so there is no warmup ahead of the
+/// window and the counter starts at zero).
+fn measureHits(io: std.Io, conn: *driver.Connection, target: actors.Ref, n: usize, samples: []u64) !void {
+    var arena_state = std.heap.ArenaAllocator.init(conn.allocator);
+    defer arena_state.deinit();
+
+    var final: i64 = 0;
+    for (0..n) |i| {
+        const start = nowNs(io);
+        const settled = try conn.call(target, .{ .verb = "hit", .args = &.{} }, arena_state.allocator());
+        samples[i] = nowNs(io) - start;
+        if (settled != .fulfilled or settled.fulfilled != .integer) return error.HitNotAnInteger;
+        final = settled.fulfilled.integer;
+        _ = arena_state.reset(.retain_capacity);
+    }
+    if (final != @as(i64, @intCast(n))) return error.BadFinalCount;
+    std.sort.pdq(u64, samples, {}, lessThanU64);
+}
+
+fn meanNs(samples: []const u64) f64 {
+    if (samples.len == 0) return 0;
+    var total: u128 = 0;
+    for (samples) |s| total += s;
+    return @as(f64, @floatFromInt(total)) / @as(f64, @floatFromInt(samples.len));
+}
+
+/// Nearest-rank percentile over latencies already sorted ascending, in
+/// nanoseconds (the `local` mode's unit; `percentileMs` is the same rank in
+/// milliseconds).
+fn percentileNs(sorted_ns: []const u64, p: f64) f64 {
+    return percentileMs(sorted_ns, p) * 1_000_000.0;
+}
+
+/// The `local` mode (see contract.md): (a) in_lang — a counter spawned on this
+/// connection's vat, hit through the native near path, no wire; (b) via_host —
+/// the same behavior published across a loopback pair inside this process, so
+/// every turn pays wire codec, feed, and dispatch both ways. The orchestrator's
+/// host/port arguments are unused; the pair is self-contained.
+fn runLocal(io: std.Io, allocator: std.mem.Allocator, n: usize) !void {
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
+    defer server.close();
+    var addr_buf: [64]u8 = undefined;
+    const local_designator = server.localDesignator(&addr_buf);
+
+    var group: std.Io.Group = .init;
+    defer group.cancel(io);
+    try group.concurrent(io, serveLocalCounter, .{&server});
+
+    var conn = try connectOne(io, allocator, local_designator);
+    defer conn.deinit();
+
+    const in_lang = try allocator.alloc(u64, n);
+    defer allocator.free(in_lang);
+    const via_host = try allocator.alloc(u64, n);
+    defer allocator.free(via_host);
+
+    // (a) in_lang: the vat near path this connection surface gives.
+    const local_cap = try conn.spawn(Counter, .{});
+    try measureHits(io, conn, local_cap.ref, n, in_lang);
+
+    // (b) via_host: the published counter across the loopback pair.
+    const far = try conn.fetch("counter");
+    try measureHits(io, conn, far, n, via_host);
+
+    const in_mean = meanNs(in_lang);
+    const via_mean = meanNs(via_host);
+    const ratio: f64 = if (in_mean > 0) via_mean / in_mean else 0;
+
+    try printLine(
+        io,
+        "{{\"v\":1,\"metric\":\"local\",\"client\":\"{s}\",\"suite\":\"local-turn\",\"n\":{d}," ++
+            "\"in_lang_ns\":{d:.1},\"in_lang_p99_ns\":{d:.1},\"via_host_ns\":{d:.1},\"via_host_p99_ns\":{d:.1}," ++
+            "\"ratio\":{d:.2},\"runtime\":\"{s}\",\"warmup_n\":0}}\n",
+        .{ client_name, n, in_mean, percentileNs(in_lang, 0.99), via_mean, percentileNs(via_host, 0.99), ratio, runtime_name },
+    );
+}
+
 fn runCold(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !void {
     var conn = try connectOne(io, allocator, designator);
     defer conn.deinit();
@@ -193,7 +307,7 @@ fn printLine(io: std.Io, comptime fmt: []const u8, args: anytype) !void {
 }
 
 fn fail(message: []const u8) error{Usage} {
-    std.debug.print("usage: zig_bench <latency|throughput|connections|cold> <host> <port> <n>\n  ({s})\n", .{message});
+    std.debug.print("usage: zig_bench <latency|throughput|connections|cold|local> <host> <port> <n>\n  ({s})\n", .{message});
     return error.Usage;
 }
 
@@ -220,6 +334,8 @@ pub fn main(init: std.process.Init) !void {
         try runConnections(io, allocator, designator, n);
     } else if (std.mem.eql(u8, mode, "cold")) {
         try runCold(io, allocator, designator);
+    } else if (std.mem.eql(u8, mode, "local")) {
+        try runLocal(io, allocator, n);
     } else {
         return fail("unknown mode");
     }

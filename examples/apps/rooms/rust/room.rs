@@ -30,11 +30,13 @@ fn room_ref(arg: Argument, verb: &str) -> Result<pancake::Ref, String> {
 	pancake::Ref::try_from(&arg).map_err(|_| format!("{verb} did not return a room capability"))
 }
 
-/// The wire reason a broken `send` carried, so a caller can classify it (e.g.
-/// tell "no room named" apart from "already exists"); falls back to the debug
-/// form when the partner gave no message.
+/// The wire reason a broken `send` carried, so a caller can classify it by the
+/// typed code at the front of the reason (`no-such-room` vs `room-exists`); falls
+/// back to the debug form when the partner gave no message.
 fn reason(err: pancake::Error) -> String {
-	err.message().unwrap_or_else(|| format!("{err:?}"))
+	err.message()
+		.map(str::to_string)
+		.unwrap_or_else(|| format!("{err:?}"))
 }
 
 /// The directory of rooms: an open connection plus the directory's reference.
@@ -172,12 +174,46 @@ async fn dial(locator: &str) -> Result<Connection, String> {
 }
 
 /// One line in the room. `system` is true for the room's own announcements (a
-/// member joining, your welcome); otherwise `from` is who said it.
+/// member joining, your welcome); otherwise `from` is who said it. `presence` is
+/// set on a membership-change system line.
 #[derive(Debug, Clone)]
 pub struct Message {
 	pub from: String,
 	pub text: String,
 	pub system: bool,
+	pub presence: Option<Presence>,
+}
+
+/// A membership change a system line carries as structured wire args, not prose:
+/// the roster on arrival, or a join/leave. `names` is the roster, or the one nick.
+#[derive(Debug, Clone)]
+pub struct Presence {
+	pub kind: String, // "roster" | "join" | "leave"
+	pub names: Vec<String>,
+}
+
+/// Read the structured presence a room line carries after its display text —
+/// `notify("room", text, "roster", names…)` or `notify("room", text, kind, nick)`.
+/// Ordinary chat lines carry none.
+fn read_presence(args: &[Argument]) -> Option<Presence> {
+	match args.get(2).and_then(Argument::as_str) {
+		Some("roster") => Some(Presence {
+			kind: "roster".to_string(),
+			names: args[3..]
+				.iter()
+				.filter_map(Argument::as_str)
+				.map(str::to_string)
+				.collect(),
+		}),
+		Some(kind @ ("join" | "leave")) => {
+			let name = args.get(3).and_then(Argument::as_str)?;
+			Some(Presence {
+				kind: kind.to_string(),
+				names: vec![name.to_string()],
+			})
+		}
+		_ => None,
+	}
 }
 
 /// A membership in a chat room: the connection plus a stream of the lines the
@@ -204,8 +240,8 @@ impl Room {
 		nick: &str,
 	) -> Result<Room, String> {
 		// The room calls our inbox back with each line; forward it onto a channel.
+		// A system line may carry a structured presence change after its text.
 		let (msg_tx, msg_rx) = mpsc::unbounded_channel::<Message>();
-		let welcome_tx = msg_tx.clone();
 		let inbox = conn
 			.spawn(move |verb, args| {
 				if verb != "notify" {
@@ -213,30 +249,24 @@ impl Room {
 				}
 				let from = as_str(args.first());
 				let text = as_str(args.get(1));
+				let presence = read_presence(args);
 				let _ = msg_tx.send(Message {
 					system: from == "room",
 					from,
 					text,
+					presence,
 				});
 				Ok(Argument::Void)
 			})
 			.await
 			.map_err(|e| format!("spawn inbox: {e:?}"))?;
 
-		// Subscribe, handing the room a capability to our inbox. The welcome
-		// reply names everyone already present — the only way to learn about
-		// earlier arrivals — so it joins the message stream as a system line.
-		let welcome = conn
-			.send(&room, "subscribe", &[nick.into(), (&inbox).into()])
+		// Subscribe, handing the room a capability to our inbox. Success is the
+		// resolution; the room delivers the welcome and roster as our first
+		// `notify`, not as a return value.
+		conn.send(&room, "subscribe", &[nick.into(), (&inbox).into()])
 			.await
 			.map_err(|e| format!("subscribe: {e:?}"))?;
-		if let Some(text) = welcome.as_str() {
-			let _ = welcome_tx.send(Message {
-				system: true,
-				from: "room".to_string(),
-				text: text.to_string(),
-			});
-		}
 
 		Ok(Room { conn, room, msg_rx })
 	}

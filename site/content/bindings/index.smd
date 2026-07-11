@@ -7,7 +7,7 @@
 ---
 
 pancake ships a set of composable C ABI archives and four ways to hold them from
-another language; together the bindings are one of the three consumption
+another language. Together the bindings are one of the three consumption
 [surfaces]($link.page('surfaces')).
 Each binding mirrors the archive set: a core module over `libpancake_ocapn`, plus
 one per-transport module that loads or links only its own archive. You add
@@ -31,41 +31,40 @@ defines. The contract is the authoritative description of the
 surface and the value model beneath it; this section is the per-language tour.
 
 The shape is uniform on purpose. You fetch a [capability]($link.page('concepts')) by
-name, spawn a local object, and hand a partner a reference to it, and the partner
+name, spawn a local object, and hand a partner a reference to it; the partner
 calls it back. There is no export-position bookkeeping, no manual flush, and no
 hand-rolled receive loop. A capability is a `Ref`, and a `Ref` marshals itself to
 the right wire reference when you pass it as an argument. That one move is why
 delegation, attenuation, and revocation are ordinary `spawn` and `send` code
 instead of special APIs.
 
-> **Ref** — the binding's word for a capability in hand: a live reference to an
+> **Ref** is the binding's word for a capability in hand: a live reference to an
 > object, yours or a partner's. Holding one is the right to call that object, and
 > the only way to get one is to be given it. Passing a `Ref` as an argument is how
 > that authority moves between peers.
 
 | Binding | Entry point | Async idiom | Actor idiom |
 | --- | --- | --- | --- |
-| [Rust]($link.page('bindings/rust')) | `connect`, `Connection`, typed enums | tokio (opt-in `async`) | `Vat` over closures |
-| [TypeScript]($link.page('bindings/ts')) | `connect`, `Connection` class | native promises | `Vat` over callbacks |
-| [Python]($link.page('bindings/python')) | `connect`, `Connection`, native values | `asyncio` | `Vat` over callables |
+| [Rust]($link.page('bindings/rust')) | `connect`, `Connection`, typed enums | tokio (opt-in `async`) | `spawn` over closures |
+| [TypeScript]($link.page('bindings/ts')) | `connect`, `Connection` class | native promises | `spawn` over callbacks |
+| [Python]($link.page('bindings/python')) | `connect`, `Connection`, native values | `asyncio` | `spawn` over callables |
 | [Racket]($link.page('bindings/racket')) | `connect`, `connection`, event structs | green threads + ports | Goblins-faithful |
 
 Every binding enters the same way: `connect` takes a locator and returns the
-`Connection` described above. The synchronous `Peer` sits beneath it, for
-programs that want to drive frames themselves.
+`Connection` described above, and all four ride the shared byte-fed host in
+the library — one runtime, four idioms over it.
 
 ## Sync, async, and the actor layer
 
-Each binding gives you three levels, and you stay at the one your app needs. The
-synchronous peer drives frames directly. The async connection runs the same
-sans-io peer over the language's own non-blocking sockets, with no thread per
-call and no blocking netlayer. The actor layer is the Goblins-shaped top, where a
-`Vat` holds local actors and an eventual-send to a partner-hosted reference
-travels over the wire and settles a promise. Racket's layer is the reference
-shape, because it reads the way a
+Each binding gives you levels, and you stay at the one your app needs. The
+async connection runs over the language's own non-blocking sockets, with no
+thread per call and no blocking netlayer. The actor layer is the Goblins-shaped
+top, where an actor is a plain native callable and an eventual-send to a
+partner-hosted reference travels over the wire and settles a promise. Racket's
+layer is the reference shape, because it reads the way a
 [Spritely Goblins](https://spritely.institute/goblins/) programmer expects.
 
-> **Vat** — a single-threaded home for local objects. Each call runs as one *turn*
+> **Vat**: a single-threaded home for local objects. Each call runs as one *turn*
 > before the next begins. The [modules page]($link.page('modules')) draws the full picture.
 
 ## Encryption rides a separate artifact

@@ -5,6 +5,7 @@ const model = pancake.ocapn.model;
 const protocol_oracle = @import("protocol_oracle.zig");
 const syrup = pancake.ocapn.codec.syrup;
 const handoff_fixtures = @import("../support/handoff_fixtures.zig");
+const peer_fixture = @import("../support/peer_fixture.zig");
 
 test "oracle-check verifies core Syrup fixture encoding parity" {
     const allocator = std.testing.allocator;
@@ -29,6 +30,30 @@ test "oracle-check verifies core Syrup fixture encoding parity" {
         try std.testing.expectEqualSlices(
             u8,
             protocol_oracle.fixtureByName("op_gc_answers.bin").?.bytes(),
+            frame.bytes(),
+        );
+    }
+
+    {
+        // The op:listen break-notification fire, built by the engine itself
+        // (`pipeline.borrowedListenerFire`): the break reason rides as a BARE
+        // Symbol — `[Symbol("break"), Symbol(reason)]` — never as an `<error>`
+        // record. Goblins' unmarshaller rejects unknown records and the
+        // upstream conformance suite's `test_op_listen_to_promise_and_break`
+        // asserts exactly this shape; this fixture pins it hermetically so a
+        // regression to an `<error>`-record payload fails `zig build check`
+        // without needing the opt-in live-Goblins gates.
+        var args: [2]model.Argument = undefined;
+        const fire = pancake.ocapn.engine.pipeline.borrowedListenerFire(
+            9,
+            .{ .@"break" = .{ .message = "target unreachable" } },
+            &args,
+        );
+        var frame = try syrup.encodeMessage(allocator, fire);
+        defer frame.deinit();
+        try std.testing.expectEqualSlices(
+            u8,
+            protocol_oracle.fixtureByName("op_deliver_listen_break_notification.bin").?.bytes(),
             frame.bytes(),
         );
     }
@@ -67,7 +92,7 @@ test "oracle-check exercises a three-peer handoff give and withdrawal" {
     var exporter = pancake.ocapn.engine.Peer.init(allocator);
     defer exporter.deinit();
 
-    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, handoff_fixtures.give(), "");
+    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, handoff_fixtures.give(), null);
     try std.testing.expect(exporter.giftRegistry().giftLive(handoff_fixtures.gift_id[0..]));
 
     {
@@ -106,9 +131,7 @@ test "oracle-check verifies supported owned fixture decoding parity" {
 
 test "oracle-check verifies runtime deliver event and resolve state scenarios" {
     const allocator = std.testing.allocator;
-    var peer = pancake.ocapn.engine.Peer.initWithSession(allocator, pancake.ocapn.session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
-    }));
+    var peer = peer_fixture.openPeer(allocator);
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
@@ -121,9 +144,7 @@ test "oracle-check verifies runtime deliver event and resolve state scenarios" {
     try std.testing.expectEqual(pancake.ocapn.engine.EventKind.deliver, event.kind());
     try std.testing.expect(peer.session_state.inboundAnswer(.from(11)) != null);
 
-    var resolver = pancake.ocapn.engine.Peer.initWithSession(allocator, pancake.ocapn.session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
-    }));
+    var resolver = peer_fixture.openPeer(allocator);
     defer resolver.deinit();
     try resolver.session_state.registerImport(.from(9));
     try resolver.session_state.recordSend(.{

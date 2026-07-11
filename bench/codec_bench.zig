@@ -94,7 +94,7 @@ fn benchDispatch(io: std.Io, allocator: std.mem.Allocator, turns: usize) !void {
     const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
-    try peer.session_state.registerExport(.from(7));
+    try peer.exportObject(7);
 
     for (0..8) |_| try driveOneTurn(&peer, deliver_to_live_export);
 
@@ -129,7 +129,7 @@ fn benchSparseExportTable(io: std.Io, allocator: std.mem.Allocator, count: usize
     const start = nowNs(io);
     var i: usize = 0;
     while (i < count) : (i += 1) {
-        try peer.session_state.registerExport(.from(@as(u64, i) * stride + 1));
+        try peer.exportObject(@as(u64, i) * stride + 1);
     }
     const ns_per = (nowNs(io) - start) / @as(f64, @floatFromInt(count));
 

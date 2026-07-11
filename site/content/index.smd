@@ -17,7 +17,7 @@ speaks it.
 [Their program hands yours a reference to an object called "greeter." Holding that reference is the whole permission to call it.]($image.siteAsset('diagram-capability.svg'))
 
 Everything else in pancake keeps that promise. The protocol
-core is deterministic and synchronous and does no I/O of its own, so the sockets and
+core is deterministic, synchronous, and does no I/O of its own, so the sockets and
 the scheduling live in adapters stacked above it. Nothing important hides either.
 Where a frame is owned or borrowed, where a copy happens, and which wire format is on
 the line all stay visible at the boundary that owns them.

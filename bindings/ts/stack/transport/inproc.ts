@@ -34,8 +34,9 @@ import {
 } from "../internal/constants.ts";
 import { inprocS } from "../internal/ffi/inproc.ts";
 import { ffi, NULL, type Ptr } from "../internal/ffi/runtime.ts";
-import { ab, outPointer, readBytes, releaseManagedFrame } from "../internal/seam.ts";
-import { type Codec, codecId, PancakeError } from "../mod.ts";
+import { outPointer, readBytes, readErrorSlot, releaseManagedFrame } from "../internal/seam.ts";
+import { type Codec, codecId } from "../value.ts";
+import { PancakeError } from "../errors.ts";
 
 const OK = 0;
 
@@ -43,15 +44,7 @@ const OK = 0;
 // there is none. The transport keeps its own thread-local slot, so a call's
 // diagnostic is read here, never from the core's `pancake_last_error`.
 function inprocLastError(): string | null {
-	const len = Number(inprocS.pancake_inproc_last_error(null, 0n));
-	if (len === 0) return null;
-	const buf = new Uint8Array(len + 1);
-	const written = Number(
-		inprocS.pancake_inproc_last_error(buf, BigInt(buf.length)),
-	);
-	return new TextDecoder().decode(
-		buf.subarray(0, Math.min(written, buf.length)),
-	);
+	return readErrorSlot(inprocS.pancake_inproc_last_error);
 }
 
 // A failed in-process-transport call: read its diagnostic from the transport's
@@ -166,7 +159,7 @@ export class Netlayer {
 		const d = new TextEncoder().encode(designator);
 		const out = new Uint8Array(8);
 		checkInproc(
-			inprocS.pancake_inproc_listen(this.#raw, ab(d), BigInt(d.length), out),
+			inprocS.pancake_inproc_listen(this.#raw, d, BigInt(d.length), out),
 		);
 		return new Listener(outPointer(out));
 	}
@@ -183,7 +176,7 @@ export class Netlayer {
 		checkInproc(
 			inprocS.pancake_inproc_connect(
 				this.#raw,
-				ab(d),
+				d,
 				BigInt(d.length),
 				codecId(codec),
 				BigInt(maxFrameBytes),

@@ -20,12 +20,12 @@
 ;; and lives in `client.rkt`. The room name is the directory's lookup key; the
 ;; room itself is the capability the directory returns.
 
-(require "../../../../bindings/racket/pancake.rkt"
+(require "../../_demo/bindings.rkt"
          "../../../../bindings/racket/pancake-iroh.rkt" ; IROH-REACH-* postures
          racket/string)
 (provide room-connect directory-conn dir-open dir-enter dir-list dir-watch
          room-subscribe room-say room-leave in-room room-next
-         (struct-out message))
+         (struct-out message) (struct-out presence))
 
 ;; Dial a transport-neutral rooms locator: an `ocapn://` URI goes over iroh, a
 ;; bare `host:port` over TCP. The room's wire is identical either way; only how a
@@ -46,15 +46,71 @@
                            (string->number (substring locator (+ colon 1)))))]))
 
 ;; One line in the room. `system?` is #t for the room's own announcements (a
-;; member joining, your welcome); otherwise `sender` is who said it.
-(struct message (sender text system?) #:transparent)
+;; member joining, your welcome); otherwise `sender` is who said it. `presence` is
+;; a `presence` struct on a membership-change system line, or #f.
+(struct message (sender text system? presence) #:transparent)
 
-(struct room (conn far queue) #:mutable)
+;; A membership change a system line carries as structured wire args, not prose:
+;; the roster on arrival (`kind` "roster", `names` everyone here), or a join/leave
+;; (`kind` "join"/"leave", `names` the one nick).
+(struct presence (kind names) #:transparent)
 
-;; Append a message to the room's pending queue (single-threaded: the consumer
-;; pull pumps the connection, whose inbox actor enqueues here).
-(define (enqueue! a-room msg)
-  (set-room-queue! a-room (append (room-queue a-room) (list msg))))
+;; The structured presence a room line carries after its display text —
+;; `(notify "room" text "roster" name …)` or `(notify "room" text kind nick)`.
+;; Ordinary chat lines carry none, so this returns #f.
+(define (read-presence rest)
+  (cond
+    [(null? rest) #f]
+    [(equal? (car rest) "roster") (presence "roster" (filter string? (cdr rest)))]
+    [(and (member (car rest) '("join" "leave")) (pair? (cdr rest)) (string? (cadr rest)))
+     (presence (car rest) (list (cadr rest)))]
+    [else #f]))
+
+;; ── The inbox mailbox ─────────────────────────────────────────────────────────
+;; The inbox actor runs inside a foreign behavior callback, which Racket CS
+;; runs in atomic mode: nothing there may deschedule the thread. An
+;; async-channel's put takes an internal lock that can, so the room's line
+;; queue is this atomic-safe mailbox instead — a lock-free box push
+;; (`box-cas!`) plus a `semaphore-post`, both legal in atomic mode. The reader
+;; side (`room-next`, an ordinary thread) waits on the semaphore and drains
+;; the cell in arrival order through its own `pending` buffer.
+(struct mailbox (cell sema pending))
+
+(define (make-mailbox) (mailbox (box '()) (make-semaphore 0) (box '())))
+
+;; Safe from inside a behavior callback: push and post, nothing waits.
+(define (mailbox-put! mb v)
+  (define cell (mailbox-cell mb))
+  (let loop ()
+    (define old (unbox cell))
+    (unless (box-cas! cell old (cons v old)) (loop)))
+  (semaphore-post (mailbox-sema mb)))
+
+;; Reader-side only: the next value in arrival order, parked until one lands.
+(define (mailbox-get mb)
+  (define pending (mailbox-pending mb))
+  (let loop ()
+    (cond
+      [(pair? (unbox pending))
+       (define items (unbox pending))
+       (set-box! pending (cdr items))
+       (car items)]
+      [else
+       (semaphore-wait (mailbox-sema mb))
+       ;; Take everything pushed so far; a batch taken on one post leaves the
+       ;; later posts to land on an already-empty cell, hence the loop.
+       (define cell (mailbox-cell mb))
+       (define taken
+         (let take ()
+           (define old (unbox cell))
+           (if (box-cas! cell old '()) old (take))))
+       (set-box! pending (reverse taken))
+       (loop)])))
+
+;; `queue` is the mailbox the inbox actor (run inside the connection's serve
+;; thread's feed) feeds and `room-next` reads; `serve` is that background
+;; thread, so `room-leave` can be sure the pump winds down with the connection.
+(struct room (conn far queue [serve #:mutable]))
 
 ;; The directory of rooms: the connection plus the directory's far reference.
 ;; `room-connect` dials and fetches it; `dir-open` / `dir-enter` send it the
@@ -95,48 +151,54 @@
   (conn-send c (directory-far d) 'watch observer))
 
 ;; Subscribe to a room you already hold a reference to, on an open connection:
-;; publish an inbox the room can call back and hand it that capability. The
-;; welcome the room returns becomes the first line.
+;; spawn an inbox actor the room can call back, hand it over, and start a
+;; background `conn-serve` thread that keeps the connection pumped — the room's
+;; notifies run the inbox actor inside that serve, which enqueues each line
+;; onto the room's channel for `room-next` to read.
 (define (room-subscribe c the-room nick)
-  (define a-room (room c the-room '()))
-  ;; The room calls this inbox back with every line; enqueue each one.
+  (define queue (make-mailbox))
+  (define a-room (room c the-room queue #f))
+  ;; The room calls this inbox back with every line; enqueue each one. `notify` is
+  ;; variadic — a system line appends structured presence args after its text — so
+  ;; this dispatches by hand rather than through the fixed-arity `methods` sugar.
   (define inbox
     (conn-spawn c
       (lambda (bcom)
-        (methods
-         [(notify from text)
-          (enqueue! a-room (message from text (string=? from "room")))
-          (void)]))))
-  (with-vat (conn-vat c)
-    (define vow (<- the-room 'subscribe nick inbox))
-    (on vow (lambda (welcome)
-              (enqueue! a-room (message "room" (if (string? welcome) welcome "joined") #t)))))
-  (async-flush! (conn-async c))
+        (lambda (method . args)
+          (unless (eq? method 'notify) (error 'inbox "object has no method: ~a" method))
+          (define from (if (and (pair? args) (string? (car args))) (car args) "?"))
+          (define text (if (and (pair? args) (pair? (cdr args)) (string? (cadr args))) (cadr args) ""))
+          (define rest (if (and (pair? args) (pair? (cdr args))) (cddr args) '()))
+          (mailbox-put! queue (message from text (string=? from "room") (read-presence rest)))
+          (void)))))
+  ;; Subscribe, handing the room our inbox. Success is the resolution; the room
+  ;; delivers the welcome and roster as our first `notify`, not as a return value.
+  (conn-send c the-room 'subscribe nick inbox)
+  ;; Serve until the room hangs up, then mark the end of the line stream.
+  (set-room-serve! a-room
+                   (thread (lambda ()
+                             (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
+                               (conn-serve c))
+                             (mailbox-put! queue eof))))
   a-room)
 
-;; Say a line to everyone in the room.
+;; Say a line to everyone in the room. The serve thread owns the reads; the
+;; flush puts this thread's post on the wire now.
 (define (room-say a-room text)
-  (with-vat (conn-vat (room-conn a-room)) (<- (room-far a-room) 'post text))
-  (async-flush! (conn-async (room-conn a-room))))
+  (define c (room-conn a-room))
+  (conn-tell c (room-far a-room) 'post text)
+  (conn-flush! c))
 
-;; Leave the room and close the connection.
+;; Leave the room and close the connection; the serve thread ends with it.
 (define (room-leave a-room)
-  (connection-close! (room-conn a-room)))
+  (connection-close! (room-conn a-room))
+  (define t (room-serve a-room))
+  (when t (sync/timeout 1 (thread-dead-evt t))))
 
-;; Produce the next line, pumping the connection (and serving the vat, which fills
-;; the queue) until one is available. Returns `eof` when the room hangs up.
+;; The next line the room sent, parked until one arrives. Returns `eof` when
+;; the room hangs up.
 (define (room-next a-room)
-  (let loop ()
-    (cond
-      [(pair? (room-queue a-room))
-       (define msg (car (room-queue a-room)))
-       (set-room-queue! a-room (cdr (room-queue a-room)))
-       msg]
-      [else
-       (define ev (async-next-event (conn-async (room-conn a-room))))
-       (cond
-         [(eof-object? ev) eof]
-         [else (vat-serve! (conn-vat (room-conn a-room)) ev) (loop)])])))
+  (mailbox-get (room-queue a-room)))
 
 ;; The lines the room sends, as a sequence: `(for ([msg (in-room room)]) …)`.
 (define (in-room a-room)

@@ -16,9 +16,12 @@
 //!
 //! Scope (ADR-0061): one map keyed by `u64`, values stored by value. It is a
 //! sharp leaf module, not a general collections package, and is not exported on
-//! the public `pancake` namespace — consumers import `persistent` directly. The
-//! map does not own its values' resources: a value type that owns heap is the
-//! caller's to free when it drops the last copy.
+//! the public `pancake` namespace — consumers import `persistent` directly.
+//! Values are POD-shaped, stored and copied by value: leaves are shared across
+//! versions and freed inside the trie's own refcounting with no per-value
+//! hook, so an external owner could never learn when the last copy of a value
+//! drops. A `V` that owns heap (signalled by a `deinit` method) is rejected at
+//! compile time rather than silently leaked.
 
 const std = @import("std");
 
@@ -29,6 +32,22 @@ const std = @import("std");
 /// `a`, and both must be `deinit`-ed.
 pub fn PersistentMap(comptime V: type) type {
     return struct {
+        // Leaves are shared across versions and freed inside `releaseNode`
+        // with no value hook, so nobody outside the trie can observe the
+        // last copy of a value dropping. A heap-owning value type would
+        // therefore leak silently; refuse it where the type is built. A
+        // `deinit` method is the signal (only container types can carry
+        // one, so anything else passes).
+        comptime {
+            const holds_decls = switch (@typeInfo(V)) {
+                .@"struct", .@"union", .@"enum", .@"opaque" => true,
+                else => false,
+            };
+            if (holds_decls and @hasDecl(V, "deinit")) {
+                @compileError("PersistentMap values must be POD-shaped; a V with a deinit method owns heap the map could never release");
+            }
+        }
+
         const Self = @This();
 
         const Leaf = struct { key: u64, value: V };
@@ -37,13 +56,49 @@ pub fn PersistentMap(comptime V: type) type {
             node: *Node,
         };
         /// A refcounted trie node: a 64-way branch whose `bitmap` marks which
-        /// chunks are present and whose `children` is the compact array of just
-        /// those slots (`children.len == popCount(bitmap)`).
+        /// chunks are present. The node is the header of a single heap block
+        /// whose trailing storage is the compact slot array (`children()`),
+        /// so a fresh node costs one allocation, not a header/array pair.
         const Node = struct {
             refs: usize,
             bitmap: u64,
-            children: []Slot,
+            /// Inline slot count of the trailing storage. `popCount(bitmap)`
+            /// equals it at every construction site today, but the free is
+            /// sized from this stored byte — store enough metadata to free
+            /// correctly — never recomputed from the bitmap.
+            capacity: u8,
+
+            /// The compact slot array in this node's trailing storage.
+            fn children(self: *Node) []Slot {
+                const base: [*]align(node_alignment) u8 = @ptrCast(@alignCast(self));
+                const slots: [*]Slot = @ptrCast(@alignCast(base + slots_offset));
+                return slots[0..self.capacity];
+            }
         };
+
+        /// Alignment of the merged node block: the header's and the slots'.
+        const node_alignment = @max(@alignOf(Node), @alignOf(Slot));
+        /// Byte offset of the trailing slot array within the block.
+        const slots_offset = std.mem.alignForward(usize, @sizeOf(Node), @alignOf(Slot));
+
+        fn nodeBlockLen(capacity: usize) usize {
+            return slots_offset + capacity * @sizeOf(Slot);
+        }
+
+        /// Allocate one node block (`refs = 1`) with room for `capacity`
+        /// slots. The caller fills `children()` before sharing the node.
+        fn createNode(allocator: std.mem.Allocator, bitmap: u64, capacity: usize) std.mem.Allocator.Error!*Node {
+            const bytes = try allocator.alignedAlloc(u8, .fromByteUnits(node_alignment), nodeBlockLen(capacity));
+            const node: *Node = @ptrCast(@alignCast(bytes.ptr));
+            node.* = .{ .refs = 1, .bitmap = bitmap, .capacity = @intCast(capacity) };
+            return node;
+        }
+
+        /// Free one node block, sized from the stored capacity.
+        fn destroyNode(allocator: std.mem.Allocator, node: *Node) void {
+            const base: [*]align(node_alignment) u8 = @ptrCast(@alignCast(node));
+            allocator.free(base[0..nodeBlockLen(node.capacity)]);
+        }
 
         /// Bits consumed per trie level: 64-way branching.
         const chunk_bits: u5 = 6;
@@ -78,7 +133,7 @@ pub fn PersistentMap(comptime V: type) type {
                 const chunk = chunkAt(key, shift);
                 const bit = slotBit(chunk);
                 if (node.bitmap & bit == 0) return null;
-                switch (node.children[slotPos(node.bitmap, chunk)]) {
+                switch (node.children()[slotPos(node.bitmap, chunk)]) {
                     .leaf => |leaf| return if (leaf.key == key) leaf.value else null,
                     .node => |child| {
                         node = child;
@@ -149,25 +204,19 @@ pub fn PersistentMap(comptime V: type) type {
         fn releaseNode(allocator: std.mem.Allocator, node: *Node) void {
             node.refs -= 1;
             if (node.refs != 0) return;
-            for (node.children) |slot| {
+            for (node.children()) |slot| {
                 switch (slot) {
                     .leaf => {},
                     .node => |child| releaseNode(allocator, child),
                 }
             }
-            allocator.free(node.children);
-            allocator.destroy(node);
+            destroyNode(allocator, node);
         }
 
         /// A fresh single-leaf root node (`refs = 1`).
         fn leafNode(allocator: std.mem.Allocator, key: u64, value: V) std.mem.Allocator.Error!*Node {
-            const children = try allocator.alloc(Slot, 1);
-            children[0] = .{ .leaf = .{ .key = key, .value = value } };
-            const node = allocator.create(Node) catch |err| {
-                allocator.free(children);
-                return err;
-            };
-            node.* = .{ .refs = 1, .bitmap = slotBit(chunkAt(key, 0)), .children = children };
+            const node = try createNode(allocator, slotBit(chunkAt(key, 0)), 1);
+            node.children()[0] = .{ .leaf = .{ .key = key, .value = value } };
             return node;
         }
 
@@ -187,17 +236,12 @@ pub fn PersistentMap(comptime V: type) type {
             if (c1 == c2) {
                 const sub = try twoLeafNode(allocator, shift + chunk_bits, k1, v1, k2, v2);
                 errdefer releaseNode(allocator, sub);
-                const children = try allocator.alloc(Slot, 1);
-                children[0] = .{ .node = sub };
-                const node = allocator.create(Node) catch |err| {
-                    allocator.free(children);
-                    return err;
-                };
-                node.* = .{ .refs = 1, .bitmap = slotBit(c1), .children = children };
+                const node = try createNode(allocator, slotBit(c1), 1);
+                node.children()[0] = .{ .node = sub };
                 return node;
             }
-            const children = try allocator.alloc(Slot, 2);
-            errdefer allocator.free(children);
+            const node = try createNode(allocator, slotBit(c1) | slotBit(c2), 2);
+            const children = node.children();
             if (c1 < c2) {
                 children[0] = .{ .leaf = .{ .key = k1, .value = v1 } };
                 children[1] = .{ .leaf = .{ .key = k2, .value = v2 } };
@@ -205,11 +249,6 @@ pub fn PersistentMap(comptime V: type) type {
                 children[0] = .{ .leaf = .{ .key = k2, .value = v2 } };
                 children[1] = .{ .leaf = .{ .key = k1, .value = v1 } };
             }
-            const node = allocator.create(Node) catch |err| {
-                allocator.free(children);
-                return err;
-            };
-            node.* = .{ .refs = 1, .bitmap = slotBit(c1) | slotBit(c2), .children = children };
             return node;
         }
 
@@ -229,20 +268,16 @@ pub fn PersistentMap(comptime V: type) type {
             const chunk = chunkAt(key, shift);
             const bit = slotBit(chunk);
             const pos = slotPos(node.bitmap, chunk);
-            const old = node.children;
+            const old = node.children();
 
             if (node.bitmap & bit == 0) {
                 // Absent here: insert a leaf, keeping the dense array sorted.
-                const children = try allocator.alloc(Slot, old.len + 1);
+                const fresh = try createNode(allocator, node.bitmap | bit, old.len + 1);
+                const children = fresh.children();
                 @memcpy(children[0..pos], old[0..pos]);
                 children[pos] = .{ .leaf = .{ .key = key, .value = value } };
                 @memcpy(children[pos + 1 ..], old[pos..]);
-                const fresh = allocator.create(Node) catch |err| {
-                    allocator.free(children);
-                    return err;
-                };
                 for (old) |slot| retainSlot(slot);
-                fresh.* = .{ .refs = 1, .bitmap = node.bitmap | bit, .children = children };
                 return .{ .node = fresh, .added = true };
             }
 
@@ -250,50 +285,38 @@ pub fn PersistentMap(comptime V: type) type {
                 .leaf => |leaf| {
                     if (leaf.key == key) {
                         // Replace the value in place on a copy.
-                        const children = try allocator.alloc(Slot, old.len);
+                        const fresh = try createNode(allocator, node.bitmap, old.len);
+                        const children = fresh.children();
                         @memcpy(children, old);
                         children[pos] = .{ .leaf = .{ .key = key, .value = value } };
-                        const fresh = allocator.create(Node) catch |err| {
-                            allocator.free(children);
-                            return err;
-                        };
                         for (old) |slot| retainSlot(slot);
-                        fresh.* = .{ .refs = 1, .bitmap = node.bitmap, .children = children };
                         return .{ .node = fresh, .added = false };
                     }
                     // Two distinct keys collide here: push both down a level.
                     const sub = try twoLeafNode(allocator, shift + chunk_bits, leaf.key, leaf.value, key, value);
                     errdefer releaseNode(allocator, sub);
-                    const children = try allocator.alloc(Slot, old.len);
+                    const fresh = try createNode(allocator, node.bitmap, old.len);
+                    const children = fresh.children();
                     @memcpy(children, old);
-                    const node_alloc = allocator.create(Node) catch |err| {
-                        allocator.free(children);
-                        return err;
-                    };
                     for (old, 0..) |slot, i| {
                         if (i != pos) retainSlot(slot);
                     }
                     children[pos] = .{ .node = sub };
-                    node_alloc.* = .{ .refs = 1, .bitmap = node.bitmap, .children = children };
-                    return .{ .node = node_alloc, .added = true };
+                    return .{ .node = fresh, .added = true };
                 },
                 .node => |child| {
                     const sub = try nodePut(allocator, child, key, value, shift + chunk_bits);
                     errdefer releaseNode(allocator, sub.node);
-                    const children = try allocator.alloc(Slot, old.len);
+                    const fresh = try createNode(allocator, node.bitmap, old.len);
+                    const children = fresh.children();
                     @memcpy(children, old);
-                    const node_alloc = allocator.create(Node) catch |err| {
-                        allocator.free(children);
-                        return err;
-                    };
                     // Carry every sibling; the recursed child is replaced by the
                     // fresh `sub.node`, so the old child keeps its own refcount.
                     for (old, 0..) |slot, i| {
                         if (i != pos) retainSlot(slot);
                     }
                     children[pos] = .{ .node = sub.node };
-                    node_alloc.* = .{ .refs = 1, .bitmap = node.bitmap, .children = children };
-                    return .{ .node = node_alloc, .added = sub.added };
+                    return .{ .node = fresh, .added = sub.added };
                 },
             }
         }
@@ -317,7 +340,7 @@ pub fn PersistentMap(comptime V: type) type {
             const bit = slotBit(chunk);
             if (node.bitmap & bit == 0) return .{ .node = node, .removed = false };
             const pos = slotPos(node.bitmap, chunk);
-            const old = node.children;
+            const old = node.children();
 
             switch (old[pos]) {
                 .leaf => |leaf| {
@@ -332,18 +355,14 @@ pub fn PersistentMap(comptime V: type) type {
                     // single-leaf (remove does not canonicalize), which `get` and
                     // `deinit` tolerate.
                     errdefer releaseNode(allocator, sub.node);
-                    const children = try allocator.alloc(Slot, old.len);
+                    const fresh = try createNode(allocator, node.bitmap, old.len);
+                    const children = fresh.children();
                     @memcpy(children, old);
-                    const node_alloc = allocator.create(Node) catch |err| {
-                        allocator.free(children);
-                        return err;
-                    };
                     for (old, 0..) |slot, i| {
                         if (i != pos) retainSlot(slot);
                     }
                     children[pos] = .{ .node = sub.node };
-                    node_alloc.* = .{ .refs = 1, .bitmap = node.bitmap, .children = children };
-                    return .{ .node = node_alloc, .removed = true };
+                    return .{ .node = fresh, .removed = true };
                 },
             }
         }
@@ -356,16 +375,12 @@ pub fn PersistentMap(comptime V: type) type {
         /// all written to tolerate empty and single-entry interior nodes; the only
         /// cost is a little wasted depth, bounded by the ~11-level key ceiling.
         fn dropSlot(allocator: std.mem.Allocator, node: *Node, pos: usize, bit: u64) std.mem.Allocator.Error!*Node {
-            const old = node.children;
-            const children = try allocator.alloc(Slot, old.len - 1);
+            const old = node.children();
+            const fresh = try createNode(allocator, node.bitmap & ~bit, old.len - 1);
+            const children = fresh.children();
             @memcpy(children[0..pos], old[0..pos]);
             @memcpy(children[pos..], old[pos + 1 ..]);
-            const fresh = allocator.create(Node) catch |err| {
-                allocator.free(children);
-                return err;
-            };
             for (children) |slot| retainSlot(slot);
-            fresh.* = .{ .refs = 1, .bitmap = node.bitmap & ~bit, .children = children };
             return fresh;
         }
     };

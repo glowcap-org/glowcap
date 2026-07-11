@@ -4,7 +4,7 @@ The TCP transport ships as its own à-la-carte archive (ADR-0059), symbol-disjoi
 from the core ``libpancake_ocapn``: it carries the ``pancake_tcp_*`` family plus
 its own thread-local last-error (``pancake_tcp_last_error`` / ``_clear``). This
 module loads only that archive, reusing the shared ``Structure`` types from
-:mod:`pancake._ffi_core` by layout, so importing :mod:`pancake.tcp` adds the TCP
+:mod:`pancake._ffi_ocapn` by layout, so importing :mod:`pancake.tcp` adds the TCP
 archive on top of the core without pulling in any other transport. Nothing here
 is public; :mod:`pancake.tcp` is the ergonomic surface over it.
 """
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import ctypes
 
-from ._ffi_core import _Frame, _Lib, _ManagedFrame, _bind, _lib_path
+from ._ffi_ocapn import _Frame, _Lib, _ManagedFrame, _bind, _lib_path
 
 
 def _load():

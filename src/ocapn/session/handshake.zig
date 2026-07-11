@@ -27,7 +27,7 @@ pub fn handshakeComplete(self: *const Session) bool {
 /// failed registration leaves the session untouched. Called from the
 /// `start_session` apply arms once both handshake halves are observed.
 pub fn transitionToOpen(self: *Session) !void {
-    try self.exports.register(self.allocator, model.ExportId.from(BOOTSTRAP_POSITION));
+    try self.exports.register(self.allocator, model.ExportPosition.from(BOOTSTRAP_POSITION));
     // Reserve the bootstrap id: locally-allocated exports (resolver callbacks,
     // promises, gifts) start past it so `allocateExport` never aliases it.
     if (self.next_export_position <= BOOTSTRAP_POSITION) {

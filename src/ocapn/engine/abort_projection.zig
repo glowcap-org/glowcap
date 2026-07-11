@@ -97,6 +97,15 @@ pub fn classify(err: anyerror) Classification {
             .message = "op:start-session location signature failed to verify",
             .close = false,
         } },
+        // The dial-side identity pin (`Peer.expectPartnerKey`): the handshake
+        // carried a valid signature, but not from the key the dialer dialed.
+        // Same handshake-time refusal domain as the signature failure — the
+        // session never reached `open`, so it does not close.
+        error.PartnerKeyMismatch => .{ .domain = .session, .abort = .{
+            .kind = .invalid_start_session_signature,
+            .message = "op:start-session session key does not match the dialed key designator",
+            .close = false,
+        } },
         error.QueueCapExceeded => .{ .domain = .session, .abort = .{
             .kind = .queue_cap_exceeded,
             .message = "pipelined-call queue cap exceeded on a pending answer (ADR-0007)",

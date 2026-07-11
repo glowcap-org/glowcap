@@ -6,12 +6,12 @@
 .draft = false,
 ---
 
-A transport, a *netlayer*, is how a session's bytes move between two peers: the
+A transport, a *netlayer*, moves a session's bytes between two peers: the
 core hands each frame to whichever netlayer a
 [locator]($link.page('concepts'))'s transport symbol names, and never learns which
 one carried it. Three residents ship today.
 
-> **Netlayer** — pancake's word for a transport: a resident you register with the
+> **Netlayer**: pancake's word for a transport, a resident you register with the
 > driver, met by a contract (produce a connection over a stream) rather than a
 > privileged built-in.
 
@@ -34,7 +34,7 @@ it.
 
 The default real-network transport, and the one that addresses a Goblins peer. It
 is cleartext, no TLS, because `tcp` has to speak the same wire as Goblins' cleartext
-`tcp`. It is proven against a
+`tcp`. The transport is proven against a
 live [Goblins](https://spritely.institute/goblins/) vat over a real socket, then
 re-exposed over the C ABI as blocking
 endpoint handles. Two I/O paths sit above it: a blocking pump for

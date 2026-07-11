@@ -30,37 +30,15 @@ const engine = pancake.ocapn.engine;
 const model = pancake.ocapn.model;
 const session = pancake.ocapn.session;
 
-fn openPeer(allocator: std.mem.Allocator) engine.Peer {
-    return engine.Peer.initWithSession(allocator, session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
-    }));
-}
-
-fn receiveCallCreatingAnswer(peer: *engine.Peer, comptime frame: []const u8) !void {
-    try peer.recvBorrowed(.{ .bytes = frame, .shape = .byte });
-    var event = peer.pollEvent().?;
-    event.deinit();
-}
-
-fn drainOutbound(peer: *engine.Peer, allocator: std.mem.Allocator) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    while ((try peer.step()) == .progress) {}
-    while (peer.takeOutbound()) |frame_value| {
-        var frame = frame_value;
-        defer frame.deinit();
-        try out.appendSlice(allocator, frame.bytes());
-    }
-    return out.toOwnedSlice(allocator);
-}
+const peer_fixture = @import("../support/peer_fixture.zig");
 
 test "a projection anchoring while the receiver's resolve is queued still settles" {
     const allocator = std.testing.allocator;
-    var peer = openPeer(allocator);
+    var peer = peer_fixture.openPeer(allocator);
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    try receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
 
     // Record (queue) the receiver's resolve but do NOT step: the frame sits
     // unemitted on `pending_send`, so answer 11 reads settled before its
@@ -76,7 +54,7 @@ test "a projection anchoring while the receiver's resolve is queued still settle
         event.deinit();
     }
 
-    const wire = try drainOutbound(&peer, allocator);
+    const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
     try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve12+<15'resolve:fulfill5\"tabby>>") != null);
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(12)).?.status);
@@ -84,18 +62,18 @@ test "a projection anchoring while the receiver's resolve is queued still settle
 
 test "a chained projection whose inner answer's resolve is still queued reaches the element" {
     const allocator = std.testing.allocator;
-    var peer = openPeer(allocator);
+    var peer = peer_fixture.openPeer(allocator);
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
     // Answer 11 is fully settled and drained.
-    try receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
+    try peer_fixture.receiveCallCreatingAnswer(&peer, "<10'op:deliver<11'desc:export7+>[]11+f>");
     try peer.sendCopying(.{ .resolve = .{ .answer = .from(11), .resolution = .{ .fulfill = .{ .tagged = .{
         .tag = "row",
         .value = &.{ .{ .string = "alice" }, .{ .string = "bob" } },
     } } } } });
     {
-        const drained = try drainOutbound(&peer, allocator);
+        const drained = try peer_fixture.drainOutbound(&peer, allocator);
         allocator.free(drained);
     }
 
@@ -111,7 +89,7 @@ test "a chained projection whose inner answer's resolve is still queued reaches 
         event.deinit();
     }
 
-    const wire = try drainOutbound(&peer, allocator);
+    const wire = try peer_fixture.drainOutbound(&peer, allocator);
     defer allocator.free(wire);
     try std.testing.expect(std.mem.indexOf(u8, wire, "<10'op:resolve13+<15'resolve:fulfill5\"alice>>") != null);
     try std.testing.expectEqual(session.AnswerStatus.fulfilled, peer.session_state.inboundAnswer(.from(13)).?.status);
@@ -134,7 +112,7 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
         .answer = .from(42),
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    try p2.feedInbound(p1.takeOutbound().?);
+    try p2.feedOwned(p1.takeOutbound().?);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
     {
         var event = p2.pollEvent().?;
@@ -160,7 +138,7 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(9) } } } },
     } });
-    try p2.feedInbound(pipelined);
+    try p2.feedOwned(pipelined);
     while ((try p2.step()) == .progress) {}
     while (p2.takeOutbound()) |frame_value| {
         var frame = frame_value;
@@ -173,7 +151,7 @@ test "a pipelined op:deliver arriving while its answer's resolve is queued deliv
     const view = try local_event.view();
     try std.testing.expect(view.deliver.target == .near);
     try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
-    try std.testing.expectEqual(@as(?model.AnswerId, .from(43)), view.deliver.answer);
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(43)), view.deliver.answer);
     try std.testing.expectEqualStrings("ping", (try view.deliver.args.at(0)).bytes);
 }
 
@@ -196,7 +174,7 @@ test "an op:listen arriving while its answer's resolve is queued fires with the 
         .answer = .from(42),
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    try p2.feedInbound(p1.takeOutbound().?);
+    try p2.feedOwned(p1.takeOutbound().?);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
     {
         var event = p2.pollEvent().?;
@@ -220,14 +198,14 @@ test "an op:listen arriving while its answer's resolve is queued fires with the 
         .answer = .from(42),
         .resolution = .{ .fulfill = .{ .bytes = "ok" } },
     } });
-    try p2.feedInbound(listen_frame);
+    try p2.feedOwned(listen_frame);
     while ((try p2.step()) == .progress) {}
 
     // Feed everything p2 emitted to p1 and find the listener-fire deliver to
     // p1's export 9 carrying the fulfilled value.
     var saw_fire = false;
     while (p2.takeOutbound()) |frame_value| {
-        try p1.feedInbound(frame_value);
+        try p1.feedOwned(frame_value);
     }
     while ((try p1.step()) == .progress) {
         while (p1.pollEvent()) |event_value| {

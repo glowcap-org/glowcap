@@ -1,12 +1,11 @@
 # What ships today
 
-This page is the inventory of implemented behavior, the specific claims, each
-held by a gate, a scenario, or a live interop run. It moves with the code: a
-claim here that stops matching the tree is drift, and the
-[boundaries page](boundaries.md) is its complement, naming where the implemented
-surface ends. For how the pieces fit together, read the
-[architecture](architecture.md); for where this is all going, the
-[vision](vision.md).
+This is the inventory of implemented behavior. Every claim on it is held by a
+gate, a scenario, or a live interop run, and moves with the code: one that
+stops matching the tree is drift. Its complement is the
+[boundaries page](boundaries.md), which names where the implemented surface ends.
+For how the pieces fit together, read the [architecture](architecture.md); for
+where this is all going, the [vision](vision.md).
 
 Implemented Zig behavior includes:
 
@@ -18,7 +17,10 @@ Implemented Zig behavior includes:
   pancake-authored Syrup byte vectors (cross-checked through the upstream Syrup
   encoders, not Goblins captures), decodes borrowed views for the supported
   operation set, and materializes owned messages for engine-surfaced operations
-  including start-session and handoff.
+  including start-session and handoff. Encoding is measure-then-fill. A
+  non-allocating length pass computes the exact byte count, then one
+  exact-sized allocation is filled. So there is one allocation per encode and
+  zero reallocs at any payload size, pinned by `test/codec/encode_budget_test.zig`.
 - **Session/engine.** Sessions own profile/features, lifecycle,
   import/export/answer/release authority, validate-then-apply, and feature
   gates. `Peer` remains caller-owned and drives outbound profile-aware encoding,
@@ -29,7 +31,7 @@ Implemented Zig behavior includes:
   round-trips the handoff fixtures. The vat-scoped
   `engine.bootstrap.GiftRegistry` is the single gift authority: deposit and
   withdraw bookkeeping, recipient match, and handoff-count replay rejection
-  (ADR-0056). Withdrawals are authorized under Ed25519 — each certificate is
+  (ADR-0056). Withdrawals are authorized under Ed25519: each certificate is
   verified against the key it must be signed by, so a give signed by any other
   key is refused, and `engine.handoff_gifter.buildSignedGive` ships the
   gifter's side of the same signing (ADR-0009). The host that holds the peers
@@ -42,7 +44,7 @@ Implemented Zig behavior includes:
   multi-hop call path decomposes at the sender into chained single-hop frames,
   so every `desc:answer` on the Syrup wire stays flat. The questioner side ships
   across the surface (ADR-0065): the driver's `send`/`sendToAnswer`/
-  `settlePromise`, the C session's non-blocking send, and a vow-as-send-target in
+  `settleVow`, the C session's non-blocking send, and a vow-as-send-target in
   every binding, so a dependent chain costs one round trip. The TCP transport
   disables Nagle on every socket so a batched send is not held for a delayed-ACK
   timer; the `bench-langs` throughput unit runs the taskboard script pipelined.
@@ -52,16 +54,17 @@ Implemented Zig behavior includes:
   ADR-0052). The engine opens the projected answer, anchors the projection on
   the receiver, and resolves it when the source settles or breaks;
   `test/engine/projection_test.zig` and `abort_projection_test.zig` pin the
-  fulfilled and broken paths. Every binding exposes the surface over the same C
-  ABI, the Rust `RemotePromise::get`/ `index`/`untag`, the Python
-  `RemotePromise.get`/`index`/`untag`, the Racket
-  `peer-send-get!`/`peer-send-index!`/`peer-send-untag!`, and the TypeScript
-  stack.
+  fulfilled and broken paths. Every binding exposes the surface, the Rust
+  `RemotePromise::get`/ `index`/`untag`, the Python
+  `RemotePromise.get`/`index`/`untag`, the Racket `conn-index`/`conn-untag`,
+  and the TypeScript `RemotePromise.index`/`untag`.
 - **Relayed-resolution forwarding.** An `op:listen` on a handoff-imported
   promise installs against the third-party-hosted import; when the introducing
   session forwards the host's resolution,
   `engine.cross_peer.drainRelayedResolutions` fires the listeners and stores the
-  resolution so a late listener fires immediately (ADR-0009).
+  resolution so a late listener fires immediately (ADR-0009). A relayed
+  promise resolves once: `recordRelayedResolution` refuses a second relay for
+  the same import, so every listener observes the same settled value.
 - **Bootstrap fetch (initiator).** `engine.fetch` builds the canonical
   bootstrap-fetch `op:deliver`. It matches either kind of partner settlement, an
   `op:resolve` or a resolver-callback `op:deliver`, into an owned outcome. The
@@ -101,7 +104,7 @@ Implemented Zig behavior includes:
   `register-finalizer`) on each far reference returned by `fetch`; when the
   collector reclaims it, the finalizer parks one `op:gc-exports` delta of 1 that
   the connection's loop drains to the wire on its next operation. Scope is just
-  `fetch` results — uniform across the four bindings — with near refs, promises,
+  `fetch` results (uniform across the four bindings) with near refs, promises,
   sturdyrefs (owned by the enliven dedup cache), bootstrap, and redeemed handoff
   tokens excluded. `test/engine/gc_churn_test.zig` proves flat import-row
   reclamation under churn, and each binding's dogfood watches the wire for the
@@ -117,9 +120,9 @@ Implemented Zig behavior includes:
   `test/actors/ocap_test.zig` pins forwarding, revocation, attenuation,
   caretaker-over-attenuator composition, and a far caller reaching a hosted
   caretaker proxy. Every binding ships the same `Turn.forward` primitive over its
-  own serve loop — a caretaker/attenuator is an ordinary spawned actor whose
+  own serve loop: a caretaker/attenuator is an ordinary spawned actor whose
   behavior returns the binding's forward value (`caretaker`/`attenuate`, and the
-  Racket `conn-caretaker`/`conn-attenuate`/`conn-revoke!`) — and each dogfood
+  Racket `conn-caretaker`/`conn-attenuate`/`conn-revoke!`). Each dogfood
   exercises revoke + attenuate over a far reference plus a local near-call to the
   host's own proxy against both a local and a far target.
 - **Handshake profile and feature negotiation.** `engine.negotiation.negotiate`
@@ -130,16 +133,26 @@ Implemented Zig behavior includes:
   the same offers. Goblins interop is the target policy for authenticated `v1_0`
   over Syrup; pancake-to-pancake negotiation can choose `v1_0` or PreSpec, and
   Syrup or Cap'n Proto where supported.
-- **Fail-loud aborts.** When an inbound frame is rejected, either because the
+- **Fail-loud aborts.** When an inbound frame is rejected, whether because the
   codec cannot decode it or because the session state machine refuses it, the
   error is projected through `engine.abort_projection`. The peer sends a typed
   outbound `op:abort` before the error reaches the caller, and closes the
   session when the protocol requires it. Both inbound entry points use the same
-  projection, so a partner is not left waiting on a bare host error.
-- **Resource caps.** `SessionLimits` bounds the partner-driven tables — imports,
-  the seen-handoff-count replay set, and deposited gifts — alongside the
+  projection, so a partner is never left waiting on a bare host error.
+- **Resource caps.** `SessionLimits` bounds the partner-driven tables (imports,
+  the seen-handoff-count replay set, and deposited gifts) alongside the
   existing pipelining caps; each overflow is a loud `*CapExceeded` error that
   projects to a `ResourceExhausted` abort (ADR-0025), never a silent drop.
+  `Peer.limits()` reads the effective caps back, so an embedder never reaches
+  into session state for them. The Cap'n Proto decoder adds a per-frame
+  traversal budget, because the pointer format permits aliasing and so a small
+  frame can name exponentially many node visits. An eager charge pass over the
+  frame refuses a `TraversalBudgetExceeded` before any lazy view is handed out,
+  the same defense upstream Cap'n Proto calls `traversalLimitInWords`. Syrup needs
+  no counterpart: each collection body is a contiguous sub-slice, so total
+  work is bounded by frame length. Hostile-bytes coverage runs in
+  `test/codec/`: exhaustive single-byte corruption plus `std.testing.fuzz`
+  entrypoints over both codecs' decode-reencode round trips.
 - **C ABI and adapters.** The C ABI frame vocabulary is fixed-width and
   release-explicit: borrowed frames dispatch synchronously, managed frames
   transfer ownership without copying, and events return the originating frame in
@@ -171,10 +184,22 @@ Implemented Zig behavior includes:
   and each transport is its own archive, `libpancake_net_transport_tcp`
   (`pancake_net_transport_tcp.h`), `libpancake_net_transport_inproc`
   (`pancake_net_transport_inproc.h`), and `libpancake_net_transport_iroh`
-  (`pancake_net_transport_iroh.h`). Each exports only its own
+  (`pancake_net_transport_iroh.h`). The byte-fed host tier is its own archive:
+  `libpancake_driver` (`pancake_driver.h`) ships the byte-fed
+  multi-connection host (`pancake_host_*`) wrapping the sans-io
+  `driver_core.Host` — keyed handshakes, publish/spawn (per connection and
+  node-wide giftable), fetch/enliven, send/tell, vows and pipelined
+  projections, turn-time forwarding, and the full three-party handoff driven
+  through one action queue (dials, gift-id entropy, flushes) the embedder
+  answers (ADR-0072). A published object is a foreign behavior the host runs
+  through the vat's `spawnForeign` contract, which is why no separate bare-vat
+  archive ships (ADR-0072, superseding ADR-0071; the Zig `actors` module
+  stands unchanged). Host-supplied netlayers and a blocking delegated-loop
+  mode are not exported. Every binding rides this archive; it is the one shared
+  runtime (ADR-0072). Each archive exports only its own
   `pancake_<family>_*` symbols and shares core types by header layout
   (ADR-0059). Above the frame boundary, `libpancake_net_transport_tcp` also
-  ships the owning `PancakeTcpSession` — the C spelling of the Zig
+  ships the owning `PancakeTcpSession`: the C spelling of the Zig
   `driver.Connection` (`pancake_tcp_session_connect` dials, `_fetch` returns a
   `PancakeReference`, and `_call` settles into the archive's own
   `PancakeSettled` you free with `_settled_release`), reusing
@@ -190,14 +215,14 @@ Implemented Zig behavior includes:
   handoff. The oracle also drives a deliver-then-resolve round-trip, a
   handshake that auto-serves a bootstrap fetch (the ADR-0006 responder half),
   and a cross-mode parity check that proves the borrowed (`recvBorrowed`) and
-  owned (`feedInbound` + `step`) inbound entry points run one dispatcher
+  owned (`feedOwned` + `step`) inbound entry points run one dispatcher
   (byte-identical observable output).
 - **Actors.** `actors.Vat` is a Goblins-shaped layer above the engine. You spawn
-  local objects, call them synchronously with `$`, and eventual-send to them
-  with `<-` to get a `Promise` back. An object "becomes" by mutating its own
+  local objects, call them synchronously with `near` (`$`), and eventual-send
+  to them with `<-` to get a `Vow` back. An object "becomes" by mutating its own
   state. When a vat is bound to a peer, the same `<-` works for local and far
   references. A local target runs a turn in the vat. A far target goes out as an
-  `op:deliver` over the peer. `publish` and `serve` host a local object at an
+  `op:deliver` over the peer. `bindExport` and `serve` host a local object at an
   export, so a partner's inbound deliver runs the object's turn and resolves the
   answer. The layer is synchronous and owns no I/O (ADR-0036). A vat also offers
   opt-in local time-travel: `snapshot` shares the local actor heap behind
@@ -226,7 +251,7 @@ Implemented Zig behavior includes:
   pipelining, and session control. The Deno, Python, and Rust `Connection`s
   break pending sends the same way when their serve loop ends.
 - **Three real cross-language applications.** The
-  [example applications](../examples/README.md) — rooms, tasks, and tools — each
+  [example applications](../examples/README.md) (rooms, tasks, and tools) each
   run a server and one client per language over one OCapN wire and assert the
   result. That the same `connect` / `fetch` / `send` surface is
   OCapN-conformant is proven against a real Goblins vat, not just between
@@ -238,77 +263,78 @@ Implemented Zig behavior includes:
   `check`.
 - **Crossed hellos collapse to one session.** When two peers dial each other
   at once, the pair keeps the session the higher-keyed peer opened (ADR-0030):
-  `driver.Host` owns the tiebreak. A dial registers its outbound before bytes
-  move, accepted connections compare inbound start-sessions against the
-  registry, and a listening host signs its bound designator into every dial so
-  the comparison keys on a real address. A deterministic driver scenario
-  stages the collision and pins the verdict to the byte order of the two
-  public identifiers.
+  the sans-io host core (`driver_core.Host`) owns the tiebreak registry, and the
+  blocking tier rides it. A dial registers its outbound before bytes move,
+  accepted connections compare inbound start-sessions against the registry, and
+  a listening host signs its bound designator into every dial so the comparison
+  keys on a real address. A deterministic driver scenario stages the collision
+  and pins the verdict to the byte order of the two public identifiers.
 
-- **Transparent three-party handoff in every binding, one explicit verb
-  natively.** Each binding redeems a received `desc:handoff-give` through the
-  _same_ `connect` / `fetch` / `send` surface, with no handoff choreography in
-  application code; a native Zig host speaks both halves through
-  `driver.Host` — the multi-connection tier that owns the node, the identity,
-  and the netlayer slice. `Host.redeem` consumes the typed `.give` arm a
-  settled call surfaces (the live `goblins-handoff` driver is its consumer),
-  and origination is the host's resolve interceptor: a published actor that
-  returns a foreign-homed capability answers with a signed give. The hermetic
-  three-host scenario (`test/driver/host_three_party_test.zig`) runs
-  originate, give, redeem, and the direct call over real loopback sockets. Underneath both is a connection router: the engine's sans-io `Node`
-  (ADR-0066), the Goblins `mycapn` analogue (ADR-0009/ADR-0056), which each
-  binding wraps in a thin `Node` handle. It retains the connection's keyed
+- **Transparent three-party handoff in every binding and natively.** Each
+  binding redeems a received `desc:handoff-give` through the _same_ `connect`
+  / `fetch` / `send` surface, with no handoff choreography in application
+  code; a native Zig host speaks both halves through `driver.BlockingHost`, a
+  blocking socket loop over the same sans-io host core every binding rides
+  through `libpancake_driver` (ADR-0072), so an introduction settles as the
+  introduced capability itself
+  (the live `goblins-handoff` driver is its consumer). Origination is the
+  core's resolve interceptor: a published actor that returns a foreign-homed
+  capability answers with a signed give. The hermetic three-host scenario
+  (`test/driver/host_three_party_test.zig`) runs originate, give,
+  auto-redeem, and the direct call over real loopback sockets. Underneath both
+  is a connection router: the engine's sans-io `Node` (ADR-0066), the Goblins
+  `mycapn` analogue (ADR-0009/ADR-0056). It retains the connection's keyed
   identity, dials the named exporter with that same identity, signs the
   `desc:handoff-receive`, withdraws the gift, and hands back an ordinary
-  capability, routing later sends to the exporter that hosts it. The redeem and origination *sequencing* is owned once too, as a sans-io serve
-  step on the same node (ADR-0067). The node holds the state the sequence
-  needs: the exporter cache, the pending dial, withdraw, and gift rows, and the
+  capability, routing later sends to the exporter that hosts it. The redeem and
+  origination *sequencing* is owned once too, as a sans-io serve step on the
+  same node (ADR-0067). The node holds the state the sequence needs: the
+  exporter cache, the pending dial, withdraw, and gift rows, and the
   per-exporter give-location override. It consumes what the host feeds it and
   emits data actions the host executes: `dial`, `flush`, `settle`, `fail`, and
-  `need_gift_id` (entropy is a host effect it requests, never generates). The
-  waist projects these as the `pancake_node_*` serve verbs. All
-  four bindings and the native `goblins-handoff` driver are deliberately dumb
-  action executors over it: no consumer holds redeem or origination
-  orchestration, an exporter cache, or pending bookkeeping of its own, and a
-  claim is offered only on node-dialed exporter connections, so an ordinary
-  connection's reply path pays nothing for handoffs. The
-  application never sees the give or the second connection, and the public ref /
-  send surface is unchanged: every binding routes a redeemed capability through
-  the node's reserved-id token (a synthetic far id the sans-io `Node` maps to the
-  exporter connection that hosts it), so refs stay bare in all four. This is
-  proven against a live Goblins introducer for all four —
-  `zig build deno-goblins-handoff`, `python-goblins-handoff`,
-  `rust-goblins-handoff`, and `racket-goblins-handoff` each redeem Bob's greeter
-  from Alice and then call Bob directly, the binding counterpart of the
-  Zig-driver `goblins-handoff`.
+  `need_gift_id` (entropy is a host effect it requests, never generates). Each
+  binding drives the byte-fed host (`pancake_host_*`), which runs that serve
+  step internally; the native `goblins-handoff` driver answers the same action
+  queue with real I/O. No consumer holds redeem or origination orchestration,
+  an exporter cache, or pending bookkeeping of its own, and a claim is offered
+  only on node-dialed exporter connections, so an ordinary connection's reply
+  path pays nothing for handoffs. The application never sees the give or the
+  second connection, and the public ref / send surface is unchanged: every
+  binding routes a redeemed capability through the node's reserved-id token (a
+  synthetic far id the sans-io `Node` maps to the exporter connection that
+  hosts it), so refs stay bare in all four. This is proven against a live
+  Goblins introducer for all four: `zig build deno-goblins-handoff`,
+  `python-goblins-handoff`, `rust-goblins-handoff`, and `racket-goblins-handoff`
+  each redeem Bob's greeter from Alice and then call Bob directly, the binding
+  counterpart of the Zig-driver `goblins-handoff`.
 - **Transparent three-party handoff, gifter side (all four bindings).** Every
   binding now _originates_ a handoff as transparently as it redeems one: when a
   published actor returns a `Ref` whose home is a different connection than the
-  one asking, the node claims the reply through the serve step
-  (`pancake_node_intercept_fulfilled_ref`), asks the host for gift-id entropy,
+  one asking, the host's serve step claims the reply, asks for gift-id entropy,
   deposits the gift on the home connection, and answers the caller with a
-  signed `desc:handoff-give` — the gifter recipe lives in the sans-io `Node`,
-  with no choreography in application code. This rests on **one
-  identity and one gift registry per node**: a node's
-  `Server`, `connect`, and redeem connections share a `Node`, so a gift
-  deposited on one connection is withdrawable on another, the give's signer
-  equals the deposit provenance, and a **pancake node serves direct redeems as
-  the exporter** (engine swiss re-resolution, ADR-0056). Proven end to end:
-  `zig build deno-gifter-handoff` (pancake is gifter, exporter, and recipient over
-  loopback TCP, broker out of the path); the per-binding `deno-goblins-gift`,
-  `python-goblins-gift`, `rust-goblins-gift`, and `racket-goblins-gift` gates
-  (each binding mints a give a _live_ Goblins recipient redeems against a live
-  Goblins exporter); and `zig build demo-rooms-dm` (the rooms app introduces two
-  members who then DM directly, the room never relays). The C ABI gifter
-  primitives are language-neutral, and each binding records a fetched import's
-  home in the node's foreign-home table (`pancake_node_record_foreign_home`,
-  read back through the shared `pancake_node_arg_is_foreign` verdict), so a
-  returned foreign cap is recognized for re-gifting uniformly across the four.
+  signed `desc:handoff-give`. The gifter recipe lives in the sans-io `Node`,
+  with no choreography in application code. This rests on **one identity and
+  one gift registry per node**: a node's `Server`, `connect`, and redeem
+  connections share a `Node`, so a gift deposited on one connection is
+  withdrawable on another, the give's signer equals the deposit provenance, and
+  a **pancake node serves direct redeems as the exporter** (engine swiss
+  re-resolution, ADR-0056). Proven end to end: `zig build deno-gifter-handoff`
+  (pancake is gifter, exporter, and recipient over loopback TCP, broker out of
+  the path); the per-binding `deno-goblins-gift`, `python-goblins-gift`,
+  `rust-goblins-gift`, and `racket-goblins-gift` gates (each binding mints a
+  give a _live_ Goblins recipient redeems against a live Goblins exporter); and
+  `zig build demo-rooms-dm` (the rooms app introduces two members who then DM
+  directly, the room never relays). The host holds each fetched capability
+  under a node-unique foreign-home token (`pancake_node_enroll_foreign` on the
+  engine side; every binding reaches it through `pancake_host_*`), so two
+  imports that share a wire position never collide and each introduction
+  re-gifts the right home (ADR-0069). A multi-member broker routes each
+  introduction correctly in any of the four bindings.
   Cross-process redeem over iroh ships in every binding in **both** dial
   postures, chosen by what the gift's exporter location names. When it carries the
   exporter's `direct-addresses` as signed hints (the give codec round-trips them
   through decode/view/owned/encode, and the C ABI redeem projection re-parses them
-  into the dial URI), the recipient redeems by dialing the exporter **directly** —
+  into the dial URI), the recipient redeems by dialing the exporter **directly**:
   the relay-less `Direct` posture, no discovery service; `zig build demo-rooms-dm-iroh`
   proves it hermetically across three iroh endpoints over
   encrypted QUIC. When it names the exporter by **node id alone** (no hints), the
@@ -331,9 +357,9 @@ Implemented Zig behavior includes:
   node id alone over n0 relays + DNS/pkarr. These are opt-in and kept out of
   `check` because publish-propagation timing is not hermetic (the same posture
   `iroh-reachability` gates); the offline, deterministic dial-by-id counterpart is
-  `local_discovery` in the `*-iroh-loop` gates. Both halves of an iroh handoff —
-  minting a give whose exporter location names an iroh endpoint and redeeming it
-  transparently — thus ship in **every** binding (Rust, Python, Racket, and
+  `local_discovery` in the `*-iroh-loop` gates. Both halves of an iroh handoff
+  (minting a give whose exporter location names an iroh endpoint and redeeming it
+  transparently) thus ship in **every** binding (Rust, Python, Racket, and
   TypeScript/Deno), in both reachability postures. `zig build bindings-iroh-handoff`
   runs the hermetic `Direct`-posture handoff gates together, standing up exporter,
   gifter, and recipient across three iroh endpoints in one process.
@@ -372,8 +398,8 @@ Implemented Zig behavior includes:
   genuinely different one: an in-process switchboard that wires a dialer and a
   listener through two in-process byte pipes, with no sockets and no file
   descriptors, for full in-process OCapN conversations in tests and mocks. The
-  sidecar `iroh` resident (ADR-0055) — registered like any other, not a `net`
-  export — is the third and the encrypted one: each connection is one
+  sidecar `iroh` resident (ADR-0055), registered like any other, not a `net`
+  export, is the third and the encrypted one: each connection is one
   bidirectional QUIC stream from a real iroh endpoint, dialed by Ed25519
   endpoint id, carried by the `transports/iroh` Rust sidecar staticlib so it
   stays outside the pure-Zig archives; it links into the `iroh-interop` gate and
@@ -396,7 +422,7 @@ Implemented Zig behavior includes:
   signing key, verified on both handshake halves (`driver.connectVia` /
   `acceptVia` with a `.keyed` `Identity`); and a **sturdyref** (node id plus
   swiss-number) **outlives an endpoint restart**. The handoff substrate reaches
-  over iroh too: `zig build iroh-mesh` proves the **mesh** — three iroh
+  over iroh too: `zig build iroh-mesh` proves the **mesh**: three iroh
   endpoints where A introduces B to C, and B reaches C **by the gifted node
   id**, withdraws the gifted capability through C's bootstrap (C's engine
   verifying both certificates), and calls it; B's one key is its node id, its
@@ -404,10 +430,19 @@ Implemented Zig behavior includes:
   recipient and the dialed endpoint are provably the same key. iroh serves at
   scale: the event-driven completion loop of ADR-0057 (`iroh.LoopHost`, the
   sidecar's readiness fd + drained ready-queue + non-blocking frame I/O) is the
-  netlayer's one I/O model and serves many QUIC connections from **one loop
-  thread**, proven by `zig build iroh-loop`. `bench-peer-scaling`'s `served` row
+  iroh scale path and serves many QUIC connections from **one loop
+  thread**, proven by `zig build iroh-loop`. The TCP scale path is
+  `net.Loop` + `driver.LoopBridge` + `driver_core.Host` (ADR-0076): adoption,
+  per-event serve, cross-connection `armOutbound`, and a budgeted drive that
+  condemns a flooded connection — proven by `zig build tcp-loop` and the
+  handoff-across-one-loop test in `test/driver/loop_bridge_test.zig` (the only
+  loop path that proves cross-connection handoff today). Convergence of
+  `iroh.LoopHost` onto that shared loop + bridge is still open (ADR-0076 §
+  Scope). The Zig resident also keeps a
+  blocking single-connection shape for `ConnectedVat`; the public C ABI is
+  loop-only. `bench-peer-scaling`'s `served` row
   measures the per-connection core state of a loop-hosted, vat-carrying
-  connection and extrapolates it straight-line to ~1.1 GiB at 500k connections —
+  connection and extrapolates it straight-line to ~1.1 GiB at 500k connections,
   an in-process projection, not a node measured under 500k live sockets. The
   public iroh netlayer C ABI is loop-only: a single readiness fd
   (`pancake_iroh_netlayer_readiness_fd`) plus a non-blocking
@@ -421,15 +456,15 @@ Implemented Zig behavior includes:
   holds every binding to the same scale bar, not a tier of "small consumers"
   ([boundaries](boundaries.md)). All three residents dial and host through the
   same `connectVia` / `acceptVia` path with the same verified handshake, and
-  adding each one edited no driver, core, or contract file, a caller's own
+  adding each one edited no driver, core, or contract file. A caller's own
   transport slots in the same way. Stream transports expose a `*std.Io.Reader`
   and `*std.Io.Writer`; `net.pumpOver` drives a peer over that pair. A
   non-stream transport can instead drive the peer directly through
   `Peer.recvStreamPrefix` and `takeOutbound`, the same API a language binding
   uses over the C ABI (ADR-0030).
 - **OCapN locator URIs.** `model.uri` parses and emits the out-of-band bootstrap
-  form — `ocapn://<designator>.<transport>?hints` for a peer,
-  `ocapn://<designator>.<transport>/s/<swiss-num>` for a sturdyref — against
+  form (`ocapn://<designator>.<transport>?hints` for a peer,
+  `ocapn://<designator>.<transport>/s/<swiss-num>` for a sturdyref) against
   owned `model.PeerLocator` / `model.SturdyRef`. The transport is the suffix
   after the last `.`, hints are RFC 3986 query parameters, percent-encoding is
   `%XX`-only so a base64 designator round-trips byte-for-byte, and the
@@ -451,7 +486,7 @@ Implemented Zig behavior includes:
   literal address need not hand-write the `PeerLocator`. Hosting is the symmetric twin: `driver.listen`
   binds any `net.netlayer.Netlayer` per a `ListenConfig`, signs each accepted
   session with the same explicit `Identity`, and hands back an owning
-  `driver.Server` — whose `localDesignator` reports the bound address to dial —
+  `driver.Server` (whose `localDesignator` reports the bound address to dial)
   and whose `accept` returns a `driver.Connection`, so a host serves over
   whatever transport it binds, never a privileged built-in. The bindings dial
   through one `connect(locator)` that takes an `ocapn://` URI string. There is
@@ -480,13 +515,23 @@ Implemented Zig behavior includes:
   through the keyed handshake with a real Goblins vat, then bootstrap-fetch its
   echo cap and call it. The keyed exchange runs from every binding, not only
   from native Zig.
+- **Wall-clock performance tripwire.** `zig build perf-check` (a member of
+  `check`) runs the hot-path benches in ReleaseFast and holds the ladder rung 2
+  ceilings: warm inbound dispatch, answered outbound send, and the
+  `op:gc-answers` release-storm growth ratio (ADR-0073).
+- **Keyed TCP designator.** `net.tcp_keyed` (`keyed-tcp`, ADR-0075) binds the
+  listener's Ed25519 key as the locator designator with the socket address in
+  `direct-addresses`, verified fail-closed by `engine.Peer.expectPartnerKey`
+  (the same pin iroh inherits). Gated by `test/driver/keyed_tcp_restart_test.zig`.
+  Binding-level surfaces and a C ABI partner-key export remain open (ADR-0075 §
+  Scope).
 - **Architecture gate.** The layer DAG is compiler-enforced: each `src/` layer
   is an internal build.zig module with a one-way import table (ADR-0040), and
   each sibling wire codec is its own module below the codec layer (ADR-0048), so
   a cross-layer or cross-codec reach fails to compile. The DAG is one
   declaration (`layer_table` in build.zig) that generates every build graph;
-  `zig build arch-check` verifies the same table against the tree — a granted
-  edge no file imports fails, an unclaimed source file fails — and holds the
+  `zig build arch-check` verifies the same table against the tree (a granted
+  edge no file imports fails, an unclaimed source file fails) and holds the
   content bans a module graph cannot express: no `std.Io` or threading in the
   core, and no platform syscall namespaces in portable code.
 - **Meta scaffolding gate.** `zig build meta-check` verifies canonical `.agents`

@@ -26,7 +26,10 @@ import asyncio
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bindings" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
+from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
+
+insert_bindings_path()
 
 from pancake.iroh import Reachability, connect_iroh, listen_iroh  # noqa: E402
 
@@ -37,10 +40,7 @@ NUM_CONNS = 16
 CALLS_PER_CONN = 4
 GREETING = "hello over the iroh loop"
 
-
-def fail(msg: str) -> None:
-    print(f"python-iroh-loop FAILED: {msg}", file=sys.stderr)
-    raise SystemExit(1)
+ignore_port_args("python-iroh-loop")
 
 
 def _greeter(verb: str, args: list):
@@ -98,7 +98,7 @@ async def main() -> None:
 
     errors = [r for r in results if isinstance(r, BaseException)]
     if errors:
-        fail(f"{len(errors)}/{NUM_CONNS} client(s) failed; first: {errors[0]!r}")
+        fail("python-iroh-loop", f"{len(errors)}/{NUM_CONNS} client(s) failed; first: {errors[0]!r}")
 
     print(
         f"python-iroh-loop: OK, {NUM_CONNS} concurrent iroh connections, "

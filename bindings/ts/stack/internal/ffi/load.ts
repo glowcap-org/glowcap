@@ -13,7 +13,7 @@
 //   3. a bare library name (find) — otherwise hand the loader the plain name and
 //      let the OS dynamic-linker search resolve it (an installed/system lib).
 //
-// `node:process`/`node:fs` work on all three runtimes (Deno supports the `node:`
+// `node:process`/`node:fs` work on both runtimes (Deno supports the `node:`
 // specifiers). A runtime that withholds the permission (Deno without
 // `--allow-env`/`--allow-read`) degrades to the next rung instead of failing:
 // the env read is permission-queried first so it never prompts (see
@@ -36,8 +36,8 @@ function envOverride(): string | null {
 	// any ungranted entrypoint or spawned child. Query the permission first —
 	// querySync never prompts — and read only when it is already granted, so an
 	// ungranted run degrades silently to the dev/find rungs. The same no-prompt
-	// guard the rooms web UI uses for ROOMS_TRANSPORT. Node and Bun have no
-	// permission system (no `Deno`), so the guard is skipped and the read happens.
+	// guard the rooms web UI uses for ROOMS_TRANSPORT. Bun has no permission
+	// system (no `Deno`), so the guard is skipped and the read happens.
 	const deno = (globalThis as {
 		Deno?: {
 			permissions?: {

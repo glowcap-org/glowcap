@@ -15,31 +15,29 @@
 // otherwise idle: the clients assert against the board state their own
 // operations produce.
 
+import {
+	buildRust,
+	onPath,
+	parseCliArgs,
+	readListeningPort,
+	requireZigClientPath,
+	runChild,
+	stopSpawnedServer,
+	validatePortOptions,
+} from "../_demo/orchestrator.ts";
+
 const positional: string[] = [];
-let pinPort = 0;
-let attach = false;
+const cliArgs: string[] = [];
 for (const a of Deno.args) {
-	if (a === "--attach") attach = true;
-	else if (a.startsWith("--port=")) pinPort = Number(a.slice("--port=".length));
+	if (a === "--attach" || a.startsWith("--port=")) cliArgs.push(a);
 	else positional.push(a);
 }
-const ZIG_CLIENT = positional[0];
-if (!ZIG_CLIENT) {
-	console.error(
-		"demo.ts: missing the Zig client path (run via `zig build demo-tasks`)",
-	);
-	Deno.exit(2);
-}
-if (!Number.isInteger(pinPort) || pinPort < 0 || pinPort > 65535) {
-	console.error("demo.ts: --port must be an integer in 1..65535");
-	Deno.exit(2);
-}
-if (attach && pinPort === 0) {
-	console.error(
-		"demo.ts: --attach requires --port (there is no server to join without one)",
-	);
-	Deno.exit(2);
-}
+const { pinPort, attach } = parseCliArgs(cliArgs);
+const ZIG_CLIENT = requireZigClientPath(
+	positional,
+	"demo.ts: missing the Zig client path (run via `zig build demo-tasks`)",
+);
+validatePortOptions(pinPort, attach, "demo.ts");
 
 const ROOT = Deno.cwd();
 const DENO_FLAGS = ["run", "--allow-ffi", "--allow-read", "--allow-net"];
@@ -48,37 +46,6 @@ interface Member {
 	name: string;
 	cmd: string;
 	argv: (port: number) => string[];
-}
-
-async function onPath(cmd: string): Promise<boolean> {
-	try {
-		await new Deno.Command(cmd, {
-			args: ["--version"],
-			stdout: "null",
-			stderr: "null",
-		}).output();
-		return true;
-	} catch {
-		return false;
-	}
-}
-
-async function buildRust(): Promise<boolean> {
-	console.log("tasks demo: building the Rust client (cargo build)…");
-	const built = await new Deno.Command("cargo", {
-		args: [
-			"build",
-			"--manifest-path",
-			`${ROOT}/examples/apps/tasks/rust/Cargo.toml`,
-		],
-		cwd: ROOT,
-		stdout: "inherit",
-		stderr: "inherit",
-	}).output();
-	if (!built.success) {
-		console.log("tasks demo: skipping Rust, cargo build failed");
-	}
-	return built.success;
 }
 
 async function roster(): Promise<{ members: Member[]; skipped: string[] }> {
@@ -138,7 +105,7 @@ async function roster(): Promise<{ members: Member[]; skipped: string[] }> {
 	} else skipped.push("racket (no racket on PATH)");
 
 	if (await onPath("cargo")) {
-		if (await buildRust()) {
+		if (await buildRust(ROOT, "examples/apps/tasks/rust/Cargo.toml")) {
 			members.push({
 				name: "rust",
 				cmd: `${ROOT}/examples/apps/tasks/rust/target/debug/tasks-client`,
@@ -152,42 +119,9 @@ async function roster(): Promise<{ members: Member[]; skipped: string[] }> {
 	return { members, skipped };
 }
 
-async function readPort(server: Deno.ChildProcess): Promise<number> {
-	const reader = server.stdout.getReader();
-	const decoder = new TextDecoder();
-	let buf = "";
-	const deadline = Date.now() + 10_000;
-	while (Date.now() < deadline) {
-		const { value, done } = await reader.read();
-		if (done) break;
-		buf += decoder.decode(value);
-		const m = buf.match(/TASKS-SERVER-LISTENING (\d+)/);
-		if (m) {
-			reader.releaseLock();
-			return Number(m[1]);
-		}
-	}
-	reader.releaseLock();
-	throw new Error("server never announced its port");
-}
-
-async function runMember(m: Member, port: number) {
-	const out = await new Deno.Command(m.cmd, {
-		args: m.argv(port),
-		stdout: "piped",
-		stderr: "piped",
-		cwd: ROOT,
-	}).output();
-	const text = new TextDecoder().decode(out.stdout) +
-		new TextDecoder().decode(out.stderr);
-	return { name: m.name, code: out.code, out: text };
-}
-
 const { members, skipped } = await roster();
 for (const s of skipped) console.log(`tasks demo: skipping ${s}`);
 
-// With --attach the server is yours, already running; otherwise spawn one on
-// the pinned port (or 0, which binds an ephemeral port and announces it).
 const server = attach ? null : new Deno.Command("deno", {
 	args: [
 		...DENO_FLAGS,
@@ -201,19 +135,22 @@ const server = attach ? null : new Deno.Command("deno", {
 
 let failed = false;
 try {
-	// No liveness probe in attach mode: on loopback a missing server refuses each
-	// client's connect immediately, which is already a loud, fast failure.
-	const port = server ? await readPort(server) : pinPort;
+	const port = server
+		? await readListeningPort(
+			server,
+			/TASKS-SERVER-LISTENING (\d+)/,
+			"server never announced its port",
+		)
+		: pinPort;
 	console.log(
 		`tasks demo: server on 127.0.0.1:${port}; running ${members.length} client(s) (${
 			members.map((m) => m.name).join(", ")
 		})\n`,
 	);
 
-	// Run clients sequentially so each sees a clean, predictable board state.
 	for (const m of members) {
-		const r = await runMember(m, port);
-		console.log(`──────── ${r.name} (exit ${r.code}) ────────`);
+		const r = await runChild(m.cmd, m.argv(port), ROOT);
+		console.log(`──────── ${m.name} (exit ${r.code}) ────────`);
 		console.log(r.out.trimEnd());
 		console.log("");
 		if (r.code !== 0) failed = true;
@@ -231,13 +168,7 @@ try {
 		if (skipped.length > 0) console.log(`(skipped: ${skipped.join("; ")})`);
 	}
 } finally {
-	// An attached server belongs to whoever started it; only a spawned one dies here.
-	if (server) {
-		try {
-			server.kill("SIGTERM");
-		} catch { /* already gone */ }
-		await server.status;
-	}
+	await stopSpawnedServer(server);
 }
 
 Deno.exit(failed ? 1 : 0);

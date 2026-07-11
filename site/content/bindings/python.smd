@@ -9,17 +9,19 @@
 The Python binding loads the installed shared pancake archives through `ctypes`
 and mirrors the à-la-carte archive set. The core
 [`bindings/python/pancake`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/python/pancake)
-package (over `libpancake_ocapn`) presents a `Peer`. One submodule per
-transport — `pancake.tcp`, `pancake.inproc`, and the lazy `pancake.iroh` —
-loads only its own archive. The raw `ctypes` layer is the package's `_`-private
-per-archive `_ffi_core` / `_ffi_tcp` / `_ffi_inproc` / `_ffi_iroh` modules. Wire
-values map to native Python values (integers, strings, bytes, lists, and the
-rest), so you rarely think about the FFI underneath.
+package (over `libpancake_ocapn` plus the byte-fed host archive
+`libpancake_driver`) presents the `Connection` and `Node` surface. One
+submodule per transport (`pancake.tcp`, `pancake.inproc`, and the lazy
+`pancake.iroh`) loads only its own archive. The raw `ctypes` layer is the
+package's `_`-private per-archive `_ffi_ocapn` / `_ffi_driver` / `_ffi_tcp` /
+`_ffi_inproc` / `_ffi_iroh` modules. Wire values map to native Python values
+(integers, strings, bytes, lists, and the rest), so you rarely think about the
+FFI underneath.
 
 ## The same round-trip
 
-The [Start building]($link.page('start')) round-trip — connect, fetch, call,
-handle the reply — reads like this in Python. `serve` keeps the connection
+The [Start building]($link.page('start')) round-trip (connect, fetch, call,
+handle the reply) reads like this in Python. `serve` keeps the connection
 dispatching until close; `fetch` and `send` start the inbound loop on demand.
 
 > []($block.attrs('code-tabs'))
@@ -62,23 +64,25 @@ dispatching until close; `fetch` and `send` start the inbound loop on demand.
 
 The iroh tab swaps the built host-and-port locator for a bare node id and adds
 the posture import; everything below `connect` is the tcp tab, line for line. The node id itself still arrives out of band, exactly like a
-host and port; discovery turns a name you were given into a route, it does
+host and port; discovery turns a name you were given into a route. It does
 not browse for peers.
 
 ## Async
 
 The async surface is [`asyncio`](https://docs.python.org/3/library/asyncio.html).
 The quick-start's `Connection` is the surface you hold: `await conn.send(ref,
-verb, args)` awaits a result there. Beneath it, an `AsyncConnection` drives the
-peer over a transport pump (asyncio streams for TCP) inside an `async with`
-block, and exposes the raw events as `async for event in conn`. One connection
-owns one peer and lives on one task, so the peer calls never block the event
-loop; only the socket awaits.
+verb, args)` awaits a result there, and `conn.serve()` runs the inbound loop
+as a task that completes on close. Beneath it, the serve loop reads raw bytes
+off an asyncio stream and hands them to the library's stream delimiter
+(`pancake_host_conn_feed_bytes`), which owns framing; the host's action queue
+carries every settlement back. Everything runs on one event loop, so the host
+calls never block it; only the socket awaits.
 
 ## Actors
 
-The actor layer is a `Vat` over `behavior(verb, args)` callables. A local actor is
-an ordinary Python callable, and a leading symbol argument selects the method verb.
+An actor is an ordinary `behavior(verb, args)` callable, hosted through
+`conn.spawn` or `conn.publish` on the driver vat behind the byte-fed host; one
+shared trampoline carries every wire deliver into Python.
 
 ## Dogfood and example
 

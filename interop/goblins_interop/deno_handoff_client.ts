@@ -18,7 +18,8 @@
 // Needs `racket` plus the `goblins` collection on PATH, so it runs as the
 // sibling build step `zig build deno-goblins-handoff`.
 
-import { connect, type Ref, tcpLocator } from "@pancake/stack";
+import { connect, Ref, tcpLocator } from "@pancake/stack";
+import { fail, readSwiss } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
 // Alice's port; Bob (the exporter) listens on PORT+1. `--port=N` (from
@@ -26,18 +27,13 @@ const HOST = "127.0.0.1";
 let PORT = 22112;
 for (const a of Deno.args) {
 	if (a.startsWith("--port=")) PORT = Number(a.slice("--port=".length));
-	else fail(`unknown argument '${a}'`);
+	else fail("deno-goblins-handoff", `unknown argument '${a}'`);
 }
 if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65534) {
-	fail("--port must be an integer in 1..65534 (bob listens on port+1)");
+	fail("deno-goblins-handoff", "--port must be an integer in 1..65534 (bob listens on port+1)");
 }
 const RACKET = "/usr/local/bin/racket";
 const HOST_SCRIPT = "conformance/goblins-peer/racket/handoff-introducer-host.rkt";
-
-function fail(msg: string): never {
-	console.error(`deno-goblins-handoff FAILED: ${msg}`);
-	Deno.exit(1);
-}
 
 const child = new Deno.Command(RACKET, {
 	args: [HOST_SCRIPT, String(PORT), String(PORT + 1)],
@@ -47,23 +43,13 @@ const child = new Deno.Command(RACKET, {
 
 const stdoutReader = child.stdout.getReader();
 
-async function readSwiss(): Promise<string> {
-	const decoder = new TextDecoder();
-	let buf = "";
-	const deadline = Date.now() + 30_000;
-	while (Date.now() < deadline) {
-		const { value, done } = await stdoutReader.read();
-		if (done) break;
-		buf += decoder.decode(value, { stream: true });
-		const m = buf.match(/"swiss":"([^"]+)"/);
-		if (m) return m[1];
-	}
-	fail("never saw the introducer readiness line");
-}
-
 let ok = false;
 try {
-	const swiss = await readSwiss();
+	const swiss = await readSwiss(
+		stdoutReader,
+		"deno-goblins-handoff",
+		"never saw the introducer readiness line",
+	);
 	console.log(
 		`deno-goblins-handoff: alice published introducer swiss=${swiss} on ${HOST}:${PORT}`,
 	);
@@ -81,7 +67,13 @@ try {
 
 	// The introduction: Alice returns Bob's greeter as a handoff give. The binding
 	// redeems it transparently, so this resolves to an ordinary capability `Ref`.
-	const greeter = await conn.send(introducer, "get-greeter", []) as Ref;
+	const greeter = await conn.send(introducer, "get-greeter", []);
+	if (!(greeter instanceof Ref)) {
+		fail(
+			"deno-goblins-handoff",
+			`introduction did not redeem to a capability: ${JSON.stringify(greeter)}`,
+		);
+	}
 	console.log(
 		"deno-goblins-handoff: introduction redeemed, got the greeter as an ordinary ref",
 	);
@@ -91,7 +83,10 @@ try {
 	// choreography.
 	const reply = await conn.send(greeter, "", ["pancake-carol"]);
 	if (typeof reply !== "string" || !reply.includes("pancake-carol")) {
-		fail(`greeter reply did not carry the name back: ${JSON.stringify(reply)}`);
+		fail(
+			"deno-goblins-handoff",
+			`greeter reply did not carry the name back: ${JSON.stringify(reply)}`,
+		);
 	}
 	console.log(`deno-goblins-handoff: greeter replied: ${reply}`);
 

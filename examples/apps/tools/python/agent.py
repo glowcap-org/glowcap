@@ -11,7 +11,11 @@ import asyncio
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[4] / "bindings" / "python"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "_demo"))
+from python_path import add_bindings_path  # noqa: E402
+from tools_check import make_check  # noqa: E402
+
+add_bindings_path(from_file=__file__, depth=4)
 
 from pancake import VowBroken, connect, tcp_locator  # noqa: E402
 
@@ -26,10 +30,7 @@ async def main() -> None:
         sys.exit(2)
     host, port, nick = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 
-    def check(label: str, ok: bool) -> None:
-        print(f"{nick}: {'ok' if ok else 'FAIL'}, {label}")
-        if not ok:
-            sys.exit(1)
+    check = make_check(nick)
 
     async def broke(coro) -> bool:
         try:

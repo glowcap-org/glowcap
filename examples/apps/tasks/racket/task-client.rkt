@@ -12,7 +12,7 @@
 ;;   (for ([t (board-list b)]) (printf "~a\n" (task-text t)))
 ;;   (board-leave b)
 
-(require "../../../../bindings/racket/pancake.rkt")
+(require "../../_demo/bindings.rkt")
 (provide board-join board-add board-done board-list board-leave (struct-out task))
 
 ;; One task on the board.

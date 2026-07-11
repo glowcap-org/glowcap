@@ -16,23 +16,23 @@ const session_mod = @import("session");
 /// A recognized inbound bootstrap-fetch.
 pub const FetchRequest = struct {
     swissnum: []const u8,
-    answer: model.AnswerId,
+    answer: model.AnswerPosition,
 };
 
 /// A recognized inbound `deposit-gift` bootstrap call.
 pub const DepositRequest = struct {
     gift_id: []const u8,
     gifted: model.view.Reference,
-    answer: ?model.AnswerId,
+    answer: ?model.AnswerPosition,
 };
 
 /// A recognized inbound `withdraw-gift` bootstrap call.
 pub const WithdrawRequest = struct {
     receive: model.view.HandoffReceive,
-    answer: model.AnswerId,
+    answer: model.AnswerPosition,
 };
 
-pub const Action = union(enum) {
+pub const Request = union(enum) {
     fetch: FetchRequest,
     deposit_gift: DepositRequest,
     withdraw_gift: WithdrawRequest,
@@ -354,9 +354,9 @@ pub const GiftRegistry = struct {
 /// Recognize an inbound bootstrap `op:deliver`, or null when the deliver is not a
 /// bootstrap method this peer auto-answers. The bootstrap object is one of *our*
 /// exports, so only a `.near` target can name it (`exportPosition`); a `.far`
-/// target whose partner-named import id happens to be 0 falls through to
+/// target whose partner-named import position happens to be 0 falls through to
 /// ordinary handling instead of being auto-served.
-pub fn pendingBootstrapAction(deliver: model.view.Deliver, session: *const session_mod.Session) model.view.ProjectError!?Action {
+pub fn pendingBootstrapAction(deliver: model.view.Deliver, session: *const session_mod.Session) model.view.ProjectError!?Request {
     const target_export = deliver.target.exportPosition() orelse return null;
     if (target_export.int() != session_mod.BOOTSTRAP_POSITION) return null;
 
@@ -409,11 +409,11 @@ pub fn pendingBootstrapAction(deliver: model.view.Deliver, session: *const sessi
     return null;
 }
 
-fn answerForDeliver(deliver: model.view.Deliver, session: *const session_mod.Session) ?model.AnswerId {
+fn answerForDeliver(deliver: model.view.Deliver, session: *const session_mod.Session) ?model.AnswerPosition {
     return deliver.answer orelse blk: {
         if (deliver.resolve_me_desc) |rmd| {
             if (rmd.position()) |import_position| {
-                break :blk session.answerForResolverImport(model.ImportId.from(import_position));
+                break :blk session.answerForResolverImport(model.ImportPosition.from(import_position));
             }
         }
         break :blk null;
@@ -463,7 +463,11 @@ pub fn resolveForDeposit(
 /// The withdraw responder's verdict.
 pub const WithdrawOutcome = union(enum) {
     /// The withdraw settled: a fulfill carrying the gifted capability, or a
-    /// typed break refusal.
+    /// typed break refusal. The message is borrowed except for one arm: a
+    /// verbatim gifted capability is cloned into the fulfill (the gift row is
+    /// reclaimed before the caller can send), so the caller sends with
+    /// `sendCopying` and then reclaims that one owned arm with
+    /// `freeSettledWithdrawOwned`.
     settled: model.Message,
     /// The gift id names no *live* deposit — the gift is unknown, or its prior
     /// row is already consumed and awaits a re-deposit. `deposit-gift` and
@@ -558,6 +562,19 @@ pub fn resolveForWithdraw(
         .answer = request.answer,
         .resolution = .{ .fulfill = .{ .reference = gifted_copy } },
     } } };
+}
+
+/// Reclaim the one owned arm a `WithdrawOutcome.settled` message may carry.
+/// `resolveForWithdraw` clones a verbatim gifted capability into the fulfill
+/// arm because the gift row is freed before the caller can send it, so once the
+/// message has been copied onto the wire (`Peer.sendCopying`) that clone is
+/// freed here. The re-exported-near arm carries a POD reference and the break
+/// arms carry static reasons, so `freeArgument` on a non-owned fulfill is a
+/// no-op and this is safe to call for every settled withdraw outcome.
+pub fn freeSettledWithdrawOwned(allocator: std.mem.Allocator, msg: model.Message) void {
+    if (msg == .resolve and msg.resolve.resolution == .fulfill) {
+        model.freeArgument(allocator, msg.resolve.resolution.fulfill);
+    }
 }
 
 /// The break reason a refused withdraw reports, keyed on the typed validation

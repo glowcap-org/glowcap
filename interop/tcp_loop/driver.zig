@@ -1,0 +1,248 @@
+//! Live TCP scale proof: many concurrent connections served from one loop
+//! thread through the `LoopBridge` (ADR-0076).
+//!
+//! One completion loop (`net.Loop`) runs a full byte-fed multi-connection
+//! node (`driver.core.Host`) through `driver.LoopBridge`: adoption, the keyed
+//! handshake, per-event serving, the budgeted drive, and the host's action
+//! queue all on a single thread. Many clients dial it at once — each an
+//! ordinary blocking `driver.ConnectedVat` — fetch the published greeter, and
+//! call it several times, every reply asserted. The run then repeats a second
+//! wave over recycled slots, so the proof covers connection churn as well as
+//! concurrency.
+//!
+//! While the first wave's connections are all open and quiescent, the driver
+//! reads the server side's live heap through a counting allocator and prints
+//! the marginal bytes one bridged connection costs, the way
+//! `bench-peer-scaling` reports the sans-io peer's footprint. The figure is
+//! measured and printed, never gated: wall-clock and RSS-shaped numbers on
+//! shared CI hardware flake, and the gating rationale lives in ADR-0073.
+//!
+//! Not part of the hermetic `zig build check`: it binds real loopback sockets
+//! at scale, so it runs as the sibling step `zig build tcp-loop`.
+
+const std = @import("std");
+const pancake = @import("pancake");
+
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
+const actors = pancake.actors;
+const driver = pancake.driver;
+const net = pancake.net;
+
+const frame_cap: usize = 4096;
+const greeting = "hello over the tcp loop";
+
+/// Concurrent connections in each wave, all served by the one loop thread.
+const conns_per_wave: usize = 128;
+/// Two waves, so slot recycling and churn are covered: 256 lifecycles total.
+const waves: usize = 2;
+/// Calls each connection makes, several turns per connection so the proof is
+/// sustained multiplexing, not a single round trip.
+const calls_per_conn: usize = 4;
+
+/// Tracks live heap bytes with a signed atomic delta per allocator op, so the
+/// main thread can read a quiescent steady state the loop thread built.
+const LiveBytes = struct {
+    backing: std.mem.Allocator,
+    live: std.atomic.Value(i64) = .init(0),
+
+    fn allocator(self: *LiveBytes) std.mem.Allocator {
+        return .{
+            .ptr = self,
+            .vtable = &.{ .alloc = alloc, .resize = resize, .remap = remap, .free = free },
+        };
+    }
+
+    fn add(self: *LiveBytes, delta: i64) void {
+        _ = self.live.fetchAdd(delta, .acq_rel);
+    }
+
+    fn alloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
+        const self: *LiveBytes = @ptrCast(@alignCast(ctx));
+        const p = self.backing.rawAlloc(len, alignment, ret_addr);
+        if (p != null) self.add(@intCast(len));
+        return p;
+    }
+
+    fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
+        const self: *LiveBytes = @ptrCast(@alignCast(ctx));
+        if (!self.backing.rawResize(memory, alignment, new_len, ret_addr)) return false;
+        self.add(@as(i64, @intCast(new_len)) - @as(i64, @intCast(memory.len)));
+        return true;
+    }
+
+    fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
+        const self: *LiveBytes = @ptrCast(@alignCast(ctx));
+        const p = self.backing.rawRemap(memory, alignment, new_len, ret_addr) orelse return null;
+        self.add(@as(i64, @intCast(new_len)) - @as(i64, @intCast(memory.len)));
+        return p;
+    }
+
+    fn free(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
+        const self: *LiveBytes = @ptrCast(@alignCast(ctx));
+        self.backing.rawFree(memory, alignment, ret_addr);
+        self.add(-@as(i64, @intCast(memory.len)));
+    }
+};
+
+/// The published actor: answers `greet` with a static greeting; a fresh
+/// instance per connection through the bridge's publish callback.
+const Greeter = struct {
+    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = self;
+        _ = turn;
+        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
+        return .{ .string = greeting };
+    }
+};
+
+fn publishGreeter(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+    _ = ctx;
+    _ = try served.publish("greeter", Greeter, .{});
+}
+
+fn runLoop(loop: *net.Loop, until_closed: usize, out_err: *?anyerror) void {
+    loop.run(.{ .after_closed = until_closed }) catch |err| {
+        out_err.* = err;
+    };
+}
+
+/// Gates the footprint measurement: wave-one clients report in when their
+/// calls are done and hold their connection open until the main thread has
+/// read the warmed heap.
+const Barrier = struct {
+    ready: std.atomic.Value(usize) = .init(0),
+    measured: std.atomic.Value(bool) = .init(false),
+};
+
+/// One client lifecycle: dial, keyed handshake, fetch, `calls_per_conn`
+/// asserted calls, then (in the measured wave) hold the connection open until
+/// the footprint read. `barrier == null` skips the hold — the churn wave.
+fn clientOnce(io: std.Io, allocator: std.mem.Allocator, port: u16, barrier: ?*Barrier) anyerror!void {
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    peer.session_state.limits.max_frame_bytes = frame_cap;
+
+    const read_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(read_buf);
+    const write_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(write_buf);
+
+    const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
+    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
+    defer cv.deinit();
+
+    const greeter = try cv.fetch("greeter");
+    var i: usize = 0;
+    while (i < calls_per_conn) : (i += 1) {
+        var arena_state = std.heap.ArenaAllocator.init(allocator);
+        defer arena_state.deinit();
+        const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{} }, arena_state.allocator());
+        const ok = switch (settled) {
+            .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
+            .broken, .give => false,
+        };
+        if (!ok) return error.WrongReply;
+    }
+
+    if (barrier) |b| {
+        _ = b.ready.fetchAdd(1, .acq_rel);
+        // Fail loud past a wall-clock deadline — an undeadlined spin here is
+        // the same silent-hang class the test/support/wait harness closes for
+        // the hermetic suite. This interop binary cannot import that module
+        // (outside the module path), so the deadline lives inline.
+        const deadline = std.Io.Clock.Timestamp.fromNow(io, .{
+            .raw = std.Io.Duration.fromMilliseconds(15_000),
+            .clock = .real,
+        });
+        while (!b.measured.load(.acquire)) {
+            if (std.Io.Clock.Timestamp.now(io, .real).compare(.gte, deadline)) return error.WaitTimedOut;
+            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+        }
+    }
+}
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // Everything the server side allocates — host, bridge, loop, adopted
+    // peers, vats — runs through the counting allocator, so live bytes at a
+    // warmed steady state divided by the connection count is the marginal
+    // cost of one bridged connection.
+    var counting = LiveBytes{ .backing = allocator };
+    const server_alloc = counting.allocator();
+
+    var host = driver.core.Host.init(server_alloc, [_]u8{0x42} ** 32, .{
+        .frame_cap = frame_cap,
+        .local_turn_budget = actors.Vat.max_batch_local_turns,
+    });
+    defer host.deinit();
+    var bridge = driver.LoopBridge.init(server_alloc, &host, io, .{ .publish = publishGreeter });
+    defer bridge.deinit();
+
+    var loop = try net.Loop.init(server_alloc, driver.LoopBridge.makePeer, @ptrCast(&bridge), .{
+        .frame_cap = frame_cap,
+        .max_conns = conns_per_wave * 2,
+        .listen = 0,
+        .make_conn_ctx = driver.LoopBridge.makeConnCtx,
+        .serve = driver.LoopBridge.serve,
+        .free_conn_ctx = driver.LoopBridge.freeConnCtx,
+    });
+    defer loop.deinit();
+    const port = loop.port.?;
+    var designator_buf: [64]u8 = undefined;
+    const designator = try std.fmt.bufPrint(&designator_buf, "127.0.0.1:{d}", .{port});
+    try bridge.attach(&loop, net.tcp.transport_name, designator);
+
+    const total_lifecycles = conns_per_wave * waves;
+    var loop_err: ?anyerror = null;
+    const loop_thread = try std.Thread.spawn(.{}, runLoop, .{ &loop, total_lifecycles, &loop_err });
+
+    const baseline: i64 = counting.live.load(.acquire);
+
+    const Future = @TypeOf(io.concurrent(clientOnce, .{ io, allocator, port, @as(?*Barrier, null) }) catch unreachable);
+    var futures: [conns_per_wave]Future = undefined;
+
+    // Wave one, measured: every client completes its calls and then holds its
+    // connection open, so the footprint read sees all of them warmed at once.
+    var barrier = Barrier{};
+    for (&futures) |*f| f.* = try io.concurrent(clientOnce, .{ io, allocator, port, @as(?*Barrier, &barrier) });
+    while (barrier.ready.load(.acquire) < conns_per_wave) {
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(5), .real) catch {};
+    }
+    // A beat for the loop thread to go quiescent (parked in poll) before the
+    // heap is read.
+    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .real) catch {};
+    const warmed: i64 = counting.live.load(.acquire);
+    barrier.measured.store(true, .release);
+
+    var first_err: ?anyerror = null;
+    for (&futures) |*f| f.await(io) catch |err| {
+        if (first_err == null) first_err = err;
+    };
+
+    // Wave two, churn: the same count again over recycled slots, no hold.
+    for (&futures) |*f| f.* = try io.concurrent(clientOnce, .{ io, allocator, port, @as(?*Barrier, null) });
+    for (&futures) |*f| f.await(io) catch |err| {
+        if (first_err == null) first_err = err;
+    };
+
+    loop_thread.join();
+    if (loop_err) |err| return err;
+    if (first_err) |err| return err;
+
+    const marginal = @divTrunc(warmed - baseline, @as(i64, @intCast(conns_per_wave)));
+    const at_500k_mib = @divTrunc(marginal * 500_000, 1024 * 1024);
+    std.debug.print(
+        "tcp-loop: OK, {d} concurrent TCP connections per wave x {d} waves ({d} lifecycles), {d} calls each, one loop thread over the Host bridge\n",
+        .{ conns_per_wave, waves, total_lifecycles, calls_per_conn },
+    );
+    std.debug.print(
+        "tcp-loop: measured server-side footprint {d} bytes/connection warmed ({d} connections; ~{d} MiB at 500k), printed not gated (ADR-0073)\n",
+        .{ marginal, conns_per_wave, at_500k_mib },
+    );
+}

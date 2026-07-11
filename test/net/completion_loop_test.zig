@@ -136,7 +136,8 @@ const Greeter = struct {
 const LoopVat = struct {
     vat: actors.Vat,
 
-    fn make(ctx: ?*anyopaque, peer: *engine.Peer) anyerror!?*anyopaque {
+    fn make(ctx: ?*anyopaque, peer: *engine.Peer, slot: usize) anyerror!?*anyopaque {
+        _ = slot;
         const allocator: *const std.mem.Allocator = @ptrCast(@alignCast(ctx.?));
         const self = try allocator.create(LoopVat);
         errdefer allocator.destroy(self);

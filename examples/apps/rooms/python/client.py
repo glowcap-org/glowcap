@@ -12,8 +12,8 @@ The locator is transport-neutral: a ``host:port`` reaches a TCP room, an
 second argument is the room name (entering one that does not exist opens it). The
 last argument is the roster: a comma-separated list of the member nicks to
 expect (default: just you). The client posts only once every roster member is
-present — it learns who is present from its welcome (which names everyone
-already in the room) and from the room's join announcements — and exits 0 once
+present — it learns who is present from the structured presence the room attaches
+to each membership line (the roster on arrival and each join) — and exits 0 once
 it has seen a line from every roster member. Members outside the roster (people
 already chatting in an attached room, say) are printed but never counted, so a
 busy room cannot fake or break the assertion.
@@ -25,50 +25,18 @@ OCapN wire, the room cannot tell which language a member is written in.
 from __future__ import annotations
 
 import asyncio
-import re
+import pathlib
 import sys
 
 from room_client import Directory, Room  # the pancake-backed clients, next to this file
 
-
-async def _enter_or_open(directory: Directory, name: str):
-    """Get a reference to ``name``, opening the room if it does not exist yet.
-    The wire and the ``Directory`` wrapper stay strict — ``enter`` raises on a
-    missing room, ``open`` raises on a taken name — so this leniency is a CLI
-    convenience, here in the app, not in the OCapN layer."""
-    try:
-        return await directory.enter(name)
-    except Exception as err:  # noqa: BLE001
-        if "no room named" not in str(err):
-            raise
-    try:
-        return await directory.open(name)
-    except Exception as err:  # noqa: BLE001
-        if "already exists" not in str(err):
-            raise
-        return await directory.enter(name)  # lost the race; the room is there now
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "_demo"))
+from rooms_cli import enter_or_open  # noqa: E402
 
 
 def _fmt_rooms(rooms: "list[tuple[str, int]]") -> str:
     """Render the live room list for one line of output."""
     return ", ".join(f"{name} ({count})" for name, count in rooms) if rooms else "(none yet)"
-
-
-def _welcome_names(message) -> "list[str] | None":
-    """The welcome ends with the nicks already present: ``… in the room: a, b,
-    c``, the only way to learn about earlier arrivals."""
-    if not message.system:
-        return None
-    m = re.search(r" in the room: (.+)$", message.text)
-    return m.group(1).split(", ") if m else None
-
-
-def _joined_nick(message) -> "str | None":
-    """The room announces each arrival as ``<nick> joined (<count> here)``."""
-    if not message.system:
-        return None
-    m = re.match(r"^(.+) joined \(\d+ here\)$", message.text)
-    return m.group(1) if m else None
 
 
 async def run_client(locator: str, room_name: str, nick: str, line: str, roster: list[str]) -> None:
@@ -78,7 +46,7 @@ async def run_client(locator: str, room_name: str, nick: str, line: str, roster:
     live = await directory.list()
     print(f"[{nick}] rooms: {_fmt_rooms(live)}", flush=True)
     await directory.watch(lambda kind, name, count: print(f"[{nick}] directory: {kind} {name} ({count})", flush=True))
-    room_ref = await _enter_or_open(directory, room_name)
+    room_ref = await enter_or_open(directory, room_name)
     room = await Room.subscribe(directory.conn, room_ref, nick)
     want = set(roster)
     present: set[str] = set()
@@ -87,14 +55,13 @@ async def run_client(locator: str, room_name: str, nick: str, line: str, roster:
     try:
         async for message in room:
             print(f"[{nick}] {message.sender}: {message.text}", flush=True)
-            if message.system:
-                names = _welcome_names(message)
-                if names is not None:
-                    present.update(names)
-                joined = _joined_nick(message)
-                if joined is not None:
-                    present.add(joined)
-            else:
+            if message.presence is not None:
+                # Membership arrives as structure: the roster on entry, or a join/leave.
+                if message.presence.kind == "leave":
+                    present.difference_update(message.presence.names)
+                else:  # roster or join
+                    present.update(message.presence.names)
+            elif not message.system:
                 present.add(message.sender)  # a line is presence too
                 if message.sender in want:
                     seen.add(message.sender)

@@ -61,11 +61,27 @@ not add CapTP semantics that the core lacks.
   actors.
 - `net`: the one place `std.Io` enters, folds the one parser over a stream and
   binds the TCP socket. Not part of the no-I/O core.
-- `driver`: the native application surface above both `actors` and `net`;
-  `ConnectedVat` binds a vat to a live `net.Connection` over a caller-owned
-  `engine.Peer`, and `driver.Host` is the multi-connection tier (one identity,
-  one `engine.Node`, crossed-hellos ownership, `Host.redeem` and
-  interceptor-driven origination, ADR-0068). Adds no CapTP semantics.
+- `driver/core` (`driver_core`): the sans-io serve core the driver stands on —
+  the vat serve loop `Served` (which carries the publish/spawn/fetch verbs),
+  its `ServeOptions`, the shared vocabulary (`Error`, `Identity`, `Capability`,
+  `Settled`), the turn-time `spawnAt`, stateless GC, and the byte-fed
+  multi-connection host core `Host` (node-registered connections,
+  crossed-hellos, auto-redeem, vows, and an action queue the embedder
+  answers). It is `core = true`, so
+  `arch-check` bans I/O here exactly as in `engine`; that ban is what keeps a
+  socket from ever creeping back into the serve core (ADR-0072). A byte-fed
+  consumer (the `libpancake_driver` C ABI, a browser) drives a `Served` or a
+  `Host` directly, net-free.
+- `driver`: the native application surface above `driver_core`, `actors`, and
+  `net`; the I/O bindings that compose the sans-io core. `ConnectedVat` binds a
+  `Served` to a live `net.Connection` over a caller-owned `engine.Peer`;
+  `driver.BlockingHost` is the native Zig blocking multi-connection tier over
+  `driver_core.Host` (ADR-0068/0072); `driver.LoopBridge` feeds that same host
+  from `net.Loop` for the TCP scale path (ADR-0076). Language bindings drive
+  `driver_core.Host` through `libpancake_driver`, not by rebuilding
+  `BlockingHost`. Adds no CapTP semantics. It also owns the `drawSessionSecret`
+  entropy boundary and the transport constructors — the members that must stay
+  above the core's I/O ban.
 - `c_abi/`: the public C ABI family under `src/c_abi/`, grouped the way
   `src/ocapn/` groups the protocol core. It ships as a set of composable
   archives that share types by _layout_, not symbols — `libpancake_ocapn`,
@@ -89,6 +105,21 @@ not add CapTP semantics that the core lacks.
     and the generator's string, then `zig build gen-header-ocapn`; `zig build
     gen-ts-abi` reflects the same constants and struct layouts into the
     TypeScript binding's generated mirror.
+  - `c_abi/driver` (module `c_abi_driver`): `libpancake_driver`, the byte-fed
+    host tier over the C ABI (ADR-0072). An embedder that owns its own loop,
+    sockets, and entropy drives a full multi-connection node with bytes:
+    `pancake_host_conn_feed` hands a connection an inbound frame,
+    `pancake_host_conn_take_outbound` drains an outbound one, and the host's
+    own effects (dials, gift-id entropy, flushes) surface as actions through
+    `pancake_host_next_action` — so publish/fetch/send, vows, projections, and
+    the full three-party handoff run from C with no socket. It wraps
+    `driver_core.Host`, imports
+    `foundation`/`model`/`engine`/`actors`/`driver_core` and `c_abi_shared`,
+    exports only the `pancake_host_*` family plus its own
+    `pancake_host_last_error`, and reuses `c_abi/shared`'s frame and argument
+    vocabulary by layout — the family reads for the `Host` entry type though
+    the archive is named for its module, as `libpancake_net_transport_tcp` →
+    `pancake_tcp_*` does.
   - `c_abi/net_transport` is the grouping directory for the transport archives:
     it holds no source of its own, only one subdirectory per transport,
     mirroring the `libpancake_net_transport_{tcp,inproc,iroh}` archive family.

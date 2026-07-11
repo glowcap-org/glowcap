@@ -148,6 +148,24 @@
            42
            (record* 'desc:import-object 99)))
 
+;; <op:deliver <desc:export 9> ['break 'target unreachable] #f #f>.
+;;
+;; The op:listen break-notification fire the engine emits
+;; (`borrowedListenerFire` in src/ocapn/engine/pipeline_resolution.zig):
+;; a no-answer deliver to the listener whose args are
+;; [Symbol("break"), Symbol(reason)] — the reason as a BARE Symbol,
+;; never an <error> record. Goblins' unmarshaller rejects unknown
+;; records and the upstream conformance suite's
+;; `test_op_listen_to_promise_and_break` asserts exactly this shape,
+;; so a regression to an <error>-record payload must fail hermetically
+;; against this fixture, not only under the opt-in live-Goblins gates.
+(define (op-deliver-listen-break-notification)
+  (record* 'op:deliver
+           (record* 'desc:export 9)
+           (list 'break (string->symbol "target unreachable"))
+           #f
+           #f))
+
 ;; ── ADR-0008 fixtures ──────────────────────────────────────────────
 
 ;; <op:gc-exports [3 7] [1 2]>, Goblins-canonical op:gc-exports per
@@ -464,6 +482,8 @@
         (cons "op_listen_v1_0_wants_partial_false.bin"         op-listen-v1-0-wants-partial-false)
         (cons "op_listen_v1_0_wants_partial_true.bin"          op-listen-v1-0-wants-partial-true)
         (cons "op_deliver_v1_0_with_resolve_me_desc.bin"       op-deliver-v1-0-with-resolve-me-desc)
+        ;; op:listen break-notification fire (bare-Symbol reason)
+        (cons "op_deliver_listen_break_notification.bin"       op-deliver-listen-break-notification)
         (cons "op_gc_exports.bin"                              op-gc-exports)
         (cons "op_gc_answers.bin"                              op-gc-answers)
         (cons "op_handoff_give.bin"                            op-handoff-give)

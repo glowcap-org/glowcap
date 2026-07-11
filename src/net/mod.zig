@@ -46,6 +46,8 @@ pub const readFrameFrom = frame_stream.readFrameFrom;
 pub const drainWholeFrames = frame_stream.drainWholeFrames;
 pub const DrainVerdict = frame_stream.DrainVerdict;
 pub const steady_outbound_bytes = frame_stream.steady_outbound_bytes;
+pub const queueOutboundBytes = frame_stream.queueOutboundBytes;
+pub const reclaimBurst = frame_stream.reclaimBurst;
 
 /// The shared `std.Io` reader/writer scaffolding a byte-source transport wires
 /// its stream through: `stream_shim.Shim(Source)` turns a transport's blocking
@@ -54,6 +56,14 @@ pub const steady_outbound_bytes = frame_stream.steady_outbound_bytes;
 pub const stream_shim = @import("stream_shim.zig");
 
 pub const tcp = @import("transport/tcp.zig");
+
+/// The keyed TCP netlayer (`keyed-tcp`): the same TCP sockets under a durable,
+/// key-derived designator — the listener's Ed25519 public key in canonical
+/// hex, with the socket address riding the `direct-addresses` hint — so a
+/// partner re-dials the same designator across a process restart and the
+/// driver pins the handshake to the dialed key (ADR-0075). See
+/// `transport/tcp_keyed.zig`.
+pub const tcp_keyed = @import("transport/tcp_keyed.zig");
 
 /// The in-process netlayer (`inproc`): a second resident behind the same
 /// contract, with no sockets. It proves the contract is transport-general rather

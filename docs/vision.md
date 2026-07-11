@@ -1,4 +1,4 @@
-# pancake — Vision
+# pancake: Vision
 
 This file is the destination. The shipped inventory in
 [`shipped.md`](shipped.md) tells you where the code is right now; this tells you
@@ -9,40 +9,39 @@ deciding what to build next, build toward this.
 ## The goal
 
 pancake aims to be the most performant OCapN implementation there is, and a
-fully canonical one. Those two goals pull in the same direction here. Canonical
-means a native Zig peer, and a peer written against any binding, can hold a
-complete and correct OCapN conversation with a real Spritely Goblins peer, and
-with each other, with no asterisks. Performant means it does that while treating
+fully canonical one. The two goals pull in the same direction. Canonical means a
+native Zig peer, or a peer written against any binding, can hold a complete and
+correct OCapN conversation with a real Spritely Goblins peer, and with each
+other, with no asterisks. Performant means it does all of that while treating
 every allocation and copy on the wire path as a design event: forbidden,
 intentional, or measured.
 
-There is an order of authority among these goals, and it is never traded.
-Correctness comes first, always: a fast wrong answer is worthless and a
-delightful wrong answer is dangerous. Performance and ergonomics are co-equal
-seconds that are never traded against each other: shipping one without the other
-misses the goal. When two right answers conflict, this ordering is the
-tiebreaker, and the design that refuses the performance-versus-ergonomics trade
-is the one to find.
+These goals have an order of authority, and it is never traded away. Correctness
+comes first, always: a fast wrong answer is worthless, and a delightful wrong
+answer is dangerous. Performance and ergonomics are co-equal seconds, never
+traded against each other, because shipping one without the other misses the
+goal. When two right answers conflict, this order breaks the tie, and the design
+worth finding is the one that honors both instead of sacrificing either.
 
 ## The Number
 
 The destination has a number: one node holds five hundred thousand live CapTP
 sessions. Hold it as a budget, never as a claim. No surface in this repository
-says 500k as an achievement until a gate proves it under real socket load. Until
-then it is a design constraint every struct on the session path answers to.
+calls 500k an achievement until a gate proves it under real socket load. Until
+then it is a design constraint that every struct on the session path answers to.
 
 The portable core is synchronous and does no I/O, so the core alone cannot
-deliver 500k, but it can make 500k impossible, by letting per-session state
-bloat or by allocating on the wire path without naming it. So the core's
-obligation is a per-session footprint small enough, and an allocation discipline
-strict enough, that the adapter is never fighting its own substrate. That
-obligation is a contract the gates defend, and the [ladder](ladder.md) owns its
-numbers: the per-session inline and warmed footprint ceilings, and the wire
-path's steady-state floor of one heap allocation per inbound delivery, the
-owned-frame copy the event model requires, and no more. A field added to session
-state is a withdrawal from that budget and is justified like one. The adapter's
-job, when its day comes, is to turn the budget into a measurement against a real
-socket.
+deliver 500k. What it can do is make 500k impossible, by letting per-session
+state bloat or by allocating on the wire path without naming it. The core's
+obligation, then, is a per-session footprint small enough, and an allocation
+discipline strict enough, that the adapter never has to fight its own substrate.
+The gates defend that obligation, and the [ladder](ladder.md) owns its numbers:
+the per-session inline and warmed footprint ceilings, and the wire path's
+steady-state floor of one heap allocation per inbound delivery, which is the
+owned-frame copy the event model requires and no more. A field added to session
+state is a withdrawal from that budget, and it is justified like one. When the
+adapter's day comes, its job is to turn the budget into a measurement against a
+real socket.
 
 ## Two Surfaces, Both Idiomatic
 
@@ -65,25 +64,25 @@ in the ABI, not in the binding.
 
 Performance and canonicality are necessary but not sufficient. The third thing
 pancake competes on is how obvious it is to build with. An application developer
-in any binding holds one object — a `Connection` — and uses one small
-verb vocabulary, the application surface the
-[bindings contract](../bindings/README.md) enumerates. They fetch a capability by name, spawn a local object, and hand a
-partner a reference to it; the partner calls it back. There is no
-export-position bookkeeping, no manual flush, no hand-rolled receive loop in
-application code, and no protocol vocabulary in the happy path.
+in any binding holds one object, a `Connection`, and uses one small verb
+vocabulary, the application surface the [bindings contract](../bindings/README.md)
+enumerates. They fetch a capability by name, spawn a local object, and hand a
+partner a reference to it, and the partner calls it back. Application code
+carries no export-position bookkeeping, no manual flush, no hand-rolled receive
+loop, and no protocol vocabulary on the happy path.
 
 This surface is composition, not abstraction. Every layer underneath stays
 present and visible: the `Connection` composes the sans-io peer, the actor vat,
 and the I/O adapter, and a consumer who outgrows it finds the peer one property
-access away (`conn.peer`) for handoff, pipelining, and session control. The
+access away, at `conn.peer`, for handoff, pipelining, and session control. The
 capability patterns that make object-capability networking worth choosing are
-ordinary code: delegation is passing a reference, while attenuation (a view
-that forwards only the allow-listed verbs) and revocation (a forwarder you can
-sever) are one `conn.attenuate` or `conn.caretaker` call each (ADR-0064). They are the reason pancake fits
-services, real-time apps, and AI agent harnesses equally, and each is proven by
-a runnable cross-language example (`zig build demo-rooms`, `demo-tasks`,
-`demo-tools`). The bar is that a developer reads thirty lines and builds, and
-what they build is least-authority by construction.
+ordinary code here. Delegation is passing a reference. Attenuation, a view that
+forwards only the allow-listed verbs, and revocation, a forwarder you can sever,
+are one `conn.attenuate` or `conn.caretaker` call each (ADR-0064). Those
+patterns are why pancake fits services, real-time apps, and AI agent harnesses
+equally, and a runnable cross-language example proves each one: `zig build
+demo-rooms`, `demo-tasks`, and `demo-tools`. The bar is that a developer reads
+thirty lines and builds, and what they build is least-authority by construction.
 
 ## Pluggable By Contract
 
@@ -96,28 +95,28 @@ boundary is in the wrong place.
 ## Reachable On Modern Networks
 
 OCapN is built so CapTP rides any netlayer, and the netlayer is where
-reachability lives. A locator names a peer by a designator — conventionally a
-self-authenticating public key — with a transport that picks the netlayer and
-hints that carry whatever that netlayer needs to reach the peer. The same
+reachability lives. A locator names a peer by a designator, conventionally a
+self-authenticating public key. A transport picks the netlayer, and hints carry
+whatever that netlayer needs to reach the peer. The same
 locator bootstraps a session in band as Syrup or out of band as an
 `ocapn://<designator>.<transport>` URI. pancake takes that literally: a peer is
 named by a key, addresses are hints, and one locator form opens a session over
 whichever netlayer the peer speaks.
 
-Two peers that cannot open a raw socket to each other still have to talk, and
-OCapN names peer reachability without further configuration a desired property
-of a netlayer. The canonical one, Tor onion, provides it. pancake should ship a
+Two peers that cannot open a raw socket to each other still have to talk. OCapN
+makes "reachability without further configuration" a desired property of a
+netlayer, and the canonical one, Tor onion, provides it. pancake should ship a
 netlayer that gives that reachability on the modern internet: a
 self-authenticating node identity as the designator, NAT traversal and relays so
-a peer behind a home router is reachable without port-forwarding, an encrypted
-ordered channel underneath. A QUIC-based peer-to-peer netlayer in the iroh shape
-is the obvious fit: its node id is OCapN's self-authenticating designator, its
-relays and hole-punching give "reachable without further configuration," and its
-QUIC streams are the secure, ordered, bidirectional channel a netlayer must
-provide. It belongs behind the same netlayer contract the TCP adapter uses,
-above the sans-io core and never inside it, so the core never learns it exists.
-That is the answer to "is iroh in scope": yes, as a netlayer, never as a core
-dependency.
+a peer behind a home router is reachable without port-forwarding, and an
+encrypted ordered channel underneath. A QUIC-based peer-to-peer netlayer in the
+iroh shape is the obvious fit: its node id is OCapN's self-authenticating
+designator, its relays and hole-punching give "reachable without further
+configuration," and its QUIC streams are the secure, ordered, bidirectional
+channel a netlayer must provide. It belongs behind the same netlayer contract
+the TCP adapter uses, above the sans-io core and never inside it, so the core
+never learns it exists. That is the answer to "is iroh in scope": yes, as a
+netlayer, never as a core dependency.
 
 Peer-to-peer is also a capability-graph property, not only a transport one. A
 peer handing another peer a live reference to a third peer it has never met is
@@ -152,17 +151,15 @@ about.
   pancake or Goblins peer can do can be exercised, replayed, and attacked under
   test.
 
-"Library first" applies to the core; actors and griddle live above the library
-line so the core never pays for them. The actor layer is real in every binding
+"Library first" applies to the core: actors and griddle live above the library
+line, so the core never pays for them. The actor layer is real in every binding
 and in native Zig, reached through the one application surface described above.
-Three runnable cross-language applications prove the dial half on one wire:
-`zig build demo-rooms` (real-time chat), `demo-tasks` (CRUD with promises and
-live updates), and `demo-tools` (an agent harness proving delegation,
-attenuation, and revocation), each joining clients in Zig, Rust, Python, Racket,
-and Deno; the accountability application's Zig host and the driver loopback test
-prove the hosting half. `griddle` is not implemented. Say where each piece
-actually stands when asked; do not narrate the unbuilt parts as if they already
-run.
+Three runnable cross-language applications prove the dial half on one wire
+(`demo-rooms`, `demo-tasks`, `demo-tools`), each joining clients in Zig, Rust,
+Python, Racket, and Deno. The accountability application's Zig host and the
+driver loopback test prove the hosting half. `griddle` is not implemented. Say
+where each piece actually stands when asked, and do not narrate the unbuilt parts
+as if they already run.
 
 ## What Never Gets Traded
 

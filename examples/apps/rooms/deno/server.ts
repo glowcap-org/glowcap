@@ -41,7 +41,8 @@ import {
 	Ref,
 } from "@pancake/stack";
 import { listenIroh, Reachability } from "@pancake/iroh";
-import { dial, isUriLocator } from "./locator.ts";
+import { dial, isUriLocator } from "./lib/locator.ts";
+import { NICK_TAKEN, NO_SUCH_ROOM, PEER_OFFLINE, ROOM_EXISTS, RoomError } from "./lib/errors.ts";
 import {
 	DIRECTORY,
 	ENTER,
@@ -54,7 +55,7 @@ import {
 	REGISTER,
 	SUBSCRIBE,
 	WATCH,
-} from "./protocol.ts";
+} from "./lib/protocol.ts";
 
 /** One subscriber: the nickname it chose and the capability to call it back on,
  * plus the connection that capability lives on (a far ref is sent over the
@@ -78,12 +79,24 @@ interface RoomState {
 
 const rooms = new Map<string, RoomState>();
 
-/** Introducible members, by nick: the `dm` reference the directory fetched from
- * each member's own endpoint. Each reference's `home` is the directory↔member
- * connection the directory dialed, so returning one from `introduce` trips the
- * binding's transparent gifter, the directory deposits the gift with the member
- * and answers the caller with a `desc:handoff-give`, never relaying the DM. */
-const introductions = new Map<string, Ref>();
+/** One introducible member. `dm` is the reference the directory fetched from the
+ * member's own endpoint, `toMember` is the directory↔member connection that
+ * reference lives on, and `registrar` is the caller connection whose `register`
+ * created the whole thing. Because `dm`'s home is `toMember`, returning it from
+ * `introduce` trips the binding's transparent gifter: the directory deposits the
+ * gift with the member and answers the caller with a `desc:handoff-give`, rather
+ * than relaying the DM itself. `registrar` is how a disconnect cleans this up.
+ * When the member's own session to the directory ends, the directory withdraws
+ * the introduction and closes `toMember`. */
+interface Introduction {
+	nick: string;
+	dm: Ref;
+	toMember: Connection;
+	registrar: Connection;
+}
+
+/** Introducible members, by nick. */
+const introductions = new Map<string, Introduction>();
 
 /** Members whose dial-back is in flight, so a second `register` for the same
  * nick (a reconnect) does not start a duplicate dial. */
@@ -129,12 +142,29 @@ async function registerMember(
 			}));
 		}
 		const dm = await toMember.fetch("dm");
-		introductions.set(key, dm);
+		introductions.set(key, { nick, dm, toMember, registrar: conn });
 		// Deterministic readiness: the member learns its nick is introducible only
 		// once the dial-back has the `dm` in hand.
 		conn.tell(inbox, NOTIFY, ["registered", nick]).catch(() => {});
+		// Tell every directory watcher this nick is now reachable for direct
+		// messages, so a UI can offer to introduce people to it.
+		notifyWatchers("registered", nick, 1);
 	} finally {
 		registering.delete(key);
+	}
+}
+
+/** Withdraw every introduction a closing connection registered: drop the nick so
+ * `introduce` stops handing out a stale gift, close the directory's own dial-back
+ * to that member, and tell the watchers the nick is gone. */
+function dropIntroductions(conn: Connection): void {
+	for (const [key, intro] of [...introductions]) {
+		if (intro.registrar !== conn) continue;
+		introductions.delete(key);
+		try {
+			intro.toMember.close();
+		} catch { /* already closed */ }
+		notifyWatchers("unregistered", intro.nick, 0);
 	}
 }
 
@@ -202,9 +232,17 @@ function claimedByAnother(
  * capability it gave us. `tell` is the fire-and-forget eventual-send: a notify
  * wants no reply, so it costs one deliver with no answer round-trip. A member
  * whose socket has died is dropped from every room it joined. */
-function broadcast(state: RoomState, from: string, text: string): void {
+function broadcast(
+	state: RoomState,
+	from: string,
+	text: string,
+	...presence: string[]
+): void {
+	// A presence line carries structured trailing args after the display text — a
+	// join/leave kind and the nick — so a member reads the change without parsing the
+	// prose. A chat line passes none.
 	for (const m of [...state.members]) {
-		m.conn.tell(m.inbox, NOTIFY, [from, text]).catch(() => leaveAll(m.conn));
+		m.conn.tell(m.inbox, NOTIFY, [from, text, ...presence]).catch(() => leaveAll(m.conn));
 	}
 }
 
@@ -229,6 +267,8 @@ function leaveRoom(
 					state,
 					"room",
 					`${member.nick} left (${state.members.length} here)`,
+					"leave",
+					member.nick,
 				);
 			}
 		}
@@ -256,6 +296,7 @@ function leaveAll(conn: Connection): void {
 		}
 	}
 	dropWatchers(conn);
+	dropIntroductions(conn);
 }
 
 /** The room behavior for one connection. The room grants at most one live
@@ -270,14 +311,14 @@ function roomBehavior(state: RoomState, conn: Connection) {
 				throw new Error("subscribe needs an inbox capability");
 			}
 			if (claimedByAnother(state, conn, nick)) {
-				throw new Error(`name "${nick}" is already claimed`);
+				throw new RoomError(NICK_TAKEN, `name "${nick}" is already claimed`);
 			}
 			// A resubscribe (same connection re-claiming) nets no count change, so it
 			// must not fire a discovery event; a fresh membership does.
 			const wasMember = findByConn(state, conn) !== null;
 			if (wasMember) leaveRoom(state, conn, true);
 			state.members.push({ nick, inbox, conn });
-			broadcast(state, "room", `${nick} joined (${state.members.length} here)`);
+			broadcast(state, "room", `${nick} joined (${state.members.length} here)`, "join", nick);
 			if (!wasMember) {
 				notifyWatchers(
 					state.members.length === 1 ? "opened" : "count",
@@ -285,12 +326,19 @@ function roomBehavior(state: RoomState, conn: Connection) {
 					state.members.length,
 				);
 			}
-			// The welcome names everyone present: join announcements only reach
-			// members already in the room, so this list is how a late joiner learns
-			// who arrived before it.
-			return `welcome ${nick} — ${state.members.length} in the room: ${
-				state.members.map((m) => m.nick).join(", ")
-			}`;
+			// The new member's welcome names everyone present and carries the roster as
+			// structured trailing args ("roster" then each nick), so it learns who
+			// arrived before it without parsing the text. It goes to the new member
+			// alone; `subscribe` itself returns a bare ack — success is the resolution, a
+			// claimed nick is the rejection above.
+			const names = state.members.map((m) => m.nick);
+			conn.tell(inbox, NOTIFY, [
+				"room",
+				`welcome ${nick} — ${names.length} in the room: ${names.join(", ")}`,
+				"roster",
+				...names,
+			]).catch(() => leaveAll(conn));
+			return null;
 		}
 		if (verb === POST) {
 			const member = findByConn(state, conn);
@@ -339,19 +387,19 @@ export function directoryBehavior(conn: Connection, node: Node) {
 		}
 		if (verb === INTRODUCE) {
 			const nick = typeof args[0] === "string" ? args[0] : "";
-			const dm = introductions.get(nickKey(nick));
-			if (dm === undefined) {
-				throw new Error(`no member named "${nick}" is registered`);
+			const intro = introductions.get(nickKey(nick));
+			if (intro === undefined) {
+				throw new RoomError(PEER_OFFLINE, `no member named "${nick}" is registered`);
 			}
 			// Returning a reference whose home is the directory↔member connection
 			// trips the transparent gifter: the caller gets a give, not a relay.
-			return dm;
+			return intro.dm;
 		}
 		const name = typeof args[0] === "string" ? args[0] : "";
 		if (verb === OPEN) {
 			if (name.length === 0) throw new Error("open needs a room name");
 			if (rooms.has(roomKey(name))) {
-				throw new Error(`room "${name}" already exists`);
+				throw new RoomError(ROOM_EXISTS, `room "${name}" already exists`);
 			}
 			const state: RoomState = { name, members: [], creator: conn };
 			rooms.set(roomKey(name), state);
@@ -359,7 +407,7 @@ export function directoryBehavior(conn: Connection, node: Node) {
 		}
 		if (verb === ENTER) {
 			const state = rooms.get(roomKey(name));
-			if (state === undefined) throw new Error(`no room named "${name}"`);
+			if (state === undefined) throw new RoomError(NO_SUCH_ROOM, `no room named "${name}"`);
 			return conn.spawn(roomBehavior(state, conn));
 		}
 		if (verb === LIST) return snapshot();
@@ -369,6 +417,13 @@ export function directoryBehavior(conn: Connection, node: Node) {
 				throw new Error("watch needs an inbox capability");
 			}
 			watchers.push({ observer, conn });
+			// Replay the members already introducible for direct messages, so a
+			// fresh watcher (a browser tab, say) starts with the same DM-able set
+			// everyone else already knows. The room-list baseline is the return
+			// value; these arrive as ordinary deltas on the inbox.
+			for (const intro of introductions.values()) {
+				conn.tell(observer, NOTIFY, ["registered", intro.nick, 1n]).catch(() => {});
+			}
 			return snapshot(); // a baseline; deltas follow on the inbox
 		}
 		throw new Error(`directory has no method ${verb}`);
@@ -426,8 +481,13 @@ if (import.meta.main) {
 		// One shared node across the iroh listener and the directory behavior, so
 		// `register`'s dial-back and `introduce`'s gift origination present one
 		// identity, what a cross-process three-party handoff over iroh requires.
-		const node = new Node();
-		const iroh = listenIroh(Reachability.Direct, undefined, node);
+		// One seed for the node identity AND the endpoint, so every accepted
+		// session signs with the endpoint's own key: iroh's designator is that
+		// key, and a dialer that pins the session identity to the node id it
+		// dialed (the Zig rooms client) verifies exactly this.
+		const seed = crypto.getRandomValues(new Uint8Array(32));
+		const node = new Node(seed);
+		const iroh = listenIroh(Reachability.Direct, seed, node);
 		console.log(`ROOMS-SERVER-LISTENING ${iroh.uri}`);
 		await serveDirectory(iroh, node);
 	} else {

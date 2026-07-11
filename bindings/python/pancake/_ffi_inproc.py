@@ -7,7 +7,7 @@ symbol-disjoint from the core ``libpancake_ocapn``: it carries the
 the TCP endpoints — two peers in one process wired by in-process pipes, no
 kernel transport and no file descriptors — and a listener binds to an opaque
 string designator rather than a ``host:port``. This module loads only that
-archive, reusing the shared ``Structure`` types from :mod:`pancake._ffi_core` by
+archive, reusing the shared ``Structure`` types from :mod:`pancake._ffi_ocapn` by
 layout. Nothing here is public; :mod:`pancake.inproc` is the ergonomic surface
 over it.
 """
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import ctypes
 
-from ._ffi_core import _Frame, _Lib, _ManagedFrame, _bind, _lib_path
+from ._ffi_ocapn import _Frame, _Lib, _ManagedFrame, _bind, _lib_path
 
 
 def _load():

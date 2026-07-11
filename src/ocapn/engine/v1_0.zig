@@ -61,7 +61,7 @@ pub fn installResolverForOutboundDeliver(peer: *Peer, deliver: model.Deliver) !m
 /// `op:listen` must reach the wire *after* the projection that opened the
 /// answer; the caller orders the two pushes. V1.0 sessions only — the caller
 /// gates on `Session.needsV1_0Translation`.
-pub fn installListenerForOutboundProjection(peer: *Peer, projected_answer: model.AnswerId) !void {
+pub fn installListenerForOutboundProjection(peer: *Peer, projected_answer: model.AnswerPosition) !void {
     // Mint the resolver export and commit its answer link and wire-delta retain
     // through the session's single accounting seam (see
     // `installResolverForOutboundDeliver`), then carry the mention on `op:listen`.
@@ -118,7 +118,7 @@ pub fn encodeResolveAsCallback(peer: *Peer, resolve: model.Resolve) !void {
 pub const InboundIntercept = union(enum) {
     /// The deliver targets one of our resolver exports: it settles the inbound
     /// `answer` carried here, and the caller surfaces a semantic `Resolve`.
-    settles_answer: model.AnswerId,
+    settles_answer: model.AnswerPosition,
     /// An ordinary deliver (to a local object, a pipelined answer, or the
     /// bootstrap export). `answer_override` is non-null only when the deliver
     /// carried a `resolve_me_desc` but no wire answer-position: the session
@@ -126,7 +126,7 @@ pub const InboundIntercept = union(enum) {
     /// application's reply routes back through the resolver callback. A deliver
     /// that already had a wire answer needs no override (the frame carries it),
     /// so `answer_override` stays null.
-    ordinary: ?model.AnswerId,
+    ordinary: ?model.AnswerPosition,
 };
 
 /// Intercept an inbound V1.0 deliver, *installing session authority* for the
@@ -159,7 +159,7 @@ pub fn interceptInboundDeliver(peer: *Peer, deliver: model.view.Deliver) !Inboun
                 try peer.session_state.installInboundAnswer(virtual);
                 break :blk virtual;
             };
-            try peer.session_state.installInboundResolver(answer, model.ImportId.from(import_position));
+            try peer.session_state.installInboundResolver(answer, model.ImportPosition.from(import_position));
             // A resolver-only deliver (no wire answer) surfaces with the virtual
             // answer so the application's reply has a target; a deliver that
             // already carried a wire answer surfaces unchanged.

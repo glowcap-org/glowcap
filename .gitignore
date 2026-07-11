@@ -22,6 +22,9 @@ transports/iroh/target/
 **/__pycache__/
 **/*.pyc
 bindings/ts/node_modules/
+# Deno resolves npm/jsr specifiers (e.g. the rooms app's zod) into a deno.lock. The
+# specifiers are version-pinned, so the lock is generated, never committed.
+deno.lock
 # Racket bytecode: compiling a Racket source (bench-langs precompiles its
 # clients so cold-start measures startup, not recompilation) writes a
 # `compiled/` dir of `.zo`/`.dep` next to that source and every dependency it
@@ -33,8 +36,16 @@ bindings/ts/node_modules/
 # here at run time; generated state, never committed.
 examples/apps/accountability-on-pancake/.data/
 
+# The rooms browser UI is authored as ui/page.ts and bundled to ui/page.js (on the
+# fly by web.ts in dev, or pre-built with `deno bundle` for the network-free deploy).
+# Generated, never committed.
+examples/apps/rooms/deno/ui/page.js
+
 # local scratch: reference clones, throwaway experiments (never committed)
 .local/
 
 # per-machine agent-harness settings, never committed
 .claude/settings.local.json
+
+# local env files carry per-host infrastructure names; only .env.example is tracked
+.env

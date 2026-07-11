@@ -266,7 +266,7 @@ pub fn cloneArgumentSlice(allocator: std.mem.Allocator, items: []const model.Arg
     return cloned;
 }
 
-fn freeArgumentSlice(allocator: std.mem.Allocator, items: []const model.Argument) void {
+pub fn freeArgumentSlice(allocator: std.mem.Allocator, items: []const model.Argument) void {
     for (items) |item| {
         freeArgument(allocator, item);
     }

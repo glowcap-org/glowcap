@@ -16,32 +16,18 @@
 ;; The fifth argument is the roster: a comma-separated list of the member nicks
 ;; to expect (default: just you). An optional timeout in milliseconds defaults to
 ;; 15000. The client posts only once every roster member is present — it learns
-;; who is present from its welcome (which names everyone already in the room) and
-;; from the room's join announcements — and exits 0 once it has seen a line from
-;; every roster member. Members outside the roster (people already chatting in an
+;; who is present from the structured presence the room attaches to each
+;; membership line (the roster on arrival and each join) — and exits 0 once it has
+;; seen a line from every roster member. Members outside the roster (people already chatting in an
 ;; attached room, say) are printed but never counted, so a busy room cannot fake
 ;; or break the assertion.
 ;;
 ;; This is the same application as the Deno, Python, Rust, and Zig clients, on one
 ;; OCapN wire — the room cannot tell which language a member is written in.
 
-(require "room-client.rkt" racket/string)
-
-;; Get a reference to the named room, opening it if it does not exist yet. The
-;; wire and the directory wrapper stay strict — `dir-enter` raises on a missing
-;; room, `dir-open` raises on a taken name — so this leniency is a CLI
-;; convenience, here in the app, composed from the strict verbs.
-(define (enter-or-open d name)
-  (with-handlers ([exn? (lambda (e)
-                          (cond
-                            [(regexp-match? #rx"no room named" (exn-message e))
-                             (with-handlers ([exn? (lambda (e2)
-                                                     (if (regexp-match? #rx"already exists" (exn-message e2))
-                                                         (dir-enter d name) ; lost the race; it is there now
-                                                         (raise e2)))])
-                               (dir-open d name))]
-                            [else (raise e)]))])
-    (dir-enter d name)))
+(require "room-client.rkt"
+         "../../_demo/rooms_cli.rkt"
+         racket/string)
 
 ;; Render the live room list for one line of output.
 (define (format-rooms rooms)
@@ -59,20 +45,11 @@
   (dir-watch d (lambda (kind name count)
                  (printf "[~a] directory: ~a ~a (~a)\n" nick kind name count)
                  (flush-output)))
-  (room-subscribe (directory-conn d) (enter-or-open d room-name) nick))
-
-;; The welcome ends with the nicks already present: "… in the room: a, b, c",
-;; the only way to learn about earlier arrivals.
-(define (welcome-names msg)
-  (and (message-system? msg)
-       (let ([m (regexp-match #rx" in the room: (.+)$" (message-text msg))])
-         (and m (string-split (cadr m) ", ")))))
-
-;; The room announces each arrival as "<nick> joined (<count> here)".
-(define (joined-nick msg)
-  (and (message-system? msg)
-       (let ([m (regexp-match #rx"^(.+) joined \\([0-9]+ here\\)$" (message-text msg))])
-         (and m (cadr m)))))
+  (room-subscribe (directory-conn d)
+                  (enter-or-open (lambda (n) (dir-enter d n))
+                                 (lambda (n) (dir-open d n))
+                                 room-name)
+                  nick))
 
 (define (room-next/timeout room timeout-seconds)
   (define ch (make-channel))
@@ -115,12 +92,13 @@
           (printf "[~a] ~a: ~a\n" nick (message-sender msg) (message-text msg))
           (flush-output)
           (cond
-            [(message-system? msg)
-             (let ([names (welcome-names msg)])
-               (when names (for ([n (in-list names)]) (hash-set! present n #t))))
-             (let ([joined (joined-nick msg)])
-               (when joined (hash-set! present joined #t)))]
-            [else
+            [(message-presence msg)
+             => (lambda (p)
+                  ;; Membership arrives as structure: the roster on entry, or a join/leave.
+                  (if (string=? (presence-kind p) "leave")
+                      (for ([n (in-list (presence-names p))]) (hash-remove! present n))
+                      (for ([n (in-list (presence-names p))]) (hash-set! present n #t))))]
+            [(not (message-system? msg))
              (hash-set! present (message-sender msg) #t) ; a line is presence too
              (when (member (message-sender msg) roster)
                (hash-set! seen (message-sender msg) #t))])

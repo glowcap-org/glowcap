@@ -22,45 +22,19 @@
 ;; Needs `racket` plus the `goblins` collection on PATH; run via
 ;; `zig build racket-goblins-handoff`.
 
-(require "../../bindings/racket/pancake.rkt")
+(require "../../bindings/racket/pancake.rkt"
+         "../_common/racket/helpers.rkt")
 
 (define HOST "127.0.0.1")
-;; Alice's port; Bob (the exporter) listens on PORT+1. --port=N (from
-;; `zig build racket-goblins-handoff -Dport=N`) moves the pair when 22116 is taken.
-(define PORT
-  (let loop ([args (vector->list (current-command-line-arguments))])
-    (cond
-      [(null? args) 22116]
-      [(regexp-match #px"^--port=(\\d+)$" (car args))
-       => (lambda (m)
-            (define p (string->number (cadr m)))
-            (unless (<= 1 p 65534)
-              (eprintf "racket-goblins-handoff: --port must be in 1..65534 (bob listens on port+1)\n")
-              (exit 2))
-            p)]
-      [else
-       (eprintf "racket-goblins-handoff: unknown argument ~a\n" (car args))
-       (exit 2)])))
+(define PORT (parse-port "racket-goblins-handoff" 22116 65534))
 (define RACKET "/usr/local/bin/racket")
 (define HOST-SCRIPT "conformance/goblins-peer/racket/handoff-introducer-host.rkt")
-
-(define (fail msg)
-  (eprintf "racket-goblins-handoff FAILED: ~a\n" msg)
-  (exit 1))
-
-(define (read-swiss port)
-  (let loop ()
-    (define line (read-line port))
-    (cond
-      [(eof-object? line) (fail "alice exited before publishing the introducer")]
-      [(regexp-match #px"\"swiss\":\"([^\"]+)\"" line) => cadr]
-      [else (loop)])))
 
 (define-values (proc proc-out proc-in proc-err)
   (subprocess #f #f #f RACKET HOST-SCRIPT (number->string PORT) (number->string (+ PORT 1))))
 
 (with-handlers ([(lambda (_) #t) (lambda (e) (subprocess-kill proc #t) (raise e))])
-  (define swiss (read-swiss proc-out))
+  (define swiss (read-swiss proc-out "alice exited before publishing the introducer"))
   (printf "racket-goblins-handoff: alice published introducer swiss=~a on ~a:~a\n" swiss HOST PORT)
 
   ;; `connect` completes the keyed handshake; the machine's retained identity is

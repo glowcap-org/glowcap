@@ -1,0 +1,17 @@
+{
+  "//": "Browser scope: these modules run in the browser (entered through main.ts), so they type-check against the DOM libs (not Deno's server globals). web.ts bundles them to /page.js via `deno bundle`. The fmt block mirrors the root deno.json so ui/ formats identically whether deno fmt runs from here or the repo root, and the zod import mirrors the root so the shared lib/wire.ts schema resolves in the browser bundle.",
+  "imports": {
+    "zod": "npm:zod@3.23.8"
+  },
+  "compilerOptions": {
+    "lib": ["dom", "dom.iterable", "esnext"]
+  },
+  "fmt": {
+    "useTabs": true,
+    "indentWidth": 4,
+    "lineWidth": 100,
+    "semiColons": true,
+    "singleQuote": false,
+    "include": ["*.ts", "page.css", "page.html"]
+  }
+}

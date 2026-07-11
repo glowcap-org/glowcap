@@ -63,7 +63,7 @@ test "decodeBody projects the neutral view with lazy capnp backings (nested args
     const body = try capnp.decodeBody(frame.view());
     // Wire `far` (sender's import) flips to a `near` export on decode (ADR-0010).
     try std.testing.expectEqual(@as(u64, 9), body.deliver.target.near.export_position.int());
-    try std.testing.expectEqual(@as(?model.AnswerId, .from(5)), body.deliver.answer);
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(5)), body.deliver.answer);
 
     try std.testing.expectEqual(@as(usize, 2), try body.deliver.args.len());
     try std.testing.expectEqualSlices(u8, "ping", (try body.deliver.args.at(0)).bytes);
@@ -140,11 +140,14 @@ test "a Struct with duplicate keys is refused on the live view path" {
     @memcpy(buf[second_key .. second_key + 2], "k1");
     const view = pancake.foundation.FrameView{ .bytes = buf, .shape = .word };
 
-    // Framing stays lazy (the header delimits the frame), so the body projects;
-    // the refusal fires the moment the struct argument itself is projected.
-    const body = try capnp.decodeBody(view);
-    try std.testing.expectError(error.MalformedView, body.deliver.args.at(0));
-    try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, view));
+    // `decodeBody` runs the eager traversal-budget charge pass (the remote-DoS
+    // bound), which walks every argument once to spend the per-frame budget —
+    // and that walk reads each struct through the same `neutralStructBacking`
+    // the lazy path uses, so the ascending-key rule is enforced at the parse
+    // boundary. A duplicate key is thus refused the instant the frame decodes,
+    // before any borrowed view escapes, not only on a later owned re-walk.
+    try std.testing.expectError(error.MalformedFrame, capnp.decodeBody(view));
+    try std.testing.expectError(error.MalformedFrame, capnp.decodeOwned(allocator, view));
 }
 
 test "the Cap'n Proto encoder refuses a Set carrying a duplicate element" {
@@ -209,9 +212,11 @@ test "a Struct with descending keys is refused: decode requires the encoder's as
     @memcpy(buf[first_key .. first_key + 2], "k3");
     const view = pancake.foundation.FrameView{ .bytes = buf, .shape = .word };
 
-    const body = try capnp.decodeBody(view);
-    try std.testing.expectError(error.MalformedView, body.deliver.args.at(0));
-    try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, view));
+    // As with the duplicate-key case, the eager charge pass in `decodeBody`
+    // enforces the strictly-ascending-key rule at the parse boundary, so a
+    // descending pair is refused the moment the frame decodes.
+    try std.testing.expectError(error.MalformedFrame, capnp.decodeBody(view));
+    try std.testing.expectError(error.MalformedFrame, capnp.decodeOwned(allocator, view));
 }
 
 test "a big integer argument round-trips through the Cap'n Proto codec" {
@@ -631,4 +636,70 @@ test "decodeOwned bounds nesting depth: an over-deep frame fails loud, never ove
     // The bound fires with a typed error; the testing allocator also proves the
     // rejection path freed every partial allocation (no leak on the error path).
     try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, frame.view()));
+}
+
+test "an aliasing composite DAG exhausts the traversal budget instead of amplifying" {
+    const allocator = std.testing.allocator;
+
+    // Hand-build the amplification shape the encoder can never emit: a chain of
+    // D composite lists where BOTH elements of level i point at the ONE shared
+    // level i+1 list. The frame holds only D+1 lists (~1.3 KB), but a naive
+    // walk visits 2^i nodes at level i — 2^31 total for D=30 — because Cap'n
+    // Proto pointers may alias. The single-byte-flip corruption tests mutate
+    // valid tree frames and can never synthesize these converging offsets, so
+    // this construction is the only pressure on the traversal budget
+    // (`shared.traversalBudget`, seeded from the segment word count), which
+    // must refuse the frame in bounded time with the malformed-frame error.
+    const levels_deep: usize = 30;
+    const list_arg: u64 = @intFromEnum(capnp.shared.ArgKind.list);
+    const void_arg: u64 = @intFromEnum(capnp.shared.ArgKind.void);
+    // Each level: composite tag + 2 elements of stride 2 (1 data word for the
+    // ArgKind discriminant, 1 pointer word to the next level).
+    const list_body_words: u29 = 4;
+
+    var b = wire.Builder{};
+    defer b.deinit(allocator);
+
+    // Pre-allocate every word so forward pointers (root -> envelope -> deliver
+    // body, level i -> level i+1) target known indices.
+    const root = try b.allocWords(allocator, 1);
+    const env = try b.allocWords(allocator, 2); // Kind data word + body pointer
+    const body = try b.allocWords(allocator, 3); // flags + target ptr + args ptr
+    const target = try b.allocWords(allocator, 2); // RefTag + scalar
+    var levels: [levels_deep + 1]usize = undefined;
+    for (0..levels_deep + 1) |i| {
+        levels[i] = try b.allocWords(allocator, 1 + list_body_words);
+    }
+
+    b.set(root, wire.encodeStructPointer(wire.Builder.offsetTo(root, env), 1, 1));
+    b.set(env, @intFromEnum(capnp.shared.Kind.deliver));
+    b.set(env + 1, wire.encodeStructPointer(wire.Builder.offsetTo(env + 1, body), 1, 2));
+    b.set(body, 0); // flags: no answer, no resolve-me
+    b.set(body + 1, wire.encodeStructPointer(wire.Builder.offsetTo(body + 1, target), 2, 0));
+    b.set(body + 2, wire.encodeListPointer(wire.Builder.offsetTo(body + 2, levels[0]), .composite, list_body_words));
+    b.set(target, @intFromEnum(capnp.shared.RefTag.far));
+    b.set(target + 1, 0);
+
+    for (0..levels_deep + 1) |i| {
+        const tag = levels[i];
+        b.set(tag, wire.Builder.compositeTag(2, 1, 1));
+        const leaf = i == levels_deep;
+        const disc: u64 = if (leaf) void_arg else list_arg;
+        b.set(tag + 1, disc); // element 0 data
+        b.set(tag + 3, disc); // element 1 data
+        if (!leaf) {
+            const child = levels[i + 1];
+            // Both element pointers converge on the same child list: the DAG edge.
+            b.set(tag + 2, wire.encodeListPointer(wire.Builder.offsetTo(tag + 2, child), .composite, list_body_words));
+            b.set(tag + 4, wire.encodeListPointer(wire.Builder.offsetTo(tag + 4, child), .composite, list_body_words));
+        }
+    }
+
+    var frame = try b.finish(allocator);
+    defer frame.deinit();
+
+    // The test completing at all is the time bound: without the budget this
+    // walk performs ~2^31 element resolutions.
+    try std.testing.expectError(error.MalformedFrame, capnp.decodeBody(frame.view()));
+    try std.testing.expectError(error.MalformedFrame, capnp.decodeOwned(allocator, frame.view()));
 }

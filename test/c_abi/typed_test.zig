@@ -8,24 +8,11 @@ const pancake = @import("pancake");
 
 const c = @import("c_abi");
 
-fn argInt(value: i64) c.PancakeArgument {
-    var a = std.mem.zeroes(c.PancakeArgument);
-    a.kind = c.PANCAKE_ARG_INTEGER;
-    a.integer = value;
-    return a;
-}
-
-fn argBytes(bytes: []const u8) c.PancakeArgument {
-    var a = std.mem.zeroes(c.PancakeArgument);
-    a.kind = c.PANCAKE_ARG_BYTES;
-    a.bytes = bytes.ptr;
-    a.bytes_len = bytes.len;
-    return a;
-}
-
-fn farRef(import_position: u64) c.PancakeReference {
-    return .{ .kind = c.PANCAKE_REF_FAR, .sub_kind = c.PANCAKE_REF_SUB_OBJECT, .id = import_position };
-}
+const c_args = @import("../support/c_abi_args.zig");
+const argBase = c_args.argBase;
+const argInt = c_args.argInt;
+const argBytes = c_args.argBytes;
+const farRef = c_args.farRef;
 
 test "C ABI typed surface carries set, tagged, and keyword arguments" {
     // Inspect: a delivery whose args are a set, a tagged record, and a keyword
@@ -37,7 +24,7 @@ test "C ABI typed surface carries set, tagged, and keyword arguments" {
 
     const wire = "<10'op:deliver<11'desc:export7+>[#1+2+$<11'user-record5'Point[3+4+]><2'kw5'color>]11+f>";
     const frame = c.PancakeFrame{ .bytes = wire.ptr, .len = wire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(receiver, &frame));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_recv_borrowed(receiver, &frame));
 
     var polled: c.PancakeAnyEvent = undefined;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(receiver, &polled));
@@ -69,20 +56,20 @@ test "C ABI send_deliver encodes set, tagged, and keyword arguments" {
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_import(peer, 5));
 
     const set_items = [_]c.PancakeArgument{ argInt(1), argInt(2) };
-    var set_arg = std.mem.zeroes(c.PancakeArgument);
+    var set_arg = argBase();
     set_arg.kind = c.PANCAKE_ARG_SET;
     set_arg.items = set_items[0..].ptr;
     set_arg.items_len = set_items.len;
 
     const tagged_items = [_]c.PancakeArgument{argInt(3)};
-    var tagged_arg = std.mem.zeroes(c.PancakeArgument);
+    var tagged_arg = argBase();
     tagged_arg.kind = c.PANCAKE_ARG_TAGGED;
     tagged_arg.bytes = "Point".ptr;
     tagged_arg.bytes_len = "Point".len;
     tagged_arg.items = tagged_items[0..].ptr;
     tagged_arg.items_len = tagged_items.len;
 
-    var kw_arg = std.mem.zeroes(c.PancakeArgument);
+    var kw_arg = argBase();
     kw_arg.kind = c.PANCAKE_ARG_KEYWORD;
     kw_arg.bytes = "color".ptr;
     kw_arg.bytes_len = "color".len;
@@ -117,7 +104,7 @@ test "C ABI carries a big integer argument in both directions" {
 
     const wire = "<10'op:deliver<11'desc:export7+>[1267650600228229401496703205376-]11+f>";
     const frame = c.PancakeFrame{ .bytes = wire.ptr, .len = wire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(receiver, &frame));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_recv_borrowed(receiver, &frame));
 
     var polled: c.PancakeAnyEvent = undefined;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(receiver, &polled));
@@ -135,7 +122,7 @@ test "C ABI carries a big integer argument in both directions" {
     defer c.pancake_peer_release(sender);
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_import(sender, 5));
 
-    var arg = std.mem.zeroes(c.PancakeArgument);
+    var arg = argBase();
     arg.kind = c.PANCAKE_ARG_BIG_INTEGER;
     arg.boolean = 1;
     arg.bytes = digits.ptr;
@@ -152,7 +139,7 @@ test "C ABI carries a big integer argument in both directions" {
     try std.testing.expect(std.mem.indexOf(u8, out.bytes.?[0..out.len], "1267650600228229401496703205376-") != null);
 
     // Fail closed: a magnitude that fits int64_t is refused, not re-tagged.
-    var small = std.mem.zeroes(c.PancakeArgument);
+    var small = argBase();
     small.kind = c.PANCAKE_ARG_BIG_INTEGER;
     small.boolean = 0;
     small.bytes = "7".ptr;
@@ -307,7 +294,7 @@ test "C ABI any-poll reads an inbound delivery's target, args, and answer" {
 
     const wire = "<10'op:deliver<11'desc:export7+>[5:hello]11+<19'desc:import-promise99+>>";
     const frame = c.PancakeFrame{ .bytes = wire.ptr, .len = wire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(peer, &frame));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_recv_borrowed(peer, &frame));
 
     try std.testing.expectEqual(@as(i32, @intCast(c.PANCAKE_EVENT_DELIVER)), c.pancake_peer_peek_event(peer));
 
@@ -334,7 +321,7 @@ test "C ABI any-poll projects a non-typed kind as its opaque frame" {
 
     const wire = "<8'op:abort3\"bye>";
     const frame = c.PancakeFrame{ .bytes = wire.ptr, .len = wire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(peer, &frame));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_recv_borrowed(peer, &frame));
 
     // The next event is an abort: no typed projection, so the any-poll routes
     // it to the frame arm carrying the originating wire bytes, in one call.
@@ -358,7 +345,7 @@ test "C ABI server flow: receive a call, then send_resolve its answer" {
 
     const wire = "<10'op:deliver<11'desc:export7+>[5:hello]11+<19'desc:import-promise99+>>";
     const frame = c.PancakeFrame{ .bytes = wire.ptr, .len = wire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(peer, &frame));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_recv_borrowed(peer, &frame));
 
     var polled: c.PancakeAnyEvent = undefined;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_event(peer, &polled));
@@ -434,7 +421,7 @@ test "C ABI any-poll falls back to the frame arm for a handoff deliver" {
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_export(receiver, 7));
 
     const borrowed = c.PancakeFrame{ .bytes = wire.ptr, .len = wire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(receiver, &borrowed));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_recv_borrowed(receiver, &borrowed));
 
     // The session codec names how to read the frame arm.
     var codec_id: u32 = 99;
@@ -513,7 +500,7 @@ test "C ABI resolve fulfilled with a handoff give projects to PANCAKE_RESOLUTION
     const rwire = rframe.bytes();
 
     const borrowed = c.PancakeFrame{ .bytes = rwire.ptr, .len = rwire.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(receiver, &borrowed));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_recv_borrowed(receiver, &borrowed));
 
     try std.testing.expectEqual(@as(i32, @intCast(c.PANCAKE_EVENT_RESOLVE)), c.pancake_peer_peek_event(receiver));
     var polled: c.PancakeAnyEvent = undefined;
@@ -590,7 +577,7 @@ fn pumpFrames(from: ?*c.PancakePeer, to: ?*c.PancakePeer) !void {
         try std.testing.expectEqual(c.PANCAKE_OK, rc);
         defer c.pancake_managed_frame_release(&frame);
         const borrowed = c.PancakeFrame{ .bytes = frame.bytes, .len = frame.len, .shape = frame.shape };
-        try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(to, &borrowed));
+        try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_recv_borrowed(to, &borrowed));
     }
 }
 

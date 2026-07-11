@@ -109,9 +109,10 @@ const Scenario = enum {
     /// Sixteen exports registered plus a driven turn: a connection holding a
     /// handful of live capabilities.
     active16,
-    /// The loop-driven path (ADR-0057): a warmed peer plus the `actors.Vat` with
-    /// one published capability that a completion-loop host (`iroh.LoopHost`,
-    /// `driver.loop`) holds per connection. This is the marginal cost a connection
+    /// The loop-driven path (ADR-0057): a warmed peer plus the `driver.Served`
+    /// serve core (the vat and the bounded partner-abort retention) with one
+    /// published capability, the slot a completion-loop host (`iroh.LoopHost`)
+    /// holds per connection. This is the marginal cost a connection
     /// adds when served from one loop thread rather than a thread of its own, the
     /// number the `iroh-loop` gate proves at scale.
     served,
@@ -126,12 +127,12 @@ fn warmPeer(peer: *engine.Peer, scenario: Scenario) !void {
     switch (scenario) {
         .idle => {},
         .warmed, .served => {
-            try peer.session_state.registerExport(.from(7));
+            try peer.exportObject(7);
             try driveOneTurn(peer);
         },
         .active16 => {
             var i: u64 = 0;
-            while (i < 16) : (i += 1) try peer.session_state.registerExport(.from(i + 1));
+            while (i < 16) : (i += 1) try peer.exportObject(i + 1);
             // Export 7 is among the sixteen, so the fixed deliver lands on a live target.
             try driveOneTurn(peer);
         },
@@ -151,8 +152,9 @@ const Measurement = struct {
     sample: u64,
     /// Marginal steady-state heap bytes one more connection of this kind adds.
     heap_per_peer: f64,
-    /// Inline per-connection struct bytes: `Peer`, plus `Vat` for a loop-served
-    /// connection. Held in the host's per-connection slot, not on the heap.
+    /// Inline per-connection struct bytes: `Peer`, plus the `Served` serve core
+    /// for a loop-served connection. Held in the host's per-connection slot,
+    /// not on the heap.
     inline_bytes: f64,
     /// Total per-connection bytes: the inline struct(s) plus marginal heap.
     bytes_per_conn: f64,
@@ -168,21 +170,22 @@ fn measure(backing: std.mem.Allocator, scenario: Scenario, sample: u64) !Measure
 
     const holds_vat = scenarioHoldsVat(scenario);
 
-    // The arrays of peers (and, for the loop-driven scenario, vats) are held in
-    // untracked memory so only each connection's own session and vat heap counts
-    // toward the footprint, never these bookkeeping slices. Stable addresses also
-    // let each vat borrow its peer (`Vat.initOver(&peers[i])`).
+    // The arrays of peers (and, for the loop-driven scenario, serve cores) are
+    // held in untracked memory so only each connection's own session and vat heap
+    // counts toward the footprint, never these bookkeeping slices. Stable
+    // addresses also let each serve core borrow its peer
+    // (`Served.over(&peers[i])`).
     const peers = try backing.alloc(engine.Peer, sample);
     defer backing.free(peers);
-    const vats: []actors.Vat = if (holds_vat) try backing.alloc(actors.Vat, sample) else &.{};
-    defer if (holds_vat) backing.free(vats);
+    const serveds: []driver.Served = if (holds_vat) try backing.alloc(driver.Served, sample) else &.{};
+    defer if (holds_vat) backing.free(serveds);
 
     const before = tracker.liveBytes();
     var created: u64 = 0;
     errdefer {
         var j: u64 = 0;
         while (j < created) : (j += 1) {
-            if (holds_vat) vats[j].deinit();
+            if (holds_vat) serveds[j].deinit();
             peers[j].deinit();
         }
     }
@@ -190,21 +193,24 @@ fn measure(backing: std.mem.Allocator, scenario: Scenario, sample: u64) !Measure
         peers[created] = engine.Peer.init(tracked);
         try warmPeer(&peers[created], scenario);
         if (holds_vat) {
-            vats[created] = actors.Vat.initOver(tracked, &peers[created]);
-            _ = try driver.publishNamed(&vats[created], "greeter", BenchGreeter, .{});
+            serveds[created] = driver.Served.over(tracked, &peers[created]);
+            _ = try serveds[created].publish("greeter", BenchGreeter, .{});
         }
     }
     const after = tracker.liveBytes();
 
     var i: u64 = 0;
     while (i < sample) : (i += 1) {
-        if (holds_vat) vats[i].deinit();
+        if (holds_vat) serveds[i].deinit();
         peers[i].deinit();
     }
 
-    // The inline per-connection cost is the `Peer` struct, plus the `Vat` struct
-    // for a loop-served connection (the loop host holds both inline in its slot).
-    const vat_inline: usize = if (holds_vat) @sizeOf(actors.Vat) else 0;
+    // The inline per-connection cost is the `Peer` struct, plus the `Served`
+    // serve core for a loop-served connection — the loop host holds both inline
+    // in its slot, and `Served` is what it actually holds (the vat plus the
+    // bounded partner-abort retention), so sizing the bare `Vat` would
+    // under-count the real slot.
+    const vat_inline: usize = if (holds_vat) @sizeOf(driver.Served) else 0;
     const inline_bytes: f64 = @floatFromInt(@sizeOf(engine.Peer) + vat_inline);
     const heap_per_peer = @as(f64, @floatFromInt(after - before)) / @as(f64, @floatFromInt(sample));
     return .{
@@ -347,7 +353,7 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         \\## The loop-driven path (ADR-0057)
         \\
         \\The `served` row is the per-connection cost when a connection is served
-        \\from one completion-loop thread (`iroh.LoopHost`, `driver.loop`) instead
+        \\from one completion-loop thread (`iroh.LoopHost`) instead
         \\of a thread of its own: a warmed `engine.Peer` plus the `actors.Vat`,
         \\with one published capability, that the host holds inline in its
         \\per-connection slot. The `iroh-loop` gate proves that one thread serves
@@ -370,12 +376,17 @@ fn renderMarkdown(gpa: std.mem.Allocator, results: []const Measurement) ![]u8 {
         \\
         \\For the iroh loop path the sidecar adds its own per-connection bytes,
         \\in the Rust heap rather than this measurement: each non-blocking
-        \\connection holds an inbound and an outbound buffer, each bounded at
-        \\1 MiB (`NB_BUFFER_BOUND`). They are allocated on first traffic and
-        \\back-pressure rather than grow — a full inbound buffer parks the
-        \\sidecar's reader so QUIC flow control reaches the remote sender, and a
-        \\full outbound buffer returns `WOULD_BLOCK` to the loop. So the bound is
-        \\a flow-control ceiling, never a silent drop or an unbounded queue.
+        \\connection buffers inbound and outbound bytes, each direction bounded
+        \\at 1 MiB (`NB_BUFFER_BOUND`) as a burst ceiling — a full inbound
+        \\buffer parks the sidecar's reader so QUIC flow control reaches the
+        \\remote sender, and a full outbound buffer returns `WOULD_BLOCK` to
+        \\the loop. So the bound is a flow-control ceiling, never a silent drop
+        \\or an unbounded queue. Steady retention is far below the ceiling:
+        \\the reader borrows QUIC segments zero-copy (no resident scratch),
+        \\outbound batches are taken by move and their storage drops once
+        \\flushed, and inbound burst capacity frees down to a 16 KiB steady
+        \\bound (`NB_STEADY_BYTES`) when the loop drains the buffer empty,
+        \\mirroring the loop's own burst-frees-on-drain posture.
         \\
         \\![per-connection memory to 500k](peer-scaling.svg)
         \\

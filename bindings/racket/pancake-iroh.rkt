@@ -41,16 +41,7 @@
 ;; archive, or #f when there is none. The iroh archive keeps its own
 ;; thread-local slot (`pancake_iroh_last_error`), symbol-disjoint from the
 ;; ocapn family's `last-error`. Query the length first (NULL buffer), then read.
-(define (iroh-last-error)
-  (define len ((iroh-fn 'last-error) #f 0))
-  (cond
-    [(zero? len) #f]
-    [else
-     ;; The C side reserves one byte for a NUL and copies at most cap-1 message
-     ;; bytes, so allocate len + 1 to receive all `len` of them.
-     (define buf (make-bytes (+ len 1)))
-     (define written ((iroh-fn 'last-error) buf (+ len 1)))
-     (bytes->string/utf-8 (subbytes buf 0 (min written len)) #\uFFFD)]))
+(define (iroh-last-error) (read-last-error (iroh-fn 'last-error)))
 
 ;; Raise the same typed exn `check` raises, but read the diagnostic from the
 ;; iroh archive's own last-error rather than the unrelated ocapn-family one.
@@ -280,17 +271,20 @@
          [else (check/iroh n)])))
    void ; each frame is its own try-write; nothing buffered here to flush
    ;; fill-inbox!: drain whatever bytes are buffered, then park on this
-   ;; connection's readability — never a wire read. `closed?` (or an ERR-CLOSED
-   ;; return) is a clean end of stream.
-   (lambda ()
+   ;; connection's readability together with the pump's wake event — never a
+   ;; wire read. `closed?` (or an ERR-CLOSED return) is a clean end of stream;
+   ;; 'woke means the pump should re-check its predicate first.
+   (lambda (wake-evt)
      (let loop ()
        (define n ((iroh-fn 'conn-try-read) conn read-buf READ-CHUNK))
        (cond
          [(> n 0) (bytes<-c read-buf n)]
          [(= n WOULD-BLOCK)
-          (if (conn-waiters-closed? w)
-              eof
-              (begin (semaphore-wait (conn-waiters-readable w)) (loop)))]
+          (cond
+            [(conn-waiters-closed? w) eof]
+            [else
+             (define ready (sync (conn-waiters-readable w) wake-evt))
+             (if (eq? ready wake-evt) 'woke (loop))])]
          [(= n ERR-CLOSED) eof]
          [else (check/iroh n)])))
    ;; close!: drop the routing entry (waking any parked waiter), release the
@@ -339,7 +333,11 @@
 (define (dial-resolving netlayer node-id direct-addresses retry?)
   (let loop ([attempt 1])
     (define result
-      (with-handlers ([(lambda (_) #t)
+      ;; Let a break through rather than absorbing it into a retry: the retry
+      ;; loop sleeps for seconds under discovery, so catching exn:break here
+      ;; would make the dial uninterruptible — the same defect the convert-to-
+      ;; broken sites fixed. Only a non-break failure is a retry candidate.
+      (with-handlers ([(lambda (e) (not (exn:break? e)))
                        (lambda (e)
                          (if (and retry? (< attempt DISCOVERY-DIAL-MAX-ATTEMPTS))
                              'retry
@@ -354,37 +352,37 @@
 
 ;; The node-keyed iroh dial behind a handoff redeem: dial the exporter
 ;; endpoint and bring the connection up under node `m` rather than a fresh
-;; node, binding its shared gift registry and keying the session with its retained
-;; seed, so the redeemed capability and any further handoff it triggers share the
-;; recipient's one identity and connection table (ADR-0009/ADR-0056), the iroh
-;; sibling of the core's `dial-tcp`. The core's `dial-exporter` loads it lazily
-;; for an iroh give.
+;; node, so the redeemed capability and any further handoff it triggers share
+;; the recipient's one identity, gift registry, and connection table
+;; (ADR-0009/ADR-0056), the iroh sibling of the core's `dial-tcp`. The core's
+;; `dial-exporter` loads it lazily for an iroh give. The keyed handshake is the
+;; host's (`establish-dialed-connection` signs it under the node identity and
+;; drives it byte-fed over this transport).
 (define (connect-iroh/node node-id direct-addresses reachability m)
-  (define-values (conn-id peer) (node-register-conn! m))
-  (with-handlers ([(lambda (_) #t) (lambda (e) (node-remove-conn! m conn-id) (raise e))])
-    (define netlayer (iroh-netlayer-new reachability))
-    (define lp (make-iroh-loop netlayer))
-    (define conn
-      (with-handlers ([(lambda (_) #t)
-                       (lambda (e) (loop-stop! lp) (iroh-netlayer-close/release! netlayer) (raise e))])
-        (dial-resolving netlayer node-id direct-addresses
-                        (or (= reachability IROH-REACH-DISCOVERY)
-                            (= reachability IROH-REACH-DISCOVERY-NO-RELAY)))))
-    (loop-register! lp conn)
-    (define transport (iroh-loop-transport lp conn netlayer #t))
-    (define ac (async-connection/transport peer transport))
-    (open-keyed-session! ac "" #:transport "iroh" #:seed (node-seed m))
-    (define c (build-connection ac peer m conn-id))
-    ;; Release fallback: the dialer owns its ephemeral netlayer, readiness loop
-    ;; thread, and connection. If the caller drops `c` without an explicit
-    ;; `connection-close!`, run the transport's (idempotent) close lambda — the
-    ;; same teardown that stops the loop thread and releases the endpoint fd. The
-    ;; loop thread roots only `lp`, never `c` or its `transport`, so `c` stays
-    ;; collectable and this fires; the close guard makes it harmless after an
-    ;; explicit close. Capturing `transport` (not `c`) keeps the finalizer from
-    ;; rooting the very object whose collection triggers it.
-    (register-finalizer c (lambda (_) ((async-transport-close! transport))))
-    c))
+  (define netlayer (iroh-netlayer-new reachability))
+  (define lp (make-iroh-loop netlayer))
+  (define conn
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (e) (loop-stop! lp) (iroh-netlayer-close/release! netlayer) (raise e))])
+      (dial-resolving netlayer node-id direct-addresses
+                      (or (= reachability IROH-REACH-DISCOVERY)
+                          (= reachability IROH-REACH-DISCOVERY-NO-RELAY)))))
+  (loop-register! lp conn)
+  (define transport (iroh-loop-transport lp conn netlayer #t))
+  (define c
+    (with-handlers ([(lambda (_) #t)
+                     (lambda (e) ((async-transport-close! transport)) (raise e))])
+      (establish-dialed-connection m (format-peer-uri "iroh" node-id) transport)))
+  ;; Release fallback: the dialer owns its ephemeral netlayer, readiness loop
+  ;; thread, and connection. If the caller drops `c` without an explicit
+  ;; `connection-close!`, run the transport's (idempotent) close lambda — the
+  ;; same teardown that stops the loop thread and releases the endpoint fd. The
+  ;; loop thread roots only `lp`, never `c` or its `transport`, so `c` stays
+  ;; collectable and this fires; the close guard makes it harmless after an
+  ;; explicit close. Capturing `transport` (not `c`) keeps the finalizer from
+  ;; rooting the very object whose collection triggers it.
+  (register-finalizer c (lambda (_) ((async-transport-close! transport))))
+  c)
 
 ;; ── host ─────────────────────────────────────────────────────────────────────
 ;; `node` is the one node shared by every connection this server
@@ -402,7 +400,13 @@
 (define (listen-iroh reachability)
   (define nl (iroh-netlayer-new reachability))
   (define lp (make-iroh-loop nl))
-  (define s (iroh-server nl (iroh-netlayer-node-id nl) lp (make-fresh-node)))
+  (define node-id (iroh-netlayer-node-id nl))
+  (define m (make-fresh-node))
+  ;; This node also dials (the gifter side of a handoff), and its dials sign
+  ;; the endpoint's own node id so a partner's crossed-hellos table can
+  ;; recognize it.
+  (node-set-self-designator! m node-id)
+  (define s (iroh-server nl node-id lp m))
   ;; Release fallback: if the caller drops the server without `iroh-server-close!`,
   ;; the finalizer stops the readiness loop thread (a live GC root that would
   ;; otherwise pin the whole graph forever) and releases the endpoint fd. The loop
@@ -426,19 +430,14 @@
     (cond
       [(= rc OK)
        (define m (iroh-server-node s))
-       (define-values (conn-id peer) (node-register-conn! m))
-       (with-handlers ([(lambda (_) #t) (lambda (e) (node-remove-conn! m conn-id) (raise e))])
-         (loop-register! lp conn)
-         (define ac (async-connection/transport peer (iroh-loop-transport lp conn #f #f)))
-         ;; Construct the connection — which registers the node's giftables as
-         ;; bootstrap caps and installs the gifter-side resolve interceptor —
-         ;; *before* driving the handshake to completion, so a dialer's pipelined
-         ;; bootstrap fetch for a giftable is answered the instant the session opens
-         ;; (a recipient redeeming a gift fetches it immediately), keyed with the
-         ;; node's one retained seed exactly as the TCP responder does.
-         (define conn-built (build-connection ac peer m conn-id))
-         (open-keyed-session! ac (iroh-server-node-id s) #:transport "iroh" #:seed (node-seed m))
-         conn-built)]
+       (loop-register! lp conn)
+       ;; The host publishes the node's giftables on the fresh connection as it
+       ;; is minted and answers a dialer's pipelined bootstrap fetch the instant
+       ;; the session opens; the responder signs the server's own endpoint id
+       ;; under the node's one retained identity, exactly as the TCP responder
+       ;; does.
+       (establish-accepted-connection m "iroh" (iroh-server-node-id s)
+                                      (iroh-loop-transport lp conn #f #f))]
       [(= rc WOULD-BLOCK)
        (if (iroh-loop-accept-closed? lp)
            (raise-pancake 'iroh-server-accept ERR-CLOSED "server closed")

@@ -6,10 +6,9 @@ symbol-disjoint archive split (ADR-0059). Importing it loads
 ``libpancake_net_transport_tcp`` on top of the core ``libpancake_ocapn``; it
 shares the core's frame, context, and value layout but adds the
 ``pancake_tcp_*`` family — a host-owned blocking frame shuttle over a real
-kernel socket — with its own thread-local last-error. A consumer that drives
-peers over TCP by hand composes it with the core:
+kernel socket — with its own thread-local last-error. A consumer that shuttles
+whole frames over TCP by hand composes it with the core:
 
-    from pancake import Peer
     from pancake.tcp import TcpNetlayer
 
     with TcpNetlayer() as nl:
@@ -29,16 +28,10 @@ from __future__ import annotations
 import ctypes
 from typing import Optional
 
-from . import (
-    Context,
-    PancakeError,
-    _codec_id,
-    _FRAME_SHAPE_BYTE,
-    _Frame,
-    _ManagedFrame,
-    _OK,
-)
-from ._ffi_core import _lib
+from ._codec import _codec_id
+from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE, OK as _OK
+from ._errors import PancakeError
+from ._ffi_ocapn import _Frame, _lib, _ManagedFrame, _read_last_error, _str_buf
 from ._ffi_tcp import _tcp_lib
 
 __all__ = ["TcpNetlayer", "TcpListener", "TcpEndpoint"]
@@ -49,12 +42,7 @@ def _tcp_last_error() -> Optional[str]:
     (``libpancake_net_transport_tcp``), or ``None`` when there is none. The
     transport keeps its own thread-local slot, so a tcp call's diagnostic is
     read here and never from the core family's :func:`pancake.last_error`."""
-    length = _tcp_lib.pancake_tcp_last_error(None, 0)
-    if length == 0:
-        return None
-    buf = (ctypes.c_uint8 * (length + 1))()
-    _tcp_lib.pancake_tcp_last_error(buf, length + 1)
-    return bytes(buf[:length]).decode(errors="replace")
+    return _read_last_error(_tcp_lib.pancake_tcp_last_error)
 
 
 def _check_tcp(code: int) -> None:
@@ -126,12 +114,6 @@ class TcpListener:
         return TcpEndpoint(out)
 
 
-def _host_buf(host: str):
-    data = host.encode()
-    buf = ctypes.create_string_buffer(data, len(data))
-    return buf, len(data)
-
-
 class TcpNetlayer:
     """Owns the blocking-TCP I/O backend; outlives the endpoints made from it.
     Released on :meth:`release` / context exit."""
@@ -140,7 +122,6 @@ class TcpNetlayer:
         out = ctypes.c_void_p()
         _check_tcp(_tcp_lib.pancake_tcp_netlayer_new(ctypes.byref(out)))
         self._raw = out
-        self._context: Optional["Context"] = None
 
     def __enter__(self) -> "TcpNetlayer":
         return self
@@ -154,13 +135,13 @@ class TcpNetlayer:
             self._raw = None
 
     def listen(self, host: str, port: int = 0) -> TcpListener:
-        buf, n = _host_buf(host)
+        buf, n = _str_buf(host)
         out = ctypes.c_void_p()
         _check_tcp(_tcp_lib.pancake_tcp_listen(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, port, ctypes.byref(out)))
         return TcpListener(out)
 
     def connect(self, host: str, port: int, codec: str = "syrup", max_frame_bytes: int = 4096) -> TcpEndpoint:
-        buf, n = _host_buf(host)
+        buf, n = _str_buf(host)
         out = ctypes.c_void_p()
         _check_tcp(_tcp_lib.pancake_tcp_connect(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, port, _codec_id(codec), max_frame_bytes, ctypes.byref(out)))
         return TcpEndpoint(out)

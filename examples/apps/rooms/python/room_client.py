@@ -25,8 +25,10 @@ import pathlib
 import sys
 from dataclasses import dataclass
 
-# The idiomatic binding lives in bindings/python; add it to the path.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[4] / "bindings" / "python"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "_demo"))
+from python_path import add_bindings_path  # noqa: E402
+
+add_bindings_path(from_file=__file__, depth=4)
 
 from pancake import Connection, connect, tcp_locator  # noqa: E402
 from pancake.iroh import Reachability  # noqa: E402
@@ -112,13 +114,37 @@ class Directory:
 
 
 @dataclass
+class Presence:
+    """A membership change a system line carries as structured wire args, not prose:
+    the roster on arrival, or a join/leave. ``names`` is the roster, or ``[nick]`` for
+    a join/leave."""
+
+    kind: str  # "roster" | "join" | "leave"
+    names: "list[str]"
+
+
+def _read_presence(args: list) -> "Presence | None":
+    """The structured presence after a room line's display text —
+    ``notify("room", text, "roster", *names)`` or ``notify("room", text, kind, nick)``.
+    Ordinary chat lines carry none."""
+    kind = args[2] if len(args) > 2 else None
+    if kind == "roster":
+        return Presence("roster", [n for n in args[3:] if isinstance(n, str)])
+    if kind in ("join", "leave") and len(args) > 3 and isinstance(args[3], str):
+        return Presence(kind, [args[3]])
+    return None
+
+
+@dataclass
 class Message:
     """One line in the room. ``system`` is true for the room's own announcements
-    (a member joining, your welcome); otherwise ``sender`` is who said it."""
+    (a member joining, your welcome); otherwise ``sender`` is who said it.
+    ``presence`` is set on a membership-change system line."""
 
     sender: str
     text: str
     system: bool
+    presence: "Presence | None" = None
 
 
 class Room:
@@ -141,10 +167,9 @@ class Room:
         # End the stream when the connection closes.
         asyncio.ensure_future(self._until_closed())
 
-        # Subscribe, handing the room a capability to our inbox. The welcome it
-        # returns is our first line.
-        welcome = await conn.send(room_ref, SUBSCRIBE, [nick, inbox])
-        self._emit("room", welcome if isinstance(welcome, str) else "joined")
+        # Subscribe, handing the room a capability to our inbox. Success is the
+        # resolution; the room delivers the welcome and the roster as our first notify.
+        await conn.send(room_ref, SUBSCRIBE, [nick, inbox])
         return self
 
     async def say(self, text: str) -> None:
@@ -173,11 +198,11 @@ class Room:
             raise ValueError(f"inbox has no method {verb!r}")
         sender = args[0] if args and isinstance(args[0], str) else "?"
         text = args[1] if len(args) > 1 and isinstance(args[1], str) else ""
-        self._emit(sender, text)
+        self._emit(sender, text, _read_presence(args))
         return None
 
-    def _emit(self, sender: str, text: str) -> None:
-        self._lines.put_nowait(Message(sender, text, sender == "room"))
+    def _emit(self, sender: str, text: str, presence: "Presence | None" = None) -> None:
+        self._lines.put_nowait(Message(sender, text, sender == "room", presence))
 
     async def _until_closed(self) -> None:
         try:

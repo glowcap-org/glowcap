@@ -50,7 +50,7 @@ pub const EnlivenStart = union(enum) {
     cached: model.Reference,
     /// An enliven for this swiss-number is already in flight on `answer_position`; this
     /// call collapsed onto it (ADR-0012 in-flight dedup). Nothing new to send.
-    in_flight: model.AnswerId,
+    in_flight: model.AnswerPosition,
     /// Cache + in-flight miss: a fresh bootstrap-fetch. The adapter sends
     /// `prepared.message` (move it into `Peer.send`), drives the wire loop, and
     /// feeds the settlement to `recordEnlivenment`. Owns `prepared.message`.
@@ -110,7 +110,7 @@ pub fn prepareEnliven(
 /// - `fulfilled(non-far)` / `broken` / `malformed`: releases any owned payload and
 ///   returns `Error.EnlivenmentBroke`.
 ///
-/// A non-`far` fulfillment can't be cached (the cache keys on import id + wire
+/// A non-`far` fulfillment can't be cached (the cache keys on import position + wire
 /// kind) and isn't a usable enlivenment result, so it fails loud rather than
 /// surfacing an unreachable reference.
 pub fn recordEnlivenment(

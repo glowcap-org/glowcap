@@ -43,8 +43,8 @@ import process from "node:process";
 import { formatPeerUri, Node, Ref } from "@pancake/stack";
 import { IrohServer, listenIroh, Reachability } from "@pancake/iroh";
 import { serveDirectory } from "./deno/server.ts";
-import { dial } from "./deno/locator.ts";
-import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "./deno/protocol.ts";
+import { dial } from "./deno/lib/locator.ts";
+import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "./deno/lib/protocol.ts";
 
 const DM_TEXT = "hi Bob, privately, from Carol, by node id over iroh discovery";
 
@@ -83,7 +83,8 @@ async function main(): Promise<void> {
 	const bob = listenIroh(Reachability.Discovery);
 	bob.node.publishGiftable("dm", (verb, args) => {
 		if (verb !== DM) throw new Error(`dm has no method ${verb}`);
-		bobInbox.push(String(args[0]));
+		// dm(from, text): the sender names itself, and the text is what we assert on.
+		bobInbox.push(String(args[1]));
 		return null;
 	});
 	const bobAccept = (async () => {
@@ -148,7 +149,7 @@ async function main(): Promise<void> {
 		);
 	}
 
-	await carol.send(introduced, DM, [DM_TEXT]);
+	await carol.send(introduced, DM, ["Carol", DM_TEXT]);
 	await until(
 		() => bobInbox.includes(DM_TEXT),
 		"Bob to receive Carol's direct DM",

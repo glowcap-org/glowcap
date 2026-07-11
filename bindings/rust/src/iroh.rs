@@ -36,6 +36,17 @@ use tokio::sync::Notify;
 use crate::sys::iroh as ffi;
 use crate::{sys, Connection, Error, Node, Reachability, Result};
 
+// The dialable `ocapn://<nodeid>.iroh?direct-addresses=…` locator for an iroh
+// partner, rendered through the core grammar — what `open_dialed` signs the
+// dial against.
+fn iroh_locator(node_id: &str, direct_addresses: &str) -> Result<String> {
+	let mut hints = std::collections::BTreeMap::new();
+	if !direct_addresses.is_empty() {
+		hints.insert("direct-addresses".to_string(), direct_addresses.to_string());
+	}
+	crate::uri::format_peer_uri("iroh", node_id, &hints)
+}
+
 use ffi::{
 	PancakeIrohConn, PancakeIrohNetlayer, PancakeIrohReadyEvent, PANCAKE_IROH_EV_ACCEPT,
 	PANCAKE_IROH_EV_CLOSED, PANCAKE_IROH_EV_READABLE, PANCAKE_IROH_EV_WRITABLE,
@@ -46,13 +57,13 @@ use ffi::{
 // than the cap is never stranded.
 const DRAIN_READY_CAP: usize = 64;
 
-// Like the core `check`, but for `pancake_iroh_*` calls: snapshot the iroh
-// transport's own thread-local last-error rather than the unrelated
-// ocapn-family one. A `pancake_iroh_*` call that returns PANCAKE_ERR_IO records
-// its concrete cause in this slot.
-crate::transport_error::transport_error_slot!(
-	check_iroh,
-	iroh_last_error,
+crate::error_slot::error_slot!(
+	// Like the core `check`, but for `pancake_iroh_*` calls: snapshot the iroh
+	// transport's own thread-local last-error rather than the unrelated
+	// ocapn-family one. A `pancake_iroh_*` call that returns PANCAKE_ERR_IO
+	// records its concrete cause in this slot.
+	fn check_iroh;
+	fn iroh_last_error;
 	ffi::pancake_iroh_last_error
 );
 
@@ -392,10 +403,16 @@ impl IrohLoop {
 				_ = self.notify.notified() => continue, // shutdown asked; re-check stop
 				guard = afd.readable() => match guard {
 					Ok(mut g) => {
-						self.drain();
-						// `drain_ready` consumed the fd's wakeup bytes, so clear
-						// the reactor's readiness and await a fresh edge.
+						// Clear the reactor's readiness BEFORE draining. The other
+						// order loses an edge: a record and its fd wakeup landing
+						// between the drain and the clear are cleared away, and —
+						// edge-triggered, with no successor record coming — the
+						// final SETTLE strands. Cleared first, a record landing
+						// mid-drain re-arms the fd, and the worst case is one
+						// spurious wake whose drain reads short. Then drain until
+						// a short count.
 						g.clear_ready();
+						self.drain();
 					}
 					Err(_) => break,
 				},
@@ -693,11 +710,16 @@ impl IrohServer {
 		let netlayer = IrohNetlayer::new(reachability)?;
 		let node_id = netlayer.node_id()?;
 		let iloop = IrohLoop::start(Arc::clone(&netlayer.raw))?;
+		let node = Node::new_node();
+		// This node also dials (the gifter side of a handoff), and its dials
+		// sign the endpoint's own id so a partner's crossed-hellos table can
+		// recognize it.
+		node.shared().set_self_designator(&node_id)?;
 		Ok(IrohServer {
 			netlayer,
 			node_id,
 			iloop,
-			node: Node::new_node(),
+			node,
 		})
 	}
 
@@ -734,16 +756,12 @@ impl IrohServer {
 
 	/// Accept the next partner as a ready [`Connection`], completing the responder
 	/// handshake and signing this endpoint's id as the locator designator. The
-	/// driver carries the peer over the accepted byte stream exactly as over TCP.
+	/// byte-fed pump carries the session over the accepted stream exactly as over
+	/// TCP.
 	pub async fn accept(&self) -> Result<Connection> {
 		let node_id = self.node_id().to_string();
 		let stream = self.accept_stream().await?;
-		Ok(Connection::over_shared(
-			stream,
-			"iroh",
-			node_id,
-			self.node.clone(),
-		))
+		Connection::establish_accepted(self.node.shared(), "iroh", &node_id, stream).await
 	}
 
 	/// Wait (on the readiness loop, never a parked thread) for the next dial and
@@ -814,13 +832,14 @@ impl Future for AcceptReady<'_> {
 // ── the iroh application surface ──────────────────────────────────────────────
 // The same [`Connection`] surface over iroh's encrypted QUIC: the one
 // [`connect`](crate::connect) dialer routes an `ocapn://<nodeid>.iroh?…` locator
-// to `Connection::connect_iroh` here, and [`listen_iroh`]/[`IrohServer`] host. The
-// driver is unchanged — `Connection::over` carries the peer over the iroh
-// byte-stream bridge ([`IrohStream`]) exactly as over a `TcpStream`; only the
-// signed locator differs (`iroh` + endpoint id, never `tcp` + host:port). The
-// iroh-touching code lives here behind the `iroh` feature, so a tcp-only build
-// references no iroh symbol — the same `libpancake_ocapn` /
-// `libpancake_net_transport_iroh` split the other bindings mirror.
+// to `Connection::connect_iroh` here, and [`listen_iroh`]/[`IrohServer`] host.
+// The pump is unchanged — `Connection::establish_dialed` carries the byte-fed
+// session over the iroh byte-stream bridge ([`IrohStream`]) exactly as over a
+// `TcpStream`; only the dialed locator differs (`iroh` + endpoint id, never
+// `tcp` + host:port). The iroh-touching code lives here behind the `iroh`
+// feature, so a tcp-only build references no iroh symbol — the same
+// `libpancake_ocapn` / `libpancake_net_transport_iroh` split the other bindings
+// mirror.
 
 impl Connection {
 	/// The iroh dial mechanism behind [`connect`](crate::connect): take an endpoint id and
@@ -834,10 +853,13 @@ impl Connection {
 		direct_addresses: &str,
 		reachability: Reachability,
 	) -> Result<Connection> {
-		let stream = IrohStream::connect(node_id, direct_addresses, reachability).await?;
-		// A dialer signs an empty designator (its identity is the session key),
-		// matching the Zig driver and the other bindings.
-		Ok(Connection::over(stream, "iroh", String::new()))
+		Connection::connect_iroh_with_node(
+			node_id,
+			direct_addresses,
+			reachability,
+			Node::new_node(),
+		)
+		.await
 	}
 
 	/// The node-keyed iroh dial behind a handoff redeem: dial the exporter
@@ -853,7 +875,8 @@ impl Connection {
 		node: Node,
 	) -> Result<Connection> {
 		let stream = IrohStream::connect(node_id, direct_addresses, reachability).await?;
-		Ok(Connection::over_shared(stream, "iroh", String::new(), node))
+		let locator = iroh_locator(node_id, direct_addresses)?;
+		Connection::establish_dialed(node.shared(), &locator, stream).await
 	}
 }
 

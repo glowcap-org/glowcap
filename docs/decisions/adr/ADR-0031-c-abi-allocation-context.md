@@ -14,7 +14,7 @@ superseded_by: []
 
 A C embedder must be able to choose allocation policy for the C ABI — an arena,
 a tracked heap, a guarded pool — and have _every_ pancake allocation honor it,
-not just some. The naive shape, a per-handle `pancake_peer_new_with_allocator`,
+not just some. The naive shape, a per-handle `pancake_peer_new_in`,
 is a footgun: it scatters the policy across constructors, says nothing about the
 frames and buffers a handle later allocates, and tempts a caller to `free` a
 pancake-owned object by hand. A Zig `std.mem.Allocator` cannot cross the C ABI
@@ -88,7 +88,7 @@ created with `_new` are `_release` (`peer`, `context`, `managed_frame`, `event`,
 
 ## Alternatives Considered
 
-- **Per-handle `pancake_peer_new_with_allocator`.** Rejected: scatters policy
+- **Per-handle `pancake_peer_new_in`.** Rejected: scatters policy
   across constructors, silent about the frames/buffers a handle later allocates,
   and invites a caller to `free` a pancake-owned object directly.
 - **Expose a `std.mem.Allocator` across the C ABI.** Rejected: a Zig allocator
@@ -108,7 +108,7 @@ created with `_new` are `_release` (`peer`, `context`, `managed_frame`, `event`,
 
 - `c_abi` gains `PancakeContext` / `PancakeAllocator` and the
   `pancake_context_*` / `*_in` constructors; the C ABI handle payloads carry a
-  `std.mem.Allocator`, and `pancake_tcp_netlayer_free` is renamed
+  `std.mem.Allocator`, and `pancake_tcp_netlayer_release` is renamed
   `pancake_tcp_netlayer_release` to make teardown uniform.
 - `pancake.h`, `README.md`, `docs/architecture.md`, and `bindings/README.md`
   state the contract authoritatively.

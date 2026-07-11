@@ -13,6 +13,8 @@ const actors = pancake.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
+const capture = @import("../support/capture.zig");
+const cross_peer = @import("../support/cross_peer.zig");
 
 const Counter = struct {
     n: i64,
@@ -27,19 +29,9 @@ const Counter = struct {
     }
 };
 
-fn captureInt(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-    const slot: *i64 = @ptrCast(@alignCast(ctx.?));
-    slot.* = switch (resolution) {
-        .fulfilled => |value| value.integer,
-        .broken, .give => -1,
-    };
-}
-
 /// Shuttle one peer's pending outbound frame to the other.
 fn shuttle(from: *engine.Peer, to: *engine.Peer) !void {
-    _ = try from.step();
-    if (from.takeOutbound()) |frame| try to.feedInbound(frame);
-    _ = try to.step();
+    try cross_peer.pumpOne(from, to);
 }
 
 test "eventual-send to a far ref routes over the wire and resolves the promise" {
@@ -52,6 +44,10 @@ test "eventual-send to a far ref routes over the wire and resolves the promise" 
     defer server.deinit();
     const counter = try server.spawn(Counter, .{ .n = 10 });
     try server.bindExport(counter, 7);
+    // The pairing is hand-wired (p1 learns position 7 out-of-band, below), so
+    // the bound position takes an explicit grant; a marshaled introduction
+    // would have granted it instead.
+    try pair.p2.exportObject(7);
     try pair.p1.importObject(7);
 
     // p1's vat eventual-sends counter.add(5) to the far ref, no wire message by
@@ -62,7 +58,7 @@ test "eventual-send to a far ref routes over the wire and resolves the promise" 
     const promise = try client.send(remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
 
     var result: i64 = 0;
-    try client.on(promise, .{ .ctx = &result, .func = captureInt });
+    try client.on(promise, .{ .ctx = &result, .func = capture.captureInt });
 
     // Deliver flows p1 -> p2; the server vat runs the actor and resolves.
     try shuttle(&pair.p1, &pair.p2);
@@ -114,6 +110,9 @@ test "serve materializes inbound deliver args in the turn arena: a steady-state 
     defer server.deinit();
     const counter = try server.spawn(Counter, .{ .n = 0 });
     try server.bindExport(counter, 7);
+    // Hand-wired pairing: the client addresses position 7 out-of-band, so the
+    // bound position takes an explicit grant.
+    try pair.p2.exportObject(7);
     try pair.p1.importObject(7);
 
     var client = actors.Vat.initOver(allocator, &pair.p1);
@@ -266,12 +265,14 @@ const ClaimBigReplies = struct {
     claimed: usize = 0,
     seen_answer: u64 = 0,
 
-    fn fire(ctx: ?*anyopaque, answer: model.AnswerId, fulfilled: model.Argument) anyerror!bool {
+    fn fire(ctx: ?*anyopaque, answer: model.AnswerPosition, fulfilled: model.Argument) anyerror!actors.InterceptOutcome {
         const self: *ClaimBigReplies = @ptrCast(@alignCast(ctx.?));
-        if (fulfilled != .integer or fulfilled.integer <= 100) return false;
+        // `.claimed` claims the reply (the interceptor owns resolving it);
+        // `.resolve` passes the value through for the vat to resolve as-is.
+        if (fulfilled != .integer or fulfilled.integer <= 100) return .{ .resolve = fulfilled };
         self.claimed += 1;
         self.seen_answer = answer.int();
-        return true;
+        return .claimed;
     }
 };
 
@@ -284,6 +285,9 @@ test "a resolve interceptor claims a served reply before it reaches the wire, an
     defer server.deinit();
     const counter = try server.spawn(Counter, .{ .n = 200 });
     try server.bindExport(counter, 7);
+    // Hand-wired pairing: the client addresses position 7 out-of-band, so the
+    // bound position takes an explicit grant.
+    try pair.p2.exportObject(7);
     try pair.p1.importObject(7);
 
     var interceptor = ClaimBigReplies{};
@@ -297,7 +301,7 @@ test "a resolve interceptor claims a served reply before it reaches the wire, an
     // promise stays unsettled — nothing crossed the wire back.
     const claimed_promise = try client.send(remote, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
     var claimed_result: i64 = 0;
-    try client.on(claimed_promise, .{ .ctx = &claimed_result, .func = captureInt });
+    try client.on(claimed_promise, .{ .ctx = &claimed_result, .func = capture.captureInt });
     try shuttle(&pair.p1, &pair.p2);
     {
         var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
@@ -313,10 +317,11 @@ test "a resolve interceptor claims a served reply before it reaches the wire, an
     // threshold): unclaimed, the ordinary resolve flows and the listener fires.
     const small = try server.spawn(Counter, .{ .n = 0 });
     try server.bindExport(small, 8);
+    try pair.p2.exportObject(8);
     try pair.p1.importObject(8);
     const passed_promise = try client.send(.{ .far = model.FarRef.object(8) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
     var passed_result: i64 = 0;
-    try client.on(passed_promise, .{ .ctx = &passed_result, .func = captureInt });
+    try client.on(passed_promise, .{ .ctx = &passed_result, .func = capture.captureInt });
     try shuttle(&pair.p1, &pair.p2);
     {
         var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
@@ -331,4 +336,66 @@ test "a resolve interceptor claims a served reply before it reaches the wire, an
     }
     try std.testing.expectEqual(@as(usize, 1), interceptor.claimed);
     try std.testing.expectEqual(@as(i64, 5), passed_result);
+}
+
+/// Records a `.broken` resolution's message so the test can assert on the
+/// break reason after the bounded listener call returns.
+const BrokenCapture = struct {
+    fired: bool = false,
+    broken: bool = false,
+    message: [64]u8 = undefined,
+    message_len: usize = 0,
+
+    fn fire(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        const self: *BrokenCapture = @ptrCast(@alignCast(ctx.?));
+        self.fired = true;
+        switch (resolution) {
+            .broken => |message| {
+                self.broken = true;
+                self.message_len = @min(message.len, self.message.len);
+                @memcpy(self.message[0..self.message_len], message[0..self.message_len]);
+            },
+            .fulfilled, .give => {},
+        }
+    }
+};
+
+test "an answered deliver to an exported-but-unbound position breaks the answer instead of stranding it" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.paired(allocator);
+    defer pair.deinit();
+
+    // The position is exported at peer level — the engine admits deliveries —
+    // but no actor is bound to it (`peer.exportObject` without
+    // `vat.bindExport`, the hand-wired embedder shape).
+    var server = actors.Vat.initOver(allocator, &pair.p2);
+    defer server.deinit();
+    try pair.p2.exportObject(7);
+    try pair.p1.importObject(7);
+
+    var client = actors.Vat.initOver(allocator, &pair.p1);
+    defer client.deinit();
+    const remote: actors.Ref = .{ .far = model.FarRef.object(7) };
+    const promise = try client.send(remote, .{ .verb = "get" });
+    var captured = BrokenCapture{};
+    try client.on(promise, .{ .ctx = &captured, .func = BrokenCapture.fire });
+
+    // The server vat owns the event (it answers for the position) and breaks
+    // the answer — a `false` here is the silent drop that stranded the
+    // partner's promise forever.
+    try shuttle(&pair.p1, &pair.p2);
+    {
+        var event = pair.p2.pollEvent() orelse return error.ExpectedDeliver;
+        defer event.deinit();
+        try std.testing.expect(try server.serve(&event));
+    }
+    try shuttle(&pair.p2, &pair.p1);
+    {
+        var event = pair.p1.pollEvent() orelse return error.ExpectedResolve;
+        defer event.deinit();
+        try std.testing.expect(try client.serve(&event));
+    }
+    try std.testing.expect(captured.fired);
+    try std.testing.expect(captured.broken);
+    try std.testing.expectEqualStrings("NoSuchActor", captured.message[0..captured.message_len]);
 }

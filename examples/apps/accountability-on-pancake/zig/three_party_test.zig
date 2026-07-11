@@ -85,7 +85,7 @@ const Affordance = struct {
 fn shuttleAndStep(from: *engine.Peer, to: *engine.Peer) !void {
     _ = try from.step();
     while (from.takeOutbound()) |frame| {
-        try to.feedInbound(frame);
+        try to.feedOwned(frame);
     }
     _ = try to.step();
 }
@@ -98,6 +98,11 @@ fn drainEvents(peer: *engine.Peer) void {
 }
 
 // --- Host-side handoff routing (ADR-0009) -------------------------------
+//
+// Sibling copy: `test/support/cross_peer.zig`. This fork verifies with a real
+// Ed25519 RoutingVerifier and passes an explicit gifter key at deposit; the
+// support module learns the key from the handshake when null and uses
+// acceptingVerifier() for trusted tests.
 //
 // A `Peer` owns one direct session, so routing the give and withdraw legs
 // across the gifter, recipient, and exporter sessions is the host's job,
@@ -114,7 +119,7 @@ const RoutingError = error{
 fn pumpFrame(from: *engine.Peer, to: *engine.Peer) !void {
     _ = try from.step();
     const frame = from.takeOutbound() orelse return RoutingError.NoOutboundFrame;
-    try to.feedInbound(frame);
+    try to.feedOwned(frame);
     _ = try to.step();
 }
 
@@ -130,7 +135,7 @@ fn deliverGive(
 ) !void {
     try exporter_peer.giftRegistry().deposit(
         exporter_peer.allocator,
-        exporter_peer.session_state.limits,
+        exporter_peer.limits(),
         give.gift_id,
         give.recipient_key,
         gifter_key,
@@ -164,7 +169,7 @@ fn withdrawGift(
 
     const registry = exporter_peer.giftRegistry();
     try registry.validateWithdraw(receive);
-    try registry.applyWithdraw(exporter_peer.allocator, exporter_peer.session_state.limits, receive);
+    try registry.applyWithdraw(exporter_peer.allocator, exporter_peer.limits(), receive);
 
     try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
     try pumpFrame(recipient, exporter_peer);
@@ -243,6 +248,11 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
         .served = &served,
     });
     try c_vat.bindExport(aff, AFFORDANCE_EXPORT);
+    // This test routes the handoff by hand (B imports the affordance position
+    // out-of-band after the withdrawal), so C grants the bound position
+    // explicitly; a withdraw served through the engine's bootstrap responder
+    // would grant it by marshaling the resolve instead.
+    try exporter.exportObject(AFFORDANCE_EXPORT);
 
     // --- Three-party handoff: A introduces B to C, under real certificates ---
     // A (gifter) and B (recipient) hold real Ed25519 session keys. A signs the

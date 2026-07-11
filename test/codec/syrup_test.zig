@@ -49,28 +49,41 @@ test "Syrup locator encoding uses typed locator and preserves empty false hints"
     try std.testing.expectEqual(model.Hints.WireForm.boolean_false, decoded.start_session.acceptable_location.hints.wire_form);
 }
 
-test "Syrup refuses to encode a locator carrying hint entries instead of dropping them" {
-    // The encoder renders only the two empty hint spellings. Dropping entries
-    // silently would change the locator (and the location-signature bytes), so
-    // a hint-carrying locator must fail loud.
+test "Syrup start-session carries hint entries canonically and signs over the same bytes" {
+    // A keyed-tcp responder's location names its socket address in a
+    // `direct-addresses` hint (ADR-0075), so the start-session encoder renders
+    // hint entries as a canonical `{…}` dict — never dropping them, which
+    // would put a different locator on the wire than the caller named — and
+    // the location-signature domain embeds the identical bytes, so signer and
+    // wire cannot disagree.
+    const allocator = std.testing.allocator;
     const pubkey = repeatedByte(32, 0xaa);
     const sig = repeatedByte(64, 0xcc);
     const entries = [_]model.HintEntry{
         .{ .name = "host", .value = .{ .string = "127.0.0.1" } },
     };
+    const location: model.PeerLocator = .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:9001",
+        .hints = .{ .entries = &entries },
+    };
+    const locator_bytes = "<10'ocapn-peer3'tcp14\"127.0.0.1:9001{4\"host9\"127.0.0.1}>";
 
-    try std.testing.expectError(syrup.Error.UnsupportedArgument, syrup.encodeMessageForProfile(std.testing.allocator, model.WireProfile.v1_0, .{
+    var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
         .start_session = .{
             .captp_version = .v1_0,
             .session_pubkey = .{ .bytes = pubkey[0..] },
-            .acceptable_location = .{
-                .transport = "tcp",
-                .designator = "127.0.0.1:9001",
-                .hints = .{ .entries = &entries },
-            },
+            .acceptable_location = location,
             .acceptable_location_sig = .{ .bytes = sig[0..] },
         },
-    }));
+    });
+    defer frame.deinit();
+    try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), locator_bytes) != null);
+
+    const signed = try syrup.canonicalLocationSignedBytes(allocator, location);
+    defer allocator.free(signed);
+    const expected_signed = "<11'my-location" ++ locator_bytes ++ ">";
+    try std.testing.expectEqualSlices(u8, expected_signed, signed);
 }
 
 test "op:abort encodes to the Goblins-aligned Syrup byte shape" {

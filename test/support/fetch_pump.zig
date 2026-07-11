@@ -2,12 +2,12 @@
 //! loopback tests.
 //!
 //! Test support (not a production module): the blocking-pump clients
-//! (`tcp_test`, `netlayer_test`, the completion loop's dialed-in clients) and
-//! the completion dialer's serve callback all drive the same scenario, open
-//! the handshake, send a prepared bootstrap fetch, then match every inbound
-//! event against it with one fulfilled/broken/malformed switch. That
-//! choreography lives here once; each test keeps only the transport seam it
-//! is actually proving.
+//! (`tcp_test`, `netlayer_test`, the completion loop's dialed-in clients),
+//! the completion dialer's serve callback, and the C-ABI endpoint/inproc
+//! loopback tests all drive the same scenario, open the handshake, send a
+//! prepared bootstrap fetch, then match every inbound event against it with
+//! one fulfilled/broken/malformed switch. That choreography lives here once;
+//! each test keeps only the transport seam it is actually proving.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -50,8 +50,8 @@ pub fn handshakeToOpen(
 /// one fails as `error.FetchMalformed`.
 pub fn matchFetchEvent(
     allocator: std.mem.Allocator,
-    resolver_export: model.ExportId,
-    answer_position: model.AnswerId,
+    resolver_export: model.ExportPosition,
+    answer_position: model.AnswerPosition,
     event: *engine.Event,
 ) !?model.Reference {
     const owned = try event.decodeOwned(allocator);

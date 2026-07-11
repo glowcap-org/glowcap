@@ -37,19 +37,16 @@ use pancake_rust_dogfood::{
 	encode_peer_locator, listen_iroh, Argument, Connection, Reachability, Ref,
 };
 
-type Fail = Box<dyn std::error::Error>;
+#[path = "../../../interop/_common/rust/helpers.rs"]
+mod helpers;
+
+type Fail = helpers::Fail;
 
 const NAME: &str = "rust-redeem-posture-carol";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
-	for arg in std::env::args().skip(1) {
-		// The gate takes no arguments; `-Dport` is meaningless for an in-process
-		// local-discovery run, so accept and ignore a `--port=` for build parity.
-		if !arg.starts_with("--port=") {
-			return Err(format!("unknown argument '{arg}'").into());
-		}
-	}
+	helpers::ignore_port_args()?;
 	// The `Connection`/`IrohServer` drivers are `!Send`, so they live on a LocalSet.
 	let local = tokio::task::LocalSet::new();
 	local.run_until(run()).await

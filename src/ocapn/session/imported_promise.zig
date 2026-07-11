@@ -6,7 +6,7 @@
 //! resolution (forwarded by the introducing session), not a direct
 //! `op:resolve`. `op:listen` on such an import installs a listener here; the
 //! relay fires it. These mirror the answer-side pipelining substrate in
-//! `mod.zig`, keyed on import id instead of answer id. The row type
+//! `mod.zig`, keyed on import position instead of answer position. The row type
 //! (`ImportedPromise`) and its storage (`imported_promises`) live on `Session`;
 //! these functions are aliased back into the `Session` namespace there, so a
 //! caller still writes `sess.installThirdPartyImport(...)`.
@@ -24,7 +24,7 @@ const ListenerEntry = session.ListenerEntry;
 /// validates as a reference) and marking it handoff-imported. Idempotent for
 /// the same host; a re-root with a different host is `Error.HostMismatch`.
 /// `host` is duped into session-owned storage.
-pub fn installThirdPartyImport(self: *Session, import_position: model.ImportId, host: []const u8) !void {
+pub fn installThirdPartyImport(self: *Session, import_position: model.ImportPosition, host: []const u8) !void {
     if (findImportedPromise(self, import_position)) |existing| {
         if (!std.mem.eql(u8, existing.host, host)) return Error.HostMismatch;
         return;
@@ -32,21 +32,23 @@ pub fn installThirdPartyImport(self: *Session, import_position: model.ImportId, 
     const host_copy = try self.allocator.dupe(u8, host);
     errdefer self.allocator.free(host_copy);
     try self.registerImport(import_position);
-    try self.imported_promises.put(self.allocator, import_position, .{ .host = host_copy });
+    try self.imported_promises.put(self.allocator, import_position, .{
+        .host = host_copy,
+        .row_id = self.nextStoreStamp(),
+    });
 }
 
 /// Whether `import_position` is a promise imported from a third party (ADR-0009),
 /// the gate that admits an `op:listen` on this import as a relayed-resolution
 /// listener rather than rejecting it.
-pub fn isThirdPartyImport(self: *Session, import_position: model.ImportId) bool {
+pub fn isThirdPartyImport(self: *Session, import_position: model.ImportPosition) bool {
     return findImportedPromise(self, import_position) != null;
 }
 
-/// Register `listener` (taking ownership of its `listener` cap) as wanting the
-/// relayed resolution of third-party import `import_position`. On failure the
-/// cap is freed. The import must be third-party-hosted.
-pub fn installImportedPromiseListener(self: *Session, import_position: model.ImportId, listener: ListenerEntry) !void {
-    errdefer model.freeReference(self.allocator, listener.listener);
+/// Register `listener` (a POD entry) as wanting the relayed resolution of
+/// third-party import `import_position`. The import must be
+/// third-party-hosted.
+pub fn installImportedPromiseListener(self: *Session, import_position: model.ImportPosition, listener: ListenerEntry) !void {
     const entry = findImportedPromise(self, import_position) orelse return Error.InvalidReference;
     if (entry.listeners.len() >= self.limits.max_listeners_per_target) {
         return Error.ListenerCapExceeded;
@@ -55,23 +57,29 @@ pub fn installImportedPromiseListener(self: *Session, import_position: model.Imp
 }
 
 /// Store the relayed `resolution` for third-party import `import_position` (taking
-/// ownership), so a late `op:listen` fires immediately. Replaces any prior
-/// stored resolution. On an unknown import the resolution is freed.
-pub fn recordRelayedResolution(self: *Session, import_position: model.ImportId, resolution: model.Resolution) !void {
+/// ownership), so a late `op:listen` fires immediately. A promise resolves
+/// exactly once: a second relay for an already-settled import is refused with
+/// `Error.UnexpectedMessage`, mirroring the answer-side resolve-once rule
+/// (`validate.validateInboundResolve`) — accepting it would hand two listeners
+/// two different final values. On any refusal (unknown import or already
+/// settled) the resolution is freed; this function owns it on every outcome.
+pub fn recordRelayedResolution(self: *Session, import_position: model.ImportPosition, resolution: model.Resolution) !void {
     const entry = findImportedPromise(self, import_position) orelse {
         model.freeResolution(self.allocator, resolution);
         return Error.InvalidReference;
     };
-    if (entry.resolution) |prior| model.freeResolution(self.allocator, prior);
+    if (entry.resolution != null) {
+        model.freeResolution(self.allocator, resolution);
+        return Error.UnexpectedMessage;
+    }
     entry.resolution = resolution;
 }
 
 /// Hand the caller the listeners registered on third-party import
-/// `import_position`, transferring ownership of every entry's listener cap and
-/// leaving the import's listener list empty. Returns an empty slice for an
-/// unknown import or no listeners. The caller owns the returned slice (release
-/// each entry's listener cap, then free the slice with `allocator`).
-pub fn takeImportedPromiseListeners(self: *Session, import_position: model.ImportId) ![]ListenerEntry {
+/// `import_position`, leaving the import's listener list empty. Returns an
+/// empty slice for an unknown import or no listeners. The caller owns the
+/// returned slice and frees it with `allocator`; the entries are POD.
+pub fn takeImportedPromiseListeners(self: *Session, import_position: model.ImportPosition) ![]ListenerEntry {
     const entry = findImportedPromise(self, import_position) orelse return &.{};
     return entry.listeners.take(self.allocator);
 }
@@ -79,19 +87,19 @@ pub fn takeImportedPromiseListeners(self: *Session, import_position: model.Impor
 /// Borrow the stored relayed resolution for third-party import `import_position`,
 /// if one was forwarded. The borrow is valid until the row is mutated or
 /// removed.
-pub fn importedPromiseResolution(self: *Session, import_position: model.ImportId) ?*const model.Resolution {
+pub fn importedPromiseResolution(self: *Session, import_position: model.ImportPosition) ?*const model.Resolution {
     const entry = findImportedPromise(self, import_position) orelse return null;
     if (entry.resolution) |*resolution| return resolution;
     return null;
 }
 
-pub fn findImportedPromise(self: *Session, import_position: model.ImportId) ?*ImportedPromise {
+pub fn findImportedPromise(self: *Session, import_position: model.ImportPosition) ?*ImportedPromise {
     return self.imported_promises.getPtr(import_position);
 }
 
 /// Release the owned memory an `ImportedPromise` holds: the host designator,
-/// listener caps, and any stored relayed resolution. The listener list is
-/// emptied so the struct is safe to drop or remove afterward.
+/// the listener list's backing (entries are POD), and any stored relayed
+/// resolution. The struct is safe to drop or remove afterward.
 pub fn deinitImportedPromise(allocator: std.mem.Allocator, entry: *ImportedPromise) void {
     allocator.free(entry.host);
     entry.listeners.deinit(allocator);

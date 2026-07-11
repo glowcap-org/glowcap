@@ -67,16 +67,16 @@ test "in-flight enliven dedup tracks and clears the outstanding answer" {
     var s = session.Session.init(allocator);
     defer s.deinit();
 
-    try std.testing.expectEqual(@as(?model.AnswerId, null), s.pendingEnlivenAnswer("a"));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.pendingEnlivenAnswer("a"));
     try s.notePendingEnliven("a", .from(5));
-    try std.testing.expectEqual(@as(?model.AnswerId, .from(5)), s.pendingEnlivenAnswer("a"));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(5)), s.pendingEnlivenAnswer("a"));
 
     // Idempotent: a second note for the same swissnum keeps the first answer.
     try s.notePendingEnliven("a", .from(99));
-    try std.testing.expectEqual(@as(?model.AnswerId, .from(5)), s.pendingEnlivenAnswer("a"));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(5)), s.pendingEnlivenAnswer("a"));
 
     s.finishPendingEnliven("a");
-    try std.testing.expectEqual(@as(?model.AnswerId, null), s.pendingEnlivenAnswer("a"));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.pendingEnlivenAnswer("a"));
 }
 
 test "checkEnlivenPreconditions rejects non-negotiated and non-open sessions" {
@@ -133,7 +133,7 @@ test "prepareEnliven issues a fresh bootstrap-fetch on a cache miss and marks it
     try std.testing.expectEqual(session.BOOTSTRAP_POSITION, deliver.target.far.import_position.int());
     try std.testing.expectEqualStrings("fetch", deliver.args[0].symbol);
     try std.testing.expectEqualStrings("swiss", deliver.args[1].bytes);
-    try std.testing.expectEqual(@as(?model.AnswerId, start.fresh.answer_position), s.pendingEnlivenAnswer("swiss"));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, start.fresh.answer_position), s.pendingEnlivenAnswer("swiss"));
 }
 
 test "prepareEnliven short-circuits a cached enlivenment without wire traffic" {
@@ -146,7 +146,7 @@ test "prepareEnliven short-circuits a cached enlivenment without wire traffic" {
     try std.testing.expect(start == .cached);
     try std.testing.expectEqual(@as(u64, 4), start.cached.far.import_position.int());
     // No fetch was issued, so nothing is marked in-flight.
-    try std.testing.expectEqual(@as(?model.AnswerId, null), s.pendingEnlivenAnswer("swiss"));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.pendingEnlivenAnswer("swiss"));
 }
 
 test "prepareEnliven collapses a concurrent enliven onto the in-flight answer" {
@@ -174,7 +174,7 @@ test "recordEnlivenment caches a fulfilled far reference and clears the in-fligh
     });
     model.freeReference(allocator, reference);
 
-    try std.testing.expectEqual(@as(?model.AnswerId, null), s.pendingEnlivenAnswer("swiss"));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.pendingEnlivenAnswer("swiss"));
     const cached = s.sturdyrefCacheLookup("swiss") orelse return error.TestUnexpectedResult;
     try std.testing.expectEqual(@as(u64, 6), cached.far.import_position.int());
     try std.testing.expectEqual(model.RefKind.promise, cached.far.kind);
@@ -193,7 +193,7 @@ test "recordEnlivenment fails loud on a broken settlement and clears the marker"
         .{ .broken = try allocator.dupe(u8, "unknown swissnum") },
     ));
     // The marker is cleared even on failure, and nothing is cached.
-    try std.testing.expectEqual(@as(?model.AnswerId, null), s.pendingEnlivenAnswer("swiss"));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.pendingEnlivenAnswer("swiss"));
     try std.testing.expect(s.sturdyrefCacheLookup("swiss") == null);
 }
 
@@ -218,7 +218,7 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
     const resolver_export = start.fresh.resolver_export;
     try p1.send(start.fresh.message);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    try p2.feedInbound(p1.takeOutbound().?);
+    try p2.feedOwned(p1.takeOutbound().?);
     // This step dispatches the inbound fetch: it surfaces the deliver event AND
     // enqueues the synthesized resolve onto p2's pending_send.
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
@@ -229,7 +229,7 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
 
     // A subsequent step encodes the auto-served resolve onto the outbound queue.
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    try p1.feedInbound(p2.takeOutbound().?);
+    try p1.feedOwned(p2.takeOutbound().?);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
 
     var resolve_event = p1.pollEvent().?;
@@ -244,7 +244,7 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
     const enlivened = try sturdyref.recordEnlivenment(allocator, &p1.session_state, ref.swissnum, match.settled);
     model.freeReference(allocator, enlivened);
     try std.testing.expectEqual(cap_export, enlivened.far.import_position.int());
-    try std.testing.expectEqual(@as(?model.AnswerId, null), p1.session_state.pendingEnlivenAnswer("swiss"));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, null), p1.session_state.pendingEnlivenAnswer("swiss"));
 
     // A repeat enliven now short-circuits to the cached reference, no wire traffic.
     const cached = try sturdyref.prepareEnliven(allocator, &p1.session_state, ref);

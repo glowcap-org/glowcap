@@ -334,29 +334,12 @@ pub const PancakeEnlivenStart = extern struct {
     import_position: u64,
 };
 
-/// `PancakeLastAbort.domain`: which layer classified the failure. Codec is a
-/// decode/encode malformation, session is a state-machine refusal, foreign is
-/// a host-internal failure (allocation, …).
-pub const PANCAKE_ABORT_DOMAIN_CODEC: u32 = 0;
-pub const PANCAKE_ABORT_DOMAIN_SESSION: u32 = 1;
-pub const PANCAKE_ABORT_DOMAIN_FOREIGN: u32 = 2;
-
-/// The typed cause of the peer's most recent local dispatch failure, projected
-/// to C — the ABI counterpart of `engine.Peer.lastAbort`. `domain` is a
-/// `PANCAKE_ABORT_DOMAIN_*` value. When `has_kind` is nonzero, `kind_name`
-/// is the wire name of the projected `op:abort` kind (e.g. "MalformedFrame");
-/// when zero, the failure projected no abort (a closed session, an allocation
-/// failure). All byte views are process-static — read them, never free them.
-pub const PancakeLastAbort = extern struct {
-    domain: u32,
-    has_kind: u32,
-    kind_name: ?[*]const u8,
-    kind_name_len: usize,
-    message: ?[*]const u8,
-    message_len: usize,
-    error_name: ?[*]const u8,
-    error_name_len: usize,
-};
+// The typed local dispatch-failure projection (shared leaf, so the byte-fed
+// driver family reads its connections' aborts through the same layout).
+pub const PANCAKE_ABORT_DOMAIN_CODEC = abi.PANCAKE_ABORT_DOMAIN_CODEC;
+pub const PANCAKE_ABORT_DOMAIN_SESSION = abi.PANCAKE_ABORT_DOMAIN_SESSION;
+pub const PANCAKE_ABORT_DOMAIN_FOREIGN = abi.PANCAKE_ABORT_DOMAIN_FOREIGN;
+pub const PancakeLastAbort = abi.PancakeLastAbort;
 
 // ── OCapN locator handle ─────────────────────────────────────────────────────
 
@@ -369,19 +352,11 @@ pub const PancakeLocator = opaque {};
 
 // ── Shared error projection ──────────────────────────────────────────────────
 
-/// Classify an inbound-dispatch error into a C ABI return code. Derived from the
-/// single error taxonomy (`engine.abort_projection.classify`) so the C codes
-/// cannot drift from the abort projection: codec/decode malformations report
-/// `CODEC`, session state-machine refusals (a partner protocol violation, a
-/// resource cap, an already-closed session) report `SESSION`, and host-internal
-/// failures (allocation, …) report `INTERNAL`.
-pub fn feedErrorToCode(err: anyerror) i32 {
-    return switch (engine.abort_projection.classify(err).domain) {
-        .codec => PANCAKE_ERR_CODEC,
-        .session => PANCAKE_ERR_SESSION,
-        .foreign => PANCAKE_ERR_INTERNAL,
-    };
-}
+/// Classify an inbound-dispatch error into a C ABI return code. Defined once in
+/// the shared leaf (`c_abi_shared.feedErrorToCode`, derived from
+/// `engine.abort_projection.classify`) so every archive reports the same code
+/// for the same error.
+pub const feedErrorToCode = abi.feedErrorToCode;
 
 // Per-thread last error (shared leaf; read through the exports below).
 pub const setLastError = abi.setLastError;
@@ -423,11 +398,10 @@ pub const pancake_peer_new_negotiated_in = peer.pancake_peer_new_negotiated_in;
 pub const pancake_peer_new_raw_open = peer.pancake_peer_new_raw_open;
 pub const pancake_peer_new_raw_open_in = peer.pancake_peer_new_raw_open_in;
 pub const pancake_peer_release = peer.pancake_peer_release;
-pub const pancake_peer_feed_borrowed = peer.pancake_peer_feed_borrowed;
+pub const pancake_peer_recv_borrowed = peer.pancake_peer_recv_borrowed;
 pub const pancake_peer_feed_owned = peer.pancake_peer_feed_owned;
 pub const pancake_peer_recv_stream = peer.pancake_peer_recv_stream;
 pub const pancake_peer_step = peer.pancake_peer_step;
-pub const pancake_peer_step_to_idle = peer.pancake_peer_step_to_idle;
 pub const pancake_peer_take_outbound = peer.pancake_peer_take_outbound;
 pub const pancake_peer_poll_event = peer.pancake_peer_poll_event;
 pub const pancake_peer_start_session = peer.pancake_peer_start_session;
@@ -451,7 +425,6 @@ pub const pancake_peer_send_untag = peer.pancake_peer_send_untag;
 pub const pancake_peer_send_gc_export = peer.pancake_peer_send_gc_export;
 pub const pancake_peer_send_gc_answer = peer.pancake_peer_send_gc_answer;
 pub const pancake_peer_send_withdraw_gift = peer.pancake_peer_send_withdraw_gift;
-pub const pancake_peer_partner_session_key = peer.pancake_peer_partner_session_key;
 pub const pancake_peer_partner_locator_raw = peer.pancake_peer_partner_locator_raw;
 pub const pancake_build_handoff_give = peer.pancake_build_handoff_give;
 pub const pancake_handoff_give_bytes_release = peer.pancake_handoff_give_bytes_release;
@@ -465,7 +438,7 @@ pub const pancake_node_release = node.pancake_node_release;
 pub const pancake_node_register_conn = node.pancake_node_register_conn;
 pub const pancake_node_remove_conn = node.pancake_node_remove_conn;
 pub const pancake_node_route = node.pancake_node_route;
-pub const pancake_node_record_foreign_home = node.pancake_node_record_foreign_home;
+pub const pancake_node_enroll_foreign = node.pancake_node_enroll_foreign;
 pub const pancake_node_arg_is_foreign = node.pancake_node_arg_is_foreign;
 pub const pancake_node_accept_give = node.pancake_node_accept_give;
 pub const pancake_node_exporter_dialed = node.pancake_node_exporter_dialed;

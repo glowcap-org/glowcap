@@ -47,7 +47,7 @@ posture* you choose when you bind the endpoint. pancake exposes four:
 | `direct` | the dialer carries the peer's direct socket addresses as locator hints | `zig build iroh-interop` |
 | `local_discovery` | an in-process address book resolves the id, no relay, fully deterministic | `zig build iroh-interop` |
 | `discovery` | the public n0 relays plus DNS/pkarr resolve the id over the open internet | `zig build iroh-reachability` |
-| `discovery_no_relay` | DNS/pkarr resolve the id, but with relay fallback disabled — published direct addresses only | posture governance only: `zig build bindings-iroh-redeem-posture` |
+| `discovery_no_relay` | DNS/pkarr resolve the id, but with relay fallback disabled: published direct addresses only | posture governance only: `zig build bindings-iroh-redeem-posture` |
 
 `direct` and `local_discovery` are deterministic and run as the standard interop
 gate. `discovery` reaches real n0 infrastructure: a server publishes its node info
@@ -55,7 +55,7 @@ to pkarr on bind, and a client dials by the 64-hex id with no hints. A session
 that opens therefore proves the route was discovered, not hinted. Because it depends on public
 infrastructure and propagation timing, it is opt-in and never part of the hermetic
 `zig build check`. `discovery_no_relay` is the same path with relay fallback
-disabled. No gate dials it live — that would need a publicly addressable host —
+disabled. No gate dials it live (that would need a publicly addressable host),
 so its cited gate proves something narrower and hermetic: a hint-less give is
 governed by whatever posture the endpoint configured, this one included.
 
@@ -80,15 +80,15 @@ address.
 
 ## Scale: many connections, one thread
 
-The shipped iroh resident serves one connection per OS thread, the path
+The shipped iroh resident serves one connection per OS thread; that is the path
 `iroh-interop` proves correct. That caps too early for the fan-out
 pancake targets elsewhere, so iroh also has an event-driven path
 ([ADR-0057](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0057-iroh-completion-loop-bridge.md)).
 A loop host registers the sidecar's single readiness descriptor once and drives
 non-blocking frame I/O across every connection from one thread. `zig build iroh-loop`
 proves it by dialing the server from many endpoints at once and checking that every
-call on every connection returns the right answer. The one loop thread is
-provably multiplexing rather than serving them in turn. The Python, Rust, and
+call on every connection returns the right answer. The one loop thread
+provably multiplexes the connections rather than serving them in turn. The Python, Rust, and
 Racket bindings prove the same shape over the C ABI through `python-iroh-loop`,
 `rust-iroh-loop`, and `racket-iroh-loop` (or `bindings-iroh-loop` for all
 three). The TypeScript binding drives its iroh connections through the same

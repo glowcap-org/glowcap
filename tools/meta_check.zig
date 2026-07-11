@@ -70,13 +70,16 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try checkCAbiSurfaceShape(io, gpa, root, &violations);
     try checkAbiExportsConsumed(io, gpa, root, &violations);
     try checkBindingConstants(io, gpa, root, &violations);
+    try checkBindingHostActionDrains(io, gpa, root, &violations);
     try checkBindingMagicErrorCodes(io, gpa, root, &violations);
     try checkIrohSidecarAbi(io, gpa, root, &violations);
     try checkIrohSidecarPins(io, gpa, root, &violations);
     try checkApplicationSurfaceVerbs(io, gpa, root, &violations);
     try checkExampleIndex(io, gpa, root, &violations);
+    try checkExampleWiring(io, gpa, root, &violations);
     try checkPlanningDocRoles(io, gpa, root, &violations);
     try checkLivingStateRegistry(io, gpa, root, &violations);
+    try checkRoadmapHonesty(io, gpa, root, &violations);
     try checkRuleFrontmatter(io, gpa, root, &violations);
     try checkLayerOwnership(io, gpa, root, &violations);
     try checkTestPlacement(io, gpa, root, &violations);
@@ -86,6 +89,9 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try checkGeneratedStateIgnores(io, gpa, root, &violations, b.build_root.path orelse ".");
     try checkPrereleaseLanguage(io, gpa, root, &violations);
     try checkSiteSvgAscii(io, gpa, root, &violations);
+    try checkRemoveDiscards(io, gpa, root, &violations);
+    try checkArchiveTables(io, gpa, root, &violations);
+    try checkDocCAbiCites(io, gpa, root, &violations);
 
     if (violations.items.len != 0) {
         for (violations.items) |msg| std.debug.print("meta-check: {s}\n", .{msg});
@@ -1129,6 +1135,94 @@ fn checkDanglingRefsInZigFile(
     }
 }
 
+/// A map removal that discards its presence bool — `_ = map.remove(k)` and the
+/// `.fetchRemove(` / `.swapRemove(` shapes — throws away a checkable fact: a
+/// logic bug that removed a key the code believed present passes unnoticed. In
+/// `src/`, every such discard must either assert the removal
+/// (`std.debug.assert(map.remove(k))`, which still runs the remove in release,
+/// only adding the check in safe builds) when presence is an established
+/// invariant, or carry an inline `// idempotent:` / `// tolerant:` justification
+/// when presence is genuinely not guaranteed. This holds the distinction
+/// mechanically for every future removal (see the allocator-discipline section
+/// of `.agents/rules/memory.md`). `orderedRemove` returns the element, not a
+/// presence bool, so it is deliberately not flagged.
+fn checkRemoveDiscards(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var dir = root.openDir(io, "src", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "src: failed to open for remove-discard check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer dir.close(io);
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
+        const path = try std.fmt.allocPrint(gpa, "src/{s}", .{entry.path});
+        defer gpa.free(path);
+        try checkRemoveDiscardsInFile(io, gpa, root, violations, path);
+    }
+}
+
+/// True when `line` is a code (non-comment) line that discards a presence-bool
+/// removal with `_ =`.
+fn removeDiscardLine(line: []const u8) bool {
+    const trimmed = std.mem.trimStart(u8, line, " \t");
+    if (std.mem.startsWith(u8, trimmed, "//")) return false;
+    if (std.mem.indexOf(u8, line, "_ = ") == null) return false;
+    return std.mem.indexOf(u8, line, ".remove(") != null or
+        std.mem.indexOf(u8, line, ".fetchRemove(") != null or
+        std.mem.indexOf(u8, line, ".swapRemove(") != null;
+}
+
+fn hasRemoveJustification(line: []const u8) bool {
+    return std.mem.indexOf(u8, line, "idempotent:") != null or
+        std.mem.indexOf(u8, line, "tolerant:") != null;
+}
+
+/// A discard is justified by a marker on its own line or anywhere in the
+/// contiguous `//` comment block directly above it.
+fn removeDiscardJustified(lines: []const []const u8, i: usize) bool {
+    if (hasRemoveJustification(lines[i])) return true;
+    var j = i;
+    while (j > 0) {
+        j -= 1;
+        const trimmed = std.mem.trimStart(u8, lines[j], " \t");
+        if (!std.mem.startsWith(u8, trimmed, "//")) return false;
+        if (hasRemoveJustification(lines[j])) return true;
+    }
+    return false;
+}
+
+fn checkRemoveDiscardsInFile(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+) !void {
+    const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for remove-discard check with {s}", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(contents);
+
+    var lines: std.ArrayList([]const u8) = .empty;
+    defer lines.deinit(gpa);
+    var it = std.mem.splitScalar(u8, contents, '\n');
+    while (it.next()) |line| try lines.append(gpa, line);
+
+    for (lines.items, 0..) |line, i| {
+        if (!removeDiscardLine(line)) continue;
+        if (removeDiscardJustified(lines.items, i)) continue;
+        try appendViolation(gpa, violations, "{s}:{d}: `_ =` discards a map removal's presence bool — assert it (`std.debug.assert(map.remove(k))`, which still runs in release) when presence is an invariant, or add an inline `// idempotent:` / `// tolerant:` justification", .{ path, i + 1 });
+    }
+}
+
 const MermaidKind = enum { flowchart, sequence, state };
 
 fn checkMermaidBlocks(
@@ -1438,6 +1532,44 @@ fn collectBulletSpans(gpa: std.mem.Allocator, section: []const u8, out: *std.Arr
         const after_tick = trimmed["- `".len..];
         const close = std.mem.indexOfScalar(u8, after_tick, '`') orelse continue;
         try out.append(gpa, after_tick[0..close]);
+    }
+}
+
+/// Phrases that once described open work in `docs/roadmap.md` and are now
+/// lies against the gated tree. A regression that reintroduces them fails
+/// `meta-check` instead of shipping as a silent living-state drift.
+const roadmap_forbidden_phrases = [_]struct { phrase: []const u8, reason: []const u8 }{
+    .{
+        .phrase = "Wall-clock time is only printed",
+        .reason = "`zig build perf-check` already gates ReleaseFast wall-clock tripwires (ADR-0073)",
+    },
+    .{
+        .phrase = "What remains is the bridge that feeds the byte-fed host",
+        .reason = "`driver.LoopBridge` shipped under ADR-0076 (`zig build tcp-loop`)",
+    },
+    .{
+        .phrase = "the listener has no durable designator a partner can re-dial",
+        .reason = "`net.tcp_keyed` / ADR-0075 already ships the keyed designator; open work is binding/C ABI surfaces",
+    },
+};
+
+fn checkRoadmapHonesty(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const path = "docs/roadmap.md";
+    const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for roadmap-honesty check with {s}", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(contents);
+
+    for (roadmap_forbidden_phrases) |entry| {
+        if (std.mem.indexOf(u8, contents, entry.phrase) != null) {
+            try appendViolation(gpa, violations, "{s}: stale remaining-work claim `{s}` — {s}", .{ path, entry.phrase, entry.reason });
+        }
     }
 }
 
@@ -2187,19 +2319,24 @@ fn checkAbiVersionLockstep(
 /// "without releasing" and never claims to free. A future netlayer that
 /// reintroduces a freeing close fails the gate instead of shipping the
 /// ambiguity to a C consumer.
+/// The generated headers the C-ABI vocabulary checks below hold — every
+/// exporting archive, one list, so a new archive cannot join some checks and
+/// silently miss others.
+const abi_vocabulary_headers = [_][]const u8{
+    "include/pancake_ocapn.h",
+    "include/pancake_driver.h",
+    "include/pancake_net_transport_tcp.h",
+    "include/pancake_net_transport_inproc.h",
+    "include/pancake_net_transport_iroh.h",
+};
+
 fn checkAbiFreeingVerb(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const headers = [_][]const u8{
-        "include/pancake_ocapn.h",
-        "include/pancake_net_transport_tcp.h",
-        "include/pancake_net_transport_inproc.h",
-        "include/pancake_net_transport_iroh.h",
-    };
-    for (headers) |path| {
+    for (abi_vocabulary_headers) |path| {
         const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for ABI freeing-verb check with {s}", .{ path, @errorName(err) });
             continue;
@@ -2273,12 +2410,6 @@ fn checkCAbiSurfaceShape(
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const headers = [_][]const u8{
-        "include/pancake_ocapn.h",
-        "include/pancake_net_transport_tcp.h",
-        "include/pancake_net_transport_inproc.h",
-        "include/pancake_net_transport_iroh.h",
-    };
     // Collect every exported function name. The name slices reference the header
     // contents, so keep the buffers alive for the whole check.
     var contents_buffers: std.ArrayList([]u8) = .empty;
@@ -2291,7 +2422,7 @@ fn checkCAbiSurfaceShape(
     var name_set = std.StringHashMap(void).init(gpa);
     defer name_set.deinit();
 
-    for (headers) |path| {
+    for (abi_vocabulary_headers) |path| {
         const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for ABI surface-shape check with {s}", .{ path, @errorName(err) });
             continue;
@@ -2336,7 +2467,7 @@ fn checkCAbiSurfaceShape(
     }
 
     // Invariant 2, one error channel per archive, no extra spelling.
-    const allowed_error_families = [_][]const u8{ "", "tcp", "inproc", "iroh" };
+    const allowed_error_families = [_][]const u8{ "", "host", "tcp", "inproc", "iroh" };
     for (names.items) |name| {
         if (!std.mem.endsWith(u8, name, "_last_error")) continue;
         if (std.mem.endsWith(u8, name, "_clear_last_error")) continue;
@@ -2353,7 +2484,7 @@ fn checkCAbiSurfaceShape(
             if (std.mem.eql(u8, f, family)) family_ok = true;
         }
         if (!family_ok) {
-            try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} introduces an error channel for unexpected family `{s}`; the error channels are the ocapn root, tcp, inproc, iroh", .{ name, family });
+            try appendViolation(gpa, violations, "C ABI surface (ADR-0059): {s} introduces an error channel for unexpected family `{s}`; the error channels are the ocapn root, host, tcp, inproc, iroh", .{ name, family });
             continue;
         }
         const clear = if (family.len == 0)
@@ -2372,20 +2503,14 @@ fn checkCAbiSurfaceShape(
 /// nobody consumes or exercises is dead surface — the drift mode is a verb the
 /// waist has superseded that keeps shipping because nothing points at it. The
 /// scan collects every `pancake_*` identifier the consumer trees mention (one
-/// pass, identifier boundaries), so `pancake_peer_step` cannot satisfy
-/// `pancake_peer_step_to_idle`.
+/// pass, identifier boundaries), so `pancake_host_conn_feed` cannot satisfy
+/// `pancake_host_conn_feed_bytes`.
 fn checkAbiExportsConsumed(
     io: std.Io,
     gpa: std.mem.Allocator,
     root: std.Io.Dir,
     violations: *std.ArrayList([]const u8),
 ) !void {
-    const headers = [_][]const u8{
-        "include/pancake_ocapn.h",
-        "include/pancake_net_transport_tcp.h",
-        "include/pancake_net_transport_inproc.h",
-        "include/pancake_net_transport_iroh.h",
-    };
     var arena_state = std.heap.ArenaAllocator.init(gpa);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -2393,7 +2518,7 @@ fn checkAbiExportsConsumed(
     // The exported names, parsed from function declarations only.
     var exports: std.ArrayList(struct { name: []const u8, header: []const u8 }) = .empty;
     defer exports.deinit(gpa);
-    for (headers) |path| {
+    for (abi_vocabulary_headers) |path| {
         const contents = root.readFileAlloc(io, path, arena, .limited(1 << 20)) catch |err| {
             try appendViolation(gpa, violations, "{s}: failed to read for ABI consumer check with {s}", .{ path, @errorName(err) });
             continue;
@@ -2536,8 +2661,9 @@ fn lineIndexOfOffset(contents: []const u8, offset: usize) usize {
 /// matching `#define PANCAKE_…` value, so a hand-edit that desyncs a constant
 /// fails the gate instead of waiting for a live conversation to touch it.
 ///
-/// The header values come from all four generated headers, not just the ocapn
-/// base, so the iroh archive's `PANCAKE_IROH_*` mirrors are held too. The mirror
+/// The header values come from every generated header, not just the ocapn
+/// base, so the driver archive's `PANCAKE_HOST_*` and the iroh archive's
+/// `PANCAKE_IROH_*` mirrors are held too. The mirror
 /// files span both the ocapn constant files and the per-binding iroh FFI files
 /// (`binding_constants_files`), and `lookupHeaderConst` tolerates the `PANCAKE_`
 /// or leading-`_` prefix a private FFI mirror spells its names with.
@@ -2549,6 +2675,7 @@ fn checkBindingConstants(
 ) !void {
     const headers = [_][]const u8{
         "include/pancake_ocapn.h",
+        "include/pancake_driver.h",
         "include/pancake_net_transport_tcp.h",
         "include/pancake_net_transport_inproc.h",
         "include/pancake_net_transport_iroh.h",
@@ -2662,6 +2789,87 @@ fn lookupHeaderConst(header_vals: *std.StringHashMap(i64), name: []const u8) ?i6
         if (header_vals.get(name[1..])) |v| return v;
     }
     return null;
+}
+
+/// Every `PANCAKE_HOST_ACTION_*` kind must appear in each binding's host-action
+/// drain. The Zig embedders share one skeleton (`driver_core.drainActions`);
+/// the four language bindings each hand-roll the arm set, and a forgotten arm
+/// used to be a silent production miss (the `.close` hand-add). Grep-level:
+/// the header's action name must appear as `HOST_ACTION_<NAME>` (or
+/// `HOST-ACTION-<NAME>` in Racket) in the drain file. A new kind without a
+/// binding arm fails `zig build meta-check`.
+fn checkBindingHostActionDrains(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const header_path = "include/pancake_driver.h";
+    const header = root.readFileAlloc(io, header_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for host-action drain check with {s}", .{ header_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(header);
+
+    var action_names: std.ArrayList([]const u8) = .empty;
+    defer action_names.deinit(gpa);
+    const needle = "#define PANCAKE_HOST_ACTION_";
+    var rest = header;
+    while (std.mem.indexOf(u8, rest, needle)) |start| {
+        const after = rest[start + needle.len ..];
+        const name_end = std.mem.indexOfAny(u8, after, " \t\r\n") orelse after.len;
+        const name = after[0..name_end];
+        if (name.len != 0) try action_names.append(gpa, name);
+        rest = after[name_end..];
+    }
+    if (action_names.items.len == 0) {
+        try appendViolation(gpa, violations, "{s}: no PANCAKE_HOST_ACTION_* constants found for drain check", .{header_path});
+        return;
+    }
+
+    const drains = [_]struct { path: []const u8, sep: u8 }{
+        .{ .path = "bindings/ts/stack/host.ts", .sep = '_' },
+        .{ .path = "bindings/python/pancake/_host.py", .sep = '_' },
+        .{ .path = "bindings/rust/src/host.rs", .sep = '_' },
+        .{ .path = "bindings/racket/private/host.rkt", .sep = '-' },
+    };
+
+    var token_buf: [128]u8 = undefined;
+    for (drains) |drain| {
+        const contents = root.readFileAlloc(io, drain.path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for host-action drain check with {s}", .{ drain.path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+
+        for (action_names.items) |name| {
+            // `HOST{sep}ACTION{sep}` + name with `_` rewritten to `sep`.
+            const prefix = "HOST";
+            const mid = "ACTION";
+            var n: usize = 0;
+            const need = prefix.len + 1 + mid.len + 1 + name.len;
+            if (need > token_buf.len) {
+                try appendViolation(gpa, violations, "{s}: host-action name `{s}` too long for drain-token buffer", .{ header_path, name });
+                continue;
+            }
+            @memcpy(token_buf[n..][0..prefix.len], prefix);
+            n += prefix.len;
+            token_buf[n] = drain.sep;
+            n += 1;
+            @memcpy(token_buf[n..][0..mid.len], mid);
+            n += mid.len;
+            token_buf[n] = drain.sep;
+            n += 1;
+            for (name) |c| {
+                token_buf[n] = if (c == '_') drain.sep else c;
+                n += 1;
+            }
+            const token = token_buf[0..n];
+            if (std.mem.indexOf(u8, contents, token) == null) {
+                try appendViolation(gpa, violations, "{s}: host-action drain missing `{s}` (from PANCAKE_HOST_ACTION_{s})", .{ drain.path, token, name });
+            }
+        }
+    }
 }
 
 /// The per-binding spellings of "raise this ABI error code". A numeric literal
@@ -3054,9 +3262,10 @@ fn checkApplicationSurfaceVerbs(
 
 /// Gate that every numbered Zig example chapter (`examples/zig/NN_*.zig`) and
 /// every C example source (`examples/c/*.c`) the build compiles has an index row
-/// in `examples/README.md`. A new chapter or C program can otherwise ship
-/// undiscoverable; the index and the directories must agree. (The C arm is what
-/// would have caught `compose_transports.c` shipping unindexed.)
+/// in `examples/README.md`, and every numbered chapter also appears on the site
+/// examples page. A new chapter or C program can otherwise ship undiscoverable;
+/// the index, the site, and the directories must agree. (The C arm is what would
+/// have caught `compose_transports.c` shipping unindexed.)
 fn checkExampleIndex(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -3068,6 +3277,12 @@ fn checkExampleIndex(
         return;
     };
     defer gpa.free(index);
+
+    const site = root.readFileAlloc(io, "site/content/examples.smd", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "site/content/examples.smd: failed to read for example-index check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer gpa.free(site);
 
     var dir = root.openDir(io, "examples/zig", .{ .iterate = true }) catch |err| {
         try appendViolation(gpa, violations, "examples/zig: failed to open with {s}", .{@errorName(err)});
@@ -3087,6 +3302,12 @@ fn checkExampleIndex(
         const needle = std.fmt.bufPrint(&needle_buf, "zig/{s}", .{entry.name}) catch continue;
         if (std.mem.indexOf(u8, index, needle) == null) {
             try appendViolation(gpa, violations, "examples/README.md: missing index row for example chapter `{s}`", .{entry.name});
+        }
+
+        var site_needle_buf: [160]u8 = undefined;
+        const site_needle = std.fmt.bufPrint(&site_needle_buf, "examples/zig/{s}", .{entry.name}) catch continue;
+        if (std.mem.indexOf(u8, site, site_needle) == null) {
+            try appendViolation(gpa, violations, "site/content/examples.smd: missing row for example chapter `{s}`", .{entry.name});
         }
     }
 
@@ -3109,6 +3330,82 @@ fn checkExampleIndex(
         if (std.mem.indexOf(u8, index, needle) == null) {
             try appendViolation(gpa, violations, "examples/README.md: missing index row for C example `{s}`", .{entry.name});
         }
+    }
+}
+
+/// `zig build examples` compiles every row of the hand-maintained `zig_examples`
+/// and `c_examples` tables in `build.zig`. An example dropped from a table still
+/// on disk never runs under `check`; a stale table row points at a missing file
+/// and fails at compile time with a less actionable error. Forward: every
+/// `examples/zig/*.zig` and `examples/c/*.c` basename appears as a `.path` in
+/// the matching table. Reverse: every table `.path` resolves on disk.
+fn checkExampleWiring(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const build_zig = root.readFileAlloc(io, "build.zig", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "build.zig: failed to read for example-wiring check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer gpa.free(build_zig);
+
+    var table_paths = std.StringHashMap(void).init(gpa);
+    defer table_paths.deinit();
+    try collectBuildExamplePaths(build_zig, &table_paths);
+
+    // Forward: every on-disk example source is listed in build.zig's tables.
+    for (example_source_dirs) |spec| {
+        var dir = root.openDir(io, spec.dir, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to open for example-wiring check with {s}", .{ spec.dir, @errorName(err) });
+            continue;
+        };
+        defer dir.close(io);
+
+        var it = dir.iterate();
+        while (try it.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.name, spec.ext)) continue;
+
+            var path_buf: [192]u8 = undefined;
+            const path = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ spec.dir, entry.name }) catch {
+                try appendViolation(gpa, violations, "{s}/{s}: path too long for example-wiring check", .{ spec.dir, entry.name });
+                continue;
+            };
+            if (!table_paths.contains(path)) {
+                try appendViolation(gpa, violations, "{s}: not listed in build.zig's {s} table, it silently never runs under `zig build examples`", .{ path, spec.table_name });
+            }
+        }
+    }
+
+    // Reverse: every table path resolves on disk.
+    var it = table_paths.keyIterator();
+    while (it.next()) |path| {
+        root.access(io, path.*, .{}) catch |err| {
+            try appendViolation(gpa, violations, "build.zig: {s} table lists `{s}` but it is not accessible ({s})", .{
+                if (std.mem.startsWith(u8, path.*, "examples/zig/")) "zig_examples" else "c_examples",
+                path.*,
+                @errorName(err),
+            });
+        };
+    }
+}
+
+const example_source_dirs = [_]struct { dir: []const u8, ext: []const u8, table_name: []const u8 }{
+    .{ .dir = "examples/zig", .ext = ".zig", .table_name = "zig_examples" },
+    .{ .dir = "examples/c", .ext = ".c", .table_name = "c_examples" },
+};
+
+fn collectBuildExamplePaths(build_zig: []const u8, out: *std.StringHashMap(void)) !void {
+    var rest = build_zig;
+    while (std.mem.indexOf(u8, rest, ".path = \"")) |start| {
+        const after = rest[start + ".path = \"".len ..];
+        const end = std.mem.indexOfScalar(u8, after, '"') orelse break;
+        const path = after[0..end];
+        rest = after[end..];
+        if (!std.mem.startsWith(u8, path, "examples/zig/") and !std.mem.startsWith(u8, path, "examples/c/")) continue;
+        try out.put(path, {});
     }
 }
 
@@ -3337,6 +3634,222 @@ fn isCommandTerminator(byte: u8) bool {
         ' ', '\t', '\n', '\r', '`', '$', '#', '|', '&', ';', ')' => true,
         else => false,
     };
+}
+
+const c_abi_archive_docs = [_][]const u8{
+    "docs/architecture.md",
+    "docs/consuming-from-c.md",
+    "site/content/reference/index.smd",
+};
+
+/// Every composable C ABI archive named in the build must appear in the
+/// first-read archive tables, so a new archive cannot land without a doc row.
+/// The archive set is read from `build.zig`'s `archive_table` rows, not kept
+/// as a second list here, so a new `.artifact` row is demanded in the docs the
+/// moment it exists.
+fn checkArchiveTables(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const build_zig = root.readFileAlloc(io, "build.zig", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "build.zig: failed to read for archive-table check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer gpa.free(build_zig);
+
+    var artifacts: std.ArrayList([]const u8) = .empty;
+    defer artifacts.deinit(gpa);
+    const marker = ".artifact = \"";
+    var rest = build_zig;
+    while (std.mem.indexOf(u8, rest, marker)) |start| {
+        const after = rest[start + marker.len ..];
+        const end = std.mem.indexOfScalar(u8, after, '"') orelse break;
+        try artifacts.append(gpa, after[0..end]);
+        rest = after[end..];
+    }
+    if (artifacts.items.len == 0) {
+        try appendViolation(gpa, violations, "build.zig: no `.artifact = \"...\"` archive rows found (archive-table check)", .{});
+        return;
+    }
+
+    for (c_abi_archive_docs) |path| {
+        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for archive-table check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        for (artifacts.items) |artifact| {
+            var name_buf: [128]u8 = undefined;
+            const archive = std.fmt.bufPrint(&name_buf, "lib{s}", .{artifact}) catch {
+                try appendViolation(gpa, violations, "build.zig: artifact name `{s}` too long for archive-table check", .{artifact});
+                continue;
+            };
+            if (std.mem.indexOf(u8, contents, archive) == null) {
+                try appendViolation(gpa, violations, "{s}: missing archive name `{s}` (archive-table check)", .{ path, archive });
+            }
+        }
+    }
+}
+
+const doc_c_abi_header_paths = [_][]const u8{
+    "include/pancake_ocapn.h",
+    "include/pancake_driver.h",
+    "include/pancake_net_transport_tcp.h",
+    "include/pancake_net_transport_inproc.h",
+    "include/pancake_net_transport_iroh.h",
+    "transports/iroh/include/pancake_iroh_sidecar.h",
+};
+
+fn isPancakeIdentChar(c: u8) bool {
+    return (c >= 'a' and c <= 'z') or (c >= '0' and c <= '9') or c == '_';
+}
+
+fn collectPancakeSymbols(
+    contents: []const u8,
+    out: *std.StringHashMap(void),
+) !void {
+    var search: usize = 0;
+    while (std.mem.indexOfPos(u8, contents, search, "pancake_")) |start| {
+        var end = start + "pancake_".len;
+        while (end < contents.len and isPancakeIdentChar(contents[end])) end += 1;
+        search = end;
+        if (start > 0 and isIdentChar(contents[start - 1])) continue;
+        const name = contents[start..end];
+        if (!out.contains(name)) try out.put(name, {});
+    }
+}
+
+fn pancakeSymbolFamilyExists(prefix: []const u8, symbols: *const std.StringHashMap(void)) bool {
+    var it = symbols.keyIterator();
+    while (it.next()) |key| {
+        if (std.mem.startsWith(u8, key.*, prefix)) return true;
+    }
+    return false;
+}
+
+fn docCAbiTokenValid(token: []const u8, symbols: *const std.StringHashMap(void)) bool {
+    if (token.len < "pancake_".len) return false;
+
+    if (std.mem.eql(u8, token, "pancake_*_release")) {
+        var it = symbols.keyIterator();
+        while (it.next()) |key| {
+            if (!std.mem.startsWith(u8, key.*, "pancake_")) continue;
+            if (!std.mem.endsWith(u8, key.*, "_release")) continue;
+            return true;
+        }
+        return false;
+    }
+
+    if (std.mem.endsWith(u8, token, "*")) {
+        const prefix = token[0 .. token.len - 1];
+        if (std.mem.endsWith(u8, prefix, "_")) {
+            return pancakeSymbolFamilyExists(prefix, symbols);
+        }
+        var it = symbols.keyIterator();
+        while (it.next()) |key| {
+            if (std.mem.startsWith(u8, key.*, prefix)) return true;
+        }
+        return false;
+    }
+
+    if (std.mem.endsWith(u8, token, "_")) {
+        return pancakeSymbolFamilyExists(token, symbols);
+    }
+
+    if (symbols.contains(token)) return true;
+
+    return false;
+}
+
+fn extractPancakeCiteToken(span: []const u8) ?[]const u8 {
+    if (!std.mem.startsWith(u8, span, "pancake_")) return null;
+    if (std.mem.indexOfAny(u8, span, "<>") != null) return null;
+    if (std.mem.endsWith(u8, span, ".h") or std.mem.endsWith(u8, span, ".wasm")) return null;
+    var end: usize = "pancake_".len;
+    while (end < span.len and isPancakeIdentChar(span[end])) end += 1;
+    if (end < span.len and span[end] == '*') end += 1;
+    if (end == "pancake_".len) return null;
+    return span[0..end];
+}
+
+fn scanDocCAbiCitesInContents(
+    gpa: std.mem.Allocator,
+    path: []const u8,
+    contents: []const u8,
+    symbols: *const std.StringHashMap(void),
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var rest = contents;
+    while (std.mem.indexOf(u8, rest, "`pancake_")) |start| {
+        const after_tick = rest[start + 1 ..];
+        const close = std.mem.indexOfScalar(u8, after_tick, '`') orelse break;
+        const span = after_tick[0..close];
+        rest = after_tick[close + 1 ..];
+        const token = extractPancakeCiteToken(span) orelse continue;
+        if (!docCAbiTokenValid(token, symbols)) {
+            try appendViolation(gpa, violations, "{s}: backtick cite `{s}` has no matching symbol in include/*.h (doc C-ABI cite check)", .{ path, token });
+        }
+    }
+}
+
+/// Every `pancake_[a-z0-9_]+` token inside backticks in docs and site content
+/// must exist in the generated headers (or name a wildcard family that does).
+fn checkDocCAbiCites(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var symbols = std.StringHashMap(void).init(arena);
+    for (doc_c_abi_header_paths) |header_path| {
+        const contents = root.readFileAlloc(io, header_path, arena, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for doc C-ABI cite check with {s}", .{ header_path, @errorName(err) });
+            continue;
+        };
+        try collectPancakeSymbols(contents, &symbols);
+    }
+
+    var docs = root.openDir(io, "docs", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "docs: failed to open for doc C-ABI cite check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer docs.close(io);
+    var docs_walker = try docs.walk(gpa);
+    defer docs_walker.deinit();
+    while (try docs_walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
+        const path = try std.fmt.allocPrint(arena, "docs/{s}", .{entry.path});
+        const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for doc C-ABI cite check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        try scanDocCAbiCitesInContents(gpa, path, contents, &symbols, violations);
+    }
+
+    var site = root.openDir(io, "site/content", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "site/content: failed to open for doc C-ABI cite check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer site.close(io);
+    var site_walker = try site.walk(gpa);
+    defer site_walker.deinit();
+    while (try site_walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.path, ".smd")) continue;
+        const path = try std.fmt.allocPrint(arena, "site/content/{s}", .{entry.path});
+        const contents = root.readFileAlloc(io, path, arena, .limited(4 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for doc C-ABI cite check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        try scanDocCAbiCitesInContents(gpa, path, contents, &symbols, violations);
+    }
 }
 
 fn appendViolation(

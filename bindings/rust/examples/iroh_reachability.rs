@@ -23,19 +23,16 @@ use std::rc::Rc;
 
 use pancake_rust_dogfood::{Argument, Connection, Reachability};
 
-type Fail = Box<dyn std::error::Error>;
+#[path = "../../../interop/_common/rust/helpers.rs"]
+mod helpers;
+
+type Fail = helpers::Fail;
 
 const NAME: &str = "rust-iroh-world";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
-	for arg in std::env::args().skip(1) {
-		// The gate takes no arguments; accept and ignore a `--port=` for parity
-		// with the other binding gates' build wiring.
-		if !arg.starts_with("--port=") {
-			return Err(format!("unknown argument '{arg}'").into());
-		}
-	}
+	helpers::ignore_port_args()?;
 	// The `Connection`/`IrohServer` drivers are `!Send`, so they live on a LocalSet.
 	let local = tokio::task::LocalSet::new();
 	local.run_until(run()).await

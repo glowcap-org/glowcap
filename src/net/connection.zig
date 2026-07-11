@@ -151,7 +151,7 @@ pub const Connection = struct {
     /// (a host orchestrating across connections) and wants it on the wire now,
     /// rather than blocking on a read that may never come.
     pub fn flush(self: *Connection) PumpError!void {
-        stepToIdle(self.peer) catch |err| {
+        self.peer.stepToIdle() catch |err| {
             _ = drainOutbound(self.peer, self.w) catch 0;
             return classifyApplyError(err);
         };
@@ -172,6 +172,20 @@ pub const Connection = struct {
     /// transport handle.
     pub fn socketHandle(self: *const Connection) ?std.Io.net.Socket.Handle {
         return self.transport.socketHandle();
+    }
+
+    /// Whether a read would make progress within `timeout_ms`: true when bytes
+    /// are already buffered, when the transport's fd polls readable, or when
+    /// the transport has no pollable fd at all (a userspace stream multiplexes
+    /// in its own loop, so the caller falls through to its blocking read);
+    /// false only on a poll timeout. A poll failure means the transport is
+    /// gone. The one poll-guard both blocking drivers wait through.
+    pub fn waitReadable(self: *Connection, timeout_ms: i32) error{ConnectionLost}!bool {
+        if (self.hasBufferedInbound()) return true;
+        const handle = self.socketHandle() orelse return true;
+        var fds = [_]std.posix.pollfd{.{ .fd = handle, .events = std.posix.POLL.IN, .revents = 0 }};
+        const ready = std.posix.poll(&fds, timeout_ms) catch return error.ConnectionLost;
+        return ready != 0;
     }
 
     /// Pump until `pred(peer)` holds or the stream closes. The only blocking
@@ -217,7 +231,7 @@ pub fn pumpOver(
     w: *std.Io.Writer,
     spill: *frame_stream.Spill,
 ) PumpError!Progress {
-    stepToIdle(peer) catch |err| {
+    peer.stepToIdle() catch |err| {
         _ = drainOutbound(peer, w) catch 0;
         return classifyApplyError(err);
     };
@@ -228,7 +242,7 @@ pub fn pumpOver(
         const outcome = peer.recvStreamPrefix(supply) catch |err| {
             // The core projected an op:abort into outbound; flush it best-effort
             // so the partner sees the fail-loud close, then surface the cause.
-            stepToIdle(peer) catch {};
+            peer.stepToIdle() catch {};
             _ = drainOutbound(peer, w) catch 0;
             return classifyApplyError(err);
         };
@@ -242,7 +256,7 @@ pub fn pumpOver(
                 // (ADR-0029): an incomplete prefix at or past the cap can never
                 // complete within it, so a codec that failed to refuse it fails
                 // closed here instead of growing the spill.
-                if (supply.len >= peer.session_state.limits.max_frame_bytes)
+                if (supply.len >= peer.limits().max_frame_bytes)
                     return error.FrameTooLarge;
             },
         }
@@ -255,13 +269,6 @@ pub fn pumpOver(
         .filled => .idle,
         .closed => .closed,
     };
-}
-
-/// Encode every queued send into outbound frames (run `step` to quiescence).
-/// `step` here only drains `pending_send`; the connection never uses the
-/// frame-queue `feedInbound` path.
-fn stepToIdle(peer: *engine.Peer) !void {
-    while ((try peer.step()) != .idle) {}
 }
 
 /// Write and flush every outbound frame, returning the byte count. The frame is

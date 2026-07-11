@@ -1,10 +1,10 @@
-# tasks — a capability-secure shared task board, in five languages at once
+# tasks: a capability-secure shared task board, in five languages at once
 
 This is a small, real application built on pancake actors. A task board runs as
 a server; clients connect, add tasks, mark them done, and see changes in real
-time. What makes it worth reading is not the task board. It is _how_ the board
-works, and that clients written in Zig, Rust, Python, Racket, and Deno manage
-the same board at the same time, none of them aware of the others' languages.
+time. What makes it worth reading is not the board but how it works, and that
+clients written in Zig, Rust, Python, Racket, and Deno all manage the same board
+at once, none of them aware of the others' languages.
 
 Run the whole thing with one command:
 
@@ -17,11 +17,11 @@ client adds a task, lists the board, marks its task done, and confirms the
 change. When they all succeed you will see a transcript per language and a final
 line saying every client completed a round trip.
 
-The only runtime the demo requires is `deno`, which hosts the board and runs the
-orchestrator, plus the Zig client, which `zig build` always builds. Python,
-Racket, and Rust each join only when their runtime (`python3`, `racket`,
-`cargo`) is on PATH; the demo reports any language it skipped rather than
-failing. It is a sibling of `zig build check`, not part of the hermetic gate.
+The demo needs only `deno`, which hosts the board and runs the orchestrator, and
+the Zig client, which `zig build` always builds. Python, Racket, and Rust each
+join when their runtime (`python3`, `racket`, `cargo`) is on PATH; the demo
+reports any language it skipped rather than failing. It is a sibling of
+`zig build check`, not part of the hermetic gate.
 
 By default the demo binds an ephemeral port; pin it with
 `zig build demo-tasks -Dport=9099`. To run the demo's clients against a board
@@ -47,12 +47,12 @@ deno run --allow-ffi --allow-read --allow-net \
 ```
 
 Type `add buy groceries`, `list`, `done 1`, or `quit`. Open more terminals to
-see live updates arrive through capability callbacks, every connected watcher
+watch live updates arrive through capability callbacks. Every connected watcher
 sees every change as it happens, with no polling.
 
 ## What this shows that rooms doesn't
 
-Rooms is a chat, pub/sub with capability callbacks. Tasks shows a different
+Rooms is a chat: pub/sub with capability callbacks. Tasks shows a different
 pattern:
 
 - **CRUD with capability security.** `add` creates state, `done` mutates it,
@@ -63,7 +63,7 @@ pattern:
   message. In Deno: `const id = await board.add("buy groceries")`. In Python:
   `task_id = await board.add("buy groceries")`. In Rust:
   `let id = board.add("buy groceries").await?`.
-- **Structured data over the wire.** A task is `[id, text, completed]` — a list
+- **Structured data over the wire.** A task is `[id, text, completed]`, a list
   of typed values, not a string. The board returns a list of tasks as a list of
   lists. Every language parses it into its own native type.
 - **Live updates through capability callbacks.** When any client changes the
@@ -114,8 +114,8 @@ examples/apps/tasks/
 └── demo.ts                the orchestrator `zig build demo-tasks` runs
 ```
 
-Each language has a `TaskBoard` client — the small layer that knows about OCapN
-(publish a watcher, hand the board a capability to it, drive the vat) — and a
+Each language has a `TaskBoard` client, the small layer that knows about OCapN
+(publish a watcher, hand the board a capability to it, drive the vat), and a
 thin app on top of it. The app reads the same in every language because each
 `TaskBoard` exposes its own runtime's native async shape:
 

@@ -26,6 +26,7 @@ pub const SignatureVerifier = engine.cross_peer.SignatureVerifier;
 pub const Error = error{
     SignatureRejected,
     NoOutboundFrame,
+    StrandedOutboundFrame,
 };
 
 fn alwaysAccept(_: ?*anyopaque, _: []const u8, _: []const u8) bool {
@@ -43,30 +44,36 @@ pub fn acceptingVerifier() SignatureVerifier {
 ///
 /// The exporter records the gift — including the depositing gifter's session
 /// public key — so a subsequent withdrawal can verify the gifter's give
-/// certificate against it. The key comes from `gifter_key` when the caller threads
-/// one through; otherwise it is the partner key the exporter learned from the
-/// gifter-to-exporter handshake (`partnerSessionKey`), so a handshaked exporter
-/// records the right key with no argument. It is empty only when neither is known.
+/// certificate against it. The key comes from `gifter_key` when the caller
+/// threads one through; when `gifter_key` is null it is the partner key the
+/// exporter learned from the gifter-to-exporter handshake (`partnerSessionKey`),
+/// so a handshaked exporter records the right key with no argument. It is empty
+/// only when neither is known.
+///
+/// Sibling copy: `examples/apps/accountability-on-pancake/zig/three_party_test.zig`.
+/// That fork uses a real Ed25519 RoutingVerifier and threads an explicit gifter
+/// key at deposit; here `deliverGive` accepts a null key (learn from handshake)
+/// and tests use `acceptingVerifier()` for a key-agnostic seam.
 pub fn deliverGive(
     gifter: *Peer,
     recipient: *Peer,
     exporter: *Peer,
     give: model.HandoffGive,
-    gifter_key: []const u8,
+    gifter_key: ?[]const u8,
 ) !void {
-    const learned = if (gifter_key.len > 0)
-        gifter_key
+    const learned = if (gifter_key) |key|
+        key
     else
-        exporter.session_state.partnerSessionKey() orelse "";
+        exporter.partnerSessionKey() orelse "";
     try exporter.giftRegistry().deposit(
         exporter.allocator,
-        exporter.session_state.limits,
+        exporter.limits(),
         give.gift_id,
         give.recipient_key,
         learned,
     );
     try gifter.sendCopying(.{ .handoff = .{ .give = give } });
-    try pumpFrame(gifter, recipient);
+    try pumpOne(gifter, recipient);
 }
 
 /// Run the recipient's withdraw leg to the exporter.
@@ -109,16 +116,31 @@ pub fn withdrawGift(
     // exporter's gift registry.
     const registry = exporter.giftRegistry();
     try registry.validateWithdraw(receive);
-    try registry.applyWithdraw(exporter.allocator, exporter.session_state.limits, receive);
+    try registry.applyWithdraw(exporter.allocator, exporter.limits(), receive);
 
     try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
-    try pumpFrame(recipient, exporter);
+    try pumpOne(recipient, exporter);
 }
 
-/// Encode the `from` peer's single pending message and dispatch it on `to`.
-fn pumpFrame(from: *Peer, to: *Peer) !void {
+/// Encode exactly one pending message from `from` and dispatch it on `to`.
+/// Sibling pump copy: `examples/apps/accountability-on-pancake/zig/three_party_test.zig`.
+pub fn pumpOne(from: *Peer, to: *Peer) !void {
     _ = try from.step();
     const frame = from.takeOutbound() orelse return Error.NoOutboundFrame;
-    try to.feedInbound(frame);
+    if (from.takeOutbound()) |frame_value| {
+        var stranded = frame_value;
+        stranded.deinit();
+        var owned = frame;
+        owned.deinit();
+        return Error.StrandedOutboundFrame;
+    }
+    try to.feedOwned(frame);
+    _ = try to.step();
+}
+
+/// Drain every pending outbound message from `from` and dispatch each on `to`.
+pub fn pumpAll(from: *Peer, to: *Peer) !void {
+    _ = try from.step();
+    while (from.takeOutbound()) |frame| try to.feedOwned(frame);
     _ = try to.step();
 }

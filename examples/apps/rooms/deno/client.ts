@@ -15,27 +15,18 @@
 // The last argument is the roster: a comma-separated list of the member nicks to
 // expect (default: just you). The client posts only once every roster member is
 // present, so an all-to-all broadcast is deterministic no matter what order the
-// members connect in — it learns who is present from its welcome (which names
-// everyone already in the room) and from the room's join announcements. It exits
-// 0 once it has seen a line from every roster member, and 1 on timeout. Members
+// members connect in — it learns who is present from the structured presence the
+// room attaches to each membership line (the roster on arrival and each join). It
+// exits 0 once it has seen a line from every roster member, and 1 on timeout. Members
 // outside the roster (people already chatting in an attached room, say) are
 // printed but never counted, so a busy room cannot fake or break the assertion.
+//
+// This is the same application as the Python, Racket, Rust, and Zig clients, on
+// one OCapN wire; the room cannot tell which language a member is written in.
 
-import { Directory } from "./room_client.ts";
-import { enterOrOpen } from "./enter_room.ts";
-import { NOTIFY, POST, SUBSCRIBE } from "./protocol.ts";
-
-/** The welcome ends with the nicks already present: `… in the room: a, b, c`. */
-function welcomeNames(text: string): string[] {
-	const m = text.match(/ in the room: (.+)$/);
-	return m ? m[1].split(", ") : [];
-}
-
-/** The room announces each arrival as `<nick> joined (<count> here)`. */
-function joinedNick(text: string): string | null {
-	const m = text.match(/^(.+) joined \(\d+ here\)$/);
-	return m ? m[1] : null;
-}
+import { Directory, readPresence } from "./lib/room_client.ts";
+import { enterOrOpen } from "./lib/enter_room.ts";
+import { NOTIFY, POST, SUBSCRIBE } from "./lib/protocol.ts";
 
 /** Run one client session: enter the room, wait for every roster member to be
  * present, post `line`, and collect the chat line each roster member sends.
@@ -76,16 +67,20 @@ export async function runClient(
 		}
 	}
 
-	// The inbox the room calls back on.
+	// The inbox the room calls back on. A system line may carry a structured
+	// presence change after its text; an ordinary chat line does not.
 	const inbox = conn.spawn((verb, args) => {
 		if (verb !== NOTIFY) throw new Error(`inbox has no method ${verb}`);
 		const from = typeof args[0] === "string" ? args[0] : "?";
 		const text = typeof args[1] === "string" ? args[1] : "";
 		console.log(`[${nick}] ${from}: ${text}`);
-		if (from === "room") {
-			const joined = joinedNick(text);
-			if (joined !== null) present.add(joined);
-		} else {
+		const presence = readPresence(args);
+		if (presence) {
+			// Membership arrives as structure: the roster on entry, or a join/leave.
+			if (presence.kind === "roster") { for (const n of presence.names) present.add(n); }
+			else if (presence.kind === "join") present.add(presence.name);
+			else present.delete(presence.name); // leave
+		} else if (from !== "room") {
 			present.add(from); // a line is presence too
 			chatLines.push(`${from}: ${text}`);
 			if (roster.includes(from)) {
@@ -97,12 +92,10 @@ export async function runClient(
 		return null;
 	});
 
-	// Subscribe, handing the room a capability to our inbox. The welcome names
-	// everyone already present, the only way to learn about earlier arrivals.
-	const welcome = await conn.send(room, SUBSCRIBE, [nick, inbox]);
-	for (const n of welcomeNames(typeof welcome === "string" ? welcome : "")) {
-		present.add(n);
-	}
+	// Subscribe, handing the room a capability to our inbox. Success is the
+	// resolution; the room delivers the welcome and roster as our first `notify`
+	// (the roster line), not as a return value.
+	await conn.send(room, SUBSCRIBE, [nick, inbox]);
 	maybePost();
 
 	let timer: ReturnType<typeof setTimeout> | undefined;

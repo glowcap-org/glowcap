@@ -43,6 +43,7 @@ pub const corpus = [_]OracleFixture{
     fixture("op_deliver_arg_set.bin"),
     fixture("op_deliver_arg_tagged.bin"),
     fixture("op_deliver_arg_void.bin"),
+    fixture("op_deliver_listen_break_notification.bin"),
     fixture("op_deliver_v1_0_with_resolve_me_desc.bin"),
     fixture("op_deliver_withdraw_gift.bin"),
     fixture("op_gc_answers.bin"),

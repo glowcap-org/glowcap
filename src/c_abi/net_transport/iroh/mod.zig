@@ -506,7 +506,7 @@ fn drainReady(nl: *NetlayerPayload, dest: []PancakeIrohReadyEvent) isize {
 /// handle and the payload.
 fn destroyConn(payload: *ConnPayload) void {
     const alloc = payload.allocator;
-    _ = payload.netlayer.loop_conns.remove(@intFromPtr(payload.conn));
+    std.debug.assert(payload.netlayer.loop_conns.remove(@intFromPtr(payload.conn)));
     payload.netlayer.resident.loopConnClose(payload.conn);
     alloc.destroy(payload);
 }

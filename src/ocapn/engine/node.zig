@@ -9,8 +9,9 @@
 //! so a deposit on a gifter session meets a withdraw on the recipient session,
 //! and the two routing tables that make three-party handoff transparent: the
 //! `redeemed` map from a synthetic far token to the exporter connection that
-//! hosts the real capability, and the `foreign_homes` map from a fetched import
-//! to the connection it lives on.
+//! hosts the real capability, and the `foreign_imports` map from a node-unique
+//! token to the connection a fetched capability lives on and the real wire
+//! reference to address it there (ADR-0069).
 //!
 //! It is **sans-io**: it owns no sockets and no event loop. The embedder keeps
 //! its own transport and async loop, registers each live connection's peer with
@@ -45,8 +46,22 @@ const crypto = foundation.crypto;
 
 /// A connection id: the embedder's handle to one registered peer. Stable for the
 /// life of the registration; freed ids are not reused within a node's life, so a
-/// stale id fails closed rather than aliasing a later connection.
-pub const ConnId = u64;
+/// stale id fails closed rather than aliasing a later connection. A distinct
+/// type (the `ImportPosition` pattern): the host tier also traffics in vow ids
+/// and gift tokens, which are plain `u64`s, and the compiler refuses the mix-up
+/// instead of a review catching it. Cross the ABI or index with `.int()`; mint
+/// from an integer with `.from()`.
+pub const ConnId = enum(u64) {
+    _,
+
+    pub fn from(n: u64) ConnId {
+        return @enumFromInt(n);
+    }
+
+    pub fn int(self: ConnId) u64 {
+        return @intFromEnum(self);
+    }
+};
 
 /// Where a redeemed token routes: the exporter connection that hosts the real
 /// capability, and the real exporter-side reference to swap in when forwarding.
@@ -75,10 +90,16 @@ pub const Node = struct {
     /// that id. A later send to the id is forwarded to the exporter with the real
     /// exporter-side reference swapped in, so transparency lives entirely in the
     /// node and the embedder's reference/send surface is untouched. The range is
-    /// disjoint from real session import ids, so a redeemed token can never alias
+    /// disjoint from real session import positions, so a redeemed token can never alias
     /// a partner's import. This is the cross-binding token model ADR-0066
     /// standardizes (retiring the per-binding `Ref.home` field).
     pub const REDEEMED_TOKEN_BASE: u64 = session_mod.REDEEMED_TOKEN_BASE;
+
+    /// The session's virtual inbound-answer floor, re-exported beside the token
+    /// base so an embedder minting its own synthetic id range can assert, at
+    /// comptime, that the reserved ranges stay disjoint without reaching into
+    /// the session layer.
+    pub const VIRTUAL_INBOUND_ANSWER_BASE: u64 = session_mod.VIRTUAL_INBOUND_ANSWER_BASE;
 
     allocator: std.mem.Allocator,
     /// The retained 32-byte node identity, reused for every connection this node
@@ -98,13 +119,22 @@ pub const Node = struct {
     /// token -> exporter route. A redeemed-handoff capability the application
     /// holds as a far ref `>= REDEEMED_TOKEN_BASE` resolves here.
     redeemed: std.AutoHashMapUnmanaged(u64, Route) = .empty,
-    /// A fetched far import's home connection, by import id: when a published
-    /// actor returns a far cap whose home is another connection, the resolve
-    /// interceptor reads the home here and originates the gifter half of a
-    /// three-party handoff instead of encoding a cross-connection reference
-    /// (ADR-0009). Redeemed tokens (synthetic high ids) are never wire imports,
-    /// so they are never recorded here.
-    foreign_homes: std.AutoHashMapUnmanaged(u64, ConnId) = .empty,
+    /// A fetched far import enrolled under a node-unique token (ADR-0069), so two
+    /// imports at the same wire position on different connections never collide.
+    /// The `Route` names the home connection and the real `far(position)` to
+    /// address there — the same shape a redeemed token uses. Sends route through
+    /// it, the gifter-side interceptor re-gifts through it, and it is swept in
+    /// `removeConn`. Tokens are drawn from the shared `next_token` counter, so a
+    /// given token is in `redeemed` or here, never both.
+    foreign_imports: std.AutoHashMapUnmanaged(u64, Route) = .empty,
+    /// Latches true the first time this node enrolls a foreign import (ADR-0069),
+    /// and stays true thereafter. It is the gate each registered peer reads before
+    /// walking an outbound message to lower tokens (`Peer.lowering`): a node that
+    /// never fetches a foreign capability leaves it false, so every send skips the
+    /// walk for one bool load. The peer holds a `*const bool` into this field, so
+    /// the node must not move once a connection is registered — already required
+    /// for the shared gift registry.
+    foreign_active: bool = false,
     /// The next synthetic token a redeemed capability is enrolled under.
     next_token: u64 = REDEEMED_TOKEN_BASE,
     /// The serve step's exporter cache: a give's exporter locator (`ocapn://…`
@@ -119,7 +149,7 @@ pub const Node = struct {
     /// the `need_gift_id` ticket.
     pending_gifts: std.AutoHashMapUnmanaged(u64, PendingGift) = .empty,
     /// Per-connection give-location overrides (`setExporterLocation`),
-    /// node-owned bytes.
+    /// node-owned canonical Syrup locator-record bytes.
     exporter_locations: std.AutoHashMapUnmanaged(ConnId, []u8) = .empty,
     /// The serve step's action queue (`nextAction` drains it).
     actions: std.ArrayListUnmanaged(Action) = .empty,
@@ -157,7 +187,10 @@ pub const Node = struct {
         while (route_it.next()) |entry| model.freeReference(self.allocator, entry.reference);
         self.redeemed.deinit(self.allocator);
 
-        self.foreign_homes.deinit(self.allocator);
+        var foreign_it = self.foreign_imports.valueIterator();
+        while (foreign_it.next()) |entry| model.freeReference(self.allocator, entry.reference);
+        self.foreign_imports.deinit(self.allocator);
+
         self.gifts.deinit(self.allocator);
 
         var exporter_keys = self.exporters.keyIterator();
@@ -189,14 +222,17 @@ pub const Node = struct {
     /// address is stable for the registration's life. The peer is negotiating, so
     /// the embedder completes the keyed `op:start-session` handshake (it owns the
     /// socket and the entropy) signing with `node.seed` for an identity the
-    /// exporter will recognize across connections.
-    pub fn registerConn(self: *Node) !ConnId {
+    /// exporter will recognize across connections. `options` are the same
+    /// knobs `Peer.initNegotiatingWith` takes — applied at construction so the
+    /// host never pokes session tables after the fact.
+    pub fn registerConn(self: *Node, options: engine.Peer.NegotiatingOptions) !ConnId {
         const new_peer = try self.allocator.create(engine.Peer);
         errdefer self.allocator.destroy(new_peer);
-        new_peer.* = engine.Peer.initNegotiating(self.allocator);
+        new_peer.* = engine.Peer.initNegotiatingWith(self.allocator, options);
         new_peer.shared_gift_registry = &self.gifts;
 
-        const id: ConnId = self.conns.items.len;
+        const id: ConnId = .from(self.conns.items.len);
+        new_peer.lowering = self.lowering(id);
         try self.conns.append(self.allocator, .{ .peer = new_peer, .owned = true });
         return id;
     }
@@ -211,7 +247,8 @@ pub const Node = struct {
     /// outlive its registration.
     pub fn registerConnOver(self: *Node, adopted: *engine.Peer) !ConnId {
         adopted.shared_gift_registry = &self.gifts;
-        const id: ConnId = self.conns.items.len;
+        const id: ConnId = .from(self.conns.items.len);
+        adopted.lowering = self.lowering(id);
         try self.conns.append(self.allocator, .{ .peer = adopted, .owned = false });
         return id;
     }
@@ -229,15 +266,15 @@ pub const Node = struct {
     /// hold" branch and get sent to a partner as an ordinary far — a meaningless
     /// high id. The dead rows are reclaimed at `deinit`.
     pub fn removeConn(self: *Node, conn_id: ConnId) void {
-        if (conn_id >= self.conns.items.len) return;
-        const slot = self.conns.items[conn_id] orelse return;
+        if (conn_id.int() >= self.conns.items.len) return;
+        const slot = self.conns.items[conn_id.int()] orelse return;
         // Only a node-owned peer is freed here; an adopted (`registerConnOver`)
         // peer is the embedder's to free, so the node only unregisters the slot.
         if (slot.owned) {
             slot.peer.deinit();
             self.allocator.destroy(slot.peer);
         }
-        self.conns.items[conn_id] = null;
+        self.conns.items[conn_id.int()] = null;
         if (self.exporter_locations.fetchRemove(conn_id)) |prev| self.allocator.free(prev.value);
 
         // Evict the exporter-cache rows naming this connection, so a later
@@ -291,6 +328,23 @@ pub const Node = struct {
                 }
             }
         }
+
+        // Reclaim the foreign-import enrollments homed on this connection
+        // (ADR-0069): once the home is gone the token can never re-gift, so a
+        // long-running broker does not accumulate stale routing rows.
+        var reclaimed = true;
+        while (reclaimed) {
+            reclaimed = false;
+            var foreign_it = self.foreign_imports.iterator();
+            while (foreign_it.next()) |entry| {
+                if (entry.value_ptr.conn_id == conn_id) {
+                    model.freeReference(self.allocator, entry.value_ptr.reference);
+                    self.foreign_imports.removeByPtr(entry.key_ptr);
+                    reclaimed = true;
+                    break;
+                }
+            }
+        }
     }
 
     /// The node-owned peer for `conn_id`, or null when the id names no live
@@ -301,8 +355,8 @@ pub const Node = struct {
     }
 
     fn connAt(self: *Node, conn_id: ConnId) ?*engine.Peer {
-        if (conn_id >= self.conns.items.len) return null;
-        const slot = self.conns.items[conn_id] orelse return null;
+        if (conn_id.int() >= self.conns.items.len) return null;
+        const slot = self.conns.items[conn_id.int()] orelse return null;
         return slot.peer;
     }
 
@@ -334,53 +388,112 @@ pub const Node = struct {
             else => return null,
         };
         if (id < REDEEMED_TOKEN_BASE) return null;
-        return self.redeemed.get(id);
+        if (self.redeemed.get(id)) |r| return r;
+        // A foreign-import token (ADR-0069) routes to its home connection,
+        // addressed with the real wire import — the same swap a redeemed token
+        // gets, so a send to a fetched capability reaches its exporter.
+        return self.foreign_imports.get(id);
     }
 
-    // ── Foreign-home routing (the gifter half) ───────────────────────────────
+    // ── Foreign-import routing (the gifter half) ─────────────────────────────
 
-    /// Record that the far capability `reference` lives on `home`: a `fetch`
-    /// stamps every far import it returns, so a later foreign-home return can be
-    /// recognized and re-gifted (ADR-0009 gifter half). A redeemed token (a
-    /// synthetic high id) is never a wire import, so it is skipped.
-    pub fn recordForeignHome(self: *Node, reference: model.Reference, home: ConnId) !void {
-        const id = switch (reference) {
-            .far => |far| far.import_position.int(),
-            else => return,
-        };
-        if (id >= REDEEMED_TOKEN_BASE) return;
-        try self.foreign_homes.put(self.allocator, id, home);
+    /// Enroll a fetched far import under a node-unique token (ADR-0069) and return
+    /// the token reference the application holds. `wire` is the real `far(position)`
+    /// on `home`. Two imports at the same wire position on different connections
+    /// get distinct tokens, so re-gifting one never resolves to the other. The
+    /// stored reference is a far (position-only, so it owns no heap); it is freed
+    /// through `freeReference` on `removeConn` and `deinit` for uniformity with the
+    /// redeemed route.
+    pub fn enrollForeign(self: *Node, home: ConnId, wire: model.Reference) !model.Reference {
+        try self.foreign_imports.ensureUnusedCapacity(self.allocator, 1);
+        const token = self.next_token;
+        self.foreign_imports.putAssumeCapacity(token, .{ .conn_id = home, .reference = wire });
+        self.next_token += 1;
+        self.foreign_active = true;
+        return .{ .far = model.FarRef.object(token) };
     }
 
-    /// The connection a fetched far `reference` lives on, if any.
-    fn foreignHome(self: *Node, reference: model.Reference) ?ConnId {
-        const id = switch (reference) {
-            .far => |far| far.import_position.int(),
-            else => return null,
-        };
-        if (id >= REDEEMED_TOKEN_BASE) return null;
-        return self.foreign_homes.get(id);
+    /// The connection a fetched capability's `far_id` lives on, or null when the
+    /// node holds no enrollment for it (a redeemed token, an ordinary wire import
+    /// the node never fetched, or an id the node never minted). This is the home
+    /// the gifter-side interceptor originates a handoff toward. A fetched
+    /// capability's identity is always a token, so only the token enrollment is
+    /// consulted (ADR-0069).
+    fn homeOf(self: *Node, far_id: u64) ?ConnId {
+        if (self.foreign_imports.get(far_id)) |r| return r.conn_id;
+        return null;
     }
 
     /// Whether `reference` names a capability foreign to `default_conn` when used
-    /// as a `send`/`tell` argument: a redeemed-handoff token (always foreign —
-    /// route rewriting applies to send *targets* only, so a token in argument
-    /// position would reach the wire as its synthetic id, meaningless to any
-    /// partner) or a far the node recorded as fetched on another connection.
-    /// The gifter half re-gifts such a capability when it is *returned*
-    /// (ADR-0009); passing one as a send argument is the symmetric case not yet
-    /// lifted, so a binding fails closed on a true verdict rather than
+    /// as a `send`/`tell` argument: a redeemed-handoff token (always foreign — it
+    /// has no wire home), or a foreign-import token addressed away from the
+    /// connection it was fetched on. On its own home a foreign-import token is
+    /// native, so it still marshals as an ordinary import there. An ordinary wire
+    /// reference (below the reserved token range) is never foreign — it rides its
+    /// own connection. Passing a foreign capability as a send argument is the case
+    /// not yet lifted, so a binding fails closed on a true verdict rather than
     /// mis-encoding the reference for this partner. This is the one definition of
-    /// that verdict the bindings share, computed from the node's redeemed-token
-    /// and foreign-home state instead of being hand-rolled per binding (ADR-0066).
+    /// that verdict the bindings share, computed from the node's token enrollments
+    /// instead of being hand-rolled per binding (ADR-0066/ADR-0069).
     pub fn argIsForeign(self: *Node, default_conn: ConnId, reference: model.Reference) bool {
         const id = switch (reference) {
             .far => |far| far.import_position.int(),
             else => return false,
         };
-        if (id >= REDEEMED_TOKEN_BASE) return true;
-        const home = self.foreign_homes.get(id) orelse return false;
-        return home != default_conn;
+        if (id < REDEEMED_TOKEN_BASE) return false;
+        // A foreign-import token is foreign only away from its home. A redeemed
+        // token has no wire home and is foreign everywhere; an unknown high id
+        // fails closed.
+        if (self.foreign_imports.get(id)) |r| return r.conn_id != default_conn;
+        return true;
+    }
+
+    /// Lower `reference` to the wire reference it names on `conn_id`, for the one
+    /// place every outbound message is emitted (`Peer.send`, ADR-0069). This is
+    /// the single chokepoint that keeps a node-local token off the wire in *every*
+    /// position — target, argument, forwarded target, resolution — instead of one
+    /// path at a time. The peer reaches it through the `engine.Lowering` hook this
+    /// node installs at registration; the shared error type is
+    /// `engine.LoweringError`.
+    ///
+    /// The fast path is a single integer compare: an ordinary import or near
+    /// reference (below the reserved token range) is returned untouched, which is
+    /// every real wire reference. Only a token pays the map lookup. Any token whose
+    /// home is this connection — a redeemed capability whose exporter is this
+    /// connection, or a foreign import fetched on it — lowers to its wire
+    /// reference. A token homed on another connection has no wire name here and
+    /// fails closed with `TokenNotLiftable`. Cross-connection *routing* (a redeemed
+    /// token's redirect to its exporter, a re-gift) is not this function's job —
+    /// the driver and the resolve interceptor own it, because only they choose a
+    /// different connection. The lowered reference is a far (position-only, POD),
+    /// so it is substituted into the message by value with no ownership transfer.
+    pub fn lowerForConn(self: *Node, conn_id: ConnId, reference: model.Reference) engine.LoweringError!model.Reference {
+        const id = switch (reference) {
+            .far => |far| far.import_position.int(),
+            else => return reference,
+        };
+        if (id < REDEEMED_TOKEN_BASE) return reference;
+        const r = self.route(reference) orelse return error.TokenNotLiftable;
+        if (r.conn_id != conn_id) return error.TokenNotLiftable;
+        return r.reference;
+    }
+
+    /// The lowering hook for the peer registered as `conn_id`, installed on it at
+    /// registration so `Peer.send` swaps tokens to wire references (ADR-0069). It
+    /// carries a `*const bool` into `foreign_active` as its gate, so the peer skips
+    /// the walk entirely until this node fetches its first foreign capability.
+    fn lowering(self: *Node, conn_id: ConnId) engine.Lowering {
+        return .{
+            .ctx = self,
+            .conn_id = conn_id,
+            .active = &self.foreign_active,
+            .lower_fn = lowerThunk,
+        };
+    }
+
+    fn lowerThunk(ctx: *anyopaque, conn_id: ConnId, reference: model.Reference) engine.LoweringError!model.Reference {
+        const self: *Node = @ptrCast(@alignCast(ctx));
+        return self.lowerForConn(conn_id, reference);
     }
 
     // ── Routed send ──────────────────────────────────────────────────────────
@@ -400,11 +513,24 @@ pub const Node = struct {
     /// connection the application is addressing) unchanged. Returns null when a
     /// redeemed token names an exporter connection that is gone.
     pub fn routeReference(self: *Node, default_conn: ConnId, target: model.Reference) ?Routed {
-        if (self.route(target)) |r| {
-            if (self.connAt(r.conn_id) == null) return null;
-            return .{ .conn_id = r.conn_id, .target = r.reference };
+        if (target == .far and target.far.import_position.int() >= REDEEMED_TOKEN_BASE) {
+            return self.routeToken(target.far.import_position.int());
         }
         return .{ .conn_id = default_conn, .target = target };
+    }
+
+    /// Resolve a token — a far id in the reserved range, redeemed or
+    /// foreign-import — to its home connection and the real wire reference to
+    /// address there, with no default connection to fall back to: a caller
+    /// that holds only a token (a `gcRelease` by id) routes here without
+    /// inventing one. Null when the token routes nowhere — never minted, or
+    /// its enrollment was reclaimed when its home closed (ADR-0069) — so a
+    /// retired token fails closed rather than pass the synthetic id onto the
+    /// wire.
+    pub fn routeToken(self: *Node, token: u64) ?Routed {
+        const r = self.route(.{ .far = model.FarRef.object(token) }) orelse return null;
+        if (self.connAt(r.conn_id) == null) return null;
+        return .{ .conn_id = r.conn_id, .target = r.reference };
     }
 
     // ── Recipient withdraw (the redeem half) ─────────────────────────────────
@@ -613,7 +739,7 @@ pub const Node = struct {
         try self.pending_withdraws.ensureUnusedCapacity(self.allocator, 1);
         try self.actions.ensureUnusedCapacity(self.allocator, 1);
         const withdraw_answer = conn.allocateAnswer();
-        conn.sendWithdrawGift(self.secretKey(), give, model.AnswerId.from(withdraw_answer)) catch |err| switch (err) {
+        conn.sendWithdrawGift(self.secretKey(), give, model.AnswerPosition.from(withdraw_answer)) catch |err| switch (err) {
             error.OutOfMemory => return error.OutOfMemory,
             else => {
                 var buf: [128]u8 = undefined;
@@ -678,8 +804,11 @@ pub const Node = struct {
         }
     }
 
-    /// How a withdraw's resolution settled, fed through `claimResolve`.
-    pub const WithdrawOutcome = union(enum) {
+    /// How a redeem's awaited withdraw-resolution settled, fed through
+    /// `claimResolve`. Named for the redeem half it classifies —
+    /// `engine.bootstrap.WithdrawOutcome` is the exporter responder's verdict,
+    /// a different question in the same layer.
+    pub const RedeemOutcome = union(enum) {
         /// Fulfilled with a far object capability (the ordinary outcome).
         far: u64,
         /// Broken by the exporter; the reason is borrowed for the call.
@@ -693,7 +822,7 @@ pub const Node = struct {
     /// (enrolling the capability under a token and queueing the `settle`, or
     /// queueing the `fail`), and the embedder must not surface it to the
     /// application. False means the resolve is the application's, untouched.
-    pub fn claimResolve(self: *Node, conn_id: ConnId, answer: u64, outcome: WithdrawOutcome) !bool {
+    pub fn claimResolve(self: *Node, conn_id: ConnId, answer: u64, outcome: RedeemOutcome) !bool {
         // Read the row but retire it only after the outcome is queued, so an
         // allocation failure leaves the withdraw pending (the claim can be
         // retried) rather than silently dropping the recipient's answer.
@@ -723,7 +852,7 @@ pub const Node = struct {
                 try self.queueFail(pending.recipient_conn, pending.answer, "withdraw-gift did not resolve to a capability");
             },
         }
-        _ = self.pending_withdraws.remove(key);
+        std.debug.assert(self.pending_withdraws.remove(key));
         return true;
     }
 
@@ -732,10 +861,12 @@ pub const Node = struct {
     /// endpoint's direct addresses), where the session's own signed location
     /// record is not dialable. `location` is borrowed (the node copies it);
     /// empty clears the override back to the session record.
-    pub fn setExporterLocation(self: *Node, conn_id: ConnId, location: []const u8) !void {
+    pub fn setExporterLocation(self: *Node, conn_id: ConnId, location: ?model.PeerLocator) !void {
         if (self.exporter_locations.fetchRemove(conn_id)) |prev| self.allocator.free(prev.value);
-        if (location.len == 0) return;
-        const owned = try self.allocator.dupe(u8, location);
+        const loc = location orelse return;
+        // Canonical Syrup locator-record bytes — the give embeds these, so a URI
+        // (or any other non-record spelling) can never reach the wire from here.
+        const owned = try engine.encodePeerLocatorRecord(self.allocator, loc);
         errdefer self.allocator.free(owned);
         try self.exporter_locations.put(self.allocator, conn_id, owned);
     }
@@ -755,8 +886,7 @@ pub const Node = struct {
     /// feeds `provideGiftId`). False means the reply is ordinary and the
     /// embedder resolves it itself.
     pub fn interceptFulfilledRef(self: *Node, conn_id: ConnId, answer: u64, far_id: u64) !bool {
-        const reference: model.Reference = .{ .far = model.FarRef.object(far_id) };
-        const home = self.foreignHome(reference) orelse return false;
+        const home = self.homeOf(far_id) orelse return false;
         if (home == conn_id) return false;
         // Reserve the ticket table and the action queue before either commits,
         // so the row install and the `need_gift_id` queue are one all-or-nothing
@@ -784,13 +914,18 @@ pub const Node = struct {
     /// unknown `ticket` is a no-op. `gift_id` is borrowed.
     pub fn provideGiftId(self: *Node, ticket: u64, gift_id: []const u8) !void {
         const pending = (self.pending_gifts.fetchRemove(ticket) orelse return).value;
-        const reference: model.Reference = .{ .far = model.FarRef.object(pending.far_id) };
-        const home = self.foreignHome(reference) orelse
+        // Resolve the exporter connection and the real reference to deposit there.
+        // The claimed far is a foreign-import token (ADR-0069) that carries the real
+        // `far(position)` to deposit; depositing the token itself would name an
+        // export the exporter never made.
+        const r = self.foreign_imports.get(pending.far_id) orelse
             return self.queueFail(pending.recipient_conn, pending.answer, "handoff origination failed: home connection is gone");
+        const home = r.conn_id;
+        const gifted = r.reference;
         self.originateGive(
             pending.recipient_conn,
             home,
-            reference,
+            gifted,
             gift_id,
             pending.answer,
             self.exporterLocation(home),
@@ -864,6 +999,6 @@ pub const Node = struct {
         );
         defer self.allocator.free(give);
 
-        try rp.sendResolveHandoffGive(model.AnswerId.from(answer), give);
+        try rp.sendResolveHandoffGive(model.AnswerPosition.from(answer), give);
     }
 };

@@ -56,7 +56,7 @@ fn client(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !voi
         .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
         .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
         // The third outcome: an introduction to a capability on another peer,
-        // redeemed with `driver.Host.redeem`. This greeter never sends one.
+        // which a `driver.BlockingHost` redeems for you. This greeter never sends one.
         .give => {},
     }
 }

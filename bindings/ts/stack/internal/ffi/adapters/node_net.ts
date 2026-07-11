@@ -1,12 +1,12 @@
-// Internal: the `node:net` socket seam, shared by the Bun and Node adapters.
+// Internal: the `node:net` socket seam the Bun adapter rides.
 //
-// Bun and Node both implement `node:net`, so one event-driven adapter serves
-// both. It bridges Node's push-style socket (`'data'`/`'end'`/`'error'` events)
-// to the pull-style `NetConn.read()` the async pump wants: the socket is kept
-// paused and resumed one read at a time, so inbound bytes are bounded by the
-// pump's pace rather than buffered without limit.
+// Bun implements `node:net`, and this event-driven adapter bridges its
+// push-style socket (`'data'`/`'end'`/`'error'` events) to the pull-style
+// `NetConn.read()` the async pump wants: the socket is kept paused and resumed
+// one read at a time, so inbound bytes are bounded by the pump's pace rather
+// than buffered without limit.
 
-// @ts-nocheck, typed against node:net's ambient types, present under Bun/Node.
+// @ts-nocheck, typed against node:net's ambient types, present under Bun.
 import { connect as netConnect, createServer, type Server, type Socket } from "node:net";
 import type { NetConn, NetListener } from "../runtime.ts";
 
@@ -146,7 +146,7 @@ class ServerListener implements NetListener {
 	}
 
 	async accept(): Promise<NetConn> {
-		for (;;) {
+		while (true) {
 			const socket = this.#queue.shift();
 			if (socket !== undefined) return new SocketConn(socket);
 			if (this.#closed) throw new Error("listener closed");

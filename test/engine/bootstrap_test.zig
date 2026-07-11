@@ -107,7 +107,7 @@ test "responder auto-resolves an inbound bootstrap fetch (no manual reply)" {
     // and then encodes its synthesized resolve.
     {
         const frame = pair.p1.takeOutbound().?;
-        try pair.p2.feedInbound(frame);
+        try pair.p2.feedOwned(frame);
     }
     _ = try pair.p2.step(); // dispatch inbound: recognize + enqueue resolve
     {
@@ -120,7 +120,7 @@ test "responder auto-resolves an inbound bootstrap fetch (no manual reply)" {
     // Shuttle the settlement back to p1 and match it.
     {
         const frame = pair.p2.takeOutbound().?;
-        try pair.p1.feedInbound(frame);
+        try pair.p1.feedOwned(frame);
     }
     _ = try pair.p1.step();
     var settle = pair.p1.pollEvent().?;
@@ -136,7 +136,7 @@ test "responder auto-resolves an inbound bootstrap fetch (no manual reply)" {
         .fulfilled => |ref| {
             defer model.freeReference(std.testing.allocator, ref);
             // The fetch fulfilled with the responder's bootstrap export. Assert
-            // the reference's *position* equals that export id; stay agnostic to
+            // the reference's *position* equals that export position; stay agnostic to
             // the near/far wire-perspective discriminator (matcher returns the
             // reference as decoded — `fetch.tryMatchFetchOutcome` does not flip —
             // and the codec round-trips `Near`↔`desc:import-object` symmetrically).

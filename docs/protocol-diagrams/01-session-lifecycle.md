@@ -3,7 +3,7 @@
 Anchors: CapTP Specification § Sessions, § op:start-session, § Ending a session,
 § Crossed hellos.
 
-## SL-1 — Session state machine
+## SL-1: Session state machine
 
 The lifecycle is one-way: a session moves from `Negotiating` to `Open` to
 `Closed`. No transition reverses; a closed session never reopens.
@@ -17,7 +17,7 @@ stateDiagram-v2
     Closed --> [*]
 ```
 
-## SL-2 — op:start-session handshake
+## SL-2: op:start-session handshake
 
 Anchor: CapTP Specification § op:start-session. Each side sends one
 `op:start-session`; the session opens when both halves have been observed and
@@ -34,7 +34,7 @@ sequenceDiagram
     Note over A,B: session Open, bootstrap object at export position 0
 ```
 
-## SL-3 — Handshake refusal
+## SL-3: Handshake refusal
 
 A version mismatch or a location signature that fails verification is fatal: the
 offended side sends `op:abort` and the session moves straight to Closed without
@@ -50,7 +50,7 @@ sequenceDiagram
     Note over A,B: session Closed, never Opened
 ```
 
-## SL-4 — Crossed hellos
+## SL-4: Crossed hellos
 
 Anchor: CapTP Specification § Crossed hellos. Two peers dialing each other
 simultaneously produce two half-open sessions for one peer pair. A deterministic
@@ -72,7 +72,7 @@ sequenceDiagram
     Note over A,B: the surviving session opens normally
 ```
 
-## SL-5 — Per-state message admission
+## SL-5: Per-state message admission
 
 What a session admits depends only on its state. While negotiating, only the
 handshake itself (`op:start-session`) and `op:abort` get through; authority-
@@ -89,13 +89,13 @@ flowchart TD
     S -->|Closed| RF3["refuse everything"]
 ```
 
-## SL-6 — Abort teardown effects
+## SL-6: Abort teardown effects
 
 Anchor: CapTP Specification § Ending a session. `op:abort` (in either direction)
 severs the session: all imports and exports release, unresolved promises break,
-and per-session key material is discarded. The unrecognized- record policy feeds
-this path: a wire record the receiver does not recognize is a protocol error and
-aborts the session.
+and per-session key material is discarded. An unrecognized wire record reaches
+the same teardown: a record the receiver does not recognize is a protocol error,
+and a protocol error aborts the session.
 
 ```mermaid
 flowchart TD

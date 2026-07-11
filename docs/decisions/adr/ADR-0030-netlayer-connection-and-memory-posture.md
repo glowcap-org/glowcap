@@ -43,7 +43,7 @@ is `tcp` — cleartext; [ADR-0035](ADR-0035-live-goblins-interop.md) settled tha
 symbol so a Goblins netlayer can address pancake.
 
 **The C ABI re-exposes blocking endpoint handles.** A host that owns the peer
-shuttles whole frames through `pancake_endpoint_tcp_*`
+shuttles whole frames through `pancake_tcp_*`
 (`read_frame ->
 feed_owned -> step -> take_outbound -> write_frame`). The C side
 cannot name a `std.Io`, so the I/O backend is an _explicit owned handle_: the

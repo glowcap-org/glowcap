@@ -19,15 +19,18 @@
 //!
 //! The last argument is the roster: a comma-separated list of the member nicks
 //! to expect (default: just you). The client posts only once every roster member
-//! is present — it learns who is present from its welcome (which names everyone
-//! already in the room) and from the room's join announcements — and exits 0
-//! once it has seen a line from every roster member. Members outside the roster
+//! is present — it learns who is present from the structured presence the room
+//! attaches to each membership line (the roster on arrival and each join) — and
+//! exits 0 once it has seen a line from every roster member. Members outside the roster
 //! (people already chatting in an attached room, say) are printed but never
 //! counted, so a busy room cannot fake or break the assertion.
 
 const std = @import("std");
 const pancake = @import("pancake");
 const build_options = @import("rooms_client_build_options");
+
+const demo_rooms = @import("demo_rooms_cli");
+const demo_usage = @import("demo_usage");
 
 const model = pancake.ocapn.model;
 const actors = pancake.actors;
@@ -36,14 +39,13 @@ const tcp = pancake.net.tcp;
 
 const frame_cap: usize = 1 << 16;
 
-/// State the inbox actor, the welcome listener, and the main loop share: which
-/// roster members are present, and which we have seen a chat line from.
+/// State the inbox actor and the main loop share: which roster members are
+/// present, and which we have seen a chat line from.
 const State = struct {
     nick: []const u8,
     roster: []const []const u8,
     present: []bool,
     seen: []bool,
-    welcomed: bool = false,
 
     fn markPresent(self: *State, name: []const u8) void {
         for (self.roster, 0..) |member, i| {
@@ -54,6 +56,12 @@ const State = struct {
     fn markSeen(self: *State, name: []const u8) void {
         for (self.roster, 0..) |member, i| {
             if (std.mem.eql(u8, member, name)) self.seen[i] = true;
+        }
+    }
+
+    fn markAbsent(self: *State, name: []const u8) void {
+        for (self.roster, 0..) |member, i| {
+            if (std.mem.eql(u8, member, name)) self.present[i] = false;
         }
     }
 
@@ -71,8 +79,9 @@ const State = struct {
     }
 };
 
-/// The inbox the room calls back on. A `notify(from, text)` is either a room
-/// announcement (from "room") or a chat line from a member.
+/// The inbox the room calls back on. A `notify(from, text, ...presence)` is either
+/// a room announcement (from "room", carrying a structured presence change after
+/// the text) or a plain chat line from a member.
 const Inbox = struct {
     state: *State,
 
@@ -82,10 +91,10 @@ const Inbox = struct {
         const from = if (msg.args.len > 0 and msg.args[0] == .string) msg.args[0].string else "?";
         const text = if (msg.args.len > 1 and msg.args[1] == .string) msg.args[1].string else "";
         std.debug.print("[{s}] {s}: {s}\n", .{ self.state.nick, from, text });
-        if (std.mem.eql(u8, from, "room")) {
-            if (parseJoinedNick(text)) |name| self.state.markPresent(name);
-        } else {
-            self.state.markPresent(from); // a line is presence too
+        // A membership line carries its change as structured args; a plain chat
+        // line does not, and a line from a member is presence too.
+        if (!applyPresence(self.state, msg.args) and !std.mem.eql(u8, from, "room")) {
+            self.state.markPresent(from);
             self.state.markSeen(from);
         }
         return .{ .void = {} };
@@ -126,26 +135,32 @@ fn printRooms(nick: []const u8, arg: model.Argument) void {
     std.debug.print("\n", .{});
 }
 
-/// The room announces each arrival as `<nick> joined (<count> here)`; pull the
-/// nick back out so the client knows that roster member is present.
-fn parseJoinedNick(text: []const u8) ?[]const u8 {
-    const marker = std.mem.indexOf(u8, text, " joined (") orelse return null;
-    if (!std.mem.endsWith(u8, text, " here)")) return null;
-    return text[0..marker];
-}
-
-/// The welcome (the subscribe reply) ends with the nicks already present:
-/// `… in the room: a, b, c` — the only way to learn about earlier arrivals.
-fn onWelcome(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-    const state: *State = @ptrCast(@alignCast(ctx.?));
-    state.welcomed = true;
-    const text = switch (resolution) {
-        .fulfilled => |value| if (value == .string) value.string else return,
-        .broken, .give => return,
-    };
-    const marker = std.mem.indexOf(u8, text, " in the room: ") orelse return;
-    var names = std.mem.splitSequence(u8, text[marker + " in the room: ".len ..], ", ");
-    while (names.next()) |name| state.markPresent(name);
+/// Apply the structured presence a room line carries after its display text, if
+/// any: `notify("room", text, "roster", names…)` names everyone already here (our
+/// welcome), and `notify("room", text, "join"|"leave", nick)` marks that one member
+/// present or absent. Returns true when the line was a presence change, so the
+/// caller does not also count it as a chat line.
+fn applyPresence(state: *State, args: []const model.Argument) bool {
+    if (args.len < 3 or args[2] != .string) return false;
+    const kind = args[2].string;
+    if (std.mem.eql(u8, kind, "roster")) {
+        for (args[3..]) |name_arg| {
+            if (name_arg == .string) state.markPresent(name_arg.string);
+        }
+        return true;
+    }
+    if (args.len > 3 and args[3] == .string) {
+        const name = args[3].string;
+        if (std.mem.eql(u8, kind, "join")) {
+            state.markPresent(name);
+            return true;
+        }
+        if (std.mem.eql(u8, kind, "leave")) {
+            state.markAbsent(name);
+            return true;
+        }
+    }
+    return false;
 }
 
 pub fn main(init: std.process.Init) !void {
@@ -225,6 +240,9 @@ fn roomRefFromArg(arg: model.Argument) !actors.Ref {
     };
 }
 
+/// Enter-or-open lives here because it materializes settled outcomes through the
+/// Zig driver's blocking `conn.call`; see `_demo/rooms_cli.{py,rkt,rs}` for the
+/// same CLI leniency in other languages.
 /// Enter the named room, opening it if it does not exist. The wire stays strict
 /// — `enter` breaks if there is no such room, `open` breaks if the name is taken
 /// — so this tries `enter`, falls back to `open`, and on a creation race falls
@@ -238,7 +256,7 @@ fn enterOrOpen(conn: *driver.Connection, allocator: std.mem.Allocator, directory
 
     switch (try conn.call(directory, .{ .verb = "enter", .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
-        .broken => |reason| if (std.mem.indexOf(u8, reason, "no room named") == null) {
+        .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.no_such_room)) {
             std.debug.print("rooms-client: enter \"{s}\" broke: {s}\n", .{ room_name, reason });
             return error.EnterFailed;
         },
@@ -246,7 +264,7 @@ fn enterOrOpen(conn: *driver.Connection, allocator: std.mem.Allocator, directory
     }
     switch (try conn.call(directory, .{ .verb = "open", .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
-        .broken => |reason| if (std.mem.indexOf(u8, reason, "already exists") == null) {
+        .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.room_exists)) {
             std.debug.print("rooms-client: open \"{s}\" broke: {s}\n", .{ room_name, reason });
             return error.OpenFailed;
         },
@@ -287,11 +305,13 @@ fn runRoom(conn: *driver.Connection, allocator: std.mem.Allocator, state: *State
     const room = try enterOrOpen(conn, allocator, directory, room_name);
     const inbox = try conn.spawn(Inbox, .{ .state = state });
 
-    const sub = try conn.send(room, .{
+    // Subscribe, handing the room a capability to our inbox. Success is the
+    // resolution; the room delivers the welcome and roster as our first `notify`
+    // (the roster line), not as a return value.
+    _ = try conn.send(room, .{
         .verb = "subscribe",
         .args = &.{ .{ .string = nick }, inbox.arg() },
     });
-    try conn.on(sub, .{ .ctx = state, .func = onWelcome });
 
     var posted = false;
     while (state.seenCount() < state.roster.len) {
@@ -299,7 +319,7 @@ fn runRoom(conn: *driver.Connection, allocator: std.mem.Allocator, state: *State
             std.debug.print("rooms-client: step error: {s}\n", .{@errorName(err)});
             break;
         };
-        if (!posted and state.welcomed and state.allPresent()) {
+        if (!posted and state.allPresent()) {
             try conn.tell(room, .{ .verb = "post", .args = &.{.{ .string = line }} });
             posted = true;
         }
@@ -308,6 +328,5 @@ fn runRoom(conn: *driver.Connection, allocator: std.mem.Allocator, state: *State
 }
 
 fn fail(message: []const u8) error{Usage} {
-    std.debug.print("usage: pancake-rooms-client <locator> <room> <nick> <line> [roster]\n  (locator: host:port or an ocapn:// URI; roster: comma-separated nicks to expect; default just you)\n  ({s})\n", .{message});
-    return error.Usage;
+    return demo_usage.usage("usage: pancake-rooms-client <locator> <room> <nick> <line> [roster]\n  (locator: host:port or an ocapn:// URI; roster: comma-separated nicks to expect; default just you)", message);
 }

@@ -1,11 +1,12 @@
-//! Header parity, proves the generated `include/pancake_ocapn.h` and the two
-//! transport headers (`pancake_net_transport_tcp.h`, `pancake_net_transport_inproc.h`) agree with
+//! Header parity, proves the generated `include/pancake_ocapn.h`, the byte-fed
+//! driver header (`pancake_driver.h`), and the two transport headers
+//! (`pancake_net_transport_tcp.h`, `pancake_net_transport_inproc.h`) agree with
 //! the Zig C ABI sources they mirror, so the two cannot silently drift. The
 //! headers keep their prose (they are the C consumer's contract documents); this
 //! test is the compiler-checked guarantee that their layouts and constants match
 //! the source.
 //!
-//! `@cImport` translates the three headers into one namespace; every assertion
+//! `@cImport` translates the four headers into one namespace; every assertion
 //! compares a C declaration against the Zig `extern struct` / constant /
 //! function it is supposed to equal. The shared vocabulary (frame/context types,
 //! codes) is declared once in `pancake_ocapn.h`, which the transport headers
@@ -16,10 +17,12 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const cabi = @import("c_abi");
+const cabi_driver = @import("c_abi_driver");
 const cabi_tcp = @import("c_abi_net_transport_tcp");
 const cabi_inproc = @import("c_abi_net_transport_inproc");
 const c = @cImport({
     @cInclude("pancake_ocapn.h");
+    @cInclude("pancake_driver.h");
     @cInclude("pancake_net_transport_tcp.h");
     @cInclude("pancake_net_transport_inproc.h");
 });
@@ -59,6 +62,7 @@ fn expectFunctionsDeclared(comptime Mod: type, comptime header: []const u8) void
 
 test "every exported C ABI function is declared in its header" {
     expectFunctionsDeclared(cabi, "pancake_ocapn.h");
+    expectFunctionsDeclared(cabi_driver, "pancake_driver.h");
     expectFunctionsDeclared(cabi_tcp, "pancake_net_transport_tcp.h");
     expectFunctionsDeclared(cabi_inproc, "pancake_net_transport_inproc.h");
 }

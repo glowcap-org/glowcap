@@ -8,7 +8,7 @@
 
 use std::time::{Duration, Instant};
 
-use pancake::{connect, tcp_locator, Argument, Connection, Ref};
+use pancake::{connect, listen, tcp_locator, Argument, Connection, Ref};
 
 const CLIENT: &str = "rust";
 const RUNTIME: &str = "rust";
@@ -153,6 +153,119 @@ async fn run_connections(locator: &str, n: usize) -> Result<(), String> {
 	Ok(())
 }
 
+/// The local-turn counter behavior: `hit` increments and returns the count,
+/// any other verb refuses. A fresh closure per use, so the two paths of
+/// `run_local` never share a count.
+fn counter_behavior(
+) -> impl FnMut(&str, &[Argument]) -> std::result::Result<Argument, String> + 'static {
+	let mut count: i64 = 0;
+	move |verb, _args| {
+		if verb != "hit" {
+			return Err(format!("counter: no such method {verb}"));
+		}
+		count += 1;
+		Ok(Argument::Integer(count))
+	}
+}
+
+/// Run `n` sequential send→settle hit units against `target`, asserting the
+/// final count equals `n` (ahead-of-time, no warmup, so the counter starts at
+/// zero). Returns the sorted per-turn latencies in nanoseconds.
+async fn measure_hits(conn: &Connection, target: &Ref, n: usize) -> Result<Vec<f64>, String> {
+	let mut lats: Vec<f64> = Vec::with_capacity(n);
+	let mut last: i64 = 0;
+	for _ in 0..n {
+		let s = Instant::now();
+		let reply = conn
+			.send(target, "hit", &[])
+			.await
+			.map_err(|e| format!("hit: {e:?}"))?;
+		lats.push(s.elapsed().as_secs_f64() * 1e9);
+		last = reply
+			.as_i64()
+			.ok_or_else(|| format!("hit returned a non-integer: {reply:?}"))?;
+	}
+	if last != n as i64 {
+		return Err(format!("bad final count {last} (expected {n})"));
+	}
+	lats.sort_by(|a, b| a.partial_cmp(b).unwrap());
+	Ok(lats)
+}
+
+// The `local` mode (see contract.md): (a) in_lang — a counter spawned on this
+// connection, dispatched in process by the binding's own local path; (b)
+// via_host — the same behavior published across a loopback pair inside this
+// process (listen on 127.0.0.1:0 + connect to itself), so every turn pays wire
+// codec, feed, trampoline, and marshal both ways. The orchestrator's host/port
+// arguments are unused; the pair is self-contained.
+async fn run_local(n: usize) -> Result<(), String> {
+	let server = listen(("127.0.0.1", 0))
+		.await
+		.map_err(|e| format!("listen: {e:?}"))?;
+	let loop_port = server
+		.local_addr()
+		.map_err(|e| format!("local_addr: {e:?}"))?
+		.port();
+	// The accept half on its own local task: accept the one dialer, publish the
+	// counter (before serving, so the dialer's fetch cannot race it), and serve
+	// until the dialer leaves. A failure here would strand the dialer in a
+	// blocked read, so it fails the process loudly.
+	tokio::task::spawn_local(async move {
+		let conn = match server.accept().await {
+			Ok(conn) => conn,
+			Err(e) => {
+				eprintln!("langs-bench local: accept failed: {e:?}");
+				std::process::exit(1);
+			}
+		};
+		if let Err(e) = conn.publish("counter", counter_behavior()).await {
+			eprintln!("langs-bench local: publish failed: {e:?}");
+			std::process::exit(1);
+		}
+		conn.serve().await;
+	});
+	let dial = connect(&tcp_locator("127.0.0.1", loop_port), None)
+		.await
+		.map_err(|e| format!("connect: {e:?}"))?;
+
+	// (a) in_lang: the binding's in-process actor dispatch.
+	let local = dial
+		.spawn(counter_behavior())
+		.await
+		.map_err(|e| format!("spawn: {e:?}"))?;
+	let in_lang = measure_hits(&dial, &local, n).await?;
+
+	// (b) via_host: the published counter across the loopback pair.
+	let far = dial
+		.fetch("counter")
+		.await
+		.map_err(|e| format!("fetch: {e:?}"))?;
+	let via_host = measure_hits(&dial, &far, n).await?;
+
+	dial.close();
+
+	let in_mean = if n == 0 {
+		0.0
+	} else {
+		in_lang.iter().sum::<f64>() / n as f64
+	};
+	let via_mean = if n == 0 {
+		0.0
+	} else {
+		via_host.iter().sum::<f64>() / n as f64
+	};
+	let ratio = if in_mean > 0.0 {
+		via_mean / in_mean
+	} else {
+		0.0
+	};
+	println!(
+        "{{\"v\":1,\"metric\":\"local\",\"client\":\"{CLIENT}\",\"suite\":\"local-turn\",\"n\":{n},\"in_lang_ns\":{:.1},\"in_lang_p99_ns\":{:.1},\"via_host_ns\":{:.1},\"via_host_p99_ns\":{:.1},\"ratio\":{:.2},\"runtime\":\"{RUNTIME}\",\"warmup_n\":0}}",
+        in_mean, percentile_ms(&in_lang, 0.99), via_mean, percentile_ms(&via_host, 0.99), ratio,
+    );
+	Ok(())
+}
+
 async fn run_cold(locator: &str) -> Result<(), String> {
 	let conn = connect(locator, None)
 		.await
@@ -190,6 +303,7 @@ async fn main() {
 				"throughput" => run_throughput(&locator, n).await,
 				"connections" => run_connections(&locator, n).await,
 				"cold" => run_cold(&locator).await,
+				"local" => run_local(n).await,
 				other => Err(format!("unknown mode: {other}")),
 			}
 		})

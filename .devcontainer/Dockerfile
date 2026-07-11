@@ -29,7 +29,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean \
  && apt-get update -qq \
  && apt-get install -y -qq --no-install-recommends \
-      build-essential ca-certificates curl gdb git hyperfine jq libssl-dev \
+      build-essential ca-certificates curl gdb gh git hyperfine jq libssl-dev \
       linux-perf lldb netcat-openbsd pkg-config python-is-python3 python3 \
       python3-pip python3-venv strace tar unzip valgrind xz-utils
 

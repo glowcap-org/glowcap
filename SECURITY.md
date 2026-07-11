@@ -9,7 +9,7 @@ all other work here. This policy applies to every release.
 ## Reporting a vulnerability
 
 **Do not open a public issue for a security report.** Contact the maintainer
-privately, contact details are on the
+privately; the contact details are on the
 [@jimisaacs](https://codeberg.org/jimisaacs) profile (a GitHub mirror with
 private security advisories also exists). Please include:
 
@@ -26,8 +26,8 @@ invariants jump the queue.
 
 ## What counts as a security issue
 
-A report demonstrating a violation of any of these is in scope for security,
-even if it requires unusual configuration, it is not a feature request:
+A report that shows a violation of any of these is a security issue, not a
+feature request, even if it needs an unusual configuration to trigger:
 
 - **Semantics are codec-neutral.** A codec that decodes a frame into a reference
   carrying authority the session did not export, or encodes a reference carrying
@@ -35,8 +35,8 @@ even if it requires unusual configuration, it is not a feature request:
 - **Codecs do not own authority.** A path that lets a codec mint a valid
   reference outside the session's export / import tables is a security issue.
 - **Session state is authoritative.** A path that bypasses the export / import /
-  answer / release tables — reading a codec's internal state, or via a side
-  channel — is a security issue.
+  answer / release tables (reading a codec's internal state, or via a side
+  channel) is a security issue.
 - **Reference identity is codec-neutral.** A reference value that does not
   compare equal to the same target's encoding under the other codec is a
   security issue: it leaks authority laundering, letting an adversary re-encode
@@ -51,7 +51,8 @@ even if it requires unusual configuration, it is not a feature request:
   issues).
 - Behavior of products built on pancake (they carry their own security
   policies).
-- Dependency issues that don't reach pancake's threat surface, report upstream.
+- Dependency issues that don't reach pancake's threat surface (report those
+  upstream).
 
 ## Acknowledgements
 

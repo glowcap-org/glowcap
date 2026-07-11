@@ -7,14 +7,14 @@ at import. It carries the ``pancake_iroh_*`` family plus its own thread-local
 last-error (``pancake_iroh_last_error``), symbol-disjoint from the
 core. Nothing here is public; :mod:`pancake.iroh` is the ergonomic surface over
 it. The read/write calls move frames through the shared ctypes ``Structure``
-types from :mod:`pancake._ffi_core`.
+types from :mod:`pancake._ffi_ocapn`.
 """
 
 from __future__ import annotations
 
 import ctypes
 
-from ._ffi_core import _lib_file, _lib_path
+from ._ffi_ocapn import _lib_file, _lib_path
 
 _IROH_LIB_PATH = _lib_path("pancake_net_transport_iroh")
 _IROH_LIB_FILE = _lib_file("pancake_net_transport_iroh")
@@ -34,6 +34,26 @@ class _IrohReadyEvent(ctypes.Structure):
     claimed with ``try_accept``) and ``events`` the ``_IROH_EV_*`` bitset."""
 
     _fields_ = [("conn", ctypes.c_void_p), ("events", ctypes.c_uint32)]
+
+
+def _pin_layout() -> None:
+    # The layout gate at the declaration site, the same import-time pin
+    # _ffi_ocapn._pin_layout runs for the shared cstructs: the header's
+    # PancakeIrohReadyEvent is {PancakeIrohConn *conn; uint32_t events;} — 16
+    # bytes on LP64, conn at offset 0, events at 8 (4 bytes of tail padding).
+    # A plain `raise` rather than `assert`, so `python -O` cannot strip it.
+    got = ctypes.sizeof(_IrohReadyEvent)
+    conn_off = _IrohReadyEvent.conn.offset
+    events_off = _IrohReadyEvent.events.offset
+    if got != 16 or conn_off != 0 or events_off != 8:
+        raise ImportError(
+            f"pancake FFI layout drift: _IrohReadyEvent is {got} bytes "
+            f"(conn@{conn_off}, events@{events_off}); the C header says 16 "
+            "bytes with conn@0, events@8; re-mirror the struct"
+        )
+
+
+_pin_layout()
 
 
 def _load_iroh():

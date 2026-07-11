@@ -18,6 +18,7 @@ const pancake = @import("pancake");
 
 const c = @import("c_abi");
 const ct = @import("c_abi_net_transport_tcp");
+const c_args = @import("../support/c_abi_args.zig");
 
 const model = pancake.ocapn.model;
 const actors = pancake.actors;
@@ -107,12 +108,8 @@ fn sessionRoundTrip(port: u16) !void {
     // A fetched capability is a far object reference into the partner.
     try std.testing.expectEqual(@as(u32, c.PANCAKE_REF_FAR), echo_ref.kind);
 
-    var value: c.PancakeArgument = std.mem.zeroes(c.PancakeArgument);
-    value.kind = c.PANCAKE_ARG_STRING;
     const payload = "world";
-    value.bytes = payload.ptr;
-    value.bytes_len = payload.len;
-    const args = [_]c.PancakeArgument{value};
+    const args = [_]c.PancakeArgument{c_args.argStr(payload)};
 
     // An uncallable target is refused with one consistent code, before any wire
     // traffic: a sturdy reference (would fail in marshalling) and a promise-kind
@@ -273,12 +270,7 @@ fn pipelineRoundTrip(port: u16) !void {
         ct.pancake_tcp_session_send(session_ptr, &near_ref, "create", 6, null, 0, &rejected),
     );
 
-    var create_arg: c.PancakeArgument = std.mem.zeroes(c.PancakeArgument);
-    create_arg.kind = c.PANCAKE_ARG_STRING;
-    const subject = "benchmark";
-    create_arg.bytes = subject.ptr;
-    create_arg.bytes_len = subject.len;
-    const create_args = [_]c.PancakeArgument{create_arg};
+    const create_args = [_]c.PancakeArgument{c_args.argStr("benchmark")};
 
     var created: ?*ct.PancakeTcpPromise = null;
     try std.testing.expectEqual(c.PANCAKE_OK, ct.pancake_tcp_session_send(
@@ -293,11 +285,7 @@ fn pipelineRoundTrip(port: u16) !void {
     const created_ptr = created.?;
     defer ct.pancake_tcp_promise_release(created_ptr);
 
-    var assign_arg: c.PancakeArgument = std.mem.zeroes(c.PancakeArgument);
-    assign_arg.kind = c.PANCAKE_ARG_STRING;
-    const who = "alice";
-    assign_arg.bytes = who.ptr;
-    assign_arg.bytes_len = who.len;
+    const assign_arg = c_args.argStr("alice");
     const assign_args = [_]c.PancakeArgument{assign_arg};
 
     var assigned: ?*ct.PancakeTcpPromise = null;

@@ -12,6 +12,8 @@ const model = pancake.ocapn.model;
 const actors = pancake.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
+const capture = @import("../support/capture.zig");
+const cross_peer = @import("../support/cross_peer.zig");
 
 /// A counter target: `get` reads, `add` adds and returns the new total,
 /// `increment` bumps. The verb set lets attenuation forward some and refuse
@@ -33,19 +35,6 @@ const Counter = struct {
         return error.NoSuchMethod;
     }
 };
-
-fn captureInt(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-    const slot: *i64 = @ptrCast(@alignCast(ctx.?));
-    slot.* = switch (resolution) {
-        .fulfilled => |value| value.integer,
-        .broken, .give => -1,
-    };
-}
-
-fn captureBroken(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-    const slot: *bool = @ptrCast(@alignCast(ctx.?));
-    slot.* = resolution == .broken;
-}
 
 test "a caretaker forwards until revoked, then breaks every call" {
     const allocator = std.testing.allocator;
@@ -116,9 +105,7 @@ test "a caretaker composes over an attenuator: a revocable read-only view" {
 
 /// Pump every queued frame from `from` to `to` and step `to` so it parses them.
 fn pump(from: *pancake.ocapn.engine.Peer, to: *pancake.ocapn.engine.Peer) !void {
-    _ = try from.step();
-    while (from.takeOutbound()) |frame| try to.feedInbound(frame);
-    _ = try to.step();
+    try cross_peer.pumpAll(from, to);
 }
 
 fn serveAll(vat: *actors.Vat, peer: *pancake.ocapn.engine.Peer) void {
@@ -143,6 +130,9 @@ test "a far caller reaches a hosted caretaker proxy, then breaks on revoke" {
     const target = try coord_vat.spawn(Counter, .{ .n = 0 });
     const care = try actors.caretaker(&coord_vat, target);
     try coord_vat.bindExport(care.proxy, 7);
+    // Hand-wired pairing: the agent addresses position 7 out-of-band, so the
+    // bound position takes an explicit grant.
+    try coord_peer.exportObject(7);
 
     try agent_peer.importObject(7);
     var agent_vat = actors.Vat.initOver(allocator, agent_peer);
@@ -152,7 +142,7 @@ test "a far caller reaches a hosted caretaker proxy, then breaks on revoke" {
     // target and the forwarded send's result settles the agent's far answer.
     const promise = try agent_vat.send(.{ .far = model.FarRef.object(7) }, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
     var result: i64 = 0;
-    try agent_vat.on(promise, .{ .ctx = &result, .func = captureInt });
+    try agent_vat.on(promise, .{ .ctx = &result, .func = capture.captureInt });
 
     try pump(agent_peer, coord_peer);
     serveAll(&coord_vat, coord_peer); // proxy forwards: queues the local send
@@ -166,7 +156,7 @@ test "a far caller reaches a hosted caretaker proxy, then breaks on revoke" {
     care.revoke();
     const broken_promise = try agent_vat.send(.{ .far = model.FarRef.object(7) }, .{ .verb = "add", .args = &.{.{ .integer = 100 }} });
     var broke = false;
-    try agent_vat.on(broken_promise, .{ .ctx = &broke, .func = captureBroken });
+    try agent_vat.on(broken_promise, .{ .ctx = &broke, .func = capture.captureBroken });
 
     try pump(agent_peer, coord_peer);
     serveAll(&coord_vat, coord_peer); // proxy refuses: breaks the answer in place

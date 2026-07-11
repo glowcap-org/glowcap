@@ -7,6 +7,13 @@ publish = false
 [lib]
 path = "src/lib.rs"
 
+# Dead code in this crate is drift: an FFI mirror or marshaling helper whose C
+# export or caller went away must be pruned in the same change, so the compiler
+# refuses it instead of a rule asking someone to notice (`cargo` enforces this
+# in every build, including `zig build rust-dogfood`).
+[lints.rust]
+dead_code = "deny"
+
 [features]
 # The feature set mirrors pancake's à-la-carte C ABI archives (ADR-0059): the
 # core OCapN peer is always present, and each transport feature links exactly its
@@ -38,8 +45,15 @@ async = ["dep:tokio", "dep:getrandom"]
 iroh = ["async"]
 
 [dependencies]
-tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "sync", "process", "time"], optional = true }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "sync", "time"], optional = true }
 getrandom = { version = "0.2", optional = true }
+
+# The library never spawns a process; only the live-interop examples do (they
+# launch a Racket Goblins peer). Dev builds union this `process` feature onto
+# the lib's tokio, so examples and tests get it while the shipped library
+# stops carrying it.
+[dev-dependencies]
+tokio = { version = "1", default-features = false, features = ["process"] }
 
 # Live interop proof: a peer on the C ABI holds a keyed OCapN conversation with a
 # real Goblins vat. Run via `zig build rust-goblins-interop` (needs racket +

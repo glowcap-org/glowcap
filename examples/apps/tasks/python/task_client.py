@@ -20,7 +20,10 @@ import sys
 from dataclasses import dataclass
 from typing import List
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[4] / "bindings" / "python"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "_demo"))
+from python_path import add_bindings_path  # noqa: E402
+
+add_bindings_path(from_file=__file__, depth=4)
 
 from pancake import Connection, connect, tcp_locator  # noqa: E402
 

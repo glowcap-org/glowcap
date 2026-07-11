@@ -1,8 +1,8 @@
 # examples/apps/accountability-on-pancake
 
-The accountability worked application, on pancake as its CapTP substrate.
-Same shape as `conformance/accountability-on-goblins` — KERI-anchored identity, a signed
-Episode per capability invocation, a Merkle transparency log — but the wire
+An accountability application built on pancake as its CapTP substrate. It has the
+same shape as `conformance/accountability-on-goblins`: KERI-anchored identity, a
+signed Episode per capability invocation, and a Merkle transparency log. The wire
 underneath is pancake's own `engine.Peer`, not Goblins.
 
 Two native pancake peers complete an OCapN handshake over a real loopback TCP
@@ -35,7 +35,7 @@ The run walks eight steps and asserts each:
    durable first), then invokes.
 5. The host **verifies the caller's signature** over the request and resolves
    the call. Attribution is attested, not a trusted header.
-6. A caller the host **cannot attest** (a tampered signature) is **refused** —
+6. A caller the host **cannot attest** (a tampered signature) is **refused**:
    the refusal travels back as a broken promise with a typed reason, and the
    host writes no Episode for it. This is the load-bearing accountability property.
 7. The host's **Outcome** Episode attributes the _true_ caller's AID.
@@ -69,11 +69,10 @@ time. It is generated state (gitignored), never committed.
   `Peer` and records Episodes around the send/recv boundary. Here the Affordance
   records its Outcome inside the actor turn; the caller records Attempt/Outcome
   around its own send.
-- A worked application under `examples/apps/`, run by its own
-  `zig build accountability` step and ridden by `zig build check` as an
-  application contract (it needs no runtime beyond Zig).
-- Editable worked application: change it when it stops teaching the right
-  boundary.
+- It is a worked application under `examples/apps/`, run by its own
+  `zig build accountability` step and exercised by `zig build check` as an
+  application contract, so it needs no runtime beyond Zig.
+- It is meant to be edited: change it when it stops teaching the right boundary.
 
 ## Cross-language (Zig host + Deno and Python callers)
 

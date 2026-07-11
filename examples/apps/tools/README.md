@@ -1,4 +1,4 @@
-# tools — least authority for AI agent harnesses, in code
+# tools: least authority for AI agent harnesses, in code
 
 This is the capability showcase: the concrete answer to "what is pancake
 actually good for beyond chat?" A coordinator holds tools; an agent connects and
@@ -16,10 +16,10 @@ zig build demo-tools
 ```
 
 That starts a Deno coordinator and runs one agent per available language against
-it — Deno and the always-built Zig agent, plus Python, Racket, and Rust when
+it: Deno and the always-built Zig agent, plus Python, Racket, and Rust when
 their runtimes are on PATH. The coordinator and the agent are different
 languages on the wire, so the capability passing, attenuation, and revocation
-are real — not in-process tricks. Each agent prints `ok` for every property and
+are real, not in-process tricks. Each agent prints `ok` for every property and
 exits non-zero if any fails.
 
 By default the demo binds an ephemeral port; pin it with
@@ -33,7 +33,7 @@ of spawning one, and leaves it running when the demo ends.
 The whole argument for capability networking is that the hard authority patterns
 fall out of `spawn` + `send` + passing a reference. No special API.
 
-### Delegation — authority travels as a reference
+### Delegation: authority travels as a reference
 
 The coordinator hands the agent a capability to a tool by returning a spawned
 actor from `grant`:
@@ -52,7 +52,7 @@ const now = await conn.send(clock, "now"); // an ordinary call; clock is a capab
 The agent received a reference it can call. It did not receive a URL, a token,
 or a name to look up in a registry. The reference _is_ the authority.
 
-### Attenuation — a read-only view is a function wrapping a function
+### Attenuation: a read-only view is a function wrapping a function
 
 ```typescript
 function readOnly(tool) {
@@ -64,10 +64,10 @@ function readOnly(tool) {
 ```
 
 The agent gets `grant("files-readonly")`, reads successfully, and its write
-breaks. There is no "permission" field anywhere, the attenuated capability
+breaks. There is no "permission" field anywhere: the attenuated capability
 cannot express a write.
 
-### Revocation — a forwarder you can switch off
+### Revocation: a forwarder you can switch off
 
 ```typescript
 function revocable(tool) {
@@ -90,14 +90,14 @@ registry of who-can-do-what.
 
 ### The same patterns, shipped as built-ins
 
-The point above is that attenuation and revocation need _no special API_ — they
+The point above is that attenuation and revocation need _no special API_. They
 are ordinary closures over a capability. Because the pattern is so load-bearing,
 pancake also ships it as a forwarding proxy so you do not have to write the
 closure (ADR-0064): `conn.attenuate(tool, ["read"])` returns a read-only proxy,
 and `conn.caretaker(tool)` returns a proxy plus a `revoke` lever. They wrap _any_
 reference, including one imported over the wire, so a coordinator can hand out an
 attenuated or revocable view of authority it does not even own locally. This demo
-keeps the hand-rolled version on purpose — to show the mechanism is just code —
+keeps the hand-rolled version on purpose, to show the mechanism is just code,
 but a real harness can reach for the built-ins.
 
 ### Least authority, by construction

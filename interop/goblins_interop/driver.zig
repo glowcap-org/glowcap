@@ -377,7 +377,7 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_st
             .{ .bytes = "pancake-ping" },
             .{ .big_integer = .{ .negative = true, .digits = big_digits } },
         },
-        .answer = model.AnswerId.from(echo_answer),
+        .answer = model.AnswerPosition.from(echo_answer),
     } });
 
     var echoed = false;
@@ -432,9 +432,9 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_st
     //    ordinary resolve event, exactly as the bindings see it.
     const index_answer: u64 = 4343;
     try peer.sendCopying(.{ .index = .{
-        .receiver = .{ .promise = .{ .answer_position = model.AnswerId.from(echo_answer) } },
+        .receiver = .{ .promise = .{ .answer_position = model.AnswerPosition.from(echo_answer) } },
         .index = 0,
-        .answer = model.AnswerId.from(index_answer),
+        .answer = model.AnswerPosition.from(index_answer),
     } });
 
     var projected = false;
@@ -477,13 +477,13 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_st
     try peer.sendCopying(.{ .deliver = .{
         .target = record,
         .args = &.{.{ .string = "pancake-get" }},
-        .answer = model.AnswerId.from(record_answer),
+        .answer = model.AnswerPosition.from(record_answer),
     } });
     const get_answer: u64 = 4545;
     try peer.sendCopying(.{ .get = .{
-        .receiver = .{ .promise = .{ .answer_position = model.AnswerId.from(record_answer) } },
+        .receiver = .{ .promise = .{ .answer_position = model.AnswerPosition.from(record_answer) } },
         .field = "name",
-        .answer = model.AnswerId.from(get_answer),
+        .answer = model.AnswerPosition.from(get_answer),
     } });
 
     var got = false;
@@ -526,7 +526,7 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_st
     try peer.sendCopying(.{ .deliver = .{
         .target = enlivened,
         .args = &.{.{ .bytes = "pancake-enliven" }},
-        .answer = model.AnswerId.from(enliven_answer),
+        .answer = model.AnswerPosition.from(enliven_answer),
     } });
     var enliven_echoed = false;
     while (!enliven_echoed) {

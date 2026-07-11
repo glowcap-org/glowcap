@@ -5,7 +5,8 @@
 ;;
 ;;   racket agent.rkt 127.0.0.1 9099 rkt-agent
 
-(require "../../../../bindings/racket/pancake.rkt")
+(require "../../_demo/bindings.rkt"
+         "../../_demo/tools_check.rkt")
 
 ;; `conn-send`, summarized for the checks below: `(cons 'ok value)` on a
 ;; fulfilled reply, `(cons 'broken message)` on a broken one (revocation tests
@@ -15,10 +16,7 @@
     (cons 'ok (apply conn-send c target verb args))))
 
 (define (run host port nick)
-  (define (check label ok)
-    (printf "~a: ~a, ~a\n" nick (if ok "ok" "FAIL") label)
-    (flush-output)
-    (unless ok (exit 1)))
+  (define check (make-check nick))
 
   (define c (connect (tcp-locator host port)))
   (define tools (conn-fetch c "tools"))

@@ -33,6 +33,7 @@ pub const freeMessage = owned.freeMessage;
 pub const cloneArgument = owned.cloneArgument;
 pub const freeArgument = owned.freeArgument;
 pub const cloneArgumentSlice = owned.cloneArgumentSlice;
+pub const freeArgumentSlice = owned.freeArgumentSlice;
 pub const freePipelineOp = owned.freePipelineOp;
 pub const freeResolution = owned.freeResolution;
 pub const cloneReference = owned.cloneReference;
@@ -81,12 +82,12 @@ pub const WireProfile = negotiated.WireProfile;
 pub const FeatureSet = negotiated.FeatureSet;
 
 /// The three position spaces a session keys on, one zero-cost newtype each, so a
-/// partner-named import id can never be passed where a local export id is meant
+/// partner-named import position can never be passed where a local export position is meant
 /// (`position`). Scalar id fields carry these end to end; cross the `u64`
-/// wire/ABI boundary with `ExportId.from` / `.int` and friends.
-pub const ExportId = position.ExportId;
-pub const ImportId = position.ImportId;
-pub const AnswerId = position.AnswerId;
+/// wire/ABI boundary with `ExportPosition.from` / `.int` and friends.
+pub const ExportPosition = position.ExportPosition;
+pub const ImportPosition = position.ImportPosition;
+pub const AnswerPosition = position.AnswerPosition;
 
 pub const HintValue = union(enum) {
     string: []const u8,
@@ -143,7 +144,7 @@ pub const LocationSig = struct {
 pub const RefKind = enum { object, promise };
 
 pub const NearRef = struct {
-    export_position: ExportId,
+    export_position: ExportPosition,
     /// `.object` (the default) encodes as `<desc:import-object N>`, `.promise` as
     /// `<desc:import-promise N>`.
     kind: RefKind = .object,
@@ -161,7 +162,7 @@ pub const NearRef = struct {
 };
 
 pub const FarRef = struct {
-    import_position: ImportId,
+    import_position: ImportPosition,
     /// Which descriptor named this import on the wire. Defaults to `.object`.
     kind: RefKind = .object,
 
@@ -199,7 +200,7 @@ pub const PipelinePath = struct {
 };
 
 pub const PromiseRef = struct {
-    answer_position: AnswerId,
+    answer_position: AnswerPosition,
     /// Optional pipeline path targeting relative to the eventual resolution.
     /// Empty (default) means the resolution itself.
     path: PipelinePath = .{},
@@ -256,13 +257,13 @@ pub const Reference = union(enum) {
 
     /// The local export position this reference names, but only when it is a
     /// `.near` export this peer hosts, typed, so it cannot be mistaken for a
-    /// partner-named import id. A resolver-export lookup must use this, never
+    /// partner-named import position. A resolver-export lookup must use this, never
     /// `position`: a resolver callback always targets one of our `.near`
-    /// exports, and keying an export-indexed map on a `.far` import id (the same
+    /// exports, and keying an export-indexed map on a `.far` import position (the same
     /// integer space) would let a coincidental collision misclassify an ordinary
     /// deliver as a resolver callback. The type now makes that misuse a compile
     /// error rather than a comment.
-    pub fn exportPosition(self: Reference) ?ExportId {
+    pub fn exportPosition(self: Reference) ?ExportPosition {
         return switch (self) {
             .near => |near| near.export_position,
             else => null,
@@ -282,6 +283,9 @@ pub const Argument = union(enum) {
     /// we only pay an allocation when a handoff genuinely appears as an argument.
     /// `cloneArgument` and `freeArgument` own the box. The borrowed `view.Argument`
     /// keeps its handoff inline, since it borrows wire bytes and never allocates.
+    /// In an owned tree the box must live on the message's allocator, because
+    /// `freeArgument` destroys it there; a stack-boxed handoff is legal only
+    /// behind `Peer.sendCopying`, whose clone re-boxes it onto the heap.
     handoff: *Handoff,
     string: []const u8,
     integer: i64,
@@ -372,12 +376,12 @@ pub const AbortReason = abort_types.AbortReason;
 pub const Deliver = struct {
     target: Reference,
     args: []const Argument,
-    answer: ?AnswerId = null,
+    answer: ?AnswerPosition = null,
     resolve_me_desc: ?Reference = null,
 };
 
 pub const Resolve = struct {
-    answer: AnswerId,
+    answer: AnswerPosition,
     resolution: Resolution,
 };
 
@@ -412,19 +416,19 @@ pub const Listen = struct {
 pub const Get = struct {
     receiver: Reference,
     field: []const u8,
-    answer: AnswerId,
+    answer: AnswerPosition,
 };
 
 pub const Index = struct {
     receiver: Reference,
     index: i64,
-    answer: AnswerId,
+    answer: AnswerPosition,
 };
 
 pub const Untag = struct {
     receiver: Reference,
     tag: []const u8,
-    answer: AnswerId,
+    answer: AnswerPosition,
 };
 
 /// If you hand this to an owning sink like `Peer.send`, every slice in it must

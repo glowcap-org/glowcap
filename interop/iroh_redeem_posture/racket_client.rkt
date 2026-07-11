@@ -30,20 +30,12 @@
 ;; via `zig build racket-iroh-redeem-posture`.
 
 (require "../../bindings/racket/pancake.rkt"
-         "../../bindings/racket/pancake-iroh.rkt")
+         "../../bindings/racket/pancake-iroh.rkt"
+         "../_common/racket/helpers.rkt")
 
 (define NAME "racket-redeem-posture-carol")
 
-;; The gate takes no arguments; accept and ignore a `--port=` for build parity
-;; (an in-process local-discovery run has no fixed port).
-(for ([arg (vector->list (current-command-line-arguments))])
-  (unless (regexp-match? #px"^--port=" arg)
-    (eprintf "racket-iroh-redeem-posture: unknown argument ~a\n" arg)
-    (exit 2)))
-
-(define (fail msg)
-  (eprintf "racket-iroh-redeem-posture FAILED: ~a\n" msg)
-  (exit 1))
+(ignore-port-args "racket-iroh-redeem-posture")
 
 ;; Serve every connection a server accepts, each in its own green thread on the
 ;; one readiness loop; returns the accept thread. The accept loop ends when the
@@ -94,12 +86,12 @@
   (define introducer (conn-fetch recipient "introducer"))
   (define greeter (conn-send recipient introducer 'get-greeter))
   (unless (or (far-ref? greeter) (near-ref? greeter))
-    (fail (format "introduction did not redeem to a capability: ~a" greeter)))
+    (fail "racket-iroh-redeem-posture" (format "introduction did not redeem to a capability: ~a" greeter)))
   (printf "racket-iroh-redeem-posture: recipient redeemed the hint-less give under its configured LocalDiscovery posture, got the greeter as an ordinary ref\n")
 
   (define reply (conn-send recipient greeter 'greet NAME))
   (unless (and (string? reply) (regexp-match? (regexp (regexp-quote NAME)) reply))
-    (fail (format "greeter reply did not carry the name back: ~a" reply)))
+    (fail "racket-iroh-redeem-posture" (format "greeter reply did not carry the name back: ~a" reply)))
   (printf "racket-iroh-redeem-posture: greeter replied: ~a\n" reply)
 
   (printf (string-append

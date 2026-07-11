@@ -14,22 +14,25 @@ pub const AnswerStatus = enum {
 };
 
 /// A party that asked (via `op:listen`) to be told when an answer resolves.
-/// `listener` is `op:listen`'s listener capability, the cap the resolution is
-/// delivered to when the answer fires (it becomes the fire `op:deliver`'s
-/// target). The field mirrors the wire name so it is not confused with
-/// `op:listen`'s `target` (the promise being listened on, which the cap
-/// `max_listeners_per_target` counts). `wants_partial` requests intermediate
-/// notifications when the answer resolves to another promise rather than only
-/// the final value. The entry owns `listener`.
+/// `listener` is `op:listen`'s listener capability, the far export the
+/// resolution is delivered to when the answer fires (it becomes the fire
+/// `op:deliver`'s target). The field mirrors the wire name so it is not
+/// confused with `op:listen`'s `target` (the promise being listened on, which
+/// the cap `max_listeners_per_target` counts). `wants_partial` requests
+/// intermediate notifications when the answer resolves to another promise
+/// rather than only the final value. The type is a bare `FarRef`, not a full
+/// `Reference`: the installs only ever anchor a positional far target
+/// (`pipeline.installAnswerListener` and the imported-promise install both
+/// build `FarRef.object`), so an entry is POD — no heap, nothing to free.
 pub const ListenerEntry = struct {
-    listener: model.Reference,
+    listener: model.FarRef,
     wants_partial: bool,
 };
 
 /// A row's `op:listen` subscribers — the parties to notify when the row's
 /// promise resolves. An inbound answer's pipelining payload and a third-party
-/// imported promise (ADR-0009) hold listeners the same way: own each entry's
-/// target until resolve, then hand the whole batch off. This type is that one
+/// imported promise (ADR-0009) hold listeners the same way: accumulate POD
+/// entries until resolve, then hand the whole batch off. This type is that one
 /// shared mechanic, so the two substrates cannot drift apart.
 ///
 /// The fan-out bound (`max_listeners_per_target`, ADR-0025) is the length of
@@ -51,23 +54,21 @@ pub const ListenerList = struct {
         return self.entries.items.len;
     }
 
-    /// Append `listener`, taking ownership of its target. On OOM the caller's
-    /// errdefer releases the target.
+    /// Append `listener` (a POD entry; nothing to release on failure).
     pub fn append(self: *ListenerList, allocator: std.mem.Allocator, listener: ListenerEntry) !void {
         try self.entries.append(allocator, listener);
     }
 
-    /// Hand the caller every listener, transferring each target's ownership and
-    /// leaving the list empty. Returns an empty slice when there are none; the
-    /// caller frees each target, then the slice.
+    /// Hand the caller every listener, leaving the list empty. Returns an
+    /// empty slice when there are none; the caller frees only the slice (the
+    /// entries are POD).
     pub fn take(self: *ListenerList, allocator: std.mem.Allocator) ![]ListenerEntry {
         if (self.entries.items.len == 0) return &.{};
         return self.entries.toOwnedSlice(allocator);
     }
 
-    /// Release every still-registered listener cap and the backing store.
+    /// Release the backing store (entries are POD).
     pub fn deinit(self: *ListenerList, allocator: std.mem.Allocator) void {
-        for (self.entries.items) |entry| model.freeReference(allocator, entry.listener);
         self.entries.deinit(allocator);
     }
 };
@@ -88,7 +89,7 @@ pub const Projection = struct {
     kind: ProjectionKind,
     /// The inbound answer position the projection was exported at, the
     /// promise the requester pipelines against.
-    answer: model.AnswerId,
+    answer: model.AnswerPosition,
     /// Re-anchor hops consumed so far. A projection follows a resolution that
     /// is itself a promise onto that promise's answer; the engine caps the
     /// hops at `SessionLimits.max_projection_chain` so a stored-resolution
@@ -114,7 +115,7 @@ pub const AnswerPayload = struct {
     /// `pending`. FIFO; each is an owned `model.Message` released on drain or
     /// removal.
     queue: std.ArrayList(model.Message) = .empty,
-    /// Parties listening for this answer's resolution. Each owns its `target`.
+    /// Parties listening for this answer's resolution (POD entries).
     listeners: ListenerList = .empty,
     /// `op:get` / `op:index` projections waiting on this answer's resolution
     /// (ADR-0050). Each entry's `.field` bytes are owned; released on drain or
@@ -129,6 +130,14 @@ pub const AnswerPayload = struct {
 /// pipelining payload hangs off `payload`, present only when needed.
 pub const AnswerEntry = struct {
     status: AnswerStatus,
+    /// This row instance's identity, stamped from
+    /// `Session.store_stamp_counter` at install. Answer positions are
+    /// partner-named, so a partner may reuse a position after releasing it
+    /// with `op:gc-answers`; a queued listener-fire carrier compares this
+    /// stamp at encode so a fire accounted against the released instance can
+    /// never emit the reused instance's payload. No default: every install
+    /// site must stamp.
+    row_id: u64,
     /// Single-reference wire-delta count per ADR-0008 `op:gc-answers`.
     /// Initialized to 1 on install; decremented to 0 on the matching GC message.
     count: u64 = 1,
@@ -164,13 +173,13 @@ pub const AnswerView = struct {
 
 /// Position-keyed answer table (ADR-0007). Inbound and outbound answers are
 /// addressed by dense, monotonic answer-pos; this maps the position straight to
-/// its row in O(1) instead of scanning. The facade keys on `model.AnswerId`, so
-/// an export or import id cannot be passed where an answer-pos is meant; the
+/// its row in O(1) instead of scanning. The facade keys on `model.AnswerPosition`, so
+/// an export or import position cannot be passed where an answer-pos is meant; the
 /// backing hash stores the raw `u64`.
 pub const AnswerTable = struct {
     rows: std.AutoHashMapUnmanaged(u64, AnswerEntry) = .empty,
 
-    pub const Id = model.AnswerId;
+    pub const Id = model.AnswerPosition;
     pub const empty: AnswerTable = .{};
 
     pub fn deinit(self: *AnswerTable, allocator: std.mem.Allocator) void {
@@ -205,6 +214,8 @@ pub const AnswerTable = struct {
     }
 
     pub fn remove(self: *AnswerTable, position: Id) void {
+        // idempotent: this wrapper's contract is ensure-gone; callers remove a
+        // position without knowing (or caring) whether a row was present.
         _ = self.rows.remove(position.int());
     }
 };

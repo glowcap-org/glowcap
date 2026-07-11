@@ -21,8 +21,9 @@ test "stateless GC releases a far introduced inside a nested argument" {
     // p2 hosts the deliver target; p1 holds it as an import.
     try p1.session_state.registerImport(.from(1));
     try p2.session_state.registerExport(.from(1));
-    // p1 hosts the object it introduces inside the nested arg.
-    try p1.session_state.registerExport(.from(7));
+    // p1 hosts the object it introduces inside the nested arg — a reservation
+    // whose first marshal below is what grants it.
+    try p1.session_state.reserveExport(.from(7));
 
     // The deliver's args nest the introduction one level down, a list holding
     // p1's export 7, decoded by p2 (post perspective-flip) as the introduced
@@ -35,10 +36,10 @@ test "stateless GC releases a far introduced inside a nested argument" {
         .answer = null,
     } });
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    // p1's export 7 now carries two refs: the registration plus the wire
+    // p1's export 7 now carries two refs: the reserved baseline plus the wire
     // mention the partner owes a release for.
     try std.testing.expectEqual(@as(u64, 2), p1.session_state.exports.count(.from(7)));
-    try p2.feedInbound(p1.takeOutbound().?);
+    try p2.feedOwned(p1.takeOutbound().?);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
 
     // The session installed the nested introduction.
@@ -48,7 +49,7 @@ test "stateless GC releases a far introduced inside a nested argument" {
         var event = p2.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
-        driver.gc.emitStatelessAfter(&p2, &event);
+        driver.core.gc.emitStatelessAfter(&p2, &event);
     }
 
     // The emission released the nested import on p2's own table.
@@ -56,9 +57,9 @@ test "stateless GC releases a far introduced inside a nested argument" {
     try std.testing.expect(!p2.session_state.hasImport(.from(7)));
 
     // And the wire half balances: the release returns exactly the mention's
-    // ref, leaving p1's export held by its registration alone.
+    // ref, leaving p1's export held by its local baseline alone.
     const gc_frame = p2.takeOutbound().?;
-    try p1.feedInbound(gc_frame);
+    try p1.feedOwned(gc_frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
     try std.testing.expectEqual(@as(u64, 1), p1.session_state.exports.count(.from(7)));
 }

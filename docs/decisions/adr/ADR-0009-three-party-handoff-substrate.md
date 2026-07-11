@@ -103,6 +103,10 @@ import installs a listener against the third-party-hosted import
 host's resolution, `drainRelayedResolutions` fires the installed listeners with
 the forwarded resolution and stores it on the import, so a late `op:listen`
 fires immediately rather than waiting for a resolution that already arrived.
+A relayed resolution is the promise's one settled value: a second relay for an
+already-settled import is refused (`Error.UnexpectedMessage`), mirroring the
+answer-side resolve-once rule, so every listener — installed before or after
+the relay — observes the same value.
 
 ### Signature verification and gifter-key provenance
 

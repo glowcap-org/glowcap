@@ -569,7 +569,7 @@ fn decodeDeliverBody(bytes: []const u8, cursor: *usize, limit: usize, message_st
     return .{ .deliver = .{
         .target = neutralReference(target),
         .args = neutralArgs(args_body),
-        .answer = if (answer) |a| model.AnswerId.from(a) else null,
+        .answer = if (answer) |a| model.AnswerPosition.from(a) else null,
         .resolve_me_desc = if (resolve_me_desc) |reference| neutralReference(reference) else null,
     } };
 }
@@ -579,7 +579,7 @@ fn decodeResolveBody(bytes: []const u8, cursor: *usize, limit: usize, message_st
     const answer = try readPositiveInt(bytes, cursor);
     const resolution = try readNeutralResolution(bytes, cursor, limit);
     try readByte(bytes, cursor, '>');
-    return .{ .resolve = .{ .answer = model.AnswerId.from(answer), .resolution = resolution } };
+    return .{ .resolve = .{ .answer = model.AnswerPosition.from(answer), .resolution = resolution } };
 }
 
 fn decodeGcExportBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
@@ -607,7 +607,7 @@ fn decodeGetBody(bytes: []const u8, cursor: *usize, limit: usize, message_start:
     const field = try readStringLimited(bytes, cursor, limit);
     const answer = try readPositiveInt(bytes, cursor);
     try readByte(bytes, cursor, '>');
-    return .{ .get = .{ .receiver = neutralReference(receiver), .field = field, .answer = model.AnswerId.from(answer) } };
+    return .{ .get = .{ .receiver = neutralReference(receiver), .field = field, .answer = model.AnswerPosition.from(answer) } };
 }
 
 fn decodeIndexBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
@@ -616,7 +616,7 @@ fn decodeIndexBody(bytes: []const u8, cursor: *usize, limit: usize, message_star
     const index = try readInteger(bytes, cursor);
     const answer = try readPositiveInt(bytes, cursor);
     try readByte(bytes, cursor, '>');
-    return .{ .index = .{ .receiver = neutralReference(receiver), .index = index, .answer = model.AnswerId.from(answer) } };
+    return .{ .index = .{ .receiver = neutralReference(receiver), .index = index, .answer = model.AnswerPosition.from(answer) } };
 }
 
 fn decodeUntagBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
@@ -626,7 +626,7 @@ fn decodeUntagBody(bytes: []const u8, cursor: *usize, limit: usize, message_star
     const tag = try readStringLimited(bytes, cursor, limit);
     const answer = try readPositiveInt(bytes, cursor);
     try readByte(bytes, cursor, '>');
-    return .{ .untag = .{ .receiver = neutralReference(receiver), .tag = tag, .answer = model.AnswerId.from(answer) } };
+    return .{ .untag = .{ .receiver = neutralReference(receiver), .tag = tag, .answer = model.AnswerPosition.from(answer) } };
 }
 
 fn decodeListenBody(bytes: []const u8, cursor: *usize, limit: usize, message_start: usize) Error!model.view.Body {
@@ -859,22 +859,22 @@ fn readReference(bytes: []const u8, cursor: *usize, limit: usize) Error!Referenc
     if (std.mem.eql(u8, tag, "desc:export")) {
         const export_position = try readPositiveInt(bytes, cursor);
         try readByte(bytes, cursor, '>');
-        return .{ .near = .{ .export_position = model.ExportId.from(export_position), .kind = .object } };
+        return .{ .near = .{ .export_position = model.ExportPosition.from(export_position), .kind = .object } };
     }
     if (std.mem.eql(u8, tag, "desc:import-object")) {
         const import_position = try readPositiveInt(bytes, cursor);
         try readByte(bytes, cursor, '>');
-        return .{ .far = .{ .import_position = model.ImportId.from(import_position), .kind = .object } };
+        return .{ .far = .{ .import_position = model.ImportPosition.from(import_position), .kind = .object } };
     }
     if (std.mem.eql(u8, tag, "desc:import-promise")) {
         const import_position = try readPositiveInt(bytes, cursor);
         try readByte(bytes, cursor, '>');
-        return .{ .far = .{ .import_position = model.ImportId.from(import_position), .kind = .promise } };
+        return .{ .far = .{ .import_position = model.ImportPosition.from(import_position), .kind = .promise } };
     }
     if (std.mem.eql(u8, tag, "desc:answer")) {
         const answer_position = try readPositiveInt(bytes, cursor);
         try readByte(bytes, cursor, '>');
-        return .{ .promise = .{ .answer_position = model.AnswerId.from(answer_position) } };
+        return .{ .promise = .{ .answer_position = model.AnswerPosition.from(answer_position) } };
     }
     return Error.UnsupportedReference;
 }

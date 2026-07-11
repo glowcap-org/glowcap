@@ -15,7 +15,7 @@ dependencies = []
 [tool.setuptools]
 # The binding is the `pancake` package: the core plus one submodule per transport
 # (`tcp`, `inproc`, `iroh`), mirroring the à-la-carte C ABI archives. Its internal
-# per-archive FFI loaders (`_ffi_core`, `_ffi_tcp`, `_ffi_inproc`, `_ffi_iroh`) and
+# per-archive FFI loaders (`_ffi_ocapn`, `_ffi_tcp`, `_ffi_inproc`, `_ffi_iroh`) and
 # the ABI constants (`_constants`) ship inside it. `zig_smoke.py` is the dogfood
 # runner, executed directly rather than installed.
 packages = ["pancake"]

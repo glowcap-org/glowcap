@@ -23,7 +23,10 @@ use std::rc::Rc;
 
 use pancake_rust_dogfood::{listen_iroh, Argument, Connection, Reachability};
 
-type Fail = Box<dyn std::error::Error>;
+#[path = "../../../interop/_common/rust/helpers.rs"]
+mod helpers;
+
+type Fail = helpers::Fail;
 
 // Concurrent connections, each served on the one server loop; calls each makes
 // before closing. Mirrors the Zig iroh-loop gate.
@@ -33,14 +36,7 @@ const GREETING: &str = "hello over the iroh loop";
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
-	for arg in std::env::args().skip(1) {
-		// The gate takes no arguments; `-Dport` is meaningless for an in-process
-		// local-discovery run, so accept and ignore a `--port=` for build parity.
-		if !arg.starts_with("--port=") {
-			return Err(format!("unknown argument '{arg}'").into());
-		}
-	}
-
+	helpers::ignore_port_args()?;
 	// The `Connection` driver is `!Send`, so it lives on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
 	local.run_until(run()).await
@@ -119,7 +115,9 @@ async fn client_once(server_id: String) -> Result<(), Fail> {
 	let conn = Connection::connect_iroh(&server_id, "", Reachability::LocalDiscovery).await?;
 	let greeter = conn.fetch("greeter").await?;
 	for _ in 0..CALLS_PER_CONN {
-		let reply = conn.send(&greeter, "greet", &[]).await?;
+		let reply = conn
+			.send(&greeter, "greet", &[Argument::String("world".into())])
+			.await?;
 		if reply.as_str() != Some(GREETING) {
 			return Err(format!("wrong reply: {reply:?}").into());
 		}

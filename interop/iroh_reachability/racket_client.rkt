@@ -21,19 +21,12 @@
 ;; live internet connection; run via `zig build racket-iroh-reachability`.
 
 (require "../../bindings/racket/pancake.rkt"
-         "../../bindings/racket/pancake-iroh.rkt")
+         "../../bindings/racket/pancake-iroh.rkt"
+         "../_common/racket/helpers.rkt")
 
 (define NAME "racket-iroh-world")
 
-;; The gate takes no arguments; accept and ignore a `--port=` for build parity.
-(for ([arg (vector->list (current-command-line-arguments))])
-  (unless (regexp-match? #px"^--port=" arg)
-    (eprintf "racket-iroh-reachability: unknown argument ~a\n" arg)
-    (exit 2)))
-
-(define (fail msg)
-  (eprintf "racket-iroh-reachability FAILED: ~a\n" msg)
-  (exit 1))
+(ignore-port-args "racket-iroh-reachability")
 
 ;; Serve every connection a server accepts, each in its own green thread on the
 ;; one readiness loop; returns the accept thread. The per-connection serve threads
@@ -71,7 +64,7 @@
   (define greeter (conn-fetch client "greeter"))
   (define reply (conn-send client greeter 'greet NAME))
   (unless (and (string? reply) (regexp-match? (regexp (regexp-quote NAME)) reply))
-    (fail (format "greeter reply did not carry the name back: ~a" reply)))
+    (fail "racket-iroh-reachability" (format "greeter reply did not carry the name back: ~a" reply)))
   (printf "racket-iroh-reachability: greeter replied: ~a\n" reply)
 
   (printf (string-append

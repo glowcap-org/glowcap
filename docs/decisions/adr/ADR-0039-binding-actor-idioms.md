@@ -49,7 +49,7 @@ Goblins-faithful:
   **`drive`** runs queued local turns.
 - The seam: a reference is a local `actor-ref` or the peer's `far-ref`. `<-` to
   a far ref marshals the leading method symbol to an OCapN `(sym …)` and sends
-  an `op:deliver` over the peer; `(publish! v actor export-id)` exports a local
+  an `op:deliver` over the peer; `(bind-export! v actor export-id)` exports a local
   actor; `(vat-serve! v event)` runs an inbound deliver and resolves the answer,
   or fires a far promise on an inbound resolution. A `current-vat` parameter
   (entered via `with-vat`) makes `spawn`/`$`/`<-` work inside a turn, the way

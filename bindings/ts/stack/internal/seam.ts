@@ -2,11 +2,12 @@
 // core `../mod.ts` and the transport modules (`../transport/tcp.ts`,
 // `../transport/inproc.ts`, and the `@pancake/iroh` package) share, so every
 // module marshals frames through the same helpers. Nothing here rides the
-// public `.` entry: an in-package sibling imports this file directly, and a
-// companion package reaches it through `@pancake/stack/ffi`. An application
-// uses the core's `connect` / `listen` and never these.
+// public `.` entry: an in-package sibling (and the dogfood) imports this file
+// directly, and a companion package reaches the pointer and error-slot
+// helpers through `@pancake/stack/ffi`. An application uses the core's
+// `connect` / `listen` and never these.
 
-import { coreS as s } from "./ffi/core.ts";
+import { ocapnS as s } from "./ffi/ocapn.ts";
 import { ffi, net, type NetConn, type NetListener, NULL, type Ptr } from "./ffi/runtime.ts";
 
 // Our buffers are always ArrayBuffer-backed; this bridges Deno's FFI/pointer
@@ -28,6 +29,23 @@ export function readBytes(ptrValue: Ptr, len: bigint): Uint8Array {
 /** Read the pointer an out-parameter buffer received from an FFI call. */
 export function outPointer(buf: Uint8Array): Ptr {
 	return new DataView(buf.buffer).getBigUint64(0, true);
+}
+
+/** Read an archive's thread-local last-error slot into a string, or null when
+ * empty. `read` is the archive's two-pass C reader `(buffer, cap) -> len`: probe
+ * the length with a null buffer, then copy into a right-sized buffer and clamp to
+ * what the second call actually wrote (the slot is zero-filled, so an unclamped
+ * slice could trail NULs). Every archive family — core, the transports, and the
+ * actor runtime — reads its own slot through this, so the two-pass discipline
+ * lives in one place. */
+export function readErrorSlot(
+	read: (buf: Uint8Array | null, cap: bigint) => number | bigint,
+): string | null {
+	const len = Number(read(null, 0n));
+	if (len === 0) return null;
+	const buf = new Uint8Array(len + 1);
+	const written = Number(read(buf, BigInt(buf.length)));
+	return new TextDecoder().decode(buf.subarray(0, Math.min(written, buf.length)));
 }
 
 /** Release a managed frame the core ABI filled (a transport module's blocking

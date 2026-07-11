@@ -15,134 +15,41 @@ const pancake = @import("pancake");
 const c = @import("c_abi");
 const ct = @import("c_abi_net_transport_tcp");
 const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
 const tcp = pancake.net.tcp;
+const c_abi_loopback = @import("../support/c_abi_loopback.zig");
 const handshake = @import("../support/handshake.zig");
 
-const frame_cap = 4096;
+const Transport = struct {
+    pub const Conn = *ct.PancakeTcpConn;
+    pub const Listener = *ct.PancakeTcpListener;
+
+    pub fn writeFrame(conn: Conn, cf: *c.PancakeFrame) i32 {
+        return ct.pancake_tcp_conn_write_frame(conn, cf);
+    }
+
+    pub fn readFrame(conn: Conn, mf: *c.PancakeManagedFrame) i32 {
+        return ct.pancake_tcp_conn_read_frame(conn, mf);
+    }
+
+    pub fn accept(
+        listener: Listener,
+        codec: u32,
+        max_frame_bytes: usize,
+        out_conn: *?Conn,
+    ) i32 {
+        return ct.pancake_tcp_accept(listener, codec, max_frame_bytes, out_conn);
+    }
+
+    pub fn releaseConn(conn: Conn) void {
+        ct.pancake_tcp_conn_release(conn);
+    }
+};
+
+const Loopback = c_abi_loopback.Harness(Transport);
+const frame_cap = c_abi_loopback.frame_cap;
 
 fn startSession(designator: []const u8) model.Message {
     return handshake.startSession(tcp.transport_name, designator);
-}
-
-fn isOpen(peer: *engine.Peer) bool {
-    return peer.session_state.state == .open;
-}
-
-/// This boundary proof exercises the C endpoint + framing, and its `startSession`
-/// carries the stub zero signature, so the peers run with partner-signature
-/// verification off (a verifying peer would refuse the unsigned handshake). The
-/// keyed, verified handshake is proven in `pairing_test`.
-fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
-    return engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
-}
-
-const Step = enum { received, closed };
-
-/// One pump over a C endpoint: encode + write all queued outbound, then block
-/// for one inbound frame and apply it through the peer boundary.
-fn pumpStep(peer: *engine.Peer, conn: *ct.PancakeTcpConn) !Step {
-    while ((try peer.step()) != .idle) {}
-    while (peer.takeOutbound()) |frame_value| {
-        var frame = frame_value;
-        defer frame.deinit();
-        const bytes = frame.bytes();
-        var cf: c.PancakeFrame = .{ .bytes = bytes.ptr, .len = bytes.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
-        if (ct.pancake_tcp_conn_write_frame(conn, &cf) != c.PANCAKE_OK) return error.WriteFailed;
-    }
-
-    var mf: c.PancakeManagedFrame = undefined;
-    const rc = ct.pancake_tcp_conn_read_frame(conn, &mf);
-    if (rc == c.PANCAKE_ERR_CLOSED) return .closed;
-    if (rc != c.PANCAKE_OK) return error.ReadFailed;
-    defer c.pancake_managed_frame_release(&mf);
-
-    const bytes = (mf.bytes orelse return error.NullFrame)[0..mf.len];
-    switch (try peer.recvStreamPrefix(bytes)) {
-        .consumed => return .received,
-        .incomplete => return error.PartialFrameFromEndpoint,
-    }
-}
-
-const ServerArgs = struct {
-    listener: *ct.PancakeTcpListener,
-    allocator: std.mem.Allocator,
-    result: anyerror!void = {},
-};
-
-fn serveThread(args: *ServerArgs) void {
-    args.result = serveOnce(args);
-}
-
-fn serveOnce(args: *ServerArgs) !void {
-    var peer = stubNegotiatingPeer(args.allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-    _ = try peer.registerBootstrapCap("thermostat");
-
-    var conn: ?*ct.PancakeTcpConn = null;
-    if (ct.pancake_tcp_accept(args.listener, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn) != c.PANCAKE_OK)
-        return error.AcceptFailed;
-    const conn_ptr = conn orelse return error.AcceptNull;
-    defer ct.pancake_tcp_conn_release(conn_ptr);
-
-    try peer.sendCopying(startSession("server"));
-    while ((try pumpStep(&peer, conn_ptr)) != .closed) {}
-}
-
-fn fetchOnce(conn: *ct.PancakeTcpConn, allocator: std.mem.Allocator) !void {
-    var peer = stubNegotiatingPeer(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    try peer.sendCopying(startSession("client"));
-    while (!isOpen(&peer)) {
-        if ((try pumpStep(&peer, conn)) == .closed) return error.ClosedDuringHandshake;
-    }
-    drainEvents(&peer);
-
-    const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &peer.session_state, "thermostat");
-    try peer.send(prepared.message);
-
-    var settled = false;
-    while (!settled) {
-        const step = try pumpStep(&peer, conn);
-        while (peer.pollEvent()) |event_value| {
-            var event = event_value;
-            defer event.deinit();
-            const owned = try event.decodeOwned(allocator);
-            const match = try engine.fetch.tryMatchFetchOutcome(
-                allocator,
-                prepared.resolver_export,
-                prepared.answer_position,
-                owned,
-            );
-            switch (match) {
-                .settled => |outcome| switch (outcome) {
-                    .fulfilled => |reference| {
-                        model.freeReference(allocator, reference);
-                        settled = true;
-                    },
-                    .broken => |reason| {
-                        allocator.free(reason);
-                        return error.FetchBroke;
-                    },
-                    .malformed => return error.FetchMalformed,
-                },
-                .unrelated => |msg| model.freeMessage(allocator, msg),
-            }
-        }
-        if (step == .closed) break;
-    }
-
-    try std.testing.expect(settled);
-}
-
-fn drainEvents(peer: *engine.Peer) void {
-    while (peer.pollEvent()) |event| {
-        var e = event;
-        e.deinit();
-    }
 }
 
 test "c-abi endpoint loopback: handshake to open + bootstrap fetch round-trip" {
@@ -169,15 +76,19 @@ test "c-abi endpoint loopback: handshake to open + bootstrap fetch round-trip" {
     );
     try std.testing.expect(port != 0);
 
-    var args: ServerArgs = .{ .listener = listener_ptr, .allocator = allocator };
-    const server_thread = try std.Thread.spawn(.{}, serveThread, .{&args});
+    var args: Loopback.ServerArgs = .{
+        .listener = listener_ptr,
+        .allocator = allocator,
+        .start_session = startSession("server"),
+    };
+    const server_thread = try std.Thread.spawn(.{}, Loopback.serveThread, .{&args});
 
     var conn: ?*ct.PancakeTcpConn = null;
     const connect_rc = ct.pancake_tcp_connect(netlayer_ptr, host.ptr, host.len, port, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn);
     try std.testing.expectEqual(c.PANCAKE_OK, connect_rc);
     const conn_ptr = conn.?;
 
-    const client_result = fetchOnce(conn_ptr, allocator);
+    const client_result = Loopback.fetchOnce(conn_ptr, allocator, startSession("client"));
 
     // Closing the client lets the server observe EOF and finish.
     ct.pancake_tcp_conn_release(conn_ptr);
@@ -253,6 +164,6 @@ test "c-abi bootstrap registration allocates an export id" {
         c.PANCAKE_OK,
         c.pancake_peer_register_bootstrap_cap(peer_ptr, swiss_b.ptr, swiss_b.len, &id_b),
     );
-    // Distinct swissnums get distinct export ids (the allocator advanced).
+    // Distinct swissnums get distinct export positions (the allocator advanced).
     try std.testing.expect(id_a != id_b);
 }

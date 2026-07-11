@@ -1,6 +1,23 @@
 import { connect, type Connection, type Ref, tcpLocator } from "@pancake/stack";
 import { Reachability } from "@pancake/iroh";
-import { DIRECTORY, ENTER, LEAVE, LIST, OPEN, POST, SUBSCRIBE, WATCH } from "./protocol.ts";
+import {
+	DIRECTORY,
+	ENTER,
+	LEAVE,
+	LIST,
+	NOTIFY,
+	OPEN,
+	POST,
+	SUBSCRIBE,
+	WATCH,
+} from "./lib/protocol.ts";
+import {
+	NICK_TAKEN,
+	NO_SUCH_ROOM,
+	ROOM_EXISTS,
+	type RoomErrorCode,
+	roomErrorOf,
+} from "./lib/errors.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const SERVER = new URL("./server.ts", import.meta.url).pathname;
@@ -160,12 +177,12 @@ async function enterOrOpen(conn: Connection, room: string): Promise<Ref> {
 	try {
 		return await conn.send(directory, ENTER, [room]) as Ref;
 	} catch (err) {
-		if (!/no room named/.test(String(err))) throw err;
+		if (roomErrorOf(err)?.code !== NO_SUCH_ROOM) throw err;
 	}
 	try {
 		return await conn.send(directory, OPEN, [room]) as Ref;
 	} catch (err) {
-		if (!/already exists/.test(String(err))) throw err;
+		if (roomErrorOf(err)?.code !== ROOM_EXISTS) throw err;
 		return await conn.send(directory, ENTER, [room]) as Ref;
 	}
 }
@@ -180,11 +197,21 @@ async function subscribeOnceConn(
 ): Promise<string> {
 	conn.serve().catch(() => {});
 	const roomRef = await enterOrOpen(conn, room);
-	const inbox = conn.spawn(() => null);
-	const welcome = await conn.send(roomRef, SUBSCRIBE, [nick, inbox]);
+	// The welcome + roster arrive as the first `notify` (a "roster" line), not as the
+	// subscribe return, so capture it off the inbox.
+	let resolveWelcome!: (w: string) => void;
+	const welcome = new Promise<string>((r) => (resolveWelcome = r));
+	const inbox = conn.spawn((verb, args) => {
+		if (verb === NOTIFY && args[2] === "roster" && typeof args[1] === "string") {
+			resolveWelcome(args[1]);
+		}
+		return null;
+	});
+	await conn.send(roomRef, SUBSCRIBE, [nick, inbox]);
+	const text = await welcome;
 	conn.close();
 	await conn.serve().catch(() => {});
-	return typeof welcome === "string" ? welcome : "";
+	return text;
 }
 
 async function subscribeOnce(
@@ -210,7 +237,7 @@ async function subscribeOnceIroh(
 
 async function trySubscribe(port: number, room: string, nick: string): Promise<{
 	ok: boolean;
-	error?: string;
+	code?: RoomErrorCode | null;
 	leave: () => Promise<void>;
 }> {
 	const conn = await connect(tcpLocator("127.0.0.1", port));
@@ -231,7 +258,7 @@ async function trySubscribe(port: number, room: string, nick: string): Promise<{
 		await conn.serve().catch(() => {});
 		return {
 			ok: false,
-			error: err instanceof Error ? err.message : String(err),
+			code: roomErrorOf(err)?.code ?? null,
 			leave: async () => {},
 		};
 	}
@@ -419,7 +446,7 @@ Deno.test("rooms server grants each live nickname once per room", async () => {
 		assert(first.ok, "first claim should succeed");
 		const duplicate = await trySubscribe(port, "lobby", "claimed");
 		assert(!duplicate.ok, "duplicate live claim should fail");
-		assertMatch(duplicate.error ?? "", /name "claimed" is already claimed/);
+		assert(duplicate.code === NICK_TAKEN, "duplicate live claim should be nick-taken");
 
 		// The same nickname is free in a different room.
 		const elsewhere = await trySubscribe(port, "annex", "claimed");
@@ -470,7 +497,7 @@ Deno.test("rooms server resubscribe replaces one connection's claimed nickname",
 			!currentName.ok,
 			"new name should remain claimed while holder lives",
 		);
-		assertMatch(currentName.error ?? "", /name "first-b" is already claimed/);
+		assert(currentName.code === NICK_TAKEN, "held nick should be rejected as nick-taken");
 
 		await oldName.leave();
 		await holder.leave();

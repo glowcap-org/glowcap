@@ -2,10 +2,10 @@
 ;; Internal: the shared C-ABI vocabulary the pancake archives agree on by layout.
 ;;
 ;; This module is the Racket mirror of the C ABI's `c_abi/shared` leaf (ADR-0059):
-;; the C-visible frame, allocator, reference, argument, and event cstructs every
-;; archive reuses. It declares the *types*, not any bound function, and it opens
-;; no library — so requiring it loads nothing. Each per-archive loader
-;; (`ffi-core.rkt`, `ffi-tcp.rkt`, `ffi-inproc.rkt`, `ffi-iroh.rkt`) requires this
+;; the C-visible cstructs the binding consumes — frame, reference, argument,
+;; host action, and last abort. It declares the *types*, not any bound
+;; function, and it opens no library — so requiring it loads nothing. Each per-archive loader
+;; (`ffi-ocapn.rkt`, `ffi-tcp.rkt`, `ffi-inproc.rkt`, `ffi-iroh.rkt`) requires this
 ;; for the cstruct types its `_fun` signatures name, exactly as the C archives
 ;; share these layouts without sharing a symbol.
 ;;
@@ -47,56 +47,35 @@
   (when (> (bytes-length bs) 0) (memcpy buf bs (bytes-length bs)))
   buf)
 
+;; The other direction of the same boundary: a bounded copy out of a borrowed
+;; C (pointer, length) view into a fresh Racket bytestring, so the result
+;; outlives whatever library call owned the view.
+(define (bytes<-c ptr len)
+  (if (or (not ptr) (zero? len)) #""
+      (let ([bs (make-bytes len)]) (memcpy bs ptr len) bs)))
+
 (define-cstruct _PancakeFrame ([bytes _pointer] [len _size] [shape _uint32]) #:malloc-mode 'atomic-interior)
 (define-cstruct _PancakeManagedFrame
   ([bytes _pointer] [len _size] [shape _uint32] [release _pointer] [private-data _pointer]) #:malloc-mode 'atomic-interior)
 
-;; The host-allocator callback types are callable from C: `_fun` makes the
-;; Racket procedures C-callable trampolines. The closures must stay reachable
-;; (see `context`) for as long as the library may invoke them.
-(define _PancakeAllocFn (_fun _pointer _size _size -> _pointer))
-(define _PancakeFreeFn (_fun _pointer _pointer _size _size -> _void))
-(define-cstruct _PancakeAllocator
-  ([alloc _PancakeAllocFn] [free _PancakeFreeFn] [user-data _pointer]) #:malloc-mode 'atomic-interior)
 (define-cstruct _PancakeReference ([kind _uint32] [sub-kind _uint32] [id _uint64]) #:malloc-mode 'atomic-interior)
-;; Mirrors `PancakeEnlivenStart` in pancake_ocapn.h: the dedup-cache outcome of a
-;; `prepare_enliven`. `status` selects the live fields — `answer` on FRESH/IN_FLIGHT,
-;; `import-position`/`kind` on CACHED (a REF_SUB_* value).
-(define-cstruct _PancakeEnlivenStart
-  ([status _uint32] [kind _uint32] [answer _uint64] [import-position _uint64]) #:malloc-mode 'atomic-interior)
 (define-cstruct _PancakeArgument
   ([kind _uint32] [boolean _uint32] [integer _int64] [float64 _double]
    [bytes _pointer] [bytes-len _size] [reference _PancakeReference]
    [items _pointer] [items-len _size]) #:malloc-mode 'atomic-interior)
-(define-cstruct _PancakeDeliver
-  ([target _PancakeReference] [args _pointer] [args-len _size]
-   [has-answer _uint32] [answer _uint64] [owner _pointer]) #:malloc-mode 'atomic-interior)
-;; Mirrors `PancakeHandoffGive` in pancake_ocapn.h: three (pointer, length) views.
-;; Carried by value inside `PancakeResolve`, so its 48 bytes are part of that
-;; struct's layout even when the binding never reads a handoff — dropping it
-;; makes `_PancakeResolve` too small and `pancake_peer_next_event` writes past
-;; it.
-(define-cstruct _PancakeHandoffGive
-  ([give _pointer] [give-len _size]
-   [exporter-locator _pointer] [exporter-locator-len _size]
-   [recipient-key _pointer] [recipient-key-len _size]) #:malloc-mode 'atomic-interior)
-(define-cstruct _PancakeResolve
-  ([answer _uint64] [resolution-kind _uint32] [fulfill _PancakeArgument]
-   [break-message _pointer] [break-message-len _size]
-   [handoff _PancakeHandoffGive] [owner _pointer]) #:malloc-mode 'atomic-interior)
-;; Mirrors `PancakeNodeAction` in pancake_ocapn.h: one serve-step action.
-;; `kind` selects the live fields; the locator/reason views are node-owned and
-;; valid until the next `pancake_node_next_action`.
-(define-cstruct _PancakeNodeAction
-  ([kind _uint32] [pending _uint64] [locator _pointer] [locator-len _size]
-   [conn-id _uint64] [answer _uint64] [token _uint64]
-   [reason _pointer] [reason-len _size]) #:malloc-mode 'atomic-interior)
-;; Mirrors `PancakeAnyEvent` in pancake_ocapn.h: one polled event, fully
-;; projected. `projection` names the live arm (a PROJECTION-* value).
-(define-cstruct _PancakeAnyEvent
-  ([kind _uint32] [projection _uint32]
-   [deliver _PancakeDeliver] [resolve _PancakeResolve]
-   [frame _PancakeManagedFrame]) #:malloc-mode 'atomic-interior)
+;; Mirrors `PancakeHostAction` in pancake_driver.h: one embedder effect popped
+;; from `pancake_host_next_action`. `kind` selects the live fields; a DIAL
+;; action's byte views — the full locator URI plus its parsed transport,
+;; designator, and direct-addresses hint — a SETTLE's `value` sub-structure,
+;; and a FAIL's `message` are host-owned and valid until the next
+;; `pancake_host_next_action`, so the binding copies them out immediately.
+(define-cstruct _PancakeHostAction
+  ([kind _uint32] [ticket _uint64] [conn _pointer]
+   [locator _pointer] [locator-len _size]
+   [transport _pointer] [transport-len _size]
+   [designator _pointer] [designator-len _size]
+   [direct-addresses-hint _pointer] [direct-addresses-hint-len _size]
+   [value _PancakeArgument] [message _pointer] [message-len _size]) #:malloc-mode 'atomic-interior)
 ;; Mirrors `PancakeLastAbort` in pancake_ocapn.h: two leading u32s, then three
 ;; (pointer, length) views of process-static strings the library owns.
 (define-cstruct _PancakeLastAbort
@@ -104,3 +83,33 @@
    [kind-name _pointer] [kind-name-len _size]
    [message _pointer] [message-len _size]
    [error-name _pointer] [error-name-len _size]) #:malloc-mode 'atomic-interior)
+
+;; The layout gate, the Rust mirror's `const` assert block made Racket
+;; (bindings/rust/src/sys/driver.rs): every hand-mirrored cstruct above is
+;; pinned at require time against the LP64 size and field layout the C headers
+;; document, hand-copied here — so the gate catches a mirror that drifts from
+;; its documented layout (a mis-swept field, a wrong ctype), not a C-side
+;; change that updates neither; the dogfoods defend that behaviorally.
+;; `ctype->layout` reads the struct as declared, so a reordered or retyped
+;; field fails here even when the total size happens to survive.
+(define (pin-layout! name ctype want-size want-layout)
+  (define got-size (ctype-sizeof ctype))
+  (define got-layout (ctype->layout ctype))
+  (unless (and (= got-size want-size) (equal? got-layout want-layout))
+    (error 'pancake
+           "FFI layout drift in ~a: size ~a layout ~a, the C header says size ~a layout ~a; re-mirror the cstruct"
+           name got-size got-layout want-size want-layout)))
+
+(define reference-layout '(uint32 uint32 uint64))
+(define argument-layout
+  `(uint32 uint32 int64 double pointer uint64 ,reference-layout pointer uint64))
+(pin-layout! '_PancakeFrame _PancakeFrame 24 '(pointer uint64 uint32))
+(pin-layout! '_PancakeManagedFrame _PancakeManagedFrame 40 '(pointer uint64 uint32 pointer pointer))
+(pin-layout! '_PancakeReference _PancakeReference 16 reference-layout)
+(pin-layout! '_PancakeArgument _PancakeArgument 72 argument-layout)
+(pin-layout! '_PancakeHostAction _PancakeHostAction 176
+             `(uint32 uint64 pointer
+               pointer uint64 pointer uint64 pointer uint64 pointer uint64
+               ,argument-layout pointer uint64))
+(pin-layout! '_PancakeLastAbort _PancakeLastAbort 56
+             '(uint32 uint32 pointer uint64 pointer uint64 pointer uint64))

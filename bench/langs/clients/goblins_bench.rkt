@@ -163,11 +163,57 @@
   (assert-ok (run-unit h root))
   (printf "{\"v\":1,\"event\":\"cold-done\",\"client\":\"~a\"}\n" CLIENT))
 
+;; The local-turn counter, idiomatic Goblins: `hit` becomes the incremented
+;; state and returns the new count (functional `bcom`, the reference's own
+;; local-turn machinery).
+(define (^counter bcom [count 0])
+  (lambda (method . args)
+    (unless (eq? method 'hit) (error 'counter "no such method ~a" method))
+    (define next (add1 count))
+    (bcom (^counter bcom next) next)))
+
+;; The `local` mode (see contract.md): the reference row measures only the
+;; in-vat figure — a Goblins actor in one vat, `n` sequential send→settle
+;; units, each settled through the vat before the next. There is no C host
+;; under Goblins, so the via_host fields and the ratio are JSON null; the
+;; orchestrator's host/port arguments are unused.
+(define (run-local)
+  (define vat (make-vat))
+  (define counter (vat 'run (lambda () (spawn ^counter))))
+  (define ch (make-async-channel))
+  ;; One send→settle unit: eventual-send `hit` and block, yielding to the vat
+  ;; threads, for the settled count.
+  (define (hit)
+    (vat 'run
+         (lambda ()
+           (on (<- counter 'hit)
+               (lambda (v) (async-channel-put ch (cons 'ok v)))
+               #:catch (lambda (e) (async-channel-put ch (cons 'err e))))))
+    (define r (async-channel-get ch))
+    (if (eq? (car r) 'ok) (cdr r) (error 'goblins-bench "hit broke: ~a" (cdr r))))
+  (for ([_ (in-range WARMUP)]) (hit))
+  (collect-garbage) (collect-garbage) (collect-garbage)
+  (define final (box 0))
+  (define lats
+    (for/list ([_ (in-range N)])
+      (define s (now))
+      (set-box! final (hit))
+      (* (- (now) s) 1e6)))
+  (unless (equal? (unbox final) (+ WARMUP N))
+    (error 'goblins-bench "bad final count ~v (expected ~a)" (unbox final) (+ WARMUP N)))
+  (define in-mean (mean lats))
+  (printf "{\"v\":1,\"metric\":\"local\",\"client\":\"~a\",\"suite\":\"local-turn\",\"n\":~a,\"in_lang_ns\":~a,\"in_lang_p99_ns\":~a,\"via_host_ns\":null,\"via_host_p99_ns\":null,\"ratio\":null,\"runtime\":\"~a\",\"warmup_n\":~a}\n"
+          CLIENT N
+          (real->decimal-string in-mean 1)
+          (real->decimal-string (percentile lats 0.99) 1)
+          RUNTIME WARMUP))
+
 (case mode
   [("latency") (run-latency)]
   [("throughput") (run-throughput)]
   [("connections") (run-connections)]
   [("cold") (run-cold)]
+  [("local") (run-local)]
   [else (error 'goblins-bench "unknown mode ~a" mode)])
 
 ;; Goblins leaves background vat/netlayer threads alive; exit promptly so the

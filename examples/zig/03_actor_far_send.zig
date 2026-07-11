@@ -1,8 +1,8 @@
-//! 03 — Actor far-send with a promise.
+//! 03 — Actor far-send with a vow.
 //!
 //! A caller's `Vat` eventual-sends to a host's published actor over a paired
-//! session and observes the promise. One vat publishes an object, the other
-//! imports it and calls it, and the answer comes back as a settled promise,
+//! session and observes the vow. One vat publishes an object, the other
+//! imports it and calls it, and the answer comes back as a settled vow,
 //! the same exchange chapter 01's `call` drives over a real socket.
 //!
 //! One layer down from chapter 01, the `actors.Vat` is what runs that
@@ -76,6 +76,11 @@ pub fn main() !void {
     defer host_vat.deinit();
     const greeter = try host_vat.spawn(Greeter, .{ .greeting = "Howdy" });
     try host_vat.bindExport(greeter, 5);
+    // This example wires both peers by hand, so the caller learns position 5
+    // out-of-band rather than from a marshaled reference. An explicit grant
+    // makes the hand-picked position addressable; a capability introduced on
+    // the wire is granted by that first marshal instead.
+    try host_peer.exportObject(5);
 
     try caller_peer.importObject(5);
     var caller_vat = actors.Vat.initOver(allocator, caller_peer);
@@ -83,14 +88,14 @@ pub fn main() !void {
 
     const ref: actors.Ref = .{ .far = model.FarRef.object(5) };
     var result = Result{};
-    const promise = try caller_vat.send(ref, .{
+    const vow = try caller_vat.send(ref, .{
         .verb = "hello",
         .args = &.{.{ .string = "world" }},
     });
-    try caller_vat.on(promise, .{ .ctx = &result, .func = onResolve });
+    try caller_vat.on(vow, .{ .ctx = &result, .func = onResolve });
 
     _ = try caller_peer.step();
-    while (caller_peer.takeOutbound()) |frame| try host_peer.feedInbound(frame);
+    while (caller_peer.takeOutbound()) |frame| try host_peer.feedOwned(frame);
     _ = try host_peer.step();
     while (host_peer.pollEvent()) |ev| {
         var e = ev;
@@ -98,7 +103,7 @@ pub fn main() !void {
         _ = try host_vat.serve(&e);
     }
     _ = try host_peer.step();
-    while (host_peer.takeOutbound()) |frame| try caller_peer.feedInbound(frame);
+    while (host_peer.takeOutbound()) |frame| try caller_peer.feedOwned(frame);
     _ = try caller_peer.step();
     while (caller_peer.pollEvent()) |ev| {
         var e = ev;

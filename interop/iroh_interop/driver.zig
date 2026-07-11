@@ -63,9 +63,16 @@ const Greeter = struct {
     }
 };
 
-/// Server half: accept one partner over iroh, publish the greeter, serve until
-/// the client hangs up.
-fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
+/// Server half: accept one partner over iroh signing with `secret` — the
+/// endpoint's own key, so the session key a dialer's identity pin verifies is
+/// the node id it dialed — publish the greeter, serve until the client hangs
+/// up. iroh is a key-designator transport, so every accept here is keyed; an
+/// ephemeral accept identity is refused by the driver.
+fn hostOnce(
+    listener: net.netlayer.Listener,
+    allocator: std.mem.Allocator,
+    secret: pancake.foundation.crypto.SecretKey,
+) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -75,7 +82,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf);
     defer cv.deinit();
     std.debug.print("iroh-interop: server accepted a QUIC stream and opened the keyed session\n", .{});
 
@@ -187,9 +194,9 @@ fn callByIdOnly(
 /// session pubkey is its 32 raw bytes. Equality on both means one key is the
 /// transport identity, the locator designator, and the session signing key.
 fn assertPartnerIsNodeId(cv: *driver.ConnectedVat, node_id_hex: []const u8) !void {
-    const designator = cv.peer.session_state.partnerDesignator() orelse return error.NoPartnerDesignator;
+    const designator = cv.served.peer.session_state.partnerDesignator() orelse return error.NoPartnerDesignator;
     if (!std.mem.eql(u8, designator, node_id_hex)) return error.PartnerDesignatorMismatch;
-    const key = cv.peer.session_state.partnerSessionKey() orelse return error.NoPartnerKey;
+    const key = cv.served.peer.session_state.partnerSessionKey() orelse return error.NoPartnerKey;
     if (key.len != 32) return error.PartnerKeyWidth;
     var key_arr: [32]u8 = undefined;
     @memcpy(&key_arr, key[0..32]);
@@ -273,6 +280,7 @@ fn restartCycle(
     io: std.Io,
     allocator: std.mem.Allocator,
     server: *iroh.Resident,
+    server_secret: pancake.foundation.crypto.SecretKey,
     dial_id: []const u8,
 ) !void {
     var client = try iroh.Resident.init(io, null, .local_discovery);
@@ -287,7 +295,7 @@ fn restartCycle(
     });
     defer listener.close();
 
-    var host = try io.concurrent(hostOnce, .{ listener, allocator });
+    var host = try io.concurrent(hostOnce, .{ listener, allocator, server_secret });
     const client_result = callByIdOnly(&c_entries, dial_id, allocator);
     if (client_result) |_| {} else |err| {
         std.debug.print("iroh-interop: durable-identity client failed: {s}\n", .{@errorName(err)});
@@ -305,7 +313,12 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var server = iroh.Resident.init(io, null, .direct) catch |err| {
+    // The server endpoint is seeded so its accepts sign with the endpoint's
+    // own key: iroh is a key-designator transport, and a dialer pins the
+    // session identity to the node id it dialed.
+    const main_server_seed: [32]u8 = @splat(0x31);
+    const main_server_secret = pancake.foundation.crypto.SecretKey.fromSeed(main_server_seed);
+    var server = iroh.Resident.init(io, &main_server_seed, .direct) catch |err| {
         std.debug.print("iroh-interop: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
@@ -331,7 +344,7 @@ pub fn main(init: std.process.Init) !void {
     });
     defer listener.close();
 
-    var host_future = try io.concurrent(hostOnce, .{ listener, allocator });
+    var host_future = try io.concurrent(hostOnce, .{ listener, allocator, main_server_secret });
     const client_result = callOnce(&client_entries, server_id, server_addrs, allocator);
     if (client_result) |_| {} else |err| {
         std.debug.print("iroh-interop: client failed: {s}\n", .{@errorName(err)});
@@ -380,7 +393,9 @@ pub fn main(init: std.process.Init) !void {
     }
 
     {
-        var d_server = try iroh.Resident.init(io, null, .local_discovery);
+        const d_server_seed: [32]u8 = @splat(0x33);
+        const d_server_secret = pancake.foundation.crypto.SecretKey.fromSeed(d_server_seed);
+        var d_server = try iroh.Resident.init(io, &d_server_seed, .local_discovery);
         defer d_server.deinit();
         var d_client = try iroh.Resident.init(io, null, .local_discovery);
         defer d_client.deinit();
@@ -397,7 +412,7 @@ pub fn main(init: std.process.Init) !void {
         });
         defer d_listener.close();
 
-        var d_host = try io.concurrent(hostOnce, .{ d_listener, allocator });
+        var d_host = try io.concurrent(hostOnce, .{ d_listener, allocator, d_server_secret });
         const d_client_result = callByIdOnly(&d_client_entries, d_server_id, allocator);
         if (d_client_result) |_| {} else |err| {
             std.debug.print("iroh-interop: dial-by-id-alone client failed: {s}\n", .{@errorName(err)});
@@ -449,13 +464,14 @@ pub fn main(init: std.process.Init) !void {
 
     {
         const dur_seed: [32]u8 = @splat(0x55);
+        const dur_secret = pancake.foundation.crypto.SecretKey.fromSeed(dur_seed);
         var sturdyref: [iroh.node_id_len]u8 = undefined;
 
         {
             var v1 = try iroh.Resident.init(io, &dur_seed, .local_discovery);
             defer v1.deinit();
             _ = v1.nodeId(&sturdyref);
-            try restartCycle(io, allocator, &v1, sturdyref[0..]);
+            try restartCycle(io, allocator, &v1, dur_secret, sturdyref[0..]);
         }
 
         {
@@ -464,7 +480,7 @@ pub fn main(init: std.process.Init) !void {
             var v2_buf: [iroh.node_id_len]u8 = undefined;
             const v2_id = v2.nodeId(&v2_buf);
             if (!std.mem.eql(u8, v2_id, sturdyref[0..])) return error.NodeIdNotDurable;
-            try restartCycle(io, allocator, &v2, sturdyref[0..]);
+            try restartCycle(io, allocator, &v2, dur_secret, sturdyref[0..]);
         }
         std.debug.print("iroh-interop: a sturdyref (node id + swiss-number) outlives an endpoint restart, same seed, same node id, same published cap reached through the recorded locator\n", .{});
     }

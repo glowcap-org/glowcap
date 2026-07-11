@@ -3,13 +3,12 @@
 ;;
 ;; Mirrors the à-la-carte archive split (ADR-0059): this module is
 ;; libpancake_net_transport_inproc's binding, the in-process sibling of the TCP
-;; endpoints (`pancake-tcp.rkt`). Two peers in one process are wired by pipes,
-;; with no kernel transport and no file descriptors. Its private loader
+;; endpoints (`pancake-tcp.rkt`). Two sessions in one process are wired by
+;; pipes, with no kernel transport and no file descriptors. Its private loader
 ;; (`private/ffi-inproc.rkt`) opens ONLY that archive, so requiring this module
-;; links neither the TCP nor the iroh transport. It builds on the core peer and
-;; value machinery in `pancake.rkt` through the shared transport seam
-;; (`private/seam.rkt`) — same `PancakeContext` pointer and frame layout, no
-;; shared symbol:
+;; links neither the TCP nor the iroh transport. It builds on the core value
+;; and error machinery in `pancake.rkt` through the shared transport seam
+;; (`private/seam.rkt`) — same frame layout, no shared symbol:
 ;;
 ;;   (require "pancake.rkt")
 ;;   (require "pancake-inproc.rkt")
@@ -19,8 +18,8 @@
 ;;   (define cn (inproc-netlayer-connect nl "rendezvous"))
 ;;
 ;; A listener binds to a string designator — any opaque token, not a host:port —
-;; and a dialer names that designator. The host owns the peer and shuttles whole
-;; frames over the pipe exactly as with TCP. Blocking; in-process only.
+;; and a dialer names that designator. The embedder shuttles whole frames over
+;; the pipe exactly as with TCP. Blocking; in-process only.
 
 (require ffi/unsafe
          "private/constants.rkt"
@@ -38,14 +37,7 @@
 ;; transport keeps its own thread-local slot, so an inproc call's diagnostic is
 ;; read here and never from the ocapn family's `last-error`. Query the length
 ;; first (NULL buffer), then read.
-(define (inproc-last-error)
-  (define len (pancake_inproc_last_error #f 0))
-  (cond
-    [(zero? len) #f]
-    [else
-     (define buf (make-bytes (+ len 1)))
-     (define written (pancake_inproc_last_error buf (+ len 1)))
-     (bytes->string/utf-8 (subbytes buf 0 (min written len)) #\uFFFD)]))
+(define (inproc-last-error) (read-last-error pancake_inproc_last_error))
 
 ;; Raise the shared typed `exn:fail:pancake` for a non-OK inproc code, reading
 ;; this archive's own last-error rather than the unrelated ocapn-family one.

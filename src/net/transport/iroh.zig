@@ -37,6 +37,8 @@ const model = @import("model");
 const engine = @import("engine");
 const actors = @import("actors");
 const net = @import("net");
+const driver_core = @import("driver_core");
+const Served = driver_core.Served;
 
 const crypto = foundation.crypto;
 const posix = std.posix;
@@ -82,13 +84,17 @@ pub const Reachability = enum(u32) {
 /// A `direct` endpoint runs no relay or lookup service, so a dial without this
 /// hint cannot reach its partner and `dial` refuses such a locator with
 /// `error.InvalidAddress` instead of timing out; an endpoint with a discovery
-/// posture resolves the partner by id, so the hint is optional there.
-pub const hint_direct_addresses = "direct-addresses";
+/// posture resolves the partner by id, so the hint is optional there. The name
+/// itself is the transport-neutral vocabulary in `net.netlayer` (keyed TCP
+/// dials with the same hint), re-exported here so iroh consumers keep this
+/// spelling.
+pub const hint_direct_addresses = net.netlayer.hint_direct_addresses;
 
-/// An endpoint id is an Ed25519 public key printed as lowercase hex. This is
-/// the one canonical designator spelling: `Resident.nodeId` produces it, and
+/// An endpoint id is an Ed25519 public key printed as lowercase hex — the one
+/// canonical key-designator spelling, owned by
+/// `foundation.crypto.PeerKey.toDesignator`: `Resident.nodeId` produces it, and
 /// `dial` refuses any other shape with `error.InvalidAddress`.
-pub const node_id_len = 64;
+pub const node_id_len = crypto.PeerKey.designator_len;
 
 // ── The sidecar C ABI (transports/iroh/include/pancake_iroh_sidecar.h) ──────
 
@@ -366,10 +372,10 @@ pub const Resident = struct {
         return pancake_iroh_sidecar_conn_try_read(@ptrCast(conn), buf.ptr, buf.len);
     }
 
-    /// Non-blocking write of raw bytes to a loop connection: the count written
-    /// (the whole slice, since the sidecar buffer is all-or-nothing),
-    /// `loop_would_block` when the outbound buffer is at its bound, or negative
-    /// on a fault.
+    /// Non-blocking write of raw bytes to a loop connection: the count
+    /// written, `loop_would_block` when the outbound buffer is at its bound,
+    /// or negative on a fault. The caller treats a short write as ordinary
+    /// (advance and resubmit the tail).
     pub fn loopTryWrite(self: *Resident, conn: *anyopaque, buf: []const u8) isize {
         _ = self;
         return pancake_iroh_sidecar_conn_try_write(@ptrCast(conn), buf.ptr, buf.len);
@@ -398,34 +404,24 @@ pub const loop_ev_accept: u32 = ev_accept;
 
 const resident_vtable: Netlayer.VTable = .{
     .transport_name = transport_name,
+    // The designator is the endpoint's Ed25519 key, so a driver dial pins the
+    // partner's session identity to it (`net.netlayer.DesignatorScheme`).
+    .designator_scheme = .key,
     .dial = residentDial,
     .listen = residentListen,
 };
 
 /// The canonical designator shape `Resident.nodeId` produces: exactly
-/// `node_id_len` lowercase hex digits. One spelling, checked before the
-/// sidecar is asked to parse anything.
+/// `node_id_len` lowercase hex digits. One spelling, owned by
+/// `foundation.crypto.PeerKey.fromDesignator`, checked before the sidecar is
+/// asked to parse anything.
 fn isCanonicalNodeId(designator: []const u8) bool {
-    if (designator.len != node_id_len) return false;
-    for (designator) |c| switch (c) {
-        '0'...'9', 'a'...'f' => {},
-        else => return false,
-    };
-    return true;
+    return crypto.PeerKey.fromDesignator(designator) != null;
 }
 
 /// The locator's `hint_direct_addresses` string hint, or null when the hint is
-/// missing or carries a non-string value.
-fn directAddrHint(hints: model.Hints) ?[]const u8 {
-    for (hints.entries) |entry| {
-        if (!std.mem.eql(u8, entry.name, hint_direct_addresses)) continue;
-        switch (entry.value) {
-            .string => |s| return s,
-            else => return null,
-        }
-    }
-    return null;
-}
+/// missing or carries a non-string value (`net.netlayer.directAddrHint`).
+const directAddrHint = net.netlayer.directAddrHint;
 
 fn residentDial(
     ctx: *anyopaque,
@@ -473,6 +469,11 @@ const ListenerBox = struct {
 
 const listener_vtable: Listener.VTable = .{
     .transport_name = transport_name,
+    // Key scheme, like the netlayer: the responder's signed designator derives
+    // from its identity key. `localHint` stays null — an iroh accept signs a
+    // hint-less locator (the partner already reached us; discovery or the
+    // application's own locator record carries dial addresses).
+    .designator_scheme = .key,
     .accept = listenerAccept,
     .localDesignator = listenerLocalDesignator,
     .close = listenerClose,
@@ -502,8 +503,9 @@ fn listenerClose(ctx: *anyopaque) void {
 
 // ── The completion-loop source: many iroh connections on one thread (ADR-0057) ─
 
-/// Serve many iroh connections from one thread, the iroh sibling of
-/// `driver.LoopHost` over TCP.
+/// Serve many iroh connections from one thread — the loop-scale counterpart
+/// of the blocking resident above, over the sidecar's readiness fd instead of
+/// kernel sockets.
 ///
 /// Where the blocking resident above parks one OS thread per connection (one
 /// `accept`, one `conn_read`, one `conn_write` each), this host registers the
@@ -521,18 +523,31 @@ fn listenerClose(ctx: *anyopaque) void {
 /// untouched: a loop-driven host selects this source, a simple consumer keeps
 /// the blocking `acceptVia` path.
 pub const LoopHost = struct {
-    /// The application's per-connection setup: publish the objects this fresh
-    /// connection serves on its `vat`.
-    pub const Publish = *const fn (ctx: ?*anyopaque, vat: *actors.Vat) anyerror!void;
+    /// The application's per-connection setup (the shared loop-driver
+    /// `driver_core.Publish`): publish the objects this fresh connection
+    /// serves (e.g. `try served.publish("name", App, .{})`).
+    pub const Publish = driver_core.Publish;
 
     pub const Options = struct {
         frame_cap: usize = 1 << 16,
         max_conns: usize = 1024,
         /// Verify each partner's keyed start-session signature.
         verify_partner: bool = true,
-        /// How many readiness records to drain per call into the loop's fixed
-        /// stack buffer; a deeper queue drains across more calls.
-        ready_batch: usize = 256,
+        /// The identity key every accepted session signs its `op:start-session`
+        /// with. Under key unification this is the secret half of the seed the
+        /// resident's endpoint was bound on, so the signed session key equals
+        /// the node id a partner dialed — which a pinning dialer
+        /// (`driver.connectVia` over a key-designator transport) requires.
+        /// Null draws a fresh random key at `init`; a partner that dials this
+        /// host by node id will then refuse the handshake, so a dialable-by-id
+        /// host passes its endpoint secret here.
+        secret: ?crypto.SecretKey = null,
+        /// Emit `op:gc-exports` / `op:gc-answers` after each inbound deliver /
+        /// resolve the connection's vat does not retain imports from — the same
+        /// stateless GC `ConnectedVat` offers (one chokepoint, `driver_core.gc`),
+        /// so a long-lived encrypted fan-out server's import tables stay bounded
+        /// too.
+        gc_stateless: bool = false,
         /// The outbound backpressure mark (ADR-0042). While a connection's
         /// pending outbound bytes exceed it, the loop stops draining that
         /// connection's inbound from the sidecar, so the sidecar's inbound
@@ -542,20 +557,23 @@ pub const LoopHost = struct {
         /// Poll timeout in milliseconds: the loop re-checks its stop condition
         /// this often even with no readiness traffic.
         poll_timeout_ms: i32 = 200,
+        /// The most local eventual-send turns one inbound batch may drive before
+        /// the connection is closed as a runaway (see
+        /// `actors.Vat.max_batch_local_turns`, the default). Set by the operator,
+        /// never the partner.
+        max_batch_local_turns: usize = actors.Vat.max_batch_local_turns,
     };
 
     /// When `run` returns: `.forever` for a real server, `.{ .after_closed = n }`
     /// to return once `n` connections have fully closed (the test-shaped stop).
-    pub const Stop = union(enum) {
-        forever,
-        after_closed: usize,
-    };
+    /// The one stop vocabulary every loop shares (`net.completion.Stop`).
+    pub const Stop = net.completion.Stop;
 
     const Conn = struct {
         state: enum { free, open } = .free,
         cconn: ?*CConn = null,
         peer: engine.Peer = undefined,
-        vat: actors.Vat = undefined,
+        served: Served = undefined,
         /// Bounded overflow for a frame split across `try_read` chunks; inactive
         /// (allocation-free) while whole frames arrive within one read.
         spill: net.Spill = .{},
@@ -586,15 +604,26 @@ pub const LoopHost = struct {
     outbound_high_water: usize,
     verify_partner: bool,
     poll_timeout_ms: i32,
+    max_batch_local_turns: usize,
+    gc_stateless: bool,
     publish_fn: Publish,
     publish_ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
     conns: []Conn,
     /// Maps a live connection's `*CConn` (as an integer, the identity drained
     /// records carry) to its slot. O(1) lookup per readiness record at scale.
+    /// A freed conn's address can be reused by a later accept while stale
+    /// readiness records for the dead conn still sit in the sidecar queue, so
+    /// a record can misroute to the reused slot — harmless by construction:
+    /// ready records are hints, not payload carriers, and a spurious
+    /// `try_read`/`flush` on a live connection no-ops. A generation stamp
+    /// would close the window if records ever start carrying more than
+    /// readiness.
     by_ptr: std.AutoHashMap(usize, usize),
     read_scratch: []u8,
-    events_buf: []ReadyEvent,
+    /// The fixed readiness-drain batch, a stack-shaped buffer like `net.Loop`'s
+    /// completion batch: a deeper sidecar queue drains across more passes.
+    events_buf: [256]ReadyEvent = undefined,
     free_head: usize,
     closed_count: usize = 0,
     /// Set by `requestStop` from another thread to bring `run` down at the next
@@ -606,8 +635,10 @@ pub const LoopHost = struct {
 
     /// Bind a loop host over `resident`'s endpoint. `resident` must outlive the
     /// host and be driven by no other consumer (this host owns its accept and
-    /// connection I/O). `io` draws the one server identity key at the I/O
-    /// boundary. The caller owns the returned host at a stable address.
+    /// connection I/O). The server identity key is `options.secret` (the
+    /// endpoint's own key, under key unification); when null, `io` draws a
+    /// fresh one at the I/O boundary. The caller owns the returned host at a
+    /// stable address.
     pub fn init(
         allocator: std.mem.Allocator,
         io: Io,
@@ -616,10 +647,12 @@ pub const LoopHost = struct {
         publish_ctx: ?*anyopaque,
         options: Options,
     ) InitError!LoopHost {
-        var seed: [crypto.SEED_BYTES]u8 = undefined;
-        defer std.crypto.secureZero(u8, &seed);
-        io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
-        const secret = crypto.SecretKey.fromSeed(seed);
+        const secret = options.secret orelse drawn: {
+            var seed: [crypto.SEED_BYTES]u8 = undefined;
+            defer std.crypto.secureZero(u8, &seed);
+            io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
+            break :drawn crypto.SecretKey.fromSeed(seed);
+        };
 
         const conns = try allocator.alloc(Conn, options.max_conns);
         errdefer allocator.free(conns);
@@ -629,8 +662,6 @@ pub const LoopHost = struct {
         }
         const read_scratch = try allocator.alloc(u8, @min(options.frame_cap, 64 * 1024));
         errdefer allocator.free(read_scratch);
-        const events_buf = try allocator.alloc(ReadyEvent, options.ready_batch);
-        errdefer allocator.free(events_buf);
 
         var self = LoopHost{
             .resident = resident,
@@ -639,13 +670,14 @@ pub const LoopHost = struct {
             .outbound_high_water = options.outbound_high_water orelse options.frame_cap,
             .verify_partner = options.verify_partner,
             .poll_timeout_ms = options.poll_timeout_ms,
+            .max_batch_local_turns = options.max_batch_local_turns,
+            .gc_stateless = options.gc_stateless,
             .publish_fn = publish_fn,
             .publish_ctx = publish_ctx,
             .allocator = allocator,
             .conns = conns,
             .by_ptr = std.AutoHashMap(usize, usize).init(allocator),
             .read_scratch = read_scratch,
-            .events_buf = events_buf,
             .free_head = 0,
         };
         _ = self.resident.nodeId(&self.node_id_buf);
@@ -664,7 +696,6 @@ pub const LoopHost = struct {
         }
         self.by_ptr.deinit();
         self.allocator.free(self.read_scratch);
-        self.allocator.free(self.events_buf);
         self.allocator.free(self.conns);
     }
 
@@ -685,15 +716,21 @@ pub const LoopHost = struct {
             var pfd = [_]posix.pollfd{.{ .fd = fd, .events = posix.POLL.IN, .revents = 0 }};
             _ = posix.poll(&pfd, self.poll_timeout_ms) catch 0;
             // Drain the self-pipe wakeup bytes so the next poll re-arms only on
-            // fresh signals; the ready-queue, drained below, is the truth.
+            // fresh signals; the ready-queue, drained below, is the truth. A
+            // zero-length read is the write end closing under a live loop —
+            // stop draining rather than spin on EOF.
             var drain: [256]u8 = undefined;
             while (true) {
-                _ = posix.read(fd, &drain) catch break;
+                const drained = posix.read(fd, &drain) catch break;
+                if (drained == 0) break;
             }
             // Drain the ready-queue until it empties (a short batch means done).
+            // A negative count is a sidecar fault: surface it instead of
+            // spinning at the poll cadence against a dead queue forever.
             while (true) {
-                const n = pancake_iroh_sidecar_endpoint_drain_ready(self.resident.endpoint, self.events_buf.ptr, self.events_buf.len);
-                if (n <= 0) break;
+                const n = pancake_iroh_sidecar_endpoint_drain_ready(self.resident.endpoint, &self.events_buf, self.events_buf.len);
+                if (n < 0) return error.SidecarDrainFailed;
+                if (n == 0) break;
                 const count: usize = @intCast(n);
                 for (self.events_buf[0..count]) |ev| self.dispatch(ev);
                 if (count < self.events_buf.len) break;
@@ -754,22 +791,19 @@ pub const LoopHost = struct {
     /// failure (the caller frees the sidecar handle and reclaims the slot).
     fn openConn(self: *LoopHost, slot: usize, cconn: *CConn) bool {
         const c = &self.conns[slot];
-        var peer = engine.Peer.initNegotiatingWith(self.allocator, .{
-            .verify_partner_handshake = self.verify_partner,
-            .limits = .{ .max_frame_bytes = self.frame_cap },
-        });
-        peer.sendKeyedStartSession(.v1_0, .{
-            .transport = transport_name,
-            .designator = self.node_id_buf[0..],
-            .hints = model.Hints.emptyFalse(),
-        }, self.secret) catch {
-            peer.deinit();
-            return false;
-        };
+        const peer = driver_core.makeKeyedPeer(
+            self.allocator,
+            self.frame_cap,
+            self.verify_partner,
+            transport_name,
+            self.node_id_buf[0..],
+            self.secret,
+        ) catch return false;
         c.* = .{ .state = .open, .cconn = cconn, .peer = peer };
-        c.vat = actors.Vat.initOver(self.allocator, &c.peer);
-        self.publish_fn(self.publish_ctx, &c.vat) catch {
-            c.vat.deinit();
+        c.served = Served.over(self.allocator, &c.peer);
+        c.served.serve_options.gc_stateless = self.gc_stateless;
+        self.publish_fn(self.publish_ctx, &c.served) catch {
+            c.served.deinit();
             c.peer.deinit();
             c.* = .{};
             return false;
@@ -834,18 +868,27 @@ pub const LoopHost = struct {
         return net.drainWholeFrames(&c.peer, &c.spill, bytes, self.allocator);
     }
 
-    /// Run every surfaced event through the connection's vat. A vat error closes
-    /// only this connection.
+    /// Run every surfaced event through the connection's vat, then drain the
+    /// vat's queued local eventual-sends before the outbound flush. A vat error
+    /// closes only this connection.
     fn runEvents(self: *LoopHost, slot: usize) void {
         const c = &self.conns[slot];
         while (c.peer.pollEvent()) |ev_in| {
             var ev = ev_in;
             defer ev.deinit();
-            _ = c.vat.serve(&ev) catch {
+            c.served.serveEvent(&ev) catch {
                 self.failConn(slot);
                 return;
             };
         }
+        // Drain queued local eventual-sends after the whole inbound batch —
+        // the one shared post-batch policy (`Served.drivePostBatch`), so a
+        // local-target `send` settles on the encrypted fan-out path with the
+        // same runaway bound the tcp loop drivers apply.
+        c.served.drivePostBatch(self.max_batch_local_turns) catch {
+            self.failConn(slot);
+            return;
+        };
     }
 
     /// Encode queued sends and flush them to the sidecar's outbound buffer.
@@ -855,20 +898,16 @@ pub const LoopHost = struct {
             self.failConn(slot);
             return;
         }) != .idle) {}
-        while (c.peer.takeOutbound()) |frame_value| {
-            var frame = frame_value;
-            defer frame.deinit();
-            c.outbound.appendSlice(self.allocator, frame.bytes()) catch {
-                self.closeConn(slot);
-                return;
-            };
-        }
+        net.queueOutboundBytes(&c.peer, self.allocator, &c.outbound) catch {
+            self.closeConn(slot);
+            return;
+        };
         self.flush(slot);
     }
 
     /// Push the connection's pending outbound bytes to the sidecar. A
-    /// `WOULD_BLOCK` leaves the remainder queued for the next `ev_writable`; the
-    /// non-blocking write accepts the whole pending slice or none of it.
+    /// `WOULD_BLOCK` leaves the remainder queued for the next `ev_writable`; a
+    /// short write advances the offset and the loop resubmits the tail.
     fn flush(self: *LoopHost, slot: usize) void {
         const c = &self.conns[slot];
         if (c.state != .open) return;
@@ -889,11 +928,7 @@ pub const LoopHost = struct {
         // slow-reader episode does not pin its high-water bytes for life
         // (ADR-0041/0042 posture); steady-sized capacity is retained so
         // ordinary reply traffic never reallocates.
-        if (c.outbound.capacity > steady_outbound_bytes) {
-            c.outbound.clearAndFree(self.allocator);
-        } else {
-            c.outbound.clearRetainingCapacity();
-        }
+        net.reclaimBurst(&c.outbound, self.allocator, steady_outbound_bytes);
         c.out_off = 0;
         // Fully drained means below the mark: lift any read park so the caller
         // (`serviceReadable`'s loop, or the next `ev_writable`) resumes reading.
@@ -912,11 +947,9 @@ pub const LoopHost = struct {
     fn failConn(self: *LoopHost, slot: usize) void {
         const c = &self.conns[slot];
         while ((c.peer.step() catch .idle) != .idle) {}
-        while (c.peer.takeOutbound()) |frame_value| {
-            var frame = frame_value;
-            defer frame.deinit();
-            c.outbound.appendSlice(self.allocator, frame.bytes()) catch break;
-        }
+        // Best-effort: an append failure frees the current frame and leaves
+        // the rest on the peer, exactly what a closing connection wants.
+        net.queueOutboundBytes(&c.peer, self.allocator, &c.outbound) catch {};
         self.flush(slot);
         self.closeConn(slot);
     }
@@ -924,11 +957,18 @@ pub const LoopHost = struct {
     fn closeConn(self: *LoopHost, slot: usize) void {
         const c = &self.conns[slot];
         if (c.state != .open) return;
+        // Settle every outstanding far vow broken — with the partner's retained
+        // abort diagnostic when one arrived — before the vat goes away, so a
+        // listener awaiting this connection fires instead of dying unfired.
+        c.served.vat.breakFarVows(c.served.closeReason("connection closed"));
         if (c.cconn) |cconn| {
+            // tolerant: the accept path calls `closeConn` from its `by_ptr.put`
+            // OOM catch, before the entry is inserted, so this removal is not
+            // guaranteed present.
             _ = self.by_ptr.remove(@intFromPtr(cconn));
             pancake_iroh_sidecar_conn_free(cconn);
         }
-        c.vat.deinit();
+        c.served.deinit();
         c.peer.deinit();
         c.spill.deinit(self.allocator);
         c.outbound.deinit(self.allocator);

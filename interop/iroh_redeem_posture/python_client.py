@@ -36,7 +36,10 @@ import asyncio
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bindings" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
+from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
+
+insert_bindings_path()
 
 from pancake import Ref, encode_peer_locator  # noqa: E402
 from pancake.iroh import (  # noqa: E402
@@ -48,17 +51,7 @@ from pancake.iroh import (  # noqa: E402
 
 NAME = "python-redeem-posture-carol"
 
-for _arg in sys.argv[1:]:
-    # The gate takes no arguments; `-Dport` is meaningless for an in-process
-    # local-discovery run, so accept and ignore a `--port=` for build parity.
-    if not _arg.startswith("--port="):
-        print(f"python-iroh-redeem-posture: unknown argument '{_arg}'", file=sys.stderr)
-        raise SystemExit(2)
-
-
-def fail(msg: str) -> None:
-    print(f"python-iroh-redeem-posture FAILED: {msg}", file=sys.stderr)
-    raise SystemExit(1)
+ignore_port_args("python-iroh-redeem-posture")
 
 
 def greeter(verb: str, args: list):
@@ -116,7 +109,7 @@ async def run() -> None:
     introducer_ref = await recipient.fetch("introducer")
     granted = await recipient.send(introducer_ref, "get-greeter", [])
     if not isinstance(granted, Ref):
-        fail(f"introduction did not redeem to a capability: {granted!r}")
+        fail("python-iroh-redeem-posture", f"introduction did not redeem to a capability: {granted!r}")
     print(
         "python-iroh-redeem-posture: recipient redeemed the hint-less give under its "
         "configured LocalDiscovery posture, got the greeter as an ordinary ref"
@@ -124,7 +117,7 @@ async def run() -> None:
 
     reply = await recipient.send(granted, "greet", [NAME])
     if not isinstance(reply, str) or NAME not in reply:
-        fail(f"greeter reply did not carry the name back: {reply!r}")
+        fail("python-iroh-redeem-posture", f"greeter reply did not carry the name back: {reply!r}")
     print(f"python-iroh-redeem-posture: greeter replied: {reply}")
 
     print(

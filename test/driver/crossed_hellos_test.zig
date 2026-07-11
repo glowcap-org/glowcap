@@ -4,15 +4,15 @@
 //! session with no coordination beyond a local comparison. The rule is the byte
 //! order of the two Public Identifiers: the side whose identifier is not lower
 //! aborts its inbound; the strictly lower-keyed side aborts its outbound. These
-//! scenarios run the collision from both seats, and both converge on the
-//! higher-keyed peer's outbound session. That convergence is the load-bearing
-//! property this module exists to hold.
+//! scenarios run the registry's verdict from both seats; the condemnation the
+//! verdict drives (the losing connection's typed abort) is pinned by the core
+//! host scenarios and the wire-level three-party test.
 
 const std = @import("std");
 const pancake = @import("pancake");
 
 const foundation = pancake.foundation;
-const crossed_hellos = pancake.driver.crossed_hellos;
+const CrossedHellos = pancake.driver.core.CrossedHellos;
 
 fn pid(first: u8) foundation.PeerId {
     var bytes: [32]u8 = @splat(0);
@@ -22,101 +22,93 @@ fn pid(first: u8) foundation.PeerId {
 
 test "crossed hellos: the higher-keyed seat aborts its inbound, keeps its outbound" {
     const allocator = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-
     const designator = "ocapn://partner.example";
 
-    var registry = crossed_hellos.Registry{};
-    defer registry.deinit(io, allocator);
+    var registry = CrossedHellos{};
+    defer registry.deinit(allocator);
 
     // Our pid (9) is higher than the inbound partner's (1).
-    try registry.registerOutbound(io, allocator, designator, pid(9));
+    try registry.registerOutbound(allocator, designator, pid(9));
 
-    const result = registry.checkInbound(io, designator, pid(1)) orelse
+    const verdict = registry.checkInbound(designator, pid(1)) orelse
         return error.ExpectedCollision;
-    try std.testing.expect(result.abort_inbound);
-    // The higher seat keeps its outbound, so it must not also tear it down.
-    try std.testing.expect(!registry.shouldAbortOutbound(io, designator));
+    try std.testing.expect(verdict.abort_inbound);
 }
 
 test "crossed hellos: the lower-keyed seat keeps its inbound, aborts its outbound" {
     const allocator = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-
     const designator = "ocapn://partner.example";
 
-    var registry = crossed_hellos.Registry{};
-    defer registry.deinit(io, allocator);
+    var registry = CrossedHellos{};
+    defer registry.deinit(allocator);
 
-    // Our pid (1) is lower than the inbound partner's (9).
-    try registry.registerOutbound(io, allocator, designator, pid(1));
+    // Our pid (1) is lower than the inbound partner's (9): the verdict keeps
+    // the inbound, and the host condemns its own outbound dial instead.
+    try registry.registerOutbound(allocator, designator, pid(1));
 
-    const result = registry.checkInbound(io, designator, pid(9)) orelse
+    const verdict = registry.checkInbound(designator, pid(9)) orelse
         return error.ExpectedCollision;
-    try std.testing.expect(!result.abort_inbound);
-    // The lower seat tears down its outbound so the partner's survives.
-    try std.testing.expect(registry.shouldAbortOutbound(io, designator));
+    try std.testing.expect(!verdict.abort_inbound);
 }
 
 test "crossed hellos: equal identifiers abort inbound (no live session opens to self)" {
     const allocator = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-
     const designator = "ocapn://partner.example";
 
-    var registry = crossed_hellos.Registry{};
-    defer registry.deinit(io, allocator);
+    var registry = CrossedHellos{};
+    defer registry.deinit(allocator);
 
-    try registry.registerOutbound(io, allocator, designator, pid(5));
+    try registry.registerOutbound(allocator, designator, pid(5));
 
-    const result = registry.checkInbound(io, designator, pid(5)) orelse
+    const verdict = registry.checkInbound(designator, pid(5)) orelse
         return error.ExpectedCollision;
-    try std.testing.expect(result.abort_inbound);
-    try std.testing.expect(!registry.shouldAbortOutbound(io, designator));
+    try std.testing.expect(verdict.abort_inbound);
 }
 
 test "crossed hellos: an inbound from an un-dialed partner is no collision" {
     const allocator = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
 
-    var registry = crossed_hellos.Registry{};
-    defer registry.deinit(io, allocator);
+    var registry = CrossedHellos{};
+    defer registry.deinit(allocator);
 
-    try registry.registerOutbound(io, allocator, "ocapn://peer-a.example", pid(5));
+    try registry.registerOutbound(allocator, "ocapn://peer-a.example", pid(5));
 
     // No outbound to peer-b is in flight, so the inbound crosses nothing.
     try std.testing.expectEqual(
-        @as(?crossed_hellos.Result, null),
-        registry.checkInbound(io, "ocapn://peer-b.example", pid(1)),
+        @as(?CrossedHellos.Verdict, null),
+        registry.checkInbound("ocapn://peer-b.example", pid(1)),
     );
-    try std.testing.expect(!registry.shouldAbortOutbound(io, "ocapn://peer-b.example"));
 }
 
 test "crossed hellos: unregister drops the tracked outbound" {
     const allocator = std.testing.allocator;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-
     const designator = "ocapn://partner.example";
 
-    var registry = crossed_hellos.Registry{};
-    defer registry.deinit(io, allocator);
+    var registry = CrossedHellos{};
+    defer registry.deinit(allocator);
 
-    try registry.registerOutbound(io, allocator, designator, pid(2));
-    registry.unregister(io, allocator, designator);
+    try registry.registerOutbound(allocator, designator, pid(2));
+    registry.unregister(allocator, designator);
 
     // Once the outbound is unregistered the inbound finds nothing to cross with.
     try std.testing.expectEqual(
-        @as(?crossed_hellos.Result, null),
-        registry.checkInbound(io, designator, pid(1)),
+        @as(?CrossedHellos.Verdict, null),
+        registry.checkInbound(designator, pid(1)),
     );
+}
+
+test "crossed hellos: unregister removes exactly one row, not every dial to the partner" {
+    const allocator = std.testing.allocator;
+    const designator = "ocapn://partner.example";
+
+    var registry = CrossedHellos{};
+    defer registry.deinit(allocator);
+
+    // Two concurrent dials to the same partner: tearing one down must leave
+    // the sibling dial's row live for a crossed inbound to find.
+    try registry.registerOutbound(allocator, designator, pid(2));
+    try registry.registerOutbound(allocator, designator, pid(2));
+    registry.unregister(allocator, designator);
+
+    try std.testing.expect(registry.checkInbound(designator, pid(9)) != null);
 }

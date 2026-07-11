@@ -139,7 +139,7 @@ test "C ABI peer handles borrowed abort frames" {
         .len = "<8'op:abort3\"bye>".len,
         .shape = c_abi.PANCAKE_FRAME_SHAPE_BYTE,
     };
-    try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_feed_borrowed(peer, &frame));
+    try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_recv_borrowed(peer, &frame));
 
     var event: c_abi.PancakeEvent = undefined;
     try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_poll_event(peer, &event));
@@ -164,7 +164,7 @@ test "C ABI surfaces the typed cause of a refused frame through last_abort" {
         .len = garbage.len,
         .shape = c_abi.PANCAKE_FRAME_SHAPE_BYTE,
     };
-    try std.testing.expect(c_abi.pancake_peer_feed_borrowed(peer, &frame) != c_abi.PANCAKE_OK);
+    try std.testing.expect(c_abi.pancake_peer_recv_borrowed(peer, &frame) != c_abi.PANCAKE_OK);
 
     // The flat return code named the family; last_abort names the member.
     try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_last_abort(peer, &info));
@@ -186,7 +186,7 @@ test "C ABI exposes non-abort events as managed event frames in the negotiated c
     };
     const runtime_peer: *pancake.ocapn.engine.Peer = @ptrCast(@alignCast(peer.?));
     try runtime_peer.session_state.registerExport(.from(7));
-    try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_feed_borrowed(peer, &frame));
+    try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_recv_borrowed(peer, &frame));
 
     var event: c_abi.PancakeEvent = undefined;
     try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_poll_event(peer, &event));

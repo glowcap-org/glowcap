@@ -20,9 +20,12 @@ const syrup = pancake.ocapn.codec.syrup;
 
 /// Counts every backing allocation (fresh `alloc`, plus a `remap`/`resize` that
 /// grows an existing block), matching the inbound budget test's accounting.
+/// Growth events are also tallied separately (`grows`), so a test can pin
+/// "zero reallocs" directly rather than inferring it from the total.
 const TotalCountingAllocator = struct {
     backing: std.mem.Allocator,
     allocs: usize = 0,
+    grows: usize = 0,
 
     fn allocator(self: *TotalCountingAllocator) std.mem.Allocator {
         return .{
@@ -40,13 +43,18 @@ const TotalCountingAllocator = struct {
 
     fn resize(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) bool {
         const self: *TotalCountingAllocator = @ptrCast(@alignCast(ctx));
-        return self.backing.rawResize(memory, alignment, new_len, ret_addr);
+        const ok = self.backing.rawResize(memory, alignment, new_len, ret_addr);
+        if (ok and new_len > memory.len) self.grows += 1;
+        return ok;
     }
 
     fn remap(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, new_len: usize, ret_addr: usize) ?[*]u8 {
         const self: *TotalCountingAllocator = @ptrCast(@alignCast(ctx));
         const result = self.backing.rawRemap(memory, alignment, new_len, ret_addr);
-        if (result != null and new_len > memory.len) self.allocs += 1;
+        if (result != null and new_len > memory.len) {
+            self.allocs += 1;
+            self.grows += 1;
+        }
         return result;
     }
 
@@ -91,14 +99,52 @@ fn expectEncodeBudget(
     try std.testing.expectEqual(@as(usize, 0), counter.allocs % turns);
     const per_encode = counter.allocs / turns;
 
-    // The encoder builds the record into a growable buffer and hands it to an
-    // owned `Frame`. This pins the per-encode allocation count so the outbound
-    // half of the wire path is measured, not just timed by the codec benchmark.
+    // This pins the per-encode allocation count so the outbound half of the
+    // wire path is measured, not just timed by the codec benchmark.
     errdefer std.debug.print("{s} per_encode_allocs={d}\n", .{ name, per_encode });
     try std.testing.expectEqual(@as(usize, expected_budget), per_encode);
 }
 
 test "encoding a small deliver holds its outbound allocation budget" {
-    try expectEncodeBudget("syrup", 2, syrup.encodeMessage);
+    // Syrup renders measure-then-fill: one exact allocation, no growable
+    // buffer, no shrink. Cap'n Proto still builds into a growable buffer and
+    // hands it to an owned `Frame`, its measured cost on this frame.
+    try expectEncodeBudget("syrup", 1, syrup.encodeMessage);
     try expectEncodeBudget("capnp", 2, capnp.encodeMessage);
+}
+
+test "encoding a large deliver costs one exact allocation and zero reallocs" {
+    // The measure-then-fill contract at scale: a payload far past any growable
+    // buffer's initial capacity still costs exactly one allocation, where the
+    // doubling policy would have paid O(log n) whole-buffer growth reallocs.
+    var counter = TotalCountingAllocator{ .backing = std.testing.allocator };
+    const gpa = counter.allocator();
+
+    const payload = try std.testing.allocator.alloc(u8, 1 << 16);
+    defer std.testing.allocator.free(payload);
+    @memset(payload, 0xab);
+
+    const nested = [_]model.Argument{
+        .{ .integer = -123456789 },
+        .{ .string = "a nested string leaf" },
+        .{ .boolean = true },
+    };
+    const args = [_]model.Argument{
+        .{ .bytes = payload },
+        .{ .list = nested[0..] },
+    };
+    const message = model.Message{
+        .deliver = .{
+            .target = .{ .far = .{ .import_position = .from(0) } },
+            .args = args[0..],
+            .answer = .from(11),
+        },
+    };
+
+    var frame = try syrup.encodeMessage(gpa, message);
+    defer frame.deinit();
+
+    try std.testing.expect(frame.bytes().len > payload.len);
+    try std.testing.expectEqual(@as(usize, 1), counter.allocs);
+    try std.testing.expectEqual(@as(usize, 0), counter.grows);
 }

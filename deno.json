@@ -2,7 +2,8 @@
   "imports": {
     "@pancake/stack": "./bindings/ts/stack/mod.ts",
     "@pancake/stack/ffi": "./bindings/ts/stack/ffi.ts",
-    "@pancake/iroh": "./bindings/ts/iroh/mod.ts"
+    "@pancake/iroh": "./bindings/ts/iroh/mod.ts",
+    "zod": "npm:zod@3.23.8"
   },
   "fmt": {
     "useTabs": true,

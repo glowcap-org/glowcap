@@ -11,8 +11,7 @@
          racket/runtime-path
          "ffi-shared.rkt")
 (provide iroh-fn
-         _PancakeIrohReadyEvent _PancakeIrohReadyEvent-pointer
-         make-PancakeIrohReadyEvent
+         _PancakeIrohReadyEvent
          PancakeIrohReadyEvent-conn PancakeIrohReadyEvent-events
          IROH-EV-READABLE IROH-EV-WRITABLE IROH-EV-CLOSED IROH-EV-ACCEPT)
 
@@ -31,6 +30,11 @@
 ;; C writes into.
 (define-cstruct _PancakeIrohReadyEvent ([conn _pointer] [events _uint32])
   #:malloc-mode 'atomic-interior)
+
+;; The layout gate, as in `ffi-shared.rkt`: the hand-mirrored ready-event
+;; record is pinned at require time against the header's documented LP64
+;; layout (conn at 0, events at 8, trailing pad to 16).
+(pin-layout! '_PancakeIrohReadyEvent _PancakeIrohReadyEvent 16 '(pointer uint32))
 
 (define-runtime-path iroh-lib-path "../../../zig-out/lib/libpancake_net_transport_iroh")
 (define iroh-ffi-cache (box #f))

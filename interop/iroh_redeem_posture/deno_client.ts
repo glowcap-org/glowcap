@@ -33,29 +33,16 @@
 
 import { type Connection, encodePeerLocator, Ref } from "@pancake/stack";
 import { connectIroh, listenIroh, Reachability } from "@pancake/iroh";
+import { acceptLoop, fail, parseOptionalPortArg } from "../_common/deno/helpers.ts";
 
 const NAME = "deno-redeem-posture-carol";
 
-function fail(msg: string): never {
-	console.error(`deno-iroh-redeem-posture FAILED: ${msg}`);
-	Deno.exit(1);
-}
-
-// The gate takes no arguments; `-Dport` is meaningless for an in-process
-// local-discovery run, so accept and ignore a `--port=` for build parity.
-for (const a of Deno.args) {
-	if (!a.startsWith("--port=")) fail(`unknown argument '${a}'`);
-}
+parseOptionalPortArg("deno-iroh-redeem-posture");
 
 // The whole run is in-process and deterministic, so a stall is a bug; fail loud
 // instead of parking the gate. Unref'd so the timer never holds the loop open.
-const watchdog = setTimeout(() => fail("timed out after 90s"), 90_000);
+const watchdog = setTimeout(() => fail("deno-iroh-redeem-posture", "timed out after 90s"), 90_000);
 Deno.unrefTimer(watchdog);
-
-// Serve every connection a server accepts for the life of the run.
-async function acceptLoop(server: AsyncIterable<Connection>): Promise<void> {
-	for await (const conn of server) conn.serve().catch(() => {});
-}
 
 // ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
 const exporter = listenIroh(Reachability.LocalDiscovery);
@@ -96,7 +83,10 @@ recipient.node.setRedeemReachability(Reachability.LocalDiscovery);
 const introducer = await recipient.fetch("introducer");
 const granted = await recipient.send(introducer, "get-greeter", []);
 if (!(granted instanceof Ref)) {
-	fail(`introduction did not redeem to a capability: ${JSON.stringify(granted)}`);
+	fail(
+		"deno-iroh-redeem-posture",
+		`introduction did not redeem to a capability: ${JSON.stringify(granted)}`,
+	);
 }
 console.log(
 	"deno-iroh-redeem-posture: recipient redeemed the hint-less give under its " +
@@ -105,7 +95,10 @@ console.log(
 
 const reply = await recipient.send(granted, "greet", [NAME]);
 if (typeof reply !== "string" || !reply.includes(NAME)) {
-	fail(`greeter reply did not carry the name back: ${JSON.stringify(reply)}`);
+	fail(
+		"deno-iroh-redeem-posture",
+		`greeter reply did not carry the name back: ${JSON.stringify(reply)}`,
+	);
 }
 console.log(`deno-iroh-redeem-posture: greeter replied: ${reply}`);
 

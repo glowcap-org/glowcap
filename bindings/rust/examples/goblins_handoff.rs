@@ -19,11 +19,13 @@
 //! Needs `racket` plus the `goblins` collection on PATH; run via
 //! `zig build rust-goblins-handoff`.
 
-use std::time::Duration;
-
 use pancake_rust_dogfood::{connect, tcp_locator, Argument, Ref};
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::{Child, Command};
+use tokio::process::Command;
+
+#[path = "../../../interop/_common/rust/helpers.rs"]
+mod helpers;
+
+type Fail = helpers::Fail;
 
 const HOST: &str = "127.0.0.1";
 /// Alice's port; Bob (the exporter) listens on PORT+1. `--port=N` (from
@@ -32,20 +34,8 @@ const DEFAULT_PORT: u16 = 22115;
 const RACKET: &str = "/usr/local/bin/racket";
 const HOST_SCRIPT: &str = "conformance/goblins-peer/racket/handoff-introducer-host.rkt";
 
-type Fail = Box<dyn std::error::Error>;
-
 fn parse_port() -> Result<u16, Fail> {
-	let mut port = DEFAULT_PORT;
-	for arg in std::env::args().skip(1) {
-		match arg.strip_prefix("--port=") {
-			Some(text) => port = text.parse()?,
-			None => return Err(format!("unknown argument '{arg}'").into()),
-		}
-	}
-	if port > 65534 {
-		return Err("--port must be in 1..65534 (bob listens on port+1)".into());
-	}
-	Ok(port)
+	helpers::parse_port(DEFAULT_PORT, 65534)
 }
 
 #[tokio::main(flavor = "current_thread")]
@@ -58,7 +48,7 @@ async fn main() -> Result<(), Fail> {
 		.kill_on_drop(true)
 		.spawn()?;
 
-	let swiss = read_swiss(&mut child).await?;
+	let swiss = helpers::read_swiss(&mut child).await?;
 	println!("rust-goblins-handoff: alice published introducer swiss={swiss} on {HOST}:{port}");
 
 	// The `Connection` is `!Send`, so it lives on a `LocalSet`.
@@ -104,28 +94,4 @@ async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
     );
 	conn.close();
 	Ok(())
-}
-
-async fn read_swiss(child: &mut Child) -> Result<String, Fail> {
-	let stdout = child.stdout.take().ok_or("no child stdout")?;
-	let mut lines = BufReader::new(stdout).lines();
-	let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-	loop {
-		match tokio::time::timeout_at(deadline, lines.next_line()).await?? {
-			Some(line) => {
-				if let Some(swiss) = extract_swiss(&line) {
-					return Ok(swiss);
-				}
-			}
-			None => return Err("alice exited before publishing the introducer".into()),
-		}
-	}
-}
-
-fn extract_swiss(line: &str) -> Option<String> {
-	let needle = "\"swiss\":\"";
-	let start = line.find(needle)? + needle.len();
-	let rest = &line[start..];
-	let end = rest.find('"')?;
-	Some(rest[..end].to_string())
 }

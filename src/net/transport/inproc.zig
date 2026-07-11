@@ -416,6 +416,8 @@ pub const Network = struct {
     fn unregister(self: *Network, designator: []const u8) void {
         self.lock.lock();
         defer self.lock.unlock();
+        // idempotent: deregister teardown, tolerant of a designator that was
+        // never registered or already removed.
         _ = self.listeners.remove(designator);
     }
 };
@@ -497,7 +499,19 @@ pub const InprocListener = struct {
     /// `ConnectionLost` if the listener closes with nothing pending. The shared
     /// accept-wait core of both the driver-path `accept` and the frame-stream
     /// `acceptFrameStream`, so the parked-waiter / close handshake lives once.
-    fn waitForDuplex(self: *InprocListener) netlayer.AcceptError!*Duplex {
+    /// A dequeued duplex plus the listener fields the caller needs after the
+    /// mutex is released. Once the duplex is off the pending list and the mutex
+    /// is unlocked, this accept is counted by neither `waiters` nor `dialing`, so
+    /// a concurrent `listenerClose` may free the listener out from under it.
+    /// Snapshotting `allocator` and `network` (both outlive the listener struct)
+    /// under the mutex lets the caller finish the accept without touching `self`.
+    const Accepted = struct {
+        duplex: *Duplex,
+        allocator: std.mem.Allocator,
+        network: *Network,
+    };
+
+    fn waitForDuplex(self: *InprocListener) netlayer.AcceptError!Accepted {
         const io = self.network.io;
         self.mutex.lockUncancelable(io);
         while (self.pending.items.len == 0 and !self.closed) {
@@ -513,9 +527,13 @@ pub const InprocListener = struct {
             self.mutex.unlock(io);
             return error.ConnectionLost; // closed with nothing pending
         }
-        const duplex = self.pending.orderedRemove(0);
+        const accepted = Accepted{
+            .duplex = self.pending.orderedRemove(0),
+            .allocator = self.allocator,
+            .network = self.network,
+        };
         self.mutex.unlock(io);
-        return duplex;
+        return accepted;
     }
 
     /// Block for the next dialer and return a peer-less `InprocFrameStream` — the
@@ -529,9 +547,11 @@ pub const InprocListener = struct {
         read_buf: []u8,
         write_buf: []u8,
     ) netlayer.AcceptError!InprocFrameStream {
-        const duplex = try self.waitForDuplex();
-        const ep = acceptEndpoint(self.allocator, duplex, .{ .read = read_buf, .write = write_buf }) catch return error.OutOfMemory;
-        return ep.intoFrameStream(self.network.io, allocator, codec_id, max_frame_bytes);
+        const accepted = try self.waitForDuplex();
+        // `self` may already be freed by a concurrent `listenerClose`; use only
+        // the fields snapshotted under the mutex.
+        const ep = acceptEndpoint(accepted.allocator, accepted.duplex, .{ .read = read_buf, .write = write_buf }) catch return error.OutOfMemory;
+        return ep.intoFrameStream(accepted.network.io, allocator, codec_id, max_frame_bytes);
     }
 
     /// Stop accepting and free the listener. The frame-path name for the same
@@ -557,9 +577,11 @@ fn acceptEndpoint(allocator: std.mem.Allocator, duplex: *Duplex, bufs: Buffers) 
 
 fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
     const self: *InprocListener = @ptrCast(@alignCast(ctx));
-    const duplex = try self.waitForDuplex();
-    const ep = acceptEndpoint(self.allocator, duplex, bufs) catch return error.OutOfMemory;
-    return ep.intoConnection(self.network.io, peer);
+    const accepted = try self.waitForDuplex();
+    // `self` may already be freed by a concurrent `listenerClose`; use only the
+    // fields snapshotted under the mutex.
+    const ep = acceptEndpoint(accepted.allocator, accepted.duplex, bufs) catch return error.OutOfMemory;
+    return ep.intoConnection(accepted.network.io, peer);
 }
 
 /// Read the pin count under its guard (the network lock). Called by

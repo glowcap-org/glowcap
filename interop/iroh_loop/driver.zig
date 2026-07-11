@@ -58,9 +58,9 @@ const Greeter = struct {
 
 /// Per-connection setup the loop host calls on accept: publish this connection's
 /// greeter on its own vat.
-fn publishGreeter(ctx: ?*anyopaque, vat: *actors.Vat) anyerror!void {
+fn publishGreeter(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
     _ = ctx;
-    _ = try driver.publishNamed(vat, "greeter", Greeter, .{});
+    _ = try served.publish("greeter", Greeter, .{});
 }
 
 /// Run the loop host until every connection has closed (or `requestStop` fires).
@@ -117,7 +117,12 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var server = iroh.Resident.init(io, null, .local_discovery) catch |err| {
+    // Seed the endpoint and hand the loop host the matching secret, so every
+    // accepted session signs with the endpoint's own key: iroh is a
+    // key-designator transport, and each dialing client pins the session
+    // identity to the node id it dialed.
+    const server_seed: [32]u8 = @splat(0x47);
+    var server = iroh.Resident.init(io, &server_seed, .local_discovery) catch |err| {
         std.debug.print("iroh-loop: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
@@ -131,6 +136,7 @@ pub fn main(init: std.process.Init) !void {
         .frame_cap = frame_cap,
         .max_conns = 64,
         .verify_partner = true,
+        .secret = pancake.foundation.crypto.SecretKey.fromSeed(server_seed),
     });
     defer host.deinit();
 

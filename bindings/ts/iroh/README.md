@@ -13,11 +13,11 @@ artifact.
 
 ## Dependency shape
 
-`@pancake/iroh` depends on `@pancake/stack`: it builds keyed `Connection`s on the core's async
-machinery (`Peer`, `AsyncConnection`, `openKeyedSession`) imported from `@pancake/stack`, and loads
-its archive through the core's one FFI runtime, the [`@pancake/stack/ffi`](../stack/ffi.ts) seam. ES
-modules are singletons, so there is exactly one adapter and one archive resolver across both
-packages.
+`@pancake/iroh` depends on `@pancake/stack`: it supplies the core's byte `Transport` seam over the
+sidecar's readiness loop and mints keyed `Connection`s through `Connection.establishDialed` /
+`establishAccepted`, and it loads its archive through the core's one FFI runtime, the
+[`@pancake/stack/ffi`](../stack/ffi.ts) seam. ES modules are singletons, so there is exactly one
+adapter and one archive resolver across both packages.
 
 The core's transport-neutral `connect` reaches this package only through a lazy
 `import("@pancake/iroh")` for an `iroh` locator, so `@pancake/stack` never hard-depends on it.
@@ -30,6 +30,6 @@ console.log(server.uri); // hand this to a partner
 for await (const conn of server) conn.serve();
 ```
 
-`Reachability` is required at every entry point, the caller owns the reach/privacy posture, with no
-default. See [`mod.ts`](mod.ts) for `connectIroh`, `listenIroh`, `IrohServer`, and the
+`Reachability` is required at every entry point. The caller owns the reach and privacy posture;
+there is no default. See [`mod.ts`](mod.ts) for `connectIroh`, `listenIroh`, `IrohServer`, and the
 `Reachability` postures.

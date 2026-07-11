@@ -3,7 +3,7 @@ id: ADR-0065
 status: accepted
 date: 2026-06-18
 tags: [pipelining, driver, c-abi, bindings, tcp, nagle, questioner]
-decision: A questioner addresses a verb at an answer it has not settled by passing the handle a prior send returned back to `send` — `Connection.send`/`sendToAnswer`/`settlePromise` in the Zig driver, `pancake_peer_send_deliver`'s answer target under the owning C session, and a vow-as-send-target in every binding — so a dependent chain costs one round trip; the deliver is queued at the send and the batch flushes on the first settle. The TCP transport disables Nagle on every dialed and accepted socket so the batched-then-await pattern does not eat a delayed-ACK stall.
+decision: A questioner addresses a verb at an answer it has not settled by passing the handle a prior send returned back to `send` — `Connection.send`/`sendToAnswer`/`settleVow` in the Zig driver, `pancake_peer_send_deliver`'s answer target under the owning C session, and a vow-as-send-target in every binding — so a dependent chain costs one round trip; the deliver is queued at the send and the batch flushes on the first settle. The TCP transport disables Nagle on every dialed and accepted socket so the batched-then-await pattern does not eat a delayed-ACK stall.
 supersedes: []
 superseded_by: []
 ---
@@ -38,9 +38,9 @@ shrugged at.
 ### One shape: a returned handle is a send target
 
 The Zig driver ([`src/driver/connection.zig`](../../../src/driver/connection.zig))
-exposes the questioner triad: `send(target, msg)` returns an answer `Promise`
-without settling it; `sendToAnswer(promise, msg)` addresses a verb at that pending
-answer (the wire `desc:answer`, ADR-0007); `settlePromise(promise, arena)` drives
+exposes the questioner triad: `send(target, msg)` returns an answer `Vow`
+without settling it; `sendToAnswer(vow, msg)` addresses a verb at that pending
+answer (the wire `desc:answer`, ADR-0007); `settleVow(vow, arena)` drives
 until a chosen answer settles. The flush is deferred to the next settle, so a
 batch of sends leaves the wire together; the triad delegates to
 [`ConnectedVat`](../../../src/driver/connected_vat.zig), which owns the answer

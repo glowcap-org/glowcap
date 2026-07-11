@@ -54,9 +54,15 @@ const Greeter = struct {
     }
 };
 
-/// Server half: accept one partner discovered over the public network, publish
-/// the greeter, serve until the client hangs up.
-fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
+/// Server half: accept one partner discovered over the public network signing
+/// with `secret` — the endpoint's own key, so the dialing client's identity pin
+/// verifies the node id it dialed — publish the greeter, serve until the
+/// client hangs up.
+fn hostOnce(
+    listener: net.netlayer.Listener,
+    allocator: std.mem.Allocator,
+    secret: pancake.foundation.crypto.SecretKey,
+) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -66,7 +72,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf);
     defer cv.deinit();
     std.debug.print("iroh-reachability: server accepted a discovered partner and opened the keyed session\n", .{});
 
@@ -149,7 +155,17 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var server = iroh.Resident.init(io, null, .discovery) catch |err| {
+    // A fresh random seed per run (never a fixed one — the node id is
+    // published to public pkarr), shared between the endpoint and the accept
+    // signing key so the session key equals the node id the client dials —
+    // which the client's dial-side identity pin now verifies.
+    var server_seed: [32]u8 = undefined;
+    io.randomSecure(&server_seed) catch |err| {
+        std.debug.print("iroh-reachability: drawing the server seed failed: {s}\n", .{@errorName(err)});
+        return err;
+    };
+    const server_secret = pancake.foundation.crypto.SecretKey.fromSeed(server_seed);
+    var server = iroh.Resident.init(io, &server_seed, .discovery) catch |err| {
         std.debug.print("iroh-reachability: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
@@ -173,7 +189,7 @@ pub fn main(init: std.process.Init) !void {
     });
     defer listener.close();
 
-    var host_future = try io.concurrent(hostOnce, .{ listener, allocator });
+    var host_future = try io.concurrent(hostOnce, .{ listener, allocator, server_secret });
     std.Io.sleep(io, std.Io.Duration.fromMilliseconds(publish_settle_ms), .real) catch {};
     const client_result = callByIdOnlyRetrying(io, &client_entries, server_id, allocator);
     if (client_result) |_| {} else |err| {

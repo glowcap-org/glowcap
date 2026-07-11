@@ -116,8 +116,11 @@ pub const MakePeer = *const fn (ctx: ?*anyopaque, allocator: std.mem.Allocator) 
 /// connection's life. A returned context may bind to that peer, for example an
 /// `actors.Vat` that hosts the connection's objects. `null` means the connection
 /// has no per-connection state. `net` stays actor-agnostic; the vat lives
-/// one layer up and rides through this opaque pointer.
-pub const MakeConnCtx = *const fn (ctx: ?*anyopaque, peer: *engine.Peer) anyerror!?*anyopaque;
+/// one layer up and rides through this opaque pointer. `slot` is the
+/// connection's loop slot — the handle `armOutbound` and `closeSlot` take from
+/// a hook that works across connections. It is recycled once the connection
+/// closes, so retain it only alongside the context this call builds.
+pub const MakeConnCtx = *const fn (ctx: ?*anyopaque, peer: *engine.Peer, slot: usize) anyerror!?*anyopaque;
 
 /// Per-event application hook. This is where objects run on the scalable path.
 /// The loop invokes it for each surfaced event on a connection, after the engine
@@ -323,6 +326,16 @@ pub fn Loop(comptime Backend: type) type {
         free_conn_ctx: ?FreeConnCtx,
         on_close: ?OnClose,
         closed_count: usize = 0,
+        /// True while `deinit` tears the loop down: cross-connection entries
+        /// (`armOutbound`, `closeSlot`) no-op then, because a submit during
+        /// teardown would mint an op whose completion never arrives and trip
+        /// the in-flight accounting `deinit` asserts on.
+        tearing_down: bool = false,
+        /// Debug-only owning thread: latched when `run` begins, asserted on
+        /// every `armOutbound`/`closeSlot` (and other public entries). Zero-
+        /// sized in release. The loop is single-threaded by contract.
+        owner_tid: if (std.debug.runtime_safety) ?std.Thread.Id else void =
+            if (std.debug.runtime_safety) null else {},
         /// Head of the intrusive free-slot list threaded through
         /// `Conn.next_free`; `conns.len` when every slot is in use. Keeps slot
         /// allocate and release O(1) at any `max_conns`.
@@ -385,6 +398,7 @@ pub fn Loop(comptime Backend: type) type {
         /// drain could hang teardown forever. So `deinit` asserts that every
         /// closing connection has no op in flight rather than draining.
         pub fn deinit(self: *Self) void {
+            self.tearing_down = true;
             for (self.conns, 0..) |*c, slot| if (c.state != .free) {
                 std.debug.assert(c.ops_in_flight == 0);
                 // A closing connection's fd rides its already-queued close op;
@@ -405,6 +419,7 @@ pub fn Loop(comptime Backend: type) type {
         /// connection; the errors that escape here are loop-global, namely a
         /// backend poll failure or a listener accept re-arm failure.
         pub fn run(self: *Self, stop: Stop) !void {
+            self.latchOwner();
             if (self.listen_fd) |fd| try self.backend.submitAccept(userData(.accept, 0), fd);
             // Per-poll batch cap, deliberately independent of
             // `Options.queue_entries`: a deeper completion queue drains across
@@ -531,7 +546,7 @@ pub fn Loop(comptime Backend: type) type {
             // peer now that it sits at its final, stable address. A failure here
             // closes the connection cleanly rather than serving it context-less.
             if (self.make_conn_ctx) |make| {
-                c.app_ctx = make(self.make_ctx, &c.peer) catch {
+                c.app_ctx = make(self.make_ctx, &c.peer, slot) catch {
                     self.closeConn(slot, c);
                     return;
                 };
@@ -542,6 +557,58 @@ pub fn Loop(comptime Backend: type) type {
                 return;
             };
             self.armOrPark(slot, c) catch self.closeConn(slot, c);
+        }
+
+        /// The cross-connection outbound arm: encode and submit whatever is
+        /// queued on `slot`'s peer. This is how work enqueued on a connection
+        /// the loop is *not* currently serving reaches the wire — a hook
+        /// serving connection A that enqueued sends on connection B's peer
+        /// calls this with B's slot, and B's frames go out without waiting
+        /// for B's own traffic. Safe mid-dispatch: the loop is
+        /// single-threaded, the drive touches only `slot`'s connection,
+        /// `write_in_flight` prevents a double submit, and ADR-0042 parking
+        /// still engages at that connection's next `armOrPark`. Idempotent
+        /// for the slot currently being served (its own post-event drive
+        /// finds nothing left), and a no-op on a free, closing, or
+        /// tearing-down slot. A drive failure resolves like any
+        /// per-connection failure: that one connection fails and closes.
+        pub fn armOutbound(self: *Self, slot: usize) void {
+            self.assertOwner();
+            if (self.tearing_down) return;
+            const c = self.liveConn(slot) orelse return;
+            self.driveOut(slot, c) catch self.failConn(slot, c);
+        }
+
+        /// Close the connection at `slot` after a best-effort flush of
+        /// whatever the engine projected onto its outbound (typically an
+        /// `op:abort`) — the "arm, then close" entry a bridge's `close`
+        /// action needs. No-op on a free, closing, or tearing-down slot; the
+        /// teardown itself rides the ordinary close path, so in-flight ops
+        /// retire before the slot is reclaimed.
+        pub fn closeSlot(self: *Self, slot: usize) void {
+            self.assertOwner();
+            if (self.tearing_down) return;
+            const c = self.liveConn(slot) orelse return;
+            self.failConn(slot, c);
+        }
+
+        /// Latch the owning thread at `run` entry. Setup (`init`, `dialTcp`,
+        /// `attach`) may run on a different thread before the loop starts;
+        /// only the run thread may call `armOutbound`/`closeSlot`.
+        fn latchOwner(self: *Self) void {
+            if (comptime !std.debug.runtime_safety) return;
+            const tid = std.Thread.getCurrentId();
+            if (self.owner_tid) |owned| {
+                std.debug.assert(owned == tid);
+            } else {
+                self.owner_tid = tid;
+            }
+        }
+
+        fn assertOwner(self: *const Self) void {
+            if (comptime !std.debug.runtime_safety) return;
+            std.debug.assert(self.owner_tid != null);
+            std.debug.assert(self.owner_tid.? == std.Thread.getCurrentId());
         }
 
         /// The connection at `slot`, when a completion landing there is still
@@ -778,11 +845,7 @@ pub fn Loop(comptime Backend: type) type {
         /// under the kernel. With no write in flight, a drained front swaps
         /// with the back and the queued bytes become the next frozen submit.
         fn flushOutbound(self: *Self, slot: usize, c: *Conn) !void {
-            while (c.peer.takeOutbound()) |frame_value| {
-                var frame: foundation.Frame = frame_value;
-                defer frame.deinit();
-                try c.back.appendSlice(self.allocator, frame.bytes());
-            }
+            try frame_stream.queueOutboundBytes(&c.peer, self.allocator, &c.back);
             if (c.write_in_flight) return;
             if (pendingFront(c) == 0 and c.back.items.len > 0) {
                 c.front.clearRetainingCapacity();
@@ -829,11 +892,12 @@ pub fn Loop(comptime Backend: type) type {
             // ADR-0041/0042): one slow-reader episode must not pin its
             // high-water bytes for the connection's lifetime. Steady-sized
             // capacity is retained so ordinary reply traffic never reallocates.
-            if (c.front.capacity > steady_outbound_bytes) {
-                c.front.clearAndFree(self.allocator);
-            } else {
-                c.front.clearRetainingCapacity();
-            }
+            frame_stream.reclaimBurst(&c.front, self.allocator, steady_outbound_bytes);
+            // A drained connection never pins burst capacity: this is the
+            // 500k-footprint invariant a slow-drain episode must not break. The
+            // live-socket measurement is rung 5 work (docs/ladder.md); this pins
+            // the bound loudly in every safe build, on every drain.
+            std.debug.assert(c.front.capacity <= steady_outbound_bytes);
             c.front_off = 0;
             c.write_in_flight = false;
             // Bytes queued on `back` while this write was in flight — and any

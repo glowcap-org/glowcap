@@ -54,8 +54,8 @@ each one dogfoods the archives through its own `*-dogfood` step.
 
 There is no separate "C build" or "Zig build" of the protocol: a Zig peer, a C
 consumer, and a peer written against any binding hold the same OCapN conversation,
-byte for byte. A session *does* negotiate its codec and CapTP version, settled
-with whoever answers rather than by which surface you built on. One instance
+byte for byte. A session *does* negotiate its codec and CapTP version, and it settles that
+with whoever answers, not by which surface you built on. One instance
 can therefore run many sessions speaking different codecs at once; the
 [Concepts]($link.page('concepts')) page walks that handshake.
 
@@ -63,8 +63,10 @@ The surfaces
 also come from one build: every artifact above is produced by `zig build`, and
 `zig build check` runs the hermetic gate: tests, oracle and conformance scenarios,
 examples, and the structure checks. The cross-language dogfoods and live interop run
-as sibling steps, since they need non-Zig runtimes on PATH. The full step catalog lives in
-[the build catalog](https://codeberg.org/jimisaacs/pancake/src/branch/main/README.md#build).
+as sibling steps, since they need non-Zig runtimes on PATH. The build steps in the
+[README](https://codeberg.org/jimisaacs/pancake/src/branch/main/README.md#build)
+cover the common focused gates; the full inventory lives in
+[CONTRIBUTING](https://codeberg.org/jimisaacs/pancake/src/branch/main/CONTRIBUTING.md#verifying-changes).
 
 The one place the surfaces diverge is encryption: iroh rides a separate optional
 artifact, which the [Transports]($link.page('transports')) page covers.

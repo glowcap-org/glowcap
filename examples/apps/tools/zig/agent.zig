@@ -13,17 +13,15 @@
 const std = @import("std");
 const pancake = @import("pancake");
 
+const demo_check = @import("demo_tools_check");
+const demo_usage = @import("demo_usage");
+
 const actors = pancake.actors;
 const driver = pancake.driver;
 const tcp = pancake.net.tcp;
 
 const host = "127.0.0.1";
 const frame_cap: usize = 1 << 16;
-
-fn check(nick: []const u8, label: []const u8, passed: bool) bool {
-    std.debug.print("{s}: {s}, {s}\n", .{ nick, if (passed) "ok" else "FAIL", label });
-    return passed;
-}
 
 /// True when the call fulfilled with an integer, the shape a clock answers.
 fn fulfilledInteger(settled: driver.Settled) bool {
@@ -76,20 +74,20 @@ pub fn main(init: std.process.Init) !void {
 
     const clock = try grant(conn, tools, "grant", "clock", arena);
     const now = try conn.call(clock, .{ .verb = "now", .args = &.{} }, arena);
-    ok = check(nick, "delegation: was handed a clock and called it", fulfilledInteger(now)) and ok;
+    ok = demo_check.check(nick, "delegation: was handed a clock and called it", fulfilledInteger(now)) and ok;
 
     const files = try grant(conn, tools, "grant", "files-readonly", arena);
     const read = try conn.call(files, .{ .verb = "read", .args = &.{.{ .string = "report.txt" }} }, arena);
-    ok = check(nick, "attenuation: read through the read-only view", fulfilledString(read)) and ok;
+    ok = demo_check.check(nick, "attenuation: read through the read-only view", fulfilledString(read)) and ok;
     const write = try conn.call(files, .{ .verb = "write", .args = &.{ .{ .string = "report.txt" }, .{ .string = "tampered" } } }, arena);
-    ok = check(nick, "attenuation: write is refused", write == .broken) and ok;
+    ok = demo_check.check(nick, "attenuation: write is refused", write == .broken) and ok;
 
     const revocable = try grant(conn, tools, "grant-revocable", "clock", arena);
     const before = try conn.call(revocable, .{ .verb = "now", .args = &.{} }, arena);
-    ok = check(nick, "revocation: the handle works before revoke", fulfilledInteger(before)) and ok;
+    ok = demo_check.check(nick, "revocation: the handle works before revoke", fulfilledInteger(before)) and ok;
     _ = try conn.call(tools, .{ .verb = "revoke-last", .args = &.{} }, arena);
     const after = try conn.call(revocable, .{ .verb = "now", .args = &.{} }, arena);
-    ok = check(nick, "revocation: the handle breaks after revoke", after == .broken) and ok;
+    ok = demo_check.check(nick, "revocation: the handle breaks after revoke", after == .broken) and ok;
 
     if (ok) {
         std.debug.print("{s}: all capability properties held\n", .{nick});
@@ -99,6 +97,5 @@ pub fn main(init: std.process.Init) !void {
 }
 
 fn fail(message: []const u8) error{Usage} {
-    std.debug.print("usage: pancake-tools-agent <port> <nick>\n  ({s})\n", .{message});
-    return error.Usage;
+    return demo_usage.usage("usage: pancake-tools-agent <port> <nick>", message);
 }

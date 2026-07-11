@@ -110,8 +110,21 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
     // handshake; a failure returns `InvalidStartSessionSignature`, which
     // projects an abort and leaves the session un-opened (the key is never
     // learned, since `recordRecvView` below does not run).
-    if (self.verify_partner_handshake and decoded_body == .start_session) {
-        try engine.verifyPartnerStartSession(self.allocator, decoded_body.start_session);
+    if (decoded_body == .start_session) {
+        if (self.verify_partner_handshake) {
+            try engine.verifyPartnerStartSession(self.allocator, decoded_body.start_session);
+        }
+        // The dial-side identity pin (`Peer.expectPartnerKey`): a dialer that
+        // resolved a key-designator locator admits only the key it dialed.
+        // Checked here, at the same pre-open chokepoint as the signature,
+        // because one byte-fed `feed` can carry the start-session and later
+        // frames in a single chunk — a post-open check would let those frames
+        // apply under the wrong identity before anyone looked.
+        if (self.expected_partner_key) |expected| {
+            if (!std.mem.eql(u8, expected.asBytes(), decoded_body.start_session.session_pubkey)) {
+                return error.PartnerKeyMismatch;
+            }
+        }
     }
 
     // An inbound `op:listen` against one of our pending inbound answers
@@ -127,10 +140,9 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
     // holds the probe order, so the precedence is data here, not call-site
     // ordering (see `classifyInboundDeliver`).
     var tag = eventKindFromBody(decoded_body);
-    var resolve_answer: ?model.AnswerId = null;
-    var deliver_answer: ?model.AnswerId = null;
+    var answer_override: events.AnswerOverride = .none;
     var v1_0_resolve: ?model.view.Resolve = null;
-    var bootstrap_action: ?bootstrap.Action = null;
+    var bootstrap_request: ?bootstrap.Request = null;
     if (decoded_body == .deliver) {
         switch (try classifyInboundDeliver(self, decoded_body.deliver)) {
             // Surfaces as a semantic `Resolve` (ADR-0010). The resolution is
@@ -144,7 +156,7 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
             // the apply call.
             .v1_0_resolve => |answer| {
                 tag = .resolve;
-                resolve_answer = answer;
+                answer_override = .{ .resolver_callback = answer };
                 v1_0_resolve = .{
                     .answer = answer,
                     .resolution = try events.resolutionFromResolverCallback(decoded_body.deliver.args),
@@ -158,15 +170,17 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
             },
             // Answered automatically once authority records the deliver
             // (ADR-0006 responder half); the action applies below.
-            .bootstrap => |action| bootstrap_action = action,
+            .bootstrap => |action| bootstrap_request = action,
             // A resolver-only deliver carries the virtual answer the
             // classifier allocated, so the surfaced deliver can be replied
             // to; an answered deliver carries null (the frame has the answer).
-            .ordinary => |answer| deliver_answer = answer,
+            .ordinary => |answer| {
+                if (answer) |a| answer_override = .{ .virtual_deliver = a };
+            },
         }
     }
 
-    try self.events.push(self.allocator, .{ .frame = frame, .tag = tag, .resolve_answer = resolve_answer, .deliver_answer = deliver_answer, .codec = self.session_state.codec });
+    try self.events.push(self.allocator, .{ .frame = frame, .tag = tag, .answer_override = answer_override, .codec = self.session_state.codec });
     stored = true;
     var appended = true;
     errdefer if (appended) {
@@ -192,7 +206,7 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
         else => {},
     }
 
-    if (bootstrap_action) |action| {
+    if (bootstrap_request) |action| {
         switch (action) {
             .fetch => |req| try self.sendCopying(bootstrap.resolveForSwissnum(&self.session_state, req)),
             .deposit_gift => |req| {
@@ -202,7 +216,7 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
             },
             .withdraw_gift => |req| {
                 switch (try bootstrap.resolveForWithdraw(self.allocator, &self.session_state, self.giftRegistry(), req)) {
-                    .settled => |msg| try self.sendCopying(msg),
+                    .settled => |msg| try self.sendWithdrawSettled(msg),
                     // The gift's deposit has not arrived yet (it travels on
                     // a different session); park the withdraw, `step`
                     // settles it once the deposit lands.
@@ -231,13 +245,13 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
 const InboundDeliverClass = union(enum) {
     /// A V1.0 resolver-callback (ADR-0010) settling the inbound answer
     /// carried here; the frame surfaces as a semantic `Resolve`.
-    v1_0_resolve: model.AnswerId,
+    v1_0_resolve: model.AnswerPosition,
     /// Pipelined against an answer we owe (ADR-0007): the call was queued or
     /// redirected during classification, so the frame surfaces nothing.
     pipelined,
     /// A bootstrap-protocol deliver (ADR-0006): the caller applies the
     /// action after authority records the deliver.
-    bootstrap: bootstrap.Action,
+    bootstrap: bootstrap.Request,
     /// An ordinary deliver, surfaced to the application. The optional answer
     /// is the virtual inbound answer the V1.0 classifier allocated for a
     /// resolver-only deliver (a `resolve_me_desc` with no wire
@@ -245,7 +259,7 @@ const InboundDeliverClass = union(enum) {
     /// application's reply routes back through the resolver callback. Null
     /// for an ordinary deliver whose answer (if any) the frame already
     /// carries.
-    ordinary: ?model.AnswerId,
+    ordinary: ?model.AnswerPosition,
 };
 
 /// Classify an inbound `op:deliver` into the one route it takes. The three
@@ -270,7 +284,7 @@ fn classifyInboundDeliver(self: *Peer, deliver: model.view.Deliver) !InboundDeli
     // local object can be replied to. A pipelined or bootstrap deliver
     // consumes the answer through its own path (the queued call's answer,
     // `answerForResolverImport`), so the override only matters for ordinary.
-    var ordinary_answer: ?model.AnswerId = null;
+    var ordinary_answer: ?model.AnswerPosition = null;
     if (self.session_state.needsV1_0Translation()) {
         switch (try v1_0.interceptInboundDeliver(self, deliver)) {
             .settles_answer => |answer| return .{ .v1_0_resolve = answer },

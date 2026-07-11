@@ -66,8 +66,8 @@ Fixed offsets are the point. Reaching field *i* is arithmetic, not a scan, so ra
 is constant-time and the borrowed decode projection is cheap. That is the edge the
 benchmark's faster Cap'n Proto decode reflects. The cost is size: padding every value to a
 word and spending words on pointers makes frames larger, most visibly for the small messages
-that dominate control traffic. Cap'n Proto can also carry a typed value — a typed
-abort reason, say — where Syrup projects a string.
+that dominate control traffic. Cap'n Proto can also carry a typed value, an
+abort reason for example, where Syrup projects a string.
 
 ## The tradeoffs, plainly
 

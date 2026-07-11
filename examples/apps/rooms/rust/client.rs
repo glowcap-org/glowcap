@@ -14,43 +14,35 @@
 //!
 //! The last argument is the roster: a comma-separated list of the member nicks
 //! to expect (default: just you). The client posts only once every roster member
-//! is present — it learns who is present from its welcome (which names everyone
-//! already in the room) and from the room's join announcements — and exits 0
-//! once it has seen a line from every roster member. Members outside the roster
+//! is present — it learns who is present from the structured presence the room
+//! attaches to each membership line (the roster on arrival and each join) — and
+//! exits 0 once it has seen a line from every roster member. Members outside the roster
 //! (people already chatting in an attached room, say) are printed but never
 //! counted, so a busy room cannot fake or break the assertion. This is the same
 //! application as the Deno, Python, Racket, and Zig clients, on one wire.
 
 mod room;
 
+#[path = "../../_demo/rust/run_local.rs"]
+mod demo_run;
+#[path = "../../_demo/rooms_cli.rs"]
+mod rooms_cli;
+
 use std::collections::HashSet;
-use std::time::Duration;
 
 use room::{Directory, Room};
+use rooms_cli::{error_code, NO_SUCH_ROOM, ROOM_EXISTS};
 
-/// Whether a broken `enter`/`open` reason names the precondition the lenient
-/// path retries on. The wire and the `Directory` wrapper stay strict; this
-/// classification feeds the CLI convenience below, in the app, not the library.
-fn is_missing_room(reason: &str) -> bool {
-	reason.contains("no room named")
-}
-
-fn is_room_exists(reason: &str) -> bool {
-	reason.contains("already exists")
-}
-
-/// Get a reference to `name`, opening the room if it does not exist yet. Tries
-/// `enter`, falls back to `open`, and on a creation race falls back to `enter`
-/// once more, composed from the directory's strict verbs.
+/// Enter `name`, opening the room if it does not exist yet.
 async fn enter_or_open(dir: &Directory, name: &str) -> Result<pancake::Ref, String> {
 	match dir.enter(name).await {
 		Ok(room) => return Ok(room),
-		Err(reason) if is_missing_room(&reason) => {}
+		Err(reason) if error_code(&reason) == NO_SUCH_ROOM => {}
 		Err(reason) => return Err(reason),
 	}
 	match dir.open(name).await {
 		Ok(room) => Ok(room),
-		Err(reason) if is_room_exists(&reason) => dir.enter(name).await, // lost the race
+		Err(reason) if error_code(&reason) == ROOM_EXISTS => dir.enter(name).await,
 		Err(reason) => Err(reason),
 	}
 }
@@ -82,22 +74,6 @@ async fn join_room(locator: &str, room_name: &str, nick: &str) -> Result<Room, S
 	Room::subscribe(dir.conn(), room_ref, nick).await
 }
 
-/// The welcome ends with the nicks already present: `… in the room: a, b, c` —
-/// the only way to learn about earlier arrivals.
-fn welcome_names(text: &str) -> Option<Vec<String>> {
-	let (_, names) = text.split_once(" in the room: ")?;
-	Some(names.split(", ").map(str::to_string).collect())
-}
-
-/// The room announces each arrival as `<nick> joined (<count> here)`.
-fn joined_nick(text: &str) -> Option<&str> {
-	let idx = text.find(" joined (")?;
-	if !text.ends_with(" here)") {
-		return None;
-	}
-	Some(&text[..idx])
-}
-
 async fn run_client(
 	locator: &str,
 	room_name: &str,
@@ -116,14 +92,16 @@ async fn run_client(
 			None => break, // the room ended
 		};
 		println!("[{nick}] {}: {}", message.from, message.text);
-		if message.system {
-			if let Some(names) = welcome_names(&message.text) {
-				present.extend(names);
+		if let Some(presence) = &message.presence {
+			// Membership arrives as structure: the roster on entry, or a join/leave.
+			if presence.kind == "leave" {
+				for name in &presence.names {
+					present.remove(name);
+				}
+			} else {
+				present.extend(presence.names.iter().cloned());
 			}
-			if let Some(name) = joined_nick(&message.text) {
-				present.insert(name.to_string());
-			}
-		} else {
+		} else if !message.system {
 			present.insert(message.from.clone()); // a line is presence too
 			if roster.contains(&message.from) {
 				seen.insert(message.from.clone());
@@ -173,29 +151,11 @@ async fn main() {
 		None => vec![nick.clone()],
 	};
 
-	// The pancake peer is not `Send`, so the membership task is spawned local;
-	// a `LocalSet` provides the context for it. A deadline keeps a stalled room
-	// from hanging the process.
-	let local = tokio::task::LocalSet::new();
-	let result = local
-		.run_until(async {
-			match tokio::time::timeout(
-				Duration::from_secs(15),
-				run_client(&locator, &room_name, &nick, &line, &roster),
-			)
-			.await
-			{
-				Ok(inner) => inner,
-				Err(_) => Err(format!("{nick} timed out")),
-			}
-		})
-		.await;
-
-	match result {
-		Ok(()) => std::process::exit(0),
-		Err(err) => {
-			eprintln!("client {nick} failed: {err}");
-			std::process::exit(1);
-		}
-	}
+	let result = demo_run::run_with_timeout(
+		&nick,
+		15,
+		run_client(&locator, &room_name, &nick, &line, &roster),
+	)
+	.await;
+	demo_run::exit_on_result(&nick, "client", result);
 }

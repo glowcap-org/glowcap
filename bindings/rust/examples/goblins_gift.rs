@@ -31,6 +31,11 @@ use pancake_rust_dogfood::{listen, Argument, Connection};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
 
+#[path = "../../../interop/_common/rust/helpers.rs"]
+mod helpers;
+
+type Fail = helpers::Fail;
+
 const HOST: &str = "127.0.0.1";
 /// Bob (the Goblins exporter) listens on PORT; Carol binds her own peer on
 /// PORT+1. pancake (the gifter) takes an ephemeral port, the recipient learns it
@@ -45,20 +50,8 @@ const RECIPIENT_SCRIPT: &str = "conformance/goblins-peer/racket/gift-recipient.r
 const GREETER_SWISS: &str = "pancakeGiftGreeterSwissnum000001";
 const INTRODUCER_SWISS: &str = "introducer";
 
-type Fail = Box<dyn std::error::Error>;
-
 fn parse_port() -> Result<u16, Fail> {
-	let mut port = DEFAULT_PORT;
-	for arg in std::env::args().skip(1) {
-		match arg.strip_prefix("--port=") {
-			Some(text) => port = text.parse()?,
-			None => return Err(format!("unknown argument '{arg}'").into()),
-		}
-	}
-	if port > 65534 {
-		return Err("--port must be in 1..65534 (the recipient binds on port+1)".into());
-	}
-	Ok(port)
+	helpers::parse_port(DEFAULT_PORT, 65534)
 }
 
 #[tokio::main(flavor = "current_thread")]

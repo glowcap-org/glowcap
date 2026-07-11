@@ -37,8 +37,8 @@ import process from "node:process";
 import { Node, Ref } from "@pancake/stack";
 import { IrohServer, listenIroh, Reachability } from "@pancake/iroh";
 import { serveDirectory } from "./deno/server.ts";
-import { dial } from "./deno/locator.ts";
-import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "./deno/protocol.ts";
+import { dial } from "./deno/lib/locator.ts";
+import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "./deno/lib/protocol.ts";
 
 const DM_TEXT = "hi Bob, privately, from Carol, over iroh";
 
@@ -72,10 +72,15 @@ async function main(): Promise<void> {
 	// ── Bob (member / exporter): a node-giftable dm inbox on its own endpoint ────
 	const bobInbox: string[] = [];
 	let bobInbound = 0; // every connection Bob accepts, the new-inbound proof
-	const bob = listenIroh(Reachability.Direct);
+	// One seed for Bob's node identity and his endpoint (key unification), so
+	// a dialer that pins the session identity to the dialed node id opens
+	// cleanly.
+	const bobSeed = crypto.getRandomValues(new Uint8Array(32));
+	const bob = listenIroh(Reachability.Direct, bobSeed, new Node(bobSeed));
 	bob.node.publishGiftable("dm", (verb, args) => {
 		if (verb !== DM) throw new Error(`dm has no method ${verb}`);
-		bobInbox.push(String(args[0]));
+		// dm(from, text): the sender names itself, and the text is what we assert on.
+		bobInbox.push(String(args[1]));
 		return null;
 	});
 	const bobAccept = (async () => {
@@ -88,9 +93,11 @@ async function main(): Promise<void> {
 
 	// ── Room (rendezvous / gifter): the real directory, with introductions ───────
 	// One shared node across the listener and the directory behavior, so the
-	// register dial-back and the introduce gift origination present one identity.
-	const roomNode = new Node();
-	const room = listenIroh(Reachability.Direct, undefined, roomNode);
+	// register dial-back and the introduce gift origination present one identity —
+	// seeded with the endpoint's own seed (key unification), as above.
+	const roomSeed = crypto.getRandomValues(new Uint8Array(32));
+	const roomNode = new Node(roomSeed);
+	const room = listenIroh(Reachability.Direct, roomSeed, roomNode);
 	const roomServe = serveDirectory(room, roomNode);
 	const roomUri = await dialableUri(room, "Room");
 
@@ -138,7 +145,7 @@ async function main(): Promise<void> {
 		);
 	}
 
-	await carol.send(introduced, DM, [DM_TEXT]);
+	await carol.send(introduced, DM, ["Carol", DM_TEXT]);
 	await until(
 		() => bobInbox.includes(DM_TEXT),
 		"Bob to receive Carol's direct DM",

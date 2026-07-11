@@ -38,6 +38,19 @@ pub struct PancakeIrohReadyEvent {
 	pub events: u32,
 }
 
+// Pin the hand-mirrored layout on LP64 (the linux x86_64/aarch64 targets the
+// gates run), the same posture as `sys::driver`'s action pin: a field added or
+// reordered on either side moves an offset and fails the build loudly instead
+// of misrouting the first drained record. Provenance:
+// include/pancake_net_transport_iroh.h `PancakeIrohReadyEvent`, whose C layout
+// on LP64 is conn@0, events@8 (4 tail pad), 16 bytes total.
+const _: () = {
+	use core::mem::{offset_of, size_of};
+	assert!(size_of::<PancakeIrohReadyEvent>() == 16);
+	assert!(offset_of!(PancakeIrohReadyEvent, conn) == 0);
+	assert!(offset_of!(PancakeIrohReadyEvent, events) == 8);
+};
+
 extern "C" {
 	pub fn pancake_iroh_netlayer_new(
 		secret_seed: *const c_uchar,

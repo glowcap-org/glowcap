@@ -35,8 +35,19 @@
     "source=pancake-zig-deno-cache,target=/home/vscode/.cache/deno,type=volume",
     "source=pancake-zig-npm-cache,target=/home/vscode/.cache/npm,type=volume",
     "source=pancake-zig-pip-cache,target=/home/vscode/.cache/pip,type=volume",
-    "source=pancake-zig-zig-cache,target=/home/vscode/.cache/zig,type=volume"
+    "source=pancake-zig-zig-cache,target=/home/vscode/.cache/zig,type=volume",
+    // Host tool configs the editor does NOT already share, bind-mounted so their
+    // login/state comes from the host and survives a rebuild: Claude (skills,
+    // memory, login) and the GitHub CLI login. Each resolves per-user through
+    // ${localEnv:HOME}, and "initializeCommand" pre-creates the host path so the
+    // bind never materializes a root-owned empty. git and SSH are intentionally
+    // absent: VS Code / Cursor already copy ~/.gitconfig and forward the host SSH
+    // agent. See .devcontainer/README.md ("Sharing host configuration") for the
+    // full rationale and the git/SSH/GPG/gh-keyring notes.
+    "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
+    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind"
   ],
+  "initializeCommand": "mkdir -p ${localEnv:HOME}/.claude ${localEnv:HOME}/.config/gh",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "customizations": {
     "vscode": {

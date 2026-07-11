@@ -34,8 +34,9 @@ import {
 } from "../internal/constants.ts";
 import { tcpS } from "../internal/ffi/tcp.ts";
 import { ffi, NULL, type Ptr } from "../internal/ffi/runtime.ts";
-import { outPointer, readBytes, releaseManagedFrame } from "../internal/seam.ts";
-import { type Codec, codecId, PancakeError } from "../mod.ts";
+import { outPointer, readBytes, readErrorSlot, releaseManagedFrame } from "../internal/seam.ts";
+import { type Codec, codecId } from "../value.ts";
+import { PancakeError } from "../errors.ts";
 
 const OK = 0;
 
@@ -43,13 +44,7 @@ const OK = 0;
 // none. The transport keeps its own thread-local slot, so a tcp call's
 // diagnostic is read here, never from the core's `pancake_last_error`.
 function tcpLastError(): string | null {
-	const len = Number(tcpS.pancake_tcp_last_error(null, 0n));
-	if (len === 0) return null;
-	const buf = new Uint8Array(len + 1);
-	const written = Number(tcpS.pancake_tcp_last_error(buf, BigInt(buf.length)));
-	return new TextDecoder().decode(
-		buf.subarray(0, Math.min(written, buf.length)),
-	);
+	return readErrorSlot(tcpS.pancake_tcp_last_error);
 }
 
 // A failed TCP-transport call: read its diagnostic from the transport's own

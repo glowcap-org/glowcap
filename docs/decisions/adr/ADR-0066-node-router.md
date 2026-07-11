@@ -202,9 +202,9 @@ state, superseding the `Machine` / `NodeHandle` identifiers used above.
   doc's "binding `Node`" as this handle and "`engine.Node`" as the sans-io router
   it wraps.
 - **The gifter origination recipe is sunk too.** Beyond the recipient withdraw
-  (`pancake_node_send_withdraw`), the gifter side is now one core call,
-  `engine.Node.originateGive` projected as `pancake_node_originate_give`: it
-  deposits the gift on the exporter, builds the signed `desc:handoff-give`, and
+  (`pancake_peer_send_withdraw_gift`), the gifter side is now one core call,
+  `engine.Node.originateGive` projected through the `pancake_node_*` serve step:
+  it deposits the gift on the exporter, builds the signed `desc:handoff-give`, and
   queues its resolution on the recipient. Each binding's origination interceptor
   shrinks to that call plus its own flush; the duplicated build-and-sign glue is
   deleted. Native proof is hermetic (`test/engine/node_test.zig`) plus the live

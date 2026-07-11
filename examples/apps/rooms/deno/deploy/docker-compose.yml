@@ -1,0 +1,69 @@
+# Serve the rooms browser demo over iroh from a light, toolchain-free container,
+# reachable through an existing cloudflared tunnel on a shared Docker network.
+#
+# Prerequisites, once, in the dev container — they produce the shared libraries
+# this image loads:
+#
+#     zig build && zig build iroh-abi     # -> zig-out/lib/libpancake_ocapn.so
+#                                         #    + libpancake_net_transport_iroh.so
+#
+# Then, from this directory:
+#
+#     docker compose up -d --build
+#
+# The browser reaches the page and its WebSocket over cloudflared; iroh runs
+# entirely inside the container (the bridge and the spawned directory talk over
+# loopback QUIC), so no UDP ports are exposed and cloudflared only needs 8000.
+# Point one ingress rule at it, next to your other services:
+#
+#     - hostname: rooms.<your-domain>
+#       service: http://pancake-rooms:8000
+#
+# then `cloudflared tunnel route dns <tunnel> rooms.<your-domain>`.
+
+services:
+  rooms:
+    build:
+      # No local build context is needed — the image is the official Deno binary on
+      # a debian base (see rooms.Dockerfile). Source and .so arrive as runtime mounts.
+      context: .
+      dockerfile: rooms.Dockerfile
+    image: pancake-rooms:local
+    container_name: pancake-rooms
+    working_dir: /repo
+    # web.ts serves the page and the /ws bridge on 8000 and spawns the iroh room
+    # directory itself. -A --unstable-ffi is what the iroh transport needs; the
+    # spawned child inherits it, so PANCAKE_LIB_DIR resolves for both.
+    command:
+      - run
+      - -A
+      - --unstable-ffi
+      - examples/apps/rooms/deno/web.ts
+      - "8000"
+      - --transport=iroh
+    environment:
+      # Where the binding finds the prebuilt shared libraries (load.ts's first rung).
+      PANCAKE_LIB_DIR: /libs
+      DENO_DIR: /deno-dir
+    volumes:
+      # The TypeScript source and the prebuilt .so, both read-only mounts — neither
+      # is baked into the image. Build the .so in the dev container first (above).
+      - ../../../../..:/repo:ro
+      - ../../../../../zig-out/lib:/libs:ro
+      # A writable module cache, since the source mount is read-only.
+      - rooms-deno-cache:/deno-dir
+    restart: unless-stopped
+    networks:
+      - external-network
+
+networks:
+  # The external network your reverse proxy already shares with its other services,
+  # so this container is reachable by name. Set ROOMS_EXTERNAL_NET in a local .env
+  # (copy .env.example) to your real network name; the default below is a neutral
+  # placeholder. .env is gitignored, so infrastructure names stay out of the repo.
+  external-network:
+    name: ${ROOMS_EXTERNAL_NET:-external-network}
+    external: true
+
+volumes:
+  rooms-deno-cache:

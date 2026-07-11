@@ -11,24 +11,20 @@
 //! `std.Io` and the actor turn loop at the same time. It is not part of the
 //! no-I/O core.
 //!
-//! The driver reaches a transport two ways. `connectTcp` and `acceptTcp` are
-//! the tcp-named conveniences that pick tcp explicitly. `connectVia` and
-//! `acceptVia` take a `[]const net.netlayer.Netlayer` and dispatch on the
-//! locator's transport symbol at runtime. A transport the driver never names can
-//! dial and host through the same code once its netlayer is in the slice. There is no
-//! `TcpVat`, and `ConnectedVat` itself is transport-neutral: a caller that already
-//! holds a `net.Connection` over any stream uses `ConnectedVat.over`
-//! directly.
-//!
-//! This file is the driver root: the vocabulary every driver embedding shares
-//! (`Error`, `Identity`, `Capability`, `Settled`, `ServeOptions`) and the verbs
-//! the surfaces ride once, `publishNamed`, `spawnAt`, `sendBootstrapFetch`, and
-//! the `drawSessionSecret` entropy boundary. The surfaces themselves live in
-//! sibling files and are re-exported here, so every driver surface is reached
-//! through this one root: the borrowing, caller-pumped `ConnectedVat` and its
-//! transport constructors in `connected_vat.zig`; the owning, one-call
-//! `Connection`/`Server` host and client in `connection.zig`; and the
-//! completion-loop fan-out drivers `LoopHost` and `LoopDialer` in `loop.zig`.
+//! The sans-io half of the driver — the serve core `Served` (which carries the
+//! publish/spawn/fetch verbs), its `ServeOptions`, and the shared vocabulary
+//! (`Error`, `Identity`, `Capability`, `Settled`) — lives one layer down in
+//! `driver_core`, which `arch-check` bans from touching I/O. This root
+//! re-exports them so callers keep reaching them as `driver.Served`,
+//! `driver.Error`, and so on, and adds the I/O members that must stay above the
+//! ban: the `drawSessionSecret` entropy boundary and the transport surfaces
+//! themselves. The surfaces live in sibling files and are re-exported here, so
+//! every driver surface is reached through this one root: the borrowing,
+//! caller-pumped `ConnectedVat` and its transport constructors in
+//! `connected_vat.zig`, and the owning, one-call `Connection`/`Server` host
+//! and client in `connection.zig`. Zig-owned fan-out at scale is the byte-fed
+//! `driver.core.Host` under whatever loop feeds it; the iroh netlayer ships
+//! one such loop (`iroh.LoopHost`).
 
 const std = @import("std");
 
@@ -36,191 +32,48 @@ const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
 const actors = @import("actors");
+const driver_core = @import("driver_core");
 
-pub const crossed_hellos = @import("crossed_hellos.zig");
-pub const gc = @import("gc.zig");
+/// The sans-io driver core layer (`driver_core`), re-exported whole so a
+/// consumer can reach the byte-fed host core and its vocabulary as
+/// `driver.core.Host`, `driver.core.HostAction`, and so on — the layer the
+/// blocking `Host` below is a socket loop over.
+pub const core = driver_core;
 
-const loop = @import("loop.zig");
-/// The completion-loop hosting fan-out (see `loop.zig`), re-exported so callers
-/// keep reaching it as `driver.LoopHost`.
-pub const LoopHost = loop.LoopHost;
-/// The completion-loop client fan-out (see `loop.zig`), re-exported so callers
-/// keep reaching it as `driver.LoopDialer`.
-pub const LoopDialer = loop.LoopDialer;
+// The sans-io serve core, vocabulary, and shared verbs live in `driver_core`
+// (I/O-banned by arch-check); re-exported so callers keep reaching them as
+// `driver.Served`, `driver.Error`, `driver.Capability`, and so on.
+pub const Served = driver_core.Served;
+pub const ServeOptions = driver_core.ServeOptions;
+pub const BeforeServeHook = driver_core.BeforeServeHook;
+pub const makeKeyedPeer = driver_core.makeKeyedPeer;
+pub const Error = driver_core.Error;
+pub const SettleCapture = driver_core.SettleCapture;
+pub const SettleFlag = driver_core.SettleFlag;
+pub const FetchCapture = driver_core.FetchCapture;
+pub const Identity = driver_core.Identity;
+pub const AcceptIdentity = driver_core.AcceptIdentity;
+pub const Vow = driver_core.Vow;
+pub const Capability = driver_core.Capability;
+pub const Settled = driver_core.Settled;
+pub const unreachable_client_designator = driver_core.unreachable_client_designator;
+/// The turn-time spawn-at-export verb (see `driver_core`'s `spawnAt`): a
+/// behavior handler holds only `turn.vat`, so this free form exists alongside
+/// `Served.spawn` for exactly that caller.
+pub const spawnAt = driver_core.spawnAt;
 
 const crypto = foundation.crypto;
-
-pub const Error = error{
-    /// A `fetch` ran to a clean connection close before the capability resolved.
-    ConnectionClosed,
-    /// A `fetch` settled broken: the partner answered the bootstrap fetch with a
-    /// break (an unpublished name, a refused handoff). The break reason is
-    /// turn-borrowed and not retained here; a caller that needs it uses
-    /// `ConnectedVat.fetchSettled`, which returns the reason in caller-owned
-    /// memory.
-    FetchBroken,
-    /// A `fetch` fulfilled with something other than a far capability, so there
-    /// is no reference to return.
-    FetchNotACapability,
-    /// The OS entropy source could not fill the session seed for the handshake.
-    HandshakeEntropyFailed,
-    /// A shared driver verb (`publishNamed`, `spawnAt`, `sendBootstrapFetch`)
-    /// was given a vat with no bound peer; only a peer-bound vat can export or
-    /// fetch over the wire.
-    NotConnected,
-    /// A locator named a transport no registered netlayer hosts.
-    UnknownTransport,
-    /// `callReference` was given a target that is not an eventual-send target:
-    /// a `sturdy`, `broken`, or bare `promise` reference. Only a near (local
-    /// export) or far (partner-hosted) object reference is callable.
-    UncallableTarget,
-    /// The promise is vat-local: pipelining rides a wire answer, and a local
-    /// promise has none. Await it and send to the settled value instead.
-    NotPipelineable,
-};
-
-/// The `tcp` designator a dialer that does not itself listen signs as its own
-/// dialable address: a placeholder no partner can reach. A dialer advertises
-/// this because the keyed session's identity is its signing key, not its
-/// address, so a partner verifies the signature over these bytes rather than
-/// dialing them back. Every never-listening dialer signs the one value —
-/// `ConnectedVat.openKeyedSession`, `LoopDialer`, and a `Host` that never
-/// binds a listener — so the placeholder never drifts between them.
-pub const unreachable_client_designator = "127.0.0.1:0";
 
 /// Draw a fresh random session secret from `io` at the I/O boundary, never in the
 /// no-I/O core. The raw seed is wiped off the stack after `fromSeed` consumes it,
 /// so the ephemeral secret does not linger. The `ConnectedVat` handshake halves
-/// and the loop drivers' identity keys (`LoopHost`, `LoopDialer`) use this one
-/// entropy boundary.
+/// and the blocking host tier's identity key use this one entropy boundary.
 pub fn drawSessionSecret(io: std.Io) Error!crypto.SecretKey {
     var seed: [crypto.SEED_BYTES]u8 = undefined;
     defer std.crypto.secureZero(u8, &seed);
     io.randomSecure(&seed) catch return Error.HandshakeEntropyFailed;
     return crypto.SecretKey.fromSeed(seed);
 }
-
-/// The identity a driver half signs its keyed `op:start-session` with. Every
-/// transport-neutral dial (`connectVia`) and accept (`acceptVia`) carries one
-/// explicitly — there is no implicit default key. The two arms make the only two
-/// postures unrepresentable as each other: an ephemeral dialer has no
-/// stable designator to advertise, and a keyed peer always names the designator
-/// its key is reachable as.
-pub const Identity = union(enum) {
-    /// Draw a fresh random session key at the I/O boundary for this one
-    /// session. The ordinary client posture: a dialer that does not itself
-    /// listen advertises no dialable designator of its own. On accept, the
-    /// listener's bound designator is still signed — a host is always reachable.
-    ephemeral,
-    /// Sign the handshake with a caller-held `secret` and advertise
-    /// `designator` as the caller's own dialable designator. Under key
-    /// unification `secret` is the secret half of the key the netlayer endpoint
-    /// is built on and `designator` is that endpoint's node id, so the partner's
-    /// verified session pubkey equals the transport node id equals the signed
-    /// designator — one key is transport identity, locator designator, and
-    /// session signing key at once.
-    keyed: struct { secret: crypto.SecretKey, designator: []const u8 },
-
-    /// The dialable designator a *dialer* advertises for this identity: empty
-    /// for an ephemeral client, the keyed designator otherwise. A host's
-    /// designator comes from its listener, not from here.
-    pub fn dialedDesignator(self: Identity) []const u8 {
-        return switch (self) {
-            .ephemeral => "",
-            .keyed => |k| k.designator,
-        };
-    }
-};
-
-/// The responder's signing posture for `listen` / `acceptVia`. An accepting
-/// host always signs its listener's own bound designator — the address a
-/// partner can actually dial — so unlike the dialer's `Identity` there is no
-/// designator to carry: `ephemeral` draws a fresh key per accepted session,
-/// and `keyed` signs with the caller-held secret (a handoff exporter that must
-/// present one stable key across sessions, or key unification where the
-/// secret is the netlayer endpoint's own key).
-pub const AcceptIdentity = union(enum) {
-    ephemeral,
-    keyed: crypto.SecretKey,
-};
-
-/// A handle to the eventual result of a `Connection.send` / `sendToAnswer` —
-/// `actors.Promise`, re-exported so a consumer holding only the driver
-/// vocabulary (the C ABI session archive) can name it without reaching into the
-/// actor layer. `settlePromise` drives it to a `Settled`.
-pub const Promise = actors.Promise;
-
-/// A capability to a local actor this vat hosts. Pass it to a partner as a
-/// `send` argument, and use it locally too: `ref` is the vat-local reference,
-/// so the application can near-call or `send` to the actor it just published
-/// or spawned without redoing vat bookkeeping. `nearRef()` returns the
-/// explicit wire reference the export position marshals to, so the Zig
-/// surface keeps that conversion visible rather than implicit.
-pub const Capability = struct {
-    /// The export position the session allocated for this actor.
-    position: u64,
-    /// The vat-local reference to the same actor, for local sends and calls.
-    ref: actors.Ref,
-
-    /// The explicit wire reference this capability marshals to: a near object
-    /// at `position`.
-    pub fn nearRef(self: Capability) model.Reference {
-        return .{ .near = model.NearRef.object(self.position) };
-    }
-
-    /// The capability as a ready-to-send argument, so handing a partner a
-    /// callback reads `.args = &.{ cap.arg() }`. This is `nearRef` wrapped in
-    /// the `.reference` argument arm.
-    pub fn arg(self: Capability) model.Argument {
-        return .{ .reference = self.nearRef() };
-    }
-};
-
-/// How a `call` (or `fetchSettled`) settled. Both arms are materialized into
-/// the caller-supplied allocator — typically an arena the caller resets — so
-/// nothing in the result borrows the turn that settled it. A caller that used
-/// a plain allocator instead of an arena frees the result with `deinit`.
-pub const Settled = union(enum) {
-    fulfilled: model.Argument,
-    broken: []const u8,
-    /// The answer fulfilled with a three-party introduction: a signed
-    /// `desc:handoff-give` addressed to this connection's session key. Redeem
-    /// it with `Host.redeem` to reach the capability; the payload is
-    /// materialized into the call's allocator like any other outcome.
-    give: actors.Give,
-
-    /// Free what `call` / `fetchSettled` materialized into `allocator`: the
-    /// fulfilled argument's deep clone, the broken reason's dupe, or the
-    /// give projection's three byte slices. A caller that settled into an
-    /// arena it resets never needs this.
-    pub fn deinit(self: Settled, allocator: std.mem.Allocator) void {
-        switch (self) {
-            .fulfilled => |argument| model.freeArgument(allocator, argument),
-            .broken => |reason| allocator.free(reason),
-            .give => |give| {
-                allocator.free(give.give_bytes);
-                allocator.free(give.exporter_locator_uri);
-                allocator.free(give.recipient_key);
-            },
-        }
-    }
-};
-
-/// A hook run before the vat serves each drained event. Return true to claim
-/// the event and skip the vat's serve dispatch; a hook error propagates out of
-/// `step` / `flush` / `stepReadable`.
-pub const BeforeServeHook = *const fn (ctx: ?*anyopaque, cv: *ConnectedVat, event: *engine.Event) anyerror!bool;
-
-/// Adapter options for a live connection. Crossed-hellos and stateless GC are
-/// driver policy, not CapTP semantics added below the engine.
-pub const ServeOptions = struct {
-    crossed_hellos: ?*crossed_hellos.Registry = null,
-    /// Emit `op:gc-exports` / `op:gc-answers` after each inbound deliver/resolve
-    /// the vat does not retain imports from.
-    gc_stateless: bool = false,
-    hook_ctx: ?*anyopaque = null,
-    before_serve: ?BeforeServeHook = null,
-};
 
 const connected_vat = @import("connected_vat.zig");
 /// The borrowing, caller-pumped vat surface and the transport constructors that
@@ -240,15 +93,24 @@ pub const acceptVia = connected_vat.acceptVia;
 /// shared gift registry, and the redeemed-token / foreign-home routing tables
 /// that make three-party handoff transparent; the vat stays above it.
 pub const Node = engine.Node;
-/// The native multi-connection tier (ADR-0066/0067): one identity, one node,
-/// many connections; `Host.redeem` is the blocking recipient executor over the
-/// node serve step. The decisions live in `Node`; the host executes them.
-pub const host = @import("host.zig");
-pub const Host = host.Host;
-pub const HostConnection = host.HostConnection;
+/// The native multi-connection tier: the blocking I/O binding over the
+/// sans-io host core (`driver.core.Host`, ADR-0072). The decisions — routing,
+/// give origination, auto-redeem, crossed-hellos — live in the core; this
+/// tier owns the sockets, the blocking pumps, and the entropy boundary, and
+/// answers the core's action queue the way every language binding does.
+const host = @import("host.zig");
+pub const BlockingHost = host.BlockingHost;
 /// A `Node` connection handle (`engine.ConnId`), re-exported so embedders name an
 /// exporter/recipient connection as `driver.ConnId`.
 pub const ConnId = engine.ConnId;
+
+const loop_bridge = @import("loop_bridge.zig");
+/// The `net.Loop` → byte-fed `driver.core.Host` bridge (see
+/// `loop_bridge.zig`): one completion-loop thread serving a full
+/// multi-connection node — cross-connection flushes armed through
+/// `Loop.armOutbound`, the budgeted drive, and the host's action queue
+/// answered at this tier's entropy boundary (ADR-0076).
+pub const LoopBridge = loop_bridge.LoopBridge;
 
 const connection = @import("connection.zig");
 /// The owning, one-call application connection `connect`/`listen` hand back
@@ -260,51 +122,3 @@ pub const ConnectionOptions = connection.ConnectionOptions;
 pub const connect = connection.connect;
 pub const connectUriOwned = connection.connectUriOwned;
 pub const listen = connection.listen;
-
-/// Publish `Behavior` on `vat` (which must be peer-bound) so a partner can
-/// `fetch` it by `name` (name first, matching every binding's `publish`). This
-/// is the `registerBootstrapCap`, spawn, and publish sequence, factored so the
-/// connection-per-thread `ConnectedVat` and the loop host share one
-/// definition. Returns the capability at its allocated export position,
-/// carrying the vat-local `ref` so the publisher can keep talking to its own
-/// actor.
-pub fn publishNamed(vat: *actors.Vat, name: []const u8, comptime Behavior: type, initial: Behavior) !Capability {
-    const peer = vat.peer orelse return Error.NotConnected;
-    const position = try peer.registerBootstrapCap(name);
-    const ref = try vat.spawn(Behavior, initial);
-    try vat.bindExport(ref, position);
-    return .{ .position = position, .ref = ref };
-}
-
-/// Spawn `initial` on `vat` (which must be peer-bound) at a fresh export
-/// position and return a capability to it. The position comes from the session's
-/// one export allocator — the counter that also mints resolver and bootstrap
-/// exports — so a spawned actor can never alias a position the session hands out
-/// for anything else. The export is live the moment this returns: the partner
-/// can invoke the capability whether or not the caller has sent it the
-/// reference. An actor that must stay unreachable until granted is spawned with
-/// `Vat.spawn`, which mints no export. `ConnectedVat.spawn` and
-/// `LoopDialer.Client.spawn` share this one definition, the same way
-/// `publishNamed` is shared.
-pub fn spawnAt(vat: *actors.Vat, comptime Behavior: type, initial: Behavior) !Capability {
-    const peer = vat.peer orelse return Error.NotConnected;
-    const position = try peer.exportNextObject();
-    const ref = try vat.spawn(Behavior, initial);
-    try vat.bindExport(ref, position);
-    return .{ .position = position, .ref = ref };
-}
-
-/// Enqueue the bootstrap `fetch` for `name` on `vat` (which must be peer-bound)
-/// and return the promise of the partner's answer: import the well-known
-/// bootstrap export, then eventual-send `fetch(name)` to it. This is the one
-/// definition of the bootstrap-fetch deliver shape. `ConnectedVat.fetch`
-/// drives the returned promise to settlement; `LoopDialer.Client.fetch` hands
-/// it to the completion loop.
-pub fn sendBootstrapFetch(vat: *actors.Vat, name: []const u8) !actors.Promise {
-    const peer = vat.peer orelse return Error.NotConnected;
-    try peer.importObject(engine.BOOTSTRAP_POSITION);
-    return vat.send(
-        .{ .far = model.FarRef.object(engine.BOOTSTRAP_POSITION) },
-        .{ .verb = "fetch", .args = &.{.{ .bytes = name }} },
-    );
-}

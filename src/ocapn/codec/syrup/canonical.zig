@@ -32,10 +32,7 @@ pub fn canonicalLocationSignedBytes(
     allocator: std.mem.Allocator,
     location: model.PeerLocator,
 ) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    try encode.writeMyLocationRecord(allocator, &out, location);
-    return out.toOwnedSlice(allocator);
+    return encode.renderRecordExact(allocator, encode.writeMyLocationRecord, .{ allocator, location });
 }
 
 /// As `canonicalLocationSignedBytes`, but wraps the *exact received*
@@ -47,10 +44,7 @@ pub fn canonicalLocationSignedBytesRaw(
     allocator: std.mem.Allocator,
     location_record_bytes: []const u8,
 ) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    try encode.writeMyLocationRecordRaw(allocator, &out, location_record_bytes);
-    return out.toOwnedSlice(allocator);
+    return encode.renderRecordExact(allocator, encode.writeMyLocationRecordRaw, .{location_record_bytes});
 }
 
 /// Canonical signed bytes for a `desc:handoff-give`: the Syrup encoding of the
@@ -67,10 +61,7 @@ pub fn canonicalHandoffGiveSignedBytes(
     if (give.raw_signed) |raw| {
         return handoffGiveSignedPayloadBytes(allocator, raw);
     }
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    try encode.writeHandoffGiveRecord(allocator, &out, give);
-    return out.toOwnedSlice(allocator);
+    return encode.renderRecordExact(allocator, encode.writeHandoffGiveRecord, .{give});
 }
 
 /// Build the inner `<desc:handoff-give …>` record taking the exporter location as
@@ -85,18 +76,13 @@ pub fn handoffGiveRecordBytesRawLocation(
     gifter_side: []const u8,
     gift_id: []const u8,
 ) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    try encode.writeHandoffGiveRecordRawLocation(
-        allocator,
-        &out,
+    return encode.renderRecordExact(allocator, encode.writeHandoffGiveRecordRawLocation, .{
         recipient_key,
         exporter_location_raw,
         gifter_exporter_session,
         gifter_side,
         gift_id,
-    );
-    return out.toOwnedSlice(allocator);
+    });
 }
 
 /// Wrap an inner `desc:handoff-give` record and its 64-byte signature into the
@@ -107,10 +93,7 @@ pub fn wrapSignedHandoffGive(
     give_record: []const u8,
     signature: []const u8,
 ) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    try encode.writeSigEnvelope(allocator, &out, give_record, signature);
-    return out.toOwnedSlice(allocator);
+    return encode.renderRecordExact(allocator, encode.writeSigEnvelope, .{ give_record, signature });
 }
 
 /// Canonical signed bytes for a `desc:handoff-receive`: the Syrup encoding of the
@@ -123,10 +106,7 @@ pub fn canonicalHandoffReceiveSignedBytes(
     allocator: std.mem.Allocator,
     receive: model.HandoffReceive,
 ) ![]u8 {
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(allocator);
-    try encode.writeHandoffReceiveRecord(allocator, &out, receive);
-    return out.toOwnedSlice(allocator);
+    return encode.renderRecordExact(allocator, encode.writeHandoffReceiveRecord, .{receive});
 }
 
 /// Recover the inner `<desc:handoff-give …>` payload bytes from a verbatim signed

@@ -29,7 +29,9 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const engine = pancake.ocapn.engine;
+const foundation = pancake.foundation;
 const LiveBytesAllocator = @import("../support/alloc_metrics.zig").LiveBytesAllocator;
+const copyFromBorrowed = @import("../support/frame.zig").copyFromBorrowed;
 
 /// One inbound `op:deliver` to live local export 7 carrying one inline bytes
 /// argument. Driving it once grows a peer's event/queue and table backing arrays
@@ -95,6 +97,52 @@ test "a warmed session holds its per-connection footprint budget" {
         std.debug.print(
             "footprint regression: warmed session is {d} B/conn (struct {d} + heap {d}), over the {d}-byte budget, see docs/ladder.md rung 2\n",
             .{ bytes_per_conn, @sizeOf(engine.Peer), heap_per_peer, warmed_total_budget_bytes },
+        );
+        return error.FootprintBudgetExceeded;
+    }
+}
+
+test "a burst-drained session releases its burst queue capacity back under the warmed budget" {
+    // One chatty chunk must not pin its burst capacity for the connection's
+    // life: the engine queues retain steady capacity on drain-reset but *free*
+    // anything above their steady bound (`Queue.steady_queue_bytes`), so a
+    // peer that has weathered a burst settles back to warmed size. Kilobytes
+    // pinned per queue would be gigabytes at the 500k destination.
+    const backing = std.testing.allocator;
+    var tracker = LiveBytesAllocator{ .backing = backing };
+    const tracked = tracker.allocator();
+
+    var peer = engine.Peer.init(tracked);
+    defer peer.deinit();
+    try warmPeer(&peer);
+
+    // One burst: many small delivers fed as a single owned batch, then fully
+    // drained — frames through `step`, events through `pollEvent`, encoded
+    // output through `takeOutbound` — so every queue crosses its drain-reset.
+    const burst = 512;
+    for (0..burst) |_| {
+        const frame = try copyFromBorrowed(tracked, deliver_to_live_export, .byte);
+        try peer.feedOwned(frame);
+    }
+    while ((try peer.step()) != .idle) {}
+    while (peer.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
+    }
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        frame.deinit();
+    }
+
+    // The single tracked owner is this peer, so live bytes are its exact
+    // retained heap: the warmed session tables plus whatever queue capacity
+    // survived the drain. The same 2 KiB budget the warmed test holds applies;
+    // pinned burst capacity would blow it several times over.
+    const bytes_per_conn = @sizeOf(engine.Peer) + tracker.liveBytes();
+    if (bytes_per_conn > warmed_total_budget_bytes) {
+        std.debug.print(
+            "burst-drain regression: session retains {d} B/conn after a {d}-frame burst, over the {d}-byte budget\n",
+            .{ bytes_per_conn, burst, warmed_total_budget_bytes },
         );
         return error.FootprintBudgetExceeded;
     }

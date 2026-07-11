@@ -4,8 +4,10 @@
 //! defined once in libpancake_ocapn's `pancake_uri_*` / `pancake_locator_*` surface, so
 //! the Rust binding hand-rolls no percent codec and reaches the same grammar a
 //! TCP-only consumer does. [`parse_locator`] copies every borrowed view into an
-//! owned [`Locator`] before releasing the handle; [`format_peer_uri`] renders
-//! through the same grammar.
+//! owned [`Locator`] before releasing the handle; [`format_peer_uri`],
+//! [`tcp_locator`], and [`encode_peer_locator`] render through the same
+//! grammar. All of it is pure grammar over the always-linked core, so the whole
+//! module is available in every build, transports and async aside.
 
 use std::collections::BTreeMap;
 
@@ -186,4 +188,52 @@ pub fn format_peer_uri(
 		}
 		return Err(Error::from_code(rc));
 	}
+}
+
+/// Build a `tcp` locator from a literal host and port: `ocapn://host:port.tcp`,
+/// rendered through the core grammar. The convenience for the common case — a
+/// caller holding a host and port passes `connect(&tcp_locator(host, port))`
+/// instead of hand-formatting the URI. `host:port` is not a dial of its own; it
+/// is a locator like any other.
+pub fn tcp_locator(host: &str, port: u16) -> String {
+	format_peer_uri("tcp", &format!("{host}:{port}"), &BTreeMap::new())
+		.expect("a tcp host:port locator always formats through the core grammar")
+}
+
+/// Build the verbatim exporter location-record bytes a gifter embeds in a give
+/// when the exporter is reachable only by a dial hint (ADR-0009) — the
+/// construct-it-yourself counterpart of the partner's signed session record, for
+/// an exporter whose own record carries no hint. `transport`/`designator` name
+/// the exporter; a non-empty `direct_addresses` (comma-separated socket
+/// addresses) adds a `direct-addresses` hint so a cross-process recipient dials
+/// it directly with no discovery service (an iroh exporter reachable only by
+/// address). The result feeds `Connection::set_exporter_locator`. An empty
+/// `direct_addresses` yields a hint-less location identical to the exporter's own
+/// signed record, so a TCP or discovery-reachable exporter needs no override.
+pub fn encode_peer_locator(
+	transport: &str,
+	designator: &str,
+	direct_addresses: &str,
+) -> Result<Vec<u8>> {
+	let mut out: *mut u8 = core::ptr::null_mut();
+	let mut out_len: usize = 0;
+	check(unsafe {
+		sys::pancake_encode_peer_locator(
+			transport.as_ptr(),
+			transport.len(),
+			designator.as_ptr(),
+			designator.len(),
+			direct_addresses.as_ptr(),
+			direct_addresses.len(),
+			&mut out,
+			&mut out_len,
+		)
+	})?;
+	let bytes = if out.is_null() || out_len == 0 {
+		Vec::new()
+	} else {
+		unsafe { core::slice::from_raw_parts(out, out_len) }.to_vec()
+	};
+	unsafe { sys::pancake_peer_locator_bytes_release(out, out_len) };
+	Ok(bytes)
 }

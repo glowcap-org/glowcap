@@ -87,7 +87,7 @@ pub const SlotTable = struct {
         };
         if (delta > entry.*) return Error.GcUnderflow;
         entry.* -= delta;
-        if (entry.* == 0) _ = self.counts.remove(position);
+        if (entry.* == 0) std.debug.assert(self.counts.remove(position));
     }
 };
 
@@ -103,7 +103,7 @@ pub const SlotTable = struct {
 pub const ExportTable = struct {
     slots: SlotTable = .empty,
 
-    pub const Id = model.ExportId;
+    pub const Id = model.ExportPosition;
     pub const Error = SlotTable.Error;
     pub const empty: ExportTable = .{};
 
@@ -123,14 +123,28 @@ pub const ExportTable = struct {
         return self.slots.count(position.int());
     }
 
+    /// Wire-held references to `position`: the refcount minus the local
+    /// baseline every live export row carries. This is the most a partner's
+    /// `op:gc-exports` may release — validating inbound GC against `count`
+    /// instead would let a hostile over-release delete the row and with it
+    /// our own live capability.
+    pub fn wireHeld(self: *const ExportTable, position: Id) u64 {
+        const total = self.slots.count(position.int());
+        return if (total == 0) 0 else total - 1;
+    }
+
     /// Install `position` live at count 1 if absent; idempotent otherwise.
     pub fn register(self: *ExportTable, allocator: std.mem.Allocator, position: Id) !void {
         return self.slots.register(allocator, position.int());
     }
 
-    /// Take one wire reference to a locally-minted export (resolver callbacks
-    /// and the like): insert at count 1, or increment an already-live row.
+    /// Take one wire reference — or one explicit addressability grant — on a
+    /// live export row. Callers install the local baseline first (`register`),
+    /// so every export row's count stays baseline plus wire-held; retaining an
+    /// absent row would mint a baseline-less count that `wireHeld` misreads,
+    /// hence the assert.
     pub fn retain(self: *ExportTable, allocator: std.mem.Allocator, position: Id) !void {
+        std.debug.assert(self.slots.contains(position.int()));
         return self.slots.retain(allocator, position.int());
     }
 
@@ -150,7 +164,7 @@ pub const ExportTable = struct {
 pub const ImportTable = struct {
     slots: SlotTable = .empty,
 
-    pub const Id = model.ImportId;
+    pub const Id = model.ImportPosition;
     /// Adding a new import row can hit the partner-import cap; everything else
     /// an import table does (decrement, lookup) shares `SlotTable`'s errors.
     pub const RetainError = std.mem.Allocator.Error || error{ImportCapExceeded};
@@ -169,6 +183,14 @@ pub const ImportTable = struct {
     }
 
     pub fn count(self: *const ImportTable, position: Id) u64 {
+        return self.slots.count(position.int());
+    }
+
+    /// Wire-held references to `position`. An import carries no local
+    /// baseline — every reference is one the wire introduced — so this is
+    /// exactly `count`; it exists so GC validation reads one name across
+    /// both tables.
+    pub fn wireHeld(self: *const ImportTable, position: Id) u64 {
         return self.slots.count(position.int());
     }
 

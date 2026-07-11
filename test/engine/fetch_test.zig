@@ -21,7 +21,7 @@ test "prepareFetchSwissnum builds the canonical bootstrap-fetch deliver (PreSpec
     const deliver = prepared.message.deliver;
     try std.testing.expect(deliver.target == .far);
     try std.testing.expectEqual(session.BOOTSTRAP_POSITION, deliver.target.far.import_position.int());
-    try std.testing.expectEqual(@as(?model.AnswerId, prepared.answer_position), deliver.answer);
+    try std.testing.expectEqual(@as(?model.AnswerPosition, prepared.answer_position), deliver.answer);
     try std.testing.expect(deliver.resolve_me_desc == null);
     try std.testing.expectEqual(@as(usize, 2), deliver.args.len);
     try std.testing.expectEqualStrings("fetch", deliver.args[0].symbol);
@@ -147,7 +147,7 @@ test "bootstrap fetch round-trips: prepare, send, partner resolves, match" {
     const resolver_export = prepared.resolver_export;
     try p1.send(prepared.message);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    try p2.feedInbound(p1.takeOutbound().?);
+    try p2.feedOwned(p1.takeOutbound().?);
     // This step dispatches the inbound fetch: it surfaces the deliver event AND
     // enqueues the synthesized resolve onto p2's pending_send.
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
@@ -158,7 +158,7 @@ test "bootstrap fetch round-trips: prepare, send, partner resolves, match" {
 
     // A subsequent step encodes the auto-served resolve onto the outbound queue.
     try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    try p1.feedInbound(p2.takeOutbound().?);
+    try p1.feedOwned(p2.takeOutbound().?);
     try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
 
     var resolve_event = p1.pollEvent().?;
@@ -194,7 +194,7 @@ test "a pipelined call to an already-resolved inbound answer redirects to the re
     const fetch_answer = prepared.answer_position;
     try p1.send(prepared.message);
     _ = try p1.step();
-    try p2.feedInbound(p1.takeOutbound().?);
+    try p2.feedOwned(p1.takeOutbound().?);
     _ = try p2.step(); // surfaces the fetch deliver event and enqueues the resolve
     {
         var fetch_event = p2.pollEvent().?;
@@ -219,7 +219,7 @@ test "a pipelined call to an already-resolved inbound answer redirects to the re
         .resolve_me_desc = null,
     } });
     _ = try p1.step();
-    try p2.feedInbound(p1.takeOutbound().?);
+    try p2.feedOwned(p1.takeOutbound().?);
     _ = try p2.step();
 
     var event = p2.pollEvent() orelse return error.NoRedirectedDeliver;
@@ -232,5 +232,5 @@ test "a pipelined call to an already-resolved inbound answer redirects to the re
         else => return error.PipelinedTargetNotRedirected,
     };
     try std.testing.expectEqual(cap_export, position);
-    try std.testing.expectEqual(@as(?model.AnswerId, .from(call_answer)), deliver.answer);
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(call_answer)), deliver.answer);
 }

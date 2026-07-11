@@ -30,7 +30,7 @@
 import process from "node:process";
 import { Connection, listen, Ref } from "@pancake/stack";
 import { serveDirectory } from "./deno/server.ts";
-import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "./deno/protocol.ts";
+import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "./deno/lib/protocol.ts";
 
 const DM_TEXT = "hi Bob, privately, from Carol";
 
@@ -59,7 +59,8 @@ async function main(): Promise<void> {
 	const bob = listen("127.0.0.1", 0);
 	bob.node.publishGiftable("dm", (verb, args) => {
 		if (verb !== DM) throw new Error(`dm has no method ${verb}`);
-		bobInbox.push(String(args[0]));
+		// dm(from, text): the sender names itself, and the text is what we assert on.
+		bobInbox.push(String(args[1]));
 		return null;
 	});
 	const bobAccept = (async () => {
@@ -117,7 +118,7 @@ async function main(): Promise<void> {
 		);
 	}
 
-	await carol.send(introduced, DM, [DM_TEXT]);
+	await carol.send(introduced, DM, ["Carol", DM_TEXT]);
 	await until(
 		() => bobInbox.includes(DM_TEXT),
 		"Bob to receive Carol's direct DM",

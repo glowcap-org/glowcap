@@ -37,7 +37,7 @@ pub fn main() !void {
     const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &client.session_state, swissnum);
     try client.send(prepared.message);
     _ = try client.step();
-    try server.feedInbound(client.takeOutbound().?);
+    try server.feedOwned(client.takeOutbound().?);
 
     _ = try server.step();
     {
@@ -45,7 +45,7 @@ pub fn main() !void {
         ev.deinit();
     }
     _ = try server.step();
-    try client.feedInbound(server.takeOutbound().?);
+    try client.feedOwned(server.takeOutbound().?);
     _ = try client.step();
 
     var settle = client.pollEvent().?;

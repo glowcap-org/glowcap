@@ -1,7 +1,7 @@
-# pancake — OCapN protocol diagrams
+# pancake OCapN protocol diagrams
 
-These pages dissect OCapN / CapTP into small Mermaid diagrams, one transaction
-shape or state flow per diagram. The authority for every diagram is the
+Each page breaks OCapN / CapTP into small Mermaid diagrams, one transaction
+shape or state flow to a diagram. The authority for every diagram is the
 [OCapN draft specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications)
 (CapTP, Model, Locators) and, where flagged, Spritely Goblins's wire behavior.
 Nothing here cites another implementation's internals as the oracle.
@@ -18,8 +18,8 @@ Nothing here cites another implementation's internals as the oracle.
 - **Mermaid kinds:** `sequenceDiagram` for transactions, `stateDiagram-v2` for
   lifecycles, `flowchart` for structure and validation decisions. No styling
   directives.
-- **Living-state surface.** When an op's semantics change — upstream spec or the
-  Zig implementation — the matching diagram updates in the same change. A
+- **Living-state surface.** When an op's semantics change, in the upstream spec
+  or the Zig implementation, the matching diagram updates in the same change. A
   diagram claiming behavior the session doesn't enforce is drift.
 
 ## Catalog
@@ -34,6 +34,5 @@ Nothing here cites another implementation's internals as the oracle.
 | [06-handoffs.md](06-handoffs.md)                               | HO-1 … HO-8 | Three-party handoff roles, certificates, per-role validation, replay protection, deposit/withdraw ordering            |
 | [07-sturdyrefs-and-locators.md](07-sturdyrefs-and-locators.md) | ST-1 … ST-3 | Sturdyref anatomy, enlivenment, equality-driven dedup                                                                 |
 
-The catalog above lists every diagram. The numbering is stable: a conformance
-scenario, doc comment, or commit message can cite `HO-7` and mean exactly one
-validation flow.
+The numbering is stable: a conformance scenario, doc comment, or commit message
+can cite `HO-7` and mean exactly one validation flow.

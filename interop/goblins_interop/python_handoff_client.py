@@ -22,48 +22,20 @@ Needs ``racket`` plus the ``goblins`` collection on PATH; run via
 from __future__ import annotations
 
 import asyncio
-import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bindings" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
+from helpers import fail, insert_bindings_path, parse_port, read_swiss  # noqa: E402
+
+insert_bindings_path()
 
 from pancake import Ref, connect, tcp_locator  # noqa: E402
 
 HOST = "127.0.0.1"
-# Alice's port; Bob (the exporter) listens on PORT+1. --port=N (from
-# `zig build python-goblins-handoff -Dport=N`) moves the pair when 22114 is taken.
-PORT = 22114
-for _arg in sys.argv[1:]:
-    if _arg.startswith("--port="):
-        PORT = int(_arg.split("=", 1)[1], 10)
-    else:
-        print(f"python-goblins-handoff: unknown argument '{_arg}'", file=sys.stderr)
-        raise SystemExit(2)
-if not 1 <= PORT <= 65534:
-    print("python-goblins-handoff: --port must be an integer in 1..65534 (bob listens on port+1)", file=sys.stderr)
-    raise SystemExit(2)
+PORT = parse_port("python-goblins-handoff", 22114, max_port=65534)
 RACKET = "/usr/local/bin/racket"
 HOST_SCRIPT = "conformance/goblins-peer/racket/handoff-introducer-host.rkt"
-
-
-def fail(msg: str) -> None:
-    print(f"python-goblins-handoff FAILED: {msg}", file=sys.stderr)
-    raise SystemExit(1)
-
-
-async def read_swiss(proc: asyncio.subprocess.Process) -> str:
-    assert proc.stdout is not None
-    deadline = asyncio.get_running_loop().time() + 30.0
-    while asyncio.get_running_loop().time() < deadline:
-        line = await asyncio.wait_for(proc.stdout.readline(), timeout=30.0)
-        if not line:
-            break
-        m = re.search(rb'"swiss":"([^"]+)"', line)
-        if m:
-            return m.group(1).decode()
-    fail("never saw the introducer readiness line")
-    raise AssertionError  # unreachable
 
 
 async def converse() -> None:
@@ -73,11 +45,9 @@ async def converse() -> None:
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        swiss = await read_swiss(proc)
+        swiss = await read_swiss(proc, "python-goblins-handoff", miss="never saw the introducer readiness line")
         print(f"python-goblins-handoff: alice published introducer swiss={swiss} on {HOST}:{PORT}")
 
-        # `connect` completes the keyed handshake; the machine's retained identity
-        # is the recipient key the gift Alice deposits will name.
         conn = await connect(tcp_locator(HOST, PORT))
         print("python-goblins-handoff: session open (recipient -> alice)")
         conn.serve()
@@ -85,18 +55,14 @@ async def converse() -> None:
         introducer = await conn.fetch(swiss)
         print("python-goblins-handoff: enlivened alice's introducer, asking for the greeter")
 
-        # The introduction: Alice returns Bob's greeter as a handoff give. The
-        # binding redeems it transparently, so this resolves to an ordinary Ref.
         greeter = await conn.send(introducer, "get-greeter", [])
         if not isinstance(greeter, Ref):
-            fail(f"introduction did not redeem to a capability: {greeter!r}")
+            fail("python-goblins-handoff", f"introduction did not redeem to a capability: {greeter!r}")
         print("python-goblins-handoff: introduction redeemed, got the greeter as an ordinary ref")
 
-        # Call the greeter. The send routes straight to Bob (the exporter); the
-        # reply must echo the name we sent, so the handoff proves data integrity.
         reply = await conn.send(greeter, "", ["pancake-carol"])
         if not isinstance(reply, str) or "pancake-carol" not in reply:
-            fail(f"greeter reply did not carry the name back: {reply!r}")
+            fail("python-goblins-handoff", f"greeter reply did not carry the name back: {reply!r}")
         print(f"python-goblins-handoff: greeter replied: {reply}")
 
         print(

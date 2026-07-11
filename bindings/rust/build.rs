@@ -26,6 +26,7 @@ fn main() {
 	// links; a missing file is fine pre-build (the install step writes them).
 	for archive in [
 		"libpancake_ocapn.a",
+		"libpancake_driver.a",
 		"libpancake_net_transport_tcp.a",
 		"libpancake_net_transport_inproc.a",
 	] {
@@ -35,10 +36,14 @@ fn main() {
 	// The C ABI ships as à-la-carte archives (ADR-0059), each symbol-disjoint, so
 	// a consumer links exactly the set its features enable and they compose with
 	// no duplicate-symbol collision (the standing Model-A composition proof). The
-	// core `libpancake_ocapn` carries the peer/value/event/uri families and is
-	// always linked; each transport rides its own companion archive, linked only
-	// when its Cargo feature is on. This is the link-line half of "no shipped
-	// cost": a transport you do not enable contributes no archive and no symbol.
+	// core `libpancake_ocapn` carries the value/uri families and is always
+	// linked, and `libpancake_driver` — the byte-fed host tier (ADR-0072) — is
+	// core surface too, not a feature; each transport rides its own companion
+	// archive, linked only when its Cargo feature is on. This is the link-line
+	// half of "no shipped cost": a transport you do not enable contributes no
+	// archive and no symbol. With GNU ld, dependents precede dependencies, so
+	// the driver archive is emitted before the ocapn archive it stands on.
+	println!("cargo:rustc-link-lib=static=pancake_driver");
 	println!("cargo:rustc-link-lib=static=pancake_ocapn");
 
 	// The static blocking transports. The `tcp` and `inproc` features are on by

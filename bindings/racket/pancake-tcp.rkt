@@ -5,10 +5,10 @@
 ;; libpancake_net_transport_tcp's binding, the explicit netlayer/listener/endpoint
 ;; handles for cleartext, loopback-grade TCP. Its private loader
 ;; (`private/ffi-tcp.rkt`) opens ONLY that archive, so requiring this module
-;; never links a transport you do not use. It builds on the core peer and value
-;; machinery in `pancake.rkt` through the shared transport seam
-;; (`private/seam.rkt`) — they share the `PancakeContext` pointer and frame
-;; layout but no symbol — so a TCP consumer composes the two:
+;; never links a transport you do not use. It builds on the core value and
+;; error machinery in `pancake.rkt` through the shared transport seam
+;; (`private/seam.rkt`) — they share the frame layout but no symbol — so a TCP
+;; consumer composes the two:
 ;;
 ;;   (require "pancake.rkt")
 ;;   (require "pancake-tcp.rkt")
@@ -16,13 +16,13 @@
 ;;   (define nl (make-netlayer))
 ;;   (define lst (netlayer-listen nl "127.0.0.1" 0))
 ;;   (define cn (netlayer-connect nl "127.0.0.1" (listener-port lst)))
-;;   (endpoint-write-frame! cn frame) ; the host owns the peer and shuttles frames
+;;   (endpoint-write-frame! cn frame) ; the embedder shuttles whole frames
 ;;
-;; This is the explicit blocking handle for the I/O backend: the host reads a
-;; frame, feeds it to its peer, steps, takes outbound frames, and writes them
-;; back. The async, scheduler-friendly path over Racket's own ports lives in the
-;; core's `async-connection` / `connect` / `listen`; this module is the direct
-;; C-ABI netlayer beneath it.
+;; This is the explicit blocking handle for the I/O backend: the embedder reads
+;; a frame, feeds it to its byte-fed connection, and writes what the feed
+;; drains back. The async, scheduler-friendly path over Racket's own ports
+;; lives in the core's `async-connection` / `connect` / `listen`; this module
+;; is the direct C-ABI netlayer beneath it.
 
 (require ffi/unsafe
          "private/constants.rkt"
@@ -39,14 +39,7 @@
 ;; its own thread-local slot, so a tcp call's diagnostic is read here and never
 ;; from the ocapn family's `last-error`. Query the length first (NULL buffer),
 ;; then read.
-(define (tcp-last-error)
-  (define len (pancake_tcp_last_error #f 0))
-  (cond
-    [(zero? len) #f]
-    [else
-     (define buf (make-bytes (+ len 1)))
-     (define written (pancake_tcp_last_error buf (+ len 1)))
-     (bytes->string/utf-8 (subbytes buf 0 (min written len)) #\uFFFD)]))
+(define (tcp-last-error) (read-last-error pancake_tcp_last_error))
 
 ;; Raise the shared typed `exn:fail:pancake` for a non-OK tcp code, reading this
 ;; archive's own last-error rather than the unrelated ocapn-family one.

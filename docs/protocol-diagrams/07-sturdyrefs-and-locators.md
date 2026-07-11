@@ -6,7 +6,7 @@ PreSpec shape; on the v1.0 wire the same settlement is the resolver-callback
 deliver (see the vocabulary note and DR-4 in
 [02-deliver-and-resolve.md](02-deliver-and-resolve.md)).
 
-## ST-1 — Sturdyref anatomy
+## ST-1: Sturdyref anatomy
 
 A sturdyref is offline authority: a locator saying _where_ the hosting peer
 lives plus a swiss number saying _which_ object to fetch there. It carries no
@@ -21,11 +21,11 @@ flowchart TD
     SW --> AU["unguessable token naming one object at that peer"]
 ```
 
-## ST-2 — Enlivenment
+## ST-2: Enlivenment
 
 Turning a sturdyref into a live reference takes two moves: establish a session
 per the locator (if none exists), then bootstrap-`fetch` the swiss number. The
-result is an ordinary import, from here on, sturdyref origin is invisible.
+result is an ordinary import. From here on, the sturdyref origin is invisible.
 
 ```mermaid
 sequenceDiagram
@@ -38,10 +38,10 @@ sequenceDiagram
     Note over H: sturdy authority is now a live import at M
 ```
 
-## ST-3 — Enlivenment dedup
+## ST-3: Enlivenment dedup
 
 OCapN's equality rules require successive enlivenments of the same sturdyref
-over the same session to yield references that compare equal. Practically: a
+over the same session to yield references that compare equal. In practice, a
 second fetch of an already-enlivened swiss number reuses the existing live
 import rather than minting a divergent one.
 

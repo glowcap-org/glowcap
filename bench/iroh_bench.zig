@@ -47,9 +47,12 @@ const Greeter = struct {
     }
 };
 
-/// Server half: accept one partner over `listener`, publish the greeter, and
-/// serve until the client closes, the client's `cv.deinit` ends this serve.
-fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {
+/// Server half: accept one partner over `listener` signing with `identity`
+/// (the tcp arm accepts ephemeral; the iroh arm signs with its endpoint's own
+/// key, since a key-designator dial pins the session to the dialed node id),
+/// publish the greeter, and serve until the client closes, the client's
+/// `cv.deinit` ends this serve.
+fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator, identity: driver.AcceptIdentity) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -59,7 +62,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, identity, read_buf, write_buf);
     defer cv.deinit();
     _ = try cv.publish("greeter", Greeter, .{});
     try cv.serve();
@@ -158,7 +161,7 @@ fn benchTcp(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: []
     var addr_buf: [64]u8 = undefined;
     const designator = listener.localDesignator(&addr_buf);
 
-    var host = try io.concurrent(hostOnce, .{ listener, allocator });
+    var host = try io.concurrent(hostOnce, .{ listener, allocator, driver.AcceptIdentity.ephemeral });
     const client_result = clientMeasure(io, allocator, &entries, net.tcp.at(designator), warmup, samples);
     const host_result = host.await(io);
     try client_result;
@@ -169,7 +172,9 @@ fn benchTcp(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: []
 /// Run the iroh path: two real iroh endpoints, the client dialing the server by
 /// its node id alone through the deterministic in-process address book.
 fn benchIroh(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: []u64) !void {
-    var server = try iroh.Resident.init(io, null, .local_discovery);
+    const server_seed: [32]u8 = @splat(0x61);
+    const server_secret = pancake.foundation.crypto.SecretKey.fromSeed(server_seed);
+    var server = try iroh.Resident.init(io, &server_seed, .local_discovery);
     defer server.deinit();
     var client = try iroh.Resident.init(io, null, .local_discovery);
     defer client.deinit();
@@ -191,7 +196,7 @@ fn benchIroh(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: [
         .hints = model.Hints.emptyFalse(),
     };
 
-    var host = try io.concurrent(hostOnce, .{ listener, allocator });
+    var host = try io.concurrent(hostOnce, .{ listener, allocator, driver.AcceptIdentity{ .keyed = server_secret } });
     const client_result = clientMeasure(io, allocator, &client_entries, locator, warmup, samples);
     const host_result = host.await(io);
     try client_result;
@@ -214,9 +219,9 @@ const loop_conns: usize = 16;
 
 /// Per-connection setup the loop host runs on accept: publish this connection's
 /// greeter on its own vat (the same static `Greeter` the serial bench uses).
-fn publishGreeterLoop(ctx: ?*anyopaque, vat: *actors.Vat) anyerror!void {
+fn publishGreeterLoop(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
     _ = ctx;
-    _ = try driver.publishNamed(vat, "greeter", Greeter, .{});
+    _ = try served.publish("greeter", Greeter, .{});
 }
 
 /// Run the loop host until every connection has closed (or `requestStop` fires).
@@ -294,7 +299,8 @@ fn loopClient(
 /// connections at once. Prints one `loop` line; the serial bench's per-stream
 /// reciprocal is the contrast the page draws.
 fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls: usize) !void {
-    var server = try iroh.Resident.init(io, null, .local_discovery);
+    const server_seed: [32]u8 = @splat(0x62);
+    var server = try iroh.Resident.init(io, &server_seed, .local_discovery);
     defer server.deinit();
 
     var id_buf: [iroh.node_id_len]u8 = undefined;
@@ -304,6 +310,7 @@ fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls:
         .frame_cap = frame_cap,
         .max_conns = 64,
         .verify_partner = true,
+        .secret = pancake.foundation.crypto.SecretKey.fromSeed(server_seed),
     });
     defer host.deinit();
 

@@ -52,7 +52,7 @@ pub const PancakeTcpListener = opaque {};
 /// the keyed handshake; `..._fetch`/`..._call` are blocking request/reply.
 /// Owned by the caller; released with `pancake_tcp_session_release`.
 pub const PancakeTcpSession = opaque {};
-/// An outstanding eventual-send's answer — the C handle for the `Promise` a
+/// An outstanding eventual-send's answer — the C handle for the `driver.Vow` a
 /// `pancake_tcp_session_send` (or `..._send_pipelined`) returned. It is the
 /// questioner half of promise pipelining (ADR-0007): pipeline a dependent call
 /// against it with `..._send_pipelined` before it resolves, await it with
@@ -350,13 +350,13 @@ const TcpSessionPayload = struct {
     allocator: std.mem.Allocator,
 };
 
-/// Boxes the `driver.Promise` an eventual-send returned so the C side holds it
-/// as an opaque `PancakeTcpPromise*`. A `driver.Promise` is a small value (a
+/// Boxes the `driver.Vow` an eventual-send returned so the C side holds it
+/// as an opaque `PancakeTcpPromise*`. A `driver.Vow` is a small value (a
 /// tagged answer position), but the C handle must be a stable pointer the
 /// caller releases, so it lives on the session's allocator until
 /// `pancake_tcp_promise_release`.
 const TcpPromiseBox = struct {
-    promise: driver.Promise,
+    promise: driver.Vow,
     allocator: std.mem.Allocator,
 };
 
@@ -485,7 +485,7 @@ pub export fn pancake_tcp_session_call(
 }
 
 /// Project a `driver.Settled` — its values already materialized into `arena` by
-/// `callReference`/`settlePromise` — into `out`, handing `arena` to the result
+/// `callReference`/`settleVow` — into `out`, handing `arena` to the result
 /// as its `owner`. A fulfilled argument deep-clones into the same arena; a break
 /// aliases the reason bytes there. `pancake_tcp_settled_release` frees the arena
 /// and everything it owns. Returns `PANCAKE_OK`, or a marshal error code (the
@@ -619,7 +619,7 @@ pub export fn pancake_tcp_session_settle(
     var settled_ok = false;
     defer if (!settled_ok) c.freeProjectionArena(arena);
 
-    const settled = payload.conn.settlePromise(box.promise, arena.allocator()) catch |err| {
+    const settled = payload.conn.settleVow(box.promise, arena.allocator()) catch |err| {
         setLastError("session_settle: {s}", .{@errorName(err)});
         return sessionCallErrToCode(err);
     };
@@ -639,7 +639,7 @@ pub export fn pancake_tcp_promise_release(promise: ?*PancakeTcpPromise) void {
 
 /// Box `promise` on the session's allocator and hand the opaque handle to
 /// `slot`, the shared tail of `..._send` and `..._send_pipelined`.
-fn boxPromise(payload: *TcpSessionPayload, promise: driver.Promise, slot: *?*PancakeTcpPromise) i32 {
+fn boxPromise(payload: *TcpSessionPayload, promise: driver.Vow, slot: *?*PancakeTcpPromise) i32 {
     const box = payload.allocator.create(TcpPromiseBox) catch return PANCAKE_ERR_INTERNAL;
     box.* = .{ .promise = promise, .allocator = payload.allocator };
     slot.* = @ptrCast(box);

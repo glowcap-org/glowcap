@@ -570,16 +570,28 @@ test "wire-delta GC decrements export and import refcounts by direction" {
     try s.registerImport(.from(3));
     try s.registerExport(.from(7));
     try std.testing.expectEqual(@as(u64, 1), s.importRefcount(.from(3)));
-    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(7)));
+    const baseline = s.exportRefcount(.from(7));
+
+    // Put one wire reference to export 7 in the partner's hands, the reference
+    // its release below returns.
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(3) } },
+        .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }},
+        .answer = .from(1),
+    } });
+    try std.testing.expectEqual(baseline + 1, s.exportRefcount(.from(7)));
 
     // Outbound op:gc-exports releases our refs to the partner's exports →
-    // decrements the import table. Inbound op:gc-exports is the partner
-    // releasing refs to our exports → decrements the export table.
+    // decrements the import table, and may remove the row (an import carries
+    // no local baseline). Inbound op:gc-exports is the partner releasing refs
+    // to our exports → decrements the export table down to — never past — the
+    // local baseline, so the row survives for re-export.
     try s.recordSend(.{ .gc_export = .{ .positions = &.{3}, .deltas = &.{1} } });
     try s.recordRecv(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{1} } });
 
     try std.testing.expect(!s.hasImport(.from(3)));
-    try std.testing.expect(!s.hasExport(.from(7)));
+    try std.testing.expect(s.hasExport(.from(7)));
+    try std.testing.expectEqual(baseline, s.exportRefcount(.from(7)));
 }
 
 test "wire-delta GC underflow is a loud error and leaves refcounts intact" {
@@ -587,12 +599,13 @@ test "wire-delta GC underflow is a loud error and leaves refcounts intact" {
     var s = session.Session.init(allocator);
     defer s.deinit();
     try s.registerExport(.from(5));
+    const before = s.exportRefcount(.from(5));
 
-    // Delta exceeds the live count → rejected, and the count is unchanged.
+    // Delta exceeds what the wire holds → rejected, and the count is unchanged.
     try std.testing.expectError(session.Error.GcUnderflow, s.recordRecv(.{
         .gc_export = .{ .positions = &.{5}, .deltas = &.{2} },
     }));
-    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(5)));
+    try std.testing.expectEqual(before, s.exportRefcount(.from(5)));
 
     // Unknown id → rejected.
     try std.testing.expectError(session.Error.GcUnderflow, s.recordSend(.{
@@ -605,7 +618,7 @@ test "re-sending an export retains its wire-delta so a matching gc-exports does 
     var s = session.Session.init(allocator);
     defer s.deinit();
     try s.registerExport(.from(7));
-    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(7)));
+    const baseline = s.exportRefcount(.from(7));
 
     // Introduce export 7 to the partner twice (two distinct outbound delivers,
     // export 7 named as an argument each time). Each wire crossing must retain.
@@ -619,15 +632,136 @@ test "re-sending an export retains its wire-delta so a matching gc-exports does 
         .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }},
         .answer = .from(2),
     } });
-    // Local baseline (1) plus the two wire references the partner now holds.
-    try std.testing.expectEqual(@as(u64, 3), s.exportRefcount(.from(7)));
+    // The two wire references the partner now holds, on top of the baseline.
+    try std.testing.expectEqual(baseline + 2, s.exportRefcount(.from(7)));
 
     // A conformant partner that received export 7 twice releases with delta 2.
     // It must decrement cleanly — never underflow — and the export survives at
-    // its local baseline for re-export.
+    // its pre-mention count for re-export.
     try s.recordRecv(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{2} } });
-    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(7)));
+    try std.testing.expectEqual(baseline, s.exportRefcount(.from(7)));
     try std.testing.expect(s.hasExport(.from(7)));
+}
+
+test "inbound gc-exports can never release an export's local baseline" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(.from(3));
+    try s.registerExport(.from(7));
+    const baseline = s.exportRefcount(.from(7));
+
+    // The partner receives export 7 twice.
+    inline for (.{ 1, 2 }) |answer| {
+        try s.recordSend(.{ .deliver = .{
+            .target = .{ .far = .{ .import_position = .from(3) } },
+            .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }},
+            .answer = .from(answer),
+        } });
+    }
+
+    // A hostile release of one more than the wire ever granted is refused
+    // loudly. Validated against the raw refcount instead of the wire-held
+    // share, it would have driven the row to zero and deleted it — a partner
+    // killing our own live capability.
+    const hostile = [_]u64{s.exportRefcount(.from(7))};
+    try std.testing.expectError(session.Error.GcUnderflow, s.recordRecv(.{
+        .gc_export = .{ .positions = &.{7}, .deltas = &hostile },
+    }));
+    try std.testing.expectEqual(baseline + 2, s.exportRefcount(.from(7)));
+
+    // The conformant release of exactly the two wire references decrements to
+    // the pre-mention count; the row stays live and our own next marshal of
+    // the same capability is still valid.
+    try s.recordRecv(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{2} } });
+    try std.testing.expectEqual(baseline, s.exportRefcount(.from(7)));
+    try std.testing.expect(s.hasExport(.from(7)));
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(3) } },
+        .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }},
+        .answer = .from(3),
+    } });
+    try std.testing.expectEqual(baseline + 1, s.exportRefcount(.from(7)));
+}
+
+test "a reserved export is unaddressable until its first marshal grants it (ADR-0074)" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(.from(3));
+    const reserved = try s.allocateExport();
+
+    // A partner that guessed the reserved position is refused with the same
+    // error a nonexistent export raises, so the probe cannot learn that a
+    // reservation exists.
+    const probe = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = reserved } },
+        .args = &.{},
+        .answer = .from(11),
+    } };
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(probe));
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecvView(model.view.Body.fromOwned(&probe)));
+
+    // The capability's first marshal — a deliver argument naming it — is the
+    // grant; the identical inbound deliver is admitted afterwards.
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(3) } },
+        .args = &.{.{ .reference = .{ .near = .{ .export_position = reserved } } }},
+        .answer = .from(1),
+    } });
+    try s.recordRecv(probe);
+    try std.testing.expect(s.inboundAnswer(.from(11)) != null);
+}
+
+test "a partner that releases every wire reference loses addressability until re-granted (ADR-0074)" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(.from(3));
+    const position = try s.allocateExport();
+
+    const mention = model.Message{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(3) } },
+        .args = &.{.{ .reference = .{ .near = .{ .export_position = position } } }},
+        .answer = .from(1),
+    } };
+    try s.recordSend(mention);
+
+    // Releasing the one wire reference returns the export to its reserved
+    // state: the row survives at the local baseline, but the partner can no
+    // longer address it.
+    const positions = [_]u64{position.int()};
+    try s.recordRecv(.{ .gc_export = .{ .positions = &positions, .deltas = &.{1} } });
+    try std.testing.expect(s.hasExport(position));
+    const probe = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = position } },
+        .args = &.{},
+        .answer = .from(11),
+    } };
+    try std.testing.expectError(session.Error.InvalidReference, s.recordRecv(probe));
+
+    // A fresh mention re-grants the same position.
+    var regrant = mention;
+    regrant.deliver.answer = .from(2);
+    try s.recordSend(regrant);
+    try s.recordRecv(probe);
+    try std.testing.expect(s.inboundAnswer(.from(11)) != null);
+}
+
+test "registerExport is an explicit grant: the position is addressable with no marshal (ADR-0074)" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerExport(.from(7));
+
+    // No reference ever crossed the wire, and the partner can still address
+    // the position: registerExport is the deliberate out-of-band grant.
+    try s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(7) } },
+        .args = &.{},
+        .answer = .from(11),
+    } });
+    try std.testing.expect(s.inboundAnswer(.from(11)) != null);
 }
 
 test "sending a projection op naming a near receiver retains its wire-delta" {
@@ -635,7 +769,7 @@ test "sending a projection op naming a near receiver retains its wire-delta" {
     var s = session.Session.init(allocator);
     defer s.deinit();
     try s.registerExport(.from(7));
-    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(7)));
+    const baseline = s.exportRefcount(.from(7));
 
     // `op:get` / `op:index` / `op:untag` each put export 7 on the wire as the
     // projection receiver, exactly like a deliver target. Each crossing must
@@ -643,13 +777,13 @@ test "sending a projection op naming a near receiver retains its wire-delta" {
     try s.recordSend(.{ .get = .{ .receiver = .{ .near = .{ .export_position = .from(7) } }, .field = "x", .answer = .from(1) } });
     try s.recordSend(.{ .index = .{ .receiver = .{ .near = .{ .export_position = .from(7) } }, .index = 0, .answer = .from(2) } });
     try s.recordSend(.{ .untag = .{ .receiver = .{ .near = .{ .export_position = .from(7) } }, .tag = "t", .answer = .from(3) } });
-    // Local baseline (1) plus the three wire references the partner now holds.
-    try std.testing.expectEqual(@as(u64, 4), s.exportRefcount(.from(7)));
+    // The three wire references the partner now holds, on top of the baseline.
+    try std.testing.expectEqual(baseline + 3, s.exportRefcount(.from(7)));
 
     // The partner that received export 7 three times releases with delta 3; it
-    // must decrement cleanly down to the local baseline, never underflow.
+    // must decrement cleanly back to the pre-mention count, never underflow.
     try s.recordRecv(.{ .gc_export = .{ .positions = &.{7}, .deltas = &.{3} } });
-    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(7)));
+    try std.testing.expectEqual(baseline, s.exportRefcount(.from(7)));
     try std.testing.expect(s.hasExport(.from(7)));
 }
 
@@ -738,13 +872,42 @@ test "v1.0 session records and queries resolver-callback links" {
 
     // Outbound: our answer 42 resolves via our local resolver export 7.
     try s.installOutboundResolver(.from(42), .from(7));
-    try std.testing.expectEqual(@as(?model.AnswerId, .from(42)), s.answerForResolverExport(.from(7)));
-    try std.testing.expectEqual(@as(?model.AnswerId, null), s.answerForResolverExport(.from(8)));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(42)), s.answerForResolverExport(.from(7)));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.answerForResolverExport(.from(8)));
 
     // Inbound: the partner's answer 99 resolves via their resolver import 3.
     try s.installInboundResolver(.from(99), .from(3));
-    try std.testing.expectEqual(@as(?model.ImportId, .from(3)), s.resolverForInboundAnswer(.from(99)));
-    try std.testing.expectEqual(@as(?model.ImportId, null), s.resolverForInboundAnswer(.from(100)));
+    try std.testing.expectEqual(@as(?model.ImportPosition, .from(3)), s.resolverForInboundAnswer(.from(99)));
+    try std.testing.expectEqual(@as(?model.ImportPosition, null), s.resolverForInboundAnswer(.from(100)));
+    // The inverse link is queryable too, keyed by the resolver import.
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(99)), s.answerForResolverImport(.from(3)));
+}
+
+test "v1.0 gc-answers drops both directions of the inbound resolver link" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.initWith(allocator, .{
+        .wire_profile = model.WireProfile.v1_0,
+        .features = model.FeatureSet.full(),
+    });
+    defer s.deinit();
+
+    // The partner delivers to our export 1, opening inbound answer 99, and we
+    // record resolver import 3 as its resolve-me target (both link directions).
+    try s.registerExport(.from(1));
+    try s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(1) } },
+        .args = &.{},
+        .answer = .from(99),
+    } });
+    try s.installInboundResolver(.from(99), .from(3));
+    try std.testing.expectEqual(@as(?model.ImportPosition, .from(3)), s.resolverForInboundAnswer(.from(99)));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(99)), s.answerForResolverImport(.from(3)));
+
+    // The partner GCs the answer: the forward map and its inverse drop together,
+    // so a long-lived session never accumulates orphaned reverse-link rows.
+    try s.recordRecv(.{ .gc_answer = .{ .positions = &.{99} } });
+    try std.testing.expectEqual(@as(?model.ImportPosition, null), s.resolverForInboundAnswer(.from(99)));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.answerForResolverImport(.from(3)));
 }
 
 test "v1.0 borrowed inbound raw resolve is rejected" {
@@ -796,7 +959,7 @@ test "pipelining substrate owns queued calls, listeners, and stored resolution" 
     ));
 
     // A listener (POD listener cap) and a stored resolution.
-    try s.installListener(.from(5), .{ .listener = .{ .far = .{ .import_position = .from(1) } }, .wants_partial = false });
+    try s.installListener(.from(5), .{ .listener = .{ .import_position = .from(1) }, .wants_partial = false });
     try s.storeResolution(.from(5), .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } });
     try std.testing.expect(s.answerResolved(.from(5)));
     const peeked = s.peekResolution(.from(5)) orelse return error.TestUnexpectedResult;
@@ -813,13 +976,10 @@ test "pipelining substrate owns queued calls, listeners, and stored resolution" 
     const empty = try s.takePipelinedCalls(.from(5));
     try std.testing.expectEqual(@as(usize, 0), empty.len);
 
-    // Draining listeners likewise transfers ownership of each entry's listener
-    // cap; a second drain is empty.
+    // Draining listeners likewise empties the list (entries are POD; only the
+    // slice is owned); a second drain is empty.
     const listeners = try s.takePipelinedListeners(.from(5));
-    defer {
-        for (listeners) |entry| model.freeReference(allocator, entry.listener);
-        allocator.free(listeners);
-    }
+    defer allocator.free(listeners);
     try std.testing.expectEqual(@as(usize, 1), listeners.len);
     try std.testing.expectEqual(@as(usize, 0), (try s.takePipelinedListeners(.from(5))).len);
 }
@@ -848,10 +1008,10 @@ test "pipelining caps fail loud rather than silently dropping" {
         .{ .abort = .{ .kind = .other, .message = try allocator.dupe(u8, "3") } },
     ));
 
-    try s.installListener(.from(7), .{ .listener = .{ .far = .{ .import_position = .from(1) } }, .wants_partial = false });
+    try s.installListener(.from(7), .{ .listener = .{ .import_position = .from(1) }, .wants_partial = false });
     try std.testing.expectError(error.ListenerCapExceeded, s.installListener(
         .from(7),
-        .{ .listener = .{ .far = .{ .import_position = .from(1) } }, .wants_partial = false },
+        .{ .listener = .{ .import_position = .from(1) }, .wants_partial = false },
     ));
 }
 
@@ -870,14 +1030,19 @@ test "imported-promise substrate owns host, listeners, and relayed resolution" {
     try std.testing.expectError(error.HostMismatch, s.installThirdPartyImport(.from(5), "host-b"));
 
     // A listener (POD far listener cap) and a stored relayed resolution.
-    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .far = .{ .import_position = .from(9) } }, .wants_partial = false });
+    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
     try s.recordRelayedResolution(.from(5), .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } });
     const peeked = s.importedPromiseResolution(.from(5)) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqualStrings("v", peeked.fulfill.bytes);
 
-    // recordRelayedResolution overwrites and frees the prior (no leak).
-    try s.recordRelayedResolution(.from(5), .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "w") } });
-    try std.testing.expectEqualStrings("w", s.importedPromiseResolution(.from(5)).?.fulfill.bytes);
+    // A second relayed resolution is refused — a promise resolves once,
+    // mirroring the answer-side rule — the refused value is freed (no leak),
+    // and the stored value is untouched.
+    try std.testing.expectError(error.UnexpectedMessage, s.recordRelayedResolution(
+        .from(5),
+        .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "w") } },
+    ));
+    try std.testing.expectEqualStrings("v", s.importedPromiseResolution(.from(5)).?.fulfill.bytes);
 
     // Recording on an unknown import frees the resolution and errors.
     try std.testing.expectError(error.InvalidReference, s.recordRelayedResolution(
@@ -885,12 +1050,10 @@ test "imported-promise substrate owns host, listeners, and relayed resolution" {
         .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "z") } },
     ));
 
-    // Drain transfers ownership of each listener cap; a second drain is empty.
+    // Drain empties the list (entries are POD; only the slice is owned); a
+    // second drain is empty.
     const listeners = try s.takeImportedPromiseListeners(.from(5));
-    defer {
-        for (listeners) |entry| model.freeReference(allocator, entry.listener);
-        allocator.free(listeners);
-    }
+    defer allocator.free(listeners);
     try std.testing.expectEqual(@as(usize, 1), listeners.len);
     try std.testing.expectEqual(@as(usize, 0), (try s.takeImportedPromiseListeners(.from(5))).len);
 }
@@ -903,15 +1066,15 @@ test "imported-promise listener cap fails loud" {
     defer s.deinit();
 
     try s.installThirdPartyImport(.from(5), "h");
-    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .far = .{ .import_position = .from(9) } }, .wants_partial = false });
+    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
     try std.testing.expectError(error.ListenerCapExceeded, s.installImportedPromiseListener(
         .from(5),
-        .{ .listener = .{ .far = .{ .import_position = .from(9) } }, .wants_partial = false },
+        .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false },
     ));
     // A listener on an unknown (non-third-party) import errors.
     try std.testing.expectError(error.InvalidReference, s.installImportedPromiseListener(
         .from(99),
-        .{ .listener = .{ .far = .{ .import_position = .from(9) } }, .wants_partial = false },
+        .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false },
     ));
 }
 
@@ -921,7 +1084,7 @@ test "outbound gc-export releasing a third-party import drops its imported-promi
     defer s.deinit();
 
     try s.installThirdPartyImport(.from(5), "h");
-    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .far = .{ .import_position = .from(9) } }, .wants_partial = false });
+    try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
     try s.recordRelayedResolution(.from(5), .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } });
     try std.testing.expect(s.isThirdPartyImport(.from(5)));
 
@@ -932,7 +1095,7 @@ test "outbound gc-export releasing a third-party import drops its imported-promi
     try std.testing.expect(s.importedPromiseResolution(.from(5)) == null);
 }
 
-test "requeue moves pipelined calls to a new target and detects cycles" {
+test "requeue moves a pipelined call to a new target and detects cycles" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
@@ -954,12 +1117,16 @@ test "requeue moves pipelined calls to a new target and detects cycles" {
     // Answer 1 resolved to promise(2): drain 1's calls and requeue onto 2, with
     // 1 on the seen chain. 2 is not seen, so this succeeds and 2 owns the call.
     const drained = try s.takePipelinedCalls(.from(1));
-    try s.requeuePipelinedCalls(.from(2), &.{.from(1)}, drained);
+    defer allocator.free(drained);
+    for (drained) |call| try s.requeuePipelinedCall(.from(2), &.{.from(1)}, call);
 
     // A cycle: answer 2 resolves back to promise(1), but 1 is already on the
-    // chain, requeue fails loudly and frees the batch (no leak).
+    // chain, requeue fails loudly and frees the call (no leak).
     const drained2 = try s.takePipelinedCalls(.from(2));
-    try std.testing.expectError(error.ResolutionCycle, s.requeuePipelinedCalls(.from(1), &.{ .from(1), .from(2) }, drained2));
+    defer allocator.free(drained2);
+    for (drained2) |call| {
+        try std.testing.expectError(error.ResolutionCycle, s.requeuePipelinedCall(.from(1), &.{ .from(1), .from(2) }, call));
+    }
 }
 
 test "pre-spec session needs no v1.0 resolver translation" {
@@ -990,13 +1157,13 @@ test "gc-answers prunes the outbound resolver link when the answer is released" 
         },
     });
     try s.installOutboundResolver(.from(5), .from(1));
-    try std.testing.expectEqual(@as(?model.AnswerId, .from(5)), s.answerForResolverExport(.from(1)));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(5)), s.answerForResolverExport(.from(1)));
 
     // We allocated the question, so we are the side that GCs it: sending
     // `op:gc-answers` for our own answer-pos releases the outbound answer and
     // prunes the resolver link alongside it (CapTP spec § op:gc-answers).
     try s.recordSend(.{ .gc_answer = .{ .positions = &.{5} } });
-    try std.testing.expectEqual(@as(?model.AnswerId, null), s.answerForResolverExport(.from(1)));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.answerForResolverExport(.from(1)));
 }
 
 test "import registration is bounded by max_imports (ADR-0025)" {
@@ -1060,6 +1227,7 @@ test "send-side deliver nested past max_nesting_depth is refused before any expo
     });
     defer s.deinit();
     try s.registerExport(.from(1));
+    const before = s.exportRefcount(.from(1));
 
     // args = [ near(1), list(list([])) ]. The walk validates the shallow near
     // first (which apply would retain), then the over-deep list. Deciding
@@ -1074,7 +1242,7 @@ test "send-side deliver nested past max_nesting_depth is refused before any expo
         .answer = null,
     } };
     try std.testing.expectError(session.Error.NestingTooDeep, s.recordSend(too_deep));
-    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(1)));
+    try std.testing.expectEqual(before, s.exportRefcount(.from(1)));
 }
 
 test "send-side resolve fulfill nested past max_nesting_depth is refused before any export retain" {
@@ -1085,6 +1253,7 @@ test "send-side resolve fulfill nested past max_nesting_depth is refused before 
     });
     defer s.deinit();
     try s.registerExport(.from(1));
+    const before = s.exportRefcount(.from(1));
 
     // A partner asks a question, giving us a pending inbound answer to resolve.
     try s.recordRecv(.{ .deliver = .{
@@ -1114,7 +1283,7 @@ test "send-side resolve fulfill nested past max_nesting_depth is refused before 
     } };
     // recordSend frees the resolution on this refusal; the test does not.
     try std.testing.expectError(session.Error.NestingTooDeep, s.recordSend(too_deep));
-    try std.testing.expectEqual(@as(u64, 1), s.exportRefcount(.from(1)));
+    try std.testing.expectEqual(before, s.exportRefcount(.from(1)));
 }
 
 test "inbound answers are bounded by max_inbound_answers (ADR-0025)" {
@@ -1180,6 +1349,7 @@ test "inbound gc-exports naming the pinned bootstrap position is a no-op" {
     var s = session.Session.init(allocator);
     defer s.deinit();
     try s.transitionToOpen(); // installs the bootstrap export at position 0
+    try s.registerImport(.from(3));
     try s.registerExport(.from(7));
 
     // A partner that accounted its bootstrap import (Goblins installs import 0
@@ -1196,10 +1366,21 @@ test "inbound gc-exports naming the pinned bootstrap position is a no-op" {
         .answer = .from(1),
     } });
 
-    // Skipping position 0 does not skip its neighbors in the same message.
+    // Hand the partner one wire reference to export 7, so its release below is
+    // a legal wire-delta.
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(3) } },
+        .args = &.{.{ .reference = .{ .near = .{ .export_position = .from(7) } } }},
+        .answer = .from(2),
+    } });
+    const held = s.exportRefcount(.from(7));
+
+    // Skipping position 0 does not skip its neighbors in the same message:
+    // export 7's mention is released even though it rides beside the pinned
+    // bootstrap position.
     try s.recordRecv(.{ .gc_export = .{ .positions = &.{ 0, 7 }, .deltas = &.{ 5, 1 } } });
     try std.testing.expect(s.hasExport(.from(session.BOOTSTRAP_POSITION)));
-    try std.testing.expect(!s.hasExport(.from(7)));
+    try std.testing.expectEqual(held - 1, s.exportRefcount(.from(7)));
 }
 
 test "mentioning the bootstrap export then receiving its gc never underflows" {

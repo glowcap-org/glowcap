@@ -50,7 +50,7 @@ comptime {
     model.assertMirrorsMessageKinds(Kind);
 }
 
-pub const RefKind = enum(u16) { near = 0, far = 1, promise = 2, sturdy = 3 };
+pub const RefTag = enum(u16) { near = 0, far = 1, promise = 2, sturdy = 3 };
 pub const ArgKind = enum(u16) {
     bytes = 0,
     symbol = 1,
@@ -71,7 +71,7 @@ pub const ArgKind = enum(u16) {
     /// magnitude digits as the pointer-0 data field.
     big_integer = 15,
 };
-/// Bit 16 of data word 0 carries the promise flag for a RefKind, the value for
+/// Bit 16 of data word 0 carries the promise flag for a RefTag, the value for
 /// a boolean ArgKind, and the sign for a BigInteger.
 pub const data0_flag: u64 = 1 << 16;
 /// Deliver data word 0 flag bits.
@@ -109,6 +109,34 @@ pub fn readerFromFrame(bytes: []const u8) Error!Reader {
     return .{ .bytes = bytes, .seg_words = seg_words };
 }
 
+/// Words a legitimate frame is allowed to (re-)read per segment word before the
+/// per-frame traversal budget refuses it. A well-formed frame is a *tree*: the
+/// segment words partition into node data/pointer sections and list bodies, and
+/// the decode walk visits each node once, so it reads each segment word a small
+/// constant number of times (locate + discriminant + payload). 32× that count
+/// leaves generous headroom for a tree while an aliasing DAG — composite-list
+/// pointers that resolve to a shared child re-read the same words K^D times —
+/// exhausts it within a few thousand node visits for a 2 KB frame. This is the
+/// pancake sibling of Cap'n Proto's `traversalLimitInWords`; the tighter,
+/// per-frame bound is chosen over a fixed cap because a real frame's read count
+/// scales with its own size, not the deployment's `max_frame_bytes`.
+pub const traversal_budget_words_per_segment_word: usize = 32;
+
+/// Floor for a tiny frame, so a handful-of-words message keeps ample headroom
+/// even though `32 × seg_words` would be small.
+pub const traversal_budget_floor_words: usize = 512;
+
+/// Seed a per-frame word-traversal budget from a frame's segment word count.
+/// Threaded (by pointer) onto every `Reader` copy the eager charge walk makes
+/// and spent in `word`/`byteSlice` and per composite element resolved, this is
+/// the single counter every re-resolution of the same words shares, so aliasing
+/// cannot dodge it.
+pub fn traversalBudget(seg_words: usize) usize {
+    const scaled = std.math.mul(usize, seg_words + 1, traversal_budget_words_per_segment_word) catch
+        return std.math.maxInt(usize);
+    return @max(scaled, traversal_budget_floor_words);
+}
+
 /// Bounds-checked, segment-relative word reader over a framed message. Segment
 /// index `i` is frame word `i + 1` (frame word 0 is the segment table). Holds
 /// only a borrow of the frame bytes, copying nothing. Construct through
@@ -116,9 +144,42 @@ pub fn readerFromFrame(bytes: []const u8) Error!Reader {
 pub const Reader = struct {
     bytes: []const u8,
     seg_words: usize,
+    /// Optional per-frame traversal budget, shared by every copy of this reader
+    /// (it is a pointer). Null means unmetered: the header-locate reads and the
+    /// lazy re-walks run without a counter, because the eager `decode` pass has
+    /// already proven the whole tree fits the budget. `word`/`byteSlice` spend
+    /// it when it is set, so the metered eager walk that follows aliasing edges
+    /// burns one shared counter and refuses a DAG in bounded time.
+    budget: ?*usize = null,
+
+    /// Return a copy of this reader metered against `budget`. The copy shares
+    /// the counter with the original through the pointer, so any further copies
+    /// made while walking spend the same budget.
+    pub fn withBudget(self: Reader, budget: *usize) Reader {
+        var copy = self;
+        copy.budget = budget;
+        return copy;
+    }
+
+    /// Spend `words` from the traversal budget, if one is attached. Returns
+    /// `MalformedFrame` when the budget cannot cover the read: a pancake frame
+    /// is a tree, so a walk that outruns a size-derived budget is reading an
+    /// aliasing DAG pancake never emits — a structural refusal, the same
+    /// verdict `InvalidPointer`/`Truncated` carry (a distinct codec error would
+    /// fall through `engine.abort_projection.classify` to `.foreign`; the
+    /// tree-shape refusal is honestly `malformed_frame`).
+    pub fn spend(self: Reader, words: usize) Error!void {
+        const budget = self.budget orelse return;
+        if (budget.* < words) {
+            budget.* = 0;
+            return Error.MalformedFrame;
+        }
+        budget.* -= words;
+    }
 
     pub fn word(self: Reader, seg_idx: usize) Error!u64 {
         if (seg_idx >= self.seg_words) return Error.Truncated;
+        try self.spend(1);
         return std.mem.readInt(u64, self.bytes[(seg_idx + 1) * wire.WORD_BYTES ..][0..wire.WORD_BYTES], .little);
     }
 
@@ -142,8 +203,10 @@ pub const Reader = struct {
         // otherwise wrap below `seg_words` and pass a bound meant to reject it.
         // This matches the checked arithmetic in `readerFromFrame` and
         // `compositeList`.
-        const end = std.math.add(usize, seg_idx, wire.wordsForBytes(len)) catch return Error.Truncated;
+        const span = wire.wordsForBytes(len);
+        const end = std.math.add(usize, seg_idx, span) catch return Error.Truncated;
         if (end > self.seg_words) return Error.Truncated;
+        try self.spend(span);
         return self.bytes[(seg_idx + 1) * wire.WORD_BYTES ..][0..len];
     }
 

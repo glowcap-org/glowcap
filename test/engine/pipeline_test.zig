@@ -22,35 +22,29 @@ test "rewriteDeliverTarget swaps the target and preserves args/answer" {
 
     try std.testing.expect(rewritten.deliver.target == .far);
     try std.testing.expectEqual(@as(u64, 3), rewritten.deliver.target.far.import_position.int());
-    try std.testing.expectEqual(@as(?model.AnswerId, .from(9)), rewritten.deliver.answer);
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(9)), rewritten.deliver.answer);
     try std.testing.expectEqual(@as(usize, 1), rewritten.deliver.args.len);
     try std.testing.expectEqualStrings("x", rewritten.deliver.args[0].bytes);
 }
 
-test "synthesizeListenerFire builds the fulfill resolver-method call" {
-    const allocator = std.testing.allocator;
-    const fire = try pipeline.synthesizeListenerFire(
-        allocator,
-        .{ .far = .{ .import_position = .from(1) } },
-        .{ .fulfill = .{ .bytes = "v" } },
-    );
-    defer model.freeMessage(allocator, fire);
+test "borrowedListenerFire builds the fulfill resolver-method call without owning heap" {
+    var args: [2]model.Argument = undefined;
+    const fire = pipeline.borrowedListenerFire(1, .{ .fulfill = .{ .bytes = "v" } }, &args);
 
     try std.testing.expect(fire.deliver.target == .far);
-    try std.testing.expectEqual(@as(?model.AnswerId, null), fire.deliver.answer);
+    try std.testing.expectEqual(@as(u64, 1), fire.deliver.target.far.import_position.int());
+    try std.testing.expectEqual(@as(?model.AnswerPosition, null), fire.deliver.answer);
     try std.testing.expectEqual(@as(usize, 2), fire.deliver.args.len);
     try std.testing.expectEqualStrings("fulfill", fire.deliver.args[0].symbol);
     try std.testing.expectEqualStrings("v", fire.deliver.args[1].bytes);
+    // The args ride in the caller's stack array; nothing was allocated, so
+    // there is nothing to free (the message must never reach freeMessage).
+    try std.testing.expectEqual(@as([*]const model.Argument, &args), fire.deliver.args.ptr);
 }
 
-test "synthesizeListenerFire builds the break resolver-method call" {
-    const allocator = std.testing.allocator;
-    const fire = try pipeline.synthesizeListenerFire(
-        allocator,
-        .{ .far = .{ .import_position = .from(1) } },
-        .{ .@"break" = .{ .message = "boom" } },
-    );
-    defer model.freeMessage(allocator, fire);
+test "borrowedListenerFire builds the break resolver-method call" {
+    var args: [2]model.Argument = undefined;
+    const fire = pipeline.borrowedListenerFire(1, .{ .@"break" = .{ .message = "boom" } }, &args);
 
     // The break reason rides as a bare Symbol, NOT an `<error>` record. The
     // upstream OCapN suite (test_op_listen_to_promise_and_break) asserts exactly
@@ -100,7 +94,7 @@ test "decomposeOutboundDeliver expands a single call step into one intermediate 
     try std.testing.expectEqual(step0.answer.?, term.target.promise.answer_position);
     try std.testing.expect(term.target.promise.path.isEmpty());
     try std.testing.expectEqualStrings("z", term.args[0].bytes);
-    try std.testing.expectEqual(@as(?model.AnswerId, .from(100)), term.answer);
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(100)), term.answer);
 }
 
 test "decomposeOutboundDeliver chains intermediate answers across two call steps" {
@@ -139,7 +133,7 @@ test "decomposeOutboundDeliver chains intermediate answers across two call steps
     try std.testing.expectEqualStrings("a", step0.args[0].bytes);
     try std.testing.expectEqualStrings("b", step1.args[0].bytes);
     try std.testing.expectEqualStrings("c", chain.terminal.deliver.args[0].bytes);
-    try std.testing.expectEqual(@as(?model.AnswerId, .from(100)), chain.terminal.deliver.answer);
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(100)), chain.terminal.deliver.answer);
 }
 
 test "decomposeOutboundDeliver rejects a field step on the Syrup path" {
@@ -164,36 +158,29 @@ test "decomposeOutboundDeliver rejects a field step on the Syrup path" {
 }
 
 test "classifyListenerDrain fires once on a non-promise fulfillment" {
-    const allocator = std.testing.allocator;
-    const entry = session.ListenerEntry{ .listener = .{ .far = .{ .import_position = .from(2) } }, .wants_partial = false };
-    const action = try pipeline.classifyListenerDrain(allocator, entry, .{ .fulfill = .{ .bytes = "v" } });
+    const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .wants_partial = false };
+    const action = pipeline.classifyListenerDrain(entry, .{ .fulfill = .{ .bytes = "v" } });
     try std.testing.expect(action == .fire);
-    model.freeMessage(allocator, action.fire);
+    try std.testing.expectEqual(@as(u64, 2), action.fire);
 }
 
 test "classifyListenerDrain re-anchors (no fire) on a partial-promise without wants_partial" {
-    const allocator = std.testing.allocator;
-    const entry = session.ListenerEntry{ .listener = .{ .far = .{ .import_position = .from(2) } }, .wants_partial = false };
-    const action = try pipeline.classifyListenerDrain(
-        allocator,
+    const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .wants_partial = false };
+    const action = pipeline.classifyListenerDrain(
         entry,
         .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(8) } } } },
     );
     try std.testing.expect(action == .reinstall);
     try std.testing.expectEqual(@as(u64, 8), action.reinstall.next_answer.int());
-    model.freeReference(allocator, action.reinstall.entry.listener);
 }
 
 test "classifyListenerDrain fires and re-anchors on a partial-promise with wants_partial" {
-    const allocator = std.testing.allocator;
-    const entry = session.ListenerEntry{ .listener = .{ .far = .{ .import_position = .from(2) } }, .wants_partial = true };
-    const action = try pipeline.classifyListenerDrain(
-        allocator,
+    const entry = session.ListenerEntry{ .listener = .{ .import_position = .from(2) }, .wants_partial = true };
+    const action = pipeline.classifyListenerDrain(
         entry,
         .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(8) } } } },
     );
     try std.testing.expect(action == .fire_and_reinstall);
+    try std.testing.expectEqual(@as(u64, 2), action.fire_and_reinstall.fire);
     try std.testing.expectEqual(@as(u64, 8), action.fire_and_reinstall.next_answer.int());
-    model.freeMessage(allocator, action.fire_and_reinstall.fire);
-    model.freeReference(allocator, action.fire_and_reinstall.entry.listener);
 }

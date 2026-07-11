@@ -77,7 +77,7 @@ is dropped; there is no "everything" artifact.
 
 | Archive                           | Exported family                                                                                                                                                                                                                                                        | I/O                |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
-| `libpancake_ocapn`                | `pancake_abi_version`, `pancake_context_*`, `pancake_managed_frame_release`, `pancake_event_release`, `pancake_peer_*`, `pancake_deliver_release`, `pancake_resolve_release`, `pancake_uri_*` / `pancake_locator_*`, `pancake_last_error` / `pancake_clear_last_error` | none (sans-io)     |
+| `libpancake_ocapn`                | `pancake_abi_version`, `pancake_context_*`, `pancake_managed_frame_release`, `pancake_event_release`, `pancake_peer_*`, `pancake_any_event_release`, `pancake_uri_*` / `pancake_locator_*`, `pancake_last_error` / `pancake_clear_last_error` | none (sans-io)     |
 | `libpancake_net`                  | none in Phase 1 (net-core base; see Migration)                                                                                                                                                                                                                         | `std.Io`           |
 | `libpancake_net_transport_tcp`    | `pancake_tcp_*`, `pancake_tcp_last_error` / `_clear`                                                                                                                                                                                                                   | `std.Io`           |
 | `libpancake_net_transport_inproc` | `pancake_inproc_*`, `pancake_inproc_last_error` / `_clear`                                                                                                                                                                                                             | `std.Io`           |
@@ -188,7 +188,7 @@ is **not** a visibility flag — it is a deliberate exported seam, designed here
 so the migration is a contained, internal-only `build.zig`-and-transport change.
 
 - **The seam.** `libpancake_net` grows an internal, `export`-ed C-ABI seam —
-  `pancake__net_*` (the double underscore marks it internal, not public, the way
+  the internal net seam (the double underscore marks it internal, not public, the way
   the iroh sidecar's private `pancake_iroh_sidecar_*` seam does) — covering the
   net-core operations transports use (`Connection` / `FrameStream` framing,
   `Spill`, the netlayer `Contract` dial/bind). It is a real linkable contract,
@@ -218,7 +218,8 @@ never adds an archive to anyone's link line.
   in Phase 1; `libpancake_net` is inert under Model A.
 - **The new surfaces are reserved, not built.** The actor vat, the async driver,
   and the completion loop have no C ABI today. This ADR reserves their archive
-  slots in the contract — `libpancake_actors`, `libpancake_driver`,
+  slots in the contract — a bare-vat archive (built by ADR-0071, later retired
+  when ADR-0072's `libpancake_driver` subsumed it), `libpancake_driver`,
   `libpancake_net_completion` — so they slot in as later phases without
   reshaping the DAG, but it does not design their families. The Rust example
   that chooses FFI iroh versus native Rust iroh without a shipped cost is a
@@ -287,7 +288,7 @@ never adds an archive to anyone's link line.
 archive row and a `pancake_<family>_*` family, and never mutates an existing
 archive's exports, so a consumer that linked `ocapn + tcp` keeps working
 verbatim as `actors`, `driver`, and `net_completion` arrive. The
-`pancake__net_*` seam in `libpancake_net` is the reserved internal ABI for the
+The internal net seam in `libpancake_net` is the reserved internal ABI for the
 Model-A→B migration.
 
 ## Notes

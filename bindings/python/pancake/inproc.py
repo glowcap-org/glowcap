@@ -11,10 +11,9 @@ shares the core's frame, context, and value layout but adds the
 
 A listener binds to an opaque string *designator* — any token, not a
 ``host:port`` — and a dialer names that same designator. The frame shuttle is
-otherwise identical to TCP's, so the same peer machinery drives a full OCapN
+otherwise identical to TCP's, so the same machinery drives a full OCapN
 conversation over it without touching a socket:
 
-    from pancake import Peer
     from pancake.inproc import InprocNetlayer
 
     with InprocNetlayer() as nl:
@@ -31,16 +30,10 @@ from __future__ import annotations
 import ctypes
 from typing import Optional
 
-from . import (
-    Context,
-    PancakeError,
-    _codec_id,
-    _FRAME_SHAPE_BYTE,
-    _Frame,
-    _ManagedFrame,
-    _OK,
-)
-from ._ffi_core import _lib
+from ._codec import _codec_id
+from ._constants import FRAME_SHAPE_BYTE as _FRAME_SHAPE_BYTE, OK as _OK
+from ._errors import PancakeError
+from ._ffi_ocapn import _Frame, _lib, _ManagedFrame, _read_last_error, _str_buf
 from ._ffi_inproc import _inproc_lib
 
 __all__ = ["InprocNetlayer", "InprocListener", "InprocConn"]
@@ -52,12 +45,7 @@ def _inproc_last_error() -> Optional[str]:
     none. The transport keeps its own thread-local slot, so an inproc call's
     diagnostic is read here and never from the core family's
     :func:`pancake.last_error`."""
-    length = _inproc_lib.pancake_inproc_last_error(None, 0)
-    if length == 0:
-        return None
-    buf = (ctypes.c_uint8 * (length + 1))()
-    _inproc_lib.pancake_inproc_last_error(buf, length + 1)
-    return bytes(buf[:length]).decode(errors="replace")
+    return _read_last_error(_inproc_lib.pancake_inproc_last_error)
 
 
 def _check_inproc(code: int) -> None:
@@ -65,12 +53,6 @@ def _check_inproc(code: int) -> None:
     thread-local last-error rather than the unrelated core one."""
     if code != _OK:
         raise PancakeError(code, _inproc_last_error())
-
-
-def _designator_buf(designator: str):
-    data = designator.encode()
-    buf = ctypes.create_string_buffer(data, len(data))
-    return buf, len(data)
 
 
 class InprocConn:
@@ -143,7 +125,6 @@ class InprocNetlayer:
         out = ctypes.c_void_p()
         _check_inproc(_inproc_lib.pancake_inproc_netlayer_new(ctypes.byref(out)))
         self._raw = out
-        self._context: Optional["Context"] = None
 
     def __enter__(self) -> "InprocNetlayer":
         return self
@@ -158,7 +139,7 @@ class InprocNetlayer:
 
     def listen(self, designator: str) -> InprocListener:
         """Bind a listener on ``designator``, any opaque token a dialer names."""
-        buf, n = _designator_buf(designator)
+        buf, n = _str_buf(designator)
         out = ctypes.c_void_p()
         _check_inproc(_inproc_lib.pancake_inproc_listen(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, ctypes.byref(out)))
         return InprocListener(out)
@@ -166,7 +147,7 @@ class InprocNetlayer:
     def connect(self, designator: str, codec: str = "syrup", max_frame_bytes: int = 4096) -> InprocConn:
         """Dial the listener bound at ``designator`` and return a framed
         connection."""
-        buf, n = _designator_buf(designator)
+        buf, n = _str_buf(designator)
         out = ctypes.c_void_p()
         _check_inproc(_inproc_lib.pancake_inproc_connect(self._raw, ctypes.cast(buf, ctypes.c_void_p), n, _codec_id(codec), max_frame_bytes, ctypes.byref(out)))
         return InprocConn(out)

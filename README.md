@@ -15,21 +15,21 @@
 
 ## What is this?
 
-pancake is a Zig implementation of the object-capability networking core: two
-programs hand each other unforgeable references to remote objects and call
-methods across a session with the same authority discipline as local references.
-No ambient authority, no string-typed permissions. If you hold the reference,
-you can use it.
+pancake lets two programs pass each other unforgeable references to remote
+objects and call methods on them across a session, with the same authority
+rules as a local call. Hold the reference and you can use it. There is no
+ambient authority and no string-typed permission to forge.
 
-New to capabilities, CapTP, or OCapN?
-[`docs/capabilities.md`](docs/capabilities.md) explains the ideas and the
-vocabulary before any code appears.
-
-It targets OCapN, the open object-capability network protocol from
+It's a Zig implementation of the object-capability networking core, targeting
+OCapN, the open object-capability network protocol from
 [Spritely Institute](https://spritely.institute/) and the OCapN community. You
-use it as a library and manage its memory yourself. Nothing hides: every copy,
+link it as a library and manage its memory yourself. Nothing hides: every copy,
 every allocation, the wire format in play, and where I/O and scheduling live all
 stay visible at the boundary that owns them.
+
+New to capabilities, CapTP, or OCapN? Start with
+[`docs/capabilities.md`](docs/capabilities.md). It explains the ideas and the
+vocabulary before any code appears.
 
 <p align="center">
   <img src="assets/pancake-goblin-512.png" alt="a purple goblin studying a smiling stack of pancakes" width="320" />
@@ -74,7 +74,7 @@ switch (settled) {
     .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
     .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
     // The third outcome: an introduction to a capability on another peer,
-    // redeemed with `driver.Host.redeem`. This greeter never sends one.
+    // which a `driver.BlockingHost` redeems for you. This greeter never sends one.
     .give => {},
 }
 ```
@@ -87,10 +87,10 @@ half is the same shape;
 [`examples/zig/01_connect_and_serve.zig`](examples/zig/01_connect_and_serve.zig)
 is the runnable version of both halves.
 
-Not writing Zig? The same library is a C ABI with bindings:
+Not writing Zig? The same library ships a C ABI.
 [`docs/consuming-from-c.md`](docs/consuming-from-c.md) is the route for C and
-FFI consumers, and [`bindings/`](bindings/README.md) holds the Rust, Deno,
-Python, and Racket surfaces, each exposing the same small application surface.
+FFI consumers, and [`bindings/`](bindings/README.md) holds the Rust, TypeScript,
+Python, and Racket bindings, each exposing the same small application surface.
 
 ## Learn by example
 
@@ -116,9 +116,9 @@ The whole argument lives in [`docs/architecture.md`](docs/architecture.md) and
 
 ## Status
 
-What ships today — the wire operation surface, both codecs, three netlayers, the
-actor layer, third-party handoffs, live Goblins interop from every binding — is
-inventoried in [`docs/shipped.md`](docs/shipped.md). The edges that remain
+[`docs/shipped.md`](docs/shipped.md) inventories what ships today: the wire
+operation surface, both codecs, the shipped netlayers, the actor layer, third-party
+handoffs, and live Goblins interop from every binding. The edges that remain
 (cleartext TCP, process-lifetime bootstrap registrations, the fail-closed OCapN
 Null, the unbuilt `griddle` network simulator) live in
 [`docs/boundaries.md`](docs/boundaries.md), and the ordered route to 1.0 in
@@ -148,18 +148,18 @@ the contributor verification workflow.
 
 ## Documentation
 
-- [`docs/capabilities.md`](docs/capabilities.md) — capabilities, CapTP, and
+- [`docs/capabilities.md`](docs/capabilities.md): capabilities, CapTP, and
   OCapN from zero, plus the glossary.
-- [`docs/consuming-from-c.md`](docs/consuming-from-c.md) — build, link,
+- [`docs/consuming-from-c.md`](docs/consuming-from-c.md): build, link,
   ownership rules, first complete C program.
-- [`docs/architecture.md`](docs/architecture.md) — layers, memory, and the C ABI
+- [`docs/architecture.md`](docs/architecture.md): layers, memory, and the C ABI
   contract.
-- [`docs/protocol-diagrams/`](docs/protocol-diagrams/README.md) — the living
+- [`docs/protocol-diagrams/`](docs/protocol-diagrams/README.md): the living
   CapTP diagrams.
 - [`docs/shipped.md`](docs/shipped.md) and
-  [`docs/boundaries.md`](docs/boundaries.md) — what exists and where it ends.
-- [`docs/decisions/`](docs/decisions/README.md) — the accepted decision records.
-- [`SECURITY.md`](SECURITY.md) — vulnerability reporting and the invariants a
+  [`docs/boundaries.md`](docs/boundaries.md): what exists and where it ends.
+- [`docs/decisions/`](docs/decisions/README.md): the accepted decision records.
+- [`SECURITY.md`](SECURITY.md): vulnerability reporting and the invariants a
   report may cite.
 
 ## License

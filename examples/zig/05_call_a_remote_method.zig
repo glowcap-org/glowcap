@@ -41,7 +41,7 @@ pub fn main() !void {
         .answer = .from(42),
     } });
     _ = try phone.step();
-    try speaker.feedInbound(phone.takeOutbound().?);
+    try speaker.feedOwned(phone.takeOutbound().?);
     _ = try speaker.step();
     {
         var call = speaker.pollEvent().?;
@@ -55,7 +55,7 @@ pub fn main() !void {
         .resolution = .{ .fulfill = .{ .reference = .{ .near = model.NearRef.object(5) } } },
     } });
     _ = try speaker.step();
-    try phone.feedInbound(speaker.takeOutbound().?);
+    try phone.feedOwned(speaker.takeOutbound().?);
     _ = try phone.step();
 
     var resolved = phone.pollEvent().?;

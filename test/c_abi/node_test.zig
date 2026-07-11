@@ -23,7 +23,7 @@ fn drainInto(from: ?*c.PancakePeer, to: ?*c.PancakePeer) !void {
         if (rc == c.PANCAKE_ERR_WOULD_BLOCK) break;
         try std.testing.expectEqual(c.PANCAKE_OK, rc);
         const borrowed = c.PancakeFrame{ .bytes = frame.bytes, .len = frame.len, .shape = frame.shape };
-        try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(to, &borrowed));
+        try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_recv_borrowed(to, &borrowed));
         c.pancake_managed_frame_release(&frame);
     }
 }
@@ -130,6 +130,10 @@ test "node ABI: two nodes and a gifter run a three-party handoff hermetically" {
     defer c.pancake_handoff_give_bytes_release(give_ptr, give_len);
     const give = give_ptr.?[0..give_len];
 
+    // In the real flow the gifter's fetch reply marshals the "dm" reference,
+    // which is the grant. This test hands the gifter the position directly,
+    // so the exporter grants it explicitly before the deposit names it back.
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_export(exp_to_gifter, dm_pos_gifter));
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_import(gifter, dm_pos_gifter));
     const gifted = c.PancakeReference{ .kind = c.PANCAKE_REF_FAR, .sub_kind = c.PANCAKE_REF_SUB_OBJECT, .id = dm_pos_gifter };
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_send_deposit_gift(gifter, &gift_id, gift_id.len, &gifted));
@@ -200,13 +204,15 @@ test "node ABI: two nodes and a gifter run a three-party handoff hermetically" {
     try std.testing.expectEqual(conn_up, route_conn);
     try std.testing.expectEqual(@as(u64, 7), route_far);
 
-    // The shared foreign-argument verdict: a far fetched on another connection
-    // and a redeemed token are both foreign to any other connection's encoder.
+    // The shared foreign-argument verdict: a capability fetched on another
+    // connection (held under its node-unique token) and a redeemed token are both
+    // foreign to any other connection's encoder.
     var foreign: u32 = 0;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_record_foreign_home(recipient_node, 5, conn_up));
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_arg_is_foreign(recipient_node, conn_x, 5, &foreign));
+    var tok5: u64 = 0;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_enroll_foreign(recipient_node, conn_up, 5, &tok5));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_arg_is_foreign(recipient_node, conn_x, tok5, &foreign));
     try std.testing.expectEqual(@as(u32, 1), foreign);
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_arg_is_foreign(recipient_node, conn_up, 5, &foreign));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_arg_is_foreign(recipient_node, conn_up, tok5, &foreign));
     try std.testing.expectEqual(@as(u32, 0), foreign);
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_arg_is_foreign(recipient_node, conn_up, token, &foreign));
     try std.testing.expectEqual(@as(u32, 1), foreign);
@@ -327,20 +333,21 @@ test "node ABI: the serve step feeds a give and drains actions" {
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_claim_resolve(node, recipient, 99, c.PANCAKE_REDEEM_OUTCOME_FAR, 5, null, 0, &claimed));
     try std.testing.expectEqual(@as(u32, 0), claimed);
 
-    // A plain reply with no recorded foreign home stays the host's to resolve.
+    // A plain reply with no enrolled foreign import stays the host's to resolve.
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_intercept_fulfilled_ref(node, recipient, 10, 5, &claimed));
     try std.testing.expectEqual(@as(u32, 0), claimed);
 
-    // A foreign-home reply is claimed: the node asks for gift-id entropy and
-    // the host answers the ticket. (Sessions here are closed, so the
-    // origination fails closed into a broken answer — the decision path is
-    // what this pins; the live positive proof is the *-goblins-gift matrix.)
+    // A reply carrying a token homed on another connection is claimed: the node
+    // asks for gift-id entropy and the host answers the ticket. (Sessions here are
+    // closed, so the origination fails closed into a broken answer — the decision
+    // path is what this pins; the live positive proof is the *-goblins-gift matrix.)
     var elsewhere: u64 = 0;
     var elsewhere_peer: ?*c.PancakePeer = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_register_conn(node, &elsewhere, &elsewhere_peer));
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_record_foreign_home(node, 6, elsewhere));
+    var tok6: u64 = 0;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_enroll_foreign(node, elsewhere, 6, &tok6));
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_set_exporter_location(node, elsewhere, null, 0));
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_intercept_fulfilled_ref(node, recipient, 11, 6, &claimed));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_intercept_fulfilled_ref(node, recipient, 11, tok6, &claimed));
     try std.testing.expectEqual(@as(u32, 1), claimed);
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_next_action(node, &action));
     try std.testing.expectEqual(c.PANCAKE_NODE_ACTION_NEED_GIFT_ID, action.kind);

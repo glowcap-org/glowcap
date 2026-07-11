@@ -23,9 +23,13 @@ const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 /// A host allocation failure is propagated as itself, never disguised as a
 /// partner protocol violation.
 /// `table` is whichever wire-delta refcount table the message releases: the
-/// inbound `op:gc-exports` releases imports, the outbound one releases our
-/// exports, so this is generic over `ExportTable` / `ImportTable` — it reads
-/// only `count` and never the cap.
+/// inbound `op:gc-exports` releases our exports, the outbound one releases our
+/// imports, so this is generic over `ExportTable` / `ImportTable` — it reads
+/// only `wireHeld` and never the cap. Validating against `wireHeld` rather
+/// than `count` is load-bearing on the export side: an export row carries a
+/// local baseline the wire never granted, so a hostile partner releasing one
+/// more than it was ever sent must be refused loudly instead of deleting the
+/// row (and with it our own live capability).
 pub fn checkGcExportDecrement(
     allocator: std.mem.Allocator,
     table: anytype,
@@ -52,7 +56,7 @@ pub fn checkGcExportDecrement(
         const gop = try pending.getOrPut(allocator, pos);
         if (!gop.found_existing) gop.value_ptr.* = 0;
         gop.value_ptr.* = std.math.add(u64, gop.value_ptr.*, delta) catch return Error.GcUnderflow;
-        if (gop.value_ptr.* > table.count(Id.from(pos))) return Error.GcUnderflow;
+        if (gop.value_ptr.* > table.wireHeld(Id.from(pos))) return Error.GcUnderflow;
     }
 }
 
@@ -81,7 +85,7 @@ pub fn checkGcAnswerDecrement(
         const gop = try pending.getOrPut(allocator, pos);
         if (!gop.found_existing) gop.value_ptr.* = 0;
         gop.value_ptr.* += 1;
-        if (gop.value_ptr.* > table.count(model.AnswerId.from(pos))) return Error.GcUnderflow;
+        if (gop.value_ptr.* > table.count(model.AnswerPosition.from(pos))) return Error.GcUnderflow;
     }
 }
 

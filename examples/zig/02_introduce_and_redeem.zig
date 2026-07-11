@@ -5,18 +5,17 @@
 //! trust *introduces* you to a service it knows, and after the introduction
 //! you talk to the service directly — the directory drops out of the path, and
 //! no name, address book, or ambient registry was ever consulted. On the wire
-//! this is OCapN's three-party handoff; in the API it is three small things:
+//! this is OCapN's three-party handoff; in the API it is two small things:
 //!
-//!   1. `driver.Host` — the multi-connection tier (ADR-0068). One host holds
+//!   1. `driver.BlockingHost` — the multi-connection tier (ADR-0068). One host holds
 //!      one identity, and every connection it dials or accepts shares it, so a
 //!      gift addressed to "the peer I met on this session" stays redeemable on
 //!      the fresh connection the redeem opens.
-//!   2. The `.give` outcome — a `call` whose answer is an introduction settles
-//!      as `Settled.give`, carrying the signed gift envelope and the address
-//!      of the peer that really hosts the capability.
-//!   3. `Host.redeem` — one blocking call that dials that peer, withdraws the
-//!      gift, and hands back an ordinary reference. Sends to it route to the
-//!      right connection by themselves.
+//!   2. Nothing else. A `call` whose answer is an introduction settles as the
+//!      introduced capability itself: the host claims the signed gift, dials
+//!      the peer that really hosts it, and withdraws — all inside the call.
+//!      Sends to the returned reference route to the right connection by
+//!      themselves.
 //!
 //! The gifter needs no handoff code at all: its introducer actor simply
 //! *returns* the foreign capability it holds, and the host turns that reply
@@ -26,9 +25,9 @@
 //! knows the directory (the recipient).
 //!
 //! `main` comes first and holds the whole lesson: dial the directory, `call`
-//! for an introduction, read the `.give`, `redeem` it, then call the widget
-//! directly. Everything below `main` is scaffolding — the honest price of three
-//! genuine peers in one process, not part of the capability pattern.
+//! for an introduction, then call the widget directly. Everything below `main`
+//! is scaffolding — the honest price of three genuine peers in one process,
+//! not part of the capability pattern.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
@@ -53,22 +52,22 @@ pub fn main(init: std.process.Init) !void {
     // address is known before any task runs — no shared mailbox, no spin-wait.
     // Each `Host` keeps one identity across every connection it makes, which is
     // what lets a gift addressed to "the peer on this session" stay redeemable
-    // on the fresh dial that `redeem` opens.
-    var widget_host = try driver.Host.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
+    // on the fresh dial the host opens to redeem it.
+    var widget_host = try driver.BlockingHost.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
     defer widget_host.deinit();
     var widget_server = try widget_host.listen(resident.netlayer(), .{ .designator = "127.0.0.1:0" });
     defer widget_server.close();
     var widget_buf: [64]u8 = undefined;
     const widget_designator = widget_server.localDesignator(&widget_buf);
 
-    var directory_host = try driver.Host.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
+    var directory_host = try driver.BlockingHost.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
     defer directory_host.deinit();
     var directory_server = try directory_host.listen(resident.netlayer(), .{ .designator = "127.0.0.1:0" });
     defer directory_server.close();
     var directory_buf: [64]u8 = undefined;
     const directory_designator = directory_server.localDesignator(&directory_buf);
 
-    var client_host = try driver.Host.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
+    var client_host = try driver.BlockingHost.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
     defer client_host.deinit();
 
     // The exporter and the gifter each get a thread; the client is `main`.
@@ -88,20 +87,21 @@ pub fn main(init: std.process.Init) !void {
     const to_directory = try client_host.dial(tcp.at(directory_designator));
     const introducer = try to_directory.fetch("introducer");
 
-    // Ask for an introduction. The answer is not a value and not a broken
-    // promise: it is the third outcome, a gift to redeem.
+    // Ask for an introduction. On the wire the answer is a signed gift naming
+    // the peer that really hosts the widget; the host redeems it inside this
+    // call — it dials that peer under its own identity and withdraws — so
+    // what settles here is the widget itself.
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const settled = try to_directory.call(introducer, .{ .verb = "introduce", .args = &.{} }, arena.allocator());
-    const give = switch (settled) {
-        .give => |g| g,
-        .fulfilled, .broken => return error.ExpectedAnIntroduction,
+    const widget = switch (settled) {
+        .fulfilled => |arg| switch (arg) {
+            .reference => |reference| reference,
+            else => return error.ExpectedAnIntroduction,
+        },
+        .broken, .give => return error.ExpectedAnIntroduction,
     };
-    std.debug.print("02: introduced to a capability hosted at {s}\n", .{give.exporter_locator_uri});
-
-    // Redeem it: the host dials the widget service, withdraws the gift under
-    // its own identity, and returns an ordinary reference.
-    const widget = try client_host.redeem(to_directory, give);
+    std.debug.print("02: introduced to a capability on another peer, redeemed inside the call\n", .{});
 
     // Call it. The send routes to the widget service's connection by itself —
     // the directory is no longer in the path.
@@ -139,18 +139,18 @@ const Widget = struct {
 /// whole gifter side — the host sees the reply name a capability homed on
 /// another connection and originates the signed gift itself.
 const Introducer = struct {
-    widget: actors.Ref,
+    widget: model.Reference,
     pub fn handle(self: *Introducer, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "introduce")) return error.NoSuchMethod;
-        return .{ .reference = .{ .far = self.widget.far } };
+        return .{ .reference = self.widget };
     }
 };
 
 /// The scaffolding's two sequencing flags. `directory_ready` holds the widget
 /// on the directory connection until the directory has fetched the widget, so
 /// the widget does not block in the client's `accept` too early; `done` ends
-/// both round-robin loops once `main` has redeemed and made its direct call.
+/// both round-robin loops once `main` has made its direct call.
 const Shared = struct {
     directory_ready: std.atomic.Value(bool) = .init(false),
     done: std.atomic.Value(bool) = .init(false),
@@ -163,7 +163,7 @@ const Shared = struct {
 /// Serving two connections from one thread is a round-robin of bounded steps;
 /// a withdrawal that beats its gift deposit simply parks until the deposit
 /// lands (ADR-0056).
-fn widgetService(server: *driver.host.HostServer, shared: *Shared) anyerror!void {
+fn widgetService(server: *driver.BlockingHost.Server, shared: *Shared) anyerror!void {
     const to_directory = try server.accept();
     _ = try to_directory.publish("widget", Widget, .{});
     // `stepReadable(n)` waits up to n ms for readable bytes, then services one
@@ -182,9 +182,9 @@ fn widgetService(server: *driver.host.HostServer, shared: *Shared) anyerror!void
 /// The directory (gifter): dial the widget through this server's host — the
 /// same host that will accept the client, so one identity spans both
 /// connections — fetch the widget, publish an introducer that returns it, and
-/// serve. Origination happens inside `stepReadable`'s serving, in the host's
-/// interceptor; there is no gifter verb to call.
-fn directory(server: *driver.host.HostServer, widget_designator: []const u8, shared: *Shared) anyerror!void {
+/// serve. Origination happens inside `stepReadable`'s serving, in the host
+/// core's interceptor; there is no gifter verb to call.
+fn directory(server: *driver.BlockingHost.Server, widget_designator: []const u8, shared: *Shared) anyerror!void {
     const to_widget = try server.host.dial(tcp.at(widget_designator));
     const widget = try to_widget.fetch("widget");
 

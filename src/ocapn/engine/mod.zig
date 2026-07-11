@@ -10,7 +10,7 @@
 //! A `Peer` is the engine object an adapter hangs onto. It owns a `Session`,
 //! keeps one queue of inbound frames and one of outbound messages, and surfaces
 //! events for your application to handle. It does no I/O and runs no scheduler of
-//! its own. You drive it: feed it frames with `feedInbound` or `recvBorrowed`,
+//! its own. You drive it: feed it frames with `feedOwned` or `recvBorrowed`,
 //! call `step` to turn queued work into wire bytes, drain `outbound`, and poll for
 //! events. Everything that touches the outside world lives above this layer.
 
@@ -29,6 +29,16 @@ pub const fetch = @import("fetch.zig");
 pub const handoff_gifter = @import("handoff_gifter.zig");
 pub const handoff_recipient = @import("handoff_recipient.zig");
 pub const handoff_re_encode = @import("handoff_re_encode.zig");
+/// Lowering node-local foreign-import tokens to their wire reference at the
+/// outbound chokepoint (ADR-0069). A node hands the application synthetic far
+/// tokens; the peer swaps each back to its wire reference in `send`, so a token
+/// never leaks onto the wire.
+pub const lower = @import("lower.zig");
+/// A reference could not be lowered to a wire name on the connection it is being
+/// emitted on, re-exported so a `send` caller can catch it.
+pub const LoweringError = lower.LoweringError;
+/// The per-peer lowering hook a `Node` installs at registration.
+pub const Lowering = lower.Lowering;
 pub const negotiation = @import("negotiation.zig");
 const node = @import("node.zig");
 /// The sans-io cross-connection handoff router (ADR-0066): a tier above the
@@ -56,11 +66,17 @@ pub const spanSignedHandoffGive = codec.syrup.spanSignedHandoffGive;
 
 /// Encode a verbatim `<ocapn-peer …>` Syrup record carrying hint entries, so a
 /// gifter can name an exporter reachable only by a dial hint (an iroh exporter's
-/// direct addresses). The recipient re-parses it with `codec.syrup.readLocatorOwned`
+/// direct addresses). The recipient re-parses it with `readLocatorOwned`
 /// (see `handoff_recipient.exporterLocatorUri`).
 /// Surfaced here so the C ABI builds a give location without reaching past the
 /// engine into the codec.
 pub const encodePeerLocatorRecord = codec.syrup.encodePeerLocatorRecord;
+
+/// Parse a verbatim `<ocapn-peer …>` Syrup record into an owned `PeerLocator`.
+/// The matching decode of `encodePeerLocatorRecord`; the C ABI's
+/// `set_exporter_location` boundary uses this so a URI (or any non-record)
+/// fails loud instead of being spliced into a signed give.
+pub const readLocatorOwned = codec.syrup.readLocatorOwned;
 
 /// The well-known bootstrap export position every OCapN peer answers `fetch` on,
 /// owned by the session and surfaced here so consumers above the engine name the
@@ -90,16 +106,22 @@ pub const EngineError = error{
     UnsupportedPipelineOp,
     /// The partner's `op:start-session` location signature failed to verify.
     InvalidStartSessionSignature,
+    /// The partner's `op:start-session` session key does not match the key this
+    /// peer was pinned to expect (`Peer.expectPartnerKey`): a key-designator
+    /// dial reached something that is not the key it dialed.
+    PartnerKeyMismatch,
     /// A streamed inbound frame exceeded `SessionLimits.max_frame_bytes`
     /// (`Peer.recvStreamPrefix`).
     FrameTooLarge,
 };
 
 /// A FIFO with a drain cursor: `push` appends, `pop` advances a head index and
-/// reclaims the backing (rewind the head, retain capacity) once fully drained,
-/// so steady enqueue/dequeue neither grows without bound nor shifts on every
-/// pop. The four peer queues (inbound frames, pending sends, outbound frames,
-/// events) share this one shape instead of open-coding a parallel `_head` field.
+/// reclaims the backing once fully drained — rewind the head, retain capacity
+/// up to `steady_queue_bytes`, free anything above it — so steady
+/// enqueue/dequeue neither grows without bound nor shifts on every pop, and a
+/// burst's capacity does not stay pinned for the peer's life. The four peer
+/// queues (inbound frames, pending sends, outbound frames, events) share this
+/// one shape instead of open-coding a parallel `_head` field.
 fn Queue(comptime T: type) type {
     return struct {
         items: std.ArrayList(T) = .empty,
@@ -117,23 +139,46 @@ fn Queue(comptime T: type) type {
         /// Reserve room for one more `push`, so a follow-up `pushAssumeCapacity`
         /// cannot fail. The pair lets a caller make the *enqueue* infallible after
         /// a fallible step that has already transferred ownership (a sent resolve
-        /// whose resolution moved into the answer store), keeping record+enqueue
-        /// atomic without an undo path.
-        fn ensureUnusedCapacityForOne(self: *Self, allocator: std.mem.Allocator) !void {
+        /// whose resolution moved into the answer store — or the session
+        /// accounting a listener-fire carrier commits), keeping record+enqueue
+        /// atomic without an undo path. `pub` like `push`, for the `pipeline`
+        /// drain half (the same engine, split by file).
+        pub fn ensureUnusedCapacityForOne(self: *Self, allocator: std.mem.Allocator) !void {
             try self.items.ensureUnusedCapacity(allocator, 1);
         }
 
-        fn pushAssumeCapacity(self: *Self, value: T) void {
+        pub fn pushAssumeCapacity(self: *Self, value: T) void {
             self.items.appendAssumeCapacity(value);
         }
 
+        /// The per-queue steady backing bound: capacity above this is burst, and
+        /// the drain-reset in `pop` frees it back to the allocator instead of
+        /// pinning one chatty chunk's worth of slots for the peer's life (at
+        /// 500k connections, kilobytes pinned per queue is gigabytes). Capacity
+        /// at or under the bound is retained, so steady turns — whose queues
+        /// never grow past it — stay allocation-free;
+        /// `test/engine/alloc_budget_test.zig` holds that contract. The price
+        /// of freeing is one growth re-allocation at the start of the *next*
+        /// burst episode, never per turn. The burst side is held by
+        /// `test/engine/footprint_budget_test.zig`'s burst-drain scenario: a
+        /// drained peer must fit back under the 2 KiB warmed per-connection
+        /// budget, which freeing (rather than shrinking-to-bound) satisfies by
+        /// construction.
+        const steady_queue_bytes = 4096;
+
         /// Dequeue the front element, or null when drained, reclaiming the
-        /// backing slots (rewind the head, retain capacity) at that point.
-        fn pop(self: *Self) ?T {
+        /// backing slots at that point: rewind the head, retain steady capacity,
+        /// free burst capacity above `steady_queue_bytes` entirely. The reclaim
+        /// runs on every empty observation, not only when the head is ahead,
+        /// because the tail-slide below can consume the final element with the
+        /// head already rewound to zero — burst capacity must not survive that
+        /// path either.
+        fn pop(self: *Self, allocator: std.mem.Allocator) ?T {
             if (self.head == self.items.items.len) {
-                if (self.head != 0) {
-                    self.items.clearRetainingCapacity();
-                    self.head = 0;
+                self.items.clearRetainingCapacity();
+                self.head = 0;
+                if (self.items.capacity * @sizeOf(T) > steady_queue_bytes) {
+                    self.items.clearAndFree(allocator);
                 }
                 return null;
             }
@@ -162,8 +207,14 @@ fn Queue(comptime T: type) type {
         /// when drained. The pointer aliases the queued element and stays valid
         /// until the next queue mutation, read through it, do not own it.
         fn peek(self: *Self) ?*const T {
-            if (self.head == self.items.items.len) return null;
+            if (self.isEmpty()) return null;
             return &self.items.items[self.head];
+        }
+
+        /// Whether the queue holds nothing to dequeue — the queue owns its own
+        /// emptiness question, so no reader reaches into the cursor fields.
+        fn isEmpty(self: *const Self) bool {
+            return self.head == self.items.items.len;
         }
 
         /// The not-yet-dequeued elements, for type-specific teardown before
@@ -203,7 +254,7 @@ pub const AbortInfo = struct {
 /// or at `Peer.deinit`.
 const PendingWithdraw = struct {
     handoff: model.Handoff,
-    answer: model.AnswerId,
+    answer: model.AnswerPosition,
 };
 
 /// One slot in the outbound queue. Most kinds queue a fully-built `message` the
@@ -215,23 +266,63 @@ const PendingWithdraw = struct {
 /// frame here and the store there, and an inbound `op:gc-answers` that drops the
 /// row between record and emit simply leaves nothing to encode (a self-contained
 /// frame copy would dangle on exactly that sequence; this carrier cannot).
+///
+/// A listener fire rides the same store-borrow pattern: when a promise with N
+/// listeners resolves, each fire queues a POD `listener_fire` /
+/// `imported_promise_fire` carrier instead of N payload clones, and `step`
+/// borrows the stored resolution back to encode (`pipeline.borrowedListenerFire`).
+/// A row dropped (or replaced by a different row instance at the same
+/// position — the carriers carry the row's identity stamp) between queue and
+/// encode leaves the fire moot, the same semantics `settled_answer` ships. A
+/// surviving row's stored payload cannot change under a queued carrier: an
+/// answer resolves once (`validateInboundResolve` / `applySentResolve`) and a
+/// relayed resolution records once (`recordRelayedResolution` refuses a second
+/// relay), so a matching identity stamp proves the payload too.
 const Outbound = union(enum) {
     message: model.Message,
-    settled_answer: model.AnswerId,
+    settled_answer: model.AnswerPosition,
+    /// One `op:listen` fire for an *answer-store* resolution: the far export
+    /// position the fire targets, the inbound answer whose stored resolution
+    /// it carries, and that answer row's identity stamp at queue time. Queue-
+    /// time accounting already ran (`pipeline.enqueueListenerFire`); encode
+    /// borrows the store via `peekResolution`, and drops the fire when the
+    /// row is gone or its `row_id` changed (answer positions are partner-
+    /// named, so a released position can be reused — emitting the reused
+    /// row's payload under this fire's accounting would drift the wire-delta
+    /// retains).
+    listener_fire: struct {
+        listener_position: u64,
+        answer: model.AnswerPosition,
+        row_id: u64,
+    },
+    /// One `op:listen` fire for a handoff-imported promise's *relayed*
+    /// resolution (ADR-0009): the far export position the fire targets, the
+    /// third-party import whose stored resolution it carries, and the store
+    /// row's identity stamp at queue time. At encode: a missing row or a
+    /// `row_id` mismatch (the row was torn down, possibly re-registered as a
+    /// different promise) drops the fire. A matching row's payload is the one
+    /// the fire was accounted against — a relayed resolution records exactly
+    /// once (`Session.recordRelayedResolution` refuses a second relay) — so
+    /// the queue-time retains always match the frame that ships.
+    imported_promise_fire: struct {
+        listener_position: u64,
+        import_position: model.ImportPosition,
+        row_id: u64,
+    },
 
     fn deinit(self: Outbound, allocator: std.mem.Allocator) void {
         switch (self) {
-            // The store owns a settled answer's resolution and frees it at answer
-            // GC or session teardown (`deinitAnswerEntry`); the carrier owns
+            // The store owns a settled answer's / fire's resolution and frees
+            // it at row GC, overwrite, or session teardown; the carriers own
             // nothing.
-            .settled_answer => {},
+            .settled_answer, .listener_fire, .imported_promise_fire => {},
             .message => |message| freeMessage(allocator, message),
         }
     }
 };
 
 /// The caller-owned CapTP engine: one peer per session, no I/O, no hidden
-/// scheduler. The host feeds inbound frames (`recvBorrowed` / `feedInbound`),
+/// scheduler. The host feeds inbound frames (`recvBorrowed` / `feedOwned`),
 /// advances the peer with `step`, drains `outbound`, and reads surfaced
 /// events; everything the peer queues is allocated on its `allocator` and
 /// freed in `deinit`.
@@ -278,10 +369,25 @@ pub const Peer = struct {
     /// never handshakes), and the stub-key in-process fixtures opt out through
     /// `NegotiatingOptions` because their handshakes carry no real signature.
     verify_partner_handshake: bool = false,
+    /// When set (`expectPartnerKey`), the partner's `op:start-session` is
+    /// admitted only if its `session_pubkey` equals this key, checked at the
+    /// same inbound chokepoint as the signature — before the session opens, so
+    /// a mismatched partner never gets a single post-handshake frame applied.
+    /// This is the dial-side half of key unification: a dialer that resolved a
+    /// key-designator locator (iroh's node id, keyed TCP's key) pins the
+    /// session identity to the key it dialed, and a mismatch projects a
+    /// `PartnerKeyMismatch` handshake abort.
+    expected_partner_key: ?foundation.crypto.PeerKey = null,
     /// The typed cause of the most recent local dispatch failure — read it
     /// through `lastAbort`. Overwritten on each failure; never reset on
     /// success, so it stays readable after the error has propagated.
     last_abort: ?AbortInfo = null,
+    /// The node-installed hook that lowers a node-local foreign-import token to
+    /// its wire reference before an outbound message is encoded (ADR-0069). Set
+    /// only for a peer registered under a `Node` (`registerConn` /
+    /// `registerConnOver`); a standalone peer leaves it null and never lowers.
+    /// See `lower.zig`.
+    lowering: ?Lowering = null,
 
     /// Peer over an already-open v1.0 session with default limits, no
     /// handshake will run. A real connection starts with `initNegotiating`
@@ -339,6 +445,21 @@ pub const Peer = struct {
         }));
         peer.verify_partner_handshake = options.verify_partner_handshake;
         return peer;
+    }
+
+    /// Re-posture a freshly constructed negotiating peer before its first byte
+    /// moves. The host's adoption path (`registerConnOver`) constructs the peer
+    /// elsewhere; this verb is the engine's checked imposition of the same
+    /// knobs `initNegotiatingWith` would have set, so session tables stay
+    /// behind the engine instead of the host poking `session_state` fields.
+    pub fn reposture(self: *Peer, options: NegotiatingOptions) void {
+        std.debug.assert(self.session_state.state == .negotiating);
+        std.debug.assert(self.outbound.isEmpty() and self.pending_send.isEmpty());
+        self.session_state.codec = options.codec;
+        self.session_state.wire_profile = options.wire_profile;
+        self.session_state.features = options.features;
+        self.session_state.limits = options.limits;
+        self.verify_partner_handshake = options.verify_partner_handshake;
     }
 
     /// Peer adopting a caller-built session; every `init*` shorthand
@@ -401,10 +522,25 @@ pub const Peer = struct {
         return self.shared_gift_registry orelse &self.own_gift_registry;
     }
 
+    /// Pin the partner's session identity to `key` before the handshake runs:
+    /// an inbound `op:start-session` whose `session_pubkey` is any other key is
+    /// refused with `PartnerKeyMismatch` and the session never opens. Set by a
+    /// dialer that resolved a key-designator locator, where the designator *is*
+    /// the key the partner must prove; must be called before the partner's
+    /// start-session is dispatched to have any effect.
+    pub fn expectPartnerKey(self: *Peer, key: foundation.crypto.PeerKey) void {
+        self.expected_partner_key = key;
+    }
+
     /// Enqueue an owned `message` for outbound encode, taking ownership of its
-    /// heap. The canonical, copy-free path: a caller that built the message moves
-    /// it in; the peer frees it after `step` encodes it (or here, if recording it
-    /// fails). Borrowed or static input goes through `sendCopying` instead.
+    /// heap on every outcome. The canonical, copy-free path: a caller that
+    /// built the message moves it in and never frees it. Most kinds are freed
+    /// by the peer after `step` encodes them (or here, if recording fails). A
+    /// sent `op:resolve` is the exception: its resolution moves into the
+    /// answer store at record time (`Session.applySentResolve`) and is freed
+    /// on overwrite or answer teardown — possibly without ever being encoded,
+    /// when GC drops the row first (see `Outbound`). Borrowed or static input
+    /// goes through `sendCopying` instead.
     pub fn send(self: *Peer, message: model.Message) !void {
         // A multi-hop pipelined deliver (promise target carrying a non-empty
         // path) has no single-frame Syrup shape — `desc:answer` carries no path
@@ -447,7 +583,21 @@ pub const Peer = struct {
     /// encode, taking ownership of its heap. The shared tail of `send` and the
     /// decomposed-chain links — kept separate so the chain links bypass the
     /// (already-checked) multi-hop guard, breaking the `send` recursion cycle.
-    fn enqueueRecorded(self: *Peer, message: model.Message) !void {
+    fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
+        // Lower any node-local foreign-import token this message carries to its
+        // wire reference, in place, before it is recorded or encoded (ADR-0069).
+        // This is the single chokepoint every flat outbound message funnels
+        // through — the direct send, each decomposed pipeline link, a prepared
+        // fetch — so a token cannot leak onto the wire in any position. A
+        // `TokenNotLiftable` aborts the send with the message still owned here.
+        var message = message_in;
+        if (self.lowering) |lowering| {
+            if (lowering.active.*) lower.lowerMessage(lowering, &message) catch |err| {
+                freeMessage(self.allocator, message);
+                return err;
+            };
+        }
+
         // A sent `op:resolve` moves its resolution into the answer store at
         // record time (`recordSend` consumes it), so the queue carries only the
         // settled answer position. Reserve the carrier slot *before* recording:
@@ -456,7 +606,14 @@ pub const Peer = struct {
         // the answer with no frame to carry it to the partner.
         if (message == .resolve) {
             const answer = message.resolve.answer;
-            try self.pending_send.ensureUnusedCapacityForOne(self.allocator);
+            // Reserve before `recordSend` consumes the resolution. A failure here
+            // is the one spot on this fast path that leaves `message` unrecorded
+            // and unqueued, so free it — `recordSend` owns it from the next line
+            // on (it frees on refusal), and `pushAssumeCapacity` is infallible.
+            self.pending_send.ensureUnusedCapacityForOne(self.allocator) catch |err| {
+                freeMessage(self.allocator, message);
+                return err;
+            };
             try self.session_state.recordSend(message);
             self.pending_send.pushAssumeCapacity(.{ .settled_answer = answer });
             return;
@@ -515,6 +672,18 @@ pub const Peer = struct {
         return self.send(owned);
     }
 
+    /// Send a settled `withdraw-gift` outcome and reclaim the one owned arm it
+    /// may carry. `bootstrap.resolveForWithdraw` clones a verbatim gifted
+    /// capability into the message (the gift row is freed before we can send),
+    /// so once `sendCopying` has copied it onto the wire we free that clone.
+    /// The free runs whether the send succeeds or fails: `sendCopying` frees
+    /// only its own clone on failure, never the borrowed argument. The POD near
+    /// arm and the static break arms free as no-ops.
+    pub fn sendWithdrawSettled(self: *Peer, message: model.Message) !void {
+        defer bootstrap.freeSettledWithdrawOwned(self.allocator, message);
+        try self.sendCopying(message);
+    }
+
     /// Queue a keyed `op:start-session` over `secret`'s Ed25519 key. The canonical
     /// signing input for `<my-location …>` is profile-defined and lives in the
     /// codec, so this is the one place that builds it: it signs the canonical
@@ -555,7 +724,7 @@ pub const Peer = struct {
         self: *Peer,
         secret: foundation.crypto.SecretKey,
         give_bytes: []const u8,
-        answer: model.AnswerId,
+        answer: model.AnswerPosition,
     ) !void {
         const exporter_key = self.session_state.partnerSessionKey() orelse return error.NoExporterKey;
         const signed = try handoff_recipient.signedReceiveFromGiveBytes(
@@ -598,7 +767,7 @@ pub const Peer = struct {
     /// set; the empty descriptor fields are never read on the verbatim path. This
     /// is the one definition of the resolve-give shape; `Node.originateGive` and
     /// the C ABI both drive it. `give_bytes` is borrowed for the call.
-    pub fn sendResolveHandoffGive(self: *Peer, answer: model.AnswerId, give_bytes: []const u8) !void {
+    pub fn sendResolveHandoffGive(self: *Peer, answer: model.AnswerPosition, give_bytes: []const u8) !void {
         var handoff = model.Handoff{ .give = .{
             .recipient_key = "",
             .exporter_location = "",
@@ -621,24 +790,75 @@ pub const Peer = struct {
         return self.session_state.state == .open;
     }
 
+    /// The session's resource bounds (`session.SessionLimits`), fixed at
+    /// construction. The read accessor for embedders — a netlayer sizing its
+    /// receive path against `max_frame_bytes`, say. Setting limits stays an
+    /// init-time write by the embedder that constructs the peer.
+    pub fn limits(self: *const Peer) session.SessionLimits {
+        return self.session_state.limits;
+    }
+
+    /// The codec the session speaks on the wire, fixed at construction or
+    /// settled by negotiation.
+    pub fn codecId(self: *const Peer) model.CodecId {
+        return self.session_state.codec;
+    }
+
+    /// The wire profile the session speaks (draft or V1.0), fixed at
+    /// construction or settled by negotiation.
+    pub fn wireProfile(self: *const Peer) model.WireProfile {
+        return self.session_state.wire_profile;
+    }
+
+    /// The partner's session public key, learned from its `op:start-session`,
+    /// or null if the partner's handshake half has not yet arrived with a key.
+    /// Borrowed from session state, valid until `deinit`. An embedder verifies
+    /// partner signatures against it (ADR-0009).
+    pub fn partnerSessionKey(self: *const Peer) ?[]const u8 {
+        return self.session_state.partnerSessionKey();
+    }
+
+    /// The partner's verbatim `<ocapn-peer ...>` location-record bytes from its
+    /// `op:start-session`, or null when the handshake half has not arrived with
+    /// raw bytes. Borrowed from session state, valid until `deinit`. A gifter
+    /// embeds these as a `desc:handoff-give`'s exporter-location (ADR-0009).
+    pub fn partnerLocatorRaw(self: *const Peer) ?[]const u8 {
+        return self.session_state.partnerLocatorRaw();
+    }
+
     /// Expose a local capability behind `swissnum` for inbound bootstrap-fetch
     /// (ADR-0006 responder half). Allocates a fresh export, maps the swissnum to
-    /// it, and returns the export id. The adapter calls this at config time; an
+    /// it, and returns the export position. The adapter calls this at config time; an
     /// inbound `'fetch` for the swissnum is then served automatically by
     /// `dispatchOwnedFrameInner`.
     pub fn registerBootstrapCap(self: *Peer, swissnum: []const u8) !u64 {
         return (try self.session_state.registerBootstrapCap(swissnum)).int();
     }
 
-    /// Publish a local object at export position `id` so inbound deliveries to it
-    /// are admitted and surface as events. Capabilities are driven through the
-    /// peer; the session's authoritative tables stay encapsulated.
+    /// Publish a local object at export position `id` and *grant* it: inbound
+    /// deliveries to the position are admitted immediately, without waiting
+    /// for the capability's first marshal (ADR-0074). This is the deliberate
+    /// "make this addressable now" verb for objects a partner learns about
+    /// out-of-band; capabilities are driven through the peer, and the
+    /// session's authoritative tables stay encapsulated.
     pub fn exportObject(self: *Peer, id: u64) !void {
-        return self.session_state.registerExport(model.ExportId.from(id));
+        return self.session_state.registerExport(model.ExportPosition.from(id));
     }
 
-    /// Allocate the next free export position for a local object and return it,
-    /// the auto-assigned counterpart of `exportObject`.
+    /// Reserve export position `id` for a local object without granting the
+    /// partner addressability: the object can marshal onto the wire, and the
+    /// partner may address the position only after that first marshal — or an
+    /// explicit `exportObject` grant. The positional twin of
+    /// `exportNextObject`; `Vat.bindExport` rides it, so binding an actor is
+    /// not a grant.
+    pub fn reserveExport(self: *Peer, id: u64) !void {
+        return self.session_state.reserveExport(model.ExportPosition.from(id));
+    }
+
+    /// Allocate the next free export position for a local object and return
+    /// it. The position is a *reservation*, unaddressable by the partner
+    /// until the capability first marshals onto the wire (or `exportObject`
+    /// grants it explicitly).
     pub fn exportNextObject(self: *Peer) !u64 {
         return (try self.session_state.allocateExport()).int();
     }
@@ -646,7 +866,7 @@ pub const Peer = struct {
     /// Track a partner-hosted object held as import position `id`, so a `far` send
     /// to it is admitted (e.g. an import handed back by a bootstrap fetch).
     pub fn importObject(self: *Peer, id: u64) !void {
-        return self.session_state.registerImport(model.ImportId.from(id));
+        return self.session_state.registerImport(model.ImportPosition.from(id));
     }
 
     /// Allocate the next outbound answer position, the question id for a deliver
@@ -654,6 +874,27 @@ pub const Peer = struct {
     /// promise; the partner's `op:resolve` for this id settles it.
     pub fn allocateAnswer(self: *Peer) u64 {
         return self.session_state.allocateOutboundAnswer().int();
+    }
+
+    /// Our outbound answer an inbound deliver to `resolver_export` resolves, if
+    /// that export is a known V1.0 resolver (ADR-0065). The driver's GC path
+    /// uses it to retire the answer when the partner drops the resolver.
+    pub fn answerForResolverExport(self: *const Peer, resolver_export: model.ExportPosition) ?model.AnswerPosition {
+        return self.session_state.answerForResolverExport(resolver_export);
+    }
+
+    /// The inbound answer a V1.0 resolver import was installed for (ADR-0065).
+    /// The vat uses it to route a resolver-only deliver's reply when the wire
+    /// carried no answer position.
+    pub fn answerForResolverImport(self: *const Peer, resolver_import: model.ImportPosition) ?model.AnswerPosition {
+        return self.session_state.answerForResolverImport(resolver_import);
+    }
+
+    /// Clear the in-flight enliven marker for `swissnum` once its enliven
+    /// settles (ADR-0012). A no-op when none is outstanding. The embedder that
+    /// began an enliven calls this on the settling resolution.
+    pub fn finishPendingEnliven(self: *Peer, swissnum: []const u8) void {
+        self.session_state.finishPendingEnliven(swissnum);
     }
 
     /// Enqueue a forwarded resolution for handoff-imported promise `import_position`
@@ -665,31 +906,49 @@ pub const Peer = struct {
     pub fn relayResolution(self: *Peer, import_position: u64, resolution: model.Resolution) !void {
         errdefer freeResolution(self.allocator, resolution);
         try self.pending_relayed_resolutions.append(self.allocator, .{
-            .import_position = model.ImportId.from(import_position),
+            .import_position = model.ImportPosition.from(import_position),
             .resolution = resolution,
         });
     }
 
     /// Apply one forwarded resolution (ADR-0009), taking ownership of
-    /// `resolution`: fire the listeners installed on `import_position` (borrowing the
-    /// resolution), then store it for late listeners (moving it in),
-    /// borrow-then-move, no clone. Called by `cross_peer.drainRelayedResolutions`.
-    pub fn applyRelayedResolution(self: *Peer, import_position: model.ImportId, resolution: model.Resolution) !void {
-        pipeline.fireImportedPromiseListeners(self, import_position, resolution) catch |err| {
-            freeResolution(self.allocator, resolution);
-            return err;
-        };
-        // recordRelayedResolution moves `resolution` into storage on success and
-        // frees it on an unknown-import error, so it owns it on both outcomes.
+    /// `resolution`: move it into the import's stored slot first
+    /// (`recordRelayedResolution` owns it on every outcome, and refuses a
+    /// second relay — a promise resolves once), then fire the listeners
+    /// installed on `import_position` from the store — each fire is a POD
+    /// carrier whose encode borrows the stored value, no clone anywhere.
+    /// Store-then-fire, not fire-then-store, because the carriers must find a
+    /// durable owner already in place when `step` encodes them. Called by
+    /// `cross_peer.drainRelayedResolutions`.
+    ///
+    /// The application supplies this resolution directly — it never funnels
+    /// through `send`'s lowering chokepoint — so any node-local foreign-import
+    /// token it carries is lowered to its wire reference here (ADR-0069),
+    /// before the store owns it, keeping "a token never reaches the wire" true
+    /// for the relayed path too.
+    pub fn applyRelayedResolution(self: *Peer, import_position: model.ImportPosition, resolution_in: model.Resolution) !void {
+        var resolution = resolution_in;
+        if (self.lowering) |lowering| {
+            if (lowering.active.*) lower.lowerResolution(lowering, &resolution) catch |err| {
+                freeResolution(self.allocator, resolution);
+                return err;
+            };
+        }
         try self.session_state.recordRelayedResolution(import_position, resolution);
+        try pipeline.fireImportedPromiseListeners(self, import_position);
     }
 
-    /// Transfer an owned inbound frame into the peer for the next `step` dispatch.
-    ///
-    /// On success the peer owns `frame`; on error the caller remains
-    /// responsible for releasing it.
-    pub fn feedInbound(self: *Peer, frame: foundation.Frame) !void {
-        try self.inbound.push(self.allocator, frame);
+    /// Transfer an owned inbound frame into the peer for the next `step`
+    /// dispatch, consuming `frame` on every outcome: queued on success,
+    /// released here on failure. The caller never frees it — the owned mirror
+    /// of `recvBorrowed`, and the contract the C ABI's `feed_frame` already
+    /// promises.
+    pub fn feedOwned(self: *Peer, frame: foundation.Frame) !void {
+        var owned = frame;
+        self.inbound.push(self.allocator, owned) catch |err| {
+            owned.deinit();
+            return err;
+        };
     }
 
     /// Drive the peer one unit of work: dispatch one queued inbound frame, or
@@ -705,6 +964,13 @@ pub const Peer = struct {
             inbound.emitAbortForError(self, err);
             return err;
         };
+    }
+
+    /// Drive `step` until both queues are idle. The caller then drains
+    /// `takeOutbound` (encoded frames) and `pollEvent` (surfaced events). The one
+    /// spelling of "encode everything pending" every driver and adapter shares.
+    pub fn stepToIdle(self: *Peer) !void {
+        while ((try self.step()) != .idle) {}
     }
 
     /// Read the typed cause of the most recent local dispatch failure, or null
@@ -742,12 +1008,12 @@ pub const Peer = struct {
         // double-frees. The inner dispatch is used here (not `dispatchOwnedFrame`)
         // because `step`'s own exit projects the abort for every failure; the
         // wrapped form would emit it twice.
-        if (self.inbound.pop()) |frame| {
+        if (self.inbound.pop(self.allocator)) |frame| {
             try inbound.dispatchOwnedFrameInner(self, frame);
             return .progress;
         }
 
-        switch (self.pending_send.pop() orelse return .idle) {
+        switch (self.pending_send.pop(self.allocator) orelse return .idle) {
             .message => |message| {
                 defer freeMessage(self.allocator, message);
                 try self.emitOutboundMessage(message);
@@ -765,6 +1031,39 @@ pub const Peer = struct {
                 try self.emitOutboundMessage(.{ .resolve = resolve });
                 // A sent `op:resolve` also settles one of our inbound answers locally.
                 try self.settleSentResolve(resolve);
+            },
+            .listener_fire => |fire| {
+                // The fire's payload lives in the answer store; borrow it to
+                // encode, exactly as `settled_answer` does. A row dropped by an
+                // inbound `op:gc-answers` between queue and now makes the fire
+                // moot: nothing to emit — and so does a surviving row whose
+                // `row_id` changed, which means the partner released the
+                // position and reused it for a new question (the stale fire's
+                // accounting names the dead instance's payload, not this
+                // one's). (The queue-time export retains of a dropped fire
+                // stay recorded until session end — the same stranded-retain
+                // posture a GC'd `settled_answer` ships.)
+                const row_id = self.session_state.inboundAnswerRowId(fire.answer) orelse return .progress;
+                if (row_id != fire.row_id) return .progress;
+                const stored = self.session_state.peekResolution(fire.answer) orelse return .progress;
+                var args: [2]model.Argument = undefined;
+                try self.emitOutboundMessage(pipeline.borrowedListenerFire(fire.listener_position, stored.*, &args));
+            },
+            .imported_promise_fire => |fire| {
+                // The fire's payload lives in the imported-promise store
+                // (ADR-0009). A missing row, or one whose `row_id` changed
+                // (torn down by GC co-eviction and re-registered as a
+                // *different* third-party promise at the same position),
+                // makes the fire moot — its queue-time retains stay recorded,
+                // the named gc-drop stranded-retain posture. A matching row's
+                // stored value is exactly the payload this fire was accounted
+                // against, because a relayed resolution records once
+                // (`recordRelayedResolution` refuses a second relay).
+                const row = self.session_state.findImportedPromise(fire.import_position) orelse return .progress;
+                if (row.row_id != fire.row_id) return .progress;
+                const stored = row.resolution orelse return .progress;
+                var args: [2]model.Argument = undefined;
+                try self.emitOutboundMessage(pipeline.borrowedListenerFire(fire.listener_position, stored, &args));
             },
         }
         return .progress;
@@ -855,7 +1154,7 @@ pub const Peer = struct {
                 .receive = view_handoff.receive,
                 .answer = entry.answer,
             })) {
-                .settled => |msg| try self.sendCopying(msg),
+                .settled => |msg| try self.sendWithdrawSettled(msg),
                 // The row vanished between the deposited check and the resolve;
                 // leave the entry parked for the next step.
                 .awaiting_deposit => {
@@ -872,7 +1171,14 @@ pub const Peer = struct {
     /// caller (who frees it with `Frame.deinit` or hands it to a transport that
     /// does). Returns null when the queue is drained.
     pub fn takeOutbound(self: *Peer) ?foundation.Frame {
-        return self.outbound.pop();
+        return self.outbound.pop(self.allocator);
+    }
+
+    /// Whether an encoded outbound frame is queued (`takeOutbound` would
+    /// return one) — the cheap emptiness probe a drain loop reads without
+    /// popping.
+    pub fn hasOutbound(self: *const Peer) bool {
+        return !self.outbound.isEmpty();
     }
 
     /// Dispatch a borrowed inbound frame. The borrowed bytes are transient, so
@@ -951,7 +1257,7 @@ pub const Peer = struct {
     /// Take the next surfaced event, or null when none is queued. The caller
     /// owns the returned event and must `deinit` it after dispatch.
     pub fn pollEvent(self: *Peer) ?Event {
-        return self.events.pop();
+        return self.events.pop(self.allocator);
     }
 
     /// Borrow a const pointer to the next surfaced event without consuming it, or

@@ -38,7 +38,7 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
    route from build to first program.
 
    There are two inbound models; pick one per loop and do not mix them. One
-   dispatches synchronously as bytes arrive: pancake_peer_feed_borrowed takes
+   dispatches synchronously as bytes arrive: pancake_peer_recv_borrowed takes
    one whole borrowed frame, and pancake_peer_recv_stream takes a byte-stream
    buffer. The other transfers owned frames into the queue with
    pancake_peer_feed_owned and applies them in a later pancake_peer_step.
@@ -281,7 +281,7 @@ int32_t pancake_peer_new_raw_open_in(PancakeContext *context, PancakePeer **out_
    taken out carry their own release and stay valid. NULL is a no-op. */
 void pancake_peer_release(PancakePeer *peer);
 /* Dispatch a borrowed frame synchronously; the caller retains ownership. */
-int32_t pancake_peer_feed_borrowed(PancakePeer *peer, const PancakeFrame *frame);
+int32_t pancake_peer_recv_borrowed(PancakePeer *peer, const PancakeFrame *frame);
 /* Transfer a managed frame into the inbound queue for `pancake_peer_step`.
    Ownership always transfers once peer, frame, and frame->bytes are non-NULL:
    on failure the frame is released through its own callback and the caller's
@@ -299,15 +299,6 @@ int32_t pancake_peer_recv_stream(PancakePeer *peer, const uint8_t *bytes, size_t
    pancake_peer_take_outbound and pancake_peer_poll_event afterward.
    Or let pancake_peer_next_event drive and project in one call. */
 int32_t pancake_peer_step(PancakePeer *peer);
-/* Advance the peer to quiescence: step until both the inbound and pending
-   outbound queues are empty. A single pancake_peer_step does one unit of work,
-   so a cascading settlement (a resolve that drains a projection whose own
-   resolve fires a listener that queues a deliver) needs several steps to fully
-   encode; this runs them all so one pancake_peer_take_outbound sweep drains
-   every queued frame. No I/O — drain pancake_peer_take_outbound and
-   pancake_peer_poll_event afterward, as for pancake_peer_step.
-   Or let pancake_peer_next_event drive and project in one call. */
-int32_t pancake_peer_step_to_idle(PancakePeer *peer);
 /* Take the next outbound frame as an owned managed frame, or
    PANCAKE_ERR_WOULD_BLOCK when the queue is empty. On PANCAKE_ERR_INTERNAL the
    dequeued frame could not be wrapped for C and was freed; it is not
@@ -365,13 +356,18 @@ int32_t pancake_peer_prepare_enliven(PancakePeer *peer, const uint8_t *swissnum,
    on PANCAKE_ENLIVEN_OUTCOME_BROKEN the in-flight marker is cleared and nothing
    is cached. `swissnum` is borrowed for the call. */
 int32_t pancake_peer_record_enlivenment(PancakePeer *peer, const uint8_t *swissnum, size_t swissnum_len, uint32_t outcome, uint64_t import_position, uint32_t kind);
-/* Register a local export position so deliveries to it surface as events. */
+/* Register a local export position and GRANT it: deliveries to it are
+   admitted and surface as events immediately, without waiting for the
+   capability's first marshal. The deliberate make-this-addressable-now verb
+   for positions a partner learns out-of-band. */
 int32_t pancake_peer_register_export(PancakePeer *peer, uint64_t export_position);
 /* Allocate the next free export position from the session's one export
-   allocator and REGISTER it (unlike pancake_peer_next_answer, which only
-   allocates), writing it into `out_export_position`. A binding's `spawn` must
-   take its position here: the same counter mints bootstrap and resolver
-   exports, so a privately-counted position would eventually alias one. */
+   allocator and RESERVE it (unlike pancake_peer_next_answer, which only
+   allocates), writing it into `out_export_position`. The partner can address
+   the reserved position only once the capability first marshals onto the
+   wire, or after an explicit pancake_peer_register_export grant. A binding's
+   `spawn` must take its position here: the same counter mints bootstrap and
+   resolver exports, so a privately-counted position would eventually alias one. */
 int32_t pancake_peer_next_export(PancakePeer *peer, uint64_t *out_export_position);
 /* Allocate the next outbound answer position — the question id for a
    send_deliver that wants a reply — writing it into `out_answer`. A binding's
@@ -586,12 +582,6 @@ int32_t pancake_peer_send_gc_answer(PancakePeer *peer, uint64_t answer);
    reference arrives as a PANCAKE_EVENT_RESOLVE keyed on `answer`. `give` and
    `seed` are borrowed. */
 int32_t pancake_peer_send_withdraw_gift(PancakePeer *peer, const uint8_t *give, size_t give_len, const uint8_t *seed, size_t seed_len, uint64_t answer);
-/* Borrow the partner's session public key learned from its op:start-session
-   into out_ptr/out_len (a NULL pointer and zero length before the handshake
-   half arrives). A gifter reads it on the to-recipient session for a give's
-   recipient key, and on the to-exporter session to derive the gifter-exporter
-   session name. The view aliases the session until the peer is released. */
-int32_t pancake_peer_partner_session_key(PancakePeer *peer, const uint8_t **out_ptr, size_t *out_len);
 /* Borrow the partner's verbatim location-record bytes from its op:start-session
    into out_ptr/out_len (a NULL pointer and zero length when none were captured).
    A gifter embeds these as a give's exporter location so a peer comparing
@@ -681,11 +671,15 @@ int32_t pancake_node_remove_conn(PancakeNode *node, uint64_t conn_id);
    out_routed (0 when a redeemed token names an exporter connection that is gone,
    so the deliver must be dropped). */
 int32_t pancake_node_route(PancakeNode *node, uint64_t default_conn, uint64_t far_id, uint64_t *out_conn_id, uint64_t *out_far_id, uint32_t *out_routed);
-/* Record that the fetched far import `far_id` lives on connection `home`, so a
-   later foreign-home return is re-gifted instead of mis-encoding a
-   cross-connection reference (ADR-0009 gifter half). A synthetic redeemed token
-   (a high far id) is never a wire import, so recording it is a no-op. */
-int32_t pancake_node_record_foreign_home(PancakeNode *node, uint64_t far_id, uint64_t home);
+/* Enroll the fetched far import `far_id` (a wire position on connection `home`)
+   under a node-unique token, written into out_token (ADR-0069). The binding
+   holds the token as the capability's identity instead of the wire position, so
+   two capabilities fetched at the same wire position on different connections
+   never collide in the node's routing tables. A send to the token routes to
+   `home` with the real wire reference swapped back in; returning it to another
+   connection re-gifts the right home. Every binding holds a fetched capability's
+   identity this way; a fetch calls it on the far reference the partner returns. */
+int32_t pancake_node_enroll_foreign(PancakeNode *node, uint64_t home, uint64_t far_id, uint64_t *out_token);
 /* Whether far-object `far_id`, used as a send/tell argument from default_conn,
    names a capability foreign to that connection: a redeemed handoff token (the
    node routes it to a different exporter) or a far the node recorded as fetched
@@ -758,11 +752,12 @@ int32_t pancake_node_intercept_fulfilled_ref(PancakeNode *node, uint64_t conn_id
    already-settled `ticket` is a no-op. gift_id is borrowed and must be
    non-empty. */
 int32_t pancake_node_provide_gift_id(PancakeNode *node, uint64_t ticket, const uint8_t *gift_id, size_t gift_id_len);
-/* Record the verbatim exporter locator to embed in gives whose exporter is
+/* Record the exporter locator to embed in gives whose exporter is
    conn_id — an exporter reachable only by a dial hint (an iroh endpoint's
    direct addresses), where the session's own signed location record is not
-   dialable. `location` is borrowed (the node copies it); NULL or empty clears
-   the override back to the session record. */
+   dialable. location is a borrowed Syrup <ocapn-peer> record; NULL or empty
+   clears the override. A URI or other non-record spelling fails with
+   PANCAKE_ERR_INVALID_ARGUMENT. */
 int32_t pancake_node_set_exporter_location(PancakeNode *node, uint64_t conn_id, const uint8_t *location, size_t location_len);
 /* Pop the next serve-step action into `out`. The previous action's byte views
    are freed by this call, so a popped action's locator/reason views are valid

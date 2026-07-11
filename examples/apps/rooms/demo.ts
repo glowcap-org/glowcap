@@ -22,15 +22,22 @@
 // demo's own member roster, so an attached room may have other people in it,
 // chatting away — they are shown in the transcripts but never counted.
 
-import { ANNOUNCE_RE, announceToLocator } from "./deno/locator.ts";
+import { ANNOUNCE_RE, announceToLocator } from "./deno/lib/locator.ts";
+import {
+	buildRust,
+	onPath,
+	parseCliArgs,
+	requireZigClientPath,
+	runChild,
+	stopSpawnedServer,
+	validatePortOptions,
+} from "../_demo/orchestrator.ts";
 
 const positional: string[] = [];
-let pinPort = 0;
-let attach = false;
+const cliArgs: string[] = [];
 let transport: "tcp" | "iroh" = "tcp";
 for (const a of Deno.args) {
-	if (a === "--attach") attach = true;
-	else if (a.startsWith("--port=")) pinPort = Number(a.slice("--port=".length));
+	if (a === "--attach" || a.startsWith("--port=")) cliArgs.push(a);
 	else if (a.startsWith("--transport=")) {
 		const t = a.slice("--transport=".length);
 		if (t !== "tcp" && t !== "iroh") {
@@ -40,23 +47,12 @@ for (const a of Deno.args) {
 		transport = t;
 	} else positional.push(a);
 }
-const ZIG_CLIENT = positional[0];
-if (!ZIG_CLIENT) {
-	console.error(
-		"demo.ts: missing the Zig client path (run via `zig build demo-rooms`)",
-	);
-	Deno.exit(2);
-}
-if (!Number.isInteger(pinPort) || pinPort < 0 || pinPort > 65535) {
-	console.error("demo.ts: --port must be an integer in 1..65535");
-	Deno.exit(2);
-}
-if (attach && pinPort === 0) {
-	console.error(
-		"demo.ts: --attach requires --port (there is no server to join without one)",
-	);
-	Deno.exit(2);
-}
+const { pinPort, attach } = parseCliArgs(cliArgs);
+const ZIG_CLIENT = requireZigClientPath(
+	positional,
+	"demo.ts: missing the Zig client path (run via `zig build demo-rooms`)",
+);
+validatePortOptions(pinPort, attach, "demo.ts");
 
 const ROOT = Deno.cwd();
 // The one room every demo client enters. The first client to run opens it; the
@@ -81,40 +77,9 @@ interface Member {
 
 /** True if `cmd` can be spawned at all, the cross-platform way to ask "is this
  * runtime on PATH?" without a shell. */
-async function onPath(cmd: string): Promise<boolean> {
-	try {
-		await new Deno.Command(cmd, {
-			args: ["--version"],
-			stdout: "null",
-			stderr: "null",
-		}).output();
-		return true;
-	} catch {
-		return false; // spawn failed: not installed / not on PATH
-	}
-}
-
-/** Build the Rust client crate. Over iroh it builds with `--features iroh` so the
- * client links the iroh C ABI companion library and can dial an `ocapn://` URI. Returns
- * false (with a note) if the build fails so the demo can carry on without it. */
-async function buildRust(): Promise<boolean> {
-	console.log("rooms demo: building the Rust client (cargo build)…");
-	const args = [
-		"build",
-		"--manifest-path",
-		`${ROOT}/examples/apps/rooms/rust/Cargo.toml`,
-	];
-	if (transport === "iroh") args.push("--features", "iroh");
-	const built = await new Deno.Command("cargo", {
-		args,
-		cwd: ROOT,
-		stdout: "inherit",
-		stderr: "inherit",
-	}).output();
-	if (!built.success) {
-		console.log("rooms demo: skipping Rust, cargo build failed");
-	}
-	return built.success;
+async function buildRustClient(): Promise<boolean> {
+	const features = transport === "iroh" ? ["iroh"] : undefined;
+	return buildRust(ROOT, "examples/apps/rooms/rust/Cargo.toml", features);
 }
 
 /** Decide who plays. Deno and Zig always; the others only when present. */
@@ -185,7 +150,7 @@ async function roster(): Promise<{ members: Member[]; skipped: string[] }> {
 	} else skipped.push("racket (no racket on PATH)");
 
 	if (await onPath("cargo")) {
-		if (await buildRust()) {
+		if (await buildRustClient()) {
 			members.push({
 				name: "rust",
 				nick: "rs-barbara",
@@ -220,15 +185,8 @@ async function readLocator(server: Deno.ChildProcess): Promise<string> {
 }
 
 async function runMember(m: Member, locator: string, roster: string) {
-	const out = await new Deno.Command(m.cmd, {
-		args: m.argv(locator, roster),
-		stdout: "piped",
-		stderr: "piped",
-		cwd: ROOT,
-	}).output();
-	const text = new TextDecoder().decode(out.stdout) +
-		new TextDecoder().decode(out.stderr);
-	return { name: m.name, code: out.code, out: text };
+	const r = await runChild(m.cmd, m.argv(locator, roster), ROOT);
+	return { name: m.name, code: r.code, out: r.out };
 }
 
 const { members, skipped } = await roster();
@@ -291,13 +249,7 @@ try {
 		if (skipped.length > 0) console.log(`(skipped: ${skipped.join("; ")})`);
 	}
 } finally {
-	// An attached server belongs to whoever started it; only a spawned one dies here.
-	if (server) {
-		try {
-			server.kill("SIGTERM");
-		} catch { /* already gone */ }
-		await server.status;
-	}
+	await stopSpawnedServer(server);
 }
 
 Deno.exit(failed ? 1 : 0);

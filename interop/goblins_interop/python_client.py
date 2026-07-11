@@ -15,48 +15,20 @@ positional call, asserting Goblins resolves it. Needs ``racket`` plus the
 from __future__ import annotations
 
 import asyncio
-import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bindings" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
+from helpers import fail, insert_bindings_path, parse_port, read_swiss  # noqa: E402
+
+insert_bindings_path()
 
 from pancake import connect, tcp_locator  # noqa: E402
 
 HOST = "127.0.0.1"
-# The Goblins vat's fixed port; --port=N (from
-# `zig build python-goblins-interop -Dport=N`) moves it when 22097 is taken.
-PORT = 22097
-for _arg in sys.argv[1:]:
-    if _arg.startswith("--port="):
-        PORT = int(_arg.split("=", 1)[1], 10)
-    else:
-        print(f"python-goblins-interop: unknown argument '{_arg}'", file=sys.stderr)
-        raise SystemExit(2)
-if not 1 <= PORT <= 65535:
-    print("python-goblins-interop: --port must be an integer in 1..65535", file=sys.stderr)
-    raise SystemExit(2)
+PORT = parse_port("python-goblins-interop", 22097)
 RACKET = "/usr/local/bin/racket"
 HOST_SCRIPT = "conformance/goblins-peer/racket/goblins-host.rkt"
-
-
-def fail(msg: str) -> None:
-    print(f"python-goblins-interop FAILED: {msg}", file=sys.stderr)
-    raise SystemExit(1)
-
-
-async def read_swiss(proc: asyncio.subprocess.Process) -> str:
-    assert proc.stdout is not None
-    deadline = asyncio.get_running_loop().time() + 30.0
-    while asyncio.get_running_loop().time() < deadline:
-        line = await asyncio.wait_for(proc.stdout.readline(), timeout=30.0)
-        if not line:
-            break
-        m = re.search(rb'"swiss":"([^"]+)"', line)
-        if m:
-            return m.group(1).decode()
-    fail("never saw the Goblins echo cap readiness line")
-    raise AssertionError  # unreachable
 
 
 async def converse() -> None:
@@ -66,19 +38,15 @@ async def converse() -> None:
         stderr=asyncio.subprocess.PIPE,
     )
     try:
-        swiss = await read_swiss(proc)
+        swiss = await read_swiss(proc, "python-goblins-interop", miss="never saw the Goblins echo cap readiness line")
         print(f"python-goblins-interop: goblins published echo swiss={swiss} on {HOST}:{PORT}")
 
-        # `connect` completes the keyed handshake; reaching here means Goblins
-        # accepted our signed start-session and we accepted its.
         conn = await connect(tcp_locator(HOST, PORT))
         print("python-goblins-interop: session open, keyed start-session accepted by goblins")
         conn.serve()
 
         echo = await conn.fetch(swiss)
         print("python-goblins-interop: fetched goblins echo cap, calling it")
-
-        # Goblins invokes a cap positionally (no method symbol), so verb is "".
         await conn.send(echo, "", [b"pancake-ping"])
 
         print(

@@ -44,22 +44,25 @@ pub const DecodeError = codec.dispatch.Error || model.view.ProjectError;
 /// The event owns the originating wire frame in the session's negotiated codec.
 /// Typed access is a borrowed projection over that frame (`view`); owned
 /// materialization (`decodeOwned`) happens only when the caller asks.
+pub const AnswerOverride = union(enum) {
+    none,
+    /// Goblins V1.0 resolver-callback deliver surfaced as a semantic
+    /// resolve (`Event.tag == .resolve`).
+    resolver_callback: model.AnswerPosition,
+    /// Resolver-only deliver carrying its virtual inbound answer
+    /// (`Event.tag == .deliver`).
+    virtual_deliver: model.AnswerPosition,
+};
+
 pub const Event = struct {
     frame: foundation.Frame,
     tag: EventKind,
     /// The codec that carried `frame` — the session's negotiated `model.CodecId`.
     codec: model.CodecId,
-    /// Off-wire answer-id for a Goblins V1.0 resolver-callback (ADR-0010). Set
-    /// only when `tag == .resolve` and the frame is a translated deliver.
-    resolve_answer: ?model.AnswerId = null,
-    /// Off-wire answer-id for an ordinary inbound deliver that carried a
-    /// `resolve_me_desc` but no wire answer-position (the Goblins V1.0
-    /// resolver-only call pattern). The session allocated a virtual inbound
-    /// answer and installed the partner's resolver against it; the surfaced
-    /// deliver must carry that virtual answer so the application's reply routes
-    /// back through the resolver callback rather than dropping silently. Set
-    /// only when `tag == .deliver`.
-    deliver_answer: ?model.AnswerId = null,
+    /// Off-wire answer translation when the wire frame alone cannot say
+    /// (ADR-0010). A sum, not two optionals: illegal combinations (both set,
+    /// or set under the wrong tag) are unrepresentable.
+    answer_override: AnswerOverride = .none,
 
     pub fn kind(self: Event) EventKind {
         return self.tag;
@@ -72,40 +75,27 @@ pub const Event = struct {
     /// Borrowed typed projection over the retained frame. No allocation, no copy.
     pub fn view(self: *const Event) DecodeError!model.view.Body {
         const wire = try codec.dispatch.decodeBody(self.codec, self.frame.view());
-        if (self.resolve_answer) |answer| {
-            return .{ .resolve = .{
+        return switch (self.answer_override) {
+            .none => wire,
+            .resolver_callback => |answer| .{ .resolve = .{
                 .answer = answer,
                 .resolution = try resolutionFromResolverCallback(wire.deliver.args),
-            } };
-        }
-        if (self.deliver_answer) |answer| {
-            var deliver = wire.deliver;
-            deliver.answer = answer;
-            return .{ .deliver = deliver };
-        }
-        return wire;
+            } },
+            .virtual_deliver => |answer| blk: {
+                var deliver = wire.deliver;
+                deliver.answer = answer;
+                break :blk .{ .deliver = deliver };
+            },
+        };
     }
 
     /// Materialize an owned codec-neutral message from the retained frame. Only
-    /// when the caller needs ownership independent of this event's frame. The
-    /// V1.0 resolver-callback translation `view` applies is applied here too:
-    /// a `resolve_answer` event materializes the semantic `.resolve`, never the
-    /// raw callback `.deliver`, so the two projections cannot disagree.
+    /// when the caller needs ownership independent of this event's frame. It is
+    /// `view` materialized, structurally: the borrowed projection (with its
+    /// V1.0 resolver-callback translation and answer override) is built once
+    /// and owned once, so the two projections cannot disagree.
     pub fn decodeOwned(self: *const Event, event_allocator: std.mem.Allocator) !model.Message {
-        const body = try codec.dispatch.decodeBody(self.codec, self.frame.view());
-        if (self.resolve_answer) |answer| {
-            const resolution = try resolutionFromResolverCallback(body.deliver.args);
-            return .{ .resolve = .{
-                .answer = answer,
-                .resolution = try resolution.toOwned(event_allocator),
-            } };
-        }
-        if (self.deliver_answer) |answer| {
-            var deliver = body.deliver;
-            deliver.answer = answer;
-            return (model.view.Body{ .deliver = deliver }).toOwned(event_allocator);
-        }
-        return body.toOwned(event_allocator);
+        return (try self.view()).toOwned(event_allocator);
     }
 
     pub fn deinit(self: *Event) void {

@@ -73,6 +73,20 @@ received.
   can report _fewer_ kilobytes per connection than the ahead-of-time Zig row
   that actually faults its buffers in. Compare a row to itself across changes,
   not to a row in a different runtime class.
+- **Local turn** — the "push local actors into Zig?" cost question. Every
+  binding dispatches a locally spawned actor in its own runtime today; if that
+  dispatch were routed through the C host into a Zig vat instead, what would a
+  local turn cost per binding? Each client spawns a counter actor two ways and
+  runs sequential send→settle units against both: `in_lang` is the binding's
+  own in-process dispatch (today's path), and `via_host` is the same behavior
+  forced through the C host machinery across a loopback pair inside the
+  client's own process. Both are reported in nanoseconds per turn (mean and
+  p99) with their ratio. The `via_host` figure deliberately **over-counts** a
+  real Zig-vat local turn: the loopback round trip pays the full wire codec in
+  both directions, which an in-Zig local turn would skip, so read it as an
+  upper bound, not a prediction. The Goblins reference row reports only its
+  in-vat figure (there is no C host under Goblins), so its via-host cells
+  render as `-`.
 - **Cold start** — from process spawn to the first settled call. This is where
   ahead-of-time and interpreted or JIT runtimes genuinely diverge, so it is
   reported on its own and never folded into the steady-state numbers. The

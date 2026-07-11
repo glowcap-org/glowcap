@@ -20,7 +20,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "bindings" / "python"))
 
-from pancake import Connection, connect, tcp_locator  # noqa: E402
+from pancake import Connection, Ref, connect, listen, tcp_locator  # noqa: E402
 
 CLIENT = "python"
 RUNTIME = f"cpython/{platform.python_version()}"
@@ -157,6 +157,88 @@ async def run_cold(host: str, port: int) -> None:
     emit({"v": 1, "event": "cold-done", "client": CLIENT})
 
 
+def counter_behavior():
+    # The local-turn counter: `hit` increments and returns the count, any other
+    # verb raises. A fresh closure per use, so the two paths of run_local never
+    # share a count.
+    count = 0
+
+    def counter(verb: str, args: list):
+        nonlocal count
+        if verb != "hit":
+            raise RuntimeError(f"counter: no such method {verb}")
+        count += 1
+        return count
+
+    return counter
+
+
+async def measure_hits(conn: Connection, target: Ref, n: int) -> list:
+    # min(n, 500) warmup hits, a forced collection, then n measured sequential
+    # send→settle units, asserting the final count equals warmup + n. Returns
+    # the sorted per-turn latencies in nanoseconds.
+    warmup = warmup_count(n)
+    for _ in range(warmup):
+        await conn.send(target, "hit", [])
+    gc.collect()
+    lats = []
+    last = 0
+    for _ in range(n):
+        s = time.perf_counter_ns()
+        last = await conn.send(target, "hit", [])
+        lats.append(time.perf_counter_ns() - s)
+    if last != warmup + n:
+        raise RuntimeError(f"bad final count {last!r} (expected {warmup + n})")
+    lats.sort()
+    return lats
+
+
+async def run_local(n: int) -> None:
+    # The `local` mode (see contract.md): (a) in_lang — a counter spawned on
+    # this connection, dispatched in process by the binding's own local path;
+    # (b) via_host — the same behavior published across a loopback pair inside
+    # this process (listen on 127.0.0.1:0 + connect to itself), so every turn
+    # pays wire codec, feed, trampoline, and marshal both ways. The
+    # orchestrator's host/port arguments are unused; the pair is
+    # self-contained.
+    server = await listen("127.0.0.1", 0)
+    accepted: list = []
+
+    async def accept_one() -> None:
+        async for conn in server:
+            conn.publish("counter", counter_behavior())
+            conn.serve()
+            accepted.append(conn)
+            return
+
+    accept_task = asyncio.ensure_future(accept_one())
+    dial = await connect(tcp_locator("127.0.0.1", server.port))
+
+    # (a) in_lang: the binding's in-process actor dispatch.
+    local = dial.spawn(counter_behavior())
+    in_lang = await measure_hits(dial, local, n)
+
+    # (b) via_host: the published counter across the loopback pair.
+    far = await dial.fetch("counter")
+    via_host = await measure_hits(dial, far, n)
+
+    await dial.close()
+    server.close()
+    accept_task.cancel()
+    for conn in accepted:
+        await conn.close()
+
+    in_mean = sum(in_lang) / max(1, n)
+    via_mean = sum(via_host) / max(1, n)
+    emit({
+        "v": 1, "metric": "local", "client": CLIENT, "suite": "local-turn", "n": n,
+        "in_lang_ns": round(in_mean, 1), "in_lang_p99_ns": round(percentile_ms(in_lang, 0.99), 1),
+        "via_host_ns": round(via_mean, 1), "via_host_p99_ns": round(percentile_ms(via_host, 0.99), 1),
+        "ratio": round(via_mean / in_mean, 2) if in_mean > 0 else 0,
+        "runtime": RUNTIME, "warmup_n": warmup_count(n),
+    })
+
+
 async def main() -> None:
     mode, host, port_str = sys.argv[1], sys.argv[2], sys.argv[3]
     port = int(port_str)
@@ -169,6 +251,8 @@ async def main() -> None:
         await run_connections(host, port, n)
     elif mode == "cold":
         await run_cold(host, port)
+    elif mode == "local":
+        await run_local(n)
     else:
         print(f"unknown mode: {mode}", file=sys.stderr)
         sys.exit(2)

@@ -107,7 +107,7 @@ by `zig build iroh-interop`, which gained a deterministic proof for each:
 - **Discovery / relays.** The endpoint takes a configurable, no-default
   `Reachability` (`direct`, `discovery`, `discovery_no_relay`,
   `local_discovery`) — a `u32` on `pancake_iroh_sidecar_endpoint_new` and the
-  public `pancake_iroh_netlayer_new*`, surfaced as the `Reachability` enum /
+  public `pancake_iroh_netlayer_*`, surfaced as the `Reachability` enum /
   `IROH-REACH-*` constants in all four bindings. The gate dials by node id
   **alone** through the `local_discovery` address book (no direct-address
   hints); the public-internet posture (`discovery`) is the same path against n0

@@ -3,10 +3,10 @@
 Anchors: CapTP Specification § Promises, § Promise pipelining, § op:listen. The
 `wants-partial?` operand is `[goblins-canonical]`.
 
-## PP-1 — Promise lifecycle
+## PP-1: Promise lifecycle
 
 A promise settles exactly once into Fulfilled or Broken. Fulfilling with
-_another promise_ is a partial step, the promise stays pending against the new
+_another promise_ is a partial step: the promise stays pending against the new
 target until a non-promise value or an error arrives.
 
 ```mermaid
@@ -19,7 +19,7 @@ stateDiagram-v2
     Broken --> [*]
 ```
 
-## PP-2 — Pipelined deliver on an answer
+## PP-2: Pipelined deliver on an answer
 
 A questioner may target `desc:answer N` before N has resolved. The answerer
 queues the pipelined call against the pending answer and runs it on settlement,
@@ -37,12 +37,12 @@ sequenceDiagram
     R->>Q: op:resolve (4, resolve:fulfill result)
 ```
 
-## PP-3 — Multi-hop chain
+## PP-3: Multi-hop chain
 
 `a.lookup(x).getCalendar().eventsToday()` is three hops, each anchored on the
 previous answer position. On the wire each hop is its own `op:deliver` against
-`desc:answer`; encodings with richer path types may carry the chain in fewer
-frames, but the semantics are this chain.
+`desc:answer`. An encoding with richer path types may carry the chain in fewer
+frames, but the semantics stay this chain.
 
 ```mermaid
 sequenceDiagram
@@ -55,7 +55,7 @@ sequenceDiagram
     R->>Q: op:resolve (5, resolve:fulfill events)
 ```
 
-## PP-4 — Deliver to an already-resolved answer
+## PP-4: Deliver to an already-resolved answer
 
 If the answer has settled by the time a pipelined deliver targeting it arrives,
 the call forwards to the resolution: invoked on the fulfillment value, or broken
@@ -69,7 +69,7 @@ flowchart TD
     ST -->|"broken"| BR["break the new answer with the inherited error"]
 ```
 
-## PP-5 — op:listen, fire on settlement
+## PP-5: op:listen, fire on settlement
 
 The listener is an object the questioner exports. When the target settles, the
 answerer delivers the resolution to the listener as an ordinary call. With
@@ -86,7 +86,7 @@ sequenceDiagram
     R->>Q: op:deliver (to desc:import-object 9, ['fulfill, value], answer-pos false)
 ```
 
-## PP-6 — op:listen with wants-partial `[goblins-canonical]`
+## PP-6: op:listen with wants-partial `[goblins-canonical]`
 
 With `wants-partial?` true, the listener also fires on each intermediate
 promise-shaped fulfillment, re-installing on the next link until a settled value
@@ -104,10 +104,10 @@ sequenceDiagram
     R->>Q: op:deliver (to desc:import-object 9, ['fulfill, value], answer-pos false)
 ```
 
-## PP-7 — op:listen on an already-settled target
+## PP-7: op:listen on an already-settled target
 
-Listening on a target that is already settled — e.g. a live local export — fires
-the listener immediately with that resolution. Nothing waits.
+Listening on a target that is already settled (for example a live local export)
+fires the listener immediately with that resolution. Nothing waits.
 
 ```mermaid
 sequenceDiagram

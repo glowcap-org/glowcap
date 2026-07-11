@@ -82,19 +82,11 @@ pub fn shuttleUntilQuiescent(p1: *Peer, p2: *Peer) !ShuttleOutcome {
         const o2 = try p2.step();
         var any_traffic = false;
         while (p1.takeOutbound()) |frame| {
-            var f = frame;
-            p2.feedInbound(f) catch |err| {
-                f.deinit();
-                return err;
-            };
+            try p2.feedOwned(frame);
             any_traffic = true;
         }
         while (p2.takeOutbound()) |frame| {
-            var f = frame;
-            p1.feedInbound(f) catch |err| {
-                f.deinit();
-                return err;
-            };
+            try p1.feedOwned(frame);
             any_traffic = true;
         }
         if (!any_traffic and o1 == .idle and o2 == .idle) {

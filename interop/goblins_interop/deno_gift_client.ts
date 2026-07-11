@@ -22,19 +22,13 @@
 // sibling build step `zig build deno-goblins-gift`.
 
 import { Connection, listen, type Ref } from "@pancake/stack";
+import { acceptLoop, fail, parsePort } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
 // Bob (the Goblins exporter) listens on PORT; Carol binds her own peer on PORT+1.
 // pancake (the gifter) takes an ephemeral port, the recipient learns it at spawn
 // time. `--port=N` (from `zig build deno-goblins-gift -Dport=N`) moves the pair.
-let PORT = 22120;
-for (const a of Deno.args) {
-	if (a.startsWith("--port=")) PORT = Number(a.slice("--port=".length));
-	else fail(`unknown argument '${a}'`);
-}
-if (!Number.isInteger(PORT) || PORT < 1 || PORT > 65534) {
-	fail("--port must be an integer in 1..65534 (the recipient binds on port+1)");
-}
+const PORT = parsePort("deno-goblins-gift", 22120, 65534);
 const RACKET = "/usr/local/bin/racket";
 const EXPORTER_SCRIPT = "conformance/goblins-peer/racket/gift-exporter-host.rkt";
 const RECIPIENT_SCRIPT = "conformance/goblins-peer/racket/gift-recipient.rkt";
@@ -43,15 +37,6 @@ const RECIPIENT_SCRIPT = "conformance/goblins-peer/racket/gift-recipient.rkt";
 const GREETER_SWISS = "pancakeGiftGreeterSwissnum000001";
 const INTRODUCER_SWISS = "introducer";
 
-function fail(msg: string): never {
-	console.error(`deno-goblins-gift FAILED: ${msg}`);
-	// Kill the spawned Goblins peers before exiting: `Deno.exit` skips the
-	// `finally`, so without this an early failure orphans the exporter (and the
-	// recipient), and a lingering listener on a fixed port poisons later runs.
-	killChildren();
-	Deno.exit(1);
-}
-
 const children: Deno.ChildProcess[] = [];
 function killChildren(): void {
 	for (const c of children) {
@@ -59,6 +44,11 @@ function killChildren(): void {
 			c.kill();
 		} catch { /* already gone */ }
 	}
+}
+
+function giftFail(msg: string): never {
+	killChildren();
+	fail("deno-goblins-gift", msg);
 }
 
 // Spawn Bob (the Goblins exporter) and wait for its readiness NDJSON.
@@ -78,16 +68,6 @@ const bobStderrChunks: Uint8Array[] = [];
 const bobStderrDrain = (async () => {
 	for await (const chunk of bob.stderr) bobStderrChunks.push(chunk);
 })().catch(() => {});
-function bobStderr(): string {
-	return new TextDecoder().decode(
-		bobStderrChunks.reduce((acc, c) => {
-			const out = new Uint8Array(acc.length + c.length);
-			out.set(acc);
-			out.set(c, acc.length);
-			return out;
-		}, new Uint8Array()),
-	).trim();
-}
 
 async function awaitBobReady(): Promise<void> {
 	const decoder = new TextDecoder();
@@ -99,7 +79,7 @@ async function awaitBobReady(): Promise<void> {
 		buf += decoder.decode(value, { stream: true });
 		if (buf.includes('"name":"greeter"')) return;
 	}
-	fail("never saw the exporter's greeter readiness line");
+	giftFail("never saw the exporter's greeter readiness line");
 }
 
 let ok = false;
@@ -114,9 +94,7 @@ try {
 	// its accept loop. One node identity serves both the recipient connection and
 	// the exporter connection, so the give's signature matches the deposit.
 	const gifter = listen(HOST, 0);
-	const gifterAccept = (async () => {
-		for await (const conn of gifter) conn.serve().catch(() => {});
-	})();
+	const gifterAccept = acceptLoop(gifter);
 	const gifterPort = await gifter.ready();
 
 	// Dial Bob and fetch his greeter. The fetched ref's home is this gifter↔Bob
@@ -156,12 +134,12 @@ try {
 	const carolErr = new TextDecoder().decode(carolOut.stderr).trim();
 	if (reply) console.log(`deno-goblins-gift: ${reply}`);
 	if (!carolOut.success) {
-		fail(
+		giftFail(
 			`recipient exited non-zero${carolErr ? `; stderr:\n${carolErr}` : ""}`,
 		);
 	}
 	if (!reply.startsWith("GIFT OK:") || !reply.includes("goblins-carol")) {
-		fail(
+		giftFail(
 			`recipient did not confirm the greeter reply with its name: ${JSON.stringify(reply)}`,
 		);
 	}
@@ -184,7 +162,14 @@ try {
 	} catch { /* already released */ }
 	await bobStderrDrain;
 	if (!ok) {
-		const err = bobStderr();
+		const err = new TextDecoder().decode(
+			bobStderrChunks.reduce((acc, c) => {
+				const out = new Uint8Array(acc.length + c.length);
+				out.set(acc);
+				out.set(c, acc.length);
+				return out;
+			}, new Uint8Array()),
+		).trim();
 		if (err) console.error(`deno-goblins-gift: exporter stderr:\n${err}`);
 	}
 	if (carol) {

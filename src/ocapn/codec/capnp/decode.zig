@@ -37,7 +37,7 @@ const wire = shared.wire;
 const Error = shared.Error;
 const Kind = shared.Kind;
 
-const RefKind = shared.RefKind;
+const RefTag = shared.RefTag;
 const ArgKind = shared.ArgKind;
 const ResolutionKind = shared.ResolutionKind;
 const PipelineOpKind = shared.PipelineOpKind;
@@ -272,13 +272,13 @@ fn borrowedData(reader: Reader, loc: StructLoc, i: u16) Error![]const u8 {
 /// flip).
 fn neutralReferenceView(reader: Reader, loc: StructLoc) Error!model.view.Reference {
     const data0 = try reader.dataWord(loc, 0);
-    const disc = try enumFromWire(RefKind, data0);
+    const disc = try enumFromWire(RefTag, data0);
     const scalar = try reader.dataWord(loc, 1);
     const is_promise = data0 & shared.data0_flag != 0;
     return switch (disc) {
-        .near => .{ .far = .{ .import_position = model.ImportId.from(scalar), .kind = if (is_promise) .promise else .object } },
-        .far => .{ .near = .{ .export_position = model.ExportId.from(scalar), .kind = if (is_promise) .promise else .object } },
-        .promise => .{ .promise = .{ .answer_position = model.AnswerId.from(scalar), .path = try neutralPathBacking(reader, loc, 0) } },
+        .near => .{ .far = .{ .import_position = model.ImportPosition.from(scalar), .kind = if (is_promise) .promise else .object } },
+        .far => .{ .near = .{ .export_position = model.ExportPosition.from(scalar), .kind = if (is_promise) .promise else .object } },
+        .promise => .{ .promise = .{ .answer_position = model.AnswerPosition.from(scalar), .path = try neutralPathBacking(reader, loc, 0) } },
         .sturdy => .{ .sturdy = .{
             .peer = try neutralPeerLocator(reader, (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame),
             .swissnum = try borrowedData(reader, loc, 1),
@@ -453,12 +453,170 @@ pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
     return neutralBody(try decodeMessageView(frame));
 }
 
-/// The one neutral body walk, shared by `decodeBody` and
-/// `MessageView.toOwned` so there is no second decoder to drift.
+/// Decode-time recursion bound for the eager traversal charge pass, the capnp
+/// sibling of the Syrup decoder's `max_decode_nesting`. The charge pass walks
+/// the whole tree once (following every aliasing edge) to spend the per-frame
+/// budget, so it recurses one native frame per nesting level; without a bound a
+/// deeply nested frame would overflow the stack here before the budget or the
+/// session's nesting cap could speak. It sits above `model.max_value_depth`
+/// (256) so it never refuses a frame the owned materializer would still admit:
+/// a frame deeper than 256 but under this bound charges fine and is refused by
+/// `toOwnedSliceDepth` as `MalformedView`, exactly as before this pass existed.
+const max_charge_depth: usize = 512;
+
+// ── Eager traversal-budget charge pass (the remote-DoS bound) ────────────────
+//
+// `decodeBody`/`toOwned` are lazy: the borrowed backings re-resolve composite
+// elements through `neutralArgsAt` on demand, and Cap'n Proto pointers may
+// alias/overlap, so a small frame whose composite-list elements resolve to one
+// shared child (repeated D levels, K children each) drives K^D node visits on
+// the later walk — a remote, unauthenticated DoS on the single-threaded turn
+// loop. `chargeBody` closes it at decode time: it walks the whole logical tree
+// once with a single per-frame word budget (seeded from the segment size,
+// spent in `Reader.word`/`byteSlice` and per composite element resolved), so an
+// aliasing DAG that re-reads the same words burns the one shared counter and is
+// refused in bounded time — before any borrowed view escapes `neutralBody`.
+// Because the charge pass follows the same edges the lazy walk would, a frame
+// that passes it has a bounded total node count, so the later lazy walk is
+// bounded too. A legitimate tree reads each segment word a small constant
+// number of times, well under the budget. `chargeBody` mirrors `projectBody`'s
+// descent arm-for-arm; the exhaustive `Kind`/`ArgKind`/`RefTag`/
+// `ResolutionKind` switches make a new wire arm a compile error here, and the
+// round-trip tests catch any pointer-index drift (a wrong follow errors on a
+// valid frame).
+
+/// Spend one node plus recurse into an `Argument`'s composite children,
+/// mirroring `neutralArgument`. `neutralArgument` reads and validates this
+/// node's own words (charging through the metered reader); the switch adds the
+/// recursion the lazy backings defer. `depth` is the value-nesting level; it
+/// increments once at each composite descent so it tracks `toOwnedSliceDepth`.
+fn chargeArgument(reader: Reader, loc: StructLoc, depth: usize) Error!void {
+    if (depth > max_charge_depth) return Error.MalformedFrame;
+    const arg = try neutralArgument(reader, loc);
+    switch (arg) {
+        .list, .set => try chargeArgsField(reader, loc, 0, depth + 1),
+        .tagged => {
+            const tagged_loc = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
+            try chargeArgsField(reader, tagged_loc, 1, depth + 1);
+        },
+        .@"struct" => try chargeStructField(reader, loc, 0, depth + 1),
+        .reference => {
+            const ref_loc = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
+            const disc = try enumFromWire(RefTag, try reader.dataWord(ref_loc, 0));
+            if (disc == .promise) try chargePathField(reader, ref_loc, 0, depth + 1);
+        },
+        // Leaves and the fixed-depth handoff/error arms are fully read (and so
+        // charged) by `neutralArgument`; none carries a composite-list vector.
+        .bytes, .symbol, .@"error", .handoff, .string, .integer, .boolean, .void, .float64, .keyword, .big_integer => {},
+    }
+}
+
+/// Charge and recurse a reference: read+validate the node, then walk a promise
+/// reference's pipeline path (the only reference arm with a composite vector).
+fn chargeReference(reader: Reader, loc: StructLoc, depth: usize) Error!void {
+    if (depth > max_charge_depth) return Error.MalformedFrame;
+    _ = try neutralReferenceView(reader, loc);
+    const disc = try enumFromWire(RefTag, try reader.dataWord(loc, 0));
+    if (disc == .promise) try chargePathField(reader, loc, 0, depth + 1);
+}
+
+/// Charge each element of a composite `Args` list at pointer `i`. The caller
+/// has already accounted this list's nesting level in `depth`, so each element
+/// is charged at that same level.
+fn chargeArgsField(reader: Reader, loc: StructLoc, i: u16, depth: usize) Error!void {
+    if (depth > max_charge_depth) return Error.MalformedFrame;
+    const clist = (try compositeList(reader, loc, i)) orelse return;
+    var idx: usize = 0;
+    while (idx < clist.element_count) : (idx += 1) {
+        try reader.spend(1);
+        try chargeArgument(reader, clist.elem(idx), depth);
+    }
+}
+
+/// Charge each element of a composite `PipelinePath` list at pointer `i`.
+fn chargePathField(reader: Reader, loc: StructLoc, i: u16, depth: usize) Error!void {
+    if (depth > max_charge_depth) return Error.MalformedFrame;
+    const clist = (try compositeList(reader, loc, i)) orelse return;
+    var idx: usize = 0;
+    while (idx < clist.element_count) : (idx += 1) {
+        try reader.spend(1);
+        const op = try neutralPipelineOp(reader, clist.elem(idx));
+        switch (op) {
+            .field => {},
+            .call => try chargeArgsField(reader, clist.elem(idx), 0, depth + 1),
+        }
+    }
+}
+
+/// Charge each (key, value) entry of a composite struct list at pointer `i`,
+/// recursing into each value `Argument` at the list's already-accounted level.
+fn chargeStructField(reader: Reader, loc: StructLoc, i: u16, depth: usize) Error!void {
+    if (depth > max_charge_depth) return Error.MalformedFrame;
+    const clist = (try compositeList(reader, loc, i)) orelse return;
+    var idx: usize = 0;
+    while (idx < clist.element_count) : (idx += 1) {
+        try reader.spend(1);
+        const elem = clist.elem(idx);
+        _ = try borrowedData(reader, elem, 0);
+        const value_loc = (try reader.followStruct(elem, 1)) orelse return Error.MalformedFrame;
+        try chargeArgument(reader, value_loc, depth);
+    }
+}
+
+/// Walk the whole logical tree once against the metered `reader`, spending its
+/// per-frame budget so an aliasing DAG is refused before any borrowed view
+/// escapes. Mirrors `projectBody`; the non-recursive arms delegate to it so
+/// their leaf reads are charged and validated identically.
+fn chargeBody(reader: Reader, kind: Kind, body: StructLoc, depth: usize) Error!void {
+    switch (kind) {
+        .deliver => {
+            const target = (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame;
+            try chargeReference(reader, target, depth);
+            try chargeArgsField(reader, body, 1, depth);
+            const flags = try reader.dataWord(body, 0);
+            if (flags & shared.deliver_has_resolve_me != 0) {
+                if (try reader.followStruct(body, 2)) |ref_loc| try chargeReference(reader, ref_loc, depth);
+            }
+        },
+        .resolve => {
+            const res_loc = (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame;
+            const disc = try enumFromWire(ResolutionKind, try reader.dataWord(res_loc, 0));
+            const arm = (try reader.followStruct(res_loc, 0)) orelse return Error.MalformedFrame;
+            switch (disc) {
+                .fulfill => try chargeArgument(reader, arm, depth),
+                .@"break" => _ = try neutralErrorView(reader, arm),
+            }
+        },
+        .listen => {
+            try chargeReference(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame, depth);
+            try chargeReference(reader, (try reader.followStruct(body, 1)) orelse return Error.MalformedFrame, depth);
+        },
+        .get, .index, .untag => {
+            try chargeReference(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame, depth);
+        },
+        // No composite-list amplification vector: their reads are O(1) or
+        // bounded by the segment length checks. Delegate to `projectBody` so the
+        // metered reader still charges and validates every leaf read.
+        .gc_export, .gc_answer, .abort, .start_session, .handoff => _ = try projectBody(reader, kind, body),
+    }
+}
+
+/// The one neutral body walk, shared by `decodeBody` and `MessageView.toOwned`
+/// so there is no second decoder to drift. Every path that hands out a borrowed
+/// body first runs the eager traversal-budget charge pass, so a frame whose
+/// aliasing composite lists would amplify the later lazy walk is refused here,
+/// in bounded time, on the inbound turn loop (see the charge-pass note above).
 fn neutralBody(view: MessageView) Error!model.view.Body {
-    const reader = view.reader;
-    const body = view.body;
-    return switch (view.kind) {
+    var budget: usize = shared.traversalBudget(view.reader.seg_words);
+    try chargeBody(view.reader.withBudget(&budget), view.kind, view.body, 0);
+    return projectBody(view.reader, view.kind, view.body);
+}
+
+/// Project the borrowed body arm-for-arm. Lazy: composite sequences become
+/// backings walked on demand. `neutralBody` runs `chargeBody` first, so this
+/// only runs on a frame already proven to fit the traversal budget.
+fn projectBody(reader: Reader, kind: Kind, body: StructLoc) Error!model.view.Body {
+    return switch (kind) {
         .deliver => blk: {
             const flags = try reader.dataWord(body, 0);
             var resolve_me: ?model.view.Reference = null;
@@ -468,12 +626,12 @@ fn neutralBody(view: MessageView) Error!model.view.Body {
             break :blk .{ .deliver = .{
                 .target = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
                 .args = try neutralArgsBacking(reader, body, 1),
-                .answer = if (flags & shared.deliver_has_answer != 0) model.AnswerId.from(try reader.dataWord(body, 1)) else null,
+                .answer = if (flags & shared.deliver_has_answer != 0) model.AnswerPosition.from(try reader.dataWord(body, 1)) else null,
                 .resolve_me_desc = resolve_me,
             } };
         },
         .resolve => .{ .resolve = .{
-            .answer = model.AnswerId.from(try reader.dataWord(body, 0)),
+            .answer = model.AnswerPosition.from(try reader.dataWord(body, 0)),
             .resolution = try neutralResolution(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
         } },
         .gc_export => .{ .gc_export = .{
@@ -493,17 +651,17 @@ fn neutralBody(view: MessageView) Error!model.view.Body {
         .get => .{ .get = .{
             .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
             .field = try borrowedData(reader, body, 1),
-            .answer = model.AnswerId.from(try reader.dataWord(body, 0)),
+            .answer = model.AnswerPosition.from(try reader.dataWord(body, 0)),
         } },
         .index => .{ .index = .{
             .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
             .index = @bitCast(try reader.dataWord(body, 0)),
-            .answer = model.AnswerId.from(try reader.dataWord(body, 1)),
+            .answer = model.AnswerPosition.from(try reader.dataWord(body, 1)),
         } },
         .untag => .{ .untag = .{
             .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
             .tag = try borrowedData(reader, body, 1),
-            .answer = model.AnswerId.from(try reader.dataWord(body, 0)),
+            .answer = model.AnswerPosition.from(try reader.dataWord(body, 0)),
         } },
         .start_session => .{ .start_session = try neutralStartSession(reader, body) },
         .handoff => .{ .handoff = try neutralHandoffFromStruct(reader, body) },

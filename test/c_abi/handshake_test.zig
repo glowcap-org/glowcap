@@ -8,17 +8,9 @@ const pancake = @import("pancake");
 
 const c = @import("c_abi");
 
-fn argBytes(bytes: []const u8) c.PancakeArgument {
-    var a = std.mem.zeroes(c.PancakeArgument);
-    a.kind = c.PANCAKE_ARG_BYTES;
-    a.bytes = bytes.ptr;
-    a.bytes_len = bytes.len;
-    return a;
-}
-
-fn farRef(import_position: u64) c.PancakeReference {
-    return .{ .kind = c.PANCAKE_REF_FAR, .sub_kind = c.PANCAKE_REF_SUB_OBJECT, .id = import_position };
-}
+const c_args = @import("../support/c_abi_args.zig");
+const argBytes = c_args.argBytes;
+const farRef = c_args.farRef;
 
 fn drainInto(from: ?*c.PancakePeer, to: ?*c.PancakePeer) !void {
     while (true) {
@@ -27,7 +19,7 @@ fn drainInto(from: ?*c.PancakePeer, to: ?*c.PancakePeer) !void {
         if (rc == c.PANCAKE_ERR_WOULD_BLOCK) break;
         try std.testing.expectEqual(c.PANCAKE_OK, rc);
         const borrowed = c.PancakeFrame{ .bytes = frame.bytes, .len = frame.len, .shape = frame.shape };
-        try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_feed_borrowed(to, &borrowed));
+        try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_recv_borrowed(to, &borrowed));
         c.pancake_managed_frame_release(&frame);
     }
 }
@@ -308,6 +300,10 @@ test "C ABI gifter deposit + shared-registry withdraw round-trips across two exp
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_export(exporter_to_recipient, 99));
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_bootstrap_cap(exporter_to_recipient, "dm", 2, &dm_pos_recipient));
     try std.testing.expect(dm_pos_gifter != dm_pos_recipient);
+    // In the real flow the gifter's fetch reply marshals the "dm" reference,
+    // which is the grant. This test hands the gifter the position directly,
+    // so the exporter grants it explicitly before the deposit names it back.
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_export(exporter_to_gifter, dm_pos_gifter));
 
     try openKeyedPair(exporter_to_gifter, "127.0.0.1:2", &exporter_seed, gifter, "127.0.0.1:3", &gifter_seed);
     try openKeyedPair(exporter_to_recipient, "127.0.0.1:2", &exporter_seed, recipient_peer, "127.0.0.1:4", &recipient_seed);
@@ -415,8 +411,11 @@ test "C ABI send_resolve_handoff_give emits a give the recipient projects as a h
     try drainOutbound(recipient_peer);
 
     // The gifter exposes an object; the recipient calls it with an answer.
+    // `next_export` only reserves, and the recipient learns the position
+    // out-of-band here, so the gifter grants it explicitly.
     var export_pos: u64 = 0;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_export(gifter, &export_pos));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_export(gifter, export_pos));
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_register_import(recipient_peer, export_pos));
     var answer: u64 = 0;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_next_answer(recipient_peer, &answer));

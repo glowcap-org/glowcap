@@ -42,7 +42,7 @@ test "paired peers can exchange traffic once open" {
     });
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
     const frame = pair.p1.takeOutbound().?;
-    try pair.p2.feedInbound(frame);
+    try pair.p2.feedOwned(frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
 
     var event = pair.p2.pollEvent().?;
@@ -72,8 +72,8 @@ test "sendKeyedStartSession drives two negotiating peers to an open session" {
     while (i < 8 and !(p1.sessionIsOpen() and p2.sessionIsOpen())) : (i += 1) {
         _ = try p1.step();
         _ = try p2.step();
-        while (p1.takeOutbound()) |frame| try p2.feedInbound(frame);
-        while (p2.takeOutbound()) |frame| try p1.feedInbound(frame);
+        while (p1.takeOutbound()) |frame| try p2.feedOwned(frame);
+        while (p2.takeOutbound()) |frame| try p1.feedOwned(frame);
     }
 
     try std.testing.expect(p1.sessionIsOpen());
@@ -113,17 +113,17 @@ test "v1.0 resolve round-trips as a resolver-callback deliver across paired peer
 
     const resolver_export = pair.p1.session_state.next_export_position - 1;
     try std.testing.expect(resolver_export != session.BOOTSTRAP_POSITION);
-    try std.testing.expectEqual(@as(?model.AnswerId, .from(42)), pair.p1.session_state.answerForResolverExport(.from(resolver_export)));
+    try std.testing.expectEqual(@as(?model.AnswerPosition, .from(42)), pair.p1.session_state.answerForResolverExport(.from(resolver_export)));
 
     const deliver_frame = pair.p1.takeOutbound().?;
-    try pair.p2.feedInbound(deliver_frame);
+    try pair.p2.feedOwned(deliver_frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
     {
         var event = pair.p2.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
     }
-    try std.testing.expectEqual(@as(?model.ImportId, .from(resolver_export)), pair.p2.session_state.resolverForInboundAnswer(.from(42)));
+    try std.testing.expectEqual(@as(?model.ImportPosition, .from(resolver_export)), pair.p2.session_state.resolverForInboundAnswer(.from(42)));
 
     try pair.p2.sendCopying(.{
         .resolve = .{
@@ -134,7 +134,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver across paired peer
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
 
     const resolve_frame = pair.p2.takeOutbound().?;
-    try pair.p1.feedInbound(resolve_frame);
+    try pair.p1.feedOwned(resolve_frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
 
     var event = pair.p1.pollEvent().?;
@@ -337,7 +337,7 @@ test "paired Cap'n Proto peers exchange a deliver (parity with Syrup)" {
     const frame = pair.p1.takeOutbound().?;
     // The wire frame is Cap'n Proto's word shape, not Syrup's byte shape.
     try std.testing.expectEqual(foundation.FrameShape.word, frame.view().shape);
-    try pair.p2.feedInbound(frame);
+    try pair.p2.feedOwned(frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
 
     var event = pair.p2.pollEvent().?;
@@ -367,14 +367,14 @@ test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" 
 
     const resolver_export = pair.p1.session_state.next_export_position - 1;
     const deliver_frame = pair.p1.takeOutbound().?;
-    try pair.p2.feedInbound(deliver_frame);
+    try pair.p2.feedOwned(deliver_frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
     {
         var event = pair.p2.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
     }
-    try std.testing.expectEqual(@as(?model.ImportId, .from(resolver_export)), pair.p2.session_state.resolverForInboundAnswer(.from(42)));
+    try std.testing.expectEqual(@as(?model.ImportPosition, .from(resolver_export)), pair.p2.session_state.resolverForInboundAnswer(.from(42)));
 
     try pair.p2.sendCopying(.{
         .resolve = .{
@@ -385,7 +385,7 @@ test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" 
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
 
     const resolve_frame = pair.p2.takeOutbound().?;
-    try pair.p1.feedInbound(resolve_frame);
+    try pair.p1.feedOwned(resolve_frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
 
     var event = pair.p1.pollEvent().?;
@@ -449,7 +449,7 @@ test "a verifying peer aborts an op:start-session whose signature does not match
     const forged = sender.takeOutbound().?;
 
     // The verifier refuses the forged handshake and does not open the session.
-    try verifier.feedInbound(forged);
+    try verifier.feedOwned(forged);
     try std.testing.expectError(error.InvalidStartSessionSignature, verifier.step());
     try std.testing.expect(!verifier.sessionIsOpen());
 
@@ -460,10 +460,74 @@ test "a verifying peer aborts an op:start-session whose signature does not match
     try std.testing.expectEqual(model.AbortKind.invalid_start_session_signature, view.abort.kind);
 }
 
+test "a pinned peer refuses an op:start-session from any key but the expected one, and the session never opens" {
+    const allocator = std.testing.allocator;
+
+    // The verifier is a dialer that resolved a key-designator locator: it pins
+    // the partner's session identity to the key it dialed. The sender's
+    // handshake is honestly signed — the signature verifies — but under a
+    // different key, which is exactly the relay/squat case the pin refuses.
+    var verifier = engine.Peer.initNegotiating(allocator);
+    defer verifier.deinit();
+    var sender = engine.Peer.initNegotiating(allocator);
+    defer sender.deinit();
+
+    const sender_secret = crypto.SecretKey.fromSeed([_]u8{0x77} ** crypto.SEED_BYTES);
+    const expected_secret = crypto.SecretKey.fromSeed([_]u8{0x88} ** crypto.SEED_BYTES);
+    verifier.expectPartnerKey(expected_secret.publicKey());
+
+    const loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:9", .hints = model.Hints.emptyFalse() };
+    try sender.sendKeyedStartSession(.v1_0, loc, sender_secret);
+    _ = try sender.step();
+    const hello = sender.takeOutbound().?;
+
+    try verifier.feedOwned(hello);
+    try std.testing.expectError(error.PartnerKeyMismatch, verifier.step());
+    try std.testing.expect(!verifier.sessionIsOpen());
+
+    // The refusal is fail-loud and rides the handshake abort domain.
+    var abort_frame = verifier.takeOutbound().?;
+    defer abort_frame.deinit();
+    const view = try codec.syrup.decodeBody(abort_frame.view());
+    try std.testing.expectEqual(model.AbortKind.invalid_start_session_signature, view.abort.kind);
+}
+
+test "a pinned peer opens when the partner's start-session carries exactly the expected key" {
+    const allocator = std.testing.allocator;
+
+    var p1 = engine.Peer.initNegotiating(allocator);
+    defer p1.deinit();
+    var p2 = engine.Peer.initNegotiating(allocator);
+    defer p2.deinit();
+
+    const secret1 = crypto.SecretKey.fromSeed([_]u8{0x11} ** crypto.SEED_BYTES);
+    const secret2 = crypto.SecretKey.fromSeed([_]u8{0x22} ** crypto.SEED_BYTES);
+    // Each side pins the other's real key: both handshakes must still open.
+    p1.expectPartnerKey(secret2.publicKey());
+    p2.expectPartnerKey(secret1.publicKey());
+
+    const loc1: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
+    const loc2: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:2", .hints = model.Hints.emptyFalse() };
+    try p1.sendKeyedStartSession(.v1_0, loc1, secret1);
+    try p2.sendKeyedStartSession(.v1_0, loc2, secret2);
+
+    var i: usize = 0;
+    while (i < 8 and !(p1.sessionIsOpen() and p2.sessionIsOpen())) : (i += 1) {
+        _ = try p1.step();
+        _ = try p2.step();
+        while (p1.takeOutbound()) |frame| try p2.feedOwned(frame);
+        while (p2.takeOutbound()) |frame| try p1.feedOwned(frame);
+    }
+
+    try std.testing.expect(p1.sessionIsOpen());
+    try std.testing.expect(p2.sessionIsOpen());
+}
+
 /// The exact `<ocapn-peer …>` record a hint-sending partner (a Goblins
-/// `tcp-testing-only` netlayer) puts in its `op:start-session`. pancake's own
-/// encoder refuses hint-carrying locators, so the wire bytes are spelled out
-/// here the way the partner produces them.
+/// `tcp-testing-only` netlayer) puts in its `op:start-session`. The wire bytes
+/// are spelled out verbatim rather than produced by pancake's encoder, because
+/// the point under test is verification over the *received* bytes — whatever
+/// hint spelling the partner chose — not over a re-encode.
 const hinted_locator_bytes = "<10'ocapn-peer3'tcp14\"127.0.0.1:9001{4\"host9\"127.0.0.14\"port9001+}>";
 
 /// Build the complete keyed `op:start-session` frame a partner would send for
@@ -520,7 +584,7 @@ test "a verifying peer accepts a hinted-locator handshake (signature checked on 
     // the signature over the *received* `<ocapn-peer …>` bytes; a re-encode of
     // the decoded locator would drop the hints and fail this valid signature.
     const frame = try hintedStartSessionFrame(allocator, partner_secret, hinted_locator_bytes);
-    try verifier.feedInbound(frame);
+    try verifier.feedOwned(frame);
     _ = try verifier.step();
     try std.testing.expect(verifier.sessionIsOpen());
 }
@@ -551,7 +615,7 @@ test "a verifying peer refuses a hinted-locator handshake whose hint bytes were 
     defer allocator.free(tampered);
     tampered[std.mem.lastIndexOfScalar(u8, tampered, '1').?] = '2';
     const frame = try hintedStartSessionFrame(allocator, partner_secret, tampered);
-    try verifier.feedInbound(frame);
+    try verifier.feedOwned(frame);
     try std.testing.expectError(error.InvalidStartSessionSignature, verifier.step());
     try std.testing.expect(!verifier.sessionIsOpen());
 }
@@ -594,7 +658,7 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
     const resolver_export = pair.p1.session_state.next_export_position - 1;
 
     const deliver_frame = pair.p1.takeOutbound().?;
-    try pair.p2.feedInbound(deliver_frame);
+    try pair.p2.feedOwned(deliver_frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
     {
         var event = pair.p2.pollEvent().?;
@@ -616,7 +680,7 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
 
     const break_frame = pair.p2.takeOutbound().?;
-    try pair.p1.feedInbound(break_frame);
+    try pair.p1.feedOwned(break_frame);
     // Before the fix this faulted (MalformedView → dispatch error); now p1
     // surfaces a resolve-break carrying the record's tag as the reason.
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
@@ -646,7 +710,7 @@ test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shap
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
 
     const deliver_frame = pair.p1.takeOutbound().?;
-    try pair.p2.feedInbound(deliver_frame);
+    try pair.p2.feedOwned(deliver_frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p2.step());
     {
         var event = pair.p2.pollEvent().?;
@@ -681,7 +745,7 @@ test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shap
 
     // Symmetry: the receiving pancake peer projects the same semantic break it
     // accepted before the shape change.
-    try pair.p1.feedInbound(break_frame);
+    try pair.p1.feedOwned(break_frame);
     try std.testing.expectEqual(engine.StepOutcome.progress, try pair.p1.step());
     var event = pair.p1.pollEvent().?;
     defer event.deinit();

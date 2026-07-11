@@ -1,5 +1,6 @@
 comptime {
     _ = @import("api_surface_test.zig");
+    // Oracle protocol tests run under `zig build oracle-check` only.
     _ = @import("foundation/frame_test.zig");
     _ = @import("foundation/id_test.zig");
     _ = @import("foundation/crypto_test.zig");
@@ -8,14 +9,15 @@ comptime {
     _ = @import("codec/prefix_decode_test.zig");
     _ = @import("codec/registry_test.zig");
     _ = @import("codec/encode_budget_test.zig");
+    _ = @import("codec/fuzz_test.zig");
     _ = @import("codec/codec_equivalence_test.zig");
     _ = @import("model/model_test.zig");
     _ = @import("model/equality_test.zig");
     _ = @import("model/view_test.zig");
     _ = @import("model/uri_test.zig");
-    _ = @import("oracle/protocol_oracle_test.zig");
-    _ = @import("oracle/scenario_trace_test.zig");
     _ = @import("actors/vat_test.zig");
+    _ = @import("actors/vat_alloc_budget_test.zig");
+    _ = @import("actors/vat_footprint_budget_test.zig");
     _ = @import("actors/ocap_test.zig");
     _ = @import("actors/host_test.zig");
     _ = @import("persistent/persistent_map_test.zig");
@@ -28,22 +30,28 @@ comptime {
     _ = @import("c_abi/handshake_test.zig");
     _ = @import("c_abi/endpoint_loopback_test.zig");
     _ = @import("c_abi/tcp_session_test.zig");
+    _ = @import("c_abi/driver_test.zig");
     _ = @import("c_abi/inproc_loopback_test.zig");
-    _ = @import("foundation/memory_endpoint_test.zig");
     _ = @import("net/connection_test.zig");
     _ = @import("net/frame_stream_test.zig");
     _ = @import("net/netlayer_test.zig");
     _ = @import("net/tcp_parse_test.zig");
     _ = @import("net/tcp_test.zig");
+    _ = @import("net/keyed_tcp_test.zig");
     if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
         _ = @import("net/completion_loop_test.zig");
     if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
         _ = @import("net/completion_dialer_test.zig");
+    if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        _ = @import("net/completion_cross_arm_test.zig");
+    if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
+        _ = @import("driver/loop_bridge_test.zig");
     _ = @import("session/session_test.zig");
     _ = @import("session/bootstrap_test.zig");
     _ = @import("engine/peer_test.zig");
     _ = @import("engine/alloc_budget_test.zig");
     _ = @import("engine/resolve_alloc_budget_test.zig");
+    _ = @import("engine/listener_fire_budget_test.zig");
     _ = @import("engine/footprint_budget_test.zig");
     _ = @import("engine/gc_churn_test.zig");
     _ = @import("engine/completion_seam_test.zig");
@@ -61,14 +69,15 @@ comptime {
     _ = @import("engine/pairing_test.zig");
     _ = @import("engine/node_test.zig");
     _ = @import("driver/connected_vat_test.zig");
-    _ = @import("driver/host_smoke_test.zig");
-    _ = @import("driver/host_three_party_test.zig");
+    _ = @import("driver/blocking_host_smoke_test.zig");
+    _ = @import("driver/blocking_host_three_party_test.zig");
+    _ = @import("driver/core_host_test.zig");
+    _ = @import("driver/served_budget_test.zig");
+    _ = @import("driver/host_budget_test.zig");
+    _ = @import("driver/host_adopt_test.zig");
     _ = @import("driver/crossed_hellos_test.zig");
     _ = @import("driver/gc_stateless_test.zig");
     _ = @import("driver/pluggability_test.zig");
     _ = @import("driver/inproc_netlayer_test.zig");
-    if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
-        _ = @import("driver/loop_host_test.zig");
-    if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
-        _ = @import("driver/loop_dialer_test.zig");
+    _ = @import("driver/keyed_tcp_restart_test.zig");
 }

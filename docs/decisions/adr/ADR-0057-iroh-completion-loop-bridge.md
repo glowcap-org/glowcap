@@ -60,7 +60,7 @@ is constructed. The sidecar exposes a readiness-based surface:
 - **A drained ready-queue.** When any connection becomes readable, writable, or
   closed, the sidecar enqueues a `(conn, direction)` event and writes the wakeup
   fd. When the loop wakes, it calls a non-blocking
-  `pancake_iroh_sidecar_drain_ready(...)` that returns the pending events
+  `pancake_iroh_sidecar_endpoint_drain_ready(...)` that returns the pending events
   (`ptr + len`, no allocation per call), and resumes exactly the fibers waiting
   on those connections.
 - **Non-blocking frame I/O.** `try_read_frame` / `try_write_frame` return
@@ -99,6 +99,18 @@ the placement rationale).
   sender; a full outbound buffer returns `WOULD_BLOCK` to the loop, which
   re-arms on the next `EV_WRITABLE`. A slow reader throttles its partner rather
   than tripping an error, so overflow needs no typed abort.
+- **The sidecar's steady per-connection memory is bounded, in the Rust heap
+  where the Zig footprint gates cannot see it.** The 1 MiB `NB_BUFFER_BOUND` is
+  a burst ceiling, not a resident cost: the reader task holds no scratch buffer
+  (it borrows each QUIC segment zero-copy via `read_chunk`), the writer takes
+  each outbound batch by move and drops its storage once flushed, and the
+  inbound buffer frees burst capacity down to a 16 KiB steady bound
+  (`NB_STEADY_BYTES`) when the loop drains it empty — the same
+  burst-frees-on-drain posture as the Zig loop (ADR-0042/0054). Steady state
+  per non-blocking connection is therefore at most 16 KiB of retained inbound
+  capacity plus the two tokio tasks and their `NbConn` state (order 1 KiB), so
+  500k connections bound the sidecar's steady buffer bill near 8 GiB worst
+  case, paid only by connections whose traffic ever reached the bound.
 - **Native Zig QUIC stays rejected.** ADR-0055's flip condition is unchanged:
   this bridge makes the _sidecar_ scale, which removes the main reason to chase
   a native rewrite. A native path still waits on iroh's protocols stabilizing

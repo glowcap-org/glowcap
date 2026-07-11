@@ -9,7 +9,7 @@
 //! state, not the largest admissible frame. An inbound frame that outgrows
 //! the read buffer assembles once in the connection's bounded spill, capped by
 //! the peer's `max_frame_bytes`. The reply is observed with the explicit
-//! promise idiom: `send` returns a promise, `on` registers a listener, and the
+//! vow idiom: `send` returns a vow, `on` registers a listener, and the
 //! caller pumps the socket one `step` at a time until it settles.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
@@ -96,11 +96,11 @@ pub fn main(init: std.process.Init) !void {
     const greeter = try conn.fetch("greeter");
 
     var reply = Reply{};
-    const promise = try conn.send(greeter, .{
+    const vow = try conn.send(greeter, .{
         .verb = "greet",
         .args = &.{.{ .string = "world" }},
     });
-    try conn.on(promise, .{ .ctx = &reply, .func = onReply });
+    try conn.on(vow, .{ .ctx = &reply, .func = onReply });
     while (!reply.done) {
         const progress = try conn.step();
         if (progress == .closed) break;

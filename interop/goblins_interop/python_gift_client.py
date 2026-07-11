@@ -28,24 +28,15 @@ import asyncio
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bindings" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
+from helpers import fail, insert_bindings_path, parse_port  # noqa: E402
+
+insert_bindings_path()
 
 from pancake import Ref, connect, listen, tcp_locator  # noqa: E402
 
 HOST = "127.0.0.1"
-# Bob (the Goblins exporter) listens on PORT; Carol binds her own peer on PORT+1.
-# pancake (the gifter) takes an ephemeral port, the recipient learns it at spawn
-# time. --port=N (from `zig build python-goblins-gift -Dport=N`) moves the pair.
-PORT = 22122
-for _arg in sys.argv[1:]:
-    if _arg.startswith("--port="):
-        PORT = int(_arg.split("=", 1)[1], 10)
-    else:
-        print(f"python-goblins-gift: unknown argument '{_arg}'", file=sys.stderr)
-        raise SystemExit(2)
-if not 1 <= PORT <= 65534:
-    print("python-goblins-gift: --port must be an integer in 1..65534 (the recipient binds on port+1)", file=sys.stderr)
-    raise SystemExit(2)
+PORT = parse_port("python-goblins-gift", 22122, max_port=65534)
 
 RACKET = "/usr/local/bin/racket"
 EXPORTER_SCRIPT = "conformance/goblins-peer/racket/gift-exporter-host.rkt"
@@ -54,11 +45,6 @@ RECIPIENT_SCRIPT = "conformance/goblins-peer/racket/gift-recipient.rkt"
 # interop clients fix the echo swiss.
 GREETER_SWISS = "pancakeGiftGreeterSwissnum000001"
 INTRODUCER_SWISS = "introducer"
-
-
-def fail(msg: str) -> None:
-    print(f"python-goblins-gift FAILED: {msg}", file=sys.stderr)
-    raise SystemExit(1)
 
 
 async def await_bob_ready(proc: asyncio.subprocess.Process) -> None:
@@ -70,7 +56,7 @@ async def await_bob_ready(proc: asyncio.subprocess.Process) -> None:
             break
         if b'"name":"greeter"' in line:
             return
-    fail("never saw the exporter's greeter readiness line")
+    fail("python-goblins-gift", "never saw the exporter's greeter readiness line")
 
 
 async def run() -> None:
@@ -121,7 +107,7 @@ async def run() -> None:
         to_bob.serve()
         greeter = await to_bob.fetch(GREETER_SWISS)
         if not isinstance(greeter, Ref):
-            fail("could not fetch goblins-bob's greeter")
+            fail("python-goblins-gift", "could not fetch goblins-bob's greeter")
         print("python-goblins-gift: fetched goblins-bob's greeter")
 
         # Publish the introducer node-wide. Returning Bob's greeter (home = the
@@ -146,9 +132,9 @@ async def run() -> None:
         if reply:
             print(f"python-goblins-gift: {reply}")
         if carol.returncode != 0:
-            fail(f"recipient exited non-zero{(': ' + carol_err_text) if carol_err_text else ''}")
+            fail("python-goblins-gift", f"recipient exited non-zero{(': ' + carol_err_text) if carol_err_text else ''}")
         if not reply.startswith("GIFT OK:") or "goblins-carol" not in reply:
-            fail(f"recipient did not confirm the greeter reply with its name: {reply!r}")
+            fail("python-goblins-gift", f"recipient did not confirm the greeter reply with its name: {reply!r}")
 
         ok = True
         print("python-goblins-gift OK: pancake minted a three-party handoff give that live Goblins redeemed, reaching the exporter directly")

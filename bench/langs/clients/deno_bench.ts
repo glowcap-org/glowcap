@@ -5,7 +5,14 @@
 //
 //   deno run --allow-ffi --allow-read --allow-net deno_bench.ts <mode> <host> <port> <n>
 
-import { type AppValue, connect, type Connection, type Ref, tcpLocator } from "@pancake/stack";
+import {
+	type AppValue,
+	connect,
+	type Connection,
+	listen,
+	type Ref,
+	tcpLocator,
+} from "@pancake/stack";
 
 const CLIENT = "deno";
 const RUNTIME = `deno/${Deno.version.deno}`;
@@ -167,6 +174,82 @@ async function runCold(): Promise<void> {
 	console.log(JSON.stringify({ v: 1, event: "cold-done", client: CLIENT }));
 }
 
+// The local-turn counter behavior: `hit` increments and returns the count, any
+// other verb throws. Returned as a fresh closure per use so the two paths of
+// runLocal never share a count.
+function counterBehavior(): (verb: string) => bigint {
+	let count = 0n;
+	return (verb: string): bigint => {
+		if (verb !== "hit") throw new Error(`counter: no such method ${verb}`);
+		count += 1n;
+		return count;
+	};
+}
+
+// Run min(N, 500) warmup hits then N measured sequential send→settle units
+// against `target`, asserting the final count equals warmup + N. Returns the
+// sorted per-turn latencies in nanoseconds.
+async function measureHits(conn: Connection, target: Ref): Promise<number[]> {
+	for (let i = 0; i < WARMUP; i++) await conn.send(target, "hit", []);
+	forceGc();
+	const lats: number[] = [];
+	let last: AppValue = 0n;
+	for (let i = 0; i < N; i++) {
+		const s = performance.now();
+		last = await conn.send(target, "hit", []);
+		lats.push((performance.now() - s) * 1e6);
+	}
+	if (Number(last) !== WARMUP + N) {
+		throw new Error(`bad final count ${last} (expected ${WARMUP + N})`);
+	}
+	lats.sort((a, b) => a - b);
+	return lats;
+}
+
+// The `local` mode (see contract.md): (a) in_lang — a counter spawned on this
+// connection, dispatched in process by the binding's own local path; (b)
+// via_host — the same behavior published across a loopback pair inside this
+// process (listen on 127.0.0.1:0 + connect to itself), so every turn pays wire
+// codec, feed, trampoline, and marshal both ways. The orchestrator's host/port
+// arguments are unused; the pair is self-contained.
+async function runLocal(): Promise<void> {
+	const server = listen("127.0.0.1", 0);
+	const accepted = server[Symbol.asyncIterator]().next();
+	const loopPort = await server.ready();
+	const dial = await connect(tcpLocator("127.0.0.1", loopPort));
+	const acceptedConn = (await accepted).value as Connection;
+	acceptedConn.publish("counter", counterBehavior());
+	acceptedConn.serve().catch(() => {});
+
+	// (a) in_lang: the binding's in-process actor dispatch.
+	const local = dial.spawn(counterBehavior());
+	const inLang = await measureHits(dial, local);
+
+	// (b) via_host: the published counter across the loopback pair.
+	const far = await dial.fetch("counter");
+	const viaHost = await measureHits(dial, far);
+
+	dial.close();
+	server.close();
+
+	const inMean = inLang.reduce((a, b) => a + b, 0) / Math.max(1, N);
+	const viaMean = viaHost.reduce((a, b) => a + b, 0) / Math.max(1, N);
+	console.log(JSON.stringify({
+		v: 1,
+		metric: "local",
+		client: CLIENT,
+		suite: "local-turn",
+		n: N,
+		in_lang_ns: +inMean.toFixed(1),
+		in_lang_p99_ns: +percentileMs(inLang, 0.99).toFixed(1),
+		via_host_ns: +viaMean.toFixed(1),
+		via_host_p99_ns: +percentileMs(viaHost, 0.99).toFixed(1),
+		ratio: inMean > 0 ? +(viaMean / inMean).toFixed(2) : 0,
+		runtime: RUNTIME,
+		warmup_n: WARMUP,
+	}));
+}
+
 switch (mode) {
 	case "latency":
 		await runLatency();
@@ -179,6 +262,9 @@ switch (mode) {
 		break;
 	case "cold":
 		await runCold();
+		break;
+	case "local":
+		await runLocal();
 		break;
 	default:
 		console.error(`unknown mode: ${mode}`);

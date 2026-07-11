@@ -1,0 +1,47 @@
+// Internal: the FFI mirror of `libpancake_ocapn` — the core archive (ADR-0059).
+//
+// Nothing here is part of the public API. The ergonomic surface reaches these
+// symbols through `ocapnS`; a consumer never imports this file. This loader
+// opens *only* `libpancake_ocapn`, and only the shared-vocabulary rows the
+// binding still speaks directly: the ABI version, the core last-error slot, the
+// allocation context, managed-frame release, the exporter-locator encoder, and
+// the OCapN URI grammar. The peer itself is driven through the byte-fed host
+// archive (`driver.ts`, `libpancake_driver`, ADR-0072), never through raw
+// `pancake_peer_*` calls. Each transport archive has its own sibling loader
+// here (`tcp.ts`, `inproc.ts`), opened only when that transport is imported.
+//
+// The one-letter type shorthands (`P`/`B`/`U`/`I`/`V`) let a symbol's whole
+// signature sit on one line, so the table reads down like the C header it
+// mirrors. Every `internal/ffi` loader opens with the same header.
+
+import { libPath } from "./load.ts";
+import { ffi } from "./runtime.ts";
+
+const P = "pointer",
+	B = "buffer",
+	U = "usize",
+	I = "i32",
+	V = "void";
+
+export const ocapnS = ffi.dlopen(libPath("pancake_ocapn"), {
+	pancake_abi_version: { parameters: [B, B, B], result: V },
+	pancake_last_error: { parameters: [B, U], result: U },
+	pancake_context_new_with_allocator: { parameters: [B, B], result: I },
+	pancake_context_release: { parameters: [P], result: V },
+	pancake_managed_frame_release: { parameters: [B], result: V },
+	pancake_encode_peer_locator: { parameters: [B, U, B, U, B, U, B, B], result: I },
+	pancake_peer_locator_bytes_release: { parameters: [P, U], result: V },
+	// OCapN locator URIs — core vocabulary in libpancake_ocapn, so a consumer
+	// reaches them without any transport archive. The one grammar every binding
+	// shares.
+	pancake_uri_parse_peer: { parameters: [B, U, B], result: I },
+	pancake_uri_parse_sturdyref: { parameters: [B, U, B], result: I },
+	pancake_uri_format_peer: { parameters: [B, U, B, U, B, B, B, B, U, B, U, B], result: I },
+	pancake_locator_transport: { parameters: [P, B, B], result: I },
+	pancake_locator_designator: { parameters: [P, B, B], result: I },
+	pancake_locator_host_port: { parameters: [P, B, B, B], result: I },
+	pancake_locator_swissnum: { parameters: [P, B, B], result: I },
+	pancake_locator_hint_count: { parameters: [P, B], result: I },
+	pancake_locator_hint_at: { parameters: [P, U, B, B, B, B], result: I },
+	pancake_locator_release: { parameters: [P], result: V },
+});

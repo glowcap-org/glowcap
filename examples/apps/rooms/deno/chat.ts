@@ -22,8 +22,8 @@
 // needs `--unstable-ffi`. The room you start in is named: entering one that does
 // not exist yet opens it.
 
-import { Directory, Room } from "./room_client.ts";
-import { enterOrOpen } from "./enter_room.ts";
+import { Directory, Room } from "./lib/room_client.ts";
+import { enterOrOpen } from "./lib/enter_room.ts";
 import { type Ref } from "@pancake/stack";
 
 const [locator, room_name, nick] = Deno.args;

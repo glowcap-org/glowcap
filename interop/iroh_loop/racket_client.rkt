@@ -21,7 +21,8 @@
 ;; via `zig build racket-iroh-loop`.
 
 (require "../../bindings/racket/pancake.rkt"
-         "../../bindings/racket/pancake-iroh.rkt")
+         "../../bindings/racket/pancake-iroh.rkt"
+         "../_common/racket/helpers.rkt")
 
 ;; Concurrent connections, each served on the one server loop; calls each makes
 ;; before closing, several turns per connection so the proof is sustained
@@ -30,16 +31,7 @@
 (define CALLS-PER-CONN 4)
 (define GREETING "hello over the iroh loop")
 
-;; The gate takes no arguments; accept and ignore a `--port=` for build parity
-;; (an in-process local-discovery run has no fixed port).
-(for ([arg (vector->list (current-command-line-arguments))])
-  (unless (regexp-match? #px"^--port=" arg)
-    (eprintf "racket-iroh-loop: unknown argument ~a\n" arg)
-    (exit 2)))
-
-(define (fail msg)
-  (eprintf "racket-iroh-loop FAILED: ~a\n" msg)
-  (exit 1))
+(ignore-port-args "racket-iroh-loop")
 
 ;; The published actor: answer `greet` with a static greeting.
 (define (greeter bcom)

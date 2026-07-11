@@ -13,14 +13,18 @@
 
 use core::marker::PhantomData;
 
+use crate::error_slot::error_slot;
 use crate::sys::tcp as ffi;
-use crate::transport_error::transport_error_slot;
 use crate::{Codec, Context, Result};
 
-// Like the core `check`, but for `pancake_tcp_*` calls: snapshot the TCP
-// transport's own thread-local last-error rather than the unrelated
-// ocapn-family one.
-transport_error_slot!(check_tcp, tcp_last_error, ffi::pancake_tcp_last_error);
+error_slot!(
+	// Like the core `check`, but for `pancake_tcp_*` calls: snapshot the TCP
+	// transport's own thread-local last-error rather than the unrelated
+	// ocapn-family one.
+	fn check_tcp;
+	fn tcp_last_error;
+	ffi::pancake_tcp_last_error
+);
 
 /// Owns the blocking-TCP I/O backend. Connections and listeners borrow it (via
 /// `&self`), so the borrow checker rejects an [`Endpoint`] or [`Listener`] that
@@ -205,10 +209,10 @@ impl Drop for Endpoint<'_> {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{Codec, Peer, Resolution};
+	use crate::Codec;
 
 	#[test]
-	fn runs_a_peer_over_a_real_tcp_socket() {
+	fn shuttles_a_frame_over_a_real_tcp_socket() {
 		// The netlayer owns the I/O backend; the listener and connections borrow
 		// it, so a scoped thread keeps those borrows honest (the borrowed
 		// `Listener` is not `'static` and cannot enter `thread::spawn`).
@@ -232,12 +236,17 @@ mod tests {
 		assert_eq!(received, b"<8'op:abort3\"bye>");
 	}
 
-	// A full request/reply round-trip over the blocking TCP transport: the
-	// server drives a peer that answers a delivered call and the client reads
-	// the resolver frame back, proving the `tcp` archive shuttles whole frames
-	// in both directions.
+	// A whole-frame round-trip over the blocking TCP transport: the server
+	// reads the client's frame, answers with its own, and the client reads it
+	// back, proving the `tcp` archive delimits and shuttles whole frames in
+	// both directions. The frames are canned protocol bytes; the transport
+	// archive owns framing, never dispatch.
 	#[test]
-	fn shuttles_a_deliver_and_resolve_over_tcp() {
+	fn shuttles_whole_frames_in_both_directions_over_tcp() {
+		const QUESTION: &[u8] =
+			b"<10'op:deliver<11'desc:export7+>[5:hello]11+<19'desc:import-promise99+>>";
+		const ANSWER: &[u8] = b"<8'op:abort7\"replied>";
+
 		let netlayer = Netlayer::new().unwrap();
 		let listener = netlayer.listen("127.0.0.1", 0).unwrap();
 		let port = listener.port().unwrap();
@@ -245,33 +254,19 @@ mod tests {
 		let reply = std::thread::scope(|scope| {
 			let server = scope.spawn(move || {
 				let mut conn = listener.accept(Codec::Syrup, 4096).unwrap();
-				let mut peer = Peer::new_raw_open().unwrap();
-				peer.register_export(7).unwrap();
-				peer.feed(&conn.read_frame().unwrap()).unwrap();
-				let answer = match peer.poll().unwrap().unwrap() {
-					crate::Event::Deliver { answer, .. } => answer.unwrap(),
-					other => panic!("expected a deliver, got {other:?}"),
-				};
-				peer.send_resolve(answer, &Resolution::Fulfill(crate::Argument::Integer(7)))
-					.unwrap();
-				peer.step().unwrap();
-				let frame = peer.take_outbound().unwrap().expect("a resolve frame");
-				conn.write_frame(&frame).unwrap();
+				let frame = conn.read_frame().unwrap();
+				assert_eq!(frame, QUESTION);
+				conn.write_frame(ANSWER).unwrap();
 			});
 
 			let mut client = netlayer
 				.connect("127.0.0.1", port, Codec::Syrup, 4096)
 				.unwrap();
-			client
-				.write_frame(
-					b"<10'op:deliver<11'desc:export7+>[5:hello]11+<19'desc:import-promise99+>>",
-				)
-				.unwrap();
+			client.write_frame(QUESTION).unwrap();
 			let frame = client.read_frame().unwrap();
 			server.join().unwrap();
 			frame
 		});
-		let text = core::str::from_utf8(&reply).unwrap();
-		assert!(text.contains("fulfill"));
+		assert_eq!(reply, ANSWER);
 	}
 }

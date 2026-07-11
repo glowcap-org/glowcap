@@ -87,6 +87,21 @@ const EV_ACCEPT: u32 = 8;
 /// steady traffic never blocks on it.
 const NB_BUFFER_BOUND: usize = 1 << 20;
 
+/// The steady per-direction buffer capacity a connection retains once a burst
+/// drains, mirroring the Zig loop's posture (`loop_read_buf_bytes` and
+/// `steady_outbound_bytes` in `src/net/completion/loop.zig`, both 16 KiB):
+/// burst capacity frees on drain so one slow episode never pins its high-water
+/// bytes for the connection's lifetime, while steady-sized capacity is retained
+/// so ordinary traffic never reallocates.
+const NB_STEADY_BYTES: usize = 16 * 1024;
+
+/// Cap on one `read_chunk` segment in the reader task. The chunk is a zero-copy
+/// borrow of the QUIC reassembly buffer, so the cap costs no memory; it bounds
+/// how far one read may overshoot `NB_BUFFER_BOUND` (the bound is checked
+/// before the read, so pending bytes never exceed `NB_BUFFER_BOUND +
+/// READ_CHUNK_BYTES`), matching the previous 64 KiB read granularity.
+const READ_CHUNK_BYTES: usize = 64 * 1024;
+
 /// One drained readiness record: the connection that became ready (its
 /// `PancakeIrohConn` pointer as an integer, or null for an `EV_ACCEPT` record)
 /// and the `EV_*` bitset describing how. `#[repr(C)]` so the Zig resident reads
@@ -246,18 +261,36 @@ struct NbConn {
 	write_work: Notify,
 }
 
+/// The inbound bytes as the Zig side treats them: one contiguous buffer with a
+/// consumed prefix, `buf[off..]` unread. The reader appends whole QUIC chunks
+/// with a memcpy; `conn_try_read` drains by advancing `off`. Draining to empty
+/// resets the buffer and frees burst capacity past `NB_STEADY_BYTES`; a partial
+/// drain compacts once the consumed prefix reaches the pending bytes, so the
+/// buffer tracks the bounded pending count, never the total bytes ever
+/// received.
 #[derive(Default)]
 struct Inbound {
-	buf: VecDeque<u8>,
+	buf: Vec<u8>,
+	/// Length of the consumed prefix of `buf`; `buf.len() - off` bytes pend.
+	off: usize,
 	/// Set once the QUIC recv stream reaches clean end of stream.
 	eof: bool,
 	/// Set once the reader task hit a transport error.
 	err: bool,
 }
 
+impl Inbound {
+	fn pending(&self) -> usize {
+		self.buf.len() - self.off
+	}
+}
+
 #[derive(Default)]
 struct Outbound {
-	buf: VecDeque<u8>,
+	/// The queued batch. The writer task takes the whole buffer (a move, no
+	/// copy) and drops its storage once flushed, so outbound burst capacity
+	/// never outlives the batch that needed it.
+	buf: Vec<u8>,
 	/// Set by `conn_close` / `conn_free`: the writer finishes the send stream
 	/// and exits once the buffer drains.
 	closed: bool,
@@ -643,21 +676,24 @@ fn endpoint_readiness(ep: &PancakeIrohEndpoint) -> Option<&Arc<Readiness>> {
 /// buffer is full so a slow loop applies QUIC flow control to the partner.
 async fn nb_reader(nb: Arc<NbConn>, mut recv: RecvStream) {
 	use iroh::endpoint::{ConnectionError, ReadError};
-	let mut tmp = vec![0u8; 64 * 1024];
 	loop {
 		// Back-pressure: wait while the inbound buffer is at its bound. Register
 		// the notify before re-checking so a drain that frees room cannot be
 		// missed between the check and the await.
 		loop {
 			let notified = nb.read_room.notified();
-			if nb.inbound.lock().unwrap().buf.len() < NB_BUFFER_BOUND {
+			if nb.inbound.lock().unwrap().pending() < NB_BUFFER_BOUND {
 				break;
 			}
 			notified.await;
 		}
-		match recv.read(&mut tmp).await {
-			Ok(Some(n)) => {
-				nb.inbound.lock().unwrap().buf.extend(&tmp[..n]);
+		// `read_chunk` lends the next segment zero-copy out of the stream's
+		// reassembly buffer, so this task holds no resident scratch (the old
+		// shape was a 64 KiB read buffer held for the connection's lifetime).
+		// The one copy is the append into the connection's inbound buffer.
+		match recv.read_chunk(READ_CHUNK_BYTES).await {
+			Ok(Some(chunk)) => {
+				nb.inbound.lock().unwrap().buf.extend_from_slice(&chunk);
 				nb.readiness.signal(nb.id, EV_READABLE);
 			}
 			Ok(None) => {
@@ -690,8 +726,12 @@ async fn nb_writer(nb: Arc<NbConn>, mut send: SendStream) {
 		let notified = nb.write_work.notified();
 		let (chunk, closed) = {
 			let mut out = nb.outbound.lock().unwrap();
-			let chunk: Vec<u8> = out.buf.drain(..).collect();
-			(chunk, out.closed)
+			// Take the whole batch by move — no allocation, no copy — so the
+			// lock is released before the await below. The taken storage drops
+			// at the end of this iteration, which also returns a burst's
+			// capacity instead of pinning the high-water mark for the
+			// connection's lifetime.
+			(std::mem::take(&mut out.buf), out.closed)
 		};
 		if !chunk.is_empty() {
 			if send.write_all(&chunk).await.is_err() {
@@ -918,17 +958,36 @@ pub extern "C" fn pancake_iroh_sidecar_conn_try_read(
 			None => return -1,
 		};
 		let mut inb = nb.inbound.lock().unwrap();
-		if !inb.buf.is_empty() {
-			let n = std::cmp::min(len, inb.buf.len());
+		let pending = inb.pending();
+		if pending > 0 {
+			let n = std::cmp::min(len, pending);
 			if n > 0 {
 				let dest = unsafe { std::slice::from_raw_parts_mut(buf, n) };
-				let (a, b) = inb.buf.as_slices();
-				let from_a = std::cmp::min(n, a.len());
-				dest[..from_a].copy_from_slice(&a[..from_a]);
-				if from_a < n {
-					dest[from_a..n].copy_from_slice(&b[..n - from_a]);
+				dest.copy_from_slice(&inb.buf[inb.off..inb.off + n]);
+				inb.off += n;
+			}
+			if inb.off == inb.buf.len() {
+				// Empty transition: reset, and free burst capacity down to the
+				// steady bound (the Zig loop's posture, loop.zig) so one
+				// slow-reader episode never pins its high-water bytes. Runs
+				// only here — never on the reader's append path — so it adds
+				// no hot-path contention.
+				inb.buf.clear();
+				inb.off = 0;
+				if inb.buf.capacity() > NB_STEADY_BYTES {
+					inb.buf.shrink_to(NB_STEADY_BYTES);
 				}
-				inb.buf.drain(..n);
+			} else if inb.off >= inb.buf.len() - inb.off {
+				// The consumed prefix has outgrown the pending bytes: compact
+				// so `buf.len()` tracks the bounded pending count instead of
+				// the total bytes ever buffered. Amortized O(1) per drained
+				// byte, and the moved span is capped by the flow-control
+				// bound.
+				let off = inb.off;
+				inb.buf.copy_within(off.., 0);
+				let pending_len = inb.buf.len() - off;
+				inb.buf.truncate(pending_len);
+				inb.off = 0;
 			}
 			drop(inb);
 			nb.read_room.notify_one();
@@ -970,7 +1029,7 @@ pub extern "C" fn pancake_iroh_sidecar_conn_try_write(
 			return WOULD_BLOCK;
 		}
 		let src = unsafe { std::slice::from_raw_parts(buf, len) };
-		out.buf.extend(src);
+		out.buf.extend_from_slice(src);
 		drop(out);
 		nb.write_work.notify_one();
 		len as isize

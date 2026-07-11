@@ -2,9 +2,9 @@
 //
 // Bun's FFI (`bun:ffi`: `dlopen`, `ptr`, `toArrayBuffer`, `JSCallback`,
 // `FFIType`) and the `node:net` sockets Bun implements provide the runtime seams
-// declared in `../runtime.ts`. Bun models a pointer as a JavaScript number; this
-// adapter converts to and from `bigint` at the seam so the layers above hold one
-// representation.
+// declared in `../runtime.ts`. Bun models a pointer as a JavaScript number; the
+// shared spine in `ptr_wrap.ts` converts to and from `bigint` at the seam so the
+// layers above hold one representation.
 
 // @ts-nocheck, typed against Bun's ambient types, which only exist under Bun.
 import { dlopen as bunDlopen, FFIType, JSCallback, ptr, toArrayBuffer } from "bun:ffi";
@@ -21,6 +21,7 @@ import type {
 	SymbolDef,
 	Symbols,
 } from "../runtime.ts";
+import { type PtrBridge, wrapCallbackFn, wrapSymbols } from "./ptr_wrap.ts";
 
 function bunType(t: NativeType): FFIType {
 	switch (t) {
@@ -53,12 +54,14 @@ function bunDef(def: SymbolDef): { args: FFIType[]; returns: FFIType } {
 }
 
 // Bun pointers are numbers; the seam speaks bigint.
-function toPtr(p: number | null): Ptr {
-	return p === null || p === 0 ? 0n : BigInt(p);
-}
-function fromPtr(p: Ptr): number | null {
-	return p === 0n ? null : Number(p);
-}
+const bridge: PtrBridge<number | null> = {
+	toPtr(p: number | null): Ptr {
+		return p === null || p === 0 ? 0n : BigInt(p);
+	},
+	fromPtr(p: Ptr): number | null {
+		return p === 0n ? null : Number(p);
+	},
+};
 
 const ffi: RuntimeFfi = {
 	dlopen(path: string, defs: Record<string, SymbolDef>): Symbols {
@@ -66,31 +69,23 @@ const ffi: RuntimeFfi = {
 		for (const [name, def] of Object.entries(defs)) {
 			symbolDefs[name] = bunDef(def);
 		}
-		const lib = bunDlopen(path, symbolDefs);
-		const out: Symbols = {};
-		for (const [name, def] of Object.entries(defs)) {
-			const fn = lib.symbols[name];
-			const ptrParams: number[] = [];
-			def.parameters.forEach((t, i) => {
-				if (t === "pointer") ptrParams.push(i);
-			});
-			const ptrResult = def.result === "pointer";
-			if (ptrParams.length === 0 && !ptrResult) {
-				out[name] = fn;
-				continue;
-			}
-			out[name] = (...args: unknown[]) => {
-				for (const i of ptrParams) args[i] = fromPtr(args[i] as Ptr);
-				const r = fn(...args);
-				return ptrResult ? toPtr(r as number | null) : r;
-			};
-		}
-		return out;
+		return wrapSymbols(defs, bunDlopen(path, symbolDefs).symbols, bridge);
+	},
+
+	makeCallback(
+		def: SymbolDef,
+		fn: (...args: unknown[]) => unknown,
+	): NativeCallback {
+		const cb = new JSCallback(wrapCallbackFn(def, fn, bridge), bunDef(def));
+		return {
+			pointer: bridge.toPtr(cb.ptr),
+			close: () => cb.close(),
+		};
 	},
 
 	pointerOf(buf: Uint8Array): Ptr {
 		if (buf.byteLength === 0) return 0n;
-		return toPtr(ptr(buf));
+		return bridge.toPtr(ptr(buf));
 	},
 
 	readMemory(p: Ptr, len: number): ArrayBuffer {
@@ -99,27 +94,10 @@ const ffi: RuntimeFfi = {
 		return toArrayBuffer(Number(p), 0, len).slice(0);
 	},
 
-	makeCallback(
-		def: SymbolDef,
-		fn: (...args: unknown[]) => unknown,
-	): NativeCallback {
-		const ptrParams: number[] = [];
-		def.parameters.forEach((t, i) => {
-			if (t === "pointer") ptrParams.push(i);
-		});
-		const ptrResult = def.result === "pointer";
-		const cb = new JSCallback(
-			(...args: unknown[]) => {
-				for (const i of ptrParams) args[i] = toPtr(args[i] as number | null);
-				const r = fn(...args);
-				return ptrResult ? fromPtr(r as Ptr) : r;
-			},
-			bunDef(def),
-		);
-		return {
-			pointer: toPtr(cb.ptr),
-			close: () => cb.close(),
-		};
+	writeMemory(p: Ptr, bytes: Uint8Array): void {
+		if (p === 0n || bytes.length === 0) return;
+		// toArrayBuffer (unsliced) is a live view onto native memory.
+		new Uint8Array(toArrayBuffer(Number(p), 0, bytes.length)).set(bytes);
 	},
 
 	libSuffix() {

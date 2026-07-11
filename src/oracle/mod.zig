@@ -63,7 +63,7 @@ pub fn runDrivenAbort(allocator: std.mem.Allocator) ![]u8 {
     try out.appendSlice(allocator, "p1=sent:abort\n");
 
     const frame = p1.takeOutbound().?;
-    try p2.feedInbound(frame);
+    try p2.feedOwned(frame);
     _ = try p2.step();
 
     if (p2.pollEvent()) |event_value| {
@@ -105,7 +105,7 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
 
     {
         const frame = pair.p1.takeOutbound().?;
-        try pair.p2.feedInbound(frame);
+        try pair.p2.feedOwned(frame);
     }
     _ = try pair.p2.step();
     if (pair.p2.pollEvent()) |event_value| {
@@ -123,7 +123,7 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
 
     {
         const frame = pair.p2.takeOutbound().?;
-        try pair.p1.feedInbound(frame);
+        try pair.p1.feedOwned(frame);
     }
     _ = try pair.p1.step();
     if (pair.p1.pollEvent()) |event_value| {
@@ -166,7 +166,7 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
 
     {
         const frame = pair.p1.takeOutbound().?;
-        try pair.p2.feedInbound(frame);
+        try pair.p2.feedOwned(frame);
     }
     // The deliver surfaces as an event on the first step; the synthesized
     // resolve encodes on the second.
@@ -181,7 +181,7 @@ pub fn runHandshakeThenBootstrapFetch(allocator: std.mem.Allocator, codec: model
 
     {
         const frame = pair.p2.takeOutbound().?;
-        try pair.p1.feedInbound(frame);
+        try pair.p1.feedOwned(frame);
     }
     _ = try pair.p1.step();
     {
@@ -248,7 +248,7 @@ pub fn runInboundMode(allocator: std.mem.Allocator, mode: InboundMode) ![]u8 {
                 const storage = try allocator.dupe(u8, garbage);
                 const frame = foundation.Frame.initOwned(allocator, storage, .byte, .fromByteUnits(1)) catch |e|
                     break :err e;
-                try peer.feedInbound(frame);
+                try peer.feedOwned(frame);
                 _ = peer.step() catch |e| break :err e;
                 break :err null;
             },

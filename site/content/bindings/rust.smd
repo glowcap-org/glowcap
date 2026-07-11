@@ -6,21 +6,23 @@
 .draft = false,
 ---
 
-The Rust binding links the installed pancake archives directly — the core and
-blocking transports statically, the iroh companion as a shared library — and
-mirrors the à-la-carte archive set with Cargo features. The crate root always
-links `libpancake_ocapn` and presents a typed API in
+The Rust binding links the installed pancake archives directly (the core,
+the byte-fed host, and the blocking transports statically, the iroh companion
+as a shared library) and mirrors the à-la-carte archive set with Cargo
+features. The crate root always links `libpancake_ocapn` plus
+`libpancake_driver` — the shared host runtime every binding drives — and
+presents a typed API in
 [`bindings/rust/src/lib.rs`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/rust/src/lib.rs).
-Each transport is its own feature-gated module — `tcp` and `inproc` on by
-default, `iroh` opt-in — so a build links exactly the archives its features turn
+Each transport is its own feature-gated module (`tcp` and `inproc` on by
+default, `iroh` opt-in) so a build links exactly the archives its features turn
 on. The TCP `Netlayer`/`Listener`/`Endpoint` live under `pancake::tcp`. You work
-with a `Peer` and Rust enums for `Reference`, `Argument`, and `Event`, so the
+with a `Connection` and Rust enums for `Reference` and `Argument`, so the
 wire's values arrive as ordinary Rust you can match on.
 
 ## The same round-trip
 
-The [Start building]($link.page('start')) round-trip — connect, fetch, call,
-handle the reply — reads like this in Rust. The snippet uses the crate's opt-in
+The [Start building]($link.page('start')) round-trip (connect, fetch, call,
+handle the reply) reads like this in Rust. The snippet uses the crate's opt-in
 `async` feature, covered below, and runs inside a `tokio::task::LocalSet`.
 
 > []($block.attrs('code-tabs'))
@@ -62,28 +64,30 @@ handle the reply — reads like this in Rust. The snippet uses the crate's opt-i
 The iroh tab swaps the built host-and-port locator for a bare node id, puts a
 posture in place of `None`, and needs the `iroh` Cargo feature; everything
 below `connect` is the tcp tab, line for line. A build without the feature refuses an iroh locator with a rebuild hint. The node id itself still arrives out of band, exactly like a
-host and port; discovery turns a name you were given into a route, it does
+host and port; discovery turns a name you were given into a route. It does
 not browse for peers.
 
 ## Async
 
 The async surface is [tokio](https://tokio.rs/), behind an opt-in `async`
-feature. A `Connection` runs the sans-io peer over a `tokio::net::TcpStream`.
-Because the peer is a single-owner state machine, the `Connection` is `!Send`:
-you create and use it on one task inside a `LocalSet`, where the peer calls stay
-synchronous and only the socket reads and writes await. A `tell`, the
-fire-and-forget send, returns once the deliver is queued on that driver task,
-and the task flushes it.
+feature. A `Connection` pumps the byte-fed host over a
+`tokio::net::TcpStream`: it reads raw bytes, hands them to the library's own
+frame delimiter, and honors the host's action queue (flushes, dials, vow
+settlements). The handles are `!Send`: you create and use them on one task
+inside a `LocalSet`, where the host calls stay synchronous and only the socket
+reads and writes await. A `tell`, the fire-and-forget send, returns once the
+deliver is queued on the host, and the scheduled drain flushes it.
 
 ## Actors
 
-The actor layer is an `actors::Vat` over `FnMut(&str, &[Argument])` closures. A
-local actor is a Rust closure, not a foreign callback, and a leading symbol
-argument is the method verb. An eventual-send to a partner-hosted reference
-settles with `conn.send(...).await` on the async surface; on the sans-io
-`actors::Vat` itself, `Vat::send` returns a `Vow` — a local vow settles as the
-vat drives its turns, a far one when the partner's resolve is dispatched
-through `Vat::serve`.
+An actor is a plain `FnMut(&str, &[Argument])` closure you hand to
+`conn.spawn` or `conn.publish` — a Rust closure the library calls back through
+one shared trampoline, hosted on the driver vat behind the host archive. A
+leading symbol argument is the method verb. An eventual-send to a
+partner-hosted reference settles with `conn.send(...).await`, and the
+`RemotePromise` it returns pipelines as the target of the next send before it
+resolves. A closure that panics settles its answer broken with the panic's own
+words; the panic never crosses the C boundary.
 
 ## Dogfood and example
 

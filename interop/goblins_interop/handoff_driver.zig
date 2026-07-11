@@ -1,16 +1,14 @@
 //! Live three-party handoff, with pancake as the recipient (Carol), driven
-//! through the native `driver.Host` tier (ADR-0068).
+//! through the native `driver.BlockingHost` tier (ADR-0068, ADR-0072).
 //!
 //! pancake dials a Goblins introducer (Alice) through one `Host`, enlivens the
 //! introducer, and calls `get-greeter`. A three-party introduction hands the
 //! greeter over as a `desc:handoff-give` naming the exporter (Bob), and the
-//! host surfaces that as the typed third call outcome: the call settles to a
-//! `.give` carrying the give's verbatim signed envelope and its dialable
-//! exporter locator. `Host.redeem` then dials Bob under the host's own
-//! identity, presents the signed `desc:handoff-receive`, withdraws the gift,
-//! and hands back the greeter as an ordinary routable reference. Calling that
-//! reference routes through the host to Bob's connection, and the greeter
-//! replies directly.
+//! host redeems it inside the blocking call: it claims the give, dials Bob
+//! under the host's own identity, presents the signed `desc:handoff-receive`,
+//! and withdraws the gift — so the call settles directly with the greeter as
+//! an ordinary routable reference. Calling that reference routes through the
+//! host to Bob's connection, and the greeter replies directly.
 //!
 //! The host owns every handoff decision: the retained recipient identity, the
 //! exporter connection, the pending withdraw, and the signed receive. This
@@ -25,8 +23,6 @@ const pancake = @import("pancake");
 const goblins_child = @import("goblins_child.zig");
 
 const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const codec = pancake.ocapn.codec;
 const crypto = pancake.foundation.crypto;
 const tcp = pancake.net.tcp;
 
@@ -89,16 +85,16 @@ pub fn main(init: std.process.Init) !void {
 }
 
 /// Dial Alice, enliven the introducer, and call `get-greeter` through the
-/// typed surface: the introduction settles as a `.give`, `Host.redeem` dials
-/// Bob and withdraws under the host identity, and the routed call reaches the
-/// greeter directly. The serve step owns every decision; the driver holds one
-/// `Host` and its verbs, which makes the live Goblins conversation the native
-/// surface's oracle.
+/// typed surface: the host claims the give the introduction resolves with,
+/// dials Bob, withdraws under the host identity — all inside the call — and
+/// the routed call reaches the greeter directly. The serve step owns every
+/// decision; the driver holds one `Host` and its verbs, which makes the live
+/// Goblins conversation the native surface's oracle.
 fn recipientStep1(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, alice_port_str: []const u8) !void {
     var seed: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
     var tcp_resident = tcp.Resident{ .io = io };
-    var h = pancake.driver.Host.initSeeded(allocator, io, &.{tcp_resident.netlayer()}, seed, .{ .frame_cap = frame_cap });
+    var h = pancake.driver.BlockingHost.initSeeded(allocator, io, &.{tcp_resident.netlayer()}, seed, .{ .frame_cap = frame_cap });
     defer h.deinit();
 
     var designator_buf: [64]u8 = undefined;
@@ -111,33 +107,31 @@ fn recipientStep1(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, a
     defer alice.deinit();
     std.debug.print("goblins-handoff: session open (pancake as recipient -> alice)\n", .{});
 
-    // Enliven the introducer by its swiss-num.
-    const introducer = try goblins_child.fetchCap(allocator, alice.cv.peer, &alice.cv.conn, swiss);
-    defer model.freeReference(allocator, introducer);
+    // Enliven the introducer by its swiss-num (ADR-0012), blocking on the
+    // host verb.
+    const introducer = try alice.enliven(swiss);
     std.debug.print("goblins-handoff: enlivened alice's introducer\n", .{});
 
-    // Call (introducer 'get-greeter): the introduction settles as the typed
-    // third outcome, the give, with its verbatim envelope and dialable locator.
+    // Call (introducer 'get-greeter): the introduction arrives as a signed
+    // give naming Bob; the host claims it, dials Bob, and withdraws inside
+    // this wait, so the call settles with the greeter itself.
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const settled = try alice.call(.{ .far = introducer.far }, .{ .verb = "get-greeter", .args = &.{} }, arena.allocator());
-    const give = switch (settled) {
-        .give => |g| g,
-        .fulfilled => |arg| {
-            std.debug.print("goblins-handoff: get-greeter resolved to a {s} (expected a give)\n", .{@tagName(arg)});
-            return error.NoHandoffGive;
+    const settled = try alice.call(introducer, .{ .verb = "get-greeter", .args = &.{} }, arena.allocator());
+    const greeter = switch (settled) {
+        .fulfilled => |arg| switch (arg) {
+            .reference => |reference| reference,
+            else => {
+                std.debug.print("goblins-handoff: get-greeter resolved to a {s} (expected a capability)\n", .{@tagName(arg)});
+                return error.NoHandoffGive;
+            },
         },
         .broken => |reason| {
             std.debug.print("goblins-handoff: get-greeter BROKE: {s}\n", .{reason});
             return error.NoHandoffGive;
         },
+        .give => return error.GiveShouldHaveBeenRedeemed,
     };
-    std.debug.print("goblins-handoff: get-greeter resolved to a handoff-give; exporter={s}\n", .{give.exporter_locator_uri});
-
-    // Redeem: the host dials Bob under the node identity, withdraws, and hands
-    // back the greeter as an ordinary routable capability.
-    const greeter = try h.redeem(alice, give);
-    std.debug.print("goblins-handoff: session open (pancake -> exporter)\n", .{});
     std.debug.print("goblins-handoff: withdraw succeeded, got the greeter ref directly from the exporter\n", .{});
 
     // Call the greeter (a Goblins lambda: no verb, one argument). The token

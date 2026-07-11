@@ -245,6 +245,8 @@ pub const Backend = struct {
             if (p.read_ud) |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
             if (p.write_ud) |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
         }
+        // tolerant: an fd with no pending op was never inserted, so the guard
+        // above may have found nothing and this removal need not be present.
         _ = self.pending.remove(fd);
         _ = close(fd);
         self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });

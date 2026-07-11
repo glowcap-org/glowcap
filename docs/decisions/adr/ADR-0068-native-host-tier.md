@@ -106,3 +106,14 @@ client that never holds two connections; the fan-out tier (`LoopHost`/
 `docs/boundaries.md` — the blocking host owns handoffs, the loop owns scale,
 and growing the loop under the host is the direction that retires the
 boundary.
+
+## Amendment (2026-07-11): executed and superseded in part by ADR-0072
+
+The tier this record designed shipped, then ADR-0072 rebuilt it over the
+byte-fed core: the blocking tier is now `driver.BlockingHost`, a socket loop
+over `driver_core.Host`, and `Host.redeem` no longer exists — the core
+auto-redeems every give inside the serve step, so no public redeem verb
+remains. The closing fan-out boundary was retired the other way: ADR-0072's
+fourth amendment deleted the node-less loop tier rather than growing it under
+the host, and the remaining direction is feeding the byte-fed core from
+`net.Loop`.

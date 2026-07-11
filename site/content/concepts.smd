@@ -26,7 +26,7 @@ the wrapper so the calls stop landing.
 
 That picture is static. It says who is allowed to call whom. A call has a shape of
 its own. You send it and hold a promise the same instant, without waiting for the
-partner to do the work, and the partner's later resolve settles that promise into a
+partner to do the work. The partner's later resolve settles that promise into a
 result.
 
 [A single call, start to finish: you deliver it and immediately hold a promise, and the partner's resolve settles that promise to a result.]($image.siteAsset('diagram-call.svg'))
@@ -78,7 +78,7 @@ name, and the
 [sturdyref and locator diagrams](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/07-sturdyrefs-and-locators.md)
 draw the enlivenment flow.
 
-> **Swiss number** — the unguessable secret a sturdyref carries to name one specific
+> **Swiss number**: the unguessable secret a sturdyref carries to name one specific
 > object. There is no list to check and no login: holding the string *is* the
 > permission, and not holding it leaves nothing to guess. The name comes from the
 > numbered Swiss bank account, where the number alone is the access.
@@ -94,17 +94,17 @@ deliver and resolve, promises and pipelining, references and tables, garbage
 collection, third-party handoffs, and sturdyrefs. They are the picture the code is
 checked against.
 
-> **Promise pipelining** — when you call a remote object you get a *promise* for the
+> **Promise pipelining**: when you call a remote object you get a *promise* for the
 > answer right away, and you may call methods on that promise before it has resolved.
 > Each follow-on call is forwarded to wherever the answer turns out to live, so a
 > chain of dependent calls makes one round trip instead of one per step.
 
-> **Three-party handoff** — the move that lets one peer introduce you to another. If a
+> **Three-party handoff**: the move that lets one peer introduce you to another. If a
 > peer you trust holds a reference to a third party and wants to pass it to you, CapTP
 > carries a signed introduction you present to that third party yourself. From then on
 > you call them directly, rather than relaying every call through the peer in the middle.
-> In the application surface that introduction arrives as a call settling to `.give`,
-> and `Host.redeem` turns it into a live reference;
+> In the application surface a multi-connection host presents that introduction
+> yourself: a `driver.BlockingHost` call settles directly with the live reference;
 > [example chapter 02](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/02_introduce_and_redeem.zig)
 > walks the whole move.
 
@@ -170,7 +170,7 @@ spells out the full memory and copy contract.
 
 That budget serves one target: a single ordinary server holding about **500,000**
 live OCapN connections. At that scale memory gives out long before CPU does, so
-the per-connection numbers above are the whole game — two kilobytes across 500k is
+the per-connection numbers above are the whole game: two kilobytes across 500k is
 well under a gigabyte of core state.
 
 Half a million is a design target, not a count clocked on a live wire. It is large

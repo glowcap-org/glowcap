@@ -8,7 +8,7 @@ PreSpec shape; on the v1.0 wire the same settlement is the resolver-callback
 deliver (see the vocabulary note and DR-4 in
 [02-deliver-and-resolve.md](02-deliver-and-resolve.md)).
 
-## HO-1 — Roles and sessions
+## HO-1: Roles and sessions
 
 Three peers hold three sessions between them. The Gifter already talks to both
 other parties; the Receiver↔Exporter session is established (if absent) to
@@ -21,7 +21,7 @@ flowchart LR
     R -.->|"R-X session, established to withdraw"| X
 ```
 
-## HO-2 — Happy path overview
+## HO-2: Happy path overview
 
 This diagram shows the five steps end-to-end; HO-3 through HO-7 zoom into each.
 
@@ -38,7 +38,7 @@ sequenceDiagram
     X->>R: op:resolve (resolve:fulfill gifted-ref)
 ```
 
-## HO-3 — Step 1: deposit-gift
+## HO-3: Step 1: deposit-gift
 
 Step 1 is an ordinary bootstrap-object call on the Gifter↔Exporter session. The
 Exporter stores the gift keyed by gift-id until a matching withdrawal.
@@ -51,7 +51,7 @@ sequenceDiagram
     Note over X: deposited-gifts table records (gift-id, gifted-ref)
 ```
 
-## HO-4 — The desc:handoff-give certificate
+## HO-4: The desc:handoff-give certificate
 
 The give carries five fields, signed by the Gifter with its key from the **G↔X**
 session. Each field exists so a specific later check can hold, as HO-5 and HO-7
@@ -67,7 +67,7 @@ flowchart TD
     HG --> GID["gift-id: matches the deposit"]
 ```
 
-## HO-5 — Step 3: Receiver-side validation
+## HO-5: Step 3: Receiver-side validation
 
 The Receiver cannot verify the Gifter's signature yet, because it has never seen
 the Gifter's G↔X pubkey; that check belongs to the Exporter. What the Receiver
@@ -84,10 +84,10 @@ flowchart TD
     HR --> WD["send withdraw-gift to the Exporter's bootstrap object"]
 ```
 
-## HO-6 — The desc:handoff-receive certificate
+## HO-6: The desc:handoff-receive certificate
 
 The receive carries four fields wrapping the original signed give. The Receiver
-signs it with its key from the **G↔R** session — not the R↔X session — which is
+signs it with its key from the **G↔R** session, not the R↔X session, and that is
 what binds the new R↔X identity to the identity the Gifter addressed.
 
 ```mermaid
@@ -99,7 +99,7 @@ flowchart TD
     HR --> SG["signed-give: the Gifter's certificate, carried whole"]
 ```
 
-## HO-7 — Step 5: Exporter-side validation
+## HO-7: Step 5: Exporter-side validation
 
 The Exporter is the only party that can verify both signatures: it knows the
 Gifter's pubkey from the G↔X session, and the give itself carries the
@@ -123,7 +123,7 @@ receive names), and it lives in the vat-scoped gift registry rather than in any
 one connection. A host that keeps that registry across connections therefore
 refuses a reconnecting Receiver's replayed count.
 
-## HO-8 — Withdraw before deposit
+## HO-8: Withdraw before deposit
 
 The two inbound legs race: the Receiver's withdrawal can reach the Exporter
 before the Gifter's deposit does. The Exporter parks a validated withdrawal

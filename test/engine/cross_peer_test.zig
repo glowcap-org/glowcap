@@ -7,6 +7,7 @@ const session = pancake.ocapn.session;
 const crypto = pancake.foundation.crypto;
 const syrup = pancake.ocapn.codec.syrup;
 const cross_peer = @import("../support/cross_peer.zig");
+const peer_fixture = @import("../support/peer_fixture.zig");
 
 fn repeated(comptime n: usize, byte: u8) [n]u8 {
     return [_]u8{byte} ** n;
@@ -236,6 +237,63 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
     try std.testing.expect(!peer.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
+test "withdraw of a verbatim gifted cap reclaims the clone through the settled helper" {
+    const allocator = std.testing.allocator;
+
+    const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x73));
+    const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x74));
+    const gifter_pub = gifter_secret.publicKey();
+    const recipient_pub = recipient_secret.publicKey();
+
+    var give_signed: []u8 = undefined;
+    var give_sig: crypto.Signature = undefined;
+    const give = try signedGive(gift_id_a[0..], recipient_pub.asBytes(), &gifter_secret, &give_signed, &give_sig, allocator);
+    defer allocator.free(give_signed);
+
+    var receive: model.HandoffReceive = .{
+        .receiving_session = receiving_session[0..],
+        .receiving_side = receiving_side[0..],
+        .handoff_count = 1,
+        .signed_give = give,
+        .signature = "",
+    };
+    const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+    defer allocator.free(receive_signed);
+    const receive_sig = crypto.sign(&recipient_secret, receive_signed);
+    receive.signature = receive_sig.asBytes();
+
+    var peer = engine.Peer.init(allocator);
+    defer peer.deinit();
+
+    // A verbatim gifted cap (a broken reference): unlike a POD near/far, its
+    // clone inside `resolveForWithdraw` allocates, so the settled message the
+    // exporter sends carries an owned arm that must be reclaimed after the send.
+    // The registry adopts this reference and frees it at `applyWithdraw`; the
+    // clone is a second allocation the production `sendWithdrawSettled` path
+    // frees through `freeSettledWithdrawOwned`. The testing allocator is the
+    // verdict — a helper that missed the owned arm would leak here.
+    const gifted = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "gifted-was-broken") } };
+    try peer.giftRegistry().depositOwned(allocator, peer.session_state.limits, gift_id_a[0..], gifted, gifter_pub.asBytes());
+
+    const handoff = model.Handoff{ .receive = receive };
+    const view_handoff = model.view.Handoff.fromOwned(&handoff);
+    const resolution_msg = switch (try engine.bootstrap.resolveForWithdraw(allocator, &peer.session_state, peer.giftRegistry(), .{
+        .receive = view_handoff.receive,
+        .answer = .from(5),
+    })) {
+        .settled => |msg| msg,
+        .awaiting_deposit => return error.TestUnexpectedPending,
+    };
+    defer engine.bootstrap.freeSettledWithdrawOwned(allocator, resolution_msg);
+
+    const fulfilled = switch (resolution_msg.resolve.resolution) {
+        .fulfill => |arg| arg,
+        .@"break" => return error.TestUnexpectedBreak,
+    };
+    try std.testing.expectEqualStrings("gifted-was-broken", fulfilled.reference.broken.message);
+    try std.testing.expect(!peer.giftRegistry().giftLive(gift_id_a[0..]));
+}
+
 // The exporter half of a three-party handoff across two sessions: a gift whose
 // object is a node-local bootstrap cap (named by swissnum) is re-resolved
 // against the *withdrawing* session, not returned as the deposit-session near.
@@ -394,9 +452,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
 
     // PreSpec carries a wire `op:resolve`, so the settled answer is observable
     // as one outbound frame without the V1.0 resolver-callback choreography.
-    var exporter = engine.Peer.initWithSession(allocator, session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
-    }));
+    var exporter = peer_fixture.openPeer(allocator);
     defer exporter.deinit();
     try exporter.session_state.transitionToOpen();
 
@@ -408,7 +464,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
         .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff_arg } },
         .answer = .from(1),
     } });
-    try exporter.feedInbound(frame);
+    try exporter.feedOwned(frame);
     while ((try exporter.step()) != .idle) {}
     while (exporter.pollEvent()) |event_value| {
         var event = event_value;
@@ -510,7 +566,7 @@ test "third-party handoff routes a give and authorizes a withdrawal across peers
     var exporter = engine.Peer.init(allocator);
     defer exporter.deinit();
 
-    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, giveWith(gift_id_a[0..]), "");
+    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, giveWith(gift_id_a[0..]), null);
 
     {
         var event = recipient_from_gifter.pollEvent().?;
@@ -546,8 +602,8 @@ test "third-party handoff rejects a replayed handoff count across peers" {
     var exporter = engine.Peer.init(allocator);
     defer exporter.deinit();
 
-    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, giveWith(gift_id_a[0..]), "");
-    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, giveWith(gift_id_b[0..]), "");
+    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, giveWith(gift_id_a[0..]), null);
+    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, giveWith(gift_id_b[0..]), null);
 
     try cross_peer.withdrawGift(
         &recipient_to_exporter,
@@ -576,7 +632,7 @@ test "third-party handoff rejects a withdrawal whose signature fails verificatio
     var exporter = engine.Peer.init(allocator);
     defer exporter.deinit();
 
-    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, giveWith(gift_id_a[0..]), "");
+    try cross_peer.deliverGive(&gifter, &recipient_from_gifter, &exporter, giveWith(gift_id_a[0..]), null);
 
     try std.testing.expectError(cross_peer.Error.SignatureRejected, cross_peer.withdrawGift(
         &recipient_to_exporter,
@@ -628,7 +684,7 @@ test "the exporter authorizes a withdrawal against the gifter key it learned fro
 
     // Deposit with no explicit gifter key: deliverGive falls back to the key the
     // exporter learned from the handshake.
-    try cross_peer.deliverGive(&gx.p1, &recipient_from_gifter, &gx.p2, give, "");
+    try cross_peer.deliverGive(&gx.p1, &recipient_from_gifter, &gx.p2, give, null);
     {
         var event = recipient_from_gifter.pollEvent().?;
         defer event.deinit();

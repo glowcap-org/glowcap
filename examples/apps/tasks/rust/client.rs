@@ -5,7 +5,8 @@
 
 mod board;
 
-use std::time::Duration;
+#[path = "../../_demo/rust/run_local.rs"]
+mod demo_run;
 
 use board::Board;
 use pancake::tcp_locator;
@@ -56,26 +57,7 @@ async fn main() {
 	let nick = args[3].clone();
 	let task_text = args[4].clone();
 
-	let local = tokio::task::LocalSet::new();
-	let result = local
-		.run_until(async {
-			match tokio::time::timeout(
-				Duration::from_secs(15),
-				run_client(&locator, &nick, &task_text),
-			)
-			.await
-			{
-				Ok(inner) => inner,
-				Err(_) => Err(format!("{nick} timed out")),
-			}
-		})
-		.await;
-
-	match result {
-		Ok(()) => std::process::exit(0),
-		Err(err) => {
-			eprintln!("client {nick} failed: {err}");
-			std::process::exit(1);
-		}
-	}
+	let result =
+		demo_run::run_with_timeout(&nick, 15, run_client(&locator, &nick, &task_text)).await;
+	demo_run::exit_on_result(&nick, "client", result);
 }

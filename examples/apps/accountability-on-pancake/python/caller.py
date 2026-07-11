@@ -13,12 +13,13 @@ Or driven by the demo.ts orchestrator, which starts the Zig host first.
 from __future__ import annotations
 
 import asyncio
-import base64
 import pathlib
 import sys
 
-# The binding lives in bindings/python; add it to the path.
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[4] / "bindings" / "python"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / "_demo"))
+from python_path import add_bindings_path  # noqa: E402
+
+add_bindings_path(from_file=__file__, depth=4)
 
 from nacl.signing import SigningKey  # noqa: E402
 from pancake import VowBroken, connect, tcp_locator  # noqa: E402

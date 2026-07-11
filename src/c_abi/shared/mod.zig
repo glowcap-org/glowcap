@@ -23,6 +23,7 @@ const std = @import("std");
 
 const foundation = @import("foundation");
 const model = @import("model");
+const engine = @import("engine");
 
 // ── Return codes ─────────────────────────────────────────────────────────────
 
@@ -161,6 +162,23 @@ pub fn tryManagedFrame(alloc: std.mem.Allocator, frame: foundation.Frame) !Panca
         .release = releaseOwnedFrame,
         .private_data = payload,
     };
+}
+
+/// The one body behind every `pancake_*_take_outbound`: dequeue the peer's next
+/// encoded frame into `slot` as an owned managed frame. Returns
+/// `PANCAKE_ERR_WOULD_BLOCK` when the outbound queue is empty (the family-wide
+/// "nothing pending" code), and `PANCAKE_ERR_INTERNAL` (last error set, the
+/// dequeued frame freed and not retrievable) when the frame could not be
+/// wrapped for C. Shared so no two archives can drift on these codes.
+pub fn takeOutboundManaged(peer: *engine.Peer, alloc: std.mem.Allocator, slot: *PancakeManagedFrame) i32 {
+    const out = peer.takeOutbound() orelse return PANCAKE_ERR_WOULD_BLOCK;
+    slot.* = tryManagedFrame(alloc, out) catch {
+        var owned = out;
+        owned.deinit();
+        setLastError("take_outbound: frame wrap allocation failed", .{});
+        return PANCAKE_ERR_INTERNAL;
+    };
+    return PANCAKE_OK;
 }
 
 fn releaseOwnedFrame(frame: *PancakeManagedFrame) callconv(.c) void {
@@ -417,11 +435,73 @@ pub const zero_argument: PancakeArgument = .{
 
 pub const MarshalError = error{ UnsupportedValue, NullPointer, OutOfMemory };
 
+/// Classify an inbound-dispatch error into a C ABI return code. Derived from the
+/// single error taxonomy (`engine.abort_projection.classify`) so the C codes
+/// cannot drift from the abort projection — and defined once here so no two
+/// archives can disagree on the same error: codec/decode malformations report
+/// `CODEC`, session state-machine refusals (a partner protocol violation, a
+/// resource cap, an already-closed session) report `SESSION`, and host-internal
+/// failures (allocation, …) report `INTERNAL`.
+pub fn feedErrorToCode(err: anyerror) i32 {
+    return switch (engine.abort_projection.classify(err).domain) {
+        .codec => PANCAKE_ERR_CODEC,
+        .session => PANCAKE_ERR_SESSION,
+        .foreign => PANCAKE_ERR_INTERNAL,
+    };
+}
+
 pub fn marshalErrorToCode(err: MarshalError) i32 {
     return switch (err) {
         error.UnsupportedValue => PANCAKE_ERR_UNSUPPORTED_VALUE,
         error.NullPointer => PANCAKE_ERR_NULL_POINTER,
         error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+    };
+}
+
+/// `PancakeLastAbort.domain`: which layer classified the failure. Codec is a
+/// decode/encode malformation, session is a state-machine refusal, foreign is
+/// a host-internal failure (allocation, …).
+pub const PANCAKE_ABORT_DOMAIN_CODEC: u32 = 0;
+pub const PANCAKE_ABORT_DOMAIN_SESSION: u32 = 1;
+pub const PANCAKE_ABORT_DOMAIN_FOREIGN: u32 = 2;
+
+/// The typed cause of a peer's most recent local dispatch failure, projected
+/// to C — the ABI counterpart of `engine.Peer.lastAbort`. `domain` is a
+/// `PANCAKE_ABORT_DOMAIN_*` value. When `has_kind` is nonzero, `kind_name`
+/// is the wire name of the projected `op:abort` kind (e.g. "MalformedFrame");
+/// when zero, the failure projected no abort (a closed session, an allocation
+/// failure). All byte views are process-static — read them, never free them.
+/// Declared in this leaf so the ocapn peer family and the byte-fed driver
+/// family (`pancake_host_conn_last_abort`) share it by layout.
+pub const PancakeLastAbort = extern struct {
+    domain: u32,
+    has_kind: u32,
+    kind_name: ?[*]const u8,
+    kind_name_len: usize,
+    message: ?[*]const u8,
+    message_len: usize,
+    error_name: ?[*]const u8,
+    error_name_len: usize,
+};
+
+/// Project an `engine.AbortInfo` into the C `PancakeLastAbort` — the one body
+/// behind `pancake_peer_last_abort` and `pancake_host_conn_last_abort`, so the
+/// two archives cannot drift on the projection. Every view written is
+/// process-static.
+pub fn lastAbortToC(info: engine.AbortInfo) PancakeLastAbort {
+    return .{
+        .domain = switch (info.domain) {
+            .codec => PANCAKE_ABORT_DOMAIN_CODEC,
+            .session => PANCAKE_ABORT_DOMAIN_SESSION,
+            .foreign => PANCAKE_ABORT_DOMAIN_FOREIGN,
+        },
+        .has_kind = if (info.kind != null) 1 else 0,
+        .kind_name = if (info.kind) |k| k.wireName().ptr else null,
+        .kind_name_len = if (info.kind) |k| k.wireName().len else 0,
+        .message = info.message.ptr,
+        .message_len = info.message.len,
+        .error_name = info.error_name.ptr,
+        .error_name_len = info.error_name.len,
     };
 }
 
@@ -434,9 +514,9 @@ pub fn sliceFromC(ptr: ?[*]const u8, len: usize) MarshalError![]const u8 {
 pub fn referenceFromC(c_ref: PancakeReference) MarshalError!model.Reference {
     const promise_sub = c_ref.sub_kind == PANCAKE_REF_SUB_PROMISE;
     return switch (c_ref.kind) {
-        PANCAKE_REF_NEAR => .{ .near = .{ .export_position = model.ExportId.from(c_ref.id), .kind = if (promise_sub) .promise else .object } },
-        PANCAKE_REF_FAR => .{ .far = .{ .import_position = model.ImportId.from(c_ref.id), .kind = if (promise_sub) .promise else .object } },
-        PANCAKE_REF_PROMISE => .{ .promise = .{ .answer_position = model.AnswerId.from(c_ref.id) } },
+        PANCAKE_REF_NEAR => .{ .near = .{ .export_position = model.ExportPosition.from(c_ref.id), .kind = if (promise_sub) .promise else .object } },
+        PANCAKE_REF_FAR => .{ .far = .{ .import_position = model.ImportPosition.from(c_ref.id), .kind = if (promise_sub) .promise else .object } },
+        PANCAKE_REF_PROMISE => .{ .promise = .{ .answer_position = model.AnswerPosition.from(c_ref.id) } },
         else => error.UnsupportedValue,
     };
 }
@@ -448,28 +528,45 @@ pub fn referenceFromC(c_ref: PancakeReference) MarshalError!model.Reference {
 pub const max_marshal_depth: usize = 64;
 
 pub fn argumentFromC(arena: std.mem.Allocator, c_arg: PancakeArgument, depth: usize) MarshalError!model.Argument {
+    return argumentFromCImpl(arena, c_arg, depth, false);
+}
+
+/// `argumentFromC` with every leaf byte slice duped into `arena` as it
+/// converts, so the result owns its bytes in ONE tree build. This is the
+/// marshal for a caller that must sever the C storage's lifetime — the actors
+/// bridge copying a behavior's reply clear of the consumer's `out_reply` —
+/// where the borrowing variant would force a second full `cloneArgument` pass
+/// over arrays the first build already allocated.
+pub fn argumentFromCOwned(arena: std.mem.Allocator, c_arg: PancakeArgument, depth: usize) MarshalError!model.Argument {
+    return argumentFromCImpl(arena, c_arg, depth, true);
+}
+
+/// The one conversion recursion behind both marshal lifetimes; `own_bytes` is
+/// comptime, so each variant compiles to its own straight-line specialization
+/// with no runtime mode.
+fn argumentFromCImpl(arena: std.mem.Allocator, c_arg: PancakeArgument, depth: usize, comptime own_bytes: bool) MarshalError!model.Argument {
     if (depth > max_marshal_depth) return error.UnsupportedValue;
     const next = depth + 1;
     return switch (c_arg.kind) {
         PANCAKE_ARG_INTEGER => .{ .integer = c_arg.integer },
         PANCAKE_ARG_FLOAT64 => .{ .float64 = c_arg.float64 },
         PANCAKE_ARG_BOOLEAN => .{ .boolean = c_arg.boolean != 0 },
-        PANCAKE_ARG_BYTES => .{ .bytes = try sliceFromC(c_arg.bytes, c_arg.bytes_len) },
-        PANCAKE_ARG_STRING => .{ .string = try sliceFromC(c_arg.bytes, c_arg.bytes_len) },
-        PANCAKE_ARG_SYMBOL => .{ .symbol = try sliceFromC(c_arg.bytes, c_arg.bytes_len) },
+        PANCAKE_ARG_BYTES => .{ .bytes = try leafFromC(arena, c_arg, own_bytes) },
+        PANCAKE_ARG_STRING => .{ .string = try leafFromC(arena, c_arg, own_bytes) },
+        PANCAKE_ARG_SYMBOL => .{ .symbol = try leafFromC(arena, c_arg, own_bytes) },
         PANCAKE_ARG_VOID => .{ .void = {} },
         PANCAKE_ARG_REFERENCE => .{ .reference = try referenceFromC(c_arg.reference) },
-        PANCAKE_ARG_LIST => .{ .list = try argsFromC(arena, c_arg.items, c_arg.items_len, next) },
-        PANCAKE_ARG_SET => .{ .set = try argsFromC(arena, c_arg.items, c_arg.items_len, next) },
+        PANCAKE_ARG_LIST => .{ .list = try argsFromCImpl(arena, c_arg.items, c_arg.items_len, next, own_bytes) },
+        PANCAKE_ARG_SET => .{ .set = try argsFromCImpl(arena, c_arg.items, c_arg.items_len, next, own_bytes) },
         PANCAKE_ARG_TAGGED => .{ .tagged = .{
-            .tag = try sliceFromC(c_arg.bytes, c_arg.bytes_len),
-            .value = try argsFromC(arena, c_arg.items, c_arg.items_len, next),
+            .tag = try leafFromC(arena, c_arg, own_bytes),
+            .value = try argsFromCImpl(arena, c_arg.items, c_arg.items_len, next, own_bytes),
         } },
-        PANCAKE_ARG_KEYWORD => .{ .keyword = try sliceFromC(c_arg.bytes, c_arg.bytes_len) },
+        PANCAKE_ARG_KEYWORD => .{ .keyword = try leafFromC(arena, c_arg, own_bytes) },
         PANCAKE_ARG_BIG_INTEGER => blk: {
             const big = model.BigInteger{
                 .negative = c_arg.boolean != 0,
-                .digits = try sliceFromC(c_arg.bytes, c_arg.bytes_len),
+                .digits = try leafFromC(arena, c_arg, own_bytes),
             };
             // Fail closed at the boundary, like the codecs: leading zeros,
             // non-digits, or a magnitude that belongs in PANCAKE_ARG_INTEGER.
@@ -480,11 +577,22 @@ pub fn argumentFromC(arena: std.mem.Allocator, c_arg: PancakeArgument, depth: us
     };
 }
 
+/// A leaf's byte slice: borrowed from the C argument, or duped into `arena`
+/// when the caller asked for owned bytes.
+fn leafFromC(arena: std.mem.Allocator, c_arg: PancakeArgument, comptime own_bytes: bool) MarshalError![]const u8 {
+    const borrowed = try sliceFromC(c_arg.bytes, c_arg.bytes_len);
+    return if (own_bytes) try arena.dupe(u8, borrowed) else borrowed;
+}
+
 pub fn argsFromC(arena: std.mem.Allocator, items: ?[*]const PancakeArgument, len: usize, depth: usize) MarshalError![]const model.Argument {
+    return argsFromCImpl(arena, items, len, depth, false);
+}
+
+fn argsFromCImpl(arena: std.mem.Allocator, items: ?[*]const PancakeArgument, len: usize, depth: usize, comptime own_bytes: bool) MarshalError![]const model.Argument {
     if (len == 0) return &.{};
     const p = items orelse return error.NullPointer;
     const out = try arena.alloc(model.Argument, len);
-    for (0..len) |i| out[i] = try argumentFromC(arena, p[i], depth);
+    for (0..len) |i| out[i] = try argumentFromCImpl(arena, p[i], depth, own_bytes);
     return out;
 }
 

@@ -1,0 +1,71 @@
+//! `Served.drivePostBatch` — the loop drivers' amplification cap, pinned
+//! sans-io. A high-fan-out loop drives each connection's queued local turns
+//! within a caller-supplied budget and closes the connection on
+//! `error.LocalTurnLimitExceeded`; this holds the verdict mapping and the
+//! resume contract (a refused batch leaves the residual queue intact, so a
+//! later budget drains it) without a socket or a loop. The authority is a
+//! `driver_core` invariant; the live loop consumer is the iroh `LoopHost`
+//! (`zig build iroh-loop`).
+const std = @import("std");
+const pancake = @import("pancake");
+
+const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
+const actors = pancake.actors;
+const driver = pancake.driver;
+const capture = @import("../support/capture.zig");
+
+const Counter = struct {
+    hits: i64 = 0,
+    pub fn handle(self: *Counter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = turn;
+        if (!std.mem.eql(u8, msg.verb, "hit")) return error.NoSuchMethod;
+        self.hits += 1;
+        return .{ .integer = self.hits };
+    }
+};
+
+test "drivePostBatch refuses a batch past its budget and the residual drains under a later one" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.paired(allocator);
+    defer pair.deinit();
+    var served = driver.Served.over(allocator, &pair.p1);
+    defer served.deinit();
+
+    const counter = try served.vat.spawn(Counter, .{});
+
+    // Queue more local turns than the budget admits. The budget is the
+    // caller's number — an operator knob, never the partner's.
+    const budget: usize = 4;
+    const queued: usize = budget + 3;
+    var i: usize = 0;
+    while (i < queued) : (i += 1) {
+        _ = try served.vat.send(counter, .{ .verb = "hit", .args = &.{} });
+    }
+
+    // The over-budget batch is the runaway verdict, not a partial success.
+    try std.testing.expectError(error.LocalTurnLimitExceeded, served.drivePostBatch(budget));
+
+    // The refusal left the residual queue intact: a later post-batch with
+    // room drains it to quiescence, and every queued turn ran exactly once —
+    // read back through an ordinary near-call.
+    try served.drivePostBatch(queued);
+    const hits = try served.vat.near(counter, .{ .verb = "hit", .args = &.{} });
+    try std.testing.expectEqual(@as(i64, @intCast(queued + 1)), hits.integer);
+}
+
+test "drivePostBatch within budget drains and settles the local send's listener" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.paired(allocator);
+    defer pair.deinit();
+    var served = driver.Served.over(allocator, &pair.p1);
+    defer served.deinit();
+
+    const counter = try served.vat.spawn(Counter, .{});
+    const vow = try served.vat.send(counter, .{ .verb = "hit", .args = &.{} });
+
+    var result: i64 = 0;
+    try served.vat.on(vow, .{ .ctx = &result, .func = capture.captureInt });
+    try served.drivePostBatch(actors.Vat.max_batch_local_turns);
+    try std.testing.expectEqual(@as(i64, 1), result);
+}

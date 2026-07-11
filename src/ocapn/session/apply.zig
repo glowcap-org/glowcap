@@ -20,6 +20,7 @@
 const std = @import("std");
 const model = @import("model");
 const session = @import("mod.zig");
+const validate = @import("validate.zig");
 
 const Session = session.Session;
 const Error = session.Error;
@@ -28,12 +29,12 @@ const AnswerDirection = session.AnswerDirection;
 const AnswerTable = session.AnswerTable;
 const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
 
-pub fn applyRecvView(self: *Session, body: model.view.Body) !void {
+pub fn applyRecvView(self: *Session, body: model.view.Body, introduced: *const validate.IntroducedImports) !void {
     switch (body) {
         // The borrowed steady-state kinds share one apply body with the owned
         // retain path; the rarer owned-fallback kinds never arrive here (they
         // are routed through `recordRecv` by `recordRecvView`).
-        .abort, .deliver, .resolve, .start_session => try applyRecvShared(self, body),
+        .abort, .deliver, .resolve, .start_session => try applyRecvShared(self, body, introduced),
         else => {},
     }
 }
@@ -41,8 +42,11 @@ pub fn applyRecvView(self: *Session, body: model.view.Body) !void {
 /// The one inbound apply body for the kinds both recv representations carry
 /// (`abort` / `deliver` / `resolve` / `start_session`). `anytype` over the
 /// owned `model.Message` and the borrowed `model.view.Body`, exactly like the
-/// validate walkers, so the two paths cannot drift.
-fn applyRecvShared(self: *Session, message: anytype) !void {
+/// validate walkers, so the two paths cannot drift. `introduced` is the far-
+/// mention record the validate walk produced over this same message: apply
+/// consumes it instead of re-walking the argument tree, so one inbound
+/// deliver/resolve's argument bytes are traversed once, in validation.
+fn applyRecvShared(self: *Session, message: anytype, introduced: *const validate.IntroducedImports) !void {
     switch (message) {
         .abort => self.close(),
         .deliver => |deliver| {
@@ -50,10 +54,12 @@ fn applyRecvShared(self: *Session, message: anytype) !void {
                 try installAnswer(self, .inbound, answer);
             }
             // A `far` argument is the partner introducing one of its exports
-            // as our import (ADR-0010); install it so we hold the import we
-            // were just handed (capability-passing + V1.0 resolver-callback
-            // fulfill payloads).
-            try installIntroducedImports(self, deliver.args, 0);
+            // as our import (ADR-0010); install every recorded mention so we
+            // hold the import we were just handed (capability-passing + V1.0
+            // resolver-callback fulfill payloads), each repeat a wire-delta
+            // refresh. Validation already proved the import cap holds, so
+            // `registerImport` can only fail on OOM (fatal by contract).
+            try installIntroducedImports(self, introduced);
         },
         .resolve => |resolve| {
             if (self.outbound_answers.getPtr(resolve.answer)) |entry| {
@@ -63,10 +69,9 @@ fn applyRecvShared(self: *Session, message: anytype) !void {
                 };
             }
             // A canonical `op:resolve` fulfilling with a `far` reference hands
-            // us a new import (the resolved capability), install it.
-            if (resolve.resolution == .fulfill) {
-                try installIntroducedImport(self, resolve.resolution.fulfill, 0);
-            }
+            // us a new import (the resolved capability), install the recorded
+            // mentions exactly as the deliver arm does.
+            try installIntroducedImports(self, introduced);
         },
         .start_session => |ss| {
             // Learn the partner's session key and location designator (duped
@@ -144,11 +149,11 @@ pub fn applySend(self: *Session, message: model.Message) !void {
             // a relayed resolution, so drop its imported-promise row (host +
             // listeners + stored resolution) alongside the import.
             for (gc_export.positions) |pos| {
-                const import_id = model.ImportId.from(pos);
+                const import_id = model.ImportPosition.from(pos);
                 if (!self.imports.contains(import_id)) {
                     if (self.findImportedPromise(import_id)) |entry| {
                         session.deinitImportedPromise(self.allocator, entry);
-                        _ = self.imported_promises.remove(import_id);
+                        std.debug.assert(self.imported_promises.remove(import_id));
                     }
                 }
             }
@@ -210,7 +215,7 @@ pub fn applySentResolve(self: *Session, resolve: model.Resolve) !void {
     try self.storeResolution(resolve.answer, resolve.resolution);
 }
 
-pub fn applyRecv(self: *Session, message: model.Message) !void {
+pub fn applyRecv(self: *Session, message: model.Message, introduced: *const validate.IntroducedImports) !void {
     switch (message) {
         .gc_export => |gc_export| try session.applyGcExportDecrement(&self.exports, gc_export),
         // Inbound `op:gc-answers` releases an answer we created for the
@@ -237,53 +242,23 @@ pub fn applyRecv(self: *Session, message: model.Message) !void {
         .handoff => {},
         // abort / deliver / resolve / start_session share one body with the
         // borrowed-view path.
-        else => try applyRecvShared(self, message),
+        else => try applyRecvShared(self, message, introduced),
     }
 }
 
-/// Install the imports introduced by the `far` references in an argument tree
-/// (a deliver's args or a resolution's fulfill payload). Each `far` is a
-/// `<desc:import-object>` naming one of the partner's exports; registering it
-/// records the import the session holds. The bootstrap import (0) is excluded; an
-/// already-held position increments its wire-delta refcount, so a later
-/// `op:gc-exports` releasing the same total delta balances.
-fn installIntroducedImports(self: *Session, args: anytype, depth: usize) RecvViewError!void {
-    if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
-    if (comptime @TypeOf(args) == model.view.Args) {
-        var it = args.iterator();
-        while (try it.next()) |arg| try installIntroducedImport(self, arg, depth);
-    } else {
-        for (args) |arg| try installIntroducedImport(self, arg, depth);
-    }
-}
-
-fn installIntroducedImport(self: *Session, arg: anytype, depth: usize) RecvViewError!void {
-    switch (arg) {
-        .reference => |reference| switch (reference) {
-            .far => |far| if (far.import_position.int() != BOOTSTRAP_POSITION) {
-                try self.registerImport(far.import_position);
-            },
-            else => {},
-        },
-        .list, .set => |items| try installIntroducedImports(self, items, depth + 1),
-        .tagged => |tagged| try installIntroducedImports(self, tagged.value, depth + 1),
-        .@"struct" => |entries| try installIntroducedStructImports(self, entries, depth + 1),
-        // Exhaustive on purpose: a new Argument arm must decide here whether it
-        // can introduce an import, see `validate.validateInboundArgument`.
-        .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},
-    }
-}
-
-/// Struct entries carry full argument values, so an introduced `far` import can
-/// arrive inside one, the struct mirror of `installIntroducedImports`,
-/// dual-shape over the borrowed `model.view.StructEntries` and the owned slice.
-fn installIntroducedStructImports(self: *Session, entries: anytype, depth: usize) RecvViewError!void {
-    if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
-    if (comptime @TypeOf(entries) == model.view.StructEntries) {
-        var it = entries.iterator();
-        while (try it.next()) |entry| try installIntroducedImport(self, entry.value, depth);
-    } else {
-        for (entries) |entry| try installIntroducedImport(self, entry.value, depth);
+/// Install the imports the validate walk recorded for this message (a
+/// deliver's args or a resolution's fulfill payload). Each recorded mention is
+/// a `<desc:import-object>` naming one of the partner's exports; registering
+/// it records the import the session holds. The bootstrap import (0) was
+/// excluded at record time; an already-held position increments its
+/// wire-delta refcount, so a later `op:gc-exports` releasing the same total
+/// delta balances. Consuming the record — instead of re-walking the argument
+/// tree — is what keeps one inbound message's argument bytes to a single
+/// traversal; the walk that produced it lives in
+/// `validate.validateInboundArgument`, the one dual-shape walker.
+fn installIntroducedImports(self: *Session, introduced: *const validate.IntroducedImports) RecvViewError!void {
+    for (introduced.mentions.items) |import_position| {
+        try self.registerImport(import_position);
     }
 }
 
@@ -293,16 +268,22 @@ fn installIntroducedStructImports(self: *Session, entries: anytype, depth: usize
 /// will later release with a matching `op:gc-exports` wire-delta, so each
 /// mention must increment the export's refcount; otherwise a partner that
 /// received an export N times and releases with delta N underflows our
-/// table and spuriously aborts the session. The count carried by
-/// `allocateExport` is the export's own local reference, which the
-/// partner's GC can drive down to but never below, so a fully-released
-/// export survives for re-export rather than being dropped mid-session. The
+/// table and spuriously aborts the session. Every export row obeys one
+/// contract: its count is the local baseline (`allocateExport` /
+/// `reserveExport`) plus the wire references and explicit grants on top,
+/// which is what makes `ExportTable.wireHeld` — the most an inbound
+/// `op:gc-exports` may release — well-defined. The partner's GC can drive
+/// the count down to the baseline but never below, so a fully-released
+/// export survives for re-export rather than being dropped mid-session, and
+/// these retains are also the *grant*: a reserved export becomes addressable
+/// the moment its first mention crosses the wire (ADR-0074). The
 /// bootstrap export (0) is permanent and excluded, symmetric with the
 /// import-side bootstrap exclusion. Runs in apply, after `validateSend` has
 /// proven every `near` on a deliver/listen/projection is a held export. A
 /// resolve's fulfill `near` is the exception: resolving an answer with a
-/// `.near` is how the application first exports that object, so `retain` mints
-/// the row here rather than finding one validation already proved.
+/// `.near` is how the application first exports that object, so the retain
+/// mints the row here — baseline plus the mention, `registerExport`-shaped —
+/// rather than finding one validation already proved.
 fn retainSentExports(self: *Session, message: model.Message) !void {
     switch (message) {
         .deliver => |deliver| {
@@ -344,6 +325,18 @@ fn retainSentExports(self: *Session, message: model.Message) !void {
 pub fn retainSentExportRef(self: *Session, reference: model.Reference) !void {
     switch (reference) {
         .near => |near| if (near.export_position.int() != BOOTSTRAP_POSITION) {
+            if (!self.exports.contains(near.export_position)) {
+                // First export of this object rides this marshal (a resolve
+                // fulfill, or a cross-session re-export): mint the row
+                // `registerExport`-shaped — local baseline first, then the
+                // wire mention below — and advance the allocator past the
+                // position, so `allocateExport` can never re-issue the same
+                // integer and silently alias a live object.
+                try self.exports.register(self.allocator, near.export_position);
+                if (near.export_position.int() >= self.next_export_position) {
+                    self.next_export_position = near.export_position.int() + 1;
+                }
+            }
             try self.exports.retain(self.allocator, near.export_position);
         },
         else => {},
@@ -371,34 +364,33 @@ fn retainSentExportArg(self: *Session, arg: model.Argument, depth: usize) RecvVi
 }
 
 /// Apply `op:gc-answers` to our inbound answers. A fully-released answer can
-/// never resolve again, so its V1.0 inbound resolver link (ADR-0010) is
-/// dropped with the row, an O(1) keyed removal.
+/// never resolve again, so its V1.0 inbound resolver link (ADR-0010) is dropped
+/// with the row. Both directions of the link go together: the forward map keyed
+/// by answer and its inverse keyed by resolver-import, so neither outlives the
+/// answer they describe. Two O(1) keyed removals.
 fn applyGcAnswerDecrementInbound(self: *Session, positions: []const u64) Error!void {
     for (positions) |position| {
-        if (try decrementAnswer(self, &self.inbound_answers, model.AnswerId.from(position))) {
-            _ = self.v1_0_inbound_resolvers.remove(model.AnswerId.from(position));
+        if (try decrementAnswer(self, &self.inbound_answers, model.AnswerPosition.from(position))) {
+            if (self.v1_0_inbound_resolvers.fetchRemove(model.AnswerPosition.from(position))) |kv| {
+                std.debug.assert(self.v1_0_inbound_resolver_answers.remove(kv.value));
+            }
         }
     }
 }
 
-/// Apply `op:gc-answers` to our outbound answers, dropping any V1.0 outbound
-/// resolver link for a fully-released answer. The link map is keyed by
-/// resolver-export for the hot reverse lookup, so removal-by-answer scans,
-/// bounded by the outstanding resolver links and only on the GC path.
+/// Apply `op:gc-answers` to our outbound answers. A fully-released answer can
+/// never resolve again, so its V1.0 outbound resolver link (ADR-0010) is
+/// dropped with the row — both directions together, the forward map keyed by
+/// resolver-export and its answer-keyed inverse, the mirror of
+/// `applyGcAnswerDecrementInbound`. Two O(1) keyed removals per released
+/// answer; a client releasing Q answered delivers pays O(Q), not the O(Q²) a
+/// per-answer scan of the forward map would cost.
 fn applyGcAnswerDecrementOutbound(self: *Session, positions: []const u64) Error!void {
     for (positions) |position| {
-        if (try decrementAnswer(self, &self.outbound_answers, model.AnswerId.from(position))) {
-            removeOutboundResolverByAnswer(self, model.AnswerId.from(position));
-        }
-    }
-}
-
-fn removeOutboundResolverByAnswer(self: *Session, answer: model.AnswerId) void {
-    var it = self.v1_0_outbound_resolvers.iterator();
-    while (it.next()) |entry| {
-        if (entry.value_ptr.* == answer) {
-            self.v1_0_outbound_resolvers.removeByPtr(entry.key_ptr);
-            return;
+        if (try decrementAnswer(self, &self.outbound_answers, model.AnswerPosition.from(position))) {
+            if (self.v1_0_outbound_resolver_answers.fetchRemove(model.AnswerPosition.from(position))) |kv| {
+                std.debug.assert(self.v1_0_outbound_resolvers.remove(kv.value));
+            }
         }
     }
 }
@@ -406,7 +398,7 @@ fn removeOutboundResolverByAnswer(self: *Session, answer: model.AnswerId) void {
 /// Decrement an answer's refcount, removing it at zero. Returns whether the
 /// answer was fully released (count reached zero). Releasing an answer frees
 /// any queued pipelined calls, listeners, and stored resolution it owns.
-fn decrementAnswer(self: *Session, table: *AnswerTable, position: model.AnswerId) Error!bool {
+fn decrementAnswer(self: *Session, table: *AnswerTable, position: model.AnswerPosition) Error!bool {
     const entry = table.getPtr(position) orelse return Error.GcUnderflow;
     if (entry.count == 0) return Error.GcUnderflow;
     entry.count -= 1;
@@ -424,7 +416,7 @@ fn decrementAnswer(self: *Session, table: *AnswerTable, position: model.AnswerId
 /// cap is the direction's policy, not a property of which pointer was passed.
 /// Idempotent: an already-present row is left untouched (the engine installs a
 /// queued pipelined call's answer at queue time and again at redirect time).
-pub fn installAnswer(self: *Session, direction: AnswerDirection, position: model.AnswerId) !void {
+pub fn installAnswer(self: *Session, direction: AnswerDirection, position: model.AnswerPosition) !void {
     const table = switch (direction) {
         .inbound => &self.inbound_answers,
         .outbound => &self.outbound_answers,
@@ -433,5 +425,9 @@ pub fn installAnswer(self: *Session, direction: AnswerDirection, position: model
     if (direction == .inbound and table.len() >= self.limits.max_inbound_answers) {
         return Error.InboundAnswerCapExceeded;
     }
-    try table.put(self.allocator, position, .{ .status = .pending, .count = 1 });
+    try table.put(self.allocator, position, .{
+        .status = .pending,
+        .row_id = self.nextStoreStamp(),
+        .count = 1,
+    });
 }

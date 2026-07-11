@@ -33,7 +33,10 @@ import asyncio
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "bindings" / "python"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
+from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
+
+insert_bindings_path()
 
 from pancake import Ref, encode_peer_locator  # noqa: E402
 from pancake.iroh import (  # noqa: E402
@@ -45,28 +48,10 @@ from pancake.iroh import (  # noqa: E402
 
 NAME = "python-iroh-carol"
 
-for _arg in sys.argv[1:]:
-    # The gate takes no arguments; `-Dport` is meaningless for an in-process
-    # Direct-posture run, so accept and ignore a `--port=` for build parity.
-    if not _arg.startswith("--port="):
-        print(f"python-iroh-handoff: unknown argument '{_arg}'", file=sys.stderr)
-        raise SystemExit(2)
+ignore_port_args("python-iroh-handoff")
 
 
-def fail(msg: str) -> None:
-    print(f"python-iroh-handoff FAILED: {msg}", file=sys.stderr)
-    raise SystemExit(1)
-
-
-def greeter(verb: str, args: list):
-    """The published actor: answer ``greet`` by echoing the caller's name."""
-    if verb == "greet":
-        name = args[0] if args else ""
-        return f"hello {name} over iroh handoff"
-    return None
-
-
-async def accept_loop(server, served: list) -> None:
+async def accept_loop_with_served(server, served: list) -> None:
     """Serve every connection the server accepts for the life of the run. Ends
     when the server closes and ``__anext__`` raises ``StopAsyncIteration``."""
     async for conn in server:
@@ -83,8 +68,16 @@ async def dialable(server) -> "tuple[str, str]":
         if addrs:
             return server.node_id, addrs
         await asyncio.sleep(0.02)
-    fail("timed out waiting for an endpoint's direct addresses")
+    fail("python-iroh-handoff", "timed out waiting for an endpoint's direct addresses")
     raise AssertionError  # unreachable
+
+
+def greeter(verb: str, args: list):
+    """The published actor: answer ``greet`` by echoing the caller's name."""
+    if verb == "greet":
+        name = args[0] if args else ""
+        return f"hello {name} over iroh handoff"
+    return None
 
 
 async def run() -> None:
@@ -93,7 +86,7 @@ async def run() -> None:
     exporter.node.publish_giftable("greeter", greeter)
     exporter_id, exporter_addrs = await dialable(exporter)
     exporter_served: list = []
-    exporter_task = asyncio.create_task(accept_loop(exporter, exporter_served))
+    exporter_task = asyncio.create_task(accept_loop_with_served(exporter, exporter_served))
     print(f"python-iroh-handoff: exporter published greeter on {exporter_id}")
 
     # ── Gifter: dials the exporter under one identity, re-gifts the greeter ───────
@@ -115,7 +108,7 @@ async def run() -> None:
 
     gifter.node.publish_giftable("introducer", introducer)
     gifter_served: list = []
-    gifter_task = asyncio.create_task(accept_loop(gifter, gifter_served))
+    gifter_task = asyncio.create_task(accept_loop_with_served(gifter, gifter_served))
     print(f"python-iroh-handoff: gifter published introducer on {gifter_id}")
 
     # ── Recipient: dials the gifter, redeems the give by dialing the exporter ─────
@@ -123,12 +116,12 @@ async def run() -> None:
     introducer_ref = await recipient.fetch("introducer")
     granted = await recipient.send(introducer_ref, "get-greeter", [])
     if not isinstance(granted, Ref):
-        fail(f"introduction did not redeem to a capability: {granted!r}")
+        fail("python-iroh-handoff", f"introduction did not redeem to a capability: {granted!r}")
     print("python-iroh-handoff: recipient redeemed the give, got the greeter as an ordinary ref")
 
     reply = await recipient.send(granted, "greet", [NAME])
     if not isinstance(reply, str) or NAME not in reply:
-        fail(f"greeter reply did not carry the name back: {reply!r}")
+        fail("python-iroh-handoff", f"greeter reply did not carry the name back: {reply!r}")
     print(f"python-iroh-handoff: greeter replied: {reply}")
 
     print(

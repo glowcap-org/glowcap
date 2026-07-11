@@ -1,0 +1,89 @@
+# The hosted C release: on a version tag, build the complete archive set per
+# platform with `zig build release-pack` and attach every tarball, plus one
+# combined SHA256SUMS, to the GitHub release. Versioning is `abi_version` in
+# build.zig (reported by `pancake_abi_version`); the tag records the release
+# point. This is the find leg's upstream named in bindings/README.md: a
+# runtime-download or per-platform packaging leg resolves archives from here.
+#
+# The devcontainer stays the canonical toolchain authority: this workflow reads
+# the same .devcontainer/pins.sh versions. macOS legs build on the GitHub
+# runners directly because macOS runners cannot host the devcontainer.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  archives:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest # x86_64-linux
+          - runner: ubuntu-24.04-arm # aarch64-linux
+          - runner: macos-15 # aarch64-macos
+          - runner: macos-13 # x86_64-macos
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned Zig
+        run: |
+          source .devcontainer/pins.sh
+          case "$(uname -s)-$(uname -m)" in
+            Linux-x86_64) triple=x86_64-linux ;;
+            Linux-aarch64) triple=aarch64-linux ;;
+            Darwin-arm64) triple=aarch64-macos ;;
+            Darwin-x86_64) triple=x86_64-macos ;;
+            *) echo "unmapped runner: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
+          esac
+          curl -fsSLO "https://ziglang.org/download/${ZIG_VERSION}/zig-${triple}-${ZIG_VERSION}.tar.xz"
+          tar -xJf "zig-${triple}-${ZIG_VERSION}.tar.xz"
+          echo "$PWD/zig-${triple}-${ZIG_VERSION}" >> "$GITHUB_PATH"
+
+      - name: Install the pinned Rust
+        run: |
+          source .devcontainer/pins.sh
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+
+      - name: Build the release tarball
+        run: zig build release-pack
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archives-${{ matrix.runner }}
+          path: |
+            zig-out/release/*.tar.gz
+            zig-out/release/SHA256SUMS
+          if-no-files-found: error
+
+  release:
+    needs: archives
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Assemble assets and combined checksums
+        run: |
+          mkdir assets
+          find artifacts -name '*.tar.gz' -exec mv {} assets/ \;
+          cat artifacts/*/SHA256SUMS | sort -k2 > assets/SHA256SUMS
+          ls -l assets
+
+      - name: Create the release with assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "pancake C archives $GITHUB_REF_NAME" \
+            --verify-tag \
+            --notes "Per-platform pancake C archive sets (static + shared libraries, headers, licenses). Verify with SHA256SUMS. The ABI version is reported by \`pancake_abi_version\`." \
+            assets/*

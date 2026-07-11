@@ -50,8 +50,8 @@ concrete reader/writer at a stable address for the connection's life —
 offset — so tcp pins a small per-connection stream wrapper on the peer's
 allocator and frees it through the handle. tcp is the contract's first resident
 (`tcp.Resident`, `tcp.netlayer`), reached only through the vtable under the
-symbol `tcp`. The tcp-named conveniences (`connectTcp`, `acceptTcp`, `dial`,
-`LoopHost`) stay as they are: they pick tcp explicitly and honestly, which is
+symbol `tcp`. The tcp-named conveniences (`connectTcp`, `acceptTcp`, `dial`)
+stay as they are: they pick tcp explicitly and honestly, which is
 not the privilege the vision forbids — that privilege lived in the _generic_
 path, which now dispatches. Owned by `src/net/netlayer.zig`,
 `src/net/connection.zig`, `src/net/transport/tcp.zig`, and `src/driver/mod.zig`.

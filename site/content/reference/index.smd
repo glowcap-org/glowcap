@@ -26,6 +26,7 @@ archive compiles.
 | Archive | Header | What it carries |
 | --- | --- | --- |
 | `libpancake_ocapn` | [`pancake_ocapn.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_ocapn.h) | the sans-io peer and the shared vocabulary |
+| `libpancake_driver` | [`pancake_driver.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_driver.h) | the byte-fed host tier (`pancake_host_*`) |
 | `libpancake_net` | none; it appears in the link line only | the shared net core beneath every transport |
 | `libpancake_net_transport_tcp` | [`pancake_net_transport_tcp.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_tcp.h) | cleartext TCP |
 | `libpancake_net_transport_inproc` | [`pancake_net_transport_inproc.h`](https://codeberg.org/jimisaacs/pancake/src/branch/main/include/pancake_net_transport_inproc.h) | in-process byte pipes, no sockets |

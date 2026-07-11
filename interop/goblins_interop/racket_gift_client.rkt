@@ -24,26 +24,14 @@
 
 (require "../../bindings/racket/pancake.rkt"
          racket/port
-         racket/string)
+         racket/string
+         "../_common/racket/helpers.rkt")
 
 (define HOST "127.0.0.1")
 ;; Bob (the Goblins exporter) listens on PORT; Carol binds her own peer on PORT+1.
 ;; pancake (the gifter) takes an ephemeral port, the recipient learns it at spawn
 ;; time. --port=N (from `zig build racket-goblins-gift -Dport=N`) moves the pair.
-(define PORT
-  (let loop ([args (vector->list (current-command-line-arguments))])
-    (cond
-      [(null? args) 22126]
-      [(regexp-match #px"^--port=(\\d+)$" (car args))
-       => (lambda (m)
-            (define p (string->number (cadr m)))
-            (unless (<= 1 p 65534)
-              (eprintf "racket-goblins-gift: --port must be in 1..65534 (the recipient binds on port+1)\n")
-              (exit 2))
-            p)]
-      [else
-       (eprintf "racket-goblins-gift: unknown argument ~a\n" (car args))
-       (exit 2)])))
+(define PORT (parse-port "racket-goblins-gift" 22126 65534))
 (define RACKET "/usr/local/bin/racket")
 (define EXPORTER-SCRIPT "conformance/goblins-peer/racket/gift-exporter-host.rkt")
 (define RECIPIENT-SCRIPT "conformance/goblins-peer/racket/gift-recipient.rkt")
@@ -72,7 +60,7 @@
 (define bob-err-sink (open-output-string))
 (define bob-err-drain (thread (lambda () (copy-port bob-err bob-err-sink))))
 
-(define (fail msg)
+(define (gift-fail msg)
   (eprintf "racket-goblins-gift FAILED: ~a\n" msg)
   (define berr (string-trim (get-output-string bob-err-sink)))
   (unless (string=? berr "")
@@ -85,12 +73,12 @@
   (let loop ()
     (define line (read-line bob-out))
     (cond
-      [(eof-object? line) (fail "never saw the exporter's greeter readiness line")]
+      [(eof-object? line) (gift-fail "never saw the exporter's greeter readiness line")]
       [(regexp-match? #rx"\"name\":\"greeter\"" line) (void)]
       [else (loop)])))
 
 (with-handlers ([(lambda (_) #t)
-                 (lambda (e) (fail (if (exn? e) (exn-message e) (format "~a" e))))])
+                 (lambda (e) (gift-fail (if (exn? e) (exn-message e) (format "~a" e))))])
   (await-bob-ready)
   (printf "racket-goblins-gift: goblins-bob exporting greeter swiss=~a on ~a:~a\n"
           GREETER-SWISS HOST PORT)
@@ -116,7 +104,7 @@
   ;; connection, which is what lets pancake re-gift it across to the recipient.
   (define to-bob (connect (tcp-locator HOST PORT) #:node gifter-node))
   (define greeter (conn-fetch to-bob GREETER-SWISS))
-  (unless (far-ref? greeter) (fail "could not fetch goblins-bob's greeter"))
+  (unless (far-ref? greeter) (gift-fail "could not fetch goblins-bob's greeter"))
   (printf "racket-goblins-gift: fetched goblins-bob's greeter\n")
 
   ;; Publish the introducer node-wide. Returning Bob's greeter (home = the Bob
@@ -145,10 +133,10 @@
   (define carol-err-text (string-trim (get-output-string carol-err-sink)))
   (unless (string=? reply "") (printf "racket-goblins-gift: ~a\n" reply))
   (unless (zero? carol-code)
-    (fail (format "recipient exited non-zero (~a)~a" carol-code
+    (gift-fail (format "recipient exited non-zero (~a)~a" carol-code
                   (if (string=? carol-err-text "") "" (format "; stderr:\n~a" carol-err-text)))))
   (unless (and (string-prefix? reply "GIFT OK:") (string-contains? reply "goblins-carol"))
-    (fail (format "recipient did not confirm the greeter reply with its name: ~s" reply)))
+    (gift-fail (format "recipient did not confirm the greeter reply with its name: ~s" reply)))
 
   (printf "racket-goblins-gift OK: pancake minted a three-party handoff give that live Goblins redeemed, reaching the exporter directly\n")
 

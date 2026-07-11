@@ -14,7 +14,7 @@ below argue the direction without pretending unfinished work has landed.
 <nav class="cards" aria-label="Project status">
 	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/shipped.md">
 		<h3>What ships today</h3>
-		<p>The gated inventory of implemented behavior: the wire operation surface, both codecs, three netlayers, the actor layer, third-party handoffs, and live Goblins interop from every binding. A claim that stops matching the tree is treated as a bug.</p>
+		<p>The gated inventory of implemented behavior: the wire operation surface, both codecs, the shipped netlayers, the actor layer, third-party handoffs, and live Goblins interop from every binding. A claim that stops matching the tree is treated as a bug.</p>
 	</a>
 	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/boundaries.md">
 		<h3>Where the edges are</h3>

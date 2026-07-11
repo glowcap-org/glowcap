@@ -83,8 +83,8 @@ const ClientCtx = struct {
     allocator: std.mem.Allocator,
     fulfilled_total: *usize,
     fetch_sent: bool = false,
-    answer_position: model.AnswerId = .from(0),
-    resolver_export: model.ExportId = .from(0),
+    answer_position: model.AnswerPosition = .from(0),
+    resolver_export: model.ExportPosition = .from(0),
     fulfilled: usize = 0,
 
     fn serve(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void {
@@ -127,7 +127,7 @@ fn makeClientPeer(ctx: ?*anyopaque, allocator: std.mem.Allocator) anyerror!engin
     return peer;
 }
 
-fn makeClientCtx(ctx: ?*anyopaque, _: *engine.Peer) anyerror!?*anyopaque {
+fn makeClientCtx(ctx: ?*anyopaque, _: *engine.Peer, _: usize) anyerror!?*anyopaque {
     const shared: *ClientShared = @ptrCast(@alignCast(ctx.?));
     const client = try shared.allocator.create(ClientCtx);
     client.* = .{
