@@ -16,7 +16,7 @@ runs under the build, so the code on the page cannot drift from the library.
 ## The Zig chapters
 
 They read top-down. Chapter 01 is the surface an application rides; chapter 02
-widens it to the multi-connection `Host` tier; chapters 03–05 then descend one
+widens it to the multi-session CapTP `Host` tier; chapters 03–05 then descend one
 layer at a time to the raw engine; chapter 06 returns to the actor layer for
 pipelining and attenuation.
 
@@ -59,7 +59,7 @@ Rust, Python, Racket, and TypeScript.
 | rooms over iroh | the same chat over encrypted QUIC | `zig build demo-rooms-iroh` (needs cargo) |
 | [tasks](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tasks/) | a shared task board: CRUD plus live state | `zig build demo-tasks` |
 | [tools](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tools/) | a capability showcase for AI agent harnesses: delegation, attenuation, revocation | `zig build demo-tools` |
-| [accountability](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/accountability-on-pancake/) | a signed-call accountability app over a real OCapN/TCP session | `zig build demo-accountability` |
+| [accountability](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/accountability-on-pancake/) | a signed-call accountability app over a real OCapN session on the `tcp` netlayer | `zig build demo-accountability` |
 
 The `rooms` app has a browser front end, and it is the most complete way to watch
 OCapN at work. `zig build rooms-web` serves it at `http://localhost:8000`: a

@@ -2,8 +2,8 @@
 //! sibling of `endpoint_loopback_test`. It proves the `pancake_inproc_*` handles
 //! drive a real handshake + bootstrap fetch when the *host* owns the peer and
 //! shuttles frames itself, with two peers in one process wired by in-process
-//! pipes: no sockets, no file descriptors, so it runs anywhere the threaded
-//! `std.Io` backend can park a thread.
+//! pipes: no sockets, no file descriptors, so it runs anywhere a `std.Io.Threaded`
+//! backend can schedule concurrent work.
 //!
 //! The peers are `engine.Peer`s driven through the public Zig boundary
 //! (`recvStreamPrefix` / `takeOutbound`); the only thing under test that is new
@@ -71,12 +71,16 @@ test "c-abi inproc loopback: handshake to open + bootstrap fetch round-trip" {
     const listener_ptr = listener.?;
     defer ci.pancake_inproc_listener_release(listener_ptr);
 
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var args: Loopback.ServerArgs = .{
         .listener = listener_ptr,
         .allocator = allocator,
         .start_session = startSession("server"),
     };
-    const server_thread = try std.Thread.spawn(.{}, Loopback.serveThread, .{&args});
+    var server_future = try io.concurrent(Loopback.serveThread, .{&args});
 
     var conn: ?*ci.PancakeInprocConn = null;
     const connect_rc = ci.pancake_inproc_connect(netlayer_ptr, designator.ptr, designator.len, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn);
@@ -87,7 +91,7 @@ test "c-abi inproc loopback: handshake to open + bootstrap fetch round-trip" {
 
     // Closing the client lets the server observe EOF and finish.
     ci.pancake_inproc_conn_release(conn_ptr);
-    server_thread.join();
+    server_future.await(io);
 
     try client_result;
     try args.result;

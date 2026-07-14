@@ -44,7 +44,7 @@ test "negotiate picks the most-preferred shared codec and intersects features" {
     try std.testing.expectEqual(model.CaptpVersion.v1_0, n.profile.captp_version);
     // Both sum to preference 1; the CodecId tie-break picks `capnp` (declared
     // first).
-    try std.testing.expectEqual(negotiation.CodecId.capnp, n.chosen);
+    try std.testing.expectEqual(model.CodecId.capnp, n.chosen);
     try std.testing.expectEqual(model.FeatureSet.pipeliningAndHandoff(), n.features);
 }
 
@@ -69,7 +69,7 @@ test "negotiate is symmetric under perspective swap" {
     // the codec or target.
     try std.testing.expectEqual(model.CaptpVersion.v1_0, from_a.profile.captp_version);
     // Only syrup is shared.
-    try std.testing.expectEqual(negotiation.CodecId.syrup, from_a.chosen);
+    try std.testing.expectEqual(model.CodecId.syrup, from_a.chosen);
 }
 
 test "negotiate returns null when no codec is shared" {
@@ -94,14 +94,26 @@ test "negotiate returns null when no profile is shared" {
     try std.testing.expect(negotiation.negotiate(b, a) == null);
 }
 
+const goblins_profiles = [_]model.WireProfile{model.WireProfile.v1_0};
+const goblins_codecs = [_]model.CodecId{.syrup};
+const pancake_profiles = [_]model.WireProfile{ model.WireProfile.pre_spec, model.WireProfile.v1_0 };
+const pancake_codecs = [_]model.CodecId{ .capnp, .syrup };
+
+fn offerForTarget(target: enum { goblins, pancake }, features: model.FeatureSet) negotiation.Offer {
+    return switch (target) {
+        .goblins => .{ .profiles = goblins_profiles[0..], .codecs = goblins_codecs[0..], .features = features },
+        .pancake => .{ .profiles = pancake_profiles[0..], .codecs = pancake_codecs[0..], .features = features },
+    };
+}
+
 test "interop target offers constrain target without collapsing profile and codec axes" {
-    const goblins = negotiation.offerForTarget(.goblins, model.FeatureSet.full());
+    const goblins = offerForTarget(.goblins, model.FeatureSet.full());
     try std.testing.expectEqual(@as(usize, 1), goblins.profiles.len);
     try std.testing.expectEqual(model.CaptpVersion.v1_0, goblins.profiles[0].captp_version);
     try std.testing.expectEqual(@as(usize, 1), goblins.codecs.len);
     try std.testing.expectEqual(model.CodecId.syrup, goblins.codecs[0]);
 
-    const pancake_offer = negotiation.offerForTarget(.pancake, model.FeatureSet.full());
+    const pancake_offer = offerForTarget(.pancake, model.FeatureSet.full());
     try std.testing.expect(pancake_offer.profiles.len >= 2);
     try std.testing.expect(pancake_offer.codecs.len >= 2);
 

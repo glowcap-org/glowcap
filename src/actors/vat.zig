@@ -146,7 +146,7 @@ pub const Resolution = union(enum) {
     /// `desc:handoff-give` the holder redeems (dial the exporter, withdraw)
     /// before the capability is usable. A host tier claims and redeems every
     /// give itself, so this arm surfaces only below it, on the
-    /// single-connection surfaces. Like `fulfilled`, the payload is borrowed
+    /// single-session surfaces. Like `fulfilled`, the payload is borrowed
     /// for the listener call.
     give: Give,
 };
@@ -209,13 +209,13 @@ pub const Listener = struct {
     func: *const fn (ctx: ?*anyopaque, resolution: Resolution) void,
 };
 
-/// A *foreign* actor: state and behavior the vat does not own, invoked on each
+/// A *hosted* actor: state and behavior the vat does not own, invoked on each
 /// deliver (ADR-0071). This is how a non-Zig consumer hosts an actor over the C
 /// ABI — it hands the vat an opaque `ctx` and a thunk. The `handle` receives the
-/// full `Turn`, so a foreign actor sends and spawns exactly like a native one;
+/// full `Turn`, so a hosted actor sends and spawns exactly like a native one;
 /// only vat-owned time-travel is out of reach, since the vat cannot clone `ctx`
-/// (a vat holding a foreign actor is not snapshottable, `NotSnapshottable`).
-pub const ForeignActor = struct {
+/// (a vat holding a hosted actor is not snapshottable, `NotSnapshottable`).
+pub const HostedActor = struct {
     /// The consumer's state, opaque to the vat, passed back to `handle`/`free`.
     ctx: *anyopaque,
     /// Invoked on each deliver. Returns the reply — borrowed for the turn, the
@@ -271,6 +271,12 @@ pub const Error = error{
     /// order, so a listener registered afterwards could never fire; failing
     /// loud beats parking it forever.
     AlreadySettled,
+    /// A local value tree deep-copied into the queue or a settle nested past
+    /// `model.max_value_depth`. Copying an actor's arguments walks the tree
+    /// recursively, so the model-layer depth ceiling caps that walk here too,
+    /// failing loud rather than overflowing the native stack. Real handler
+    /// arguments never reach it; a pathologically nested local value does.
+    MalformedView,
 } || std.mem.Allocator.Error;
 
 /// Cap on synchronous near-call (`$`) nesting depth. Eventual-sends do not count
@@ -325,23 +331,23 @@ fn Boxed(comptime Behavior: type) type {
     };
 }
 
-/// The heap block behind a *foreign* actor (ADR-0071): the refcounted `StateBox`
-/// header beside the `ForeignActor` the vat calls through. `box.ptr` points at
+/// The heap block behind a *hosted* actor (ADR-0071): the refcounted `StateBox`
+/// header beside the `HostedActor` the vat calls through. `box.ptr` points at
 /// the block, so the box-level `handle` recovers the callback and `ctx` from it.
 /// The box carries no `clone`, so such an actor is not snapshottable — the vat
 /// cannot copy state it does not own — and copy-on-write already no-ops on a
 /// null clone. One allocation, one free through `drop`, like `Boxed`.
-const ForeignBlock = struct {
+const HostedBlock = struct {
     box: StateBox,
-    actor: ForeignActor,
+    actor: HostedActor,
 
     fn handle(state: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
-        const self: *ForeignBlock = @ptrCast(@alignCast(state));
+        const self: *HostedBlock = @ptrCast(@alignCast(state));
         return self.actor.handle(self.actor.ctx, turn, msg);
     }
 
     fn drop(box: *StateBox, allocator: std.mem.Allocator) void {
-        const self: *ForeignBlock = @fieldParentPtr("box", box);
+        const self: *HostedBlock = @fieldParentPtr("box", box);
         if (self.actor.free) |f| f(self.actor.ctx);
         allocator.destroy(self);
     }
@@ -549,7 +555,7 @@ pub const Turn = struct {
     /// Break this turn's own answer with `message` — the served-turn spelling
     /// of a handler failure that must carry its diagnostic. A native handler
     /// breaks by returning an error, whose `@errorName` becomes the reason; a
-    /// foreign behavior's return code carries no message at all, so this verb
+    /// hosted behavior's return code carries no message at all, so this verb
     /// is how a caretaker's "Revoked" or an attenuator's "Attenuated" crosses
     /// the boundary intact. The answer resolves broken now (a no-answer wire
     /// `tell` breaks nothing) and the turn is marked forwarded so the handler's
@@ -668,7 +674,7 @@ pub const Vat = struct {
     /// mid-call. This arena resets only when `settle_depth` returns to zero.
     settle_arena: std.heap.ArenaAllocator,
     /// Nesting depth of in-flight far-resolve settles. A far listener can
-    /// re-enter `serve` (a driver pump: `ConnectedVat.step` → `drainEvents`),
+    /// re-enter `serve` (a driver pump: `BlockingSession.step` → `drainEvents`),
     /// and the nested settle must not reset the arena the outer listener's
     /// value still lives in; only the return to depth 0 resets it.
     settle_depth: u32 = 0,
@@ -882,18 +888,18 @@ pub const Vat = struct {
         return .{ .local = id };
     }
 
-    /// Spawn a *foreign* actor (ADR-0071): its state and behavior live outside
-    /// the vat, behind `foreign.ctx`, reached through the callbacks in
-    /// `ForeignActor`. This is the C-ABI hosting path a non-Zig consumer uses;
+    /// Spawn a *hosted* actor (ADR-0071): its state and behavior live outside
+    /// the vat, behind `hosted.ctx`, reached through the callbacks in
+    /// `HostedActor`. This is the C-ABI hosting path a non-Zig consumer uses;
     /// the actor is otherwise ordinary — it is delivered to, driven, sent to,
     /// and listened on exactly like a native one, and its `handle` gets the full
     /// `Turn`. Like `spawn`, mints no export (bind it with `bindExport` to reach
-    /// it). `foreign.free`, if set, runs on every outcome — including a failed
+    /// it). `hosted.free`, if set, runs on every outcome — including a failed
     /// spawn, which frees `ctx` before returning the error — so the caller never
-    /// double-frees. The box carries no `clone`, so a vat holding a foreign actor
+    /// double-frees. The box carries no `clone`, so a vat holding a hosted actor
     /// is not snapshottable (`snapshot` returns `NotSnapshottable`).
-    pub fn spawnForeign(self: *Vat, foreign: ForeignActor) Error!Ref {
-        const box = try self.makeForeignBox(foreign);
+    pub fn spawnHosted(self: *Vat, hosted: HostedActor) Error!Ref {
+        const box = try self.makeHostedBox(hosted);
         errdefer releaseBox(self.allocator, box);
 
         const id = self.next_actor;
@@ -902,20 +908,20 @@ pub const Vat = struct {
         return .{ .local = id };
     }
 
-    fn makeForeignBox(self: *Vat, foreign: ForeignActor) Error!*StateBox {
-        const block = self.allocator.create(ForeignBlock) catch |e| {
+    fn makeHostedBox(self: *Vat, hosted: HostedActor) Error!*StateBox {
+        const block = self.allocator.create(HostedBlock) catch |e| {
             // The box was never built, but the contract promises `ctx` is
             // reclaimed on failure, mirroring how `spawn` reclaims a native
             // `initial` through its `deinit`.
-            if (foreign.free) |f| f(foreign.ctx);
+            if (hosted.free) |f| f(hosted.ctx);
             return e;
         };
-        block.actor = foreign;
+        block.actor = hosted;
         block.box = .{
             .ptr = @ptrCast(block),
             .refs = 1,
-            .handle = ForeignBlock.handle,
-            .drop = ForeignBlock.drop,
+            .handle = HostedBlock.handle,
+            .drop = HostedBlock.drop,
             .clone = null,
             .persistent = false,
         };
@@ -1325,7 +1331,7 @@ pub const Vat = struct {
     /// Bind an already-spawned local actor to export `position` so a partner's
     /// deliveries to that position run the actor (dispatched by `serve`). Requires
     /// a bound peer. This is the numeric-position primitive; the by-name publish
-    /// verb one layer up (`Served.publish`, `ConnectedVat.publish`) rides on
+    /// verb one layer up (`Served.publish`, `BlockingSession.publish`) rides on
     /// it. Binding *reserves* the position, it does not grant it: the partner
     /// can address the actor only once its reference first marshals onto the
     /// wire, or after an explicit `peer.exportObject` grant (ADR-0074). Only a
@@ -1425,7 +1431,7 @@ pub const Vat = struct {
     /// runaway self-send loop, or an oversized fan-out) exceeds the limit, and
     /// the loop closes that connection rather than stall the residual or hold it
     /// in memory. It is a resource limit like the session's, sized generously.
-    /// The connection-per-thread `ConnectedVat` serves one partner, so it keeps
+    /// The connection-per-thread `BlockingSession` serves one partner, so it keeps
     /// the unbounded `drive`. This is the default the TCP and iroh loop hosts'
     /// `Options.max_batch_local_turns` initializes to; an operator raises it per
     /// host for a server whose one message legitimately fans out further, and a
@@ -1461,7 +1467,7 @@ pub const Vat = struct {
     /// gives the loop host a bound to act on: it drives each inbound batch to
     /// `.drained` and treats `.more_pending` as a runaway amplification, closing
     /// that connection (see `max_batch_local_turns`). The connection-per-thread
-    /// `ConnectedVat` keeps the unbounded `drive` by contract: it serves one
+    /// `BlockingSession` keeps the unbounded `drive` by contract: it serves one
     /// partner, so a self-send chain there starves only itself.
     ///
     /// Call this at the top level (the loop host's per-connection drive point),

@@ -2,9 +2,9 @@
 //!
 //! This chapter is the surface an application actually rides — the same nine
 //! verbs every binding exposes, in native Zig. Chapter 02 widens this surface
-//! to the multi-connection `Host` tier; chapters 03–05 then go one layer
+//! to the multi-session CapTP `Host` tier; chapters 03–05 then go one layer
 //! deeper apiece underneath, down to the raw engine. Each side holds one owning
-//! `driver.Connection` over a real TCP socket with the keyed, authenticated
+//! `driver.Session` over a real TCP socket with the keyed, authenticated
 //! `op:start-session`
 //! handshake on both ends. The host listens, accepts a partner, publishes an
 //! actor by name, and `serve`s until the partner leaves. The client connects,
@@ -62,9 +62,9 @@ pub fn main(init: std.process.Init) !void {
 
     var hosting = try io.concurrent(host, .{&server});
 
-    // `pancake.Connection` is the front-door alias for the owning
-    // `driver.Connection` this call hands back.
-    var conn: *pancake.Connection = try driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{});
+    // `pancake.Session` is the front-door alias for the owning
+    // `driver.Session` this call hands back.
+    var conn: *pancake.Session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, pancake.net.tcp.at(designator), .ephemeral, .{});
     const greeter = try conn.fetch("greeter");
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -82,5 +82,5 @@ pub fn main(init: std.process.Init) !void {
         .broken, .give => false,
     };
     if (!ok) return error.UnexpectedReply;
-    std.debug.print("01: greeter fetched by name and called over a real OCapN/TCP session\n", .{});
+    std.debug.print("01: greeter fetched by name and called over an OCapN session on the `tcp` netlayer\n", .{});
 }

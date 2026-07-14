@@ -34,7 +34,7 @@ const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "c_abi_shared", .prefix = "c_abi/shared/", .imports = &.{ "foundation", "model", "engine" }, .core = false },
     .{ .name = "c_abi", .prefix = "c_abi/ocapn/", .imports = &.{ "foundation", "model", "engine", "c_abi_shared" }, .core = false },
     .{ .name = "c_abi_net_transport_iroh", .prefix = "c_abi/net_transport/iroh/", .imports = &.{ "net", "c_abi_shared" }, .core = false, .graph = false },
-    .{ .name = "c_abi_net_transport_tcp", .prefix = "c_abi/net_transport/tcp/", .imports = &.{ "model", "net", "driver", "c_abi_shared" }, .core = false, .graph = false },
+    .{ .name = "c_abi_net_transport_tcp", .prefix = "c_abi/net_transport/tcp/", .imports = &.{ "net", "driver", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_net_transport_inproc", .prefix = "c_abi/net_transport/inproc/", .imports = &.{ "net", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_driver", .prefix = "c_abi/driver/", .imports = &.{ "foundation", "model", "engine", "actors", "driver_core", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "pancake", .prefix = "root.zig", .imports = &.{ "foundation", "model", "codec", "session", "engine", "actors", "net", "driver", "c_abi" }, .core = false },
@@ -355,7 +355,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "model", .module = host_mods[layerIndex("model")] },
         .{ .name = "net", .module = host_mods[layerIndex("net")] },
         // The owning `pancake_tcp_session_*` surface drives turns and I/O over a
-        // `driver.Connection`; an owning session is intrinsically a driver-level
+        // `driver.Session`; an owning session is intrinsically a driver-level
         // concept, so this archive embeds the actor runtime (ADR-0062).
         .{ .name = "driver", .module = host_mods[layerIndex("driver")] },
         .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
@@ -390,7 +390,7 @@ pub fn build(b: *std.Build) void {
     _ = installArchive(b, "pancake_net", host_mods[layerIndex("net")], abi_version);
     const tcp_static = installArchive(b, "pancake_net_transport_tcp", tcp_abi_mod, abi_version);
     const inproc_static = installArchive(b, "pancake_net_transport_inproc", inproc_abi_mod, abi_version);
-    _ = installArchive(b, "pancake_driver", driver_abi_mod, abi_version);
+    const driver_static = installArchive(b, "pancake_driver", driver_abi_mod, abi_version);
 
     // Install each archive's public header (the inert net base ships none).
     inline for (archive_table) |arch| {
@@ -546,10 +546,12 @@ pub fn build(b: *std.Build) void {
     // Each archive's header is generated from its C ABI module (reflected
     // layouts, constant values, and function signatures): the Zig source is the
     // single source of truth. `include/pancake_ocapn.h` carries the shared
-    // vocabulary and the peer/uri families; `include/pancake_net_transport_tcp.h`
-    // and `include/pancake_net_transport_inproc.h` `#include` it and add their transport
-    // family. The `*-check` steps ride `check` and fail when a committed header
-    // is stale; the bare steps are the fixers that rewrite in place.
+    // vocabulary and the peer/uri families. Multi-session CapTP product
+    // work uses `pancake_host_*` in `pancake_driver.h`.
+    // `include/pancake_net_transport_tcp.h` and `include/pancake_net_transport_inproc.h`
+    // `#include` the ocapn header and add their transport family. The `*-check`
+    // steps ride `check` and fail when a committed header is stale; the bare
+    // steps are the fixers that rewrite in place.
     const HeaderGen = struct {
         check_step_name: []const u8,
         check_desc: []const u8,
@@ -630,8 +632,37 @@ pub fn build(b: *std.Build) void {
         .extra_import_name = "c_abi_driver",
         .extra_import_module = driver_abi_mod,
     };
+    // HostAction kind constants + typed decode for every language binding
+    // (binding spine Pass 2). Authority is src/c_abi/driver; executor arms stay
+    // hand-written in each binding's action module.
+    const binding_host_action_gen = HeaderGen{
+        .check_step_name = "gen-binding-host-action-check",
+        .check_desc = "Verify binding HostAction decode/types match src/c_abi/driver (fails if stale)",
+        .write_step_name = "gen-binding-host-action",
+        .write_desc = "Regenerate binding HostAction decode/types from src/c_abi/driver",
+        .check_tool = "tools/gen_binding_host_action_check.zig",
+        .write_tool = "tools/gen_binding_host_action_write.zig",
+        .import_name = "c_abi_driver",
+        .import_module = driver_abi_mod,
+    };
+    // The reflected integer ABI constants (return codes, reference/argument
+    // kinds, codec/abort/dial families, caps) for every language binding, from
+    // one table so a value is mirrored once and cannot drift. Rides the same
+    // generator loop; the transport string symbols stay hand-kept.
+    const binding_constants_gen = HeaderGen{
+        .check_step_name = "gen-binding-constants-check",
+        .check_desc = "Verify binding ABI constants match src/c_abi (fails if stale)",
+        .write_step_name = "gen-binding-constants",
+        .write_desc = "Regenerate binding ABI constants from src/c_abi (the ocapn and driver archives)",
+        .check_tool = "tools/gen_binding_constants_check.zig",
+        .write_tool = "tools/gen_binding_constants_write.zig",
+        .import_name = "c_abi",
+        .import_module = host_mods[layerIndex("c_abi")],
+        .extra_import_name = "c_abi_driver",
+        .extra_import_module = driver_abi_mod,
+    };
 
-    for (header_gens ++ [_]HeaderGen{ts_abi_gen}) |hg| {
+    for (header_gens ++ [_]HeaderGen{ ts_abi_gen, binding_host_action_gen, binding_constants_gen }) |hg| {
         const check_mod = b.createModule(.{
             .root_source_file = b.path(hg.check_tool),
             .target = target,
@@ -680,8 +711,8 @@ pub fn build(b: *std.Build) void {
         .{ .name = "pancake-ex-05-call-a-remote-method", .path = "examples/zig/05_call_a_remote_method.zig" },
         .{ .name = "pancake-ex-06-pipeline-and-attenuate", .path = "examples/zig/06_pipeline_and_attenuate.zig" },
         .{ .name = "pancake-readme-quick-start", .path = "examples/zig/readme_quick_start.zig" },
-        .{ .name = "pancake-zig-frame-view", .path = "examples/zig/frame_view.zig" },
-        .{ .name = "pancake-zig-connect-explicit-buffers", .path = "examples/zig/connect_explicit_buffers.zig" },
+        .{ .name = "pancake-dev-frame-view", .path = "examples/zig/frame_view.zig" },
+        .{ .name = "pancake-dev-connect-explicit-buffers", .path = "examples/zig/connect_explicit_buffers.zig" },
     };
     for (zig_examples) |ex| {
         const run = b.addRunArtifact(pancakeExecutable(b, lib_mod, target, optimize, ex.name, ex.path));
@@ -697,6 +728,7 @@ pub fn build(b: *std.Build) void {
         .{ .name = "pancake-c-context-alloc", .path = "examples/c/context_alloc.c", .libs = &.{ocapn_static} },
         .{ .name = "pancake-c-echo-peer", .path = "examples/c/echo_peer.c", .libs = &.{ ocapn_static, tcp_static } },
         .{ .name = "pancake-c-compose-transports", .path = "examples/c/compose_transports.c", .libs = &.{ ocapn_static, tcp_static, inproc_static } },
+        .{ .name = "pancake-c-host-embedder-pump", .path = "examples/c/host_embedder_pump.c", .libs = &.{ ocapn_static, driver_static } },
     };
     for (c_examples) |ex| {
         const c_mod = b.createModule(.{
@@ -871,8 +903,8 @@ pub fn build(b: *std.Build) void {
     check_step.dependOn(&goblins_interop_exe.step);
 
     // Live TCP scale over the loop-fed host bridge (ADR-0076): one completion
-    // loop thread serves a full byte-fed node through `driver.LoopBridge`,
-    // many concurrent ConnectedVat clients across two waves. Binds real
+    // loop thread serves a full byte-fed node through `driver.Bridge`,
+    // many concurrent BlockingSession clients across two waves. Binds real
     // loopback sockets at scale, so it is a sibling of `check`, port-exclusive
     // like every live step; `check` still compiles it so an API change cannot
     // silently rot it.
@@ -1120,11 +1152,10 @@ pub fn build(b: *std.Build) void {
     iroh_resident_mod.addImport("foundation", host_mods[layerIndex("foundation")]);
     iroh_resident_mod.addImport("model", host_mods[layerIndex("model")]);
     iroh_resident_mod.addImport("engine", host_mods[layerIndex("engine")]);
-    iroh_resident_mod.addImport("actors", host_mods[layerIndex("actors")]);
     iroh_resident_mod.addImport("net", host_mods[layerIndex("net")]);
-    // The iroh loop host reuses the sans-io serve core `Served` (ADR-0072)
-    // instead of hand-copying the serve/drive spine; `driver_core` is I/O-free.
-    iroh_resident_mod.addImport("driver_core", host_mods[layerIndex("driver_core")]);
+    // CapTP serving for the scale path is `driver.Bridge` + `driver_core.Host`
+    // in the interop drivers; the resident only supplies the netlayer and the
+    // completion `Backend` (ADR-0076).
 
     // The iroh driver family, table-driven. Each row is both a runnable sibling
     // of `check` (linking the sidecar through `linkIrohSidecar`, so it needs
@@ -1144,6 +1175,8 @@ pub fn build(b: *std.Build) void {
     //   iroh-loop     — Milestone 3 (ADR-0057): many concurrent connections
     //                   served from one thread through the event-driven sidecar
     //                   superset. Deterministic.
+    //   iroh-bridge-redeem — ADR-0076: recipient on Loop(iroh.Backend, iroh.DialResolver) redeems
+    //                   a handoff via Loop.dialLocator. Deterministic.
     //   bench-iroh    — round-trip latency/throughput over real keyed QUIC vs a
     //                   same-machine cleartext TCP baseline; reports numbers,
     //                   gates none, and forwards `-- <args>`. `bench-site-report`
@@ -1159,6 +1192,7 @@ pub fn build(b: *std.Build) void {
         .{ .step_name = "iroh-reachability", .description = "Live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (opt-in; needs cargo + internet)", .exe_name = "pancake-iroh-reachability", .root_source = "interop/iroh_reachability/driver.zig" },
         .{ .step_name = "iroh-mesh", .description = "Live three-party handoff over iroh: recipient reaches the introduced exporter by node id (needs cargo)", .exe_name = "pancake-iroh-mesh", .root_source = "interop/iroh_mesh/driver.zig" },
         .{ .step_name = "iroh-loop", .description = "Live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)", .exe_name = "pancake-iroh-loop", .root_source = "interop/iroh_loop/driver.zig" },
+        .{ .step_name = "iroh-bridge-redeem", .description = "Live iroh redeem dial on driver.Bridge: recipient on one loop thread redeems a handoff via Loop.dialLocator (ADR-0076; needs cargo)", .exe_name = "pancake-iroh-bridge-redeem", .root_source = "interop/iroh_bridge_redeem/driver.zig" },
         .{ .step_name = "bench-iroh", .description = "Measure OCapN round-trip latency/throughput over iroh vs a TCP baseline (needs cargo)", .exe_name = "pancake-iroh-bench", .root_source = "bench/iroh_bench.zig", .forwards_args = true },
     };
     for (iroh_drivers) |drv| {
@@ -1234,6 +1268,10 @@ pub fn build(b: *std.Build) void {
             \\rm -rf zig-out/release
             \\mkdir -p zig-out/release/stage
             \\cp -a zig-out/lib zig-out/include zig-out/release/stage/
+            \\if find zig-out/release/stage/lib \( -type l -o -type b -o -type c \) 2>/dev/null | grep -q .; then
+            \\  echo 'release-pack: lib/ must contain only regular files and directories (no symlinks/special files)' >&2
+            \\  exit 1
+            \\fi
             \\cp LICENSE-APACHE zig-out/release/stage/
             \\tar -czf 'zig-out/release/{s}' -C zig-out/release/stage lib include LICENSE-APACHE
             \\rm -rf zig-out/release/stage
@@ -1381,6 +1419,48 @@ pub fn build(b: *std.Build) void {
         bindings_iroh_redeem_step.dependOn(&run.step);
     }
 
+    // Per-binding keyed-tcp restart proof (ADR-0075): happy path, key-squatter
+    // refusal, and same-seed-fresh-port restart — the binding siblings of
+    // `test/driver/keyed_tcp_restart_test.zig`. No iroh companion needed.
+    const bindings_keyed_tcp_restart_step = b.step("bindings-keyed-tcp-restart", "Per-binding keyed-tcp restart proof: happy path, squatter refusal, same-seed fresh-port restart, every binding");
+    const keyed_tcp_restart_clients = [_]struct {
+        step_name: []const u8,
+        description: []const u8,
+        argv: []const []const u8,
+        dashdash_before_args: bool = false,
+    }{
+        .{
+            .step_name = "deno-keyed-tcp-restart",
+            .description = "Keyed-tcp restart proof: the Deno binding (happy, squatter, restart)",
+            .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "interop/keyed_tcp_restart/deno_client.ts" },
+        },
+        .{
+            .step_name = "python-keyed-tcp-restart",
+            .description = "Keyed-tcp restart proof: the Python binding (happy, squatter, restart)",
+            .argv = &.{ "python3", "interop/keyed_tcp_restart/python_client.py" },
+        },
+        .{
+            .step_name = "rust-keyed-tcp-restart",
+            .description = "Keyed-tcp restart proof: the Rust binding (happy, squatter, restart; needs cargo)",
+            .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async", "--example", "keyed_tcp_restart" },
+            .dashdash_before_args = true,
+        },
+        .{
+            .step_name = "racket-keyed-tcp-restart",
+            .description = "Keyed-tcp restart proof: the Racket binding (happy, squatter, restart; needs racket)",
+            .argv = &.{ "racket", "interop/keyed_tcp_restart/racket_client.rkt" },
+        },
+    };
+    for (keyed_tcp_restart_clients) |client| {
+        const run = addInstalledSystemRun(b, client.argv);
+        if (pin_port) |p| {
+            if (client.dashdash_before_args) run.addArg("--");
+            run.addArg(b.fmt("--port={d}", .{p}));
+        }
+        b.step(client.step_name, client.description).dependOn(&run.step);
+        bindings_keyed_tcp_restart_step.dependOn(&run.step);
+    }
+
     // Per-binding live real-internet reachability: each binding reaches a peer by
     // node id ALONE over n0's public relays and DNS/pkarr discovery — no
     // direct-address hints, no in-process address book — the binding siblings of
@@ -1499,6 +1579,16 @@ pub fn build(b: *std.Build) void {
     const fixture_gen_check_step = b.step("fixture-gen-check", "Regenerate Syrup fixtures via the upstream Racket Syrup encoder and diff against the committed corpus (needs racket + syrup)");
     fixture_gen_check_step.dependOn(&fixture_diff.step);
 
+    // Hermetic C-ABI extract refuse matrix (ADR-0077): zip-slip / symlink
+    // fixtures against each resolve port's hard-fail hygiene. Sibling of the
+    // Zig-hermetic gate only in that it needs host tools (python3/deno/tar);
+    // it is still part of `check` because soft-green extract is a footgun.
+    const c_abi_extract = b.addSystemCommand(&.{ "bash", "tools/c-abi-extract-matrix.sh" });
+    c_abi_extract.setCwd(b.path("."));
+    const c_abi_extract_check_step = b.step("c-abi-extract-check", "Hermetic C-ABI extract hygiene matrix: refuse zip-slip/symlink, accept clean lib/ (ADR-0077)");
+    c_abi_extract_check_step.dependOn(&c_abi_extract.step);
+    check_step.dependOn(c_abi_extract_check_step);
+
     // ── Cross-language application demos (siblings of `check`) ───────────────
     // The rooms cross-language application demo: one Zig-built native client plus
     // the Deno server and the Deno/Python/Racket/Rust clients, all joining one
@@ -1531,12 +1621,12 @@ pub fn build(b: *std.Build) void {
 
     // Run that same TCP client by hand against a room you started yourself, so
     // the README's Zig one-liner is a real command: `zig build rooms-client --
-    // <locator> <nick> <line> [roster]` forwards everything after `--` to the
+    // <locator> <room> <nick> <line> [roster]` forwards everything after `--` to the
     // client. It is a convenience runner for the artifact the demo already
     // builds, not part of any gate.
     const rooms_client_run = b.addRunArtifact(rooms_client_exe);
     if (b.args) |args| rooms_client_run.addArgs(args);
-    const rooms_client_step = b.step("rooms-client", "Run the native Zig rooms chat client (one-shot); pass `-- <locator> <nick> <line> [roster]`");
+    const rooms_client_step = b.step("rooms-client", "Run the native Zig rooms chat client (one-shot); pass `-- <locator> <room> <nick> <line> [roster]`");
     rooms_client_step.dependOn(&rooms_client_run.step);
 
     // The demo Zig clients only run under demo steps that need deno (and
@@ -1549,7 +1639,7 @@ pub fn build(b: *std.Build) void {
     // sidecar's nonblocking FFI; they skip when the iroh ABI lib is absent, so
     // the flag is harmless for the TCP suite and a cargo-free run stays green.
     const rooms_server_test = addInstalledSystemRun(b, &.{
-        "deno",                                    "test",                                 "--allow-ffi", "--unstable-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "deno",                                    "test",                                 "--allow-ffi", "--unstable-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "examples/apps/rooms/deno/server_test.ts", "examples/apps/rooms/deno/web_test.ts",
     });
 
@@ -1685,7 +1775,7 @@ pub fn build(b: *std.Build) void {
     // The tools capability showcase: an AI-tool-harness shaped demo. A Deno
     // coordinator hands an agent capabilities to tools — attenuated to read-only,
     // and revocable — and each agent proves delegation, attenuation, and
-    // revocation over OCapN/TCP. The coordinator and agent are different languages
+    // revocation over an OCapN session on the `tcp` netlayer. The coordinator and agent are different languages
     // on the wire, so the capability trio is real, not in-process. It needs `deno`
     // (which hosts the coordinator and runs the orchestrator); Python, Racket,
     // and Rust agents join when their runtimes are on PATH. A sibling step, not

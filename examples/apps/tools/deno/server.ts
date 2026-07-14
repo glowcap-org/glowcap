@@ -16,7 +16,7 @@
 //
 // Run it with a port:  deno run --allow-ffi --allow-net --allow-read server.ts 9099
 
-import { type AppValue, Connection, listen } from "@pancake/stack";
+import { type AppValue, listen, Session } from "@pancake/stack";
 import { GRANT, GRANT_REVOCABLE, NOW, READ, REVOKE_LAST, TOOLS, WRITE } from "./protocol.ts";
 
 /** A tool is a plain behavior function. These are the things the coordinator
@@ -80,7 +80,7 @@ function toolFor(name: string): Tool {
 
 /** The coordinator behavior for one connected agent. It closes over that agent's
  * connection (to spawn capabilities on it) and the last revocable grant. */
-function coordinatorBehavior(conn: Connection) {
+function coordinatorBehavior(conn: Session) {
 	let lastRevoke: (() => void) | null = null;
 	return (verb: string, args: AppValue[]): AppValue => {
 		if (verb === GRANT) {

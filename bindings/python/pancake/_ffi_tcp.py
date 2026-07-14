@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import ctypes
 
-from ._ffi_ocapn import _Frame, _Lib, _ManagedFrame, _bind, _lib_path
+from ._ffi_ocapn import _Frame, _Lib, _ManagedFrame, _bind
+from ._lib_resolve import _lib_path
+
 
 
 def _load():

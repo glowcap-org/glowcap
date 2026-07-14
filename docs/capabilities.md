@@ -117,6 +117,6 @@ without stopping to re-introduce them.
 | sturdyref          | A durable, out-of-band token (peer plus swiss number) that can be turned back into a live reference later.                      |
 | locator            | The `ocapn://` URI form that names a peer (and optionally a sturdyref) so a netlayer can dial it.                                 |
 | handoff            | The signed three-party introduction that moves a capability from one session to another without proxying.                         |
-| netlayer           | The transport a session runs over; pancake ships TCP, an in-process (`inproc`) pair, and an encrypted iroh/QUIC resident.         |
+| netlayer           | A locator transport symbol bound to a byte path. CapTP is transport-agnostic; pancake ships `tcp`, `keyed-tcp`, `inproc`, and encrypted iroh/QUIC. |
 | codec              | The wire encoding of the message model; pancake ships Syrup and Cap'n Proto behind one dispatch boundary.                         |
 | Syrup              | The S-expression-flavored binary encoding Goblins speaks; the default OCapN wire format.                                          |

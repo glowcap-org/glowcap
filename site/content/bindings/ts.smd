@@ -6,14 +6,14 @@
 .draft = false,
 ---
 
-The JavaScript/TypeScript binding is one source that runs on Deno, Bun, and
-experimental Node; all runtime coupling lives behind a thin FFI/socket seam that
+The JavaScript/TypeScript binding is one source that runs on Deno and Bun; all
+runtime coupling lives behind a thin FFI/socket seam that
 loads the matching adapter at startup. The binding reaches the installed shared
 pancake archives over the host's FFI and mirrors the à-la-carte archive set as
 two packages. `@pancake/stack`
 ([`bindings/ts/stack/mod.ts`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/stack/mod.ts))
-is the core: a full OCapN node over the byte-fed host archive
-`libpancake_driver` — the `Connection`/`Server` surface, values, capabilities,
+is the core: a full OCapN Host over the byte-fed host archive
+`libpancake_driver` — the `Session`/`Server` surface, values, capabilities,
 locators — plus the built-in transports `@pancake/stack/transport/tcp` and
 `@pancake/stack/transport/inproc`. The optional `@pancake/iroh` package adds the
 encrypted-QUIC transport, and the core's `connect` loads it lazily on the first
@@ -35,9 +35,6 @@ bytes and honors the host's action queue.
   `deno run --allow-ffi --allow-read`, add `--allow-net` for any program that
   dials or listens over TCP, and add `--allow-env` when `PANCAKE_LIB_DIR` does
   the pointing.
-- Node is experimental: it needs Node 26 or newer with `--experimental-ffi`,
-  and it consumes transpiled JavaScript (for example through the JSR npm
-  bridge) rather than raw `.ts`.
 
 ## The same round-trip
 
@@ -98,7 +95,7 @@ a reply breaks too. Failures surface on the calls you await; the bare
 ## Hosting the other half
 
 The hosting side reads the same way. `listen` binds a port and returns a
-`Server` you iterate for each accepted `Connection`, `publish` makes an actor
+`Server` you iterate for each accepted `Session`, `publish` makes an actor
 fetchable by name, and `serve` dispatches the partner's calls to it.
 
 > []($block.attrs('code-tabs'))
@@ -133,7 +130,7 @@ and the server tells you its own locator through `server.uri`.
 ## Async
 
 The async surface returns native `Promise`s and supports `using`, so a
-connection cleans itself up at the end of a block. The `Connection` is the
+connection cleans itself up at the end of a block. The `Session` is the
 surface you hold: `await conn.send(ref, verb, args)` awaits a result there,
 with no polling and no callback registration, and the handle a `send` returns
 is itself a valid target for the next `send`, so a dependent chain pipelines in
@@ -144,7 +141,7 @@ to the host's stream delimiter and honors its action queue.
 
 A hosted actor is a plain `(verb, args) => AppValue` callback: `conn.spawn`
 gives it a capability, `conn.publish` makes it fetchable by name, and
-`Node.publishGiftable` publishes it node-wide so a three-party gift can name
+`Host.publishGiftable` publishes it host-wide so a three-party gift can name
 it. Every hosted object shares one native behavior trampoline; a throw becomes
 the caller's broken promise, carrying the actor's own words.
 

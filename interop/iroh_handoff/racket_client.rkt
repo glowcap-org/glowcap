@@ -20,7 +20,7 @@
 ;;             directly, and calls it — the reply must echo its name.
 ;;
 ;; Returning the exporter's greeter (home = gifter↔exporter) on the recipient's
-;; connection trips the transparent gifter; the recipient's `conn-send` resolves
+;; connection trips the transparent gifter; the recipient's `session-send` resolves
 ;; to an ordinary capability whose calls route straight to the exporter. The proof
 ;; is the greeter's reply carrying the name the recipient sent.
 ;;
@@ -59,12 +59,12 @@
      (with-handlers ([exn:fail? (lambda (_) (void))])
        (let loop ()
          (define conn (iroh-server-accept s))
-         (set-box! serves-box (cons (thread (lambda () (conn-serve conn))) (unbox serves-box)))
+         (set-box! serves-box (cons (thread (lambda () (session-serve conn))) (unbox serves-box)))
          (loop))))))
 
 ;; ── Exporter: a node-giftable greeter on its own endpoint ─────────────────────
 (define exporter (listen-iroh IROH-REACH-DIRECT))
-(node-publish-giftable (iroh-server-node exporter) "greeter"
+(host-publish-giftable (iroh-server-host exporter) "greeter"
                           (methods [(greet who) (format "hello ~a over iroh handoff" who)]))
 (define-values (exporter-id exporter-addrs) (dialable exporter))
 (define exporter-serves (box '()))
@@ -74,14 +74,16 @@
 ;; ── Gifter: dials the exporter under one identity, re-gifts the greeter ────────
 (define gifter (listen-iroh IROH-REACH-DIRECT))
 (define-values (gifter-id gifter-addrs) (dialable gifter))
+(define exporter-uri
+  (format-peer-uri TRANSPORT-IROH exporter-id (hash HINT-DIRECT-ADDRESSES exporter-addrs)))
 (define to-exporter
-  (connect-iroh/node exporter-id exporter-addrs IROH-REACH-DIRECT (iroh-server-node gifter)))
-(define greeter-ref (conn-fetch to-exporter "greeter"))
+  (connect exporter-uri IROH-REACH-DIRECT #:host (iroh-server-host gifter)))
+(define greeter-ref (session-fetch to-exporter "greeter"))
 ;; The exporter's own signed session record names it by node id alone — not
 ;; dialable under the relay-less Direct posture — so record its full dialable
 ;; location (id + direct-addresses) as the give's exporter location.
-(conn-set-exporter-locator! to-exporter (encode-peer-locator "iroh" exporter-id exporter-addrs))
-(node-publish-giftable (iroh-server-node gifter) "introducer"
+(session-set-exporter-locator! to-exporter (encode-peer-locator "iroh" exporter-id exporter-addrs))
+(host-publish-giftable (iroh-server-host gifter) "introducer"
                           (methods [(get-greeter) greeter-ref]))
 (define gifter-serves (box '()))
 (define gifter-accept (start-accept-loop gifter gifter-serves))
@@ -93,14 +95,16 @@
                    (iroh-server-close! exporter)
                    (iroh-server-close! gifter)
                    (raise e))])
-  (define recipient (connect-iroh gifter-id gifter-addrs IROH-REACH-DIRECT))
-  (define introducer (conn-fetch recipient "introducer"))
-  (define greeter (conn-send recipient introducer 'get-greeter))
+  (define gifter-uri
+  (format-peer-uri TRANSPORT-IROH gifter-id (hash HINT-DIRECT-ADDRESSES gifter-addrs)))
+(define recipient (connect gifter-uri IROH-REACH-DIRECT))
+  (define introducer (session-fetch recipient "introducer"))
+  (define greeter (session-send recipient introducer 'get-greeter))
   (unless (or (far-ref? greeter) (near-ref? greeter))
     (fail "racket-iroh-handoff" (format "introduction did not redeem to a capability: ~a" greeter)))
   (printf "racket-iroh-handoff: recipient redeemed the give, got the greeter as an ordinary ref\n")
 
-  (define reply (conn-send recipient greeter 'greet NAME))
+  (define reply (session-send recipient greeter 'greet NAME))
   (unless (and (string? reply) (regexp-match? (regexp (regexp-quote NAME)) reply))
     (fail "racket-iroh-handoff" (format "greeter reply did not carry the name back: ~a" reply)))
   (printf "racket-iroh-handoff: greeter replied: ~a\n" reply)
@@ -115,8 +119,8 @@
   ;; The accepted connections share that loop and netlayer, so they are never
   ;; closed by hand; their serve threads end on the EOF and are joined here, so no
   ;; readiness thread outlives the endpoint it watches.
-  (connection-close! recipient)
-  (connection-close! to-exporter)
+  (session-close! recipient)
+  (session-close! to-exporter)
   (iroh-server-close! exporter)
   (iroh-server-close! gifter)
   (thread-wait exporter-accept)

@@ -30,17 +30,17 @@ const engine = @import("mod.zig");
 pub const LoweringError = error{TokenNotLiftable};
 
 /// Installed on a node-registered `Peer`: the hook that lowers one reference to
-/// its wire form on the peer's connection. `ctx` and `conn_id` bind the call to
+/// its wire form on the peer's connection. `ctx` and `peer_id` bind the call to
 /// the node and the connection; `active` gates the walk so a node that has never
 /// enrolled a foreign token pays only a bool load per send.
 pub const Lowering = struct {
     ctx: *anyopaque,
-    conn_id: engine.ConnId,
+    peer_id: engine.PeerId,
     active: *const bool,
-    lower_fn: *const fn (ctx: *anyopaque, conn_id: engine.ConnId, reference: model.Reference) LoweringError!model.Reference,
+    lower_fn: *const fn (ctx: *anyopaque, peer_id: engine.PeerId, reference: model.Reference) LoweringError!model.Reference,
 
     fn lower(self: Lowering, reference: model.Reference) LoweringError!model.Reference {
-        return self.lower_fn(self.ctx, self.conn_id, reference);
+        return self.lower_fn(self.ctx, self.peer_id, reference);
     }
 };
 

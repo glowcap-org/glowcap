@@ -1735,3 +1735,45 @@ test "Syrup refuses a flattened exporter location with no transport/designator b
         .handoff = .{ .give = boundaryless },
     }));
 }
+
+// R1 apex: the keyed self-locator hint spelling is a wire invariant Goblins
+// signs, so `model.Hints.forDirectAddresses` — the one place the empty-vs-entry
+// decision lives — must reproduce the exact `#f` empty spelling. A future edit
+// that spells empty hints as `{}` (or drifts the entry) fails loud here.
+test "forDirectAddresses signs #f for empty, an entry for present — the exact Goblins-signed spelling" {
+    const allocator = std.testing.allocator;
+
+    // Empty → the `#f` spelling, structurally `emptyFalse`.
+    var buf_empty: [1]model.HintEntry = undefined;
+    const empty = model.Hints.forDirectAddresses("", &buf_empty);
+    try std.testing.expectEqual(model.Hints.WireForm.boolean_false, empty.wire_form);
+    try std.testing.expectEqual(@as(usize, 0), empty.entries.len);
+
+    // The exact bytes a partner verifies the location signature over: the
+    // trailing `f` is `#f`, never `{}`.
+    const loc_empty: model.PeerLocator = .{ .transport = "keyed-tcp", .designator = "abc", .hints = empty };
+    const bytes_empty = try syrup.encodePeerLocatorRecord(allocator, loc_empty);
+    defer allocator.free(bytes_empty);
+    try std.testing.expectEqualStrings("<10'ocapn-peer9'keyed-tcp3\"abcf>", bytes_empty);
+
+    // Byte-identical to a hand-written `emptyFalse` locator — the helper
+    // reproduces the signed spelling exactly, not a lookalike.
+    const loc_false: model.PeerLocator = .{ .transport = "keyed-tcp", .designator = "abc", .hints = model.Hints.emptyFalse() };
+    const bytes_false = try syrup.encodePeerLocatorRecord(allocator, loc_false);
+    defer allocator.free(bytes_false);
+    try std.testing.expectEqualStrings(bytes_empty, bytes_false);
+
+    // A present hint rides exactly one `direct-addresses` entry.
+    var buf_hint: [1]model.HintEntry = undefined;
+    const hinted = model.Hints.forDirectAddresses("1.2.3.4:5", &buf_hint);
+    try std.testing.expectEqual(@as(usize, 1), hinted.entries.len);
+    try std.testing.expectEqualStrings("direct-addresses", hinted.entries[0].name);
+    try std.testing.expectEqualStrings("1.2.3.4:5", hinted.entries[0].value.string);
+
+    const loc_hinted: model.PeerLocator = .{ .transport = "keyed-tcp", .designator = "abc", .hints = hinted };
+    const bytes_hinted = try syrup.encodePeerLocatorRecord(allocator, loc_hinted);
+    defer allocator.free(bytes_hinted);
+    try std.testing.expect(std.mem.indexOf(u8, bytes_hinted, "direct-addresses") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bytes_hinted, "1.2.3.4:5") != null);
+    try std.testing.expect(std.mem.indexOf(u8, bytes_hinted, "{") != null);
+}

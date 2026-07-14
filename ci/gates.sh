@@ -13,7 +13,6 @@ bash .devcontainer/post-create.sh
 
 zig build check
 zig build bindings-fmt-check
-zig build rust-dogfood
 zig build bindings
 zig build goblins-interop
 zig build goblins-handoff

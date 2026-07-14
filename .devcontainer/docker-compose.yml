@@ -1,0 +1,46 @@
+# Two Docker networks:
+#   rooms-net  — shared with the rooms app (examples/apps/rooms/deno/deploy).
+#                Committed and always on: it is how a bot in this dev container
+#                reaches the room's internal CapTP. Fixed name, so both compose
+#                projects converge on one shared network.
+#   egress-net — this container's single side network, named per host in the
+#                gitignored .devcontainer/.env. Here it is the LLM backend.
+#                Compose loads .env from this directory automatically.
+#
+#     cp .env.example .env   # then set EGRESS_NET=llm-backend-net
+#     docker network create llm-backend-net   # once, if missing
+#     # rooms-net is created for you by the devcontainer initializeCommand.
+#
+# Rebuild/reopen the devcontainer after changing .env.
+
+services:
+  pancake-dev:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    working_dir: /workspaces/pancake
+    volumes:
+      # Workspace bind — required when using dockerComposeFile.
+      - ..:/workspaces/pancake:cached
+    # Editor mounts (caches, ~/.claude, ~/.config/gh) stay in devcontainer.json.
+    command: sleep infinity
+    cap_add:
+      - SYS_PTRACE
+    security_opt:
+      - seccomp:unconfined
+    networks:
+      - rooms-net
+      - egress-net
+
+networks:
+  # Shared fabric with the rooms app. Fixed name, external so both compose
+  # projects use the one network; created by the devcontainer initializeCommand
+  # if it does not exist yet.
+  rooms-net:
+    name: rooms-net
+    external: true
+  # One side network, host-named via the gitignored .env (EGRESS_NET). The key
+  # below is a compose alias, not the host network name.
+  egress-net:
+    name: ${EGRESS_NET:?Set EGRESS_NET in .devcontainer/.env (see .env.example)}
+    external: true

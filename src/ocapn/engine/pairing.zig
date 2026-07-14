@@ -104,23 +104,15 @@ pub fn paired(allocator: std.mem.Allocator) !Pair {
     return pairedWithFeatures(allocator, model.FeatureSet.full());
 }
 
-/// Construct a paired pair whose sessions carry the handshake-negotiated feature
-/// set, the intersection of the two `negotiation.Offer`s
-/// (`engine.negotiation.negotiate`). Returns `Error.NoSharedCodec` when the
-/// offers share no codec. Both peers are built with the *same* negotiated set,
-/// so a capability one side withholds (e.g. `handoff = false`) is exercised by
-/// neither. The no-crypto stub-key handshake path otherwise matches `paired`.
-pub fn pairedWithOffers(
+/// Construct a paired pair from an already-negotiated handshake outcome.
+/// Both peers are built with the *same* negotiated profile, codec, and feature
+/// set. Callers that start from two `Offer`s run `negotiation.negotiate` first
+/// (and map a null result to `Error.NoSharedCodec` / `NoSharedProfile`). The
+/// no-crypto stub-key handshake path otherwise matches `paired`.
+pub fn pairedNegotiated(
     allocator: std.mem.Allocator,
-    local: engine.negotiation.Offer,
-    remote: engine.negotiation.Offer,
+    negotiated: engine.negotiation.Negotiated,
 ) !Pair {
-    const negotiated = engine.negotiation.negotiate(local, remote) orelse {
-        if (engine.negotiation.sharesProfile(local, remote)) {
-            return Error.NoSharedCodec;
-        }
-        return Error.NoSharedProfile;
-    };
     return pairedWithProfileCodecAndFeatures(allocator, negotiated.profile, negotiated.chosen, negotiated.features);
 }
 
@@ -133,7 +125,7 @@ pub fn pairedWithCodec(allocator: std.mem.Allocator, codec_id: model.CodecId) !P
     return pairedWithProfileCodecAndFeatures(allocator, model.WireProfile.v1_0, codec_id, model.FeatureSet.full());
 }
 
-/// Shared body of `paired` / `pairedWithOffers`: build two negotiating peers
+/// Shared body of `paired` / `pairedNegotiated`: build two negotiating peers
 /// carrying `features`, drive the stub-key in-process handshake to quiescence,
 /// and drain the handshake-artifact events. Defaults to the Syrup codec.
 fn pairedWithFeatures(allocator: std.mem.Allocator, features: model.FeatureSet) !Pair {

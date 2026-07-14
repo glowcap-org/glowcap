@@ -40,6 +40,7 @@ export const ocapnS = ffi.dlopen(libPath("pancake_ocapn"), {
 	pancake_locator_transport: { parameters: [P, B, B], result: I },
 	pancake_locator_designator: { parameters: [P, B, B], result: I },
 	pancake_locator_host_port: { parameters: [P, B, B, B], result: I },
+	pancake_designator_host_port: { parameters: [B, U, B, B, B], result: I },
 	pancake_locator_swissnum: { parameters: [P, B, B], result: I },
 	pancake_locator_hint_count: { parameters: [P, B], result: I },
 	pancake_locator_hint_at: { parameters: [P, U, B, B, B, B], result: I },

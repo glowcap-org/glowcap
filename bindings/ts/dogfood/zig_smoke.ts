@@ -15,11 +15,12 @@ import {
 	type AppValue,
 	connect,
 	Context,
+	type ContextAllocator,
 	FetchFailed,
-	type HostAllocator,
+	Host,
 	Kw,
 	listen,
-	Node,
+	PancakeError,
 	PSet,
 	Ref,
 	Sym,
@@ -128,11 +129,11 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 // The basic round-trip: publish a counter, fetch it, drive it with sends. The
 // server node lives in a caller-supplied allocation context, so every byte the
 // host owns routes through the custom allocator — proving `Context` and
-// `HostAllocator` against the byte-fed host, released in the documented order
+// `ContextAllocator` against the byte-fed host, released in the documented order
 // (node before context).
 {
 	let allocs = 0;
-	const allocator: HostAllocator = {
+	const allocator: ContextAllocator = {
 		alloc(size, _alignment) {
 			allocs++;
 			return new Uint8Array(size);
@@ -140,8 +141,8 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 		free(_block, _size, _alignment) {},
 	};
 	using ctx = Context.withAllocator(allocator);
-	const node = new Node(undefined, { context: ctx });
-	const server = listen("127.0.0.1", 0, node);
+	const captpHost = new Host(undefined, { context: ctx });
+	const server = listen("127.0.0.1", 0, captpHost);
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
@@ -165,9 +166,9 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	}
 
 	await Promise.all([client(), hosted]);
-	node.release(); // before the context that owns its allocations
+	captpHost.release(); // before the context that owns its allocations
 	assert(allocs > 0, `custom allocator served the host's allocations, got ${allocs}`);
-	ok("drove a published counter round-trip from a context-backed node");
+	ok("drove a published counter round-trip from a context-backed host");
 }
 
 // The codec selector end-to-end: both nodes minted with the Cap'n Proto wire
@@ -176,7 +177,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 // (keyword) included, so the two rare marshal arms are witnessed alongside the
 // codec.
 {
-	const server = listen("127.0.0.1", 0, new Node(undefined, { codec: "capnp" }));
+	const server = listen("127.0.0.1", 0, new Host(undefined, { codec: "capnp" }));
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
@@ -226,7 +227,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	ok("a capnp session opens and big-integer + keyword args round-trip");
 }
 
-// Connection surface: an outstanding `send` rejects when the wire drops
+// Session surface: an outstanding `send` rejects when the wire drops
 // instead of hanging on a reply that can never arrive. The server serves one
 // call and then closes; the client's next awaited `send` must settle broken
 // once the disconnect lands, whichever side of the race it hits.
@@ -454,7 +455,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	ok("a dropped fetched import releases its export when GC is opted in");
 }
 
-// Promise pipelining (ADR-0007), the questioner's half: `Connection.send`
+// Promise pipelining (ADR-0007), the questioner's half: `Session.send`
 // returns a handle that is also a `send` target, so a create -> assign ->
 // complete -> status chain is issued against the *unresolved* `create` answer
 // and the four delivers travel as one batch. The board's `create` spawns a
@@ -978,7 +979,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 			if (err instanceof VowBroken) broke = err;
 		}
 		assert(broke !== null, "a mid-turn driving verb breaks the answer");
-		// The turn unwound cleanly: the same connection still answers.
+		// The turn unwound cleanly: the same session still answers.
 		const pong = await conn.send(svc, "ping");
 		assert(pong === "pong", `the connection survives the refused turn, got ${pong}`);
 		conn.close();
@@ -986,6 +987,54 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 
 	await Promise.all([client(), hosted]);
 	ok("a behavior's mid-turn driving verb is refused and breaks its own answer");
+}
+
+// Mid-turn close parks the C release (parity with Python/Rust): a behavior that
+// closes its own Session inside a local turn must not free the native conn
+// while the trampoline frame is still on the stack. The release runs after the
+// turn unwinds; the next verb is the typed CLOSED.
+{
+	const server = listen("127.0.0.1", 0);
+	const port = await server.ready();
+
+	async function host(): Promise<void> {
+		for await (const conn of server) {
+			conn.serve().catch(() => {});
+			break;
+		}
+	}
+	const hosted = host();
+
+	async function client(): Promise<void> {
+		const conn = await connect(tcpLocator("127.0.0.1", port));
+		conn.serve().catch(() => {});
+		const me = conn.spawn((verb) => {
+			if (verb === "die") {
+				conn.close();
+				return "closing";
+			}
+			return null;
+		});
+		const reply = await conn.send(me, "die");
+		assert(reply === "closing", `mid-turn close: reply settled, got ${reply}`);
+		assert(
+			conn.host.pendingReleaseCount() === 0,
+			"mid-turn close: parked release drained after the turn",
+		);
+		let closed: PancakeError | null = null;
+		try {
+			await conn.send(me, "die");
+		} catch (err) {
+			if (err instanceof PancakeError) closed = err;
+		}
+		assert(
+			closed !== null && /closed/i.test(closed.message),
+			"mid-turn close: the next verb is refused closed",
+		);
+	}
+
+	await Promise.all([client(), hosted]);
+	ok("a behavior closing its own connection mid-turn parks the release");
 }
 
 ok("drove OCapN through the idiomatic pancake API");

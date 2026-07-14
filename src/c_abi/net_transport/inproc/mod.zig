@@ -52,10 +52,7 @@ const PANCAKE_OK = c.PANCAKE_OK;
 const PANCAKE_ERR_NULL_POINTER = c.PANCAKE_ERR_NULL_POINTER;
 const PANCAKE_ERR_INVALID_ARGUMENT = c.PANCAKE_ERR_INVALID_ARGUMENT;
 const PANCAKE_ERR_INTERNAL = c.PANCAKE_ERR_INTERNAL;
-const PANCAKE_ERR_CLOSED = c.PANCAKE_ERR_CLOSED;
 const PANCAKE_ERR_IO = c.PANCAKE_ERR_IO;
-const PANCAKE_ERR_MALFORMED = c.PANCAKE_ERR_MALFORMED;
-const PANCAKE_ERR_FRAME_TOO_LARGE = c.PANCAKE_ERR_FRAME_TOO_LARGE;
 
 /// Copy the calling thread's last inproc-transport error message into `out_buf`,
 /// the inproc sibling of `pancake_last_error`. `libpancake_net_transport_inproc`
@@ -103,11 +100,13 @@ const InprocListenerPayload = struct {
 // with `begin`, release a never-installed payload with `abort`, an established
 // one with `destroy`. Buffer caps are the shared leaf's
 // `endpoint_read_buf_bytes` / `endpoint_write_buf_bytes`, the same as the TCP
-// endpoints.
+// endpoints. Frame read/write choreography is `ConnFrameOps` below — this
+// archive keeps the `export fn`s.
 const conn_lifecycle = c.ConnLifecycle(InprocConnPayload);
 const beginConn = conn_lifecycle.begin;
 const abortConn = conn_lifecycle.abort;
 const destroyConn = conn_lifecycle.destroy;
+const conn_frame_ops = c.ConnFrameOps(InprocConnPayload);
 
 /// Create a netlayer handle allocating through the library-owned allocator.
 /// Release it with `pancake_inproc_netlayer_release` after closing every
@@ -123,7 +122,7 @@ pub export fn pancake_inproc_netlayer_new(out_netlayer: ?*?*PancakeInprocNetlaye
 pub export fn pancake_inproc_netlayer_new_in(context: ?*PancakeContext, out_netlayer: ?*?*PancakeInprocNetlayer) i32 {
     const c_ctx = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
-    return netlayerNewIn(c_ctx.allocator, slot);
+    return netlayerNewIn(c_ctx.allocator(), slot);
 }
 
 fn netlayerNewIn(alloc: std.mem.Allocator, slot: *?*PancakeInprocNetlayer) i32 {
@@ -221,28 +220,14 @@ pub export fn pancake_inproc_accept(
 pub export fn pancake_inproc_conn_read_frame(conn: ?*PancakeInprocConn, out_frame: ?*PancakeManagedFrame) i32 {
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_frame orelse return PANCAKE_ERR_NULL_POINTER;
-
-    const f = payload.stream.readFrame() catch |err| return frameReadErrorToCode(err);
-
-    slot.* = c.tryManagedFrame(payload.allocator, f) catch {
-        var owned = f;
-        owned.deinit();
-        return PANCAKE_ERR_INTERNAL;
-    };
-    return PANCAKE_OK;
+    return conn_frame_ops.readFrame(payload, slot, onReadConnectionLost);
 }
 
 /// Write one frame's *borrowed* bytes into the partner's pipe.
 pub export fn pancake_inproc_conn_write_frame(conn: ?*PancakeInprocConn, frame_in: ?*const PancakeFrame) i32 {
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const borrowed = frame_in orelse return PANCAKE_ERR_NULL_POINTER;
-    const bytes_ptr = borrowed.bytes orelse return PANCAKE_ERR_NULL_POINTER;
-
-    payload.stream.writeFrame(bytes_ptr[0..borrowed.len]) catch |err| {
-        setLastError("write_frame: {s}", .{@errorName(err)});
-        return PANCAKE_ERR_IO;
-    };
-    return PANCAKE_OK;
+    return conn_frame_ops.writeFrame(payload, borrowed, onWriteErr);
 }
 
 pub export fn pancake_inproc_conn_release(conn: ?*PancakeInprocConn) void {
@@ -295,21 +280,12 @@ fn acceptErrorToCode(err: net.netlayer.AcceptError) i32 {
     };
 }
 
-fn frameReadErrorToCode(err: net.FrameError) i32 {
-    return switch (err) {
-        error.Closed => PANCAKE_ERR_CLOSED,
-        error.MalformedFrame => PANCAKE_ERR_MALFORMED,
-        error.FrameTooLarge => PANCAKE_ERR_FRAME_TOO_LARGE,
-        error.TruncatedFrame => blk: {
-            setLastError("read_frame: stream closed mid-frame", .{});
-            break :blk PANCAKE_ERR_IO;
-        },
-        error.ConnectionLost => blk: {
-            setLastError("read_frame: in-process pipe failed", .{});
-            break :blk PANCAKE_ERR_IO;
-        },
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
-    };
+fn onReadConnectionLost(_: *InprocConnPayload) void {
+    setLastError("read_frame: in-process pipe failed", .{});
+}
+
+fn onWriteErr(_: *InprocConnPayload, err: anyerror) void {
+    setLastError("write_frame: {s}", .{@errorName(err)});
 }
 
 fn netlayerFromOpaque(netlayer: ?*PancakeInprocNetlayer) ?*InprocNetlayerPayload {

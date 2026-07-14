@@ -3,18 +3,32 @@ id: ADR-0066
 status: accepted
 date: 2026-06-19
 tags: [driver, handoff, three-party, node, c-abi, bindings]
-decision: "The cross-connection handoff router is sunk into a sans-io `engine.Node` in the Zig core (re-exported as `driver.Node` for native ergonomics): it owns the connection table keyed by integer `conn_id`, one node-owned `engine.Peer` per connection, the retained node `seed`, the shared `engine.bootstrap.GiftRegistry`, and the redeemed / foreign-home routing tables, and is projected through the C ABI as `pancake_node_*` in the sans-io `libpancake_ocapn`. It lives in the engine core, not the I/O-bearing driver, because it is pure routing data and the sans-io archive must project it without dragging in a transport. The router is removed from each binding `Machine` — the duplicated protocol tables sink into the node — leaving a thin handle that holds only host-idiom residue (the dialed-exporter cache, the `conn_id`→command-channel map, the giftable factories, the redeem-reachability posture) over a vat addressed by `conn_id`. The vat (turn loop, promise resolution, await, behavior dispatch) stays in the binding; only the router sinks."
+decision: "The cross-connection handoff router is sunk into a sans-io `engine.Node` in the Zig core (at acceptance also re-exported as `driver.Node` for native ergonomics; that re-export is deleted — ADR-0079): it owns the connection table keyed by integer `conn_id`, one node-owned `engine.Peer` per connection, the retained node `seed`, the shared `engine.bootstrap.GiftRegistry`, and the redeemed / foreign-home routing tables, and at acceptance was projected through the C ABI as pancake_node_* in the sans-io `libpancake_ocapn` (that C waist is deleted; CapTP multi-connection product work uses `pancake_host_*` only). It lives in the engine core, not the I/O-bearing driver, because it is pure routing data and the sans-io archive must project it without dragging in a transport. The router is removed from each binding `Machine` — the duplicated protocol tables sink into the node — leaving a thin handle that holds only host-idiom residue (the dialed-exporter cache, the `conn_id`→command-channel map, the giftable factories, the redeem-reachability posture) over a vat addressed by `conn_id`. The vat (turn loop, promise resolution, await, behavior dispatch) stays in the binding; only the router sinks."
 supersedes: []
-superseded_by: []
+superseded_by: [ADR-0079]
 ---
 
 # ADR-0066 The cross-connection handoff router is a sans-io node
+
+> **C-projection supersession.** The Zig `engine.Node` router and its semantics
+> remain accepted. The former pancake_node_* C projection in libpancake_ocapn
+> was deleted: CapTP multi-connection product work uses `pancake_host_*` only.
+> Historical Consequences text below that names that C family describes the
+> shape at acceptance time, not the current public C surface.
+>
+> **Vocabulary supersession (ADR-0079).** Living guidance no longer equates
+> binding `Node` with `engine.Node`. The multi-conn product is `Host` /
+> `PancakeHost` / binding `Host`; `engine.Node` is the router Host owns. Binding
+> CapTP partner is `Session`. Read historical “binding Node” / `driver.Node`
+> re-export text below as the shape at acceptance time. The Follow-on section’s
+> “binding handle is Node” claim is likewise historical: that handle is now
+> binding `Host`.
 
 ## Context
 
 The three-party handoff router — Goblins' `mycapn`, the thing distinct from a
 per-partner connection — existed four times: once in each binding's `Machine`
-(Rust [`bindings/rust/src/connection.rs`](../../../bindings/rust/src/connection.rs),
+(Rust [`bindings/rust/src/session.rs`](../../../bindings/rust/src/session.rs),
 and its Python/TypeScript/Racket peers), in two divergent designs, and nowhere
 in native Zig. Each copy holds the same state: a retained node `seed` reused for
 every connection (so an exporter verifies a `desc:handoff-receive` against one
@@ -33,7 +47,7 @@ A protocol-or-correctness decision copied N times is a latent inconsistency —
 the two binding designs had already drifted on the redeemed-token encoding. The
 router could not sink because every route value pointed at a *language*
 connection object (a `tokio` channel, an `asyncio` task). The native Zig
-`ConnectedVat` had no router at all.
+`BlockingSession` had no router at all.
 
 The conformance host
 ([`conformance/ocapn-conformance/pancake_peer.zig`](../../../conformance/ocapn-conformance/pancake_peer.zig))
@@ -54,8 +68,9 @@ in every role.
 
 ## Decision
 
-A new `engine.Node` (`src/ocapn/engine/node.zig`, re-exported as `driver.Node`)
-owns the router. It lives in the engine core rather than the driver because it is
+A new `engine.Node` (`src/ocapn/engine/node.zig`; at acceptance also re-exported
+as `driver.Node`, since deleted — ADR-0079) owns the router. It lives in the
+engine core rather than the driver because it is
 pure routing data — it touches only `foundation`/`model`/`engine`, never a
 socket — so the sans-io `libpancake_ocapn` archive can project it without
 depending on the I/O-bearing driver, and a native sans-io caller reaches it
@@ -80,8 +95,9 @@ binding sees the give resolution, dials the exporter, and calls `registerConn` +
 preserves the core boundary — adapters own host integration — while the routing
 *decision* lives once, in Zig.
 
-The router is projected through the C ABI as `pancake_node_*` in
-`libpancake_ocapn` ([ADR-0059](ADR-0059-composable-c-abi-archives.md)). The
+The router was projected through the C ABI as pancake_node_* in
+`libpancake_ocapn` at acceptance ([ADR-0059](ADR-0059-composable-c-abi-archives.md);
+that C waist is deleted — see banner). The
 router is removed from each binding `Machine`: the redeemed-token table, the
 foreign-home table, the `next_token` counter, the retained-identity authority,
 and the shared gift registry sink into the node. What survives binding-side is a
@@ -145,9 +161,10 @@ So routing sinks; the vat does not.
 ## Consequences
 
 - `src/ocapn/engine/node.zig` owns the router; `engine/mod.zig` exports `Node` /
-  `ConnId`, and `src/driver/mod.zig` re-exports them for native driver embedders.
+  `ConnId` (at acceptance `src/driver/mod.zig` also re-exported them; that
+  `driver.Node` re-export is deleted — ADR-0079).
 - `interop/goblins_interop/handoff_driver.zig` rebuilds its hand-rolled
-  recipient redeem on `driver.Node` (the node mints the withdraw, enrolls the
+  recipient redeem on `engine.Node` (the node mints the withdraw, enrolls the
   redeemed greeter under a token, and routes the call back to the exporter),
   making the router its own oracle against live Goblins (`goblins-handoff`) and
   closing the native-Zig gap.
@@ -159,28 +176,28 @@ So routing sinks; the vat does not.
   mutex for no gain over the shared registry it already holds, while costing the
   oracle its independence. The boundary ADR-0066 draws (scheduler above the node)
   is the same boundary that keeps the threaded oracle above it.
-- `src/c_abi/ocapn/node.zig` projects `pancake_node_*` into the *same*
-  `libpancake_ocapn` archive and header as `pancake_peer_*` (it is one family,
-  ADR-0059) — no new header: `tools/header_gen.zig` emits the node functions into
-  `include/pancake_ocapn.h`, and the existing `gen-header-ocapn-check` (already in
-  `check`) keeps it honest.
+- At acceptance, `src/c_abi/ocapn/node.zig` projected pancake_node_* into the
+  *same* `libpancake_ocapn` archive and header as `pancake_peer_*` (one family,
+  ADR-0059). That C waist is deleted; CapTP multi-connection product work uses
+  `pancake_host_*` only (see banner).
 - Each binding's router and route tables sink into the node; the surviving
   `Machine` is a thin node handle plus host-idiom residue (exporter cache,
   `conn_id`→channel map, giftable factories, reachability), and each connection
   sources its node-owned peer from `register_conn` and runs its vat over a
-  `conn_id`. The Rust binding is migrated (`bindings/rust/src/connection.rs`,
+  `conn_id`. The Rust binding is migrated (`bindings/rust/src/session.rs`,
   with a non-owning `Peer::from_node_raw` in `bindings/rust/src/lib.rs`); the
   Python binding is migrated (`bindings/python/pancake/__init__.py` — a
-  `NodeHandle` over `pancake_node_*`, a non-owning `Peer.from_node_raw`, and
+  `NodeHandle` over pancake_node_*, a non-owning `Peer.from_node_raw`, and
   `Ref.home` dropped for the token model — and `bindings/python/pancake/iroh.py`);
   the TypeScript binding is migrated (`bindings/ts/stack/mod.ts` — a `NodeHandle`,
   a non-owning `Peer.fromNodeRaw`, and `Ref.home` dropped — and
   `bindings/ts/iroh/mod.ts`); the Racket binding is migrated
-  (`bindings/racket/pancake.rkt` — a `node-handle` over `pancake_node_*`, a
+  (`bindings/racket/pancake.rkt` — a `node-handle` over pancake_node_*, a
   non-owning `peer/from-node-raw`, the in-binding `redeemed` / `next-token` /
   `fetched-homes` / shared-`gift-registry` tables replaced by node routing, and
   each `connection` keyed by a node `conn-id` — and `bindings/racket/pancake-iroh.rkt`).
-  Every binding is now on the node.
+  Every binding is now on the node. (Later vocabulary: that binding handle is
+  `Host`, not `Node` — ADR-0079.)
 - The live `goblins-handoff` / `goblins-gift` / `*-iroh-handoff` matrix and the
   OCapN suite gate every phase; the change lands phase by phase, never big-bang.
   The Rust, Python, Deno/TypeScript, and Racket phases are all green across their
@@ -188,22 +205,25 @@ So routing sinks; the vat does not.
   `*-iroh-handoff` / `-redeem-posture` / `-iroh-loop`; TypeScript also
   `deno-gifter-handoff` and `demo-rooms-dm-iroh`).
 
-### Follow-on: node-unify-and-sink
+### Follow-on: node-unify-and-sink (historical)
 
 The migration above left the binding handle named `Machine` with a separate
-`NodeHandle` carrier over `pancake_node_*`, and it sank only the recipient-redeem
-tables. A follow-on pass closed the remaining gaps; this section is the current
-state, superseding the `Machine` / `NodeHandle` identifiers used above.
+`NodeHandle` carrier over pancake_node_*, and it sank only the recipient-redeem
+tables. A follow-on pass closed the remaining gaps; this section records that
+intermediate shape (binding handle named `Node`), later superseded by ADR-0079’s
+binding `Host`. Read “binding `Node`” below as that historical handle, not the
+current public binding surface.
 
-- **The binding handle is `Node`, the FFI carrier folded in.** Each binding's
-  per-runtime endpoint is renamed `Machine` → `Node` (matching the core's
-  `engine.Node`/`driver.Node` vocabulary), and the former `NodeHandle` raw-pointer
-  wrapper is folded into it as a private carrier (`NodeRaw` / `_NodeRaw`). Read a
-  doc's "binding `Node`" as this handle and "`engine.Node`" as the sans-io router
-  it wraps.
+- **The binding handle was `Node`, the FFI carrier folded in.** Each binding's
+  per-runtime endpoint was renamed `Machine` → `Node` (matching the core's
+  `engine.Node` vocabulary of the day), and the former `NodeHandle` raw-pointer
+  wrapper folded into it as a private carrier (`NodeRaw` / `_NodeRaw`). That
+  binding handle is now `Host` (ADR-0079); "`engine.Node`" remains the sans-io
+  router Host owns.
 - **The gifter origination recipe is sunk too.** Beyond the recipient withdraw
   (`pancake_peer_send_withdraw_gift`), the gifter side is now one core call,
-  `engine.Node.originateGive` projected through the `pancake_node_*` serve step:
+  `engine.Node.originateGive` (at acceptance also projected through the
+  pancake_node_* serve step; CapTP product work uses `pancake_host_*`):
   it deposits the gift on the exporter, builds the signed `desc:handoff-give`, and
   queues its resolution on the recipient. Each binding's origination interceptor
   shrinks to that call plus its own flush; the duplicated build-and-sign glue is
@@ -211,8 +231,8 @@ state, superseding the `Machine` / `NodeHandle` identifiers used above.
   `*-goblins-gift` matrix and the native `demo-rooms-dm`.
 - **The send-argument routability guard is one predicate.** Refusing to pass a
   capability that lives on another connection as a `send`/`tell` argument is the
-  node's verdict, `engine.Node.argIsForeign` projected as
-  `pancake_node_arg_is_foreign`: it folds the redeemed-token range and the
+  node's verdict, `engine.Node.argIsForeign` (at acceptance also
+  pancake_node_arg_is_foreign): it folds the redeemed-token range and the
   foreign-home lookup into one call each binding makes, so the four bindings'
   fail-closed guards are one semantics, not four hand-rolled copies of the rule.
   `test/engine/node_test.zig` asserts that predicate directly.

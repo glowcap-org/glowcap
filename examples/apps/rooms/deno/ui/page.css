@@ -709,6 +709,24 @@ button:focus-visible,
 	position: relative;
 	padding: 0 20px calc(20px + env(safe-area-inset-bottom));
 }
+/* The typing indicator sits just above the input, like a native chat. Its height
+   is reserved even when empty, so the composer never jumps as it fades in and out. */
+.typing {
+	height: 16px;
+	padding: 0 4px 3px;
+	font-size: 12px;
+	line-height: 16px;
+	color: var(--ink-soft);
+	font-style: italic;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	opacity: 0;
+	transition: opacity .12s ease;
+}
+.typing.show {
+	opacity: 1;
+}
 .composer form {
 	display: flex;
 	align-items: flex-end;
@@ -853,7 +871,7 @@ button:focus-visible,
 	border-color: var(--accent);
 	box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
 }
-.join button {
+.join #joinBtn {
 	all: unset;
 	text-align: center;
 	cursor: pointer;
@@ -864,13 +882,32 @@ button:focus-visible,
 	font-weight: 800;
 	margin-top: 2px;
 }
-.join button:hover {
+.join #joinBtn:hover {
 	filter: brightness(1.05);
 }
-.join button:disabled {
+.join #joinBtn:disabled {
 	opacity: .55;
 	cursor: progress;
 	filter: none;
+}
+.join .ghost-link {
+	all: unset;
+	align-self: center;
+	cursor: pointer;
+	font: inherit;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--teal-deep);
+	padding: 4px 8px;
+	border-radius: 8px;
+}
+.join .ghost-link:hover {
+	background: color-mix(in srgb, var(--teal) 12%, transparent);
+	color: var(--teal);
+}
+.join .ghost-link:focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
 }
 .error {
 	min-height: 1.2em;
@@ -1017,9 +1054,10 @@ button:focus-visible,
 	   the inherited 1.5 line-height. */
 	line-height: 1;
 }
-/* The mobile-only menu button (opens the rooms/DM list); the media query reveals
-   it once a room is joined. Hidden on desktop, where the sidebar is always
-   present. The unread dot flags activity in the conversations behind the list. */
+/* The mobile-only menu button (opens the rooms/DM list). Hidden on desktop,
+   where the sidebar is always present. Visible before join too, so a phone can
+   browse the live directory watch feed. The unread dot flags activity behind
+   the list once conversations exist. */
 #backBtn {
 	display: none;
 	position: relative;
@@ -1410,8 +1448,6 @@ button:focus-visible,
 	}
 	#backBtn {
 		font-size: 22px;
-	}
-	.app.joined #backBtn {
 		display: inline-flex;
 	}
 	.join input,

@@ -1,33 +1,14 @@
 //! Chapter 02 — an introduction: the capability pattern pancake exists for.
 //!
-//! Chapter 01 held one connection. This chapter holds several, because that is
-//! where object-capability networking earns its keep: a directory you already
-//! trust *introduces* you to a service it knows, and after the introduction
-//! you talk to the service directly — the directory drops out of the path, and
-//! no name, address book, or ambient registry was ever consulted. On the wire
-//! this is OCapN's three-party handoff; in the API it is two small things:
+//! Chapter 01 held one session. This chapter holds several: a directory you
+//! already trust *introduces* you to a service, and after the introduction you
+//! talk to the service directly — the directory drops out of the path. On the
+//! wire this is OCapN's three-party handoff. The Zig multi-session CapTP spine is
+//! `driver.core.Host` + `driver.Bridge` + `net.TcpLoop` (ADR-0068, ADR-0076).
 //!
-//!   1. `driver.BlockingHost` — the multi-connection tier (ADR-0068). One host holds
-//!      one identity, and every connection it dials or accepts shares it, so a
-//!      gift addressed to "the peer I met on this session" stays redeemable on
-//!      the fresh connection the redeem opens.
-//!   2. Nothing else. A `call` whose answer is an introduction settles as the
-//!      introduced capability itself: the host claims the signed gift, dials
-//!      the peer that really hosts it, and withdraws — all inside the call.
-//!      Sends to the returned reference route to the right connection by
-//!      themselves.
-//!
-//! The gifter needs no handoff code at all: its introducer actor simply
-//! *returns* the foreign capability it holds, and the host turns that reply
-//! into a signed gift because the reply crosses connections. Three hosts run
-//! here in one process over real loopback sockets: a widget service (the
-//! exporter), a directory that knows it (the gifter), and a client that only
-//! knows the directory (the recipient).
-//!
-//! `main` comes first and holds the whole lesson: dial the directory, `call`
-//! for an introduction, then call the widget directly. Everything below `main`
-//! is scaffolding — the honest price of three genuine peers in one process,
-//! not part of the capability pattern.
+//! Three Bridge parties in one process: widget (exporter), directory (gifter),
+//! client (recipient). The choreography matches the hermetic deposit theorem in
+//! `test/driver/bridge_test.zig`.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
@@ -35,96 +16,19 @@ const std = @import("std");
 const pancake = @import("pancake");
 
 const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
-const tcp = pancake.net.tcp;
+const net = pancake.net;
+const tcp = net.tcp;
+
+const Host = driver.core.Host;
+const HostSession = driver.core.HostSession;
+const TcpBridge = driver.Bridge(net.TcpLoop);
 
 const frame_cap = 4096;
+const deadline_ms: u64 = 15_000;
 
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    var threaded = std.Io.Threaded.init(allocator, .{});
-    defer threaded.deinit();
-    const io = threaded.io();
-    var resident = tcp.Resident{ .io = io };
-
-    // Bind all three hosts up front, sharing this thread's `io`, so every
-    // address is known before any task runs — no shared mailbox, no spin-wait.
-    // Each `Host` keeps one identity across every connection it makes, which is
-    // what lets a gift addressed to "the peer on this session" stay redeemable
-    // on the fresh dial the host opens to redeem it.
-    var widget_host = try driver.BlockingHost.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
-    defer widget_host.deinit();
-    var widget_server = try widget_host.listen(resident.netlayer(), .{ .designator = "127.0.0.1:0" });
-    defer widget_server.close();
-    var widget_buf: [64]u8 = undefined;
-    const widget_designator = widget_server.localDesignator(&widget_buf);
-
-    var directory_host = try driver.BlockingHost.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
-    defer directory_host.deinit();
-    var directory_server = try directory_host.listen(resident.netlayer(), .{ .designator = "127.0.0.1:0" });
-    defer directory_server.close();
-    var directory_buf: [64]u8 = undefined;
-    const directory_designator = directory_server.localDesignator(&directory_buf);
-
-    var client_host = try driver.BlockingHost.init(allocator, io, &.{resident.netlayer()}, .{ .frame_cap = frame_cap });
-    defer client_host.deinit();
-
-    // The exporter and the gifter each get a thread; the client is `main`.
-    var shared = Shared{};
-    var widget_task = try io.concurrent(widgetService, .{ &widget_server, &shared });
-    var directory_task = try io.concurrent(directory, .{ &directory_server, widget_designator, &shared });
-    defer {
-        shared.done.store(true, .release);
-        _ = widget_task.await(io) catch {};
-        _ = directory_task.await(io) catch {};
-    }
-
-    // --- The lesson: the client knows only the directory ---
-
-    // Dial the directory and fetch its introducer. The client has never heard
-    // of the widget service — no address, no name, nothing.
-    const to_directory = try client_host.dial(tcp.at(directory_designator));
-    const introducer = try to_directory.fetch("introducer");
-
-    // Ask for an introduction. On the wire the answer is a signed gift naming
-    // the peer that really hosts the widget; the host redeems it inside this
-    // call — it dials that peer under its own identity and withdraws — so
-    // what settles here is the widget itself.
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const settled = try to_directory.call(introducer, .{ .verb = "introduce", .args = &.{} }, arena.allocator());
-    const widget = switch (settled) {
-        .fulfilled => |arg| switch (arg) {
-            .reference => |reference| reference,
-            else => return error.ExpectedAnIntroduction,
-        },
-        .broken, .give => return error.ExpectedAnIntroduction,
-    };
-    std.debug.print("02: introduced to a capability on another peer, redeemed inside the call\n", .{});
-
-    // Call it. The send routes to the widget service's connection by itself —
-    // the directory is no longer in the path.
-    switch (try to_directory.call(widget, .{ .verb = "poke", .args = &.{} }, arena.allocator())) {
-        .fulfilled => |arg| std.debug.print("02: {s}\n", .{arg.string}),
-        .broken => |reason| {
-            std.debug.print("02: poke broke: {s}\n", .{reason});
-            return error.PokeBroke;
-        },
-        .give => return error.ExpectedAValue,
-    }
-}
-
-// ── Scaffolding ─────────────────────────────────────────────────────────
-// Below `main` is the honest price of three genuine peers in one process,
-// not part of the capability pattern: the two published objects and the two
-// server tasks. Each host drives its own connections from its own thread,
-// and a single thread cannot both block in `accept` and service a live
-// connection, so each server task round-robins bounded `stepReadable` steps
-// and two atomic flags sequence the accepts.
-
-/// The service being introduced. It never learns about the directory's
-/// clients; whoever holds a reference can poke it, and nobody else can.
 const Widget = struct {
     pub fn handle(self: *Widget, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = self;
@@ -134,65 +38,337 @@ const Widget = struct {
     }
 };
 
-/// The directory's introducer: it holds a capability it fetched from the
-/// widget service and answers `introduce` by returning it. That return is the
-/// whole gifter side — the host sees the reply name a capability homed on
-/// another connection and originates the signed gift itself.
-const Introducer = struct {
-    widget: model.Reference,
-    pub fn handle(self: *Introducer, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "introduce")) return error.NoSuchMethod;
-        return .{ .reference = self.widget };
-    }
-};
-
-/// The scaffolding's two sequencing flags. `directory_ready` holds the widget
-/// on the directory connection until the directory has fetched the widget, so
-/// the widget does not block in the client's `accept` too early; `done` ends
-/// both round-robin loops once `main` has made its direct call.
 const Shared = struct {
-    directory_ready: std.atomic.Value(bool) = .init(false),
+    exporter_port: std.atomic.Value(u16) = .init(0),
+    fetched: std.atomic.Value(bool) = .init(false),
+    poked: std.atomic.Value(bool) = .init(false),
     done: std.atomic.Value(bool) = .init(false),
 };
 
-/// The widget service (exporter): publish the widget on each accepted
-/// connection and serve. It accepts two partners — the directory (which
-/// fetches the widget to hold it) and, later, the client the directory
-/// introduced (whose gift withdrawal and direct call both arrive here).
-/// Serving two connections from one thread is a round-robin of bounded steps;
-/// a withdrawal that beats its gift deposit simply parks until the deposit
-/// lands (ADR-0056).
-fn widgetService(server: *driver.BlockingHost.Server, shared: *Shared) anyerror!void {
-    const to_directory = try server.accept();
-    _ = try to_directory.publish("widget", Widget, .{});
-    // `stepReadable(n)` waits up to n ms for readable bytes, then services one
-    // bounded step — here, enough to answer the directory's fetch.
-    while (!shared.directory_ready.load(.acquire)) {
-        _ = try to_directory.stepReadable(10);
-    }
-    const to_client = try server.accept();
-    _ = try to_client.publish("widget", Widget, .{});
-    while (!shared.done.load(.acquire)) {
-        _ = try to_directory.stepReadable(5);
-        _ = try to_client.stepReadable(5);
+fn deadlineAfter(io: std.Io) std.Io.Clock.Timestamp {
+    return std.Io.Clock.Timestamp.fromNow(io, .{
+        .raw = std.Io.Duration.fromMilliseconds(deadline_ms),
+        .clock = .real,
+    });
+}
+
+fn expired(io: std.Io, d: std.Io.Clock.Timestamp) bool {
+    return std.Io.Clock.Timestamp.now(io, .real).compare(.gte, d);
+}
+
+fn waitFlag(io: std.Io, flag: *const std.atomic.Value(bool)) !void {
+    const d = deadlineAfter(io);
+    while (!flag.load(.acquire)) {
+        if (expired(io, d)) return error.WaitTimedOut;
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
     }
 }
 
-/// The directory (gifter): dial the widget through this server's host — the
-/// same host that will accept the client, so one identity spans both
-/// connections — fetch the widget, publish an introducer that returns it, and
-/// serve. Origination happens inside `stepReadable`'s serving, in the host
-/// core's interceptor; there is no gifter verb to call.
-fn directory(server: *driver.BlockingHost.Server, widget_designator: []const u8, shared: *Shared) anyerror!void {
-    const to_widget = try server.host.dial(tcp.at(widget_designator));
-    const widget = try to_widget.fetch("widget");
+fn runLoopUntil(loop: *net.TcpLoop, done: *const std.atomic.Value(bool), out_err: *?anyerror, loop_done: *std.atomic.Value(bool)) void {
+    loop.runUntil(done) catch |err| {
+        out_err.* = err;
+        loop_done.store(true, .release);
+        return;
+    };
+    loop.closeAndDrain() catch |err| {
+        out_err.* = err;
+    };
+    loop_done.store(true, .release);
+}
 
-    shared.directory_ready.store(true, .release);
-    const to_client = try server.accept();
-    _ = try to_client.publish("introducer", Introducer, .{ .widget = widget });
-    while (!shared.done.load(.acquire)) {
-        _ = try to_client.stepReadable(5);
-        _ = try to_widget.stepReadable(5);
+fn pokeListener(io: std.Io, port: u16) void {
+    if (port == 0) return;
+    const address = std.Io.net.IpAddress.parse("127.0.0.1", port) catch return;
+    var stream = std.Io.net.IpAddress.connect(&address, io, .{ .mode = .stream }) catch return;
+    stream.close(io);
+}
+
+// ── Exporter E ───────────────────────────────────────────────────────────────
+
+const ExporterState = struct {
+    host: *Host,
+    bridge: *TcpBridge,
+    g_conn: ?*HostSession = null,
+};
+
+fn publishTarget(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+    _ = ctx;
+    _ = try served.publish("widget", Widget, .{});
+}
+
+fn exporterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
+    const state: *ExporterState = @ptrCast(@alignCast(ctx.?));
+    if (conn.leg != .app_dial or conn.session.role != .dialed) return;
+    if (state.g_conn != null) return;
+    state.g_conn = conn.session;
+    _ = try conn.session.served.publish("widget", Widget, .{});
+    const desk = try state.host.fetch(conn.session, "introducer");
+    try state.host.vowOn(desk, .{ .ctx = state, .func = onDesk });
+    try bridge.drainActions();
+}
+
+fn onDesk(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+    const state: *ExporterState = @ptrCast(@alignCast(ctx.?));
+    const conn = state.g_conn orelse return;
+    switch (resolution) {
+        .fulfilled => |value| {
+            if (value != .reference) return;
+            _ = state.host.send(conn, value.reference, .{ .verb = "ready", .args = &.{} }) catch return;
+            state.bridge.drainActions() catch {};
+        },
+        else => {},
     }
+}
+
+fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator: []const u8) anyerror!void {
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var host = Host.init(allocator, [_]u8{0x0e} ** 32, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    defer host.deinit();
+    var state = ExporterState{ .host = &host, .bridge = undefined };
+    var loop: net.TcpLoop = undefined;
+    var bridge = TcpBridge.init(allocator, &host, io, &loop, .{
+        .publish = publishTarget,
+        .on_open = exporterOnOpen,
+        .on_open_ctx = &state,
+    });
+    defer bridge.deinit();
+    state.bridge = &bridge;
+
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
+        .frame_cap = frame_cap,
+        .max_conns = 8,
+        .listen = 0,
+        .make_conn_ctx = TcpBridge.makeConnCtx,
+        .serve = TcpBridge.serve,
+        .free_conn_ctx = TcpBridge.freeConnCtx,
+        .on_close = TcpBridge.onClose,
+    });
+    defer loop.deinit();
+    var buf: [tcp.designator_buf_len]u8 = undefined;
+    const address = try tcp.parseHostPort("127.0.0.1", loop.port.?);
+    const loc = tcp.locator(&buf, address);
+    shared.exporter_port.store(loop.port.?, .release);
+    try bridge.attach(tcp.transport_name, loc.designator, &.{});
+    try bridge.dialOutbound(tcp.transport_name, gifter_designator, "");
+
+    var loop_err: ?anyerror = null;
+    var loop_done = std.atomic.Value(bool).init(false);
+    var loop_future = try io.concurrent(runLoopUntil, .{ &loop, &shared.done, &loop_err, &loop_done });
+    defer {
+        shared.done.store(true, .release);
+        pokeListener(io, loop.port.?);
+        loop_future.await(io);
+        if (loop_err) |err| std.debug.print("02: exporter loop: {s}\n", .{@errorName(err)});
+    }
+
+    try waitFlag(io, &shared.done);
+}
+
+// ── Gifter G ─────────────────────────────────────────────────────────────────
+
+const GifterState = struct {
+    host: *Host,
+    shared: *Shared,
+    widget: ?model.Reference = null,
+    want_fetch: bool = false,
+    fetch_sent: bool = false,
+
+    fn onFetched(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        const self: *GifterState = @ptrCast(@alignCast(ctx.?));
+        switch (resolution) {
+            .fulfilled => |value| {
+                if (value == .reference) self.widget = value.reference;
+            },
+            else => {},
+        }
+        self.shared.fetched.store(true, .release);
+    }
+};
+
+const Desk = struct {
+    state: *GifterState,
+    pub fn handle(self: *Desk, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = turn;
+        if (std.mem.eql(u8, msg.verb, "ready")) {
+            self.state.want_fetch = true;
+            return .{ .boolean = true };
+        }
+        if (std.mem.eql(u8, msg.verb, "introduce")) {
+            const widget = self.state.widget orelse return error.NotReady;
+            return .{ .reference = widget };
+        }
+        return error.NoSuchMethod;
+    }
+};
+
+fn publishDesk(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+    const state: *GifterState = @ptrCast(@alignCast(ctx.?));
+    _ = try served.publish("introducer", Desk, .{ .state = state });
+}
+
+fn gifterServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void {
+    try TcpBridge.serve(conn_ctx, peer, event);
+    const shell: *TcpBridge.Slot = @ptrCast(@alignCast(conn_ctx.?));
+    const state: *GifterState = @ptrCast(@alignCast(shell.bridge.publish_ctx.?));
+    if (state.want_fetch and !state.fetch_sent) {
+        state.fetch_sent = true;
+        const vow = try state.host.fetch(shell.session, "widget");
+        try state.host.vowOn(vow, .{ .ctx = state, .func = GifterState.onFetched });
+        try shell.bridge.drainActions();
+    }
+}
+
+// ── Recipient R ──────────────────────────────────────────────────────────────
+
+const ClientState = struct {
+    host: *Host,
+    poked: *std.atomic.Value(bool),
+    g_conn: ?*HostSession = null,
+
+    fn onIntroducer(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        const self: *ClientState = @ptrCast(@alignCast(ctx.?));
+        const conn = self.g_conn orelse return;
+        switch (resolution) {
+            .fulfilled => |value| {
+                if (value != .reference) return;
+                const vow = self.host.send(conn, value.reference, .{ .verb = "introduce", .args = &.{} }) catch return;
+                self.host.vowOn(vow, .{ .ctx = self, .func = onIntroduced }) catch return;
+            },
+            else => {},
+        }
+    }
+
+    fn onIntroduced(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        const self: *ClientState = @ptrCast(@alignCast(ctx.?));
+        const conn = self.g_conn orelse return;
+        switch (resolution) {
+            .fulfilled => |value| {
+                const widget = switch (value) {
+                    .reference => |r| r,
+                    else => return,
+                };
+                std.debug.print("02: introduced to a capability on another peer, redeemed inside the settle\n", .{});
+                const vow = self.host.send(conn, widget, .{ .verb = "poke", .args = &.{} }) catch return;
+                self.host.vowOn(vow, .{ .ctx = self, .func = onPoked }) catch return;
+            },
+            .broken => |reason| std.debug.print("02: introduce broke: {s}\n", .{reason}),
+            else => {},
+        }
+    }
+
+    fn onPoked(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        const self: *ClientState = @ptrCast(@alignCast(ctx.?));
+        switch (resolution) {
+            .fulfilled => |value| {
+                if (value == .string) std.debug.print("02: {s}\n", .{value.string});
+                self.poked.store(true, .release);
+            },
+            .broken => |reason| std.debug.print("02: poke broke: {s}\n", .{reason}),
+            else => {},
+        }
+    }
+};
+
+fn clientOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
+    const state: *ClientState = @ptrCast(@alignCast(ctx.?));
+    if (conn.leg != .app_dial or conn.session.role != .dialed) return;
+    if (state.g_conn != null) return;
+    state.g_conn = conn.session;
+    const vow = try state.host.fetch(conn.session, "introducer");
+    try state.host.vowOn(vow, .{ .ctx = state, .func = ClientState.onIntroducer });
+    try bridge.drainActions();
+}
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var shared = Shared{};
+    var gifter_host = Host.init(allocator, [_]u8{0x06} ** 32, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    defer gifter_host.deinit();
+    var g_state = GifterState{ .host = &gifter_host, .shared = &shared };
+    var loop: net.TcpLoop = undefined;
+    var bridge = TcpBridge.init(allocator, &gifter_host, io, &loop, .{
+        .publish = publishDesk,
+        .publish_ctx = &g_state,
+    });
+    defer bridge.deinit();
+
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
+        .frame_cap = frame_cap,
+        .max_conns = 8,
+        .listen = 0,
+        .make_conn_ctx = TcpBridge.makeConnCtx,
+        .serve = gifterServe,
+        .free_conn_ctx = TcpBridge.freeConnCtx,
+        .on_close = TcpBridge.onClose,
+    });
+    defer loop.deinit();
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const gifter_designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port.?);
+    const gifter_designator = tcp.locator(&designator_buf, gifter_designator_addr).designator;
+    try bridge.attach(tcp.transport_name, gifter_designator, &.{});
+
+    var loop_err: ?anyerror = null;
+    var loop_done = std.atomic.Value(bool).init(false);
+    var loop_future = try io.concurrent(runLoopUntil, .{ &loop, &shared.done, &loop_err, &loop_done });
+    defer {
+        shared.done.store(true, .release);
+        pokeListener(io, loop.port.?);
+        loop_future.await(io);
+        if (loop_err) |err| std.debug.print("02: gifter loop: {s}\n", .{@errorName(err)});
+    }
+    var exporter_future = try io.concurrent(exporterTask, .{ allocator, &shared, @as([]const u8, gifter_designator) });
+    defer exporter_future.await(io) catch |err| std.debug.print("02: exporter: {s}\n", .{@errorName(err)});
+
+    try waitFlag(io, &shared.fetched);
+
+    var poked = std.atomic.Value(bool).init(false);
+    var recipient_host = Host.init(allocator, [_]u8{0x0c} ** 32, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    defer recipient_host.deinit();
+    var r_state = ClientState{ .host = &recipient_host, .poked = &poked };
+    var r_loop: net.TcpLoop = undefined;
+    var r_bridge = TcpBridge.init(allocator, &recipient_host, io, &r_loop, .{
+        .on_open = clientOnOpen,
+        .on_open_ctx = &r_state,
+    });
+    defer r_bridge.deinit();
+    r_loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&r_bridge), .{
+        .frame_cap = frame_cap,
+        .max_conns = 8,
+        .listen = 0,
+        .make_conn_ctx = TcpBridge.makeConnCtx,
+        .serve = TcpBridge.serve,
+        .free_conn_ctx = TcpBridge.freeConnCtx,
+        .on_close = TcpBridge.onClose,
+    });
+    defer r_loop.deinit();
+    var r_buf: [tcp.designator_buf_len]u8 = undefined;
+    const r_designator_addr = try tcp.parseHostPort("127.0.0.1", r_loop.port.?);
+    const r_designator = tcp.locator(&r_buf, r_designator_addr).designator;
+    try r_bridge.attach(tcp.transport_name, r_designator, &.{});
+    try r_bridge.dialOutbound(tcp.transport_name, gifter_designator, "");
+
+    var r_err: ?anyerror = null;
+    var r_done = std.atomic.Value(bool).init(false);
+    var r_future = try io.concurrent(runLoopUntil, .{ &r_loop, &shared.done, &r_err, &r_done });
+    defer {
+        shared.done.store(true, .release);
+        pokeListener(io, r_loop.port.?);
+        r_future.await(io);
+        if (r_err) |err| std.debug.print("02: recipient loop: {s}\n", .{@errorName(err)});
+    }
+
+    try waitFlag(io, &poked);
+
+    shared.done.store(true, .release);
+    pokeListener(io, loop.port.?);
+    pokeListener(io, r_loop.port.?);
+    pokeListener(io, shared.exporter_port.load(.acquire));
+    std.debug.print("02: introduce and redeem OK\n", .{});
 }

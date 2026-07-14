@@ -5,14 +5,14 @@ header and runs under `zig build examples` (and `zig build check`), so the prose
 and the API calls can't drift from each other.
 
 The chapters read top-down. Chapter 01 is the surface an application rides, and
-chapter 02 widens it to the multi-connection `Host` tier. Chapters 03–05 then
+chapter 02 widens it to the multi-session `Host` tier. Chapters 03–05 then
 descend one layer at a time to the raw engine, and chapter 06 returns to the
 actor layer for the two moves that make capabilities compose.
 
 | #  | Program                                                              | What it does                                                                                                                                                                                                                                 |
 | -- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 01 | [`zig/01_connect_and_serve.zig`](zig/01_connect_and_serve.zig)       | The application surface over a real TCP socket: the host `listen`s, accepts, publishes by name, and `serve`s; the client `connect`s, fetches by name, `call`s, and switches on the settled outcome. One owning `driver.Connection` per side. |
-| 02 | [`zig/02_introduce_and_redeem.zig`](zig/02_introduce_and_redeem.zig) | The capability pattern pancake exists for: a directory introduces the client to a service, the host redeems the gift inside the call so the answer settles as the service itself, and the direct call leaves the directory out of the path. Three `driver.BlockingHost`s in one process.  |
+| 01 | [`zig/01_connect_and_serve.zig`](zig/01_connect_and_serve.zig)       | The application surface over a real TCP socket: the host `listen`s, accepts, publishes by name, and `serve`s; the client `connect`s, fetches by name, `call`s, and switches on the settled outcome. One owning `driver.Session` per side. |
+| 02 | [`zig/02_introduce_and_redeem.zig`](zig/02_introduce_and_redeem.zig) | The capability pattern pancake exists for: a directory introduces the client to a service, the host redeems the gift inside the call so the answer settles as the service itself, and the direct call leaves the directory out of the path. Three `Host` + `Bridge` + `TcpLoop` parties in one process.  |
 | 03 | [`zig/03_actor_far_send.zig`](zig/03_actor_far_send.zig)             | Bind an actor to an export, far-send to it across a paired session, and settle the vow. The `actors.Vat` pattern beneath chapter 01's `call`, and the one every networked application builds on.                                             |
 | 04 | [`zig/04_look_up_by_name.zig`](zig/04_look_up_by_name.zig)           | Fetch a capability through the bootstrap object using a swiss number: the machinery beneath fetch-by-name (the server side is one `registerBootstrapCap` call; the engine answers the `'fetch`).                                            |
 | 05 | [`zig/05_call_a_remote_method.zig`](zig/05_call_a_remote_method.zig) | The raw engine: pair two peers, export and import by hand, and shuttle the deliver and resolve frames one explicit `step` at a time.                                                                                                         |
@@ -46,7 +46,7 @@ Full applications run in every binding, each built on the same small surface
 - [`apps/accountability-on-pancake/`](apps/accountability-on-pancake/): a
   signed-call accountability application: KERI-anchored identity, a signed
   Episode per capability invocation, and a Merkle transparency log, all above
-  pancake's runtime over a real OCapN/TCP session. `zig build accountability`
+  pancake's runtime over an OCapN session on the `tcp` netlayer. `zig build accountability`
   runs the native Zig walk (ridden by `zig build check`);
   `zig build demo-accountability` runs the Zig host with Deno and Python callers
   over the C ABI; `zig build accountability-three-party` proves a handoff-
@@ -91,3 +91,7 @@ Lower-level library mechanics:
 - [`c/compose_transports.c`](c/compose_transports.c): linking the à-la-carte C
   ABI archives together: `libpancake_ocapn` with the tcp and inproc transport
   archives composed and resolved in one consumer (ADR-0059).
+- [`c/host_embedder_pump.c`](c/host_embedder_pump.c): the normative byte-fed
+  `pancake_host_*` embedder choreography — `feed_bytes` + FLUSH/`take_outbound`
+  drain to open a session, feed-refusal/`last_abort`, and EOF/`break_far_vows`.
+  The compiled checklist the language bindings' `pump` modules mirror.

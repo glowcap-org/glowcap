@@ -136,6 +136,7 @@ pub fn classify(err: anyerror) Classification {
             .close = true,
         } },
         // ── generic partner protocol violations → protocol_error ─────
+        error.DuplicateSetElement,
         error.MalformedMessage,
         error.InvalidReference,
         error.FeatureNotNegotiated,

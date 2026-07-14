@@ -26,7 +26,7 @@ const runtime_name = "native-zig";
 /// One bench unit: create a task, assign it, complete it, read its status, and
 /// assert the status settled to the bytes `done`. The same four verbs every
 /// client runs, sequential send-and-settle, no pipelining.
-fn runUnit(conn: *driver.Connection, root: actors.Ref, arena: std.mem.Allocator) !void {
+fn runUnit(conn: *driver.Session, root: actors.Ref, arena: std.mem.Allocator) !void {
     const task = switch (try conn.call(root, .{ .verb = "create", .args = &.{.{ .bytes = "benchmark" }} }, arena)) {
         .fulfilled => |arg| switch (arg) {
             .reference => |reference| switch (reference) {
@@ -54,7 +54,7 @@ fn runUnit(conn: *driver.Connection, root: actors.Ref, arena: std.mem.Allocator)
 /// instead of four. Only the final `status` is settled. This is the throughput
 /// unit; `runUnit` stays sequential so the latency row keeps measuring one
 /// round trip at a time.
-fn runUnitPipelined(conn: *driver.Connection, root: actors.Ref, arena: std.mem.Allocator) !void {
+fn runUnitPipelined(conn: *driver.Session, root: actors.Ref, arena: std.mem.Allocator) !void {
     const create = try conn.send(root, .{ .verb = "create", .args = &.{.{ .bytes = "benchmark" }} });
     _ = try conn.sendToAnswer(create, .{ .verb = "assign", .args = &.{.{ .bytes = "alice" }} });
     _ = try conn.sendToAnswer(create, .{ .verb = "complete", .args = &.{} });
@@ -82,7 +82,7 @@ fn lessThanU64(_: void, a: u64, b: u64) bool {
     return a < b;
 }
 
-fn connectOne(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !*driver.Connection {
+fn connectOne(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !*driver.Session {
     var tcp_resident = tcp.Resident{ .io = io };
     return driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.at(designator), .ephemeral, .{ .frame_cap = frame_cap });
 }
@@ -145,7 +145,7 @@ fn runThroughput(io: std.Io, allocator: std.mem.Allocator, designator: []const u
 
 fn runConnections(io: std.Io, allocator: std.mem.Allocator, designator: []const u8, n: usize) !void {
     const warmup = @min(n, 5);
-    const warm = try allocator.alloc(*driver.Connection, warmup);
+    const warm = try allocator.alloc(*driver.Session, warmup);
     defer allocator.free(warm);
     for (0..warmup) |i| {
         warm[i] = try connectOne(io, allocator, designator);
@@ -155,7 +155,7 @@ fn runConnections(io: std.Io, allocator: std.mem.Allocator, designator: []const 
     try printLine(io, "{{\"v\":1,\"event\":\"warmed\"}}\n", .{});
     try io.sleep(std.Io.Duration.fromMilliseconds(600), .awake);
 
-    const handles = try allocator.alloc(*driver.Connection, n);
+    const handles = try allocator.alloc(*driver.Session, n);
     defer allocator.free(handles);
     const start = nowNs(io);
     for (0..n) |i| {
@@ -213,7 +213,7 @@ fn serveLocalCounter(server: *driver.Server) void {
 /// send, returning the sorted per-turn latencies (ns). Asserts the final count
 /// equals `n` (native Zig is ahead-of-time, so there is no warmup ahead of the
 /// window and the counter starts at zero).
-fn measureHits(io: std.Io, conn: *driver.Connection, target: actors.Ref, n: usize, samples: []u64) !void {
+fn measureHits(io: std.Io, conn: *driver.Session, target: actors.Ref, n: usize, samples: []u64) !void {
     var arena_state = std.heap.ArenaAllocator.init(conn.allocator);
     defer arena_state.deinit();
 
@@ -323,8 +323,10 @@ pub fn main(init: std.process.Init) !void {
     const n_str = args.next() orelse "0";
     const n = try std.fmt.parseInt(usize, n_str, 10);
 
-    var designator_buf: [64]u8 = undefined;
-    const designator = try std.fmt.bufPrint(&designator_buf, "{s}:{s}", .{ host, port_str });
+    const port = try std.fmt.parseInt(u16, port_str, 10);
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const designator_addr = try tcp.parseHostPort(host, port);
+    const designator = tcp.locator(&designator_buf, designator_addr).designator;
 
     if (std.mem.eql(u8, mode, "latency")) {
         try runLatency(io, allocator, designator, n);

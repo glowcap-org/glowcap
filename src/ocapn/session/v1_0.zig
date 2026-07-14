@@ -61,7 +61,7 @@ pub fn installOutboundResolver(self: *Session, answer: model.AnswerPosition, res
 /// back, since it was never handed to the partner. Returns the minted
 /// resolver export position.
 pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model.ExportPosition {
-    const resolver_export = try self.allocateExport();
+    const resolver_export = try self.allocatePromiseExport();
     errdefer self.releaseUnsharedExport(resolver_export);
     try self.installOutboundResolver(answer, resolver_export);
     // Undo the resolver link (both directions) before the export rollback: the
@@ -73,7 +73,7 @@ pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model
         std.debug.assert(self.v1_0_outbound_resolvers.remove(resolver_export));
         std.debug.assert(self.v1_0_outbound_resolver_answers.remove(answer));
     }
-    try self.retainSentExportRef(.{ .near = .{ .export_position = resolver_export, .kind = .promise } });
+    try self.retainSentExportRef(session.slot.toReference(self.exportSlot(resolver_export).?).?);
     return resolver_export;
 }
 

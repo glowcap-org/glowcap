@@ -3,7 +3,7 @@ id: ADR-0062
 status: accepted
 date: 2026-06-15
 tags: [net, driver, transport, c-abi, public-surface, vocabulary]
-decision: "One dialer per layer, and it takes a locator, never a host and port. In Zig the transport set is a bare `[]const net.netlayer.Netlayer` the driver dials and hosts against, not a `Registry` struct, and the runtime-vtable transport type is renamed `Contract` -> `Netlayer`; a free `net.netlayer.resolve(netlayers, symbol)` replaces `Registry.resolve`. A transport builds its own locator with no ritual: `tcp.at(designator)` builds a `tcp` locator from a `host:port` string the caller already holds, owning the empty-hints wire form so `.emptyFalse()` never reaches a call site and the signed handshake bytes are unchanged. The dial/host functions (`driver.connect`, `connectVia`, `connectUri`, `connectUriOwned`, `acceptVia`, `listen`) take the slice instead of the `Registry`; the ownership tiers (owning `Connection`/`Server`, borrowing buffer-explicit `connectVia`/`acceptVia`/`connectTcp`/`acceptTcp`) are kept, because collapsing them would delete the explicit-allocation surface the project requires. In the bindings the one dialer is `connect(locator)` over an `ocapn://` URI with `tcp_locator(host, port)` as the only literal-address helper; the per-transport dial twins are gone. The C ABI gets the same front door per transport: `libpancake_net_transport_tcp` grows an owning `PancakeTcpSession` (`pancake_tcp_session_connect`/`_fetch`/`_call`/`_release`) — the C spelling of `driver.Connection` — that embeds the actor runtime and pairs with a runtime host, with the bare sans-io peer kept for a host that owns its own loop."
+decision: "One dialer per layer, and it takes a locator, never a host and port. In Zig the transport set is a bare `[]const net.netlayer.Netlayer` the driver dials and hosts against, not a `Registry` struct, and the runtime-vtable transport type is renamed `Contract` -> `Netlayer`; a free `net.netlayer.resolve(netlayers, symbol)` replaces `Registry.resolve`. A transport builds its own locator with no ritual: `tcp.at(designator)` builds a `tcp` locator from a `host:port` string the caller already holds, owning the empty-hints wire form so `.emptyFalse()` never reaches a call site and the signed handshake bytes are unchanged. The dial/host functions (`driver.connect`, `connectVia`, `connectUri`, `connectUriOwned`, `acceptVia`, `listen`) take the slice instead of the `Registry`; the ownership tiers (owning `Session`/`Server`, borrowing buffer-explicit `connectVia`/`acceptVia`/`connectTcp`/`acceptTcp`) are kept, because collapsing them would delete the explicit-allocation surface the project requires. In the bindings the one dialer is `connect(locator)` over an `ocapn://` URI with `tcp_locator(host, port)` as the only literal-address helper; the per-transport dial twins are gone. The C ABI gets the same front door per transport: `libpancake_net_transport_tcp` grows an owning `PancakeTcpSession` (`pancake_tcp_session_connect`/`_fetch`/`_call`/`_release`) — the C spelling of `driver.Session` — that embeds the actor runtime and pairs with a runtime host, with the bare sans-io peer kept for a host that owns its own loop."
 supersedes: [ADR-0043]
 superseded_by: []
 ---
@@ -65,15 +65,16 @@ builds its own locator with no ritual.**
   `driver.connect` and `connectUriOwned` (owning), `connectVia` and `connectUri`
   (borrowing), and the resolve inside them. `acceptVia` and `listen` are
   unchanged in shape (they take a bound listener or one netlayer).
-- **The ownership tiers are kept.** The owning `Connection`/`Server` (one call,
-  owned buffers) and the borrowing buffer-explicit `connectVia`/`acceptVia` and
-  tcp-named `connectTcp`/`acceptTcp` (caller owns the peer and both buffers,
-  every allocation at the call site) are two genuinely different ownership
-  contracts, not redundant verbs — the `connect_explicit_buffers` example exists
-  to show the borrowing tier. Collapsing them would delete the
-  explicit-allocation surface the project's values require, which is the
-  opposite of the goal. ADR-0043's judgment that an explicit tcp-picking
-  convenience is honest, not the forbidden privilege, stands.
+- **The ownership tiers are kept.** The owning `Session`/`Server` (one call,
+  owned buffers; CapTP partner type, ADR-0079) and the borrowing buffer-explicit
+  `connectVia`/`acceptVia` and tcp-named `connectTcp`/`acceptTcp` (caller owns
+  the peer and both buffers, every allocation at the call site) are two
+  genuinely different ownership contracts, not redundant verbs — the
+  `connect_explicit_buffers` example exists to show the borrowing tier.
+  Collapsing them would delete the explicit-allocation surface the project's
+  values require, which is the opposite of the goal. ADR-0043's judgment that an
+  explicit tcp-picking convenience is honest, not the forbidden privilege,
+  stands.
 - A transport's `std.Io` (or other live state) still lives in its `Resident`,
   reached as `tcp.netlayer()` / `iroh.netlayer()`. A `std.Io` is a 16-byte fat
   pointer and the vtable `ctx` is one pointer, so a stateless transport cannot
@@ -93,16 +94,16 @@ Target front-door call site, nothing hidden and no ritual:
 
 ```zig
 var tcp_resident = pancake.net.tcp.Resident{ .io = io };
-var conn = try driver.connect(&.{tcp_resident.netlayer()}, allocator, pancake.net.tcp.at(designator), .ephemeral, .{});
-defer conn.close();
-const greeter = try conn.fetch("greeter");
-const reply = try conn.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena);
+var session = try driver.connect(&.{tcp_resident.netlayer()}, allocator, pancake.net.tcp.at(designator), .ephemeral, .{});
+defer session.close();
+const greeter = try session.fetch("greeter");
+const reply = try session.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena);
 ```
 
 ### The C front door: an owning `PancakeTcpSession`
 
-The C ABI reads the same as the Zig `Connection`. `libpancake_net_transport_tcp`
-grows an owning `PancakeTcpSession` — the C spelling of `driver.Connection`, for
+The C ABI reads the same as the Zig `Session`. `libpancake_net_transport_tcp`
+grows an owning `PancakeTcpSession` — the C spelling of `driver.Session`, for
 the blocking TCP path:
 
 - `pancake_tcp_session_connect(netlayer, host, port, codec, max_frame_bytes, …)`
@@ -120,7 +121,7 @@ the blocking TCP path:
 It owns a socket, so it lives in the transport archive, never in sans-io
 `libpancake_ocapn`. An owning session is a driver-level concept, so the archive
 embeds `driver` (and transitively `actors`/`engine`) — a deliberate trade,
-correctness over a leaner archive, since reusing the tested `driver.Connection`
+correctness over a leaner archive, since reusing the tested `driver.Session`
 pump gives the C session the exact handshake, fetch, and resolver-callback
 settlement the Zig surface has. It is a _client_ that pairs with a runtime host
 (a `driver.Server`/`acceptVia` host or a Goblins vat), because a v1.0 bootstrap

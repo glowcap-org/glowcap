@@ -1,0 +1,210 @@
+//! The dial executor (binding spine Pass 3c): one path that turns a parsed
+//! locator into an open, handshaken [`Session`], shared by [`connect`] and
+//! handoff-redeem alike.
+//!
+//! Every dial decision — the host:port grammar, the direct-addresses hint rule,
+//! the iroh reachability posture, the scheme dispatch, and the typed errors —
+//! is resolved once in the core by `pancake_host_plan_dial`, which hands back a
+//! `PancakeDialPlan`. This module holds no dial business logic: it marshals the
+//! posture, reads the plan, and performs the one thing the core cannot — the
+//! async byte-channel open (`TcpStream::connect`, or the iroh companion).
+//! Adding a transport is a core change, not an edit here. Session owns
+//! mint/handshake (`establish_dialed_locator` / `establish_accepted`); this
+//! module owns plan + channel open + the public [`connect`] dialer.
+
+use std::rc::Rc;
+
+use tokio::net::TcpStream;
+
+use crate::host::{check_host, Host, HostShared};
+use crate::session::{io_err, Session};
+use crate::sys::driver as ffi;
+use crate::{sys, Error, Result};
+
+/// A resolved dial from `pancake_host_plan_dial`: what channel to open and how.
+/// The (ptr,len) views are read into owned strings before the input buffers die.
+struct DialPlan {
+	shape: u32,
+	host: String,
+	port: u16,
+	#[cfg(feature = "iroh")]
+	addresses: String,
+	#[cfg(feature = "iroh")]
+	reach_kind: u32,
+}
+
+fn view_string(ptr: *const u8, len: usize) -> String {
+	if ptr.is_null() || len == 0 {
+		String::new()
+	} else {
+		String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(ptr, len) }).into_owned()
+	}
+}
+
+/// Resolve a dial in the core: the host:port grammar, the hint rule, the iroh
+/// posture, and the error cases all decided by `pancake_host_plan_dial`.
+fn plan_dial(
+	transport: &str,
+	designator: &str,
+	direct_addresses_hint: &str,
+	posture_policy: u32,
+	posture_value: u32,
+) -> Result<DialPlan> {
+	let mut plan: ffi::PancakeDialPlan = unsafe { core::mem::zeroed() };
+	check_host(unsafe {
+		ffi::pancake_host_plan_dial(
+			transport.as_ptr(),
+			transport.len(),
+			designator.as_ptr(),
+			designator.len(),
+			direct_addresses_hint.as_ptr(),
+			direct_addresses_hint.len(),
+			posture_policy,
+			posture_value,
+			&mut plan,
+		)
+	})?;
+	Ok(DialPlan {
+		shape: plan.shape,
+		host: view_string(plan.host, plan.host_len),
+		port: plan.port,
+		#[cfg(feature = "iroh")]
+		addresses: view_string(plan.addresses, plan.addresses_len),
+		#[cfg(feature = "iroh")]
+		reach_kind: plan.reach_kind,
+	})
+}
+
+/// How an iroh endpoint becomes reachable — the mandatory posture an iroh dial or
+/// listen chooses, in the open. There is no default: a pancake peer never turns on
+/// relays or a discovery service as a hidden implementation detail, so the caller
+/// always names one. A `tcp` dial ignores it (pass `None` to [`connect`]).
+///
+/// - `Direct`: relay-less, lookup-less — dial by id plus explicit address hints
+///   (loopback/LAN). The rooms demo's posture: its URIs carry direct-addresses.
+/// - `Discovery`: number-0 relays + DNS/pkarr discovery — dialable by id alone
+///   over the internet, with hole-punching and NAT traversal.
+/// - `DiscoveryNoRelay`: DNS/pkarr discovery without relays.
+/// - `LocalDiscovery`: in-process shared address book — resolves by id alone
+///   with no relay, DNS, or hints. For tests and same-process embeddings.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Reachability {
+	Direct = 0,
+	Discovery = 1,
+	DiscoveryNoRelay = 2,
+	LocalDiscovery = 3,
+}
+
+/// The one dial path for [`connect`] and handoff redeem alike: no dispatch, no
+/// grammar, no posture — the core resolves all of that in `pancake_host_plan_dial`,
+/// and this opens the byte channel the plan names.
+pub(crate) async fn dial_parsed_locator(
+	transport: &str,
+	designator: &str,
+	direct_addresses_hint: &str,
+	host: Option<Host>,
+	redeem: bool,
+	reachability: Option<Reachability>,
+) -> Result<Session> {
+	let dial_host = if redeem {
+		host.ok_or_else(|| {
+			Error::with_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				"handoff redeem requires a shared host".to_string(),
+			)
+		})?
+	} else {
+		host.unwrap_or_else(Host::new_host)
+	};
+	let shared = dial_host.shared();
+	let (policy, value): (u32, u32) = if redeem {
+		(sys::DIAL_POSTURE_REDEEM, 0)
+	} else if let Some(r) = reachability {
+		(sys::DIAL_POSTURE_EXPLICIT, r as u32)
+	} else {
+		(sys::DIAL_POSTURE_EXPLICIT_NONE, 0)
+	};
+	let plan = plan_dial(transport, designator, direct_addresses_hint, policy, value)?;
+	if plan.shape == sys::DIAL_SHAPE_IROH {
+		#[cfg(feature = "iroh")]
+		{
+			let reachability = match plan.reach_kind {
+				sys::DIAL_REACH_DIRECT => Reachability::Direct,
+				sys::DIAL_REACH_CONFIGURED => shared.redeem_reachability(),
+				_ => reachability.expect("EXPLICIT posture carries a reachability"),
+			};
+			Session::connect_iroh_with_host(designator, &plan.addresses, reachability, dial_host)
+				.await
+		}
+		#[cfg(not(feature = "iroh"))]
+		{
+			Err(Error::with_detail(
+				sys::ERR_INVALID_ARGUMENT,
+				"this build has no iroh transport; rebuild with the iroh feature".to_string(),
+			))
+		}
+	} else {
+		let stream = TcpStream::connect((plan.host.as_str(), plan.port))
+			.await
+			.map_err(io_err)?;
+		Session::establish_dialed_locator(shared, transport, designator, stream).await
+	}
+}
+
+/// Dial an exporter a DIAL action names, keyed with the host's retained
+/// identity, and bind the result to that same node so the redeemed capability
+/// and any further handoff it triggers share one identity and connection
+/// table. The action carries the locator's parsed pieces, so nothing re-parses
+/// the URI grammar here beyond the tcp host:port split. An `iroh` give with
+/// direct-address hints dials them with no discovery service (`Direct`); a
+/// bare node id resolves by id under the host's configured redeem posture
+/// (default `Discovery`; a relay-policy node lowers it), so one give shape
+/// covers an offline direct dial and an internet dial-by-id alike.
+/// Binding-internal: the host's action drain calls this to redeem a give.
+pub(crate) async fn dial_exporter(
+	transport: &str,
+	designator: &str,
+	direct_addresses_hint: &str,
+	host: Rc<HostShared>,
+) -> Result<Session> {
+	dial_parsed_locator(
+		transport,
+		designator,
+		direct_addresses_hint,
+		Some(Host::from_shared(host)),
+		true,
+		None,
+	)
+	.await
+}
+
+/// Dial a partner from its `ocapn://` locator — the one dialer, transport-neutral.
+/// A `tcp` locator (including one built with [`crate::tcp_locator`]) ignores
+/// `reachability`, so pass `None`; an `iroh` locator requires it (the posture is
+/// never guessed). `host` shares one identity across a server and dialed siblings
+/// (gifter handoff); only `tcp` / `keyed-tcp` thread it. The signature is the same whether or not the iroh transport is
+/// compiled in, so a call site never changes when the feature is turned on —
+/// without it, an `iroh` locator fails with a rebuild hint rather than dialing,
+/// and a tcp-only build links no iroh companion library.
+pub async fn connect(
+	uri: &str,
+	reachability: Option<Reachability>,
+	host: Option<Host>,
+) -> Result<Session> {
+	let loc = crate::uri::parse_locator(uri)?;
+	let hint = loc
+		.hints
+		.get(crate::abi_constants::HINT_DIRECT_ADDRESSES)
+		.map(String::as_str)
+		.unwrap_or("");
+	dial_parsed_locator(
+		&loc.transport,
+		&loc.designator,
+		hint,
+		host,
+		false,
+		reachability,
+	)
+	.await
+}

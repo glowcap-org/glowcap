@@ -16,6 +16,7 @@
 
 const codec = @import("codec");
 const model = @import("model");
+const session_mod = @import("session");
 
 const engine = @import("mod.zig");
 const Peer = engine.Peer;
@@ -43,7 +44,9 @@ pub fn installResolverForOutboundDeliver(peer: *Peer, deliver: model.Deliver) !m
             .target = deliver.target,
             .args = deliver.args,
             .answer = deliver.answer,
-            .resolve_me_desc = .{ .near = .{ .export_position = resolver_export, .kind = .promise } },
+            // Project the mention from the authoritative slot (the resolver was
+            // minted `local_unresolved`), never a hand-typed kind (ADR-0080).
+            .resolve_me_desc = session_mod.slot.toReference(peer.session_state.exportSlot(resolver_export).?).?,
         },
     };
 }
@@ -66,11 +69,14 @@ pub fn installListenerForOutboundProjection(peer: *Peer, projected_answer: model
     // through the session's single accounting seam (see
     // `installResolverForOutboundDeliver`), then carry the mention on `op:listen`.
     const resolver_export = try peer.session_state.mintOutboundResolver(projected_answer);
-    const wire: model.Message = .{ .listen = .{
-        .target = .{ .promise = .{ .answer_position = projected_answer } },
-        .listener = .{ .near = .{ .export_position = resolver_export, .kind = .promise } },
-        .wants_partial = false,
-    } };
+    const wire: model.Message = .{
+        .listen = .{
+            .target = .{ .promise = .{ .answer_position = projected_answer } },
+            // Project from the authoritative slot, never a hand-typed kind (ADR-0080).
+            .listener = session_mod.slot.toReference(peer.session_state.exportSlot(resolver_export).?).?,
+            .wants_partial = false,
+        },
+    };
     var frame = try codec.dispatch.encodeMessageForProfile(
         peer.session_state.codec,
         peer.allocator,
@@ -98,12 +104,17 @@ pub fn encodeResolveAsCallback(peer: *Peer, resolve: model.Resolve) !void {
         .fulfill => |value| .{ .{ .symbol = "fulfill" }, value },
         .@"break" => |err| .{ .{ .symbol = "break" }, .{ .symbol = err.message } },
     };
-    const wire: model.Message = .{ .deliver = .{
-        .target = .{ .far = .{ .import_position = resolver_import, .kind = .promise } },
-        .args = &args,
-        .answer = null,
-        .resolve_me_desc = null,
-    } };
+    const wire: model.Message = .{
+        .deliver = .{
+            // A far import carries no wire kind — `desc:export` names it regardless
+            // (ADR-0010), and the `Slot` sum makes remote-mint value object-only
+            // (ADR-0080). The old `.kind = .promise` here was dead and misleading.
+            .target = .{ .far = .{ .import_position = resolver_import } },
+            .args = &args,
+            .answer = null,
+            .resolve_me_desc = null,
+        },
+    };
     var frame = try codec.dispatch.encodeMessageForProfile(
         peer.session_state.codec,
         peer.allocator,

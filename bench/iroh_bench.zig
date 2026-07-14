@@ -36,6 +36,9 @@ const net = pancake.net;
 const frame_cap: usize = 4096;
 const greeting = "hello over the wire";
 
+const IrohLoop = net.completion.Loop(iroh.Backend, iroh.DialResolver);
+const IrohBridge = driver.Bridge(IrohLoop);
+
 /// The published actor: answers `greet` with a static greeting so the timed loop
 /// measures the transport and the protocol turn, not application work.
 const Greeter = struct {
@@ -117,7 +120,7 @@ fn clientMeasure(
     }
 }
 
-fn callOnce(cv: *driver.ConnectedVat, greeter: anytype, arena: std.mem.Allocator) !bool {
+fn callOnce(cv: *driver.BlockingSession, greeter: anytype, arena: std.mem.Allocator) !bool {
     const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena);
     return switch (settled) {
         .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
@@ -224,10 +227,10 @@ fn publishGreeterLoop(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
     _ = try served.publish("greeter", Greeter, .{});
 }
 
-/// Run the loop host until every connection has closed (or `requestStop` fires).
-fn serveLoopHost(host: *iroh.LoopHost) void {
-    host.run(.{ .after_closed = loop_conns }) catch |err| {
-        std.debug.print("bench-iroh loop: host loop error: {s}\n", .{@errorName(err)});
+/// Run the completion loop until every connection has closed.
+fn serveIrohLoop(loop: *IrohLoop, out_err: *?anyerror) void {
+    loop.run(.{ .after_closed = loop_conns }) catch |err| {
+        out_err.* = err;
     };
 }
 
@@ -306,15 +309,31 @@ fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls:
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const server_id = server.nodeId(&id_buf);
 
-    var host = try iroh.LoopHost.init(allocator, io, &server, publishGreeterLoop, null, .{
+    var host = driver.core.Host.init(allocator, server_seed, .{
         .frame_cap = frame_cap,
-        .max_conns = 64,
-        .verify_partner = true,
-        .secret = pancake.foundation.crypto.SecretKey.fromSeed(server_seed),
+        .local_turn_budget = actors.Vat.max_batch_local_turns,
     });
     defer host.deinit();
+    var loop: IrohLoop = undefined;
+    var bridge = IrohBridge.init(allocator, &host, io, &loop, .{ .publish = publishGreeterLoop });
+    defer bridge.deinit();
 
-    var loop_future = try io.concurrent(serveLoopHost, .{&host});
+    const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
+    const backend = try iroh.Backend.initBound(allocator, &server, 256, 256, read_buffer_bytes);
+    loop = try IrohLoop.initWithBackend(allocator, backend, IrohBridge.makePeer, @ptrCast(&bridge), .{
+        .frame_cap = frame_cap,
+        .max_conns = 64,
+        .listen = 0,
+        .make_conn_ctx = IrohBridge.makeConnCtx,
+        .serve = IrohBridge.serve,
+        .free_conn_ctx = IrohBridge.freeConnCtx,
+        .on_close = IrohBridge.onClose,
+    });
+    defer loop.deinit();
+    try bridge.attach(iroh.transport_name, server_id, &.{});
+
+    var loop_err: ?anyerror = null;
+    var loop_future = try io.concurrent(serveIrohLoop, .{ &loop, &loop_err });
 
     var sync = LoopSync{};
     var futures: [loop_conns]@TypeOf(io.concurrent(loopClient, .{ io, allocator, server_id, warmup, calls, &sync }) catch unreachable) = undefined;
@@ -336,8 +355,8 @@ fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls:
     }
     const t1 = nowNs(io);
 
-    host.requestStop();
     loop_future.await(io);
+    if (loop_err) |err| return err;
     if (first_err) |err| return err;
 
     const total: u64 = @intCast(loop_conns * calls);

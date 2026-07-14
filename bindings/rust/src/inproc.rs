@@ -134,7 +134,7 @@ impl Listener<'_> {
 // the accepting thread and calling `accept` there touches only its own state.
 // The state it shares with the netlayer is thread-safe: the allocator
 // (`std.heap.smp_allocator` for `Netlayer::new`, or a bounded `Send + Sync`
-// `HostAllocator` for `new_in`) and the in-process switchboard/`std.Io.Threaded`
+// `ContextAllocator` for `new_in`) and the in-process switchboard/`std.Io.Threaded`
 // backend, which tolerates the concurrent connect-on-origin / accept-off-thread
 // rendezvous the committed scoped-thread test exercises. Borrowing the netlayer
 // keeps it non-`'static`, so callers move it into a scoped thread.

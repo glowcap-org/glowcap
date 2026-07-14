@@ -41,11 +41,9 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import Ref, encode_peer_locator  # noqa: E402
+from pancake import Ref, TRANSPORT_IROH, connect, encode_peer_locator, format_peer_uri  # noqa: E402
 from pancake.iroh import (  # noqa: E402
     Reachability,
-    connect_iroh,
-    connect_iroh_with_node,
     listen_iroh,
 )
 
@@ -72,7 +70,7 @@ async def accept_loop(server, served: list) -> None:
 async def run() -> None:
     # ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
     exporter = listen_iroh(Reachability.LOCAL_DISCOVERY)
-    exporter.node.publish_giftable("greeter", greeter)
+    exporter.host.publish_giftable("greeter", greeter)
     exporter_id = exporter.node_id
     exporter_served: list = []
     exporter_task = asyncio.create_task(accept_loop(exporter, exporter_served))
@@ -81,9 +79,8 @@ async def run() -> None:
     # ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
     gifter = listen_iroh(Reachability.LOCAL_DISCOVERY)
     gifter_id = gifter.node_id
-    to_exporter = await connect_iroh_with_node(
-        exporter_id, "", Reachability.LOCAL_DISCOVERY, gifter.node
-    )
+    exporter_uri = format_peer_uri(TRANSPORT_IROH, exporter_id)
+    to_exporter = await connect(exporter_uri, Reachability.LOCAL_DISCOVERY, host=gifter.host)
     greeter_ref = await to_exporter.fetch("greeter")
     # Record the exporter's location by **node id alone** — no direct-addresses.
     # This is what forces the recipient down the configured-posture redeem path
@@ -95,17 +92,17 @@ async def run() -> None:
             return greeter_ref
         return None
 
-    gifter.node.publish_giftable("introducer", introducer)
+    gifter.host.publish_giftable("introducer", introducer)
     gifter_served: list = []
     gifter_task = asyncio.create_task(accept_loop(gifter, gifter_served))
     print(f"python-iroh-redeem-posture: gifter published introducer on {gifter_id}")
 
     # ── Recipient: configures its redeem posture, then redeems the hint-less give ─
-    recipient = await connect_iroh(gifter_id, "", Reachability.LOCAL_DISCOVERY)
+    recipient = await connect(format_peer_uri(TRANSPORT_IROH, gifter_id), Reachability.LOCAL_DISCOVERY)
     # The knob under test: without it, the hint-less redeem defaults to DISCOVERY
     # (n0 relays + DNS) and would fail with no network. The node is shared, so
     # this reaches the connection that performs the redeem.
-    recipient.node.redeem_reachability = Reachability.LOCAL_DISCOVERY
+    recipient.host.redeem_reachability = Reachability.LOCAL_DISCOVERY
     introducer_ref = await recipient.fetch("introducer")
     granted = await recipient.send(introducer_ref, "get-greeter", [])
     if not isinstance(granted, Ref):

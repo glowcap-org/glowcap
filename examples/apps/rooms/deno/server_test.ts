@@ -1,5 +1,4 @@
-import { connect, type Connection, type Ref, tcpLocator } from "@pancake/stack";
-import { Reachability } from "@pancake/iroh";
+import { connect, type Ref, type Session, tcpLocator } from "@pancake/stack";
 import {
 	DIRECTORY,
 	ENTER,
@@ -18,11 +17,12 @@ import {
 	type RoomErrorCode,
 	roomErrorOf,
 } from "./lib/errors.ts";
+import { dial, loopbackTcpDesignator } from "./lib/locator.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const SERVER = new URL("./server.ts", import.meta.url).pathname;
 const RACKET_CLIENT = new URL("../racket/client.rkt", import.meta.url).pathname;
-const DENO_FLAGS = ["run", "--allow-ffi", "--allow-read", "--allow-net"];
+const DENO_FLAGS = ["run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env"];
 // iroh dials through the sidecar over nonblocking FFI, which needs broader
 // permissions and --unstable-ffi; the server reads its own lib path.
 const IROH_FLAGS = ["run", "-A", "--unstable-ffi"];
@@ -172,7 +172,7 @@ async function withIrohServer(
 /** Enter the named room over `conn`, opening it if it does not exist, the
  * directory dance every client does, inlined here so the tests drive the same
  * wire the clients do. */
-async function enterOrOpen(conn: Connection, room: string): Promise<Ref> {
+async function enterOrOpen(conn: Session, room: string): Promise<Ref> {
 	const directory = await conn.fetch(DIRECTORY);
 	try {
 		return await conn.send(directory, ENTER, [room]) as Ref;
@@ -191,7 +191,7 @@ async function enterOrOpen(conn: Connection, room: string): Promise<Ref> {
  * welcome, and close. The transport (TCP or iroh) is whatever the connection
  * rides. */
 async function subscribeOnceConn(
-	conn: Connection,
+	conn: Session,
 	room: string,
 	nick: string,
 ): Promise<string> {
@@ -231,8 +231,7 @@ async function subscribeOnceIroh(
 	room: string,
 	nick: string,
 ): Promise<string> {
-	// Rooms URIs carry direct-addresses, so dial with the explicit `.direct` posture.
-	return subscribeOnceConn(await connect(uri, Reachability.Direct), room, nick);
+	return subscribeOnceConn(await dial(uri), room, nick);
 }
 
 async function trySubscribe(port: number, room: string, nick: string): Promise<{
@@ -310,7 +309,7 @@ async function waitForMatch(
 }
 
 async function watchRoomConn(
-	conn: Connection,
+	conn: Session,
 	room: string,
 	nick: string,
 ): Promise<{
@@ -345,8 +344,7 @@ async function watchRoom(port: number, room: string, nick: string) {
 }
 
 async function watchRoomIroh(uri: string, room: string, nick: string) {
-	// Rooms URIs carry direct-addresses, so dial with the explicit `.direct` posture.
-	return watchRoomConn(await connect(uri, Reachability.Direct), room, nick);
+	return watchRoomConn(await dial(uri), room, nick);
 }
 
 async function waitForLine(lines: string[], pattern: RegExp): Promise<string> {
@@ -519,7 +517,7 @@ Deno.test("rooms server announces members leaving", async () => {
 
 /** The directory's live room list as `[name, count]` pairs (counts arrive as
  * bigint), over an already-serving connection. */
-async function listRooms(conn: Connection): Promise<Array<[string, number]>> {
+async function listRooms(conn: Session): Promise<Array<[string, number]>> {
 	const directory = await conn.fetch(DIRECTORY);
 	const raw = await conn.send(directory, LIST, []) as unknown[];
 	return raw.map((pair) => {
@@ -531,7 +529,7 @@ async function listRooms(conn: Connection): Promise<Array<[string, number]>> {
 /** Register a directory watcher over `conn` and collect its `notify(event, name,
  * count)` deltas as `"event name count"` strings, returning the baseline
  * snapshot too. */
-async function watchDirectory(conn: Connection): Promise<{
+async function watchDirectory(conn: Session): Promise<{
 	events: string[];
 	snapshot: Array<[string, number]>;
 }> {
@@ -624,13 +622,13 @@ Deno.test("a room leave drops just that membership, keeping the connection", asy
 			await conn.send(two, SUBSCRIBE, ["solo", inbox]);
 
 			// Leaving "one" (its only member) closes it; "two" survives on the same
-			// still-open connection.
+			// still-open session.
 			await conn.send(one, LEAVE, []);
 			const rooms = new Map(await listRooms(conn));
 			assert(!rooms.has("one"), "left room should be gone");
 			assert(
 				rooms.get("two") === 1,
-				"the other room should remain on this connection",
+				"the other room should remain on this session",
 			);
 
 			// The connection is still usable: we can post in the room we kept.
@@ -649,7 +647,7 @@ Deno.test("racket one-shot client exits by its deadline while unrelated traffic 
 		const proc = new Deno.Command("racket", {
 			args: [
 				RACKET_CLIENT,
-				`127.0.0.1:${port}`,
+				loopbackTcpDesignator(port),
 				"general",
 				"rkt-alan",
 				"hello from racket",

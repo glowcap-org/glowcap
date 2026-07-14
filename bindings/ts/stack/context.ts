@@ -1,6 +1,6 @@
 // The allocation scope: a `Context` routes every allocation of a handle family
 // created in it through a host-supplied backend. `mod.ts` re-exports `Context`
-// and `HostAllocator`.
+// and `ContextAllocator`.
 
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 import { ffi, type NativeCallback, NULL, type Ptr } from "./internal/ffi/runtime.ts";
@@ -16,14 +16,14 @@ import { PancakeError } from "./errors.ts";
 
 /** A host allocation backend for `Context.withAllocator`. Methods may be called
  * from any thread that touches a handle created in the context. */
-export interface HostAllocator {
+export interface ContextAllocator {
 	/** Return a block of at least `size` bytes aligned to `alignment`. */
 	alloc(size: number, alignment: number): Uint8Array;
 	/** Release a block previously returned by `alloc`. */
 	free(block: Uint8Array, size: number, alignment: number): void;
 }
 
-/** An allocation scope. A host created in it (`new Node(seed, { context })`)
+/** An allocation scope. A host created in it (`new Host(seed, { context })`)
  * routes every byte it owns through it. A context must outlive
  * every handle created in it; release it (via `using` / `[Symbol.dispose]`)
  * only after those handles. */
@@ -40,7 +40,7 @@ export class Context {
 
 	/** A context that routes every allocation through `allocator`. The host
 	 * callbacks are kept alive for the context's whole lifetime. */
-	static withAllocator(allocator: HostAllocator): Context {
+	static withAllocator(allocator: ContextAllocator): Context {
 		const ctx = new Context(NULL);
 		// pointer value -> the JS-owned block backing it, so free can reclaim it and
 		// GC cannot collect a block C still references. Owned by the alloc/free
@@ -98,7 +98,7 @@ export class Context {
 		return ctx;
 	}
 
-	/** Opaque handle, for use by `Peer.rawOpenIn`. */
+	/** Opaque handle passed to `new Host(seed, { context })`. */
 	get pointer(): Ptr {
 		return this.#raw;
 	}

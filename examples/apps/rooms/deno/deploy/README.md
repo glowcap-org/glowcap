@@ -4,7 +4,9 @@ This directory serves the rooms browser UI over iroh from a small container that
 carries no build toolchain. The image is Deno on a `debian:trixie-slim` base; the
 pancake TypeScript source and the prebuilt pancake shared libraries both arrive at
 run time as read-only mounts, so nothing pancake is baked into the image. A
-Cloudflare tunnel (or any reverse proxy) puts it on the public internet.
+Cloudflare tunnel (or any reverse proxy) puts the browser UI on the public
+internet; CapTP peers on the shared Docker network bootstrap the live
+`ocapn://` locator from HTTP, then dial over iroh Discovery.
 
 The split is deliberate. The heavy dev image builds the shared libraries once; this
 light image only runs them. The Rust iroh sidecar is statically linked into
@@ -13,8 +15,8 @@ two `.so` files.
 
 ## Build the shared libraries and the UI bundle first
 
-The libraries live in `zig-out/lib/`, which is generated, so build them in the dev
-container before starting the compose service:
+The libraries live in `zig-out/lib/`, which is generated, so build them in the
+dev container before starting the compose service:
 
 ```sh
 zig build && zig build iroh-abi
@@ -59,18 +61,34 @@ From this directory:
 docker compose up -d --build
 ```
 
-The container is named `pancake-rooms` and serves the page and its WebSocket on
-port 8000. It joins the external network your tunnel already uses, so a cloudflared
-container on that network reaches it by name. Tell it which network by copying
-`.env.example` to `.env` and setting your network's name:
+The container is named `pancake-rooms` and serves:
+
+- **HTTP/WebSocket** on port **8000** (browser UI via the tunnel; also
+  `GET /locator` for CapTP bootstrap)
+- **iroh CapTP** with `ROOMS_REACHABILITY=discovery` — announces a bare
+  `ocapn://<nodeid>.iroh` URI resolved through n0 relays + DNS/pkarr
+
+It attaches to two Docker networks:
+
+- **`rooms-net`** — shared with the pancake devcontainer, so a rooms-bot there
+  reaches this container's internal CapTP by name. Fixed name, committed in both
+  compose files; create it once with `docker network create rooms-net`.
+- **your tunnel's network** — so a cloudflared container on it reaches the web UI
+  (`:8000`) by name. Name it per host in the gitignored `.env` via `EGRESS_NET`:
 
 ```sh
 cp .env.example .env
-# then edit .env: ROOMS_EXTERNAL_NET=<your shared network>
+# then edit .env: EGRESS_NET=<your tunnel's network>
+docker network create "$(grep ^EGRESS_NET= .env | cut -d= -f2)"   # if missing
+docker network create rooms-net                                    # if missing
 ```
 
-`.env` is gitignored, so your infrastructure names stay out of the repo. Create the
-network first if it does not exist (`docker network create <name>`).
+`.env` is gitignored; `.env.example` has an empty value so no network name is
+committed. The pancake devcontainer joins `rooms-net` at create time via
+[`.devcontainer/.env`](../../../../../.devcontainer/.env.example) +
+[`docker-compose.yml`](../../../../../.devcontainer/docker-compose.yml). It sets
+its own `EGRESS_NET` (the LLM backend) in its own `.env`, so the two `EGRESS_NET`
+values differ — the shared network is `rooms-net`.
 
 ## Point cloudflared at it
 
@@ -91,9 +109,25 @@ Then route DNS for it:
 cloudflared tunnel route dns <your-tunnel-name> rooms.example.com
 ```
 
-Iroh runs entirely inside the container: the browser bridge and the room directory
-it spawns talk to each other over loopback QUIC, so there are no UDP ports to
-expose. Cloudflared only ever sees port 8000.
+Iroh CapTP (directory + DM members) uses Discovery: peers resolve the node id
+through n0 infrastructure. Cloudflared only ever sees port 8000.
+
+## CapTP peers (rooms-bot)
+
+From the pancake devcontainer on the shared `rooms-net`:
+
+```sh
+# needs zig-out/lib with libpancake_ocapn.so + libpancake_net_transport_iroh.so
+python3 .agents/skills/rooms-bot/scripts/init.py \
+  --nick Alice --dir /tmp/rooms-bot-alice --room general
+# default locator is http://pancake-rooms:8000/locator
+# peer fetches the ocapn:// URI, then dials over iroh Discovery
+```
+
+`GET http://pancake-rooms:8000/locator` (service alias `rooms` also resolves)
+returns the live bare `ocapn://<nodeid>.iroh` line. That HTTP hop is only
+bootstrap — CapTP itself rides iroh. See
+[`.agents/skills/rooms-bot/SKILL.md`](../../../../../.agents/skills/rooms-bot/SKILL.md).
 
 ## Lifting it into a shared host compose
 
@@ -119,8 +153,8 @@ instead of the live `zig-out/lib`.
   `GLIBC_2.36`, so any modern glibc loads them. The image copies the official Deno
   binary (the `bin` image variant) onto the same `debian:trixie-slim` base as the
   dev image, which gives glibc headroom. Alpine is musl and cannot load the `.so`.
-- **A TCP variant works the same way.** Drop `--transport=iroh` from the command
-  and the UI runs over plain TCP, needing only `libpancake_ocapn.so` (the core's
-  networking is Deno-native, so no separate TCP transport `.so` is loaded). Iroh is
-  the encrypted-QUIC path; over a Cloudflare tunnel the public hop is already TLS,
-  so the in-container transport is a free choice.
+- **Direct reachability** is still available for hermetic same-host demos: set
+  `ROOMS_REACHABILITY=direct` (or omit it). Deploy defaults to `discovery` so
+  CapTP peers on other containers resolve the room by node id.
+- **A TCP room** works by dropping `--transport=iroh` and binding CapTP with
+  `ROOMS_BIND` / `ROOMS_ANNOUNCE_HOST`; that path does not use iroh Discovery.

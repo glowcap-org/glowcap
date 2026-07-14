@@ -35,6 +35,7 @@ const PANCAKE_ERR_NULL_POINTER = c.PANCAKE_ERR_NULL_POINTER;
 const PANCAKE_ERR_INVALID_ARGUMENT = c.PANCAKE_ERR_INVALID_ARGUMENT;
 const PANCAKE_ERR_INTERNAL = c.PANCAKE_ERR_INTERNAL;
 const PANCAKE_ERR_NOT_FOUND = c.PANCAKE_ERR_NOT_FOUND;
+const PANCAKE_ERR_BUFFER_TOO_SMALL = c.PANCAKE_ERR_BUFFER_TOO_SMALL;
 
 /// What a parse returns: the owned `model.uri` value plus the allocator that
 /// minted it, so `pancake_locator_release` frees through the same policy. A peer
@@ -154,9 +155,11 @@ pub export fn pancake_locator_designator(loc: ?*PancakeLocator, out_ptr: ?*?[*]c
 /// netlayer dials through: last-colon split, bracketed IPv6 literals unwrapped
 /// (`[::1]:9000` yields host `::1`), decimal `u16` port. A consumer dialing with
 /// its own sockets stops re-deriving that split per language, which is where the
-/// copies had already drifted. PANCAKE_ERR_INVALID_ARGUMENT (see
-/// pancake_last_error) when the designator does not carry the grammar. The host
-/// view aliases the handle until pancake_locator_release.
+/// copies had already drifted. When the designator bytes are already known
+/// without a locator handle, prefer `pancake_designator_host_port`.
+/// PANCAKE_ERR_INVALID_ARGUMENT (see pancake_last_error) when the designator
+/// does not carry the grammar. The host view aliases the handle until
+/// pancake_locator_release.
 pub export fn pancake_locator_host_port(
     loc: ?*PancakeLocator,
     out_host: ?*?[*]const u8,
@@ -164,9 +167,32 @@ pub export fn pancake_locator_host_port(
     out_port: ?*u16,
 ) i32 {
     const payload = locFromOpaque(loc) orelse return PANCAKE_ERR_NULL_POINTER;
+    return pancake_designator_host_port(
+        payload.peer.designator.ptr,
+        payload.peer.designator.len,
+        out_host,
+        out_host_len,
+        out_port,
+    );
+}
+
+/// Split a bare designator (or a `direct-addresses` hint entry) as
+/// `host:port` — same grammar as `pancake_locator_host_port`, without minting
+/// a peer URI or a locator handle. A DIAL action already carries the
+/// designator; redeem dials call this instead of format→parse→host_port. The
+/// host view aliases `designator` for the call; copy it before mutating that
+/// buffer.
+pub export fn pancake_designator_host_port(
+    designator: ?[*]const u8,
+    designator_len: usize,
+    out_host: ?*?[*]const u8,
+    out_host_len: ?*usize,
+    out_port: ?*u16,
+) i32 {
+    const designator_ptr = designator orelse return PANCAKE_ERR_NULL_POINTER;
     const port_slot = out_port orelse return PANCAKE_ERR_NULL_POINTER;
-    const split = model.uri.splitHostPort(payload.peer.designator) catch {
-        setLastError("locator designator is not host:port: {s}", .{payload.peer.designator});
+    const split = model.uri.splitHostPort(designator_ptr[0..designator_len]) catch {
+        setLastError("designator is not host:port: {s}", .{designator_ptr[0..designator_len]});
         return PANCAKE_ERR_INVALID_ARGUMENT;
     };
     const rc = writeView(split.host, out_host, out_host_len);
@@ -290,20 +316,21 @@ fn writeErrToCode(err: model.uri.Error) i32 {
 
 /// Copy the rendered URI into the caller's buffer. `out_len` always receives the
 /// full length (so a too-small buffer can be retried); a NULL buffer or a buffer
-/// smaller than the URI is PANCAKE_ERR_INVALID_ARGUMENT with the length reported.
+/// smaller than the URI is PANCAKE_ERR_BUFFER_TOO_SMALL with the length reported.
 fn copyOut(rendered: []const u8, out: ?[*]u8, cap: usize, out_len: ?*usize) i32 {
     const l = out_len orelse return PANCAKE_ERR_NULL_POINTER;
     l.* = rendered.len;
     const dest = out orelse return PANCAKE_ERR_INVALID_ARGUMENT;
-    if (cap < rendered.len) return PANCAKE_ERR_INVALID_ARGUMENT;
+    if (cap < rendered.len) return PANCAKE_ERR_BUFFER_TOO_SMALL;
     @memcpy(dest[0..rendered.len], rendered);
     return PANCAKE_OK;
 }
 
 /// Format a peer locator as an `ocapn://` URI into `out`. Hints are parallel
 /// key/value string arrays of `hint_count` entries; all inputs are borrowed.
-/// `out_len` receives the full URI length; a buffer too small (or NULL) is
-/// PANCAKE_ERR_INVALID_ARGUMENT with the length still reported.
+/// `out_len` receives the full URI length; a buffer too small is
+/// PANCAKE_ERR_BUFFER_TOO_SMALL (a NULL buffer is PANCAKE_ERR_INVALID_ARGUMENT)
+/// with the length still reported.
 pub export fn pancake_uri_format_peer(
     transport: ?[*]const u8,
     transport_len: usize,

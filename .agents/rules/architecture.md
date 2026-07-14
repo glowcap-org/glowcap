@@ -11,6 +11,13 @@ OCapN behavior, Spritely Goblins fixtures, and Zig-local protocol scenarios are
 the conformance authority. The Rust, Deno, Python, and Racket bindings are C ABI
 dogfood consumers, never the oracle for Zig semantics.
 
+**CapTP sticky note (ADR-0079):** `Host` / `PancakeHost` / binding `Host` =
+multi-session CapTP product (owns `engine.Node`); `engine.Node` = sans-io handoff router;
+binding `Session` = one-partner app object (`driver.Session`); Goblins `mycapn`
+= endpoint ≈ Host + router tables ≈ `engine.Node`. Binding `Node` /
+`Connection` deleted; `net.Connection` is the byte stream only. No
+multi-session “node” alias for `PancakeHost`; no `driver.Connection`.
+
 ## Runtime Shape
 
 ```text
@@ -38,6 +45,11 @@ The portable core stays deterministic, sync, and no-I/O:
 Adapters may use `std.Io`, transports, callbacks, and host scheduling. They do
 not add CapTP semantics that the core lacks.
 
+Vocabulary: CapTP is transport-agnostic. A netlayer is a locator transport
+symbol (`tcp`, `keyed-tcp`, `inproc`, `iroh`). Socket and stream code live in
+transport residents; `keyed-tcp` is its own symbol and reuses `tcp` sockets —
+not a second CapTP stack. CapTP never names a transport.
+
 ## Layer Ownership
 
 - `foundation`: bytes, IDs, frame ownership.
@@ -59,13 +71,14 @@ not add CapTP semantics that the core lacks.
   `become` is O(log n) with structural sharing. Pure, no-I/O, imports nothing,
   and not on the public `pancake` namespace; reached by opt-in persistent
   actors.
-- `net`: the one place `std.Io` enters, folds the one parser over a stream and
-  binds the TCP socket. Not part of the no-I/O core.
+- `net`: the one place `std.Io` enters, folds the one parser over a stream, and
+  realizes netlayer residents over byte streams (sockets, pipes, QUIC sidecar).
+  Not part of the no-I/O core. CapTP never names a transport.
 - `driver/core` (`driver_core`): the sans-io serve core the driver stands on —
   the vat serve loop `Served` (which carries the publish/spawn/fetch verbs),
   its `ServeOptions`, the shared vocabulary (`Error`, `Identity`, `Capability`,
   `Settled`), the turn-time `spawnAt`, stateless GC, and the byte-fed
-  multi-connection host core `Host` (node-registered connections,
+  multi-session CapTP host core `Host` (node-registered CapTP sessions as `Conn`,
   crossed-hellos, auto-redeem, vows, and an action queue the embedder
   answers). It is `core = true`, so
   `arch-check` bans I/O here exactly as in `engine`; that ban is what keeps a
@@ -73,13 +86,15 @@ not add CapTP semantics that the core lacks.
   consumer (the `libpancake_driver` C ABI, a browser) drives a `Served` or a
   `Host` directly, net-free.
 - `driver`: the native application surface above `driver_core`, `actors`, and
-  `net`; the I/O bindings that compose the sans-io core. `ConnectedVat` binds a
+  `net`; the I/O bindings that compose the sans-io core. `BlockingSession` binds a
   `Served` to a live `net.Connection` over a caller-owned `engine.Peer`;
-  `driver.BlockingHost` is the native Zig blocking multi-connection tier over
-  `driver_core.Host` (ADR-0068/0072); `driver.LoopBridge` feeds that same host
-  from `net.Loop` for the TCP scale path (ADR-0076). Language bindings drive
-  `driver_core.Host` through `libpancake_driver`, not by rebuilding
-  `BlockingHost`. Adds no CapTP semantics. It also owns the `drawSessionSecret`
+  owning one-call clients/servers ride `driver.Session` / `driver.Server`.
+  `driver.Bridge` + `completion.Loop` is the native Zig multi-session CapTP path
+  over `driver_core.Host` (ADR-0068/0072/0076) — the completion-loop scale path
+  (`net.TcpLoop` over the `tcp` socket backend; `completion.Loop(iroh.Backend, iroh.DialResolver)`
+  for iroh). Language bindings drive `driver_core.Host`
+  through `libpancake_driver` (byte-fed readiness), not by rebuilding a Zig
+  Host type. Adds no CapTP semantics. It also owns the `drawSessionSecret`
   entropy boundary and the transport constructors — the members that must stay
   above the core's I/O ban.
 - `c_abi/`: the public C ABI family under `src/c_abi/`, grouped the way
@@ -102,13 +117,15 @@ not add CapTP semantics that the core lacks.
     this in the generated headers). Header signatures and constant values are
     reflected from `src/c_abi/ocapn`, but their comment prose lives in
     `tools/header_gen.zig` — a C-contract change edits both the Zig doc comment
-    and the generator's string, then `zig build gen-header-ocapn`; `zig build
-    gen-ts-abi` reflects the same constants and struct layouts into the
-    TypeScript binding's generated mirror.
+    and the generator's string, then `zig build gen-header-ocapn` (writes
+    `pancake_ocapn.h`);
+    `zig build gen-ts-abi` reflects the same constants and struct layouts into
+    the TypeScript binding's generated mirror. Multi-session CapTP product
+    work uses `pancake_host_*` in `pancake_driver.h`.
   - `c_abi/driver` (module `c_abi_driver`): `libpancake_driver`, the byte-fed
     host tier over the C ABI (ADR-0072). An embedder that owns its own loop,
-    sockets, and entropy drives a full multi-connection node with bytes:
-    `pancake_host_conn_feed` hands a connection an inbound frame,
+    sockets, and entropy drives a full multi-session CapTP Host with bytes:
+    `pancake_host_conn_feed` hands a CapTP session an inbound frame,
     `pancake_host_conn_take_outbound` drains an outbound one, and the host's
     own effects (dials, gift-id entropy, flushes) surface as actions through
     `pancake_host_next_action` — so publish/fetch/send, vows, projections, and
@@ -126,7 +143,7 @@ not add CapTP semantics that the core lacks.
     Each child below is its own `.graph = false` layer.
     - `c_abi/net_transport/tcp` (module `c_abi_net_transport_tcp`): the TCP
       transport archive (`libpancake_net_transport_tcp`). It imports `net`,
-      `model`, and `c_abi_shared`, exports only its `pancake_tcp_*` family plus
+      `driver`, and `c_abi_shared`, exports only its `pancake_tcp_*` family plus
       its own `pancake_tcp_last_error`, and reflects its header from its own
       root (`zig build gen-header-net-transport-tcp`).
     - `c_abi/net_transport/inproc` (module `c_abi_net_transport_inproc`): the

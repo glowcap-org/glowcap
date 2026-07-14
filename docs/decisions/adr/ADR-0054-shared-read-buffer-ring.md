@@ -114,8 +114,7 @@ spill always assumed.
   across the scripted backends (`test/net/completion_loop_test.zig`); the
   real-backend concurrency, churn, and dialer suites run unchanged over the new
   contract (`test/net/completion_loop_test.zig`,
-  `test/net/completion_dialer_test.zig`, `test/driver/loop_host_test.zig`,
-  `test/driver/loop_dialer_test.zig`).
+  `test/net/completion_dialer_test.zig`).
 
 ## Notes
 

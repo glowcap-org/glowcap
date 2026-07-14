@@ -14,10 +14,11 @@ const pancake = @import("pancake");
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const tcp = pancake.net.tcp;
-const Loop = pancake.net.Loop;
+const Loop = pancake.net.TcpLoop;
 const completion = pancake.net.completion;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
+const no_dial = @import("no_dial_locator.zig");
 
 const frame_cap = 4096;
 
@@ -99,14 +100,15 @@ fn senderOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var designator_buf: [64]u8 = undefined;
-    const designator = try std.fmt.bufPrint(&designator_buf, "127.0.0.1:{d}", .{port});
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const designator_addr = try tcp.parseHostPort("127.0.0.1", port);
+    const designator = tcp.locator(&designator_buf, designator_addr).designator;
     const locator: model.PeerLocator = .{
         .transport = tcp.transport_name,
         .designator = designator,
         .hints = model.Hints.emptyMap(),
     };
-    var conn = try tcp.connect(io, &peer, locator, read_buf, write_buf);
+    var conn = try tcp.connect(io, &peer, locator, read_buf, write_buf, .{});
     defer conn.deinit();
 
     try fetch_pump.handshakeToOpen(&peer, &conn, startSession("sender"));
@@ -131,12 +133,12 @@ test "cross-arm: a hook serving one connection puts a frame on a quiet sibling's
     shared.loop = &loop;
     const port = loop.port.?;
 
-    var loop_err: ?anyerror = null;
-    const loop_thread = try std.Thread.spawn(.{}, runLoopCapturing, .{ &loop, @as(usize, 2), &loop_err });
-
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
+
+    var loop_err: ?anyerror = null;
+    var loop_future = try io.concurrent(runLoopCapturing, .{ &loop, @as(usize, 2), &loop_err });
 
     // The quiet partner connects and handshakes first, so it is the registry's
     // first entry. It registers `beacon` so the cross-armed bootstrap fetch is
@@ -152,13 +154,14 @@ test "cross-arm: a hook serving one connection puts a frame on a quiet sibling's
     const quiet_write = try allocator.alloc(u8, frame_cap);
     defer allocator.free(quiet_write);
 
-    var designator_buf: [64]u8 = undefined;
-    const designator = try std.fmt.bufPrint(&designator_buf, "127.0.0.1:{d}", .{port});
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const designator_addr = try tcp.parseHostPort("127.0.0.1", port);
+    const designator = tcp.locator(&designator_buf, designator_addr).designator;
     var quiet_conn = try tcp.connect(io, &quiet_peer, .{
         .transport = tcp.transport_name,
         .designator = designator,
         .hints = model.Hints.emptyMap(),
-    }, quiet_read, quiet_write);
+    }, quiet_read, quiet_write, .{});
 
     try fetch_pump.handshakeToOpen(&quiet_peer, &quiet_conn, startSession("quiet"));
 
@@ -181,7 +184,7 @@ test "cross-arm: a hook serving one connection puts a frame on a quiet sibling's
 
     const sender_result = sender_future.await(io);
     quiet_conn.deinit();
-    loop_thread.join();
+    loop_future.await(io);
 
     try sender_result;
     if (loop_err) |err| return err;
@@ -226,7 +229,8 @@ const CrossArmBackend = struct {
         self.* = .{};
     }
 
-    pub fn openListener(port: u16) !Fd {
+    pub fn openListener(self: *@This(), port: u16) !Fd {
+        _ = self;
         _ = port;
         return 1;
     }
@@ -236,7 +240,22 @@ const CrossArmBackend = struct {
         return 1;
     }
 
-    pub fn closeFd(fd: Fd) void {
+    pub fn closeFd(self: *@This(), fd: Fd) void {
+        _ = self;
+        _ = fd;
+    }
+
+    pub const ConnectTarget = void;
+
+    pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
+        _ = self;
+        _ = user_data;
+        _ = target;
+        return error.UnsupportedTransport;
+    }
+
+    pub fn shutdownFd(self: *@This(), fd: Fd) void {
+        _ = self;
         _ = fd;
     }
 
@@ -356,7 +375,7 @@ test "cross-arm: cross-armed bytes count into pending outbound and park the read
         CrossArmBackend.eof_when_exhausted = false;
     }
 
-    var loop = try completion.Loop(CrossArmBackend).init(allocator, makeServerPeer, null, .{
+    var loop = try completion.Loop(CrossArmBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
         .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,

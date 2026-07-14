@@ -8,12 +8,12 @@
 
 use std::time::{Duration, Instant};
 
-use pancake::{connect, listen, tcp_locator, Argument, Connection, Ref};
+use pancake::{connect, listen, tcp_locator, Argument, Ref, Session};
 
 const CLIENT: &str = "rust";
 const RUNTIME: &str = "rust";
 
-async fn run_unit(conn: &Connection, root: &Ref) -> Result<(), String> {
+async fn run_unit(conn: &Session, root: &Ref) -> Result<(), String> {
 	let reply = conn
 		.send(root, "create", &[Argument::Bytes(b"benchmark".to_vec())])
 		.await
@@ -42,7 +42,7 @@ async fn run_unit(conn: &Connection, root: &Ref) -> Result<(), String> {
 // one round trip instead of four. Only the final `status` is awaited. The
 // throughput unit; `run_unit` stays sequential so latency keeps measuring a
 // single round trip.
-async fn run_unit_pipelined(conn: &Connection, root: &Ref) -> Result<(), String> {
+async fn run_unit_pipelined(conn: &Session, root: &Ref) -> Result<(), String> {
 	let create = conn.send(root, "create", &[Argument::Bytes(b"benchmark".to_vec())]);
 	let _assign = conn.send(&create, "assign", &[Argument::Bytes(b"alice".to_vec())]);
 	let _complete = conn.send(&create, "complete", &[]);
@@ -65,7 +65,7 @@ fn percentile_ms(sorted: &[f64], p: f64) -> f64 {
 }
 
 async fn run_latency(locator: &str, n: usize) -> Result<(), String> {
-	let conn = connect(locator, None)
+	let conn = connect(locator, None, None)
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
 	let root = conn
@@ -93,7 +93,7 @@ async fn run_latency(locator: &str, n: usize) -> Result<(), String> {
 }
 
 async fn run_throughput(locator: &str, n: usize) -> Result<(), String> {
-	let conn = connect(locator, None)
+	let conn = connect(locator, None, None)
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
 	let root = conn
@@ -119,9 +119,9 @@ async fn run_throughput(locator: &str, n: usize) -> Result<(), String> {
 }
 
 async fn run_connections(locator: &str, n: usize) -> Result<(), String> {
-	let mut warm: Vec<Connection> = Vec::new();
+	let mut warm: Vec<Session> = Vec::new();
 	for _ in 0..n.min(5) {
-		let c = connect(locator, None)
+		let c = connect(locator, None, None)
 			.await
 			.map_err(|e| format!("connect: {e:?}"))?;
 		c.fetch("root").await.map_err(|e| format!("fetch: {e:?}"))?;
@@ -129,10 +129,10 @@ async fn run_connections(locator: &str, n: usize) -> Result<(), String> {
 	}
 	println!("{{\"v\":1,\"event\":\"warmed\"}}");
 	tokio::time::sleep(Duration::from_millis(600)).await;
-	let mut handles: Vec<Connection> = Vec::with_capacity(n);
+	let mut handles: Vec<Session> = Vec::with_capacity(n);
 	let t0 = Instant::now();
 	for _ in 0..n {
-		let c = connect(locator, None)
+		let c = connect(locator, None, None)
 			.await
 			.map_err(|e| format!("connect: {e:?}"))?;
 		c.fetch("root").await.map_err(|e| format!("fetch: {e:?}"))?;
@@ -171,7 +171,7 @@ fn counter_behavior(
 /// Run `n` sequential send→settle hit units against `target`, asserting the
 /// final count equals `n` (ahead-of-time, no warmup, so the counter starts at
 /// zero). Returns the sorted per-turn latencies in nanoseconds.
-async fn measure_hits(conn: &Connection, target: &Ref, n: usize) -> Result<Vec<f64>, String> {
+async fn measure_hits(conn: &Session, target: &Ref, n: usize) -> Result<Vec<f64>, String> {
 	let mut lats: Vec<f64> = Vec::with_capacity(n);
 	let mut last: i64 = 0;
 	for _ in 0..n {
@@ -267,7 +267,7 @@ async fn run_local(n: usize) -> Result<(), String> {
 }
 
 async fn run_cold(locator: &str) -> Result<(), String> {
-	let conn = connect(locator, None)
+	let conn = connect(locator, None, None)
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
 	let root = conn

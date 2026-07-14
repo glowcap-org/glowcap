@@ -3,16 +3,24 @@ id: ADR-0069
 status: accepted
 date: 2026-07-07
 tags: [engine, node, handoff, three-party, routing, gc, api]
-decision: "A fetched foreign capability is identified across connections by a node-unique token, not by its wire import position. The `Node` enrolls every fetched far import under a token drawn from the same reserved high range as a redeemed handoff token, mapping it to a `Route{home_conn, real_wire_reference}`, and hands the application that token; routing, the gifter-side origination interceptor, and the send-argument foreign verdict all resolve through the enrollment instead of through the old position-keyed `foreign_homes` map. This closes a real cross-connection identity collision — import positions are per-session, so two capabilities fetched over different connections routinely share a position, and the node-global position key made the second fetch clobber the first, mis-routing every introduction after the first to the last-fetched exporter (revealed by the rooms directory, which introduces many members over one identity). The enrollment is also swept in `removeConn`, fixing a companion leak. A single outbound chokepoint (`Peer.send` calling `Node.lowerForConn`) lowers every reference in an outbound message, so a token cannot leak in any emission position. The native Zig driver adopts the token first, proven by a two-exporter handoff test; the C ABI surfaces the enrollment (`pancake_node_enroll_foreign`) and all four bindings adopt it, the TypeScript one proven by the rooms direct-message reproduction; the deprecated position-keyed path and the old record-foreign-home helper are then removed, leaving the token as the node's one foreign-capability identity."
+decision: "A fetched foreign capability is identified across connections by a node-unique token, not by its wire import position. `engine.Node` enrolls every fetched far import under a token drawn from the same reserved high range as a redeemed handoff token, mapping it to a `Route{home_conn, real_wire_reference}`, and hands the application that token; routing, the gifter-side origination interceptor, and the send-argument foreign verdict all resolve through the enrollment instead of through the old position-keyed `foreign_homes` map. This closes a real cross-connection identity collision — import positions are per-session, so two capabilities fetched over different connections routinely share a position, and the node-global position key made the second fetch clobber the first, mis-routing every introduction after the first to the last-fetched exporter (revealed by the rooms directory, which introduces many members over one identity). The enrollment is also swept in `removeConn`, fixing a companion leak. A single outbound chokepoint (`Peer.send` calling `Node.lowerForConn`) lowers every reference in an outbound message, so a token cannot leak in any emission position. The native Zig driver adopts the token first, proven by a two-exporter handoff test; at acceptance the C ABI surfaced the enrollment as pancake_node_enroll_foreign (that C waist is deleted — CapTP product work uses `pancake_host_*`) and all four bindings adopt it, the TypeScript one proven by the rooms direct-message reproduction; the deprecated position-keyed path and the old record-foreign-home helper are then removed, leaving the token as the node's one foreign-capability identity."
 supersedes: []
-superseded_by: []
+superseded_by: [ADR-0079]
 ---
 
 # ADR-0069 A fetched foreign capability is identified by a node-unique token
 
+> **C-projection / vocabulary supersession (ADR-0079).** The Zig `engine.Node`
+> token enrollment and its semantics remain accepted. The former
+> pancake_node_enroll_foreign C entry (and the pancake_node_* waist) were
+> deleted; CapTP multi-connection product work uses `pancake_host_*`. Binding
+> `Node` is not the current multi-conn product — that is binding `Host`. Read
+> historical pancake_node_* / binding-`Node` mentions below as acceptance-time
+> shape.
+
 ## Context
 
-The `Node` (ADR-0066) makes a three-party handoff transparent. When a served
+`engine.Node` (ADR-0066) makes a three-party handoff transparent. When a served
 reply returns a capability the node fetched from another connection, the node's
 resolve interceptor recognizes it as *foreign* and originates the gifter half of
 a handoff instead of encoding a cross-connection reference. It recognizes the
@@ -140,7 +148,8 @@ by every consumer. It lands in stages so each is provable on its own:
    uniformly, so the token model no longer leaks in any emission position — the
    prerequisite for a binding to hold tokens without a per-path lowering rule of
    its own.
-3. The C ABI surfaces the enrollment (`pancake_node_enroll_foreign`), and every
+3. At acceptance the C ABI surfaced the enrollment (pancake_node_enroll_foreign;
+   that entry is gone with the pancake_node_* waist — see banner), and every
    language binding adopts the token at `fetch` (and `enliven`, where it records a
    home), translating it back to its wire position in the GC path. The TypeScript
    (Deno, Bun), Python, Rust, and Racket bindings are all migrated; the TypeScript

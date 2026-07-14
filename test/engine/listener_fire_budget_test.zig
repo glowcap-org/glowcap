@@ -233,3 +233,55 @@ test "a fire staled by answer-position reuse drops instead of shipping the new q
     try std.testing.expectEqual(@as(usize, 1), frames);
     try std.testing.expect(peer.sessionIsOpen());
 }
+
+test "a settled-answer carrier staled by answer-position reuse resolves nothing, not the new question's payload" {
+    const allocator = std.testing.allocator;
+    var peer = preSpecPeer(allocator);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    // Question 1 opens answer 42; resolve it but do NOT drain — the settled
+    // answer carrier {42, rowA} sits queued in `pending_send`, its resolution
+    // moved into the store. This is the window the bug lived in.
+    try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
+    while (peer.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
+    }
+    try peer.send(.{ .resolve = .{ .answer = .from(42), .resolution = .{
+        .fulfill = .{ .bytes = try allocator.dupe(u8, "old") },
+    } } });
+
+    // The partner releases answer 42 and (illegitimately — positions are never
+    // meant to be reused) asks a new question at the same position. Row A is
+    // torn down and a fresh row B installed, while the stale carrier still sits
+    // queued ahead of everything.
+    try peer.recvBorrowed(.{ .bytes = "<13'op:gc-answers[42+]>", .shape = .byte });
+    try peer.recvBorrowed(.{ .bytes = deliver_opening_answer, .shape = .byte });
+    while (peer.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
+    }
+
+    // Resolve the new question before the stale carrier encodes, so the reused
+    // row holds "new" — the payload the stale carrier must never ship under the
+    // dead answer's identity.
+    try peer.send(.{ .resolve = .{ .answer = .from(42), .resolution = .{
+        .fulfill = .{ .bytes = try allocator.dupe(u8, "new") },
+    } } });
+
+    // Draining emits exactly one `op:resolve`: rowB's. The stale carrier pops
+    // first (it queued first), finds a live row whose identity stamp mismatches,
+    // and resolves nothing — neither a duplicate resolve of the gc'd answer nor
+    // the reused row's payload under the dead carrier. Without the row_id stamp
+    // this would emit two resolves for answer 42.
+    while ((try peer.step()) != .idle) {}
+    var resolves: usize = 0;
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        defer frame.deinit();
+        resolves += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 1), resolves);
+    try std.testing.expect(peer.sessionIsOpen());
+}

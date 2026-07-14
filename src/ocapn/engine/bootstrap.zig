@@ -38,32 +38,41 @@ pub const Request = union(enum) {
     withdraw_gift: WithdrawRequest,
 };
 
-/// One deposited, not-yet-consumed gift. The registry owns every slice and the
-/// optional gifted reference; rows are freed precisely, on overwrite, on withdraw
-/// (a consumed gift's whole row is removed — replay stays blocked by the
-/// monotonic `handoff_counts`, so no spent marker accrues), or at `deinit`.
+/// What a deposit hands back at withdraw, as the three disjoint deposit modes
+/// (ADR-0009). A sum, not a product: the mode is a tag, so a gift can never be
+/// both provenance-only and capability-bearing, and a swissnum can never ride
+/// without a capability. The registry owns every slice and reference each arm
+/// holds.
+const GiftPayload = union(enum) {
+    /// Provenance-only: no capability rode the deposit (the cross-peer give
+    /// routing path). Withdrawable by the recipient named here, whom the
+    /// withdrawal's signed give must match — a bootstrap `deposit-gift` names no
+    /// recipient at deposit, so the signed give names one at withdraw and the
+    /// signature check binds it. Never empty: `deposit` refuses an empty key.
+    provenance: []const u8,
+    /// The gifter deposited the capability itself; it is returned verbatim on a
+    /// successful withdraw.
+    verbatim_cap: model.Reference,
+    /// The gifted object is a node-local bootstrap cap, named by its swissnum
+    /// (ADR-0009 exporter half). A cross-session withdraw re-resolves the
+    /// swissnum against the *withdrawing* session — the deposited near is only
+    /// meaningful on the deposit session, so a node serving the recipient on a
+    /// different session hands back a fresh near for the same object.
+    named_cap: struct { reference: model.Reference, swiss: []const u8 },
+};
+
+/// One deposited, not-yet-consumed gift. The registry owns `gifter_key` and
+/// everything the `payload` arm holds; rows are freed precisely, on overwrite,
+/// on withdraw (a consumed gift's whole row is removed — replay stays blocked by
+/// the monotonic `handoff_counts`, so no spent marker accrues), or at `deinit`.
 const GiftEntry = struct {
-    /// The recipient session key the gifter named at deposit, or empty when the
-    /// deposit carried none (a bootstrap `deposit-gift` names no recipient — the
-    /// signed give names one at withdraw time, and the signature check binds it).
-    recipient_key: []const u8,
     /// The depositing gifter's session public key, recorded as opaque provenance
     /// so a withdrawal can verify the gifter's `desc:handoff-give` signature
-    /// against the key the exporter learned at deposit (ADR-0009). Empty only
-    /// for a gift deposited without a known gifter key.
+    /// against the key the exporter learned at deposit (ADR-0009). Common to all
+    /// three modes; empty only for a gift deposited without a known gifter key.
     gifter_key: []const u8,
-    /// The capability the gifter deposited, returned on a successful withdraw.
-    /// Null when the deposit recorded only provenance (the cross-peer give
-    /// routing path, where no capability rides with the deposit).
-    gifted: ?model.Reference,
-    /// The vat-scoped swissnum the gifted object is published under, captured
-    /// when the deposit named a local bootstrap export (ADR-0009 exporter half).
-    /// A cross-session withdraw re-resolves this against the *withdrawing*
-    /// session — the gifted near is only meaningful on the deposit session, so a
-    /// node serving the recipient on a different session hands back a fresh near
-    /// for the same object. Empty when the gift names no node-local swiss cap, in
-    /// which case the stored `gifted` reference is returned verbatim.
-    gifted_swiss: []const u8,
+    /// The deposit mode and what it hands back at withdraw.
+    payload: GiftPayload,
 };
 
 /// The vat-scoped gift and handoff-count authority (ADR-0056). A gifter deposits
@@ -99,10 +108,15 @@ pub const GiftRegistry = struct {
     /// Free everything a gift row owns. Used at deinit, on re-deposit overwrite,
     /// and on the removed row a withdraw pulls out of the map.
     fn freeGiftEntry(allocator: std.mem.Allocator, entry: *GiftEntry) void {
-        allocator.free(entry.recipient_key);
         allocator.free(entry.gifter_key);
-        allocator.free(entry.gifted_swiss);
-        if (entry.gifted) |gifted| model.freeReference(allocator, gifted);
+        switch (entry.payload) {
+            .provenance => |recipient_key| allocator.free(recipient_key),
+            .verbatim_cap => |reference| model.freeReference(allocator, reference),
+            .named_cap => |named| {
+                model.freeReference(allocator, named.reference);
+                allocator.free(named.swiss);
+            },
+        }
     }
 
     pub fn deinit(self: *GiftRegistry, allocator: std.mem.Allocator) void {
@@ -165,7 +179,7 @@ pub const GiftRegistry = struct {
         gifted: model.Reference,
         gifter_key: []const u8,
     ) !void {
-        try self.putGift(allocator, limits, gift_id, "", gifter_key, gifted, "");
+        try self.putGift(allocator, limits, gift_id, gifter_key, .{ .verbatim_cap = gifted });
     }
 
     /// Deposit a gift whose capability the registry adopts *and* whose gifted
@@ -183,7 +197,16 @@ pub const GiftRegistry = struct {
         gifter_key: []const u8,
         gifted_swiss: []const u8,
     ) !void {
-        try self.putGift(allocator, limits, gift_id, "", gifter_key, gifted, gifted_swiss);
+        // The swissnum decides the mode: a named node-local cap re-resolves at
+        // withdraw, while a gifted reference with no swissnum (any shape that is
+        // not one of our bootstrap exports) is returned verbatim. Deciding it
+        // here keeps `named_cap.swiss` always non-empty, so the withdraw switch
+        // never re-resolves an empty swissnum.
+        const spec: GiftPayload = if (gifted_swiss.len > 0)
+            .{ .named_cap = .{ .reference = gifted, .swiss = gifted_swiss } }
+        else
+            .{ .verbatim_cap = gifted };
+        try self.putGift(allocator, limits, gift_id, gifter_key, spec);
     }
 
     /// Deposit (or re-deposit) a gift withdrawable only by the recipient named in
@@ -200,36 +223,52 @@ pub const GiftRegistry = struct {
         gifter_key: []const u8,
     ) !void {
         if (recipient_key.len == 0) return session_mod.Error.MalformedMessage;
-        try self.putGift(allocator, limits, gift_id, recipient_key, gifter_key, null, "");
+        try self.putGift(allocator, limits, gift_id, gifter_key, .{ .provenance = recipient_key });
     }
 
+    /// Commit a deposit. `spec`'s byte fields (`provenance` recipient key,
+    /// `named_cap` swiss) are *borrowed*: `putGift` dupes them into
+    /// registry-owned storage. `spec`'s reference (`verbatim_cap`,
+    /// `named_cap.reference`) is *adopted on success* and *left to the caller on
+    /// error* — the error paths free only the dup'd bytes, never the reference —
+    /// which is the contract the deposit constructors' callers rely on.
     fn putGift(
         self: *GiftRegistry,
         allocator: std.mem.Allocator,
         limits: session_mod.SessionLimits,
         gift_id: []const u8,
-        recipient_key: []const u8,
         gifter_key: []const u8,
-        gifted: ?model.Reference,
-        gifted_swiss: []const u8,
+        spec: GiftPayload,
     ) !void {
         if (gift_id.len == 0) return session_mod.Error.MalformedMessage;
+
+        const gifter_copy = try allocator.dupe(u8, gifter_key);
+        errdefer allocator.free(gifter_copy);
+
+        // Dupe the borrowed byte fields into the stored payload; the reference
+        // arms carry the caller's reference by value, adopted on success. The
+        // errdefer frees only those dup'd bytes, so an error below leaves the
+        // reference with the caller.
+        const stored: GiftPayload = switch (spec) {
+            .provenance => |recipient_key| .{ .provenance = try allocator.dupe(u8, recipient_key) },
+            .verbatim_cap => |reference| .{ .verbatim_cap = reference },
+            .named_cap => |named| .{ .named_cap = .{
+                .reference = named.reference,
+                .swiss = try allocator.dupe(u8, named.swiss),
+            } },
+        };
+        errdefer switch (stored) {
+            .provenance => |recipient_key| allocator.free(recipient_key),
+            .verbatim_cap => {},
+            .named_cap => |named| allocator.free(named.swiss),
+        };
+
         if (self.gifts.getPtr(gift_id)) |entry| {
-            const recipient_copy = try allocator.dupe(u8, recipient_key);
-            errdefer allocator.free(recipient_copy);
-            const gifter_copy = try allocator.dupe(u8, gifter_key);
-            errdefer allocator.free(gifter_copy);
-            const swiss_copy = try allocator.dupe(u8, gifted_swiss);
             // A live row is being re-deposited (a consumed gift's row is removed
             // at withdraw, so a hit is always live): replace it in place, the
             // live count is unchanged.
             freeGiftEntry(allocator, entry);
-            entry.* = .{
-                .recipient_key = recipient_copy,
-                .gifter_key = gifter_copy,
-                .gifted = gifted,
-                .gifted_swiss = swiss_copy,
-            };
+            entry.* = .{ .gifter_key = gifter_copy, .payload = stored };
             return;
         }
         // A consumed gift's row is removed, so the row count is the live count.
@@ -239,20 +278,9 @@ pub const GiftRegistry = struct {
 
         const id_copy = try allocator.dupe(u8, gift_id);
         errdefer allocator.free(id_copy);
-        const recipient_copy = try allocator.dupe(u8, recipient_key);
-        errdefer allocator.free(recipient_copy);
-        const gifter_copy = try allocator.dupe(u8, gifter_key);
-        errdefer allocator.free(gifter_copy);
-        const swiss_copy = try allocator.dupe(u8, gifted_swiss);
-        errdefer allocator.free(swiss_copy);
         const gop = try self.gifts.getOrPut(allocator, id_copy);
         gop.key_ptr.* = id_copy;
-        gop.value_ptr.* = .{
-            .recipient_key = recipient_copy,
-            .gifter_key = gifter_copy,
-            .gifted = gifted,
-            .gifted_swiss = swiss_copy,
-        };
+        gop.value_ptr.* = .{ .gifter_key = gifter_copy, .payload = stored };
     }
 
     /// Whether `gift_id` names a live, not-yet-consumed gift — equivalently,
@@ -279,16 +307,21 @@ pub const GiftRegistry = struct {
     /// gift holds no reference to return.
     pub fn giftedCap(self: *const GiftRegistry, gift_id: []const u8) ?model.Reference {
         const entry = self.gifts.get(gift_id) orelse return null;
-        return entry.gifted;
+        return switch (entry.payload) {
+            .verbatim_cap => |reference| reference,
+            .named_cap => |named| named.reference,
+            .provenance => null,
+        };
     }
 
-    /// The vat-scoped swissnum the gifted object is published under, or empty if
-    /// the deposit named no node-local bootstrap cap. The cross-session withdraw
-    /// path re-resolves a non-empty swiss against the withdrawing session; null
-    /// if the gift is unknown.
-    fn giftedSwiss(self: *const GiftRegistry, gift_id: []const u8) ?[]const u8 {
+    /// The deposit mode and payload for `gift_id`, or null if the gift is
+    /// unknown. The returned slices and reference alias the registry-owned row,
+    /// valid until the row is removed (`applyWithdraw`, overwrite, or `deinit`);
+    /// the withdraw path reads it — and clones out any verbatim reference —
+    /// before it consumes the row.
+    fn giftPayload(self: *const GiftRegistry, gift_id: []const u8) ?GiftPayload {
         const entry = self.gifts.get(gift_id) orelse return null;
-        return entry.gifted_swiss;
+        return entry.payload;
     }
 
     /// The withdrawal authority check: gift existence (a consumed gift's row is
@@ -297,10 +330,16 @@ pub const GiftRegistry = struct {
     /// `applyWithdraw`; the two stay split so a refusal never mutates state.
     pub fn validateWithdraw(self: *const GiftRegistry, receive: model.HandoffReceive) session_mod.Error!void {
         const gift = self.gifts.get(receive.signed_give.gift_id) orelse return session_mod.Error.InvalidGift;
-        if (gift.recipient_key.len > 0 and
-            !std.mem.eql(u8, gift.recipient_key, receive.signed_give.recipient_key))
-        {
-            return session_mod.Error.InvalidGift;
+        // Only a provenance-only deposit binds a recipient at deposit time; a
+        // capability-bearing deposit named none, so it admits any recipient the
+        // signed give carries (the give's own signature is the authority there).
+        switch (gift.payload) {
+            .provenance => |recipient_key| {
+                if (!std.mem.eql(u8, recipient_key, receive.signed_give.recipient_key)) {
+                    return session_mod.Error.InvalidGift;
+                }
+            },
+            .verbatim_cap, .named_cap => {},
         }
         if (self.handoff_counts.get(receive.receiving_session)) |last| {
             if (receive.handoff_count <= last) return session_mod.Error.HandoffReplay;
@@ -360,24 +399,24 @@ pub fn pendingBootstrapAction(deliver: model.view.Deliver, session: *const sessi
     const target_export = deliver.target.exportPosition() orelse return null;
     if (target_export.int() != session_mod.BOOTSTRAP_POSITION) return null;
 
-    const argc = try deliver.args.len();
-    if (argc < 2) return null;
-
-    const method = switch (try deliver.args.at(0)) {
+    // Forward peel: one linear pass over the arg region, matching validate.zig —
+    // no `len()` pre-walk and no per-index `at(i)` re-scan from byte 0.
+    var it = deliver.args.iterator();
+    const method = switch ((try it.next()) orelse return null) {
         .symbol => |symbol| symbol,
         else => return null,
     };
 
     if (std.mem.eql(u8, method, "deposit-gift")) {
-        if (argc != 3) return null;
-        const gift_id = switch (try deliver.args.at(1)) {
+        const gift_id = switch ((try it.next()) orelse return null) {
             .bytes => |bytes| bytes,
             else => return null,
         };
-        const gifted = switch (try deliver.args.at(2)) {
+        const gifted = switch ((try it.next()) orelse return null) {
             .reference => |reference| reference,
             else => return null,
         };
+        if ((try it.next()) != null) return null;
         const answer = answerForDeliver(deliver, session);
         return .{ .deposit_gift = .{ .gift_id = gift_id, .gifted = gifted, .answer = answer } };
     }
@@ -385,20 +424,20 @@ pub fn pendingBootstrapAction(deliver: model.view.Deliver, session: *const sessi
     const answer = answerForDeliver(deliver, session) orelse return null;
 
     if (std.mem.eql(u8, method, "fetch")) {
-        if (argc != 2) return null;
-        const swissnum = switch (try deliver.args.at(1)) {
+        const swissnum = switch ((try it.next()) orelse return null) {
             .bytes => |bytes| bytes,
             else => return null,
         };
+        if ((try it.next()) != null) return null;
         return .{ .fetch = .{ .swissnum = swissnum, .answer = answer } };
     }
 
     if (std.mem.eql(u8, method, "withdraw-gift")) {
-        if (argc != 2) return null;
-        const handoff = switch (try deliver.args.at(1)) {
+        const handoff = switch ((try it.next()) orelse return null) {
             .handoff => |h| h,
             else => return null,
         };
+        if ((try it.next()) != null) return null;
         const receive = switch (handoff) {
             .receive => |receive| receive,
             .give => return null,
@@ -519,49 +558,53 @@ pub fn resolveForWithdraw(
     // a same-count retry a replay. So each arm confirms it can deliver before it
     // calls `applyWithdraw`.
 
-    // A gift that named a node-local bootstrap cap is re-resolved against *this*
-    // (the withdrawing) session: the deposit-session near is meaningless here, so
-    // hand back a fresh near for the same swissnum, the export the recipient can
-    // reach over its own connection. This is the exporter half of a three-party
-    // handoff across two sessions; the gift's deposit session and this withdraw
-    // session differ, so a verbatim near would point at nothing on the wire.
-    const gifted_swiss = registry.giftedSwiss(receive.signed_give.gift_id) orelse "";
-    if (gifted_swiss.len > 0) {
-        const export_position = session.bootstrapLookup(gifted_swiss) orelse {
-            // The object is not published on this session yet: the node owns the
-            // gift's identity but has not exported it here. Leave the gift live
-            // and its handoff-count unrecorded so a later publish plus retry can
-            // succeed, rather than burning it on a recoverable condition.
+    // The gift is live (checked above), so its payload is present; each arm
+    // decides what this session can hand back.
+    switch (registry.giftPayload(receive.signed_give.gift_id).?) {
+        // A gift that named a node-local bootstrap cap is re-resolved against
+        // *this* (the withdrawing) session: the deposit-session near is
+        // meaningless here, so hand back a fresh near for the same swissnum, the
+        // export the recipient can reach over its own connection. This is the
+        // exporter half of a three-party handoff across two sessions; the
+        // deposit and withdraw sessions differ, so a verbatim near would point
+        // at nothing on the wire.
+        .named_cap => |named| {
+            const export_position = session.bootstrapLookup(named.swiss) orelse {
+                // The object is not published on this session yet: the node owns
+                // the gift's identity but has not exported it here. Leave the
+                // gift live and its handoff-count unrecorded so a later publish
+                // plus retry can succeed, rather than burning it on a recoverable
+                // condition.
+                return .{ .settled = .{ .resolve = .{
+                    .answer = request.answer,
+                    .resolution = .{ .@"break" = .{ .message = "gift object not hosted on this session" } },
+                } } };
+            };
+            try registry.applyWithdraw(allocator, session.limits, receive);
             return .{ .settled = .{ .resolve = .{
                 .answer = request.answer,
-                .resolution = .{ .@"break" = .{ .message = "gift object not hosted on this session" } },
+                .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = export_position } } } },
             } } };
-        };
-        try registry.applyWithdraw(allocator, session.limits, receive);
-        return .{ .settled = .{ .resolve = .{
-            .answer = request.answer,
-            .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = export_position } } } },
-        } } };
-    }
-
-    // A verbatim gifted cap: clone it out before `applyWithdraw` reclaims the
-    // row's payload, guarding the clone because `applyWithdraw` is still fallible
-    // (a handoff-count cap or OOM would otherwise leak the clone).
-    const gifted = registry.giftedCap(receive.signed_give.gift_id) orelse {
+        },
+        // A verbatim gifted cap: clone it out before `applyWithdraw` reclaims the
+        // row's payload, guarding the clone because `applyWithdraw` is still
+        // fallible (a handoff-count cap or OOM would otherwise leak the clone).
+        .verbatim_cap => |reference| {
+            const gifted_copy = try model.cloneReference(allocator, reference);
+            errdefer model.freeReference(allocator, gifted_copy);
+            try registry.applyWithdraw(allocator, session.limits, receive);
+            return .{ .settled = .{ .resolve = .{
+                .answer = request.answer,
+                .resolution = .{ .fulfill = .{ .reference = gifted_copy } },
+            } } };
+        },
         // Provenance-only deposit with nothing to hand back here. Leave the gift
         // live rather than consume a gift this session cannot satisfy.
-        return .{ .settled = .{ .resolve = .{
+        .provenance => return .{ .settled = .{ .resolve = .{
             .answer = request.answer,
             .resolution = .{ .@"break" = .{ .message = "gift not deposited" } },
-        } } };
-    };
-    const gifted_copy = try model.cloneReference(allocator, gifted);
-    errdefer model.freeReference(allocator, gifted_copy);
-    try registry.applyWithdraw(allocator, session.limits, receive);
-    return .{ .settled = .{ .resolve = .{
-        .answer = request.answer,
-        .resolution = .{ .fulfill = .{ .reference = gifted_copy } },
-    } } };
+        } } },
+    }
 }
 
 /// Reclaim the one owned arm a `WithdrawOutcome.settled` message may carry.

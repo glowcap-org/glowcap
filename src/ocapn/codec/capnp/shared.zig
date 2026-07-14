@@ -71,6 +71,16 @@ pub const ArgKind = enum(u16) {
     /// magnitude digits as the pointer-0 data field.
     big_integer = 15,
 };
+
+comptime {
+    // The one capnp kind registry bound to its model union by set, not order:
+    // the wire discriminants above (`@"struct"` = 14, `big_integer` = 15) are an
+    // external contract that diverges from `model.Argument`'s declaration order,
+    // so a new `Argument` arm that lands without an `ArgKind` (or the reverse)
+    // is a compile error here, the same drift guard `Kind` holds over `Message`.
+    model.assertKindSetMatches(model.Argument, ArgKind);
+}
+
 /// Bit 16 of data word 0 carries the promise flag for a RefTag, the value for
 /// a boolean ArgKind, and the sign for a BigInteger.
 pub const data0_flag: u64 = 1 << 16;

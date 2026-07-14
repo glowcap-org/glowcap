@@ -14,7 +14,34 @@ const crypto = pancake.foundation.crypto;
 
 const Node = engine.Node;
 
-test "registerConnOver adopts a peer the embedder owns without freeing it" {
+test "ActionFifo preserves order across compaction and rewinds when drained" {
+    const allocator = std.testing.allocator;
+    var fifo = engine.ActionFifo(u64){};
+    defer fifo.deinit(allocator);
+
+    // Push well past the compaction threshold, interleaving pops so the head
+    // crosses it with rows still queued: order must survive the forward copy.
+    var pushed: u64 = 0;
+    while (pushed < 40) : (pushed += 1) try fifo.push(allocator, pushed);
+    var popped: u64 = 0;
+    while (popped < 35) : (popped += 1) try std.testing.expectEqual(popped, fifo.pop().?);
+    try fifo.push(allocator, 40);
+    try std.testing.expectEqual(@as(usize, 6), fifo.unpopped().len);
+    while (popped < 41) : (popped += 1) try std.testing.expectEqual(popped, fifo.pop().?);
+
+    // Drained: the pop that finds nothing rewinds the list for capacity reuse.
+    try std.testing.expectEqual(@as(?u64, null), fifo.pop());
+    try std.testing.expectEqual(@as(usize, 0), fifo.unpopped().len);
+
+    // The reserve/pushReserved pair holds the infallible-push contract.
+    try fifo.reserve(allocator, 2);
+    fifo.pushReserved(7);
+    fifo.pushReserved(8);
+    try std.testing.expectEqual(@as(u64, 7), fifo.pop().?);
+    try std.testing.expectEqual(@as(u64, 8), fifo.pop().?);
+}
+
+test "registerPeerOver adopts a peer the embedder owns without freeing it" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, [_]u8{8} ** crypto.SEED_BYTES);
 
@@ -23,33 +50,33 @@ test "registerConnOver adopts a peer the embedder owns without freeing it" {
     var adopted = engine.Peer.initNegotiating(allocator);
     defer adopted.deinit();
 
-    const id = try node.registerConnOver(&adopted);
+    const id = try node.registerPeerOver(&adopted);
     // The adopted peer is the one the node routes to, and it now shares the
     // node's gift registry — the whole point of joining the node.
     try std.testing.expectEqual(&adopted, node.peer(id).?);
     try std.testing.expectEqual(&node.gifts, adopted.giftRegistry());
 
-    // removeConn unregisters the slot but must not free the borrowed peer: the
+    // removePeer unregisters the slot but must not free the borrowed peer: the
     // test's own `defer adopted.deinit()` is the single free. std.testing's
     // allocator would flag a double-free or use-after-free here.
-    node.removeConn(id);
+    node.removePeer(id);
     try std.testing.expect(node.peer(id) == null);
 
     // A second adopted registration outlives node.deinit for the same reason:
     // the node frees only what it owns.
     var adopted2 = engine.Peer.initNegotiating(allocator);
     defer adopted2.deinit();
-    _ = try node.registerConnOver(&adopted2);
+    _ = try node.registerPeerOver(&adopted2);
     node.deinit();
 }
 
-test "registerConn yields stable, non-reused ids and node-owned peers" {
+test "registerPeer yields stable, non-reused ids and node-owned peers" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, [_]u8{7} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const a = try node.registerConn(.{});
-    const b = try node.registerConn(.{});
+    const a = try node.registerPeer(.{});
+    const b = try node.registerPeer(.{});
     try std.testing.expect(a != b);
     try std.testing.expect(node.peer(a) != null);
     try std.testing.expect(node.peer(b) != null);
@@ -57,10 +84,10 @@ test "registerConn yields stable, non-reused ids and node-owned peers" {
     try std.testing.expectEqual(&node.gifts, node.peer(a).?.giftRegistry());
     try std.testing.expectEqual(&node.gifts, node.peer(b).?.giftRegistry());
 
-    node.removeConn(a);
+    node.removePeer(a);
     try std.testing.expect(node.peer(a) == null);
     // A removed id is not reused: the next registration gets a fresh id past it.
-    const c = try node.registerConn(.{});
+    const c = try node.registerPeer(.{});
     try std.testing.expect(c != a);
     try std.testing.expect(c != b);
 }
@@ -70,11 +97,11 @@ test "registerConn yields stable, non-reused ids and node-owned peers" {
 /// so a host reads it off the wire; a white-box test drives `claimResolve`
 /// directly and recovers it from the node's single pending withdraw. Asserts
 /// exactly one withdraw is parked, on `exporter`.
-fn pendingWithdrawAnswer(node: *Node, exporter: engine.ConnId) u64 {
+fn pendingWithdrawAnswer(node: *Node, exporter: engine.PeerId) u64 {
     std.testing.expectEqual(@as(usize, 1), node.pending_withdraws.count()) catch unreachable;
     var it = node.pending_withdraws.keyIterator();
     const key = it.next().?.*;
-    std.testing.expectEqual(exporter, key.conn_id) catch unreachable;
+    std.testing.expectEqual(exporter, key.peer_id) catch unreachable;
     return key.answer;
 }
 
@@ -84,8 +111,8 @@ fn pendingWithdrawAnswer(node: *Node, exporter: engine.ConnId) u64 {
 /// the settled synthetic token id.
 fn mintRedeemedToken(
     node: *Node,
-    recipient: engine.ConnId,
-    exporter: engine.ConnId,
+    recipient: engine.PeerId,
+    exporter: engine.PeerId,
     answer: u64,
     far_id: u64,
     locator: []const u8,
@@ -106,8 +133,8 @@ test "a redeemed token routes to its exporter with the real reference swapped in
     var node = Node.init(allocator, [_]u8{9} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient_conn = try node.registerConn(.{});
-    const exporter_conn = try node.registerConn(.{});
+    const recipient_conn = try node.registerPeer(.{});
+    const exporter_conn = try node.registerPeer(.{});
     var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter_conn).?, [_]u8{16} ** crypto.SEED_BYTES);
     defer counterpart.deinit();
 
@@ -120,17 +147,17 @@ test "a redeemed token routes to its exporter with the real reference swapped in
 
     // A send to the token routes to the exporter connection with the real ref.
     const routed = node.routeReference(recipient_conn, token_ref).?;
-    try std.testing.expectEqual(exporter_conn, routed.conn_id);
+    try std.testing.expectEqual(exporter_conn, routed.peer_id);
     try std.testing.expectEqual(@as(u64, 42), routed.target.far.import_position.int());
 
     // An ordinary far import rides the connection the app addressed, unchanged.
     const plain: model.Reference = .{ .far = model.FarRef.object(3) };
     const plain_routed = node.routeReference(recipient_conn, plain).?;
-    try std.testing.expectEqual(recipient_conn, plain_routed.conn_id);
+    try std.testing.expectEqual(recipient_conn, plain_routed.peer_id);
     try std.testing.expectEqual(@as(u64, 3), plain_routed.target.far.import_position.int());
 
     // A token whose exporter connection is gone fails closed.
-    node.removeConn(exporter_conn);
+    node.removePeer(exporter_conn);
     try std.testing.expect(node.routeReference(recipient_conn, token_ref) == null);
 }
 
@@ -139,14 +166,14 @@ test "send-argument routability: a capability on another connection is foreign, 
     var node = Node.init(allocator, [_]u8{3} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const here = try node.registerConn(.{});
-    const elsewhere = try node.registerConn(.{});
+    const here = try node.registerPeer(.{});
+    const elsewhere = try node.registerPeer(.{});
 
     // The verdict every binding's send-argument guard computes from the node: a
     // far is foreign in argument position when it is a redeemed token (reserved
     // range, no wire home) or a fetched-import token addressed away from its home.
     // `Node.argIsForeign` is the one definition; every binding's fail-closed guard
-    // projects it through `pancake_node_arg_is_foreign` rather than hand-rolling a
+    // projects it through pancake_node_arg_is_foreign rather than hand-rolling a
     // copy (ADR-0069).
     const import = try node.enrollForeign(elsewhere, .{ .far = model.FarRef.object(8) });
     // Foreign when sent from `here` (it lives on `elsewhere`)…
@@ -175,8 +202,8 @@ test "origination fails closed when the gift's home connection is gone" {
     var node = Node.init(allocator, [_]u8{5} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const here = try node.registerConn(.{});
-    const elsewhere = try node.registerConn(.{});
+    const here = try node.registerPeer(.{});
+    const elsewhere = try node.registerPeer(.{});
 
     // A foreign-home reply is claimed and the node asks for gift-id entropy;
     // the home connection then dies before the entropy answer arrives, so the
@@ -188,11 +215,11 @@ test "origination fails closed when the gift's home connection is gone" {
     const gift = try node.enrollForeign(elsewhere, .{ .far = model.FarRef.object(4) });
     try std.testing.expect(try node.interceptFulfilledRef(here, 61, gift.far.import_position.int()));
     const ask = node.nextAction().?;
-    node.removeConn(elsewhere);
+    node.removePeer(elsewhere);
     const gift_id = [_]u8{0xAB} ** 32;
     try node.provideGiftId(ask.need_gift_id.ticket, &gift_id);
     const action = node.nextAction().?;
-    try std.testing.expectEqual(here, action.fail.conn_id);
+    try std.testing.expectEqual(here, action.fail.peer_id);
     try std.testing.expectEqual(@as(u64, 61), action.fail.answer);
     try std.testing.expect(std.mem.startsWith(u8, action.fail.reason, "handoff origination failed:"));
 }
@@ -209,11 +236,11 @@ test "acceptGive with no dialable exporter locator fails the answer closed" {
     var node = Node.init(allocator, [_]u8{2} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn(.{});
+    const recipient = try node.registerPeer(.{});
     try node.acceptGive(recipient, 7, "give-bytes", "");
 
     const action = node.nextAction().?;
-    try std.testing.expectEqual(recipient, action.fail.conn_id);
+    try std.testing.expectEqual(recipient, action.fail.peer_id);
     try std.testing.expectEqual(@as(u64, 7), action.fail.answer);
     try std.testing.expectEqualStrings("handoff give names no dialable exporter locator", action.fail.reason);
     try std.testing.expect(node.nextAction() == null);
@@ -224,7 +251,7 @@ test "an unknown exporter becomes one dial action; a second give joins it" {
     var node = Node.init(allocator, [_]u8{4} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn(.{});
+    const recipient = try node.registerPeer(.{});
     const locator = "ocapn://127.0.0.1%3A9050.tcp";
     try node.acceptGive(recipient, 11, "give-one", locator);
     // A second redeem naming the same exporter joins the pending dial instead
@@ -254,17 +281,17 @@ test "a dialed exporter whose session never opened fails the redeem closed" {
     var node = Node.init(allocator, [_]u8{6} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn(.{});
+    const recipient = try node.registerPeer(.{});
     try node.acceptGive(recipient, 21, "give-bytes", "ocapn://127.0.0.1%3A9051.tcp");
     const dial = node.nextAction().?;
 
     // The embedder registers the exporter conn but the keyed session is not
     // open (no partner key), so the withdraw cannot be signed: the redeem
     // breaks instead of hanging.
-    const exporter = try node.registerConn(.{});
+    const exporter = try node.registerPeer(.{});
     try node.exporterDialed(dial.dial.pending, exporter);
     const action = node.nextAction().?;
-    try std.testing.expectEqual(recipient, action.fail.conn_id);
+    try std.testing.expectEqual(recipient, action.fail.peer_id);
     try std.testing.expectEqual(@as(u64, 21), action.fail.answer);
     try std.testing.expect(std.mem.startsWith(u8, action.fail.reason, "handoff redeem failed:"));
 }
@@ -328,8 +355,8 @@ test "a live exporter withdraws immediately and the claimed resolve settles a ro
     var node = Node.init(allocator, [_]u8{8} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn(.{});
-    const exporter = try node.registerConn(.{});
+    const recipient = try node.registerPeer(.{});
+    const exporter = try node.registerPeer(.{});
     var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{9} ** crypto.SEED_BYTES);
     defer counterpart.deinit();
 
@@ -352,11 +379,11 @@ test "a live exporter withdraws immediately and the claimed resolve settles a ro
     // the application answer settles with a routable token.
     try std.testing.expect(try node.claimResolve(exporter, withdraw_answer, .{ .far = 6 }));
     const settle = node.nextAction().?;
-    try std.testing.expectEqual(recipient, settle.settle.conn_id);
+    try std.testing.expectEqual(recipient, settle.settle.peer_id);
     try std.testing.expectEqual(@as(u64, 31), settle.settle.answer);
     try std.testing.expect(settle.settle.token >= Node.REDEEMED_TOKEN_BASE);
     const routed = node.routeReference(recipient, .{ .far = model.FarRef.object(settle.settle.token) }).?;
-    try std.testing.expectEqual(exporter, routed.conn_id);
+    try std.testing.expectEqual(exporter, routed.peer_id);
     try std.testing.expectEqual(@as(u64, 6), routed.target.far.import_position.int());
 
     // The exporter is cached: a later give for the same locator withdraws
@@ -372,8 +399,8 @@ test "a broken or non-capability withdraw breaks the application answer" {
     var node = Node.init(allocator, [_]u8{10} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn(.{});
-    const exporter = try node.registerConn(.{});
+    const recipient = try node.registerPeer(.{});
+    const exporter = try node.registerPeer(.{});
     var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{11} ** crypto.SEED_BYTES);
     defer counterpart.deinit();
 
@@ -403,8 +430,8 @@ test "interceptFulfilledRef claims only a foreign-home reply, entropy as an effe
     var node = Node.init(allocator, [_]u8{12} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const here = try node.registerConn(.{});
-    const elsewhere = try node.registerConn(.{});
+    const here = try node.registerPeer(.{});
+    const elsewhere = try node.registerPeer(.{});
 
     // No enrollment, or a home on this very connection: not claimed, the embedder
     // resolves the reply itself — and no entropy is ever requested for an ordinary
@@ -442,8 +469,8 @@ test "a fetched foreign import is enrolled under a node-unique token; two at one
     var node = Node.init(allocator, [_]u8{18} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const conn_a = try node.registerConn(.{});
-    const conn_b = try node.registerConn(.{});
+    const conn_a = try node.registerPeer(.{});
+    const conn_b = try node.registerPeer(.{});
 
     // Two capabilities fetched over different connections land at the SAME wire
     // position (imports are numbered per session). Enrolling each yields a
@@ -462,10 +489,10 @@ test "a fetched foreign import is enrolled under a node-unique token; two at one
     // is the same swap the served-reply interceptor uses to keep a token off the
     // wire when a fetched capability is returned to its own owner.
     const ra = node.routeReference(conn_a, token_a).?;
-    try std.testing.expectEqual(conn_a, ra.conn_id);
+    try std.testing.expectEqual(conn_a, ra.peer_id);
     try std.testing.expectEqual(@as(u64, 1), ra.target.far.import_position.int());
     const rb = node.routeReference(conn_b, token_b).?;
-    try std.testing.expectEqual(conn_b, rb.conn_id);
+    try std.testing.expectEqual(conn_b, rb.peer_id);
     try std.testing.expectEqual(@as(u64, 1), rb.target.far.import_position.int());
 
     // In argument position each token is native on its home, foreign elsewhere.
@@ -485,9 +512,9 @@ test "a fetched foreign import is enrolled under a node-unique token; two at one
     // Reclamation + fail-closed: closing conn_a reclaims token_a's enrollment, and
     // using the retired token fails closed rather than leaking the synthetic id
     // onto the wire. token_b, whose home is live, still routes.
-    node.removeConn(conn_a);
+    node.removePeer(conn_a);
     try std.testing.expect(node.routeReference(conn_b, token_a) == null);
-    try std.testing.expectEqual(conn_b, node.routeReference(conn_b, token_b).?.conn_id);
+    try std.testing.expectEqual(conn_b, node.routeReference(conn_b, token_b).?.peer_id);
 }
 
 test "lowerForConn swaps a token to its wire reference on its home and fails closed elsewhere (ADR-0069)" {
@@ -495,8 +522,8 @@ test "lowerForConn swaps a token to its wire reference on its home and fails clo
     var node = Node.init(allocator, [_]u8{21} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const home = try node.registerConn(.{});
-    const other = try node.registerConn(.{});
+    const home = try node.registerPeer(.{});
+    const other = try node.registerPeer(.{});
 
     // A plain wire reference, below the reserved token range, is the fast path:
     // it lowers to itself with no lookup, on any connection.
@@ -530,7 +557,7 @@ test "setExporterLocation records, replaces, and clears the give-location overri
     var node = Node.init(allocator, [_]u8{13} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const conn = try node.registerConn(.{});
+    const conn = try node.registerPeer(.{});
     const first = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7001.tcp");
     defer model.freePeerLocator(allocator, first);
     try node.setExporterLocation(conn, first);
@@ -543,16 +570,16 @@ test "setExporterLocation records, replaces, and clears the give-location overri
     const again = try model.uri.parsePeer(allocator, "ocapn://127.0.0.1%3A7003.tcp");
     defer model.freePeerLocator(allocator, again);
     try node.setExporterLocation(conn, again);
-    node.removeConn(conn);
+    node.removePeer(conn);
 }
 
-test "removeConn evicts the exporter cache and fails stranded withdraws closed" {
+test "removePeer evicts the exporter cache and fails stranded withdraws closed" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, [_]u8{14} ** crypto.SEED_BYTES);
     defer node.deinit();
 
-    const recipient = try node.registerConn(.{});
-    const exporter = try node.registerConn(.{});
+    const recipient = try node.registerPeer(.{});
+    const exporter = try node.registerPeer(.{});
     var counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(exporter).?, [_]u8{15} ** crypto.SEED_BYTES);
     defer counterpart.deinit();
 
@@ -566,9 +593,9 @@ test "removeConn evicts the exporter cache and fails stranded withdraws closed" 
     // recipient's answer breaks instead of hanging) and the cache row is
     // evicted, so the next give for the same exporter dials fresh instead of
     // failing against the dead connection forever.
-    node.removeConn(exporter);
+    node.removePeer(exporter);
     const failed = node.nextAction().?;
-    try std.testing.expectEqual(recipient, failed.fail.conn_id);
+    try std.testing.expectEqual(recipient, failed.fail.peer_id);
     try std.testing.expectEqual(@as(u64, 61), failed.fail.answer);
     try std.testing.expectEqualStrings("handoff redeem failed: exporter connection closed", failed.fail.reason);
     try std.testing.expect(node.nextAction() == null);

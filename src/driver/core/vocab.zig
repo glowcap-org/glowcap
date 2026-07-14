@@ -10,35 +10,9 @@ const std = @import("std");
 
 const foundation = @import("foundation");
 const model = @import("model");
-const engine = @import("engine");
 const actors = @import("actors");
 
 const crypto = foundation.crypto;
-
-/// Build one negotiating peer for a loop-served connection: apply the frame
-/// cap, then sign and queue the keyed `op:start-session` for a `transport`
-/// locator naming `designator`. Every loop driver's per-connection peer —
-/// tcp host, tcp dialer, iroh host — is this one shape; they differ only in
-/// the transport symbol and the designator they sign, so the handshake
-/// construction cannot drift between transports. Sans-io: the secret is drawn
-/// at the caller's I/O boundary (`drawSessionSecret`).
-pub fn makeKeyedPeer(
-    allocator: std.mem.Allocator,
-    frame_cap: usize,
-    verify_partner: bool,
-    transport: []const u8,
-    designator: []const u8,
-    secret: crypto.SecretKey,
-) !engine.Peer {
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = verify_partner, .limits = .{ .max_frame_bytes = frame_cap } });
-    errdefer peer.deinit();
-    try peer.sendKeyedStartSession(.v1_0, .{
-        .transport = transport,
-        .designator = designator,
-        .hints = model.Hints.emptyFalse(),
-    }, secret);
-    return peer;
-}
 
 pub const Error = error{
     /// A `fetch` ran to a clean connection close before the capability resolved.
@@ -46,7 +20,7 @@ pub const Error = error{
     /// A `fetch` settled broken: the partner answered the bootstrap fetch with a
     /// break (an unpublished name, a refused handoff). The break reason is
     /// turn-borrowed and not retained here; a caller that needs it uses
-    /// `ConnectedVat.fetchSettled`, which returns the reason in caller-owned
+    /// `BlockingSession.fetchSettled`, which returns the reason in caller-owned
     /// memory.
     FetchBroken,
     /// A `fetch` fulfilled with something other than a far capability, so there
@@ -56,7 +30,7 @@ pub const Error = error{
     HandshakeEntropyFailed,
     /// A host-owned redeem dial's keyed handshake made no progress within its
     /// budget: the exporter accepted the socket but never spoke. The redeem
-    /// breaks with this reason instead of wedging the blocking host forever.
+    /// breaks with this reason instead of wedging the waiting party forever.
     HandshakeTimedOut,
     /// A locator named a transport no registered netlayer hosts.
     UnknownTransport,
@@ -84,41 +58,56 @@ pub const Error = error{
 /// declaration on every I/O path (`driver.connectVia` reads it), and this
 /// string table is the same fact for the byte-fed host tier
 /// (`Host.openDialedLocator`), which never sees a vtable. A transport added to
-/// one must be added to the other.
+/// one must be added to the other — `zig build meta-check` holds them in sync.
 pub const DesignatorScheme = enum { address, key };
 
 /// The designator scheme for a transport symbol (see `DesignatorScheme`).
-/// `keyed-tcp` is the one key-designator transport the byte-fed tier pins
-/// today. `iroh` is deliberately *not* mapped here yet: its designator is a
-/// key, but the binding-hosted iroh servers still sign sessions with a node
-/// identity distinct from the endpoint key (the channel authenticates the
-/// endpoint), so pinning byte-fed iroh dials waits for the per-binding key
-/// unification pass (ADR-0075 § deferrals).
+/// `keyed-tcp` and `iroh` both use a key designator: the dialed locator's
+/// designator *is* the partner's Ed25519 public key in canonical hex, and the
+/// byte-fed host pins the handshake to it (`Host.openDialedLocator` →
+/// `expectPartnerKey`). Binding-hosted iroh servers mint one seed for the
+/// endpoint and the `Node` so designator, session key, and netlayer identity
+/// stay one value (ADR-0075).
 pub fn designatorSchemeForTransport(transport: []const u8) DesignatorScheme {
-    if (std.mem.eql(u8, transport, "keyed-tcp")) return .key;
+    if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) return .key;
+    if (std.mem.eql(u8, transport, model.transport.iroh)) return .key;
     return .address;
 }
+
+/// `keyed-tcp` requires a non-empty direct-addresses hint on accept; other
+/// key-designator transports (iroh) may omit it (discovery can resolve by
+/// node id alone). Kept next to `designatorSchemeForTransport` so sans-io
+/// transport-string policy lives in one table.
+pub fn requiresDirectAddressesHint(transport: []const u8) bool {
+    return std.mem.eql(u8, transport, model.transport.keyed_tcp);
+}
+
+/// The locator hint entry name that carries dial addresses when the
+/// designator is a key (`keyed-tcp`, `iroh`). Same literal as
+/// `model.transport.hint_direct_addresses` / `net.netlayer.hint_direct_addresses`.
+pub const hint_direct_addresses = model.transport.hint_direct_addresses;
 
 /// The `tcp` designator a dialer that does not itself listen signs as its own
 /// dialable address: a placeholder no partner can reach. A dialer advertises
 /// this because the keyed session's identity is its signing key, not its
 /// address, so a partner verifies the signature over these bytes rather than
 /// dialing them back. Every never-listening dialer signs the one value —
-/// `ConnectedVat.openKeyedSession`, and a `Host` that never binds a
-/// listener — so the placeholder never drifts between them.
+/// `Identity.ephemeral` and a `Host` that never binds a listener — so the
+/// placeholder never drifts between them.
 pub const unreachable_client_designator = "127.0.0.1:0";
 
 /// The identity a driver half signs its keyed `op:start-session` with. Every
 /// transport-neutral dial (`connectVia`) and accept (`acceptVia`) carries one
 /// explicitly — there is no implicit default key. The two arms make the only two
 /// postures unrepresentable as each other: an ephemeral dialer has no
-/// stable designator to advertise, and a keyed peer always names the designator
-/// its key is reachable as.
+/// stable designator of its own (it signs the unreachable-client placeholder),
+/// and a keyed peer always names the designator its key is reachable as.
 pub const Identity = union(enum) {
     /// Draw a fresh random session key at the I/O boundary for this one
     /// session. The ordinary client posture: a dialer that does not itself
-    /// listen advertises no dialable designator of its own. On accept, the
-    /// listener's bound designator is still signed — a host is always reachable.
+    /// listen signs the unreachable-client placeholder as its own designator.
+    /// On accept, the listener's bound designator is still signed — a host is
+    /// always reachable.
     ephemeral,
     /// Sign the handshake with a caller-held `secret` and advertise
     /// `designator` as the caller's own dialable designator. Under key
@@ -129,12 +118,13 @@ pub const Identity = union(enum) {
     /// session signing key at once.
     keyed: struct { secret: crypto.SecretKey, designator: []const u8 },
 
-    /// The dialable designator a *dialer* advertises for this identity: empty
-    /// for an ephemeral client, the keyed designator otherwise. A host's
-    /// designator comes from its listener, not from here.
+    /// The dialable designator a *dialer* advertises for this identity: the
+    /// unreachable-client placeholder for an ephemeral client (same bytes
+    /// `Host` and tcp-named constructors sign), the keyed designator otherwise.
+    /// A host's designator comes from its listener, not from here.
     pub fn dialedDesignator(self: Identity) []const u8 {
         return switch (self) {
-            .ephemeral => "",
+            .ephemeral => unreachable_client_designator,
             .keyed => |k| k.designator,
         };
     }
@@ -152,7 +142,7 @@ pub const AcceptIdentity = union(enum) {
     keyed: crypto.SecretKey,
 };
 
-/// A handle to the eventual result of a `Connection.send` / `sendToAnswer` —
+/// A handle to the eventual result of a `Session.send` / `sendToAnswer` —
 /// `actors.Vow`, re-exported so a consumer holding only the driver
 /// vocabulary (the C ABI session archive) can name it without reaching into the
 /// actor layer. `settleVow` drives it to a `Settled`.
@@ -213,9 +203,9 @@ pub const Settled = union(enum) {
     fulfilled: model.Argument,
     broken: []const u8,
     /// The answer fulfilled with a three-party introduction: a signed
-    /// `desc:handoff-give` addressed to this connection's session key. This
-    /// arm surfaces only on the single-connection tier (`ConnectedVat`,
-    /// `Connection`); a host tier claims every give and redeems it itself, so
+    /// `desc:handoff-give` addressed to this session's session key. This
+    /// arm surfaces only on the single-session tier (`BlockingSession`,
+    /// `Session`); a host tier claims every give and redeems it itself, so
     /// a host call settles with the introduced capability instead. The
     /// payload is materialized into the call's allocator like any other
     /// outcome.
@@ -240,7 +230,7 @@ pub const Settled = union(enum) {
 
 /// Captures a settling resolution into a caller-owned allocator as a
 /// `Settled`: the listener behind every blocking `call` / `settleVow` /
-/// `fetchSettled` (`ConnectedVat` and the blocking `Host` share it). Lives on
+/// `fetchSettled` on `BlockingSession` / `Session`. Lives on
 /// the caller's stack for that bounded drive. The listener contract cannot
 /// carry an error, so an allocation failure is recorded and surfaced after
 /// the drive returns.
@@ -295,7 +285,8 @@ pub const SettleCapture = struct {
         }
     }
 
-    /// The one blocking-wait epilogue both tiers share: an allocation failure
+    /// The one blocking-wait epilogue `BlockingSession` / `Session` share: an
+    /// allocation failure
     /// recorded mid-fire surfaces as OOM, an unfired capture means the partner
     /// left before the vow settled.
     pub fn finish(self: *const SettleCapture) !Settled {
@@ -305,8 +296,8 @@ pub const SettleCapture = struct {
 };
 
 /// Wraps a blocking caller's listener so its drive loop can see when the vow
-/// settles. Lives on the waiting verb's stack for that bounded drive; both
-/// blocking tiers (`ConnectedVat` and the blocking `Host`) wait through it.
+/// settles. Lives on the waiting verb's stack for that bounded drive;
+/// `BlockingSession` / `Session` wait through it.
 pub const SettleFlag = struct {
     inner: actors.Listener,
     done: bool = false,
@@ -318,8 +309,8 @@ pub const SettleFlag = struct {
     }
 };
 
-/// What a bootstrap fetch settled to, recorded by both blocking tiers'
-/// fetch waits. The listener runs during the settling step with a
+/// What a bootstrap fetch settled to, recorded by `BlockingSession` /
+/// `Session` fetch waits. The listener runs during the settling step with a
 /// turn-borrowed resolution, so it records only the shape and the POD far
 /// ref, never a borrow of the resolution's bytes. The break reason is
 /// deliberately not copied; a caller that needs it uses the settled-outcome

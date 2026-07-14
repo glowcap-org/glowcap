@@ -6,12 +6,29 @@
 
 const std = @import("std");
 const model = @import("model");
+const slot = @import("slot.zig");
 
 pub const AnswerStatus = enum {
     pending,
     fulfilled,
     broken,
 };
+
+/// Pending inbound answer → `Slot.remote_unresolved`.
+pub fn pendingInboundSlot(position: model.AnswerPosition) slot.Slot {
+    return answerSlot(position, .pending);
+}
+
+/// Answer `(position, status)` → CapTP Slot. Agrees with `slot.fulfill` /
+/// `slot.breakSlot` on the pending arm.
+pub fn answerSlot(position: model.AnswerPosition, status: AnswerStatus) slot.Slot {
+    const p = position.int();
+    return switch (status) {
+        .pending => .{ .remote_unresolved = p },
+        .fulfilled => .{ .remote_value = p },
+        .broken => .{ .broken = .{ .mint = .remote, .position = p } },
+    };
+}
 
 /// A party that asked (via `op:listen`) to be told when an answer resolves.
 /// `listener` is `op:listen`'s listener capability, the far export the
@@ -54,7 +71,7 @@ pub const ListenerList = struct {
         return self.entries.items.len;
     }
 
-    /// Append `listener` (a POD entry; nothing to release on failure).
+    /// Append `listener` (a POD entry; nothing to free on failure).
     pub fn append(self: *ListenerList, allocator: std.mem.Allocator, listener: ListenerEntry) !void {
         try self.entries.append(allocator, listener);
     }
@@ -112,37 +129,53 @@ pub fn deinitProjection(allocator: std.mem.Allocator, projection: Projection) vo
 /// stored resolution.
 pub const AnswerPayload = struct {
     /// Pipelined `op:deliver`s that arrived for this answer while it was still
-    /// `pending`. FIFO; each is an owned `model.Message` released on drain or
+    /// `pending`. FIFO; each is an owned `model.Message` freed on drain or
     /// removal.
     queue: std.ArrayList(model.Message) = .empty,
     /// Parties listening for this answer's resolution (POD entries).
     listeners: ListenerList = .empty,
     /// `op:get` / `op:index` projections waiting on this answer's resolution
-    /// (ADR-0050). Each entry's `.field` bytes are owned; released on drain or
+    /// (ADR-0050). Each entry's `.field` bytes are owned; freed on drain or
     /// removal.
     projections: std.ArrayList(Projection) = .empty,
     /// The resolution, stored once the answer resolves so a late `op:listen`
-    /// fires immediately. Owned; released on removal.
+    /// fires immediately. Owned; freed on removal.
     resolution: ?model.Resolution = null,
 };
 
-/// Hot answer row: just the state-machine fields read on every lookup. The
-/// pipelining payload hangs off `payload`, present only when needed.
-pub const AnswerEntry = struct {
-    status: AnswerStatus,
-    /// This row instance's identity, stamped from
-    /// `Session.store_stamp_counter` at install. Answer positions are
-    /// partner-named, so a partner may reuse a position after releasing it
-    /// with `op:gc-answers`; a queued listener-fire carrier compares this
-    /// stamp at encode so a fire accounted against the released instance can
-    /// never emit the reused instance's payload. No default: every install
-    /// site must stamp.
+/// Answer row as Slot binding + cold payload. Status is derived from binding.
+pub const AnswerCell = struct {
+    binding: slot.Slot,
+    /// Instance stamp from `Session.store_stamp_counter` (partner may reuse positions).
     row_id: u64,
-    /// Single-reference wire-delta count per ADR-0008 `op:gc-answers`.
-    /// Initialized to 1 on install; decremented to 0 on the matching GC message.
+    /// Wire-delta count per ADR-0008 `op:gc-answers`.
     count: u64 = 1,
-    /// Lazily-allocated cold payload (queued calls / listeners / resolution).
     payload: ?*AnswerPayload = null,
+
+    pub fn initPending(position: model.AnswerPosition, row_id: u64) AnswerCell {
+        return .{
+            .binding = pendingInboundSlot(position),
+            .row_id = row_id,
+        };
+    }
+
+    /// CapTP answer status from the Slot binding (remote mint only).
+    pub fn status(self: *const AnswerCell) AnswerStatus {
+        return switch (self.binding) {
+            .remote_unresolved => .pending,
+            .remote_value => .fulfilled,
+            .broken => .broken,
+            .local_unresolved, .local_value => unreachable,
+        };
+    }
+
+    pub fn fulfill(self: *AnswerCell) slot.TransitionError!void {
+        self.binding = try slot.fulfill(self.binding);
+    }
+
+    pub fn breakCell(self: *AnswerCell) slot.TransitionError!void {
+        self.binding = try slot.breakSlot(self.binding);
+    }
 };
 
 /// By-value snapshot of an answer's observable state, returned by the public
@@ -159,38 +192,34 @@ pub const AnswerView = struct {
     /// Whether a resolution has been stored for this answer.
     resolved: bool,
 
-    pub fn of(entry: *const AnswerEntry) AnswerView {
+    pub fn of(cell: *const AnswerCell) AnswerView {
         return .{
-            .status = entry.status,
-            .count = entry.count,
-            .queued_calls = if (entry.payload) |p| p.queue.items.len else 0,
-            .listeners = if (entry.payload) |p| p.listeners.len() else 0,
-            .projections = if (entry.payload) |p| p.projections.items.len else 0,
-            .resolved = if (entry.payload) |p| p.resolution != null else false,
+            .status = cell.status(),
+            .count = cell.count,
+            .queued_calls = if (cell.payload) |p| p.queue.items.len else 0,
+            .listeners = if (cell.payload) |p| p.listeners.len() else 0,
+            .projections = if (cell.payload) |p| p.projections.items.len else 0,
+            .resolved = if (cell.payload) |p| p.resolution != null else false,
         };
     }
 };
 
-/// Position-keyed answer table (ADR-0007). Inbound and outbound answers are
-/// addressed by dense, monotonic answer-pos; this maps the position straight to
-/// its row in O(1) instead of scanning. The facade keys on `model.AnswerPosition`, so
-/// an export or import position cannot be passed where an answer-pos is meant; the
-/// backing hash stores the raw `u64`.
+/// Position-keyed answer table. Rows are `AnswerCell` (Slot binding + payload).
 pub const AnswerTable = struct {
-    rows: std.AutoHashMapUnmanaged(u64, AnswerEntry) = .empty,
+    rows: std.AutoHashMapUnmanaged(u64, AnswerCell) = .empty,
 
     pub const Id = model.AnswerPosition;
     pub const empty: AnswerTable = .{};
 
     pub fn deinit(self: *AnswerTable, allocator: std.mem.Allocator) void {
         var it = self.rows.valueIterator();
-        while (it.next()) |entry| deinitAnswerEntry(allocator, entry);
+        while (it.next()) |cell| deinitAnswerCell(allocator, cell);
         self.rows.deinit(allocator);
     }
 
     /// Mutable borrow of the row for `position`, or null when absent. Valid
     /// until the next insert into this table (a `put` may rehash and move rows).
-    pub fn getPtr(self: *AnswerTable, position: Id) ?*AnswerEntry {
+    pub fn getPtr(self: *AnswerTable, position: Id) ?*AnswerCell {
         return self.rows.getPtr(position.int());
     }
 
@@ -200,7 +229,7 @@ pub const AnswerTable = struct {
 
     /// Refcount of `position`, or 0 if the answer is not held.
     pub fn count(self: *const AnswerTable, position: Id) u64 {
-        if (self.rows.getPtr(position.int())) |entry| return entry.count;
+        if (self.rows.getPtr(position.int())) |cell| return cell.count;
         return 0;
     }
 
@@ -209,8 +238,8 @@ pub const AnswerTable = struct {
         return self.rows.count();
     }
 
-    pub fn put(self: *AnswerTable, allocator: std.mem.Allocator, position: Id, entry: AnswerEntry) !void {
-        try self.rows.put(allocator, position.int(), entry);
+    pub fn put(self: *AnswerTable, allocator: std.mem.Allocator, position: Id, cell: AnswerCell) !void {
+        try self.rows.put(allocator, position.int(), cell);
     }
 
     pub fn remove(self: *AnswerTable, position: Id) void {
@@ -220,21 +249,17 @@ pub const AnswerTable = struct {
     }
 };
 
-/// Borrow the answer's payload, allocating it on first use. The returned pointer
-/// is owned by the entry and freed by `deinitAnswerEntry`.
-pub fn ensureAnswerPayload(allocator: std.mem.Allocator, entry: *AnswerEntry) !*AnswerPayload {
-    if (entry.payload) |payload| return payload;
+/// Borrow the answer's payload, allocating it on first use.
+pub fn ensureAnswerPayload(allocator: std.mem.Allocator, cell: *AnswerCell) !*AnswerPayload {
+    if (cell.payload) |payload| return payload;
     const payload = try allocator.create(AnswerPayload);
     payload.* = .{};
-    entry.payload = payload;
+    cell.payload = payload;
     return payload;
 }
 
-/// Release the owned memory an `AnswerEntry` holds: queued pipelined calls,
-/// listener targets, and any stored resolution. The entry's queue / listener
-/// lists are emptied so the struct is safe to drop or remove afterward.
-pub fn deinitAnswerEntry(allocator: std.mem.Allocator, entry: *AnswerEntry) void {
-    const payload = entry.payload orelse return;
+fn freeAnswerPayload(allocator: std.mem.Allocator, payload_ptr: *?*AnswerPayload) void {
+    const payload = payload_ptr.* orelse return;
     for (payload.queue.items) |message| model.freeMessage(allocator, message);
     payload.queue.deinit(allocator);
     payload.listeners.deinit(allocator);
@@ -242,5 +267,9 @@ pub fn deinitAnswerEntry(allocator: std.mem.Allocator, entry: *AnswerEntry) void
     payload.projections.deinit(allocator);
     if (payload.resolution) |resolution| model.freeResolution(allocator, resolution);
     allocator.destroy(payload);
-    entry.payload = null;
+    payload_ptr.* = null;
+}
+
+pub fn deinitAnswerCell(allocator: std.mem.Allocator, cell: *AnswerCell) void {
+    freeAnswerPayload(allocator, &cell.payload);
 }

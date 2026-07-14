@@ -184,6 +184,13 @@ extern "C" {
 		out_host_len: *mut usize,
 		out_port: *mut u16,
 	) -> c_int;
+	pub fn pancake_designator_host_port(
+		designator: *const c_uchar,
+		designator_len: usize,
+		out_host: *mut *const c_uchar,
+		out_host_len: *mut usize,
+		out_port: *mut u16,
+	) -> c_int;
 	pub fn pancake_locator_swissnum(
 		loc: *mut PancakeLocator,
 		out_ptr: *mut *const c_uchar,

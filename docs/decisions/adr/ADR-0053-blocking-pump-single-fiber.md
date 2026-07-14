@@ -3,7 +3,7 @@ id: ADR-0053
 status: accepted
 date: 2026-06-11
 tags: [net, driver, runtime, resilience]
-decision: "The blocking pump stays a single fiber by contract: its workload is cooperative request/response, where each side drains the replies it asked for. The read/write fiber split is refused, not pending — a second fiber over a single-threaded peer means a lock (a hidden runtime), and a bounded nonblocking write inside the pump means an fd-readiness dependency that breaks the type-erased transport contract and duplicates ADR-0042. Concurrent streaming and non-draining partners ride a completion loop — `net.Loop` at the byte tier, or iroh's `LoopHost`."
+decision: "The blocking pump stays a single fiber by contract: its workload is cooperative request/response, where each side drains the replies it asked for. The read/write fiber split is refused, not pending — a second fiber over a single-threaded peer means a lock (a hidden runtime), and a bounded nonblocking write inside the pump means an fd-readiness dependency that breaks the type-erased transport contract and duplicates ADR-0042. Concurrent streaming and non-draining partners ride a completion loop — `net.TcpLoop` at the byte tier, or `completion.Loop(iroh.Backend, iroh.DialResolver)` over the sidecar (ADR-0057), both feeding `driver.Bridge` + Host (ADR-0076)."
 supersedes: []
 superseded_by: []
 ---
@@ -16,7 +16,7 @@ ADR-0030 named the full-duplex deferral: a single fiber mid-`writeAll` to a
 partner that is not reading can head-of-line-block, and two such pumps streaming
 at each other can deadlock once both kernel buffers fill. ADR-0042 closed the
 completion-loop half of that seam with a bounded outbound queue and read
-parking. The blocking half — `net.Connection.pump` under `driver.ConnectedVat` —
+parking. The blocking half — `net.Connection.pump` under `driver.BlockingSession` —
 remained open as a roadmap item, with the constraint already visible:
 `engine.Peer` is single-threaded by design (no hidden runtime), and `Connection`
 is type-erased over `std.Io.Reader` / `std.Io.Writer`, a contract with no
@@ -33,7 +33,7 @@ in `step` / `call` / `serve` between requests is draining, not flooding. A
 partner that streams without draining is outside the contract, and the surface
 for that partner already exists: the completion loop bounds outbound bytes and
 parks reads (ADR-0042), and both directions are packaged above it
-(`net.Loop`, ADR-0051; iroh's `LoopHost`, ADR-0057). pancake deliberately has one
+(`net.TcpLoop`, ADR-0051; `iroh.Backend`, ADR-0057). pancake deliberately has one
 duplex runtime, not two.
 
 ## Scope (what this does not decide)
@@ -53,7 +53,7 @@ duplex runtime, not two.
 - **A bounded nonblocking write inside the pump**: rejected — readiness exists
   only at the fd, so the pump would fork into a tcp-only path beside the
   type-erased one and carry a second ADR-0042 implementation beside the loop's.
-- **`ConnectedVat` re-implemented over a one-connection completion loop**:
+- **`BlockingSession` re-implemented over a one-connection completion loop**:
   rejected — the loop multiplexes raw fds, so the in-process netlayer (ADR-0047)
   and any ADR-0043 resident would need the type-erased implementation anyway,
   leaving two diverging implementations under one API.
@@ -61,7 +61,7 @@ duplex runtime, not two.
 ## Consequences
 
 - `net.Connection.pump` documents the cooperative contract instead of a
-  deferral; `ConnectedVat` remains the transport-neutral blocking embedding.
+  deferral; `BlockingSession` remains the transport-neutral blocking embedding.
 - The roadmap's fiber-split item is settled by this refusal; the ladder, README,
   and architecture doc state the contract split rather than an open split.
 - The completion loop is the only place a non-draining partner is a supported

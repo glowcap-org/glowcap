@@ -19,6 +19,29 @@ import { z } from "zod";
 export const Transport = z.enum(["tcp", "iroh"]);
 export type Transport = z.infer<typeof Transport>;
 
+/** Hard length caps for the browser↔bridge JSON. Owned here so the schema rejects
+ * oversize input instead of the bridge silently truncating (a lying path that
+ * delivered half a line as if it were whole). */
+export const MAX_NICK = 32;
+export const MAX_ROOM = 32;
+export const MAX_LINE = 8192;
+
+/** Honest refuse reason for an inbound CapTP `dm` arg pair, or null if valid.
+ * Callers must surface this (notice / error) — never silently drop. */
+export function dmArgsRefuseNotice(from: string, text: string): string | null {
+	if (from.length < 1 || from.length > MAX_NICK) {
+		return `dm peer name too long (max ${MAX_NICK} characters)`;
+	}
+	if (text.length < 1 || text.length > MAX_LINE) {
+		return `dm message too long (max ${MAX_LINE} characters)`;
+	}
+	return null;
+}
+
+const Nick = z.string().min(1).max(MAX_NICK);
+const Room = z.string().min(1).max(MAX_ROOM);
+const Line = z.string().min(1).max(MAX_LINE);
+
 /** A presence change carried on a room line: the full roster, or one member coming
  * or going. */
 export const Presence = z.union([
@@ -27,13 +50,16 @@ export const Presence = z.union([
 ]);
 export type Presence = z.infer<typeof Presence>;
 
-/** Browser → bridge. Join (or switch) a room, say a line in the current room, open a
- * direct-message thread with a member, or say a line in one of those threads. */
+/** Browser → bridge. Join (or switch) a room, say a line in the current room, flag
+ * whether we are typing in it, open a direct-message thread with a member, or say a
+ * line in one of those threads. */
 export const Inbound = z.union([
-	z.object({ join: z.object({ room: z.string(), nick: z.string() }) }),
-	z.object({ say: z.string() }),
-	z.object({ dmOpen: z.object({ to: z.string() }) }),
-	z.object({ dmSay: z.object({ to: z.string(), text: z.string() }) }),
+	z.object({ join: z.object({ room: Room, nick: Nick }) }),
+	z.object({ say: Line }),
+	z.object({ typing: z.boolean() }),
+	z.object({ ping: z.literal(true) }), // liveness only; the bridge drops a silent tab
+	z.object({ dmOpen: z.object({ to: Nick }) }),
+	z.object({ dmSay: z.object({ to: Nick, text: Line }) }),
 ]);
 export type Inbound = z.infer<typeof Inbound>;
 
@@ -56,6 +82,7 @@ export const Outbound = z.union([
 		}),
 	}),
 	z.object({ notice: z.string() }),
+	z.object({ typing: z.object({ from: z.string(), on: z.boolean() }) }),
 	z.object({ from: z.string(), text: z.string(), presence: Presence.nullable() }),
 ]);
 export type Outbound = z.infer<typeof Outbound>;

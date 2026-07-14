@@ -27,12 +27,13 @@ import {
 	roomSigil,
 	sendBtn,
 	statusEl,
+	typingEl,
 } from "./dom.ts";
 import type { ActionItem, ChatItem, Conv, Item, NoteItem, SysItem } from "./types.ts";
 import type { Presence } from "../lib/wire.ts";
 import { activeConv, convKey, convs, dmablePeers, liveRooms, state } from "./state.ts";
 import { fmtTime, hueOf, initials, makeBubble, mentionsYou } from "./richtext.ts";
-import { autoGrow, insertMention } from "./composer.ts";
+import { autoGrow, insertMention, stopTyping } from "./composer.ts";
 import { pickRoom, startDm } from "./net.ts";
 import { renderNotifyBtn } from "./notify.ts";
 
@@ -327,7 +328,9 @@ export function renderDms() {
 	if (rows.length === 0) {
 		const empty = document.createElement("li");
 		empty.className = "empty";
-		empty.textContent = state.joinedRoom ? "Message a member to start one." : "";
+		empty.textContent = state.joinedRoom
+			? "Message a member to start one."
+			: "Join a room first — then message someone from the roster.";
 		dmListEl.append(empty);
 		return;
 	}
@@ -425,6 +428,25 @@ export function renderPresence(conv: Conv | null) {
 	}
 }
 
+// ── Typing indicator ──────────────────────────────────────────────────────
+// Show which other members of the active room are typing, in the line above the
+// composer. Room-only: a direct message has no typing channel. The set is kept
+// on the conversation and auto-clears (see net.ts), so this is a pure repaint —
+// a no-op unless the given room is the one on screen.
+function typingText(names: string[]): string {
+	if (names.length === 0) return "";
+	if (names.length === 1) return `${names[0]} is typing…`;
+	if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
+	return `${names[0]}, ${names[1]}, and ${names.length - 2} more are typing…`;
+}
+export function renderTyping(conv: Conv | null) {
+	const names = conv && conv.type === "room" && conv.key === state.activeKey
+		? [...conv.typers.keys()].filter((n) => n !== state.nick)
+		: [];
+	typingEl.textContent = typingText(names);
+	typingEl.classList.toggle("show", names.length > 0);
+}
+
 // ── Status, banner, join error ────────────────────────────────────────────
 export function setStatus(phase: string, text: string) {
 	dot.className = "dot " + phase;
@@ -505,7 +527,9 @@ export function switchTo(key: string) {
 	emojiPop.classList.remove("show"); // never carry a stray popup across a switch
 	notifyToggle.hidden = false;
 	renderNotifyBtn();
+	stopTyping(); // leaving the old room: clear any typing flag we were sending
 	renderConv(conv);
+	renderTyping(conv);
 	renderRooms();
 	renderDms();
 	updateTitle();

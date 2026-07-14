@@ -1,11 +1,11 @@
 //! Live TCP scale proof: many concurrent connections served from one loop
-//! thread through the `LoopBridge` (ADR-0076).
+//! thread through `driver.Bridge` over `net.TcpLoop` (ADR-0076).
 //!
-//! One completion loop (`net.Loop`) runs a full byte-fed multi-connection
-//! node (`driver.core.Host`) through `driver.LoopBridge`: adoption, the keyed
+//! One completion loop (`net.TcpLoop`) runs a full byte-fed multi-session
+//! CapTP host (`driver.core.Host`) through `driver.Bridge`: adoption, the keyed
 //! handshake, per-event serving, the budgeted drive, and the host's action
 //! queue all on a single thread. Many clients dial it at once — each an
-//! ordinary blocking `driver.ConnectedVat` — fetch the published greeter, and
+//! ordinary blocking `driver.BlockingSession` — fetch the published greeter, and
 //! call it several times, every reply asserted. The run then repeats a second
 //! wave over recycled slots, so the proof covers connection churn as well as
 //! concurrency.
@@ -28,6 +28,8 @@ const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
 const net = pancake.net;
+
+const TcpBridge = driver.Bridge(net.TcpLoop);
 
 const frame_cap: usize = 4096;
 const greeting = "hello over the tcp loop";
@@ -101,7 +103,7 @@ fn publishGreeter(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
     _ = try served.publish("greeter", Greeter, .{});
 }
 
-fn runLoop(loop: *net.Loop, until_closed: usize, out_err: *?anyerror) void {
+fn runLoop(loop: *net.TcpLoop, until_closed: usize, out_err: *?anyerror) void {
     loop.run(.{ .after_closed = until_closed }) catch |err| {
         out_err.* = err;
     };
@@ -181,26 +183,29 @@ pub fn main(init: std.process.Init) !void {
         .local_turn_budget = actors.Vat.max_batch_local_turns,
     });
     defer host.deinit();
-    var bridge = driver.LoopBridge.init(server_alloc, &host, io, .{ .publish = publishGreeter });
+    var loop: net.TcpLoop = undefined;
+    var bridge = TcpBridge.init(server_alloc, &host, io, &loop, .{ .publish = publishGreeter });
     defer bridge.deinit();
 
-    var loop = try net.Loop.init(server_alloc, driver.LoopBridge.makePeer, @ptrCast(&bridge), .{
+    loop = try net.TcpLoop.init(server_alloc, TcpBridge.makePeer, @ptrCast(&bridge), .{
         .frame_cap = frame_cap,
         .max_conns = conns_per_wave * 2,
         .listen = 0,
-        .make_conn_ctx = driver.LoopBridge.makeConnCtx,
-        .serve = driver.LoopBridge.serve,
-        .free_conn_ctx = driver.LoopBridge.freeConnCtx,
+        .make_conn_ctx = TcpBridge.makeConnCtx,
+        .serve = TcpBridge.serve,
+        .free_conn_ctx = TcpBridge.freeConnCtx,
+        .on_close = TcpBridge.onClose,
     });
     defer loop.deinit();
     const port = loop.port.?;
-    var designator_buf: [64]u8 = undefined;
-    const designator = try std.fmt.bufPrint(&designator_buf, "127.0.0.1:{d}", .{port});
-    try bridge.attach(&loop, net.tcp.transport_name, designator);
+    var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;
+    const designator_addr = try net.tcp.parseHostPort("127.0.0.1", port);
+    const designator = net.tcp.locator(&designator_buf, designator_addr).designator;
+    try bridge.attach(net.tcp.transport_name, designator, &.{});
 
     const total_lifecycles = conns_per_wave * waves;
     var loop_err: ?anyerror = null;
-    const loop_thread = try std.Thread.spawn(.{}, runLoop, .{ &loop, total_lifecycles, &loop_err });
+    var loop_future = try io.concurrent(runLoop, .{ &loop, total_lifecycles, &loop_err });
 
     const baseline: i64 = counting.live.load(.acquire);
 
@@ -231,7 +236,7 @@ pub fn main(init: std.process.Init) !void {
         if (first_err == null) first_err = err;
     };
 
-    loop_thread.join();
+    loop_future.await(io);
     if (loop_err) |err| return err;
     if (first_err) |err| return err;
 

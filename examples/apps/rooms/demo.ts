@@ -22,7 +22,7 @@
 // demo's own member roster, so an attached room may have other people in it,
 // chatting away — they are shown in the transcripts but never counted.
 
-import { ANNOUNCE_RE, announceToLocator } from "./deno/lib/locator.ts";
+import { ANNOUNCE_RE, announceToLocator, loopbackTcpDesignator } from "./deno/lib/locator.ts";
 import {
 	buildRust,
 	onPath,
@@ -64,7 +64,7 @@ const ROOM = "demo";
 // child processes with broader permissions.
 const DENO_FLAGS = transport === "iroh"
 	? ["run", "-A", "--unstable-ffi"]
-	: ["run", "--allow-ffi", "--allow-read", "--allow-net"];
+	: ["run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env"];
 
 interface Member {
 	name: string;
@@ -216,7 +216,7 @@ let failed = false;
 try {
 	// No liveness probe in attach mode: on loopback a missing server refuses each
 	// client's connect immediately, which is already a loud, fast failure.
-	const locator = server ? await readLocator(server) : `127.0.0.1:${pinPort}`;
+	const locator = server ? await readLocator(server) : loopbackTcpDesignator(pinPort!);
 	// Every client asserts against this roster — exactly the demo's own members —
 	// so residents of an attached room (and their chatter) are shown but never
 	// counted, and cannot fake or break the all-to-all proof.

@@ -6,7 +6,7 @@
 ;; A give whose exporter location names the exporter by node id alone (no
 ;; `direct-addresses`) cannot be dialed DIRECT — the recipient must resolve the
 ;; id. Which discovery posture it resolves under is the recipient node's
-;; `set-node-redeem-reachability!` knob: DISCOVERY (n0 relays + DNS/pkarr) by
+;; `set-host-redeem-reachability!` knob: DISCOVERY (n0 relays + DNS/pkarr) by
 ;; default, lowerable for a deployment policy. This gate sets that knob to
 ;; LOCAL-DISCOVERY — an in-process address book, no network — and proves the
 ;; hint-less redeem dials by id through it and withdraws the gift.
@@ -46,12 +46,12 @@
      (with-handlers ([exn:fail? (lambda (_) (void))])
        (let loop ()
          (define conn (iroh-server-accept s))
-         (set-box! serves-box (cons (thread (lambda () (conn-serve conn))) (unbox serves-box)))
+         (set-box! serves-box (cons (thread (lambda () (session-serve conn))) (unbox serves-box)))
          (loop))))))
 
 ;; ── Exporter: a node-giftable greeter on its own local-discovery endpoint ──────
 (define exporter (listen-iroh IROH-REACH-LOCAL-DISCOVERY))
-(node-publish-giftable (iroh-server-node exporter) "greeter"
+(host-publish-giftable (iroh-server-host exporter) "greeter"
                           (methods [(greet who) (format "hello ~a over a configured-posture redeem" who)]))
 (define exporter-id (iroh-server-node-id exporter))
 (define exporter-serves (box '()))
@@ -62,12 +62,13 @@
 (define gifter (listen-iroh IROH-REACH-LOCAL-DISCOVERY))
 (define gifter-id (iroh-server-node-id gifter))
 (define to-exporter
-  (connect-iroh/node exporter-id "" IROH-REACH-LOCAL-DISCOVERY (iroh-server-node gifter)))
-(define greeter-ref (conn-fetch to-exporter "greeter"))
+  (connect (format-peer-uri TRANSPORT-IROH exporter-id) IROH-REACH-LOCAL-DISCOVERY
+           #:host (iroh-server-host gifter)))
+(define greeter-ref (session-fetch to-exporter "greeter"))
 ;; Record the exporter's location by node id alone, no direct-addresses. This is
 ;; what forces the recipient down the configured-posture redeem path.
-(conn-set-exporter-locator! to-exporter (encode-peer-locator "iroh" exporter-id ""))
-(node-publish-giftable (iroh-server-node gifter) "introducer"
+(session-set-exporter-locator! to-exporter (encode-peer-locator "iroh" exporter-id ""))
+(host-publish-giftable (iroh-server-host gifter) "introducer"
                           (methods [(get-greeter) greeter-ref]))
 (define gifter-serves (box '()))
 (define gifter-accept (start-accept-loop gifter gifter-serves))
@@ -79,17 +80,17 @@
                    (iroh-server-close! exporter)
                    (iroh-server-close! gifter)
                    (raise e))])
-  (define recipient (connect-iroh gifter-id "" IROH-REACH-LOCAL-DISCOVERY))
+  (define recipient (connect (format-peer-uri TRANSPORT-IROH gifter-id) IROH-REACH-LOCAL-DISCOVERY))
   ;; The knob under test: without it, the hint-less redeem defaults to DISCOVERY
   ;; (n0 relays + DNS) and would fail with no network.
-  (set-node-redeem-reachability! (connection-node recipient) IROH-REACH-LOCAL-DISCOVERY)
-  (define introducer (conn-fetch recipient "introducer"))
-  (define greeter (conn-send recipient introducer 'get-greeter))
+  (set-host-redeem-reachability! (session-host recipient) IROH-REACH-LOCAL-DISCOVERY)
+  (define introducer (session-fetch recipient "introducer"))
+  (define greeter (session-send recipient introducer 'get-greeter))
   (unless (or (far-ref? greeter) (near-ref? greeter))
     (fail "racket-iroh-redeem-posture" (format "introduction did not redeem to a capability: ~a" greeter)))
   (printf "racket-iroh-redeem-posture: recipient redeemed the hint-less give under its configured LocalDiscovery posture, got the greeter as an ordinary ref\n")
 
-  (define reply (conn-send recipient greeter 'greet NAME))
+  (define reply (session-send recipient greeter 'greet NAME))
   (unless (and (string? reply) (regexp-match? (regexp (regexp-quote NAME)) reply))
     (fail "racket-iroh-redeem-posture" (format "greeter reply did not carry the name back: ~a" reply)))
   (printf "racket-iroh-redeem-posture: greeter replied: ~a\n" reply)
@@ -101,8 +102,8 @@
   ;; Teardown: close the dialing connections, then the servers, closing a server
   ;; stops its loop and raises out of the parked accept; the accepted connections
   ;; share that loop and netlayer, so their serve threads end on the EOF.
-  (connection-close! recipient)
-  (connection-close! to-exporter)
+  (session-close! recipient)
+  (session-close! to-exporter)
   (iroh-server-close! exporter)
   (iroh-server-close! gifter)
   (thread-wait exporter-accept)

@@ -1,7 +1,7 @@
 #lang racket/base
 ;; pancake backend for the bench suite. Wraps the Racket binding's high-level TCP
-;; lifecycle behind the suite's substrate-blind API. The binding's `conn-send` and
-;; `conn-fetch` already are the run-to-quiescence driver — they issue an
+;; lifecycle behind the suite's substrate-blind API. The binding's `session-send` and
+;; `session-fetch` already are the run-to-quiescence driver — they issue an
 ;; eventual-send and pump the sans-io peer until the reply settles — so they are
 ;; the fair, idiomatic pancake analog of Goblins' vat loop. No application logic
 ;; lives here.
@@ -21,19 +21,19 @@
     (thread
      (lambda ()
        (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-         (define (mint-cap ctor) (conn-spawn hconn ctor))
-         (conn-publish hconn name (build-root mint-cap))
-         (conn-serve hconn))))
+         (define (mint-cap ctor) (session-spawn hconn ctor))
+         (session-publish hconn name (build-root mint-cap))
+         (session-serve hconn))))
     (accept-loop)))
 
 (struct pclient (conn))
 
 (define (client-connect host port) (pclient (connect (tcp-locator host port))))
 
-(define (client-fetch handle name) (conn-fetch (pclient-conn handle) name))
+(define (client-fetch handle name) (session-fetch (pclient-conn handle) name))
 
 ;; Synchronous send + settle, returning the fulfilled value (raises on a break).
 (define (client-call handle ref method . args)
-  (apply conn-send (pclient-conn handle) ref method args))
+  (apply session-send (pclient-conn handle) ref method args))
 
-(define (client-close handle) (connection-close! (pclient-conn handle)))
+(define (client-close handle) (session-close! (pclient-conn handle)))

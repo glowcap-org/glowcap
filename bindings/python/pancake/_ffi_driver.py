@@ -6,7 +6,7 @@ exports only the ``pancake_host_*`` family and shares the frame, argument,
 reference, and last-abort layouts declared in :mod:`pancake._ffi_ocapn` by
 *layout*, so this loader opens ONLY ``libpancake_driver`` and declares no core
 symbol, exactly as :mod:`pancake._ffi_tcp` does. The host surface over it lives
-in :mod:`pancake._host` and :mod:`pancake._connection`.
+in :mod:`pancake._host` and :mod:`pancake._session`.
 
 Callback discipline: the ONE native callback in the whole binding — the shared
 behavior trampoline (:mod:`pancake._trampoline`) — fires synchronously on the
@@ -30,10 +30,11 @@ from ._ffi_ocapn import (
     _bind,
     _LastAbort,
     _Lib,
-    _lib_path,
     _ManagedFrame,
     _Reference,
 )
+from ._lib_resolve import _lib_path
+
 
 
 class _HostAction(ctypes.Structure):
@@ -58,6 +59,22 @@ class _HostAction(ctypes.Structure):
         ("value", _Argument),
         ("message", ctypes.c_void_p),
         ("message_len", ctypes.c_size_t),
+    ]
+
+
+class _DialPlan(ctypes.Structure):
+    # PancakeDialPlan (pancake_driver.h) — the resolved dial pancake_host_plan_dial
+    # hands back: `shape` selects the live fields (HOST_PORT fills host/port, IROH
+    # fills addresses/reach). host/addresses borrow the caller's input buffers.
+    _fields_ = [
+        ("shape", ctypes.c_uint32),
+        ("host", ctypes.c_void_p),
+        ("host_len", ctypes.c_size_t),
+        ("port", ctypes.c_uint16),
+        ("addresses", ctypes.c_void_p),
+        ("addresses_len", ctypes.c_size_t),
+        ("reach_kind", ctypes.c_uint32),
+        ("reach_value", ctypes.c_uint32),
     ]
 
 
@@ -101,6 +118,28 @@ def _pin_layout() -> None:
                 f"pancake FFI layout drift: _HostAction.{name} at offset {got}, "
                 f"pancake_driver.h says {want}; re-mirror the struct"
             )
+    plan_size = ctypes.sizeof(_DialPlan)
+    if plan_size != 56:
+        raise ImportError(
+            f"pancake FFI layout drift: sizeof(_DialPlan) == {plan_size}, "
+            f"pancake_driver.h says 56; re-mirror the struct"
+        )
+    for name, want in (
+        ("shape", 0),
+        ("host", 8),
+        ("host_len", 16),
+        ("port", 24),
+        ("addresses", 32),
+        ("addresses_len", 40),
+        ("reach_kind", 48),
+        ("reach_value", 52),
+    ):
+        got = getattr(_DialPlan, name).offset
+        if got != want:
+            raise ImportError(
+                f"pancake FFI layout drift: _DialPlan.{name} at offset {got}, "
+                f"pancake_driver.h says {want}; re-mirror the struct"
+            )
 
 
 _pin_layout()
@@ -135,32 +174,35 @@ def _load():
     ref_p = ctypes.POINTER(_Reference)
     sigs = {
         # Lifecycle.
-        "pancake_host_new": ([P, size, size, u32, u32, ctypes.POINTER(P)], i32),
-        "pancake_host_new_in": ([P, P, size, size, u32, u32, ctypes.POINTER(P)], i32),
+        "pancake_host_new": ([P, size, size, u32, u32, u32, ctypes.POINTER(P)], i32),
+        "pancake_host_new_in": ([P, P, size, size, u32, u32, u32, ctypes.POINTER(P)], i32),
         "pancake_host_release": ([P], None),
+        "pancake_host_designator_from_seed": ([P, size, P, size], i32),
         "pancake_host_set_self_designator": ([P, P, size], i32),
-        "pancake_host_conn_open_dialed": ([P, P, size, ctypes.POINTER(P)], i32),
-        "pancake_host_conn_open_accepted": ([P, P, size, P, size, ctypes.POINTER(P)], i32),
-        "pancake_host_conn_release": ([P], None),
-        "pancake_host_conn_session_open": ([P], i32),
+        "pancake_host_session_open_dialed_locator": ([P, P, size, P, size, ctypes.POINTER(P)], i32),
+        # Resolve a dial to a _DialPlan (grammar + hint + iroh posture); free function.
+        "pancake_host_plan_dial": ([P, size, P, size, P, size, u32, u32, ctypes.POINTER(_DialPlan)], i32),
+        "pancake_host_session_open_accepted": ([P, P, size, P, size, P, size, ctypes.POINTER(P)], i32),
+        "pancake_host_session_release": ([P], None),
+        "pancake_host_session_session_open": ([P], i32),
         # The byte pump and action queue.
-        "pancake_host_conn_feed_bytes": ([P, P, size, size_p], i32),
-        "pancake_host_conn_take_outbound": ([P, ctypes.POINTER(_ManagedFrame)], i32),
+        "pancake_host_session_feed_bytes": ([P, P, size, size_p], i32),
+        "pancake_host_session_take_outbound": ([P, ctypes.POINTER(_ManagedFrame)], i32),
         "pancake_host_next_action": ([P, ctypes.POINTER(_HostAction)], i32),
         "pancake_host_dialed": ([P, u64, P], i32),
         "pancake_host_dial_failed": ([P, u64, P, size], i32),
         "pancake_host_provide_gift_id": ([P, u64, P, size], i32),
         # Publish and spawn (behavior = the shared trampoline, ctx = the Python
         # registry id packed as a pointer-sized integer, free = NULL).
-        "pancake_host_conn_publish": ([P, P, size, _HostBehavior, P, P, u64_p], i32),
-        "pancake_host_conn_spawn": ([P, _HostBehavior, P, P, u64_p], i32),
+        "pancake_host_session_publish": ([P, P, size, _HostBehavior, P, P, u64_p], i32),
+        "pancake_host_session_spawn": ([P, _HostBehavior, P, P, u64_p], i32),
         "pancake_host_publish": ([P, P, size, _HostBehavior, P, P], i32),
         # Fetch and enliven — each mints a host vow (out param).
-        "pancake_host_conn_fetch": ([P, P, size, u64_p], i32),
-        "pancake_host_conn_enliven": ([P, P, size, u64_p], i32),
+        "pancake_host_session_fetch": ([P, P, size, u64_p], i32),
+        "pancake_host_session_enliven": ([P, P, size, u64_p], i32),
         # Send, tell, vows, projections.
-        "pancake_host_conn_send": ([P, ref_p, P, size, arg_p, size, u64_p], i32),
-        "pancake_host_conn_tell": ([P, ref_p, P, size, arg_p, size], i32),
+        "pancake_host_session_send": ([P, ref_p, P, size, arg_p, size, u64_p], i32),
+        "pancake_host_session_tell": ([P, ref_p, P, size, arg_p, size], i32),
         "pancake_host_vow_send": ([P, u64, P, size, arg_p, size, u64_p], i32),
         "pancake_host_vow_index": ([P, u64, u64, u64_p], i32),
         "pancake_host_vow_untag": ([P, u64, P, size, u64_p], i32),
@@ -171,9 +213,9 @@ def _load():
         "pancake_host_turn_break": ([P, P, size], i32),
         # GC, teardown, diagnostics.
         "pancake_host_gc_release": ([P, u64, u64], i32),
-        "pancake_host_conn_break_far_vows": ([P, P, size], i32),
-        "pancake_host_conn_set_exporter_location": ([P, P, size], i32),
-        "pancake_host_conn_last_abort": ([P, ctypes.POINTER(_LastAbort)], i32),
+        "pancake_host_session_break_far_vows": ([P, P, size], i32),
+        "pancake_host_session_set_exporter_location": ([P, P, size], i32),
+        "pancake_host_session_last_abort": ([P, ctypes.POINTER(_LastAbort)], i32),
         "pancake_host_last_error": ([ctypes.POINTER(ctypes.c_uint8), size], size),
     }
     lib = ctypes.CDLL(str(_lib_path("pancake_driver")))

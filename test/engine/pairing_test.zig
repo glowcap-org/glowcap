@@ -10,6 +10,27 @@ const pairing = engine.pairing;
 
 const crypto = foundation.crypto;
 
+fn offersShareProfile(local: engine.negotiation.Offer, remote: engine.negotiation.Offer) bool {
+    for (local.profiles) |lp| {
+        for (remote.profiles) |rp| {
+            if (lp.captp_version == rp.captp_version) return true;
+        }
+    }
+    return false;
+}
+
+fn pairedWithOffers(
+    allocator: std.mem.Allocator,
+    local: engine.negotiation.Offer,
+    remote: engine.negotiation.Offer,
+) !pairing.Pair {
+    const negotiated = engine.negotiation.negotiate(local, remote) orelse {
+        if (offersShareProfile(local, remote)) return pairing.Error.NoSharedCodec;
+        return pairing.Error.NoSharedProfile;
+    };
+    return pairing.pairedNegotiated(allocator, negotiated);
+}
+
 test "paired factory drives the handshake to open with bootstrap export" {
     const allocator = std.testing.allocator;
     var pair = try pairing.paired(allocator);
@@ -167,7 +188,7 @@ test "pairedWithOffers builds both peers with the negotiated (intersected) featu
         },
     };
 
-    var pair = try pairing.pairedWithOffers(allocator, local, remote);
+    var pair = try pairedWithOffers(allocator, local, remote);
     defer pair.deinit();
 
     inline for (.{ &pair.p1, &pair.p2 }) |peer| {
@@ -186,7 +207,7 @@ test "pairedWithOffers rejects offers that share no codec" {
     const remote: engine.negotiation.Offer = .{ .codecs = &.{.syrup}, .features = model.FeatureSet.full() };
     try std.testing.expectError(
         pairing.Error.NoSharedCodec,
-        pairing.pairedWithOffers(allocator, local, remote),
+        pairedWithOffers(allocator, local, remote),
     );
 }
 
@@ -204,7 +225,7 @@ test "pairedWithOffers rejects offers that share no profile" {
     };
     try std.testing.expectError(
         pairing.Error.NoSharedProfile,
-        pairing.pairedWithOffers(allocator, local, remote),
+        pairedWithOffers(allocator, local, remote),
     );
 }
 
@@ -221,7 +242,7 @@ test "pairedWithOffers carries the negotiated profile onto both sessions" {
         .features = model.FeatureSet.full(),
     };
 
-    var pair = try pairing.pairedWithOffers(allocator, local, remote);
+    var pair = try pairedWithOffers(allocator, local, remote);
     defer pair.deinit();
 
     inline for (.{ &pair.p1, &pair.p2 }) |peer| {
@@ -306,7 +327,7 @@ fn capnpOffer() engine.negotiation.Offer {
 
 test "pairedWithOffers carries the negotiated codec onto a live Cap'n Proto session" {
     const allocator = std.testing.allocator;
-    var pair = try pairing.pairedWithOffers(allocator, capnpOffer(), capnpOffer());
+    var pair = try pairedWithOffers(allocator, capnpOffer(), capnpOffer());
     defer pair.deinit();
 
     // The handshake itself rode Cap'n Proto: both sessions record `.capnp` and
@@ -320,7 +341,7 @@ test "pairedWithOffers carries the negotiated codec onto a live Cap'n Proto sess
 
 test "paired Cap'n Proto peers exchange a deliver (parity with Syrup)" {
     const allocator = std.testing.allocator;
-    var pair = try pairing.pairedWithOffers(allocator, capnpOffer(), capnpOffer());
+    var pair = try pairedWithOffers(allocator, capnpOffer(), capnpOffer());
     defer pair.deinit();
 
     try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
@@ -351,7 +372,7 @@ test "paired Cap'n Proto peers exchange a deliver (parity with Syrup)" {
 
 test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" {
     const allocator = std.testing.allocator;
-    var pair = try pairing.pairedWithOffers(allocator, capnpOffer(), capnpOffer());
+    var pair = try pairedWithOffers(allocator, capnpOffer(), capnpOffer());
     defer pair.deinit();
 
     try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));

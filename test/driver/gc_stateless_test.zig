@@ -49,7 +49,7 @@ test "stateless GC releases a far introduced inside a nested argument" {
         var event = p2.pollEvent().?;
         defer event.deinit();
         try std.testing.expectEqual(engine.EventKind.deliver, event.kind());
-        driver.core.gc.emitStatelessAfter(&p2, &event);
+        driver.core.emitStatelessAfter(&p2, &event);
     }
 
     // The emission released the nested import on p2's own table.

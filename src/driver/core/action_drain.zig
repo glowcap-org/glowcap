@@ -1,9 +1,9 @@
 //! Shared host-action drain: one `while (takeAction) switch` over the six
 //! arms, with per-embedder behavior injected through a comptime executor.
-//! `BlockingHost` and `LoopBridge` (and any future Zig embedder) supply the
-//! arms that differ; `need_gift_id` and the dial-payload free live here so a
-//! seventh action kind is a compile error in every embedder, not a silent miss
-//! in one of N hand-rolled copies.
+//! `Bridge` (and any future Zig embedder) supply the arms that differ;
+//! `need_gift_id` and the dial-payload free live here so a seventh action
+//! kind is a compile error in every embedder, not a silent miss in one of N
+//! hand-rolled copies.
 
 const Host = @import("host.zig").Host;
 
@@ -11,16 +11,16 @@ const Host = @import("host.zig").Host;
 ///
 /// `io` must provide `randomSecure(buf: []u8) !void` — the entropy boundary
 /// for gift-id draws. `exec` must provide:
-/// - `flush(conn_id: engine.ConnId) !void`
-/// - `close(conn_id: engine.ConnId) !void`
+/// - `flush(peer_id: engine.PeerId) !void`
+/// - `close(peer_id: engine.PeerId) !void`
 /// - `dial(d: HostAction.Dial) !void` — dial payload is freed here after return
 /// - `complete(action: HostAction) !void` — owns `.settled` / `.failed` (adopt
 ///   or `host.freeAction`; the skeleton does not free them)
 pub fn drainActions(host: *Host, io: anytype, exec: anytype) !void {
     while (try host.takeAction()) |action| {
         switch (action) {
-            .flush => |conn_id| try exec.flush(conn_id),
-            .close => |conn_id| try exec.close(conn_id),
+            .flush => |peer_id| try exec.flush(peer_id),
+            .close => |peer_id| try exec.close(peer_id),
             .need_gift_id => |n| {
                 var gift_id: [32]u8 = undefined;
                 try io.randomSecure(&gift_id);

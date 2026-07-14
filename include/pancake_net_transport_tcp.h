@@ -43,7 +43,7 @@ typedef struct PancakeTcpConn PancakeTcpConn;
    pancake_tcp_listener_release. */
 typedef struct PancakeTcpListener PancakeTcpListener;
 /* An owning OCapN session over one blocking TCP connection: the C
-   spelling of the native-Zig Connection (ADR-0062). Created by
+   spelling of the native-Zig Session (ADR-0062). Created by
    pancake_tcp_session_connect, which dials and runs the keyed
    handshake; released by pancake_tcp_session_release. */
 typedef struct PancakeTcpSession PancakeTcpSession;
@@ -91,7 +91,7 @@ void pancake_tcp_listener_release(PancakeTcpListener *listener);
    surface above. Where pancake_tcp_conn_* hands you whole frames to shuttle
    through a PancakePeer by hand, a PancakeTcpSession owns the peer, both
    buffers, and the bound vat, and offers the same blocking fetch/call the
-   native-Zig Connection does, marshalling pancake_ocapn.h's shared
+   native-Zig Session does, marshalling pancake_ocapn.h's shared
    PancakeReference/PancakeArgument vocabulary into the PancakeSettled
    outcome declared below. This is the TCP archive's own entry, not a driver
    default; the inproc and iroh archives can grow the same shape. */

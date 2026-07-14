@@ -116,6 +116,70 @@ fn findEntry(entries: []const model.StructEntry, key: []const u8) ?model.Argumen
     return null;
 }
 
+/// Structural hash consistent with `argumentsEqual`: two Equal values always
+/// hash equal. It hashes a *subset* of what equality compares — the arms whose
+/// equality is richer than plain bytes (reference, error, handoff, float64)
+/// contribute only their tag — so a collision is possible and a caller must
+/// confirm with `argumentsEqual`, but an Equal pair can never be missed. The
+/// order-independent arms (set, struct) combine their children commutatively,
+/// mirroring `setsEqualDepth` / `structsEqualDepth`. Process-local grouping
+/// only (duplicate detection inside one frame); never a wire artifact.
+pub fn argumentHash(arg: model.Argument) u64 {
+    return argumentHashDepth(arg, 0);
+}
+
+fn argumentHashDepth(arg: model.Argument, depth: usize) u64 {
+    // Equality refuses past `max_value_depth`, so no two values this deep are
+    // ever Equal and any constant is consistent here.
+    if (depth > model.max_value_depth) return 0;
+    var h = std.hash.Wyhash.init(@intFromEnum(arg));
+    switch (arg) {
+        .bytes => |x| h.update(x),
+        .symbol => |x| h.update(x),
+        .string => |x| h.update(x),
+        .keyword => |x| h.update(x),
+        .integer => |x| h.update(std.mem.asBytes(&x)),
+        .big_integer => |x| {
+            h.update(std.mem.asBytes(&x.negative));
+            h.update(x.digits);
+        },
+        .boolean => |x| h.update(std.mem.asBytes(&x)),
+        // Tag-only arms: their equality reads more than raw payload bytes
+        // (distributed reference identity, float semantics), so the hash
+        // deliberately under-approximates and leaves the verdict to
+        // `argumentsEqual` on collision.
+        .void, .float64, .reference, .@"error", .handoff => {},
+        .list => |items| for (items) |item| {
+            const child = argumentHashDepth(item, depth + 1);
+            h.update(std.mem.asBytes(&child));
+        },
+        .tagged => |tagged| {
+            h.update(tagged.tag);
+            for (tagged.value) |item| {
+                const child = argumentHashDepth(item, depth + 1);
+                h.update(std.mem.asBytes(&child));
+            }
+        },
+        .set => |items| {
+            var sum: u64 = 0;
+            for (items) |item| sum +%= argumentHashDepth(item, depth + 1);
+            h.update(std.mem.asBytes(&sum));
+        },
+        .@"struct" => |entries| {
+            var sum: u64 = 0;
+            for (entries) |entry| {
+                var eh = std.hash.Wyhash.init(0);
+                eh.update(entry.key);
+                const value_hash = argumentHashDepth(entry.value, depth + 1);
+                eh.update(std.mem.asBytes(&value_hash));
+                sum +%= eh.final();
+            }
+            h.update(std.mem.asBytes(&sum));
+        },
+    }
+    return h.final();
+}
+
 /// Element-wise structural equality on two argument slices (order-sensitive).
 pub fn argumentSlicesEqual(a: []const model.Argument, b: []const model.Argument) bool {
     return argumentSlicesEqualDepth(a, b, 0);

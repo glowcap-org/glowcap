@@ -1,7 +1,9 @@
-# The hosted C release: on a version tag, build the complete archive set per
-# platform with `zig build release-pack` and attach every tarball, plus one
-# combined SHA256SUMS, to the GitHub release. Versioning is `abi_version` in
-# build.zig (reported by `pancake_abi_version`); the tag records the release
+# The hosted C release: build the complete archive set per platform with
+# `zig build release-pack`. On a version tag, attach every tarball plus one
+# combined SHA256SUMS to the GitHub release when the resolve contract's
+# `releases_published` is true. workflow_dispatch builds and uploads CI
+# artifacts only — never creates a GitHub release. Versioning is `abi_version`
+# in build.zig (reported by `pancake_abi_version`); the tag records the release
 # point. This is the find leg's upstream named in bindings/README.md: a
 # runtime-download or per-platform packaging leg resolves archives from here.
 #
@@ -11,6 +13,7 @@
 name: release
 
 on:
+  workflow_dispatch:
   push:
     tags: ["v*"]
 
@@ -64,13 +67,28 @@ jobs:
 
   release:
     needs: archives
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Check whether C archive publish is enabled
+        id: publish
+        run: |
+          if jq -e '.releases_published == true' bindings/c-abi-resolve.json >/dev/null; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish disabled (releases_published is false)"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - uses: actions/download-artifact@v4
+        if: steps.publish.outputs.enabled == 'true'
         with:
           path: artifacts
 
       - name: Assemble assets and combined checksums
+        if: steps.publish.outputs.enabled == 'true'
         run: |
           mkdir assets
           find artifacts -name '*.tar.gz' -exec mv {} assets/ \;
@@ -78,6 +96,7 @@ jobs:
           ls -l assets
 
       - name: Create the release with assets
+        if: steps.publish.outputs.enabled == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

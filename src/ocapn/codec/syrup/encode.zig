@@ -404,22 +404,31 @@ fn writeArgument(allocator: std.mem.Allocator, sink: anytype, arg: model.Argumen
     }
 }
 
-/// Encode a set's elements in canonical order: each element is encoded
+/// Encode a canonical unordered collection: each element is encoded
 /// independently, the encodings are sorted lexicographically by byte, and
-/// emitted in that order. A set is unordered, so its wire form must not depend
-/// on the order the model held it in, the encode-side partner of the
-/// order-agnostic set equality in `model.equality`.
+/// emitted in that order, so the wire form never depends on the order the model
+/// held the elements in. This is the encode-side partner of the order-agnostic
+/// set and struct equality in `model.equality`, and the one place the measure /
+/// sort-scratch / emit shape lives: Syrup sets, structs, and hint dicts all
+/// route through it, each supplying its own per-element writer.
 ///
-/// The measure pass takes the counting branch: a canonical order is a
-/// permutation of the elements, so the set's encoded length is the sum of its
-/// elements' lengths in any order and no sort scratch is needed. The duplicate
-/// refusal below is emit-side; a duplicate therefore fails the fill pass after
-/// the measure pass succeeded, and the caller frees the measured buffer.
-fn writeCanonicalSet(allocator: std.mem.Allocator, sink: anytype, items: []const model.Argument) WalkError!void {
-    if (items.len == 0) return;
-
+/// The measure pass takes the counting branch, because a canonical order is a
+/// permutation of the elements, so the encoded length is the sum of the
+/// elements' lengths in any order and no sort scratch is needed. When
+/// `refuse_adjacent_dupes` is set, the emit pass rejects two equal encodings
+/// (they sort adjacent) as a duplicate, the emit-side half of ADR-0003's
+/// symmetric refusal, so a duplicate fails the fill pass after the measure pass
+/// already succeeded and the caller frees the measured buffer.
+fn writeCanonicalCollection(
+    comptime Elem: type,
+    allocator: std.mem.Allocator,
+    sink: anytype,
+    items: []const Elem,
+    comptime refuse_adjacent_dupes: bool,
+    comptime writeElem: anytype,
+) WalkError!void {
     if (comptime sinkCounts(@TypeOf(sink))) {
-        for (items) |item| try writeArgument(allocator, sink, item);
+        for (items) |item| try writeElem(allocator, sink, item);
         return;
     }
 
@@ -434,21 +443,31 @@ fn writeCanonicalSet(allocator: std.mem.Allocator, sink: anytype, items: []const
         var element: std.ArrayList(u8) = .empty;
         errdefer element.deinit(allocator);
         var element_sink: ListSink = .{ .allocator = allocator, .list = &element };
-        try writeArgument(allocator, &element_sink, item);
+        try writeElem(allocator, &element_sink, item);
         encoded[built] = try element.toOwnedSlice(allocator);
         built += 1;
     }
 
     std.mem.sort([]u8, encoded, {}, lessByteSlice);
-    // Symmetric refusal (ADR-0003): the decoder rejects a set whose elements are
-    // not strictly ascending, which a duplicate element violates, so an encoder
-    // that emitted one would ship a frame pancake's own decoder rejects. A set
-    // element is its whole value, so two equal elements encode to equal bytes and
-    // land adjacent after the sort — one linear pass finds a duplicate.
-    for (encoded[1..], 1..) |element, i| {
-        if (std.mem.eql(u8, encoded[i - 1], element)) return Error.UnsupportedArgument;
+    if (comptime refuse_adjacent_dupes) {
+        // The decoder rejects a set whose elements are not strictly ascending,
+        // which a duplicate violates, so an encoder that emitted one would ship a
+        // frame pancake's own decoder rejects. A set element is its whole value,
+        // so two equal elements encode to equal bytes and land adjacent after the
+        // sort — one linear pass finds a duplicate.
+        for (encoded[1..], 1..) |element, i| {
+            if (std.mem.eql(u8, encoded[i - 1], element)) return Error.UnsupportedArgument;
+        }
     }
     for (encoded) |element| try sink.appendSlice(element);
+}
+
+/// Encode a set's elements in canonical order. A set is unordered, so the emit
+/// pass refuses a duplicate element (ADR-0003), matching the decoder's
+/// strictly-ascending refusal.
+fn writeCanonicalSet(allocator: std.mem.Allocator, sink: anytype, items: []const model.Argument) WalkError!void {
+    if (items.len == 0) return;
+    try writeCanonicalCollection(model.Argument, allocator, sink, items, true, writeArgument);
 }
 
 fn lessByteSlice(_: void, a: []u8, b: []u8) bool {
@@ -474,56 +493,31 @@ fn refuseDuplicateStructKeys(allocator: std.mem.Allocator, entries: []const mode
     }
 }
 
-/// Encode a struct's entries in canonical key order: each entry is encoded as its
-/// String key followed by its value, the encoded entries are sorted
-/// lexicographically by byte, and emitted in that order. The upstream Syrup
-/// encoder sorts dictionary entries by the fully-encoded key; sorting whole
-/// `key ++ value` encodings is equivalent here because keys are self-delimiting
-/// netstrings, so no key encoding is a prefix of another and two entries always
-/// first differ within their key bytes. This is the encode-side partner of the
-/// order-independent struct equality in `model.equality`.
+/// The per-entry writer for a struct: its String key followed by its value.
+/// Sorting whole `key ++ value` encodings orders by key because keys are
+/// self-delimiting netstrings, so no key encoding is a prefix of another and two
+/// entries always first differ within their key bytes.
+fn writeStructEntry(allocator: std.mem.Allocator, sink: anytype, entry: model.StructEntry) WalkError!void {
+    try writeString(sink, entry.key);
+    try writeArgument(allocator, sink, entry.value);
+}
+
+/// Encode a struct's entries in canonical key order, the encode-side partner of
+/// the order-independent struct equality in `model.equality`. The upstream Syrup
+/// encoder sorts dictionary entries by the fully-encoded key, which
+/// `writeCanonicalCollection` reproduces.
 ///
 /// Symmetric refusal (ADR-0003): the decoder rejects a struct whose keys are not
 /// strictly ascending as `MalformedFrame`, which a duplicate key violates, so a
 /// duplicate is refused here rather than shipped. The check is on the model keys,
 /// not the `key ++ value` encodings, because two entries with the same key and
 /// different values encode to distinct, strictly-ordered byte strings that a
-/// full-encoding compare would miss.
-///
-/// The measure pass takes the counting branch, exactly as `writeCanonicalSet`:
-/// length is order-independent, and the duplicate refusal fires on the fill.
+/// full-encoding compare would miss. It runs on the fill pass only, mirroring the
+/// generic's own count-branch skip.
 fn writeCanonicalStruct(allocator: std.mem.Allocator, sink: anytype, entries: []const model.StructEntry) WalkError!void {
     if (entries.len == 0) return;
-
-    if (comptime sinkCounts(@TypeOf(sink))) {
-        for (entries) |entry| {
-            try writeString(sink, entry.key);
-            try writeArgument(allocator, sink, entry.value);
-        }
-        return;
-    }
-
-    try refuseDuplicateStructKeys(allocator, entries);
-
-    const encoded = try allocator.alloc([]u8, entries.len);
-    var built: usize = 0;
-    defer {
-        for (encoded[0..built]) |element| allocator.free(element);
-        allocator.free(encoded);
-    }
-
-    for (entries) |entry| {
-        var element: std.ArrayList(u8) = .empty;
-        errdefer element.deinit(allocator);
-        var element_sink: ListSink = .{ .allocator = allocator, .list = &element };
-        try writeString(&element_sink, entry.key);
-        try writeArgument(allocator, &element_sink, entry.value);
-        encoded[built] = try element.toOwnedSlice(allocator);
-        built += 1;
-    }
-
-    std.mem.sort([]u8, encoded, {}, lessByteSlice);
-    for (encoded) |element| try sink.appendSlice(element);
+    if (comptime !sinkCounts(@TypeOf(sink))) try refuseDuplicateStructKeys(allocator, entries);
+    try writeCanonicalCollection(model.StructEntry, allocator, sink, entries, false, writeStructEntry);
 }
 
 fn writeHandoff(sink: anytype, handoff: model.Handoff) !void {
@@ -731,40 +725,19 @@ fn writePeerLocatorRecord(sink: anytype, allocator: std.mem.Allocator, location:
     try endRecord(sink);
 }
 
-/// Emit a Syrup `{…}` dict for hint entries, each `key value` pair encoded then
-/// sorted lexicographically by its bytes, the canonical order the upstream
-/// Syrup encoder uses (see `writeCanonicalStruct` for why sorting whole
-/// `key ++ value` encodings is equivalent to sorting keys when keys are unique,
-/// and for why the measure pass skips the sort scratch).
+/// The per-entry writer for a hint dict: its String name followed by its value.
+fn writeHintEntry(allocator: std.mem.Allocator, sink: anytype, entry: model.HintEntry) WalkError!void {
+    _ = allocator;
+    try writeString(sink, entry.name);
+    try writeHintValue(sink, entry.value);
+}
+
+/// Emit a Syrup `{…}` dict for hint entries in the canonical `key value` order
+/// the upstream Syrup encoder uses (`writeCanonicalCollection`). Hint names are
+/// unique by construction, so no duplicate refusal is needed.
 fn writeHintDict(allocator: std.mem.Allocator, sink: anytype, entries: []const model.HintEntry) WalkError!void {
     try sink.append('{');
-
-    if (comptime sinkCounts(@TypeOf(sink))) {
-        for (entries) |entry| {
-            try writeString(sink, entry.name);
-            try writeHintValue(sink, entry.value);
-        }
-        try sink.append('}');
-        return;
-    }
-
-    const encoded = try allocator.alloc([]u8, entries.len);
-    var built: usize = 0;
-    defer {
-        for (encoded[0..built]) |element| allocator.free(element);
-        allocator.free(encoded);
-    }
-    for (entries) |entry| {
-        var element: std.ArrayList(u8) = .empty;
-        errdefer element.deinit(allocator);
-        var element_sink: ListSink = .{ .allocator = allocator, .list = &element };
-        try writeString(&element_sink, entry.name);
-        try writeHintValue(&element_sink, entry.value);
-        encoded[built] = try element.toOwnedSlice(allocator);
-        built += 1;
-    }
-    std.mem.sort([]u8, encoded, {}, lessByteSlice);
-    for (encoded) |element| try sink.appendSlice(element);
+    try writeCanonicalCollection(model.HintEntry, allocator, sink, entries, false, writeHintEntry);
     try sink.append('}');
 }
 
@@ -800,8 +773,26 @@ fn writeError(sink: anytype, err: model.BreakReason) !void {
 
 fn writeUnsigned(sink: anytype, value: anytype) !void {
     var buf: [20]u8 = undefined;
-    const text = try std.fmt.bufPrint(&buf, "{d}", .{value});
+    // Hand-rolled decimal: same canonical digit spelling as `{d}` (no leading
+    // zero except for `0` itself), sized for a u64 / usize magnitude. Avoids
+    // the formatter on every length prefix and positive int.
+    const text = formatDecimal(&buf, value);
     try sink.appendSlice(text);
+}
+
+fn formatDecimal(buf: *[20]u8, value: anytype) []const u8 {
+    var remaining: u64 = value;
+    if (remaining == 0) {
+        buf[19] = '0';
+        return buf[19..20];
+    }
+    var i: usize = buf.len;
+    while (remaining > 0) {
+        i -= 1;
+        buf[i] = @intCast((remaining % 10) + '0');
+        remaining /= 10;
+    }
+    return buf[i..];
 }
 
 fn writeSignedMagnitude(sink: anytype, value: i64) !void {

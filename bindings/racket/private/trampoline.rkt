@@ -2,10 +2,12 @@
 ;; Internal: the bridge between the vat's local actors and the byte-fed host's
 ;; wire hosting — one actor, two doors. An actor spawned through a connection
 ;; lives in the Racket vat as a closure cell; this module builds the
-;; `PancakeHostBehavior` trampoline the host invokes on each wire deliver. The
-;; trampoline reads the actor's CURRENT closure out of its cell per call (via
-;; `run-turn`), never capturing it, so `bcom` and `vat-restore!` retarget wire
-;; delivers with zero host verbs — the time-travel contract.
+;; `PancakeHostBehavior` trampoline the host invokes on each wire deliver, hosts
+;; spawn/publish mint (`register-hosted-actor!`), and owns the ADR-0064 proxy
+;; behavior constructors. The trampoline reads the actor's CURRENT closure out
+;; of its cell per call (via `run-turn`), never capturing it, so `bcom` and
+;; `vat-restore!` retarget wire delivers with zero host verbs — the time-travel
+;; contract.
 ;;
 ;; Reply discipline: the host copies `out_reply`'s payload the instant the
 ;; trampoline returns, so the marshalled reply's buffers are retained in
@@ -18,6 +20,7 @@
 ;; far target defers the answer onto the forwarded send's vow.
 
 (require ffi/unsafe
+         racket/lazy-require
          "constants.rkt"
          "ffi-shared.rkt"
          "ffi-driver.rkt"
@@ -26,11 +29,19 @@
          "codec.rkt"
          "vat.rkt")
 
+;; Session + pump for the local-send await path (session eagerly requires this
+;; module; lazy-require breaks the cycle).
+(lazy-require
+ ["session.rkt" (session-vat session-host session-ptr drain-host!)]
+ ["pump.rkt" (pump-until)]
+ ["host.rkt" (host-retain! call-with-host)]
+ ["promise.rkt" (await-vow session-far-send)])
+
 (provide (all-defined-out))
 
 ;; The turn context while a hosted actor's trampoline runs: a pair of the
 ;; opaque `PancakeHostTurn*` and the connection the turn arrived on, or #f
-;; outside any turn. `conn-spawn`/`conn-caretaker` read it to pick the
+;; outside any turn. `session-spawn`/`session-caretaker` read it to pick the
 ;; turn-time spawn (`pancake_host_turn_spawn`) over the top-level one, which
 ;; the host refuses inside a callback; the pump reads it to defer action
 ;; drains to the enclosing verb's unwind.
@@ -80,34 +91,34 @@
 ;; Resolve a trampoline result into the turn's answer: a plain value marshals
 ;; into the reply; a `forward` composes locally or defers through the host's
 ;; turn-forward; a raise (handled by the caller) breaks with the message. The
-;; local chase is bounded by the vat's hop cap — a caretaker forwarding to
-;; itself would spin this loop forever — so hop 257 breaks the answer with the
-;; cycle message instead.
+;; local chase is bounded by the hop cap — a caretaker forwarding to itself
+;; would spin this loop forever — so hop 257 breaks the answer with the cycle
+;; message instead.
 (define (settle-turn-reply c v turn result out-reply)
-  (let chase ([result result] [hops 0])
-    (cond
-      [(forward? result)
-       (define target (if v (vat-resolve-target v (forward-target result)) (forward-target result)))
-       (cond
-         [(actor-ref? target)
-          ;; A local target near-calls now and the chase continues, so a
-          ;; caretaker over an attenuator composes exactly as it does under `$`.
-          (if (>= hops MAX-LOCAL-FORWARD-HOPS)
-              (turn-break! turn FORWARD-CYCLE-MESSAGE)
-              (chase (run-turn target (forward-method result) (forward-args result))
-                     (add1 hops)))]
-         [(or (far-ref? target) (near-ref? target))
-          (define mb (string->bytes/utf-8 (symbol->string (forward-method result))))
-          (define keep (box '()))
-          (define-values (aptr acnt) (args->c (forward-args result) keep))
-          ;; The host writes a placeholder reply and lets the real answer ride
-          ;; the forwarded send's vow; buffers stay pinned until it returns.
-          (define rc (pancake_host_turn_forward turn (ref->c target)
-                                                (pin-immobile mb) (bytes-length mb)
-                                                aptr acnt out-reply))
-          (if (= rc OK) OK (turn-break! turn (or (host-last-error) "forward refused")))]
-         [else (turn-break! turn "forward target is not callable")])]
-      [else (write-reply! result out-reply)])))
+  (define chased
+    (chase-local-actor-forwards
+     result
+     (lambda (target method args) (run-turn target method args))
+     ;; Wire path: map near-export positions to local actor-refs before the
+     ;; actor-ref? hop test. Giftable trampolines have no vat — identity.
+     #:resolve-target (lambda (t) (if v (vat-resolve-target v t) t))))
+  (cond
+    [(forward-cycle? chased) (turn-break! turn FORWARD-CYCLE-MESSAGE)]
+    [(forward? chased)
+     (define target (forward-target chased))
+     (cond
+       [(or (far-ref? target) (near-ref? target))
+        (define mb (string->bytes/utf-8 (symbol->string (forward-method chased))))
+        (define keep (box '()))
+        (define-values (aptr acnt) (args->c (forward-args chased) keep))
+        ;; The host writes a placeholder reply and lets the real answer ride
+        ;; the forwarded send's vow; buffers stay pinned until it returns.
+        (define rc (pancake_host_turn_forward turn (ref->c target)
+                                              (pin-immobile mb) (bytes-length mb)
+                                              aptr acnt out-reply))
+        (if (= rc OK) OK (turn-break! turn (or (host-last-error) "forward refused")))]
+       [else (turn-break! turn "forward target is not callable")])]
+    [else (write-reply! chased out-reply)]))
 
 ;; The shared trampoline body: decode the deliver, run the actor under the turn
 ;; context, and settle the reply. Every raise (an attenuator's "Attenuated", a
@@ -129,8 +140,8 @@
                         (lambda (method args)
                           (run-turn (actor-ref v actor-id) method args)))))
 
-;; The PancakeHostBehavior for a node-wide giftable (`node-publish-giftable`):
-;; one behavior closure published under one swissnum on every connection, so it
+;; The PancakeHostBehavior for a host-wide giftable (`host-publish-giftable`):
+;; one behavior closure published under one swissnum on every session, so it
 ;; is bound to no single vat. The behavior lives in a cell here so a `bcom`
 ;; return still swaps it; a `forward` return reaches only far targets (there is
 ;; no vat to resolve a local one against).
@@ -153,3 +164,158 @@
   (define-values (rc pos) (pancake_host_turn_spawn turn trampoline #f #f))
   (check/host rc)
   pos)
+
+;; Observe a local vow to settlement and classify: register the listener, run
+;; the turn in `drive`, and — when a proxy forwarding to a far target deferred
+;; the settle onto a wire reply — pump until it lands. Returns the fulfilled
+;; value; a broken vow raises the typed ERR-BROKEN. The one awaiting loop under
+;; `session-send`'s local arm and `session-await`'s.
+(define (await-local-vow c vow who label)
+  (define v (session-vat c))
+  (define result (box 'pending))
+  (with-vat v
+    (on vow
+        (lambda (val) (set-box! result (cons 'ok val)))
+        #:catch (lambda (m) (set-box! result (cons 'broken m)))))
+  (drive v)
+  (unless (pair? (unbox result))
+    (pump-until c (lambda () (pair? (unbox result))) who
+                #:closed-message (format "connection closed before ~a settled" label)))
+  (define r (unbox result))
+  (if (eq? (car r) 'broken)
+      (raise-pancake who ERR-BROKEN "~a broke: ~a" label (cdr r))
+      (cdr r)))
+
+;; The awaiting loop for a send whose target resolved to a local actor: the
+;; turn runs in `drive`; a proxy forwarding to a far target defers the settle
+;; onto the reply, which the pump reads off the wire.
+(define (session-send-local c resolved verb args)
+  (define vow (with-vat (session-vat c) (apply <- resolved verb args)))
+  (await-local-vow c vow 'session-send verb))
+
+;; Near-hosted vs far send dispatch (blocking): resolve the target, then local
+;; `session-send-local` or far mint + `await-vow`. Session keeps guard/drain.
+(define (dispatch-send c target verb args)
+  (define resolved (vat-resolve-target (session-vat c) target))
+  (cond
+    [(actor-ref? resolved) (session-send-local c resolved verb args)]
+    [else (await-vow c (session-far-send c resolved verb args #t) 'session-send verb)]))
+
+;; Near-hosted vs far send-promise dispatch: local runs `<-` + `drive` and
+;; returns the vow; far mints through `session-far-send`.
+(define (dispatch-send-promise c target verb args)
+  (define v (session-vat c))
+  (define resolved (vat-resolve-target v target))
+  (cond
+    [(actor-ref? resolved)
+     (define vow (with-vat v (apply <- resolved verb args)))
+     ;; A local target runs its turn now; a far/pipelined target leaves on the
+     ;; settling `session-send`'s pump, so the whole chain travels as one batch.
+     (drive v)
+     vow]
+    [else (session-far-send c resolved verb args #t)]))
+
+;; Near-hosted vs far tell dispatch: local `<-np` + `drive`; far mint + host
+;; drain flush.
+(define (dispatch-tell c target verb args)
+  (define v (session-vat c))
+  (define resolved (vat-resolve-target v target))
+  (cond
+    [(actor-ref? resolved)
+     (with-vat v (apply <-np resolved verb args))
+     (drive v)]
+    [else
+     (session-far-send c resolved verb args #f)
+     (drain-host! (session-host c))]))
+
+;; ADR-0064 caretaker actor constructor: forwards to `target` while `live` is
+;; true, else breaks with "Revoked". Session registers the spawn and tracks
+;; the live box for `session-revoke!`.
+(define (caretaker-behavior live target)
+  (lambda (bcom)
+    (lambda (method . args)
+      (if (unbox live)
+          (forward target method args)
+          (error "Revoked")))))
+
+;; ADR-0064 attenuator actor constructor: forwards only allow-listed verbs
+;; (strings), else breaks with "Attenuated".
+(define (attenuate-behavior allow target)
+  (lambda (bcom)
+    (lambda (method . args)
+      (if (member (symbol->string method) allow)
+          (forward target method args)
+          (error "Attenuated")))))
+
+;; Host `actor` on connection `c`: build the trampoline that runs the actor's
+;; current cell on each wire deliver, bind it at a fresh export position —
+;; through the turn-time spawn when called from inside a hosted turn (a served
+;; factory minting the capability it replies with), through the top-level
+;; publish/spawn otherwise — and record the export in the vat so a near
+;; reference to it resolves in process. Returns the near capability. Session's
+;; `session-spawn` / `session-publish` / proxy factories wrap this.
+(define (register-hosted-actor! c actor #:name [name #f])
+  (define v (session-vat c))
+  (define m (session-host c))
+  (define tramp (make-actor-trampoline c v (actor-ref-id actor)))
+  (host-retain! m tramp)
+  (define turn (and (not name) (current-turn-for c)))
+  (define pos
+    (cond
+      [turn (turn-spawn-position! turn tramp)]
+      [else
+       (call-with-host m
+         (lambda ()
+           (cond
+             [name
+              (define nb (string->bytes/utf-8 name))
+              (define-values (rc p)
+                (pancake_host_session_publish (session-ptr c) (pin-immobile nb) (bytes-length nb)
+                                           tramp #f #f))
+              (check/host rc)
+              p]
+             [else
+              (define-values (rc p) (pancake_host_session_spawn (session-ptr c) tramp #f #f))
+              (check/host rc)
+              p])))]))
+  (bind-export! v actor pos)
+  (near pos))
+
+;; ADR-0064 caretaker factory: resolve `target`, spawn a forwarding actor, host
+;; it, and record the live box for `revoke-caretaker!`. Session's
+;; `session-caretaker` is the thin public wrapper.
+(define (caretaker-proxy c target)
+  (define v (session-vat c))
+  (define resolved (vat-resolve-target v target))
+  (define live (box #t))
+  ;; An ordinary spawned actor whose behavior tail-forwards to the target — so
+  ;; the proxy answers a local call exactly as a partner's delivery does.
+  (define actor
+    (with-vat v
+      (spawn (caretaker-behavior live resolved))))
+  (define proxy (register-hosted-actor! c actor))
+  (hash-set! (vat-revocables v) (near-ref-id proxy) live)
+  proxy)
+
+;; ADR-0064 attenuator factory: resolve `target`, spawn a verb-filtered
+;; forwarding actor, and host it. Session's `session-attenuate` wraps this.
+(define (attenuate-proxy c target verbs)
+  (define v (session-vat c))
+  (define resolved (vat-resolve-target v target))
+  (define allow (map (lambda (verb) (if (symbol? verb) (symbol->string verb) verb)) verbs))
+  (define actor
+    (with-vat v
+      (spawn (attenuate-behavior allow resolved))))
+  (register-hosted-actor! c actor))
+
+;; Sever a caretaker `proxy` from `caretaker-proxy` / `session-caretaker`:
+;; clear the live flag and drop the revocables row. Idempotent.
+(define (revoke-caretaker! c proxy)
+  (unless (near-ref? proxy)
+    (raise-pancake 'session-revoke! ERR-INVALID-ARGUMENT
+                   "revoke target is not a caretaker proxy: ~a" proxy))
+  (define revocables (vat-revocables (session-vat c)))
+  (define live (hash-ref revocables (near-ref-id proxy) #f))
+  (when live
+    (set-box! live #f)
+    (hash-remove! revocables (near-ref-id proxy))))

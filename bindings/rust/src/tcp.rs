@@ -2,7 +2,7 @@
 //!
 //! This module wraps `libpancake_net_transport_tcp` — the `pancake_tcp_*`
 //! archive that the `tcp` Cargo feature links (ADR-0059). It is the
-//! frame-shuttle layer one step below the async [`Connection`](crate::Connection):
+//! frame-shuttle layer one step below the async [`Session`](crate::Session):
 //! a [`Netlayer`] owns the blocking-TCP I/O backend, [`Netlayer::listen`] /
 //! [`Netlayer::connect`] bind and dial, and an [`Endpoint`] reads and writes one
 //! whole CapTP frame at a time. The frame methods block.
@@ -67,12 +67,18 @@ impl<'ctx> Netlayer<'ctx> {
 		})
 	}
 
-	/// Bind and listen on `host:port` (port 0 = OS-chosen). The returned listener
+	/// Bind and listen on `bind_host:port` (port 0 = OS-chosen). The returned listener
 	/// borrows this netlayer and cannot outlive it.
-	pub fn listen(&self, host: &str, port: u16) -> Result<Listener<'_>> {
+	pub fn listen(&self, bind_host: &str, port: u16) -> Result<Listener<'_>> {
 		let mut raw: *mut ffi::PancakeTcpListener = core::ptr::null_mut();
 		check_tcp(unsafe {
-			ffi::pancake_tcp_listen(self.raw, host.as_ptr(), host.len(), port, &mut raw)
+			ffi::pancake_tcp_listen(
+				self.raw,
+				bind_host.as_ptr(),
+				bind_host.len(),
+				port,
+				&mut raw,
+			)
 		})?;
 		Ok(Listener {
 			raw,
@@ -150,7 +156,7 @@ impl Listener<'_> {
 // thread and calling `accept` there touches only its own state. The two pieces
 // it does share with the netlayer are both thread-safe: the allocator
 // (`std.heap.smp_allocator` for `Netlayer::new`, or a bounded `Send + Sync`
-// `HostAllocator` for `new_in`) and the netlayer's `std.Io.Threaded` backend,
+// `ContextAllocator` for `new_in`) and the netlayer's `std.Io.Threaded` backend,
 // which tolerates the concurrent blocking calls a borrowed handle on one thread
 // makes while the netlayer is used on the origin. Borrowing the netlayer keeps
 // it non-`'static`, so callers move it into a scoped thread.
@@ -163,7 +169,7 @@ impl Drop for Listener<'_> {
 }
 
 /// A blocking TCP endpoint, the `pancake_tcp_*` frame shuttle, one
-/// layer below [`Connection`](crate::Connection). Closed on drop. The frame
+/// layer below [`Session`](crate::Session). Closed on drop. The frame
 /// methods block. Borrows the [`Netlayer`] (or [`Listener`]) it came from, so
 /// that backend outlives it.
 pub struct Endpoint<'a> {

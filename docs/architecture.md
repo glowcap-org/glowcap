@@ -18,6 +18,15 @@ rule: build steps stay obvious, examples compile, public artifacts are named for
 `pancake`, and no tooling layer hides ownership, allocation, I/O, scheduling, or
 authority.
 
+**CapTP sticky note (ADR-0079).** `Host` / `PancakeHost` / binding `Host` is the
+multi-session CapTP product (owns `engine.Node`). `engine.Node` is the sans-io
+handoff router. Binding `Session` is the one-partner app object
+(`driver.Session`). `BlockingSession` is `Served` + `net.Connection` with a
+blocking pump. `HostedActor` / `spawnHosted` is embedder-hosted behavior.
+`DialResolver` is transport dial resolve. Goblins `mycapn` is two roles —
+endpoint ≈ Host, router tables ≈ `engine.Node`. Binding `Node` and binding
+`Connection` are deleted; `net.Connection` remains the framed byte stream only.
+
 ## Protocol Oracle, Zig Shape
 
 OCapN behavior, Spritely Goblins wire fixtures, and pancake's checked protocol
@@ -108,15 +117,17 @@ layer module tables (ADR-0040) admit `net` as a non-core module imported by the
   to a `Connection` and binds a `Listener`. The driver's `connectVia` and
   `acceptVia` resolve the locator's transport symbol against a caller-owned
   `[]const net.netlayer.Netlayer` slice through `net.netlayer.resolve`, failing
-  closed on an unknown symbol. Three residents satisfy it: tcp through
-  `net.tcp.Resident`; the in-process switchboard `net.inproc` (ADR-0047), which
-  wires a dialer and listener through byte pipes with no sockets so a full OCapN
-  conversation runs inside one process; and the iroh QUIC netlayer through the
-  resident in `src/net/transport/iroh.zig` (ADR-0055). The inproc and iroh
-  residents each registered without an edit to the driver or the core. The
-  completion loop stays outside this contract, an fd-based option a raw-fd
-  transport may offer beside the netlayer API, not a capability every netlayer
-  must satisfy.
+  closed on an unknown symbol. Four residents satisfy it: `tcp` through
+  `net.tcp.Resident`; `keyed-tcp` through `net.tcp_keyed` (ADR-0075), which
+  reuses `tcp`'s sockets and owns only locator grammar (`keyed-tcp` dials
+  through the same `std.Io.net`-to-socket site); the in-process switchboard
+  `net.inproc` (ADR-0047), which wires a dialer and listener through byte pipes
+  with no sockets so a full OCapN conversation runs inside one process; and the
+  iroh QUIC netlayer through the resident in `src/net/transport/iroh.zig`
+  (ADR-0055). The inproc and iroh residents each registered without an edit to
+  the driver or the core. The completion loop stays outside this contract, an
+  fd-based option a raw-fd transport may offer beside the netlayer API, not a
+  capability every netlayer must satisfy.
 - **Bounded per-connection memory (ADR-0030, ADR-0041, ADR-0042).**
   `SessionLimits.max_frame_bytes` caps inbound frame size, so an oversized frame
   is refused as `too_large` and projected to a `resource_exhausted` abort. The
@@ -132,7 +143,7 @@ layer module tables (ADR-0040) admit `net` as a non-core module imported by the
   cooperative request/response; a partner that streams without draining belongs
   on the completion loop (ADR-0053). Crossed hellos sits one layer higher: the
   sans-io host core (`driver_core.Host`) owns the tiebreak registry. A dial
-  registers the outbound before bytes move, an accepted connection compares an
+  registers the outbound before bytes move, an accepted session compares an
   inbound start-session against it and condemns the losing side, and the
   engine only projects the typed abort (ADR-0068).
 
@@ -153,51 +164,57 @@ namespace.
 The `driver` layer sits above both the actor turn loop and the netlayer, the one
 place that may touch `std.Io` and the actor vat at once.
 
-`driver.ConnectedVat` binds an `actors.Vat` to a live `net.Connection` over one
+`driver.BlockingSession` binds an `actors.Vat` to a live `net.Connection` over one
 caller-owned `engine.Peer`, sparing a networked app the hand-written open, pump,
-and dispatch loop. Every read and write is one explicit `ConnectedVat.step`, and
-a host that answers until the partner leaves calls `ConnectedVat.serve`.
+and dispatch loop. Every read and write is one explicit `BlockingSession.step`, and
+a host that answers until the partner leaves calls `BlockingSession.serve`.
 
-The one-object face above it is the owning `driver.Connection`. `driver.connect`
-dials and `driver.listen` hosts, each `accept` handing back a connection that
+The one-object face above it is the owning `driver.Session`. `driver.connect`
+dials and `driver.listen` hosts, each `accept` handing back a session that
 owns its peer and buffers; one `frame_cap` sizes the buffers and the session's
-frame limit together. `Connection.call` blocks until the reply settles and
+frame limit together. `Session.call` blocks until the reply settles and
 returns the outcome into a caller-supplied arena: fulfilled, broken, or a
 `.give`, the typed introduction a three-party handoff delivers.
 
-`driver_core` (`src/driver/core/`) is the sans-io multi-connection serve
+`driver_core` (`src/driver/core/`) is the sans-io multi-session CapTP serve
 core: `Served`, the shared vocabulary, and the byte-fed `Host` that owns one
-identity, one `engine.Node`, many connections, vows, and the crossed-hellos
+identity, one `engine.Node`, many sessions, vows, and the crossed-hellos
 tiebreak (ADR-0072). It is `core = true` in the layer table, so `arch-check`
 bans sockets and threads there exactly as in `engine`. Embedders answer its
 action queue — dial, flush, close, gift-id entropy, settled/failed — whether
-they are the native Zig blocking loop, the TCP completion-loop bridge, or a
-language binding over `libpancake_driver`.
+they are `driver.Bridge` over a completion loop, or a language binding over
+`libpancake_driver`.
 
-`driver.BlockingHost` is the native Zig multi-connection tier: a blocking
-socket loop over `driver_core.Host` (ADR-0068/0072). The blocking tier owns
-the sockets and answers the core's action queue — a dial action becomes a
-real dial, a flush a socket write, a gift-id draw the entropy boundary. A
+`driver.Bridge` + `completion.Loop` is the native Zig multi-session CapTP path over
+`driver_core.Host` (ADR-0068/0072/0076). The bridge owns the sockets and answers
+the core's action queue — a dial action becomes a real dial, a flush a socket
+write, a gift-id draw the entropy boundary. A
 call whose answer is a three-party introduction settles as the introduced
 capability itself, because the host claims the give and withdraws inside the
 wait; there is no redeem verb to call. Language bindings do **not** rebuild
 this tier: they drive the same `driver_core.Host` through `pancake_host_*` on
 `libpancake_driver`.
 
-`driver.LoopBridge` is the scale-path translator that feeds the same
-`driver_core.Host` from `net.Loop` (ADR-0076): adoption via
-`Host.openAcceptedOver`, per-event serving via `Host.serveEvent`,
-cross-connection flushes via `Loop.armOutbound`, and a budgeted drive whose
-breach condemns the flooded connection. Its first consumer is
-`zig build tcp-loop`. A bridged host can mint gives; loop-side dial (handoff
-recipient on one loop thread) is still open (`docs/boundaries.md`).
+`driver.Bridge` feeds the same
+`driver_core.Host` from `net.TcpLoop` or `completion.Loop(iroh.Backend, iroh.DialResolver)` (ADR-0076): adoption via
+`Host.openAcceptedOver` / `Host.openDialedOver`, per-event serving via
+`Host.serveEvent`, cross-session flushes via `Loop.armOutbound`, outbound
+redeem dials via `Loop.dialLocator` (OCapN locator parts; the Loop's
+`DialResolver` resolves, the Backend `startDial`s) then
+`exporterDialed` at session open, and a budgeted drive whose breach condemns
+the flooded session. Its first consumers are `zig build tcp-loop` and
+`zig build iroh-bridge-redeem`. Blocking `Netlayer.dial` and completion
+`dialLocator` share the same admission (`DialResolver.resolve` per transport
+family); transport symbol literals live in `model.transport` so netlayers and
+`driver_core` cannot drift.
 
-Below these are the explicit-ownership escapes. `connectTcp` and `acceptTcp` hand
-the caller the allocator, buffers, and peer directly, both naming tcp at the
-constructor; and `ConnectedVat.over` wraps a `Connection` the caller already
-holds over any stream. All keep actor policy in `driver`, leaving `net` only
-fd readiness and peer I/O. A consumer who outgrows the whole surface reaches
-the raw peer through `ConnectedVat.peer`.
+Below these are the explicit-ownership escapes. `connectTcp` and `acceptTcp` are
+thin tcp-named wrappers over `connectVia` / `acceptVia` (same hello and
+admission spine; they still hand the caller the allocator, buffers, and peer
+directly). `BlockingSession.over` wraps a `net.Connection` the caller already
+holds over any stream. All keep actor policy in `driver`, leaving `net` only fd
+readiness and peer I/O. A consumer who outgrows the whole surface reaches the
+raw peer through `BlockingSession.peer`.
 
 ## Session Representation
 
@@ -346,8 +363,8 @@ that includes two headers and links two archives composes:
 
 | Archive                           | Header                           | Exported family                                                                                                                                                                                                                   |
 | --------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `libpancake_ocapn`                | `pancake_ocapn.h`                | the sans-io peer plus the shared vocabulary: `pancake_abi_version`, `pancake_context_*`, `pancake_peer_*`, `pancake_uri_*` / `pancake_locator_*`, the frame/event releases, and `pancake_last_error` / `pancake_clear_last_error` |
-| `libpancake_driver`               | `pancake_driver.h`               | the byte-fed host tier (`pancake_host_*`): multi-connection routing, vows, and three-party handoff an embedder feeds and drains itself (ADR-0072)                                                                                |
+| `libpancake_ocapn`                | `pancake_ocapn.h`                | the sans-io peer plus the shared vocabulary: `pancake_abi_version`, `pancake_context_*`, `pancake_peer_*`, `pancake_uri_*` / `pancake_locator_*`, the frame/event releases, and `pancake_last_error` / `pancake_clear_last_error`. Multi-session CapTP product work uses `pancake_host_*` |
+| `libpancake_driver`               | `pancake_driver.h`               | the byte-fed host tier (`pancake_host_*`): multi-session CapTP routing, vows, and three-party handoff an embedder feeds and drains itself (ADR-0072)                                                                                |
 | `libpancake_net`                  | —                                | net-core base; exports nothing under the shipping mechanism (Model A), so it adds no symbol but holds its place in the link recipe                                                                                                |
 | `libpancake_net_transport_tcp`    | `pancake_net_transport_tcp.h`    | `pancake_tcp_*` plus its own `pancake_tcp_last_error` / `_clear`                                                                                                                                                                  |
 | `libpancake_net_transport_inproc` | `pancake_net_transport_inproc.h` | `pancake_inproc_*` plus its own `pancake_inproc_last_error` / `_clear`                                                                                                                                                            |

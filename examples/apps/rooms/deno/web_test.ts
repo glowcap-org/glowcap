@@ -1,4 +1,6 @@
 import { joinRoom } from "./lib/enter_room.ts";
+import { loopbackTcpDesignator } from "./lib/locator.ts";
+import { dmArgsRefuseNotice, MAX_LINE, MAX_NICK } from "./lib/wire.ts";
 
 const ROOT = new URL("../../../../", import.meta.url).pathname;
 const WEB = new URL("./web.ts", import.meta.url).pathname;
@@ -8,6 +10,7 @@ const DENO_FLAGS = [
 	"--allow-read",
 	"--allow-net",
 	"--allow-run",
+	"--allow-env",
 ];
 
 type BrowserMessage = {
@@ -28,6 +31,24 @@ type BrowserMessage = {
 function assert(condition: unknown, message: string): asserts condition {
 	if (!condition) throw new Error(message);
 }
+
+Deno.test("dmArgsRefuseNotice names the bound instead of silently accepting oversize", () => {
+	assert(dmArgsRefuseNotice("ok", "hi") === null, "valid dm args must pass");
+	const longNick = "n".repeat(MAX_NICK + 1);
+	const nickNotice = dmArgsRefuseNotice(longNick, "hi");
+	assert(
+		typeof nickNotice === "string" && nickNotice.includes(`max ${MAX_NICK}`) &&
+			nickNotice.includes("name"),
+		"oversize peer must refuse with a name notice",
+	);
+	const longText = "x".repeat(MAX_LINE + 1);
+	const textNotice = dmArgsRefuseNotice("ok", longText);
+	assert(
+		typeof textNotice === "string" && textNotice.includes(`max ${MAX_LINE}`) &&
+			textNotice.includes("message"),
+		"oversize body must refuse with a message notice",
+	);
+});
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -117,7 +138,7 @@ async function waitForMessage(
 		if (found) return found;
 		await delay(25);
 	}
-	throw new Error(`expected browser message in ${JSON.stringify(messages)}`);
+	throw new Error(`expected message in ${JSON.stringify(messages)}`);
 }
 
 // Wait for a message that arrives at or after `from` in the log, so a test can
@@ -175,7 +196,7 @@ Deno.test("rooms web bridge sends browser presence for all room members", async 
 
 			// The CLI joins the same room over the wire; the browser sees it arrive.
 			const { dir, room: cli } = await joinRoom(
-				`127.0.0.1:${roomPort}`,
+				loopbackTcpDesignator(roomPort),
 				"general",
 				"cli-grace",
 			);
@@ -446,4 +467,159 @@ Deno.test("rooms web UI attaches to a room server already on its port", async ()
 			await proc.status;
 		}
 	}
+});
+
+Deno.test("rooms web UI takes over when an attached room server dies", async () => {
+	// Attach must not leave the second instance forever pointing at a dead locator
+	// after the owning web.ts exits and tears down the shared child.
+	const roomPort = freePort();
+	const httpFirst = freePort();
+	const httpSecond = freePort();
+	const spawnWeb = (httpPort: number) =>
+		new Deno.Command("deno", {
+			args: [...DENO_FLAGS, WEB, String(httpPort), String(roomPort)],
+			cwd: ROOT,
+			stdout: "piped",
+			stderr: "piped",
+		}).spawn();
+
+	const first = spawnWeb(httpFirst);
+	let second: Deno.ChildProcess | null = null;
+	try {
+		await waitForHttp(httpFirst);
+		second = spawnWeb(httpSecond);
+		await waitForHttp(httpSecond);
+
+		try {
+			first.kill("SIGINT");
+		} catch {
+			// Already gone.
+		}
+		await first.status;
+
+		// Probe interval is 2s; allow spawn + announce after take-over.
+		const deadline = Date.now() + 15_000;
+		let joined = false;
+		let lastError: unknown;
+		while (Date.now() < deadline) {
+			try {
+				const { ws, messages } = await openSocket(httpSecond, "general", "takeover-user");
+				try {
+					await waitForMessage(messages, (m) => m.joined === "general");
+					joined = true;
+					break;
+				} finally {
+					ws.close();
+				}
+			} catch (err) {
+				lastError = err;
+				await delay(250);
+			}
+		}
+		assert(joined, `attached web did not take over after owner exit: ${lastError}`);
+	} finally {
+		for (const proc of [second, first]) {
+			if (!proc) continue;
+			try {
+				proc.kill("SIGINT");
+			} catch {
+				// Already gone.
+			}
+			try {
+				await proc.status;
+			} catch {
+				// Already reaped.
+			}
+		}
+	}
+});
+
+Deno.test("rooms web bridge delivers a DM longer than the old silent 2000-char truncate", async () => {
+	await withWeb(async (httpPort) => {
+		await waitForHttp(httpPort);
+		const alice = await openSocket(httpPort, "lobby", "alice");
+		const bob = await openSocket(httpPort, "lobby", "bob");
+		try {
+			await waitForMessage(alice.messages, (m) => m.joined === "lobby");
+			await waitForMessage(bob.messages, (m) => m.joined === "lobby");
+			await waitForMessage(
+				alice.messages,
+				(m) => Array.isArray(m.dmable) && m.dmable.includes("bob"),
+			);
+			// Past the old silent slice(0, 2000); under the honest MAX_LINE.
+			const text = "x".repeat(2500);
+			alice.ws.send(JSON.stringify({ dmSay: { to: "bob", text } }));
+			await waitForMessage(
+				bob.messages,
+				(m) => m.dmFrom?.peer === "alice" && m.dmFrom?.text === text,
+			);
+		} finally {
+			alice.ws.close();
+			bob.ws.close();
+		}
+	});
+});
+
+Deno.test("rooms web bridge refuses an oversize line with a notice instead of truncating", async () => {
+	await withWeb(async (httpPort) => {
+		await waitForHttp(httpPort);
+		const alice = await openSocket(httpPort, "lobby", "alice");
+		const bob = await openSocket(httpPort, "lobby", "bob");
+		try {
+			await waitForMessage(alice.messages, (m) => m.joined === "lobby");
+			await waitForMessage(bob.messages, (m) => m.joined === "lobby");
+			await waitForMessage(
+				alice.messages,
+				(m) => Array.isArray(m.dmable) && m.dmable.includes("bob"),
+			);
+			const text = "y".repeat(MAX_LINE + 1);
+			alice.ws.send(JSON.stringify({ dmSay: { to: "bob", text } }));
+			await waitForMessage(
+				alice.messages,
+				(m) => typeof m.notice === "string" && m.notice.includes(`max ${MAX_LINE}`),
+			);
+			// Bob must not receive a silently truncated half-line.
+			await new Promise((r) => setTimeout(r, 300));
+			assert(
+				!bob.messages.some((m) => m.dmFrom?.peer === "alice"),
+				"oversize DM must not be delivered",
+			);
+		} finally {
+			alice.ws.close();
+			bob.ws.close();
+		}
+	});
+});
+
+Deno.test("rooms web bridge refuses an oversize nick with a name notice, not a message notice", async () => {
+	await withWeb(async (httpPort) => {
+		await waitForHttp(httpPort);
+		const messages: BrowserMessage[] = [];
+		const ws = new WebSocket(`ws://127.0.0.1:${httpPort}/ws`);
+		ws.onmessage = (ev) => {
+			messages.push(JSON.parse(String(ev.data)));
+		};
+		await new Promise<void>((resolve, reject) => {
+			ws.onopen = () => resolve();
+			ws.onerror = () => reject(new Error("ws open failed"));
+		});
+		try {
+			const nick = "n".repeat(MAX_NICK + 1);
+			ws.send(JSON.stringify({ join: { room: "lobby", nick } }));
+			await waitForMessage(
+				messages,
+				(m) =>
+					typeof m.notice === "string" && m.notice.includes(`max ${MAX_NICK}`) &&
+					m.notice.includes("name"),
+			);
+			assert(
+				!messages.some((m) =>
+					typeof m.notice === "string" && m.notice.includes("message too long")
+				),
+				"nick overflow must not be reported as a message overflow",
+			);
+		} finally {
+			ws.close();
+		}
+	});
 });

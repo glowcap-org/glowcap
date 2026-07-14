@@ -1,7 +1,7 @@
 // Pancake-only three-party handoff (TCP): the gifter half, end to end, with
 // pancake as all three parties — no Goblins, no manual export bookkeeping.
 //
-//   Exporter  (Bob)    publishes a node-giftable "dm" inbox and listens.
+//   Exporter  (Bob)    publishes a host-giftable "dm" inbox and listens.
 //   Gifter    (Broker) holds Bob's dm and exposes an "introducer".
 //   Recipient (Carol)  asks the broker to introduce her, transparently redeems
 //                      the give, and DMs Bob *directly*.
@@ -10,7 +10,7 @@
 // direct connection to Bob — the broker is never in the message path. This is
 // the exporter half of ADR-0009 the engine's swiss re-resolution makes possible:
 // the gift is deposited on the broker↔Bob connection and withdrawn on the
-// separate Carol↔Bob connection, against one node-wide object identity.
+// separate Carol↔Bob connection, against one host-wide object identity.
 
 import process from "node:process";
 import { connect, listen, Ref, tcpLocator } from "@pancake/stack";
@@ -21,10 +21,10 @@ function fail(message: string): never {
 }
 
 async function main(): Promise<void> {
-	// ── Exporter (Bob): publishes a node-giftable inbox, listens for dials ───────
+	// ── Exporter (Bob): publishes a host-giftable inbox, listens for dials ───────
 	const inbox: string[] = [];
 	const bob = listen("127.0.0.1", 0);
-	bob.node.publishGiftable("dm", (verb, args) => {
+	bob.host.publishGiftable("dm", (verb, args) => {
 		if (verb === "tell") inbox.push(String(args[0]));
 		return null;
 	});
@@ -46,14 +46,14 @@ async function main(): Promise<void> {
 	const brokerToBob = await connect(
 		tcpLocator("127.0.0.1", bobPort),
 		undefined,
-		broker.node,
+		broker.host,
 	);
 	brokerToBob.serve().catch(() => {});
 	const bobDm = await brokerToBob.fetch("dm");
 
 	// Returning Bob's dm to a *different* connection (Carol's) trips the
 	// transparent gifter, which originates the three-party handoff.
-	broker.node.publishGiftable(
+	broker.host.publishGiftable(
 		"introducer",
 		(verb) => (verb === "introduce" ? bobDm : null),
 	);

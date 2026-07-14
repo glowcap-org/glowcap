@@ -28,6 +28,7 @@ const RecvViewError = session.RecvViewError;
 const AnswerDirection = session.AnswerDirection;
 const AnswerTable = session.AnswerTable;
 const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
+const slot = session.slot;
 
 pub fn applyRecvView(self: *Session, body: model.view.Body, introduced: *const validate.IntroducedImports) !void {
     switch (body) {
@@ -62,11 +63,13 @@ fn applyRecvShared(self: *Session, message: anytype, introduced: *const validate
             try installIntroducedImports(self, introduced);
         },
         .resolve => |resolve| {
-            if (self.outbound_answers.getPtr(resolve.answer)) |entry| {
-                entry.status = switch (resolve.resolution) {
-                    .fulfill => .fulfilled,
-                    .@"break" => .broken,
-                };
+            if (self.outbound_answers.getPtr(resolve.answer)) |cell| {
+                if (cell.status() == .pending) {
+                    switch (resolve.resolution) {
+                        .fulfill => cell.fulfill() catch unreachable,
+                        .@"break" => cell.breakCell() catch unreachable,
+                    }
+                }
             }
             // A canonical `op:resolve` fulfilling with a `far` reference hands
             // us a new import (the resolved capability), install the recorded
@@ -327,16 +330,33 @@ pub fn retainSentExportRef(self: *Session, reference: model.Reference) !void {
         .near => |near| if (near.export_position.int() != BOOTSTRAP_POSITION) {
             if (!self.exports.contains(near.export_position)) {
                 // First export of this object rides this marshal (a resolve
-                // fulfill, or a cross-session re-export): mint the row
-                // `registerExport`-shaped — local baseline first, then the
-                // wire mention below — and advance the allocator past the
-                // position, so `allocateExport` can never re-issue the same
-                // integer and silently alias a live object.
-                try self.exports.register(self.allocator, near.export_position);
+                // fulfill, or a cross-session re-export): the row is absent, so
+                // this mention is the only authority for its kind. Mint the cell
+                // from `near.kind` — object or promise — `registerExport`-shaped
+                // (local baseline first, then the wire mention below), and
+                // advance the allocator past the position so `allocateExport`
+                // can never re-issue the same integer and silently alias a live
+                // object. This is the sole place `retainSentExportRef` reads the
+                // wire kind: it establishes an absent cell, it never re-decides
+                // a live one.
+                const cell: slot.Slot = switch (near.kind) {
+                    .object => .{ .local_value = near.export_position.int() },
+                    .promise => .{ .local_unresolved = near.export_position.int() },
+                };
+                try self.exports.registerCell(self.allocator, near.export_position, cell);
                 if (near.export_position.int() >= self.next_export_position) {
                     self.next_export_position = near.export_position.int() + 1;
                 }
             }
+            // A live row's cell is authoritative from its establishment — an
+            // authoritative promise mint (`allocatePromiseExport`), an object
+            // reservation (`allocateExport`), or the first-mention branch above.
+            // A re-mention only takes the wire-delta retain; it never rebinds
+            // the cell from `near.kind`. The wire descriptor for an app export
+            // is carried on the marshaled reference (the C-ABI sub_kind), not
+            // derived from the row here, so the render path — which projects the
+            // cell only for the session's own resolver exports — cannot read a
+            // cell a later mention silently changed (ADR-0080).
             try self.exports.retain(self.allocator, near.export_position);
         },
         else => {},
@@ -390,6 +410,16 @@ fn applyGcAnswerDecrementOutbound(self: *Session, positions: []const u64) Error!
         if (try decrementAnswer(self, &self.outbound_answers, model.AnswerPosition.from(position))) {
             if (self.v1_0_outbound_resolver_answers.fetchRemove(model.AnswerPosition.from(position))) |kv| {
                 std.debug.assert(self.v1_0_outbound_resolvers.remove(kv.value));
+                // Release the resolver export's own reference (the count-1
+                // `allocateExport` gave it in `mintOutboundResolver`, on which the
+                // wire mention retained one more). The answer is gone, so the
+                // resolver can never fire again; the partner's wire mention is
+                // released by its own `op:gc-exports`. Without this, that base
+                // reference floats forever and the export is reclaimed only at
+                // session teardown, so a long V1.0 session leaks one export per
+                // answered deliver. `catch` tolerates a partner that already
+                // over-released the mention (a separate GC protocol violation).
+                self.exports.decrement(kv.value, 1) catch {};
             }
         }
     }
@@ -403,7 +433,7 @@ fn decrementAnswer(self: *Session, table: *AnswerTable, position: model.AnswerPo
     if (entry.count == 0) return Error.GcUnderflow;
     entry.count -= 1;
     if (entry.count == 0) {
-        session.deinitAnswerEntry(self.allocator, entry);
+        session.deinitAnswerCell(self.allocator, entry);
         table.remove(position);
         return true;
     }
@@ -425,9 +455,5 @@ pub fn installAnswer(self: *Session, direction: AnswerDirection, position: model
     if (direction == .inbound and table.len() >= self.limits.max_inbound_answers) {
         return Error.InboundAnswerCapExceeded;
     }
-    try table.put(self.allocator, position, .{
-        .status = .pending,
-        .row_id = self.nextStoreStamp(),
-        .count = 1,
-    });
+    try table.put(self.allocator, position, session.AnswerCell.initPending(position, self.nextStoreStamp()));
 }

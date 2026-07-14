@@ -7,6 +7,7 @@
 import {
 	app,
 	backBtn,
+	browseRoomsBtn,
 	content,
 	isMobile,
 	joinBtn,
@@ -34,12 +35,14 @@ import {
 	renderDms,
 	renderPresence,
 	renderRooms,
+	setBanner,
 	setComposerEnabled,
 	toBottom,
 	updateTitle,
 } from "./render.ts";
 import { renderNotifyBtn } from "./notify.ts";
 import { connect, join, pickRoom, startDm } from "./net.ts";
+import { MAX_NICK, MAX_ROOM } from "../lib/wire.ts";
 
 // ── Light / "syrup" dark theme, remembered across visits ──────────────────
 function applyTheme(t: string) {
@@ -94,8 +97,17 @@ for (const p of inlinePanels) {
 		// Cancel the default so the Enter cannot fall through to the composer we
 		// are about to focus and land there as a stray newline.
 		e.preventDefault();
-		const name = p.input.value.trim().slice(0, 32);
+		const name = p.input.value.trim();
 		if (!name) return;
+		const max = p.input === newRoomInput ? MAX_ROOM : MAX_NICK;
+		if (name.length > max) {
+			setBanner(
+				p.input === newRoomInput
+					? `room name too long (max ${MAX_ROOM} characters)`
+					: `name too long (max ${MAX_NICK} characters)`,
+			);
+			return;
+		}
 		p.input.value = "";
 		closeInlinePanel(p);
 		p.submit(name);
@@ -119,9 +131,11 @@ membersToggle.onclick = () => {
 	state.membersHidden = content.classList.toggle("no-members");
 	membersToggle.setAttribute("aria-pressed", String(!state.membersHidden));
 };
-// Mobile navigation: the back button returns to the list; tapping the scrim
-// closes the roster sheet. Both are inert on desktop (the elements are hidden).
+// Mobile navigation: the back button opens the rooms/DM list. Before join it is
+// how you browse the live directory; after join it returns from a conversation.
+// Tapping the scrim closes the roster sheet. Both are inert on desktop.
 backBtn.onclick = () => app.classList.add("show-list");
+browseRoomsBtn.onclick = () => app.classList.add("show-list");
 sheetScrim.onclick = () => app.classList.remove("members-open");
 jumpBtn.onclick = () => {
 	toBottom();

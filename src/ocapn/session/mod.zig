@@ -21,6 +21,7 @@ const std = @import("std");
 const model = @import("model");
 const answers = @import("answers.zig");
 const slot_table = @import("slot_table.zig");
+pub const slot = @import("slot.zig");
 const sturdyref_cache = @import("sturdyref_cache.zig");
 const imported_promise = @import("imported_promise.zig");
 const gc = @import("gc.zig");
@@ -112,6 +113,11 @@ pub const Error = error{
     /// is bounded so a malicious deeply-nested frame fails loud instead of
     /// overflowing the native stack. Projects to `resource_exhausted`.
     NestingTooDeep,
+    /// An inbound set argument carried two Equal elements. A set admits each
+    /// member once, so a duplicate is a second wire spelling of one value and
+    /// is refused rather than admitted — the codec-neutral twin of the Syrup
+    /// decoder's ascending-element byte refusal. Projects to `protocol_error`.
+    DuplicateSetElement,
 };
 
 /// The fixed bootstrap export position installed when a session reaches `open`
@@ -210,6 +216,9 @@ pub const SessionLimits = limits.SessionLimits;
 pub const AnswerDirection = enum { inbound, outbound };
 
 pub const AnswerStatus = answers.AnswerStatus;
+pub const pendingInboundSlot = answers.pendingInboundSlot;
+pub const answerSlot = answers.answerSlot;
+pub const AnswerCell = answers.AnswerCell;
 pub const ListenerEntry = answers.ListenerEntry;
 const ListenerList = answers.ListenerList;
 pub const Projection = answers.Projection;
@@ -218,7 +227,7 @@ pub const deinitProjection = answers.deinitProjection;
 const AnswerView = answers.AnswerView;
 pub const AnswerTable = answers.AnswerTable;
 const ensureAnswerPayload = answers.ensureAnswerPayload;
-pub const deinitAnswerEntry = answers.deinitAnswerEntry;
+pub const deinitAnswerCell = answers.deinitAnswerCell;
 
 /// A promise imported from a *third party* via handoff (ADR-0009 § `op:listen`
 /// on `desc:import-promise`). The introducing partner gave us this import; its
@@ -302,9 +311,10 @@ pub const Session = struct {
     /// apply consumes (`validate.IntroducedImports` — allocation-free for the
     /// common no-reference message), the owned-fallback kinds' (`gc_*`,
     /// `handoff`, `get`/`index`/`untag`) one transient owned `Message`, and
-    /// the inbound GC validators' duplicate-position scratch maps
+    /// the inbound GC validators' duplicate-position fold
     /// (`checkGcExportDecrement` / `checkGcAnswerDecrement` in
-    /// `validateRecv`). All of it dies when the turn ends — exactly an
+    /// `validateRecv` — stack for small vectors, map spill above threshold).
+    /// All of it dies when the turn ends — exactly an
     /// arena's lifetime: reset (retaining capacity) at the end of every
     /// `recordRecvView`, `recordRecv`, and `recordResolverCallbackResolve`,
     /// so the scratch never outlives one turn and the per-message
@@ -321,7 +331,7 @@ pub const Session = struct {
     /// caps, and stored relayed resolution.
     imported_promises: std.AutoHashMapUnmanaged(model.ImportPosition, ImportedPromise),
     /// Session-wide monotonic source for every store-row identity stamp a
-    /// queued fire carrier checks at encode: `AnswerEntry.row_id` and
+    /// queued fire carrier checks at encode: `AnswerCell.row_id` and
     /// `ImportedPromise.row_id`. One counter for both (not per-row seeds) so no
     /// two row instances ever share a value — a carrier stamped against a row
     /// since released and re-registered at the same position must miss, never
@@ -379,6 +389,10 @@ pub const Session = struct {
     /// FIFO-evicting (cap `max_sturdyref_cache_entries`), so it keeps insertion
     /// order and owns each swissnum on the gpa — freed precisely on eviction.
     sturdyref_cache: std.ArrayList(SturdyrefCacheEntry),
+    /// Side index for `sturdyref_cache`: swissnum → FIFO row index, O(1) lookup.
+    /// Keys are the same owned slices the ArrayList rows hold (one owner); kept
+    /// in lockstep on insert and FIFO eviction (`sturdyref_cache.zig`).
+    sturdyref_cache_index: std.StringHashMapUnmanaged(usize),
     /// In-flight sturdyref enlivens, mapping a swissnum to its outstanding answer
     /// (ADR-0012 dedup). O(1) lookup; rows are removed on completion, so swissnum
     /// keys are gpa-owned and freed on removal.
@@ -447,6 +461,7 @@ pub const Session = struct {
             .v1_0_inbound_resolvers = .empty,
             .v1_0_inbound_resolver_answers = .empty,
             .sturdyref_cache = .empty,
+            .sturdyref_cache_index = .empty,
             .pending_enlivens = .empty,
             .bootstrap = .empty,
         };
@@ -466,6 +481,8 @@ pub const Session = struct {
         self.v1_0_outbound_resolver_answers.deinit(self.allocator);
         self.v1_0_inbound_resolvers.deinit(self.allocator);
         self.v1_0_inbound_resolver_answers.deinit(self.allocator);
+        // Drop the index before freeing row swissnums (keys alias those slices).
+        self.sturdyref_cache_index.deinit(self.allocator);
         for (self.sturdyref_cache.items) |entry| self.allocator.free(entry.swissnum);
         self.sturdyref_cache.deinit(self.allocator);
         var enliven_it = self.pending_enlivens.keyIterator();
@@ -552,6 +569,12 @@ pub const Session = struct {
     /// at queue time and again at local-redirect time, hence the idempotency.
     pub fn installInboundAnswer(self: *Session, id: model.AnswerPosition) !void {
         try self.installAnswer(.inbound, id);
+    }
+
+    /// Install `id` as a pending outbound answer we await resolution for.
+    /// Idempotent.
+    pub fn installOutboundAnswer(self: *Session, id: model.AnswerPosition) !void {
+        try self.installAnswer(.outbound, id);
     }
 
     /// Exhaustive session-state admission gate (ADR-0006), run at every dispatch
@@ -723,6 +746,12 @@ pub const Session = struct {
         return AnswerView.of(entry);
     }
 
+    /// Live inbound answer → Slot.
+    pub fn inboundAnswerSlot(self: *Session, id: model.AnswerPosition) ?slot.Slot {
+        const cell = self.inbound_answers.getPtr(id) orelse return null;
+        return cell.binding;
+    }
+
     /// Whether `id` is a known inbound answer — the existence probe the
     /// pipeline's guards read, without materializing an `AnswerView`.
     pub fn hasInboundAnswer(self: *const Session, id: model.AnswerPosition) bool {
@@ -742,12 +771,28 @@ pub const Session = struct {
         return AnswerView.of(entry);
     }
 
+    /// Live outbound answer → Slot.
+    pub fn outboundAnswerSlot(self: *Session, id: model.AnswerPosition) ?slot.Slot {
+        const cell = self.outbound_answers.getPtr(id) orelse return null;
+        return cell.binding;
+    }
+
     pub fn hasExport(self: *const Session, id: model.ExportPosition) bool {
         return self.exports.contains(id);
     }
 
     pub fn hasImport(self: *const Session, id: model.ImportPosition) bool {
         return self.imports.contains(id);
+    }
+
+    /// Live export row's CapTP `Slot` (object or promise), or null if absent.
+    pub fn exportSlot(self: *const Session, id: model.ExportPosition) ?slot.Slot {
+        return self.exports.slotOf(id);
+    }
+
+    /// Live import row's CapTP `Slot`, or null if absent.
+    pub fn importSlot(self: *const Session, id: model.ImportPosition) ?slot.Slot {
+        return self.imports.slotOf(id);
     }
 
     /// Current wire-delta refcount for a local export (0 if not live).
@@ -768,6 +813,19 @@ pub const Session = struct {
     pub fn allocateExport(self: *Session) !model.ExportPosition {
         const id = model.ExportPosition.from(self.next_export_position);
         try self.exports.register(self.allocator, id);
+        self.next_export_position += 1;
+        return id;
+    }
+
+    /// Allocate the next free export position as a *promise* reservation: the
+    /// row is installed unresolved (`local_unresolved`) at its local baseline,
+    /// the promise twin of `allocateExport`. A synthesized V1.0 resolver export
+    /// is minted here so its slot is authoritative before any wire mention
+    /// projects it — the render path reads the row, it does not decide the kind
+    /// (ADR-0080).
+    pub fn allocatePromiseExport(self: *Session) !model.ExportPosition {
+        const id = model.ExportPosition.from(self.next_export_position);
+        try self.exports.registerPromise(self.allocator, id);
         self.next_export_position += 1;
         return id;
     }
@@ -853,7 +911,7 @@ pub const Session = struct {
         errdefer model.freeMessage(self.allocator, message);
         const entry = self.inbound_answers.getPtr(answer_position) orelse
             return Error.InvalidReference;
-        if (entry.status != .pending) return Error.InvalidReference;
+        if (entry.status() != .pending) return Error.InvalidReference;
         const queued = if (entry.payload) |p| p.queue.items.len else 0;
         if (queued >= self.limits.queue_cap) return Error.QueueCapExceeded;
         const payload = try ensureAnswerPayload(self.allocator, entry);
@@ -985,10 +1043,12 @@ pub const Session = struct {
         };
         if (payload.resolution) |prior| model.freeResolution(self.allocator, prior);
         payload.resolution = resolution;
-        entry.status = switch (resolution) {
-            .fulfill => .fulfilled,
-            .@"break" => .broken,
-        };
+        if (entry.status() == .pending) {
+            switch (resolution) {
+                .fulfill => entry.fulfill() catch unreachable,
+                .@"break" => entry.breakCell() catch unreachable,
+            }
+        }
     }
 
     /// Borrow the stored resolution for `answer_position`, if the answer resolved and
@@ -996,13 +1056,13 @@ pub const Session = struct {
     pub fn peekResolution(self: *Session, answer_position: model.AnswerPosition) ?*const model.Resolution {
         const entry = self.inbound_answers.getPtr(answer_position) orelse return null;
         const payload = entry.payload orelse {
-            std.debug.assert(entry.status == .pending);
+            std.debug.assert(entry.status() == .pending);
             return null;
         };
         // The `applySentResolve` invariant every fire and projection reader
         // leans on: for an inbound answer, a stored resolution and a settled
         // status arrive together or not at all.
-        std.debug.assert((payload.resolution != null) == (entry.status != .pending));
+        std.debug.assert((payload.resolution != null) == (entry.status() != .pending));
         if (payload.resolution) |*resolution| return resolution;
         return null;
     }
@@ -1010,7 +1070,7 @@ pub const Session = struct {
     /// Whether `answer_position` is a known inbound answer that has resolved.
     pub fn answerResolved(self: *Session, answer_position: model.AnswerPosition) bool {
         const entry = self.inbound_answers.getPtr(answer_position) orelse return false;
-        return entry.status != .pending;
+        return entry.status() != .pending;
     }
 
     // Third-party handoff-imported promises (ADR-0009): a `desc:import-promise`

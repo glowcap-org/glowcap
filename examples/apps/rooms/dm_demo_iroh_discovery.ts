@@ -40,7 +40,7 @@
 // the same handoff is `zig build demo-rooms-dm-iroh` (the `Direct` posture).
 
 import process from "node:process";
-import { formatPeerUri, Node, Ref } from "@pancake/stack";
+import { formatPeerUri, Host, Ref } from "@pancake/stack";
 import { IrohServer, listenIroh, Reachability } from "@pancake/iroh";
 import { serveDirectory } from "./deno/server.ts";
 import { dial } from "./deno/lib/locator.ts";
@@ -81,7 +81,7 @@ async function main(): Promise<void> {
 	const bobInbox: string[] = [];
 	let bobInbound = 0; // every connection Bob accepts, the new-inbound proof
 	const bob = listenIroh(Reachability.Discovery);
-	bob.node.publishGiftable("dm", (verb, args) => {
+	bob.host.publishGiftable("dm", (verb, args) => {
 		if (verb !== DM) throw new Error(`dm has no method ${verb}`);
 		// dm(from, text): the sender names itself, and the text is what we assert on.
 		bobInbox.push(String(args[1]));
@@ -99,9 +99,9 @@ async function main(): Promise<void> {
 	// ── Room (rendezvous / gifter): the real directory, with introductions ───────
 	// One shared node across the listener and the directory behavior, so the
 	// register dial-back and the introduce gift origination present one identity.
-	const roomNode = new Node();
-	const room = listenIroh(Reachability.Discovery, undefined, roomNode);
-	const roomServe = serveDirectory(room, roomNode);
+	const roomHost = new Host();
+	const room = listenIroh(Reachability.Discovery, undefined, roomHost);
+	const roomServe = serveDirectory(room, roomHost);
 	const roomUri = idOnlyUri(room);
 	console.log(`rooms-dm-iroh-discovery: Room published ${roomUri} (id only)`);
 

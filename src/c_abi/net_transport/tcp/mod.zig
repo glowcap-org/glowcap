@@ -20,10 +20,9 @@
 
 const std = @import("std");
 
-const model = @import("model");
 const net = @import("net");
 // The owning `pancake_tcp_session_*` surface is the C spelling of
-// `driver.Connection`: it dials, runs the keyed handshake, and drives turns for
+// `driver.Session`: it dials, runs the keyed handshake, and drives turns for
 // a blocking `fetch`/`call`. An owning session is intrinsically a driver-level
 // concept, so this archive embeds the actor runtime through `driver` (ADR-0062);
 // the host-driven frame surface above stays driver-free.
@@ -48,7 +47,7 @@ pub const PancakeTcpConn = opaque {};
 /// `pancake_tcp_listener_release`.
 pub const PancakeTcpListener = opaque {};
 /// An owning OCapN session over one blocking TCP connection — the C spelling of
-/// `driver.Connection` (ADR-0062). `pancake_tcp_session_connect` dials and runs
+/// `driver.Session` (ADR-0062). `pancake_tcp_session_connect` dials and runs
 /// the keyed handshake; `..._fetch`/`..._call` are blocking request/reply.
 /// Owned by the caller; released with `pancake_tcp_session_release`.
 pub const PancakeTcpSession = opaque {};
@@ -94,8 +93,6 @@ const PANCAKE_ERR_SESSION = c.PANCAKE_ERR_SESSION;
 const PANCAKE_ERR_INTERNAL = c.PANCAKE_ERR_INTERNAL;
 const PANCAKE_ERR_CLOSED = c.PANCAKE_ERR_CLOSED;
 const PANCAKE_ERR_IO = c.PANCAKE_ERR_IO;
-const PANCAKE_ERR_MALFORMED = c.PANCAKE_ERR_MALFORMED;
-const PANCAKE_ERR_FRAME_TOO_LARGE = c.PANCAKE_ERR_FRAME_TOO_LARGE;
 const PANCAKE_ERR_UNSUPPORTED_VALUE = c.PANCAKE_ERR_UNSUPPORTED_VALUE;
 const PANCAKE_ERR_BROKEN = c.PANCAKE_ERR_BROKEN;
 
@@ -149,7 +146,7 @@ pub export fn pancake_tcp_netlayer_new(out_netlayer: ?*?*PancakeTcpNetlayer) i32
 pub export fn pancake_tcp_netlayer_new_in(context: ?*PancakeContext, out_netlayer: ?*?*PancakeTcpNetlayer) i32 {
     const c_ctx = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
-    return netlayerNewIn(c_ctx.allocator, slot);
+    return netlayerNewIn(c_ctx.allocator(), slot);
 }
 
 fn netlayerNewIn(alloc: std.mem.Allocator, slot: *?*PancakeTcpNetlayer) i32 {
@@ -181,11 +178,13 @@ const TcpListenerPayload = struct {
 // The shared buffer/payload lifecycle (`c_abi_shared.ConnLifecycle`): allocate
 // with `begin`, release a never-installed payload with `abort`, an established
 // one with `destroy`. Buffer caps are the shared leaf's
-// `endpoint_read_buf_bytes` / `endpoint_write_buf_bytes`.
+// `endpoint_read_buf_bytes` / `endpoint_write_buf_bytes`. Frame read/write
+// choreography is `ConnFrameOps` below — this archive keeps the `export fn`s.
 const conn_lifecycle = c.ConnLifecycle(TcpConnPayload);
 const beginConn = conn_lifecycle.begin;
 const abortConn = conn_lifecycle.abort;
 const destroyConn = conn_lifecycle.destroy;
+const conn_frame_ops = c.ConnFrameOps(TcpConnPayload);
 
 /// Connect to `host:port` and return an owned connection handle framing on
 /// `codec`. Blocking. Runs on `netlayer`'s I/O backend.
@@ -210,7 +209,7 @@ pub export fn pancake_tcp_connect(
     };
 
     const payload = beginConn(nl.allocator, max_frame_bytes) orelse return PANCAKE_ERR_INTERNAL;
-    payload.stream = net.tcp.connectFrameStream(nl.io(), nl.allocator, address, codec_id, max_frame_bytes, payload.read_buf, payload.write_buf) catch |err| {
+    payload.stream = net.tcp.connectFrameStream(nl.io(), nl.allocator, address, codec_id, max_frame_bytes, payload.read_buf, payload.write_buf, .{}) catch |err| {
         abortConn(payload);
         setLastError("connect: {s}", .{@errorName(err)});
         return PANCAKE_ERR_IO;
@@ -272,7 +271,7 @@ pub export fn pancake_tcp_accept(
     if (max_frame_bytes == 0) return PANCAKE_ERR_INVALID_ARGUMENT;
 
     const payload = beginConn(lpayload.allocator, max_frame_bytes) orelse return PANCAKE_ERR_INTERNAL;
-    payload.stream = lpayload.listener.acceptFrameStream(lpayload.allocator, codec_id, max_frame_bytes, payload.read_buf, payload.write_buf) catch |err| {
+    payload.stream = lpayload.listener.acceptFrameStream(lpayload.allocator, codec_id, max_frame_bytes, payload.read_buf, payload.write_buf, .{}) catch |err| {
         abortConn(payload);
         setLastError("accept: {s}", .{@errorName(err)});
         return PANCAKE_ERR_IO;
@@ -289,32 +288,14 @@ pub export fn pancake_tcp_accept(
 pub export fn pancake_tcp_conn_read_frame(conn: ?*PancakeTcpConn, out_frame: ?*PancakeManagedFrame) i32 {
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_frame orelse return PANCAKE_ERR_NULL_POINTER;
-
-    const f = payload.stream.readFrame() catch |err| return frameReadErrorToCode(payload, err);
-
-    slot.* = c.tryManagedFrame(payload.allocator, f) catch {
-        var owned = f;
-        owned.deinit();
-        return PANCAKE_ERR_INTERNAL;
-    };
-    return PANCAKE_OK;
+    return conn_frame_ops.readFrame(payload, slot, onReadConnectionLost);
 }
 
 /// Write one frame's *borrowed* bytes and flush. Returns `_IO` on a socket fault.
 pub export fn pancake_tcp_conn_write_frame(conn: ?*PancakeTcpConn, frame_in: ?*const PancakeFrame) i32 {
     const payload = connFromOpaque(conn) orelse return PANCAKE_ERR_NULL_POINTER;
     const borrowed = frame_in orelse return PANCAKE_ERR_NULL_POINTER;
-    const bytes_ptr = borrowed.bytes orelse return PANCAKE_ERR_NULL_POINTER;
-
-    payload.stream.writeFrame(bytes_ptr[0..borrowed.len]) catch |err| {
-        if (payload.stream.lastWriteError()) |cause| {
-            setLastError("write_frame: {s}", .{@errorName(cause)});
-        } else {
-            setLastError("write_frame: {s}", .{@errorName(err)});
-        }
-        return PANCAKE_ERR_IO;
-    };
-    return PANCAKE_OK;
+    return conn_frame_ops.writeFrame(payload, borrowed, onWriteErr);
 }
 
 pub export fn pancake_tcp_conn_release(conn: ?*PancakeTcpConn) void {
@@ -333,20 +314,20 @@ pub export fn pancake_tcp_listener_release(listener: ?*PancakeTcpListener) void 
 //
 // The host-driven frame surface above hands the caller whole frames to shuttle
 // through a `PancakePeer` by hand. This surface is the higher-level twin: it
-// owns a `driver.Connection` (peer, both buffers, the bound vat) and offers the
-// same blocking `fetch`/`call` the native-Zig `Connection` does, marshalling the
+// owns a `driver.Session` (peer, both buffers, the bound vat) and offers the
+// same blocking `fetch`/`call` the native-Zig `Session` does, marshalling the
 // shared `PancakeReference`/`PancakeArgument` vocabulary into the `PancakeSettled`
 // outcome this archive declares (the only producer, so it is not shared). It is
 // this transport archive's own entry, not a driver default; inproc/iroh can grow
 // the same shape later.
 
-/// Owns the `driver.Connection` and the resident the dial ran over. Heap-pinned:
+/// Owns the `driver.Session` and the resident the dial ran over. Heap-pinned:
 /// `driver.connect` borrows the resident's netlayer for the dial, and the
 /// connection borrows the resident's `Io`-derived stream for its life, so the
 /// resident lives here alongside the connection it backs.
 const TcpSessionPayload = struct {
     resident: net.tcp.Resident,
-    conn: *driver.Connection,
+    conn: *driver.Session,
     allocator: std.mem.Allocator,
 };
 
@@ -695,25 +676,20 @@ fn sessionCallErrToCode(err: anyerror) i32 {
     };
 }
 
-fn frameReadErrorToCode(payload: *TcpConnPayload, err: net.FrameError) i32 {
-    return switch (err) {
-        error.Closed => PANCAKE_ERR_CLOSED,
-        error.MalformedFrame => PANCAKE_ERR_MALFORMED,
-        error.FrameTooLarge => PANCAKE_ERR_FRAME_TOO_LARGE,
-        error.TruncatedFrame => blk: {
-            setLastError("read_frame: stream closed mid-frame", .{});
-            break :blk PANCAKE_ERR_IO;
-        },
-        error.ConnectionLost => blk: {
-            if (payload.stream.lastReadError()) |cause| {
-                setLastError("read_frame: {s}", .{@errorName(cause)});
-            } else {
-                setLastError("read_frame: connection lost", .{});
-            }
-            break :blk PANCAKE_ERR_IO;
-        },
-        error.OutOfMemory => PANCAKE_ERR_INTERNAL,
-    };
+fn onReadConnectionLost(payload: *TcpConnPayload) void {
+    if (payload.stream.lastReadError()) |cause| {
+        setLastError("read_frame: {s}", .{@errorName(cause)});
+    } else {
+        setLastError("read_frame: connection lost", .{});
+    }
+}
+
+fn onWriteErr(payload: *TcpConnPayload, err: anyerror) void {
+    if (payload.stream.lastWriteError()) |cause| {
+        setLastError("write_frame: {s}", .{@errorName(cause)});
+    } else {
+        setLastError("write_frame: {s}", .{@errorName(err)});
+    }
 }
 
 fn netlayerFromOpaque(netlayer: ?*PancakeTcpNetlayer) ?*TcpNetlayerPayload {
@@ -739,10 +715,4 @@ fn sessionFromOpaque(session: ?*PancakeTcpSession) ?*TcpSessionPayload {
 fn promiseFromOpaque(promise: ?*PancakeTcpPromise) ?*TcpPromiseBox {
     const ptr = promise orelse return null;
     return @ptrCast(@alignCast(ptr));
-}
-
-// `model` is a granted layer edge (arch-check holds it live): `net.tcp` frames
-// streams on a `model.CodecId` decoded from the C codec selector.
-comptime {
-    _ = model;
 }

@@ -5,32 +5,49 @@ This page names where the implemented surface ends, the edges of
 pinned by a test or an ADR, and none is a silent gap. The plan for moving these
 lines lives in the [ladder](ladder.md) and the [roadmap](roadmap.md).
 
+**CapTP sticky note (ADR-0079).** `Host` is the multi-session CapTP product (owns
+`engine.Node`); binding `Session` is the one-partner app object.
+`BlockingSession` is `Served` + `net.Connection` with a blocking pump.
+`HostedActor` / `spawnHosted` is embedder-hosted behavior. `DialResolver` is
+transport dial resolve. Binding `Node` and binding `Connection` are deleted.
+`net.Connection` is the framed byte stream only — there is no phantom
+`driver.Connection`.
+
 ## Netlayer
 
-A byte-stream netlayer ships in `net`. The active codec's decoder finds frame
+The `net` adapter layer ships the netlayer contract and stream framing; CapTP
+stays transport-agnostic above it. The active codec's decoder finds frame
 boundaries, so there is one parser (ADR-0029). `Connection` folds that parser
-over `std.Io.Reader` and `std.Io.Writer`. `net.tcp` is the cleartext resident
-named `tcp` so it can address a Goblins netlayer; it proves a real-socket
-handshake-to-open and bootstrap-fetch round-trip, and the same handshake, fetch,
-and call against a live Goblins vat (ADR-0035). The C ABI re-exposes the socket
-path as blocking endpoint handles with a `last_error` boundary (ADR-0030).
+over `std.Io.Reader` and `std.Io.Writer`. `net.tcp` and `net.tcp_keyed` are
+cleartext TCP residents (sockets are an implementation detail of those symbols,
+not of CapTP). `net.tcp` is named `tcp` so it can address a Goblins netlayer; it
+proves a real-socket handshake-to-open and bootstrap-fetch round-trip, and the
+same handshake, fetch, and call against a live Goblins vat (ADR-0035). The C ABI
+re-exposes the socket path as blocking endpoint handles with a `last_error`
+boundary (ADR-0030).
 
-TCP also has a restart-stable identity posture: `net.tcp_keyed`, the `keyed-tcp`
-resident (ADR-0075). Its locator designator is the listener's Ed25519 public key
-in canonical hex, the socket address rides the `direct-addresses` hint, and the
-driver pins the handshake to the dialed key (`engine.Peer.expectPartnerKey`), so
-a partner re-dials the same designator across a process restart with only the
-hint updated and a key squatter is refused before the session opens. Be clear
-about what that buys: the channel is still cleartext — anyone on the path reads
-every frame — and because the start-session signature covers static location
-bytes, an active middlebox can relay the genuine listener's signed hello and
-then read or alter ordinary traffic. The pin authenticates the advertisement
-and makes impersonating the key impossible for operations that need a fresh
-signature under it (minting and redeeming handoff certificates); channel
-confidentiality and integrity remain iroh's. The hinted keyed location is a
-Syrup-session feature today, since the Cap'n Proto codec refuses non-empty
-locator hints on encode. Binding-level keyed-tcp surfaces and a C ABI
-`expect_partner_key` export are not implemented (ADR-0075 § Scope).
+A fourth netlayer symbol, `keyed-tcp` (`net.tcp_keyed`, ADR-0075), reuses the
+same cleartext TCP sockets as `tcp` and differs only in locator grammar: its
+designator is the listener's Ed25519 public key in canonical hex, the socket
+address rides the `direct-addresses` hint, and the driver pins the handshake to
+the dialed key (`engine.Peer.expectPartnerKey`), so a partner re-dials the same
+designator across a process restart with only the hint updated and a key
+squatter is refused before the session opens. Be clear about what that buys: the
+channel is still cleartext — anyone on the path reads every frame — and because
+the start-session signature covers static location bytes, an active middlebox
+can relay the genuine listener's signed hello and then read or alter ordinary
+traffic. The pin authenticates the advertisement and makes impersonating the
+key impossible for operations that need a fresh signature under it (minting and
+redeeming handoff certificates); channel confidentiality and integrity remain
+iroh's. The hinted keyed location is a Syrup-session feature today, since the
+Cap'n Proto codec refuses non-empty locator hints on encode. Binding-level
+keyed-tcp dial/host surfaces (`listen_keyed_tcp`, `keyed_tcp_locator`, and
+`connect` on a `keyed-tcp` URI) and per-binding restart gates
+(`bindings-keyed-tcp-restart`) are shipped; the C ABI peer-level partner-key
+pin is `pancake_peer_expect_partner_key`. The byte-fed host pins iroh dials the
+same way (`designatorSchemeForTransport` maps `iroh` → `.key`); binding-hosted
+iroh servers share one seed between endpoint and `Host`. Cap'n Proto hinted
+keyed locations remain open.
 
 Read buffers size the steady state, not the largest admissible frame. A frame
 that outgrows the read buffer assembles once in a bounded owned spill, freed when
@@ -38,9 +55,10 @@ it drains, so per-connection memory does not scale with `max_frame_bytes`
 (ADR-0041). The completion loop bounds the outbound side: when pending reply
 bytes cross a high-water mark, that connection stops arming reads until the
 partner drains them (ADR-0042). The encrypted iroh resident offers two consumer shapes (ADR-0057): a blocking
-sidecar path for single-connection `ConnectedVat` use, and `iroh.LoopHost`, which
-serves many QUIC connections from one thread over the sidecar's readiness fd and
-non-blocking frame I/O. `zig build iroh-loop` proves that multiplexing across
+sidecar path for single-connection `BlockingSession` use, and
+`completion.Loop(iroh.Backend, iroh.DialResolver)` + `driver.Bridge` + `driver_core.Host`, which serve many QUIC
+connections from one thread over the sidecar's readiness fd and non-blocking
+frame I/O. `zig build iroh-loop` proves that multiplexing across
 concurrent connections; it proves correctness, not memory. The loop-driven per-connection
 cost is the `served` row of `bench-peer-scaling`, which extrapolates to roughly
 1.1 GiB of core state for 500k connections, reported not gated. The gated budget
@@ -49,19 +67,22 @@ is the warmed session `test/engine/footprint_budget_test.zig` holds at or under
 single fiber by contract: it serves cooperative request/response, and a partner
 that streams without draining rides the completion loop instead (ADR-0053).
 
-pancake has two channels. TCP is cleartext; iroh QUIC is encrypted, behind the
-same netlayer contract (ADR-0055), carried by a Rust sidecar staticlib so the
-pure-Zig archives stay pure Zig. `zig build iroh-interop` proves it live, pancake
-to pancake: a keyed handshake, bootstrap fetch, and deliver/resolve over real
-iroh endpoints. It also proves the iroh cluster's three capstones.
+Among shipped netlayer symbols, cleartext TCP (`tcp`, `keyed-tcp`) and
+encrypted iroh QUIC share the same CapTP semantics; `inproc` is socket-free.
+iroh rides the netlayer contract (ADR-0055) behind a Rust sidecar staticlib so
+the pure-Zig archives stay pure Zig. `zig build iroh-interop` proves it live,
+pancake to pancake: a keyed handshake, bootstrap fetch, and deliver/resolve over
+real iroh endpoints. It also proves the iroh cluster's three capstones.
 **Dial-by-id discovery**: the netlayer takes a configurable, no-default
 `Reachability`, and the gate dials by node id alone through an address book, no
 direct-address hints. **Key unification**: one Ed25519 key per peer is at once
 the iroh node id, the OCapN locator designator, and the session signing key —
 library-enforced on the native dial path, where `driver.connectVia` pins every
 key-designator dial to the dialed key and the engine refuses any other key at
-the handshake (ADR-0075); the byte-fed host tier does not pin iroh dials yet
-(ADR-0075 § Scope). **Durable identity**: a sturdyref of node id
+the handshake (ADR-0075); the byte-fed host tier pins iroh dials the same way
+through `designatorSchemeForTransport("iroh")`; every binding's `listen_iroh`
+shares one seed between the endpoint and the `Host`, proven hermetically in
+`test/driver/core_host_test.zig` (ADR-0075 § Scope). **Durable identity**: a sturdyref of node id
 plus swiss-number outlives an endpoint restart. `ocapn://<nodeid>.iroh` URI
 dialing ships in all four bindings, each carrying the explicit reachability.
 
@@ -70,14 +91,15 @@ Dial-by-id reaches across the public internet. The opt-in
 `discovery` posture reach each other through n0's relays and DNS/pkarr, no
 direct-address hints. It stays out of `check` and the deterministic
 `iroh-interop` because publish-propagation timing makes it unfit as a hermetic
-gate. Each binding has the same live proof through its own `connect_iroh`
-surface, via the opt-in `zig build bindings-iroh-reachability` gates
+gate. Each binding has the same live proof through its own `connect(locator)`
+surface (an `ocapn://…iroh` URI plus a reachability posture), via the opt-in
+`zig build bindings-iroh-reachability` gates
 (`python-`/`rust-`/`racket-iroh-reachability`). These prove the `discovery`
 posture (relays + DNS/pkarr).
 The `discovery_no_relay` posture (DNS/pkarr, no relay fallback) is deliberately
 ungated: reaching a no-relay node by id needs that node to own a publishable,
 reachable direct address, which a NAT'd host or container lacks, so a gate for it
-would be permanently red. The `connect_iroh` dialers still settle/retry under
+would be permanently red. The `connect(locator)` dialers still settle/retry under
 `discovery_no_relay` by the same propagation principle; only the *live gate* is
 infeasible without a publicly-addressable host. One seam stays named: the
 discovery proof runs two endpoints on one host, exercising real discovery and
@@ -86,7 +108,7 @@ means running the step's two halves on separate networks, which the
 single-process gate cannot do.
 
 iroh serves at scale, in Zig and in every binding. The event-driven completion
-loop of ADR-0057 (`iroh.LoopHost`, gated by `zig build iroh-loop`, measured by
+loop of ADR-0057 (`iroh.Backend` + Bridge, gated by `zig build iroh-loop`, measured by
 `bench-peer-scaling`) is the scale path: many connections ride one loop thread
 rather than one apiece. The public iroh netlayer C ABI is that path alone —
 loop-only: a single readiness fd (`pancake_iroh_netlayer_readiness_fd`) the host
@@ -99,22 +121,24 @@ and Racket's `unsafe-file-descriptor->semaphore` park. Python, Rust, and Racket
 each have a per-binding many-connection gate: `bindings-iroh-loop` runs
 `python-iroh-loop`, `rust-iroh-loop`, and `racket-iroh-loop` together, the
 binding siblings of `iroh-loop`; Deno implements the same park without a
-`bindings-iroh-loop` member. What remains is a live 500k-connection socket run,
-which still wants a load harness (`bench-peer-scaling` Phase 2). Two boundaries
+`bindings-iroh-loop` member. Opt-in live-socket scale measurement lives in
+`bench-peer-scaling --live` (TCP loopback on `completion.Loop` + `driver.Bridge`,
+stepped N; not under `check`). Two boundaries
 remain on the cluster. **Goblins interop over iroh** is externally blocked, since
 Goblins ships no iroh netlayer. A **native Zig QUIC** path stays rejected until
 iroh's protocols stabilize and a production Zig QUIC stack exists (ADR-0055's
 flip condition).
 
-## Sessions above the socket
+## Sessions above I/O
 
-Crossed hellos lives above the socket. A driver registry detects duplicate peer
-sessions, and the engine projects the typed abort without learning about sockets.
+Crossed hellos lives above the netlayer (driver/host tier). A driver registry
+detects duplicate peer sessions, and the engine projects the typed abort without
+learning which transport carried the bytes.
 The upstream OCapN suite exercises that path through `zig build ocapn-conformance`.
 Against live Goblins, a pancake actor called by a real Goblins client is proven
 both as a settled call and as a pipelined enliven-and-call (ADR-0035). A full
 three-party handoff — pancake as recipient, as gifter, and natively through
-`driver.BlockingHost` — is proven end to end; the behavior, gates, and host-tier
+`driver.Bridge` + `driver_core.Host` — is proven end to end; the behavior, gates, and host-tier
 mechanism live in [shipped.md](shipped.md). The boundary that remains here is
 only that application code never sees the give or the second connection: every
 binding's `connect` / `fetch` / `send` surface is the whole contract.
@@ -188,38 +212,51 @@ connection, run it for every surfaced event, and free it at close. `net` stays
 actor-agnostic; it owns no actor layer.
 
 The bridge that feeds the byte-fed `driver.core.Host` from the TCP
-completion loop ships as `driver.LoopBridge` (ADR-0076). The byte-fed
-`driver.core.Host` stays the multi-connection tier, and the bridge is a
+completion loop ships as `driver.Bridge` (ADR-0076). The byte-fed
+`driver.core.Host` stays the multi-session CapTP tier, and the bridge is a
 translator over it: the loop's per-connection hooks adopt each accepted peer
 into the host (`Host.openAcceptedOver`, over `engine.Node.registerConnOver`,
 so the loop's fixed slots keep their peers) and serve each polled event
 through the host (`Host.serveEvent`), and the host's action queue drains
 back into the loop. Both mechanisms that were open have landed.
-Cross-connection outbound arming is `net.Loop.armOutbound`: a `flush` action
+Cross-connection outbound arming is `Loop.armOutbound`: a `flush` action
 for connection B, queued while connection A was being served, arms B's
 write — which is what puts a three-party deposit on the exporter's
 connection, proven by the handoff-across-one-loop test in
-`test/driver/loop_bridge_test.zig` and pinned at the net layer by
+`test/driver/bridge_test.zig` and pinned at the net layer by
 `test/net/completion_cross_arm_test.zig` (cross-armed bytes ride the
 ADR-0042 queue accounting). The budgeted byte feed is
 `Host.Options.local_turn_budget` over `Served.drivePostBatch`: one inbound
 message that amplifies past the budget condemns the flooded connection with
 a typed `resource_exhausted` abort and a `close` action for the embedder,
 attributed to the connection whose vat amplified rather than to the verb
-that fed the pump (`test/driver/host_budget_test.zig`). The live consumer is
+that fed the pump (`test/driver/core_host_budget_test.zig`). The same knob is
+`local_turn_budget` on `pancake_host_new` / `_new_in` (0 = unbounded). The
+live consumer is
 the scale harness, `zig build tcp-loop`: one loop thread serving many
 concurrent connections through the bridge, with churn, every reply asserted.
 
-Two honest gaps remain at this seam. There is no loop-side dial executor: a
-bridged host answers every `dial` action fail-closed, so it can mint a give
-(the deposit rides an already-accepted exporter connection) but cannot yet
-be a handoff *recipient*. And fan-in backpressure is per-connection only:
-ADR-0042 parks a slow reader's own reads, but a many-A-to-one-B fan-in is
-not throttled at its sources — B's read-park does not slow the As. A third
-gap sits one layer up: blocking answer-waits (`BlockingHost.awaitVow`,
-`ConnectedVat.settle`) still have no deadline, so a partner that opens then
-stalls wedges the wait forever — the handshake budget on
-`finishOpen(…, ?budget_ms)` is the pattern to extend, recorded in ADR-0076.
+Two honest gaps remain at this seam. Fan-in backpressure is per-connection
+only: ADR-0042 parks a slow reader's own reads, but a many-A-to-one-B fan-in
+is not throttled at its sources — B's read-park does not slow the As. And
+blocking answer-waits (`BlockingSession.settle`, Bridge vow callbacks + `Loop.runUntil`) still
+have no deadline, so a partner that opens then stalls wedges the wait forever —
+the handshake budget on `finishOpen(…, ?budget_ms)` is the pattern to extend,
+recorded in ADR-0076. Loop-side dial (handoff recipient on one loop thread)
+ships for TCP and iroh: `Host.openDialedOver`, `Loop.dialLocator`, and session-open `exporterDialed`, gated by the redeem
+theorem in `test/driver/bridge_test.zig` and
+`zig build iroh-bridge-redeem`.
+
+The host executes each `engine.Node.Action` inside the Host-private pump
+(`src/driver/core/host_pump.zig`). Settles, fails, and flushes are consumed
+inside the pump; only a dial or a gift-id draw is re-queued for the embedder,
+and its bytes are duped onto the host because a node row dies at the node's
+next pop while an embedder row must survive until the embedder's own next
+drain. The two queues are two contracts with different lifetimes, not one
+spine written twice: both ride the one `engine.ActionFifo` mechanism, and the
+projection is the lifetime boundary between them. Merging them into a single
+owner would push embedder lifetimes down into the engine, so it is rejected,
+not deferred.
 
 The loop is also tested under churn. Hundreds of connection lifecycles recycle
 through a small slot pool, and abrupt mid-handshake drops exercise the teardown
@@ -231,13 +268,30 @@ Bootstrap capabilities are process-lifetime, not durable. If a host restarts, a
 saved sturdyref re-enlivens against an empty registry until the app re-registers
 the object.
 
-Per-connection memory is the gated core state. The shared read-buffer pool
-defaults to 256 buffers of 16 KiB (`Options.read_buffers`). The core's own part
-of the budget is gated, not just measured: `engine.Peer` carries a compile-time
-ceiling on its struct size, a test holds a warmed session's core state under
-2 KiB per connection, and `zig build bench-peer-scaling` reports the live numbers
+Per-session CapTP core memory is the gated budget; transport buffers are
+per-connection on top. The shared read-buffer pool defaults to 256 buffers of
+16 KiB (`Options.read_buffers`). The core's own part of the budget is gated,
+not just measured: `engine.Peer` carries a compile-time ceiling on its struct
+size, a test holds a warmed session's core state under 2 KiB per session, and
+`zig build bench-peer-scaling` reports the live numbers
 ([ADR-0045](decisions/adr/ADR-0045-per-session-footprint-budget.md)). The
 session-count arithmetic those budgets serve lives in the [ladder](ladder.md).
+
+## C ABI archive resolve
+
+Bindings resolve the à-la-carte C archives through a publishable cascade
+([ADR-0077](decisions/adr/ADR-0077-publishable-c-abi-resolve.md)). Each package
+ships [`bindings/c-abi-resolve.json`](../bindings/c-abi-resolve.json) and
+downloads language-natively; the monorepo script
+[`tools/fetch-c-abi.sh`](../tools/fetch-c-abi.sh) is an operator/CI tool only.
+`releases_published` in the contract is the valve that turns cold-cache network
+fetch on for consumers. Hygiene and security refusals (non-HTTPS without a typed
+escape, checksum miss, zip-slip / link members) always fail closed; soft-fail is
+only for missing network or tools when a fetch was optional. Host aliases for
+release-pack triples live in
+[`tools/c-abi-host-aliases.json`](../tools/c-abi-host-aliases.json). Windows
+release-pack is not a published leg yet, so Windows consumers need
+`PANCAKE_LIB_DIR` or in-tree `zig-out` until that matrix exists.
 
 ## Codecs
 
@@ -332,10 +386,27 @@ wire-transparent, and because it is a plain actor it answers a near-call from it
 own host exactly as it answers a partner's inbound delivery. The canonical
 `actors.caretaker` / `actors.attenuate` are built on it, and every binding ships
 the same primitive over its own serve loop (`caretaker`/`attenuate`, and the
-Racket `conn-caretaker`/`conn-attenuate`/`conn-revoke!`): a behavior returns the
-binding's forward value and the shared dispatch path tail-resolves it. The C ABI
+Racket `session-caretaker`/`session-attenuate`/`session-revoke!`): a behavior returns the
+binding's forward value and the shared dispatch path tail-resolves it. Binding
+trampoline modules own the ADR-0064 proxy factory bodies; Session keeps the
+public verbs as thin wrappers. The C ABI
 stays the low-level deliver/resolve surface; a forwarding proxy is a binding-layer
 actor composition, not a new wire op.
+
+## Access and responsibility held as present boundaries
+
+These are real ownership gaps the witch hunt found and deliberately did not
+close in one pass — each needs its own structural move:
+
+- The OCapN conformance peer still reimplements Host-tier crossed-hellos and
+  handoff choreography instead of driving `driver.core.Host` (see
+  `conformance/ocapn-conformance/pancake_peer.zig`).
+- `libpancake_driver`'s Zig entry module remains one large file; splitting it
+  into host/conn/turn/pump leaves is deferred.
+- Language bindings still own their HostAction switch loops rather than sharing
+  one `pancake_host_pump_drain` executor with the C embedder example.
+- `host_pump.zig` stays a Host-private file (import-gated) rather than being
+  merged back into `host.zig`; the one-line Host forwarders are already gone.
 
 ## The unbuilt driver
 

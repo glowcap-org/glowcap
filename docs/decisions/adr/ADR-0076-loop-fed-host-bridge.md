@@ -3,7 +3,7 @@ id: ADR-0076
 status: accepted
 date: 2026-07-11
 tags: [driver, net, host, completion-loop, handoff]
-decision: "Feed the byte-fed Host from the TCP completion loop through a translator (driver.LoopBridge): adoption via Host.openAcceptedOver, per-event serving via Host.serveEvent, cross-connection flushes via Loop.armOutbound, and a budgeted drive whose breach condemns the flooded connection and queues a close action."
+decision: "Feed the byte-fed Host from a completion loop through a translator (`driver.Bridge`): adoption via Host.openAcceptedOver / openDialedOver, per-event serving via Host.serveEvent, cross-connection flushes via Loop.armOutbound, and a budgeted drive whose breach condemns the flooded connection and queues a close action. TCP uses `net.TcpLoop`; iroh uses `completion.Loop(iroh.Backend, iroh.DialResolver)` — one CapTP spine (ADR-0057). Outbound dials use `Loop.dialLocator` over OCapN locator parts; a netlayer `Locator` owns resolve, the Backend owns `startDial` (platform Backends are connect-only). `Loop.dial` is private."
 supersedes: []
 superseded_by: []
 ---
@@ -13,7 +13,7 @@ superseded_by: []
 ## Context
 
 ADR-0072's fourth amendment retired the node-less loop tier and named the
-landing condition for its replacement: the `net.Loop` → byte-fed
+landing condition for its replacement: the `net.TcpLoop` / `completion.Loop` → byte-fed
 `driver_core.Host` bridge lands together with its two real mechanisms —
 cross-connection outbound arming and a budgeted byte feed — and its first
 consumer, the live-socket scale harness. That condition is met here.
@@ -67,7 +67,7 @@ Three verbs and one carrier, each at the layer that owns it:
   verbs. Mirrored end to end as `PANCAKE_HOST_ACTION_CLOSE` and an arm in
   every binding's action drain.
 
-`driver.LoopBridge` (`src/driver/loop_bridge.zig`) composes them: the loop's
+`driver.Bridge` (`src/driver/bridge.zig`) composes them: the loop's
 hooks adopt (`makeConnCtx`), serve (`serve`), and release (`freeConnCtx`),
 and every entry point ends by draining the host's action queue into the loop
 — `flush` becomes `armOutbound`, `close` becomes `closeSlot`,
@@ -80,29 +80,61 @@ only `armOutbound` can reach) and the `zig build tcp-loop` scale harness.
 
 ## Scope (what this does not decide)
 
-- **No loop-side dial executor.** A bridged host answers every `dial` action
-  with `dialFailed`, so it originates gives but cannot redeem one: a bridge
-  host is not yet a handoff recipient. The executor lands with a
-  loop-recipient consumer.
 - **No loop-global fan-in backpressure.** ADR-0042 stays per-connection: a
   many-to-one fan-in's sources are not throttled by the sink's read-park.
-- **The iroh `LoopHost` is not converged.**
-  `src/net/transport/iroh.zig`'s `LoopHost` (~467 lines) duplicates
-  `net.Loop`'s slot / outbound / backpressure / close state machine as a
-  second, diverging copy. `net.Loop` already grew `armOutbound` /
-  `closeSlot` so a host bridge can ride it; converging iroh onto
-  `net.Loop` + `LoopBridge` (and deleting the dup) is a high-risk own
-  pass, not in scope here. Until then, every bridge hardening lands twice
-  or only on TCP.
-- **No deadline on blocking answer-waits.** `BlockingHost.awaitVow` and
-  `ConnectedVat.settle` still spin forever if a partner opens then never
+- ~~**The iroh `LoopHost` is not converged.**~~ **Converged (amendment
+  below).** `iroh.LoopHost` is deleted; iroh scale is
+  `completion.Loop(iroh.Backend, iroh.DialResolver)` + `driver.Bridge` + Host.
+- **No deadline on blocking answer-waits.** `BlockingSession.settle` / Bridge vow callbacks and
+  `BlockingSession.settle` still spin forever if a partner opens then never
   answers. The handshake budget on `finishOpen(…, ?budget_ms)` is the
   pattern; an optional `deadline_ms` → `error.WaitTimedOut` plus a
   "partner opens then stalls" scenario is the follow-up, deferred only
   for scope.
-- **No C ABI budget knob.** `local_turn_budget` is not yet surfaced through
-  `pancake_host_new`; an embedder loop over the C ABI still drives
-  unbounded. The `close` action is already mirrored, so the knob is additive.
+
+## Amendment: loop-side dial executor
+
+A bridged host redeems three-party handoffs on one loop thread. `Exec.dial`
+forwards OCapN locator parts from `HostAction.Dial` through
+`Loop.dialLocator`; the Loop's `Locator` resolves them into the Backend's
+`ConnectTarget` and the Backend `startDial`s. The bridge parks the node's ticket
+under the slot until connect completes. Connect completion adopts through
+`Host.openDialedOver` (the dialed twin of `openAcceptedOver`); session open
+reports `exporterDialed`; refused connect fires `on_close(slot, …, opened=false)`
+and `dialFailed`. Netlayers own networking (`tcp.DialResolver.resolve`;
+iroh's `Locator` resolves node-id designators); Bridge stays
+above that boundary. Gated by the redeem theorem in
+`test/driver/bridge_test.zig`.
+
+
+## Amendment: iroh Backend convergence
+
+`iroh.LoopHost` is deleted. The sidecar readiness fd + try-I/O adapt through
+`iroh.Backend` (same Backend contract as io_uring/kqueue), so CapTP fan-out
+rides `driver.Bridge` + `driver_core.Host` for both TCP and iroh. `Bridge` is
+generic over the loop type (`Bridge(net.TcpLoop)` /
+`Bridge(Loop(iroh.Backend, iroh.DialResolver))`).
+Gated by `zig build iroh-loop`. Iroh redeem dial
+(`Loop.dialLocator` → `iroh.DialResolver.resolve` → `startDial`) ships
+on the same bridge; gated by `zig build iroh-bridge-redeem`.
+
+## Amendment: Backend-owned dial translation
+
+Each completion Backend owns dial *start* end to end: an associated
+`ConnectTarget` type, `startDial` (mint handle if needed, submit connect, clean
+up on failure), and required `shutdownFd`. OCapN locator resolve is a separate
+comptime `Locator` on `completion.Loop(Backend, Locator)` — `tcp.DialResolver` or
+`iroh.DialResolver` — never a platform Backend concern. Platform Backends
+(io_uring/kqueue) speak only `IpAddress` connect ops. `net.TcpLoop` is
+`completion.Loop(platform, tcp.DialResolver)`. There is no shared `ConnectTarget`
+union, no forwarding TCP Backend wrapper, no public `Loop.dial(ConnectTarget)`,
+no socket-shaped `openDialFd`/`submitDial` Loop choreography, and no `@hasDecl`
+soft optionality —
+`validateBackend` / `validateLocator` compile-check the total contract. Above
+the net boundary, callers (including Bridge) speak only
+`Loop.dialLocator(transport, designator, hint)`. Blocking residents use the
+same `Locator.resolve` before connect (`tcp_keyed` / `iroh` `residentDial`);
+transport symbols and `direct-addresses` live in `model.transport`.
 
 ## Alternatives Considered
 
@@ -119,11 +151,12 @@ only `armOutbound` can reach) and the `zig build tcp-loop` scale harness.
 
 ## Consequences
 
-- `test/driver/host_budget_test.zig` pins the attribution contract;
-  `test/driver/host_adopt_test.zig` pins adoption ownership and the
+- `test/driver/core_host_budget_test.zig` pins the attribution contract;
+  `test/driver/core_host_adopt_test.zig` pins adoption ownership and the
   batch-consumption subtlety; `test/net/completion_cross_arm_test.zig` pins
-  the cross-arm at the net layer; `test/driver/loop_bridge_test.zig` holds
-  the theorem and the budget runaway over real sockets.
+  the cross-arm at the net layer; `test/driver/bridge_test.zig` holds
+  the theorem and the budget runaway over real sockets. Multi-party teardown
+  uses `Loop.runUntil` → `closeAndDrain` so armed recvs retire before `deinit`.
 - `zig build tcp-loop` is the live scale step (measured footprint printed,
   never gated — ADR-0073 owns the wall-clock rationale).
 - The bridge's retained allocations (shells and the ConnId→slot map) are

@@ -20,42 +20,10 @@ share ``pancake_ocapn.h`` — so importing one transport never loads another.
 from __future__ import annotations
 
 import ctypes
-import os
-import pathlib
-import sys
 
-
-# The dynamic library's name is platform-specific: `.dylib` on macOS, `.dll` on
-# Windows, `.so` elsewhere. `zig build` emits the right one into zig-out/lib.
-def _lib_file(stem: str) -> str:
-    return (
-        f"lib{stem}.dylib" if sys.platform == "darwin"
-        else f"{stem}.dll" if sys.platform == "win32"
-        else f"lib{stem}.so"
-    )
-
-
-# The directory to load archives from, or None to use a bare name (OS search).
-# The cascade every pancake binding shares: an explicit ``PANCAKE_LIB_DIR``
-# override (configure) wins, else the repo's ``zig-out/lib`` build output when
-# running in-tree (the dev fallback).
-def _lib_dir() -> pathlib.Path | None:
-    override = os.environ.get("PANCAKE_LIB_DIR")
-    if override:
-        return pathlib.Path(override)
-    dev = pathlib.Path(__file__).resolve().parents[3] / "zig-out" / "lib"
-    return dev if dev.is_dir() else None
-
-
-# Resolve an archive: an explicit path under the resolved directory, or — when no
-# directory is known (an installed lib) — the bare library name, which ctypes
-# hands to the OS dynamic-linker search (find). Each archive is loaded by its own
-# internal module through this one helper, so they resolve consistently.
-def _lib_path(stem: str) -> str:
-    name = _lib_file(stem)
-    directory = _lib_dir()
-    return str(directory / name) if directory is not None else name
-
+# Archive path resolution (configure → abi-versioned cache → zig-out → find)
+# lives in ``_lib_resolve`` so every ``_ffi_*`` loader shares one cascade.
+from ._lib_resolve import _lib_path
 
 # ── Raw ctypes layer (private) ───────────────────────────────────────────────
 
@@ -236,6 +204,10 @@ def _load():
         "pancake_locator_designator": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
         "pancake_locator_host_port": (
             [P, ctypes.POINTER(ctypes.c_void_p), size_p, ctypes.POINTER(ctypes.c_uint16)], ctypes.c_int32,
+        ),
+        "pancake_designator_host_port": (
+            [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p), size_p, ctypes.POINTER(ctypes.c_uint16)],
+            ctypes.c_int32,
         ),
         "pancake_locator_swissnum": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
         "pancake_locator_hint_count": ([P, size_p], ctypes.c_int32),

@@ -52,8 +52,11 @@ const LoopbackResident = struct {
         bufs: net.netlayer.Buffers,
     ) net.netlayer.DialError!net.Connection {
         const self: *LoopbackResident = @ptrCast(@alignCast(ctx));
+        // x-loopback reuses tcp hostport I/O; it is not `tcp`/`keyed-tcp`, so
+        // `Locator.resolve` would refuse the transport symbol. Parse the
+        // designator, then the post-admission connect.
         const address = tcp.parseDesignator(locator.designator) catch return error.InvalidAddress;
-        return tcp.connectAddress(self.io, peer, address, bufs.read, bufs.write) catch |err| switch (err) {
+        return tcp.connectAddress(self.io, peer, address, bufs.read, bufs.write, .{}) catch |err| switch (err) {
             error.OutOfMemory => error.OutOfMemory,
             else => error.ConnectionLost,
         };
@@ -89,7 +92,7 @@ const LoopbackResident = struct {
 
     fn accept(ctx: *anyopaque, peer: *engine.Peer, bufs: net.netlayer.Buffers) net.netlayer.AcceptError!net.Connection {
         const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-        return box.listener.accept(peer, bufs.read, bufs.write) catch |err| switch (err) {
+        return box.listener.accept(peer, bufs.read, bufs.write, .{}) catch |err| switch (err) {
             error.OutOfMemory => error.OutOfMemory,
             else => error.ConnectionLost,
         };
@@ -97,7 +100,7 @@ const LoopbackResident = struct {
 
     fn localDesignator(ctx: *anyopaque, out: []u8) []const u8 {
         const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-        return std.fmt.bufPrint(out, "{f}", .{box.listener.localAddress()}) catch out[0..0];
+        return tcp.designatorOnListener(&box.listener, out);
     }
 
     fn close(ctx: *anyopaque) void {

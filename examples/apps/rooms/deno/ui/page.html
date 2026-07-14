@@ -76,7 +76,7 @@
 								<form id="joinForm" class="join">
 									<h2>Join a room</h2>
 									<p
-										class="lead">Pick a room and a name to start chatting, capability-secure, no account.</p>
+										class="lead">Pick a room and a name — capability-secure chat, no account. Entering a room that does not exist yet opens it.</p>
 									<label for="room">Room</label>
 									<input id="room" placeholder="general"
 										value="general"
@@ -88,6 +88,8 @@
 									<p id="nickError" class="error" role="alert"
 										aria-live="polite"></p>
 									<button id="joinBtn">Join room</button>
+									<button type="button" id="browseRoomsBtn"
+										class="ghost-link">Browse live rooms</button>
 								</form>
 							</div>
 						</section>
@@ -104,6 +106,7 @@
 				<div class="composer">
 					<div id="emojiPop" class="emoji-pop" role="menu"
 						aria-label="Emoji"></div>
+					<div id="typing" class="typing" aria-live="polite"></div>
 					<form id="composer" hidden>
 						<textarea id="line" rows="1" placeholder="Message"
 							autocomplete="off"

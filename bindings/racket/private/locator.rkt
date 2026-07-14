@@ -6,6 +6,7 @@
 ;; `pancake.rkt` re-provides these on the public surface.
 
 (require ffi/unsafe
+         racket/string
          "constants.rkt"
          "ffi-ocapn.rkt"
          "errors.rkt")
@@ -103,7 +104,7 @@
                                key-ptrs key-lens val-ptrs val-lens n
                                buf cap))
     (cond
-      [(and (= rc ERR-INVALID-ARGUMENT) (> out-len cap)) (loop out-len)]
+      [(and (= rc ERR-BUFFER-TOO-SMALL) (> out-len cap)) (loop out-len)]
       [else (check rc) (bytes->string/utf-8 (subbytes buf 0 out-len))])))
 
 ;; Build the verbatim exporter location-record bytes a gifter embeds in a give
@@ -112,7 +113,7 @@
 ;; name the exporter; a non-empty `direct-addresses` (comma-separated socket
 ;; addresses) adds a `direct-addresses` hint so a cross-process recipient dials it
 ;; directly with no discovery service (an iroh exporter reachable only by
-;; address). The result feeds `conn-set-exporter-locator!`. An empty
+;; address). The result feeds `session-set-exporter-locator!`. An empty
 ;; `direct-addresses` yields a hint-less location identical to the exporter's own
 ;; signed record, so a TCP or discovery-reachable exporter needs no override.
 (define (encode-peer-locator transport designator [direct-addresses ""])
@@ -129,10 +130,51 @@
   (pancake_peer_locator_bytes_release ptr len)
   out)
 
+;; Render host:port as a tcp designator; bracket IPv6 for the core grammar.
+(define (socket-addr-designator host port)
+  (if (and (string-contains? host ":")
+           (not (and (string-prefix? host "[") (string-suffix? host "]"))))
+      (format "[~a]:~a" host port)
+      (format "~a:~a" host port)))
+
+;; Split a direct-addresses hint into host and port (first address when
+;; comma-separated) through the core locator grammar.
+(define (host-port-from-direct-hint hint [who 'connect])
+  (define first (string-trim (car (string-split hint ","))))
+  (when (= 0 (string-length first))
+    (raise-pancake who ERR-INVALID-ARGUMENT
+                   "keyed-tcp requires a non-empty direct-addresses hint"))
+  (with-handlers ([exn:fail:pancake?
+                   (lambda (_)
+                     (raise-pancake who ERR-INVALID-ARGUMENT
+                                    "direct-addresses hint is not host:port: ~a" first))])
+    (designator-host-port first)))
+
+;; Split a bare designator as host:port through the core grammar
+;; (`pancake_designator_host_port`). Prefer this over minting a peer URI
+;; just to call `parse-locator`.
+(define (designator-host-port designator)
+  (define db (string->bytes/utf-8 designator))
+  (define dbuf (pin-immobile db))
+  (define-values (rc hptr hlen hport)
+    (pancake_designator_host_port dbuf (bytes-length db)))
+  (check rc)
+  (values (if (or (not hptr) (= hlen 0))
+              ""
+              (bytes->string/utf-8 (bytes<-c hptr hlen) #\uFFFD))
+          hport))
+
 ;; Build a `tcp` locator from a literal host and port: `ocapn://host:port.tcp`,
 ;; rendered through the core grammar. The convenience for the common case, a
 ;; caller holding a host and port passes `(connect (tcp-locator host port))`
 ;; instead of hand-formatting the URI. `host:port` is not a dial of its own; it
 ;; is a locator like any other.
 (define (tcp-locator host port)
-  (format-peer-uri "tcp" (format "~a:~a" host port)))
+  (format-peer-uri TRANSPORT-TCP (socket-addr-designator host port)))
+
+;; Build a `keyed-tcp` locator: the designator is the listener's Ed25519 public
+;; key in canonical hex, and host/port ride the `direct-addresses` hint
+;; (ADR-0075).
+(define (keyed-tcp-locator designator host port)
+  (format-peer-uri TRANSPORT-KEYED-TCP designator
+                   (hash HINT-DIRECT-ADDRESSES (socket-addr-designator host port))))

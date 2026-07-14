@@ -3,14 +3,14 @@
 //! A completion loop (io_uring / kqueue / IOCP) owns a bounded per-connection
 //! byte buffer, receives reads of *arbitrary* size, and must apply whole frames
 //! out of that buffer without a `std.Io.Reader` underneath it. The Peer seam for
-//! that is `recvStreamPrefix` (apply one frame off a borrowed prefix, report
-//! bytes consumed or `.incomplete`), `step` (encode queued sends), and
-//! `takeOutbound` (pull owned outbound frames). These tests drive that seam with
-//! no `std.Io` and no socket, the way the loop will, so the contract is pinned
-//! before the loop exists: arbitrary chunk boundaries apply each frame exactly
-//! once, the unconsumed tail stays valid for the next read, and compaction
-//! drains several frames from one buffer. If a refactor breaks the seam, these
-//! fail rather than the future loop.
+//! that is `applyStreamPrefix` (apply one frame off a borrowed prefix, report
+//! bytes consumed or `.incomplete`, fail closed on incomplete-at-cap), `step`
+//! (encode queued sends), and `takeOutbound` (pull owned outbound frames). These
+//! tests drive that seam with no `std.Io` and no socket, the way the loop will,
+//! so the contract is pinned before the loop exists: arbitrary chunk boundaries
+//! apply each frame exactly once, the unconsumed tail stays valid for the next
+//! read, and compaction drains several frames from one buffer. If a refactor
+//! breaks the seam, these fail rather than the future loop.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -29,7 +29,7 @@ fn drainBuffered(peer: *engine.Peer, buf: []u8, valid_in: usize) !struct { appli
     var valid = valid_in;
     var applied: usize = 0;
     while (valid > 0) {
-        switch (try peer.recvStreamPrefix(buf[0..valid])) {
+        switch (try peer.applyStreamPrefix(buf[0..valid])) {
             .incomplete => break,
             .consumed => |n| {
                 applied += 1;
@@ -124,4 +124,16 @@ test "completion seam: a frame plus a partial next frame leaves the tail buffere
     try std.testing.expectEqual(@as(usize, 1), second.applied);
     try std.testing.expectEqual(@as(usize, 0), second.valid);
     try std.testing.expectEqual(@as(usize, 1), try drainDeliverEvents(&peer));
+}
+
+test "completion seam: applyStreamPrefix fails closed on incomplete-at-cap" {
+    var peer = engine.Peer.init(std.testing.allocator);
+    defer peer.deinit();
+    peer.session_state.limits.max_frame_bytes = 8;
+
+    // Eight bytes that are not a complete syrup frame: under the raw
+    // recvStreamPrefix this is `.incomplete`, but applyStreamPrefix mirrors
+    // the cap-during-scan contract and refuses to grow forever.
+    const junk = [_]u8{ '<', '1', '0', '\'', 'o', 'p', ':', 'd' };
+    try std.testing.expectError(error.FrameTooLarge, peer.applyStreamPrefix(&junk));
 }

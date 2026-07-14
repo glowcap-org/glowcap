@@ -1,4 +1,4 @@
-// Idiomatic JavaScript/TypeScript API for pancake — a full OCapN/CapTP node
+// Idiomatic JavaScript/TypeScript API for pancake — a full OCapN/CapTP host
 // over the byte-fed host archive `libpancake_driver` (ADR-0072), with the
 // shared vocabulary of `libpancake_ocapn` beside it (ADR-0059). One module
 // runs on Deno and Bun; the runtime-specific FFI and sockets are isolated
@@ -6,7 +6,7 @@
 //
 // The library owns every CapTP decision — routing, three-party redemption,
 // gift origination, far vows — and the binding moves bytes: each
-// `Connection`'s serve loop feeds raw reads to the core's stream delimiter and
+// `Session`'s serve loop feeds raw reads to the core's stream delimiter and
 // honors the host's action queue (dial, flush, entropy, settle). A transport
 // that links its own pancake archive lives in its own module beside this one —
 // `./transport/tcp.ts`, `./transport/inproc.ts`, and the optional
@@ -17,9 +17,12 @@
 // import path is one place. The layers: `errors` (the `PancakeError` family),
 // `value` (the value vocabulary plus the `Ref`/`AppValue` application layer),
 // `codec`/`context` (marshalling and allocation scopes), `trampoline` (the one
-// native behavior callback), `host` (the `Node`), `connection` (the
-// `Connection`/`Server` surface and `connect`/`listen`), and `locator` (OCapN
-// URIs).
+// native behavior callback), `host` (the `Host`), `action` (host-action
+// decode+execute), `promise` (the `RemotePromise` send returns), `gc`
+// (ADR-0063), `dial` (unified dial executor + `connect`), `listen`
+// (`Server` / `listen` / keyed-tcp host), `session` (the `Session` verbs
+// and mint/handshake), `pump` (the byte-fed embedder serve/feed/flush
+// choreography), and `locator` (OCapN URIs).
 //
 //   const conn = await connect(tcpLocator("127.0.0.1", 9099));
 //   conn.serve().catch(() => {});
@@ -41,18 +44,28 @@ export {
 	Tagged,
 	tagged,
 } from "./value.ts";
-export { Context, type HostAllocator } from "./context.ts";
-export { Node } from "./host.ts";
+export { Context, type ContextAllocator } from "./context.ts";
+export { Host } from "./host.ts";
+export { RemotePromise } from "./promise.ts";
+export { type Channel, Session } from "./session.ts";
+export { connect } from "./dial.ts";
+export { KeyedTcpServer, listen, listenKeyedTcp, Server } from "./listen.ts";
 export {
-	connect,
-	Connection,
+	designatorHostPort,
 	encodePeerLocator,
-	listen,
-	RemotePromise,
-	Server,
-	type Transport,
-} from "./connection.ts";
-export { formatPeerUri, type Locator, parseLocator, tcpLocator } from "./locator.ts";
+	formatPeerUri,
+	HINT_DIRECT_ADDRESSES,
+	hostPortFromDirectHint,
+	keyedTcpLocator,
+	type Locator,
+	parseLocator,
+	socketAddrDesignator,
+	tcpLocator,
+	TRANSPORT_INPROC,
+	TRANSPORT_IROH,
+	TRANSPORT_KEYED_TCP,
+	TRANSPORT_TCP,
+} from "./locator.ts";
 
 /** The linked library's ABI version as `[major, minor, patch]`. */
 export function abiVersion(): [number, number, number] {

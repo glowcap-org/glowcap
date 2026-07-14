@@ -5,7 +5,7 @@
   ],
   "tasks": {
     "smoke": "deno run --allow-ffi --allow-read --allow-net --allow-env dogfood/zig_smoke.ts",
-    "check": "deno check stack/mod.ts stack/transport/tcp.ts stack/transport/inproc.ts stack/ffi.ts iroh/mod.ts dogfood/zig_smoke.ts dogfood/gifter_handoff.ts"
+    "check": "deno check stack/mod.ts stack/transport/tcp.ts stack/transport/inproc.ts stack/ffi.ts iroh/mod.ts iroh/internal.ts dogfood/zig_smoke.ts dogfood/gifter_handoff.ts"
   },
   "fmt": {
     "useTabs": true,

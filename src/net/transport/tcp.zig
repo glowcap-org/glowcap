@@ -18,11 +18,14 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
 const connection = @import("../connection.zig");
 const frame_stream = @import("../frame_stream.zig");
 const netlayer = @import("../netlayer.zig");
+
+const crypto = foundation.crypto;
 
 const Netlayer = netlayer.Netlayer;
 const NetLayerListener = netlayer.Listener;
@@ -35,6 +38,19 @@ const Server = std.Io.net.Server;
 
 const Connection = connection.Connection;
 const FrameStream = frame_stream.FrameStream;
+
+const socket = @import("../socket.zig");
+
+/// Opt-in TCP keepalive (idle/interval/count required). Re-exported so callers
+/// configure the blocking path through the socket library, not `completion/`.
+pub const Keepalive = socket.Keepalive;
+
+/// Socket tune applied once when the blocking path turns an `Io` into a stream.
+/// `keepalive` null (the default via `{}`) leaves NODELAY-only — same as before.
+/// When set, see `socket.Keepalive` (NAT hold-open / dead-remote-host reclaim).
+pub const StreamOptions = struct {
+    keepalive: ?Keepalive = null,
+};
 
 /// Set `TCP_NODELAY` on a freshly dialed or accepted `stream`, disabling Nagle's
 /// algorithm. OCapN is a request/response wire: a peer writes a frame — or, with
@@ -52,6 +68,13 @@ fn setNoDelay(stream: Stream) void {
         std.posix.TCP.NODELAY,
         &std.mem.toBytes(@as(c_int, 1)),
     ) catch {};
+}
+
+/// One place the blocking TCP path tunes a fresh stream: always `TCP_NODELAY`,
+/// and optionally keepalive when the caller opted in with explicit timers.
+fn configureStream(stream: Stream, keepalive: ?Keepalive) void {
+    setNoDelay(stream);
+    if (keepalive) |ka| socket.applyKeepalive(stream.socket.handle, ka);
 }
 
 /// One accepted/dialed TCP stream, pinned so its reader/writer interfaces hold a
@@ -91,8 +114,9 @@ pub fn connectionOver(
     stream: Stream,
     read_buf: []u8,
     write_buf: []u8,
+    options: StreamOptions,
 ) std.mem.Allocator.Error!Connection {
-    setNoDelay(stream);
+    configureStream(stream, options.keepalive);
     const ts = try peer.allocator.create(TcpStream);
     errdefer peer.allocator.destroy(ts);
     ts.* = .{
@@ -111,12 +135,16 @@ pub fn connectionOver(
 /// The transport symbol carried in a `model.PeerLocator`. `tcp` is what the
 /// OCapN conformance TCP netlayer (and Goblins' `^tcp-netlayer`) matches on, so
 /// the two peers can address each other; the bytes are cleartext.
-pub const transport_name = "tcp";
+pub const transport_name = model.transport.tcp;
 
 pub const Error = error{
     /// A host string (or a locator's `host:port` designator) was not a parseable
     /// address this transport can dial.
     InvalidAddress,
+    /// The transport symbol is not in the TCP family this module speaks
+    /// (`tcp` / `keyed-tcp`). The completion loop's connect path is TCP-only;
+    /// other netlayers resolve and dial elsewhere.
+    UnknownTransport,
 };
 
 /// Open a TCP stream to `address` and weld it to `peer`. `io` is named once,
@@ -124,16 +152,20 @@ pub const Error = error{
 /// `read_buf` / `write_buf`; `read_buf` sizes the steady per-connection memory,
 /// not the largest admissible frame (a larger frame spills, bounded by
 /// `max_frame_bytes`).
+/// Post-admission TCP connect: `address` must already be a `DialResolver.resolve`
+/// (or equivalent hostport parse) result. Production dials go through
+/// `DialResolver.resolve` → here; do not call this to skip OCapN admission.
 pub fn connectAddress(
     io: std.Io,
     peer: *engine.Peer,
     address: IpAddress,
     read_buf: []u8,
     write_buf: []u8,
+    options: StreamOptions,
 ) (IpAddress.ConnectError || std.mem.Allocator.Error)!Connection {
     const stream = try IpAddress.connect(&address, io, .{ .mode = .stream });
     errdefer stream.close(io);
-    return connectionOver(io, peer, stream, read_buf, write_buf);
+    return connectionOver(io, peer, stream, read_buf, write_buf, options);
 }
 
 /// The width of the caller storage `locator` formats a `host:port` designator
@@ -180,9 +212,10 @@ pub fn connect(
     loc: model.PeerLocator,
     read_buf: []u8,
     write_buf: []u8,
+    options: StreamOptions,
 ) !Connection {
-    const address = try parseDesignator(loc.designator);
-    return connectAddress(io, peer, address, read_buf, write_buf);
+    const address = try DialResolver.resolve(loc.transport, loc.designator, &.{});
+    return connectAddress(io, peer, address, read_buf, write_buf, options);
 }
 
 /// As `connectAddress`, but yielding a peer-less `FrameStream` (the host-
@@ -195,9 +228,10 @@ pub fn connectFrameStream(
     max_frame_bytes: usize,
     read_buf: []u8,
     write_buf: []u8,
+    options: StreamOptions,
 ) IpAddress.ConnectError!FrameStream {
     const stream = try IpAddress.connect(&address, io, .{ .mode = .stream });
-    setNoDelay(stream);
+    configureStream(stream, options.keepalive);
     return FrameStream.initStream(io, allocator, stream, codec_id, max_frame_bytes, read_buf, write_buf);
 }
 
@@ -229,10 +263,11 @@ pub const Listener = struct {
         peer: *engine.Peer,
         read_buf: []u8,
         write_buf: []u8,
+        options: StreamOptions,
     ) (Server.AcceptError || std.mem.Allocator.Error)!Connection {
         const stream = try self.server.accept(self.io);
         errdefer stream.close(self.io);
-        return connectionOver(self.io, peer, stream, read_buf, write_buf);
+        return connectionOver(self.io, peer, stream, read_buf, write_buf, options);
     }
 
     /// As `accept`, but yielding a peer-less `FrameStream`.
@@ -243,14 +278,22 @@ pub const Listener = struct {
         max_frame_bytes: usize,
         read_buf: []u8,
         write_buf: []u8,
+        options: StreamOptions,
     ) Server.AcceptError!FrameStream {
         const stream = try self.server.accept(self.io);
-        setNoDelay(stream);
+        configureStream(stream, options.keepalive);
         return FrameStream.initStream(self.io, allocator, stream, codec_id, max_frame_bytes, read_buf, write_buf);
     }
 
     pub fn deinit(self: *Listener) void {
         self.server.deinit(self.io);
+    }
+
+    /// Borrow this typed listener as a contract `netlayer.Listener`. `close` is
+    /// a no-op — the caller still owns this `Listener`. `driver.acceptTcp`
+    /// uses this so the tcp-named accept shares `acceptVia`'s hello path.
+    pub fn asNetlayer(self: *Listener) NetLayerListener {
+        return .{ .ctx = self, .vtable = &borrowed_listener_vtable };
     }
 };
 
@@ -258,8 +301,8 @@ pub const Listener = struct {
 //
 // `tcp` is the first resident of the netlayer contract: the same `connect` /
 // `bind` / `accept` above, presented behind the runtime vtable the driver
-// dispatches against. The driver no longer names `tcp`; it resolves a transport
-// symbol to a registered resident, and this is the one a host registers for it.
+// dispatches against. A host registers this resident for the `tcp` transport
+// symbol; the driver resolves the locator's transport to a registered resident.
 
 /// The tcp netlayer's state: the host `std.Io` it dials and binds with. The
 /// caller owns a `Resident` at a stable address (the netlayer vtable's `ctx`
@@ -287,8 +330,8 @@ fn residentDial(
     bufs: Buffers,
 ) netlayer.DialError!Connection {
     const self: *Resident = @ptrCast(@alignCast(ctx));
-    const address = parseDesignator(loc.designator) catch return error.InvalidAddress;
-    return connectAddress(self.io, peer, address, bufs.read, bufs.write) catch |err| switch (err) {
+    const address = DialResolver.resolve(loc.transport, loc.designator, &.{}) catch return error.InvalidAddress;
+    return connectAddress(self.io, peer, address, bufs.read, bufs.write, .{}) catch |err| switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         else => error.ConnectionLost,
     };
@@ -324,17 +367,48 @@ const listener_vtable: NetLayerListener.VTable = .{
     .close = listenerClose,
 };
 
-fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
-    const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    return box.listener.accept(peer, bufs.read, bufs.write) catch |err| switch (err) {
+/// Vtable for `Listener.asNetlayer`: same accept/designator as the owned box,
+/// but `close` is a no-op so a caller-owned typed listener is not destroyed.
+const borrowed_listener_vtable: NetLayerListener.VTable = .{
+    .transport_name = transport_name,
+    .accept = borrowedListenerAccept,
+    .localDesignator = borrowedListenerLocalDesignator,
+    .close = borrowedListenerClose,
+};
+
+/// Shared accept arm for owned and borrowed netlayer listener vtables (and
+/// `tcp_keyed`'s ListenerBox). Maps typed-listener errors onto the contract.
+pub fn acceptOnListener(listener: *Listener, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
+    return listener.accept(peer, bufs.read, bufs.write, .{}) catch |err| switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         else => error.ConnectionLost,
     };
 }
 
+/// Shared local-address designator / dial-hint formatter for tcp listener
+/// vtables (`localDesignator` on plain tcp; `localHint` on keyed-tcp).
+pub fn designatorOnListener(listener: *const Listener, out: []u8) []const u8 {
+    return std.fmt.bufPrint(out, "{f}", .{listener.localAddress()}) catch out[0..0];
+}
+
+fn borrowedListenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
+    return acceptOnListener(@ptrCast(@alignCast(ctx)), peer, bufs);
+}
+
+fn borrowedListenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
+    return designatorOnListener(@ptrCast(@alignCast(ctx)), out);
+}
+
+fn borrowedListenerClose(_: *anyopaque) void {}
+
+fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
+    const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+    return acceptOnListener(&box.listener, peer, bufs);
+}
+
 fn listenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    return std.fmt.bufPrint(out, "{f}", .{box.listener.localAddress()}) catch out[0..0];
+    return designatorOnListener(&box.listener, out);
 }
 
 fn listenerClose(ctx: *anyopaque) void {
@@ -360,3 +434,34 @@ pub fn parseDesignator(designator: []const u8) Error!IpAddress {
     const split = model.uri.splitHostPort(designator) catch return Error.InvalidAddress;
     return parseHostPort(split.host, split.port);
 }
+
+/// Resolve locator dial fields to a TCP connect address. This is the one place
+/// the TCP family turns transport + designator + `direct-addresses` hint into
+/// an `IpAddress`:
+///
+/// - `tcp`: the designator is `host:port`.
+/// - `keyed-tcp`: the designator must be a canonical Ed25519 key; the socket
+///   address rides the hint (TCP has no discovery). Empty hint or a non-key
+///   designator is `InvalidAddress` before the network is touched.
+///
+/// Any other transport refuses with `UnknownTransport` — iroh and inproc do
+/// not share this connect path. Platform Backends and Bridge never re-implement
+/// the grammar; blocking residents and the completion loop both call
+/// `DialResolver.resolve`.
+pub const DialResolver = struct {
+    pub fn resolve(
+        transport: []const u8,
+        designator: []const u8,
+        direct_addresses_hint: []const u8,
+    ) Error!IpAddress {
+        const hostport = if (std.mem.eql(u8, transport, transport_name))
+            designator
+        else if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) blk: {
+            if (crypto.PeerKey.fromDesignator(designator) == null) return Error.InvalidAddress;
+            if (direct_addresses_hint.len == 0) return Error.InvalidAddress;
+            break :blk direct_addresses_hint;
+        } else return Error.UnknownTransport;
+        if (hostport.len == 0) return Error.InvalidAddress;
+        return parseDesignator(hostport);
+    }
+};

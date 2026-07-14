@@ -49,8 +49,9 @@ weight, and Goblins-canonical extensions get flagged wherever they appear.
 
 ## Rung 2: The Performance Contract, In Numbers
 
-The per-session footprint budget is held by gates. The live-socket measurement
-is still open.
+The per-session footprint budget is held by gates. Live-socket measurement is
+opt-in Phase 2 of `bench-peer-scaling` (`--live`); it reports measured RSS and
+ns/turn at stepped N rather than only extrapolating the in-process `served` row.
 
 The 500k-connection destination is a budget, not a claim, and a budget is only
 real once a gate defends it. Two halves of the wire-and-session cost are
@@ -60,11 +61,24 @@ copy the event model requires, pinned by `test/engine/alloc_budget_test.zig`.
 The per-session footprint is bounded: `engine.Peer` carries a `comptime` ceiling
 on its own struct size, so a session's inline state staying under one kilobyte
 is a compile error to break, and `test/engine/footprint_budget_test.zig` holds
-the warmed total (struct plus session heap) at or under 2 KiB per connection.
+the warmed total (struct plus session heap) at or under 2 KiB per session.
 2 KiB times 500_000 sessions is under 1 GiB of protocol-core state.
 `zig build bench-peer-scaling` reports the live measured numbers and
 extrapolates to 500k; `zig build check` runs it in `--smoke` mode and runs both
 budget gates.
+
+The completion loop wraps each `Peer` in one `Conn` slot, and that wrapper is
+the unit the loop allocates `max_conns` of, so it carries a ceiling of its own.
+A `Conn`'s bookkeeping beyond the `Peer` it embeds — the slot state, the
+outbound queue's two buffer headers, the spill header, the intrusive free or
+starved link, and the in-flight and app-context words — measures 112 bytes on
+every backend, and a `comptime` assertion in `net/completion/loop.zig` holds
+`@sizeOf(Conn) - @sizeOf(engine.Peer)` at or under **120 bytes**
+(`conn_slot_overhead_bytes`, one word of headroom for cross-target padding). The
+ceiling isolates the wrapper from the `Peer`, which the one-kilobyte ceiling
+above already guards, so a `Peer` change never trips it and a new `Conn` field
+always does. As with every gated number, crossing it is a design event: the
+constant moves here and in `loop.zig` together.
 
 Those two are the headline numbers, not the only gated costs. The same
 `zig build check` test suite also pins the outbound `encodeMessage` allocation
@@ -89,14 +103,13 @@ and `bench-site-report`'s job. The ceiling constants live at the top of
 rung; crossing one is a design event, and so is raising one — the number moves
 here and in the constant together (ADR-0073).
 
-What stays open on this rung is the part that needs a socket, not a number on
-paper. The footprint above is the protocol core measured in-process. The
+What stays open on this rung is pushing the opt-in live harness
+(`bench-peer-scaling --live`) toward the full 500k target on a box with the
+ulimit headroom — the harness exists; full-N runs are machine work, not missing
+API. The footprint above is the protocol core measured in-process. The
 completion loop's read buffers come from a shared backend-owned pool (ADR-0054),
-so an idle connection holds zero read-buffer bytes, but accept throughput,
-syscalls per turn, and resident-set growth under a real 500k-connection run
-still need a load harness. That measurement belongs where the budget meets a
-socket, on rung 5. The core's obligation (never being what makes 500k
-impossible) is the part this rung defends, and it now does.
+so an idle connection holds zero read-buffer bytes. The core's obligation (never
+being what makes 500k impossible) is the part this rung defends, and it now does.
 
 ## Rung 3: A Hosted Application
 
@@ -125,12 +138,13 @@ drift-gated.
 
 ## Rung 5: The Netlayer Frontier
 
-The netlayer is a contract with three residents, the third of them the iroh
-channel: encrypted, discoverable (dial-by-id), identity-unified, and served at
-scale by the ADR-0057 completion loop (`iroh.LoopHost`, gated by `iroh-loop`),
-pancake to pancake. That loop is the scale path every binding parks on (the
-public C ABI is loop-only; gated by `bindings-iroh-loop`). The open
-work is the live-socket half of the 500k budget.
+The netlayer is a contract with four residents (`tcp`, `keyed-tcp`, `inproc`,
+iroh). The encrypted iroh channel is discoverable (dial-by-id), identity-unified,
+and served at scale by the ADR-0057 completion loop (`iroh.Backend` + Bridge,
+gated by `iroh-loop`), pancake to pancake. That loop is the scale path every
+binding parks on (the public C ABI is loop-only; gated by `bindings-iroh-loop`).
+Opt-in live-socket scale measurement is `bench-peer-scaling --live`; the open
+work is pushing that harness toward the full 500k budget on a scale box.
 
 `net` owns `std.Io` behind the core/adapters boundary. The TCP netlayer, the
 stream-framing `Connection`, and the accepted and outbound completion-loop paths
@@ -139,26 +153,27 @@ are shipped and gated. Linux uses io_uring, and macOS/BSD use kqueue.
 The netlayer is a pluggable contract, not a privileged built-in (ADR-0043). A
 `Netlayer` is a runtime resident. The driver's `connectVia` and `acceptVia`
 dispatch to it by the locator's transport symbol, over a transport-generic
-`Connection`. There are three real residents. tcp is the socket transport. The
-in-process `net.inproc` (ADR-0047) is a second, genuinely different one: a
+`Connection`. There are four real residents. `tcp` is the cleartext socket
+transport. `keyed-tcp` (ADR-0075) reuses those sockets under a key designator.
+The in-process `net.inproc` (ADR-0047) is a genuinely different one: a
 designator switchboard wiring two in-process byte pipes, with no sockets and no
 file descriptors. The iroh resident (`net/transport/iroh.zig`, ADR-0055) is the
-third and the encrypted one: each connection is a bidirectional QUIC stream from
-a real iroh endpoint, dialed by Ed25519 endpoint id, carried by the
-`transports/iroh` Rust sidecar so the pure-Zig archives stay pure Zig, and
-proven live by `zig build iroh-interop`. All three drive through the same
-`connectVia` / `acceptVia` path and complete the same verified handshake, and
-adding each one edited no driver, core, or contract file, which is what proves
-the contract is transport-general rather than socket-shaped; a caller's own
-transport slots in the same way. (A test-defined `x-loopback` transport also
-exercises the dispatch from outside the tree, though it rides tcp underneath.)
+encrypted one: each connection is a bidirectional QUIC stream from a real iroh
+endpoint, dialed by Ed25519 endpoint id, carried by the `transports/iroh` Rust
+sidecar so the pure-Zig archives stay pure Zig, and proven live by
+`zig build iroh-interop`. All four drive through the same `connectVia` /
+`acceptVia` path and complete the same verified handshake, and adding each one
+edited no driver, core, or contract file, which is what proves the contract is
+transport-general rather than socket-shaped; a caller's own transport slots in
+the same way. (A test-defined `x-loopback` transport also exercises the
+dispatch from outside the tree, though it rides tcp underneath.)
 
 Server-side hosting is at parity across the surface. The native driver hosts
-with `driver.listen` (each `accept` hands back an owning `driver.Connection`),
+with `driver.listen` (each `accept` hands back an owning `driver.Session`),
 with `driver.acceptTcp` as the buffer-explicit spelling, both proven by the
 driver loopback tests; above the one-connection face, the sans-io
 `driver_core.Host` owns identity, the node, and both three-party handoff halves
-(ADR-0072), with `driver.BlockingHost` as the native Zig blocking socket loop
+(ADR-0072), with `driver.Bridge` + `completion.Loop` as the native Zig multi-session CapTP path
 over it and every binding riding the same core through `libpancake_driver`
 (`pancake_host_*`). The hermetic three-host scenario and the live
 `goblins-handoff` driver pin that surface. Every binding listens as well as dials; the Rust
@@ -171,18 +186,19 @@ bytes cross a high-water mark, that connection's reads park until the partner
 drains them, and burst capacity frees on drain (ADR-0042). A scripted fake
 backend proves the exact park and resume order.
 
-Open work on this rung is the **live-socket 500k measurement** that turns rung
-2's budget into a number under real load, plus a Windows completion backend.
-Everything else has landed: the encrypted channel pancake to pancake
+Open work on this rung is pushing the opt-in live-socket harness
+(`bench-peer-scaling --live`) to full-target N on a suitable box, plus a Windows
+completion backend. Everything else has landed: the encrypted channel pancake to pancake
 (`iroh-interop`), its dial-by-id discovery, key unification, and durable-identity
 capstones on the same gate, and every binding's adoption of the loop surface
 (`bindings-iroh-loop`, Deno matching it without a gated row). Two completion-loop
-scale substrates ship today: the TCP path is `net.Loop` + `driver.LoopBridge` +
+scale substrates ship today: the TCP path is `net.TcpLoop` + `driver.Bridge` +
 `driver_core.Host` (ADR-0076, gated by `zig build tcp-loop` and the
 handoff-across-one-loop test — the only loop path proven for cross-connection
-handoff), and the iroh path is still its own `iroh.LoopHost` (ADR-0057, gated by
-`iroh-loop`) pending convergence onto the shared loop + bridge (ADR-0076 §
-Scope). `bench-peer-scaling`'s `served` row measures per-connection core state.
+handoff), and the iroh path shares that bridge via `iroh.Backend` (ADR-0057,
+gated by `iroh-loop`), including redeem dial (`iroh-bridge-redeem`).
+`bench-peer-scaling`'s `served` row extrapolates per-connection core state;
+`--live` reports measured loopback figures at stepped N.
 The TCP blocking pump stays a single fiber by contract (ADR-0053): it serves
 cooperative request/response, and a partner that streams without draining is the
 completion loop's workload, not a pending fiber split.
@@ -191,8 +207,9 @@ completion loop's workload, not a pending fiber split.
 
 Rungs 1, 3, and 4 are held and stay held by gates. They reopen only if a gate
 weakens, and weakening a gate is the change that needs the argument. Rung 2's
-in-process budget is held by gates; its live-socket measurement is rung 5 work.
-Rung 1 is also the standing discipline every protocol-touching diff pays into.
+in-process budget is held by gates; its live-socket harness is opt-in
+(`bench-peer-scaling --live`), with full-N measurement still machine work on
+rung 5. Rung 1 is also the standing discipline every protocol-touching diff pays into.
 Rung 5 is where new work toward the vision starts.
 
 For the flatter backlog, with each item checked against the current tree, see

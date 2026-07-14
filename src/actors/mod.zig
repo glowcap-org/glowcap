@@ -26,7 +26,7 @@ pub const Give = vat.Give;
 pub const ResolveInterceptor = vat.ResolveInterceptor;
 pub const InterceptOutcome = vat.InterceptOutcome;
 pub const Listener = vat.Listener;
-pub const ForeignActor = vat.ForeignActor;
+pub const HostedActor = vat.HostedActor;
 /// A point-in-time capture of every snapshottable actor's state
 /// (`Vat.snapshot`), restored with `Vat.restore` — re-exported so a consumer
 /// can name the value it holds between the two calls (ADR-0060).

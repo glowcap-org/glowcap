@@ -18,15 +18,14 @@
 ;; macOS, and Windows from the one `zig build` output.
 (require ffi/unsafe
          ffi/unsafe/define
-         racket/runtime-path
-         "ffi-shared.rkt")
+         "ffi-shared.rkt"
+         "lib-resolve.rkt")
 ;; Re-export the shared cstruct vocabulary so a module that requires this loader
 ;; has the layouts the bound functions read and write.
 (provide (all-from-out "ffi-shared.rkt")
          (all-defined-out))
 
-(define-runtime-path ocapn-lib-path "../../../zig-out/lib/libpancake_ocapn")
-(define ocapn-lib (pancake-ffi-lib "pancake_ocapn" (path->string ocapn-lib-path)))
+(define ocapn-lib (open-pancake-archive "pancake_ocapn"))
 
 (define-ffi-definer define-pancake ocapn-lib)
 (define-pancake pancake_abi_version
@@ -58,6 +57,9 @@
   (_fun _pointer (p : (_ptr o _pointer)) (l : (_ptr o _size)) -> (r : _int32) -> (values r p l)))
 (define-pancake pancake_locator_host_port
   (_fun _pointer (p : (_ptr o _pointer)) (l : (_ptr o _size)) (port : (_ptr o _uint16))
+        -> (r : _int32) -> (values r p l port)))
+(define-pancake pancake_designator_host_port
+  (_fun _pointer _size (p : (_ptr o _pointer)) (l : (_ptr o _size)) (port : (_ptr o _uint16))
         -> (r : _int32) -> (values r p l port)))
 (define-pancake pancake_locator_swissnum
   (_fun _pointer (p : (_ptr o _pointer)) (l : (_ptr o _size)) -> (r : _int32) -> (values r p l)))

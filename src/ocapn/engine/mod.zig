@@ -48,8 +48,9 @@ const node = @import("node.zig");
 /// I/O-bearing driver) because it is pure routing data, so the sans-io C ABI and
 /// native callers reach it without dragging in a transport.
 pub const Node = node.Node;
+pub const ActionFifo = @import("action_fifo.zig").ActionFifo;
 /// A `Node` connection handle (ADR-0066), re-exported alongside `Node`.
-pub const ConnId = node.ConnId;
+pub const PeerId = node.PeerId;
 pub const pairing = @import("pairing.zig");
 pub const pipeline = @import("pipeline.zig");
 pub const sturdyref = @import("sturdyref.zig");
@@ -82,6 +83,10 @@ pub const readLocatorOwned = codec.syrup.readLocatorOwned;
 /// owned by the session and surfaced here so consumers above the engine name the
 /// one authoritative value rather than re-deriving the magic `0`.
 pub const BOOTSTRAP_POSITION = session.BOOTSTRAP_POSITION;
+
+/// Session resource bounds; re-exported so the driver C ABI can mirror the
+/// default frame cap without a direct `session` import.
+pub const SessionLimits = session.SessionLimits;
 
 /// The inbound receive/dispatch spine (`recvBorrowed`/`recvStreamPrefix`/`step`
 /// call in here). Factored out of the `Peer` body as free functions over
@@ -261,52 +266,60 @@ const PendingWithdraw = struct {
 /// queue owns until `step` encodes it. A sent `op:resolve` is the exception: its
 /// resolution lives in the answer store (it moved there at record time), so the
 /// queue holds only `settled_answer` — the position of the inbound answer it
-/// settles — and `step` reads the resolution back from the store to encode.
+/// settles, plus that row's identity stamp — and `step` reads the resolution
+/// back from the store to encode.
 /// That single store ownership is the point: the resolution is not copied into a
-/// frame here and the store there, and an inbound `op:gc-answers` that drops the
-/// row between record and emit simply leaves nothing to encode (a self-contained
-/// frame copy would dangle on exactly that sequence; this carrier cannot).
+/// frame here and the store there. An inbound `op:gc-answers` that drops the row
+/// between record and emit leaves nothing to encode, and a partner that reuses
+/// the freed position for a fresh answer leaves a row whose identity stamp no
+/// longer matches — either way the carrier's `row_id` check emits nothing wrong
+/// (a self-contained frame copy would dangle or ship the reused payload on
+/// exactly those sequences; this stamped carrier cannot).
 ///
 /// A listener fire rides the same store-borrow pattern: when a promise with N
-/// listeners resolves, each fire queues a POD `listener_fire` /
-/// `imported_promise_fire` carrier instead of N payload clones, and `step`
-/// borrows the stored resolution back to encode (`pipeline.borrowedListenerFire`).
-/// A row dropped (or replaced by a different row instance at the same
-/// position — the carriers carry the row's identity stamp) between queue and
-/// encode leaves the fire moot, the same semantics `settled_answer` ships. A
-/// surviving row's stored payload cannot change under a queued carrier: an
-/// answer resolves once (`validateInboundResolve` / `applySentResolve`) and a
-/// relayed resolution records once (`recordRelayedResolution` refuses a second
-/// relay), so a matching identity stamp proves the payload too.
+/// listeners resolves, each fire queues a POD `listener_fire` carrier instead
+/// of N payload clones, and `step` borrows the stored resolution back to encode
+/// (`pipeline.borrowedListenerFire`). A row dropped (or replaced by a different
+/// row instance at the same position — the carrier carries the row's identity
+/// stamp) between queue and encode leaves the fire moot, the same semantics
+/// `settled_answer` ships. A surviving row's stored payload cannot change under
+/// a queued carrier: an answer resolves once (`validateInboundResolve` /
+/// `applySentResolve`) and a relayed resolution records once
+/// (`recordRelayedResolution` refuses a second relay), so a matching identity
+/// stamp proves the payload too.
 const Outbound = union(enum) {
     message: model.Message,
-    settled_answer: model.AnswerPosition,
-    /// One `op:listen` fire for an *answer-store* resolution: the far export
-    /// position the fire targets, the inbound answer whose stored resolution
-    /// it carries, and that answer row's identity stamp at queue time. Queue-
-    /// time accounting already ran (`pipeline.enqueueListenerFire`); encode
-    /// borrows the store via `peekResolution`, and drops the fire when the
-    /// row is gone or its `row_id` changed (answer positions are partner-
-    /// named, so a released position can be reused — emitting the reused
-    /// row's payload under this fire's accounting would drift the wire-delta
-    /// retains).
-    listener_fire: struct {
-        listener_position: u64,
-        answer: model.AnswerPosition,
+    /// A sent `op:resolve` whose resolution lives in the inbound answer store
+    /// (it moved there at record time). Carries the answer position *and* the
+    /// store row's identity stamp, exactly as `listener_fire` does over the
+    /// same store: answer positions are partner-named, so a released one can be
+    /// reused by a fresh answer with a different resolution before this carrier
+    /// is encoded. At encode `step` drops the resolve when the row is gone
+    /// (`peekResolution` null) *or* its `row_id` no longer matches (a reused
+    /// position now holding a different answer), so the reused row's payload is
+    /// never emitted under this carrier.
+    settled_answer: struct {
+        position: model.AnswerPosition,
         row_id: u64,
     },
-    /// One `op:listen` fire for a handoff-imported promise's *relayed*
-    /// resolution (ADR-0009): the far export position the fire targets, the
-    /// third-party import whose stored resolution it carries, and the store
-    /// row's identity stamp at queue time. At encode: a missing row or a
-    /// `row_id` mismatch (the row was torn down, possibly re-registered as a
-    /// different promise) drops the fire. A matching row's payload is the one
-    /// the fire was accounted against — a relayed resolution records exactly
-    /// once (`Session.recordRelayedResolution` refuses a second relay) — so
-    /// the queue-time retains always match the frame that ships.
-    imported_promise_fire: struct {
+    /// One `op:listen` fire for a stored resolution. The `target` names which
+    /// store holds it: an inbound answer (`peekResolution`) or a handoff-
+    /// imported third-party promise (ADR-0009, the relay's stored value). One
+    /// carrier serves both because the two stores are the same promise cell
+    /// keyed on different position spaces; `Peer.resolveFireStore` is the one
+    /// lookup that reads either. The carrier holds the far export position the
+    /// fire targets, the store target, and the store row's identity stamp at
+    /// queue time. Queue-time accounting already ran (`pipeline.enqueueFire`).
+    /// At encode `step` borrows the store back and drops the fire when the row
+    /// is gone or its `row_id` changed: answer positions are partner-named so a
+    /// released one can be reused, and an imported row can be torn down by GC
+    /// co-eviction and re-registered as a different promise. Emitting the
+    /// reused row's payload under this fire's accounting would drift the wire-
+    /// delta retains. A matching stamp proves the payload the fire was accounted
+    /// against is the one that ships (each store records its resolution once).
+    listener_fire: struct {
         listener_position: u64,
-        import_position: model.ImportPosition,
+        target: FireTarget,
         row_id: u64,
     },
 
@@ -315,10 +328,20 @@ const Outbound = union(enum) {
             // The store owns a settled answer's / fire's resolution and frees
             // it at row GC, overwrite, or session teardown; the carriers own
             // nothing.
-            .settled_answer, .listener_fire, .imported_promise_fire => {},
+            .settled_answer, .listener_fire => {},
             .message => |message| freeMessage(allocator, message),
         }
     }
+};
+
+/// Which store holds a listener fire's stored resolution: an inbound answer's
+/// row or a handoff-imported third-party promise's row (ADR-0009). The two are
+/// the same promise cell — `{ row_id, resolution, listeners }` — keyed on
+/// distinct wire position spaces, so one carrier and one `resolveFireStore`
+/// lookup serve both instead of a parallel arm, enqueue, and step branch each.
+pub const FireTarget = union(enum) {
+    answer: model.AnswerPosition,
+    import: model.ImportPosition,
 };
 
 /// The caller-owned CapTP engine: one peer per session, no I/O, no hidden
@@ -384,8 +407,8 @@ pub const Peer = struct {
     last_abort: ?AbortInfo = null,
     /// The node-installed hook that lowers a node-local foreign-import token to
     /// its wire reference before an outbound message is encoded (ADR-0069). Set
-    /// only for a peer registered under a `Node` (`registerConn` /
-    /// `registerConnOver`); a standalone peer leaves it null and never lowers.
+    /// only for a peer registered under a `Node` (`registerPeer` /
+    /// `registerPeerOver`); a standalone peer leaves it null and never lowers.
     /// See `lower.zig`.
     lowering: ?Lowering = null,
 
@@ -448,7 +471,7 @@ pub const Peer = struct {
     }
 
     /// Re-posture a freshly constructed negotiating peer before its first byte
-    /// moves. The host's adoption path (`registerConnOver`) constructs the peer
+    /// moves. The host's adoption path (`registerPeerOver`) constructs the peer
     /// elsewhere; this verb is the engine's checked imposition of the same
     /// knobs `initNegotiatingWith` would have set, so session tables stay
     /// behind the engine instead of the host poking `session_state` fields.
@@ -615,7 +638,12 @@ pub const Peer = struct {
                 return err;
             };
             try self.session_state.recordSend(message);
-            self.pending_send.pushAssumeCapacity(.{ .settled_answer = answer });
+            // Stamp the carrier with the answer row's identity: `recordSend`
+            // stored the resolution in this row, so its `row_id` is live now.
+            // If the partner GCs this position and reuses it before `step`
+            // encodes, the stamp mismatch makes the stale carrier moot.
+            const row_id = self.session_state.inboundAnswerRowId(answer) orelse unreachable;
+            self.pending_send.pushAssumeCapacity(.{ .settled_answer = .{ .position = answer, .row_id = row_id } });
             return;
         }
 
@@ -1018,55 +1046,77 @@ pub const Peer = struct {
                 defer freeMessage(self.allocator, message);
                 try self.emitOutboundMessage(message);
             },
-            .settled_answer => |answer| {
+            .settled_answer => |sa| {
                 // The resolution lives in the answer store (it moved there at
-                // record time). Borrow it to encode and to drive the local
-                // settlement, the store keeps owning it. If an inbound
-                // `op:gc-answers` dropped the row between record and now, the
-                // resolve is moot: the row's pipelined calls, projections, and
-                // listeners were freed with it, so there is nothing to emit or
-                // settle.
-                const stored = self.session_state.peekResolution(answer) orelse return .progress;
-                const resolve: model.Resolve = .{ .answer = answer, .resolution = stored.* };
+                // record time); borrow it to encode and to drive the local
+                // settlement, the store keeps owning it. Moot when the row is
+                // gone (an inbound `op:gc-answers` dropped it — its pipelined
+                // calls, projections, and listeners were freed with it) or when
+                // the position was reused by a fresh answer whose `row_id` no
+                // longer matches: `resolveStoreChecked` guards both, so the
+                // reused row's payload is never resolved under this carrier.
+                const stored = self.resolveStoreChecked(.{ .answer = sa.position }, sa.row_id) orelse return .progress;
+                const resolve: model.Resolve = .{ .answer = sa.position, .resolution = stored.* };
                 try self.emitOutboundMessage(.{ .resolve = resolve });
                 // A sent `op:resolve` also settles one of our inbound answers locally.
                 try self.settleSentResolve(resolve);
             },
             .listener_fire => |fire| {
-                // The fire's payload lives in the answer store; borrow it to
-                // encode, exactly as `settled_answer` does. A row dropped by an
-                // inbound `op:gc-answers` between queue and now makes the fire
-                // moot: nothing to emit — and so does a surviving row whose
-                // `row_id` changed, which means the partner released the
-                // position and reused it for a new question (the stale fire's
-                // accounting names the dead instance's payload, not this
-                // one's). (The queue-time export retains of a dropped fire
-                // stay recorded until session end — the same stranded-retain
-                // posture a GC'd `settled_answer` ships.)
-                const row_id = self.session_state.inboundAnswerRowId(fire.answer) orelse return .progress;
-                if (row_id != fire.row_id) return .progress;
-                const stored = self.session_state.peekResolution(fire.answer) orelse return .progress;
+                // Borrow the fire's payload from whichever store holds it and
+                // encode, through the same `resolveStoreChecked` guard
+                // `settled_answer` uses. The fire is moot when the row is gone
+                // (an inbound `op:gc-answers` dropped an answer, or GC
+                // co-eviction tore down an imported promise) or when a surviving
+                // row's `row_id` no longer matches — a partner released and
+                // reused an answer position, or an imported row was re-registered
+                // as a *different* third-party promise. Either way the stale
+                // fire's accounting names the dead instance's payload, so nothing
+                // emits. (The queue-time export retains of a dropped fire stay
+                // recorded until session end, the same stranded-retain posture a
+                // GC'd `settled_answer` ships.)
+                const stored = self.resolveStoreChecked(fire.target, fire.row_id) orelse return .progress;
                 var args: [2]model.Argument = undefined;
                 try self.emitOutboundMessage(pipeline.borrowedListenerFire(fire.listener_position, stored.*, &args));
             },
-            .imported_promise_fire => |fire| {
-                // The fire's payload lives in the imported-promise store
-                // (ADR-0009). A missing row, or one whose `row_id` changed
-                // (torn down by GC co-eviction and re-registered as a
-                // *different* third-party promise at the same position),
-                // makes the fire moot — its queue-time retains stay recorded,
-                // the named gc-drop stranded-retain posture. A matching row's
-                // stored value is exactly the payload this fire was accounted
-                // against, because a relayed resolution records once
-                // (`recordRelayedResolution` refuses a second relay).
-                const row = self.session_state.findImportedPromise(fire.import_position) orelse return .progress;
-                if (row.row_id != fire.row_id) return .progress;
-                const stored = row.resolution orelse return .progress;
-                var args: [2]model.Argument = undefined;
-                try self.emitOutboundMessage(pipeline.borrowedListenerFire(fire.listener_position, stored, &args));
-            },
         }
         return .progress;
+    }
+
+    /// The current row id and borrowed stored resolution behind a fire target,
+    /// or null when the store row is gone or has no resolution yet. The one
+    /// lookup both the fire enqueue (for the stamp) and `step` (to encode) read,
+    /// so the answer store and the imported-promise store are reached the same
+    /// way. The returned resolution borrows the store; it is valid only until
+    /// the store is next mutated.
+    fn resolveFireStore(self: *Peer, target: FireTarget) ?struct {
+        row_id: u64,
+        resolution: *const model.Resolution,
+    } {
+        switch (target) {
+            .answer => |answer| {
+                const row_id = self.session_state.inboundAnswerRowId(answer) orelse return null;
+                const resolution = self.session_state.peekResolution(answer) orelse return null;
+                return .{ .row_id = row_id, .resolution = resolution };
+            },
+            .import => |import_position| {
+                const row = self.session_state.findImportedPromise(import_position) orelse return null;
+                if (row.resolution) |*resolution| return .{ .row_id = row.row_id, .resolution = resolution };
+                return null;
+            },
+        }
+    }
+
+    /// The borrowed stored resolution behind `target`, but only when the store
+    /// row still carries `row_id` — the one guard both queued store-borrow
+    /// carriers apply at encode. A row that is gone, has no resolution yet, or
+    /// whose identity changed (a partner reused an answer position, or an
+    /// imported promise row was torn down and re-registered) fails to match, so
+    /// the stale carrier emits nothing rather than the reused row's payload.
+    /// `settled_answer` and `listener_fire` read the store through this one seam.
+    fn resolveStoreChecked(self: *Peer, target: FireTarget, row_id: u64) ?*const model.Resolution {
+        const found = self.resolveFireStore(target) orelse return null;
+        if (found.row_id != row_id) return null;
+        return found.resolution;
     }
 
     /// Encode one popped pending message onto `outbound`, applying the V1.0
@@ -1250,6 +1300,28 @@ pub const Peer = struct {
                     return err;
                 };
                 return .{ .consumed = decoded.consumed };
+            },
+        }
+    }
+
+    /// Like `recvStreamPrefix`, plus the ADR-0029/0041 incomplete-at-cap
+    /// mirror: an incomplete prefix whose buffer is already at or past
+    /// `max_frame_bytes` can never complete within the cap, so this fails
+    /// closed with `error.FrameTooLarge` (and projects an abort) instead of
+    /// returning `.incomplete` for the caller to grow forever. Every
+    /// byte-stream consumer (`Host.feedBytes`, `Connection.pumpOver`,
+    /// `frame_stream.drainWholeFrames`, `pancake_peer_recv_stream`) must use
+    /// this rather than re-implementing the mirror beside `recvStreamPrefix`.
+    pub fn applyStreamPrefix(self: *Peer, buffer: []const u8) !RecvStream {
+        const outcome = try self.recvStreamPrefix(buffer);
+        switch (outcome) {
+            .consumed => |n| return .{ .consumed = n },
+            .incomplete => {
+                if (buffer.len >= self.limits().max_frame_bytes) {
+                    inbound.emitAbortForError(self, error.FrameTooLarge);
+                    return error.FrameTooLarge;
+                }
+                return .incomplete;
             },
         }
     }

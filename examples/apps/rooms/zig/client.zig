@@ -35,6 +35,7 @@ const demo_usage = @import("demo_usage");
 const model = pancake.ocapn.model;
 const actors = pancake.actors;
 const driver = pancake.driver;
+const net = pancake.net;
 const tcp = pancake.net.tcp;
 
 const frame_cap: usize = 1 << 16;
@@ -198,7 +199,7 @@ pub fn main(init: std.process.Init) !void {
             return fail("this Zig rooms client is TCP-only; build the iroh variant (`zig build demo-rooms-iroh`) to dial an ocapn:// URI");
         }
     } else {
-        var conn = try dialTcp(io, allocator, locator);
+        var conn = try dialRoomsLocator(io, allocator, locator);
         defer conn.deinit();
         try runRoom(conn, allocator, &state, room_name, nick, line);
     }
@@ -209,23 +210,31 @@ pub fn main(init: std.process.Init) !void {
     }
 }
 
-/// Dial a `host:port` locator over the TCP netlayer pancake ships. A bare
+/// Dial a `host:port` designator over the TCP netlayer pancake ships. A bare
 /// `host:port` is the designator of a `tcp` locator (`tcp.at`); dial it through
 /// the one dialer against a TCP-only transport slice.
-fn dialTcp(io: std.Io, allocator: std.mem.Allocator, locator: []const u8) !*driver.Connection {
+fn dialRoomsLocator(io: std.Io, allocator: std.mem.Allocator, locator: []const u8) !*driver.Session {
     var tcp_resident = tcp.Resident{ .io = io };
     return driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.at(locator), .ephemeral, .{ .frame_cap = frame_cap });
 }
 
 /// Dial an `ocapn://<nodeid>.iroh?direct-addresses=…` URI over iroh's encrypted
 /// QUIC. Compiled only into the iroh-enabled build (the `iroh` import links the
-/// Rust sidecar), so the default TCP build never pulls cargo into its graph. The
-/// own iroh endpoint and its netlayer slice outlive the connection they dial.
+/// Rust sidecar), so the default TCP build never pulls cargo into its graph. A
+/// URI carrying direct-addresses dials those directly (relay-less Direct); a
+/// node-id-only URI resolves the peer through discovery.
 fn dialIroh(io: std.Io, allocator: std.mem.Allocator, uri: []const u8, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
+    const loc = try model.uri.parsePeer(allocator, uri);
+    defer model.freePeerLocator(allocator, loc);
+    if (!std.mem.eql(u8, loc.transport, model.transport.iroh)) {
+        return fail("rooms expected an iroh ocapn:// URI");
+    }
+    const hints = net.netlayer.directAddrHint(loc.hints) orelse "";
+    const reachability: @import("iroh").Reachability = if (hints.len > 0) .direct else .discovery;
     const iroh = @import("iroh");
-    var resident = try iroh.Resident.init(io, null, .direct);
+    var resident = try iroh.Resident.init(io, null, reachability);
     defer resident.deinit();
-    var conn = try driver.connectUriOwned(allocator, &.{resident.netlayer()}, uri, .ephemeral, .{ .frame_cap = frame_cap });
+    var conn = try driver.connect(allocator, &.{resident.netlayer()}, loc, .ephemeral, .{ .frame_cap = frame_cap });
     defer conn.deinit();
     try runRoom(conn, allocator, state, room_name, nick, line);
 }
@@ -248,7 +257,7 @@ fn roomRefFromArg(arg: model.Argument) !actors.Ref {
 /// — so this tries `enter`, falls back to `open`, and on a creation race falls
 /// back to `enter` once more. The settled outcomes are materialized into a
 /// scratch arena that frees here; the returned far ref is POD and outlives it.
-fn enterOrOpen(conn: *driver.Connection, allocator: std.mem.Allocator, directory: actors.Ref, room_name: []const u8) !actors.Ref {
+fn enterOrOpen(conn: *driver.Session, allocator: std.mem.Allocator, directory: actors.Ref, room_name: []const u8) !actors.Ref {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const scratch = arena.allocator();
@@ -279,7 +288,7 @@ fn enterOrOpen(conn: *driver.Connection, allocator: std.mem.Allocator, directory
 
 /// Enter the room, subscribe our inbox, and pump until every roster member's
 /// line has arrived, the transport-neutral body both dial paths share.
-fn runRoom(conn: *driver.Connection, allocator: std.mem.Allocator, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
+fn runRoom(conn: *driver.Session, allocator: std.mem.Allocator, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
     const directory = try conn.fetch("directory");
 
     // Discovery: list the live rooms once, then watch the directory so the room

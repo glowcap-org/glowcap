@@ -2,7 +2,7 @@
 //!
 //! On the connection API this is barely a layer: connect, fetch the board by
 //! name, publish a watcher, and call `add`/`done`/`list`. The pancake
-//! `Connection` owns the peer on a background task, so the application above sees
+//! `Session` owns the peer on a background task, so the application above sees
 //! only the board methods.
 //!
 //!   let board = Board::join(&tcp_locator("127.0.0.1", 9099)).await?;
@@ -13,7 +13,7 @@
 
 use std::rc::Rc;
 
-use pancake::{connect, Argument, Connection};
+use pancake::{connect, Argument, Session};
 
 const BOARD: &str = "board";
 
@@ -46,7 +46,7 @@ fn parse_snapshot(arg: &Argument) -> Vec<Task> {
 
 /// A membership in a task board: the connection plus the board capability.
 pub struct Board {
-	conn: Rc<Connection>,
+	conn: Rc<Session>,
 	board: pancake::Ref,
 }
 
@@ -54,7 +54,7 @@ impl Board {
 	/// Join the board at `locator`. Call inside a `LocalSet` (the peer is `!Send`).
 	pub async fn join(locator: &str) -> Result<Board, String> {
 		let conn = Rc::new(
-			connect(locator, None)
+			connect(locator, None, None)
 				.await
 				.map_err(|e| format!("connect: {e:?}"))?,
 		);

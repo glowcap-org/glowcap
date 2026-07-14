@@ -1,5 +1,8 @@
-# Serve the rooms browser demo over iroh from a light, toolchain-free container,
+# Serve the rooms browser UI over iroh from a light, toolchain-free container,
 # reachable through an existing cloudflared tunnel on a shared Docker network.
+# CapTP peers (rooms-bot) bootstrap the live ocapn:// locator from
+# http://pancake-rooms:8000/locator, then dial over iroh Discovery (n0 relays +
+# DNS/pkarr) — not CapTP over the HTTP port.
 #
 # Prerequisites, once, in the dev container — they produce the shared libraries
 # this image loads:
@@ -11,10 +14,10 @@
 #
 #     docker compose up -d --build
 #
-# The browser reaches the page and its WebSocket over cloudflared; iroh runs
-# entirely inside the container (the bridge and the spawned directory talk over
-# loopback QUIC), so no UDP ports are exposed and cloudflared only needs 8000.
-# Point one ingress rule at it, next to your other services:
+# The browser reaches the page and its WebSocket over cloudflared; iroh CapTP
+# runs inside the container and across Discovery for peers on the shared net.
+# Cloudflared only needs HTTP 8000. Point one ingress rule at it, next to your
+# other services:
 #
 #     - hostname: rooms.<your-domain>
 #       service: http://pancake-rooms:8000
@@ -31,9 +34,9 @@ services:
     image: pancake-rooms:local
     container_name: pancake-rooms
     working_dir: /repo
-    # web.ts serves the page and the /ws bridge on 8000 and spawns the iroh room
-    # directory itself. -A --unstable-ffi is what the iroh transport needs; the
-    # spawned child inherits it, so PANCAKE_LIB_DIR resolves for both.
+    # web.ts serves the page and /ws on 8000, spawns the iroh room directory, and
+    # publishes GET /locator for CapTP peers. Discovery reachability announces a
+    # bare ocapn://<nodeid>.iroh URI resolved via n0/pkarr.
     command:
       - run
       - -A
@@ -45,6 +48,8 @@ services:
       # Where the binding finds the prebuilt shared libraries (load.ts's first rung).
       PANCAKE_LIB_DIR: /libs
       DENO_DIR: /deno-dir
+      # Dial-by-node-id over n0 relays + DNS/pkarr (rooms-bot / cross-container).
+      ROOMS_REACHABILITY: discovery
     volumes:
       # The TypeScript source and the prebuilt .so, both read-only mounts — neither
       # is baked into the image. Build the .so in the dev container first (above).
@@ -54,15 +59,22 @@ services:
       - rooms-deno-cache:/deno-dir
     restart: unless-stopped
     networks:
-      - external-network
+      - rooms-net
+      - egress-net
 
 networks:
-  # The external network your reverse proxy already shares with its other services,
-  # so this container is reachable by name. Set ROOMS_EXTERNAL_NET in a local .env
-  # (copy .env.example) to your real network name; the default below is a neutral
-  # placeholder. .env is gitignored, so infrastructure names stay out of the repo.
-  external-network:
-    name: ${ROOMS_EXTERNAL_NET:-external-network}
+  # Shared fabric with the pancake devcontainer: a bot there reaches this
+  # container's internal CapTP over this network. Fixed name, external so both
+  # compose projects use the one network (create it once with
+  # `docker network create rooms-net`).
+  rooms-net:
+    name: rooms-net
+    external: true
+  # The tunnel network cloudflared reaches this container on for the public web
+  # UI (:8000). Host-named via the gitignored .env (EGRESS_NET). The key below
+  # is a compose alias, not the host network name.
+  egress-net:
+    name: ${EGRESS_NET:?Set EGRESS_NET in .env (see .env.example)}
     external: true
 
 volumes:

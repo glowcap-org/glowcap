@@ -15,7 +15,7 @@
 // With port 0 it binds an ephemeral port and prints it, which the demo harness
 // reads to point clients at the right place.
 
-import { type AppValue, Connection, listen, Ref } from "@pancake/stack";
+import { type AppValue, listen, Ref, Session } from "@pancake/stack";
 import { ADD, BOARD, DONE, LIST, UPDATE, WATCH } from "./protocol.ts";
 
 interface Task {
@@ -26,7 +26,7 @@ interface Task {
 
 interface Watcher {
 	ref: Ref;
-	conn: Connection;
+	conn: Session;
 }
 
 const tasks: Task[] = [];
@@ -37,7 +37,7 @@ function snapshot(): AppValue {
 	return tasks.map((t) => [BigInt(t.id), t.text, t.completed]);
 }
 
-function removeWatcher(conn: Connection): void {
+function removeWatcher(conn: Session): void {
 	const i = watchers.findIndex((w) => w.conn === conn);
 	if (i >= 0) watchers.splice(i, 1);
 }
@@ -52,7 +52,7 @@ function notifyAll(): void {
 	}
 }
 
-function boardBehavior(conn: Connection) {
+function boardBehavior(conn: Session) {
 	return (verb: string, args: AppValue[]): AppValue => {
 		if (verb === ADD) {
 			const text = typeof args[0] === "string" ? args[0] : "";

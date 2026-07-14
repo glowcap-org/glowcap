@@ -77,8 +77,9 @@ a documented loopback simplification, not the steady-state production shape.
   `Connection` / `FrameStream` types.
 
 The remaining netlayer gaps are separate from crossed hellos. The crossed-hellos
-path lives at the driver/adapter seam: `driver.crossed_hellos` owns the registry
-and tie-break, and the engine/model layer owns only the typed abort projection.
+path lives at the driver/adapter seam: `driver.core.crossed_hellos`
+(`src/driver/core/crossed_hellos.zig`) owns the registry and tie-break, and the
+engine/model layer owns only the typed abort projection.
 
 ## Alternatives Considered
 

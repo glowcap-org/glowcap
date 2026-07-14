@@ -64,7 +64,7 @@ in the ABI, not in the binding.
 
 Performance and canonicality are necessary but not sufficient. The third thing
 pancake competes on is how obvious it is to build with. An application developer
-in any binding holds one object, a `Connection`, and uses one small verb
+in any binding holds one object, a CapTP `Session`, and uses one small verb
 vocabulary, the application surface the [bindings contract](../bindings/README.md)
 enumerates. They fetch a capability by name, spawn a local object, and hand a
 partner a reference to it, and the partner calls it back. Application code
@@ -72,13 +72,13 @@ carries no export-position bookkeeping, no manual flush, no hand-rolled receive
 loop, and no protocol vocabulary on the happy path.
 
 This surface is composition, not abstraction. Every layer underneath stays
-present and visible: the `Connection` composes the sans-io peer, the actor vat,
+present and visible: the `Session` composes the sans-io peer, the actor vat,
 and the I/O adapter, and a consumer who outgrows it finds the peer one property
-access away, at `conn.peer`, for handoff, pipelining, and session control. The
+access away, at `session.peer`, for handoff, pipelining, and session control. The
 capability patterns that make object-capability networking worth choosing are
 ordinary code here. Delegation is passing a reference. Attenuation, a view that
 forwards only the allow-listed verbs, and revocation, a forwarder you can sever,
-are one `conn.attenuate` or `conn.caretaker` call each (ADR-0064). Those
+are one `session.attenuate` or `session.caretaker` call each (ADR-0064). Those
 patterns are why pancake fits services, real-time apps, and AI agent harnesses
 equally, and a runnable cross-language example proves each one: `zig build
 demo-rooms`, `demo-tasks`, and `demo-tools`. The bar is that a developer reads

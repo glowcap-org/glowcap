@@ -7,9 +7,9 @@
 //! concurrent enlivens of the same swissnum onto one outstanding answer. The
 //! engine driver of this seam is `engine.sturdyref`; the cache row type
 //! (`SturdyrefCacheEntry`) and the storage fields it operates on
-//! (`sturdyref_cache`, `pending_enlivens`) live on `Session` in `mod.zig`. These
-//! functions are aliased back into the `Session` namespace there, so a caller
-//! still writes `sess.cacheSturdyrefEnlivenment(...)`.
+//! (`sturdyref_cache`, `sturdyref_cache_index`, `pending_enlivens`) live on
+//! `Session` in `mod.zig`. These functions are aliased back into the `Session`
+//! namespace there, so a caller still writes `sess.cacheSturdyrefEnlivenment(...)`.
 
 const std = @import("std");
 const model = @import("model");
@@ -19,10 +19,10 @@ const Session = session.Session;
 const SturdyrefCacheEntry = session.SturdyrefCacheEntry;
 
 /// The cached enlivenment row for `swissnum`, by value, or null on a cache
-/// miss (ADR-0012), one scan answering both halves of the cache-hit
-/// short-circuit: the import position and the wire-kind, the latter preserved
-/// verbatim per ADR-0010 § The far-kind is preserved across enliven. The
-/// returned `swissnum` field borrows the cache row; read the POD fields,
+/// miss (ADR-0012), one O(1) index lookup answering both halves of the
+/// cache-hit short-circuit: the import position and the wire-kind, the latter
+/// preserved verbatim per ADR-0010 § The far-kind is preserved across enliven.
+/// The returned `swissnum` field borrows the cache row; read the POD fields,
 /// do not retain the slice.
 pub fn sturdyrefCacheLookup(self: *const Session, swissnum: []const u8) ?SturdyrefCacheEntry {
     const i = findSturdyrefCacheIndex(self, swissnum) orelse return null;
@@ -45,15 +45,18 @@ pub fn cacheSturdyrefEnlivenment(
         return;
     }
     if (self.sturdyref_cache.items.len >= self.limits.max_sturdyref_cache_entries) {
-        const evicted = self.sturdyref_cache.orderedRemove(0);
-        self.allocator.free(evicted.swissnum);
+        evictOldest(self);
     }
     const owned = try self.allocator.dupe(u8, swissnum);
     errdefer self.allocator.free(owned);
+    const index = self.sturdyref_cache.items.len;
     try self.sturdyref_cache.append(self.allocator, .{
         .swissnum = owned,
         .far = far,
     });
+    errdefer _ = self.sturdyref_cache.pop();
+    // The map key is the same owned slice the ArrayList row holds — one owner.
+    try self.sturdyref_cache_index.put(self.allocator, owned, index);
 }
 
 /// The outstanding bootstrap-fetch answer for an in-flight enliven of
@@ -90,10 +93,18 @@ fn findSturdyrefCache(self: *Session, swissnum: []const u8) ?*SturdyrefCacheEntr
     return &self.sturdyref_cache.items[i];
 }
 
-/// The one linear swissnum scan under both cache readers.
+/// O(1) swissnum → row index via the side map kept in sync with the FIFO list.
 fn findSturdyrefCacheIndex(self: *const Session, swissnum: []const u8) ?usize {
+    return self.sturdyref_cache_index.get(swissnum);
+}
+
+/// Drop the oldest FIFO row and repair every surviving index in the side map
+/// so lookups stay consistent with `orderedRemove(0)`'s shift.
+fn evictOldest(self: *Session) void {
+    const evicted = self.sturdyref_cache.orderedRemove(0);
+    std.debug.assert(self.sturdyref_cache_index.remove(evicted.swissnum));
+    self.allocator.free(evicted.swissnum);
     for (self.sturdyref_cache.items, 0..) |entry, i| {
-        if (std.mem.eql(u8, entry.swissnum, swissnum)) return i;
+        self.sturdyref_cache_index.getPtr(entry.swissnum).?.* = i;
     }
-    return null;
 }

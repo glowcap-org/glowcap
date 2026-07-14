@@ -1,21 +1,22 @@
-//! Position-keyed reference-count table.
+//! Position-keyed export/import rows: CapTP `Slot` cell + wire-delta count.
 //!
-//! CapTP addresses exports, imports, and answer-positions by dense, monotonic
-//! integer position. This table spends the position directly as a key: O(1)
-//! `contains` / `count` / `register` / `decrement`, O(live) memory — no linear
-//! scan over a `{ position, count }` list, and a GC sweep is one O(live) pass rather
-//! than a per-position re-count.
+//! Name plate: `ExportTable` / `ImportTable` (and their shared `SlotTable`
+//! core). Not `slot.zig` (the CapTP `Slot` sum alone). CapTP keeps export,
+//! import, and answer as separate position namespaces — answer rows live in
+//! `answers.zig`; these tables own the export and import namespaces.
 //!
-//! ## Why a hash, not a raw `position -> count` vector
+//! Each live row holds the authoritative `slot.Slot` for that position plus the
+//! ADR-0008 wire-delta refcount. `Session.exportSlot` / `importSlot` read the
+//! cell; they do not synthesize a kind from "row exists."
+//!
+//! ## Why a hash, not a raw `position -> row` vector
 //!
 //! Export positions are locally allocated and monotonic, so a flat index vector
-//! would be safe and ideal for them. But import positions and inbound answer
-//! positions are *partner-allocated*: a hostile peer can name `import_position =
-//! 1 << 63`, and a raw index vector would try to grow to that length — a memory
-//! DoS. An integer-keyed hash keeps the O(1) win without letting a partner's
-//! sparse position explode the backing store, so the no-footgun structure (and the
-//! resilience caps that bound row count) survive. The table is uniform across
-//! trusted and untrusted positions for one clear contract.
+//! would be safe and ideal for them. But import positions are *partner-
+//! allocated*: a hostile peer can name `import_position = 1 << 63`, and a raw
+//! index vector would try to grow to that length — a memory DoS. An integer-
+//! keyed hash keeps the O(1) win without letting a partner's sparse position
+//! explode the backing store.
 //!
 //! ## No generational handles
 //!
@@ -25,13 +26,22 @@
 
 const std = @import("std");
 const model = @import("model");
+const slot = @import("slot.zig");
 
-/// Wire-delta reference-count table (ADR-0008) keyed by CapTP position. Each
-/// position is installed live at count 1; `op:gc-*` decrements by the wire
-/// delta and the row is removed at zero. Underflow or an unknown position is a loud
-/// error, never a silent clamp.
+pub const Slot = slot.Slot;
+
+/// One live position: CapTP cell + wire-delta count.
+pub const Entry = struct {
+    cell: Slot,
+    count: u64,
+};
+
+/// Wire-delta table (ADR-0008) keyed by CapTP position. Each position is
+/// installed live at count 1 with its `Slot` cell; `op:gc-*` decrements by the
+/// wire delta and the row is removed at zero. Underflow or an unknown position
+/// is a loud error, never a silent clamp.
 pub const SlotTable = struct {
-    counts: std.AutoHashMapUnmanaged(u64, u64) = .empty,
+    rows: std.AutoHashMapUnmanaged(u64, Entry) = .empty,
 
     pub const Error = error{
         /// A decrement drove a count below zero, or named a position the table
@@ -42,61 +52,64 @@ pub const SlotTable = struct {
     pub const empty: SlotTable = .{};
 
     pub fn deinit(self: *SlotTable, allocator: std.mem.Allocator) void {
-        self.counts.deinit(allocator);
+        self.rows.deinit(allocator);
     }
 
     /// Number of live positions, the row count the resilience caps bound.
     pub fn len(self: *const SlotTable) usize {
-        return self.counts.count();
+        return self.rows.count();
     }
 
     pub fn contains(self: *const SlotTable, position: u64) bool {
-        return self.counts.contains(position);
+        return self.rows.contains(position);
     }
 
     /// Current refcount for `position`, or 0 if the position is not live.
     pub fn count(self: *const SlotTable, position: u64) u64 {
-        return self.counts.get(position) orelse 0;
+        const entry = self.rows.get(position) orelse return 0;
+        return entry.count;
     }
 
-    /// Register `position` live at count 1 if absent; idempotent no-op otherwise.
-    pub fn register(self: *SlotTable, allocator: std.mem.Allocator, position: u64) !void {
-        const gop = try self.counts.getOrPut(allocator, position);
-        if (!gop.found_existing) gop.value_ptr.* = 1;
+    /// CapTP cell for `position`, or null if not live.
+    pub fn cell(self: *const SlotTable, position: u64) ?Slot {
+        const entry = self.rows.get(position) orelse return null;
+        return entry.cell;
     }
 
-    /// Retain one wire reference to `position`: insert at count 1, or increment
-    /// an already-live row. Used for partner-introduced imports where repeated
-    /// references in one or more messages must later be released by matching
-    /// `op:gc-exports` wire-deltas.
-    pub fn retain(self: *SlotTable, allocator: std.mem.Allocator, position: u64) !void {
-        const gop = try self.counts.getOrPut(allocator, position);
+    /// Register `position` live at count 1 with `new_cell` if absent;
+    /// idempotent no-op otherwise (existing cell and count kept).
+    pub fn register(self: *SlotTable, allocator: std.mem.Allocator, position: u64, new_cell: Slot) !void {
+        const gop = try self.rows.getOrPut(allocator, position);
+        if (!gop.found_existing) gop.value_ptr.* = .{ .cell = new_cell, .count = 1 };
+    }
+
+    /// Retain one wire reference to `position`: insert at count 1 with
+    /// `cell_if_new`, or increment an already-live row (cell unchanged).
+    pub fn retain(self: *SlotTable, allocator: std.mem.Allocator, position: u64, cell_if_new: Slot) !void {
+        const gop = try self.rows.getOrPut(allocator, position);
         if (gop.found_existing) {
-            gop.value_ptr.* += 1;
+            gop.value_ptr.count += 1;
         } else {
-            gop.value_ptr.* = 1;
+            gop.value_ptr.* = .{ .cell = cell_if_new, .count = 1 };
         }
     }
 
     /// Decrement `position` by `delta`, removing the row at zero. Underflow, or
     /// an unknown position with `delta > 0`, returns `Error.GcUnderflow`.
     pub fn decrement(self: *SlotTable, position: u64, delta: u64) Error!void {
-        const entry = self.counts.getPtr(position) orelse {
+        const entry = self.rows.getPtr(position) orelse {
             if (delta == 0) return;
             return Error.GcUnderflow;
         };
-        if (delta > entry.*) return Error.GcUnderflow;
-        entry.* -= delta;
-        if (entry.* == 0) std.debug.assert(self.counts.remove(position));
+        if (delta > entry.count) return Error.GcUnderflow;
+        entry.count -= delta;
+        if (entry.count == 0) std.debug.assert(self.rows.remove(position));
     }
 };
 
-/// Export refcounts: positions this peer mints for objects it hands out.
+/// Export rows: local-mint CapTP slots + wire-delta counts.
 ///
-/// Exports and imports share `SlotTable`'s wire-delta accounting but obey
-/// different rules, and the two wrapper types below make that difference a
-/// property of the type rather than a convention a caller must remember. An
-/// export position is *locally allocated* (`Session.allocateExport`) and
+/// An export position is *locally allocated* (`Session.allocateExport`) and
 /// monotonic, so its row count is bounded by our own sends; there is nothing a
 /// partner can do to grow it without bound, and `register`/`retain` therefore
 /// take no cap.
@@ -123,6 +136,10 @@ pub const ExportTable = struct {
         return self.slots.count(position.int());
     }
 
+    pub fn slotOf(self: *const ExportTable, position: Id) ?Slot {
+        return self.slots.cell(position.int());
+    }
+
     /// Wire-held references to `position`: the refcount minus the local
     /// baseline every live export row carries. This is the most a partner's
     /// `op:gc-exports` may release — validating inbound GC against `count`
@@ -133,9 +150,25 @@ pub const ExportTable = struct {
         return if (total == 0) 0 else total - 1;
     }
 
-    /// Install `position` live at count 1 if absent; idempotent otherwise.
+    /// Install `position` as a near object (`local_value`) at count 1 if
+    /// absent; idempotent otherwise.
     pub fn register(self: *ExportTable, allocator: std.mem.Allocator, position: Id) !void {
-        return self.slots.register(allocator, position.int());
+        return self.slots.register(allocator, position.int(), .{ .local_value = position.int() });
+    }
+
+    /// Install `position` with an explicit local-mint cell (object or promise).
+    pub fn registerCell(self: *ExportTable, allocator: std.mem.Allocator, position: Id, cell: Slot) !void {
+        std.debug.assert(slot.mintOf(cell) == .local);
+        std.debug.assert(slot.position(cell) == position.int());
+        return self.slots.register(allocator, position.int(), cell);
+    }
+
+    /// Install `position` as a local *promise* (`local_unresolved`) at count 1
+    /// if absent; idempotent otherwise. The promise twin of `register`: a
+    /// resolver export is minted unresolved at allocation, so its slot is
+    /// authoritative before any wire mention projects it (ADR-0080).
+    pub fn registerPromise(self: *ExportTable, allocator: std.mem.Allocator, position: Id) !void {
+        return self.slots.register(allocator, position.int(), .{ .local_unresolved = position.int() });
     }
 
     /// Take one wire reference — or one explicit addressability grant — on a
@@ -145,7 +178,7 @@ pub const ExportTable = struct {
     /// hence the assert.
     pub fn retain(self: *ExportTable, allocator: std.mem.Allocator, position: Id) !void {
         std.debug.assert(self.slots.contains(position.int()));
-        return self.slots.retain(allocator, position.int());
+        return self.slots.retain(allocator, position.int(), .{ .local_value = position.int() });
     }
 
     pub fn decrement(self: *ExportTable, position: Id, delta: u64) Error!void {
@@ -153,7 +186,7 @@ pub const ExportTable = struct {
     }
 };
 
-/// Import refcounts: positions a *partner* introduces for objects it exports.
+/// Import rows: remote-mint CapTP slots + wire-delta counts.
 ///
 /// Unlike an export, an import position is partner-allocated, so a hostile peer
 /// could introduce unboundedly many distinct imports. `retain` therefore takes a
@@ -186,6 +219,10 @@ pub const ImportTable = struct {
         return self.slots.count(position.int());
     }
 
+    pub fn slotOf(self: *const ImportTable, position: Id) ?Slot {
+        return self.slots.cell(position.int());
+    }
+
     /// Wire-held references to `position`. An import carries no local
     /// baseline — every reference is one the wire introduced — so this is
     /// exactly `count`; it exists so GC validation reads one name across
@@ -203,7 +240,7 @@ pub const ImportTable = struct {
         if (!self.slots.contains(position.int()) and self.slots.len() >= max) {
             return error.ImportCapExceeded;
         }
-        return self.slots.retain(allocator, position.int());
+        return self.slots.retain(allocator, position.int(), .{ .remote_value = position.int() });
     }
 
     pub fn decrement(self: *ImportTable, position: Id, delta: u64) SlotTable.Error!void {

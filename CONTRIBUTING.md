@@ -23,7 +23,7 @@ Substantial changes (features, sweeps, architectural moves) also follow
 **In scope:** the CapTP loop; both codecs (Syrup, Cap'n Proto) and the
 codec-dispatch boundary; the session state machine and tables; negotiation and
 feature sets; the caller-owned `Peer` engine; the `net` netlayer contract and
-its residents (tcp, inproc, iroh); the C ABI surface; wire and vocabulary
+its residents (`tcp`, `keyed-tcp`, `inproc`, iroh); the C ABI surface; wire and vocabulary
 decisions.
 
 **Out of scope:** new authority models; `std.Io` in the sync no-I/O core

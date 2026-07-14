@@ -222,61 +222,85 @@ fn readNeutralArgument(bytes: []const u8, cursor: *usize, depth: usize, limit: u
         '[' => .{ .list = neutralArgs(try sliceArgumentListNeutral(bytes, cursor, depth + 1, limit)) },
         '#' => .{ .set = neutralArgs(try sliceSetNeutral(bytes, cursor, depth + 1, limit)) },
         '{' => .{ .@"struct" = neutralStructEntries(try sliceStructNeutral(bytes, cursor, depth + 1, limit)) },
-        '<' => blk: {
-            if (isSignedHandoffEnvelope(bytes, cursor.*)) {
-                break :blk .{ .handoff = try readBorrowedSignedHandoff(bytes, cursor, limit) };
+        '<' => try readNeutralRecord(bytes, cursor, depth, limit),
+        else => Error.UnsupportedArgument,
+    };
+}
+
+/// Decode one Syrup `<label …>` record after seeing `'<'`. Reads the label once,
+/// then dispatches by label length (hot known tags share a bucket) before a
+/// single equality check — no multi-probe `startsWith` cascade over the same
+/// bytes for handoff / reference / ordinary records.
+fn readNeutralRecord(bytes: []const u8, cursor: *usize, depth: usize, limit: usize) Error!model.view.Argument {
+    const record_start = cursor.*;
+    try readByte(bytes, cursor, '<');
+    const tag = try readSymbolLimited(bytes, cursor, limit);
+
+    switch (tag.len) {
+        "kw".len => if (std.mem.eql(u8, tag, "kw")) {
+            const name = try readSymbolLimited(bytes, cursor, limit);
+            try readByte(bytes, cursor, '>');
+            return .{ .keyword = name };
+        },
+        "void".len => if (std.mem.eql(u8, tag, "void")) {
+            try readByte(bytes, cursor, '>');
+            return .{ .void = {} };
+        },
+        "error".len => if (std.mem.eql(u8, tag, "error")) {
+            const message = try readStringLimited(bytes, cursor, limit);
+            try readByte(bytes, cursor, '>');
+            return .{ .@"error" = .{ .message = message } };
+        },
+        // user-record / desc:export / desc:answer share length 11.
+        "desc:export".len => {
+            if (std.mem.eql(u8, tag, "desc:export")) {
+                return .{ .reference = neutralReference(try finishReference(.desc_export, bytes, cursor)) };
             }
-            if (isReferenceRecord(bytes, cursor.*)) {
-                break :blk .{ .reference = neutralReference(try readReference(bytes, cursor, limit)) };
-            }
-            try readByte(bytes, cursor, '<');
-            const tag = try readSymbolLimited(bytes, cursor, limit);
-            if (std.mem.eql(u8, tag, "void")) {
-                try readByte(bytes, cursor, '>');
-                break :blk .{ .void = {} };
-            }
-            if (std.mem.eql(u8, tag, "error")) {
-                const message = try readStringLimited(bytes, cursor, limit);
-                try readByte(bytes, cursor, '>');
-                break :blk .{ .@"error" = .{ .message = message } };
+            if (std.mem.eql(u8, tag, "desc:answer")) {
+                return .{ .reference = neutralReference(try finishReference(.desc_answer, bytes, cursor)) };
             }
             if (std.mem.eql(u8, tag, "user-record")) {
                 const record_tag = try readSymbolLimited(bytes, cursor, limit);
                 const value_body = try sliceArgumentListNeutral(bytes, cursor, depth + 1, limit);
                 try readByte(bytes, cursor, '>');
-                break :blk .{ .tagged = .{ .tag = record_tag, .value = neutralArgs(value_body) } };
+                return .{ .tagged = .{ .tag = record_tag, .value = neutralArgs(value_body) } };
             }
-            if (std.mem.eql(u8, tag, "kw")) {
-                const name = try readSymbolLimited(bytes, cursor, limit);
-                try readByte(bytes, cursor, '>');
-                break :blk .{ .keyword = name };
-            }
-            if (std.mem.eql(u8, tag, "ocapn-sturdyref")) {
-                const peer_locator = try readLocator(bytes, cursor, limit);
-                const swissnum = try readBytesLimited(bytes, cursor, limit);
-                try readByte(bytes, cursor, '>');
-                break :blk .{ .reference = .{ .sturdy = .{
-                    .peer = .{
-                        .transport = peer_locator.transport,
-                        .designator = peer_locator.designator,
-                        .hints = peer_locator.hints,
-                    },
-                    .swissnum = swissnum,
-                } } };
-            }
-            // A record label pancake does not model is a foreign record — a
-            // Goblins exception such as `<exn:fail:mystery>` riding a break
-            // payload — projected as Tagged: the label is the tag, the fields
-            // the value, exactly the shape `engine.events.breakReasonFromPayload`
-            // reads a reason from. Decode-side leniency only (pancake's own
-            // Tagged spells `<user-record …>` on encode); whether a tagged
-            // value is admissible where it lands stays the session's verdict.
-            const fields = try sliceRecordFieldsNeutral(bytes, cursor, depth + 1, limit);
-            try readByte(bytes, cursor, '>');
-            break :blk .{ .tagged = .{ .tag = tag, .value = neutralArgs(fields) } };
         },
-        else => Error.UnsupportedArgument,
-    };
+        "ocapn-sturdyref".len => if (std.mem.eql(u8, tag, "ocapn-sturdyref")) {
+            const peer_locator = try readLocator(bytes, cursor, limit);
+            const swissnum = try readBytesLimited(bytes, cursor, limit);
+            try readByte(bytes, cursor, '>');
+            return .{ .reference = .{ .sturdy = .{
+                .peer = .{
+                    .transport = peer_locator.transport,
+                    .designator = peer_locator.designator,
+                    .hints = peer_locator.hints,
+                },
+                .swissnum = swissnum,
+            } } };
+        },
+        "desc:sig-envelope".len => if (std.mem.eql(u8, tag, "desc:sig-envelope")) {
+            return .{ .handoff = try finishSignedHandoff(bytes, cursor, limit, record_start) };
+        },
+        "desc:import-object".len => if (std.mem.eql(u8, tag, "desc:import-object")) {
+            return .{ .reference = neutralReference(try finishReference(.desc_import_object, bytes, cursor)) };
+        },
+        "desc:import-promise".len => if (std.mem.eql(u8, tag, "desc:import-promise")) {
+            return .{ .reference = neutralReference(try finishReference(.desc_import_promise, bytes, cursor)) };
+        },
+        else => {},
+    }
+
+    // A record label pancake does not model is a foreign record — a
+    // Goblins exception such as `<exn:fail:mystery>` riding a break
+    // payload — projected as Tagged: the label is the tag, the fields
+    // the value, exactly the shape `engine.events.breakReasonFromPayload`
+    // reads a reason from. Decode-side leniency only (pancake's own
+    // Tagged spells `<user-record …>` on encode); whether a tagged
+    // value is admissible where it lands stays the session's verdict.
+    const fields = try sliceRecordFieldsNeutral(bytes, cursor, depth + 1, limit);
+    try readByte(bytes, cursor, '>');
+    return .{ .tagged = .{ .tag = tag, .value = neutralArgs(fields) } };
 }
 
 /// Slice a foreign record's field run: zero or more values up to the closing
@@ -511,19 +535,56 @@ fn decodeBodyAt(bytes: []const u8, cursor: *usize, limit: usize) Error!model.vie
     try readByte(bytes, cursor, '<');
     const op = try readSymbolLimited(bytes, cursor, limit);
 
-    // Dispatch by op symbol over the message-kind tag set. Both the op string
-    // (`shared.messageOp`) and the decoder (`decoderFor`) are exhaustive
-    // switches over `std.meta.Tag(model.Message)`, so a new kind cannot compile
-    // without a wire op *and* a decoder, the silent fall-through that let the
-    // encoder's exhaustive switch drift ahead of the decoder is gone.
-    inline for (std.meta.fields(std.meta.Tag(model.Message))) |field| {
-        const kind: std.meta.Tag(model.Message) = @enumFromInt(field.value);
-        if (std.mem.eql(u8, op, comptime shared.messageOp(kind))) {
-            return decoderFor(kind)(bytes, cursor, limit, message_start);
+    // Length-bucketed dispatch: `op.len` first, then equality only among the
+    // `messageOp` strings that share that length. Exhaustiveness still rides on
+    // `shared.messageOp` and `decoderFor` both switching over
+    // `std.meta.Tag(model.Message)` — a new kind cannot compile without a wire
+    // op *and* a decoder, and this table picks it up automatically.
+    if (messageOpDecoder(op)) |decode| {
+        return decode(bytes, cursor, limit, message_start);
+    }
+    return Error.UnsupportedMessage;
+}
+
+/// Resolve `op` to its decoder by length bucket, then string equality among the
+/// few same-length candidates. Lengths and candidates are derived at comptime
+/// from `shared.messageOp` over every `model.Message` tag.
+fn messageOpDecoder(op: []const u8) ?OpDecoder {
+    const Tag = std.meta.Tag(model.Message);
+    const max_len = comptime blk: {
+        var m: usize = 0;
+        for (std.meta.fields(Tag)) |field| {
+            const kind: Tag = @enumFromInt(field.value);
+            m = @max(m, shared.messageOp(kind).len);
+        }
+        break :blk m;
+    };
+    if (op.len == 0 or op.len > max_len) return null;
+    switch (op.len) {
+        inline 1...max_len => |len| return messageOpDecoderForLen(len, op),
+        else => return null,
+    }
+}
+
+fn messageOpDecoderForLen(comptime len: usize, op: []const u8) ?OpDecoder {
+    const Tag = std.meta.Tag(model.Message);
+    const any_at_len = comptime blk: {
+        for (std.meta.fields(Tag)) |field| {
+            const kind: Tag = @enumFromInt(field.value);
+            if (shared.messageOp(kind).len == len) break :blk true;
+        }
+        break :blk false;
+    };
+    if (!any_at_len) return null;
+
+    inline for (std.meta.fields(Tag)) |field| {
+        const kind: Tag = @enumFromInt(field.value);
+        const wire = comptime shared.messageOp(kind);
+        if (comptime wire.len == len) {
+            if (std.mem.eql(u8, op, wire)) return decoderFor(kind);
         }
     }
-
-    return Error.UnsupportedMessage;
+    return null;
 }
 
 /// One decoder reads one message body from just past its op symbol, advancing
@@ -699,7 +760,13 @@ fn readBorrowedSignedHandoff(bytes: []const u8, cursor: *usize, limit: usize) Er
     try readByte(bytes, cursor, '<');
     const envelope_tag = try readSymbolLimited(bytes, cursor, limit);
     if (!std.mem.eql(u8, envelope_tag, "desc:sig-envelope")) return Error.MalformedFrame;
+    return finishSignedHandoff(bytes, cursor, limit, envelope_start);
+}
 
+/// Finish a `<desc:sig-envelope …>` whose opening `<` and label are already
+/// consumed. `envelope_start` is the byte offset of that opening `<`, so a give's
+/// `raw_signed` span covers the whole signed envelope.
+fn finishSignedHandoff(bytes: []const u8, cursor: *usize, limit: usize, envelope_start: usize) Error!model.view.Handoff {
     try readByte(bytes, cursor, '<');
     const payload_tag = try readSymbolLimited(bytes, cursor, limit);
 
@@ -785,7 +852,7 @@ fn readLengthPrefixed(bytes: []const u8, cursor: *usize, comptime marker: u8, li
     }
     try rejectNonCanonicalDigits(bytes, len_start, cursor.*);
 
-    const len = std.fmt.parseInt(usize, bytes[len_start..cursor.*], 10) catch {
+    const len = parseDecimalDigits(usize, bytes[len_start..cursor.*]) orelse {
         return Error.MalformedFrame;
     };
     cursor.* += 1;
@@ -856,27 +923,38 @@ fn readPositionList(bytes: []const u8, cursor: *usize, limit: usize) Error![]con
 fn readReference(bytes: []const u8, cursor: *usize, limit: usize) Error!ReferenceView {
     try readByte(bytes, cursor, '<');
     const tag = try readSymbolLimited(bytes, cursor, limit);
-    if (std.mem.eql(u8, tag, "desc:export")) {
-        const export_position = try readPositiveInt(bytes, cursor);
-        try readByte(bytes, cursor, '>');
-        return .{ .near = .{ .export_position = model.ExportPosition.from(export_position), .kind = .object } };
-    }
-    if (std.mem.eql(u8, tag, "desc:import-object")) {
-        const import_position = try readPositiveInt(bytes, cursor);
-        try readByte(bytes, cursor, '>');
-        return .{ .far = .{ .import_position = model.ImportPosition.from(import_position), .kind = .object } };
-    }
-    if (std.mem.eql(u8, tag, "desc:import-promise")) {
-        const import_position = try readPositiveInt(bytes, cursor);
-        try readByte(bytes, cursor, '>');
-        return .{ .far = .{ .import_position = model.ImportPosition.from(import_position), .kind = .promise } };
-    }
-    if (std.mem.eql(u8, tag, "desc:answer")) {
-        const answer_position = try readPositiveInt(bytes, cursor);
-        try readByte(bytes, cursor, '>');
-        return .{ .promise = .{ .answer_position = model.AnswerPosition.from(answer_position) } };
-    }
-    return Error.UnsupportedReference;
+    return switch (tag.len) {
+        "desc:export".len => if (std.mem.eql(u8, tag, "desc:export"))
+            finishReference(.desc_export, bytes, cursor)
+        else if (std.mem.eql(u8, tag, "desc:answer"))
+            finishReference(.desc_answer, bytes, cursor)
+        else
+            Error.UnsupportedReference,
+        "desc:import-object".len => if (std.mem.eql(u8, tag, "desc:import-object"))
+            finishReference(.desc_import_object, bytes, cursor)
+        else
+            Error.UnsupportedReference,
+        "desc:import-promise".len => if (std.mem.eql(u8, tag, "desc:import-promise"))
+            finishReference(.desc_import_promise, bytes, cursor)
+        else
+            Error.UnsupportedReference,
+        else => Error.UnsupportedReference,
+    };
+}
+
+const ReferenceWire = enum { desc_export, desc_import_object, desc_import_promise, desc_answer };
+
+/// Finish a desc:* reference record whose opening `<` and label are already
+/// consumed: one positive integer position, then `>`.
+fn finishReference(comptime kind: ReferenceWire, bytes: []const u8, cursor: *usize) Error!ReferenceView {
+    const position = try readPositiveInt(bytes, cursor);
+    try readByte(bytes, cursor, '>');
+    return switch (kind) {
+        .desc_export => .{ .near = .{ .export_position = model.ExportPosition.from(position), .kind = .object } },
+        .desc_import_object => .{ .far = .{ .import_position = model.ImportPosition.from(position), .kind = .object } },
+        .desc_import_promise => .{ .far = .{ .import_position = model.ImportPosition.from(position), .kind = .promise } },
+        .desc_answer => .{ .promise = .{ .answer_position = model.AnswerPosition.from(position) } },
+    };
 }
 
 fn readOptionalReference(bytes: []const u8, cursor: *usize, limit: usize) Error!?ReferenceView {
@@ -1132,20 +1210,78 @@ fn rejectNonCanonicalDigits(bytes: []const u8, start: usize, end: usize) Error!v
     if (end - start > 1 and bytes[start] == '0') return Error.MalformedFrame;
 }
 
-fn readPositiveInt(bytes: []const u8, cursor: *usize) Error!u64 {
+/// Hand-rolled base-10 parse for a digit run already scanned as ASCII `0`-`9`
+/// (and, for length/integer leaves, already refused a leading zero). Overflow
+/// returns `null` — the same verdict `std.fmt.parseInt` gave on these paths —
+/// without the formatter's digit-class / base machinery on every length and int.
+fn parseDecimalDigits(comptime T: type, digits: []const u8) ?T {
+    var value: T = 0;
+    for (digits) |c| {
+        value = std.math.mul(T, value, 10) catch return null;
+        value = std.math.add(T, value, c -% '0') catch return null;
+    }
+    return value;
+}
+
+/// Scan the leading decimal run at `cursor`, advancing past it, and return the
+/// borrowed digit slice. `Incomplete` when the run reaches the end with no
+/// terminator byte to inspect, `MalformedFrame` when it is empty or
+/// non-canonical (a leading zero). The cursor is left on the terminator byte the
+/// caller reads (a `+`/`-` sign, or the `+` a positive integer requires), which
+/// is guaranteed in-bounds by the `Incomplete` check. The shared prologue of
+/// every Syrup integer reader.
+fn scanDigits(bytes: []const u8, cursor: *usize) Error![]const u8 {
     const start = cursor.*;
     while (cursor.* < bytes.len and std.ascii.isDigit(bytes[cursor.*])) {
         cursor.* += 1;
     }
     if (cursor.* >= bytes.len) return Error.Incomplete;
-    if (cursor.* == start or bytes[cursor.*] != '+') {
-        return Error.MalformedFrame;
-    }
+    if (cursor.* == start) return Error.MalformedFrame;
     try rejectNonCanonicalDigits(bytes, start, cursor.*);
+    return bytes[start..cursor.*];
+}
 
-    const value = std.fmt.parseInt(u64, bytes[start..cursor.*], 10) catch {
-        return Error.MalformedFrame;
-    };
+/// Apply the sign terminator at `cursor` to a scanned decimal `digits` run,
+/// consuming the terminator. Returns the signed `i64` value when the magnitude
+/// fits the i64 range — including the `minInt` boundary the
+/// `9223372036854775808-` encoding names — `null` when the magnitude overflows
+/// i64, so the caller decides (reject it, or take the arbitrary-precision arm),
+/// and `MalformedFrame` for `0-` (the spec has exactly one zero, `0+`) and any
+/// non-sign terminator. The shared sign/magnitude tail of `readInteger` and
+/// `readIntegerArgument`.
+fn signedI64FromDigits(digits: []const u8, bytes: []const u8, cursor: *usize) Error!?i64 {
+    // Parse the magnitude as u64, not i64: `writeSignedMagnitude` emits
+    // `minInt(i64)` as the unsigned magnitude 2^63 (`9223372036854775808`), which
+    // does not fit i64, so parsing it as i64 would reject a frame this codec
+    // itself produced. The sign is applied below, handling the minInt boundary so
+    // the full i64 range round-trips and matches the Cap'n Proto codec.
+    const magnitude: ?u64 = parseDecimalDigits(u64, digits);
+    const max_positive: u64 = @intCast(std.math.maxInt(i64));
+    switch (bytes[cursor.*]) {
+        '+' => {
+            cursor.* += 1;
+            if (magnitude) |m| {
+                if (m <= max_positive) return @intCast(m);
+            }
+            return null;
+        },
+        '-' => {
+            cursor.* += 1;
+            if (magnitude) |m| {
+                if (m == 0) return Error.MalformedFrame;
+                if (m == max_positive + 1) return std.math.minInt(i64);
+                if (m <= max_positive) return -@as(i64, @intCast(m));
+            }
+            return null;
+        },
+        else => return Error.MalformedFrame,
+    }
+}
+
+fn readPositiveInt(bytes: []const u8, cursor: *usize) Error!u64 {
+    const digits = try scanDigits(bytes, cursor);
+    if (bytes[cursor.*] != '+') return Error.MalformedFrame;
+    const value = parseDecimalDigits(u64, digits) orelse return Error.MalformedFrame;
     cursor.* += 1;
     return value;
 }
@@ -1158,75 +1294,23 @@ fn readPositiveInt(bytes: []const u8, cursor: *usize) Error!u64 {
 /// integers (export positions, answer positions, list indexes) go through
 /// `readInteger` instead and stay `i64`-only.
 fn readIntegerArgument(bytes: []const u8, cursor: *usize) Error!model.view.Argument {
-    const start = cursor.*;
-    while (cursor.* < bytes.len and std.ascii.isDigit(bytes[cursor.*])) {
-        cursor.* += 1;
+    const digits = try scanDigits(bytes, cursor);
+    // Capture the sign before `signedI64FromDigits` consumes the terminator: an
+    // overflow (null) takes the arbitrary-precision arm, whose sign is that
+    // terminator. A non-sign terminator never returns null — it errors — so the
+    // captured byte is `+` or `-` on every path that reads it.
+    const sign_byte = bytes[cursor.*];
+    if (try signedI64FromDigits(digits, bytes, cursor)) |value| {
+        return .{ .integer = value };
     }
-    if (cursor.* >= bytes.len) return Error.Incomplete;
-    if (cursor.* == start) return Error.MalformedFrame;
-    try rejectNonCanonicalDigits(bytes, start, cursor.*);
-    const digits = bytes[start..cursor.*];
-    // A magnitude past u64 is certainly past i64; the digits are all decimal
-    // here, so the only parse failure is overflow.
-    const magnitude: ?u64 = std.fmt.parseInt(u64, digits, 10) catch null;
-    const max_positive: u64 = @intCast(std.math.maxInt(i64));
-    switch (bytes[cursor.*]) {
-        '+' => {
-            cursor.* += 1;
-            if (magnitude) |m| {
-                if (m <= max_positive) return .{ .integer = @intCast(m) };
-            }
-            return .{ .big_integer = .{ .negative = false, .digits = digits } };
-        },
-        '-' => {
-            cursor.* += 1;
-            if (magnitude) |m| {
-                // The spec has exactly one zero, `0+`; `0-` is not a valid integer.
-                if (m == 0) return Error.MalformedFrame;
-                if (m == max_positive + 1) return .{ .integer = std.math.minInt(i64) };
-                if (m <= max_positive) return .{ .integer = -@as(i64, @intCast(m)) };
-            }
-            return .{ .big_integer = .{ .negative = true, .digits = digits } };
-        },
-        else => return Error.MalformedFrame,
-    }
+    return .{ .big_integer = .{ .negative = sign_byte == '-', .digits = digits } };
 }
 
 fn readInteger(bytes: []const u8, cursor: *usize) Error!i64 {
-    const start = cursor.*;
-    while (cursor.* < bytes.len and std.ascii.isDigit(bytes[cursor.*])) {
-        cursor.* += 1;
-    }
-    if (cursor.* >= bytes.len) return Error.Incomplete;
-    if (cursor.* == start) {
-        return Error.MalformedFrame;
-    }
-    try rejectNonCanonicalDigits(bytes, start, cursor.*);
-    // Parse the magnitude as u64, not i64: `writeSignedMagnitude` emits
-    // `minInt(i64)` as the unsigned magnitude 2^63 (`9223372036854775808`), which
-    // does not fit i64, parsing it as i64 would reject a frame this codec itself
-    // produced. Apply the sign afterwards, handling the minInt boundary so the
-    // full i64 range round-trips and matches the Cap'n Proto codec.
-    const magnitude = std.fmt.parseInt(u64, bytes[start..cursor.*], 10) catch {
-        return Error.MalformedFrame;
-    };
-    const max_positive: u64 = @intCast(std.math.maxInt(i64));
-    switch (bytes[cursor.*]) {
-        '+' => {
-            cursor.* += 1;
-            if (magnitude > max_positive) return Error.MalformedFrame;
-            return @intCast(magnitude);
-        },
-        '-' => {
-            cursor.* += 1;
-            // The spec has exactly one zero, `0+`; `0-` is not a valid integer.
-            if (magnitude == 0) return Error.MalformedFrame;
-            if (magnitude == max_positive + 1) return std.math.minInt(i64);
-            if (magnitude > max_positive) return Error.MalformedFrame;
-            return -@as(i64, @intCast(magnitude));
-        },
-        else => return Error.MalformedFrame,
-    }
+    const digits = try scanDigits(bytes, cursor);
+    // Protocol-position integers are `i64`-only: a magnitude past i64 (null) is a
+    // malformed frame, never the big-integer arm `readIntegerArgument` takes.
+    return (try signedI64FromDigits(digits, bytes, cursor)) orelse Error.MalformedFrame;
 }
 
 fn readBool(bytes: []const u8, cursor: *usize) Error!bool {
@@ -1340,7 +1424,7 @@ fn skipByteStringLike(bytes: []const u8, cursor: *usize, limit: usize) Error!voi
         return Error.MalformedFrame;
     }
     try rejectNonCanonicalDigits(bytes, len_start, cursor.*);
-    const len = std.fmt.parseInt(usize, bytes[len_start..cursor.*], 10) catch {
+    const len = parseDecimalDigits(usize, bytes[len_start..cursor.*]) orelse {
         return Error.MalformedFrame;
     };
     cursor.* += 1;
@@ -1368,17 +1452,6 @@ pub fn expectEnd(bytes: []const u8, cursor: usize) Error!void {
 /// never drift from the tag it counts.
 fn recordPrefix(comptime tag: []const u8) []const u8 {
     return std.fmt.comptimePrint("<{d}'{s}", .{ tag.len, tag });
-}
-
-fn isReferenceRecord(bytes: []const u8, cursor: usize) bool {
-    return std.mem.startsWith(u8, bytes[cursor..], recordPrefix("desc:export")) or
-        std.mem.startsWith(u8, bytes[cursor..], recordPrefix("desc:import-object")) or
-        std.mem.startsWith(u8, bytes[cursor..], recordPrefix("desc:import-promise")) or
-        std.mem.startsWith(u8, bytes[cursor..], recordPrefix("desc:answer"));
-}
-
-fn isSignedHandoffEnvelope(bytes: []const u8, cursor: usize) bool {
-    return std.mem.startsWith(u8, bytes[cursor..], recordPrefix("desc:sig-envelope"));
 }
 
 /// Find the `<desc:sig-envelope <desc:handoff-give …> <sig-val …>>` record inside

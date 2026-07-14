@@ -105,6 +105,8 @@ export interface NetConn {
 /** A bound TCP listener that hands back one `NetConn` per accepted partner. */
 export interface NetListener {
 	readonly port: number;
+	/** This listener's own bound address (kernel view; IPv6 hosts unbracketed). */
+	localAddr(): { hostname: string; port: number };
 	accept(): Promise<NetConn>;
 	close(): void;
 }

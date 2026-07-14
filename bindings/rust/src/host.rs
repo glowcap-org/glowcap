@@ -1,13 +1,16 @@
-//! The CapTP node — pancake's analogue of Goblins' `mycapn`, one per node —
-//! over the byte-fed host archive (`libpancake_driver`, ADR-0072). The
-//! `PancakeHost` owns every decision: the retained identity, the shared gift
-//! registry, routing, transparent three-party redemption, and the gifter
-//! half's origination. What lives here is only what the embedder contract
-//! leaves to the binding: the host handle, the conn-pointer → connection
-//! registry the action drain routes by, the vow table the drain's SETTLE/FAIL
-//! arms settle, the action drain itself, gift-id entropy, and the iroh redeem
-//! posture the dial executor reads. The pump and the dial executor live in
-//! `connection.rs`, which owns the [`Connection`] they act on.
+//! The CapTP [`Host`] — multi-session CapTP product over the byte-fed host archive
+//! (`libpancake_driver`, ADR-0072). It owns `engine.Node` (the sans-io handoff
+//! router). Goblins' `mycapn` is two roles: endpoint ≈ Host, router tables ≈
+//! `engine.Node` — never a single-type equation (ADR-0079). The `PancakeHost`
+//! owns every decision: the retained identity, the shared gift registry,
+//! routing, transparent three-party redemption, and the gifter half's
+//! origination. What lives here is only what the embedder contract leaves to
+//! the binding: the host handle, the conn-pointer → session registry the
+//! action drain routes by, the vow table the drain's SETTLE/FAIL arms settle,
+//! the action-drain kick loop, gift-id entropy, and the iroh redeem posture
+//! the dial executor reads. Action decode + execute (`pop` / `run`) live in
+//! `action.rs`; the pump lives in `pump.rs`; the dial executor lives in
+//! `dial.rs`. [`Session`] lives in `session.rs`.
 //!
 //! Threading model: everything runs on one tokio current-thread `LocalSet`.
 //! Tasks yield only at `.await` and no `pancake_host_*` call contains one, so
@@ -23,17 +26,17 @@ use std::rc::Rc;
 
 use tokio::sync::oneshot;
 
-use crate::connection::{dial_exporter, ConnShared, Reachability};
+use crate::dial::Reachability;
+use crate::session_shared::SessionShared;
 use crate::sys::driver as ffi;
 use crate::trampoline::{
 	ctx_free, inside_turn, outcome_behavior, reclaim_refused_cell, trampoline, ActorCell,
 };
-use crate::{arg_from_sys, sys, Argument, Behavior, Codec, Context, Error, Result};
+use crate::{sys, Argument, Behavior, Codec, Context, Error, Result};
 
-/// Every connection's maximum admissible frame, mirroring the engine's default
-/// session limit; the core's stream delimiter (`pancake_host_conn_feed_bytes`)
-/// enforces it while it scans, so a hostile stream cannot grow an inbox past it.
-const HOST_FRAME_CAP: usize = 1 << 20;
+/// Every connection's maximum admissible frame; mirrors
+/// `PANCAKE_DEFAULT_FRAME_CAP`.
+const HOST_FRAME_CAP: usize = sys::DEFAULT_FRAME_CAP;
 
 /// Cap on stored outcomes whose vow is never awaited, so the store cannot grow
 /// without bound; the oldest un-awaited outcome is evicted at the cap.
@@ -67,8 +70,8 @@ where
 // enclosing verb has unwound. A parked connection release keeps its host alive
 // (the `Rc`) so the release order stays conn-before-host.
 enum PendingRelease {
-	Conn {
-		conn: *mut ffi::PancakeHostConn,
+	Session {
+		conn: *mut ffi::PancakeHostSession,
 		host: Rc<HostShared>,
 	},
 	Host(*mut ffi::PancakeHost),
@@ -79,8 +82,11 @@ thread_local! {
 }
 
 /// Park a connection release that a callback frame refused.
-pub(crate) fn park_conn_release(conn: *mut ffi::PancakeHostConn, host: Rc<HostShared>) {
-	PENDING_RELEASES.with(|list| list.borrow_mut().push(PendingRelease::Conn { conn, host }));
+pub(crate) fn park_session_release(conn: *mut ffi::PancakeHostSession, host: Rc<HostShared>) {
+	PENDING_RELEASES.with(|list| {
+		list.borrow_mut()
+			.push(PendingRelease::Session { conn, host })
+	});
 }
 
 /// Test observability: how many releases are parked on this thread, so a test
@@ -102,8 +108,8 @@ pub(crate) fn drain_pending_releases() {
 			return;
 		};
 		match pending {
-			PendingRelease::Conn { conn, host } => {
-				unsafe { ffi::pancake_host_conn_release(conn) };
+			PendingRelease::Session { conn, host } => {
+				unsafe { ffi::pancake_host_session_release(conn) };
 				drop(host);
 			}
 			PendingRelease::Host(host) => unsafe { ffi::pancake_host_release(host) },
@@ -121,58 +127,33 @@ struct VowRow {
 	waiter: Option<oneshot::Sender<Result<Argument>>>,
 }
 
-// One popped embedder action, every borrowed view lifted to owned Rust values
-// (a SETTLE's `PancakeArgument` included) before the next
-// `pancake_host_next_action` call can free them.
-enum HostAction {
-	Dial {
-		ticket: u64,
-		locator: String,
-		transport: String,
-		designator: String,
-		direct_addresses_hint: String,
-	},
-	Flush {
-		conn: usize,
-	},
-	Close {
-		conn: usize,
-	},
-	NeedGiftId {
-		ticket: u64,
-	},
-	Settle {
-		vow: u64,
-		value: Argument,
-	},
-	Fail {
-		vow: u64,
-		message: String,
-	},
-}
-
-/// The binding half of one CapTP node: the raw `PancakeHost`, the connection
+/// The binding half of one CapTP Host: the raw `PancakeHost`, the CapTP session
 /// registry, the vow table, and the redeem posture, shared behind an `Rc` by
-/// the public [`Node`] and every [`ConnShared`] — which is what mechanically
-/// enforces the header's "release the host always after its connections" (the
-/// host pointer cannot be released while any connection wrapper lives).
+/// the public [`Host`] and every [`SessionShared`] — which is what mechanically
+/// enforces the header's "release the host always after its CapTP sessions" (the
+/// host pointer cannot be released while any session wrapper lives).
 pub(crate) struct HostShared {
 	raw: Cell<*mut ffi::PancakeHost>,
-	// Every live connection by its PancakeHostConn address, so a FLUSH action
-	// routes to the transport that owns the bytes and a dialed exporter stays
-	// reachable for teardown. A connection unregisters at close, which is what
-	// breaks the Rc cycle between host and connection state.
-	connections: RefCell<HashMap<usize, Rc<ConnShared>>>,
+	// Every live CapTP session shell by its PancakeHostSession address, so a FLUSH
+	// action routes to the transport that owns the bytes and a dialed exporter
+	// stays reachable for teardown. A session unregisters at close, which is
+	// what breaks the Rc cycle between host and session state. `action::run`
+	// reads it for FLUSH / CLOSE.
+	pub(crate) sessions: RefCell<HashMap<usize, Rc<SessionShared>>>,
 	// The vow table the drain's SETTLE/FAIL arms settle.
 	vows: RefCell<HashMap<u64, VowRow>>,
 	// FIFO of settled-but-unobserved vow ids, for the eviction cap.
 	unobserved: RefCell<VecDeque<u64>>,
-	// The iroh reachability posture this node uses to redeem a *hint-less*
+	// The iroh reachability posture this host uses to redeem a *hint-less*
 	// handoff give — one whose exporter location names the exporter by node id
 	// alone. Defaults to `Discovery` (n0 relays + DNS/pkarr, the maximal-reach
 	// choice); a relay-policy deployment lowers it. A hinted give always dials
 	// `Direct` and ignores this.
 	redeem_reachability: Cell<Reachability>,
+	/// The 32-byte Ed25519 identity seed this host was minted with — retained
+	/// so a keyed-tcp listener can derive its public designator without a
+	/// second identity (ADR-0075).
+	seed: [u8; 32],
 }
 
 impl HostShared {
@@ -187,6 +168,7 @@ impl HostShared {
 					HOST_FRAME_CAP,
 					1,
 					codec.to_c(),
+					0,
 					&mut raw,
 				)
 			},
@@ -197,16 +179,18 @@ impl HostShared {
 					HOST_FRAME_CAP,
 					1,
 					codec.to_c(),
+					0,
 					&mut raw,
 				)
 			},
 		})?;
 		Ok(Rc::new(HostShared {
 			raw: Cell::new(raw),
-			connections: RefCell::new(HashMap::new()),
+			sessions: RefCell::new(HashMap::new()),
 			vows: RefCell::new(HashMap::new()),
 			unobserved: RefCell::new(VecDeque::new()),
 			redeem_reachability: Cell::new(Reachability::Discovery),
+			seed,
 		}))
 	}
 
@@ -222,9 +206,9 @@ impl HostShared {
 		self.redeem_reachability.get()
 	}
 
-	/// Record the designator this node's dials sign as their own dialable
-	/// address (a node that also listens); `listen`/`listen_iroh` set it to the
-	/// bound address so a partner's crossed-hellos table can recognize this node.
+	/// Record the designator this host's dials sign as their own dialable
+	/// address (a host that also listens); `listen`/`listen_iroh` set it to the
+	/// bound address so a partner's crossed-hellos table can recognize this host.
 	pub(crate) fn set_self_designator(&self, designator: &str) -> Result<()> {
 		check_host(unsafe {
 			ffi::pancake_host_set_self_designator(
@@ -235,27 +219,27 @@ impl HostShared {
 		})
 	}
 
-	// ── Connection registry ────────────────────────────────────────────────────
+	// ── Session registry ────────────────────────────────────────────────────
 
-	/// Track a live connection by its conn address; the `ConnShared`
-	/// constructor calls it.
-	pub(crate) fn register_connection(&self, key: usize, conn: Rc<ConnShared>) {
-		self.connections.borrow_mut().insert(key, conn);
+	/// Track a live CapTP session shell by its PancakeHostSession address; the
+	/// `SessionShared` constructor calls it.
+	pub(crate) fn register_session(&self, key: usize, conn: Rc<SessionShared>) {
+		self.sessions.borrow_mut().insert(key, conn);
 	}
 
-	/// Stop tracking a released connection.
-	pub(crate) fn unregister_connection(&self, key: usize) {
-		self.connections.borrow_mut().remove(&key);
+	/// Stop tracking a released CapTP session shell.
+	pub(crate) fn unregister_session(&self, key: usize) {
+		self.sessions.borrow_mut().remove(&key);
 	}
 
-	/// Close every exporter connection this node dialed for redeems;
-	/// `Connection::close` sweeps them.
+	/// Close every exporter connection this host dialed for redeems;
+	/// `Session::close` sweeps them.
 	pub(crate) fn close_exporters(&self) {
-		let dialed: Vec<Rc<ConnShared>> = self
-			.connections
+		let dialed: Vec<Rc<SessionShared>> = self
+			.sessions
 			.borrow()
 			.values()
-			.filter(|conn| conn.is_node_dialed())
+			.filter(|conn| conn.is_host_dialed())
 			.cloned()
 			.collect();
 		for conn in dialed {
@@ -280,7 +264,7 @@ impl HostShared {
 
 	/// The vow's eventual outcome: the fulfilled wire value, or the typed break
 	/// (`ErrorKind::Broken` carrying the reason — a disconnect's own break
-	/// arrives as `Broken` with "connection closed", the classification the old
+	/// arrives as `Broken` with "session closed", the classification the old
 	/// surface promised, where the TS/Python siblings type it Closed). Settles
 	/// immediately from the recorded state when the outcome already landed.
 	pub(crate) fn await_vow(
@@ -331,8 +315,8 @@ impl HostShared {
 
 	// The drain's settle arms: fire the waiter, or record the outcome for a
 	// late observation (bounded FIFO — an outcome nobody ever awaits is evicted
-	// at the cap).
-	fn settle_vow(&self, vow: u64, outcome: Result<Argument>) {
+	// at the cap). Called from `action::run`'s SETTLE / FAIL arms.
+	pub(crate) fn settle_vow(&self, vow: u64, outcome: Result<Argument>) {
 		{
 			let mut vows = self.vows.borrow_mut();
 			let Some(row) = vows.get_mut(&vow) else {
@@ -378,11 +362,11 @@ impl HostShared {
 	}
 
 	/// Run the action drain to empty, honoring each action. Reentrant on
-	/// purpose, the async spelling of the Racket binding's reentrant node lock:
-	/// the DIAL arm's dial executor establishes a whole new connection *inside*
+	/// purpose, the async spelling of the Racket binding's reentrant host lock:
+	/// the DIAL arm's dial executor establishes a whole new session *inside*
 	/// an action, and that establish must itself drain (its start-session
 	/// FLUSH) — a single-flighted drain would await its own completion there.
-	/// Each action is popped exactly once (`next_action` is synchronous), so
+	/// Each action is popped exactly once (`action::pop` is synchronous), so
 	/// overlapping drains split the queue between them rather than double-
 	/// running anything. A no-op inside a hosted turn: the host refuses the
 	/// driving verbs there, and everything the turn enqueued pumps when the
@@ -393,175 +377,15 @@ impl HostShared {
 		}
 		drain_pending_releases();
 		loop {
-			let Some(action) = self.next_action() else {
+			let Some(action) = crate::action::pop(self) else {
 				return;
 			};
 			// One failing action must not strand the rest of the drain: a FLUSH
-			// to a connection whose socket just died fails here while the actions
-			// behind it belong to other, live connections. The failed connection
+			// to a session whose socket just died fails here while the actions
+			// behind it belong to other, live sessions. The failed session
 			// tears itself down through its own serve loop (a DIAL failure is
 			// reported to the core inside the arm).
-			let _ = self.run_action(action).await;
-		}
-	}
-
-	// Pop the next embedder action, its borrowed views lifted to owned Rust
-	// values — a SETTLE's PancakeArgument whole — before anything else can call
-	// `pancake_host_next_action` (which frees them), and before the drain's
-	// first await. None when the queue is dry.
-	fn next_action(&self) -> Option<HostAction> {
-		let mut raw: ffi::PancakeHostAction = unsafe { core::mem::zeroed() };
-		let rc = unsafe { ffi::pancake_host_next_action(self.raw.get(), &mut raw) };
-		if rc == sys::WOULD_BLOCK {
-			return None;
-		}
-		if rc != sys::OK {
-			// The only non-WOULD_BLOCK refusal the header names is the
-			// callback latch, and the drain never runs inside a callback; a
-			// refusal here is a binding bug, not an empty queue.
-			debug_assert!(false, "pancake_host_next_action refused with rc {rc}");
-			return None;
-		}
-		let view = |ptr: *const u8, len: usize| -> String {
-			if ptr.is_null() || len == 0 {
-				String::new()
-			} else {
-				// The bytes originate in a partner-authored give, so decode
-				// leniently rather than let hostile bytes fault mid-drain.
-				String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(ptr, len) })
-					.into_owned()
-			}
-		};
-		match raw.kind {
-			sys::HOST_ACTION_DIAL => Some(HostAction::Dial {
-				ticket: raw.ticket,
-				locator: view(raw.locator, raw.locator_len),
-				transport: view(raw.transport, raw.transport_len),
-				designator: view(raw.designator, raw.designator_len),
-				direct_addresses_hint: view(
-					raw.direct_addresses_hint,
-					raw.direct_addresses_hint_len,
-				),
-			}),
-			sys::HOST_ACTION_FLUSH => Some(HostAction::Flush {
-				conn: raw.conn as usize,
-			}),
-			sys::HOST_ACTION_CLOSE => Some(HostAction::Close {
-				conn: raw.conn as usize,
-			}),
-			sys::HOST_ACTION_NEED_GIFT_ID => Some(HostAction::NeedGiftId { ticket: raw.ticket }),
-			sys::HOST_ACTION_SETTLE => Some(HostAction::Settle {
-				vow: raw.ticket,
-				value: unsafe { arg_from_sys(&raw.value) },
-			}),
-			sys::HOST_ACTION_FAIL => Some(HostAction::Fail {
-				vow: raw.ticket,
-				message: view(raw.message, raw.message_len),
-			}),
-			kind => unreachable!("unknown host action kind {kind}"),
-		}
-	}
-
-	// The executor is deliberately dumb: every decision was already made in the
-	// core; each arm is pure I/O or marshalling.
-	async fn run_action(self: &Rc<HostShared>, action: HostAction) -> Result<()> {
-		match action {
-			HostAction::Dial {
-				ticket,
-				locator,
-				transport,
-				designator,
-				direct_addresses_hint,
-			} => {
-				// Boxed to break the async recursion cycle: the dial's establish
-				// runs its own reentrant drain (its start-session FLUSH), which
-				// is this very function.
-				let dialed = Box::pin(dial_exporter(
-					&locator,
-					&transport,
-					&designator,
-					&direct_addresses_hint,
-					Rc::clone(self),
-				))
-				.await;
-				match dialed {
-					Ok(conn) => {
-						conn.mark_node_dialed();
-						let raw_conn = conn.raw_conn();
-						// Keep the exporter connection pumped: the withdraw's
-						// resolution — and any later routed traffic — rides it
-						// immediately. The task owns the wrapper so the exporter
-						// lives until its own transport ends.
-						let serving = conn.serve();
-						try_spawn_local(async move {
-							serving.await;
-							drop(conn);
-						});
-						check_host(unsafe {
-							ffi::pancake_host_dialed(self.raw.get(), ticket, raw_conn)
-						})
-					}
-					Err(error) => {
-						// The host turns a failed dial into broken redeems.
-						let reason = error.to_string();
-						check_host(unsafe {
-							ffi::pancake_host_dial_failed(
-								self.raw.get(),
-								ticket,
-								reason.as_ptr(),
-								reason.len(),
-							)
-						})
-					}
-				}
-			}
-			HostAction::Flush { conn } => {
-				let target = self.connections.borrow().get(&conn).cloned();
-				match target {
-					Some(conn) => conn.flush_outbound().await,
-					None => Ok(()),
-				}
-			}
-			HostAction::Close { conn } => {
-				// The host condemned the connection mid-pump (local turn
-				// budget exceeded): write its queued resource_exhausted abort
-				// best-effort, then close the transport and release the conn
-				// shell.
-				let target = self.connections.borrow().get(&conn).cloned();
-				if let Some(conn) = target {
-					let _ = conn.flush_outbound().await;
-					conn.close_transport();
-				}
-				Ok(())
-			}
-			HostAction::NeedGiftId { ticket } => {
-				// Entropy is a host effect, drawn only when a reply actually
-				// becomes a gift. The OS RNG failing is not a recoverable
-				// condition, the same stance the node constructor takes.
-				let mut gift_id = [0u8; 32];
-				getrandom::fill(&mut gift_id).expect("the OS RNG provides gift-id entropy");
-				check_host(unsafe {
-					ffi::pancake_host_provide_gift_id(
-						self.raw.get(),
-						ticket,
-						gift_id.as_ptr(),
-						gift_id.len(),
-					)
-				})
-			}
-			HostAction::Settle { vow, value } => {
-				self.settle_vow(vow, Ok(value));
-				Ok(())
-			}
-			HostAction::Fail { vow, message } => {
-				// Every break — a partner refusal and a disconnect's own break
-				// alike — surfaces as the typed Broken carrying the reason, the
-				// classification the pre-host surface promised its consumers
-				// (the TS/Python siblings type a closing connection's break
-				// Closed instead; the divergence is deliberate, not drift).
-				self.settle_vow(vow, Err(Error::broken(message)));
-				Ok(())
-			}
+			let _ = crate::action::run(self, action).await;
 		}
 	}
 }
@@ -582,61 +406,91 @@ impl Drop for HostShared {
 	}
 }
 
-/// The CapTP node: one identity, one gift registry, one routing and redeem
-/// authority, shared by every connection minted against it. The cross-node
-/// machinery lives in the Zig core behind `libpancake_driver` (ADR-0072); this
-/// is the host-idiom residue over it — the connection registry, the vow table,
-/// the action drain that performs the I/O the host asks for (dial, flush,
-/// settle, entropy), and the iroh redeem posture. Cloning shares the same
-/// node; the native host is released when the last clone (and last connection)
-/// drops.
+/// The CapTP Host: one identity, one gift registry, one routing and redeem
+/// authority, shared by every session minted against it. Owns `engine.Node`
+/// (router half of Goblins mycapn; the Host is the endpoint half — ADR-0079).
+/// The cross-session machinery lives in the Zig core behind `libpancake_driver`
+/// (ADR-0072); this is the host-idiom residue over it — the session registry,
+/// the vow table, the action drain that performs the I/O the host asks for
+/// (dial, flush, settle, entropy), and the iroh redeem posture. Cloning shares
+/// the same Host; the native host is released when the last clone (and last
+/// session) drops.
 #[derive(Clone)]
-pub struct Node {
+pub struct Host {
 	shared: Rc<HostShared>,
 }
 
-impl Node {
-	// A fresh node with a random retained identity, minted at the I/O boundary
+impl Host {
+	// A fresh Host with a random retained identity, minted at the I/O boundary
 	// (the sans-io core never generates entropy). The OS RNG failing is not a
 	// recoverable condition, the same stance the Deno/Python nodes take.
-	pub(crate) fn new_node() -> Node {
-		Node::with_codec(Codec::Syrup)
+	pub(crate) fn new_host() -> Host {
+		Host::with_codec(Codec::Syrup)
 	}
 
-	/// A fresh node whose connections all negotiate in `codec` — the codec is a
-	/// node property, so every connection minted against a shared node speaks
+	/// A fresh Host whose sessions all negotiate in `codec` — the codec is a
+	/// Host property, so every session minted against a shared Host speaks
 	/// the same grammar (`Codec::Syrup` is what [`connect`](crate::connect) and
-	/// [`listen`](crate::listen) mint by default). Pass the node to
-	/// [`Connection::connect_with_node`](crate::Connection::connect_with_node)
-	/// or [`listen_with_node`](crate::listen_with_node).
-	pub fn with_codec(codec: Codec) -> Node {
+	/// [`listen`](crate::listen) mint by default). Pass the Host to
+	/// [`connect`](crate::connect) as `Some(host)` or
+	/// [`listen_with_host`](crate::listen_with_host).
+	pub fn with_codec(codec: Codec) -> Host {
 		let mut seed = [0u8; 32];
-		getrandom::fill(&mut seed).expect("the OS RNG provides a node identity seed");
-		let shared = HostShared::new(seed, codec, None).expect("the allocator provides a node");
-		Node { shared }
+		getrandom::fill(&mut seed).expect("the OS RNG provides a Host identity seed");
+		Host::from_seed_with_codec(seed, codec).expect("the allocator provides a Host")
 	}
 
-	// A node in a caller-supplied allocation scope; the node must be dropped
+	/// A Host whose retained Ed25519 identity is reconstructed from `seed` —
+	/// the restart-stable posture a keyed-tcp listener needs so designator,
+	/// session key, and Host identity stay one value across a rebind
+	/// (ADR-0075). `Codec::Syrup` is the default wire grammar.
+	pub fn from_seed(seed: [u8; 32]) -> Result<Host> {
+		Host::from_seed_with_codec(seed, Codec::Syrup)
+	}
+
+	/// [`from_seed`] with an explicit wire grammar.
+	pub fn from_seed_with_codec(seed: [u8; 32], codec: Codec) -> Result<Host> {
+		Ok(Host {
+			shared: HostShared::new(seed, codec, None)?,
+		})
+	}
+
+	/// The canonical key designator (64 lowercase hex digits) for this host's
+	/// identity seed — what a keyed-tcp locator names as its designator.
+	pub fn designator(&self) -> Result<String> {
+		let mut out = [0u8; 64];
+		check_host(unsafe {
+			ffi::pancake_host_designator_from_seed(
+				self.shared.seed.as_ptr(),
+				self.shared.seed.len(),
+				out.as_mut_ptr(),
+				out.len(),
+			)
+		})?;
+		Ok(String::from_utf8_lossy(&out).into_owned())
+	}
+
+	// A Host in a caller-supplied allocation scope; the Host must be dropped
 	// before the context. Test-only: the allocator dogfood drives it.
 	#[cfg(test)]
-	pub(crate) fn new_in(context: &Context, codec: Codec) -> Result<Node> {
+	pub(crate) fn new_in(context: &Context, codec: Codec) -> Result<Host> {
 		let mut seed = [0u8; 32];
 		getrandom::fill(&mut seed)
 			.map_err(|_| Error::with_detail(sys::ERR_INTERNAL, "no OS entropy".to_string()))?;
-		Ok(Node {
+		Ok(Host {
 			shared: HostShared::new(seed, codec, Some(context))?,
 		})
 	}
 
-	pub(crate) fn from_shared(shared: Rc<HostShared>) -> Node {
-		Node { shared }
+	pub(crate) fn from_shared(shared: Rc<HostShared>) -> Host {
+		Host { shared }
 	}
 
 	pub(crate) fn shared(&self) -> Rc<HostShared> {
 		Rc::clone(&self.shared)
 	}
 
-	/// The iroh reachability posture this node uses to redeem a *hint-less*
+	/// The iroh reachability posture this host uses to redeem a *hint-less*
 	/// handoff give (the exporter named by node id alone, with no direct-address
 	/// hints). Defaults to [`Reachability::Discovery`]; set
 	/// [`Reachability::DiscoveryNoRelay`] to honor a no-relay deployment policy. A
@@ -645,20 +499,20 @@ impl Node {
 		self.shared.redeem_reachability.set(reachability);
 	}
 
-	/// The reachability posture this node uses to redeem a hint-less handoff give.
+	/// The reachability posture this host uses to redeem a hint-less handoff give.
 	pub fn redeem_reachability(&self) -> Reachability {
 		self.shared.redeem_reachability.get()
 	}
 
-	/// Publish `make`'s behavior under `name` on every connection of this node —
+	/// Publish `make`'s behavior under `name` on every session of this Host —
 	/// those open now and any accepted later — so a recipient can fetch it on a
-	/// connection it dialed itself (the exporter half of a three-party handoff,
-	/// ADR-0009). The replay onto future connections is host-internal. `make` is
+	/// session it dialed itself (the exporter half of a three-party handoff,
+	/// ADR-0009). The replay onto future sessions is host-internal. `make` is
 	/// a factory for signature continuity with an actor behavior being a `!Clone`
-	/// `FnMut`; the host publishes the one behavior it mints node-wide.
+	/// `FnMut`; the host publishes the one behavior it mints Host-wide.
 	pub fn publish_giftable(&self, name: &str, make: impl Fn() -> Behavior + 'static) {
-		// A giftable is bound to no single connection: its forwards always go
-		// through the host, and a turn it runs belongs to whichever connection
+		// A giftable is bound to no single session: its forwards always go
+		// through the host, and a turn it runs belongs to whichever session
 		// the deliver arrived on.
 		let mut behavior = make();
 		let cell = Box::into_raw(Box::new(ActorCell {
@@ -677,7 +531,7 @@ impl Node {
 		};
 		if rc != sys::OK {
 			unsafe { reclaim_refused_cell(rc, cell) };
-			// A refused node-wide publish is a programming error at the one call
+			// A refused host-wide publish is a programming error at the one call
 			// site that owns the name; fail loud rather than serve a ghost.
 			panic!(
 				"publish_giftable({name:?}) refused: {}",
@@ -685,5 +539,28 @@ impl Node {
 			);
 		}
 		self.shared.schedule_kick();
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::dial::Reachability;
+
+	// A fresh host redeems a hint-less iroh give under `Discovery` by default —
+	// the behavior-preserving, maximal-reach choice every existing handoff gate
+	// relies on — and the recipient can lower it to a no-relay policy. The setter
+	// is shared across host clones, so a knob set on one handle reaches the
+	// connections that share the host's identity.
+	#[test]
+	fn redeem_reachability_defaults_to_discovery_and_is_settable() {
+		let host = Host::new_host();
+		assert_eq!(host.redeem_reachability(), Reachability::Discovery);
+		host.set_redeem_reachability(Reachability::DiscoveryNoRelay);
+		assert_eq!(host.redeem_reachability(), Reachability::DiscoveryNoRelay);
+		assert_eq!(
+			host.clone().redeem_reachability(),
+			Reachability::DiscoveryNoRelay
+		);
 	}
 }

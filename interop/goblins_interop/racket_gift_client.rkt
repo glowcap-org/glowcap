@@ -90,27 +90,27 @@
   ;; matches the deposit.
   (define gifter (listen HOST 0))
   (define gifter-port (server-port gifter))
-  (define gifter-node (server-node gifter))
+  (define gifter-host (server-host gifter))
   (thread
    (lambda ()
      (let loop ()
        (define conn
          (with-handlers ([(lambda (_) #t) (lambda (_) #f)]) (accept gifter)))
        (when conn
-         (thread (lambda () (with-handlers ([(lambda (_) #t) void]) (conn-serve conn))))
+         (thread (lambda () (with-handlers ([(lambda (_) #t) void]) (session-serve conn))))
          (loop)))))
 
   ;; Dial Bob and fetch his greeter. The fetched ref's home is this gifter↔Bob
   ;; connection, which is what lets pancake re-gift it across to the recipient.
-  (define to-bob (connect (tcp-locator HOST PORT) #:node gifter-node))
-  (define greeter (conn-fetch to-bob GREETER-SWISS))
+  (define to-bob (connect (tcp-locator HOST PORT) #:host gifter-host))
+  (define greeter (session-fetch to-bob GREETER-SWISS))
   (unless (far-ref? greeter) (gift-fail "could not fetch goblins-bob's greeter"))
   (printf "racket-goblins-gift: fetched goblins-bob's greeter\n")
 
-  ;; Publish the introducer node-wide. Returning Bob's greeter (home = the Bob
+  ;; Publish the introducer host-wide. Returning Bob's greeter (home = the Bob
   ;; connection) to the recipient's connection trips the transparent gifter,
   ;; which deposits with Bob and resolves the recipient with a signed give.
-  (node-publish-giftable gifter-node INTRODUCER-SWISS
+  (host-publish-giftable gifter-host INTRODUCER-SWISS
                             (methods [(get-greeter) greeter]))
   (printf "racket-goblins-gift: pancake publishing introducer swiss=~a on ~a:~a\n"
           INTRODUCER-SWISS HOST gifter-port)
@@ -119,7 +119,7 @@
   ;; for the greeter, redeems pancake's give, and calls Bob directly.
   (define-values (carol carol-out carol-in carol-err)
     (subprocess #f #f #f RACKET RECIPIENT-SCRIPT
-                (format "~a:~a" HOST gifter-port) INTRODUCER-SWISS
+                (socket-addr-designator HOST gifter-port) INTRODUCER-SWISS
                 (number->string (+ PORT 1))))
   (track-child! carol)
   (close-output-port carol-in)
@@ -140,7 +140,7 @@
 
   (printf "racket-goblins-gift OK: pancake minted a three-party handoff give that live Goblins redeemed, reaching the exporter directly\n")
 
-  (connection-close! to-bob)
+  (session-close! to-bob)
   (server-close! gifter)
   (kill-children!)
   (exit 0))

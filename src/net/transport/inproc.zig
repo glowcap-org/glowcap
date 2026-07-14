@@ -39,7 +39,6 @@ const model = @import("model");
 const netlayer = @import("../netlayer.zig");
 const connection = @import("../connection.zig");
 const frame_stream = @import("../frame_stream.zig");
-const stream_shim = @import("../stream_shim.zig");
 
 const Io = std.Io;
 
@@ -67,7 +66,7 @@ const AcceptError = netlayer.AcceptError;
 
 /// The transport symbol this resident registers under and signs into
 /// `op:start-session`. Matches the `pancake_inproc_*` C ABI family.
-pub const transport_name = "inproc";
+pub const transport_name = model.transport.inproc;
 
 // ── The byte pipe ────────────────────────────────────────────────────────────
 
@@ -181,72 +180,58 @@ const ChannelSource = struct {
     }
 };
 
-const Shim = stream_shim.Shim(ChannelSource);
-const StreamReader = Shim.Reader;
-const StreamWriter = Shim.Writer;
-
-/// One end of a connection, pinned so the `Connection`'s borrowed reader/writer
-/// interfaces hold a stable address (the vtable recovers the concrete stream from
-/// `&interface` by field offset, exactly as tcp's `TcpStream` does). Closing it
-/// signals EOF to the partner and releases the shared duplex.
-const Endpoint = struct {
-    allocator: std.mem.Allocator,
+/// The owner side of an inproc `Endpoint`: the shared `Duplex` to release and
+/// the write channel to close on teardown. Closing the write side gives the
+/// partner's reader a clean EOF; releasing the duplex drops this end's share of
+/// the pipe pair.
+const InprocContext = struct {
     duplex: *Duplex,
-    reader: StreamReader,
-    writer: StreamWriter,
+    write_chan: *Channel,
 
-    fn create(
-        allocator: std.mem.Allocator,
-        duplex: *Duplex,
-        read_chan: *Channel,
-        write_chan: *Channel,
-        bufs: Buffers,
-    ) std.mem.Allocator.Error!*Endpoint {
-        const self = try allocator.create(Endpoint);
-        self.* = .{
-            .allocator = allocator,
-            .duplex = duplex,
-            .reader = StreamReader.init(.{ .chan = read_chan }, bufs.read),
-            .writer = StreamWriter.init(.{ .chan = write_chan }, bufs.write),
-        };
-        return self;
-    }
-
-    fn intoConnection(self: *Endpoint, io: Io, peer: *engine.Peer) Connection {
-        return Connection.init(io, peer, &self.reader.interface, &self.writer.interface, .{
-            .ctx = self,
-            .close_fn = close,
-            .socket_handle_fn = socketHandle,
-        });
-    }
-
-    fn close(ctx: *anyopaque) void {
-        const self: *Endpoint = @ptrCast(@alignCast(ctx));
-        // Closing our write side gives the partner's reader a clean EOF.
-        self.writer.source.chan.close();
-        const duplex = self.duplex;
-        self.allocator.destroy(self);
-        duplex.release();
-    }
-
-    fn socketHandle(ctx: *anyopaque) ?Io.net.Socket.Handle {
-        _ = ctx;
-        return null; // No fd: this transport multiplexes in process, not via poll.
-    }
-
-    /// Build a peer-less `InprocFrameStream` over this endpoint, the host-driven
-    /// frame boundary the C ABI sits on, where the host owns the peer. The mirror
-    /// of `intoConnection` for the frame-stream path.
-    fn intoFrameStream(self: *Endpoint, io: Io, allocator: std.mem.Allocator, codec_id: model.CodecId, max_frame_bytes: usize) InprocFrameStream {
-        return .{
-            .endpoint = self,
-            .io = io,
-            .codec_id = codec_id,
-            .max_frame_bytes = max_frame_bytes,
-            .allocator = allocator,
-        };
+    pub fn closeStream(self: InprocContext) void {
+        self.write_chan.close();
+        self.duplex.release();
     }
 };
+
+/// One end of a connection, the shared `netlayer.PinnedStream` over an
+/// in-process `ChannelSource` pipe pair (the vtable recovers the concrete
+/// reader/writer from `&interface` by field offset, exactly as tcp's
+/// `TcpStream`). Closing it signals EOF to the partner and releases the shared
+/// duplex.
+const Endpoint = netlayer.PinnedStream(ChannelSource, InprocContext);
+
+/// Pin one endpoint over the duplex's two channels: `read_chan` inbound,
+/// `write_chan` outbound. The context owns the duplex and the write channel the
+/// generic's `close` hook needs.
+fn endpointCreate(
+    allocator: std.mem.Allocator,
+    duplex: *Duplex,
+    read_chan: *Channel,
+    write_chan: *Channel,
+    bufs: Buffers,
+) std.mem.Allocator.Error!*Endpoint {
+    return Endpoint.create(
+        allocator,
+        .{ .chan = read_chan },
+        .{ .chan = write_chan },
+        bufs,
+        .{ .duplex = duplex, .write_chan = write_chan },
+    );
+}
+
+/// Build a peer-less `InprocFrameStream` over `endpoint`, the host-driven frame
+/// boundary the C ABI sits on, where the host owns the peer. The mirror of
+/// `Endpoint.intoConnection` for the frame-stream path.
+fn endpointFrameStream(endpoint: *Endpoint, io: Io, allocator: std.mem.Allocator, codec_id: model.CodecId, max_frame_bytes: usize) InprocFrameStream {
+    return .{
+        .endpoint = endpoint,
+        .io = io,
+        .codec_id = codec_id,
+        .max_frame_bytes = max_frame_bytes,
+        .allocator = allocator,
+    };
+}
 
 /// The in-process sibling of `net.FrameStream`: read or write one whole
 /// frame over an inproc `Endpoint`'s pipes, with the host owning the peer. The
@@ -322,7 +307,7 @@ pub const Network = struct {
         write_buf: []u8,
     ) DialError!InprocFrameStream {
         const dialer = try self.dialEndpoint(designator, .{ .read = read_buf, .write = write_buf });
-        return dialer.intoFrameStream(self.io, self.allocator, codec_id, max_frame_bytes);
+        return endpointFrameStream(dialer, self.io, self.allocator, codec_id, max_frame_bytes);
     }
 
     /// Bind a frame-level listener on `designator`, returning the raw
@@ -368,7 +353,7 @@ pub const Network = struct {
         };
 
         // The dialer writes the dial→listen pipe and reads the listen→dial pipe.
-        const dialer = try Endpoint.create(self.allocator, duplex, &duplex.listen_to_dial, &duplex.dial_to_listen, bufs);
+        const dialer = try endpointCreate(self.allocator, duplex, &duplex.listen_to_dial, &duplex.dial_to_listen, bufs);
         errdefer self.allocator.destroy(dialer);
 
         // Hand the listener the duplex; it builds its own endpoint with its own
@@ -551,7 +536,7 @@ pub const InprocListener = struct {
         // `self` may already be freed by a concurrent `listenerClose`; use only
         // the fields snapshotted under the mutex.
         const ep = acceptEndpoint(accepted.allocator, accepted.duplex, .{ .read = read_buf, .write = write_buf }) catch return error.OutOfMemory;
-        return ep.intoFrameStream(accepted.network.io, allocator, codec_id, max_frame_bytes);
+        return endpointFrameStream(ep, accepted.network.io, allocator, codec_id, max_frame_bytes);
     }
 
     /// Stop accepting and free the listener. The frame-path name for the same
@@ -567,7 +552,7 @@ pub const InprocListener = struct {
 /// On allocation failure the duplex is torn down so the dialer gets EOF. Shared
 /// by the driver-path `accept` and the frame-stream `acceptFrameStream`.
 fn acceptEndpoint(allocator: std.mem.Allocator, duplex: *Duplex, bufs: Buffers) std.mem.Allocator.Error!*Endpoint {
-    return Endpoint.create(allocator, duplex, &duplex.dial_to_listen, &duplex.listen_to_dial, bufs) catch {
+    return endpointCreate(allocator, duplex, &duplex.dial_to_listen, &duplex.listen_to_dial, bufs) catch {
         duplex.dial_to_listen.close();
         duplex.listen_to_dial.close();
         duplex.release();

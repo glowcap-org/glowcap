@@ -52,18 +52,11 @@ pub fn encodeMessage(allocator: std.mem.Allocator, message: model.Message) Encod
 }
 
 fn messageKind(message: model.Message) Kind {
+    // Exhaustive over `model.Message` tags; `Kind` mirrors them via
+    // `assertMirrorsMessageKinds`, so a new arm fails here and in decode's
+    // `bodyProjector` together. Wire ids stay the explicit `Kind` enum values.
     return switch (message) {
-        .deliver => .deliver,
-        .resolve => .resolve,
-        .gc_export => .gc_export,
-        .gc_answer => .gc_answer,
-        .handoff => .handoff,
-        .start_session => .start_session,
-        .abort => .abort,
-        .listen => .listen,
-        .get => .get,
-        .index => .index,
-        .untag => .untag,
+        inline else => |_, tag| @field(Kind, @tagName(tag)),
     };
 }
 

@@ -141,7 +141,7 @@ fn banner(step: u8, msg: []const u8) void {
 /// `tamper` corrupts the signature so the host refuses to attest it, the path
 /// that must surface as a clean broken promise, not a crash or a silent success.
 fn invoke(
-    cv: *driver.ConnectedVat,
+    cv: *driver.BlockingSession,
     affordance: actors.Ref,
     caller: *const identity.Identity,
     request: []const u8,
@@ -310,7 +310,7 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print(
         \\
         \\accountability-on-pancake OK: a capability invocation crossed a real
-        \\OCapN/TCP session between two pancake peers, and the host produced a
+        \\OCapN session on the `tcp` netlayer between two pancake peers, and the host produced a
         \\verifiable Episode attributing the attested caller. pancake hosted the
         \\wire; identity, Episodes, and the transparency log stayed above it.
         \\

@@ -35,7 +35,7 @@ fn fulfilledString(settled: driver.Settled) bool {
 
 /// Grant a tool and return a far reference to it, or fail if the grant did not
 /// return a capability.
-fn grant(conn: *driver.Connection, tools: actors.Ref, verb: []const u8, which: []const u8, arena: std.mem.Allocator) !actors.Ref {
+fn grant(conn: *driver.Session, tools: actors.Ref, verb: []const u8, which: []const u8, arena: std.mem.Allocator) !actors.Ref {
     const settled = try conn.call(tools, .{ .verb = verb, .args = &.{.{ .string = which }} }, arena);
     return switch (settled) {
         .fulfilled => |arg| switch (arg) {
@@ -60,9 +60,10 @@ pub fn main(init: std.process.Init) !void {
     const port = try std.fmt.parseInt(u16, port_str, 10);
 
     var tcp_resident = tcp.Resident{ .io = io };
-    var designator_buf: [64]u8 = undefined;
-    const designator = try std.fmt.bufPrint(&designator_buf, "{s}:{d}", .{ host, port });
-    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.at(designator), .ephemeral, .{ .frame_cap = frame_cap });
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const address = try tcp.parseHostPort(host, port);
+    const loc = tcp.locator(&designator_buf, address);
+    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, loc, .ephemeral, .{ .frame_cap = frame_cap });
     defer conn.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);

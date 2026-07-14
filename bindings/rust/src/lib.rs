@@ -1,15 +1,17 @@
-//! Idiomatic Rust API for pancake — an OCapN/CapTP node you hold as a
-//! [`Connection`].
+//! Idiomatic Rust API for pancake — an OCapN/CapTP [`Host`] whose partners
+//! you hold as a [`Session`].
 //!
 //! The raw C ABI lives in the private `sys` module; nothing in it escapes.
 //! What you use is the application surface every pancake binding speaks —
-//! [`connect`]/[`listen`], a [`Connection`] with `fetch`/`send`/`tell`/
+//! [`connect`]/[`listen`], a [`Session`] with `fetch`/`send`/`tell`/
 //! `spawn`/`publish`, a [`Ref`] capability, real Rust enums for
 //! [`Reference`]/[`Argument`], and `Result` for fallible calls — over the
-//! byte-fed host archive `libpancake_driver` (ADR-0072). The host owns
-//! routing, three-party redemption, and gift origination; this crate moves
-//! bytes and honors the host's action queue. This is the dogfood consumer
-//! `zig build rust-dogfood` runs, so the ergonomic surface stays honest.
+//! byte-fed host archive `libpancake_driver` (ADR-0072). The [`Host`] owns
+//! `engine.Node` (router) and every CapTP decision; Goblins' `mycapn` is two
+//! roles — endpoint ≈ Host, router tables ≈ `engine.Node` (ADR-0079). This
+//! crate moves bytes and honors the host's action queue. This is the dogfood
+//! consumer `zig build rust-dogfood` runs, so the ergonomic surface stays
+//! honest.
 //!
 //! # Composable modules, à la carte
 //!
@@ -27,41 +29,71 @@
 //! | `tcp` | [`tcp`] | `libpancake_net_transport_tcp` | yes |
 //! | `inproc` | [`inproc`] | `libpancake_net_transport_inproc` | yes |
 //! | `iroh` | [`iroh`] | `libpancake_net_transport_iroh` (dynamic) | no |
-//! | `async` | [`Connection`], [`Node`], [`connect`]/[`listen`] | (none — native tokio) | no |
+//! | `async` | [`Session`], [`Host`], [`connect`]/[`listen`] | (none — native tokio) | no |
 //!
 //! `tcp` and `inproc` are on by default. `iroh` is opt-in and implies `async`
 //! (the tokio driver it rides); it needs the companion library built by
 //! `zig build iroh-abi`. The `async` feature adds the tokio-driven
-//! [`Connection`] over native sockets and links no transport archive of its
+//! [`Session`] over native sockets and links no transport archive of its
 //! own, so it composes freely with whichever transport archives are enabled.
 
 mod abi_constants;
+// Reflected ABI constants (`zig build gen-binding-constants`); re-exported
+// through `abi_constants`.
+mod abi_constants_gen;
 
 #[cfg(feature = "async")]
-mod connection;
-// `listen`/`Server` host TCP partners.
+mod session;
 #[cfg(feature = "async")]
-pub use connection::{
-	listen, listen_with_node, AsSendTarget, Caretaker, Connection, Ref, RemotePromise, Server,
-};
+mod session_shared;
+#[cfg(feature = "async")]
+pub use session::Session;
+#[cfg(feature = "async")]
+pub use session_shared::{Caretaker, Ref};
 #[cfg(feature = "async")]
 mod host;
 #[cfg(feature = "async")]
-pub use host::Node;
+pub use host::Host;
 #[cfg(feature = "async")]
 mod trampoline;
+// Byte-fed embedder pump: feed / flush / serve-loop / feed-refusal (crate-private).
+#[cfg(feature = "async")]
+mod pump;
+// Host action decode + execute: pop / run (crate-private).
+#[cfg(feature = "async")]
+mod action;
+// RemotePromise + send-target plumbing (Pass 3a).
+#[cfg(feature = "async")]
+mod promise;
+#[cfg(feature = "async")]
+pub use promise::{AsSendTarget, RemotePromise};
+// Distributed GC (ADR-0063) ImportGuard + drain (Pass 3b).
+#[cfg(feature = "async")]
+mod gc;
+// Dial executor: plan + channel open + connect (Pass 3c).
+#[cfg(feature = "async")]
+mod dial;
+// Server / listen / keyed-tcp host (Pass 3d).
+#[cfg(feature = "async")]
+mod listen;
+#[cfg(feature = "async")]
+pub use listen::{listen, listen_keyed_tcp, listen_with_host, KeyedTcpServer, Server};
+// Generated HostAction kinds + decode (`zig build gen-binding-host-action`).
+#[cfg(feature = "async")]
+mod host_action_gen;
 
 // `connect` is the one dialer over an `ocapn://` locator, with one signature
-// across every build: `connect(uri, reachability)`. A `tcp` locator ignores the
-// reachability (pass `None`); an `iroh` locator requires it. Without the iroh
-// feature the dialer still takes the argument — so an `async` consumer's call
+// across every build: `connect(uri, reachability, host)`. A `tcp` locator ignores the
+// reachability (pass `None`); an `iroh` locator requires it. `host` shares one
+// identity for handoffs on `tcp` / `keyed-tcp`. Without the iroh
+// feature the dialer still takes the reachability argument — so an `async` consumer's call
 // site never changes when iroh is turned on — and an `iroh` locator fails with a
 // rebuild hint instead of dialing. A tcp-only consumer therefore never links the
 // iroh companion library, yet writes the same call as an iroh-enabled one.
 #[cfg(feature = "async")]
-pub use connection::{connect, Reachability};
+pub use dial::{connect, Reachability};
 #[cfg(feature = "iroh")]
-pub use iroh::{listen_iroh, IrohServer};
+pub use iroh::{listen_iroh, listen_iroh_with_seed, IrohServer};
 
 // Every pancake archive keeps its own thread-local last-error slot (ADR-0059);
 // this macro mints each family's checker/reader pair over its archive's extern
@@ -78,7 +110,7 @@ pub mod inproc;
 pub mod tcp;
 
 // The iroh transport (its own optional companion library, ADR-0055): the
-// encrypted-QUIC byte-stream bridge the `Connection` pump carries a session over.
+// encrypted-QUIC byte-stream bridge the `Session` pump carries a session over.
 #[cfg(feature = "iroh")]
 pub mod iroh;
 
@@ -88,15 +120,22 @@ pub mod iroh;
 // the always-linked core too, so they ship in every build, async or not.
 mod uri;
 pub use uri::{
-	encode_peer_locator, format_peer_uri, parse_locator, parse_sturdyref, tcp_locator, Locator,
+	designator_host_port, encode_peer_locator, format_peer_uri, host_port_from_direct_hint,
+	keyed_tcp_locator, parse_locator, parse_sturdyref, socket_addr_designator, tcp_locator,
+	Locator,
+};
+
+/// OCapN transport / hint vocabulary; mirrors `model.transport.*`.
+pub use abi_constants::{
+	HINT_DIRECT_ADDRESSES, TRANSPORT_INPROC, TRANSPORT_IROH, TRANSPORT_KEYED_TCP, TRANSPORT_TCP,
 };
 
 mod sys;
 
 /// An actor behavior: handle a `(verb, args)` call, returning a reply or an
 /// error message (which becomes a broken answer carrying those words). This is
-/// what [`Connection::spawn`]/[`Connection::publish`] host and what a
-/// [`Node::publish_giftable`] factory mints.
+/// what [`Session::spawn`]/[`Session::publish`] host and what a
+/// [`Host::publish_giftable`] factory mints.
 pub type Behavior = Box<dyn FnMut(&str, &[Argument]) -> std::result::Result<Argument, String>>;
 
 /// Which layer of the session refused a frame: the codec (parsing), the session
@@ -123,7 +162,7 @@ impl AbortDomain {
 }
 
 /// The typed cause of a connection's most recent local dispatch failure, the
-/// safe projection of `pancake_host_conn_last_abort`. The flat `PANCAKE_ERR_*`
+/// safe projection of `pancake_host_session_last_abort`. The flat `PANCAKE_ERR_*`
 /// code names the failure family; this names the member: which layer refused,
 /// the projected `op:abort` kind when one applies, and the diagnostic strings.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,6 +219,9 @@ pub enum ErrorKind {
 	Broken,
 	/// A named lookup found nothing (`PANCAKE_ERR_NOT_FOUND`).
 	NotFound,
+	/// A caller-provided output buffer was too small
+	/// (`PANCAKE_ERR_BUFFER_TOO_SMALL`).
+	BufferTooSmall,
 	/// Any other code with no named family (unknown or retired). The raw
 	/// [`code`](Error::code) is preserved.
 	Other(i32),
@@ -220,6 +262,7 @@ impl Error {
 			sys::ERR_UNSUPPORTED_VALUE => ErrorKind::UnsupportedValue,
 			sys::ERR_BROKEN => ErrorKind::Broken,
 			sys::ERR_NOT_FOUND => ErrorKind::NotFound,
+			sys::ERR_BUFFER_TOO_SMALL => ErrorKind::BufferTooSmall,
 			other => ErrorKind::Other(other),
 		}
 	}
@@ -274,7 +317,7 @@ impl Error {
 	}
 
 	/// A broken promise carrying the partner's reason: a `send`/`fetch` the
-	/// remote side refused, distinct from a fault in this node or the transport.
+	/// remote side refused, distinct from a fault in this host or the transport.
 	/// Carries `PANCAKE_ERR_BROKEN` so a caller can tell a refusal apart from a
 	/// real failure by [`kind`](Error::kind) (`ErrorKind::Broken`), with the
 	/// reason on `detail`.
@@ -329,11 +372,11 @@ pub fn abi_version() -> (u32, u32, u32) {
 /// A host-supplied allocation backend for a [`Context`]. Every method must be
 /// thread-safe; the library may call them from any thread that touches a handle
 /// created in the context.
-pub trait HostAllocator: Send + Sync {
+pub trait ContextAllocator: Send + Sync {
 	/// Return a block of at least `size` bytes aligned to `alignment`, or null on
 	/// failure.
 	fn alloc(&self, size: usize, alignment: usize) -> *mut u8;
-	/// Release a block previously returned by [`alloc`](HostAllocator::alloc).
+	/// Release a block previously returned by [`alloc`](ContextAllocator::alloc).
 	///
 	/// # Safety
 	/// `ptr` must have come from this allocator with the same `size`/`alignment`.
@@ -341,7 +384,7 @@ pub trait HostAllocator: Send + Sync {
 }
 
 // A panic must never cross an extern "C" frame (that is undefined behavior),
-// and a `HostAllocator` is user code: a panicking alloc degrades to the null
+// and a `ContextAllocator` is user code: a panicking alloc degrades to the null
 // the C side already handles as out-of-memory, and a panicking free is
 // swallowed (the block leaks, the process survives).
 unsafe extern "C" fn alloc_trampoline(
@@ -350,7 +393,7 @@ unsafe extern "C" fn alloc_trampoline(
 	alignment: usize,
 ) -> *mut core::ffi::c_void {
 	std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-		let allocator = &*(user_data as *const Box<dyn HostAllocator>);
+		let allocator = &*(user_data as *const Box<dyn ContextAllocator>);
 		allocator.alloc(size, alignment) as *mut core::ffi::c_void
 	}))
 	.unwrap_or(core::ptr::null_mut())
@@ -363,7 +406,7 @@ unsafe extern "C" fn free_trampoline(
 	alignment: usize,
 ) {
 	let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-		let allocator = &*(user_data as *const Box<dyn HostAllocator>);
+		let allocator = &*(user_data as *const Box<dyn ContextAllocator>);
 		allocator.free(ptr as *mut u8, size, alignment);
 	}));
 }
@@ -375,7 +418,7 @@ pub struct Context {
 	pub(crate) raw: *mut sys::PancakeContext,
 	// Kept alive (and freed after `pancake_context_release`) for the custom
 	// allocator path; null for the default-allocator context.
-	allocator: *mut Box<dyn HostAllocator>,
+	allocator: *mut Box<dyn ContextAllocator>,
 }
 
 impl Context {
@@ -390,7 +433,7 @@ impl Context {
 	}
 
 	/// A context that routes every allocation through `allocator`.
-	pub fn with_allocator(allocator: Box<dyn HostAllocator>) -> Result<Context> {
+	pub fn with_allocator(allocator: Box<dyn ContextAllocator>) -> Result<Context> {
 		let user_data = Box::into_raw(Box::new(allocator));
 		let c_allocator = sys::PancakeAllocator {
 			alloc: alloc_trampoline,
@@ -424,12 +467,12 @@ impl Drop for Context {
 /// A capability reference.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Reference {
-	/// A local export this node hosts.
+	/// A local export this session hosts.
 	Near {
 		id: u64,
 		promise: bool,
 	},
-	/// A partner-hosted capability this node holds, under a node-unique token
+	/// A partner-hosted capability this host holds, under a node-unique token
 	/// (ADR-0069) — the id the application sees is never a raw wire position.
 	Far {
 		id: u64,
@@ -578,7 +621,7 @@ impl Argument {
 // Native-value conversions so an argument list reads as plain Rust values:
 // `&[42.into(), "hi".into(), (&cap).into()]`. Integers and floats each take a
 // single concrete impl (`i64`, `f64`) so a bare literal still infers, `5.into()`
-// is unambiguous. `Ref` already converts in `connection.rs`.
+// is unambiguous. `Ref` already converts in `session.rs`.
 impl From<i64> for Argument {
 	fn from(v: i64) -> Argument {
 		Argument::Integer(v)
@@ -809,7 +852,7 @@ pub(crate) unsafe fn args_from_sys(ptr: *const sys::PancakeArgument, len: usize)
 	(0..len).map(|i| arg_from_sys(&*ptr.add(i))).collect()
 }
 
-/// The wire codec a node's sessions speak and a TCP endpoint frames with. Both
+/// The wire codec a host's sessions speak and a TCP endpoint frames with. Both
 /// ends of a connection must use the same value.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Codec {
@@ -846,6 +889,10 @@ mod tests {
 		assert_eq!(
 			Error::from_code(sys::ERR_UNSUPPORTED_VALUE).kind(),
 			ErrorKind::UnsupportedValue
+		);
+		assert_eq!(
+			Error::from_code(sys::ERR_BUFFER_TOO_SMALL).kind(),
+			ErrorKind::BufferTooSmall
 		);
 		// A code outside every known family falls through to Other, carrying the
 		// raw value so a consumer can still read it.

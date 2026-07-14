@@ -1,5 +1,6 @@
 //! Live iroh scale proof: many concurrent connections served from one thread
-//! (ADR-0057).
+//! through `iroh.Backend` + `driver.Bridge` + `driver.core.Host` (ADR-0057,
+//! ADR-0076).
 //!
 //! The blocking iroh resident serves one connection per OS thread — one
 //! `accept`, one `conn_read`, one `conn_write` parked per partner. That is the
@@ -8,20 +9,13 @@
 //! `bench-peer-scaling` report targets.
 //!
 //! This gate proves the event-driven scale path instead. One server endpoint
-//! runs an `iroh.LoopHost`: it registers the sidecar's single readiness fd once,
-//! drains the ready-queue on each wake, and drives non-blocking frame I/O on
-//! every connection's `engine.Peer` from that one thread. Many clients dial it
-//! at once, each over its own iroh endpoint, fetch the published greeter, and
-//! call it several times. Every call's reply must come back correct — so the one
-//! loop thread is provably multiplexing all the connections at once, not serving
-//! them one at a time.
-//!
-//! It exercises the whole superset live: the readiness fd firing, the drained
-//! `(conn, events)` records, non-blocking accept (`try_accept`), the
-//! `set_nonblocking` transition, and `try_read` / `try_write` with their
-//! `WOULD_BLOCK` re-arming. The teardown is non-blocking by construction — no
-//! parked read races a release — which is the robustness the blocking demo path
-//! lacked.
+//! feeds `completion.Loop(iroh.Backend, iroh.DialResolver)` through `driver.Bridge` into a full
+//! multi-connection `driver.core.Host`: readiness fd, ready-queue drain,
+//! non-blocking accept/read/write, adoption, keyed handshake, and per-event
+//! serving on one thread. Many clients dial it at once, each over its own iroh
+//! endpoint, fetch the published greeter, and call it several times. Every
+//! call's reply must come back correct — so the one loop thread is provably
+//! multiplexing all the connections at once, not serving them one at a time.
 //!
 //! Not part of the hermetic `zig build check`: it links the Rust sidecar
 //! staticlib, so it runs as the sibling step `zig build iroh-loop`.
@@ -45,6 +39,9 @@ const num_conns: usize = 16;
 /// the proof is sustained multiplexing, not a single round trip.
 const calls_per_conn: usize = 4;
 
+const IrohLoop = net.completion.Loop(iroh.Backend, iroh.DialResolver);
+const IrohBridge = driver.Bridge(IrohLoop);
+
 /// The published actor: answers `greet` with a static greeting. A fresh instance
 /// is published per connection by `publishGreeter`.
 const Greeter = struct {
@@ -56,17 +53,14 @@ const Greeter = struct {
     }
 };
 
-/// Per-connection setup the loop host calls on accept: publish this connection's
-/// greeter on its own vat.
 fn publishGreeter(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
     _ = ctx;
     _ = try served.publish("greeter", Greeter, .{});
 }
 
-/// Run the loop host until every connection has closed (or `requestStop` fires).
-fn serveLoop(host: *iroh.LoopHost) void {
-    host.run(.{ .after_closed = num_conns }) catch |err| {
-        std.debug.print("iroh-loop: host loop error: {s}\n", .{@errorName(err)});
+fn runLoop(loop: *IrohLoop, until_closed: usize, out_err: *?anyerror) void {
+    loop.run(.{ .after_closed = until_closed }) catch |err| {
+        out_err.* = err;
     };
 }
 
@@ -117,10 +111,10 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    // Seed the endpoint and hand the loop host the matching secret, so every
-    // accepted session signs with the endpoint's own key: iroh is a
-    // key-designator transport, and each dialing client pins the session
-    // identity to the node id it dialed.
+    // Seed the endpoint and the Host with the same secret so every accepted
+    // session signs with the endpoint's own key: iroh is a key-designator
+    // transport, and each dialing client pins the session identity to the
+    // node id it dialed.
     const server_seed: [32]u8 = @splat(0x47);
     var server = iroh.Resident.init(io, &server_seed, .local_discovery) catch |err| {
         std.debug.print("iroh-loop: server endpoint bind failed: {s}\n", .{@errorName(err)});
@@ -132,15 +126,31 @@ pub fn main(init: std.process.Init) !void {
     const server_id = server.nodeId(&id_buf);
     std.debug.print("iroh-loop: server endpoint id {s}\n", .{server_id});
 
-    var host = try iroh.LoopHost.init(allocator, io, &server, publishGreeter, null, .{
+    var host = driver.core.Host.init(allocator, server_seed, .{
         .frame_cap = frame_cap,
-        .max_conns = 64,
-        .verify_partner = true,
-        .secret = pancake.foundation.crypto.SecretKey.fromSeed(server_seed),
+        .local_turn_budget = actors.Vat.max_batch_local_turns,
     });
     defer host.deinit();
+    var loop: IrohLoop = undefined;
+    var bridge = IrohBridge.init(allocator, &host, io, &loop, .{ .publish = publishGreeter });
+    defer bridge.deinit();
 
-    var loop_future = try io.concurrent(serveLoop, .{&host});
+    const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
+    const backend = try iroh.Backend.initBound(allocator, &server, 256, 256, read_buffer_bytes);
+    loop = try IrohLoop.initWithBackend(allocator, backend, IrohBridge.makePeer, @ptrCast(&bridge), .{
+        .frame_cap = frame_cap,
+        .max_conns = 64,
+        .listen = 0,
+        .make_conn_ctx = IrohBridge.makeConnCtx,
+        .serve = IrohBridge.serve,
+        .free_conn_ctx = IrohBridge.freeConnCtx,
+        .on_close = IrohBridge.onClose,
+    });
+    defer loop.deinit();
+    try bridge.attach(iroh.transport_name, server_id, &.{});
+
+    var loop_err: ?anyerror = null;
+    var loop_future = try io.concurrent(runLoop, .{ &loop, num_conns, &loop_err });
 
     var futures: [num_conns]@TypeOf(io.concurrent(clientOnce, .{ io, allocator, server_id }) catch unreachable) = undefined;
     var started: usize = 0;
@@ -156,13 +166,12 @@ pub fn main(init: std.process.Init) !void {
         }
     }
 
-    host.requestStop();
     loop_future.await(io);
-
+    if (loop_err) |err| return err;
     if (first_err) |err| return err;
 
     std.debug.print(
-        "iroh-loop: OK, {d} concurrent iroh connections, {d} calls each, served from one loop thread over the readiness fd + ready-queue + non-blocking frame I/O\n",
+        "iroh-loop: OK, {d} concurrent iroh connections, {d} calls each, served from one loop thread over Backend + Bridge + Host\n",
         .{ num_conns, calls_per_conn },
     );
 }

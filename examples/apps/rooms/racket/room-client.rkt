@@ -14,7 +14,7 @@
 ;;   (room-leave room)
 ;;
 ;; The Goblins verbs (`spawn`, `<-`, `on`, `methods`) work as they do in
-;; Goblins; `connect`, `conn-fetch`, and `conn-send` do the peer/vat/import
+;; Goblins; `connect`, `session-fetch`, and `session-send` do the peer/vat/import
 ;; plumbing. `dir-open` and `dir-enter` mirror the wire one-to-one and stay
 ;; strict; the friendly "enter, opening it if new" behavior is a CLI convenience
 ;; and lives in `client.rkt`. The room name is the directory's lookup key; the
@@ -29,21 +29,21 @@
 
 ;; Dial a transport-neutral rooms locator: an `ocapn://` URI goes over iroh, a
 ;; bare `host:port` over TCP. The room's wire is identical either way; only how a
-;; member reaches it differs.
+;; member reaches it differs. A URI carrying direct-addresses dials those directly
+;; (relay-less Direct); a node-id-only URI resolves the peer through discovery.
 (define (dial locator)
   (cond
-    ;; Rooms URIs carry direct-addresses, so dial with the explicit Direct
-    ;; posture, reachability is required, never defaulted.
-    [(string-contains? locator "://") (connect locator IROH-REACH-DIRECT)]
+    [(string-contains? locator "://")
+     (define loc (parse-locator locator))
+     (unless (string=? (locator-transport loc) TRANSPORT-IROH)
+       (error 'dial (format "rooms expected an iroh ocapn:// URI, got \"~a\": ~a"
+                            (locator-transport loc) locator)))
+     (define hints (hash-ref (locator-hints loc) HINT-DIRECT-ADDRESSES ""))
+     (define reach (if (> (string-length hints) 0) IROH-REACH-DIRECT IROH-REACH-DISCOVERY))
+     (connect locator reach)]
     [else
-     (define colon (let loop ([i (- (string-length locator) 1)])
-                     (cond [(< i 0) #f]
-                           [(char=? (string-ref locator i) #\:) i]
-                           [else (loop (- i 1))])))
-     (unless colon
-       (error 'room-connect "rooms locator is neither host:port nor an ocapn:// URI: ~a" locator))
-     (connect (tcp-locator (substring locator 0 colon)
-                           (string->number (substring locator (+ colon 1)))))]))
+     (define-values (host port) (designator-host-port locator))
+     (connect (tcp-locator host port))]))
 
 ;; One line in the room. `system?` is #t for the room's own announcements (a
 ;; member joining, your welcome); otherwise `sender` is who said it. `presence` is
@@ -114,26 +114,26 @@
 
 ;; The directory of rooms: the connection plus the directory's far reference.
 ;; `room-connect` dials and fetches it; `dir-open` / `dir-enter` send it the
-;; strict verbs. `conn-send` is synchronous: it returns the room reference or
+;; strict verbs. `session-send` is synchronous: it returns the room reference or
 ;; raises a broken-vow exception whose message carries the reason.
 (struct directory (conn far))
 
 (define (room-connect locator)
   (define c (dial locator))
-  (directory c (conn-fetch c "directory")))
+  (directory c (session-fetch c "directory")))
 
 ;; Create a new room and return its reference. Raises if the name is taken.
 (define (dir-open d name)
-  (conn-send (directory-conn d) (directory-far d) 'open name))
+  (session-send (directory-conn d) (directory-far d) 'open name))
 
 ;; Return an existing room's reference. Raises if there is no such room.
 (define (dir-enter d name)
-  (conn-send (directory-conn d) (directory-far d) 'enter name))
+  (session-send (directory-conn d) (directory-far d) 'enter name))
 
 ;; The live rooms — the ones with people in them — as a list of `(name count)`
 ;; pairs. `list` and `watch` send the directory a list of `[name count]` pairs.
 (define (dir-list d)
-  (conn-send (directory-conn d) (directory-far d) 'list))
+  (session-send (directory-conn d) (directory-far d) 'list))
 
 ;; Follow the live room list: spawn an observer the directory calls back with
 ;; each change, register it, and return the current snapshot as a baseline.
@@ -142,17 +142,17 @@
 (define (dir-watch d on-event)
   (define c (directory-conn d))
   (define observer
-    (conn-spawn c
+    (session-spawn c
       (lambda (bcom)
         (methods
          [(notify kind name count)
           (on-event kind name count)
           (void)]))))
-  (conn-send c (directory-far d) 'watch observer))
+  (session-send c (directory-far d) 'watch observer))
 
 ;; Subscribe to a room you already hold a reference to, on an open connection:
 ;; spawn an inbox actor the room can call back, hand it over, and start a
-;; background `conn-serve` thread that keeps the connection pumped — the room's
+;; background `session-serve` thread that keeps the connection pumped — the room's
 ;; notifies run the inbox actor inside that serve, which enqueues each line
 ;; onto the room's channel for `room-next` to read.
 (define (room-subscribe c the-room nick)
@@ -162,7 +162,7 @@
   ;; variadic — a system line appends structured presence args after its text — so
   ;; this dispatches by hand rather than through the fixed-arity `methods` sugar.
   (define inbox
-    (conn-spawn c
+    (session-spawn c
       (lambda (bcom)
         (lambda (method . args)
           (unless (eq? method 'notify) (error 'inbox "object has no method: ~a" method))
@@ -173,12 +173,12 @@
           (void)))))
   ;; Subscribe, handing the room our inbox. Success is the resolution; the room
   ;; delivers the welcome and roster as our first `notify`, not as a return value.
-  (conn-send c the-room 'subscribe nick inbox)
+  (session-send c the-room 'subscribe nick inbox)
   ;; Serve until the room hangs up, then mark the end of the line stream.
   (set-room-serve! a-room
                    (thread (lambda ()
                              (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-                               (conn-serve c))
+                               (session-serve c))
                              (mailbox-put! queue eof))))
   a-room)
 
@@ -186,12 +186,12 @@
 ;; flush puts this thread's post on the wire now.
 (define (room-say a-room text)
   (define c (room-conn a-room))
-  (conn-tell c (room-far a-room) 'post text)
-  (conn-flush! c))
+  (session-tell c (room-far a-room) 'post text)
+  (session-flush! c))
 
 ;; Leave the room and close the connection; the serve thread ends with it.
 (define (room-leave a-room)
-  (connection-close! (room-conn a-room))
+  (session-close! (room-conn a-room))
   (define t (room-serve a-room))
   (when t (sync/timeout 1 (thread-dead-evt t))))
 

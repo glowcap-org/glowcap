@@ -10,7 +10,7 @@ The Python binding loads the installed shared pancake archives through `ctypes`
 and mirrors the à-la-carte archive set. The core
 [`bindings/python/pancake`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/python/pancake)
 package (over `libpancake_ocapn` plus the byte-fed host archive
-`libpancake_driver`) presents the `Connection` and `Node` surface. One
+`libpancake_driver`) presents the `Session` and `Host` surface. One
 submodule per transport (`pancake.tcp`, `pancake.inproc`, and the lazy
 `pancake.iroh`) loads only its own archive. The raw `ctypes` layer is the
 package's `_`-private per-archive `_ffi_ocapn` / `_ffi_driver` / `_ffi_tcp` /
@@ -70,11 +70,11 @@ not browse for peers.
 ## Async
 
 The async surface is [`asyncio`](https://docs.python.org/3/library/asyncio.html).
-The quick-start's `Connection` is the surface you hold: `await conn.send(ref,
+The quick-start's `Session` is the surface you hold: `await conn.send(ref,
 verb, args)` awaits a result there, and `conn.serve()` runs the inbound loop
 as a task that completes on close. Beneath it, the serve loop reads raw bytes
 off an asyncio stream and hands them to the library's stream delimiter
-(`pancake_host_conn_feed_bytes`), which owns framing; the host's action queue
+(`pancake_host_session_feed_bytes`), which owns framing; the host's action queue
 carries every settlement back. Everything runs on one event loop, so the host
 calls never block it; only the socket awaits.
 

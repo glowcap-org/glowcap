@@ -324,6 +324,18 @@ fn neutralArgument(reader: Reader, loc: StructLoc) Error!model.view.Argument {
         .list => .{ .list = try neutralArgsBacking(reader, loc, 0) },
         .void => .{ .void = {} },
         .float64 => .{ .float64 = @bitCast(try reader.dataWord(loc, 1)) },
+        // Unlike the struct arm below, decode does not enforce a set's canonical
+        // order or uniqueness here. The struct check is one cheap compare of
+        // adjacent raw key bytes; a set's members are whole `Argument`s, so the
+        // equivalent would eagerly encode each element just to compare — the
+        // work the lazy backing exists to defer. Uniqueness is instead held one
+        // layer up: `session.validate.checkInboundSetUniqueness` folds over the
+        // full inbound argument tree (every deliver arg and resolve-fulfill
+        // value, nested through list/set/tagged/struct), so a duplicate-element
+        // set is refused there. Order needs no check: a set is unordered, this
+        // codec re-canonicalizes on encode (`canonicalSetOrder`), and set
+        // equality is order-independent, so a non-canonically-ordered set is a
+        // harmless spelling, not a distinct value.
         .set => .{ .set = try neutralArgsBacking(reader, loc, 0) },
         .tagged => blk: {
             const tagged_loc = (try reader.followStruct(loc, 0)) orelse return Error.MalformedFrame;
@@ -566,39 +578,48 @@ fn chargeStructField(reader: Reader, loc: StructLoc, i: u16, depth: usize) Error
 /// Walk the whole logical tree once against the metered `reader`, spending its
 /// per-frame budget so an aliasing DAG is refused before any borrowed view
 /// escapes. Mirrors `projectBody`; the non-recursive arms delegate to it so
-/// their leaf reads are charged and validated identically.
+/// their leaf reads are charged and validated identically. Dispatch is
+/// exhaustive over `Kind` (the Cap'n Proto wire ids in `shared.zig`).
 fn chargeBody(reader: Reader, kind: Kind, body: StructLoc, depth: usize) Error!void {
     switch (kind) {
-        .deliver => {
-            const target = (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame;
-            try chargeReference(reader, target, depth);
-            try chargeArgsField(reader, body, 1, depth);
-            const flags = try reader.dataWord(body, 0);
-            if (flags & shared.deliver_has_resolve_me != 0) {
-                if (try reader.followStruct(body, 2)) |ref_loc| try chargeReference(reader, ref_loc, depth);
-            }
-        },
-        .resolve => {
-            const res_loc = (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame;
-            const disc = try enumFromWire(ResolutionKind, try reader.dataWord(res_loc, 0));
-            const arm = (try reader.followStruct(res_loc, 0)) orelse return Error.MalformedFrame;
-            switch (disc) {
-                .fulfill => try chargeArgument(reader, arm, depth),
-                .@"break" => _ = try neutralErrorView(reader, arm),
-            }
-        },
-        .listen => {
-            try chargeReference(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame, depth);
-            try chargeReference(reader, (try reader.followStruct(body, 1)) orelse return Error.MalformedFrame, depth);
-        },
-        .get, .index, .untag => {
-            try chargeReference(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame, depth);
-        },
+        .deliver => try chargeDeliverBody(reader, body, depth),
+        .resolve => try chargeResolveBody(reader, body, depth),
+        .listen => try chargeListenBody(reader, body, depth),
+        .get, .index, .untag => try chargeReceiverBody(reader, body, depth),
         // No composite-list amplification vector: their reads are O(1) or
         // bounded by the segment length checks. Delegate to `projectBody` so the
         // metered reader still charges and validates every leaf read.
         .gc_export, .gc_answer, .abort, .start_session, .handoff => _ = try projectBody(reader, kind, body),
     }
+}
+
+fn chargeDeliverBody(reader: Reader, body: StructLoc, depth: usize) Error!void {
+    const target = (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame;
+    try chargeReference(reader, target, depth);
+    try chargeArgsField(reader, body, 1, depth);
+    const flags = try reader.dataWord(body, 0);
+    if (flags & shared.deliver_has_resolve_me != 0) {
+        if (try reader.followStruct(body, 2)) |ref_loc| try chargeReference(reader, ref_loc, depth);
+    }
+}
+
+fn chargeResolveBody(reader: Reader, body: StructLoc, depth: usize) Error!void {
+    const res_loc = (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame;
+    const disc = try enumFromWire(ResolutionKind, try reader.dataWord(res_loc, 0));
+    const arm = (try reader.followStruct(res_loc, 0)) orelse return Error.MalformedFrame;
+    switch (disc) {
+        .fulfill => try chargeArgument(reader, arm, depth),
+        .@"break" => _ = try neutralErrorView(reader, arm),
+    }
+}
+
+fn chargeListenBody(reader: Reader, body: StructLoc, depth: usize) Error!void {
+    try chargeReference(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame, depth);
+    try chargeReference(reader, (try reader.followStruct(body, 1)) orelse return Error.MalformedFrame, depth);
+}
+
+fn chargeReceiverBody(reader: Reader, body: StructLoc, depth: usize) Error!void {
+    try chargeReference(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame, depth);
 }
 
 /// The one neutral body walk, shared by `decodeBody` and `MessageView.toOwned`
@@ -612,58 +633,112 @@ fn neutralBody(view: MessageView) Error!model.view.Body {
     return projectBody(view.reader, view.kind, view.body);
 }
 
+/// One body projector per Cap'n Proto `Kind` wire id — the same comptime table
+/// shape Syrup uses with `decoderFor` / `messageOp`. `Kind`'s explicit `enum(u16)`
+/// values in `shared.zig` are the stable wire discriminants; `inline else` plus
+/// `bodyProjector` make a new arm a compile error in both places at once.
+const BodyProjector = *const fn (reader: Reader, body: StructLoc) Error!model.view.Body;
+
+fn bodyProjector(comptime kind: Kind) BodyProjector {
+    return switch (kind) {
+        .deliver => projectDeliverBody,
+        .resolve => projectResolveBody,
+        .gc_export => projectGcExportBody,
+        .gc_answer => projectGcAnswerBody,
+        .abort => projectAbortBody,
+        .listen => projectListenBody,
+        .get => projectGetBody,
+        .index => projectIndexBody,
+        .untag => projectUntagBody,
+        .start_session => projectStartSessionBody,
+        .handoff => projectHandoffBody,
+    };
+}
+
 /// Project the borrowed body arm-for-arm. Lazy: composite sequences become
 /// backings walked on demand. `neutralBody` runs `chargeBody` first, so this
 /// only runs on a frame already proven to fit the traversal budget.
 fn projectBody(reader: Reader, kind: Kind, body: StructLoc) Error!model.view.Body {
     return switch (kind) {
-        .deliver => blk: {
-            const flags = try reader.dataWord(body, 0);
-            var resolve_me: ?model.view.Reference = null;
-            if (flags & shared.deliver_has_resolve_me != 0) {
-                if (try reader.followStruct(body, 2)) |ref_loc| resolve_me = try neutralReferenceView(reader, ref_loc);
-            }
-            break :blk .{ .deliver = .{
-                .target = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
-                .args = try neutralArgsBacking(reader, body, 1),
-                .answer = if (flags & shared.deliver_has_answer != 0) model.AnswerPosition.from(try reader.dataWord(body, 1)) else null,
-                .resolve_me_desc = resolve_me,
-            } };
-        },
-        .resolve => .{ .resolve = .{
-            .answer = model.AnswerPosition.from(try reader.dataWord(body, 0)),
-            .resolution = try neutralResolution(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
-        } },
-        .gc_export => .{ .gc_export = .{
-            .positions = try neutralPositionsBacking(reader, body, 0),
-            .deltas = try neutralPositionsBacking(reader, body, 1),
-        } },
-        .gc_answer => .{ .gc_answer = .{ .positions = try neutralPositionsBacking(reader, body, 0) } },
-        .abort => .{ .abort = .{
-            .kind = try enumFromWire(model.AbortKind, try reader.dataWord(body, 0)),
-            .message = try borrowedData(reader, body, 0),
-        } },
-        .listen => .{ .listen = .{
-            .target = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
-            .listener = try neutralReferenceView(reader, (try reader.followStruct(body, 1)) orelse return Error.MalformedFrame),
-            .wants_partial = (try reader.dataWord(body, 0)) & 1 != 0,
-        } },
-        .get => .{ .get = .{
-            .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
-            .field = try borrowedData(reader, body, 1),
-            .answer = model.AnswerPosition.from(try reader.dataWord(body, 0)),
-        } },
-        .index => .{ .index = .{
-            .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
-            .index = @bitCast(try reader.dataWord(body, 0)),
-            .answer = model.AnswerPosition.from(try reader.dataWord(body, 1)),
-        } },
-        .untag => .{ .untag = .{
-            .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
-            .tag = try borrowedData(reader, body, 1),
-            .answer = model.AnswerPosition.from(try reader.dataWord(body, 0)),
-        } },
-        .start_session => .{ .start_session = try neutralStartSession(reader, body) },
-        .handoff => .{ .handoff = try neutralHandoffFromStruct(reader, body) },
+        inline else => |k| bodyProjector(k)(reader, body),
     };
+}
+
+fn projectDeliverBody(reader: Reader, body: StructLoc) Error!model.view.Body {
+    const flags = try reader.dataWord(body, 0);
+    var resolve_me: ?model.view.Reference = null;
+    if (flags & shared.deliver_has_resolve_me != 0) {
+        if (try reader.followStruct(body, 2)) |ref_loc| resolve_me = try neutralReferenceView(reader, ref_loc);
+    }
+    return .{ .deliver = .{
+        .target = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
+        .args = try neutralArgsBacking(reader, body, 1),
+        .answer = if (flags & shared.deliver_has_answer != 0) model.AnswerPosition.from(try reader.dataWord(body, 1)) else null,
+        .resolve_me_desc = resolve_me,
+    } };
+}
+
+fn projectResolveBody(reader: Reader, body: StructLoc) Error!model.view.Body {
+    return .{ .resolve = .{
+        .answer = model.AnswerPosition.from(try reader.dataWord(body, 0)),
+        .resolution = try neutralResolution(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
+    } };
+}
+
+fn projectGcExportBody(reader: Reader, body: StructLoc) Error!model.view.Body {
+    return .{ .gc_export = .{
+        .positions = try neutralPositionsBacking(reader, body, 0),
+        .deltas = try neutralPositionsBacking(reader, body, 1),
+    } };
+}
+
+fn projectGcAnswerBody(reader: Reader, body: StructLoc) Error!model.view.Body {
+    return .{ .gc_answer = .{ .positions = try neutralPositionsBacking(reader, body, 0) } };
+}
+
+fn projectAbortBody(reader: Reader, body: StructLoc) Error!model.view.Body {
+    return .{ .abort = .{
+        .kind = try enumFromWire(model.AbortKind, try reader.dataWord(body, 0)),
+        .message = try borrowedData(reader, body, 0),
+    } };
+}
+
+fn projectListenBody(reader: Reader, body: StructLoc) Error!model.view.Body {
+    return .{ .listen = .{
+        .target = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
+        .listener = try neutralReferenceView(reader, (try reader.followStruct(body, 1)) orelse return Error.MalformedFrame),
+        .wants_partial = (try reader.dataWord(body, 0)) & 1 != 0,
+    } };
+}
+
+fn projectGetBody(reader: Reader, body: StructLoc) Error!model.view.Body {
+    return .{ .get = .{
+        .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
+        .field = try borrowedData(reader, body, 1),
+        .answer = model.AnswerPosition.from(try reader.dataWord(body, 0)),
+    } };
+}
+
+fn projectIndexBody(reader: Reader, body: StructLoc) Error!model.view.Body {
+    return .{ .index = .{
+        .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
+        .index = @bitCast(try reader.dataWord(body, 0)),
+        .answer = model.AnswerPosition.from(try reader.dataWord(body, 1)),
+    } };
+}
+
+fn projectUntagBody(reader: Reader, body: StructLoc) Error!model.view.Body {
+    return .{ .untag = .{
+        .receiver = try neutralReferenceView(reader, (try reader.followStruct(body, 0)) orelse return Error.MalformedFrame),
+        .tag = try borrowedData(reader, body, 1),
+        .answer = model.AnswerPosition.from(try reader.dataWord(body, 0)),
+    } };
+}
+
+fn projectStartSessionBody(reader: Reader, body: StructLoc) Error!model.view.Body {
+    return .{ .start_session = try neutralStartSession(reader, body) };
+}
+
+fn projectHandoffBody(reader: Reader, body: StructLoc) Error!model.view.Body {
+    return .{ .handoff = try neutralHandoffFromStruct(reader, body) };
 }

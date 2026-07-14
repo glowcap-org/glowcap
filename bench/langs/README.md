@@ -60,7 +60,7 @@ received.
   (ADR-0007): the four verbs ride one round trip, so this measures the consumer
   stack's steady-state rate when calls are addressed at answers, not awaited one
   at a time.
-- **Connection setup** — open many sessions and fetch the root on each; total
+- **Session setup** — open many sessions and fetch the root on each; total
   and per-connection milliseconds.
 - **Per-connection memory** — the client process's resident set with the
   connections held open, minus a baseline, divided by the connection count. It

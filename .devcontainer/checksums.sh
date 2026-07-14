@@ -25,8 +25,8 @@ zls_sha256() {
 
 deno_sha256() {
     case "$(uname -m)" in
-        x86_64) echo "710c54d63477d1100844ef4818f19507ce0dbf40510903b1d883f19e394446a2" ;;
-        aarch64) echo "0a60d079fa79635a59803074dbbfe86ccc35746dc2c4f8d73f2e50338b3283a9" ;;
+        x86_64) echo "934d1bd5cb09eaed7f2e4a4fc58208d04a3c5c0fcde9f319d93d735265c67a4a" ;;
+        aarch64) echo "310b8f48e59964ff18890d35e64f64fb90e8b1cc5d9ebff8c818327d5afb16d2" ;;
         *)
             echo "deno_sha256: unsupported architecture: $(uname -m)" >&2
             return 1
@@ -36,8 +36,8 @@ deno_sha256() {
 
 node_sha256() {
     case "$(uname -m)" in
-        x86_64) echo "5c4286dcd5bbd5acb1ccc7eb0e088bd5eb1e3affad671ee9364004f8f6a4a431" ;;
-        aarch64) echo "f6d8eedc52170667d45730ac2f413c4aa1e7cd2165c9cac5746ef3cb0f4ec45a" ;;
+        x86_64) echo "9f619528f1db5ddc41dccf54211066fb42228d69a156733c69cb9d6cc92e358c" ;;
+        aarch64) echo "036df0b49662ebb350eb56f1cac603699b1e9ed1e2603ee129fefda473479030" ;;
         *)
             echo "node_sha256: unsupported architecture: $(uname -m)" >&2
             return 1
@@ -58,8 +58,8 @@ bun_sha256() {
 
 uv_sha256() {
     case "$(uname -m)" in
-        x86_64) echo "6426a73c3837e6e2483ee344cbc00f36394d179afcba6183cb77437e67db4af0" ;;
-        aarch64) echo "befa1a59c91e96eb601b0fd9a97c03dd666f17baba644b2b4db9c59a767e387e" ;;
+        x86_64) echo "e490a6464492183c5d4534a5527fb4440f7f2bb2f228162ad7e4afe076dc0224" ;;
+        aarch64) echo "03e9fe0a81b0718d0bc84625de3885df6cc3f89a8b6af6121d6b9f6113fb6533" ;;
         *)
             echo "uv_sha256: unsupported architecture: $(uname -m)" >&2
             return 1

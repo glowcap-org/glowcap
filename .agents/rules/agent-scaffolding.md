@@ -37,7 +37,11 @@ claim is unchecked. The shape of what it holds:
   symlink resolves to `.agents/rules`, and every `.agents/rules/<name>.md` has a
   live `.cursor/rules/<name>.mdc` symlink. A canonical rule without its overlay
   is silently unloaded, the failure mode is invisible at exactly the moment it
-  matters.
+  matters. **Edit only the canonical files** (`AGENTS.md`, `.agents/rules/*.md`).
+  Never write through `.cursor/rules/*.mdc` or `CLAUDE.md`: a bulk in-place edit
+  that follows those symlinks turns them into regular files and the overlay
+  dies. The gate already rejects a non-symlink overlay; do not create that
+  failure to begin with.
 - The indexes and the directories agree in both directions. An unindexed rule or
   skill is undiscoverable; an indexed ghost is a broken promise. The same holds
   for build steps (every documented `zig build` command is a real step, every
@@ -80,6 +84,24 @@ is the drift mode of scaffolding, and it kills documents slowly: the
 load-bearing lines drown, the voice flattens, and agents start skimming the very
 text that was supposed to stop them from skimming. Pruning is not maintenance
 deferred from the ratchet; it is half the ratchet.
+
+## The gate accretes too
+
+The budget binds `meta-check` itself. Its honest job is doc and scaffolding
+truth (overlay symlinks, index parity, link and build-step resolution, the
+living-state registry) and cross-file derived invariants (ABI version lockstep,
+host-action drains, constant parity, a deleted symbol or export not
+reappearing). Those earn their rent every run.
+
+Banning one exact prose sentence a rename replaced is a different thing: a
+tombstone with a half-life. It is worth its place while the rename is still
+landing across the tree and a straggler might re-type the old word; it is pure
+rent once the rename has shipped everywhere and stopped being reworded, because
+then it only bans a string no one would write. So gating a fresh rename owes a
+prune of the previous rename's now-stable prose tombstones — that record lives
+in the ADR and git history, not a grep table. Keep the structural half (a
+resurrected symbol or export a compiler would not catch); retire the prose half;
+prefer one general check to fifty per-file string bans.
 
 ## Taste lives here as structure, not as names
 

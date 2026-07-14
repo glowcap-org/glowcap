@@ -9,7 +9,7 @@
 A transport, a *netlayer*, moves a session's bytes between two peers: the
 core hands each frame to whichever netlayer a
 [locator]($link.page('concepts'))'s transport symbol names, and never learns which
-one carried it. Three residents ship today.
+one carried it. Four residents ship today.
 
 > **Netlayer**: pancake's word for a transport, a resident you register with the
 > driver, met by a contract (produce a connection over a stream) rather than a
@@ -27,6 +27,7 @@ it.
 | Transport | Symbol | Channel | Addressed by | Reach for it when |
 | --- | --- | --- | --- | --- |
 | TCP | `tcp` | cleartext TCP, no TLS | `host:port` | a real network, or interop with Goblins over TCP |
+| Keyed TCP | `keyed-tcp` | cleartext TCP, key-derived designator | Ed25519 pubkey hex; socket address in `direct-addresses` | restart-stable designators and key-squatter refusal (ADR-0075) |
 | In-process | `inproc` | in-memory byte pipes, no sockets | a name within one process | tests and demos that run both peers in one process |
 | iroh | `iroh` | encrypted QUIC (separate artifact) | a self-authenticating node id in an `ocapn://` URI | you want an encrypted channel today, or peer-to-peer reach |
 
@@ -40,6 +41,15 @@ re-exposed over the C ABI as blocking
 endpoint handles. Two I/O paths sit above it: a blocking pump for
 cooperative request/response, and the completion loop (io_uring on Linux, kqueue on
 macOS and BSD) for many connections without a thread apiece.
+
+### Keyed TCP
+
+Same cleartext TCP sockets as `tcp`, different locator grammar: the designator is
+the listener's Ed25519 public key in canonical hex, the socket address rides the
+`direct-addresses` hint, and the driver pins the handshake to the dialed key so a
+partner can re-dial the same designator across a process restart and a key
+squatter is refused before the session opens (ADR-0075). Bindings expose
+`listen_keyed_tcp` / `KeyedTcpServer` and `keyed_tcp_locator`.
 
 ### In-process (inproc)
 

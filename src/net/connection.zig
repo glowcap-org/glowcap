@@ -151,11 +151,7 @@ pub const Connection = struct {
     /// (a host orchestrating across connections) and wants it on the wire now,
     /// rather than blocking on a read that may never come.
     pub fn flush(self: *Connection) PumpError!void {
-        self.peer.stepToIdle() catch |err| {
-            _ = drainOutbound(self.peer, self.w) catch 0;
-            return classifyApplyError(err);
-        };
-        _ = drainOutbound(self.peer, self.w) catch return error.ConnectionLost;
+        _ = try encodeAndFlush(self.peer, self.w);
     }
 
     /// Whether the read buffer or the spill already holds bytes (a
@@ -231,15 +227,11 @@ pub fn pumpOver(
     w: *std.Io.Writer,
     spill: *frame_stream.Spill,
 ) PumpError!Progress {
-    peer.stepToIdle() catch |err| {
-        _ = drainOutbound(peer, w) catch 0;
-        return classifyApplyError(err);
-    };
-    const sent = drainOutbound(peer, w) catch return error.ConnectionLost;
+    const sent = try encodeAndFlush(peer, w);
 
     const supply = if (spill.isActive()) spill.bytes() else r.buffered();
     if (supply.len > 0) {
-        const outcome = peer.recvStreamPrefix(supply) catch |err| {
+        const outcome = peer.applyStreamPrefix(supply) catch |err| {
             // The core projected an op:abort into outbound; flush it best-effort
             // so the partner sees the fail-loud close, then surface the cause.
             peer.stepToIdle() catch {};
@@ -251,14 +243,7 @@ pub fn pumpOver(
                 if (spill.isActive()) spill.consume(peer.allocator, n) else r.toss(n);
                 return .{ .received = n };
             },
-            .incomplete => {
-                // Defensive mirror of the codec's cap-during-scan contract
-                // (ADR-0029): an incomplete prefix at or past the cap can never
-                // complete within it, so a codec that failed to refuse it fails
-                // closed here instead of growing the spill.
-                if (supply.len >= peer.limits().max_frame_bytes)
-                    return error.FrameTooLarge;
-            },
+            .incomplete => {},
         }
     }
 
@@ -297,4 +282,21 @@ fn classifyApplyError(err: anyerror) PumpError {
         error.OutOfMemory => error.OutOfMemory,
         else => error.ProtocolAbort,
     };
+}
+
+/// Encode the peer's queued sends and write them to `w`, returning the bytes
+/// written. The write-half `Connection.flush` and `pumpOver` (and `pump`) both
+/// ride: `flush` discards the count, the pumps carry it as their sent tally.
+/// The abort-flush contract is the point of the shared spine. When
+/// `stepToIdle` fails it has already projected the fail-loud `op:abort` frame
+/// onto outbound, so drain it best-effort — `catch 0` swallows a write failure
+/// there so the original apply cause surfaces, not a masking drain error —
+/// then return that cause classified onto the pump surface. A drain failure on
+/// the success path is the connection dying under the write, `ConnectionLost`.
+fn encodeAndFlush(peer: *engine.Peer, w: *std.Io.Writer) PumpError!usize {
+    peer.stepToIdle() catch |err| {
+        _ = drainOutbound(peer, w) catch 0;
+        return classifyApplyError(err);
+    };
+    return drainOutbound(peer, w) catch return error.ConnectionLost;
 }

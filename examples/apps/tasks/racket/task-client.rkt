@@ -3,8 +3,8 @@
 ;;
 ;; On the connection API this is barely a layer: connect, fetch the board by
 ;; name, publish a watcher, and call add/done/list. The Goblins verbs (`spawn`,
-;; `<-`, `on`, `methods`) work as they do in Goblins; `connect`, `conn-fetch`,
-;; and `conn-send` do the peer/vat/import plumbing.
+;; `<-`, `on`, `methods`) work as they do in Goblins; `connect`, `session-fetch`,
+;; and `session-send` do the peer/vat/import plumbing.
 ;;
 ;;   (define b (board-join "127.0.0.1" 9099))
 ;;   (define id (board-add b "buy groceries"))
@@ -24,16 +24,16 @@
 ;; can call back (we ignore its updates in this one-shot client).
 (define (board-join host port)
   (define c (connect (tcp-locator host port)))
-  (define the-board (conn-fetch c "board"))
+  (define the-board (session-fetch c "board"))
   (define a-board (board c the-board))
-  (define watcher (conn-spawn c (lambda (bcom) (methods [(update tasks) (void)]))))
+  (define watcher (session-spawn c (lambda (bcom) (methods [(update tasks) (void)]))))
   (board-call a-board 'watch watcher)
   a-board)
 
 ;; Send a request to the board and drive the connection until it settles,
-;; returning the reply value, `conn-send` aimed at the board.
+;; returning the reply value, `session-send` aimed at the board.
 (define (board-call a-board verb . args)
-  (apply conn-send (board-conn a-board) (board-far a-board) verb args))
+  (apply session-send (board-conn a-board) (board-far a-board) verb args))
 
 ;; Add a task; returns its id.
 (define (board-add a-board text) (board-call a-board 'add text))
@@ -51,4 +51,4 @@
 
 ;; Leave the board and close the connection.
 (define (board-leave a-board)
-  (connection-close! (board-conn a-board)))
+  (session-close! (board-conn a-board)))

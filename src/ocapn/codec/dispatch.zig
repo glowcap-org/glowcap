@@ -18,9 +18,9 @@ const std = @import("std");
 const foundation = @import("foundation");
 const model = @import("model");
 
-pub const framing = @import("framing");
+const framing = @import("framing");
 pub const Prefix = framing.Prefix;
-pub const registry = @import("registry.zig");
+const registry = @import("registry.zig");
 const Spec = registry.Spec;
 
 /// Union of every registered codec's decode/encode error set, plus

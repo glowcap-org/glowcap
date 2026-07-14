@@ -1,7 +1,7 @@
 //! The completion `Loop`, proven end to end on its platform backend, and the
 //! outbound-backpressure contract, proven on a scripted fake backend.
 //!
-//! One single-threaded `net.Loop` (the portable `completion.Loop` over the
+//! One single-threaded `net.TcpLoop` (the portable `completion.Loop` over the
 //! platform backend) accepts several concurrent connections and serves the
 //! bootstrap-fetch scenario on each, the same handshake-to-open plus
 //! `fetch`/auto-`resolve` round-trip the blocking `tcp_test` proves, now driven by
@@ -23,10 +23,11 @@ const pancake = @import("pancake");
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
 const tcp = pancake.net.tcp;
-const Loop = pancake.net.Loop;
+const Loop = pancake.net.TcpLoop;
 const completion = pancake.net.completion;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
+const no_dial = @import("no_dial_locator.zig");
 
 const frame_cap = 4096;
 const client_count = 8;
@@ -60,14 +61,15 @@ fn fetchOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void 
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var designator_buf: [64]u8 = undefined;
-    const designator = try std.fmt.bufPrint(&designator_buf, "127.0.0.1:{d}", .{port});
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const designator_addr = try tcp.parseHostPort("127.0.0.1", port);
+    const designator = tcp.locator(&designator_buf, designator_addr).designator;
     const locator: model.PeerLocator = .{
         .transport = tcp.transport_name,
         .designator = designator,
         .hints = model.Hints.emptyMap(),
     };
-    var conn = try tcp.connect(io, &peer, locator, read_buf, write_buf);
+    var conn = try tcp.connect(io, &peer, locator, read_buf, write_buf, .{});
     defer conn.deinit();
 
     try fetch_pump.handshakeToOpen(&peer, &conn, startSession("client"));
@@ -93,13 +95,12 @@ test "completion loop: concurrent clients each fetch the shared bootstrap cap" {
     defer loop.deinit();
     const port = loop.port.?;
 
-    // The completion loop runs on its own thread; the clients drive a std.Io
-    // backend on this thread, dialing concurrently.
-    const loop_thread = try std.Thread.spawn(.{}, runLoop, .{ &loop, @as(usize, client_count) });
-
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
+
+    // The completion loop and the clients share the Threaded Io backend.
+    var loop_future = try io.concurrent(runLoop, .{ &loop, @as(usize, client_count) });
 
     var futures: [client_count]std.Io.Future(anyerror!void) = undefined;
     for (&futures) |*f| {
@@ -112,7 +113,7 @@ test "completion loop: concurrent clients each fetch the shared bootstrap cap" {
         };
     }
 
-    loop_thread.join();
+    loop_future.await(io);
     if (first_err) |err| return err;
 }
 
@@ -143,7 +144,7 @@ const LoopVat = struct {
         errdefer allocator.destroy(self);
         self.vat = actors.Vat.initOver(allocator.*, peer);
         // Spawn the actor and publish it at the bootstrap swissnum the client
-        // fetches, exactly `driver.ConnectedVat.publish`, now on the loop.
+        // fetches, exactly `driver.BlockingSession.publish`, now on the loop.
         const greeter = try self.vat.spawn(Greeter, .{});
         const position = try peer.registerBootstrapCap("thermostat");
         try self.vat.bindExport(greeter, position);
@@ -189,14 +190,15 @@ fn fetchThenCall(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!v
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var designator_buf: [64]u8 = undefined;
-    const designator = try std.fmt.bufPrint(&designator_buf, "127.0.0.1:{d}", .{port});
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const designator_addr = try tcp.parseHostPort("127.0.0.1", port);
+    const designator = tcp.locator(&designator_buf, designator_addr).designator;
     const locator: model.PeerLocator = .{
         .transport = tcp.transport_name,
         .designator = designator,
         .hints = model.Hints.emptyMap(),
     };
-    var conn = try tcp.connect(io, &peer, locator, read_buf, write_buf);
+    var conn = try tcp.connect(io, &peer, locator, read_buf, write_buf, .{});
     defer conn.deinit();
 
     var vat = actors.Vat.initOver(allocator, &peer);
@@ -259,12 +261,12 @@ test "completion loop: a hosted actor answers a call over the loop (objects on t
     const port = loop.port.?;
 
     const clients = 6;
-    var loop_err: ?anyerror = null;
-    const loop_thread = try std.Thread.spawn(.{}, runLoopCapturing, .{ &loop, @as(usize, clients), &loop_err });
-
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
+
+    var loop_err: ?anyerror = null;
+    var loop_future = try io.concurrent(runLoopCapturing, .{ &loop, @as(usize, clients), &loop_err });
 
     var futures: [clients]std.Io.Future(anyerror!void) = undefined;
     for (&futures) |*f| f.* = try io.concurrent(fetchThenCall, .{ io, port, allocator });
@@ -273,7 +275,7 @@ test "completion loop: a hosted actor answers a call over the loop (objects on t
         if (first_err == null) first_err = err;
     };
 
-    loop_thread.join();
+    loop_future.await(io);
     if (loop_err) |err| return err;
     if (first_err) |err| return err;
 }
@@ -315,12 +317,12 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
     defer loop.deinit();
     const port = loop.port.?;
 
-    var loop_err: ?anyerror = null;
-    const loop_thread = try std.Thread.spawn(.{}, runLoopCapturing, .{ &loop, @as(usize, total), &loop_err });
-
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
+
+    var loop_err: ?anyerror = null;
+    var loop_future = try io.concurrent(runLoopCapturing, .{ &loop, @as(usize, total), &loop_err });
 
     var served: usize = 0;
     var first_err: ?anyerror = null;
@@ -337,7 +339,7 @@ test "completion loop: churns hundreds of connection lifecycles through a small 
         }
     }
 
-    loop_thread.join();
+    loop_future.await(io);
     if (loop_err) |err| return err;
     if (first_err) |err| return err;
     // Every lifecycle completed: no slot was stranded, no client was refused.
@@ -360,14 +362,15 @@ fn slamOnce(io: std.Io, port: u16, allocator: std.mem.Allocator) anyerror!void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var designator_buf: [64]u8 = undefined;
-    const designator = try std.fmt.bufPrint(&designator_buf, "127.0.0.1:{d}", .{port});
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const designator_addr = try tcp.parseHostPort("127.0.0.1", port);
+    const designator = tcp.locator(&designator_buf, designator_addr).designator;
     const locator: model.PeerLocator = .{
         .transport = tcp.transport_name,
         .designator = designator,
         .hints = model.Hints.emptyMap(),
     };
-    var conn = tcp.connect(io, &peer, locator, read_buf, write_buf) catch return;
+    var conn = tcp.connect(io, &peer, locator, read_buf, write_buf, .{}) catch return;
     // Drop without handshaking: the defer closes the socket while the server
     // still has a recv armed and its start-session send pending.
     conn.deinit();
@@ -391,12 +394,12 @@ test "completion loop: survives abrupt mid-handshake drops under churn (close-wh
     defer loop.deinit();
     const port = loop.port.?;
 
-    var loop_err: ?anyerror = null;
-    const loop_thread = try std.Thread.spawn(.{}, runLoopCapturing, .{ &loop, @as(usize, total), &loop_err });
-
     var threaded = std.Io.Threaded.init(allocator, .{});
     defer threaded.deinit();
     const io = threaded.io();
+
+    var loop_err: ?anyerror = null;
+    var loop_future = try io.concurrent(runLoopCapturing, .{ &loop, @as(usize, total), &loop_err });
 
     var wave: usize = 0;
     while (wave < waves) : (wave += 1) {
@@ -408,7 +411,7 @@ test "completion loop: survives abrupt mid-handshake drops under churn (close-wh
     // The loop must process every abrupt close as a completed lifecycle and
     // terminate, if any close stranded its slot, `run(total)` would block
     // forever and join would hang the test rather than return.
-    loop_thread.join();
+    loop_future.await(io);
     if (loop_err) |err| return err;
     try std.testing.expectEqual(@as(usize, total), loop.closed_count);
 }
@@ -455,7 +458,8 @@ const FakeBackend = struct {
         self.* = .{ .pool_free = 0 };
     }
 
-    pub fn openListener(port: u16) !Fd {
+    pub fn openListener(self: *@This(), port: u16) !Fd {
+        _ = self;
         _ = port;
         return 1;
     }
@@ -465,7 +469,22 @@ const FakeBackend = struct {
         return 1;
     }
 
-    pub fn closeFd(fd: Fd) void {
+    pub fn closeFd(self: *@This(), fd: Fd) void {
+        _ = self;
+        _ = fd;
+    }
+
+    pub const ConnectTarget = void;
+
+    pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
+        _ = self;
+        _ = user_data;
+        _ = target;
+        return error.UnsupportedTransport;
+    }
+
+    pub fn shutdownFd(self: *@This(), fd: Fd) void {
+        _ = self;
         _ = fd;
     }
 
@@ -583,7 +602,8 @@ const OneBadPartnerBackend = struct {
         self.* = .{ .pool_free = 0 };
     }
 
-    pub fn openListener(port: u16) !Fd {
+    pub fn openListener(self: *@This(), port: u16) !Fd {
+        _ = self;
         _ = port;
         return 1;
     }
@@ -593,7 +613,22 @@ const OneBadPartnerBackend = struct {
         return 1;
     }
 
-    pub fn closeFd(fd: Fd) void {
+    pub fn closeFd(self: *@This(), fd: Fd) void {
+        _ = self;
+        _ = fd;
+    }
+
+    pub const ConnectTarget = void;
+
+    pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
+        _ = self;
+        _ = user_data;
+        _ = target;
+        return error.UnsupportedTransport;
+    }
+
+    pub fn shutdownFd(self: *@This(), fd: Fd) void {
+        _ = self;
         _ = fd;
     }
 
@@ -691,7 +726,7 @@ test "completion loop: a per-connection drive failure closes that connection, no
     OneBadPartnerBackend.chunks = &.{ client_ss.items, fetch_bytes.items };
     defer OneBadPartnerBackend.chunks = &.{};
 
-    var loop = try completion.Loop(OneBadPartnerBackend).init(allocator, makeServerPeer, null, .{
+    var loop = try completion.Loop(OneBadPartnerBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
         .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
@@ -753,7 +788,7 @@ test "completion loop: outbound past the high-water mark parks reads until the p
     FakeBackend.chunks = &.{ client_ss.items, fetch_bytes.items };
     defer FakeBackend.chunks = &.{};
 
-    var loop = try completion.Loop(FakeBackend).init(allocator, makeServerPeer, null, .{
+    var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
         .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
@@ -814,7 +849,8 @@ const ScriptBackend = struct {
         self.* = .{ .pool_free = 0 };
     }
 
-    pub fn openListener(port: u16) !Fd {
+    pub fn openListener(self: *@This(), port: u16) !Fd {
+        _ = self;
         _ = port;
         return 1;
     }
@@ -824,7 +860,22 @@ const ScriptBackend = struct {
         return 1;
     }
 
-    pub fn closeFd(fd: Fd) void {
+    pub fn closeFd(self: *@This(), fd: Fd) void {
+        _ = self;
+        _ = fd;
+    }
+
+    pub const ConnectTarget = void;
+
+    pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
+        _ = self;
+        _ = user_data;
+        _ = target;
+        return error.UnsupportedTransport;
+    }
+
+    pub fn shutdownFd(self: *@This(), fd: Fd) void {
+        _ = self;
         _ = fd;
     }
 
@@ -933,7 +984,7 @@ test "completion loop: a pool of one serves two starved connections, a starved r
         ScriptBackend.accept_count = 1;
     }
 
-    var loop = try completion.Loop(ScriptBackend).init(allocator, makeServerPeer, null, .{
+    var loop = try completion.Loop(ScriptBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
         .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
@@ -983,7 +1034,7 @@ test "completion loop: a frame split across two recv completions applies exactly
     ScriptBackend.chunks = &.{ client_ss.items[0..split], rest_and_fetch };
     defer ScriptBackend.chunks = &.{};
 
-    var loop = try completion.Loop(ScriptBackend).init(allocator, makeServerPeer, null, .{
+    var loop = try completion.Loop(ScriptBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
         .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
@@ -1040,7 +1091,8 @@ const HeldSendBackend = struct {
         self.* = .{ .allocator = self.allocator, .pool_free = 0 };
     }
 
-    pub fn openListener(port: u16) !Fd {
+    pub fn openListener(self: *@This(), port: u16) !Fd {
+        _ = self;
         _ = port;
         return 1;
     }
@@ -1050,7 +1102,22 @@ const HeldSendBackend = struct {
         return 1;
     }
 
-    pub fn closeFd(fd: Fd) void {
+    pub fn closeFd(self: *@This(), fd: Fd) void {
+        _ = self;
+        _ = fd;
+    }
+
+    pub const ConnectTarget = void;
+
+    pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
+        _ = self;
+        _ = user_data;
+        _ = target;
+        return error.UnsupportedTransport;
+    }
+
+    pub fn shutdownFd(self: *@This(), fd: Fd) void {
+        _ = self;
         _ = fd;
     }
 
@@ -1167,7 +1234,7 @@ test "completion loop: an in-flight send's bytes stay frozen while replies queue
     };
     defer HeldSendBackend.chunks = &.{};
 
-    var loop = try completion.Loop(HeldSendBackend).init(allocator, makeServerPeer, null, .{
+    var loop = try completion.Loop(HeldSendBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
         .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
@@ -1283,7 +1350,7 @@ test "completion loop: an incomplete prefix over frame_cap but under the peer's 
     ScriptBackend.chunks = &.{ client_ss.items, prefix1, prefix2 };
     defer ScriptBackend.chunks = &.{};
 
-    var loop = try completion.Loop(ScriptBackend).init(allocator, makeBigFramePeer, null, .{
+    var loop = try completion.Loop(ScriptBackend, no_dial.Unsupported).init(allocator, makeBigFramePeer, null, .{
         .frame_cap = frame_cap, // 4 KiB, below both prefix chunks' running total
         .max_conns = 4,
         .listen = 0,

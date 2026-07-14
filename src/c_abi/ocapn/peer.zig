@@ -61,7 +61,7 @@ pub export fn pancake_peer_new(out_peer: ?*?*PancakePeer) i32 {
 pub export fn pancake_peer_new_in(context: ?*PancakeContext, out_peer: ?*?*PancakePeer) i32 {
     const c_ctx = ctx.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    return peerNewIn(c_ctx.allocator, slot, true, model.WireProfile.v1_0, .syrup);
+    return peerNewIn(c_ctx.allocator(), slot, true, model.WireProfile.v1_0, .syrup);
 }
 
 /// Create a negotiating peer carrying an out-of-band negotiated profile and
@@ -85,7 +85,7 @@ pub export fn pancake_peer_new_negotiated_in(context: ?*PancakeContext, captp_ve
     const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
     const profile = profileFromCaptpVersion(captp_version) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
     const codec_id = c.codecFromC(codec) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
-    return peerNewIn(c_ctx.allocator, slot, true, profile, codec_id);
+    return peerNewIn(c_ctx.allocator(), slot, true, profile, codec_id);
 }
 
 /// Create an already-open peer that skips the keyed handshake, the
@@ -104,7 +104,7 @@ pub export fn pancake_peer_new_raw_open(out_peer: ?*?*PancakePeer) i32 {
 pub export fn pancake_peer_new_raw_open_in(context: ?*PancakeContext, out_peer: ?*?*PancakePeer) i32 {
     const c_ctx = ctx.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    return peerNewIn(c_ctx.allocator, slot, false, model.WireProfile.v1_0, .syrup);
+    return peerNewIn(c_ctx.allocator(), slot, false, model.WireProfile.v1_0, .syrup);
 }
 
 fn profileFromCaptpVersion(captp_version: u32) ?model.WireProfile {
@@ -230,7 +230,7 @@ pub export fn pancake_peer_recv_stream(
     if (len == 0) return PANCAKE_ERR_WOULD_BLOCK;
     const buf = bytes orelse return PANCAKE_ERR_NULL_POINTER;
 
-    const outcome = ptr.recvStreamPrefix(buf[0..len]) catch |err| switch (err) {
+    const outcome = ptr.applyStreamPrefix(buf[0..len]) catch |err| switch (err) {
         error.MalformedFrame => return PANCAKE_ERR_MALFORMED,
         error.FrameTooLarge => return PANCAKE_ERR_FRAME_TOO_LARGE,
         else => return feedErrorToCode(err),
@@ -278,6 +278,7 @@ pub export fn pancake_peer_poll_event(peer: ?*PancakePeer, out_event: ?*PancakeE
         .kind = frame.eventKindToC(event.kind()),
         .frame = frame.tryManagedFrame(ptr.allocator, event.frame) catch {
             event.deinit();
+            c.setLastError("poll_event: frame wrap allocation failed", .{});
             return PANCAKE_ERR_INTERNAL;
         },
     };
@@ -349,6 +350,24 @@ pub export fn pancake_peer_start_session(
 pub export fn pancake_peer_session_is_open(peer: ?*PancakePeer) i32 {
     const ptr = peerFromOpaque(peer) orelse return 0;
     return if (ptr.sessionIsOpen()) 1 else 0;
+}
+
+/// Pin the partner's Ed25519 public key before their `op:start-session` is
+/// fed. A mismatch becomes `PartnerKeyMismatch` and aborts the session
+/// fail-closed (the dial-side identity pin, ADR-0075). `key` is borrowed and
+/// `key_len` must be 32; anything else is refused with
+/// `PANCAKE_ERR_INVALID_ARGUMENT`.
+pub export fn pancake_peer_expect_partner_key(
+    peer: ?*PancakePeer,
+    key: ?[*]const u8,
+    key_len: usize,
+) i32 {
+    const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
+    const key_ptr = key orelse return PANCAKE_ERR_NULL_POINTER;
+    if (key_len != foundation.crypto.PEER_KEY_BYTES) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const peer_key = foundation.crypto.PeerKey.fromSlice(key_ptr[0..key_len]) catch return PANCAKE_ERR_INVALID_ARGUMENT;
+    ptr.expectPartnerKey(peer_key);
+    return PANCAKE_OK;
 }
 
 /// The codec the peer's session speaks, written into `out_codec` as a
@@ -954,7 +973,7 @@ pub export fn pancake_encode_peer_locator(
     var hints: model.Hints = model.Hints.emptyFalse();
     if (direct_addresses) |addrs_ptr| {
         if (direct_addresses_len != 0) {
-            entries_buf[0] = .{ .name = "direct-addresses", .value = .{ .string = addrs_ptr[0..direct_addresses_len] } };
+            entries_buf[0] = .{ .name = model.transport.hint_direct_addresses, .value = .{ .string = addrs_ptr[0..direct_addresses_len] } };
             hints = .{ .entries = entries_buf[0..1], .wire_form = .map };
         }
     }
@@ -1266,6 +1285,7 @@ pub export fn pancake_peer_next_event(peer: ?*PancakePeer, out: ?*c.PancakeAnyEv
     var event = ptr.pollEvent() orelse return PANCAKE_ERR_WOULD_BLOCK;
     slot.frame = frame.tryManagedFrame(ptr.allocator, event.frame) catch {
         event.deinit();
+        c.setLastError("next_event: frame wrap allocation failed", .{});
         return PANCAKE_ERR_INTERNAL;
     };
     slot.projection = c.PANCAKE_PROJECTION_FRAME;

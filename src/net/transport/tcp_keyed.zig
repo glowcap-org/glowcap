@@ -37,7 +37,7 @@ const Connection = connection.Connection;
 /// The transport symbol carried in a `model.PeerLocator`. A separate symbol
 /// from `tcp`, not a designator sniff on it: the two postures dispatch by
 /// symbol, so a plain `tcp` locator's grammar and signed bytes never change.
-pub const transport_name = "keyed-tcp";
+pub const transport_name = model.transport.keyed_tcp;
 
 /// The keyed-tcp netlayer's state: the host `std.Io` it dials and binds with,
 /// plus the public half of the identity key its listeners advertise as their
@@ -75,16 +75,11 @@ fn residentDial(
     bufs: Buffers,
 ) netlayer.DialError!Connection {
     const self: *Resident = @ptrCast(@alignCast(ctx));
-    // The designator must be a canonical key: anything else is a caller
-    // defect, refused before the network is touched. The key itself is not
-    // consulted here — the driver's dial-side pin holds the handshake to it.
-    if (crypto.PeerKey.fromDesignator(loc.designator) == null) return error.InvalidAddress;
-    // TCP has no discovery, so the socket address must ride the
-    // `direct-addresses` hint; a hint-less keyed-tcp dial cannot reach anyone
-    // and fails loud instead of timing out.
-    const direct = netlayer.directAddrHint(loc.hints) orelse return error.InvalidAddress;
-    const address = tcp.parseDesignator(direct) catch return error.InvalidAddress;
-    return tcp.connectAddress(self.io, peer, address, bufs.read, bufs.write) catch |err| switch (err) {
+    // Same admission as the completion loop: `tcp.DialResolver.resolve` owns key
+    // shape + required hint + hostport parse.
+    const direct = netlayer.directAddrHint(loc.hints) orelse &.{};
+    const address = tcp.DialResolver.resolve(loc.transport, loc.designator, direct) catch return error.InvalidAddress;
+    return tcp.connectAddress(self.io, peer, address, bufs.read, bufs.write, .{}) catch |err| switch (err) {
         error.OutOfMemory => error.OutOfMemory,
         else => error.ConnectionLost,
     };
@@ -128,10 +123,7 @@ const listener_vtable: NetLayerListener.VTable = .{
 
 fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    return box.listener.accept(peer, bufs.read, bufs.write) catch |err| switch (err) {
-        error.OutOfMemory => error.OutOfMemory,
-        else => error.ConnectionLost,
-    };
+    return tcp.acceptOnListener(&box.listener, peer, bufs);
 }
 
 /// The dialable designator is the identity key's canonical hex — durable
@@ -148,7 +140,7 @@ fn listenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
 /// the `direct-addresses` hint value a partner dials this listener with.
 fn listenerLocalHint(ctx: *anyopaque, out: []u8) []const u8 {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    return std.fmt.bufPrint(out, "{f}", .{box.listener.localAddress()}) catch out[0..0];
+    return tcp.designatorOnListener(&box.listener, out);
 }
 
 fn listenerClose(ctx: *anyopaque) void {

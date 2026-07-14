@@ -1,6 +1,6 @@
 //! The sans-io vat serve core (`Served`): an `actors.Vat` over a borrowed
 //! `engine.Peer`, the serve loop, and the byte-fed drive. Socket-free — the
-//! `driver_core` layer's I/O ban keeps it that way. `ConnectedVat` (in the
+//! `driver_core` layer's I/O ban keeps it that way. `BlockingSession` (in the
 //! `driver` layer) composes one of these with a `net.Connection` for the
 //! blocking socket path (ADR-0072).
 
@@ -21,13 +21,13 @@ const Capability = vocab.Capability;
 /// the driver surface that drove the serve loop.
 pub const BeforeServeHook = *const fn (ctx: ?*anyopaque, served: *Served, event: *engine.Event) anyerror!bool;
 
-/// A loop driver's per-connection setup callback: publish the objects this
-/// fresh connection serves (e.g. `try served.publish("name", App, .{})`). One
+/// A loop driver's per-session setup callback: publish the objects this
+/// fresh CapTP session serves (e.g. `try served.publish("name", App, .{})`). One
 /// declaration shared by every loop host, so an application's publish function
 /// is portable across transports.
 pub const Publish = *const fn (ctx: ?*anyopaque, served: *Served) anyerror!void;
 
-/// Adapter options for a live connection's serve core. Stateless GC is driver
+/// Adapter options for a CapTP session's serve core. Stateless GC is driver
 /// policy, not CapTP semantics added below the engine. Crossed-hellos is
 /// host-tier serve policy: it runs in the host's `before_serve` hook, not
 /// here, and its `CrossedHellos` table is sans-io and lockless by contract —
@@ -44,7 +44,7 @@ pub const ServeOptions = struct {
 /// with the serve loop and the byte-fed drive. The peer is caller-owned (stable
 /// address); this borrows it, exactly as `actors.Vat.initOver` does. It reads no
 /// socket: a caller feeds inbound frames with `feedBorrowed` and drains outbound
-/// with `takeOutbound`, owning its own loop (ADR-0072). `ConnectedVat` composes
+/// with `takeOutbound`, owning its own loop (ADR-0072). `BlockingSession` composes
 /// one of these with a `net.Connection` for the blocking socket path.
 pub const Served = struct {
     vat: actors.Vat,
@@ -152,9 +152,9 @@ pub const Served = struct {
     /// per-connection amplification cap), and treat `.more_pending` as the
     /// runaway error a loop closes that one connection on — a single message
     /// that amplifies past its budget must not stall or grow in memory. The
-    /// iroh `LoopHost` is the loop driver on this contract; the blocking
-    /// one-connection-per-thread path drives unbounded through `drainEvents`
-    /// instead.
+    /// Both scale paths ride this through `Host` + `Bridge` (TCP `net.TcpLoop`,
+    /// iroh `completion.Loop(iroh.Backend, iroh.DialResolver)`). The blocking one-connection-per-
+    /// thread path drives unbounded through `drainEvents` instead.
     pub fn drivePostBatch(self: *Served, budget: usize) !void {
         switch (try self.vat.driveBudgeted(budget)) {
             .drained => {},
@@ -228,10 +228,29 @@ pub const Served = struct {
         return .{ .position = position, .ref = ref };
     }
 
+    /// Spawn an opaque hosted object (C trampoline / language binding) on this
+    /// connection's vat. The one Served verb the C ABI uses instead of reaching
+    /// through `&conn.served.vat` (ADR-0071).
+    pub fn spawnHosted(self: *Served, hosted: actors.HostedActor) !actors.Ref {
+        return self.vat.spawnHosted(hosted);
+    }
+
+    /// Bind `actor` at `position` on this session's export table.
+    pub fn bindExport(self: *Served, actor: actors.Ref, position: u64) !void {
+        try self.vat.bindExport(actor, position);
+    }
+
+    /// The local actor bound at `position`, or null when nothing is bound
+    /// there: the read half of the seating surface above, so a consumer that
+    /// seats through `Served` resolves through it too.
+    pub fn refForExport(self: *const Served, position: u64) ?actors.Ref {
+        return self.vat.refForExport(position);
+    }
+
     /// Enqueue the bootstrap `fetch` for `name` and return the promise of the
     /// partner's answer: import the well-known bootstrap export, then
     /// eventual-send `fetch(name)` to it. This is the one definition of the
-    /// bootstrap-fetch deliver shape. `ConnectedVat.fetch` drives the returned
+    /// bootstrap-fetch deliver shape. `BlockingSession.fetch` drives the returned
     /// promise to settlement; the byte-fed `Host`'s fetch rides the same
     /// deliver with a host vow instead of a blocking wait.
     pub fn sendBootstrapFetch(self: *Served, name: []const u8) !actors.Vow {

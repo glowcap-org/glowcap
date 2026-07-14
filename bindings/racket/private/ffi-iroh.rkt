@@ -5,11 +5,11 @@
 ;; unless built with cargo — so it loads lazily on first `iroh-fn` use, caching
 ;; the bound table and naming the build step when the library is absent. Nothing
 ;; here is public; `../pancake-iroh.rkt` is the ergonomic surface over it. The
-;; read/write calls move frames through the shared frame cstructs defined in
-;; `ffi-shared.rkt`.
+;; readiness-event cstruct below is the layout gate for iroh's drain_ready
+;; records; frame bytes themselves ride raw pointers through the companion ABI.
 (require ffi/unsafe
-         racket/runtime-path
-         "ffi-shared.rkt")
+         "ffi-shared.rkt"
+         "lib-resolve.rkt")
 (provide iroh-fn
          _PancakeIrohReadyEvent
          PancakeIrohReadyEvent-conn PancakeIrohReadyEvent-events
@@ -36,7 +36,6 @@
 ;; layout (conn at 0, events at 8, trailing pad to 16).
 (pin-layout! '_PancakeIrohReadyEvent _PancakeIrohReadyEvent 16 '(pointer uint32))
 
-(define-runtime-path iroh-lib-path "../../../zig-out/lib/libpancake_net_transport_iroh")
 (define iroh-ffi-cache (box #f))
 
 ;; Open the iroh ABI library and bind its symbols on first use, caching the
@@ -49,13 +48,12 @@
 
 (define (load-iroh-ffi)
   (define L
-    (pancake-ffi-lib
-     "pancake_net_transport_iroh" (path->string iroh-lib-path)
+    (open-pancake-archive "pancake_net_transport_iroh"
      #:fail (lambda ()
               (error 'iroh
                      (string-append
                       "iroh transport unavailable: could not load libpancake_net_transport_iroh from "
-                      "PANCAKE_LIB_DIR, zig-out/lib, or the system library path. "
+                      "PANCAKE_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path. "
                       "Build it with `zig build iroh-abi` (needs cargo).")))))
   (hasheq
    ;; The iroh archive keeps its own thread-local last-error slot, read through
@@ -78,13 +76,15 @@
    ;; `try-connect` (the dial blocks) is #:blocking?; everything else never parks.
    'readiness-fd   (get-ffi-obj 'pancake_iroh_netlayer_readiness_fd L (_fun _pointer -> _int32))
    'drain-ready    (get-ffi-obj 'pancake_iroh_netlayer_drain_ready L
-                     (_fun _pointer _pointer _size -> _intptr))
+                     (_fun _pointer _pointer _size (out : (_ptr o _size)) -> (r : _int32) -> (values r out)))
    'try-accept     (get-ffi-obj 'pancake_iroh_netlayer_try_accept L
                      (_fun _pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
    'try-connect    (get-ffi-obj 'pancake_iroh_netlayer_try_connect L
                      (_fun #:blocking? #t _pointer _pointer _size _pointer _size
                            (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-   'conn-try-read  (get-ffi-obj 'pancake_iroh_conn_try_read L (_fun _pointer _pointer _size -> _intptr))
-   'conn-try-write (get-ffi-obj 'pancake_iroh_conn_try_write L (_fun _pointer _pointer _size -> _intptr))))
+   'conn-try-read  (get-ffi-obj 'pancake_iroh_conn_try_read L
+                     (_fun _pointer _pointer _size (out : (_ptr o _size)) -> (r : _int32) -> (values r out)))
+   'conn-try-write (get-ffi-obj 'pancake_iroh_conn_try_write L
+                     (_fun _pointer _pointer _size (out : (_ptr o _size)) -> (r : _int32) -> (values r out)))))
 
 (define (iroh-fn key) (hash-ref (iroh-ffi) key))

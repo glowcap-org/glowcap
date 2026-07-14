@@ -66,9 +66,9 @@ export type Argument =
 	| PSet
 	| Tagged;
 
-/** The wire grammar a connection's session speaks: OCapN Syrup (the default)
- * or Cap'n Proto. Both ends of a connection must carry the same value; a
- * `Node` remembers its codec so every connection it mints negotiates in it. */
+/** The wire grammar a CapTP session speaks: OCapN Syrup (the default) or
+ * Cap'n Proto. Both ends of a session must carry the same value; a `Host`
+ * remembers its codec so every session it mints negotiates in it. */
 export type Codec = "syrup" | "capnp";
 
 export function codecId(codec: Codec): number {
@@ -83,7 +83,7 @@ export function codecId(codec: Codec): number {
  * - `DiscoveryNoRelay`: DNS discovery, no relays.
  * - `LocalDiscovery`: in-process address book (tests / same process).
  *
- * The type lives in the core so `connect` and `Node` name the posture without a
+ * The type lives in the core so `connect` and `Host` name the posture without a
  * runtime dependency on the optional `@pancake/iroh` package (which re-exports
  * this enum); the values match `libpancake_net_transport_iroh`'s C ABI. A `tcp`
  * locator ignores it. */
@@ -173,8 +173,8 @@ export function liftArg(arg: Argument): AppValue {
  * `target <- verb(args)` instead of from a value: a target hosted on the same
  * connection composes in process (a caretaker over an attenuator forwards
  * through both), and a far target defers the answer onto the forwarded send's
- * reply. It is the whole mechanism behind `Connection.caretaker` and
- * `Connection.attenuate` — each proxy is an ordinary spawned actor whose
+ * reply. It is the whole mechanism behind `Session.caretaker` and
+ * `Session.attenuate` — each proxy is an ordinary spawned actor whose
  * behavior forwards, or throws to refuse. Package-internal; applications reach
  * it through those verbs. */
 export class Forward {

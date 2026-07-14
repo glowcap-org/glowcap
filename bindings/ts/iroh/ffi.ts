@@ -39,7 +39,7 @@ const irohSymbolDefs = {
 		result: "i32",
 	},
 	pancake_iroh_netlayer_drain_ready: {
-		parameters: ["pointer", "buffer", "usize"],
+		parameters: ["pointer", "buffer", "usize", "buffer"],
 		result: "i32",
 	},
 	pancake_iroh_netlayer_try_accept: {
@@ -52,11 +52,11 @@ const irohSymbolDefs = {
 		nonblocking: true,
 	},
 	pancake_iroh_conn_try_read: {
-		parameters: ["pointer", "buffer", "usize"],
+		parameters: ["pointer", "buffer", "usize", "buffer"],
 		result: "i32",
 	},
 	pancake_iroh_conn_try_write: {
-		parameters: ["pointer", "buffer", "usize"],
+		parameters: ["pointer", "buffer", "usize", "buffer"],
 		result: "i32",
 	},
 } as const;
@@ -77,7 +77,7 @@ export function irohS(): Symbols {
 		throw new Error(
 			`iroh transport unavailable: could not load ${
 				libFile("pancake_net_transport_iroh")
-			} from zig-out/lib. ` +
+			} from PANCAKE_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system library path. ` +
 				"Build it with `zig build iroh-abi` (needs cargo). " +
 				(e instanceof Error ? e.message : String(e)),
 		);

@@ -1,9 +1,9 @@
 //! Vat footprint budget — the actor layer's half of the burst-drain contract.
 //!
-//! At the multi-connection tier a vat is minted per accepted connection
-//! (`driver.core.Host`, iroh's `LoopHost`), so vat-retained heap is
-//! per-connection heap: one
-//! chatty burst must not pin its peak capacity for the connection's life, the
+//! At the multi-session CapTP tier a vat is minted per accepted session
+//! (`driver.core.Host` via `driver.Bridge`), so vat-retained heap is
+//! per-session heap: one
+//! chatty burst must not pin its peak capacity for the session's life, the
 //! exact hole the engine's queues already close (`Queue.steady_queue_bytes`,
 //! held by test/engine/footprint_budget_test.zig). The vat holds the same
 //! posture with four declared steady bounds (`src/actors/vat.zig`, recorded in

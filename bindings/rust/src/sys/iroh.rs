@@ -82,7 +82,8 @@ extern "C" {
 		netlayer: *mut PancakeIrohNetlayer,
 		out_events: *mut PancakeIrohReadyEvent,
 		out_cap: usize,
-	) -> isize;
+		out_count: *mut usize,
+	) -> c_int;
 	pub fn pancake_iroh_netlayer_try_accept(
 		netlayer: *mut PancakeIrohNetlayer,
 		out_conn: *mut *mut PancakeIrohConn,
@@ -99,12 +100,14 @@ extern "C" {
 		conn: *mut PancakeIrohConn,
 		buf: *mut c_uchar,
 		len: usize,
-	) -> isize;
+		out_read: *mut usize,
+	) -> c_int;
 	pub fn pancake_iroh_conn_try_write(
 		conn: *mut PancakeIrohConn,
 		buf: *const c_uchar,
 		len: usize,
-	) -> isize;
+		out_written: *mut usize,
+	) -> c_int;
 
 	// The iroh transport archive carries its own thread-local last-error, read
 	// through `pancake_iroh_last_error` rather than the ocapn family's

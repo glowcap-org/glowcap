@@ -24,21 +24,20 @@
 //! Two consumer shapes ride this resident. The blocking sidecar calls
 //! (`connect`/`accept`/`read_frame`/`write_frame`) each block the calling OS
 //! thread (the endpoint runs its own tokio runtime) and serve the cooperative
-//! `ConnectedVat` path ADR-0053 settled. For pancake-scale fan-out, `LoopHost`
-//! (below) drives the ADR-0057 event-driven superset: the sidecar exposes one
-//! readiness fd and non-blocking try-I/O, so one thread multiplexes many iroh
-//! connections through the completion-loop shape — the userspace-QUIC analogue
-//! of the kernel-fd `net.Loop`, which a userspace QUIC stream cannot register.
+//! `BlockingSession` path ADR-0053 settled. For pancake-scale fan-out, the
+//! ADR-0057 event-driven superset exposes one readiness fd and non-blocking
+//! try-I/O through `Backend` below — `completion.Loop(Backend, DialResolver)` plus
+//! `driver.Bridge` multiplex many iroh connections the same way `net.TcpLoop`
+//! multiplexes kernel sockets (ADR-0076).
 
 const std = @import("std");
 
 const foundation = @import("foundation");
 const model = @import("model");
 const engine = @import("engine");
-const actors = @import("actors");
 const net = @import("net");
-const driver_core = @import("driver_core");
-const Served = driver_core.Served;
+const completion = net.completion;
+const ScratchPool = completion.ScratchPool;
 
 const crypto = foundation.crypto;
 const posix = std.posix;
@@ -50,7 +49,7 @@ const Buffers = net.netlayer.Buffers;
 
 /// The transport symbol this resident registers under and signs into
 /// `op:start-session`.
-pub const transport_name = "iroh";
+pub const transport_name = model.transport.iroh;
 
 /// How an endpoint becomes reachable, chosen explicitly when the resident is
 /// created — there is no default, so enabling relays or a discovery service is
@@ -82,9 +81,10 @@ pub const Reachability = enum(u32) {
 /// The locator hint carrying the partner's comma-separated direct socket
 /// addresses (the string `pancake_iroh_sidecar_endpoint_direct_addrs` produces).
 /// A `direct` endpoint runs no relay or lookup service, so a dial without this
-/// hint cannot reach its partner and `dial` refuses such a locator with
-/// `error.InvalidAddress` instead of timing out; an endpoint with a discovery
-/// posture resolves the partner by id, so the hint is optional there. The name
+/// hint cannot reach its partner and `DialResolver.resolve` / `dialRawConn` refuse
+/// such a locator with `error.InvalidAddress` instead of timing out; an endpoint
+/// with a discovery posture resolves the partner by id, so the hint is optional
+/// there. The name
 /// itself is the transport-neutral vocabulary in `net.netlayer` (keyed TCP
 /// dials with the same hint), re-exported here so iroh consumers keep this
 /// spelling.
@@ -93,7 +93,7 @@ pub const hint_direct_addresses = net.netlayer.hint_direct_addresses;
 /// An endpoint id is an Ed25519 public key printed as lowercase hex — the one
 /// canonical key-designator spelling, owned by
 /// `foundation.crypto.PeerKey.toDesignator`: `Resident.nodeId` produces it, and
-/// `dial` refuses any other shape with `error.InvalidAddress`.
+/// `DialResolver.resolve` refuses any other shape with `error.InvalidAddress`.
 pub const node_id_len = crypto.PeerKey.designator_len;
 
 // ── The sidecar C ABI (transports/iroh/include/pancake_iroh_sidecar.h) ──────
@@ -115,8 +115,8 @@ extern fn pancake_iroh_sidecar_endpoint_close(ep: *CEndpoint) void;
 extern fn pancake_iroh_sidecar_endpoint_free(ep: *CEndpoint) void;
 
 // The event-driven scale superset (ADR-0057): one readiness fd per endpoint, a
-// drained ready-queue, and non-blocking frame I/O, so the `LoopHost` below
-// serves many connections from one thread.
+// drained ready-queue, and non-blocking frame I/O — the `Backend` below adapts
+// them to `completion.Loop`.
 extern fn pancake_iroh_sidecar_endpoint_readiness_fd(ep: *const CEndpoint) i32;
 extern fn pancake_iroh_sidecar_endpoint_drain_ready(ep: *const CEndpoint, out: [*]ReadyEvent, out_cap: usize) isize;
 extern fn pancake_iroh_sidecar_endpoint_set_nonblocking_accept(ep: *CEndpoint) i32;
@@ -149,7 +149,7 @@ pub const ReadyEvent = extern struct {
 
 // ── The stream over one QUIC connection ──────────────────────────────────────
 
-/// The sidecar connection as a `net.stream_shim` byte source. The sidecar write
+/// The sidecar connection as a `stream_shim` byte source. The sidecar write
 /// is synchronous: it copies or sends the bytes before returning, so the caller
 /// may free them as soon as the call returns, unlike the completion loop's
 /// queued writes, which borrow until retire. QUIC sends written bytes eagerly,
@@ -173,54 +173,25 @@ const ConnSource = struct {
     }
 };
 
-const Shim = net.stream_shim.Shim(ConnSource);
-const StreamReader = Shim.Reader;
-const StreamWriter = Shim.Writer;
-
 /// One dialed/accepted QUIC stream, pinned so its reader/writer interfaces hold
-/// a stable address for the `Connection`'s life (the connection borrows
-/// `*std.Io.Reader` / `*std.Io.Writer` into this wrapper, recovered from
-/// `&interface` by field offset). Allocated from the peer's allocator at
-/// connect/accept and freed by the connection's transport handle on `close` —
-/// the same one named per-connection allocation as tcp's `TcpStream`
-/// (ADR-0043). Closing it finishes the QUIC stream (the partner reads a clean
-/// end of stream) and frees the sidecar connection handle.
-const IrohStream = struct {
-    reader: StreamReader,
-    writer: StreamWriter,
+/// a stable address for the `Connection`'s life. It is the shared
+/// `net.netlayer.PinnedStream` over the sidecar's `ConnSource`; closing it
+/// finishes the QUIC stream (the partner reads a clean end of stream) and frees
+/// the sidecar connection handle. Read and write ride the one `*CConn`, so both
+/// Shim sources name it.
+const IrohContext = struct {
     conn: *CConn,
-    allocator: std.mem.Allocator,
 
-    fn create(allocator: std.mem.Allocator, conn: *CConn, bufs: Buffers) std.mem.Allocator.Error!*IrohStream {
-        const self = try allocator.create(IrohStream);
-        self.* = .{
-            .reader = StreamReader.init(.{ .conn = conn }, bufs.read),
-            .writer = StreamWriter.init(.{ .conn = conn }, bufs.write),
-            .conn = conn,
-            .allocator = allocator,
-        };
-        return self;
-    }
-
-    fn intoConnection(self: *IrohStream, io: Io, peer: *engine.Peer) Connection {
-        return Connection.init(io, peer, &self.reader.interface, &self.writer.interface, .{
-            .ctx = self,
-            .close_fn = close,
-            .socket_handle_fn = socketHandle,
-        });
-    }
-
-    fn close(ctx: *anyopaque) void {
-        const self: *IrohStream = @ptrCast(@alignCast(ctx));
+    pub fn closeStream(self: IrohContext) void {
         pancake_iroh_sidecar_conn_free(self.conn);
-        self.allocator.destroy(self);
-    }
-
-    fn socketHandle(ctx: *anyopaque) ?Io.net.Socket.Handle {
-        _ = ctx;
-        return null; // No fd: the QUIC stream is userspace, not pollable.
     }
 };
+
+const IrohStream = net.netlayer.PinnedStream(ConnSource, IrohContext);
+
+fn irohStreamCreate(allocator: std.mem.Allocator, conn: *CConn, bufs: Buffers) std.mem.Allocator.Error!*IrohStream {
+    return IrohStream.create(allocator, .{ .conn = conn }, .{ .conn = conn }, bufs, .{ .conn = conn });
+}
 
 // ── The resident ─────────────────────────────────────────────────────────────
 
@@ -272,7 +243,9 @@ pub const Resident = struct {
     /// dial itself. The returned `*CConn` is owned by the caller, freed with
     /// `pancake_iroh_sidecar_conn_free`.
     fn dialRawConn(self: *Resident, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!*CConn {
-        if (!isCanonicalNodeId(designator)) return error.InvalidAddress;
+        // Canonical node-id shape is owned by `DialResolver.resolve` (blocking
+        // `residentDial`, C-ABI `loopConnect`, `Loop.dialLocator`). Callers hand
+        // an already-admitted id; this path owns reachability hint policy.
         // A `direct` endpoint has no way to find a partner it was not handed an
         // address for, so a hint-less dial is a caller defect, refused before
         // the network. A discovery endpoint resolves the partner by id.
@@ -311,7 +284,7 @@ pub const Resident = struct {
 
     // ── The event-driven loop surface (ADR-0057) ────────────────────────────
     //
-    // These let a host that owns the loop — `LoopHost` here, or a language
+    // These let a host that owns the loop — `iroh.Backend` here, or a language
     // binding through the C ABI — drive many connections from one thread
     // without a parked blocking read per connection. A connection handle is
     // the sidecar's opaque `*CConn`, surfaced as `*anyopaque` so callers
@@ -355,6 +328,16 @@ pub const Resident = struct {
     /// error. The dial itself blocks the calling thread; only subsequent frame
     /// I/O on the returned handle is non-blocking.
     pub fn loopConnect(self: *Resident, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!*anyopaque {
+        // Admission for standalone / C-ABI callers that have not already gone
+        // through `DialResolver.resolve` (completion workers use `loopConnectResolved`).
+        const target = DialResolver.resolve(transport_name, designator, direct_addrs) catch return error.InvalidAddress;
+        return self.loopConnectResolved(target.id, target.hints);
+    }
+
+    /// Post-admission loop dial: `designator` / `direct_addrs` already passed
+    /// `DialResolver.resolve` (the `Loop.dialLocator` path). Sets the connection
+    /// non-blocking for the completion surface.
+    pub fn loopConnectResolved(self: *Resident, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!*anyopaque {
         const conn = try self.dialRawConn(designator, direct_addrs);
         if (pancake_iroh_sidecar_conn_set_nonblocking(self.endpoint, conn) != 0) {
             pancake_iroh_sidecar_conn_free(conn);
@@ -430,13 +413,14 @@ fn residentDial(
     bufs: Buffers,
 ) net.netlayer.DialError!Connection {
     const self: *Resident = @ptrCast(@alignCast(ctx));
-    // The direct-address hint is optional under a discovery posture and required
-    // under `direct`; `dialRawConn` enforces that, refusing a hint-less direct
-    // dial as `error.InvalidAddress` before the network instead of timing out.
+    // Same admission as the completion loop: DialResolver.resolve owns transport +
+    // canonical node-id; dialRawConn owns reachability hint policy (needs
+    // resident posture).
     const hints = directAddrHint(locator.hints) orelse "";
-    const conn = try self.dialRawConn(locator.designator, hints);
+    const target = DialResolver.resolve(locator.transport, locator.designator, hints) catch return error.InvalidAddress;
+    const conn = try self.dialRawConn(target.id, target.hints);
     errdefer pancake_iroh_sidecar_conn_free(conn);
-    const stream = try IrohStream.create(peer.allocator, conn, bufs);
+    const stream = try irohStreamCreate(peer.allocator, conn, bufs);
     return stream.intoConnection(self.io, peer);
 }
 
@@ -458,6 +442,29 @@ fn residentListen(
     box.* = .{ .resident = self, .allocator = allocator };
     return .{ .ctx = box, .vtable = &listener_vtable };
 }
+
+/// Iroh dial target: node id + optional direct-address hints. Module-level so
+/// `Locator` and `Backend` share one type without nesting the Locator on the Backend.
+const connect_target = struct {
+    id: []const u8,
+    hints: []const u8,
+};
+pub const ConnectTarget = connect_target;
+
+/// OCapN locator → iroh `ConnectTarget` for `completion.Loop`.
+/// Canonical node-id shape is refused here so `dialLocator` / blocking dial
+/// fail before the network (or a connect worker) is touched.
+pub const DialResolver = struct {
+    pub fn resolve(
+        transport: []const u8,
+        designator: []const u8,
+        direct_addresses_hint: []const u8,
+    ) !ConnectTarget {
+        if (!std.mem.eql(u8, transport, model.transport.iroh)) return error.UnknownTransport;
+        if (!isCanonicalNodeId(designator)) return error.InvalidAddress;
+        return .{ .id = designator, .hints = direct_addresses_hint };
+    }
+};
 
 /// A heap-pinned accept seat over the resident's one endpoint, freed by the
 /// contract listener's `close`. Closing the listener does not close the
@@ -483,7 +490,7 @@ fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) net.netlay
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
     const conn = pancake_iroh_sidecar_accept(box.resident.endpoint) orelse return error.ConnectionLost;
     errdefer pancake_iroh_sidecar_conn_free(conn);
-    const stream = try IrohStream.create(peer.allocator, conn, bufs);
+    const stream = try irohStreamCreate(peer.allocator, conn, bufs);
     return stream.intoConnection(box.resident.io, peer);
 }
 
@@ -501,491 +508,501 @@ fn listenerClose(ctx: *anyopaque) void {
     box.allocator.destroy(box);
 }
 
-// ── The completion-loop source: many iroh connections on one thread (ADR-0057) ─
+// ── Completion backend: many iroh connections on one `completion.Loop` (ADR-0057) ─
 
-/// Serve many iroh connections from one thread — the loop-scale counterpart
-/// of the blocking resident above, over the sidecar's readiness fd instead of
-/// kernel sockets.
+/// The iroh completion `Backend` for `net.completion.Loop`. Adapts the
+/// sidecar's one readiness fd + non-blocking try-I/O to the same
+/// completion-shaped interface the io_uring and kqueue backends provide, so
+/// CapTP fan-out rides `driver.Bridge` + `driver_core.Host` instead of a
+/// second, diverging loop (ADR-0076 convergence).
 ///
-/// Where the blocking resident above parks one OS thread per connection (one
-/// `accept`, one `conn_read`, one `conn_write` each), this host registers the
-/// endpoint's single readiness fd once and multiplexes every connection through
-/// it. On each wake it drains the sidecar's ready-queue and, for each
-/// `(conn, events)` record, drives non-blocking frame I/O on that connection's
-/// peer and runs the surfaced events through the connection's own `actors.Vat`.
-/// N connections cost one loop source plus the sidecar's fixed runtime threads,
-/// not N×2 blocking threads, the cost ADR-0057 exists to remove.
-///
-/// This source lives in the resident module, not `src/driver`, because it calls
-/// the sidecar's `extern` symbols directly; keeping it here preserves the
-/// pure-Zig core archives (the resident links the Rust staticlib only in the
-/// `iroh-*` build steps). The `Netlayer`/`ConnectedVat` contracts above are
-/// untouched: a loop-driven host selects this source, a simple consumer keeps
-/// the blocking `acceptVia` path.
-pub const LoopHost = struct {
-    /// The application's per-connection setup (the shared loop-driver
-    /// `driver_core.Publish`): publish the objects this fresh connection
-    /// serves (e.g. `try served.publish("name", App, .{})`).
-    pub const Publish = driver_core.Publish;
+/// Construct with `initBound` over a `Resident`'s endpoint, then
+/// `completion.Loop(Backend, DialResolver).initWithBackend`. Outbound dials
+/// resolve OCapN locator parts through `DialResolver.resolve` into `ConnectTarget`,
+/// then `startDial` (worker-offloaded `Resident.loopConnectResolved`).
+/// Dial stays on a detached worker because `dialRawConn` blocks; wakeup +
+/// `harvestReadiness` keep accept/readiness from starving while workers finish.
+pub const Backend = struct {
+    pub const Fd = i32;
+    pub const ConnectTarget = connect_target;
 
-    pub const Options = struct {
-        frame_cap: usize = 1 << 16,
-        max_conns: usize = 1024,
-        /// Verify each partner's keyed start-session signature.
-        verify_partner: bool = true,
-        /// The identity key every accepted session signs its `op:start-session`
-        /// with. Under key unification this is the secret half of the seed the
-        /// resident's endpoint was bound on, so the signed session key equals
-        /// the node id a partner dialed — which a pinning dialer
-        /// (`driver.connectVia` over a key-designator transport) requires.
-        /// Null draws a fresh random key at `init`; a partner that dials this
-        /// host by node id will then refuse the handshake, so a dialable-by-id
-        /// host passes its endpoint secret here.
-        secret: ?crypto.SecretKey = null,
-        /// Emit `op:gc-exports` / `op:gc-answers` after each inbound deliver /
-        /// resolve the connection's vat does not retain imports from — the same
-        /// stateless GC `ConnectedVat` offers (one chokepoint, `driver_core.gc`),
-        /// so a long-lived encrypted fan-out server's import tables stay bounded
-        /// too.
-        gc_stateless: bool = false,
-        /// The outbound backpressure mark (ADR-0042). While a connection's
-        /// pending outbound bytes exceed it, the loop stops draining that
-        /// connection's inbound from the sidecar, so the sidecar's inbound
-        /// buffer fills and QUIC flow control throttles the partner instead of
-        /// this loop's memory growing unbounded. `null` resolves to `frame_cap`.
-        outbound_high_water: ?usize = null,
-        /// Poll timeout in milliseconds: the loop re-checks its stop condition
-        /// this often even with no readiness traffic.
-        poll_timeout_ms: i32 = 200,
-        /// The most local eventual-send turns one inbound batch may drive before
-        /// the connection is closed as a runaway (see
-        /// `actors.Vat.max_batch_local_turns`, the default). Set by the operator,
-        /// never the partner.
-        max_batch_local_turns: usize = actors.Vat.max_batch_local_turns,
+    /// Sentinel listen handle: not an OS fd; `openListener` returns it after
+    /// arming non-blocking accept on the endpoint.
+    pub const listen_fd: Fd = 0;
+
+    /// Slot fd while an outbound iroh dial is in flight — not a live synthetic
+    /// fd. `onConnect` replaces it with the allocFd result (or teardown ignores it).
+    pub const pending_dial_fd: Fd = -1;
+
+    const Pending = struct {
+        read_ud: ?u64 = null,
+        read_is_recv: bool = false,
+        write_ud: ?u64 = null,
+        write_bytes: ?[]const u8 = null,
+        readable_hint: bool = false,
+        writable_hint: bool = false,
     };
 
-    /// When `run` returns: `.forever` for a real server, `.{ .after_closed = n }`
-    /// to return once `n` connections have fully closed (the test-shaped stop).
-    /// The one stop vocabulary every loop shares (`net.completion.Stop`).
-    pub const Stop = net.completion.Stop;
-
-    const Conn = struct {
-        state: enum { free, open } = .free,
-        cconn: ?*CConn = null,
-        peer: engine.Peer = undefined,
-        served: Served = undefined,
-        /// Bounded overflow for a frame split across `try_read` chunks; inactive
-        /// (allocation-free) while whole frames arrive within one read.
-        spill: net.Spill = .{},
-        /// Outbound frame bytes the loop has encoded but the sidecar has not yet
-        /// accepted (a `try_write` that returned `WOULD_BLOCK` leaves them here
-        /// until the next `ev_writable`).
-        outbound: std.ArrayList(u8) = .empty,
-        out_off: usize = 0,
-        /// True while inbound draining is paused under ADR-0042 backpressure:
-        /// the outbound queue crossed the high-water mark, so the loop leaves
-        /// the sidecar's inbound buffered (throttling the partner) until the
-        /// outbound drains back below it. `flush`'s full-drain resumes reading.
-        read_parked: bool = false,
-        /// Intrusive free-list link, meaningful only while the slot is free.
-        next_free: usize = 0,
+    const ConnEntry = struct {
+        cconn: *CConn,
+        pending: Pending = .{},
     };
 
-    /// Burst outbound capacity above this bound is freed when the queue fully
-    /// drains, so one slow-reader episode does not pin its high-water bytes for
-    /// the connection's life. Shared with the TCP loop in one home so the
-    /// ladder's per-connection footprint budget cannot split between them.
-    const steady_outbound_bytes: usize = net.steady_outbound_bytes;
+    /// A finished worker dial, drained on the loop thread so `allocFd` stays
+    /// single-threaded over `conns` / `by_ptr`.
+    const ConnectDone = struct {
+        user_data: u64,
+        cconn: ?*CConn,
+    };
 
-    resident: *Resident,
-    secret: crypto.SecretKey,
-    node_id_buf: [node_id_len]u8 = undefined,
-    frame_cap: usize,
-    outbound_high_water: usize,
-    verify_partner: bool,
-    poll_timeout_ms: i32,
-    max_batch_local_turns: usize,
-    gc_stateless: bool,
-    publish_fn: Publish,
-    publish_ctx: ?*anyopaque,
     allocator: std.mem.Allocator,
-    conns: []Conn,
-    /// Maps a live connection's `*CConn` (as an integer, the identity drained
-    /// records carry) to its slot. O(1) lookup per readiness record at scale.
-    /// A freed conn's address can be reused by a later accept while stale
-    /// readiness records for the dead conn still sit in the sidecar queue, so
-    /// a record can misroute to the reused slot — harmless by construction:
-    /// ready records are hints, not payload carriers, and a spurious
-    /// `try_read`/`flush` on a live connection no-ops. A generation stamp
-    /// would close the window if records ever start carrying more than
-    /// readiness.
-    by_ptr: std.AutoHashMap(usize, usize),
-    read_scratch: []u8,
-    /// The fixed readiness-drain batch, a stack-shaped buffer like `net.Loop`'s
-    /// completion batch: a deeper sidecar queue drains across more passes.
-    events_buf: [256]ReadyEvent = undefined,
-    free_head: usize,
-    closed_count: usize = 0,
-    /// Set by `requestStop` from another thread to bring `run` down at the next
-    /// poll cycle, independent of the `Stop` condition. The safety net a host
-    /// runner uses so a partner that never closes cannot hang the loop.
-    stopping: std.atomic.Value(bool) = std.atomic.Value(bool).init(false),
+    /// Borrowed; must outlive the backend. Dial workers call `loopConnectResolved` on it.
+    resident: *Resident,
+    endpoint: *CEndpoint,
+    readiness_fd: i32 = -1,
+    /// Wake the loop when a dial worker finishes (pipe — portable `std.posix`).
+    wakeup_r: i32 = -1,
+    wakeup_w: i32 = -1,
+    /// Completions that need no further readiness (closes, immediate accepts
+    /// from the stash, hint-satisfied recv/send, drained dials), drained before blocking.
+    ready: std.ArrayList(completion.Completion) = .empty,
+    /// Accepted connections waiting for a `submitAccept` to claim them — edge-
+    /// triggered accept can queue several before the loop re-arms.
+    accept_stash: std.ArrayList(*CConn) = .empty,
+    accept_ud: ?u64 = null,
+    /// Synthetic fd → sidecar connection. Fd 0 is the listen sentinel.
+    conns: std.AutoHashMap(Fd, ConnEntry),
+    /// Sidecar `*CConn` identity → synthetic fd, for readiness records.
+    by_ptr: std.AutoHashMap(usize, Fd),
+    next_fd: Fd = 1,
+    scratch_pool: ScratchPool,
+    poll_timeout_ms: i32 = 200,
+    /// Protects `connect_done` between dial workers and the loop thread.
+    /// Short critical sections only — spin, no Io (workers are OS threads).
+    connect_mutex: std.atomic.Mutex = .unlocked,
+    connect_done: std.ArrayList(ConnectDone) = .empty,
+    connects_in_flight: std.atomic.Value(usize) = .init(0),
 
-    pub const InitError = error{ EndpointBindFailed, HandshakeEntropyFailed } || std.mem.Allocator.Error;
-
-    /// Bind a loop host over `resident`'s endpoint. `resident` must outlive the
-    /// host and be driven by no other consumer (this host owns its accept and
-    /// connection I/O). The server identity key is `options.secret` (the
-    /// endpoint's own key, under key unification); when null, `io` draws a
-    /// fresh one at the I/O boundary. The caller owns the returned host at a
-    /// stable address.
-    pub fn init(
+    /// Bind a backend to `resident`'s endpoint. The resident must outlive the
+    /// loop and be driven by no other consumer for accept/connection I/O.
+    pub fn initBound(
         allocator: std.mem.Allocator,
-        io: Io,
         resident: *Resident,
-        publish_fn: Publish,
-        publish_ctx: ?*anyopaque,
-        options: Options,
-    ) InitError!LoopHost {
-        const secret = options.secret orelse drawn: {
-            var seed: [crypto.SEED_BYTES]u8 = undefined;
-            defer std.crypto.secureZero(u8, &seed);
-            io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
-            break :drawn crypto.SecretKey.fromSeed(seed);
-        };
+        queue_entries: u16,
+        read_buffers: u16,
+        read_buffer_bytes: u32,
+    ) !Backend {
+        _ = queue_entries;
+        var scratch_pool = try ScratchPool.init(allocator, read_buffers, read_buffer_bytes);
+        errdefer scratch_pool.deinit();
 
-        const conns = try allocator.alloc(Conn, options.max_conns);
-        errdefer allocator.free(conns);
-        for (conns, 0..) |*c, i| {
-            c.* = .{};
-            c.next_free = i + 1;
-        }
-        const read_scratch = try allocator.alloc(u8, @min(options.frame_cap, 64 * 1024));
-        errdefer allocator.free(read_scratch);
+        const wakeup = try openWakeup();
+        errdefer closeWakeup(wakeup.r, wakeup.w);
 
-        var self = LoopHost{
-            .resident = resident,
-            .secret = secret,
-            .frame_cap = options.frame_cap,
-            .outbound_high_water = options.outbound_high_water orelse options.frame_cap,
-            .verify_partner = options.verify_partner,
-            .poll_timeout_ms = options.poll_timeout_ms,
-            .max_batch_local_turns = options.max_batch_local_turns,
-            .gc_stateless = options.gc_stateless,
-            .publish_fn = publish_fn,
-            .publish_ctx = publish_ctx,
+        return .{
             .allocator = allocator,
-            .conns = conns,
-            .by_ptr = std.AutoHashMap(usize, usize).init(allocator),
-            .read_scratch = read_scratch,
-            .free_head = 0,
+            .resident = resident,
+            .endpoint = resident.endpoint,
+            .wakeup_r = wakeup.r,
+            .wakeup_w = wakeup.w,
+            .conns = std.AutoHashMap(Fd, ConnEntry).init(allocator),
+            .by_ptr = std.AutoHashMap(usize, Fd).init(allocator),
+            .scratch_pool = scratch_pool,
         };
-        _ = self.resident.nodeId(&self.node_id_buf);
-        return self;
     }
 
-    /// Ask `run` to return at the next poll cycle, from another thread. Safe to
-    /// call whether or not `run` is still executing.
-    pub fn requestStop(self: *LoopHost) void {
-        self.stopping.store(true, .release);
-    }
-
-    pub fn deinit(self: *LoopHost) void {
-        for (self.conns, 0..) |*c, slot| {
-            if (c.state == .open) self.closeConn(slot);
+    pub fn deinit(self: *Backend) void {
+        while (self.connects_in_flight.load(.acquire) != 0) {
+            std.Thread.yield() catch {};
         }
+        lockConnect(&self.connect_mutex);
+        for (self.connect_done.items) |done| {
+            if (done.cconn) |cconn| pancake_iroh_sidecar_conn_free(cconn);
+        }
+        self.connect_done.deinit(self.allocator);
+        unlockConnect(&self.connect_mutex);
+        closeWakeup(self.wakeup_r, self.wakeup_w);
+        self.wakeup_r = -1;
+        self.wakeup_w = -1;
+
+        var it = self.conns.iterator();
+        while (it.next()) |entry| {
+            pancake_iroh_sidecar_conn_free(entry.value_ptr.cconn);
+        }
+        self.conns.deinit();
         self.by_ptr.deinit();
-        self.allocator.free(self.read_scratch);
-        self.allocator.free(self.conns);
+        for (self.accept_stash.items) |cconn| pancake_iroh_sidecar_conn_free(cconn);
+        self.accept_stash.deinit(self.allocator);
+        self.ready.deinit(self.allocator);
+        self.scratch_pool.deinit();
     }
 
-    /// Run the loop until `stop`. Arms the endpoint's non-blocking acceptor, then
-    /// polls the one readiness fd and drains the ready-queue, dispatching each
-    /// connection's readiness to non-blocking I/O on its peer.
-    pub fn run(self: *LoopHost, stop: Stop) !void {
-        if (pancake_iroh_sidecar_endpoint_set_nonblocking_accept(self.resident.endpoint) != 0) {
-            return error.ConnectionLost;
-        }
-        const fd = pancake_iroh_sidecar_endpoint_readiness_fd(self.resident.endpoint);
-        if (fd < 0) return error.ConnectionLost;
+    pub fn openListener(self: *Backend, port: u16) !Fd {
+        _ = port;
+        if (pancake_iroh_sidecar_endpoint_set_nonblocking_accept(self.endpoint) != 0)
+            return error.ListenFailed;
+        const fd = pancake_iroh_sidecar_endpoint_readiness_fd(self.endpoint);
+        if (fd < 0) return error.ListenFailed;
+        self.readiness_fd = fd;
+        return listen_fd;
+    }
 
-        while (!self.stopping.load(.acquire) and switch (stop) {
-            .forever => true,
-            .after_closed => |n| self.closed_count < n,
-        }) {
-            var pfd = [_]posix.pollfd{.{ .fd = fd, .events = posix.POLL.IN, .revents = 0 }};
-            _ = posix.poll(&pfd, self.poll_timeout_ms) catch 0;
-            // Drain the self-pipe wakeup bytes so the next poll re-arms only on
-            // fresh signals; the ready-queue, drained below, is the truth. A
-            // zero-length read is the write end closing under a live loop —
-            // stop draining rather than spin on EOF.
-            var drain: [256]u8 = undefined;
+    /// Start an outbound iroh dial: spawn the connect worker and return the
+    /// pending-dial sentinel. The synthetic fd arrives on connect completion.
+    pub fn startDial(self: *Backend, user_data: u64, target: connect_target) !Fd {
+        try self.submitConnect(user_data, target);
+        return pending_dial_fd;
+    }
+
+    pub fn boundPort(fd: Fd) !u16 {
+        _ = fd;
+        return 0;
+    }
+
+    pub fn closeFd(self: *Backend, fd: Fd) void {
+        if (fd == listen_fd or fd == pending_dial_fd) return;
+        const entry = self.conns.fetchRemove(fd) orelse return;
+        std.debug.assert(self.by_ptr.remove(@intFromPtr(entry.value.cconn)));
+        pancake_iroh_sidecar_conn_free(entry.value.cconn);
+    }
+
+    /// Required Backend contract; iroh has no OS recv to unblock.
+    pub fn shutdownFd(self: *Backend, fd: Fd) void {
+        _ = self;
+        _ = fd;
+    }
+
+    pub fn recycleRecv(self: *Backend, comp: completion.Completion) void {
+        self.scratch_pool.release(@intCast(comp.recv_token));
+    }
+
+    fn allocFd(self: *Backend, cconn: *CConn) !Fd {
+        const fd = self.next_fd;
+        if (fd == std.math.maxInt(Fd)) return error.OutOfFds;
+        self.next_fd += 1;
+        // Fresh connections are writable; seed the hint so the first hello
+        // send is not stranded if a writable edge fired before by_ptr
+        // registration (edge-triggered readiness drops unknown conns).
+        try self.conns.put(fd, .{ .cconn = cconn, .pending = .{ .writable_hint = true } });
+        errdefer std.debug.assert(self.conns.remove(fd));
+        try self.by_ptr.put(@intFromPtr(cconn), fd);
+        return fd;
+    }
+
+    fn takeAccept(self: *Backend) !void {
+        const ud = self.accept_ud orelse return;
+        if (self.accept_stash.items.len == 0) return;
+        const cconn = self.accept_stash.orderedRemove(0);
+        const fd = self.allocFd(cconn) catch {
+            pancake_iroh_sidecar_conn_free(cconn);
+            try self.ready.append(self.allocator, .{ .user_data = ud, .result = -1 });
+            self.accept_ud = null;
+            return;
+        };
+        try self.ready.append(self.allocator, .{ .user_data = ud, .result = fd });
+        self.accept_ud = null;
+    }
+
+    fn stashAccepts(self: *Backend) void {
+        while (pancake_iroh_sidecar_endpoint_try_accept(self.endpoint)) |cconn| {
+            if (pancake_iroh_sidecar_conn_set_nonblocking(self.endpoint, cconn) != 0) {
+                pancake_iroh_sidecar_conn_free(cconn);
+                continue;
+            }
+            self.accept_stash.append(self.allocator, cconn) catch {
+                pancake_iroh_sidecar_conn_free(cconn);
+                continue;
+            };
+        }
+    }
+
+    pub fn submitAccept(self: *Backend, user_data: u64, listen: Fd) !void {
+        if (listen != listen_fd) return error.InvalidListenFd;
+        self.accept_ud = user_data;
+        self.stashAccepts();
+        try self.takeAccept();
+    }
+
+    fn submitConnect(self: *Backend, user_data: u64, target: connect_target) !void {
+        const designator = target.id;
+        const hints = target.hints;
+        // Node-id shape was validated by `DialResolver.resolve` on the dialLocator path.
+        const designator_owned = try self.allocator.dupe(u8, designator);
+        errdefer self.allocator.free(designator_owned);
+        const hints_owned = try self.allocator.dupe(u8, hints);
+        errdefer self.allocator.free(hints_owned);
+
+        _ = self.connects_in_flight.fetchAdd(1, .acq_rel);
+        errdefer _ = self.connects_in_flight.fetchSub(1, .acq_rel);
+
+        const thread = try std.Thread.spawn(.{}, connectWorker, .{ self, user_data, designator_owned, hints_owned });
+        thread.detach();
+    }
+
+    fn connectWorker(self: *Backend, user_data: u64, designator: []u8, hints: []u8) void {
+        defer {
+            self.allocator.free(designator);
+            self.allocator.free(hints);
+            _ = self.connects_in_flight.fetchSub(1, .acq_rel);
+        }
+        const cconn: ?*CConn = blk: {
+            const opaque_conn = self.resident.loopConnectResolved(designator, hints) catch break :blk null;
+            break :blk @ptrCast(opaque_conn);
+        };
+
+        lockConnect(&self.connect_mutex);
+        const queued = blk: {
+            self.connect_done.append(self.allocator, .{ .user_data = user_data, .cconn = cconn }) catch {
+                if (cconn) |c| pancake_iroh_sidecar_conn_free(c);
+                self.connect_done.append(self.allocator, .{ .user_data = user_data, .cconn = null }) catch break :blk false;
+                break :blk true;
+            };
+            break :blk true;
+        };
+        unlockConnect(&self.connect_mutex);
+        if (queued) self.wake();
+    }
+
+    fn wake(self: *Backend) void {
+        if (self.wakeup_w < 0) return;
+        const one: [1]u8 = .{1};
+        _ = posix.system.write(self.wakeup_w, &one, 1);
+    }
+
+    fn drainConnectDone(self: *Backend) !void {
+        lockConnect(&self.connect_mutex);
+        var batch = self.connect_done;
+        self.connect_done = .empty;
+        unlockConnect(&self.connect_mutex);
+        defer batch.deinit(self.allocator);
+
+        for (batch.items) |done| {
+            if (done.cconn) |cconn| {
+                const fd = self.allocFd(cconn) catch {
+                    pancake_iroh_sidecar_conn_free(cconn);
+                    try self.ready.append(self.allocator, .{ .user_data = done.user_data, .result = -1 });
+                    continue;
+                };
+                try self.ready.append(self.allocator, .{ .user_data = done.user_data, .result = fd });
+            } else {
+                try self.ready.append(self.allocator, .{ .user_data = done.user_data, .result = -1 });
+            }
+        }
+    }
+
+    fn entryPtr(self: *Backend, fd: Fd) !*ConnEntry {
+        return self.conns.getPtr(fd) orelse error.InvalidFd;
+    }
+
+    fn completeRecv(self: *Backend, fd: Fd, entry: *ConnEntry) !void {
+        const ud = entry.pending.read_ud orelse return;
+        var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
+        if (self.scratch_pool.acquire()) |idx| {
+            const buf = self.scratch_pool.buffer(idx);
+            const n = pancake_iroh_sidecar_conn_try_read(entry.cconn, buf.ptr, buf.len);
+            if (n == would_block) {
+                // Edge spent without bytes: keep the pending recv; a later
+                // readable (or a left-over hint) will retry.
+                self.scratch_pool.release(idx);
+                entry.pending.readable_hint = false;
+                return;
+            }
+            if (n > 0) {
+                comp.result = @intCast(n);
+                comp.recv_bytes = buf[0..@intCast(n)];
+                comp.recv_token = idx;
+                // More may still be buffered: leave the hint so the next
+                // submitRecv completes without waiting for another edge.
+                entry.pending.readable_hint = true;
+            } else {
+                // 0 = clean EOF, negative = fault.
+                comp.result = if (n == 0) 0 else -1;
+                self.scratch_pool.release(idx);
+                entry.pending.readable_hint = false;
+            }
+        } else {
+            comp.recv_no_buffer = true;
+            // Keep the hint: the loop re-arms once a buffer recycles.
+        }
+        entry.pending.read_ud = null;
+        entry.pending.read_is_recv = false;
+        try self.ready.append(self.allocator, comp);
+        _ = fd;
+    }
+
+    fn completeSend(self: *Backend, entry: *ConnEntry) !void {
+        const ud = entry.pending.write_ud orelse return;
+        const bytes = entry.pending.write_bytes orelse return;
+        const n = pancake_iroh_sidecar_conn_try_write(entry.cconn, bytes.ptr, bytes.len);
+        var result: i32 = -1;
+        if (n == would_block) {
+            entry.pending.writable_hint = false;
+            return;
+        }
+        if (n > 0) {
+            result = @intCast(n);
+            entry.pending.writable_hint = true;
+        } else {
+            entry.pending.writable_hint = false;
+        }
+        entry.pending.write_ud = null;
+        entry.pending.write_bytes = null;
+        try self.ready.append(self.allocator, .{ .user_data = ud, .result = result });
+    }
+
+    pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void {
+        const entry = try self.entryPtr(fd);
+        entry.pending.read_ud = user_data;
+        entry.pending.read_is_recv = true;
+        if (entry.pending.readable_hint) try self.completeRecv(fd, entry);
+    }
+
+    pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void {
+        const entry = try self.entryPtr(fd);
+        entry.pending.write_ud = user_data;
+        entry.pending.write_bytes = bytes;
+        // Always attempt once: a seeded writable_hint or a live edge may
+        // already allow the write; would_block parks until the next edge.
+        try self.completeSend(entry);
+    }
+
+    pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void {
+        try self.ready.ensureUnusedCapacity(self.allocator, 3);
+        if (fd == listen_fd) {
+            // Cancel a pending accept so Loop.closeAndDrain cannot hang on an
+            // idle acceptor; the listen sentinel is not a real conn entry.
+            if (self.accept_ud) |ud| {
+                self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
+                self.accept_ud = null;
+            }
+            for (self.accept_stash.items) |cconn| pancake_iroh_sidecar_conn_free(cconn);
+            self.accept_stash.clearRetainingCapacity();
+            self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
+            return;
+        }
+        if (self.conns.getPtr(fd)) |entry| {
+            if (entry.pending.read_ud) |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
+            if (entry.pending.write_ud) |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
+            entry.pending = .{};
+            std.debug.assert(self.by_ptr.remove(@intFromPtr(entry.cconn)));
+            pancake_iroh_sidecar_conn_free(entry.cconn);
+            std.debug.assert(self.conns.remove(fd));
+        }
+        self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
+    }
+
+    fn dispatchReady(self: *Backend, ev: ReadyEvent) !void {
+        if (ev.events & ev_accept != 0) {
+            self.stashAccepts();
+            try self.takeAccept();
+            return;
+        }
+        const fd = self.by_ptr.get(ev.conn) orelse return;
+        const entry = self.conns.getPtr(fd) orelse return;
+        if (ev.events & (ev_readable | ev_closed) != 0) {
+            entry.pending.readable_hint = true;
+            if (entry.pending.read_ud != null and entry.pending.read_is_recv)
+                try self.completeRecv(fd, entry);
+        }
+        if (ev.events & ev_writable != 0) {
+            entry.pending.writable_hint = true;
+            if (entry.pending.write_ud != null) try self.completeSend(entry);
+        }
+    }
+
+    fn takeReady(self: *Backend, out: []completion.Completion) usize {
+        return completion.drainReady(&self.ready, out);
+    }
+
+    /// Non-blocking harvest of dial wakeups and sidecar readiness. Must run
+    /// even when `ready` already has send/recv completions — otherwise an
+    /// accept that arrived during a busy G↔E exchange stays invisible until
+    /// the queue drains, and a redeem dialer's CapTP hello is never answered.
+    fn harvestReadiness(self: *Backend) !void {
+        try self.drainConnectDone();
+        if (self.readiness_fd < 0) return;
+
+        var pfds = [_]posix.pollfd{
+            .{ .fd = self.readiness_fd, .events = posix.POLL.IN, .revents = 0 },
+            .{ .fd = self.wakeup_r, .events = posix.POLL.IN, .revents = 0 },
+        };
+        _ = posix.poll(&pfds, 0) catch 0;
+
+        if (pfds[1].revents & (posix.POLL.IN | posix.POLL.ERR | posix.POLL.HUP) != 0) {
+            var drain_buf: [64]u8 = undefined;
             while (true) {
-                const drained = posix.read(fd, &drain) catch break;
+                const drained = posix.read(self.wakeup_r, &drain_buf) catch break;
                 if (drained == 0) break;
             }
-            // Drain the ready-queue until it empties (a short batch means done).
-            // A negative count is a sidecar fault: surface it instead of
-            // spinning at the poll cadence against a dead queue forever.
+            try self.drainConnectDone();
+        }
+
+        if (pfds[0].revents & (posix.POLL.IN | posix.POLL.ERR | posix.POLL.HUP) != 0) {
+            var readiness_buf: [256]u8 = undefined;
             while (true) {
-                const n = pancake_iroh_sidecar_endpoint_drain_ready(self.resident.endpoint, &self.events_buf, self.events_buf.len);
+                const drained = posix.read(self.readiness_fd, &readiness_buf) catch break;
+                if (drained == 0) break;
+            }
+            var events_buf: [256]ReadyEvent = undefined;
+            while (true) {
+                const n = pancake_iroh_sidecar_endpoint_drain_ready(self.endpoint, &events_buf, events_buf.len);
                 if (n < 0) return error.SidecarDrainFailed;
                 if (n == 0) break;
                 const count: usize = @intCast(n);
-                for (self.events_buf[0..count]) |ev| self.dispatch(ev);
-                if (count < self.events_buf.len) break;
+                for (events_buf[0..count]) |ev| try self.dispatchReady(ev);
+                if (count < events_buf.len) break;
             }
         }
     }
 
-    fn dispatch(self: *LoopHost, ev: ReadyEvent) void {
-        if (ev.events & ev_accept != 0) {
-            self.acceptAll();
-            return;
+    pub fn poll(self: *Backend, out: []completion.Completion) !usize {
+        try self.harvestReadiness();
+        {
+            const n = self.takeReady(out);
+            if (n > 0) return n;
         }
-        if (ev.events & (ev_readable | ev_closed) != 0) {
-            if (self.by_ptr.get(ev.conn)) |slot| self.serviceReadable(slot);
-        }
-        if (ev.events & ev_writable != 0) {
-            // serviceReadable above may have closed the connection, so re-resolve.
-            if (self.by_ptr.get(ev.conn)) |slot| {
-                const was_parked = self.conns[slot].read_parked;
-                self.flush(slot);
-                // If the writable drained a read parked at the mark (ADR-0042),
-                // resume draining the sidecar's throttled inbound now.
-                if (was_parked and self.conns[slot].state == .open and !self.conns[slot].read_parked) {
-                    self.serviceReadable(slot);
-                }
-            }
-        }
-    }
 
-    /// Claim every connection the acceptor has queued, bind each to a fresh peer
-    /// and vat, and flush the responder's `op:start-session`.
-    fn acceptAll(self: *LoopHost) void {
-        while (pancake_iroh_sidecar_endpoint_try_accept(self.resident.endpoint)) |cconn| {
-            const slot = self.freeSlot() orelse {
-                pancake_iroh_sidecar_conn_free(cconn);
-                continue;
-            };
-            if (pancake_iroh_sidecar_conn_set_nonblocking(self.resident.endpoint, cconn) != 0) {
-                pancake_iroh_sidecar_conn_free(cconn);
-                self.pushFreeSlot(slot);
-                continue;
-            }
-            if (!self.openConn(slot, cconn)) {
-                pancake_iroh_sidecar_conn_free(cconn);
-                self.pushFreeSlot(slot);
-                continue;
-            }
-            self.by_ptr.put(@intFromPtr(cconn), slot) catch {
-                self.closeConn(slot);
-                continue;
-            };
-            // The responder signs and queues its own start-session; flush it now.
-            self.driveOut(slot);
-        }
-    }
-
-    /// Build the per-connection peer and vat at `slot`. Returns false on a setup
-    /// failure (the caller frees the sidecar handle and reclaims the slot).
-    fn openConn(self: *LoopHost, slot: usize, cconn: *CConn) bool {
-        const c = &self.conns[slot];
-        const peer = driver_core.makeKeyedPeer(
-            self.allocator,
-            self.frame_cap,
-            self.verify_partner,
-            transport_name,
-            self.node_id_buf[0..],
-            self.secret,
-        ) catch return false;
-        c.* = .{ .state = .open, .cconn = cconn, .peer = peer };
-        c.served = Served.over(self.allocator, &c.peer);
-        c.served.serve_options.gc_stateless = self.gc_stateless;
-        self.publish_fn(self.publish_ctx, &c.served) catch {
-            c.served.deinit();
-            c.peer.deinit();
-            c.* = .{};
-            return false;
+        if (self.readiness_fd < 0) return error.NotListening;
+        var pfds = [_]posix.pollfd{
+            .{ .fd = self.readiness_fd, .events = posix.POLL.IN, .revents = 0 },
+            .{ .fd = self.wakeup_r, .events = posix.POLL.IN, .revents = 0 },
         };
-        return true;
-    }
+        _ = posix.poll(&pfds, self.poll_timeout_ms) catch 0;
 
-    /// Drain this connection's buffered inbound bytes through the peer, run the
-    /// surfaced events through its vat, then drive and flush the reply.
-    fn serviceReadable(self: *LoopHost, slot: usize) void {
-        // Read → apply → drive out, repeating only while a read parked at the
-        // outbound mark and the drive's flush then drained it back below the
-        // mark. Each pass makes progress (drains fully and continues, or blocks
-        // / stays parked and stops), so this is a bounded loop, never recursion.
-        while (true) {
-            const c = &self.conns[slot];
-            var parked = false;
-            while (true) {
-                // Backpressure (ADR-0042): once outbound crosses the mark, stop
-                // draining inbound. The sidecar's inbound buffer fills and QUIC
-                // flow control throttles the partner instead of this loop's
-                // memory growing unbounded.
-                if (self.pendingOut(c) > self.outbound_high_water) {
-                    c.read_parked = true;
-                    parked = true;
-                    break;
-                }
-                const n = pancake_iroh_sidecar_conn_try_read(c.cconn.?, self.read_scratch.ptr, self.read_scratch.len);
-                if (n == would_block) break;
-                if (n <= 0) {
-                    // 0 is clean end of stream, negative a read error: both close.
-                    self.closeConn(slot);
-                    return;
-                }
-                switch (self.feed(c, self.read_scratch[0..@intCast(n)])) {
-                    .ok => {},
-                    .fail => {
-                        self.failConn(slot);
-                        return;
-                    },
-                    .close => {
-                        self.closeConn(slot);
-                        return;
-                    },
-                }
-            }
-            self.runEvents(slot);
-            if (self.conns[slot].state != .open) return;
-            self.driveOut(slot);
-            // If the drive's flush drained a parked read back below the mark,
-            // loop to resume reading the sidecar's buffered inbound (the drain
-            // is edge-triggered, so no fresh readable event will arrive).
-            if (!(parked and !self.conns[slot].read_parked and self.conns[slot].state == .open)) return;
+        // Same harvest body as the non-blocking path — no duplicated drain.
+        try self.harvestReadiness();
+        {
+            const n = self.takeReady(out);
+            if (n > 0) return n;
         }
-    }
 
-    /// Apply every whole frame in `bytes` to the peer, carrying a partial tail in
-    /// the spill. This is the same inbound drain the TCP completion loop runs,
-    /// shared in `net.drainWholeFrames`, driven here by `try_read` chunks instead
-    /// of a shared pool buffer.
-    fn feed(self: *LoopHost, c: *Conn, bytes: []const u8) net.DrainVerdict {
-        return net.drainWholeFrames(&c.peer, &c.spill, bytes, self.allocator);
-    }
-
-    /// Run every surfaced event through the connection's vat, then drain the
-    /// vat's queued local eventual-sends before the outbound flush. A vat error
-    /// closes only this connection.
-    fn runEvents(self: *LoopHost, slot: usize) void {
-        const c = &self.conns[slot];
-        while (c.peer.pollEvent()) |ev_in| {
-            var ev = ev_in;
-            defer ev.deinit();
-            c.served.serveEvent(&ev) catch {
-                self.failConn(slot);
-                return;
-            };
-        }
-        // Drain queued local eventual-sends after the whole inbound batch —
-        // the one shared post-batch policy (`Served.drivePostBatch`), so a
-        // local-target `send` settles on the encrypted fan-out path with the
-        // same runaway bound the tcp loop drivers apply.
-        c.served.drivePostBatch(self.max_batch_local_turns) catch {
-            self.failConn(slot);
-            return;
-        };
-    }
-
-    /// Encode queued sends and flush them to the sidecar's outbound buffer.
-    fn driveOut(self: *LoopHost, slot: usize) void {
-        const c = &self.conns[slot];
-        while ((c.peer.step() catch {
-            self.failConn(slot);
-            return;
-        }) != .idle) {}
-        net.queueOutboundBytes(&c.peer, self.allocator, &c.outbound) catch {
-            self.closeConn(slot);
-            return;
-        };
-        self.flush(slot);
-    }
-
-    /// Push the connection's pending outbound bytes to the sidecar. A
-    /// `WOULD_BLOCK` leaves the remainder queued for the next `ev_writable`; a
-    /// short write advances the offset and the loop resubmits the tail.
-    fn flush(self: *LoopHost, slot: usize) void {
-        const c = &self.conns[slot];
-        if (c.state != .open) return;
-        while (c.out_off < c.outbound.items.len) {
-            const remaining = c.outbound.items[c.out_off..];
-            const n = pancake_iroh_sidecar_conn_try_write(c.cconn.?, remaining.ptr, remaining.len);
-            if (n == would_block) return;
-            // would_block is already handled above, so any non-positive result is
-            // a fault: closing this one connection is better than advancing the
-            // offset by zero and spinning the single loop thread forever.
-            if (n <= 0) {
-                self.closeConn(slot);
-                return;
-            }
-            c.out_off += @intCast(n);
-        }
-        // Fully drained. Free burst capacity above the steady bound so a
-        // slow-reader episode does not pin its high-water bytes for life
-        // (ADR-0041/0042 posture); steady-sized capacity is retained so
-        // ordinary reply traffic never reallocates.
-        net.reclaimBurst(&c.outbound, self.allocator, steady_outbound_bytes);
-        c.out_off = 0;
-        // Fully drained means below the mark: lift any read park so the caller
-        // (`serviceReadable`'s loop, or the next `ev_writable`) resumes reading.
-        c.read_parked = false;
-    }
-
-    /// Pending outbound bytes not yet accepted by the sidecar.
-    fn pendingOut(self: *LoopHost, c: *const Conn) usize {
-        _ = self;
-        return c.outbound.items.len - c.out_off;
-    }
-
-    /// Best-effort flush of whatever the engine projected for a dispatch failure
-    /// (typically an `op:abort`), then close, mirroring the TCP loop's
-    /// `failConn`.
-    fn failConn(self: *LoopHost, slot: usize) void {
-        const c = &self.conns[slot];
-        while ((c.peer.step() catch .idle) != .idle) {}
-        // Best-effort: an append failure frees the current frame and leaves
-        // the rest on the peer, exactly what a closing connection wants.
-        net.queueOutboundBytes(&c.peer, self.allocator, &c.outbound) catch {};
-        self.flush(slot);
-        self.closeConn(slot);
-    }
-
-    fn closeConn(self: *LoopHost, slot: usize) void {
-        const c = &self.conns[slot];
-        if (c.state != .open) return;
-        // Settle every outstanding far vow broken — with the partner's retained
-        // abort diagnostic when one arrived — before the vat goes away, so a
-        // listener awaiting this connection fires instead of dying unfired.
-        c.served.vat.breakFarVows(c.served.closeReason("connection closed"));
-        if (c.cconn) |cconn| {
-            // tolerant: the accept path calls `closeConn` from its `by_ptr.put`
-            // OOM catch, before the entry is inserted, so this removal is not
-            // guaranteed present.
-            _ = self.by_ptr.remove(@intFromPtr(cconn));
-            pancake_iroh_sidecar_conn_free(cconn);
-        }
-        c.served.deinit();
-        c.peer.deinit();
-        c.spill.deinit(self.allocator);
-        c.outbound.deinit(self.allocator);
-        c.* = .{};
-        self.pushFreeSlot(slot);
-        self.closed_count += 1;
-    }
-
-    fn freeSlot(self: *LoopHost) ?usize {
-        if (self.free_head >= self.conns.len) return null;
-        const slot = self.free_head;
-        self.free_head = self.conns[slot].next_free;
-        return slot;
-    }
-
-    fn pushFreeSlot(self: *LoopHost, slot: usize) void {
-        self.conns[slot].next_free = self.free_head;
-        self.free_head = slot;
+        // Timeout with nothing ready: return 0 so the loop can re-check Stop.
+        // `completion.Loop.run` treats an empty poll as continue; a zero return
+        // is valid.
+        return 0;
     }
 };
+
+fn openWakeup() !struct { r: i32, w: i32 } {
+    // posix.system.pipe2: libc when linked, Linux syscalls otherwise — never
+    // names a platform namespace in this file (arch-check).
+    var fds: [2]posix.fd_t = undefined;
+    switch (posix.errno(posix.system.pipe2(&fds, .{ .CLOEXEC = true, .NONBLOCK = true }))) {
+        .SUCCESS => {},
+        else => return error.WakeupFailed,
+    }
+    return .{ .r = fds[0], .w = fds[1] };
+}
+
+fn closeWakeup(r: i32, w: i32) void {
+    if (r >= 0) _ = posix.system.close(r);
+    if (w >= 0 and w != r) _ = posix.system.close(w);
+}
+
+fn lockConnect(m: *std.atomic.Mutex) void {
+    while (!m.tryLock()) std.atomic.spinLoopHint();
+}
+
+fn unlockConnect(m: *std.atomic.Mutex) void {
+    m.unlock();
+}

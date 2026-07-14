@@ -2,7 +2,7 @@
 
 The wire reference wrappers (:class:`Near`, :class:`Far`, :class:`Promise`,
 :class:`Sturdy`, :class:`Broken`), the application capability :class:`Ref` the
-:class:`Connection` surface hands back, the marshalling wrappers
+:class:`Session` surface hands back, the marshalling wrappers
 (:class:`Symbol`, :class:`Keyword`, :class:`Set`, :class:`Tagged`), a
 behavior's :class:`Forward` tail-forward, the :data:`Argument` /
 :data:`Value` / :data:`Behavior` type aliases, and the lower/lift walk between
@@ -17,7 +17,7 @@ from typing import Callable, Optional, TypeAlias
 
 @dataclass(frozen=True)
 class Near:
-    """A local export this connection hosts."""
+    """A local export this session hosts."""
 
     id: int
     promise: bool = False
@@ -55,30 +55,38 @@ Reference: TypeAlias = Near | Far | Promise | Sturdy | Broken
 
 @dataclass(frozen=True)
 class Ref:
-    """An application capability: what :meth:`Connection.fetch`,
-    :meth:`Connection.spawn`, and a :meth:`Connection.send` reply hand back,
+    """An application capability: what :meth:`Session.fetch`,
+    :meth:`Session.spawn`, and a :meth:`Session.send` reply hand back,
     and what ``send``/``tell`` accept as a target or argument.
 
-    It names a local actor this connection hosts (carrying the ``Near`` export
+    It names a local actor this session hosts (carrying the ``Near`` export
     it marshals to) or a far capability the host holds (carrying its ``Far``
-    token). Pass it as a ``send`` argument and it marshals to the right wire
-    reference automatically.
+    token). Those are the only two shapes a capability takes: a promise,
+    sturdyref, or broken reference is never a ``Ref`` — a pipeline promise is a
+    :class:`RemotePromise`, and the rest arrive as plain wire values. So the
+    single ``wire`` reference is a ``Near`` or a ``Far`` and nothing else,
+    which makes an empty (or promise/sturdy/broken) capability unconstructible
+    and the ``near``/``far`` views total: exactly one is set. Pass it as a
+    ``send`` argument and it marshals to that reference automatically.
     """
 
-    far: Optional[Far] = None
-    near: Optional[Near] = None
+    wire: Near | Far
 
-    def _wire(self) -> Reference:
-        """The wire reference to marshal this capability to: a local actor's
-        ``Near`` export, else the ``Far`` token it names."""
-        if self.near is not None:
-            return self.near
-        if self.far is not None:
-            return self.far
-        from ._constants import ERR_UNSUPPORTED_VALUE
-        from ._errors import PancakeError
+    @property
+    def near(self) -> Optional[Near]:
+        """The local ``Near`` export this capability marshals to, or ``None``
+        when it names a partner-held ``Far`` token instead."""
+        return self.wire if isinstance(self.wire, Near) else None
 
-        raise PancakeError(ERR_UNSUPPORTED_VALUE, "this ref has no wire reference to marshal")
+    @property
+    def far(self) -> Optional[Far]:
+        """The partner-held ``Far`` token this capability names, or ``None``
+        when it is a local actor's ``Near`` export instead."""
+        return self.wire if isinstance(self.wire, Far) else None
+
+    def _wire(self) -> Near | Far:
+        """The wire reference to marshal this capability to."""
+        return self.wire
 
 
 class Symbol(str):
@@ -127,7 +135,7 @@ Argument: TypeAlias = int | float | bool | bytes | str | Symbol | Keyword | None
 # An application value mirrors an Argument but carries a capability as a `Ref`
 # (the binding marshals it to/from a wire reference at the boundary), so an app
 # works with capabilities as ordinary values; this is the vocabulary the
-# application-surface `Connection` speaks.
+# application-surface `Session` speaks.
 Value: TypeAlias = "int | float | bool | bytes | str | Symbol | Keyword | None | Ref | list | Set | Tagged"
 
 # An actor: handle a ``(verb, args)`` call and return a reply (``None`` is the
@@ -156,9 +164,9 @@ def _lift_value(value):
     """Lift a wire value to the application vocabulary: a capability reference
     becomes a :class:`Ref`, recursing into containers."""
     if isinstance(value, Far):
-        return Ref(far=value)
+        return Ref(value)
     if isinstance(value, Near):
-        return Ref(near=value)
+        return Ref(value)
     if isinstance(value, Set):  # before list, Set subclasses list
         return Set(_lift_value(v) for v in value)
     if isinstance(value, Tagged):

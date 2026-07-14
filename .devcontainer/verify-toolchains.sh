@@ -34,6 +34,7 @@ expect_contains "node" "v${NODE_VERSION}" node --version
 command -v npm >/dev/null
 expect_contains "bun" "${BUN_VERSION}" bun --version
 expect_contains "claude" "${CLAUDE_CODE_VERSION}" claude --version
+expect_contains "opencode" "${OPENCODE_VERSION}" opencode --version
 
 expect_contains "rustc" "${RUST_VERSION}" rustc --version
 expect_contains "cargo" "${RUST_VERSION}" cargo --version

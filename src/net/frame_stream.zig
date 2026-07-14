@@ -36,7 +36,7 @@ const Stream = std.Io.net.Stream;
 /// one episode never pins its high-water bytes for the connection's life;
 /// capacity at or under it is steady reply traffic and stays, so the steady state
 /// never reallocates. Both readiness loops — the TCP completion `Loop` and the
-/// iroh `LoopHost` — honor the same bound, so it lives here in one place: it is a
+/// iroh completion `Backend` — honor the same bound, so it lives here in one place: it is a
 /// per-connection footprint number the ladder's 500k-connection budget owns, and
 /// a divergence between the two loops would silently split that budget.
 pub const steady_outbound_bytes: usize = 16 * 1024;
@@ -321,16 +321,9 @@ pub fn drainWholeFrames(
     while (true) {
         const supply = if (from_spill) spill.bytes() else chunk[offset..];
         if (supply.len == 0) break;
-        const outcome = peer.recvStreamPrefix(supply) catch return .fail;
+        const outcome = peer.applyStreamPrefix(supply) catch return .fail;
         switch (outcome) {
-            .incomplete => {
-                // Defensive mirror of the codec's cap-during-scan contract
-                // (ADR-0029): an incomplete prefix at or past the cap can never
-                // complete within it, so a codec that failed to refuse it fails
-                // closed here instead of growing the spill.
-                if (supply.len >= peer.limits().max_frame_bytes) return .fail;
-                break;
-            },
+            .incomplete => break,
             .consumed => |used| {
                 if (from_spill) spill.consume(allocator, used) else offset += used;
             },

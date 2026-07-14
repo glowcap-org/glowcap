@@ -4,7 +4,8 @@
 ;; This module is the Racket mirror of the C ABI's `c_abi/shared` leaf (ADR-0059):
 ;; the C-visible cstructs the binding consumes — frame, reference, argument,
 ;; host action, and last abort. It declares the *types*, not any bound
-;; function, and it opens no library — so requiring it loads nothing. Each per-archive loader
+;; function, and it opens no library — so requiring it loads nothing. Archive
+;; path resolve + `ffi-lib` live in `lib-resolve.rkt`. Each per-archive loader
 ;; (`ffi-ocapn.rkt`, `ffi-tcp.rkt`, `ffi-inproc.rkt`, `ffi-iroh.rkt`) requires this
 ;; for the cstruct types its `_fun` signatures name, exactly as the C archives
 ;; share these layouts without sharing a symbol.
@@ -18,25 +19,9 @@
 ;; address stored into a struct field would dangle when a collection moves the
 ;; block.
 (require ffi/unsafe)
-(provide (all-defined-out))
-
-;; Resolve an archive through the cascade every pancake binding shares: an
-;; explicit PANCAKE_LIB_DIR override (configure) wins, else the repo's
-;; zig-out/lib build output passed as `dev` (the dev fallback, an extension-less
-;; runtime path), else the bare library name handed to the OS dynamic-linker
-;; search (find). `stem` is the archive stem without the platform `lib`/suffix
-;; decoration; `ffi-lib` appends the platform-correct suffix in every case.
-;; `fail` customizes the final error (the iroh loader names its build step).
-(define (pancake-ffi-lib stem dev #:fail [fail #f])
-  (define (try spec) (ffi-lib spec #:fail (lambda () #f)))
-  (define name (string-append "lib" stem))
-  (or (let ([dir (getenv "PANCAKE_LIB_DIR")])
-        (and dir (try (build-path dir name))))
-      (try dev)
-      (ffi-lib name #:fail
-               (or fail
-                   (lambda ()
-                     (error 'pancake "could not load ~a from PANCAKE_LIB_DIR, zig-out/lib, or the system library path" name))))))
+(provide (except-out (all-defined-out) pin-layout! reference-layout argument-layout)
+         ;; Archive loaders (e.g. ffi-iroh) pin their own cstructs with this.
+         pin-layout!)
 
 ;; Pin `bs` into immobile memory for one synchronous FFI call, returning the
 ;; buffer (usable even for empty input, where C receives a valid pointer and a

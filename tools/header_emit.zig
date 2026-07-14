@@ -1,17 +1,17 @@
-//! The shared C-header emitter behind the four `header_gen*` generators.
+//! The shared C-header emitter behind the `header_gen*` generators.
 //!
 //! Every generator reflects one `c_abi` module into a byte-exact C header:
 //! constants become `#define`s, extern structs become typedefs, and exports
 //! become prototypes, all spelled from the real Zig types so the header cannot
 //! disagree with the implementation. The reflection machinery is identical
-//! across the four; only the module, the function table, the curated prose, and
+//! across them; only the module, the function table, the curated prose, and
 //! (for `libpancake_ocapn`) the three function-pointer typedefs differ. Those
 //! differences are a `Spec` type each generator supplies to `Emit`.
 //!
 //! A `Spec` provides `c` (the reflected module), `emitted_fns` (the prototype
 //! table), and optionally `const_docs` (curated `#define` comments) and
 //! `special` (a hook mapping a Zig type to a C typedef name the base spelling
-//! does not know). The four `gen-header-*-check` gates verify the emitted bytes,
+//! does not know). The `gen-header-*-check` gates verify the emitted bytes,
 //! so a drift in this module fails loudly at the header it breaks.
 
 const std = @import("std");

@@ -5,10 +5,12 @@
 
    libpancake_ocapn is the sans-io OCapN base archive: the shared C ABI
    vocabulary (frame/context types, return codes, the codec selector)
-   plus the peer-driving and locator-URI families. The transports ship
-   their own archives and headers — pancake_net_transport_tcp.h,
-   pancake_net_transport_inproc.h, pancake_net_transport_iroh.h — each of
-   which #includes this one for the shared types (ADR-0059). */
+   plus the peer-driving and locator-URI families. Multi-session
+   CapTP product work uses pancake_host_* in pancake_driver.h. The
+   transports ship their own archives and headers —
+   pancake_net_transport_tcp.h, pancake_net_transport_inproc.h,
+   pancake_net_transport_iroh.h — each of which #includes this one for
+   the shared types (ADR-0059). */
 #ifndef PANCAKE_OCAPN_H
 #define PANCAKE_OCAPN_H
 
@@ -97,6 +99,8 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define PANCAKE_ERR_BROKEN (-14)
 /* A well-formed lookup found nothing: pancake_locator_hint named a key absent from the locator. Distinct from _INVALID_ARGUMENT (a malformed request). */
 #define PANCAKE_ERR_NOT_FOUND (-15)
+/* A caller-provided output buffer was too small for the value being written. The call still reports the required length in its out_len parameter, so a caller retries with a large enough buffer. Distinct from _INVALID_ARGUMENT (a malformed request). */
+#define PANCAKE_ERR_BUFFER_TOO_SMALL (-16)
 
 /* ── Discriminants ── */
 /* codec for pancake_peer_new_negotiated and the transport endpoints: Syrup. The session's grammar and the endpoint's framing must carry the same value. */
@@ -123,15 +127,6 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define PANCAKE_PROJECTION_DELIVER 1
 #define PANCAKE_PROJECTION_RESOLVE 2
 #define PANCAKE_PROJECTION_FRAME 3
-#define PANCAKE_NODE_ACTION_NONE 0
-#define PANCAKE_NODE_ACTION_DIAL 1
-#define PANCAKE_NODE_ACTION_FLUSH 2
-#define PANCAKE_NODE_ACTION_SETTLE 3
-#define PANCAKE_NODE_ACTION_FAIL 4
-#define PANCAKE_NODE_ACTION_NEED_GIFT_ID 5
-#define PANCAKE_REDEEM_OUTCOME_FAR 0
-#define PANCAKE_REDEEM_OUTCOME_BROKEN 1
-#define PANCAKE_REDEEM_OUTCOME_NOT_CAPABILITY 2
 #define PANCAKE_REF_NEAR 0
 #define PANCAKE_REF_FAR 1
 #define PANCAKE_REF_PROMISE 2
@@ -191,7 +186,6 @@ typedef struct PancakeFrame {
 
 typedef struct PancakeManagedFrame PancakeManagedFrame;
 typedef struct PancakePeer PancakePeer;
-typedef struct PancakeNode PancakeNode;
 typedef void (*PancakeReleaseFn)(PancakeManagedFrame *frame);
 struct PancakeManagedFrame {
     /* Owned and self-releasing: release with `pancake_managed_frame_release`. */
@@ -316,6 +310,13 @@ int32_t pancake_peer_codec(const PancakePeer *peer, uint32_t *out_codec);
 /* The well-known bootstrap export position every OCapN peer answers `fetch`
    on. Use this name instead of re-deriving the magic 0. */
 #define PANCAKE_BOOTSTRAP_POSITION 0
+/* The base of the reserved redeemed-handoff-token far-id range: a far id at
+   or above this names a capability the host redeemed and routes to its
+   exporter connection, never a wire import, so a token can never alias a
+   partner's import. A host that keys per-import state (GC, caches) by far
+   id uses this bound to tell the two apart. Emitted with the ULL suffix,
+   the one constant too large for the plain-int convention above. */
+#define PANCAKE_REDEEMED_TOKEN_BASE 1152921504606846976ULL
 /* Expose a local capability behind `swissnum` for inbound bootstrap-fetch;
    writes the allocated export position. `swissnum` is borrowed. */
 int32_t pancake_peer_register_bootstrap_cap(PancakePeer *peer, const uint8_t *swissnum, size_t swissnum_len, uint64_t *out_export_position);
@@ -418,6 +419,11 @@ int32_t pancake_peer_start_session(PancakePeer *peer, const uint8_t *transport, 
    1 when open, 0 when not. A NULL peer has no open session, so it reports 0;
    the result is never negative, so a plain `if` on it reads correctly in C. */
 int32_t pancake_peer_session_is_open(PancakePeer *peer);
+/* Pin the partner's Ed25519 public key before their op:start-session is fed.
+   A mismatch becomes PartnerKeyMismatch and aborts the session fail-closed
+   (the dial-side identity pin, ADR-0075). `key` is borrowed and `key_len` must
+   be 32; anything else is refused with PANCAKE_ERR_INVALID_ARGUMENT. */
+int32_t pancake_peer_expect_partner_key(PancakePeer *peer, const uint8_t *key, size_t key_len);
 
 /* ── Typed OCapN driving surface ── */
 /* Construct a call and read a delivery as structured values without authoring
@@ -627,144 +633,6 @@ int32_t pancake_peer_send_deposit_gift(PancakePeer *peer, const uint8_t *gift_id
    redeems them transparently. `give` is borrowed for the call. */
 int32_t pancake_peer_send_resolve_handoff_give(PancakePeer *peer, uint64_t answer, const uint8_t *give, size_t give_len);
 
-/* ── Cross-connection handoff router (PancakeNode, ADR-0066) ── */
-/* The base of the reserved redeemed-handoff-token far-id range: a far id at
-   or above this names a capability the node redeemed and routes to its
-   exporter connection, never a wire import, so a token can never alias a
-   partner's import. A host that keys per-import state (GC, caches) by far
-   id uses this bound to tell the two apart. Emitted with the ULL suffix,
-   the one constant too large for the plain-int convention above. */
-#define PANCAKE_REDEEMED_TOKEN_BASE 1152921504606846976ULL
-
-/* Create a node bound to the 32-byte identity `seed`, writing the handle into
-   out_node. The seed is reused for every connection the node opens so an
-   exporter verifies a desc:handoff-receive against one key; draw it at the
-   host's I/O boundary (the sans-io node never generates entropy). Release with
-   pancake_node_release. `seed` is borrowed; seed_len must be 32. */
-int32_t pancake_node_new(const uint8_t *seed, size_t seed_len, PancakeNode **out_node);
-/* Context-backed counterpart of pancake_node_new: the node, its per-connection
-   peers, and the shared gift registry allocate and free through `context`'s
-   allocator (ADR-0059). The context must outlive the node. */
-int32_t pancake_node_new_in(PancakeContext *context, const uint8_t *seed, size_t seed_len, PancakeNode **out_node);
-/* Release a node: free every registered peer, the routing tables and the
-   references they own, and the shared gift registry. The caller must have
-   finished pumping every connection's peer first (those peers are node-owned).
-   NULL is a no-op. */
-void pancake_node_release(PancakeNode *node);
-/* Register a fresh connection, writing its conn_id into out_conn_id and the
-   node-owned negotiating peer into out_peer. Pump out_peer with the ordinary
-   pancake_peer_* surface; it is already bound to the node's shared gift
-   registry. The HOST completes the keyed op:start-session (it owns the socket
-   and the entropy) and must sign with the same 32-byte seed it gave
-   pancake_node_new — a different key silently breaks give verification at the
-   exporter. Do NOT free out_peer: the node owns it and frees it on
-   pancake_node_remove_conn / pancake_node_release. */
-int32_t pancake_node_register_conn(PancakeNode *node, uint64_t *out_conn_id, PancakePeer **out_peer);
-/* Remove a registered connection: free its node-owned peer and retire the
-   conn_id (never reused). A later route to a redeemed token whose exporter was
-   this connection fails closed. Stop pumping this connection's peer first. An
-   unknown conn_id is a no-op. */
-int32_t pancake_node_remove_conn(PancakeNode *node, uint64_t conn_id);
-/* Resolve where a deliver to far-object `far_id` rides. A redeemed token routes
-   to its exporter connection with the real far id; any other far id rides
-   default_conn unchanged. Writes the destination conn_id / far id and 1/0 into
-   out_routed (0 when a redeemed token names an exporter connection that is gone,
-   so the deliver must be dropped). */
-int32_t pancake_node_route(PancakeNode *node, uint64_t default_conn, uint64_t far_id, uint64_t *out_conn_id, uint64_t *out_far_id, uint32_t *out_routed);
-/* Enroll the fetched far import `far_id` (a wire position on connection `home`)
-   under a node-unique token, written into out_token (ADR-0069). The binding
-   holds the token as the capability's identity instead of the wire position, so
-   two capabilities fetched at the same wire position on different connections
-   never collide in the node's routing tables. A send to the token routes to
-   `home` with the real wire reference swapped back in; returning it to another
-   connection re-gifts the right home. Every binding holds a fetched capability's
-   identity this way; a fetch calls it on the far reference the partner returns. */
-int32_t pancake_node_enroll_foreign(PancakeNode *node, uint64_t home, uint64_t far_id, uint64_t *out_token);
-/* Whether far-object `far_id`, used as a send/tell argument from default_conn,
-   names a capability foreign to that connection: a redeemed handoff token (the
-   node routes it to a different exporter) or a far the node recorded as fetched
-   on another connection. Writes 1/0 into out_foreign. A binding fails closed on
-   1 rather than mis-encoding the reference for this partner; the gifter half
-   re-gifts such a capability when it is returned (ADR-0009). */
-int32_t pancake_node_arg_is_foreign(PancakeNode *node, uint64_t default_conn, uint64_t far_id, uint32_t *out_foreign);
-
-typedef struct PancakeNodeAction {
-    /* PANCAKE_NODE_ACTION_*, selects the live fields */
-    uint32_t kind;
-    /* _DIAL: the ticket exporter_dialed / dial_failed reports back; _NEED_GIFT_ID: the ticket provide_gift_id answers */
-    uint64_t pending;
-    /* _DIAL: the exporter's dialable ocapn:// locator (borrowed until the next next_action) */
-    const uint8_t *locator;
-    size_t locator_len;
-    /* _FLUSH/_SETTLE/_FAIL: the connection the action names */
-    uint64_t conn_id;
-    /* _SETTLE/_FAIL: the application answer to settle or break */
-    uint64_t answer;
-    /* _SETTLE: the redeemed token's far id */
-    uint64_t token;
-    /* _FAIL: the break reason (borrowed until the next next_action) */
-    const uint8_t *reason;
-    size_t reason_len;
-} PancakeNodeAction;
-
-/* Recipient intercept for the node's serve step: the application answer
-   `answer` on recipient_conn resolved to a handoff give instead of a value (the
-   host saw PANCAKE_RESOLUTION_HANDOFF and must not surface it). The node decides
-   what happens next — a live exporter for exporter_locator withdraws
-   immediately, a dial already in flight is joined, an unknown exporter becomes a
-   _DIAL action, an empty locator fails the answer closed — and queues the
-   actions; drain them with pancake_node_next_action. `give` is the verbatim
-   signed envelope; both byte inputs are borrowed (the node copies what it
-   keeps). */
-int32_t pancake_node_accept_give(PancakeNode *node, uint64_t recipient_conn, uint64_t answer, const uint8_t *give, size_t give_len, const uint8_t *exporter_locator, size_t exporter_locator_len);
-/* Report a _DIAL action's success: the exporter is registered as exporter_conn
-   with an open keyed session under the node identity. The node caches the
-   exporter and withdraws every give waiting on the ticket (a _FLUSH action
-   follows per withdraw). An already-settled `pending` is a no-op. */
-int32_t pancake_node_exporter_dialed(PancakeNode *node, uint64_t pending, uint64_t exporter_conn);
-/* Report a _DIAL action's failure: every redeem waiting on the ticket breaks
-   with `reason` (borrowed). An already-settled `pending` is a no-op. */
-int32_t pancake_node_dial_failed(PancakeNode *node, uint64_t pending, const uint8_t *reason, size_t reason_len);
-/* Offer a resolve the host polled on conn_id to the node. Writes 1 into
-   out_claimed when it settles a pending withdraw — the node consumes it
-   (enrolling the redeemed capability under a token and queueing _SETTLE, or
-   queueing _FAIL), and the host must not surface it to the application; 0 means
-   the resolve is the application's, untouched. `outcome` is a
-   PANCAKE_REDEEM_OUTCOME_*: _FAR carries the fulfilled far id in far_id, _BROKEN
-   the break reason in `reason` (borrowed), _NOT_CAPABILITY a fulfillment that is
-   not a capability. */
-int32_t pancake_node_claim_resolve(PancakeNode *node, uint64_t conn_id, uint64_t answer, uint32_t outcome, uint64_t far_id, const uint8_t *reason, size_t reason_len, uint32_t *out_claimed);
-/* Gifter intercept for the node's serve step: the application answer `answer`
-   on conn_id fulfilled to the far capability far_id. When that capability's
-   recorded home is another connection, the node claims the reply and queues a
-   _NEED_GIFT_ID action — entropy is a host effect, requested only when a reply
-   actually becomes a gift — and writes 1 into out_claimed (the host must not
-   also send a plain resolve; it draws 32 bytes and answers with
-   pancake_node_provide_gift_id). 0 means the reply is ordinary and the host
-   resolves it itself. */
-int32_t pancake_node_intercept_fulfilled_ref(PancakeNode *node, uint64_t conn_id, uint64_t answer, uint64_t far_id, uint32_t *out_claimed);
-/* Answer a _NEED_GIFT_ID action with the host-drawn gift_id: the node
-   originates the claimed handoff (deposit on the exporter, signed give
-   resolving the claimed answer, using any recorded
-   pancake_node_set_exporter_location override) and queues the two _FLUSH
-   actions — exporter first, so the deposit is on the wire before the recipient
-   dials in. A failed origination breaks the claimed answer instead. An
-   already-settled `ticket` is a no-op. gift_id is borrowed and must be
-   non-empty. */
-int32_t pancake_node_provide_gift_id(PancakeNode *node, uint64_t ticket, const uint8_t *gift_id, size_t gift_id_len);
-/* Record the exporter locator to embed in gives whose exporter is
-   conn_id — an exporter reachable only by a dial hint (an iroh endpoint's
-   direct addresses), where the session's own signed location record is not
-   dialable. location is a borrowed Syrup <ocapn-peer> record; NULL or empty
-   clears the override. A URI or other non-record spelling fails with
-   PANCAKE_ERR_INVALID_ARGUMENT. */
-int32_t pancake_node_set_exporter_location(PancakeNode *node, uint64_t conn_id, const uint8_t *location, size_t location_len);
-/* Pop the next serve-step action into `out`. The previous action's byte views
-   are freed by this call, so a popped action's locator/reason views are valid
-   until the next pancake_node_next_action (or pancake_node_release); copy what
-   outlives that. PANCAKE_ERR_WOULD_BLOCK when no action is pending. */
-int32_t pancake_node_next_action(PancakeNode *node, PancakeNodeAction *out);
-
 /* ── Per-thread last error ── */
 /* Copy the calling thread's last error into `out_buf`. Copies at most cap - 1
    bytes and always NUL-terminates when cap > 0. Returns the full message
@@ -800,8 +668,9 @@ int32_t pancake_uri_parse_sturdyref(const uint8_t *uri, size_t uri_len, PancakeL
 /* Format a peer locator as an ocapn:// URI into `out`. Hints are parallel
    key/value string arrays (hint_keys[i]/hint_key_lens[i] and the val pair) of
    hint_count entries; all inputs are borrowed. `out_len` always receives the
-   full URI length; a buffer too small or NULL is PANCAKE_ERR_INVALID_ARGUMENT
-   with the length still reported, so size with out_len then retry. */
+   full URI length; a buffer too small is PANCAKE_ERR_BUFFER_TOO_SMALL (a NULL
+   buffer is PANCAKE_ERR_INVALID_ARGUMENT) with the length still reported, so
+   size with out_len then retry. */
 int32_t pancake_uri_format_peer(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t **hint_keys, const size_t *hint_key_lens, const uint8_t **hint_vals, const size_t *hint_val_lens, size_t hint_count, uint8_t *out, size_t cap, size_t *out_len);
 /* Format a sturdyref locator (peer plus swissnum) as an ocapn://.../s/<swiss>
    URI. Same hint-array and buffer contract as pancake_uri_format_peer;
@@ -822,6 +691,12 @@ int32_t pancake_locator_designator(PancakeLocator *loc, const uint8_t **out_ptr,
    pancake_last_error) when the designator does not carry the grammar. The host
    view aliases the handle until pancake_locator_release. */
 int32_t pancake_locator_host_port(PancakeLocator *loc, const uint8_t **out_host, size_t *out_host_len, uint16_t *out_port);
+/* Split a bare designator as host:port — same grammar as
+   pancake_locator_host_port, without minting a locator handle. A DIAL action
+   already carries the designator; redeem dials use this instead of
+   format→parse→host_port. PANCAKE_ERR_INVALID_ARGUMENT when the designator
+   does not carry the grammar. The host view aliases designator for the call. */
+int32_t pancake_designator_host_port(const uint8_t *designator, size_t designator_len, const uint8_t **out_host, size_t *out_host_len, uint16_t *out_port);
 /* Borrow the locator's swissnum: zero-length (NULL pointer) for a peer URI, the
    swiss bytes for a sturdyref. The discriminator a C caller reads instead of a
    second handle type. */

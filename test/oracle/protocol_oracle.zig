@@ -58,6 +58,7 @@ pub const corpus = [_]OracleFixture{
     fixture("op_listen_v1_0_wants_partial_true.bin"),
     fixture("op_resolve_break.bin"),
     fixture("op_resolve_fulfill_far.bin"),
+    fixture("op_resolve_fulfill_import_promise.bin"),
     fixture("op_resolve_fulfill_near.bin"),
     fixture("op_resolve_fulfill_promise.bin"),
     fixture("op_start_session_v1_0.bin"),

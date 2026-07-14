@@ -120,7 +120,7 @@ flowchart TD
 
 The count guard is monotonic per receiving-session identity (the R↔X session the
 receive names), and it lives in the vat-scoped gift registry rather than in any
-one connection. A host that keeps that registry across connections therefore
+one CapTP session. A host that keeps that registry across sessions therefore
 refuses a reconnecting Receiver's replayed count.
 
 ## HO-8: Withdraw before deposit

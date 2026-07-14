@@ -5,14 +5,7 @@
 //
 //   deno run --allow-ffi --allow-read --allow-net deno_bench.ts <mode> <host> <port> <n>
 
-import {
-	type AppValue,
-	connect,
-	type Connection,
-	listen,
-	type Ref,
-	tcpLocator,
-} from "@pancake/stack";
+import { type AppValue, connect, listen, type Ref, type Session, tcpLocator } from "@pancake/stack";
 
 const CLIENT = "deno";
 const RUNTIME = `deno/${Deno.version.deno}`;
@@ -46,7 +39,7 @@ function statusText(v: AppValue): string {
 
 // One bench unit: create -> assign -> complete -> status, asserting the status
 // settles to the bytes `done`.
-async function runUnit(conn: Connection, root: Ref): Promise<void> {
+async function runUnit(conn: Session, root: Ref): Promise<void> {
 	const task = await conn.send(root, "create", ["benchmark"]) as Ref;
 	await conn.send(task, "assign", ["alice"]);
 	await conn.send(task, "complete", []);
@@ -62,7 +55,7 @@ async function runUnit(conn: Connection, root: Ref): Promise<void> {
 // so the unit costs one round trip instead of four. Only the final status is
 // awaited, which flushes the queued batch together. The throughput unit; runUnit
 // stays sequential so the latency row keeps measuring one round trip.
-async function runUnitPipelined(conn: Connection, root: Ref): Promise<void> {
+async function runUnitPipelined(conn: Session, root: Ref): Promise<void> {
 	const create = conn.send(root, "create", ["benchmark"]);
 	conn.send(create, "assign", ["alice"]);
 	conn.send(create, "complete", []);
@@ -75,9 +68,9 @@ async function runUnitPipelined(conn: Connection, root: Ref): Promise<void> {
 const WARMUP = Math.min(N, 500);
 
 async function warm(
-	conn: Connection,
+	conn: Session,
 	root: Ref,
-	unit: (conn: Connection, root: Ref) => Promise<void> = runUnit,
+	unit: (conn: Session, root: Ref) => Promise<void> = runUnit,
 ): Promise<void> {
 	for (let i = 0; i < WARMUP; i++) await unit(conn, root);
 	forceGc();
@@ -133,7 +126,7 @@ async function runThroughput(): Promise<void> {
 }
 
 async function runConnections(): Promise<void> {
-	const warmConns: Connection[] = [];
+	const warmConns: Session[] = [];
 	const warmup = Math.min(N, 5);
 	for (let i = 0; i < warmup; i++) {
 		const c = await connect(tcpLocator(host, port));
@@ -143,7 +136,7 @@ async function runConnections(): Promise<void> {
 	forceGc();
 	console.log(JSON.stringify({ v: 1, event: "warmed" }));
 	await sleep(600);
-	const handles: Connection[] = [];
+	const handles: Session[] = [];
 	const t0 = performance.now();
 	for (let i = 0; i < N; i++) {
 		const c = await connect(tcpLocator(host, port));
@@ -189,7 +182,7 @@ function counterBehavior(): (verb: string) => bigint {
 // Run min(N, 500) warmup hits then N measured sequential send→settle units
 // against `target`, asserting the final count equals warmup + N. Returns the
 // sorted per-turn latencies in nanoseconds.
-async function measureHits(conn: Connection, target: Ref): Promise<number[]> {
+async function measureHits(conn: Session, target: Ref): Promise<number[]> {
 	for (let i = 0; i < WARMUP; i++) await conn.send(target, "hit", []);
 	forceGc();
 	const lats: number[] = [];
@@ -217,7 +210,7 @@ async function runLocal(): Promise<void> {
 	const accepted = server[Symbol.asyncIterator]().next();
 	const loopPort = await server.ready();
 	const dial = await connect(tcpLocator("127.0.0.1", loopPort));
-	const acceptedConn = (await accepted).value as Connection;
+	const acceptedConn = (await accepted).value as Session;
 	acceptedConn.publish("counter", counterBehavior());
 	acceptedConn.serve().catch(() => {});
 

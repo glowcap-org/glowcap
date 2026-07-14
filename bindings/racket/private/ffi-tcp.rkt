@@ -11,12 +11,11 @@
 ;; call, so the public module reaches that through the core seam, not here.
 (require ffi/unsafe
          ffi/unsafe/define
-         racket/runtime-path
-         "ffi-shared.rkt")
+         "ffi-shared.rkt"
+         "lib-resolve.rkt")
 (provide (all-defined-out))
 
-(define-runtime-path tcp-lib-path "../../../zig-out/lib/libpancake_net_transport_tcp")
-(define tcp-lib (pancake-ffi-lib "pancake_net_transport_tcp" (path->string tcp-lib-path)))
+(define tcp-lib (open-pancake-archive "pancake_net_transport_tcp"))
 
 (define-ffi-definer define-pancake-tcp tcp-lib)
 ;; The TCP transport archive carries the `pancake_tcp_*` family plus its own

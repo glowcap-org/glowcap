@@ -17,7 +17,7 @@
 //! one process sharing one address book.
 //!
 //! Topology:
-//!   Exporter  binds a `LocalDiscovery` endpoint, publishes a node-giftable
+//!   Exporter  binds a `LocalDiscovery` endpoint, publishes a host-giftable
 //!             `greeter`.
 //!   Gifter    binds its own endpoint, dials the exporter by id (one node
 //!             identity), fetches the greeter, and records the exporter's
@@ -34,7 +34,8 @@
 use std::rc::Rc;
 
 use pancake_rust_dogfood::{
-	encode_peer_locator, listen_iroh, Argument, Connection, Reachability, Ref,
+	connect, encode_peer_locator, format_peer_uri, listen_iroh, Argument, Reachability, Ref,
+	Session, TRANSPORT_IROH,
 };
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
@@ -47,7 +48,7 @@ const NAME: &str = "rust-redeem-posture-carol";
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
 	helpers::ignore_port_args()?;
-	// The `Connection`/`IrohServer` drivers are `!Send`, so they live on a LocalSet.
+	// The `Session`/`IrohServer` drivers are `!Send`, so they live on a LocalSet.
 	let local = tokio::task::LocalSet::new();
 	local.run_until(run()).await
 }
@@ -56,7 +57,7 @@ async fn run() -> Result<(), Fail> {
 	// ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
 	let exporter = Rc::new(listen_iroh(Reachability::LocalDiscovery)?);
 	exporter
-		.node()
+		.host()
 		.publish_giftable("greeter", || Box::new(greeter));
 	let exporter_id = exporter.node_id().to_string();
 	accept_loop(Rc::clone(&exporter));
@@ -64,21 +65,25 @@ async fn run() -> Result<(), Fail> {
 
 	// ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
 	let gifter = Rc::new(listen_iroh(Reachability::LocalDiscovery)?);
-	let gifter_node = gifter.node();
+	let gifter_host = gifter.host();
 	let gifter_id = gifter.node_id().to_string();
-	let to_exporter = Connection::connect_iroh_with_node(
-		&exporter_id,
-		"",
-		Reachability::LocalDiscovery,
-		gifter_node.clone(),
+	let exporter_uri = format_peer_uri(TRANSPORT_IROH, &exporter_id, &Default::default())?;
+	let to_exporter = connect(
+		&exporter_uri,
+		Some(Reachability::LocalDiscovery),
+		Some(gifter_host.clone()),
 	)
 	.await?;
 	let greeter_ref = to_exporter.fetch("greeter").await?;
 	// Record the exporter's location by **node id alone** — no direct-addresses.
 	// This is what forces the recipient down the configured-posture redeem path
 	// instead of a Direct dial.
-	to_exporter.set_exporter_locator(encode_peer_locator("iroh", &exporter_id, "")?);
-	gifter_node.publish_giftable("introducer", move || {
+	to_exporter.set_exporter_locator(encode_peer_locator(
+		pancake_rust_dogfood::TRANSPORT_IROH,
+		&exporter_id,
+		"",
+	)?);
+	gifter_host.publish_giftable("introducer", move || {
 		let greeter = greeter_ref.clone();
 		Box::new(move |verb: &str, _args: &[Argument]| {
 			if verb == "get-greeter" {
@@ -92,12 +97,13 @@ async fn run() -> Result<(), Fail> {
 	println!("rust-iroh-redeem-posture: gifter published introducer on {gifter_id}");
 
 	// ── Recipient: configures its redeem posture, then redeems the hint-less give ─
-	let recipient = Connection::connect_iroh(&gifter_id, "", Reachability::LocalDiscovery).await?;
+	let gifter_uri = format_peer_uri(TRANSPORT_IROH, &gifter_id, &Default::default())?;
+	let recipient = connect(&gifter_uri, Some(Reachability::LocalDiscovery), None).await?;
 	// The knob under test: without it, the hint-less redeem defaults to Discovery
 	// (n0 relays + DNS) and would fail with no network. The node is shared, so
 	// this reaches the connection that performs the redeem.
 	recipient
-		.node()
+		.host()
 		.set_redeem_reachability(Reachability::LocalDiscovery);
 	let introducer = recipient.fetch("introducer").await?;
 	let granted = recipient.send(&introducer, "get-greeter", &[]).await?;
@@ -135,7 +141,7 @@ async fn run() -> Result<(), Fail> {
 // with the enclosing `LocalSet` rather than awaited.
 fn accept_loop(server: Rc<pancake_rust_dogfood::IrohServer>) {
 	tokio::task::spawn_local(async move {
-		let mut held: Vec<Connection> = Vec::new();
+		let mut held: Vec<Session> = Vec::new();
 		while let Ok(conn) = server.accept().await {
 			held.push(conn);
 		}

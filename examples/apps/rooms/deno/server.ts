@@ -23,22 +23,33 @@
 // serve loop — the capability model is the whole program.
 //
 // Transport is chosen by the `ROOMS_TRANSPORT` env var (or `--transport=iroh`):
-// the default `tcp` listens on `127.0.0.1:<port>`; `iroh` binds an encrypted-QUIC
-// endpoint and announces an `ocapn://<nodeid>.iroh?direct-addresses=…` URI.
-// Either way the announce line is `ROOMS-SERVER-LISTENING <locator>`, which the
-// demo harness and web bridge read to point clients at the right place.
+// the default `tcp` listens on `127.0.0.1:<port>` (override with `ROOMS_BIND`);
+// `iroh` binds an encrypted-QUIC endpoint. `ROOMS_REACHABILITY=discovery` puts the
+// iroh endpoint on n0 relays + DNS/pkarr and announces a bare
+// `ocapn://<nodeid>.iroh` URI (dial-by-id); the default `direct` announces
+// `ocapn://…?direct-addresses=…` for hermetic same-host demos. On TCP,
+// `ROOMS_ANNOUNCE_HOST` (when set) is the dialable hostname printed and used as
+// the self-designator. Either way the announce line is
+// `ROOMS-SERVER-LISTENING <locator>`, which the demo harness and web bridge read
+// to point clients at the right place.
 //
-// Run it:  deno run --allow-ffi --allow-net --allow-read server.ts 9099
+// Run it:  deno run --allow-ffi --allow-net --allow-read --allow-env server.ts 9099
 //          ROOMS_TRANSPORT=iroh deno run -A --unstable-ffi server.ts
+//          ROOMS_TRANSPORT=iroh ROOMS_REACHABILITY=discovery deno run -A --unstable-ffi server.ts
 
 import {
 	type AppValue,
-	type Connection,
+	designatorHostPort,
 	encodePeerLocator,
+	formatPeerUri,
+	HINT_DIRECT_ADDRESSES,
+	Host,
 	listen,
-	Node,
 	parseLocator,
 	Ref,
+	type Session,
+	socketAddrDesignator,
+	TRANSPORT_IROH,
 } from "@pancake/stack";
 import { listenIroh, Reachability } from "@pancake/iroh";
 import { dial, isUriLocator } from "./lib/locator.ts";
@@ -54,6 +65,7 @@ import {
 	POST,
 	REGISTER,
 	SUBSCRIBE,
+	TYPING,
 	WATCH,
 } from "./lib/protocol.ts";
 
@@ -63,7 +75,7 @@ import {
 interface Member {
 	nick: string;
 	inbox: Ref;
-	conn: Connection;
+	conn: Session;
 }
 
 /** A live room: its display name (the casing the opener chose), its roster, and
@@ -74,7 +86,7 @@ interface Member {
 interface RoomState {
 	name: string;
 	members: Member[];
-	creator: Connection;
+	creator: Session;
 }
 
 const rooms = new Map<string, RoomState>();
@@ -91,8 +103,8 @@ const rooms = new Map<string, RoomState>();
 interface Introduction {
 	nick: string;
 	dm: Ref;
-	toMember: Connection;
-	registrar: Connection;
+	toMember: Session;
+	registrar: Session;
 }
 
 /** Introducible members, by nick. */
@@ -109,22 +121,22 @@ const registering = new Set<string>();
  * it directly. On success the member's inbox is told `notify("registered",
  * nick)`, the deterministic signal that the nick is now introducible. */
 async function registerMember(
-	node: Node,
+	host: Host,
 	nick: string,
 	locator: string,
 	inbox: Ref,
-	conn: Connection,
+	conn: Session,
 ): Promise<void> {
 	const key = nickKey(nick);
 	if (registering.has(key) || introductions.has(key)) return;
 	registering.add(key);
 	try {
-		// Dial the member with the node's shared identity so the gift the directory
+		// Dial the member with the host's shared identity so the gift the directory
 		// later mints (signed with that identity) matches the deposit's provenance.
-		// Transport-neutral: a `host:port` dials TCP; an `ocapn://…iroh` URI dials
+		// Transport-neutral: a `hostname:port` dials TCP; an `ocapn://…iroh` URI dials
 		// iroh's encrypted QUIC — by direct-address hints when the URI carries them,
 		// else by resolving the node id through discovery (see `dial`).
-		const toMember = await dial(locator, node);
+		const toMember = await dial(locator, host);
 		toMember.serve().catch(() => {});
 		// An iroh member signs only its node id on its session, so the gift's
 		// exporter location would otherwise carry no way to reach it. Re-encode the
@@ -138,7 +150,7 @@ async function registerMember(
 			toMember.setExporterLocator(encodePeerLocator({
 				transport: loc.transport,
 				designator: loc.designator,
-				directAddresses: loc.hints.get("direct-addresses") ?? "",
+				directAddresses: loc.hints.get(HINT_DIRECT_ADDRESSES) ?? "",
 			}));
 		}
 		const dm = await toMember.fetch("dm");
@@ -157,7 +169,7 @@ async function registerMember(
 /** Withdraw every introduction a closing connection registered: drop the nick so
  * `introduce` stops handing out a stale gift, close the directory's own dial-back
  * to that member, and tell the watchers the nick is gone. */
-function dropIntroductions(conn: Connection): void {
+function dropIntroductions(conn: Session): void {
 	for (const [key, intro] of [...introductions]) {
 		if (intro.registrar !== conn) continue;
 		introductions.delete(key);
@@ -171,7 +183,7 @@ function dropIntroductions(conn: Connection): void {
 /** Directory-wide observers of the live room list. A `watch` registers its inbox
  * capability here; every membership transition pushes a delta to each one. They
  * are global because they watch the whole directory, not one room. */
-const watchers: { observer: Ref; conn: Connection }[] = [];
+const watchers: { observer: Ref; conn: Session }[] = [];
 
 /** The live rooms — those with at least one member — as `[name, count]` pairs.
  * A just-`open`ed room with no members yet is invisible until its first
@@ -199,7 +211,7 @@ function notifyWatchers(event: string, name: string, count: number): void {
 	}
 }
 
-function dropWatchers(conn: Connection): void {
+function dropWatchers(conn: Session): void {
 	for (let i = watchers.length - 1; i >= 0; i -= 1) {
 		if (watchers[i].conn === conn) watchers.splice(i, 1);
 	}
@@ -215,13 +227,13 @@ function nickKey(nick: string): string {
 	return nick.toLowerCase();
 }
 
-function findByConn(state: RoomState, conn: Connection): Member | null {
+function findByConn(state: RoomState, conn: Session): Member | null {
 	return state.members.find((m) => m.conn === conn) ?? null;
 }
 
 function claimedByAnother(
 	state: RoomState,
-	conn: Connection,
+	conn: Session,
 	nick: string,
 ): boolean {
 	const key = nickKey(nick);
@@ -246,6 +258,25 @@ function broadcast(
 	}
 }
 
+/** Push an ephemeral typing flag to every *other* member of `state`. Typing is
+ * best-effort presence, not a line: it carries no text, is never stored, and is
+ * never echoed to the typer (`exceptConn`). It rides the same `notify` inbox as
+ * a room line, tagged `"typing"` at the third argument so any subscriber that
+ * does not care skips it. A member whose socket has died is dropped. */
+function broadcastTyping(
+	state: RoomState,
+	nick: string,
+	on: boolean,
+	exceptConn: Session,
+): void {
+	for (const m of [...state.members]) {
+		if (m.conn === exceptConn) continue;
+		m.conn.tell(m.inbox, NOTIFY, ["room", "", "typing", nick, on]).catch(() =>
+			leaveAll(m.conn)
+		);
+	}
+}
+
 /** Remove `conn`'s membership from one room, announcing its departure, and
  * delete the room if that emptied it. The `silent` path is for resubscribe,
  * which drops the prior membership and immediately adds a new one, so it must
@@ -253,7 +284,7 @@ function broadcast(
  * reuse. */
 function leaveRoom(
 	state: RoomState,
-	conn: Connection,
+	conn: Session,
 	silent = false,
 ): boolean {
 	let removed = false;
@@ -285,10 +316,10 @@ function leaveRoom(
 	return removed;
 }
 
-/** Drop a connection from every room it is in, the cleanup when its socket
- * closes. Also reclaim any room this connection opened but never subscribed to,
+/** Drop a session from every room it is in, the cleanup when its socket
+ * closes. Also reclaim any room this session opened but never subscribed to,
  * so an abandoned `open` does not leak an empty room. */
-function leaveAll(conn: Connection): void {
+function leaveAll(conn: Session): void {
 	for (const state of [...rooms.values()]) {
 		leaveRoom(state, conn);
 		if (state.members.length === 0 && state.creator === conn) {
@@ -302,7 +333,7 @@ function leaveAll(conn: Connection): void {
 /** The room behavior for one connection. The room grants at most one live
  * membership to the connection, so `post` needs no "from" argument — the
  * capability the post arrives on is the authority to speak in this room. */
-function roomBehavior(state: RoomState, conn: Connection) {
+function roomBehavior(state: RoomState, conn: Session) {
 	return (verb: string, args: AppValue[]): AppValue => {
 		if (verb === SUBSCRIBE) {
 			const nick = typeof args[0] === "string" ? args[0] : "anon";
@@ -348,6 +379,14 @@ function roomBehavior(state: RoomState, conn: Connection) {
 			broadcast(state, member.nick, typeof args[0] === "string" ? args[0] : "");
 			return null;
 		}
+		if (verb === TYPING) {
+			// Ephemeral: only a claimed member can signal, and the signal reaches the
+			// other members alone. An un-subscribed connection is a silent no-op — a
+			// stale typing flag is never worth an error.
+			const member = findByConn(state, conn);
+			if (member !== null) broadcastTyping(state, member.nick, args[0] === true, conn);
+			return null;
+		}
 		if (verb === LEAVE) {
 			// Drop just this membership, keeping the connection open so the client can
 			// enter another room. Idempotent: leaving a room you are not in is a no-op.
@@ -360,9 +399,9 @@ function roomBehavior(state: RoomState, conn: Connection) {
 
 /** The directory behavior for one connection. `open`/`enter` return a live
  * reference to a room — the per-connection room view spawned here — so the room
- * a client holds is bound to that client's connection. `node` is the node's
+ * a client holds is bound to that client's connection. `host` is the host's
  * shared identity/gift registry, needed to dial members back for introductions. */
-export function directoryBehavior(conn: Connection, node: Node) {
+export function directoryBehavior(conn: Session, host: Host) {
 	return (verb: string, args: AppValue[]): AppValue => {
 		if (verb === REGISTER) {
 			const nick = typeof args[0] === "string" ? args[0] : "";
@@ -374,15 +413,19 @@ export function directoryBehavior(conn: Connection, node: Node) {
 			if (!(inbox instanceof Ref)) {
 				throw new Error("register needs an inbox capability");
 			}
-			// A locator is either a TCP `host:port` or an `ocapn://…iroh?…` URI; both
+			// A locator is either a TCP `hostname:port` or an `ocapn://…iroh?…` URI; both
 			// have a colon, so just require one that the dial-back can parse.
-			if (!isUriLocator(locator) && locator.lastIndexOf(":") < 0) {
-				throw new Error("register locator must be host:port or an ocapn:// URI");
+			if (!isUriLocator(locator)) {
+				try {
+					designatorHostPort(locator);
+				} catch {
+					throw new Error("register locator must be hostname:port or an ocapn:// URI");
+				}
 			}
 			// The dial-back is async; kick it off and ack now. The member waits for
 			// the `notify("registered", …)` the dial-back pushes before treating its
 			// nick as introducible, so there is no register/introduce race.
-			void registerMember(node, nick, locator, inbox, conn);
+			void registerMember(host, nick, locator, inbox, conn);
 			return null;
 		}
 		if (verb === INTRODUCE) {
@@ -430,16 +473,21 @@ export function directoryBehavior(conn: Connection, node: Node) {
 	};
 }
 
+/** Read an optional env var when permission is granted; otherwise undefined. */
+function optionalEnv(name: string): string | undefined {
+	const allowed = Deno.permissions.querySync({ name: "env", variable: name }).state ===
+		"granted";
+	if (!allowed) return undefined;
+	const value = Deno.env.get(name)?.trim();
+	return value && value.length > 0 ? value : undefined;
+}
+
 function transportArg(): "tcp" | "iroh" {
 	const flag = Deno.args.find((a) => a.startsWith("--transport="));
 	// ROOMS_TRANSPORT is a convenience for manual runs; only read it when env
 	// access is granted so the default (TCP) permission set never trips.
-	const envAllowed = Deno.permissions.querySync({ name: "env", variable: "ROOMS_TRANSPORT" })
-		.state === "granted";
-	const choice =
-		(flag
-			? flag.slice("--transport=".length)
-			: (envAllowed ? Deno.env.get("ROOMS_TRANSPORT") : undefined)) ?? "tcp";
+	const choice = (flag ? flag.slice("--transport=".length) : optionalEnv("ROOMS_TRANSPORT")) ??
+		"tcp";
 	if (choice !== "tcp" && choice !== "iroh") {
 		console.error(
 			`server.ts: unknown transport "${choice}" (expected tcp or iroh)`,
@@ -449,17 +497,28 @@ function transportArg(): "tcp" | "iroh" {
 	return choice;
 }
 
+/** iroh dial posture: `direct` (default, hermetic) or `discovery` (n0 + pkarr). */
+function reachabilityArg(): typeof Reachability.Direct | typeof Reachability.Discovery {
+	const choice = (optionalEnv("ROOMS_REACHABILITY") ?? "direct").toLowerCase();
+	if (choice === "discovery") return Reachability.Discovery;
+	if (choice === "direct") return Reachability.Direct;
+	console.error(
+		`server.ts: unknown reachability "${choice}" (expected direct or discovery)`,
+	);
+	Deno.exit(2);
+}
+
 /** Serve the directory on every connection `server` accepts until it closes.
- * `node` is the node's shared identity/gift registry — the same one the
+ * `host` is the host's shared identity/gift registry — the same one the
  * accepted connections key with — so `register`'s dial-back and `introduce`'s
  * gift origination share one identity (the directory↔member dial and the
  * directory↔caller answer must agree for the handoff signature to verify). */
 export async function serveDirectory(
-	server: AsyncIterable<Connection>,
-	node: Node,
+	server: AsyncIterable<Session>,
+	host: Host,
 ): Promise<void> {
 	for await (const conn of server) {
-		conn.publish(DIRECTORY, directoryBehavior(conn, node)); // fetchable by name
+		conn.publish(DIRECTORY, directoryBehavior(conn, host)); // fetchable by name
 		conn.serve().then(
 			() => leaveAll(conn),
 			() => leaveAll(conn),
@@ -477,22 +536,39 @@ if (import.meta.main) {
 	// The harness and the web bridge parse the announce line: a bare port is a TCP
 	// locator (127.0.0.1:<port>), an ocapn:// URI is an iroh locator.
 	if (transport === "iroh") {
-		// The rooms URIs carry direct-addresses, so `.direct` is the explicit posture.
-		// One shared node across the iroh listener and the directory behavior, so
+		// One shared host across the iroh listener and the directory behavior, so
 		// `register`'s dial-back and `introduce`'s gift origination present one
 		// identity, what a cross-process three-party handoff over iroh requires.
-		// One seed for the node identity AND the endpoint, so every accepted
+		// One seed for the host identity AND the endpoint, so every accepted
 		// session signs with the endpoint's own key: iroh's designator is that
 		// key, and a dialer that pins the session identity to the node id it
 		// dialed (the Zig rooms client) verifies exactly this.
 		const seed = crypto.getRandomValues(new Uint8Array(32));
-		const node = new Node(seed);
-		const iroh = listenIroh(Reachability.Direct, seed, node);
-		console.log(`ROOMS-SERVER-LISTENING ${iroh.uri}`);
-		await serveDirectory(iroh, node);
+		const host = new Host(seed);
+		const reach = reachabilityArg();
+		const iroh = listenIroh(reach, seed, host);
+		// Discovery: announce node id alone so partners resolve via n0/pkarr.
+		// Direct: announce with direct-address hints for same-host hermetic demos.
+		const announce = reach === Reachability.Discovery
+			? formatPeerUri(TRANSPORT_IROH, iroh.nodeId)
+			: iroh.uri;
+		console.log(`ROOMS-SERVER-LISTENING ${announce}`);
+		await serveDirectory(iroh, host);
 	} else {
-		const tcp = listen("127.0.0.1", Number(positional[0] ?? "0"));
-		console.log(`ROOMS-SERVER-LISTENING ${await tcp.ready()}`);
-		await serveDirectory(tcp, tcp.node);
+		// Default loopback keeps local demos hermetic. Optional ROOMS_BIND /
+		// ROOMS_ANNOUNCE_HOST publish a TCP directory on a shared network when
+		// not using iroh.
+		const bindHost = optionalEnv("ROOMS_BIND") ?? "127.0.0.1";
+		const announceHost = optionalEnv("ROOMS_ANNOUNCE_HOST");
+		const tcp = listen(bindHost, Number(positional[0] ?? "0"));
+		const boundPort = await tcp.ready();
+		if (announceHost) {
+			const designator = socketAddrDesignator(announceHost, boundPort);
+			tcp.host.setSelfDesignator(designator);
+			console.log(`ROOMS-SERVER-LISTENING ${designator}`);
+		} else {
+			console.log(`ROOMS-SERVER-LISTENING ${boundPort}`);
+		}
+		await serveDirectory(tcp, tcp.host);
 	}
 }

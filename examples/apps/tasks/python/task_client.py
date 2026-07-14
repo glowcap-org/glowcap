@@ -25,7 +25,7 @@ from python_path import add_bindings_path  # noqa: E402
 
 add_bindings_path(from_file=__file__, depth=4)
 
-from pancake import Connection, connect, tcp_locator  # noqa: E402
+from pancake import Session, connect, tcp_locator  # noqa: E402
 
 BOARD = "board"
 ADD, DONE, LIST, WATCH, UPDATE = "add", "done", "list", "watch", "update"
@@ -54,7 +54,7 @@ class TaskBoard:
     snapshots the board pushes, :meth:`add`/:meth:`done`/:meth:`list` to drive it,
     and :meth:`leave` when done."""
 
-    def __init__(self, conn: Connection, board) -> None:
+    def __init__(self, conn: Session, board) -> None:
         self._conn = conn
         self._board = board
         self._snapshots: asyncio.Queue = asyncio.Queue()

@@ -9,7 +9,7 @@
 ;; an empty hint set, so a session that opens proves the dial was resolved over
 ;; real discovery infrastructure and carried over a real relay / hole-punched
 ;; path — not hinted, not loopback-booked. The client's dial rides the
-;; `connect-iroh` DISCOVERY retry that settles while the publish propagates.
+;; `connect` DISCOVERY retry that settles while the publish propagates.
 ;;
 ;; Not a hermetic gate. This step touches public n0 infrastructure
 ;; (`*.relay.iroh.network`, `dns.iroh.link`), and discovery-propagation timing
@@ -40,12 +40,12 @@
      (with-handlers ([exn:fail? (lambda (_) (void))])
        (let loop ()
          (define conn (iroh-server-accept s))
-         (set-box! serves-box (cons (thread (lambda () (conn-serve conn))) (unbox serves-box)))
+         (set-box! serves-box (cons (thread (lambda () (session-serve conn))) (unbox serves-box)))
          (loop))))))
 
 ;; ── Server: a giftable greeter, dialable by node id alone over discovery ───────
 (define server (listen-iroh IROH-REACH-DISCOVERY))
-(node-publish-giftable (iroh-server-node server) "greeter"
+(host-publish-giftable (iroh-server-host server) "greeter"
                           (methods [(greet who) (format "hello ~a over iroh discovery" who)]))
 (define server-id (iroh-server-node-id server))
 (define server-serves (box '()))
@@ -58,11 +58,11 @@
                  (lambda (e)
                    (iroh-server-close! server)
                    (raise e))])
-  (define client (connect-iroh server-id "" IROH-REACH-DISCOVERY))
+  (define client (connect (format-peer-uri TRANSPORT-IROH server-id) IROH-REACH-DISCOVERY))
   (printf "racket-iroh-reachability: client dialed by node id alone and opened the keyed session\n")
 
-  (define greeter (conn-fetch client "greeter"))
-  (define reply (conn-send client greeter 'greet NAME))
+  (define greeter (session-fetch client "greeter"))
+  (define reply (session-send client greeter 'greet NAME))
   (unless (and (string? reply) (regexp-match? (regexp (regexp-quote NAME)) reply))
     (fail "racket-iroh-reachability" (format "greeter reply did not carry the name back: ~a" reply)))
   (printf "racket-iroh-reachability: greeter replied: ~a\n" reply)
@@ -76,7 +76,7 @@
   ;; each accepted connection a clean EOF), and raises out of the parked accept.
   ;; The accepted connections share that loop and netlayer, so they are never
   ;; closed by hand; their serve threads end on the EOF and are joined here.
-  (connection-close! client)
+  (session-close! client)
   (iroh-server-close! server)
   (thread-wait server-accept)
   (for ([t (unbox server-serves)])

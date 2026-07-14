@@ -53,7 +53,7 @@ round-trip:
 >     .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
 >     .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
 >     // The third outcome: an introduction to a capability on another peer,
->     // which a `driver.BlockingHost` redeems for you. This greeter never sends one.
+>     // which a `driver.Bridge` + Host redeems for you. This greeter never sends one.
 >     .give => {},
 > }
 > ```
@@ -85,7 +85,7 @@ round-trip:
 >     .fulfilled => |arg| std.debug.print("{s}\n", .{arg.string}),
 >     .broken => |reason| std.debug.print("the greeter refused: {s}\n", .{reason}),
 >     // The third outcome: an introduction to a capability on another peer,
->     // which a `driver.BlockingHost` redeems for you. This greeter never sends one.
+>     // which a `driver.Bridge` + Host redeems for you. This greeter never sends one.
 >     .give => {},
 > }
 > ```
@@ -93,7 +93,7 @@ round-trip:
 Read it as four moves:
 
 1. **Connect.** `pancake.driver.connect` opens a session over a netlayer and
-   hands you one owning `Connection`; the iroh tab's `connectUriOwned` parses
+   hands you one owning `Session`; the iroh tab's `connectUriOwned` parses
    the locator string and calls it. A netlayer is pancake's word for a
    transport; the [Transports]($link.page('transports')) page introduces them.
    The `defer conn.deinit()` on the next line is the only connection cleanup the
@@ -106,7 +106,7 @@ Read it as four moves:
    dropping the arena rather than tracking each piece.
 4. **Switch on the outcome.** A call settles one of three ways: `fulfilled` with a
    value, `broken` with a reason, or `give`, an introduction to a capability on
-   another peer, which a multi-connection `driver.BlockingHost` redeems into a live
+   another peer, which a multi-session CapTP Host + `driver.Bridge` redeems into a live
    reference for you. The compiler makes you handle every arm; this client meets
    a plain greeter, so its `give` arm is empty.
 

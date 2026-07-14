@@ -21,7 +21,9 @@
 
 use std::rc::Rc;
 
-use pancake_rust_dogfood::{listen_iroh, Argument, Connection, Reachability};
+use pancake_rust_dogfood::{
+	connect, format_peer_uri, listen_iroh, Argument, Reachability, Session, TRANSPORT_IROH,
+};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -37,7 +39,7 @@ const GREETING: &str = "hello over the iroh loop";
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
 	helpers::ignore_port_args()?;
-	// The `Connection` driver is `!Send`, so it lives on a `LocalSet`.
+	// The `Session` driver is `!Send`, so it lives on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
 	local.run_until(run()).await
 }
@@ -51,7 +53,7 @@ async fn run() -> Result<(), Fail> {
 	// alive, all served from the server's one readiness loop.
 	let accept_server = Rc::clone(&server);
 	let accept_task = tokio::task::spawn_local(async move {
-		let mut served: Vec<Connection> = Vec::new();
+		let mut served: Vec<Session> = Vec::new();
 		while let Ok(conn) = accept_server.accept().await {
 			if conn.publish("greeter", greeter).await.is_err() {
 				continue;
@@ -112,7 +114,8 @@ fn greeter(verb: &str, _args: &[Argument]) -> Result<Argument, String> {
 // local-discovery book resolves it), fetch the greeter, and call it
 // `CALLS_PER_CONN` times, checking every reply.
 async fn client_once(server_id: String) -> Result<(), Fail> {
-	let conn = Connection::connect_iroh(&server_id, "", Reachability::LocalDiscovery).await?;
+	let locator = format_peer_uri(TRANSPORT_IROH, &server_id, &Default::default())?;
+	let conn = connect(&locator, Some(Reachability::LocalDiscovery), None).await?;
 	let greeter = conn.fetch("greeter").await?;
 	for _ in 0..CALLS_PER_CONN {
 		let reply = conn

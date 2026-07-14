@@ -72,11 +72,10 @@ shared verification seam:
   durable designator. The Syrup encoder's start-session locator path
   (`writePeerLocatorRecord`) now renders hint entries canonically, and the
   signing domain (`canonicalLocationSignedBytes`) embeds the identical bytes.
-- **iroh alignment.** `iroh.LoopHost` takes an optional identity secret
-  (`Options.secret`) so a host serves every accepted session under its
-  endpoint's own key, and the in-tree iroh responders (the interop, loop,
-  reachability, and bench harnesses, and the rooms demo servers) now seed the
-  endpoint and the signing identity from one seed.
+- **iroh alignment.** Bridged iroh scale serves under `driver.core.Host`
+  seeded with the endpoint's own key, and the in-tree iroh responders (the
+  interop, loop, reachability, and bench harnesses, and the rooms demo servers)
+  seed the endpoint and the signing identity from one seed.
 
 ## What the pin does and does not prove
 
@@ -97,14 +96,16 @@ confidentiality and integrity remain iroh's job; keyed TCP is the durable
 - The Cap'n Proto codec refuses non-empty locator hints on encode, so a hinted
   keyed location is a Syrup-session feature today — the same boundary hinted
   iroh locators already live with.
-- Binding-level `keyed-tcp` dial/host surfaces, per-binding restart gates, and
-  a peer-level partner-key-pin export on the C ABI (the `expectPartnerKey`
-  verb, C-shaped) are not implemented; they are the natural next pass over
-  this seam.
-- `designatorSchemeForTransport` deliberately maps only `keyed-tcp`. The
-  byte-fed iroh pin waits on the per-binding key unification pass: every
-  binding's iroh server today pairs a fresh node identity with the endpoint
-  key, which the pin would refuse.
+- Binding-level `keyed-tcp` dial/host surfaces and per-binding restart gates
+  are shipped (`listen_keyed_tcp` / `keyed_tcp_locator` / `connect` on a
+  `keyed-tcp` URI; `zig build bindings-keyed-tcp-restart`). The C ABI
+  peer-level partner-key pin is `pancake_peer_expect_partner_key`.
+- `designatorSchemeForTransport` maps both `keyed-tcp` and `iroh` to `.key`.
+  Binding-hosted iroh servers mint one seed for the endpoint and the `Node`,
+  so designator, session key, and netlayer identity stay one value; a byte-fed
+  dial by node id pins the handshake the same way keyed TCP does, and a
+  squatter key is refused with `PartnerKeyMismatch` (proven in
+  `test/driver/core_host_test.zig`).
 
 ## Alternatives Considered
 

@@ -6,9 +6,10 @@
 ;; à-la-carte archive split (ADR-0059). It re-provides the `seam` submodule of
 ;; `pancake.rkt` — the typed-error raisers (`check`, `check-with`,
 ;; `raise-pancake`), the pin/copy helpers (`pin-immobile`, `bytes<-c`),
-;; `codec-id`, the connection-construction seam (`async-transport`,
-;; `establish-dialed-connection`, `establish-accepted-connection`,
-;; `make-fresh-node`, `node-set-self-designator!`), and the shared frame
+;; `codec-id`, the session-construction seam (`async-transport`,
+;; `establish-dialed-locator-session`,
+;; `establish-accepted-session`,
+;; `make-fresh-host`, `make-host`, `host-set-self-designator!`), and the shared frame
 ;; cstructs with their managed-frame release. Not a public API: `pancake.rkt`'s
 ;; public provide never exports these, and an application reaches a transport
 ;; through its companion module's own surface.

@@ -22,7 +22,7 @@
 //! - `net` is the one place real I/O lives. It drives a `Peer` over a byte
 //!   stream and adds no protocol behavior of its own.
 //! - `driver` sits above both `actors` and `net`: `driver.connect` and
-//!   `driver.listen` each hand back an owning `Connection`, so a Zig app gets
+//!   `driver.listen` each hand back an owning `Session`, so a Zig app gets
 //!   `connect`/`listen`/`fetch`/`publish`/`spawn`/`send`/`tell`/`serve`/`close`
 //!   instead of a hand-written pump loop. It composes; it adds no protocol.
 //!
@@ -64,7 +64,7 @@ pub const Peer = ocapn.engine.Peer;
 pub const Vat = actors.Vat;
 
 /// The owning application connection `driver.connect` and `driver.listen` hand back.
-pub const Connection = driver.Connection;
+pub const Session = driver.Session;
 
 /// Owned wire bytes for one frame; the borrowed counterpart is `Frame.view`.
 pub const Frame = foundation.Frame;

@@ -7,6 +7,11 @@
 //! drain. These are session authority, so they live beside the session rather
 //! than at any adapter boundary.
 
+/// Default inbound frame cap (1 MiB). SessionLimits uses this for
+/// `max_frame_bytes`; the driver C ABI publishes the same value as
+/// `PANCAKE_DEFAULT_FRAME_CAP` so bindings stop hardcoding the shift.
+pub const default_max_frame_bytes: usize = 1 << 20;
+
 /// Bounds on pipelining state (ADR-0007), keeping a peer from being driven into
 /// unbounded memory by a partner that pipelines or listens without ever
 /// resolving. Each overflow is a loud session error, never a silent drop. The
@@ -67,5 +72,5 @@ pub const SessionLimits = struct {
     /// frame larger than the buffer pays one bounded spill (`net.Spill`,
     /// ADR-0041). Not consulted by the frame boundary, which is
     /// handed an already-framed buffer.
-    max_frame_bytes: usize = 1 << 20,
+    max_frame_bytes: usize = default_max_frame_bytes,
 };

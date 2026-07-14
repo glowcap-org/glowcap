@@ -12,11 +12,11 @@ import threading
 import ctypes
 
 from pancake import (
-    Connection,
+    Session,
     Context,
     FetchFailed,
     Keyword,
-    Node,
+    Host,
     PancakeError,
     Ref,
     Set,
@@ -26,8 +26,10 @@ from pancake import (
     abi_version,
     connect,
     listen,
+    socket_addr_designator,
     tcp_locator,
 )
+from pancake._constants import TRANSPORT_TCP
 from pancake.inproc import InprocNetlayer
 from pancake.tcp import TcpNetlayer
 
@@ -82,7 +84,7 @@ def main() -> int:
     print("python zig-smoke OK: the blocking TCP and in-process transports shuttled a frame")
 
     asyncio.run(_allocator_context_round_trip())
-    print("python zig-smoke OK: drove a published counter round-trip from a context-backed node")
+    print("python zig-smoke OK: drove a published counter round-trip from a context-backed Host")
 
     asyncio.run(_capnp_codec_round_trip())
     print("python zig-smoke OK: a capnp session opens and big-integer + keyword args round-trip")
@@ -178,10 +180,10 @@ async def _start_relay(target_port: int, rewrite=None, observe=None):
 
 async def _allocator_context_round_trip() -> None:
     """The basic round-trip: publish a counter, fetch it, drive it with sends.
-    The server node lives in a caller-supplied allocation context, so every
+    The server Host lives in a caller-supplied allocation context, so every
     byte the host owns routes through the custom allocator — proving
     :class:`Context` against the byte-fed host, released in the documented
-    order (node before context)."""
+    order (Host before context)."""
     stats = {"allocs": 0}
     live: dict = {}  # address -> owning ctypes buffer, kept alive until freed
 
@@ -198,8 +200,8 @@ async def _allocator_context_round_trip() -> None:
         live.pop(address, None)
 
     with Context.with_allocator(host_alloc, host_free) as ctx:
-        node = Node(context=ctx)
-        server = await listen("127.0.0.1", 0, node)
+        host = Host(context=ctx)
+        server = await listen("127.0.0.1", 0, host)
         try:
             async def serve_one() -> None:
                 async for conn in server:
@@ -218,7 +220,7 @@ async def _allocator_context_round_trip() -> None:
                     break
 
             hosted = asyncio.ensure_future(serve_one())
-            client = await Connection.connect("127.0.0.1", server.port)
+            client = await connect(tcp_locator("127.0.0.1", server.port))
             client.serve()
             counter_ref = await client.fetch("counter")
             grown = await client.send(counter_ref, "add", [5])
@@ -229,9 +231,9 @@ async def _allocator_context_round_trip() -> None:
             await asyncio.wait_for(hosted, timeout=5)
         finally:
             server.close()
-        # Release the node before the context that owns its allocations.
-        node.release()
-        assert stats["allocs"] > 0, "the host allocator serviced the node"
+        # Release the Host before the context that owns its allocations.
+        host.release()
+        assert stats["allocs"] > 0, "the host allocator serviced the Host"
 
 
 async def _capnp_codec_round_trip() -> None:
@@ -276,7 +278,8 @@ async def _feed_refusals_are_typed() -> None:
     AbortDetail says the member). The bytes are injected through the
     connection's own feed seam — a binding-internal probe, the sibling of the
     Racket smoke's ``feed-bytes!``."""
-    from pancake._connection import Connection as _Conn
+    from pancake import _pump
+    from pancake._session import Session as _Conn
 
     class _InjectTransport:
         async def read(self):
@@ -289,9 +292,12 @@ async def _feed_refusals_are_typed() -> None:
             pass
 
     # Over-cap: the length prefix declares past the cap, refused during the scan.
-    conn = _Conn._mint_dialed(Node(), tcp_locator("127.0.0.1", 1), _InjectTransport())
+    # Bytes ride the named pump module (`_pump._feed`), not a Session verb.
+    conn = _Conn._open_dialed_locator(
+        Host(), TRANSPORT_TCP, socket_addr_designator("127.0.0.1", 1), _InjectTransport()
+    )
     try:
-        await conn._feed(b"<10'op:deliver<11'desc:export7+>[2000000:")
+        await _pump._feed(conn, b"<10'op:deliver<11'desc:export7+>[2000000:")
         raise AssertionError("an over-cap frame must refuse typed instead of buffering")
     except PancakeError as exc:
         assert exc.code == -11, exc.code  # PANCAKE_ERR_FRAME_TOO_LARGE
@@ -299,11 +305,13 @@ async def _feed_refusals_are_typed() -> None:
         conn.close_transport()
 
     # Garbage: the refusal carries the typed abort detail.
-    conn = _Conn._mint_dialed(Node(), tcp_locator("127.0.0.1", 1), _InjectTransport())
+    conn = _Conn._open_dialed_locator(
+        Host(), TRANSPORT_TCP, socket_addr_designator("127.0.0.1", 1), _InjectTransport()
+    )
     try:
         assert conn.last_abort() is None, "no dispatch failure recorded yet"
         try:
-            await conn._feed(b"this is not a frame")
+            await _pump._feed(conn, b"this is not a frame")
             raise AssertionError("feeding garbage must raise")
         except PancakeError as exc:
             assert exc.abort is not None, "the refused frame carries its typed cause"
@@ -332,7 +340,7 @@ async def _disconnect_rejects_pending_send() -> None:
                 break
 
         hosted = asyncio.ensure_future(serve_one())
-        conn = await Connection.connect("127.0.0.1", server.port)
+        conn = await connect(tcp_locator("127.0.0.1", server.port))
         conn.serve()  # a disconnect ends the serve task; expected here
         svc = await conn.fetch("svc")
         await conn.send(svc, "ping", [])
@@ -366,7 +374,7 @@ async def _listen_surfaces_bound_port() -> None:
                 break
 
         accept_task = asyncio.ensure_future(accept_one())
-        client = await Connection.connect("127.0.0.1", port)
+        client = await connect(tcp_locator("127.0.0.1", port))
         # Both keyed handshakes complete; one connection was accepted on the
         # bound port.
         await asyncio.wait_for(accept_task, timeout=5)
@@ -398,7 +406,7 @@ async def _rude_probe_cannot_close_the_listener() -> None:
         probe_writer.close()
         del probe_reader
 
-        conn = await Connection.connect("127.0.0.1", port)
+        conn = await connect(tcp_locator("127.0.0.1", port))
         svc = await conn.fetch("svc")
         reply = await conn.send(svc, "ping", [])
         assert reply == Symbol("alive"), reply
@@ -437,7 +445,7 @@ async def _structured_args_round_trip() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await Connection.connect("127.0.0.1", server.port)
+        conn = await connect(tcp_locator("127.0.0.1", server.port))
         conn.serve()
         poked = asyncio.get_running_loop().create_future()
 
@@ -484,7 +492,7 @@ async def _enliven_round_trips_then_caches() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await Connection.connect("127.0.0.1", server.port)
+        conn = await connect(tcp_locator("127.0.0.1", server.port))
         conn.serve()
         # The connection is already open to the peer; enliven keys on the
         # sturdyref's swissnum, carried by the URI as `/s/greeter`.
@@ -525,7 +533,7 @@ async def _gc_releases_dropped_import() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = (await Connection.connect("127.0.0.1", relay_port)).with_gc()
+        conn = (await connect(tcp_locator("127.0.0.1", relay_port))).with_gc()
         conn.serve()
         cap = await conn.fetch("svc")
         assert cap.far is not None, "the fetched cap is a far token"
@@ -586,7 +594,7 @@ async def _fetch_failed_is_typed() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await Connection.connect("127.0.0.1", relay_port)
+        conn = await connect(tcp_locator("127.0.0.1", relay_port))
         conn.serve()
         await export_known.wait()
         # The granting fetch: its resolve marshals the "plain" reference,
@@ -607,7 +615,7 @@ async def _fetch_failed_is_typed() -> None:
 
 
 async def _pipelining_drives_chain() -> None:
-    """Promise pipelining (ADR-0007), the questioner's half: ``Connection.send``
+    """Promise pipelining (ADR-0007), the questioner's half: ``Session.send``
     returns a handle that is also a ``send`` target, so a create -> assign ->
     complete -> status chain is issued against the *unresolved* ``create`` answer
     and the four delivers travel as one batch. The board's ``create`` spawns a
@@ -640,7 +648,7 @@ async def _pipelining_drives_chain() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await Connection.connect("127.0.0.1", server.port)
+        conn = await connect(tcp_locator("127.0.0.1", server.port))
         conn.serve()
         root_ref = await conn.fetch("root")
         # The four verbs leave together: none awaits create's reply, and assign /
@@ -680,7 +688,7 @@ async def _unawaited_break_stays_silent() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await Connection.connect("127.0.0.1", server.port)
+        conn = await connect(tcp_locator("127.0.0.1", server.port))
         conn.serve()
         root_ref = await conn.fetch("root")
         anchor = conn.send(root_ref, "explode", [])
@@ -724,7 +732,7 @@ async def _projections_reach_a_field() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await Connection.connect("127.0.0.1", server.port)
+        conn = await connect(tcp_locator("127.0.0.1", server.port))
         conn.serve()
         root_ref = await conn.fetch("root")
         # Neither projection awaits a prior reply: they ride the unresolved make
@@ -777,7 +785,7 @@ async def _forwarding_proxies_over_the_wire() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await Connection.connect("127.0.0.1", server.port)
+        conn = await connect(tcp_locator("127.0.0.1", server.port))
         conn.serve()  # serve so the server's forwarded call arrives
 
         def tool(verb, args):
@@ -847,7 +855,7 @@ async def _forwarding_proxy_local_call() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await Connection.connect("127.0.0.1", server.port)
+        conn = await connect(tcp_locator("127.0.0.1", server.port))
         conn.serve()
 
         # A caretaker over a local tool, called locally by its own host.
@@ -906,7 +914,7 @@ async def _mid_turn_driving_verb_breaks_the_answer() -> None:
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await Connection.connect("127.0.0.1", server.port)
+        conn = await connect(tcp_locator("127.0.0.1", server.port))
         conn.serve()
         svc_ref = await conn.fetch("svc")
         broke = None
@@ -915,7 +923,7 @@ async def _mid_turn_driving_verb_breaks_the_answer() -> None:
         except VowBroken as error:
             broke = error
         assert broke is not None, "a mid-turn driving verb breaks the answer"
-        # The turn unwound cleanly: the same connection still answers.
+        # The turn unwound cleanly: the same session still answers.
         pong = await conn.send(svc_ref, "ping", [])
         assert pong == "pong", f"the connection survives the refused turn, got {pong!r}"
         await conn.close()

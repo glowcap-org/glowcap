@@ -1,6 +1,6 @@
 //! The buffer-explicit spelling of the application surface.
 //!
-//! Chapter 01 rides the owning `driver.Connection`, where one `frame_cap`
+//! Chapter 01 rides the owning `driver.Session`, where one `frame_cap`
 //! option sizes the buffers and the session limit together. This example is
 //! the same conversation one layer down, where every allocation is visible at
 //! the call site: the caller owns the negotiating `engine.Peer` (and sets its

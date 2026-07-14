@@ -15,9 +15,23 @@ const actors = pancake.actors;
 const driver = pancake.driver;
 
 const Host = driver.core.Host;
-const HostConnection = driver.core.HostConnection;
+const HostSession = driver.core.HostSession;
+const engine = pancake.ocapn.engine;
 
 const frame_cap = 4096;
+
+test "Host admission frame cap defaults to the canonical session limit" {
+    // Single-source lock: a default-constructed Host admits the same frame size
+    // the driver C ABI publishes as PANCAKE_DEFAULT_FRAME_CAP, so a native Zig
+    // embedder and a C embedder agree on the default admission cap. If someone
+    // re-hardcodes this default to a bare literal, this fails instead of
+    // silently shrinking a Zig host's admissible frame below the advertised C
+    // default.
+    try std.testing.expectEqual(
+        (engine.SessionLimits{}).max_frame_bytes,
+        (Host.Options{}).frame_cap,
+    );
+}
 
 /// The gifted object, published by the exporter.
 const Widget = struct {
@@ -41,7 +55,7 @@ const Introducer = struct {
 };
 
 /// A wired pair: one host's connection whose outbound is the other's inbound.
-const Pair = struct { ah: *Host, a: *HostConnection, bh: *Host, b: *HostConnection };
+const Pair = struct { ah: *Host, a: *HostSession, bh: *Host, b: *HostSession };
 
 /// One dial request parked for the test to execute, its locator duped clear of
 /// the action queue's popped-view lifetime.
@@ -176,18 +190,21 @@ const CapturedString = struct {
     }
 };
 
+fn tcpLocator(designator: []const u8) model.PeerLocator {
+    return .{ .transport = "tcp", .designator = designator, .hints = model.Hints.emptyFalse() };
+}
+
 /// Open a dialed/accepted pair between two hosts and drive the keyed
 /// handshake open over fed bytes.
 fn openPair(
     allocator: std.mem.Allocator,
     dialer: *Host,
     acceptor: *Host,
-    locator_uri: []const u8,
     designator: []const u8,
     dials: *std.ArrayList(ParkedDial),
 ) !Pair {
-    const accepted = try acceptor.openAccepted("tcp", designator);
-    const dialed = try dialer.openDialed(locator_uri);
+    const accepted = try acceptor.openAccepted("tcp", designator, &.{});
+    const dialed = try dialer.openDialedLocator(tcpLocator(designator));
     const pair = Pair{ .ah = dialer, .a = dialed, .bh = acceptor, .b = accepted };
     try pumpToQuiescence(allocator, &.{ dialer, acceptor }, &.{pair}, dials);
     try std.testing.expect(dialed.sessionOpen());
@@ -204,8 +221,17 @@ test "core host: two hosts complete the keyed handshake over fed bytes" {
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
 
-    _ = try openPair(allocator, &a, &b, "ocapn://127.0.0.1%3A7001.tcp", "127.0.0.1:7001", &dials);
+    _ = try openPair(allocator, &a, &b, "127.0.0.1:7001", &dials);
     try std.testing.expectEqual(@as(usize, 0), dials.items.len);
+}
+
+test "core host: feedBytes fails closed on incomplete-at-cap" {
+    const allocator = std.testing.allocator;
+    var host = Host.init(allocator, [_]u8{0x0a} ** 32, .{ .frame_cap = 8 });
+    defer host.deinit();
+    const conn = try host.openAccepted("tcp", "127.0.0.1:7010", &.{});
+    const junk = [_]u8{ '<', '1', '0', '\'', 'o', 'p', ':', 'd' };
+    try std.testing.expectError(error.FrameTooLarge, host.feedBytes(conn, &junk));
 }
 
 test "core host: publish, fetch, and a settled send over fed bytes" {
@@ -217,7 +243,7 @@ test "core host: publish, fetch, and a settled send over fed bytes" {
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
 
-    const pair = try openPair(allocator, &client, &server, "ocapn://127.0.0.1%3A7001.tcp", "127.0.0.1:7001", &dials);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7001", &dials);
     _ = try pair.b.served.publish("widget", Widget, .{});
 
     // Fetch arrives already enrolled as a node-unique token; the in-process
@@ -253,7 +279,7 @@ test "core host: the full three-party handoff runs over fed bytes and one dial a
 
     // Gifter dials the exporter and fetches the widget: the node records the
     // capability's foreign home, which is what the give will name.
-    const g_to_e = try openPair(allocator, &gifter, &exporter, "ocapn://127.0.0.1%3A7001.tcp", "127.0.0.1:7001", &dials);
+    const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7001", &dials);
     _ = try g_to_e.b.served.publish("widget", Widget, .{});
     var widget = CapturedRef{};
     try gifter.vowOn(try gifter.fetch(g_to_e.a, "widget"), .{ .ctx = &widget, .func = CapturedRef.record });
@@ -261,7 +287,7 @@ test "core host: the full three-party handoff runs over fed bytes and one dial a
     const widget_ref = try widget.require();
 
     // Recipient dials the gifter and fetches the introducer.
-    const r_to_g = try openPair(allocator, &recipient, &gifter, "ocapn://127.0.0.1%3A7002.tcp", "127.0.0.1:7002", &dials);
+    const r_to_g = try openPair(allocator, &recipient, &gifter, "127.0.0.1:7002", &dials);
     _ = try r_to_g.b.served.publish("introducer", Introducer, .{ .widget = widget_ref });
     var introducer = CapturedRef{};
     try recipient.vowOn(try recipient.fetch(r_to_g.a, "introducer"), .{ .ctx = &introducer, .func = CapturedRef.record });
@@ -288,9 +314,11 @@ test "core host: the full three-party handoff runs over fed bytes and one dial a
     // exporter publishes the widget on this session too: a swissnum-named
     // gift resolves against the *withdraw* session's bootstrap registry (the
     // per-connection publish the C tier's host-level giftable verb automates).
-    const e_accepts_r = try exporter.openAccepted("tcp", "127.0.0.1:7001");
+    const e_accepts_r = try exporter.openAccepted("tcp", "127.0.0.1:7001", &.{});
     _ = try e_accepts_r.served.publish("widget", Widget, .{});
-    const r_to_e = try recipient.openDialed(parked.locator);
+    const redeem_loc = try model.uri.parsePeer(allocator, parked.locator);
+    defer model.freePeerLocator(allocator, redeem_loc);
+    const r_to_e = try recipient.openDialedLocator(redeem_loc);
     const redeem_pair = Pair{ .ah = &recipient, .a = r_to_e, .bh = &exporter, .b = e_accepts_r };
     const all_pairs = [_]Pair{ g_to_e, r_to_g, redeem_pair };
     try pumpToQuiescence(allocator, &hosts, &all_pairs, &dials);
@@ -321,7 +349,7 @@ fn refusedReentered(result: anytype) bool {
 /// verb must succeed, its effects landing when the enclosing verb unwinds.
 const ReentryProbe = struct {
     host: *Host,
-    conn: *HostConnection,
+    session: *HostSession,
     token: model.Reference,
     ran: bool = false,
     all_refused: bool = false,
@@ -333,16 +361,16 @@ const ReentryProbe = struct {
         const self: *ReentryProbe = @ptrCast(@alignCast(ctx.?));
         self.ran = true;
         const host = self.host;
-        const conn = self.conn;
+        const conn = self.session;
         self.all_refused =
             refusedReentered(host.feed(conn, .{ .bytes = "", .shape = .byte })) and
             refusedReentered(host.feedBytes(conn, "x")) and
             refusedReentered(host.nextAction()) and
             refusedReentered(host.takeAction()) and
             refusedReentered(conn.takeOutbound()) and
-            refusedReentered(host.openDialed("ocapn://127.0.0.1%3A7009.tcp")) and
-            refusedReentered(host.openAccepted("tcp", "127.0.0.1:7009")) and
-            refusedReentered(host.releaseConn(conn)) and
+            refusedReentered(host.openDialedLocator(tcpLocator("127.0.0.1:7009"))) and
+            refusedReentered(host.openAccepted("tcp", "127.0.0.1:7009", &.{})) and
+            refusedReentered(host.releaseSession(conn)) and
             refusedReentered(host.exporterDialed(0, conn)) and
             refusedReentered(host.dialFailed(0, "no")) and
             refusedReentered(host.provideGiftId(0, "")) and
@@ -366,7 +394,7 @@ test "core host: inside a callback every top-level verb refuses and every enqueu
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
 
-    const pair = try openPair(allocator, &client, &server, "ocapn://127.0.0.1%3A7001.tcp", "127.0.0.1:7001", &dials);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7001", &dials);
     _ = try pair.b.served.publish("widget", Widget, .{});
 
     var fetched = CapturedRef{};
@@ -375,7 +403,7 @@ test "core host: inside a callback every top-level verb refuses and every enqueu
     const widget_ref = try fetched.require();
 
     // The probe fires inside the feed that settles this vow.
-    var probe = ReentryProbe{ .host = &client, .conn = pair.a, .token = widget_ref };
+    var probe = ReentryProbe{ .host = &client, .session = pair.a, .token = widget_ref };
     const vow = try client.send(pair.a, widget_ref, .{ .verb = "poke", .args = &.{} });
     try client.vowOn(vow, .{ .ctx = &probe, .func = ReentryProbe.fire });
     try pumpToQuiescence(allocator, &.{ &client, &server }, &.{pair}, &dials);
@@ -400,9 +428,9 @@ test "core host: a crossed-hellos loser refuses every verb condemned; release st
     // condemns exactly one of a's two connections.
     const designator = "127.0.0.1:7001";
     try b.setSelfDesignator(designator);
-    const a_dialed = try a.openDialed("ocapn://127.0.0.1%3A7001.tcp");
-    const a_accepted = try a.openAccepted("tcp", "127.0.0.1:7002");
-    const b_dialed = try b.openDialed("ocapn://127.0.0.1%3A7002.tcp");
+    const a_dialed = try a.openDialedLocator(tcpLocator(designator));
+    const a_accepted = try a.openAccepted("tcp", "127.0.0.1:7002", &.{});
+    const b_dialed = try b.openDialedLocator(tcpLocator("127.0.0.1:7002"));
 
     var hello = (try b_dialed.takeOutbound()) orelse return error.MissingHello;
     defer hello.deinit();
@@ -427,7 +455,7 @@ test "core host: a crossed-hellos loser refuses every verb condemned; release st
     // closing — and the release path stays ungated.
     var abort_frame = (try condemned.takeOutbound()) orelse return error.MissingAbort;
     abort_frame.deinit();
-    try a.releaseConn(condemned);
+    try a.releaseSession(condemned);
 }
 
 test "core host: vow rows retire on settle; the map stays empty and release frees the rest" {
@@ -439,7 +467,7 @@ test "core host: vow rows retire on settle; the map stays empty and release free
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
 
-    const pair = try openPair(allocator, &client, &server, "ocapn://127.0.0.1%3A7001.tcp", "127.0.0.1:7001", &dials);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7001", &dials);
     _ = try pair.b.served.publish("widget", Widget, .{});
     var fetched = CapturedRef{};
     try client.vowOn(try client.fetch(pair.a, "widget"), .{ .ctx = &fetched, .func = CapturedRef.record });
@@ -473,7 +501,7 @@ test "core host: vow rows retire on settle; the map stays empty and release free
     const parked = try client.send(pair.a, widget_ref, .{ .verb = "poke", .args = &.{} });
     var broken = CapturedRef{};
     try client.vowOn(parked, .{ .ctx = &broken, .func = CapturedRef.record });
-    try client.releaseConn(pair.a);
+    try client.releaseSession(pair.a);
     try std.testing.expect(broken.broken);
     try std.testing.expectEqual(@as(usize, 0), client.vows.count());
 }
@@ -493,13 +521,13 @@ test "core host: a failed dial breaks the redeeming vow with the reason" {
         dials.deinit(allocator);
     }
 
-    const g_to_e = try openPair(allocator, &gifter, &exporter, "ocapn://127.0.0.1%3A7001.tcp", "127.0.0.1:7001", &dials);
+    const g_to_e = try openPair(allocator, &gifter, &exporter, "127.0.0.1:7001", &dials);
     _ = try g_to_e.b.served.publish("widget", Widget, .{});
     var widget = CapturedRef{};
     try gifter.vowOn(try gifter.fetch(g_to_e.a, "widget"), .{ .ctx = &widget, .func = CapturedRef.record });
     try pumpToQuiescence(allocator, &hosts, &.{g_to_e}, &dials);
 
-    const r_to_g = try openPair(allocator, &recipient, &gifter, "ocapn://127.0.0.1%3A7002.tcp", "127.0.0.1:7002", &dials);
+    const r_to_g = try openPair(allocator, &recipient, &gifter, "127.0.0.1:7002", &dials);
     _ = try r_to_g.b.served.publish("introducer", Introducer, .{ .widget = widget.ref.? });
     var introducer = CapturedRef{};
     try recipient.vowOn(try recipient.fetch(r_to_g.a, "introducer"), .{ .ctx = &introducer, .func = CapturedRef.record });
@@ -525,7 +553,7 @@ fn openWidgetPair(
     server: *Host,
     dials: *std.ArrayList(ParkedDial),
 ) !struct { pair: Pair, widget: model.Reference } {
-    const pair = try openPair(allocator, client, server, "ocapn://127.0.0.1%3A7001.tcp", "127.0.0.1:7001", dials);
+    const pair = try openPair(allocator, client, server, "127.0.0.1:7001", dials);
     _ = try pair.b.served.publish("widget", Widget, .{});
     var fetched = CapturedRef{};
     try client.vowOn(try client.fetch(pair.a, "widget"), .{ .ctx = &fetched, .func = CapturedRef.record });
@@ -595,7 +623,7 @@ test "core host: an unlistened fetch completion carries the node-enrolled token"
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
-    const pair = try openPair(allocator, &client, &server, "ocapn://127.0.0.1%3A7001.tcp", "127.0.0.1:7001", &dials);
+    const pair = try openPair(allocator, &client, &server, "127.0.0.1:7001", &dials);
     _ = try pair.b.served.publish("widget", Widget, .{});
 
     // No listener: the enrollment mapping still runs before the completion is
@@ -729,4 +757,92 @@ test "core host: a settle under OOM never strands a vow and never trips the rese
         // completes means something regressed into an allocation storm.
         try std.testing.expect(offset < 512);
     }
+}
+
+test "designatorSchemeForTransport maps iroh and keyed-tcp to key" {
+    try std.testing.expectEqual(driver.core.DesignatorScheme.key, driver.core.designatorSchemeForTransport("iroh"));
+    try std.testing.expectEqual(driver.core.DesignatorScheme.key, driver.core.designatorSchemeForTransport("keyed-tcp"));
+    try std.testing.expectEqual(driver.core.DesignatorScheme.address, driver.core.designatorSchemeForTransport("tcp"));
+}
+
+test "byte-fed iroh dial pin: matching key opens; squatter key is PartnerKeyMismatch" {
+    const allocator = std.testing.allocator;
+    const crypto = pancake.foundation.crypto;
+
+    const honest_seed = [_]u8{0x41} ** 32;
+    const honest = crypto.SecretKey.fromSeed(honest_seed);
+    const designator = honest.publicKey().toDesignator();
+    var uri_buf: [96]u8 = undefined;
+    const uri = try std.fmt.bufPrint(&uri_buf, "ocapn://{s}.iroh", .{designator[0..]});
+
+    // Happy path: acceptor Host seed ≡ dialed iroh designator → pin holds.
+    {
+        var dialer = Host.init(allocator, [_]u8{0x0a} ** 32, .{ .frame_cap = frame_cap });
+        defer dialer.deinit();
+        var acceptor = Host.init(allocator, honest_seed, .{ .frame_cap = frame_cap });
+        defer acceptor.deinit();
+        var dials: std.ArrayList(ParkedDial) = .empty;
+        defer dials.deinit(allocator);
+
+        // iroh accepts may omit direct-addresses (discovery); keyed-tcp may not.
+        const accepted = try acceptor.openAccepted("iroh", designator[0..], &.{});
+        const loc = try model.uri.parsePeer(allocator, uri);
+        defer model.freePeerLocator(allocator, loc);
+        const dialed = try dialer.openDialedLocator(loc);
+        const pair = Pair{ .ah = &dialer, .a = dialed, .bh = &acceptor, .b = accepted };
+        try pumpToQuiescence(allocator, &.{ &dialer, &acceptor }, &.{pair}, &dials);
+        try std.testing.expect(dialed.sessionOpen());
+        try std.testing.expect(accepted.sessionOpen());
+    }
+
+    // Negative: acceptor signs with a different key under the dialed designator.
+    {
+        const squatter_seed = [_]u8{0x42} ** 32;
+        var dialer = Host.init(allocator, [_]u8{0x0a} ** 32, .{ .frame_cap = frame_cap });
+        defer dialer.deinit();
+        var acceptor = Host.init(allocator, squatter_seed, .{ .frame_cap = frame_cap });
+        defer acceptor.deinit();
+
+        const accepted = try acceptor.openAccepted("iroh", designator[0..], &.{});
+        const loc = try model.uri.parsePeer(allocator, uri);
+        defer model.freePeerLocator(allocator, loc);
+        const dialed = try dialer.openDialedLocator(loc);
+        // Drive the acceptor's hello onto the dialer: the pin refuses before
+        // the session opens.
+        _ = try accepted.served.driveFed();
+        var hello = (try accepted.takeOutbound()) orelse return error.NoAcceptorHello;
+        defer hello.deinit();
+        try std.testing.expectError(error.PartnerKeyMismatch, dialer.feed(dialed, hello.view()));
+        try std.testing.expect(!dialed.sessionOpen());
+    }
+}
+
+test "queueUniqueSessionAction keeps one flush and one close per conn" {
+    const allocator = std.testing.allocator;
+    var host = Host.init(allocator, [_]u8{0x0b} ** 32, .{ .frame_cap = frame_cap });
+    defer host.deinit();
+    const a: engine.PeerId = @enumFromInt(1);
+    const b: engine.PeerId = @enumFromInt(2);
+    try host.testingQueueUniqueSessionAction(.flush, a);
+    try host.testingQueueUniqueSessionAction(.flush, a);
+    try host.testingQueueUniqueSessionAction(.close, a);
+    try host.testingQueueUniqueSessionAction(.close, a);
+    try host.testingQueueUniqueSessionAction(.flush, b);
+    var flushes: usize = 0;
+    var closes: usize = 0;
+    while (try host.nextAction()) |action| {
+        switch (action) {
+            .flush => |id| {
+                flushes += 1;
+                try std.testing.expect(id == a or id == b);
+            },
+            .close => |id| {
+                closes += 1;
+                try std.testing.expectEqual(a, id);
+            },
+            else => try std.testing.expect(false),
+        }
+    }
+    try std.testing.expectEqual(@as(usize, 2), flushes);
+    try std.testing.expectEqual(@as(usize, 1), closes);
 }

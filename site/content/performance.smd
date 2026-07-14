@@ -262,7 +262,7 @@ underneath is the wire, the OCapN session and codec, compiled to a native librar
 driven over the C ABI. So this pits pancake's protocol core against Goblins', under one
 Racket application and actor style. It does not measure native Zig actors, the production
 network layer, or many connections at once; those live in other benchmarks. Within those
-bounds, pancake's wire core is faster than Goblins' on all four workloads.
+bounds, the chart shows pancake's wire core ahead on all four workloads.
 
 The third series, **pancake + time-travel**, is that same binding with the snapshot feature
 turned on for every actor, so the vat keeps a revisable history of all of them. It answers a

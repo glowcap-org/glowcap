@@ -3,7 +3,8 @@
     "@pancake/stack": "./bindings/ts/stack/mod.ts",
     "@pancake/stack/ffi": "./bindings/ts/stack/ffi.ts",
     "@pancake/iroh": "./bindings/ts/iroh/mod.ts",
-    "zod": "npm:zod@3.23.8"
+    "@pancake/iroh/internal": "./bindings/ts/iroh/internal.ts",
+    "zod": "npm:zod@4.4.3"
   },
   "fmt": {
     "useTabs": true,

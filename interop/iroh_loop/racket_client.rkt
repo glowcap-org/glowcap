@@ -51,25 +51,25 @@
      (with-handlers ([exn:fail? (lambda (_) (void))]) ; server closed: stop accepting
        (let loop ()
          (define conn (iroh-server-accept server))
-         (conn-publish conn "greeter" greeter)
+         (session-publish conn "greeter" greeter)
          (set-box! served-threads
-                   (cons (thread (lambda () (conn-serve conn))) (unbox served-threads)))
+                   (cons (thread (lambda () (session-serve conn))) (unbox served-threads)))
          (loop))))))
 
 ;; One client: bind its own iroh endpoint, dial the server by id alone (the
 ;; local-discovery book resolves it), fetch the greeter, and call it
 ;; CALLS-PER-CONN times, checking every reply.
 (define (client-once)
-  (define conn (connect-iroh server-id "" IROH-REACH-LOCAL-DISCOVERY))
+  (define conn (connect (format-peer-uri TRANSPORT-IROH server-id) IROH-REACH-LOCAL-DISCOVERY))
   (dynamic-wind
    void
    (lambda ()
-     (define greeter-cap (conn-fetch conn "greeter"))
+     (define greeter-cap (session-fetch conn "greeter"))
      (for ([_ (in-range CALLS-PER-CONN)])
-       (define reply (conn-send conn greeter-cap 'greet "world"))
+       (define reply (session-send conn greeter-cap 'greet "world"))
        (unless (equal? reply GREETING)
          (error 'client (format "wrong reply: ~s" reply)))))
-   (lambda () (connection-close! conn))))
+   (lambda () (session-close! conn))))
 
 ;; Fan out all clients at once: they share nothing, so the only thing that can
 ;; serve them all is the one server loop multiplexing.

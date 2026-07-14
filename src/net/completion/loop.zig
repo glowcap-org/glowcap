@@ -12,7 +12,7 @@
 //! The loop is direction-neutral by design. OCapN is symmetric: a vat can accept
 //! and dial. The type is therefore named for what it is, an event loop over
 //! connections, rather than for one role. It accepts inbound connections and can
-//! admit outbound TCP connections into the same lifecycle.
+//! admit outbound connections into the same lifecycle.
 //!
 //! It owns no protocol the engine lacks. Every completion drives the same peer
 //! APIs as the blocking pump. `Peer.recvStreamPrefix` applies complete frames and
@@ -43,19 +43,38 @@
 //!     — `read_buffers` buffers of `read_buffer_bytes` each form the shared
 //!     recv pool the backend owns.
 //!   * `pub fn deinit(self: *Backend) void;`
-//!   * `pub fn openListener(port: u16) !Fd;` — bind+listen a loopback socket.
-//!   * `pub fn openSocket() !Fd;` — open an outbound IPv4 stream socket.
+//!   * `pub fn openListener(self: *Backend, port: u16) !Fd;` — bind+listen
+//!     (TCP) or arm the transport's acceptor (a userspace backend). Instance
+//!     method so a backend that already carries endpoint state (iroh) can use
+//!     it; socket backends ignore `self`.
+//!   * `pub const ConnectTarget;` — Backend-owned dial target type. TCP's is an
+//!     `IpAddress`; iroh's is `{ id, hints }`. There is no shared union: a
+//!     Backend cannot be handed a target shape it refuses.
+//!   * `pub fn startDial(self: *Backend, user_data: u64, target: ConnectTarget) !Fd;`
+//!     — start one outbound dial and return the connection handle for the Loop
+//!     slot. The Backend owns the whole start (mint a socket or a pending
+//!     sentinel, submit the connect, clean up on failure). Connect completions
+//!     for a userspace dial may return a synthetic fd as `result` (>0) rather
+//!     than TCP's 0-on-success.
 //!   * `pub fn boundPort(fd: Fd) !u16;` — the kernel-chosen port for `port = 0`.
-//!   * `pub fn closeFd(fd: Fd) void;`
+//!   * `pub fn closeFd(self: *Backend, fd: Fd) void;` — release a handle.
+//!     Instance method so a userspace backend can free transport state keyed by
+//!     `Fd`; socket backends ignore `self`.
 //!   * `pub fn submitAccept(self: *Backend, user_data: u64, listen_fd: Fd) !void;`
-//!   * `pub fn submitConnect(self: *Backend, user_data: u64, fd: Fd, address: std.Io.net.IpAddress) !void;`
 //!   * `pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void;` — no
 //!     caller buffer: the backend selects one from its shared pool when data
 //!     arrives and surfaces it on the completion (`Completion.recv_bytes`). A
 //!     recv that finds the pool empty completes with
 //!     `Completion.recv_no_buffer` instead of failing the connection.
 //!   * `pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void;`
-//!   * `pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void;`
+//!   * `pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void;` —
+//!     including the listen handle: cancel a pending accept (yield one accept
+//!     completion with `result < 0` when one was armed) and close the fd so
+//!     `Loop.closeAndDrain` cannot hang on an idle acceptor.
+//!   * `pub fn shutdownFd(self: *Backend, fd: Fd) void;` — unblock an armed
+//!     recv (TCP: `SHUT_RDWR`) so `closeAndDrain` does not wait on a quiet
+//!     peer. Required on every Backend; a userspace backend's body may be a
+//!     no-op.
 //!   * `pub fn recycleRecv(self: *Backend, completion: Completion) void;` — hand
 //!     the pool buffer behind a recv completion back. The loop calls it exactly
 //!     once per completion whose `recv_bytes` is non-null, after consuming the
@@ -63,6 +82,11 @@
 //!   * `pub fn poll(self: *Backend, out: []Completion) !usize;` — flush submitted
 //!     operations, block until at least one has completed, and fill `out` with up
 //!     to `out.len` completions, returning the count.
+//!
+//! The Loop is also parameterized by a `Locator`: OCapN
+//! `(transport, designator, hint)` → `Backend.ConnectTarget`. That grammar
+//! belongs on the netlayer (`tcp.DialResolver`, `iroh.DialResolver`), never on a
+//! platform Backend. `Loop.dialLocator` is the only public dial verb.
 //!
 //! A readiness-based platform (kqueue) makes its backend look completion-shaped
 //! internally: `submitRecv` records the request and `poll` performs the read once
@@ -81,6 +105,51 @@ const std = @import("std");
 const foundation = @import("foundation");
 const engine = @import("engine");
 const frame_stream = @import("../frame_stream.zig");
+const tcp_keepalive = @import("tcp_keepalive.zig");
+
+/// Re-export so loop callers configure keepalive without a second import path.
+pub const Keepalive = tcp_keepalive.Keepalive;
+
+/// Shared recv scratch pool for readiness backends (kqueue, iroh). Re-exported
+/// so the out-of-graph iroh resident reaches it through `net.completion` rather
+/// than dual-homing the source file.
+pub const ScratchPool = @import("scratch_pool.zig").ScratchPool;
+
+/// Compile-time check that `Backend` declares the total dial/I/O contract the
+/// Loop calls. Soft optionality (`@hasDecl` at call sites) is forbidden: a
+/// missing member fails here, not as a latent special case on one path.
+fn validateBackend(comptime Backend: type) void {
+    const required = .{
+        "Fd",
+        "ConnectTarget",
+        "deinit",
+        "openListener",
+        "boundPort",
+        "closeFd",
+        "startDial",
+        "shutdownFd",
+        "submitAccept",
+        "submitRecv",
+        "submitSend",
+        "submitClose",
+        "recycleRecv",
+        "poll",
+    };
+    inline for (required) |name| {
+        if (!@hasDecl(Backend, name)) {
+            @compileError("completion Backend missing `" ++ name ++ "` — total contract, no optional dial/shutdown members");
+        }
+    }
+}
+
+/// Compile-time check that `Locator` turns OCapN locator parts into
+/// `ConnectTarget`. Netlayer-owned; never a platform Backend concern.
+fn validateLocator(comptime Locator: type, comptime ConnectTarget: type) void {
+    if (!@hasDecl(Locator, "resolve")) {
+        @compileError("completion Locator missing `resolve` — OCapN locator → ConnectTarget");
+    }
+    _ = ConnectTarget;
+}
 
 /// One finished operation reported by a backend: the `user_data` the submit
 /// carried, and the platform result (bytes transferred, a new fd, or negative on
@@ -103,6 +172,21 @@ pub const Completion = struct {
     /// this.
     recv_no_buffer: bool = false,
 };
+
+/// Drain up to `out.len` ready completions from `ready` into `out`, sliding any
+/// remainder to the front for the next call, and return the count moved. The one
+/// remainder-slide both readiness backends' poll paths share (the kqueue backend
+/// and the iroh completion `Backend`), so the copy-forward and shrink bookkeeping
+/// lives in one place instead of a hand-copied block in each.
+pub fn drainReady(ready: *std.ArrayList(Completion), out: []Completion) usize {
+    const n = @min(ready.items.len, out.len);
+    if (n == 0) return 0;
+    @memcpy(out[0..n], ready.items[0..n]);
+    const rest = ready.items.len - n;
+    std.mem.copyForwards(Completion, ready.items[0..rest], ready.items[n..]);
+    ready.shrinkRetainingCapacity(rest);
+    return n;
+}
 
 /// Builds and configures the `Peer` for one accepted connection. The callback
 /// chooses the handshake policy, publishes the shared application's bootstrap
@@ -127,7 +211,7 @@ pub const MakeConnCtx = *const fn (ctx: ?*anyopaque, peer: *engine.Peer, slot: u
 /// has already auto-answered a bootstrap fetch. The hook receives the
 /// per-connection context from `MakeConnCtx`, the caller-owned peer, and the
 /// borrowed event. If the hook enqueues a reply on `peer`, the same loop step
-/// flushes it after the event is drained, matching `driver.ConnectedVat.step`.
+/// flushes it after the event is drained, matching `driver.BlockingSession.step`.
 /// An error closes that one connection; it never tears down the loop.
 pub const Serve = *const fn (conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void;
 
@@ -141,9 +225,13 @@ pub const FreeConnCtx = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void
 /// `make_conn_ctx` ran), and `opened`: true when the connection completed its
 /// connect or accept, false when it failed before opening (e.g. a refused
 /// dial). This is the loop's only failure surface for a dialed connection,
-/// `dialTcp` returns before the connect completes, so a refused dial is
+/// `dial` returns before the connect completes, so a refused dial is
 /// observable nowhere else.
-pub const OnClose = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque, opened: bool) void;
+/// `slot` is the connection's loop index: refused dials tear down before
+/// `make_conn_ctx` runs (`conn_ctx` is null), so an embedder correlating an
+/// in-flight dial to a ticket needs the slot — `conn_ctx` alone cannot name
+/// it (ADR-0076 loop-side dial executor).
+pub const OnClose = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool) void;
 
 /// The listen backlog both platform backends pass to `listen(2)`: pending,
 /// not-yet-accepted connections the kernel queues before refusing new ones.
@@ -196,6 +284,13 @@ pub const Options = struct {
     /// Optional close notification (see `OnClose`), fired once per connection
     /// at teardown. Null leaves closes (including failed dials) unobserved.
     on_close: ?OnClose = null,
+    /// Opt-in TCP keepalive. When set, all of idle/interval/count are applied
+    /// on every accepted and dialed TCP fd (best-effort). Null — the default —
+    /// leaves sockets without keepalive (NODELAY only). Do not "just enable"
+    /// SO_KEEPALIVE: the OS idle default is hours. Rationale is NAT hold-open /
+    /// dead-remote-host reclaim — not reaping a live orphaned process. See
+    /// `tcp_keepalive.Keepalive`.
+    keepalive: ?tcp_keepalive.Keepalive = null,
 };
 
 /// When `Loop.run` returns. Production servers and dialers run `.forever`;
@@ -229,6 +324,20 @@ const loop_read_buf_bytes: usize = 16 * 1024;
 /// split between them.
 const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 
+/// Per-connection slot bookkeeping ceiling (ADR-0045): the most a `Conn` may
+/// cost *beyond* the `engine.Peer` it embeds — the slot state, the outbound
+/// queue's two `ArrayList` headers, the spill header, the intrusive link, and
+/// the in-flight/context words. `Peer` is gated by its own `@sizeOf(Peer)`
+/// ceiling; this guards the wrapper the loop allocates `max_conns` of, which
+/// nothing capped before. Isolating the overhead keeps a `Peer` change within
+/// its own ceiling from tripping this, while a new `Conn` field always does.
+/// The number lives here and in docs/ladder.md rung 2 together; raise it only
+/// by weighing the bytes, never to route around the gate. The measured overhead
+/// is 112 bytes on every backend (`Backend.Fd` is `i32` for tcp, kqueue, uring,
+/// and iroh alike, so `Conn` carries no backend-dependent width); the ceiling
+/// keeps one word of headroom over that for cross-target padding stability.
+const conn_slot_overhead_bytes: usize = 120;
+
 /// How recv-completion consumption ended, decided by `onRecvConsume` while
 /// the completion's pool buffer is still borrowed and acted on by
 /// `onRecvFinish` after the buffer has been recycled, so every exit path
@@ -247,11 +356,15 @@ const RecvVerdict = enum {
     done,
 };
 
-/// The portable completion-driven connection loop over a platform `Backend`.
-pub fn Loop(comptime Backend: type) type {
+/// The portable completion-driven connection loop over a platform `Backend`
+/// and a netlayer `DialResolver` (OCapN locator parts → `Backend.ConnectTarget`).
+pub fn Loop(comptime Backend: type, comptime Locator: type) type {
+    comptime validateBackend(Backend);
+    comptime validateLocator(Locator, Backend.ConnectTarget);
     return struct {
         const Self = @This();
         const Fd = Backend.Fd;
+        const ConnectTarget = Backend.ConnectTarget;
 
         const Conn = struct {
             /// The slot lifecycle: `.free` slots sit on the free list, `.open`
@@ -289,10 +402,6 @@ pub fn Loop(comptime Backend: type) type {
             /// submit as the next write.
             back: std.ArrayList(u8) = .empty,
             write_in_flight: bool = false,
-            /// Intrusive starved-list link, meaningful only while `read` is
-            /// `.starved`: the next starved slot, or `conns.len` as the end
-            /// sentinel.
-            next_starved: usize = 0,
             /// Per-connection recv/send/close operations the backend has not yet
             /// reported complete. Teardown waits for this to reach zero, so the
             /// slot is never reused and `front` is never freed while a
@@ -304,10 +413,24 @@ pub fn Loop(comptime Backend: type) type {
             /// to the serve hook for every event and freed at teardown. Opaque to
             /// this layer. Typically this is the connection's `actors.Vat`.
             app_ctx: ?*anyopaque = null,
-            /// Intrusive free-list link, meaningful only while the slot is free:
-            /// the next free slot's index, or `conns.len` as the end sentinel.
-            next_free: usize = 0,
+            /// Intrusive link for the one list this slot is on: the free list
+            /// while `state == .free`, or the buffer-starved list while
+            /// `read == .starved`. The two are disjoint — a free slot is never
+            /// open, so never starved — so one link serves both, holding the
+            /// next slot index or `conns.len` as the end sentinel. `unlinkStarved`
+            /// clears the starved link before `closeConn`, and `teardown` resets
+            /// the slot before `pushFreeSlot` relinks it, so a starved successor
+            /// never rides into the free list.
+            next_link: usize = 0,
         };
+
+        comptime {
+            // The 500k-connection budget is gated at the unit the loop
+            // multiplies (ADR-0045). A field added to `Conn` is a withdrawal;
+            // trip this and weigh the bytes, then raise the number here and in
+            // docs/ladder.md rung 2 together — never route around the gate.
+            std.debug.assert(@sizeOf(Conn) - @sizeOf(engine.Peer) <= conn_slot_overhead_bytes);
+        }
 
         allocator: std.mem.Allocator,
         backend: Backend,
@@ -325,51 +448,63 @@ pub fn Loop(comptime Backend: type) type {
         make_conn_ctx: ?MakeConnCtx,
         free_conn_ctx: ?FreeConnCtx,
         on_close: ?OnClose,
+        /// Opt-in TCP keepalive applied at connect/accept finish (see `Options`).
+        keepalive: ?tcp_keepalive.Keepalive,
         closed_count: usize = 0,
         /// True while `deinit` tears the loop down: cross-connection entries
         /// (`armOutbound`, `closeSlot`) no-op then, because a submit during
         /// teardown would mint an op whose completion never arrives and trip
         /// the in-flight accounting `deinit` asserts on.
         tearing_down: bool = false,
+        /// True while `closeAndDrain` (or `runUntil`'s shutdown phase) is
+        /// retiring live connections: accept completions must not re-arm or
+        /// adopt, and the listen handle is closed so poll cannot hang on an
+        /// idle accept.
+        shutting_down: bool = false,
         /// Debug-only owning thread: latched when `run` begins, asserted on
         /// every `armOutbound`/`closeSlot` (and other public entries). Zero-
         /// sized in release. The loop is single-threaded by contract.
         owner_tid: if (std.debug.runtime_safety) ?std.Thread.Id else void =
             if (std.debug.runtime_safety) null else {},
-        /// Head of the intrusive free-slot list threaded through
-        /// `Conn.next_free`; `conns.len` when every slot is in use. Keeps slot
+        /// Head of the intrusive free-slot list threaded through `Conn.next_link`
+        /// while a slot is free; `conns.len` when every slot is in use. Keeps slot
         /// allocate and release O(1) at any `max_conns`.
         free_head: usize,
-        /// Head of the intrusive buffer-starved list threaded through
-        /// `Conn.next_starved`; `conns.len` when no connection is starved.
+        /// Head of the intrusive buffer-starved list threaded through the same
+        /// `Conn.next_link` while a slot is starved; `conns.len` when no
+        /// connection is starved.
         starved_head: usize,
 
-        pub fn init(
+        /// Build a loop over a backend the caller already constructed. Use this
+        /// when the backend needs state `Backend.init` cannot take (an iroh
+        /// resident's endpoint). Socket backends prefer `init`, which builds
+        /// the platform backend itself.
+        pub fn initWithBackend(
             allocator: std.mem.Allocator,
+            backend: Backend,
             make_peer: MakePeer,
             make_ctx: ?*anyopaque,
             options: Options,
         ) !Self {
-            const read_buffer_bytes: u32 = @intCast(@min(options.frame_cap, loop_read_buf_bytes));
-            var backend = try Backend.init(allocator, options.queue_entries, options.read_buffers, read_buffer_bytes);
-            errdefer backend.deinit();
+            var backend_mut = backend;
+            errdefer backend_mut.deinit();
 
             // A loop only listens when asked to: a dialer-only loop must not
             // expose a socket that accepts strangers under its identity.
-            const listen_fd: ?Fd = if (options.listen) |listen_port| try Backend.openListener(listen_port) else null;
-            errdefer if (listen_fd) |fd| Backend.closeFd(fd);
+            const listen_fd: ?Fd = if (options.listen) |listen_port| try backend_mut.openListener(listen_port) else null;
+            errdefer if (listen_fd) |fd| backend_mut.closeFd(fd);
             const bound_port: ?u16 = if (listen_fd) |fd| try Backend.boundPort(fd) else null;
 
             const conns = try allocator.alloc(Conn, options.max_conns);
             errdefer allocator.free(conns);
             for (conns, 0..) |*c, i| {
                 c.* = .{};
-                c.next_free = i + 1;
+                c.next_link = i + 1;
             }
 
             return .{
                 .allocator = allocator,
-                .backend = backend,
+                .backend = backend_mut,
                 .listen_fd = listen_fd,
                 .port = bound_port,
                 .conns = conns,
@@ -381,22 +516,33 @@ pub fn Loop(comptime Backend: type) type {
                 .make_conn_ctx = options.make_conn_ctx,
                 .free_conn_ctx = options.free_conn_ctx,
                 .on_close = options.on_close,
+                .keepalive = options.keepalive,
                 .free_head = 0,
                 .starved_head = conns.len,
             };
         }
 
+        pub fn init(
+            allocator: std.mem.Allocator,
+            make_peer: MakePeer,
+            make_ctx: ?*anyopaque,
+            options: Options,
+        ) !Self {
+            const read_buffer_bytes: u32 = @intCast(@min(options.frame_cap, loop_read_buf_bytes));
+            const backend = try Backend.init(allocator, options.queue_entries, options.read_buffers, read_buffer_bytes);
+            return initWithBackend(allocator, backend, make_peer, make_ctx, options);
+        }
+
         /// Tear down the loop. Requires every connection's in-flight ops to
-        /// have retired, in practice, `run` returned with every connection
-        /// fully closed (a `.{ .after_closed = n }` stop that counts them
-        /// all). A submitted send borrows the connection's `front` buffer
-        /// until the backend reports it complete, so freeing a connection
-        /// with an op still in flight would hand the kernel freed storage;
-        /// that is a use-after-free, not a leak. Draining the backend here
-        /// instead is not an option: `poll` blocks until *something*
-        /// completes, and an armed recv on an idle partner never does, so a
-        /// drain could hang teardown forever. So `deinit` asserts that every
-        /// closing connection has no op in flight rather than draining.
+        /// have retired — call `closeAndDrain` (or stop with
+        /// `.{ .after_closed = n }` once those closes complete) before this.
+        /// A submitted send borrows the connection's `front` buffer until the
+        /// backend reports it complete, so freeing a connection with an op
+        /// still in flight would hand the kernel freed storage; that is a
+        /// use-after-free, not a leak. Draining without closing first is not
+        /// an option: `poll` blocks until *something* completes, and an armed
+        /// recv on an idle partner never does. So `deinit` asserts that every
+        /// remaining connection has no op in flight rather than draining.
         pub fn deinit(self: *Self) void {
             self.tearing_down = true;
             for (self.conns, 0..) |*c, slot| if (c.state != .free) {
@@ -404,11 +550,11 @@ pub fn Loop(comptime Backend: type) type {
                 // A closing connection's fd rides its already-queued close op;
                 // an open one has no close queued anywhere, so it must be
                 // closed here or it leaks (teardown never closes fds).
-                if (c.state == .open) Backend.closeFd(c.fd);
+                if (c.state == .open) self.backend.closeFd(c.fd);
                 self.teardown(slot);
             };
             self.allocator.free(self.conns);
-            if (self.listen_fd) |fd| Backend.closeFd(fd);
+            if (self.listen_fd) |fd| self.backend.closeFd(fd);
             self.backend.deinit();
         }
 
@@ -440,30 +586,114 @@ pub fn Loop(comptime Backend: type) type {
             }
         }
 
-        /// Open an outbound TCP socket and admit it into the same slot lifecycle
-        /// as an accepted connection once the backend reports connect completion.
-        /// Returns the connection's slot index. Slots are recycled: the value
-        /// is only valid until the connection closes, after which it may name
-        /// a different connection. `Options.on_close` is where a dialed
-        /// connection's end (including a refused connect) is observed.
-        pub fn dialTcp(self: *Self, address: std.Io.net.IpAddress) !usize {
-            const fd = try Backend.openSocket();
-            errdefer Backend.closeFd(fd);
+        /// Drive the loop until `done` is true. Same poll/dispatch body as
+        /// `run` until the flag a Host vow callback (or peer teardown) sets.
+        /// Call from the loop-owner thread — the same affinity as `dial`.
+        ///
+        /// If `done` is set from another thread, that thread must also wake
+        /// this loop's `poll` (for a listening loop, a connect-and-drop against
+        /// the bound port is enough). A flag set from a serve/vow callback on
+        /// this thread needs no wake — the next loop iteration sees it.
+        ///
+        /// After return, slots may still hold armed recvs; call `closeAndDrain`
+        /// before `deinit`.
+        pub fn runUntil(self: *Self, done: *const std.atomic.Value(bool)) !void {
+            self.latchOwner();
+            if (self.listen_fd) |fd| try self.backend.submitAccept(userData(.accept, 0), fd);
+            const poll_batch = 256;
+            var completions: [poll_batch]Completion = undefined;
+            while (!done.load(.acquire)) {
+                const n = try self.backend.poll(&completions);
+                for (completions[0..n]) |c| try self.dispatch(c);
+                self.resumeStarved(.all);
+            }
+            // closeAndDrain is separate: callers that need honest deinit invoke
+            // it after runUntil (same thread), once CapTP work is done.
+        }
+
+        /// Close every open connection and the listen handle, then poll until
+        /// every slot is free. After this returns, `deinit` is safe: no armed
+        /// recv can hang the drain because each close retires pending ops
+        /// (Backend contract). Call from the loop-owner thread — typically
+        /// after `runUntil` returns, or after an early `run` return that left
+        /// slots live.
+        pub fn closeAndDrain(self: *Self) !void {
+            self.latchOwner();
+            if (self.shutting_down) return;
+            self.shutting_down = true;
+            // Do not set tearing_down yet: closeConn must still submitClose.
+            // freeConnCtx skips drainActions while shutting_down.
+
+            // Cancel a pending accept and close the listen handle first so the
+            // drain poll cannot block forever on an idle acceptor. Null the
+            // field before submit so `deinit` does not double-close; Backends
+            // must yield an accept completion (result < 0) when one was armed.
+            if (self.listen_fd) |fd| {
+                self.listen_fd = null;
+                self.backend.submitClose(userData(.close, self.conns.len), fd) catch self.backend.closeFd(fd);
+            }
+
+            for (self.conns, 0..) |*c, slot| {
+                // Hard close: skip the abort flush. Shutdown first so an armed
+                // recv on a quiet peer completes immediately; otherwise the
+                // drain can wait until the peer drops.
+                if (c.state == .open) {
+                    self.backend.shutdownFd(c.fd);
+                    self.closeConn(slot, c);
+                }
+            }
+
+            const poll_batch = 256;
+            var completions: [poll_batch]Completion = undefined;
+            while (self.anyBusy()) {
+                const n = try self.backend.poll(&completions);
+                for (completions[0..n]) |c| try self.dispatch(c);
+                self.resumeStarved(.all);
+            }
+        }
+
+        fn anyBusy(self: *const Self) bool {
+            for (self.conns) |c| if (c.state != .free) return true;
+            return false;
+        }
+
+        /// Resolve OCapN locator parts through the Locator, then admit the dial.
+        /// This is the only public dial verb: above the net boundary callers speak
+        /// only `transport` + `designator` + hint, never a Backend `ConnectTarget`.
+        pub fn dialLocator(
+            self: *Self,
+            transport: []const u8,
+            designator: []const u8,
+            direct_addresses_hint: []const u8,
+        ) !usize {
+            const target = try Locator.resolve(transport, designator, direct_addresses_hint);
+            return self.dial(target);
+        }
+
+        /// Admit an outbound dial into the same slot lifecycle as an accepted
+        /// connection once the backend reports connect completion. Returns the
+        /// connection's slot index. Slots are recycled: the value is only valid
+        /// until the connection closes, after which it may name a different
+        /// connection. `Options.on_close` is where a dialed connection's end
+        /// (including a refused connect) is observed.
+        ///
+        /// Private: resolve happens in `dialLocator`. The Backend owns dial
+        /// *start* (`startDial`); the Loop only allocates the slot and peer,
+        /// then accounts the in-flight connect op.
+        fn dial(self: *Self, target: ConnectTarget) !usize {
+            if (self.shutting_down or self.tearing_down) return error.ShuttingDown;
 
             const slot = self.freeSlot() orelse return error.TooManyConnections;
-            const peer = self.make_peer(self.make_ctx, self.allocator) catch |err| {
-                self.pushFreeSlot(slot);
-                return err;
-            };
+            errdefer self.pushFreeSlot(slot);
+            var peer = try self.make_peer(self.make_ctx, self.allocator);
+            errdefer peer.deinit();
 
-            // The slot owns the peer from here: on a failed submit, teardown
-            // deinits it once and reclaims the slot, and the fd errdefer closes
-            // the socket once (teardown never closes fds).
+            const fd = try self.backend.startDial(userData(.connect, slot), target);
+            // startDial submitted the connect: the slot must own the fd and the
+            // in-flight op before any further failure can run, or a completion
+            // would land with nowhere to go.
             const c = &self.conns[slot];
             c.* = .{ .state = .open, .fd = fd, .peer = peer };
-            errdefer self.teardown(slot);
-
-            try self.backend.submitConnect(userData(.connect, slot), fd, address);
             c.ops_in_flight += 1;
             return slot;
         }
@@ -505,23 +735,29 @@ pub fn Loop(comptime Backend: type) type {
         }
 
         fn onAccept(self: *Self, res: i32) !void {
+            // Shutdown closed the listener (or cancelled its accept): drop any
+            // racing accept and never re-arm.
+            if (self.shutting_down or self.listen_fd == null) {
+                if (res >= 0) self.backend.closeFd(@intCast(res));
+                return;
+            }
             // Keep one accept armed so the next connection is not missed. The
             // re-arm runs first deliberately; if it fails (loop-global, kills
             // `run`), the accepted fd must still be closed, not leaked.
-            errdefer if (res >= 0) Backend.closeFd(@intCast(res));
+            errdefer if (res >= 0) self.backend.closeFd(@intCast(res));
             try self.armAccept();
             if (res < 0) return; // transient accept failure: the re-arm recovers
 
             const fd: Fd = @intCast(res);
             const slot = self.freeSlot() orelse {
-                self.backend.submitClose(userData(.close, self.conns.len), fd) catch Backend.closeFd(fd);
+                self.backend.submitClose(userData(.close, self.conns.len), fd) catch self.backend.closeFd(fd);
                 return;
             };
             const c = &self.conns[slot];
 
             const peer = self.make_peer(self.make_ctx, self.allocator) catch {
                 self.pushFreeSlot(slot);
-                self.backend.submitClose(userData(.close, self.conns.len), fd) catch Backend.closeFd(fd);
+                self.backend.submitClose(userData(.close, self.conns.len), fd) catch self.backend.closeFd(fd);
                 return;
             };
             c.* = .{ .state = .open, .opened = true, .fd = fd, .peer = peer };
@@ -529,11 +765,19 @@ pub fn Loop(comptime Backend: type) type {
         }
 
         fn onConnect(self: *Self, slot: usize, res: i32) void {
-            const c = self.liveConn(slot) orelse return;
+            const c = self.liveConn(slot) orelse {
+                // Iroh success returns the synthetic fd as `result`; if the
+                // slot was torn down before this completion, free that fd.
+                if (res > 0) self.backend.closeFd(res);
+                return;
+            };
             if (res < 0) {
                 self.closeConn(slot, c);
                 return;
             }
+            // TCP connect succeeds with result 0 and `c.fd` already set.
+            // Iroh connect succeeds with result = synthetic fd (>= 1).
+            if (res > 0) c.fd = res;
             c.opened = true;
             self.finishConnected(slot, c);
         }
@@ -541,6 +785,12 @@ pub fn Loop(comptime Backend: type) type {
         fn finishConnected(self: *Self, slot: usize, c: *Conn) void {
             // No per-connection read buffer is allocated: reads borrow from the
             // backend's shared pool, completion by completion (ADR-0054).
+
+            // Opt-in TCP keepalive: both accept and dial land here. Best-effort
+            // on non-TCP backends (iroh synthetic fds): apply fails quietly.
+            if (self.keepalive) |ka| {
+                tcp_keepalive.apply(@intCast(c.fd), ka);
+            }
 
             // Bind the per-connection application context to this connection's
             // peer now that it sits at its final, stable address. A failure here
@@ -592,7 +842,7 @@ pub fn Loop(comptime Backend: type) type {
             self.failConn(slot, c);
         }
 
-        /// Latch the owning thread at `run` entry. Setup (`init`, `dialTcp`,
+        /// Latch the owning thread at `run` entry. Setup (`init`, `dial`,
         /// `attach`) may run on a different thread before the loop starts;
         /// only the run thread may call `armOutbound`/`closeSlot`.
         fn latchOwner(self: *Self) void {
@@ -730,7 +980,7 @@ pub fn Loop(comptime Backend: type) type {
             // closes only that connection; one bad partner never tears down the
             // loop. A reply the hook enqueues on the peer flushes in the
             // `driveOut` below, matching the drain-then-flush order
-            // `driver.ConnectedVat.step` uses.
+            // `driver.BlockingSession.step` uses.
             while (c.peer.pollEvent()) |ev_in| {
                 var ev = ev_in;
                 defer ev.deinit();
@@ -761,7 +1011,7 @@ pub fn Loop(comptime Backend: type) type {
             // would build a cycle.
             std.debug.assert(c.read == .idle);
             c.read = .starved;
-            c.next_starved = self.starved_head;
+            c.next_link = self.starved_head;
             self.starved_head = slot;
         }
 
@@ -773,17 +1023,17 @@ pub fn Loop(comptime Backend: type) type {
             if (c.read != .starved) return;
             c.read = .idle;
             if (self.starved_head == slot) {
-                self.starved_head = c.next_starved;
+                self.starved_head = c.next_link;
                 return;
             }
             var i = self.starved_head;
             while (i < self.conns.len) {
                 const node = &self.conns[i];
-                if (node.next_starved == slot) {
-                    node.next_starved = c.next_starved;
+                if (node.next_link == slot) {
+                    node.next_link = c.next_link;
                     return;
                 }
-                i = node.next_starved;
+                i = node.next_link;
             }
             // The read seat was `.starved`, so the slot must be in the list,
             // `parkStarved` links and marks together. Falling off the end means
@@ -815,7 +1065,7 @@ pub fn Loop(comptime Backend: type) type {
             while (self.starved_head < self.conns.len) {
                 const slot = self.starved_head;
                 const c = &self.conns[slot];
-                self.starved_head = c.next_starved;
+                self.starved_head = c.next_link;
                 c.read = .idle;
                 if (c.state != .open) continue;
                 if (pendingOut(c) > self.outbound_high_water) {
@@ -928,7 +1178,7 @@ pub fn Loop(comptime Backend: type) type {
                 // is outstanding, reclaim now; otherwise the last in-flight op's
                 // completion reclaims it (teardown must still wait for the kernel
                 // to be done with the buffers).
-                Backend.closeFd(c.fd);
+                self.backend.closeFd(c.fd);
                 if (c.ops_in_flight == 0) {
                     self.teardown(slot);
                     self.closed_count += 1;
@@ -962,7 +1212,7 @@ pub fn Loop(comptime Backend: type) type {
             // is still alive: this fires once per connection, and `opened`
             // tells a dialer whether the connection ever completed its
             // connect (a refused dial reports `opened == false`).
-            if (self.on_close) |on_close| on_close(self.make_ctx, c.app_ctx, c.opened);
+            if (self.on_close) |on_close| on_close(self.make_ctx, slot, c.app_ctx, c.opened);
             // Free the per-connection app context next: it may hold a vat that
             // borrows this peer, so it must release before the peer deinits.
             if (c.app_ctx) |app_ctx| {
@@ -979,12 +1229,12 @@ pub fn Loop(comptime Backend: type) type {
         fn freeSlot(self: *Self) ?usize {
             if (self.free_head >= self.conns.len) return null;
             const slot = self.free_head;
-            self.free_head = self.conns[slot].next_free;
+            self.free_head = self.conns[slot].next_link;
             return slot;
         }
 
         fn pushFreeSlot(self: *Self, slot: usize) void {
-            self.conns[slot].next_free = self.free_head;
+            self.conns[slot].next_link = self.free_head;
             self.free_head = slot;
         }
     };

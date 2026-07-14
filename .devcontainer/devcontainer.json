@@ -1,10 +1,15 @@
-// pancake-zig, paths in containerEnv must match .devcontainer/pins.sh
+// pancake-dev, paths in containerEnv must match .devcontainer/pins.sh
+//
+// Networks: docker-compose.yml joins rooms-net (shared with the rooms app,
+// created by initializeCommand) and egress-net (host-named via EGRESS_NET in
+// .devcontainer/.env). Copy .env.example → .env, set EGRESS_NET, create that
+// network on the host, then rebuild/reopen.
 {
-  "name": "pancake-zig",
-  "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".."
-  },
+  "name": "pancake-dev",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "pancake-dev",
+  "workspaceFolder": "/workspaces/pancake",
+  "shutdownAction": "stopCompose",
   "features": {
     "ghcr.io/devcontainers/features/common-utils:2": {
       "installZsh": true,
@@ -14,10 +19,6 @@
     }
   },
   "remoteUser": "vscode",
-  "runArgs": [
-    "--cap-add=SYS_PTRACE",
-    "--security-opt=seccomp=unconfined"
-  ],
   "containerEnv": {
     "BUN_INSTALL_CACHE_DIR": "/home/vscode/.cache/bun/install",
     "CARGO_HOME": "/home/vscode/.cargo",
@@ -30,12 +31,12 @@
     "ZIG_GLOBAL_CACHE_DIR": "/home/vscode/.cache/zig"
   },
   "mounts": [
-    "source=pancake-zig-bun-cache,target=/home/vscode/.cache/bun,type=volume",
-    "source=pancake-zig-cargo-home,target=/home/vscode/.cargo,type=volume",
-    "source=pancake-zig-deno-cache,target=/home/vscode/.cache/deno,type=volume",
-    "source=pancake-zig-npm-cache,target=/home/vscode/.cache/npm,type=volume",
-    "source=pancake-zig-pip-cache,target=/home/vscode/.cache/pip,type=volume",
-    "source=pancake-zig-zig-cache,target=/home/vscode/.cache/zig,type=volume",
+    "source=pancake-dev-bun-cache,target=/home/vscode/.cache/bun,type=volume",
+    "source=pancake-dev-cargo-home,target=/home/vscode/.cargo,type=volume",
+    "source=pancake-dev-deno-cache,target=/home/vscode/.cache/deno,type=volume",
+    "source=pancake-dev-npm-cache,target=/home/vscode/.cache/npm,type=volume",
+    "source=pancake-dev-pip-cache,target=/home/vscode/.cache/pip,type=volume",
+    "source=pancake-dev-zig-cache,target=/home/vscode/.cache/zig,type=volume",
     // Host tool configs the editor does NOT already share, bind-mounted so their
     // login/state comes from the host and survives a rebuild: Claude (skills,
     // memory, login) and the GitHub CLI login. Each resolves per-user through
@@ -45,9 +46,18 @@
     // agent. See .devcontainer/README.md ("Sharing host configuration") for the
     // full rationale and the git/SSH/GPG/gh-keyring notes.
     "source=${localEnv:HOME}/.claude,target=/home/vscode/.claude,type=bind",
-    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind"
+    "source=${localEnv:HOME}/.config/gh,target=/home/vscode/.config/gh,type=bind",
+    // opencode keeps its login (auth.json) under its data dir and its config
+    // (providers, default model) under its config dir. Bind both dirs (not the
+    // files) so a rebuild keeps both and shares them with a host opencode:
+    // opencode rewrites auth.json atomically, which a single-file bind would not
+    // follow. Scoped to opencode's own subdirs on purpose — mounting all of
+    // ~/.config would nest under the .config/gh mount above and drag in every
+    // unrelated host config.
+    "source=${localEnv:HOME}/.local/share/opencode,target=/home/vscode/.local/share/opencode,type=bind",
+    "source=${localEnv:HOME}/.config/opencode,target=/home/vscode/.config/opencode,type=bind"
   ],
-  "initializeCommand": "mkdir -p ${localEnv:HOME}/.claude ${localEnv:HOME}/.config/gh",
+  "initializeCommand": "bash .devcontainer/initialize.sh",
   "postCreateCommand": "bash .devcontainer/post-create.sh",
   "customizations": {
     "vscode": {

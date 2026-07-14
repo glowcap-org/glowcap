@@ -31,7 +31,8 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake.iroh import Reachability, connect_iroh, listen_iroh  # noqa: E402
+from pancake import TRANSPORT_IROH, connect, format_peer_uri  # noqa: E402
+from pancake.iroh import Reachability, listen_iroh  # noqa: E402
 
 # Concurrent connections, each served on the one server loop; calls each makes
 # before closing, several turns per connection so the proof is sustained
@@ -63,7 +64,8 @@ async def _client_once(server_id: str) -> None:
     """One client: bind its own iroh endpoint, dial the server by id alone (the
     local-discovery book resolves it), fetch the greeter, and call it
     ``CALLS_PER_CONN`` times, checking every reply."""
-    conn = await connect_iroh(server_id, "", Reachability.LOCAL_DISCOVERY)
+    locator = format_peer_uri(TRANSPORT_IROH, server_id)
+    conn = await connect(locator, Reachability.LOCAL_DISCOVERY)
     try:
         greeter = await conn.fetch("greeter")
         for _ in range(CALLS_PER_CONN):

@@ -355,12 +355,9 @@ fn propagateBreakToDrainedCall(peer: *Peer, queued: model.Message, resolution: m
         // is a partner import; a `.near` here is a local resolver export in the
         // same integer space, reinterpreted explicitly for the lookup.
         if (queued.deliver.resolve_me_desc) |rmd| {
-            const id: u64 = switch (rmd) {
-                .far => |far| far.import_position.int(),
-                .near => |near| near.export_position.int(),
-                else => break :blk @as(?model.AnswerPosition, null),
-            };
-            break :blk peer.session_state.answerForResolverImport(model.ImportPosition.from(id));
+            if (rmd.position()) |id| {
+                break :blk peer.session_state.answerForResolverImport(model.ImportPosition.from(id));
+            }
         }
         break :blk @as(?model.AnswerPosition, null);
     };
@@ -426,7 +423,7 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.Nea
 /// Drain the listeners registered against the answer a just-sent
 /// `op:resolve` settles, firing each per the (resolution × `wants_partial`)
 /// matrix (ADR-0007 § Listener fire matrix). Each fire queues a POD carrier on
-/// `pending_send` (`enqueueListenerFire`) so a later `step` encodes it from
+/// `pending_send` (`enqueueAnswerFire`) so a later `step` encodes it from
 /// the store; partial promises re-anchor the listener on the next answer.
 /// `resolve.resolution` borrows the answer store (the caller peeked it), so
 /// nothing here owns heap: the drained entries are POD `.far` values.
@@ -442,7 +439,7 @@ pub fn fireListenersOnResolve(peer: *Peer, resolve: model.Resolve) !void {
 /// Fire every listener installed on handoff-imported promise `import_position`
 /// (ADR-0009) from its *stored* relayed resolution, draining the listener
 /// list. Each fire queues a POD carrier stamped with the store row's identity
-/// (`Outbound.imported_promise_fire`); `step` borrows the stored payload back
+/// (`Outbound.listener_fire` targeting the import store); `step` borrows the stored payload back
 /// to encode. A row with no stored resolution yet fires nothing (the
 /// listeners stay installed for the relay to drain). Imported-promise
 /// listeners fire unconditionally (no `wants_partial` re-anchor; a relayed
@@ -458,28 +455,35 @@ pub fn fireImportedPromiseListeners(peer: *Peer, import_position: model.ImportPo
     defer peer.allocator.free(listeners);
 
     for (listeners) |entry| {
-        try enqueueImportedPromiseFire(
+        try enqueueFire(
             peer,
             entry.listener.import_position.int(),
-            import_position,
+            .{ .import = import_position },
             row_id,
             resolution,
         );
     }
 }
 
-/// Queue one answer-store listener fire: session accounting on the borrowed
-/// stack message (the wire mentions the payload once more, so its `near`
-/// export mentions take the same wire-delta retain an owned fire took), then
-/// the POD carrier, stamped with the answer row's identity so a released-and-
-/// reused position can never satisfy it at encode. Reserve-then-record-then-
+/// Queue one listener fire against a stored resolution: session accounting on
+/// the borrowed stack message (the wire mentions the payload once more, so its
+/// `near` export mentions take the same wire-delta retain an owned fire took),
+/// then the POD carrier, stamped with the store row's identity so a released-
+/// and-reused position can never satisfy it at encode. Reserve-then-record-then-
 /// push, the sent-resolve order (`Peer.enqueueRecorded`'s resolve arm): the
 /// accounting is committed by an infallible push, never an undo. `resolution`
-/// borrows the answer store, which owns the payload the carrier's encode
-/// reads back. A row absent by fire time (released mid-drain) fires nothing —
-/// the moot semantics encode applies anyway.
-fn enqueueListenerFire(peer: *Peer, listener_position: u64, answer: model.AnswerPosition, resolution: model.Resolution) !void {
-    const row_id = peer.session_state.inboundAnswerRowId(answer) orelse return;
+/// borrows the store `target` names — the inbound answer store or the third-
+/// party imported-promise store (ADR-0009) — which owns the payload the
+/// carrier's encode reads back; that value cannot change while the carrier is
+/// queued (each store records its resolution once). The caller supplies the
+/// `row_id` it stamped the target with.
+fn enqueueFire(
+    peer: *Peer,
+    listener_position: u64,
+    target: engine.FireTarget,
+    row_id: u64,
+    resolution: model.Resolution,
+) !void {
     var args: [2]model.Argument = undefined;
     const borrowed = borrowedListenerFire(listener_position, resolution, &args);
     try peer.pending_send.ensureUnusedCapacityForOne(peer.allocator);
@@ -488,33 +492,19 @@ fn enqueueListenerFire(peer: *Peer, listener_position: u64, answer: model.Answer
     try peer.session_state.recordSend(borrowed);
     peer.pending_send.pushAssumeCapacity(.{ .listener_fire = .{
         .listener_position = listener_position,
-        .answer = answer,
+        .target = target,
         .row_id = row_id,
     } });
 }
 
-/// The imported-promise sibling of `enqueueListenerFire`: identical
-/// accounting and ordering, but the carrier names the third-party import's
-/// store row plus its identity stamp, so encode drops a fire whose row was
-/// torn down and re-registered as a different promise. `resolution` borrows
-/// that store row, whose value cannot change while the carrier is queued (a
-/// second relay is refused).
-fn enqueueImportedPromiseFire(
-    peer: *Peer,
-    listener_position: u64,
-    import_position: model.ImportPosition,
-    row_id: u64,
-    resolution: model.Resolution,
-) !void {
-    var args: [2]model.Argument = undefined;
-    const borrowed = borrowedListenerFire(listener_position, resolution, &args);
-    try peer.pending_send.ensureUnusedCapacityForOne(peer.allocator);
-    try peer.session_state.recordSend(borrowed);
-    peer.pending_send.pushAssumeCapacity(.{ .imported_promise_fire = .{
-        .listener_position = listener_position,
-        .import_position = import_position,
-        .row_id = row_id,
-    } });
+/// Queue one answer-store fire: stamp the carrier with the inbound answer's
+/// row id, or fire nothing when the row is absent by fire time (released mid-
+/// drain), the moot semantics encode applies anyway. The `enqueueFire` sibling
+/// that names the answer store, keeping the row-absent early return scoped to
+/// the fire so a `fire_and_reinstall` still reinstalls its listener.
+fn enqueueAnswerFire(peer: *Peer, listener_position: u64, answer: model.AnswerPosition, resolution: model.Resolution) !void {
+    const row_id = peer.session_state.inboundAnswerRowId(answer) orelse return;
+    try enqueueFire(peer, listener_position, .{ .answer = answer }, row_id, resolution);
 }
 
 /// Apply one `ListenerDrainAction` against the answer whose stored
@@ -523,9 +513,9 @@ fn enqueueImportedPromiseFire(
 /// Every action is POD, so there is no heap to release on failure.
 fn applyListenerAction(peer: *Peer, answer: model.AnswerPosition, resolution: model.Resolution, action: ListenerDrainAction) !void {
     switch (action) {
-        .fire => |position| try enqueueListenerFire(peer, position, answer, resolution),
+        .fire => |position| try enqueueAnswerFire(peer, position, answer, resolution),
         .fire_and_reinstall => |fr| {
-            try enqueueListenerFire(peer, fr.fire, answer, resolution);
+            try enqueueAnswerFire(peer, fr.fire, answer, resolution);
             try peer.session_state.installListener(fr.next_answer, fr.entry);
         },
         .reinstall => |ri| try peer.session_state.installListener(ri.next_answer, ri.entry),

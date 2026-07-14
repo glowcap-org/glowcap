@@ -23,7 +23,7 @@
     (thread
      (lambda ()
        (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-         (define (mint-cap ctor) (conn-spawn hconn ctor))
-         (conn-publish hconn name (build-root mint-cap))
-         (conn-serve hconn))))
+         (define (mint-cap ctor) (session-spawn hconn ctor))
+         (session-publish hconn name (build-root mint-cap))
+         (session-serve hconn))))
     (accept-loop)))

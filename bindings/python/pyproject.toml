@@ -22,4 +22,4 @@ packages = ["pancake"]
 
 [tool.setuptools.package-data]
 # Ship the PEP 561 marker so type checkers read the inline annotations.
-pancake = ["py.typed"]
+pancake = ["py.typed", "c-abi-resolve.json"]

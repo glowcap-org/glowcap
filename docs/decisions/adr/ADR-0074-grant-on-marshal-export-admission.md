@@ -14,7 +14,7 @@ superseded_by: []
 
 A spawned capability's export position was addressable the moment it was
 allocated. `driver.spawnAt` (and every surface riding it: `Served.spawn`,
-`pancake_host_conn_spawn`, `pancake_host_turn_spawn`, the bindings' `spawn`)
+`pancake_host_session_spawn`, `pancake_host_turn_spawn`, the bindings' `spawn`)
 allocated a position from the session's export allocator and registered it
 live, so in the window between spawning an object and first sending its
 reference, a partner that guessed the small, dense, monotonic integer could
@@ -87,7 +87,7 @@ not add entropy to them, it removes the need for it at this layer.
 
 - **Lazy position minting at the marshal chokepoint** (no position exists
   until the reference first encodes). Rejected: the C ABI's identity model is
-  the eager position — `pancake_host_conn_spawn` and its kin return the export
+  the eager position — `pancake_host_session_spawn` and its kin return the export
   position at spawn time — so lazy minting forks near identity into a
   token-plus-position pair across five bindings, while the session-table rule
   closes the same window for every producer, including a raw engine consumer
@@ -106,7 +106,7 @@ wire both ends by hand) now say so with an explicit `exportObject` /
 already doing. `ExportTable.retain` asserts the row exists, so a baseline-less
 count cannot be minted by accident. Pinned by the admission and GC-floor
 scenarios in `test/session/session_test.zig` and the end-to-end
-spawned-capability probe in `test/driver/connected_vat_test.zig`; the external
+spawned-capability probe in `test/driver/blocking_session_test.zig`; the external
 arbiters are the live Goblins interop and the upstream OCapN suite, which
 exercise fetch, GC, and withdraw against these rules.
 

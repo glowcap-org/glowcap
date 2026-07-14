@@ -4,7 +4,7 @@
 //! `error.LocalTurnLimitExceeded`; this holds the verdict mapping and the
 //! resume contract (a refused batch leaves the residual queue intact, so a
 //! later budget drains it) without a socket or a loop. The authority is a
-//! `driver_core` invariant; the live loop consumer is the iroh `LoopHost`
+//! `driver_core` invariant; the live loop consumer is `iroh.Backend` + Bridge
 //! (`zig build iroh-loop`).
 const std = @import("std");
 const pancake = @import("pancake");

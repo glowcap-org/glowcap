@@ -33,7 +33,7 @@ from helpers import fail, insert_bindings_path, parse_port  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import Ref, connect, listen, tcp_locator  # noqa: E402
+from pancake import Ref, connect, listen, socket_addr_designator, tcp_locator  # noqa: E402
 
 HOST = "127.0.0.1"
 PORT = parse_port("python-goblins-gift", 22122, max_port=65534)
@@ -89,7 +89,7 @@ async def run() -> None:
         print(f"python-goblins-gift: goblins-bob exporting greeter swiss={GREETER_SWISS} on {HOST}:{PORT}")
 
         # pancake (the gifter) listens for the recipient on an ephemeral port and
-        # runs its accept loop. One node identity (gifter.node) serves both the
+        # runs its accept loop. One node identity (gifter.host) serves both the
         # recipient connection and the exporter connection, so the give's
         # signature matches the deposit.
         gifter = await listen(HOST, 0)
@@ -103,26 +103,26 @@ async def run() -> None:
 
         # Dial Bob and fetch his greeter. The fetched ref's home is this
         # gifter<->Bob connection, which is what lets pancake re-gift it.
-        to_bob = await connect(tcp_locator(HOST, PORT), node=gifter.node)
+        to_bob = await connect(tcp_locator(HOST, PORT), host=gifter.host)
         to_bob.serve()
         greeter = await to_bob.fetch(GREETER_SWISS)
         if not isinstance(greeter, Ref):
             fail("python-goblins-gift", "could not fetch goblins-bob's greeter")
         print("python-goblins-gift: fetched goblins-bob's greeter")
 
-        # Publish the introducer node-wide. Returning Bob's greeter (home = the
+        # Publish the introducer host-wide. Returning Bob's greeter (home = the
         # Bob connection) to the recipient's connection trips the transparent
         # gifter, which deposits with Bob and resolves the recipient with a give.
         def introducer(verb: str, args: list) -> object:
             return greeter if verb == "get-greeter" else None
 
-        gifter.node.publish_giftable(INTRODUCER_SWISS, introducer)
+        gifter.host.publish_giftable(INTRODUCER_SWISS, introducer)
         print(f"python-goblins-gift: pancake publishing introducer swiss={INTRODUCER_SWISS} on {HOST}:{gifter_port}")
 
         # Spawn Carol (the Goblins recipient): she dials pancake's introducer,
         # asks for the greeter, redeems pancake's give, and calls Bob directly.
         carol = await asyncio.create_subprocess_exec(
-            RACKET, RECIPIENT_SCRIPT, f"{HOST}:{gifter_port}", INTRODUCER_SWISS, str(PORT + 1),
+            RACKET, RECIPIENT_SCRIPT, socket_addr_designator(HOST, gifter_port), INTRODUCER_SWISS, str(PORT + 1),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )

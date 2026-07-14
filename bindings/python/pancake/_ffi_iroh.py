@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import ctypes
 
-from ._ffi_ocapn import _lib_file, _lib_path
+from ._lib_resolve import _lib_file, _lib_path
 
 _IROH_LIB_PATH = _lib_path("pancake_net_transport_iroh")
 _IROH_LIB_FILE = _lib_file("pancake_net_transport_iroh")
@@ -72,14 +72,14 @@ def _load_iroh():
         # Park on the readiness fd, drain records when it signals, and drive
         # non-blocking byte I/O, one thread serves many connections.
         "pancake_iroh_netlayer_readiness_fd": ([P], ctypes.c_int32),
-        "pancake_iroh_netlayer_drain_ready": ([P, ev_p, ctypes.c_size_t], ctypes.c_ssize_t),
+        "pancake_iroh_netlayer_drain_ready": ([P, ev_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)], ctypes.c_int32),
         "pancake_iroh_netlayer_try_accept": ([P, ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_iroh_netlayer_try_connect": (
             [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(P)],
             ctypes.c_int32,
         ),
-        "pancake_iroh_conn_try_read": ([P, u8p, ctypes.c_size_t], ctypes.c_ssize_t),
-        "pancake_iroh_conn_try_write": ([P, u8p, ctypes.c_size_t], ctypes.c_ssize_t),
+        "pancake_iroh_conn_try_read": ([P, u8p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)], ctypes.c_int32),
+        "pancake_iroh_conn_try_write": ([P, u8p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)], ctypes.c_int32),
         "pancake_iroh_conn_release": ([P], None),
         # The iroh archive's own thread-local last-error slot: an iroh call that
         # returns PANCAKE_ERR_IO records its concrete cause here, read through
@@ -106,7 +106,8 @@ def _iroh():
             _iroh_lib_cache = _load_iroh()
         except OSError as exc:
             raise RuntimeError(
-                f"iroh transport unavailable: could not load {_IROH_LIB_FILE} from zig-out/lib. "
-                "Build it with `zig build iroh-abi` (needs cargo). " + str(exc)
+                f"iroh transport unavailable: could not load {_IROH_LIB_FILE} from "
+                "PANCAKE_LIB_DIR, the abi-versioned cache, zig-out/lib, or the system "
+                "library path. Build it with `zig build iroh-abi` (needs cargo). " + str(exc)
             ) from exc
     return _iroh_lib_cache

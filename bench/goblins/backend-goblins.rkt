@@ -42,7 +42,7 @@
 ;; connection. The server's host/port are kept to rebuild the sturdyref. One
 ;; settle channel is reused across all (sequential) calls so the driver adds no
 ;; per-call allocation overhead beyond what entering the vat requires — the
-;; pancake side's `conn-send` likewise reuses a single result cell per call.
+;; pancake side's `session-send` likewise reuses a single result cell per call.
 (struct gclient (run mycapn host port ch))
 
 (define (client-connect host port)

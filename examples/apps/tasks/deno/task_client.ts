@@ -10,7 +10,7 @@
 //   for await (const tasks of board.updates) console.log(tasks);
 //   await board.leave();
 
-import { type AppValue, connect, type Connection, type Ref, tcpLocator } from "@pancake/stack";
+import { type AppValue, connect, type Ref, type Session, tcpLocator } from "@pancake/stack";
 import { ADD, BOARD, DONE, LIST, UPDATE, WATCH } from "./protocol.ts";
 
 export interface Task {
@@ -34,7 +34,7 @@ function parseSnapshot(raw: AppValue): Task[] {
 }
 
 export class TaskBoard {
-	#conn: Connection;
+	#conn: Session;
 	#board: Ref;
 	#snapshots!: ReadableStreamDefaultController<Task[]>;
 	#leaving = false;
@@ -43,7 +43,7 @@ export class TaskBoard {
 	 * state. Ends when you `leave` or the board hangs up. */
 	readonly updates: ReadableStream<Task[]>;
 
-	private constructor(conn: Connection, board: Ref) {
+	private constructor(conn: Session, board: Ref) {
 		this.#conn = conn;
 		this.#board = board;
 		this.updates = new ReadableStream<Task[]>({

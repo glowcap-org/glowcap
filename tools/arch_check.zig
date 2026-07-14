@@ -124,12 +124,13 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
         };
         const spec = table[layer_index];
 
-        // Edge liveness: record every granted module name this file imports.
+        // Edge liveness: a granted edge counts live only when its import binding
+        // is actually *used*, not merely present as an `@import` string. The
+        // string proxy let an unused `const model = @import("model")` laundered
+        // by a `_ = model;` discard read live; `edgeLiveInFile` closes that.
         for (spec.imports, live[layer_index]) |edge, *seen| {
             if (seen.*) continue;
-            const needle = try std.fmt.allocPrint(gpa, "@import(\"{s}\")", .{edge});
-            defer gpa.free(needle);
-            if (std.mem.indexOf(u8, contents, needle) != null) seen.* = true;
+            if (try edgeLiveInFile(gpa, contents, edge)) seen.* = true;
         }
 
         // Undeclared-edge ban, the liveness check's converse: a claimed file
@@ -185,14 +186,13 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
         // No-scheduler / no-threading-in-core ban. The Core Boundary
         // (docs/architecture.md) forbids background tasks and hidden schedulers,
         // not only std.Io. `std.Thread` is never allowed in a core layer for
-        // spawning or scheduling. Two sanctioned exceptions:
-        // - `std.atomic` in the engine's GiftRegistry table lock, which guards
-        //   a host-shared gift table without pulling in std.Io (ADR-0009);
-        // - `std.Thread.getCurrentId` in the byte-fed Host, which asserts the
-        //   single-owning-thread contract already in prose (ADR-0072) — affinity
-        //   only, never spawn. Both are allowlisted by path so any other core
-        //   atomic / Thread still fails loud.
-        const allows_atomic = std.mem.endsWith(u8, file_path, "engine/bootstrap.zig");
+        // spawning or scheduling, and `std.atomic` is never allowed at all —
+        // concurrency primitives belong in adapters. One sanctioned exception:
+        // `std.Thread.getCurrentId` in the byte-fed Host asserts the
+        // single-owning-thread contract already in prose (ADR-0072) — affinity
+        // only, never spawn — allowlisted by path so any other core atomic /
+        // Thread still fails loud. (The engine's GiftRegistry carries no lock;
+        // ADR-0056 deleted the prior spinlock, so no atomic is sanctioned there.)
         const allows_thread_id = std.mem.endsWith(u8, file_path, "driver/core/host.zig");
         if (spec.core and !allows_thread_id and std.mem.indexOf(u8, contents, "std.Thread") != null) {
             try violations.append(gpa, try std.fmt.allocPrint(
@@ -201,10 +201,10 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
                 .{ file_path, spec.name },
             ));
         }
-        if (spec.core and !allows_atomic and std.mem.indexOf(u8, contents, "std.atomic") != null) {
+        if (spec.core and std.mem.indexOf(u8, contents, "std.atomic") != null) {
             try violations.append(gpa, try std.fmt.allocPrint(
                 gpa,
-                "{s}: core layer '{s}' references std.atomic — concurrency primitives belong in adapters; only the GiftRegistry lock in engine/bootstrap.zig is sanctioned",
+                "{s}: core layer '{s}' references std.atomic — concurrency primitives belong in adapters",
                 .{ file_path, spec.name },
             ));
         }
@@ -234,10 +234,13 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
         // `std.posix` / `std.crypto`, which select the platform underneath; a
         // direct `std.os.linux` / `std.os.windows` reference compiles on one OS
         // and breaks every other build. Only a platform-gated completion
-        // backend may name its own OS — `net/completion/uring.zig` is imported
-        // behind an `os.tag == .linux` check. A new platform backend allowlists
-        // itself here in the same change that gates its import.
-        const platform_gated = std.mem.endsWith(u8, file_path, "net/completion/uring.zig");
+        // backend (or its shared socket helpers) may name its own OS —
+        // `net/completion/uring.zig` is imported behind an `os.tag == .linux`
+        // check; `socket_tcp.zig` is the shared helper both backends call.
+        // A new platform backend allowlists itself here in the same change
+        // that gates its import.
+        const platform_gated = std.mem.endsWith(u8, file_path, "net/completion/uring.zig") or
+            std.mem.endsWith(u8, file_path, "net/completion/socket_tcp.zig");
         if (!platform_gated and
             (std.mem.indexOf(u8, contents, "std.os.linux") != null or
                 std.mem.indexOf(u8, contents, "std.os.windows") != null))
@@ -277,19 +280,121 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
 /// constructor. Keep this list to injections that genuinely cannot be a DAG
 /// edge.
 const injected_layer_imports = [_]struct { path: []const u8, imports: []const []const u8 }{
-    // The iroh resident's module (`iroh_resident_mod` in build.zig) is minted
-    // outside `graphFromTable` because it links the Rust sidecar, and its
-    // `LoopHost` serves through the shared serve core, so it is injected with
-    // the actor and serve-core modules. The serve half is `driver`-tier code
-    // standing in a `net` file because the sidecar's injected module cannot be
-    // a DAG edge for `driver` to import; this row is that seam's declared
-    // boundary.
-    .{ .path = "net/transport/iroh.zig", .imports = &.{ "actors", "driver_core" } },
+    // Empty: the iroh resident module no longer imports actors/driver_core
+    // (CapTP serving moved to `driver.Bridge` + Host). Keep this table for
+    // future sanctioned injections that cannot be DAG edges.
 };
 
 fn isLayerName(table: []const LayerSpec, name: []const u8) bool {
     for (table) |spec| {
         if (std.mem.eql(u8, spec.name, name)) return true;
+    }
+    return false;
+}
+
+/// A Zig identifier byte: what may sit inside a token, so a token boundary is
+/// any byte that is not one of these.
+fn identByte(c: u8) bool {
+    return std.ascii.isAlphanumeric(c) or c == '_';
+}
+
+/// Whether `name` occurs in `line` as a standalone token, not as a fragment of a
+/// longer identifier — so `model` matches in `model.Foo` but not in `session_mod`.
+// The scan is line-based, not lexer-aware: a binding named only inside a string
+// literal or a trailing comment still reads as LIVE. That is conservative by
+// design — it can only miss a genuinely-dead edge, never raise a false RED for a
+// binding that is actually used.
+fn lineHasToken(line: []const u8, name: []const u8) bool {
+    var base: usize = 0;
+    while (std.mem.indexOfPos(u8, line, base, name)) |pos| {
+        const before_ok = pos == 0 or !identByte(line[pos - 1]);
+        const after = pos + name.len;
+        const after_ok = after >= line.len or !identByte(line[after]);
+        if (before_ok and after_ok) return true;
+        base = pos + 1;
+    }
+    return false;
+}
+
+/// If the `@import("edge")` at `pos` is the whole right-hand side of a pure
+/// `const X = @import("edge")` (or `pub const X = @import("edge")`) alias, return
+/// the binding identifier `X`; otherwise null (an inline use, or a typed/aliased
+/// form we treat as a use). The binding comes from the `const X =` form, never
+/// the module name, so `const session_mod = @import("session")` resolves to
+/// `session_mod`, not `session`.
+fn pureAliasBinding(line: []const u8, pos: usize) ?[]const u8 {
+    var before = std.mem.trimEnd(u8, line[0..pos], " \t");
+    if (!std.mem.endsWith(u8, before, "=")) return null;
+    before = std.mem.trimEnd(u8, before[0 .. before.len - 1], " \t");
+    var lhs = before;
+    if (std.mem.startsWith(u8, lhs, "pub ")) lhs = std.mem.trimStart(u8, lhs[4..], " \t");
+    if (!std.mem.startsWith(u8, lhs, "const ")) return null;
+    const ident = std.mem.trimStart(u8, lhs[6..], " \t");
+    if (ident.len == 0) return null;
+    for (ident) |c| if (!identByte(c)) return null;
+    return ident;
+}
+
+/// Whether `trimmed` (a leading-trimmed line) is exactly a `_ = <name>;` discard
+/// of `name`, the laundering form that keeps a dead alias compiling.
+fn isDiscardOf(trimmed: []const u8, name: []const u8) bool {
+    if (!std.mem.startsWith(u8, trimmed, "_")) return false;
+    var s = std.mem.trimStart(u8, trimmed[1..], " \t");
+    if (!std.mem.startsWith(u8, s, "=")) return false;
+    s = std.mem.trimStart(u8, s[1..], " \t");
+    if (!std.mem.startsWith(u8, s, name)) return false;
+    s = std.mem.trimStart(u8, s[name.len..], " \t");
+    return std.mem.startsWith(u8, s, ";");
+}
+
+/// Whether the private alias `name`, declared on `decl_line`, is referenced as a
+/// token anywhere else in `contents` — outside its own decl line, comment lines,
+/// and `_ = name;` discards. This is what separates a live private import from a
+/// dead one laundered by a discard.
+fn bindingUsedOutsideDecl(contents: []const u8, name: []const u8, decl_line: usize) bool {
+    var ln: usize = 0;
+    var it = std.mem.splitScalar(u8, contents, '\n');
+    while (it.next()) |line| : (ln += 1) {
+        if (ln == decl_line) continue;
+        const trimmed = std.mem.trimStart(u8, line, " \t");
+        if (std.mem.startsWith(u8, trimmed, "//")) continue;
+        if (isDiscardOf(trimmed, name)) continue;
+        if (lineHasToken(line, name)) return true;
+    }
+    return false;
+}
+
+/// Strengthened edge liveness: a granted layer edge counts live only when its
+/// import binding is genuinely used, not merely present as an `@import` string.
+/// A pub re-export (`pub const X = @import("edge")`) or an inline use
+/// (`_ = @import("edge")`, `@import("edge").Field`) is a use. A private
+/// `const X = @import("edge")` alias is live only when `X` is referenced as a
+/// token outside its decl line, comments, and `_ = X;` discards — so an unused
+/// import laundered by a discard reads dead and the dead-edge ban fires.
+fn edgeLiveInFile(gpa: std.mem.Allocator, contents: []const u8, edge: []const u8) !bool {
+    const import_expr = try std.fmt.allocPrint(gpa, "@import(\"{s}\")", .{edge});
+    defer gpa.free(import_expr);
+
+    var line_no: usize = 0;
+    var lines = std.mem.splitScalar(u8, contents, '\n');
+    while (lines.next()) |line| : (line_no += 1) {
+        const trimmed = std.mem.trimStart(u8, line, " \t");
+        if (std.mem.startsWith(u8, trimmed, "//")) continue;
+        var base: usize = 0;
+        while (std.mem.indexOfPos(u8, line, base, import_expr)) |pos| {
+            base = pos + import_expr.len;
+            const after = pos + import_expr.len;
+            // `@import("edge").Field` — an inline field/method use.
+            if (after < line.len and line[after] == '.') return true;
+            if (pureAliasBinding(line, pos)) |binding| {
+                // `pub const X = @import("edge")` — the re-export is the use.
+                if (std.mem.startsWith(u8, trimmed, "pub ")) return true;
+                if (bindingUsedOutsideDecl(contents, binding, line_no)) return true;
+            } else {
+                // `_ = @import("edge")` or any other inline expression = a use.
+                return true;
+            }
+        }
     }
     return false;
 }

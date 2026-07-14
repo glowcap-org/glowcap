@@ -89,6 +89,50 @@ test "session records outbound answers from sent deliver" {
     try std.testing.expectEqual(session.AnswerStatus.pending, s.outboundAnswer(.from(42)).?.status);
 }
 
+test "an inbound set carrying two Equal elements is refused on both walk shapes" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerExport(.from(7));
+
+    // Owned walk: the duplicate is refused in validate, before apply mutates.
+    var dup_elements = [_]model.Argument{ .{ .integer = 4 }, .{ .string = "mid" }, .{ .integer = 4 } };
+    var dup_args = [_]model.Argument{.{ .set = &dup_elements }};
+    const dup_deliver = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(7) } },
+        .args = &dup_args,
+        .answer = null,
+    } };
+    try std.testing.expectError(session.Error.DuplicateSetElement, s.recordRecv(dup_deliver));
+
+    // Borrowed walk: the view projection of the same message is refused
+    // identically, so neither dispatch path admits what the other refuses.
+    try std.testing.expectError(session.Error.DuplicateSetElement, s.recordRecvView(model.view.Body.fromOwned(&dup_deliver)));
+
+    // Two inner sets spelling one member in different element order are Equal
+    // (set equality is order-independent), so the outer set still carries a
+    // duplicate — this pins the hash's commutative combine to the equality it
+    // serves.
+    var inner_a = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 } };
+    var inner_b = [_]model.Argument{ .{ .integer = 2 }, .{ .integer = 1 } };
+    var nested_elements = [_]model.Argument{ .{ .set = &inner_a }, .{ .set = &inner_b } };
+    var nested_args = [_]model.Argument{.{ .set = &nested_elements }};
+    try std.testing.expectError(session.Error.DuplicateSetElement, s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(7) } },
+        .args = &nested_args,
+        .answer = null,
+    } }));
+
+    // Distinct elements are admitted.
+    var ok_elements = [_]model.Argument{ .{ .integer = 4 }, .{ .integer = 5 } };
+    var ok_args = [_]model.Argument{.{ .set = &ok_elements }};
+    try s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(7) } },
+        .args = &ok_args,
+        .answer = null,
+    } });
+}
+
 test "inbound deliver nested past max_nesting_depth fails closed" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
@@ -352,6 +396,40 @@ test "releaseUnsharedExport rolls back a freshly allocated export" {
     const third = try s.allocateExport();
     try std.testing.expect(third != second);
     try std.testing.expect(third.int() > second.int());
+}
+
+test "V1.0 outbound resolver export is reclaimed when its answer is gc'd, not leaked to teardown" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(.from(7));
+
+    // An answered deliver we send, so its answer exists to carry a resolver.
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(7) } },
+        .args = &.{.{ .bytes = "hi" }},
+        .answer = .from(42),
+    } });
+
+    // Mint the V1.0 resolver export for that answer: `allocateExport`'s base
+    // count-1 plus the wire mention's retain is count 2.
+    const resolver = try s.mintOutboundResolver(.from(42));
+    try std.testing.expectEqual(@as(u64, 2), s.exports.count(resolver));
+
+    // The partner GCs its one wire mention. The base reference still floats, so
+    // the partner's GC alone cannot reclaim the export.
+    try s.recordRecv(.{ .gc_export = .{
+        .positions = &.{resolver.int()},
+        .deltas = &.{1},
+    } });
+    try std.testing.expect(s.hasExport(resolver));
+    try std.testing.expectEqual(@as(u64, 1), s.exports.count(resolver));
+
+    // We GC the answer. Its resolver can never fire again, so the base
+    // reference is released and the export is reclaimed here, not left floating
+    // until session teardown (the leak this pins).
+    try s.recordSend(.{ .gc_answer = .{ .positions = &.{42} } });
+    try std.testing.expect(!s.hasExport(resolver));
 }
 
 test "session lifecycle moves from negotiating through open to closed" {
@@ -1453,27 +1531,50 @@ test "gc validation scratch reports host OOM as itself, not GcUnderflow" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
     defer s.deinit();
-    try s.registerExport(.from(7));
+    // Nine distinct live exports so the fold spills past the stack threshold
+    // into the heap map — the path that can surface a host OutOfMemory.
+    var positions: [9]u64 = undefined;
+    var deltas: [9]u64 = undefined;
+    var i: u64 = 0;
+    while (i < positions.len) : (i += 1) {
+        const pos = i + 1;
+        positions[i] = pos;
+        deltas[i] = 1;
+        try s.registerExport(.from(pos));
+    }
     try s.recordRecv(.{ .deliver = .{
-        .target = .{ .near = .{ .export_position = .from(7) } },
+        .target = .{ .near = .{ .export_position = .from(1) } },
         .args = &.{},
         .answer = .from(11),
     } });
+    // Eight more answers so gc-answers also spills.
+    var answer_positions: [9]u64 = undefined;
+    i = 0;
+    while (i < answer_positions.len) : (i += 1) {
+        answer_positions[i] = 11 + i;
+        if (i > 0) {
+            try s.recordRecv(.{ .deliver = .{
+                .target = .{ .near = .{ .export_position = .from(1) } },
+                .args = &.{},
+                .answer = .from(11 + i),
+            } });
+        }
+    }
 
-    // The scratch maps inside the gc validators allocate; that failure is a
+    // The spill map inside the gc validators allocates; that failure is a
     // host condition, not a partner protocol violation, and must surface as
     // OutOfMemory (no abort) rather than a spurious GcUnderflow abort.
     var failing = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
     try std.testing.expectError(error.OutOfMemory, session.checkGcExportDecrement(
         failing.allocator(),
         &s.exports,
-        .{ .positions = &.{7}, .deltas = &.{1} },
+        .{ .positions = &positions, .deltas = &deltas },
     ));
     var failing_answers = std.testing.FailingAllocator.init(allocator, .{ .fail_index = 0 });
     try std.testing.expectError(error.OutOfMemory, session.checkGcAnswerDecrement(
         failing_answers.allocator(),
         &s.inbound_answers,
-        &.{11},
+        &answer_positions,
     ));
 }
 

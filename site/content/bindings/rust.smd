@@ -16,7 +16,7 @@ presents a typed API in
 Each transport is its own feature-gated module (`tcp` and `inproc` on by
 default, `iroh` opt-in) so a build links exactly the archives its features turn
 on. The TCP `Netlayer`/`Listener`/`Endpoint` live under `pancake::tcp`. You work
-with a `Connection` and Rust enums for `Reference` and `Argument`, so the
+with a `Session` and Rust enums for `Reference` and `Argument`, so the
 wire's values arrive as ordinary Rust you can match on.
 
 ## The same round-trip
@@ -33,7 +33,7 @@ handle the reply) reads like this in Rust. The snippet uses the crate's opt-in
 > // tcp: the peer is a place, a cleartext host and port.
 > let partner = tcp_locator("127.0.0.1", 9099);
 >
-> let conn = connect(&partner, None).await?;
+> let conn = connect(&partner, None, None).await?;
 > let greeter = conn.fetch("greeter").await?; // a capability, by name
 > match conn.send(&greeter, "greet", &[Argument::String("world".into())]).await {
 >     Ok(Argument::String(reply)) => println!("{reply}"),
@@ -51,7 +51,7 @@ handle the reply) reads like this in Rust. The snippet uses the crate's opt-in
 > // the bare node id over the open internet; no address in hand.
 > let partner = "ocapn://3b6a…da29.iroh";
 >
-> let conn = connect(partner, Some(Reachability::Discovery)).await?;
+> let conn = connect(partner, Some(Reachability::Discovery), None).await?;
 > let greeter = conn.fetch("greeter").await?; // a capability, by name
 > match conn.send(&greeter, "greet", &[Argument::String("world".into())]).await {
 >     Ok(Argument::String(reply)) => println!("{reply}"),
@@ -70,7 +70,7 @@ not browse for peers.
 ## Async
 
 The async surface is [tokio](https://tokio.rs/), behind an opt-in `async`
-feature. A `Connection` pumps the byte-fed host over a
+feature. A `Session` pumps the byte-fed host over a
 `tokio::net::TcpStream`: it reads raw bytes, hands them to the library's own
 frame delimiter, and honors the host's action queue (flushes, dials, vow
 settlements). The handles are `!Send`: you create and use them on one task

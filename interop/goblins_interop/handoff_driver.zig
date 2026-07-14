@@ -1,19 +1,15 @@
 //! Live three-party handoff, with pancake as the recipient (Carol), driven
-//! through the native `driver.BlockingHost` tier (ADR-0068, ADR-0072).
+//! through `driver.core.Host` + `driver.Bridge` + `net.TcpLoop` (ADR-0068,
+//! ADR-0076).
 //!
-//! pancake dials a Goblins introducer (Alice) through one `Host`, enlivens the
+//! pancake dials a Goblins introducer (Alice) through one Host, enlivens the
 //! introducer, and calls `get-greeter`. A three-party introduction hands the
 //! greeter over as a `desc:handoff-give` naming the exporter (Bob), and the
-//! host redeems it inside the blocking call: it claims the give, dials Bob
-//! under the host's own identity, presents the signed `desc:handoff-receive`,
-//! and withdraws the gift — so the call settles directly with the greeter as
-//! an ordinary routable reference. Calling that reference routes through the
+//! host redeems it inside the settle: it claims the give, dials Bob under the
+//! host's own identity, presents the signed `desc:handoff-receive`, and
+//! withdraws the gift — so the call settles directly with the greeter as an
+//! ordinary routable reference. Calling that reference routes through the
 //! host to Bob's connection, and the greeter replies directly.
-//!
-//! The host owns every handoff decision: the retained recipient identity, the
-//! exporter connection, the pending withdraw, and the signed receive. This
-//! driver holds one `Host` and calls its verbs, which makes the live Goblins
-//! conversation the native tier's oracle.
 //!
 //! Needs `racket` + the `goblins` collection on PATH; runs as the sibling step
 //! `zig build goblins-handoff`, not in the hermetic gate.
@@ -23,23 +19,152 @@ const pancake = @import("pancake");
 const goblins_child = @import("goblins_child.zig");
 
 const model = pancake.ocapn.model;
+const engine = pancake.ocapn.engine;
+const actors = pancake.actors;
 const crypto = pancake.foundation.crypto;
+const driver = pancake.driver;
+const net = pancake.net;
 const tcp = pancake.net.tcp;
 
-const host = "127.0.0.1";
-/// Alice's and Bob's listening ports. `--port=N` (from
-/// `zig build goblins-handoff -Dport=N`) moves the pair to N and N+1 when the
-/// defaults are taken.
+const Host = driver.core.Host;
+const HostSession = driver.core.HostSession;
+const TcpBridge = driver.Bridge(net.TcpLoop);
+
+const host_addr = "127.0.0.1";
 const default_alice_port: u16 = 22110;
 const frame_cap: usize = 1 << 16;
 const host_script = "conformance/goblins-peer/racket/handoff-introducer-host.rkt";
+const deadline_ms: u64 = 60_000;
+
+fn deadlineAfter(io: std.Io) std.Io.Clock.Timestamp {
+    return std.Io.Clock.Timestamp.fromNow(io, .{
+        .raw = std.Io.Duration.fromMilliseconds(deadline_ms),
+        .clock = .real,
+    });
+}
+
+fn expired(io: std.Io, deadline: std.Io.Clock.Timestamp) bool {
+    return std.Io.Clock.Timestamp.now(io, .real).compare(.gte, deadline);
+}
+
+fn waitFlag(io: std.Io, flag: *const std.atomic.Value(bool)) !void {
+    const deadline = deadlineAfter(io);
+    while (!flag.load(.acquire)) {
+        if (expired(io, deadline)) return error.WaitTimedOut;
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
+    }
+}
+
+fn runLoop(loop: *net.TcpLoop, done: *const std.atomic.Value(bool), out_err: *?anyerror) void {
+    loop.runUntil(done) catch |err| {
+        out_err.* = err;
+        return;
+    };
+    loop.closeAndDrain() catch |err| {
+        out_err.* = err;
+    };
+}
+
+const RecipientState = struct {
+    host: *Host,
+    bridge: *TcpBridge,
+    alice_conn: ?*HostSession = null,
+    swiss: []const u8,
+    greeter_done: *std.atomic.Value(bool),
+    ok: *std.atomic.Value(bool),
+
+    fn onEnlivened(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        const self: *RecipientState = @ptrCast(@alignCast(ctx.?));
+        const conn = self.alice_conn orelse return;
+        switch (resolution) {
+            .fulfilled => |value| {
+                if (value != .reference) return;
+                std.debug.print("goblins-handoff: enlivened alice's introducer\n", .{});
+                const vow = self.host.send(conn, value.reference, .{ .verb = "get-greeter", .args = &.{} }) catch |err| {
+                    std.debug.print("goblins-handoff: get-greeter send: {s}\n", .{@errorName(err)});
+                    return;
+                };
+                self.host.vowOn(vow, .{ .ctx = self, .func = onGreeter }) catch |err| {
+                    std.debug.print("goblins-handoff: get-greeter vowOn: {s}\n", .{@errorName(err)});
+                    return;
+                };
+                self.bridge.drainActions() catch {};
+            },
+            .broken => |reason| std.debug.print("goblins-handoff: enliven broke: {s}\n", .{reason}),
+            .give => {},
+        }
+    }
+
+    fn onGreeter(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        const self: *RecipientState = @ptrCast(@alignCast(ctx.?));
+        const conn = self.alice_conn orelse return;
+        switch (resolution) {
+            .fulfilled => |value| {
+                const greeter = switch (value) {
+                    .reference => |r| r,
+                    else => {
+                        std.debug.print("goblins-handoff: expected a greeter reference\n", .{});
+                        self.greeter_done.store(true, .release);
+                        return;
+                    },
+                };
+                std.debug.print("goblins-handoff: redeemed greeter; calling it directly\n", .{});
+                const vow = self.host.send(conn, greeter, .{ .verb = "", .args = &.{.{ .string = "pancake-carol" }} }) catch |err| {
+                    std.debug.print("goblins-handoff: greet send: {s}\n", .{@errorName(err)});
+                    self.greeter_done.store(true, .release);
+                    return;
+                };
+                self.host.vowOn(vow, .{ .ctx = self, .func = onGreeted }) catch |err| {
+                    std.debug.print("goblins-handoff: greet vowOn: {s}\n", .{@errorName(err)});
+                    self.greeter_done.store(true, .release);
+                    return;
+                };
+                self.bridge.drainActions() catch {};
+            },
+            .broken => |reason| {
+                std.debug.print("goblins-handoff: get-greeter broke: {s}\n", .{reason});
+                self.greeter_done.store(true, .release);
+            },
+            .give => {},
+        }
+    }
+
+    fn onGreeted(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        const self: *RecipientState = @ptrCast(@alignCast(ctx.?));
+        switch (resolution) {
+            .fulfilled => |value| {
+                if (value == .string) {
+                    std.debug.print("goblins-handoff: greeter replied: {s}\n", .{value.string});
+                    self.ok.store(true, .release);
+                }
+                self.greeter_done.store(true, .release);
+            },
+            .broken => |reason| {
+                std.debug.print("goblins-handoff: greet broke: {s}\n", .{reason});
+                self.greeter_done.store(true, .release);
+            },
+            .give => self.greeter_done.store(true, .release),
+        }
+    }
+};
+
+fn recipientOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
+    const state: *RecipientState = @ptrCast(@alignCast(ctx.?));
+    if (conn.leg != .app_dial or conn.session.role != .dialed) return;
+    if (state.alice_conn != null) return;
+    state.alice_conn = conn.session;
+    std.debug.print("goblins-handoff: session open (pancake as recipient -> alice)\n", .{});
+    const vow = try state.host.enliven(conn.session, state.swiss);
+    try state.host.vowOn(vow, .{ .ctx = state, .func = RecipientState.onEnlivened });
+    try bridge.drainActions();
+}
 
 pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const allocator = init.gpa;
 
     var args = std.process.Args.Iterator.init(init.minimal.args);
-    _ = args.next(); // program name
+    _ = args.next();
     var alice_port: u16 = default_alice_port;
     while (args.next()) |arg| {
         if (std.mem.startsWith(u8, arg, "--port=")) {
@@ -73,9 +198,9 @@ pub fn main(init: std.process.Init) !void {
         return err;
     };
     defer allocator.free(swiss);
-    std.debug.print("goblins-handoff: alice published introducer swiss={s} on {s}:{s}\n", .{ swiss, host, alice_port_str });
+    std.debug.print("goblins-handoff: alice published introducer swiss={s} on {s}:{s}\n", .{ swiss, host_addr, alice_port_str });
 
-    recipientStep1(io, allocator, swiss, alice_port_str) catch |err| {
+    recipientStep(io, allocator, swiss, alice_port_str) catch |err| {
         goblins_child.dumpChildStderr(io, "goblins-handoff", &child);
         return err;
     };
@@ -84,76 +209,55 @@ pub fn main(init: std.process.Init) !void {
     reaped = true;
 }
 
-/// Dial Alice, enliven the introducer, and call `get-greeter` through the
-/// typed surface: the host claims the give the introduction resolves with,
-/// dials Bob, withdraws under the host identity — all inside the call — and
-/// the routed call reaches the greeter directly. The serve step owns every
-/// decision; the driver holds one `Host` and its verbs, which makes the live
-/// Goblins conversation the native surface's oracle.
-fn recipientStep1(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, alice_port_str: []const u8) !void {
+fn recipientStep(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, alice_port_str: []const u8) !void {
     var seed: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
-    var tcp_resident = tcp.Resident{ .io = io };
-    var h = pancake.driver.BlockingHost.initSeeded(allocator, io, &.{tcp_resident.netlayer()}, seed, .{ .frame_cap = frame_cap });
-    defer h.deinit();
 
-    var designator_buf: [64]u8 = undefined;
-    const alice_designator = try std.fmt.bufPrint(&designator_buf, "{s}:{s}", .{ host, alice_port_str });
-    const alice = try h.dial(.{
-        .transport = tcp.transport_name,
-        .designator = alice_designator,
-        .hints = model.Hints.emptyFalse(),
+    var host = Host.init(allocator, seed, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    defer host.deinit();
+
+    var greeter_done = std.atomic.Value(bool).init(false);
+    var ok = std.atomic.Value(bool).init(false);
+    var state: RecipientState = undefined;
+    var loop: net.TcpLoop = undefined;
+    var bridge = TcpBridge.init(allocator, &host, io, &loop, .{
+        .on_open = recipientOnOpen,
+        .on_open_ctx = &state,
     });
-    defer alice.deinit();
-    std.debug.print("goblins-handoff: session open (pancake as recipient -> alice)\n", .{});
-
-    // Enliven the introducer by its swiss-num (ADR-0012), blocking on the
-    // host verb.
-    const introducer = try alice.enliven(swiss);
-    std.debug.print("goblins-handoff: enlivened alice's introducer\n", .{});
-
-    // Call (introducer 'get-greeter): the introduction arrives as a signed
-    // give naming Bob; the host claims it, dials Bob, and withdraws inside
-    // this wait, so the call settles with the greeter itself.
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const settled = try alice.call(introducer, .{ .verb = "get-greeter", .args = &.{} }, arena.allocator());
-    const greeter = switch (settled) {
-        .fulfilled => |arg| switch (arg) {
-            .reference => |reference| reference,
-            else => {
-                std.debug.print("goblins-handoff: get-greeter resolved to a {s} (expected a capability)\n", .{@tagName(arg)});
-                return error.NoHandoffGive;
-            },
-        },
-        .broken => |reason| {
-            std.debug.print("goblins-handoff: get-greeter BROKE: {s}\n", .{reason});
-            return error.NoHandoffGive;
-        },
-        .give => return error.GiveShouldHaveBeenRedeemed,
+    defer bridge.deinit();
+    state = .{
+        .host = &host,
+        .bridge = &bridge,
+        .swiss = swiss,
+        .greeter_done = &greeter_done,
+        .ok = &ok,
     };
-    std.debug.print("goblins-handoff: withdraw succeeded, got the greeter ref directly from the exporter\n", .{});
 
-    // Call the greeter (a Goblins lambda: no verb, one argument). The token
-    // routes through the node to Bob's connection.
-    const reply = try alice.call(greeter, .{ .verb = "", .args = &.{.{ .string = "pancake-carol" }} }, arena.allocator());
-    switch (reply) {
-        .fulfilled => |arg| {
-            const text: []const u8 = switch (arg) {
-                .string, .bytes => |t| t,
-                else => return error.GreeterWrongPayload,
-            };
-            // The greeter builds its reply around the caller's name: assert the
-            // name round-tripped, so the handoff proves data integrity, not
-            // just choreography.
-            if (std.mem.indexOf(u8, text, "pancake-carol") == null) return error.GreeterWrongPayload;
-            std.debug.print("goblins-handoff: greeter replied: {s}\n", .{text});
-        },
-        .broken => |reason| {
-            std.debug.print("goblins-handoff: greeter call broke: {s}\n", .{reason});
-            return error.GreeterBroke;
-        },
-        .give => return error.GreeterWrongPayload,
-    }
-    std.debug.print("goblins-handoff: OK, full three-party handoff: pancake withdrew a gift from Goblins and called it directly\n", .{});
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
+        .frame_cap = frame_cap,
+        .max_conns = 8,
+        .listen = 0,
+        .make_conn_ctx = TcpBridge.makeConnCtx,
+        .serve = TcpBridge.serve,
+        .free_conn_ctx = TcpBridge.freeConnCtx,
+        .on_close = TcpBridge.onClose,
+    });
+    defer loop.deinit();
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const bound_addr = try tcp.parseHostPort("127.0.0.1", loop.port.?);
+    const bound = tcp.locator(&designator_buf, bound_addr).designator;
+    try bridge.attach(tcp.transport_name, bound, &.{});
+
+    const alice_port = try std.fmt.parseInt(u16, alice_port_str, 10);
+    var alice_designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const alice_addr = try tcp.parseHostPort(host_addr, alice_port);
+    const alice_designator = tcp.locator(&alice_designator_buf, alice_addr).designator;
+    try bridge.dialOutbound(tcp.transport_name, alice_designator, "");
+
+    var loop_err: ?anyerror = null;
+    var loop_future = try io.concurrent(runLoop, .{ &loop, &greeter_done, &loop_err });
+    try waitFlag(io, &greeter_done);
+    loop_future.await(io);
+    if (loop_err) |err| return err;
+    if (!ok.load(.acquire)) return error.HandoffFailed;
 }

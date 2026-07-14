@@ -10,15 +10,16 @@ ZLS_VERSION="0.16.0"
 RUST_VERSION="1.96.1"
 
 # --- JavaScript / TypeScript dogfood ---
-DENO_VERSION="2.9.1"
-NODE_VERSION="26.4.0"
+DENO_VERSION="2.9.2"
+NODE_VERSION="26.5.0"
 BUN_VERSION="1.3.14"
 
 # --- Python (uv) / agent tools ---
-UV_VERSION="0.11.26"
+UV_VERSION="0.11.28"
 SERENA_AGENT_VERSION="1.5.3"
 SERENA_PYTHON="3.13"
 CLAUDE_CODE_VERSION="2.1.198"
+OPENCODE_VERSION="1.17.20"
 
 # --- Racket / Spritely Goblins ---
 RACKET_VERSION="9.2"
@@ -41,3 +42,4 @@ BUN_INSTALL_CACHE_DIR="${BUN_CACHE_DIR}/install"
 PLTUSERHOME="/opt/pancake-racket-userhome"
 UV_TOOL_DIR="/usr/local/uv/tools"
 UV_PYTHON_INSTALL_DIR="/usr/local/uv/python"
+OPENCODE_HOME="/opt/opencode"

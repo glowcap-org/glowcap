@@ -26,13 +26,19 @@ const linux = std.os.linux;
 const IoUring = linux.IoUring;
 
 const completion = @import("loop.zig");
+const socket_tcp = @import("socket_tcp.zig");
 
 comptime {
     if (builtin.os.tag != .linux) @compileError("the io_uring completion backend is Linux-only");
 }
 
+const tcp_os = socket_tcp.Os.linux;
+
 pub const Backend = struct {
     pub const Fd = linux.fd_t;
+    /// Platform dial target: a resolved `IpAddress`. OCapN locator resolve
+    /// lives on `tcp.DialResolver`, not on this platform Backend.
+    pub const ConnectTarget = std.Io.net.IpAddress;
 
     /// The one buffer group registered on the ring; group ids only need to be
     /// unique per ring.
@@ -108,17 +114,20 @@ pub const Backend = struct {
         sqe.user_data = user_data;
     }
 
-    pub fn submitConnect(self: *Backend, user_data: u64, fd: Fd, address: std.Io.net.IpAddress) !void {
-        const ip4 = switch (address) {
-            .ip4 => |ip4| ip4,
-            .ip6 => return error.AddressFamilyUnsupported,
-        };
-        var addr: linux.sockaddr.in = .{
-            .port = std.mem.nativeToBig(u16, ip4.port),
-            .addr = std.mem.nativeToBig(u32, std.mem.readInt(u32, &ip4.bytes, .big)),
-        };
+    /// Start an outbound TCP connect: open a socket, submit connect, return the
+    /// fd. On submit failure the socket is closed here — the Loop never sees it.
+    pub fn startDial(self: *Backend, user_data: u64, target: ConnectTarget) !Fd {
+        const fd = try openSocket();
+        errdefer self.closeFd(fd);
+        try self.submitConnect(user_data, fd, target);
+        return fd;
+    }
+
+    fn submitConnect(self: *Backend, user_data: u64, fd: Fd, target: ConnectTarget) !void {
+        const ip4 = try socket_tcp.ip4FromTarget(target);
+        var addr = socket_tcp.sockaddrIn4(tcp_os, ip4);
         const sqe = try self.getSqe();
-        sqe.prep_connect(fd, @ptrCast(&addr), @sizeOf(linux.sockaddr.in));
+        sqe.prep_connect(fd, @ptrCast(&addr), @sizeOf(@TypeOf(addr)));
         sqe.user_data = user_data;
         // io_uring stores the sockaddr pointer in the SQE. Submit immediately so
         // the kernel copies it before this stack frame goes away.
@@ -201,32 +210,13 @@ pub const Backend = struct {
 
     const enobufs_res: i32 = -@as(i32, @intFromEnum(linux.E.NOBUFS));
 
-    pub fn openListener(port: u16) !Fd {
-        const fd_rc = linux.socket(linux.AF.INET, linux.SOCK.STREAM, 0);
-        try check(fd_rc);
-        const fd: Fd = @intCast(fd_rc);
-        errdefer _ = linux.close(fd);
-
-        // Allow rebinding a port still in TIME_WAIT, matching the blocking
-        // `tcp.Listener` (which passes `reuse_address = true`). A loop restarted
-        // on a pinned port (`-Dport=N`) would otherwise fail to bind for the
-        // TIME_WAIT window where the blocking listener succeeds.
-        const enable: u32 = 1;
-        try check(linux.setsockopt(fd, linux.SOL.SOCKET, linux.SO.REUSEADDR, std.mem.asBytes(&enable), @sizeOf(u32)));
-
-        var addr: linux.sockaddr.in = .{
-            .port = std.mem.nativeToBig(u16, port),
-            .addr = std.mem.nativeToBig(u32, 0x7f00_0001), // 127.0.0.1
-        };
-        try check(linux.bind(fd, @ptrCast(&addr), @sizeOf(linux.sockaddr.in)));
-        try check(linux.listen(fd, completion.listen_backlog));
-        return fd;
+    pub fn openListener(self: *Backend, port: u16) !Fd {
+        _ = self;
+        return socket_tcp.openListener(tcp_os, port);
     }
 
     pub fn openSocket() !Fd {
-        const fd_rc = linux.socket(linux.AF.INET, linux.SOCK.STREAM, 0);
-        try check(fd_rc);
-        return @intCast(fd_rc);
+        return socket_tcp.openSocket(tcp_os);
     }
 
     pub fn boundPort(fd: Fd) !u16 {
@@ -236,8 +226,15 @@ pub const Backend = struct {
         return std.mem.bigToNative(u16, addr.port);
     }
 
-    pub fn closeFd(fd: Fd) void {
+    pub fn closeFd(self: *Backend, fd: Fd) void {
+        _ = self;
         _ = linux.close(fd);
+    }
+
+    /// Unblock an armed recv so `Loop.closeAndDrain` does not wait on a quiet peer.
+    pub fn shutdownFd(self: *Backend, fd: Fd) void {
+        _ = self;
+        _ = linux.shutdown(fd, linux.SHUT.RDWR);
     }
 };
 

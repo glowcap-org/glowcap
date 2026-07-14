@@ -1,3 +1,4 @@
+import { MAX_NICK, MAX_ROOM } from "../lib/wire.ts";
 import {
 	app,
 	composer,
@@ -29,6 +30,7 @@ import {
 	renderDmStatus,
 	renderPresence,
 	renderRooms,
+	renderTyping,
 	setBanner,
 	setComposerEnabled,
 	setJoinError,
@@ -66,6 +68,8 @@ export function pickRoom(name: string) {
 		} else switchRoom(name);
 	} else {
 		roomInput.value = name;
+		setJoinError("");
+		app.classList.remove("show-list");
 		nickInput.focus();
 	}
 }
@@ -75,9 +79,17 @@ export function switchRoom(name: string) {
 	send({ join: { room: name, nick: state.nick } });
 }
 export function join() {
-	state.nick = (nickInput.value || "guest").trim().slice(0, 32);
-	const room = (roomInput.value || "general").trim().slice(0, 32);
+	state.nick = (nickInput.value || "guest").trim();
+	const room = (roomInput.value || "general").trim();
 	if (!state.nick || !room) return;
+	if (state.nick.length > MAX_NICK) {
+		setJoinError(`name too long (max ${MAX_NICK} characters)`);
+		return;
+	}
+	if (room.length > MAX_ROOM) {
+		setJoinError(`room name too long (max ${MAX_ROOM} characters)`);
+		return;
+	}
 	joinBtn.disabled = true;
 	joinBtn.textContent = "Joining…";
 	setJoinError("");
@@ -89,10 +101,15 @@ export function rejectJoin(text: string) {
 	composer.hidden = true;
 	membersToggle.hidden = true;
 	joinScreen.style.display = "";
-	joinBtn.disabled = false;
-	joinBtn.textContent = "Join room";
+	resetJoinButton();
 	setJoinError(text);
 	setStatus("disconnected", "pick another name");
+}
+
+/** Put the join form back in a usable state after a refused enter/open. */
+function resetJoinButton() {
+	joinBtn.disabled = false;
+	joinBtn.textContent = "Join room";
 }
 // The server confirmed us in a room. Show it, creating its conversation
 // on first entry.
@@ -240,6 +257,29 @@ export function updateDmable(list: string[]) {
 	else if (conv) renderDmStatus(conv);
 }
 
+// Another member's typing flag in the joined room. Track it per-room with an
+// auto-clear timer, so a dropped "off" — a member who vanished mid-keystroke —
+// still lets the indicator fade instead of sticking. Our own flag never arrives
+// (the room excludes the typer), but guard against it anyway.
+function setRoomTyping(from: string, on: boolean) {
+	if (!state.joinedRoom || from === state.nick) return;
+	const conv = ensureRoom(state.joinedRoom);
+	const existing = conv.typers.get(from);
+	if (existing) clearTimeout(existing);
+	if (on) {
+		conv.typers.set(
+			from,
+			setTimeout(() => {
+				conv.typers.delete(from);
+				renderTyping(conv);
+			}, 6000),
+		);
+	} else {
+		conv.typers.delete(from);
+	}
+	renderTyping(conv);
+}
+
 // ── Connection ────────────────────────────────────────────────────────────
 export function connect() {
 	setStatus("connecting", everConnected ? "reconnecting…" : "connecting…");
@@ -298,15 +338,30 @@ export function connect() {
 			return;
 		}
 		if ("dmFrom" in m) {
-			dmFrom(m.dmFrom.peer.slice(0, 32), m.dmFrom.text);
+			dmFrom(m.dmFrom.peer, m.dmFrom.text);
 			return;
 		}
 		if ("dmFailed" in m) {
 			dmFailed(m.dmFailed.peer, m.dmFailed.offline, m.dmFailed.text);
 			return;
 		}
+		if ("typing" in m) {
+			setRoomTyping(m.typing.from, m.typing.on);
+			return;
+		}
 		if ("notice" in m) {
-			toActive(sysItem(m.notice));
+			// A join/enter refusal arrives as a notice. Before we have a room,
+			// there is no active conversation to paint into — surface it on the
+			// join form and unlock the button so the attempt is not stranded.
+			if (!state.joinedRoom) {
+				resetJoinButton();
+				setJoinError(m.notice);
+				setStatus("disconnected", "could not join");
+				return;
+			}
+			const conv = activeConv();
+			if (conv) toActive(sysItem(m.notice));
+			else setBanner(m.notice);
 			return;
 		}
 		// A room line: route it to the joined room's conversation.
@@ -339,3 +394,11 @@ export function connect() {
 		} catch { /* already closing */ }
 	};
 }
+
+// Prove this tab is alive to the bridge on a steady beat. A tab that vanishes —
+// a crash, a killed process, a dropped network — never sends a WebSocket close,
+// so the bridge cannot tell it apart from an idle one by the socket alone. These
+// pings are that signal: when they stop, the bridge drops our room membership
+// instead of leaving a ghost member shown online to everyone. Harmless while
+// disconnected — `send` is a no-op unless the socket is open.
+setInterval(() => send({ ping: true }), 15000);

@@ -3,7 +3,7 @@ id: ADR-0057
 status: accepted
 date: 2026-06-12
 tags: [net, netlayer, iroh, transport, driver, completion-loop, performance]
-decision: "iroh stays a sidecar (ADR-0055), and reaching pancake-scale concurrency over it is the netlayer's one I/O model: one tokio runtime per endpoint exposes a single readiness fd plus non-blocking try-read/try-write, and the host waits on that one fd and drains a ready-queue — so N iroh connections multiplex through one loop thread instead of N blocking threads. Shipped: the sidecar exposes the readiness fd + drain, the resident's `iroh.LoopHost` is the loop consumer, the public iroh netlayer C ABI (`pancake_iroh_netlayer_*`) is loop-only — `readiness_fd` + `drain_ready`, armed at construction, with no blocking frame surface — and `zig build iroh-loop` proves many concurrent connections served from one thread. Every binding parks on the readiness fd natively in its own idiom (Python, Rust, and Racket gated by `bindings-iroh-loop`; Deno parks the same way without a member step)."
+decision: "iroh stays a sidecar (ADR-0055), and reaching pancake-scale concurrency over it is the netlayer's one I/O model: one tokio runtime per endpoint exposes a single readiness fd plus non-blocking try-read/try-write, adapted by `iroh.Backend` to `completion.Loop` so CapTP fan-out rides `driver.Bridge` + Host (ADR-0076) — N iroh connections multiplex through one loop thread instead of N blocking threads. Shipped: the sidecar exposes the readiness fd + drain, `iroh.Backend` is the completion consumer, the public iroh netlayer C ABI (`pancake_iroh_netlayer_*`) is loop-only — `readiness_fd` + `drain_ready`, armed at construction, with no blocking frame surface — and `zig build iroh-loop` proves many concurrent connections served from one thread through Bridge + Host. Every binding parks on the readiness fd natively in its own idiom (Python, Rust, and Racket gated by `bindings-iroh-loop`; Deno parks the same way without a member step)."
 supersedes: []
 superseded_by: []
 ---
@@ -71,23 +71,23 @@ is constructed. The sidecar exposes a readiness-based surface:
 
 Net effect: **N iroh connections multiplex through one loop thread plus the
 sidecar's fixed runtime threads**, not N×2 blocking threads. The Netlayer
-(ADR-0043) and `ConnectedVat` (ADR-0053) contracts above are untouched; this is
+(ADR-0043) and `BlockingSession` (ADR-0053) contracts above are untouched; this is
 a new _source_ below them, the iroh sibling of the kernel-fd completion source.
-It lives as `iroh.LoopHost` in the resident (`src/net/transport/iroh.zig`)
-rather than pure-Zig `src/driver/`, because the consumer links the Rust
-staticlib; the sidecar surface is in `transports/iroh/` (see Consequences for
-the placement rationale).
+I/O lives as `iroh.Backend` in the resident (`src/net/transport/iroh.zig`);
+CapTP fan-out rides pure-Zig `driver.Bridge` + Host (ADR-0076). The Backend
+stays in the resident module because it links the Rust staticlib; the sidecar
+surface is in `transports/iroh/` (see Consequences for the placement rationale).
 
 ## Scope (what this decides, and what it leaves)
 
 - **Implemented and gated.** The readiness surface ships in the sidecar
   (`pancake_iroh_sidecar_endpoint_readiness_fd` / `_drain_ready` /
   `_set_nonblocking_accept` / `_try_accept`, and `_conn_set_nonblocking` /
-  `_try_read` / `_try_write`), the resident carries `iroh.LoopHost`, the public
-  iroh netlayer C ABI is loop-only (`pancake_iroh_netlayer_readiness_fd` +
-  `_drain_ready`, armed at `netlayer_new`), and `zig build iroh-loop` serves
-  many concurrent connections from one loop thread. The public netlayer surface
-  carries no blocking frame ABI.
+  `_try_read` / `_try_write`), the resident carries `iroh.Backend` under
+  `completion.Loop` + `driver.Bridge` + Host, the public iroh netlayer C ABI is
+  loop-only (`pancake_iroh_netlayer_readiness_fd` + `_drain_ready`, armed at
+  `netlayer_new`), and `zig build iroh-loop` serves many concurrent connections
+  from one loop thread. The public netlayer surface carries no blocking frame ABI.
 - **The wakeup primitive is a self-pipe** (`socketpair`, both ends
   non-blocking): portable across Linux and the BSD/macOS targets the project
   cross-compiles for, no `cfg` fork, and registered with the loop's `poll` like
@@ -132,13 +132,13 @@ the placement rationale).
 - New surfaces, shipped: an event-driven superset of the
   `pancake_iroh_sidecar_*` seam (held to one shape by the `tools/meta_check.zig`
   parity check, like the rest of the seam) and a non-blocking variant of the
-  resident's stream wrappers driven by `iroh.LoopHost`.
+  resident's stream wrappers driven by `iroh.Backend` + Bridge.
 - **The loop consumer lives in the resident (`src/net/transport/iroh.zig`), not
-  pure-Zig `src/driver/`.** `LoopHost` registers the sidecar readiness fd,
+  pure-Zig `src/driver/`.** `iroh.Backend` registers the sidecar readiness fd,
   drains the ready-queue, and drives non-blocking frame I/O on each connection's
   `engine.Peer`, so it must link the Rust staticlib and cannot sit in
   `src/driver/`. It is the iroh sibling of the kernel-fd loop in spirit; the
-  Netlayer (ADR-0043) and `ConnectedVat` (ADR-0053) contracts above are
+  Netlayer (ADR-0043) and `BlockingSession` (ADR-0053) contracts above are
   untouched.
 - **Measured, not projected.** `bench-peer-scaling`'s `served` scenario weighs
   the loop-driven per-connection state (a warmed `engine.Peer` plus the
@@ -191,3 +191,9 @@ the endpoint into its own reactor instead of dedicating a thread to it.
 
 - Builds on ADR-0051 (completion-loop dialer), ADR-0053 (blocking pump / single
   fiber), and ADR-0055 (the iroh sidecar).
+
+## Amendment: Backend + Bridge
+
+The original resident-local `iroh.LoopHost` (a parallel CapTP serve loop) is
+deleted. Scale I/O is `iroh.Backend` under `completion.Loop`; CapTP is
+`driver.Bridge` + `driver_core.Host`, the same translator TCP uses.

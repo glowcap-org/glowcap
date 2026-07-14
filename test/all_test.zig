@@ -24,7 +24,6 @@ comptime {
     _ = @import("c_abi/frame_test.zig");
     _ = @import("c_abi/context_test.zig");
     _ = @import("c_abi/typed_test.zig");
-    _ = @import("c_abi/node_test.zig");
     _ = @import("c_abi/header_parity_test.zig");
     _ = @import("c_abi/uri_test.zig");
     _ = @import("c_abi/handshake_test.zig");
@@ -37,6 +36,7 @@ comptime {
     _ = @import("net/netlayer_test.zig");
     _ = @import("net/tcp_parse_test.zig");
     _ = @import("net/tcp_test.zig");
+    _ = @import("net/tcp_keepalive_test.zig");
     _ = @import("net/keyed_tcp_test.zig");
     if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
         _ = @import("net/completion_loop_test.zig");
@@ -45,8 +45,10 @@ comptime {
     if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
         _ = @import("net/completion_cross_arm_test.zig");
     if (@import("builtin").os.tag == .linux or @import("builtin").os.tag.isDarwin())
-        _ = @import("driver/loop_bridge_test.zig");
+        _ = @import("driver/bridge_test.zig");
     _ = @import("session/session_test.zig");
+    _ = @import("session/slot_test.zig");
+    _ = @import("session/answers_slot_test.zig");
     _ = @import("session/bootstrap_test.zig");
     _ = @import("engine/peer_test.zig");
     _ = @import("engine/alloc_budget_test.zig");
@@ -68,16 +70,16 @@ comptime {
     _ = @import("engine/cross_peer_test.zig");
     _ = @import("engine/pairing_test.zig");
     _ = @import("engine/node_test.zig");
-    _ = @import("driver/connected_vat_test.zig");
-    _ = @import("driver/blocking_host_smoke_test.zig");
-    _ = @import("driver/blocking_host_three_party_test.zig");
+    _ = @import("driver/blocking_session_test.zig");
     _ = @import("driver/core_host_test.zig");
+    _ = @import("driver/dial_plan_test.zig");
     _ = @import("driver/served_budget_test.zig");
-    _ = @import("driver/host_budget_test.zig");
-    _ = @import("driver/host_adopt_test.zig");
+    _ = @import("driver/core_host_budget_test.zig");
+    _ = @import("driver/core_host_adopt_test.zig");
     _ = @import("driver/crossed_hellos_test.zig");
     _ = @import("driver/gc_stateless_test.zig");
     _ = @import("driver/pluggability_test.zig");
     _ = @import("driver/inproc_netlayer_test.zig");
+    _ = @import("driver/session_target_test.zig");
     _ = @import("driver/keyed_tcp_restart_test.zig");
 }

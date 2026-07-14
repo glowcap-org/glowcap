@@ -18,7 +18,7 @@ contract this crate implements, and how the bindings are gated.
 | `tcp`    | [`tcp`](src/tcp.rs)                        | `libpancake_net_transport_tcp`            | yes     |
 | `inproc` | [`inproc`](src/inproc.rs)                  | `libpancake_net_transport_inproc`         | yes     |
 | `iroh`   | [`iroh`](src/iroh.rs)                      | `libpancake_net_transport_iroh` (dynamic) | no      |
-| `async`  | `Connection`, `Node`, `connect`/`listen`   | none: native tokio                        | no      |
+| `async`  | `Session`, `Host`, `connect`/`listen`   | none: native tokio                        | no      |
 
 `tcp` and `inproc` are on by default, so a plain `cargo build` (and
 `zig build rust-dogfood`) links the same set the dogfood always has. The core is
@@ -30,7 +30,7 @@ share its `Context` and type layout) but never on each other.
 
 `iroh` is opt-in and implies `async` (the tokio driver it rides); it needs the
 companion library built by `zig build iroh-abi`. The `async` feature adds the
-tokio-driven `Connection` over native sockets and links no transport archive of
+tokio-driven `Session` over native sockets and links no transport archive of
 its own, so it composes with whichever transport archives are enabled. The
 example clients enable it with `default-features = false`, paying for the core
 archives plus their tokio driver and no blocking transport archive at all.
@@ -56,24 +56,25 @@ plain Rust values: build them with `Into`
 spells out an enum variant.
 
 The `async` feature carries the application surface, the same verbs every
-binding speaks. `connect(uri, reachability)` is the one dialer;
-`listen`/`Server::accept` host; a `Connection` fetches, publishes, spawns,
+binding speaks. `connect(uri, reachability, host)` is the one dialer;
+`listen`/`Server::accept` host; a `Session` fetches, publishes, spawns,
 sends, and tells; `send` returns a `RemotePromise` that pipelines as the target
 of a later send and projects with `index`/`untag`; `caretaker`/`attenuate` wrap
-any `Ref` in a revocable or narrowed proxy; `Node::publish_giftable` publishes
-node-wide for three-party handoffs. The host archive owns routing, redemption,
+any `Ref` in a revocable or narrowed proxy; `Host::publish_giftable` publishes
+Host-wide for three-party handoffs. The host archive owns routing, redemption,
 and gift origination; the crate implements the embedder contract — it pumps
-raw bytes through `pancake_host_conn_feed_bytes`, honors the host's action
+raw bytes through `pancake_host_session_feed_bytes`, honors the host's action
 queue (dial, flush, gift-id entropy, vow settlements), and hosts every actor
 closure through one shared behavior trampoline whose panics settle the answer
 broken instead of unwinding across the C frame. Everything runs on one tokio
 current-thread `LocalSet`; the handles are `!Send` by construction.
 
-A `Node` is minted per connection by default and shared explicitly for the
-handoff shapes: `Connection::connect_with_node` and `listen_with_node` key
-several connections with one identity and gift registry. The wire codec is a
-node property — `Node::with_codec(Codec::Capnp)` mints a node whose every
-connection negotiates Cap'n Proto, so both ends of a shared-node dial always
+A `Host` is minted per session by default and shared explicitly for the
+handoff shapes: `connect(locator, reachability, Some(host))` and
+`listen_with_host` key several sessions with one identity and gift registry.
+The wire codec is a
+Host property — `Host::with_codec(Codec::Capnp)` mints a Host whose every
+session negotiates Cap'n Proto, so both ends of a shared-Host dial always
 agree and there is no per-call codec knob to conflict with it.
 
 The `tcp` and `inproc` modules are the blocking frame shuttles over their
@@ -83,14 +84,14 @@ its diagnostics through its own archive's thread-local last-error
 (`pancake_tcp_last_error`, `pancake_inproc_last_error`), never the ocapn
 family's `last_error`; the host tier likewise reads `pancake_host_last_error`.
 
-`connect(uri, reachability)` has one signature whether or not iroh is compiled
+`connect(uri, reachability, host)` has one signature whether or not iroh is compiled
 in: a `tcp` locator ignores the reachability (pass `None`), an `iroh` locator
 requires it, and without the feature an `iroh` locator fails with a rebuild
-hint. A call site never changes when iroh is turned on. The core surface
-([`src/connection.rs`](src/connection.rs)) carries that dialer and the
-`Reachability` posture; the optional `iroh` feature links
+hint. A call site never changes when iroh is turned on. The dialer and
+`Reachability` posture live in [`src/dial.rs`](src/dial.rs); [`src/session.rs`](src/session.rs)
+owns `Session` verbs and mint/handshake. The optional `iroh` feature links
 `libpancake_net_transport_iroh` and adds the iroh-touching surface
-(`connect_iroh`, `listen_iroh`, `IrohServer`) in [`src/iroh.rs`](src/iroh.rs),
+(`listen_iroh`, `IrohServer`; dial via `connect(locator, …)`) in [`src/iroh.rs`](src/iroh.rs),
 which establishes connections through the same byte-fed pump, so a tcp-only
 build references no iroh symbol. The iroh module routes its diagnostics through
 `pancake_iroh_last_error`.

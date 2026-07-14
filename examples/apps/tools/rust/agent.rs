@@ -16,7 +16,7 @@ fn cap(arg: &Argument) -> Result<Ref, String> {
 }
 
 async fn run(locator: &str, nick: &str) -> Result<(), String> {
-	let conn = connect(locator, None)
+	let conn = connect(locator, None, None)
 		.await
 		.map_err(|e| format!("connect: {e:?}"))?;
 	let tools = conn

@@ -8,7 +8,7 @@
 //! with an empty hint set, so a session that opens proves the dial was resolved
 //! over real discovery infrastructure and carried over a real relay / hole-
 //! punched path — not hinted, not loopback-booked. The client's dial rides the
-//! `connect_iroh` `Discovery` retry that settles while the publish propagates.
+//! `connect(locator)` `Discovery` retry that settles while the publish propagates.
 //!
 //! Not a hermetic gate. This step touches public n0 infrastructure
 //! (`*.relay.iroh.network`, `dns.iroh.link`), and discovery-propagation timing
@@ -21,7 +21,9 @@
 
 use std::rc::Rc;
 
-use pancake_rust_dogfood::{Argument, Connection, Reachability};
+use pancake_rust_dogfood::{
+	connect, format_peer_uri, listen_iroh, Argument, Reachability, Session, TRANSPORT_IROH,
+};
 
 #[path = "../../../interop/_common/rust/helpers.rs"]
 mod helpers;
@@ -33,16 +35,16 @@ const NAME: &str = "rust-iroh-world";
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Fail> {
 	helpers::ignore_port_args()?;
-	// The `Connection`/`IrohServer` drivers are `!Send`, so they live on a LocalSet.
+	// The `Session`/`IrohServer` drivers are `!Send`, so they live on a LocalSet.
 	let local = tokio::task::LocalSet::new();
 	local.run_until(run()).await
 }
 
 async fn run() -> Result<(), Fail> {
 	// ── Server: a giftable greeter, dialable by node id alone over discovery ──────
-	let server = Rc::new(pancake_rust_dogfood::listen_iroh(Reachability::Discovery)?);
+	let server = Rc::new(listen_iroh(Reachability::Discovery)?);
 	server
-		.node()
+		.host()
 		.publish_giftable("greeter", || Box::new(greeter));
 	let server_id = server.node_id().to_string();
 	accept_loop(Rc::clone(&server));
@@ -52,7 +54,8 @@ async fn run() -> Result<(), Fail> {
 	);
 
 	// ── Client: dial by node id ALONE — empty hints — over real n0 discovery ──────
-	let client = Connection::connect_iroh(&server_id, "", Reachability::Discovery).await?;
+	let locator = format_peer_uri(TRANSPORT_IROH, &server_id, &Default::default())?;
+	let client = connect(&locator, Some(Reachability::Discovery), None).await?;
 	println!("rust-iroh-reachability: client dialed by node id alone and opened the keyed session");
 
 	let greeter_ref = client.fetch("greeter").await?;
@@ -85,7 +88,7 @@ async fn run() -> Result<(), Fail> {
 // cancelled with the enclosing `LocalSet` rather than awaited.
 fn accept_loop(server: Rc<pancake_rust_dogfood::IrohServer>) {
 	tokio::task::spawn_local(async move {
-		let mut held: Vec<Connection> = Vec::new();
+		let mut held: Vec<Session> = Vec::new();
 		while let Ok(conn) = server.accept().await {
 			held.push(conn);
 		}

@@ -1,6 +1,7 @@
 import { composer, dmListEl, emojiBtn, emojiPop, lineInput, roomListEl } from "./dom.ts";
 import { activeConv, chatItem, state, sysItem } from "./state.ts";
 import { PICKER } from "./richtext.ts";
+import { MAX_LINE } from "../lib/wire.ts";
 import { send, ws } from "./net.ts";
 import { deliver, toActive } from "./render.ts";
 
@@ -9,6 +10,35 @@ export function autoGrow() {
 	lineInput.style.height = "auto";
 	lineInput.style.height = Math.min(lineInput.scrollHeight, 140) + "px";
 }
+
+// ── Typing signal ───────────────────────────────────────────────────────────
+// Tell the room we are typing while the composer holds text, and stop when we
+// send, go idle, or blur. Room-only and ephemeral: a direct message is peer-to-
+// peer with no typing channel. The flag is level, not edge — we send `true` once
+// and refresh an idle timer on each keystroke, and always send a final `false` so
+// a stuck indicator can never linger on the other members' screens.
+let typingOn = false;
+let typingIdle = 0;
+export function stopTyping() {
+	clearTimeout(typingIdle);
+	if (typingOn) {
+		typingOn = false;
+		send({ typing: false });
+	}
+}
+function noteTyping() {
+	const conv = activeConv();
+	if (!conv || conv.type !== "room" || !lineInput.value.trim()) {
+		stopTyping();
+		return;
+	}
+	if (!typingOn) {
+		typingOn = true;
+		send({ typing: true });
+	}
+	clearTimeout(typingIdle);
+	typingIdle = setTimeout(stopTyping, 4000);
+}
 export function sendMessage() {
 	const text = lineInput.value.trim();
 	if (!text) return;
@@ -16,6 +46,10 @@ export function sendMessage() {
 	if (!conv) return;
 	if (!ws || ws.readyState !== WebSocket.OPEN) {
 		toActive(sysItem("Not connected, your message was not sent"));
+		return;
+	}
+	if (text.length > MAX_LINE) {
+		toActive(sysItem(`Message too long (max ${MAX_LINE} characters)`));
 		return;
 	}
 	if (conv.type === "room") {
@@ -28,6 +62,7 @@ export function sendMessage() {
 		deliver(conv, chatItem(state.nick, text, true));
 	}
 	lineInput.value = "";
+	stopTyping(); // the line is gone; clear our typing flag at once
 	autoGrow();
 	// Keep focus after sending (both platforms) so you can fire off another line
 	// without re-tapping the composer; the keyboard stays up on mobile.
@@ -53,6 +88,8 @@ export function insertAtCursor(s: string) {
 	autoGrow();
 }
 lineInput.addEventListener("input", autoGrow);
+lineInput.addEventListener("input", noteTyping);
+lineInput.addEventListener("blur", stopTyping);
 lineInput.addEventListener("keydown", (e) => {
 	if (e.key === "Escape" && emojiPop.classList.contains("show")) {
 		emojiPop.classList.remove("show");

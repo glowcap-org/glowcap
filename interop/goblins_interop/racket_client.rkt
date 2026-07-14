@@ -9,7 +9,7 @@
 ;; its NDJSON readiness line, then `connect` (which completes the keyed
 ;; `op:start-session` handshake), `fetch` the echo cap, and calls it positionally
 ;; — asserting Goblins resolves it. The positional call passes the empty method
-;; symbol to `conn-send`, which sends a methodless deliver, because Goblins
+;; symbol to `session-send`, which sends a methodless deliver, because Goblins
 ;; invokes a cap with no method symbol. Needs `racket` plus the `goblins`
 ;; collection on PATH; run via `zig build racket-goblins-interop`.
 
@@ -31,11 +31,11 @@
   (define conn (connect (tcp-locator HOST PORT)))
   (printf "racket-goblins-interop: session open, keyed start-session accepted by goblins\n")
 
-  (define echo (conn-fetch conn swiss))
+  (define echo (session-fetch conn swiss))
   (printf "racket-goblins-interop: fetched goblins echo cap, calling it\n")
 
-  (conn-send conn echo (string->symbol "") #"pancake-ping")
+  (session-send conn echo (string->symbol "") #"pancake-ping")
 
   (printf "racket-goblins-interop OK: keyed handshake + bootstrap fetch + echo deliver/resolve with live Goblins\n")
-  (connection-close! conn)
+  (session-close! conn)
   (subprocess-kill proc #t))

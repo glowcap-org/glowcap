@@ -64,7 +64,7 @@ const Board = struct {
 /// partner leaves, then free the connection. Errors are swallowed because a
 /// partner that hangs up mid-conversation is normal bench teardown, not a host
 /// fault.
-fn serveConn(conn: *driver.Connection) void {
+fn serveConn(conn: *driver.Session) void {
     defer conn.deinit();
     _ = conn.publish("root", Board, .{}) catch return;
     conn.serve() catch {};
@@ -78,8 +78,9 @@ pub fn main(init: std.process.Init) !void {
     _ = args_iter.next();
     const port: u16 = if (args_iter.next()) |p| try std.fmt.parseInt(u16, p, 10) else 0;
 
-    var designator_buf: [64]u8 = undefined;
-    const bind_designator = try std.fmt.bufPrint(&designator_buf, "{s}:{d}", .{ host_addr, port });
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const bind_addr = try tcp.parseHostPort(host_addr, port);
+    const bind_designator = tcp.locator(&designator_buf, bind_addr).designator;
 
     var tcp_resident = tcp.Resident{ .io = io };
     var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = bind_designator }, .ephemeral, .{ .frame_cap = frame_cap });

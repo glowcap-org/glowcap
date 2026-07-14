@@ -13,14 +13,16 @@ artifact.
 
 ## Dependency shape
 
-`@pancake/iroh` depends on `@pancake/stack`: it supplies the core's byte `Transport` seam over the
-sidecar's readiness loop and mints keyed `Connection`s through `Connection.establishDialed` /
+`@pancake/iroh` depends on `@pancake/stack`: it supplies the core's byte `Channel` seam over the
+sidecar's readiness loop and mints keyed `Session`s through `Session.establishDialedLocator` /
 `establishAccepted`, and it loads its archive through the core's one FFI runtime, the
 [`@pancake/stack/ffi`](../stack/ffi.ts) seam. ES modules are singletons, so there is exactly one
 adapter and one archive resolver across both packages.
 
 The core's transport-neutral `connect` reaches this package only through a lazy
-`import("@pancake/iroh")` for an `iroh` locator, so `@pancake/stack` never hard-depends on it.
+`import("@pancake/iroh/internal")` for an `iroh` locator, so `@pancake/stack` never hard-depends on
+it. Application code dials via `connect(locator, reachability)` and never imports that internal
+entry.
 
 ```ts
 import { listenIroh, Reachability } from "@pancake/iroh";
@@ -31,5 +33,5 @@ for await (const conn of server) conn.serve();
 ```
 
 `Reachability` is required at every entry point. The caller owns the reach and privacy posture;
-there is no default. See [`mod.ts`](mod.ts) for `connectIroh`, `listenIroh`, `IrohServer`, and the
-`Reachability` postures.
+there is no default. See [`mod.ts`](mod.ts) for `listenIroh`, `IrohServer`, and the `Reachability`
+postures; dial via `@pancake/stack`'s `connect(locator, reachability)`.

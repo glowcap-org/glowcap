@@ -28,9 +28,10 @@
 // gate is flake-free. Run by `zig build demo-rooms-dm`.
 
 import process from "node:process";
-import { Connection, listen, Ref } from "@pancake/stack";
+import { connect, listen, Ref, tcpLocator } from "@pancake/stack";
 import { serveDirectory } from "./deno/server.ts";
 import { DIRECTORY, DM, INTRODUCE, NOTIFY, REGISTER } from "./deno/lib/protocol.ts";
+import { loopbackTcpDesignator } from "./deno/lib/locator.ts";
 
 const DM_TEXT = "hi Bob, privately, from Carol";
 
@@ -57,7 +58,7 @@ async function main(): Promise<void> {
 	const bobInbox: string[] = [];
 	let bobInbound = 0; // every connection Bob accepts, the new-inbound proof
 	const bob = listen("127.0.0.1", 0);
-	bob.node.publishGiftable("dm", (verb, args) => {
+	bob.host.publishGiftable("dm", (verb, args) => {
 		if (verb !== DM) throw new Error(`dm has no method ${verb}`);
 		// dm(from, text): the sender names itself, and the text is what we assert on.
 		bobInbox.push(String(args[1]));
@@ -69,17 +70,17 @@ async function main(): Promise<void> {
 			conn.serve().catch(() => {});
 		}
 	})();
-	const bobLocator = `127.0.0.1:${await bob.ready()}`;
+	const bobLocator = loopbackTcpDesignator(await bob.ready());
 
 	// ── Room (rendezvous / gifter): the real directory, with introductions ───────
 	const room = listen("127.0.0.1", 0);
-	const roomServe = serveDirectory(room, room.node);
+	const roomServe = serveDirectory(room, room.host);
 	const roomPort = await room.ready();
 
 	// ── Bob joins the room and registers his dialable locator ────────────────────
 	// The room dials that locator back, fetches Bob's `dm`, and signals readiness
 	// on the inbox Bob hands it, so `introduce` can never race the dial-back.
-	const bobToRoom = await Connection.connect("127.0.0.1", roomPort);
+	const bobToRoom = await connect(tcpLocator("127.0.0.1", roomPort));
 	bobToRoom.serve().catch(() => {});
 	const bobDir = await bobToRoom.fetch(DIRECTORY);
 	let registered = false;
@@ -99,7 +100,7 @@ async function main(): Promise<void> {
 	}
 
 	// ── Carol (recipient): get introduced, redeem transparently, DM directly ─────
-	const carol = await Connection.connect("127.0.0.1", roomPort);
+	const carol = await connect(tcpLocator("127.0.0.1", roomPort));
 	carol.serve().catch(() => {});
 	const carolDir = await carol.fetch(DIRECTORY);
 	// `introduce` returns Bob's dm (home = room↔Bob); the binding transparently

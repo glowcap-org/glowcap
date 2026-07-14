@@ -1,7 +1,8 @@
 //! Shared C-ABI vocabulary: the C-visible frame/context types, the OCapN value
 //! types (`PancakeReference`/`PancakeArgument` and their model<->C
 //! marshalling), the return and codec codes, the allocation policy,
-//! the managed-frame machinery, and the per-thread last-error slot that
+//! the managed-frame machinery, the stream-shaped connection helpers
+//! (`ConnLifecycle`, `ConnFrameOps`), and the per-thread last-error slot that
 //! `libpancake_ocapn`'s handle families, the tcp/inproc transport families (the
 //! frame boundary and the owning `pancake_tcp_session_*` surface, ADR-0062), and
 //! the out-of-graph iroh C ABI (`src/c_abi/net_transport/iroh/mod.zig`) all speak.
@@ -72,6 +73,11 @@ pub const PANCAKE_ERR_BROKEN: i32 = -14;
 /// locator. Distinct from `_INVALID_ARGUMENT` (the request was malformed) — the
 /// request was well-formed, the thing asked for is simply absent.
 pub const PANCAKE_ERR_NOT_FOUND: i32 = -15;
+/// A caller-provided output buffer was too small for the value being written.
+/// The call still reports the required length in its `out_len` parameter, so a
+/// caller retries with a large enough buffer. Distinct from `_INVALID_ARGUMENT`
+/// (a malformed request) — the request is well-formed, the buffer is just short.
+pub const PANCAKE_ERR_BUFFER_TOO_SMALL: i32 = -16;
 
 // ── Codec selector ───────────────────────────────────────────────────────────
 
@@ -170,15 +176,26 @@ pub fn tryManagedFrame(alloc: std.mem.Allocator, frame: foundation.Frame) !Panca
 /// "nothing pending" code), and `PANCAKE_ERR_INTERNAL` (last error set, the
 /// dequeued frame freed and not retrievable) when the frame could not be
 /// wrapped for C. Shared so no two archives can drift on these codes.
-pub fn takeOutboundManaged(peer: *engine.Peer, alloc: std.mem.Allocator, slot: *PancakeManagedFrame) i32 {
-    const out = peer.takeOutbound() orelse return PANCAKE_ERR_WOULD_BLOCK;
-    slot.* = tryManagedFrame(alloc, out) catch {
-        var owned = out;
+/// Wrap an owned frame into `slot` as a managed frame, or free it and fail: the
+/// one body behind every take-outbound / read-frame tail. On wrap-allocation
+/// failure the frame is deinit'd (it is owned and unreachable after), the last
+/// error is set with `ctx` (comptime-prefixed onto the shared suffix so each
+/// caller keeps its exact message), and `PANCAKE_ERR_INTERNAL` is returned; on
+/// success `slot` owns the frame and `PANCAKE_OK` is returned. Shared so no two
+/// archives can drift on the wrap-failure contract.
+pub fn wrapManagedInto(alloc: std.mem.Allocator, frame: foundation.Frame, slot: *PancakeManagedFrame, comptime ctx: []const u8) i32 {
+    slot.* = tryManagedFrame(alloc, frame) catch {
+        var owned = frame;
         owned.deinit();
-        setLastError("take_outbound: frame wrap allocation failed", .{});
+        setLastError(ctx ++ ": frame wrap allocation failed", .{});
         return PANCAKE_ERR_INTERNAL;
     };
     return PANCAKE_OK;
+}
+
+pub fn takeOutboundManaged(peer: *engine.Peer, alloc: std.mem.Allocator, slot: *PancakeManagedFrame) i32 {
+    const out = peer.takeOutbound() orelse return PANCAKE_ERR_WOULD_BLOCK;
+    return wrapManagedInto(alloc, out, slot, "take_outbound");
 }
 
 fn releaseOwnedFrame(frame: *PancakeManagedFrame) callconv(.c) void {
@@ -204,7 +221,7 @@ fn releaseOwnedFrame(frame: *PancakeManagedFrame) callconv(.c) void {
 ///
 /// The surface is deliberately `alloc` + `free` only. With both sides told the
 /// size, the only sound resize policy for an opaque host allocator is "never
-/// resize in place" (see `HostAllocator`), which keeps `free`'s size argument
+/// resize in place" (see `ContextAllocator`), which keeps `free`'s size argument
 /// exactly equal to `alloc`'s, correct even for a size-tracking host allocator.
 /// A `realloc` callback cannot preserve that invariant or guarantee alignment of
 /// the relocated block, so it is intentionally absent rather than a footgun.
@@ -235,9 +252,9 @@ pub const PancakeContext = opaque {};
 pub const library_allocator = std.heap.smp_allocator;
 
 /// Adapts the C host allocation callbacks to a `std.mem.Allocator`. Heap-pinned
-/// inside its `Context`, so the vtable's `ptr` (`&context.host`) stays valid for
+/// inside its `Context`, so the vtable's `ptr` (`&context.embedder`) stays valid for
 /// the context's whole life.
-pub const HostAllocator = struct {
+pub const ContextAllocator = struct {
     alloc_fn: PancakeAllocFn,
     free_fn: PancakeFreeFn,
     user_data: ?*anyopaque,
@@ -249,13 +266,13 @@ pub const HostAllocator = struct {
         .free = hostFree,
     };
 
-    pub fn allocator(self: *HostAllocator) std.mem.Allocator {
+    pub fn allocator(self: *ContextAllocator) std.mem.Allocator {
         return .{ .ptr = self, .vtable = &vtable };
     }
 
     fn hostAlloc(ctx: *anyopaque, len: usize, alignment: std.mem.Alignment, ret_addr: usize) ?[*]u8 {
         _ = ret_addr;
-        const self: *HostAllocator = @ptrCast(@alignCast(ctx));
+        const self: *ContextAllocator = @ptrCast(@alignCast(ctx));
         const raw = self.alloc_fn(self.user_data, len, alignment.toByteUnits()) orelse return null;
         return @ptrCast(raw);
     }
@@ -277,19 +294,27 @@ pub const HostAllocator = struct {
 
     fn hostFree(ctx: *anyopaque, memory: []u8, alignment: std.mem.Alignment, ret_addr: usize) void {
         _ = ret_addr;
-        const self: *HostAllocator = @ptrCast(@alignCast(ctx));
+        const self: *ContextAllocator = @ptrCast(@alignCast(ctx));
         self.free_fn(self.user_data, memory.ptr, memory.len, alignment.toByteUnits());
     }
 };
 
-pub const Context = struct {
-    allocator: std.mem.Allocator,
-    backing: Backing,
-    /// Meaningful only when `backing == .host`; the heap-pinned state the
-    /// `allocator` vtable points into.
-    host: HostAllocator,
+pub const Context = union(enum) {
+    /// The library-owned allocation policy; carries no state.
+    library,
+    /// Host-supplied allocation policy: the heap-pinned state the returned
+    /// allocator vtable points into.
+    embedder: ContextAllocator,
 
-    pub const Backing = enum { library, host };
+    /// The allocator this context's handle family allocates and frees through.
+    /// The `.embedder` arm's vtable borrows `&self.embedder`, valid because a
+    /// `Context` is always heap-pinned by its constructor.
+    pub fn allocator(self: *Context) std.mem.Allocator {
+        return switch (self.*) {
+            .library => library_allocator,
+            .embedder => |*e| e.allocator(),
+        };
+    }
 };
 
 pub fn ctxFromOpaque(context: ?*PancakeContext) ?*Context {
@@ -472,7 +497,7 @@ pub const PANCAKE_ABORT_DOMAIN_FOREIGN: u32 = 2;
 /// when zero, the failure projected no abort (a closed session, an allocation
 /// failure). All byte views are process-static — read them, never free them.
 /// Declared in this leaf so the ocapn peer family and the byte-fed driver
-/// family (`pancake_host_conn_last_abort`) share it by layout.
+/// family (`pancake_host_session_last_abort`) share it by layout.
 pub const PancakeLastAbort = extern struct {
     domain: u32,
     has_kind: u32,
@@ -485,7 +510,7 @@ pub const PancakeLastAbort = extern struct {
 };
 
 /// Project an `engine.AbortInfo` into the C `PancakeLastAbort` — the one body
-/// behind `pancake_peer_last_abort` and `pancake_host_conn_last_abort`, so the
+/// behind `pancake_peer_last_abort` and `pancake_host_session_last_abort`, so the
 /// two archives cannot drift on the projection. Every view written is
 /// process-static.
 pub fn lastAbortToC(info: engine.AbortInfo) PancakeLastAbort {
@@ -756,6 +781,62 @@ pub fn ConnLifecycle(comptime Payload: type) type {
             alloc.free(payload.read_buf);
             alloc.free(payload.write_buf);
             alloc.destroy(payload);
+        }
+    };
+}
+
+/// The one body behind every stream-shaped `pancake_*_conn_{read,write}_frame`
+/// (tcp and inproc). `Payload` declares `stream` (with `readFrame`/`writeFrame`)
+/// and `allocator`. A comptime helper, not an `export fn`, so each archive
+/// compiles its own copy and the shared leaf stays symbol-free — the archives
+/// keep their own exports (ADR-0059). `onConnectionLost` / `onWriteErr`
+/// parameterize the last-error message: tcp consults `lastReadError`/
+/// `lastWriteError`, inproc records a static cause.
+pub fn ConnFrameOps(comptime Payload: type) type {
+    return struct {
+        pub fn readFrame(
+            payload: *Payload,
+            out_frame: *PancakeManagedFrame,
+            comptime onConnectionLost: fn (*Payload) void,
+        ) i32 {
+            const f = payload.stream.readFrame() catch |err| return frameReadErrorToCode(payload, err, onConnectionLost);
+
+            return wrapManagedInto(payload.allocator, f, out_frame, "conn_read_frame");
+        }
+
+        pub fn writeFrame(
+            payload: *Payload,
+            frame_in: *const PancakeFrame,
+            comptime onWriteErr: fn (*Payload, anyerror) void,
+        ) i32 {
+            const bytes_ptr = frame_in.bytes orelse return PANCAKE_ERR_NULL_POINTER;
+
+            payload.stream.writeFrame(bytes_ptr[0..frame_in.len]) catch |err| {
+                onWriteErr(payload, err);
+                return PANCAKE_ERR_IO;
+            };
+            return PANCAKE_OK;
+        }
+
+        fn frameReadErrorToCode(
+            payload: *Payload,
+            err: anytype,
+            comptime onConnectionLost: fn (*Payload) void,
+        ) i32 {
+            return switch (err) {
+                error.Closed => PANCAKE_ERR_CLOSED,
+                error.MalformedFrame => PANCAKE_ERR_MALFORMED,
+                error.FrameTooLarge => PANCAKE_ERR_FRAME_TOO_LARGE,
+                error.TruncatedFrame => blk: {
+                    setLastError("read_frame: stream closed mid-frame", .{});
+                    break :blk PANCAKE_ERR_IO;
+                },
+                error.ConnectionLost => blk: {
+                    onConnectionLost(payload);
+                    break :blk PANCAKE_ERR_IO;
+                },
+                error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+            };
         }
     };
 }

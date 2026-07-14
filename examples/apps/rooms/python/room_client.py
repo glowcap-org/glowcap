@@ -30,12 +30,15 @@ from python_path import add_bindings_path  # noqa: E402
 
 add_bindings_path(from_file=__file__, depth=4)
 
-from pancake import Connection, connect, tcp_locator  # noqa: E402
+from pancake import Session, connect, designator_host_port, parse_locator, tcp_locator  # noqa: E402
+from pancake._constants import HINT_DIRECT_ADDRESSES, TRANSPORT_IROH  # noqa: E402
 from pancake.iroh import Reachability  # noqa: E402
 
 DIRECTORY = "directory"
 OPEN, ENTER, LIST, WATCH = "open", "enter", "list", "watch"
+REGISTER, INTRODUCE = "register", "introduce"
 SUBSCRIBE, POST, LEAVE, NOTIFY = "subscribe", "post", "leave", "notify"
+DM = "dm"
 
 
 def _rooms(raw) -> "list[tuple[str, int]]":
@@ -49,17 +52,23 @@ def _rooms(raw) -> "list[tuple[str, int]]":
     return out
 
 
-async def _dial(locator: str) -> Connection:
+async def _dial(locator: str) -> Session:
     """Dial a transport-neutral rooms locator: an ``ocapn://`` URI goes over iroh,
     a bare ``host:port`` over TCP. The room's wire is identical either way; only
-    how a member reaches it differs. The rooms URI carries direct-address hints,
-    so the iroh dial uses the explicit ``Reachability.DIRECT`` posture."""
+    how a member reaches it differs. A URI carrying direct-addresses dials those
+    directly (relay-less Direct); a node-id-only URI resolves the peer through
+    discovery."""
     if "://" in locator:
-        return await connect(locator, Reachability.DIRECT)
-    colon = locator.rfind(":")
-    if colon < 0:
-        raise ValueError(f"rooms locator is neither host:port nor an ocapn:// URI: {locator}")
-    return await connect(tcp_locator(locator[:colon], int(locator[colon + 1:])))
+        loc = parse_locator(locator)
+        if loc.transport != TRANSPORT_IROH:
+            raise ValueError(
+                f'rooms expected an iroh ocapn:// URI, got "{loc.transport}": {locator}',
+            )
+        hints = loc.hints.get(HINT_DIRECT_ADDRESSES, "")
+        reach = Reachability.DIRECT if hints else Reachability.DISCOVERY
+        return await connect(locator, reach)
+    host, port = designator_host_port(locator)
+    return await connect(tcp_locator(host, port))
 
 
 class Directory:
@@ -68,7 +77,7 @@ class Directory:
     reference to that room. Both mirror the wire: ``open`` raises if the name is
     taken, ``enter`` raises if there is no such room."""
 
-    def __init__(self, conn: Connection, directory) -> None:
+    def __init__(self, conn: Session, directory) -> None:
         self.conn = conn
         self._directory = directory
 
@@ -108,8 +117,30 @@ class Directory:
         inbox = self.conn.spawn(observer)
         return _rooms(await self.conn.send(self._directory, WATCH, [inbox]))
 
+    async def register(self, nick: str, locator: str) -> None:
+        """Announce a dialable DM member. Resolves once the directory has dialed
+        back and the nick is introducible."""
+        done = asyncio.get_running_loop().create_future()
+
+        def inbox(verb: str, args: list):
+            if verb == NOTIFY and args and args[0] == "registered" and not done.done():
+                done.set_result(None)
+            return None
+
+        observer = self.conn.spawn(inbox)
+        await self.conn.send(self._directory, REGISTER, [nick, locator, observer])
+        await done
+
+    async def introduce(self, nick: str):
+        """Ask the directory to introduce us to a registered member; returns a
+        live capability to that member's ``dm`` object (redeemed by direct dial)."""
+        ref = await self.conn.send(self._directory, INTRODUCE, [nick])
+        if ref is None:
+            raise ValueError(f'introduce("{nick}") did not return a capability')
+        return ref
+
     async def close(self) -> None:
-        """Close the connection, ending every room's message stream."""
+        """Close the session, ending every room's message stream."""
         await self.conn.close()
 
 
@@ -147,18 +178,35 @@ class Message:
     presence: "Presence | None" = None
 
 
+class DirectMessage:
+    """A live direct line to one member, obtained by introduction."""
+
+    def __init__(self, conn: Session, dm, peer: str) -> None:
+        self._conn = conn
+        self._dm = dm
+        self.peer = peer
+
+    @classmethod
+    async def open(cls, directory: Directory, peer: str) -> "DirectMessage":
+        return cls(directory.conn, await directory.introduce(peer), peer)
+
+    async def say(self, from_nick: str, text: str) -> None:
+        """Deliver one direct message, tagged with the sender's display nick."""
+        await self._conn.send(self._dm, DM, [from_nick, text])
+
+
 class Room:
     """A membership in a chat room. Get one with :meth:`join`, iterate it for the
     lines the room sends, :meth:`say` to talk, and :meth:`leave` when done."""
 
-    def __init__(self, conn: Connection, room) -> None:
+    def __init__(self, conn: Session, room) -> None:
         self._conn = conn
         self._room = room
         self._lines: asyncio.Queue = asyncio.Queue()
         self._leaving = False
 
     @classmethod
-    async def subscribe(cls, conn: Connection, room_ref, nick: str) -> "Room":
+    async def subscribe(cls, conn: Session, room_ref, nick: str) -> "Room":
         self = cls(conn, room_ref)
 
         # The room calls this back with every line; surface it on the stream.

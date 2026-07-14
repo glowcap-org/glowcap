@@ -3,7 +3,7 @@ id: ADR-0065
 status: accepted
 date: 2026-06-18
 tags: [pipelining, driver, c-abi, bindings, tcp, nagle, questioner]
-decision: A questioner addresses a verb at an answer it has not settled by passing the handle a prior send returned back to `send` — `Connection.send`/`sendToAnswer`/`settleVow` in the Zig driver, `pancake_peer_send_deliver`'s answer target under the owning C session, and a vow-as-send-target in every binding — so a dependent chain costs one round trip; the deliver is queued at the send and the batch flushes on the first settle. The TCP transport disables Nagle on every dialed and accepted socket so the batched-then-await pattern does not eat a delayed-ACK stall.
+decision: A questioner addresses a verb at an answer it has not settled by passing the handle a prior send returned back to `send` — `Session.send`/`sendToAnswer`/`settleVow` in the Zig driver, `pancake_peer_send_deliver`'s answer target under the owning C session, and a vow-as-send-target in every binding — so a dependent chain costs one round trip; the deliver is queued at the send and the batch flushes on the first settle. The TCP transport disables Nagle on every dialed and accepted socket so the batched-then-await pattern does not eat a delayed-ACK stall.
 supersedes: []
 superseded_by: []
 ---
@@ -37,13 +37,13 @@ shrugged at.
 
 ### One shape: a returned handle is a send target
 
-The Zig driver ([`src/driver/connection.zig`](../../../src/driver/connection.zig))
+The Zig driver ([`src/driver/session.zig`](../../../src/driver/session.zig))
 exposes the questioner triad: `send(target, msg)` returns an answer `Vow`
 without settling it; `sendToAnswer(vow, msg)` addresses a verb at that pending
 answer (the wire `desc:answer`, ADR-0007); `settleVow(vow, arena)` drives
 until a chosen answer settles. The flush is deferred to the next settle, so a
 batch of sends leaves the wire together; the triad delegates to
-[`ConnectedVat`](../../../src/driver/connected_vat.zig), which owns the answer
+[`BlockingSession`](../../../src/driver/blocking_session.zig), which owns the answer
 bookkeeping over the engine's `allocateAnswer`.
 
 The C ABI carries the same seam: `pancake_peer_send_deliver`
@@ -53,9 +53,9 @@ non-blocking `send`/settle pair a binding drives.
 
 Every binding renders the triad in its own idiom, and in each one *the handle a
 send returns is a valid target for the next send*: Rust's `RemotePromise`
-implements `AsSendTarget`, Python's and TypeScript's `Connection.send` accept a
-`RemotePromise`, and Racket's `conn-send-promise` returns a `promise-ref` that
-`conn-send`/`conn-send-promise` pipeline against, settled by `conn-await`. A
+implements `AsSendTarget`, Python's and TypeScript's `Session.send` accept a
+`RemotePromise`, and Racket's `session-send-promise` returns a `promise-ref` that
+`session-send`/`session-send-promise` pipeline against, settled by `session-await`. A
 pipelined send to a local-only handle (one with no far answer) is refused, not
 silently downgraded.
 

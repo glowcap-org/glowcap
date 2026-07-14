@@ -96,7 +96,7 @@ here.
   drive's stack. `Vat.serve`'s far-resolve arm clones into a dedicated
   `settle_arena` instead, reset when its `settle_depth` guard returns to zero
   (a far listener can re-enter `serve` through a driver pump,
-  `ConnectedVat.step` → `drainEvents`); the queue arena is unsafe there
+  `BlockingSession.step` → `drainEvents`); the queue arena is unsafe there
   because `serve` runs outside any drive, so a listener-opened `drive` is
   *outermost* and its full-drain reset would free the value mid-call. The far
   send's verb-splice scratch is no longer a per-send allocation at common
@@ -200,7 +200,7 @@ here.
   across both buffers, park that connection's reads, so no new inbound frames
   can mint new replies. Deleting the copy would mean writing borrowed frame
   bytes asynchronously, which is the same lifetime bug. Deleting the bound
-  reopens the slow-reader memory hole. The iroh `LoopHost` shares
+  reopens the slow-reader memory hole. The iroh completion `Backend` shares
   this posture over its single `outbound` buffer (ADR-0057): a `try_write` that
   returns `WOULD_BLOCK` leaves the tail queued, and while pending outbound
   exceeds `Options.outbound_high_water` (default `frame_cap`) the loop stops
@@ -216,18 +216,19 @@ here.
   writer therefore need a stable address outside the movable connection. tcp
   pins one `TcpStream` (its reader, writer, io) per connection on the peer's
   allocator at connect/accept and frees it through the connection's
-  `TransportHandle.close`. One small allocation on the blocking `ConnectedVat`
+  `TransportHandle.close`. One small allocation on the blocking `BlockingSession`
   path only; the completion loop never builds a `Connection`, so peer-scaling
   memory is untouched. Deleting it means storing the stream inline, which
   dangles the borrowed interface pointers the moment the connection is moved.
   The iroh resident pins the identical wrapper for the identical reason
   (`IrohStream` in `src/net/transport/iroh.zig`, ADR-0055), freed the same way
   through its connection's `TransportHandle.close`.
-- **Loop-bridge connection shells and the slot map: `driver.LoopBridge`
+- **Loop-bridge connection shells and the slot map: `driver.Bridge`
   (ADR-0076).** The bridge that feeds the byte-fed `driver_core.Host` from
-  `net.Loop` retains two classes, both bounded by live connections. Each
-  adopted connection gets one heap `LoopBridge.Conn` shell (the loop's
-  per-connection hook context: the `HostConnection`, the slot, the open
+  `completion.Loop` (`net.TcpLoop` / iroh Backend) retains two classes, both
+  bounded by live connections. Each
+  adopted connection gets one heap `Bridge.Slot` shell (the loop's
+  per-connection hook context: the `Conn`, the slot, the open
   edge), created in `makeConnCtx` and destroyed in `freeConnCtx`. The
   ConnId→slot map row that routes `flush`/`close` actions to
   `Loop.armOutbound`/`closeSlot` is inserted at adoption and removed first
@@ -261,10 +262,19 @@ here.
   materialized into the session's **`recv_scratch`** bump arena and reclaimed
   with one `reset(.retain_capacity)` at the end of every `recordRecvView`,
   `recordRecv`, and `recordResolverCallbackResolve`. The
-  inbound GC validators' duplicate-position scratch maps
-  (`checkGcExportDecrement` / `checkGcAnswerDecrement` in `validateRecv`) bump
-  the same arena and die in the same reset; only the send-side GC validation
-  keeps its gpa scratch with a precise deinit, because no recv turn brackets it.
+  inbound GC validators' duplicate-position fold
+  (`checkGcExportDecrement` / `checkGcAnswerDecrement` in `validateRecv`) —
+  a fixed stack for typical small vectors, spilling to a map only above the
+  threshold — bumps the same arena on spill and dies in the same reset; only
+  the send-side GC validation keeps its gpa scratch with a precise deinit,
+  because no recv turn brackets it. The inbound set-uniqueness fold
+  (`checkInboundSetUniqueness` in the same walk) rides the same arena: an
+  inbound set's elements are materialized once on the borrowed path and hashed
+  (`model.equality.argumentHash`) to group candidates, an Equal pair is
+  refused `DuplicateSetElement`, and the rows die in the same reset. It is the
+  codec-neutral backstop for the byte-level ascending-element refusal the
+  Syrup decoder gets for free; Cap'n Proto's pointer wire form cannot prove
+  set uniqueness without it, and a set-free frame pays nothing.
   The per-message dupe-then-`freeMessage` choreography collapses to a
   bump-and-reset, and capacity amortizes across turns. Apply dupes anything
   session-lived onto the gpa, so resetting the scratch can never dangle a table
@@ -278,13 +288,13 @@ here.
   tree fails loud with `NestingTooDeep`, which projects to a
   `resource_exhausted` abort, instead of overflowing the native stack.
 - **Settled-outcome materialization: one `model.cloneArgument` (or one
-  broken-reason dupe) per blocking driver wait — `driver.ConnectedVat.call` /
-  `fetchSettled` and the blocking `HostConnection.call` / `settleVow` — into
+  broken-reason dupe) per blocking driver wait — `driver.BlockingSession.call` /
+  `fetchSettled` and `driver.Session.call` / `settleVow` — into
   the caller-supplied allocator (`SettleCapture`).** The settling listener
   fires with a turn-borrowed resolution that dies when the turn ends, while
   the returned `driver.Settled` must outlive the blocking drive; this one
   boundary copy into the caller's arena is what severs that borrow.
-  `ConnectedVat.fetch` and the blocking `HostConnection.fetch` / `enliven`
+  `BlockingSession.fetch` and `Session.fetch` / `enliven`
   stay the allocation-free path: they record only the POD far ref and never
   retain the break reason.
 - **Unobserved host-vow completion: one deep clone per settle with no
@@ -297,9 +307,9 @@ here.
   break rather than a lost vow). It is the *only* copy on the path: the
   action queue's two pops split by ownership — the C ABI's
   `pancake_host_next_action` borrows through `nextAction` (views valid until
-  the next pop, which frees them), and `driver.BlockingHost` pops owned
-  through `takeAction`, moving the value straight into its parked table
-  (`driver.BlockingHost.park`) with zero further clones. The old drain-side re-clone
+  the next pop, which frees them), and a Bridge/`takeAction` embedder pops
+  owned and can park the outcome with zero further clones. The old drain-side
+  re-clone
   was re-derived against the full option set and deleted: the popped action
   is a transient carrier, and the parked table is the durable owner that can
   simply adopt it. Freed once — at the next borrowed pop, by the adopter
@@ -323,10 +333,10 @@ here.
   per-session **`key_arena`** (alongside the partner key/designator bytes),
   freed wholesale at teardown. The _monotonic_ tables never remove a row, so a
   bump arena is the right owner. Deliberately excluded from the arena: the
-  FIFO-evicting `sturdyref_cache` and the individually-removed
-  `pending_enlivens` / imported-promise hosts keep their swissnum / host bytes
-  on the gpa with precise per-row frees, because a bump arena cannot reclaim an
-  evicted or removed row and would leak under churn.
+  FIFO-evicting `sturdyref_cache` (plus its side swissnum→index map) and the
+  individually-removed `pending_enlivens` / imported-promise hosts keep their
+  swissnum / host bytes on the gpa with precise per-row frees, because a bump
+  arena cannot reclaim an evicted or removed row and would leak under churn.
 - **Vat-scoped gift registry: gpa rows with per-row frees
   (`engine.bootstrap.GiftRegistry`, ADR-0056).** The single gift / handoff-count
   authority. Every `Peer` owns a private registry (`own_gift_registry`, freed in
@@ -371,10 +381,11 @@ here.
   deposit-may-arrive-second contract, which the upstream OCapN suite pins.
 - **Listener fan-out: POD fire carriers over the stored resolution; zero
   payload copies.** When a promise with N listeners resolves, each fire is
-  queued as a POD carrier (`engine.Outbound.listener_fire` for answer-store
-  fires, `.imported_promise_fire` for relayed ones) and `Peer.step` borrows the
-  stored resolution back at encode (`peekResolution` / the imported-promise
-  row) to build the wire deliver on the stack
+  queued as one POD carrier (`engine.Outbound.listener_fire`, whose `target`
+  names the store holding the resolution — an inbound answer or a relayed
+  third-party import) and `Peer.step` borrows that resolution back at encode
+  through the one keyed lookup (`Peer.resolveFireStore`, over `peekResolution`
+  or the imported-promise row) to build the wire deliver on the stack
   (`engine.pipeline.borrowedListenerFire`). Queue-time session accounting runs
   on that same borrowed stack message in the sent-resolve order
   (reserve-then-record-then-push), so the wire-delta retains commit before the
@@ -413,7 +424,7 @@ here.
   the store via `peekResolution` to encode. The store is the single owner: a
   late pipelined call redirecting off the settled answer and a late `op:listen`
   firing with the value both read it in place; it is freed once on overwrite or
-  answer teardown (`deinitAnswerEntry`), bounded by `max_inbound_answers`. A
+  answer teardown (`deinitAnswerCell`), bounded by `max_inbound_answers`. A
   move is safe where a borrow would dangle precisely because the encoder reads
   through the store at emit: an inbound `op:gc-answers` dropping the row between
   record and emit leaves nothing to encode rather than a stale pointer. The only
@@ -468,9 +479,10 @@ here.
   (ADR-0012).** `Session.cacheSturdyrefEnlivenment` and `notePendingEnliven`
   each `dupe` the swiss-number into a session-owned row; the resolved cache
   stores only the `(import_position, kind)` POD alongside it, never a clone of
-  the enlivened reference. `engine.sturdyref.recordEnlivenment` _moves_ the
-  fulfilled `Reference.far` out to the caller (POD `FarRef`, no heap) and copies
-  just its `import_position` + `kind` into the cache. The cache is
+  the enlivened reference. A side `StringHashMap` (swissnum → FIFO index) keeps
+  lookup O(1) and stays in lockstep on insert and eviction. `engine.sturdyref.recordEnlivenment`
+  _moves_ the fulfilled `Reference.far` out to the caller (POD `FarRef`, no heap)
+  and copies just its `import_position` + `kind` into the cache. The cache is
   non-load-bearing: an overflow evicts the oldest row and frees its swissnum. A
   failed insert is swallowed because a miss costs one extra bootstrap-fetch
   round-trip, not correctness. Each owned swissnum is freed once on
@@ -513,7 +525,7 @@ The 500k-connection destination is a budget gated by the build (ADR-0045), so a
 field added to session state is a withdrawal from it, not free. `engine.Peer`
 carries a `comptime` ceiling on `@sizeOf(Peer)` (one kilobyte), and
 `test/engine/footprint_budget_test.zig` holds a warmed session's core state at
-or under 2 KiB per connection. If your change trips either gate, the fix is to
+or under 2 KiB per session. If your change trips either gate, the fix is to
 weigh the bytes and raise the budget deliberately — in the constant and in
 `docs/ladder.md` rung 2 together (the ladder owns the numbers) — never to route
 around the check.
@@ -530,6 +542,14 @@ and `steady_settle_arena_bytes` (each 4096) bound the three vat arenas via
 `clearAndFree` above the bound at their drain points.
 `test/actors/vat_footprint_budget_test.zig` holds a burst-then-quiescent vat
 back under these bounds.
+
+The completion loop wraps each `Peer` in one `Conn` slot — the unit it allocates
+`max_conns` of — so that wrapper carries a ceiling of its own: a `comptime`
+assertion in `src/net/completion/loop.zig` holds `@sizeOf(Conn) -
+@sizeOf(engine.Peer)` at or under `conn_slot_overhead_bytes` (120), isolating the
+wrapper's bookkeeping from the `Peer` the one-kilobyte ceiling already guards.
+The number moves in the constant and in `docs/ladder.md` rung 2 together, like
+every other footprint gate.
 
 ## Allocator Discipline
 

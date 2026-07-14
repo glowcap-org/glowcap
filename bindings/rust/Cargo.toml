@@ -33,20 +33,25 @@ inproc = []
 # Opt-in async I/O over tokio. The base binding stays dependency-free; the sync
 # `Peer` is sans-io and drives from any runtime, so async is purely additive.
 # `getrandom` supplies the per-connection session seed at the I/O boundary (the
-# sans-io core never generates entropy). It adds the tokio-driven `Connection`
+# sans-io core never generates entropy). It adds the tokio-driven `Session`
 # over native sockets and links no transport archive of its own.
 async = ["dep:tokio", "dep:getrandom"]
 # Opt-in iroh transport. Links the iroh public C ABI companion library
 # (`libpancake_net_transport_iroh`, built by `zig build iroh-abi`, needs cargo) *alongside*
 # the static core archive, it exports only `pancake_iroh_*`, so core symbols still
 # come from `libpancake_ocapn` (ADR-0055). Compiles `pub mod iroh` and adds
-# `Connection::connect_iroh` / `IrohServer` over the encrypted-QUIC sidecar
-# bridge. Implies `async` (the driver it rides).
+# `listen_iroh` / `IrohServer` over the encrypted-QUIC sidecar
+# bridge (`connect(locator)` routes iroh dials). Implies `async` (the driver it rides).
 iroh = ["async"]
 
 [dependencies]
 tokio = { version = "1", default-features = false, features = ["net", "rt", "io-util", "macros", "sync", "time"], optional = true }
-getrandom = { version = "0.2", optional = true }
+getrandom = { version = "0.4", optional = true }
+
+# build.rs parses the package-shipped c-abi-resolve.json (ADR-0077).
+[build-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 # The library never spawns a process; only the live-interop examples do (they
 # launch a Racket Goblins peer). Dev builds union this `process` feature onto
@@ -104,3 +109,9 @@ required-features = ["iroh"]
 [[example]]
 name = "iroh_redeem_posture"
 required-features = ["iroh"]
+
+# Keyed-tcp restart proof (ADR-0075): happy path, squatter refusal, same-seed
+# fresh-port restart. Run via `zig build rust-keyed-tcp-restart`.
+[[example]]
+name = "keyed_tcp_restart"
+required-features = ["async"]

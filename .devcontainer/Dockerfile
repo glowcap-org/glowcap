@@ -4,8 +4,8 @@
 
 FROM debian:trixie-slim@sha256:b6e2a152f22a40ff69d92cb397223c906017e1391a73c952b588e51af8883bf8
 
-LABEL org.opencontainers.image.title="pancake-zig:local" \
-      org.opencontainers.image.description="pancake-zig devcontainer: Zig, Goblins conformance, dogfood toolchains." \
+LABEL org.opencontainers.image.title="pancake-dev:local" \
+      org.opencontainers.image.description="pancake-dev devcontainer: Zig, Goblins conformance, dogfood toolchains." \
       org.opencontainers.image.source="https://codeberg.org/jimisaacs/pancake" \
       org.opencontainers.image.licenses="Apache-2.0"
 
@@ -31,7 +31,16 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
  && apt-get install -y -qq --no-install-recommends \
       build-essential ca-certificates curl gdb gh git hyperfine jq libssl-dev \
       linux-perf lldb netcat-openbsd pkg-config python-is-python3 python3 \
-      python3-pip python3-venv strace tar unzip valgrind xz-utils
+      python3-pip python3-venv strace tar unzip valgrind xz-utils util-linux
+
+# ==============================================================================
+# ADDED: Create the vscode user space to prevent Cursor setup script race conditions
+# ==============================================================================
+RUN groupadd --gid 1000 vscode \
+&& useradd --uid 1000 --gid 1000 -m -s /bin/bash vscode \
+&& mkdir -p /home/vscode/.cache \
+&& chown -R vscode:vscode /home/vscode
+# ==============================================================================
 
 ENV PANCAKE_DEVCONTAINER_DIR=/usr/local/share/pancake-devcontainer
 COPY .devcontainer/pins.sh \
@@ -43,6 +52,7 @@ COPY .devcontainer/pins.sh \
      .devcontainer/install-rust.sh \
      .devcontainer/install-js-toolchains.sh \
      .devcontainer/install-claude-code.sh \
+     .devcontainer/install-opencode.sh \
      .devcontainer/install-uv.sh \
      .devcontainer/install-serena.sh \
      .devcontainer/install-racket-goblins.sh \
@@ -54,6 +64,7 @@ RUN bash "${PANCAKE_DEVCONTAINER_DIR}/install-zig.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-rust.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-js-toolchains.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-claude-code.sh" \
+ && bash "${PANCAKE_DEVCONTAINER_DIR}/install-opencode.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-serena.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/install-racket-goblins.sh" \
  && bash "${PANCAKE_DEVCONTAINER_DIR}/verify-toolchains.sh"

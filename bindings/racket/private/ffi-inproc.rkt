@@ -12,12 +12,11 @@
 ;; cstructs from `ffi-shared.rkt`.
 (require ffi/unsafe
          ffi/unsafe/define
-         racket/runtime-path
-         "ffi-shared.rkt")
+         "ffi-shared.rkt"
+         "lib-resolve.rkt")
 (provide (all-defined-out))
 
-(define-runtime-path inproc-lib-path "../../../zig-out/lib/libpancake_net_transport_inproc")
-(define inproc-lib (pancake-ffi-lib "pancake_net_transport_inproc" (path->string inproc-lib-path)))
+(define inproc-lib (open-pancake-archive "pancake_net_transport_inproc"))
 
 (define-ffi-definer define-pancake-inproc inproc-lib)
 ;; The in-process transport archive carries the `pancake_inproc_*` family plus

@@ -17,3 +17,8 @@ export const IROH_EV_ACCEPT = 8;
 // One readiness record is a pointer (8 bytes) + uint32 events, padded to 8-byte
 // alignment, so the array stride is 16 bytes.
 export const IROH_READY_EVENT_SIZE = 16;
+
+// Cycle break message when a local Forward chain exceeds MAX_LOCAL_FORWARD_HOPS
+// (from abi.ts / PANCAKE_MAX_LOCAL_FORWARD_HOPS). Binding-local string — not a
+// C ABI constant.
+export const FORWARD_CYCLE_MESSAGE = "forward cycle: the local forward chain never terminates";

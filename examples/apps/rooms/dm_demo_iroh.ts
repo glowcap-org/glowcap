@@ -34,7 +34,7 @@
 // the iroh C ABI companion. Run by `zig build demo-rooms-dm-iroh`.
 
 import process from "node:process";
-import { Node, Ref } from "@pancake/stack";
+import { Host, Ref } from "@pancake/stack";
 import { IrohServer, listenIroh, Reachability } from "@pancake/iroh";
 import { serveDirectory } from "./deno/server.ts";
 import { dial } from "./deno/lib/locator.ts";
@@ -76,8 +76,8 @@ async function main(): Promise<void> {
 	// a dialer that pins the session identity to the dialed node id opens
 	// cleanly.
 	const bobSeed = crypto.getRandomValues(new Uint8Array(32));
-	const bob = listenIroh(Reachability.Direct, bobSeed, new Node(bobSeed));
-	bob.node.publishGiftable("dm", (verb, args) => {
+	const bob = listenIroh(Reachability.Direct, bobSeed, new Host(bobSeed));
+	bob.host.publishGiftable("dm", (verb, args) => {
 		if (verb !== DM) throw new Error(`dm has no method ${verb}`);
 		// dm(from, text): the sender names itself, and the text is what we assert on.
 		bobInbox.push(String(args[1]));
@@ -96,9 +96,9 @@ async function main(): Promise<void> {
 	// register dial-back and the introduce gift origination present one identity —
 	// seeded with the endpoint's own seed (key unification), as above.
 	const roomSeed = crypto.getRandomValues(new Uint8Array(32));
-	const roomNode = new Node(roomSeed);
-	const room = listenIroh(Reachability.Direct, roomSeed, roomNode);
-	const roomServe = serveDirectory(room, roomNode);
+	const roomHost = new Host(roomSeed);
+	const room = listenIroh(Reachability.Direct, roomSeed, roomHost);
+	const roomServe = serveDirectory(room, roomHost);
 	const roomUri = await dialableUri(room, "Room");
 
 	// ── Bob joins the room and registers his dialable iroh URI ───────────────────

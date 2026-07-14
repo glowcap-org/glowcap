@@ -3,7 +3,7 @@ id: ADR-0055
 status: accepted
 date: 2026-06-11
 tags: [net, netlayer, iroh, transport, identity]
-decision: "The iroh netlayer is a Rust sidecar: a separate staticlib crate (transports/iroh) wraps the iroh crate behind a narrow blocking C ABI, and one Zig resident (net/transport/iroh.zig) implements the ADR-0043 Netlayer contract over that ABI. libpancake and the core stay pure Zig; only the iroh build steps need cargo, the same sibling-step posture as the Rust dogfood. The iroh NodeId is the locator designator under the transport symbol `iroh`; the blocking ConnectedVat path is the slice-1 consumer; the live proof is a pancake-to-pancake keyed session over real iroh endpoints."
+decision: "The iroh netlayer is a Rust sidecar: a separate staticlib crate (transports/iroh) wraps the iroh crate behind a narrow blocking C ABI, and one Zig resident (net/transport/iroh.zig) implements the ADR-0043 Netlayer contract over that ABI. libpancake and the core stay pure Zig; only the iroh build steps need cargo, the same sibling-step posture as the Rust dogfood. The iroh NodeId is the locator designator under the transport symbol `iroh`; the blocking BlockingSession path is the slice-1 consumer; the live proof is a pancake-to-pancake keyed session over real iroh endpoints."
 supersedes: []
 superseded_by: []
 ---
@@ -18,7 +18,7 @@ relays, and a self-authenticating node identity that is also OCapN's designator.
 The roadmap stages it last, against a finished substrate, and the substrate is
 now finished: the netlayer contract exists (ADR-0043) with two residents, the
 completion loop owns both directions (ADR-0051), and the buffer floor is shared
-(ADR-0054). iroh itself ships as a Rust crate (`iroh`, pinned at `1.0.0-rc.1`),
+(ADR-0054). iroh itself ships as a Rust crate (`iroh`, pinned at `1.0.2`),
 not as anything Zig can import. Every integration shape therefore answers one
 question first: where does the Rust boundary sit?
 
@@ -49,7 +49,7 @@ named below, not an assumption baked in here.
 userspace, not fds, so the completion loop is not this transport's home —
 ADR-0051 reserved exactly this case for the Netlayer contract, and ADR-0053's
 cooperative blocking contract is the consumer shape slice 1 serves (`connectVia`
-/ `acceptVia` through the registry, `ConnectedVat` above).
+/ `acceptVia` through the registry, `BlockingSession` above).
 
 **The proof is live.** `zig build iroh-interop` runs two pancake peers over real
 iroh endpoints on loopback — relay-less, dialed by node id with direct address
@@ -127,7 +127,7 @@ by `zig build iroh-interop`, which gained a deterministic proof for each:
 
 The last piece of the cluster — **scale** — ships as
 [ADR-0057](ADR-0057-iroh-completion-loop-bridge.md): the event-driven completion
-loop (`iroh.LoopHost`, gated by `zig build iroh-loop`) is the iroh netlayer's
+loop (`iroh.Backend` + Bridge, gated by `zig build iroh-loop`) is the iroh netlayer's
 one I/O model and serves many concurrent connections from one loop thread. The
 public iroh netlayer C ABI is loop-only — a readiness fd plus a non-blocking
 drain, armed at construction, with no blocking frame surface — and every binding
@@ -175,7 +175,7 @@ authoritative, deterministic iroh gate.
 
 ## Consequences
 
-- New surfaces: `transports/iroh/` (Cargo.toml pinned to iroh `=1.0.0-rc.1`,
+- New surfaces: `transports/iroh/` (Cargo.toml pinned to iroh `=1.0.2`,
   `src/lib.rs`, `include/pancake_iroh_sidecar.h`), `src/net/transport/iroh.zig`,
   and the `iroh-lib` / `iroh-interop` build steps wired into `ci/gates.sh`.
 - The README's "the shipped channel is cleartext TCP" boundary changes the day

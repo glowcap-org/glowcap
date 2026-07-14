@@ -39,6 +39,7 @@ use iroh::address_lookup::memory::MemoryLookup;
 use iroh::endpoint::{presets, Connection, RecvStream, SendStream};
 use iroh::{Endpoint, EndpointAddr, EndpointId, SecretKey};
 use tokio::sync::Notify;
+use tokio::task::JoinHandle;
 
 /// The ALPN both pancake peers negotiate (ADR-0055).
 const ALPN: &[u8] = b"ocapn/pancake/1";
@@ -182,6 +183,10 @@ pub struct PancakeIrohConn {
 	send: Mutex<Option<SendStream>>,
 	recv: Mutex<Option<RecvStream>>,
 	nb: OnceLock<Arc<NbConn>>,
+	/// The reader/writer task handles. `conn_free` aborts and joins them
+	/// before this box's address is freed, so a stale task can never signal
+	/// readiness under a pointer a later connection reuses (ABA).
+	nb_tasks: OnceLock<(JoinHandle<()>, JoinHandle<()>)>,
 }
 
 /// One endpoint's readiness channel: the self-pipe the loop polls plus the queue
@@ -464,13 +469,31 @@ pub extern "C" fn pancake_iroh_sidecar_connect(
 				return None;
 			}
 		};
-		let (send, recv) = ep.rt.block_on(conn.open_bi()).ok()?;
+		// Bound the stream open too: a partner that completes the QUIC
+		// handshake but never services the bidirectional stream (a reconnect
+		// race) would otherwise park this thread forever, past the connect
+		// timeout above. Fail closed with the same shape.
+		let (send, recv) = match ep
+			.rt
+			.block_on(async { tokio::time::timeout(CONNECT_TIMEOUT, conn.open_bi()).await })
+		{
+			Ok(Ok(streams)) => streams,
+			Ok(Err(e)) => {
+				eprintln!("pancake-iroh: open_bi failed: {e:?}");
+				return None;
+			}
+			Err(_) => {
+				eprintln!("pancake-iroh: open_bi timed out after {CONNECT_TIMEOUT:?}");
+				return None;
+			}
+		};
 		Some(Box::into_raw(Box::new(PancakeIrohConn {
 			rt: ep.rt.handle().clone(),
 			conn,
 			send: Mutex::new(Some(send)),
 			recv: Mutex::new(Some(recv)),
 			nb: OnceLock::new(),
+			nb_tasks: OnceLock::new(),
 		})))
 	}));
 	match result {
@@ -502,7 +525,13 @@ pub extern "C" fn pancake_iroh_sidecar_accept(
 				let Ok(conn) = accepting.await else {
 					continue;
 				};
-				let Ok((send, recv)) = conn.accept_bi().await else {
+				// Bound the stream accept: a dialer that opens the QUIC
+				// connection but never its bidirectional stream is dropped
+				// after the timeout instead of holding the acceptor. A stalled
+				// or failed accept keeps serving the next incoming.
+				let Ok(Ok((send, recv))) =
+					tokio::time::timeout(CONNECT_TIMEOUT, conn.accept_bi()).await
+				else {
 					continue;
 				};
 				return Some(Box::into_raw(Box::new(PancakeIrohConn {
@@ -511,6 +540,7 @@ pub extern "C" fn pancake_iroh_sidecar_accept(
 					send: Mutex::new(Some(send)),
 					recv: Mutex::new(Some(recv)),
 					nb: OnceLock::new(),
+					nb_tasks: OnceLock::new(),
 				})));
 			}
 		})
@@ -655,7 +685,18 @@ pub extern "C" fn pancake_iroh_sidecar_conn_free(conn: *mut PancakeIrohConn) {
 		let _send = conn_ref.send.lock();
 	}));
 	let _ = catch_unwind(AssertUnwindSafe(|| {
-		drop(unsafe { Box::from_raw(conn) });
+		let inner = *unsafe { Box::from_raw(conn) };
+		// Stop the reader/writer tasks before this box's address is reusable,
+		// so a stale task can never signal readiness under a pointer a later
+		// connection reuses (ABA). Abort, then join so none outlives the free.
+		if let Some((reader, writer)) = inner.nb_tasks.into_inner() {
+			reader.abort();
+			writer.abort();
+			inner.rt.block_on(async {
+				let _ = reader.await;
+				let _ = writer.await;
+			});
+		}
 	}));
 }
 
@@ -763,7 +804,10 @@ async fn nb_acceptor(ep: Endpoint, acc: Arc<AcceptState>, readiness: Arc<Readine
 		let Ok(conn) = accepting.await else {
 			continue;
 		};
-		let Ok((send, recv)) = conn.accept_bi().await else {
+		// Same bound on the scale-path acceptor: a half-open dialer is dropped
+		// after the timeout rather than stalling this loop's stream accept.
+		let Ok(Ok((send, recv))) = tokio::time::timeout(CONNECT_TIMEOUT, conn.accept_bi()).await
+		else {
 			continue;
 		};
 		acc.ready
@@ -884,6 +928,7 @@ pub extern "C" fn pancake_iroh_sidecar_endpoint_try_accept(
 			send: Mutex::new(Some(raw.send)),
 			recv: Mutex::new(Some(raw.recv)),
 			nb: OnceLock::new(),
+			nb_tasks: OnceLock::new(),
 		})))
 	}));
 	match result {
@@ -930,8 +975,9 @@ pub extern "C" fn pancake_iroh_sidecar_conn_set_nonblocking(
 		if conn_ref.nb.set(nb.clone()).is_err() {
 			return 0; // raced; the other set won, leave the streams to it
 		}
-		ep.rt.spawn(nb_reader(nb.clone(), recv));
-		ep.rt.spawn(nb_writer(nb.clone(), send));
+		let reader = ep.rt.spawn(nb_reader(nb.clone(), recv));
+		let writer = ep.rt.spawn(nb_writer(nb.clone(), send));
+		let _ = conn_ref.nb_tasks.set((reader, writer));
 		// The connection starts writable: the loop may flush as soon as it has
 		// bytes to send.
 		readiness.signal(conn as usize, EV_WRITABLE);

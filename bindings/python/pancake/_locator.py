@@ -18,11 +18,12 @@ from typing import NamedTuple, Optional
 import ctypes
 
 from . import _constants as _abi
-from ._errors import _check
+from ._errors import PancakeError, _check
 from ._ffi_ocapn import _lib
 
 _OK = _abi.OK
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
+_ERR_BUFFER_TOO_SMALL = _abi.ERR_BUFFER_TOO_SMALL
 
 # A redeemed-handoff token is a far id from a reserved high range, disjoint from
 # any wire import, so it can never alias one (PANCAKE_REDEEMED_TOKEN_BASE).
@@ -37,7 +38,7 @@ def encode_peer_locator(transport: str, designator: str, direct_addresses: str =
     the exporter; a non-empty ``direct_addresses`` (comma-separated socket
     addresses) adds a ``direct-addresses`` hint so a cross-process recipient dials
     it directly with no discovery service (an iroh exporter reachable only by
-    address). The result feeds :meth:`Connection.set_exporter_locator`. An empty
+    address). The result feeds :meth:`Session.set_exporter_locator`. An empty
     ``direct_addresses`` yields a hint-less location identical to the exporter's
     own signed record, so a TCP or discovery-reachable exporter needs no
     override."""
@@ -167,11 +168,53 @@ def format_peer_uri(transport: str, designator: str, hints: "Optional[dict[str, 
         need = out_len.value
         if rc == _OK:
             return buf.raw[:need].decode("utf-8")
-        if rc == _ERR_INVALID_ARGUMENT and need > cap:
+        if rc == _ERR_BUFFER_TOO_SMALL and need > cap:
             cap = need
             continue
         _check(rc)
 
+
+
+def socket_addr_designator(host_or_peer, port: int | None = None) -> str:
+    """Render host:port as a tcp designator. IPv6 hosts need brackets so the
+    core last-colon split stays unambiguous. Accepts ``(host, port)`` from a
+    socket peername/getsockname, or ``(host, port)`` as two arguments."""
+    if port is None:
+        host, port = host_or_peer[0], int(host_or_peer[1])
+    else:
+        host = host_or_peer
+    if ":" in host and not (host.startswith("[") and host.endswith("]")):
+        return f"[{host}]:{port}"
+    return f"{host}:{port}"
+
+
+def host_port_from_direct_hint(hint: str) -> "tuple[str, int]":
+    """Split a ``direct-addresses`` hint into host and port (first address when
+    comma-separated)."""
+    first = hint.split(",", 1)[0].strip()
+    if not first:
+        raise PancakeError(_ERR_INVALID_ARGUMENT, "keyed-tcp requires a non-empty direct-addresses hint")
+    try:
+        return designator_host_port(first)
+    except PancakeError:
+        raise PancakeError(_ERR_INVALID_ARGUMENT, f"direct-addresses hint is not host:port: {first}")
+
+
+def designator_host_port(designator: str) -> "tuple[str, int]":
+    """Split a bare designator as ``host:port`` through the core grammar
+    (``pancake_designator_host_port``). Prefer this over minting a peer URI
+    just to call :func:`parse_locator`."""
+    data = designator.encode()
+    buf = ctypes.create_string_buffer(data, len(data) or 1)
+    hp = ctypes.c_void_p()
+    hn = ctypes.c_size_t()
+    hport = ctypes.c_uint16()
+    _check(_lib.pancake_designator_host_port(
+        ctypes.cast(buf, ctypes.c_void_p), len(data),
+        ctypes.byref(hp), ctypes.byref(hn), ctypes.byref(hport),
+    ))
+    host = (ctypes.string_at(hp, hn.value).decode("utf-8") if hp.value and hn.value else "")
+    return host, int(hport.value)
 
 def tcp_locator(host: str, port: int) -> str:
     """Build a ``tcp`` locator from a literal host and port:
@@ -179,4 +222,16 @@ def tcp_locator(host: str, port: int) -> str:
     for the common case, a caller holding a host and port passes
     ``connect(tcp_locator(host, port))`` instead of hand-formatting the URI.
     ``host:port`` is not a dial of its own; it is a locator like any other."""
-    return format_peer_uri("tcp", f"{host}:{port}")
+    return format_peer_uri(_abi.TRANSPORT_TCP, socket_addr_designator(host, port))
+
+
+def keyed_tcp_locator(designator: str, host: str, port: int) -> str:
+    """Build a ``keyed-tcp`` locator: the designator is the listener's Ed25519
+    public key in canonical hex, and ``host``/``port`` ride the
+    ``direct-addresses`` hint (ADR-0075). A partner dials with :func:`connect`
+    and re-dials after a restart with only the hint updated."""
+    return format_peer_uri(
+        _abi.TRANSPORT_KEYED_TCP,
+        designator,
+        {_abi.HINT_DIRECT_ADDRESSES: socket_addr_designator(host, port)},
+    )

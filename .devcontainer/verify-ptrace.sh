@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Confirm ptrace works for gdb and strace (requires devcontainer runArgs).
+# Confirm ptrace works for gdb and strace (requires compose cap_add / security_opt).
 
 set -euo pipefail
 

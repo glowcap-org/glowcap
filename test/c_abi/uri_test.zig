@@ -165,7 +165,7 @@ test "format reports the needed length when the buffer is too small" {
     const designator = "127.0.0.1:9000";
     var tiny: [4]u8 = undefined;
     var out_len: usize = 0;
-    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_uri_format_peer(
+    try std.testing.expectEqual(c.PANCAKE_ERR_BUFFER_TOO_SMALL, c.pancake_uri_format_peer(
         transport.ptr,
         transport.len,
         designator.ptr,
@@ -242,5 +242,42 @@ test "host_port refuses a designator without the grammar" {
     try std.testing.expectEqual(
         c.PANCAKE_ERR_INVALID_ARGUMENT,
         c.pancake_locator_host_port(loc, &host_ptr, &host_len, &port),
+    );
+}
+
+test "designator_host_port splits without a locator handle" {
+    const designator = "127.0.0.1:9045";
+    var host_ptr: ?[*]const u8 = null;
+    var host_len: usize = 0;
+    var port: u16 = 0;
+    try std.testing.expectEqual(
+        c.PANCAKE_OK,
+        c.pancake_designator_host_port(designator.ptr, designator.len, &host_ptr, &host_len, &port),
+    );
+    try std.testing.expectEqualStrings("127.0.0.1", host_ptr.?[0..host_len]);
+    try std.testing.expectEqual(@as(u16, 9045), port);
+}
+
+test "designator_host_port unwraps a bracketed IPv6 literal" {
+    const designator = "[::1]:9046";
+    var host_ptr: ?[*]const u8 = null;
+    var host_len: usize = 0;
+    var port: u16 = 0;
+    try std.testing.expectEqual(
+        c.PANCAKE_OK,
+        c.pancake_designator_host_port(designator.ptr, designator.len, &host_ptr, &host_len, &port),
+    );
+    try std.testing.expectEqualStrings("::1", host_ptr.?[0..host_len]);
+    try std.testing.expectEqual(@as(u16, 9046), port);
+}
+
+test "designator_host_port refuses a designator without the grammar" {
+    const designator = "abc123nodeid";
+    var host_ptr: ?[*]const u8 = null;
+    var host_len: usize = 0;
+    var port: u16 = 0;
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        c.pancake_designator_host_port(designator.ptr, designator.len, &host_ptr, &host_len, &port),
     );
 }

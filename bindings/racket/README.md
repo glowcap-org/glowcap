@@ -3,17 +3,19 @@
 A Racket consumer of the pancake C ABI archives. The binding mirrors the
 à-la-carte archive set (ADR-0059): one public module for the core, one per
 transport. You compose the pieces you need: `(require "pancake.rkt")` for the
-connection surface, then the transport module you want, the same way a C
+session surface, then the transport module you want, the same way a C
 consumer links archives or a Zig consumer imports modules. See
 [`../README.md`](../README.md) for the shipped C ABI surface and how the
 bindings are gated.
 
-The binding exposes one tier: the `connection` over the byte-fed host archive
-(`libpancake_driver`, ADR-0072). The raw `pancake_peer_*` family has no Racket
-wrapper — it stays a C-consumer surface, covered by the Zig C-ABI tests and
-the C examples. The wire codec is a host option: `connect` and `listen` take
-`#:codec` (`'syrup` by default, `'capnp` for a Cap'n Proto session; both ends
-must agree, exactly as on the C tier's `pancake_host_new`). The upstream
+The binding exposes one tier: the CapTP `session` over the byte-fed host
+archive (`libpancake_driver`, ADR-0072 / ADR-0079). The host owns an
+`engine.Node` (sans-io router); Goblins `mycapn` is two roles — endpoint ≈
+host, router tables ≈ `engine.Node`. The raw `pancake_peer_*` family has no
+Racket wrapper — it stays a C-consumer surface, covered by the Zig C-ABI tests
+and the C examples. The wire codec is a host option: `connect` and `listen`
+take `#:codec` (`'syrup` by default, `'capnp` for a Cap'n Proto session; both
+ends must agree, exactly as on the C tier's `pancake_host_new`). The upstream
 pre-spec profile is not on the binding surface.
 
 ## Module map
@@ -23,7 +25,7 @@ the core links no transport, and requiring one transport links no other.
 
 | Module                                     | Archive it loads                         | What it offers                                                                                                                                                                                                                                                                                       |
 | ------------------------------------------ | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`pancake.rkt`](pancake.rkt)               | `libpancake_ocapn` + `libpancake_driver` | The core: the `connection` surface (`connect`, `listen`, `accept`, `conn-*`) over the byte-fed host archive (`libpancake_driver`, ADR-0072) and Racket's own scheduler-aware TCP ports, the Goblins-shaped vat (`spawn`, `$`, `<-`, `on`, `bcom`, `methods`), native-value marshalling, typed errors, and OCapN locator URIs.                                                                          |
+| [`pancake.rkt`](pancake.rkt)               | `libpancake_ocapn` + `libpancake_driver` | The core: the CapTP `session` surface (`connect`, `listen`, `accept`, `session-*`) over the byte-fed host archive (`libpancake_driver`, ADR-0072) and Racket's own scheduler-aware TCP ports, the Goblins-shaped vat (`spawn`, `$`, `<-`, `on`, `bcom`, `methods`), native-value marshalling, typed errors, and OCapN locator URIs.                                                                          |
 | [`pancake-tcp.rkt`](pancake-tcp.rkt)       | `libpancake_net_transport_tcp`           | The explicit blocking TCP netlayer handles: `make-netlayer`, `netlayer-listen`, `netlayer-connect`, `listener-accept`, the `endpoint-*` whole-frame shuttle, and `tcp-last-error`.                                                                                                                   |
 | [`pancake-inproc.rkt`](pancake-inproc.rkt) | `libpancake_net_transport_inproc`        | The socket-free in-process netlayer, addressed by a string designator: `make-inproc-netlayer`, `inproc-netlayer-listen`, `inproc-netlayer-connect`, `inproc-listener-accept`, the `inproc-endpoint-*` shuttle, and `inproc-last-error`.                                                              |
 | [`pancake-iroh.rkt`](pancake-iroh.rkt)     | `libpancake_net_transport_iroh` (lazily) | The optional encrypted-QUIC netlayer: `listen-iroh`, the `iroh-server-*` surface, and the `IROH-REACH-*` postures. `connect` loads it on the first `iroh` locator, so a program that never speaks iroh neither links the library nor requires this module.                                           |
@@ -33,17 +35,17 @@ the frame layout through the core's transport seam, and they are
 symbol-disjoint) but they never depend on each other.
 
 ```racket
-(require "pancake.rkt")        ; the connection surface and the vat
+(require "pancake.rkt")        ; the session surface and the vat
 
 (define server (listen "127.0.0.1" 0))
-(define conn (connect (tcp-locator "127.0.0.1" (server-port server))))
-(define svc (conn-fetch conn "svc"))        ; a partner's published capability
-(conn-send conn svc 'add 5)                 ; eventual-send, settled to a value
+(define sess (connect (tcp-locator "127.0.0.1" (server-port server))))
+(define svc (session-fetch sess "svc"))        ; a partner's published capability
+(session-send sess svc 'add 5)                 ; eventual-send, settled to a value
 ```
 
 One rule inside a hosted behavior: a method runs on the pumping thread, inside
-the enclosing feed, so it must neither drive the host (a `conn-fetch` or
-`conn-send` on this node mid-turn is refused loud by the C tier's callback
+the enclosing feed, so it must neither drive the host (a `session-fetch` or
+`session-send` on this host mid-turn is refused loud by the C tier's callback
 latch, and the refusal breaks the method's own answer — the smoke pins this)
 nor park the thread on something only another green thread can provide (Racket
 CS may run the trampoline in atomic mode, where a blocking
@@ -60,6 +62,9 @@ The raw `ffi/unsafe` layer is never required by a consumer; it follows Racket's
   allocator, reference, argument, and event cstructs the archives agree on by
   layout. It opens no library, the Racket mirror of the C ABI's `c_abi/shared`
   leaf.
+- [`private/lib-resolve.rkt`](private/lib-resolve.rkt): publishable archive
+  resolve + open (`open-pancake-archive`), the ADR-0077 cascade for every
+  per-archive loader.
 - [`private/ffi-ocapn.rkt`](private/ffi-ocapn.rkt): opens `libpancake_ocapn` and
   binds the library-level `pancake_*` family the binding consumes: version,
   last error, the managed-frame release, the locator URI grammar, and the
@@ -119,26 +124,38 @@ binding-internal transport seam (`private/seam.rkt` re-provides it in turn).
   (`parse-locator`, `format-peer-uri`, `tcp-locator`).
 - [`private/async.rkt`](private/async.rkt): the transport layer: the
   `async-transport` closures (Racket TCP ports here, iroh injected by its
-  companion) and the per-connection inbox. Framing is the core's: the pump
-  hands the inbox to `pancake_host_conn_feed_bytes` and keeps only the
+  companion) and the per-session inbox. Framing is the core's: the pump
+  hands the inbox to `pancake_host_session_feed_bytes` and keeps only the
   unconsumed tail.
-- [`private/host.rkt`](private/host.rkt): the `node` over the byte-fed host
-  handle (pancake's `mycapn`): the reentrant host lock, the connection
-  registry, node-wide giftables, gift-id entropy, and the iroh redeem posture.
-- [`private/connection.rkt`](private/connection.rkt): the high-level connection
-  surface: the `connection`/`server` structs, the pump (feed, action drain,
-  outbound writes), the dial executor a DIAL action names, and the `conn-*`
+- [`private/host.rkt`](private/host.rkt): the CapTP `host` over the byte-fed
+  host handle (owns `engine.Node`; Goblins `mycapn` endpoint half): the
+  reentrant host lock, the session registry, host-wide giftables, gift-id
+  entropy, and the iroh redeem posture.
+- [`private/action.rkt`](private/action.rkt): host-action decode+execute
+  (`drain-host-actions!` / `host-next-action!`).
+- [`private/promise.rkt`](private/promise.rkt): far vows (`session-vow` /
+  `session-index` / `session-untag` / settle).
+- [`private/gc.rkt`](private/gc.rkt): ADR-0063 opt-in distributed GC.
+- [`private/dial.rkt`](private/dial.rkt): unified dial executor (`plan_dial` +
+  `connect` + redeem).
+- [`private/listen.rkt`](private/listen.rkt): `server` / `listen` / keyed-tcp
+  hosting.
+- [`private/pump.rkt`](private/pump.rkt): conn byte path (feed / flush / EOF /
+  `break_far_vows`).
+- [`private/session.rkt`](private/session.rkt): the CapTP partner surface: the
+  `session` struct, mint/handshake (`establish-*`), and the `session-*`
   application verbs.
 
 [`zig-smoke.rkt`](zig-smoke.rkt) is the consumer `zig build bindings` runs: it
-drives real OCapN conversations through the connection surface — keyed
+drives real OCapN conversations through the session surface — keyed
 handshakes, pipelining, projections, proxies, a Cap'n Proto session through
 `#:codec`, distributed GC observed on the wire through a sniffing relay — then
 composes the host tier with each explicit
 transport module to shuttle a counter call over the in-process and TCP
 netlayers. Racket must be on `PATH` (provided by
-[`../../.devcontainer/`](../../.devcontainer/)); the build step resolves the
-shared libraries relative to `zig-out/`.
+[`../../.devcontainer/`](../../.devcontainer/)); the build step typically
+resolves archives from in-tree `zig-out/lib` (ADR-0077 rung 3), or from
+`PANCAKE_LIB_DIR` / the versioned download cache when configured.
 
 ```sh
 zig build bindings        # builds the pancake archives, runs every binding consumer

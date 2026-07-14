@@ -40,13 +40,18 @@ pub const CaptpVersion = enum {
         };
     }
 
+    /// The inverse of `wireString`, derived from it: every version is matched by
+    /// the exact string `wireString` emits, so the two directions cannot drift
+    /// and a new version is covered the moment it has a `wireString` arm. The
+    /// lenient `"ocapn-1.0"` alias stays an explicit branch: it is a plausible
+    /// spelling of the same version that `wireString` never emits (no conformance
+    /// fixture pins a peer that sends it), so refusing it would buy nothing.
     pub fn fromWireString(wire: []const u8) ?CaptpVersion {
-        if (std.mem.eql(u8, wire, "1.0")) return .v1_0;
-        // "ocapn-1.0" is accepted leniently for interop: no fixture in the
-        // conformance corpus pins a peer that emits it, but it is a plausible
-        // spelling of the same version and refusing it would buy nothing.
+        inline for (@typeInfo(CaptpVersion).@"enum".fields) |field| {
+            const version: CaptpVersion = @enumFromInt(field.value);
+            if (std.mem.eql(u8, version.wireString(), wire)) return version;
+        }
         if (std.mem.eql(u8, wire, "ocapn-1.0")) return .v1_0;
-        if (std.mem.eql(u8, wire, "pancake-pre-spec")) return .pre_spec;
         return null;
     }
 };

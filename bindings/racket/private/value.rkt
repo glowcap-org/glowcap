@@ -1,12 +1,12 @@
 #lang racket/base
 ;; Internal: the public value vocabulary — the reference and event structs the
-;; marshalling, the vat, and the connection surface exchange as native Racket
+;; marshalling, the vat, and the session surface exchange as native Racket
 ;; values. Pure data; imports nothing. `pancake.rkt` re-provides the public
 ;; subset.
 
 (provide (all-defined-out))
 
-(struct near-ref (id promise) #:transparent)   ; a local export this peer hosts
+(struct near-ref (id promise) #:transparent)   ; a local export this session hosts
 (struct far-ref (id promise) #:transparent)    ; a partner-hosted import this peer holds
 (struct promise-ref (answer) #:transparent)
 (struct sturdy () #:transparent)

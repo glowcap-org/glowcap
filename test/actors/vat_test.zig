@@ -250,17 +250,17 @@ test "local tell runs the turn with no observable promise" {
     try std.testing.expectEqual(@as(i64, 2), (try vat.near(counter, .{ .verb = "get" })).integer);
 }
 
-/// A foreign actor's state (ADR-0071): owned by the caller, reached only through
-/// the C-ABI-shaped `ForeignActor` callbacks. Stands in for a binding's hosted
+/// A hosted actor's state (ADR-0071): owned by the caller, reached only through
+/// the C-ABI-shaped `HostedActor` callbacks. Stands in for a binding's hosted
 /// object with a Zig thunk — `handle` gets the full `Turn`, so it can eventual-
 /// send like a native actor; `free` reclaims the caller-owned state.
-const ForeignState = struct {
+const HostedState = struct {
     allocator: std.mem.Allocator,
     n: i64,
     sink: ?actors.Ref = null,
 
     fn handle(ctx: *anyopaque, turn: *Turn, msg: Message) anyerror!model.Argument {
-        const self: *ForeignState = @ptrCast(@alignCast(ctx));
+        const self: *HostedState = @ptrCast(@alignCast(ctx));
         if (std.mem.eql(u8, msg.verb, "get")) return .{ .integer = self.n };
         if (std.mem.eql(u8, msg.verb, "add")) {
             self.n += msg.arg(0).integer;
@@ -274,55 +274,55 @@ const ForeignState = struct {
     }
 
     fn free(ctx: *anyopaque) void {
-        const self: *ForeignState = @ptrCast(@alignCast(ctx));
+        const self: *HostedState = @ptrCast(@alignCast(ctx));
         self.allocator.destroy(self);
     }
 };
 
-test "spawnForeign hosts a foreign actor: near-call, eventual-send, and a rich-Turn send" {
+test "spawnHosted hosts a hosted actor: near-call, eventual-send, and a rich-Turn send" {
     const allocator = std.testing.allocator;
     var vat = actors.Vat.init(allocator);
     defer vat.deinit();
 
     const sink = try vat.spawn(Counter, .{ .n = 0 });
-    const state = try allocator.create(ForeignState);
+    const state = try allocator.create(HostedState);
     state.* = .{ .allocator = allocator, .n = 10, .sink = sink };
     // The vat owns `state` from here: its box's `free` reclaims it at `deinit`
     // (the testing allocator would report a leak otherwise).
-    const foreign = try vat.spawnForeign(.{ .ctx = state, .handle = ForeignState.handle, .free = ForeignState.free });
+    const hosted = try vat.spawnHosted(.{ .ctx = state, .handle = HostedState.handle, .free = HostedState.free });
 
-    // Near-call reaches the foreign behavior and its mutable, foreign-owned state.
-    try std.testing.expectEqual(@as(i64, 10), (try vat.near(foreign, .{ .verb = "get" })).integer);
-    _ = try vat.near(foreign, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
-    try std.testing.expectEqual(@as(i64, 15), (try vat.near(foreign, .{ .verb = "get" })).integer);
+    // Near-call reaches the hosted behavior and its mutable, caller-owned state.
+    try std.testing.expectEqual(@as(i64, 10), (try vat.near(hosted, .{ .verb = "get" })).integer);
+    _ = try vat.near(hosted, .{ .verb = "add", .args = &.{.{ .integer = 5 }} });
+    try std.testing.expectEqual(@as(i64, 15), (try vat.near(hosted, .{ .verb = "get" })).integer);
 
-    // An eventual-send to the foreign actor drives and settles through its handle.
-    _ = try vat.send(foreign, .{ .verb = "add", .args = &.{.{ .integer = 100 }} });
+    // An eventual-send to the hosted actor drives and settles through its handle.
+    _ = try vat.send(hosted, .{ .verb = "add", .args = &.{.{ .integer = 100 }} });
     try vat.drive();
-    try std.testing.expectEqual(@as(i64, 115), (try vat.near(foreign, .{ .verb = "get" })).integer);
+    try std.testing.expectEqual(@as(i64, 115), (try vat.near(hosted, .{ .verb = "get" })).integer);
 
-    // The foreign handle uses the full Turn: it eventual-sends to a co-hosted
-    // native actor. Drive runs that queued turn, so a foreign actor sends
+    // The hosted handle uses the full Turn: it eventual-sends to a co-hosted
+    // native actor. Drive runs that queued turn, so a hosted actor sends
     // exactly like a native one.
-    _ = try vat.near(foreign, .{ .verb = "bump-sink" });
+    _ = try vat.near(hosted, .{ .verb = "bump-sink" });
     try vat.drive();
     try std.testing.expectEqual(@as(i64, 1), (try vat.near(sink, .{ .verb = "get" })).integer);
 }
 
-test "a vat holding a foreign actor is not snapshottable" {
+test "a vat holding a hosted actor is not snapshottable" {
     const allocator = std.testing.allocator;
     var vat = actors.Vat.init(allocator);
     defer vat.deinit();
 
-    const state = try allocator.create(ForeignState);
+    const state = try allocator.create(HostedState);
     state.* = .{ .allocator = allocator, .n = 0 };
-    _ = try vat.spawnForeign(.{ .ctx = state, .handle = ForeignState.handle, .free = ForeignState.free });
+    _ = try vat.spawnHosted(.{ .ctx = state, .handle = HostedState.handle, .free = HostedState.free });
 
     // The vat cannot clone state it does not own, so snapshot refuses loud.
     try std.testing.expectError(actors.Error.NotSnapshottable, vat.snapshot());
 }
 
-test "spawnForeign whose box allocation fails still runs the foreign free" {
+test "spawnHosted whose box allocation fails still runs the hosted free" {
     var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{});
     var vat = actors.Vat.init(failing.allocator());
     defer vat.deinit();
@@ -341,13 +341,13 @@ test "spawnForeign whose box allocation fails still runs the foreign free" {
         }
     };
 
-    // Arm the next vat allocation (makeForeignBox's box) to fail, so the spawn
+    // Arm the next vat allocation (makeHostedBox's box) to fail, so the spawn
     // fails before the actor is installed. The free-on-every-outcome contract
-    // still reclaims the foreign ctx.
+    // still reclaims the hosted ctx.
     failing.fail_index = failing.alloc_index;
     try std.testing.expectError(
         error.OutOfMemory,
-        vat.spawnForeign(.{ .ctx = &freed, .handle = F.handle, .free = F.free }),
+        vat.spawnHosted(.{ .ctx = &freed, .handle = F.handle, .free = F.free }),
     );
     try std.testing.expect(freed);
     failing.fail_index = std.math.maxInt(usize);
@@ -374,7 +374,7 @@ test "Turn.breakWith breaks a served answer with the handler's own words and ref
         }
     };
     var unused: u8 = 0;
-    const gate = try host_vat.spawnForeign(.{ .ctx = &unused, .handle = Gate.handle, .free = null });
+    const gate = try host_vat.spawnHosted(.{ .ctx = &unused, .handle = Gate.handle, .free = null });
     try host_vat.bindExport(gate, 5);
     // Hand-wired pairing: the caller addresses position 5 out-of-band, so the
     // bound position takes an explicit grant.

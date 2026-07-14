@@ -3,7 +3,7 @@ id: ADR-0068
 status: accepted
 date: 2026-07-05
 tags: [driver, actors, handoff, three-party, host, crossed-hellos, api]
-decision: "The native multi-connection tier is `driver.Host`: one identity, one `engine.Node`, one crossed-hellos registry, many node-registered connections. An introduction is a typed third outcome — `actors.Resolution` and `driver.Settled` gain a `.give` arm projected in the vat's far-resolve path while the event frame is live (the verbatim signed envelope and dialable locator URI survive only there) — and the native spellings of the two handoff halves are explicit where a binding's are invisible: `Host.redeem(from, give)` is the blocking recipient executor over the ADR-0067 serve step, and origination is the vat's served-reply interceptor, installed by the host on every connection, so a published actor that returns a foreign-homed capability answers with a signed give and no new public verb exists. The host also owns the crossed-hellos tiebreak: `dial` registers the outbound before bytes move, only *accepted* connections compare inbound start-sessions against the registry, and a listening host signs its first listener's bound designator into every dial so the comparison keys on a real address. Proven hermetically by the three-host scenario in `test/driver/host_three_party_test.zig` and live by `zig build goblins-handoff`, whose driver is the tier's consumer."
+decision: "The native multi-connection tier is `driver.core.Host`: one identity, one `engine.Node`, one crossed-hellos registry, many node-registered connections. An introduction is a typed third outcome — `actors.Resolution` and `driver.Settled` gain a `.give` arm projected in the vat's far-resolve path while the event frame is live (the verbatim signed envelope and dialable locator URI survive only there) — and the native spellings of the two handoff halves are explicit where a binding's are invisible: `Host.redeem(from, give)` is the blocking recipient executor over the ADR-0067 serve step, and origination is the vat's served-reply interceptor, installed by the host on every connection, so a published actor that returns a foreign-homed capability answers with a signed give and no new public verb exists. The host also owns the crossed-hellos tiebreak: `dial` registers the outbound before bytes move, only *accepted* connections compare inbound start-sessions against the registry, and a listening host signs its first listener's bound designator into every dial so the comparison keys on a real address. Proven hermetically by the three-host scenario in `test/driver/core_host_test.zig` and live by `zig build goblins-handoff`, whose driver is the tier's consumer."
 supersedes: []
 superseded_by: []
 ---
@@ -18,7 +18,7 @@ the shared gift registry, and the serve step, so an application redeems and
 originates handoffs without naming them. Native Zig had no such tier. The
 driver's `Connection` is one-connection-one-vat and embeds its peer by value,
 so no existing surface could produce a node-registered connection; a
-`ConnectedVat` draws a session secret it does not retain, so it could not even
+`BlockingSession` draws a session secret it does not retain, so it could not even
 sign the withdraw a gifter's give addresses; and a handoff give reaching a
 native caller arrived as a `.fulfilled` argument whose two load-bearing parts
 — the verbatim signed envelope (a span over the raw frame) and the dial hints
@@ -39,7 +39,7 @@ can observe; the actors layer had no seam for it.
 
 One composite owns what the bindings' composites own, spelled Zig-natively.
 
-`driver.Host` holds the identity seed, the `engine.Node`, the netlayer slice,
+`driver.core.Host` holds the identity seed, the `engine.Node`, the netlayer slice,
 and a crossed-hellos registry. `Host.dial` and `Host.listen`/`accept` mint
 owning connections whose peers are node-registered and whose keyed sessions
 sign with the host identity, so an exporter verifies a handoff signature
@@ -85,7 +85,7 @@ exporter.
 ## Consequences
 
 The native tier reaches parity with the bindings, proven the same way: the
-hermetic three-host scenario (`test/driver/host_three_party_test.zig`) runs
+hermetic three-host scenario (`test/driver/core_host_test.zig`) runs
 originate, give, redeem, and the direct call over real loopback sockets — the
 first time `zig build check` proves native origination — and the live
 `goblins-handoff` driver consumes `Host.redeem` against a real Goblins
@@ -103,17 +103,16 @@ fails open.
 The single-connection tier (`connect`/`listen`) stays beneath the host for the
 client that never holds two connections; the fan-out tier (`LoopHost`/
 `LoopDialer`) remains TCP-only and node-less, a stated boundary in
-`docs/boundaries.md` — the blocking host owns handoffs, the loop owns scale,
+`docs/boundaries.md` — `driver.core.Host` owns handoffs, the loop owns scale,
 and growing the loop under the host is the direction that retires the
 boundary.
 
 ## Amendment (2026-07-11): executed and superseded in part by ADR-0072
 
 The tier this record designed shipped, then ADR-0072 rebuilt it over the
-byte-fed core: the blocking tier is now `driver.BlockingHost`, a socket loop
-over `driver_core.Host`, and `Host.redeem` no longer exists — the core
-auto-redeems every give inside the serve step, so no public redeem verb
-remains. The closing fan-out boundary was retired the other way: ADR-0072's
-fourth amendment deleted the node-less loop tier rather than growing it under
-the host, and the remaining direction is feeding the byte-fed core from
-`net.Loop`.
+byte-fed core: the Zig multi-connection path is now `driver.Bridge` +
+`completion.Loop` over `driver_core.Host` (ADR-0076), and `Host.redeem` no
+longer exists — the core auto-redeems every give inside the serve step, so no
+public redeem verb remains. The closing fan-out boundary was retired the other
+way: ADR-0072's fourth amendment deleted the node-less loop tier rather than
+growing it under the host; the loop → Host bridge landed as ADR-0076.

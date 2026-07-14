@@ -36,6 +36,18 @@ test "C ABI default peer constructor starts in negotiating state" {
     try std.testing.expectEqual(@as(i32, 0), c.pancake_peer_session_is_open(peer));
 }
 
+test "C ABI expect_partner_key accepts 32 bytes and refuses a wrong length" {
+    var peer: ?*c.PancakePeer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new(&peer));
+    defer c.pancake_peer_release(peer);
+
+    const key = [_]u8{0xaa} ** 32;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_expect_partner_key(peer, &key, key.len));
+    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_peer_expect_partner_key(peer, &key, 31));
+    try std.testing.expectEqual(c.PANCAKE_ERR_INVALID_ARGUMENT, c.pancake_peer_expect_partner_key(peer, &key, 0));
+    try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_peer_expect_partner_key(null, &key, key.len));
+}
+
 test "C ABI raw-open constructor is explicit fixture surface" {
     var peer: ?*c.PancakePeer = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&peer));
@@ -251,33 +263,32 @@ fn drainOutbound(peer: ?*c.PancakePeer) !void {
 }
 
 test "C ABI gifter deposit + shared-registry withdraw round-trips across two exporter peers" {
-    // An exporter node serves a deposit on one connection (to the gifter) and
-    // the matching withdraw on another (the recipient's fresh dial). Registering
-    // both exporter peers on one node is what shares the gift registry between
-    // them, so the withdraw finds what the deposit recorded; a per-peer registry
-    // would park the withdraw forever. The gifter and recipient legs drive the
-    // bare-peer gifter primitives: pancake_build_handoff_give,
+    // An exporter serves a deposit on one connection (to the gifter) and the
+    // matching withdraw on another (the recipient's fresh dial). Sharing one
+    // gift registry across both exporter peers is what lets the withdraw find
+    // what the deposit recorded; a per-peer registry would park the withdraw
+    // forever. The test wires that registry with engine.Node as a fixture
+    // (registerPeer binds each peer to the node's shared gifts) and then
+    // drives the bare-peer gifter primitives: pancake_build_handoff_give,
     // pancake_peer_send_deposit_gift, and pancake_peer_send_withdraw_gift.
     const crypto = pancake.foundation.crypto;
+    const engine = pancake.ocapn.engine;
 
-    // The exporter node's two peers share one identity (the node seed, which
-    // also signs each keyed start-session below) and the node's registry.
+    // The exporter's two peers share one identity (the node seed, which also
+    // signs each keyed start-session below) and the node's registry.
     const exporter_seed = [_]u8{0x22} ** 32;
     const gifter_seed = [_]u8{0x33} ** 32;
     const recipient_seed = [_]u8{0x11} ** 32;
 
-    var exporter_node: ?*c.PancakeNode = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_new(&exporter_seed, exporter_seed.len, &exporter_node));
-    defer c.pancake_node_release(exporter_node);
+    var exporter_node = engine.Node.init(std.testing.allocator, exporter_seed);
+    defer exporter_node.deinit();
 
-    // Exporter↔gifter session (deposit lands here) and exporter↔recipient session
-    // (withdraw lands here); the node owns both peers and frees them.
-    var conn_to_gifter: u64 = 0;
-    var conn_to_recipient: u64 = 0;
-    var exporter_to_gifter: ?*c.PancakePeer = null;
-    var exporter_to_recipient: ?*c.PancakePeer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_register_conn(exporter_node, &conn_to_gifter, &exporter_to_gifter));
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_node_register_conn(exporter_node, &conn_to_recipient, &exporter_to_recipient));
+    // Exporter↔gifter session (deposit lands here) and exporter↔recipient
+    // session (withdraw lands here); the node owns both peers and frees them.
+    const conn_to_gifter = try exporter_node.registerPeer(.{});
+    const conn_to_recipient = try exporter_node.registerPeer(.{});
+    const exporter_to_gifter: ?*c.PancakePeer = @ptrCast(exporter_node.peer(conn_to_gifter).?);
+    const exporter_to_recipient: ?*c.PancakePeer = @ptrCast(exporter_node.peer(conn_to_recipient).?);
 
     var gifter: ?*c.PancakePeer = null;
     var recipient_peer: ?*c.PancakePeer = null;

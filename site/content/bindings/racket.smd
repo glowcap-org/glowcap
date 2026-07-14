@@ -10,7 +10,7 @@ The Racket binding loads the installed shared pancake archives and mirrors the
 à-la-carte archive set. The core module
 [`bindings/racket/pancake.rkt`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/racket/pancake.rkt)
 (over `libpancake_ocapn` and the byte-fed `libpancake_driver`) presents the
-`connection` surface, native Racket values, and event structs — one tier; the
+`session` surface, native Racket values, and event structs — one tier; the
 raw peer family stays a C-consumer surface with no Racket wrapper. You
 `require` one module per transport (`pancake-tcp.rkt`,
 `pancake-inproc.rkt`, and the lazy `pancake-iroh.rkt`) to add only that
@@ -21,8 +21,8 @@ family, because it reads the way a
 ## The same round-trip
 
 The [Start building]($link.page('start')) round-trip (connect, fetch, call,
-handle the reply) reads like this in Racket, where `conn-send` pumps the
-connection and hands back the reply.
+handle the reply) reads like this in Racket, where `session-send` pumps the
+session and hands back the reply.
 
 > []($block.attrs('code-tabs'))
 > **tcp**
@@ -33,9 +33,9 @@ connection and hands back the reply.
 > (define partner (tcp-locator "127.0.0.1" 9099))
 >
 > (define c (connect partner))
-> (define greeter (conn-fetch c "greeter")) ; a capability, by name
-> (printf "~a\n" (conn-send c greeter 'greet "world"))
-> (connection-close! c)
+> (define greeter (session-fetch c "greeter")) ; a capability, by name
+> (printf "~a\n" (session-send c greeter 'greet "world"))
+> (session-close! c)
 > ```
 > **iroh**
 > ```scheme
@@ -47,9 +47,9 @@ connection and hands back the reply.
 > (define partner "ocapn://3b6a…da29.iroh")
 >
 > (define c (connect partner IROH-REACH-DISCOVERY))
-> (define greeter (conn-fetch c "greeter")) ; a capability, by name
-> (printf "~a\n" (conn-send c greeter 'greet "world"))
-> (connection-close! c)
+> (define greeter (session-fetch c "greeter")) ; a capability, by name
+> (printf "~a\n" (session-send c greeter 'greet "world"))
+> (session-close! c)
 > ```
 
 The iroh tab swaps the built host-and-port locator for a bare node id and adds
@@ -65,8 +65,8 @@ Racket keeps the Goblins verbs intact. You define an actor constructor with
 `spawn` it. You
 call it near with `$`, send it eventually with `<-` or `<-np`, observe a promise
 with `on`, and become a new behavior with `bcom`, all inside `with-vat`. On top of
-that, `connect`, `conn-fetch`, and `conn-send` reach a partner, and
-`(accept (listen host port))` hands back the same `connection` that `connect`
+that, `connect`, `session-fetch`, and `session-send` reach a partner, and
+`(accept (listen bind_host port))` hands back the same `session` that `connect`
 returns.
 
 > **Near-call (`$`) and eventual-send (`<-`)**: the two ways to invoke an object,
@@ -78,10 +78,10 @@ returns.
 
 ## Async
 
-The async surface uses Racket's green threads and ports. A connection pumps
+The async surface uses Racket's green threads and ports. A session pumps
 the byte-fed host over a Racket port pair (`tcp-connect` on the dial side,
 `accept` on the listening side) or a transport a companion module injects; a
-background `(conn-serve conn)` thread keeps a served connection pumped, and
+background `(session-serve sess)` thread keeps a served session pumped, and
 `(on vow handler)` fires when a promise settles.
 
 ## Dogfood and example

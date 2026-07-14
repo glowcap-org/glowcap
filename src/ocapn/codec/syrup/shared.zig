@@ -74,10 +74,10 @@ pub const Error = error{
 /// around a recursive cycle, so
 /// these would otherwise have to fall back to the fully-erased error set and lose
 /// exhaustiveness at every call site. Naming the union — the codec's structural
-/// `Error`, the allocator's `OutOfMemory`, and `NoSpaceLeft` from the
-/// fixed-buffer length-prefix formatter the encoders use — keeps them precisely
-/// typed. (`NoSpaceLeft` is unreachable in practice: the buffer is sized for the
-/// widest integer; it is named here only because the formatter's type carries it.)
+/// `Error`, the allocator's `OutOfMemory`, and `NoSpaceLeft` — keeps them
+/// precisely typed. (`NoSpaceLeft` is unreachable: unsigned decimal write is
+/// hand-rolled into a 20-byte stack buffer sized for a u64; the name stays so
+/// WalkError callers do not churn.)
 pub const WalkError = Error || std.mem.Allocator.Error || error{NoSpaceLeft};
 
 /// The public encode entry points' error set: the recursive walk's `WalkError`

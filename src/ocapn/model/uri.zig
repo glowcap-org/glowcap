@@ -168,8 +168,9 @@ pub const HostPort = struct {
 /// brackets are stripped from the returned host, which is what a host resolver
 /// expects. The port must be a decimal `u16` and the host must be non-empty.
 /// This is the one definition of that grammar: the native TCP netlayer and the
-/// C ABI locator surface both split through it, so a consumer dialing with its
-/// own sockets validates the same way the native dialer does.
+/// C ABI (`pancake_designator_host_port` / `pancake_locator_host_port`) both split
+/// through it, so a consumer dialing with its own sockets validates the same
+/// way the native dialer does.
 pub fn splitHostPort(designator: []const u8) Error!HostPort {
     const colon = std.mem.lastIndexOfScalar(u8, designator, ':') orelse return Error.InvalidHostPort;
     var host = designator[0..colon];

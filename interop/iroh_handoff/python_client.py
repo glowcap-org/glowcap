@@ -38,11 +38,16 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
-from pancake import Ref, encode_peer_locator  # noqa: E402
+from pancake import (  # noqa: E402
+    HINT_DIRECT_ADDRESSES,
+    Ref,
+    TRANSPORT_IROH,
+    connect,
+    encode_peer_locator,
+    format_peer_uri,
+)
 from pancake.iroh import (  # noqa: E402
     Reachability,
-    connect_iroh,
-    connect_iroh_with_node,
     listen_iroh,
 )
 
@@ -83,7 +88,7 @@ def greeter(verb: str, args: list):
 async def run() -> None:
     # ── Exporter: a node-giftable greeter on its own endpoint ────────────────────
     exporter = listen_iroh(Reachability.DIRECT)
-    exporter.node.publish_giftable("greeter", greeter)
+    exporter.host.publish_giftable("greeter", greeter)
     exporter_id, exporter_addrs = await dialable(exporter)
     exporter_served: list = []
     exporter_task = asyncio.create_task(accept_loop_with_served(exporter, exporter_served))
@@ -92,9 +97,10 @@ async def run() -> None:
     # ── Gifter: dials the exporter under one identity, re-gifts the greeter ───────
     gifter = listen_iroh(Reachability.DIRECT)
     gifter_id, gifter_addrs = await dialable(gifter)
-    to_exporter = await connect_iroh_with_node(
-        exporter_id, exporter_addrs, Reachability.DIRECT, gifter.node
+    exporter_uri = format_peer_uri(
+        TRANSPORT_IROH, exporter_id, {HINT_DIRECT_ADDRESSES: exporter_addrs}
     )
+    to_exporter = await connect(exporter_uri, Reachability.DIRECT, host=gifter.host)
     greeter_ref = await to_exporter.fetch("greeter")
     # The exporter's own signed session record names it by node id alone — not
     # dialable under the relay-less Direct posture — so record its full dialable
@@ -106,13 +112,16 @@ async def run() -> None:
             return greeter_ref
         return None
 
-    gifter.node.publish_giftable("introducer", introducer)
+    gifter.host.publish_giftable("introducer", introducer)
     gifter_served: list = []
     gifter_task = asyncio.create_task(accept_loop_with_served(gifter, gifter_served))
     print(f"python-iroh-handoff: gifter published introducer on {gifter_id}")
 
     # ── Recipient: dials the gifter, redeems the give by dialing the exporter ─────
-    recipient = await connect_iroh(gifter_id, gifter_addrs, Reachability.DIRECT)
+    gifter_uri = format_peer_uri(
+        TRANSPORT_IROH, gifter_id, {HINT_DIRECT_ADDRESSES: gifter_addrs}
+    )
+    recipient = await connect(gifter_uri, Reachability.DIRECT)
     introducer_ref = await recipient.fetch("introducer")
     granted = await recipient.send(introducer_ref, "get-greeter", [])
     if not isinstance(granted, Ref):

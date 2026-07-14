@@ -301,3 +301,39 @@ test "pumpOver flushes the peer's queued outbound frames" {
     try std.testing.expect(progress.sent > 0);
     try std.testing.expectEqual(progress.sent, writer.buffered().len);
 }
+
+// R2 apex: the write-half abort-flush contract `Connection.flush` and `pumpOver`
+// share through `encodeAndFlush`. When `stepToIdle` fails it has already
+// projected the fail-loud `op:abort` onto outbound; the catch must best-effort
+// drain that abort to the wire (so the partner sees the close) and then surface
+// the classified cause. Previously only the read-half apply abort was pinned.
+test "encodeAndFlush drains the projected abort to the wire when stepToIdle fails, then surfaces the cause" {
+    const allocator = std.testing.allocator;
+
+    var peer = stubNegotiatingPeer(allocator);
+    defer peer.deinit();
+
+    // Queue two start-sessions for dispatch: the first establishes the session,
+    // the second is a duplicate session authority refuses, so the engine
+    // projects an `op:abort` onto outbound. Both ride the dispatch path, so it
+    // is `stepToIdle` that fails — exercising encodeAndFlush's abort-flush catch,
+    // not the read-half `applyStreamPrefix` path.
+    try peer.feedOwned(try startSessionFrame(allocator, "remote"));
+    try peer.feedOwned(try startSessionFrame(allocator, "remote"));
+
+    var empty = std.Io.Reader.fixed("");
+    var write_buf: [1024]u8 = undefined;
+    var writer = std.Io.Writer.fixed(&write_buf);
+    var spill: net.Spill = .{};
+    defer spill.deinit(allocator);
+
+    // pumpOver runs encodeAndFlush first: stepToIdle fails on the duplicate, the
+    // catch best-effort drains the projected abort to `w`, then classifies it.
+    try std.testing.expectError(error.ProtocolAbort, net.pumpOver(&peer, &empty, &writer, &spill));
+
+    // The fail-loud `op:abort` reached the wire (the contract's whole point), and
+    // the typed session-domain cause stays readable through `lastAbort`.
+    try std.testing.expect(std.mem.indexOf(u8, writer.buffered(), "op:abort") != null);
+    const cause = peer.lastAbort().?;
+    try std.testing.expectEqual(engine.abort_projection.Domain.session, cause.domain);
+}

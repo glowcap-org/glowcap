@@ -45,15 +45,16 @@ The framework-shaped pieces sit on top of the core, never inside it.
   `$`, send it eventually with `<-`, and observe the promise that comes back. It
   adds no protocol semantics the engine lacks; it is the friendlier face on the
   substrate.
-- **driver/core** is the sans-io multi-connection serve core (`Served`, the
-  byte-fed `Host`). It owns identity, the node, vows, and crossed hellos, and
+- **driver/core** is the sans-io multi-session CapTP serve core (`Served`, the
+  byte-fed `Host`). It owns identity, `engine.Node`, vows, and crossed hellos, and
   the build bans sockets there so they cannot creep back in.
 - **net** is the one place `std.Io` enters. A netlayer is a contract
   the core dispatches against rather than a privileged built-in, so a transport is a
-  resident you register. Three ship today: cleartext TCP, an in-process switchboard
-  for whole conversations inside one process, and [iroh](https://www.iroh.computer/)'s
-  encrypted QUIC as a separate optional artifact. The
-  [Transports]($link.page('transports')) page walks all three.
+  resident you register. Four ship today: cleartext TCP, keyed-tcp (same sockets,
+  key-derived designator), an in-process switchboard for whole conversations
+  inside one process, and [iroh](https://www.iroh.computer/)'s encrypted QUIC as a
+  separate optional artifact. The
+  [Transports]($link.page('transports')) page walks all four.
 
 > **Vat**: one single-threaded container of objects, the unit
 > [Spritely Goblins](https://spritely.institute/goblins/) and
@@ -75,10 +76,10 @@ Two surfaces carry pancake out to the people building on it, and the
 - **c_abi** is the deliberate public surface: opaque
   handles, fixed-width return codes, `ptr + len` views, callbacks, and explicit
   release, so a consumer can wrap it well without knowing any Zig. The host archive
-  (`libpancake_driver`) is the multi-connection byte-fed face bindings wrap.
+  (`libpancake_driver`) is the multi-session CapTP byte-fed face bindings wrap.
 - **driver** is the native Zig application surface above `driver/core`. It offers
-  one-connection `Connection`, blocking multi-connection `BlockingHost`, and the
-  TCP scale-path `LoopBridge` that feeds the same host from `net.Loop`.
+  one-session `Session`, multi-session CapTP `Bridge` + Host over a
+  completion loop (`net.TcpLoop` / iroh Backend), and the byte-fed C ABI host.
 
 The [bindings]($link.page('bindings')) are that same application surface once more, in
 Rust, TypeScript, Python, and Racket. Each consumes the C ABI and presents it in its own

@@ -44,8 +44,13 @@ examples/apps/rooms/deno/ui/page.js
 # local scratch: reference clones, throwaway experiments (never committed)
 .local/
 
+# Cold-cache fallback when HOME is unset (see bindings/c-abi-resolve.json
+# `fallback_cache_name`; written under $TMPDIR / the process cwd as appropriate).
+pancake-c-abi-cache/
+
 # per-machine agent-harness settings, never committed
 .claude/settings.local.json
 
 # local env files carry per-host infrastructure names; only .env.example is tracked
 .env
+.worktrees/

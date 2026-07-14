@@ -15,7 +15,7 @@
 //! broken vow — `Attenuated` — without the record ever hearing the verb.
 //!
 //! Same altitude as chapter 03 (two `actors.Vat`s over a paired session,
-//! frames shuttled by hand); chapter 01's `Connection.sendToAnswer` rides this
+//! frames shuttled by hand); chapter 01's `Session.sendToAnswer` rides this
 //! exact machinery over a real socket.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
@@ -124,7 +124,7 @@ pub fn main() !void {
     // calls onto the freshly attenuated record when `checkout` resolves. Each
     // `serve` is followed by `drive` — the attenuator answers by *forwarding*,
     // which queues a local send the drive loop runs (the serve-then-drive pump
-    // `ConnectedVat.step` does over a real socket).
+    // `BlockingSession.step` does over a real socket).
     var progressed = true;
     while (progressed) {
         progressed = false;

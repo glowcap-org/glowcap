@@ -51,7 +51,7 @@ async fn main() -> Result<(), Fail> {
 	let swiss = helpers::read_swiss(&mut child).await?;
 	println!("rust-goblins-handoff: alice published introducer swiss={swiss} on {HOST}:{port}");
 
-	// The `Connection` is `!Send`, so it lives on a `LocalSet`.
+	// The `Session` is `!Send`, so it lives on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
 	let result = local.run_until(converse(swiss, port)).await;
 	let _ = child.kill().await;
@@ -59,9 +59,9 @@ async fn main() -> Result<(), Fail> {
 }
 
 async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
-	// `connect` completes the keyed handshake; the node's retained identity is
+	// `connect` completes the keyed handshake; the host's retained identity is
 	// the recipient key the gift Alice deposits will name.
-	let conn = connect(&tcp_locator(HOST, port), None).await?;
+	let conn = connect(&tcp_locator(HOST, port), None, None).await?;
 	println!("rust-goblins-handoff: session open (recipient -> alice)");
 
 	let introducer = conn.fetch(&swiss).await?;

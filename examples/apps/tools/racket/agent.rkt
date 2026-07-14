@@ -8,18 +8,18 @@
 (require "../../_demo/bindings.rkt"
          "../../_demo/tools_check.rkt")
 
-;; `conn-send`, summarized for the checks below: `(cons 'ok value)` on a
+;; `session-send`, summarized for the checks below: `(cons 'ok value)` on a
 ;; fulfilled reply, `(cons 'broken message)` on a broken one (revocation tests
 ;; expect broken outcomes, so they are data here, not errors).
 (define (try-call c target verb . args)
   (with-handlers ([exn:fail? (lambda (e) (cons 'broken (exn-message e)))])
-    (cons 'ok (apply conn-send c target verb args))))
+    (cons 'ok (apply session-send c target verb args))))
 
 (define (run host port nick)
   (define check (make-check nick))
 
   (define c (connect (tcp-locator host port)))
-  (define tools (conn-fetch c "tools"))
+  (define tools (session-fetch c "tools"))
 
   ;; 1. Delegation: get a clock capability and call it.
   (define clock (cdr (try-call c tools 'grant "clock")))
@@ -45,7 +45,7 @@
 
   (printf "~a: all capability properties held\n" nick)
   (flush-output)
-  (connection-close! c))
+  (session-close! c))
 
 (module+ main
   (define args (current-command-line-arguments))

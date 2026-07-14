@@ -49,7 +49,7 @@ fn serveOnce(listener: *tcp.Listener, allocator: std.mem.Allocator) ServerError!
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var conn = try listener.accept(&peer, read_buf, write_buf);
+    var conn = try listener.accept(&peer, read_buf, write_buf, .{});
     defer conn.deinit();
 
     try peer.sendCopying(startSession("server"));
@@ -79,14 +79,15 @@ fn fetchOnce(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !v
 
     // Dial via the locator path (the `acceptable-location` reconnect entry),
     // exercising designator parsing end to end rather than the raw-address shim.
-    var designator_buf: [64]u8 = undefined;
-    const designator = try std.fmt.bufPrint(&designator_buf, "127.0.0.1:{d}", .{address.getPort()});
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const designator_addr = try tcp.parseHostPort("127.0.0.1", address.getPort());
+    const designator = tcp.locator(&designator_buf, designator_addr).designator;
     const locator: model.PeerLocator = .{
         .transport = tcp.transport_name,
         .designator = designator,
         .hints = model.Hints.emptyMap(),
     };
-    var conn = try tcp.connect(io, &peer, locator, read_buf, write_buf);
+    var conn = try tcp.connect(io, &peer, locator, read_buf, write_buf, .{});
     defer conn.deinit();
 
     // 1. Handshake.

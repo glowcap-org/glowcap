@@ -15,7 +15,7 @@
 //! synthesized completion with the syscall's result. `close` needs no readiness,
 //! so it runs immediately and its completion is queued for the next `poll`.
 //!
-//! The shared read-buffer pool (ADR-0054) is a scratch pool owned here: a
+//! The shared read-buffer pool (ADR-0054) is a `ScratchPool` owned here: a
 //! readiness backend reads at poll time, so `poll` acquires a scratch buffer,
 //! performs the `recv` into it, and lends it to the loop on the completion;
 //! `recycleRecv` reclaims it. Buffers are allocated lazily up to the pool size,
@@ -34,60 +34,54 @@ const std = @import("std");
 const builtin = @import("builtin");
 
 const completion = @import("loop.zig");
+const ScratchPool = @import("scratch_pool.zig").ScratchPool;
+const socket_tcp = @import("socket_tcp.zig");
 
 comptime {
     if (!builtin.os.tag.isDarwin()) @compileError("the kqueue completion backend is for Darwin");
 }
 
 const c = std.c;
+const tcp_os = socket_tcp.Os.darwin;
 
-// socket(2) and close(2) are not re-exported as public from std.c; declare them.
-extern "c" fn socket(domain: c_uint, sock_type: c_uint, protocol: c_uint) c_int;
+// close(2) is not re-exported as public from std.c; declare it. Socket open /
+// bind / listen / nonblocking live in `socket_tcp`.
 extern "c" fn close(fd: c_int) c_int;
 
-const AF_INET: c_uint = 2;
-const SOCK_STREAM: c_uint = 1;
 const EV_ERROR: u16 = 0x4000;
 
-/// Darwin `struct sockaddr_in` (note the leading `len` byte, which Linux lacks).
-const sockaddr_in = extern struct {
-    len: u8 = @sizeOf(sockaddr_in),
-    family: u8 = @intCast(AF_INET),
-    port: u16, // network byte order
-    addr: u32, // network byte order
-    zero: [8]u8 = .{ 0, 0, 0, 0, 0, 0, 0, 0 },
-};
+const sockaddr_in = socket_tcp.SockaddrIn(tcp_os);
 
 /// What a registered fd is waiting to do, so `poll` can complete it on readiness.
 /// Read and write are tracked separately because one connection can have a recv
-/// and a send outstanding at the same time.
+/// and a send outstanding at the same time. Tagged unions carry the op kind so
+/// poll sites cannot misread a recv as an accept or a send as a connect.
 const Pending = struct {
-    read_ud: ?u64 = null,
-    /// With `read_ud` set: a recv (read into a scratch-pool buffer at
-    /// readiness) when true, an accept when false.
-    read_is_recv: bool = false,
-    write_ud: ?u64 = null,
-    write_bytes: ?[]const u8 = null, // null with write_ud set => a connect
-    connecting: bool = false,
+    read: union(enum) {
+        idle,
+        recv: u64,
+        accept: u64,
+    } = .idle,
+    write: union(enum) {
+        idle,
+        send: struct { ud: u64, bytes: []const u8 },
+        connect: u64,
+    } = .idle,
 };
 
 pub const Backend = struct {
     pub const Fd = c.fd_t;
+    /// Platform dial target: a resolved `IpAddress`. OCapN locator resolve
+    /// lives on `tcp.DialResolver`, not on this platform Backend.
+    pub const ConnectTarget = std.Io.net.IpAddress;
 
     allocator: std.mem.Allocator,
     kq: c.fd_t,
     pending: std.AutoHashMap(c.fd_t, Pending),
     /// Completions that need no readiness (closes), drained before blocking.
     ready: std.ArrayList(completion.Completion),
-    /// The shared recv scratch pool (ADR-0054): every allocated buffer, indexed
-    /// by the `recv_token` the loop hands back through `recycleRecv`. Grows
-    /// lazily to `scratch_cap` buffers and keeps them for the backend's life.
-    scratch: std.ArrayList([]u8),
-    /// Indices of scratch buffers not currently lent out on a completion. Both
-    /// lists reserve `scratch_cap` slots at init so the reclaim cannot fail.
-    scratch_free: std.ArrayList(u16),
-    scratch_cap: u16,
-    scratch_bytes: u32,
+    /// The shared recv scratch pool (ADR-0054).
+    scratch_pool: ScratchPool,
 
     pub fn init(
         allocator: std.mem.Allocator,
@@ -103,53 +97,29 @@ pub const Backend = struct {
         if (kq < 0) return error.KqueueFailed;
         errdefer _ = close(kq);
 
-        const cap: u16 = @max(read_buffers, 1);
-        var scratch: std.ArrayList([]u8) = .empty;
-        errdefer scratch.deinit(allocator);
-        try scratch.ensureTotalCapacity(allocator, cap);
-        var scratch_free: std.ArrayList(u16) = .empty;
-        errdefer scratch_free.deinit(allocator);
-        try scratch_free.ensureTotalCapacity(allocator, cap);
+        var scratch_pool = try ScratchPool.init(allocator, read_buffers, read_buffer_bytes);
+        errdefer scratch_pool.deinit();
 
         return .{
             .allocator = allocator,
             .kq = kq,
             .pending = std.AutoHashMap(c.fd_t, Pending).init(allocator),
             .ready = .empty,
-            .scratch = scratch,
-            .scratch_free = scratch_free,
-            .scratch_cap = cap,
-            .scratch_bytes = read_buffer_bytes,
+            .scratch_pool = scratch_pool,
         };
     }
 
     pub fn deinit(self: *Backend) void {
-        for (self.scratch.items) |buf| self.allocator.free(buf);
-        self.scratch.deinit(self.allocator);
-        self.scratch_free.deinit(self.allocator);
+        self.scratch_pool.deinit();
         self.pending.deinit();
         self.ready.deinit(self.allocator);
         _ = close(self.kq);
     }
 
-    /// Take a free scratch buffer, allocating lazily up to the pool size; null
-    /// when the pool is exhausted (every buffer is lent out on a completion).
-    fn acquireScratch(self: *Backend) ?u16 {
-        if (self.scratch_free.pop()) |idx| return idx;
-        if (self.scratch.items.len >= self.scratch_cap) return null;
-        const buf = self.allocator.alloc(u8, self.scratch_bytes) catch return null;
-        self.scratch.appendAssumeCapacity(buf);
-        return @intCast(self.scratch.items.len - 1);
-    }
-
-    fn releaseScratch(self: *Backend, idx: u16) void {
-        self.scratch_free.appendAssumeCapacity(idx);
-    }
-
     /// Reclaim a recv completion's scratch buffer. The loop calls this exactly
     /// once per completion that carried `recv_bytes`.
     pub fn recycleRecv(self: *Backend, comp: completion.Completion) void {
-        self.releaseScratch(@intCast(comp.recv_token));
+        self.scratch_pool.release(@intCast(comp.recv_token));
     }
 
     fn slot(self: *Backend, fd: c.fd_t) !*Pending {
@@ -183,19 +153,21 @@ pub const Backend = struct {
     pub fn submitAccept(self: *Backend, user_data: u64, listen_fd: Fd) !void {
         const p = try self.slot(listen_fd);
         try self.register(listen_fd, c.EVFILT.READ);
-        p.read_ud = user_data;
-        p.read_is_recv = false;
+        p.read = .{ .accept = user_data };
     }
 
-    pub fn submitConnect(self: *Backend, user_data: u64, fd: Fd, address: std.Io.net.IpAddress) !void {
-        const ip4 = switch (address) {
-            .ip4 => |ip4| ip4,
-            .ip6 => return error.AddressFamilyUnsupported,
-        };
-        var addr: sockaddr_in = .{
-            .port = std.mem.nativeToBig(u16, ip4.port),
-            .addr = std.mem.nativeToBig(u32, std.mem.readInt(u32, &ip4.bytes, .big)),
-        };
+    /// Start an outbound TCP connect: open a nonblocking socket, submit connect,
+    /// return the fd. On submit failure the socket is closed here.
+    pub fn startDial(self: *Backend, user_data: u64, target: ConnectTarget) !Fd {
+        const fd = try openSocket();
+        errdefer self.closeFd(fd);
+        try self.submitConnect(user_data, fd, target);
+        return fd;
+    }
+
+    fn submitConnect(self: *Backend, user_data: u64, fd: Fd, target: ConnectTarget) !void {
+        const ip4 = try socket_tcp.ip4FromTarget(target);
+        var addr = socket_tcp.sockaddrIn4(tcp_os, ip4);
         const rc = c.connect(fd, @ptrCast(&addr), @sizeOf(sockaddr_in));
         if (rc == 0) {
             try self.ready.append(self.allocator, .{ .user_data = user_data, .result = 0 });
@@ -210,23 +182,19 @@ pub const Backend = struct {
         }
         const p = try self.slot(fd);
         try self.register(fd, c.EVFILT.WRITE);
-        p.write_ud = user_data;
-        p.write_bytes = null;
-        p.connecting = true;
+        p.write = .{ .connect = user_data };
     }
 
     pub fn submitRecv(self: *Backend, user_data: u64, fd: Fd) !void {
         const p = try self.slot(fd);
         try self.register(fd, c.EVFILT.READ);
-        p.read_ud = user_data;
-        p.read_is_recv = true;
+        p.read = .{ .recv = user_data };
     }
 
     pub fn submitSend(self: *Backend, user_data: u64, fd: Fd, bytes: []const u8) !void {
         const p = try self.slot(fd);
         try self.register(fd, c.EVFILT.WRITE);
-        p.write_ud = user_data;
-        p.write_bytes = bytes;
+        p.write = .{ .send = .{ .ud = user_data, .bytes = bytes } };
     }
 
     pub fn submitClose(self: *Backend, user_data: u64, fd: Fd) !void {
@@ -242,8 +210,15 @@ pub const Backend = struct {
         // lands) would strand the slot with ops still counted in flight.
         try self.ready.ensureUnusedCapacity(self.allocator, 3);
         if (self.pending.getPtr(fd)) |p| {
-            if (p.read_ud) |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
-            if (p.write_ud) |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 });
+            switch (p.read) {
+                .idle => {},
+                .recv, .accept => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
+            }
+            switch (p.write) {
+                .idle => {},
+                .send => |s| self.ready.appendAssumeCapacity(.{ .user_data = s.ud, .result = -1 }),
+                .connect => |ud| self.ready.appendAssumeCapacity(.{ .user_data = ud, .result = -1 }),
+            }
         }
         // tolerant: an fd with no pending op was never inserted, so the guard
         // above may have found nothing and this removal need not be present.
@@ -254,15 +229,7 @@ pub const Backend = struct {
 
     pub fn poll(self: *Backend, out: []completion.Completion) !usize {
         // Drain readiness-free completions (closes) first; never block if any.
-        if (self.ready.items.len > 0) {
-            const n = @min(self.ready.items.len, out.len);
-            @memcpy(out[0..n], self.ready.items[0..n]);
-            // Keep the remainder for the next poll.
-            const rest = self.ready.items.len - n;
-            std.mem.copyForwards(completion.Completion, self.ready.items[0..rest], self.ready.items[n..]);
-            self.ready.shrinkRetainingCapacity(rest);
-            return n;
-        }
+        if (self.ready.items.len > 0) return completion.drainReady(&self.ready, out);
 
         var events: [256]c.Kevent = undefined;
         const want: c_int = @intCast(@min(out.len, events.len));
@@ -274,98 +241,89 @@ pub const Backend = struct {
             const fd: c.fd_t = @intCast(ev.ident);
             const p = self.pending.getPtr(fd) orelse continue;
 
-            if (ev.filter == c.EVFILT.READ and p.read_ud != null) {
-                const ud = p.read_ud.?;
-                var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
-                if (ev.flags & EV_ERROR != 0) {
-                    // result stays -1
-                } else if (p.read_is_recv) {
-                    if (self.acquireScratch()) |idx| {
-                        const buf = self.scratch.items[idx];
-                        const r: i32 = @intCast(c.recv(fd, buf.ptr, buf.len, 0));
-                        comp.result = r;
-                        if (r > 0) {
-                            comp.recv_bytes = buf[0..@intCast(r)];
-                            comp.recv_token = idx;
+            if (ev.filter == c.EVFILT.READ) {
+                switch (p.read) {
+                    .idle => continue,
+                    .recv => |ud| {
+                        var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
+                        if (ev.flags & EV_ERROR != 0) {
+                            // result stays -1
+                        } else if (self.scratch_pool.acquire()) |idx| {
+                            const buf = self.scratch_pool.buffer(idx);
+                            const r: i32 = @intCast(c.recv(fd, buf.ptr, buf.len, 0));
+                            comp.result = r;
+                            if (r > 0) {
+                                comp.recv_bytes = buf[0..@intCast(r)];
+                                comp.recv_token = idx;
+                            } else {
+                                // EOF or error: nothing for the loop to consume,
+                                // so the buffer goes straight back to the pool.
+                                self.scratch_pool.release(idx);
+                            }
                         } else {
-                            // EOF or error: nothing for the loop to consume,
-                            // so the buffer goes straight back to the pool.
-                            self.releaseScratch(idx);
+                            // Pool exhausted: surface starvation. The one-shot
+                            // interest is spent; the loop's re-arm registers a
+                            // fresh one once a buffer recycles.
+                            comp.recv_no_buffer = true;
                         }
-                    } else {
-                        // Pool exhausted: surface starvation. The one-shot
-                        // interest is spent; the loop's re-arm registers a
-                        // fresh one once a buffer recycles.
-                        comp.recv_no_buffer = true;
-                    }
-                } else {
-                    const accepted = accept(fd, null, null);
-                    // Darwin does not inherit nonblocking across accept(2), and
-                    // a blocking send at write-readiness would park the whole
-                    // loop (ADR-0042), so the accepted fd must be nonblocking
-                    // before the loop ever submits on it. If it cannot be,
-                    // refuse the connection; the loop's re-arm recovers.
-                    if (accepted >= 0 and !setNonblocking(accepted)) {
-                        _ = close(accepted);
-                        comp.result = -1;
-                    } else {
-                        comp.result = accepted;
-                    }
+                        p.read = .idle;
+                        out[produced] = comp;
+                        produced += 1;
+                    },
+                    .accept => |ud| {
+                        var comp: completion.Completion = .{ .user_data = ud, .result = -1 };
+                        if (ev.flags & EV_ERROR != 0) {
+                            // result stays -1
+                        } else {
+                            const accepted = accept(fd, null, null);
+                            // Darwin does not inherit nonblocking across accept(2), and
+                            // a blocking send at write-readiness would park the whole
+                            // loop (ADR-0042), so the accepted fd must be nonblocking
+                            // before the loop ever submits on it. If it cannot be,
+                            // refuse the connection; the loop's re-arm recovers.
+                            if (accepted >= 0 and !socket_tcp.setNonblocking(accepted)) {
+                                _ = close(accepted);
+                                comp.result = -1;
+                            } else {
+                                comp.result = accepted;
+                            }
+                        }
+                        p.read = .idle;
+                        out[produced] = comp;
+                        produced += 1;
+                    },
                 }
-                p.read_ud = null;
-                p.read_is_recv = false;
-                out[produced] = comp;
-                produced += 1;
-            } else if (ev.filter == c.EVFILT.WRITE and p.write_ud != null) {
-                const ud = p.write_ud.?;
-                const result: i32 = if (ev.flags & EV_ERROR != 0)
-                    -1
-                else if (p.connecting)
-                    connectResult(fd)
-                else blk: {
-                    const bytes = p.write_bytes.?;
-                    break :blk @intCast(c.send(fd, bytes.ptr, bytes.len, 0));
-                };
-                p.write_ud = null;
-                p.write_bytes = null;
-                p.connecting = false;
-                out[produced] = .{ .user_data = ud, .result = result };
-                produced += 1;
+            } else if (ev.filter == c.EVFILT.WRITE) {
+                switch (p.write) {
+                    .idle => continue,
+                    .connect => |ud| {
+                        const result: i32 = if (ev.flags & EV_ERROR != 0) -1 else connectResult(fd);
+                        p.write = .idle;
+                        out[produced] = .{ .user_data = ud, .result = result };
+                        produced += 1;
+                    },
+                    .send => |s| {
+                        const result: i32 = if (ev.flags & EV_ERROR != 0)
+                            -1
+                        else
+                            @intCast(c.send(fd, s.bytes.ptr, s.bytes.len, 0));
+                        p.write = .idle;
+                        out[produced] = .{ .user_data = s.ud, .result = result };
+                        produced += 1;
+                    },
+                }
             }
         }
         return produced;
     }
 
-    pub fn openListener(port: u16) !Fd {
-        const fd = socket(AF_INET, SOCK_STREAM, 0);
-        if (fd < 0) return error.SocketFailed;
-        errdefer _ = close(fd);
-        // Readiness can go stale (the peer can reset between kevent and
-        // accept), so the listener must never block the loop in accept(2).
-        if (!setNonblocking(fd)) return error.SocketFailed;
-
-        // Allow rebinding a port still in TIME_WAIT, matching the blocking
-        // `tcp.Listener` (which passes `reuse_address = true`). A loop restarted
-        // on a pinned port (`-Dport=N`) would otherwise fail to bind for the
-        // TIME_WAIT window where the blocking listener succeeds.
-        const enable: c_int = 1;
-        if (c.setsockopt(fd, c.SOL.SOCKET, c.SO.REUSEADDR, &enable, @sizeOf(c_int)) < 0) return error.SocketFailed;
-
-        var addr: sockaddr_in = .{
-            .port = std.mem.nativeToBig(u16, port),
-            .addr = std.mem.nativeToBig(u32, 0x7f00_0001), // 127.0.0.1
-        };
-        if (c.bind(fd, @ptrCast(&addr), @sizeOf(sockaddr_in)) < 0) return error.BindFailed;
-        if (c.listen(fd, completion.listen_backlog) < 0) return error.ListenFailed;
-        return fd;
+    pub fn openListener(self: *Backend, port: u16) !Fd {
+        _ = self;
+        return socket_tcp.openListener(tcp_os, port);
     }
 
     pub fn openSocket() !Fd {
-        const fd = socket(AF_INET, SOCK_STREAM, 0);
-        if (fd < 0) return error.SocketFailed;
-        errdefer _ = close(fd);
-        if (!setNonblocking(fd)) return error.SocketFailed;
-        return fd;
+        return socket_tcp.openSocket(tcp_os);
     }
 
     pub fn boundPort(fd: Fd) !u16 {
@@ -375,8 +333,15 @@ pub const Backend = struct {
         return std.mem.bigToNative(u16, addr.port);
     }
 
-    pub fn closeFd(fd: Fd) void {
+    pub fn closeFd(self: *Backend, fd: Fd) void {
+        _ = self;
         _ = close(fd);
+    }
+
+    /// Unblock an armed recv so `Loop.closeAndDrain` does not wait on a quiet peer.
+    pub fn shutdownFd(self: *Backend, fd: Fd) void {
+        _ = self;
+        _ = c.shutdown(fd, c.SHUT.RDWR);
     }
 };
 
@@ -384,20 +349,6 @@ pub const Backend = struct {
 // call sites read the same as the other socket calls.
 fn accept(sockfd: c.fd_t, addr: ?*c.sockaddr, addrlen: ?*c.socklen_t) i32 {
     return c.accept(sockfd, addr, addrlen);
-}
-
-/// Set `O_NONBLOCK` on `fd`, reporting success. Every fd the backend submits
-/// on must be nonblocking: kqueue reports readiness, not completion, and a
-/// blocking `send` or `accept` at stale readiness would park the entire loop —
-/// the exact head-of-line blocking ADR-0042's bounded outbound queue exists to
-/// prevent. Every fd the backend opens — dialed, listening, and each accepted
-/// fd (Darwin does not inherit the flag across accept) — is flagged here:
-/// Darwin's `socket(2)` does not accept the Linux `SOCK_NONBLOCK` type flag.
-fn setNonblocking(fd: c.fd_t) bool {
-    const flags = c.fcntl(fd, c.F.GETFL, @as(c_int, 0));
-    if (flags < 0) return false;
-    const nonblock: c_int = @bitCast(c.O{ .NONBLOCK = true });
-    return c.fcntl(fd, c.F.SETFL, flags | nonblock) >= 0;
 }
 
 fn connectResult(fd: c.fd_t) i32 {

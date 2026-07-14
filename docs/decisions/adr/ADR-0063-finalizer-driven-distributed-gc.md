@@ -16,7 +16,7 @@ The wire-delta GC substrate already ships (ADR-0008,
 `docs/protocol-diagrams/05-gc.md`): the session counts an import row up once per
 wire occurrence of a `far` reference and down by `op:gc-exports` deltas,
 releasing the row at zero, and the C ABI exposes `pancake_peer_send_gc_export` /
-`pancake_peer_send_gc_answer`. The stateless host policy (`src/driver/gc.zig`)
+`pancake_peer_send_gc_answer`. The stateless host policy (`src/driver/core/gc.zig`)
 drives it for a host that retains nothing. What no binding did was drive a
 release _from a dropped application handle_: a long-lived session that lifts and
 drops many imports kept their rows until teardown, because a binding's `Ref` had
@@ -81,8 +81,8 @@ finalizer idiom; the contract above is the same in all four.
   promises. Answer positions are single-reference and already released by the
   stateless policy and explicit `send_gc_answer`; a promise-handle finalizer is
   not wired.
-- This does not change `src/driver/gc.zig`'s stateless-host policy, nor make the
-  native Zig `driver.Connection` register finalizers (Zig has no finalizers; a
+- This does not change `src/driver/core/gc.zig`'s stateless-host policy, nor make the
+  native Zig `driver.Session` register finalizers (Zig has no finalizers; a
   Zig consumer calls `sendGcExport` explicitly).
 - It does not promise prompt collection. A binding inherits its language's
   finalization timing; only Rust's `Drop` is deterministic.

@@ -120,12 +120,14 @@ export function socketConnect(host: string, port: number): Promise<NetConn> {
 class ServerListener implements NetListener {
 	#server: Server;
 	readonly port: number;
+	readonly #hostname: string;
 	#queue: Socket[] = [];
 	#wake: (() => void) | null = null;
 	#closed = false;
 
-	constructor(server: Server, port: number) {
+	constructor(server: Server, hostname: string, port: number) {
 		this.#server = server;
+		this.#hostname = hostname;
 		this.port = port;
 		server.on("connection", (socket: Socket) => {
 			this.#queue.push(socket);
@@ -143,6 +145,10 @@ class ServerListener implements NetListener {
 				w();
 			}
 		});
+	}
+
+	localAddr(): { hostname: string; port: number } {
+		return { hostname: this.#hostname, port: this.port };
 	}
 
 	async accept(): Promise<NetConn> {
@@ -172,8 +178,11 @@ export function socketListen(host: string, port: number): Promise<NetListener> {
 		server.once("error", rej);
 		server.listen(port, host, () => {
 			const addr = server.address();
-			const bound = addr !== null && typeof addr === "object" ? addr.port : port;
-			res(new ServerListener(server, bound));
+			if (addr !== null && typeof addr === "object") {
+				res(new ServerListener(server, addr.address, addr.port));
+			} else {
+				res(new ServerListener(server, host, port));
+			}
 		});
 	});
 }

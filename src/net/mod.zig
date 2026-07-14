@@ -28,8 +28,8 @@
 //! stream-input and outbound-frame APIs from completion events and touches no
 //! `std.Io`. It is generic over a platform backend: `completion/uring.zig` is the
 //! Linux io_uring backend, and `completion/kqueue.zig` is the macOS/BSD backend.
-//! A Windows IOCP backend is not implemented. `Loop` is the portable loop already
-//! bound to the host platform's backend.
+//! A Windows IOCP backend is not implemented. `TcpLoop` is the portable loop
+//! already bound to the host platform Backend plus `tcp.DialResolver`.
 
 const connection = @import("connection.zig");
 const frame_stream = @import("frame_stream.zig");
@@ -40,22 +40,25 @@ pub const Progress = connection.Progress;
 pub const pumpOver = connection.pumpOver;
 
 pub const FrameStream = frame_stream.FrameStream;
-pub const FrameError = frame_stream.FrameError;
 pub const Spill = frame_stream.Spill;
 pub const readFrameFrom = frame_stream.readFrameFrom;
-pub const drainWholeFrames = frame_stream.drainWholeFrames;
-pub const DrainVerdict = frame_stream.DrainVerdict;
-pub const steady_outbound_bytes = frame_stream.steady_outbound_bytes;
-pub const queueOutboundBytes = frame_stream.queueOutboundBytes;
-pub const reclaimBurst = frame_stream.reclaimBurst;
-
-/// The shared `std.Io` reader/writer scaffolding a byte-source transport wires
-/// its stream through: `stream_shim.Shim(Source)` turns a transport's blocking
-/// byte source into the interface pair the connection borrows. The inproc
-/// resident and the out-of-graph iroh resident both ride it.
-pub const stream_shim = @import("stream_shim.zig");
 
 pub const tcp = @import("transport/tcp.zig");
+
+/// The socket library: raw OS socket + stream plumbing beneath a netlayer,
+/// gathered behind one name so a resident never reaches into `completion/` or a
+/// sibling for it. See `socket.zig`.
+pub const socket = @import("socket.zig");
+
+/// Opt-in TCP keepalive (idle/interval/count). One public door: the socket
+/// library. NAT hold-open / dead-remote-host reclaim — not orphan-process
+/// reaping. See `socket.Keepalive`.
+pub const Keepalive = socket.Keepalive;
+/// Apply keepalive sockopts. Prefer `socket.applyKeepalive`; this name matches
+/// older call sites without opening a second path into `completion/`.
+pub const tcp_keepalive = struct {
+    pub const apply = socket.applyKeepalive;
+};
 
 /// The keyed TCP netlayer (`keyed-tcp`): the same TCP sockets under a durable,
 /// key-derived designator — the listener's Ed25519 public key in canonical
@@ -71,15 +74,21 @@ pub const tcp_keyed = @import("transport/tcp_keyed.zig");
 /// See `transport/inproc.zig`.
 pub const inproc = @import("transport/inproc.zig");
 
+/// Shared `std.Io` Reader/Writer scaffolding for byte-source residents
+/// (inproc, iroh). Pub because the out-of-graph iroh resident is its own
+/// module root under `transport/` and cannot `@import("../stream_shim.zig")`
+/// — that path sits outside its module directory (ADR-0040).
+pub const stream_shim = @import("stream_shim.zig");
+
 /// The netlayer contract the driver dials and hosts against, as its own named
 /// namespace: `net.netlayer.Netlayer` is a transport behind a runtime vtable, a
 /// `[]const Netlayer` is the set a host speaks, and `net.netlayer.resolve`
 /// dispatches a transport symbol against that slice. `net.netlayer.Listener` is
-/// the listener a netlayer yields. `tcp` and `inproc` are its first two residents
-/// (the sidecar `iroh` resident is the third). A transport is one more element in
-/// the slice, never privileged, so adding one touches no driver or core code. The
-/// OCapN concept itself — the locator and its `transport` symbol — lives in
-/// `model`; this is only its I/O realization.
+/// the listener a netlayer yields. Residents include `tcp`, `keyed-tcp`,
+/// `inproc`, and the sidecar `iroh` resident. A transport is one more element
+/// in the slice, never privileged, so adding one touches no driver or core
+/// code. The OCapN concept itself — the locator and its `transport` symbol —
+/// lives in `model`; this is only its I/O realization.
 pub const netlayer = @import("netlayer.zig");
 
 /// The portable completion-loop server, generic over its platform backend. The
@@ -98,13 +107,14 @@ const uring = if (@import("builtin").os.tag == .linux) @import("completion/uring
 /// below. A Windows (IOCP) backend is not implemented.
 const kqueue = if (@import("builtin").os.tag.isDarwin()) @import("completion/kqueue.zig") else struct {};
 
-/// The ready-to-use completion loop for the host platform: the portable
-/// `completion.Loop` instantiated with this platform's backend. Linux uses
-/// io_uring, macOS/BSD use kqueue; on any other platform this is an empty
-/// struct, no completion backend is implemented there.
-pub const Loop = if (@import("builtin").os.tag == .linux)
-    completion.Loop(uring.Backend)
+/// The ready-to-use TCP completion loop for the host platform: the portable
+/// `completion.Loop` over the platform Backend plus `tcp.DialResolver` (OCapN
+/// locator → `IpAddress`). Linux uses io_uring, macOS/BSD use kqueue; on any
+/// other platform this is an empty struct. Named `TcpLoop` so it is not
+/// confused with the generic `completion.Loop(Backend, Locator)`.
+pub const TcpLoop = if (@import("builtin").os.tag == .linux)
+    completion.Loop(uring.Backend, tcp.DialResolver)
 else if (@import("builtin").os.tag.isDarwin())
-    completion.Loop(kqueue.Backend)
+    completion.Loop(kqueue.Backend, tcp.DialResolver)
 else
     struct {};

@@ -31,8 +31,15 @@
 // Needs `deno` plus the iroh ABI companion library (`zig build iroh-abi`); run
 // via `zig build deno-iroh-redeem-posture`.
 
-import { type Connection, encodePeerLocator, Ref } from "@pancake/stack";
-import { connectIroh, listenIroh, Reachability } from "@pancake/iroh";
+import {
+	connect,
+	encodePeerLocator,
+	formatPeerUri,
+	Ref,
+	type Session,
+	TRANSPORT_IROH,
+} from "@pancake/stack";
+import { listenIroh, Reachability } from "@pancake/iroh";
 import { acceptLoop, fail, parseOptionalPortArg } from "../_common/deno/helpers.ts";
 
 const NAME = "deno-redeem-posture-carol";
@@ -46,7 +53,7 @@ Deno.unrefTimer(watchdog);
 
 // ── Exporter: a node-giftable greeter on its own local-discovery endpoint ─────
 const exporter = listenIroh(Reachability.LocalDiscovery);
-exporter.node.publishGiftable("greeter", (verb, args) => {
+exporter.host.publishGiftable("greeter", (verb, args) => {
 	if (verb !== "greet") return null;
 	return `hello ${String(args[0] ?? "")} over a configured-posture redeem`;
 });
@@ -57,7 +64,11 @@ console.log(`deno-iroh-redeem-posture: exporter published greeter on ${exporterI
 // ── Gifter: dials the exporter by id, re-gifts the greeter under a hint-less give
 const gifter = listenIroh(Reachability.LocalDiscovery);
 const gifterId = gifter.nodeId;
-const toExporter = await connectIroh(exporterId, "", Reachability.LocalDiscovery, gifter.node);
+const toExporter = await connect(
+	formatPeerUri(TRANSPORT_IROH, exporterId),
+	Reachability.LocalDiscovery,
+	gifter.host,
+);
 toExporter.serve().catch(() => {});
 const greeterRef = await toExporter.fetch("greeter");
 // Record the exporter's location by node id alone — no direct-addresses. This
@@ -66,7 +77,7 @@ const greeterRef = await toExporter.fetch("greeter");
 toExporter.setExporterLocator(
 	encodePeerLocator({ transport: "iroh", designator: exporterId }),
 );
-gifter.node.publishGiftable("introducer", (verb) => {
+gifter.host.publishGiftable("introducer", (verb) => {
 	if (verb !== "get-greeter") return null;
 	return greeterRef;
 });
@@ -74,12 +85,15 @@ const gifterAccept = acceptLoop(gifter);
 console.log(`deno-iroh-redeem-posture: gifter published introducer on ${gifterId}`);
 
 // ── Recipient: configures its redeem posture, then redeems the hint-less give ─
-const recipient = await connectIroh(gifterId, "", Reachability.LocalDiscovery);
+const recipient = await connect(
+	formatPeerUri(TRANSPORT_IROH, gifterId),
+	Reachability.LocalDiscovery,
+);
 recipient.serve().catch(() => {});
 // The knob under test: without it, the hint-less redeem defaults to Discovery
 // (n0 relays + DNS) and would fail with no network. The node is shared, so this
 // reaches the connection that performs the redeem.
-recipient.node.setRedeemReachability(Reachability.LocalDiscovery);
+recipient.host.setRedeemReachability(Reachability.LocalDiscovery);
 const introducer = await recipient.fetch("introducer");
 const granted = await recipient.send(introducer, "get-greeter", []);
 if (!(granted instanceof Ref)) {

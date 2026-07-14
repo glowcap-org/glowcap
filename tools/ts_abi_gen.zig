@@ -74,6 +74,7 @@ const constants = [_]Const{
     k("INVALID_ARGUMENT", "PANCAKE_ERR_INVALID_ARGUMENT"),
     k("WOULD_BLOCK", "PANCAKE_ERR_WOULD_BLOCK"),
     k("CLOSED", "PANCAKE_ERR_CLOSED"),
+    k("BUFFER_TOO_SMALL", "PANCAKE_ERR_BUFFER_TOO_SMALL"),
     k("UNSUPPORTED_VALUE", "PANCAKE_ERR_UNSUPPORTED_VALUE"),
     k("BROKEN", "PANCAKE_ERR_BROKEN"),
     k("FRAME_SHAPE_BYTE", "PANCAKE_FRAME_SHAPE_BYTE"),
@@ -86,6 +87,20 @@ const constants = [_]Const{
     kd("HOST_ACTION_SETTLE", "PANCAKE_HOST_ACTION_SETTLE"),
     kd("HOST_ACTION_FAIL", "PANCAKE_HOST_ACTION_FAIL"),
     kd("HOST_ACTION_CLOSE", "PANCAKE_HOST_ACTION_CLOSE"),
+    // Default host connection frame cap (session.SessionLimits.max_frame_bytes).
+    kd("DEFAULT_FRAME_CAP", "PANCAKE_DEFAULT_FRAME_CAP"),
+    kd("MAX_LOCAL_FORWARD_HOPS", "PANCAKE_MAX_LOCAL_FORWARD_HOPS"),
+    // The resolved dial the core hands back from pancake_host_plan_dial: the
+    // byte channel to open (PancakeDialPlan.shape) and, for iroh, the posture.
+    kd("DIAL_SHAPE_HOST_PORT", "PANCAKE_DIAL_SHAPE_HOST_PORT"),
+    kd("DIAL_SHAPE_IROH", "PANCAKE_DIAL_SHAPE_IROH"),
+    kd("DIAL_REACH_DIRECT", "PANCAKE_DIAL_REACH_DIRECT"),
+    kd("DIAL_REACH_CONFIGURED", "PANCAKE_DIAL_REACH_CONFIGURED"),
+    kd("DIAL_REACH_EXPLICIT", "PANCAKE_DIAL_REACH_EXPLICIT"),
+    // pancake_host_plan_dial posture_policy: how the iroh reachability rule is chosen.
+    kd("DIAL_POSTURE_REDEEM", "PANCAKE_DIAL_POSTURE_REDEEM"),
+    kd("DIAL_POSTURE_EXPLICIT", "PANCAKE_DIAL_POSTURE_EXPLICIT"),
+    kd("DIAL_POSTURE_EXPLICIT_NONE", "PANCAKE_DIAL_POSTURE_EXPLICIT_NONE"),
     // Reference kinds.
     k("REF_NEAR", "PANCAKE_REF_NEAR"),
     k("REF_FAR", "PANCAKE_REF_FAR"),
@@ -161,6 +176,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitLayout(&out, gpa, "LAST_ABORT", c.PancakeLastAbort, "PancakeLastAbort");
     try emitLayout(&out, gpa, "ALLOCATOR", c.PancakeAllocator, "PancakeAllocator (pancake_context_new_with_allocator)");
     try emitLayout(&out, gpa, "HOST_ACTION", cd.PancakeHostAction, "PancakeHostAction (libpancake_driver, pancake_host_next_action)");
+    try emitLayout(&out, gpa, "DIAL_PLAN", cd.PancakeDialPlan, "PancakeDialPlan (libpancake_driver, pancake_host_plan_dial)");
 
     return out.toOwnedSlice(gpa);
 }

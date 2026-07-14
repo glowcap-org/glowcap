@@ -485,8 +485,8 @@ pub fn main(init: std.process.Init) !void {
     var listener = try tcp.Listener.bind(io, listen_addr);
     defer listener.deinit();
 
-    var designator_buf: [32]u8 = undefined;
-    const local_designator = try std.fmt.bufPrint(&designator_buf, "{s}:{d}", .{ host, port });
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const local_designator = tcp.locator(&designator_buf, listen_addr).designator;
     var shared = SharedState{ .allocator = allocator, .io = io, .listener = &listener, .local_designator = local_designator };
     defer shared.registry.deinit(io, allocator);
     defer shared.handoff_gifts.deinit(allocator);
@@ -562,13 +562,13 @@ fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: Stream) void 
     const write_buf = allocator.alloc(u8, frame_cap) catch return;
     defer allocator.free(write_buf);
 
-    var conn = net.tcp.connectionOver(io, &peer, stream_in, read_buf, write_buf) catch return;
+    var conn = net.tcp.connectionOver(io, &peer, stream_in, read_buf, write_buf, .{}) catch return;
     defer conn.deinit();
 
     var resolver_map: std.AutoHashMapUnmanaged(u64, u64) = .{};
     defer resolver_map.deinit(allocator);
 
-    var cv = driver.ConnectedVat.over(allocator, &peer, conn);
+    var cv = driver.BlockingSession.over(allocator, &peer, conn);
     cv.served.serve_options = .{ .gc_stateless = true };
 
     const echo_id = bootstrapPosition(&peer, ECHO);
@@ -665,7 +665,7 @@ fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: Stream) void 
 /// If this connection is the exporter for a pending gifter handoff, run it: fetch
 /// the gifted object, deposit it as a gift, sign the `desc:handoff-give`, and hand
 /// the give back to the recipient thread. Each step drives only this connection.
-fn serveGifterExport(cv: *driver.ConnectedVat, hook: *HookCtx) !void {
+fn serveGifterExport(cv: *driver.BlockingSession, hook: *HookCtx) !void {
     const request = hook.shared.gifter.takeRequest(hook.exporter_slot) orelse return;
     const allocator = hook.shared.allocator;
     defer {
@@ -683,7 +683,7 @@ fn serveGifterExport(cv: *driver.ConnectedVat, hook: *HookCtx) !void {
 /// The exporter half of a gifter handoff over this connection: fetch the swiss,
 /// deposit it under a fresh gift id, and return the signed give bytes (caller, via
 /// the hub, owns them).
-fn gifterExportGive(cv: *driver.ConnectedVat, hook: *HookCtx, request: GifterRequest) ![]u8 {
+fn gifterExportGive(cv: *driver.BlockingSession, hook: *HookCtx, request: GifterRequest) ![]u8 {
     const allocator = hook.shared.allocator;
     const peer = cv.served.peer;
 
@@ -764,7 +764,7 @@ fn gifterExportGive(cv: *driver.ConnectedVat, hook: *HookCtx, request: GifterReq
 /// If this connection's enliven is awaiting a give from the exporter thread,
 /// resolve it once the give is back: fulfill the enliven answer with the signed
 /// `desc:handoff-give`.
-fn resolvePendingRecipient(cv: *driver.ConnectedVat, hook: *HookCtx) !void {
+fn resolvePendingRecipient(cv: *driver.BlockingSession, hook: *HookCtx) !void {
     const pending = hook.pending_recipient orelse return;
     if (!hook.shared.gifter.isDone(pending.result)) return;
     const allocator = hook.shared.allocator;
@@ -977,7 +977,12 @@ fn exporterDialTarget(allocator: std.mem.Allocator, give_bytes: []const u8) ?[]u
         }
     }
     if (dial_host) |h| {
-        if (dial_port) |p| return std.fmt.allocPrint(allocator, "{s}:{s}", .{ h, p }) catch null;
+        if (dial_port) |p| {
+            const port_num = std.fmt.parseInt(u16, p, 10) catch return null;
+            const addr = tcp.parseHostPort(h, port_num) catch return null;
+            var buf: [tcp.designator_buf_len]u8 = undefined;
+            return allocator.dupe(u8, tcp.locator(&buf, addr).designator) catch null;
+        }
     }
     // Goblins `tcp` locators carry `host:port` directly in the designator.
     return allocator.dupe(u8, locator.designator) catch null;
@@ -1084,7 +1089,7 @@ fn enlivenOutboundInner(shared: *SharedState, io: std.Io, locator: model.PeerLoc
     if (connect_port == 0) return error.MissingPort;
 
     const address = try tcp.parseHostPort(connect_host, connect_port);
-    var conn = try tcp.connectAddress(io, &peer, address, read_buf, write_buf);
+    var conn = try tcp.connectAddress(io, &peer, address, read_buf, write_buf, .{});
     defer conn.deinit();
 
     var seed: [crypto.SEED_BYTES]u8 = undefined;
@@ -1124,16 +1129,8 @@ fn handoffWithdrawInner(shared: *SharedState, secret: crypto.SecretKey, give_byt
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    const host_sep = std.mem.indexOfScalar(u8, exporter_location, ':') orelse return error.BadLocation;
-    const dial_host = exporter_location[0..host_sep];
-    const dial_port = std.fmt.parseInt(u16, exporter_location[host_sep + 1 ..], 10) catch return error.BadLocation;
-
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const address = try tcp.parseHostPort(dial_host, dial_port);
-    var conn = try tcp.connectAddress(shared.io, &peer, address, read_buf, write_buf);
+    const address = try tcp.parseDesignator(exporter_location);
+    var conn = try tcp.connectAddress(shared.io, &peer, address, read_buf, write_buf, .{});
     defer conn.deinit();
 
     try peer.sendKeyedStartSession(.v1_0, .{

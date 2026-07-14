@@ -75,6 +75,17 @@
            (record* 'resolve:fulfill
                     (record* 'desc:answer 11))))
 
+;; <op:resolve 7 <resolve:fulfill <desc:import-promise 99>>>.
+;;
+;; Encoder side of the perspective flip for a local unresolved promise:
+;; sender's Reference::Near{.promise} becomes <desc:import-promise N>
+;; in payload position (ADR-0080 Slot.local_unresolved).
+(define (op-resolve-fulfill-import-promise)
+  (record* 'op:resolve
+           7
+           (record* 'resolve:fulfill
+                    (record* 'desc:import-promise 99))))
+
 ;; <op:listen <desc:answer 7> <desc:import-object 9>>.
 ;;
 ;; op:listen wire-shape per ADR-0007 § Decision 4 — two
@@ -477,6 +488,7 @@
         (cons "op_resolve_fulfill_far.bin"                     op-resolve-fulfill-far)
         (cons "op_resolve_fulfill_near.bin"                    op-resolve-fulfill-near)
         (cons "op_resolve_fulfill_promise.bin"                 op-resolve-fulfill-promise)
+        (cons "op_resolve_fulfill_import_promise.bin"          op-resolve-fulfill-import-promise)
         (cons "op_listen_promise_target.bin"                   op-listen-promise-target)
         (cons "op_listen_export_target.bin"                    op-listen-export-target)
         (cons "op_listen_v1_0_wants_partial_false.bin"         op-listen-v1-0-wants-partial-false)

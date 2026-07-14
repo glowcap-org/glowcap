@@ -331,8 +331,12 @@ test "host context balances a TCP netlayer, listener, connections, and a read fr
     try std.testing.expectEqual(c.PANCAKE_OK, ct.pancake_tcp_listener_port(listener_ptr, &port));
     try std.testing.expect(port != 0);
 
+    var threaded = std.Io.Threaded.init(std.testing.allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var args: TcpArgs = .{ .listener = listener_ptr };
-    const thread = try std.Thread.spawn(.{}, acceptThread, .{&args});
+    var accept_future = try io.concurrent(acceptThread, .{&args});
 
     var conn: ?*ct.PancakeTcpConn = null;
     try std.testing.expectEqual(
@@ -344,7 +348,7 @@ test "host context balances a TCP netlayer, listener, connections, and a read fr
     var cf: c.PancakeFrame = .{ .bytes = abort_frame.ptr, .len = abort_frame.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
     const write_rc = ct.pancake_tcp_conn_write_frame(conn_ptr, &cf);
 
-    thread.join();
+    accept_future.await(io);
     ct.pancake_tcp_conn_release(conn_ptr);
     ct.pancake_tcp_listener_release(listener_ptr);
     ct.pancake_tcp_netlayer_release(netlayer_ptr);

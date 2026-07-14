@@ -76,12 +76,16 @@ test "c-abi endpoint loopback: handshake to open + bootstrap fetch round-trip" {
     );
     try std.testing.expect(port != 0);
 
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
     var args: Loopback.ServerArgs = .{
         .listener = listener_ptr,
         .allocator = allocator,
         .start_session = startSession("server"),
     };
-    const server_thread = try std.Thread.spawn(.{}, Loopback.serveThread, .{&args});
+    var server_future = try io.concurrent(Loopback.serveThread, .{&args});
 
     var conn: ?*ct.PancakeTcpConn = null;
     const connect_rc = ct.pancake_tcp_connect(netlayer_ptr, host.ptr, host.len, port, c.PANCAKE_CODEC_SYRUP, frame_cap, &conn);
@@ -92,7 +96,7 @@ test "c-abi endpoint loopback: handshake to open + bootstrap fetch round-trip" {
 
     // Closing the client lets the server observe EOF and finish.
     ct.pancake_tcp_conn_release(conn_ptr);
-    server_thread.join();
+    server_future.await(io);
 
     try client_result;
     try args.result;

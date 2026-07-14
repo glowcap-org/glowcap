@@ -15,7 +15,7 @@ optional, externally-cadenced iroh transport versions on its own:
 
 | Package                             | Dir                | What it is                                                                                                                                                                                                                                |
 | ----------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`@pancake/stack`](stack/README.md) | [`stack/`](stack/) | A full OCapN node over the byte-fed host archive (`libpancake_driver`, ADR-0072): values, capabilities, locators, the async `Connection`/`Server`, plus the built-in `tcp` and `inproc` transports and the native seam `@pancake/stack/ffi` |
+| [`@pancake/stack`](stack/README.md) | [`stack/`](stack/) | A full OCapN host over the byte-fed host archive (`libpancake_driver`, ADR-0072): values, capabilities, locators, the async `Session`/`Server`, plus the built-in `tcp` and `inproc` transports and the native seam `@pancake/stack/ffi` |
 | [`@pancake/iroh`](iroh/README.md)   | [`iroh/`](iroh/)   | Optional encrypted-QUIC transport (`libpancake_net_transport_iroh`); depends on `@pancake/stack`, reached lazily by the core's `connect` for an `iroh` locator                                                                            |
 
 ## Runtimes

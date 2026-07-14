@@ -4,7 +4,7 @@
 //! name, ask it to open or enter a room (which hands back a live reference to
 //! that room), spawn an inbox the room can call back, subscribe by handing it
 //! that capability, and forward the room's callbacks onto a channel. The pancake
-//! `Connection` owns the peer on a background task, so the application above sees
+//! `Session` owns the peer on a background task, so the application above sees
 //! only `recv`/`say`/`leave`.
 //!
 //!   let dir = Directory::connect(addr).await?;
@@ -19,7 +19,10 @@
 
 use std::rc::Rc;
 
-use pancake::{connect, tcp_locator, Argument, Connection};
+use pancake::{
+	connect, designator_host_port, parse_locator, tcp_locator, Argument, Session,
+	HINT_DIRECT_ADDRESSES, TRANSPORT_IROH,
+};
 use tokio::sync::mpsc;
 
 const DIRECTORY: &str = "directory";
@@ -46,7 +49,7 @@ fn reason(err: pancake::Error) -> String {
 /// string carries the wire reason so a caller can classify it. The friendly
 /// enter-or-open is a CLI convenience and lives in `client.rs`.
 pub struct Directory {
-	conn: Rc<Connection>,
+	conn: Rc<Session>,
 	directory: pancake::Ref,
 }
 
@@ -65,7 +68,7 @@ impl Directory {
 	}
 
 	/// The open connection, for subscribing to a room the directory returns.
-	pub fn conn(&self) -> Rc<Connection> {
+	pub fn conn(&self) -> Rc<Session> {
 		self.conn.clone()
 	}
 
@@ -147,28 +150,38 @@ fn parse_rooms(arg: &Argument) -> Vec<(String, i64)> {
 /// Dial a transport-neutral rooms locator: an `ocapn://…iroh` URI joins over
 /// iroh (when this client is built with the `iroh` feature), a bare `host:port`
 /// over TCP. The room's wire is identical either way; only how a member reaches
-/// it differs. The rooms URIs carry direct-addresses, so the explicit iroh
-/// posture is [`Reachability::Direct`](pancake::Reachability::Direct) — relay-less
-/// and lookup-less, no default.
-async fn dial(locator: &str) -> Result<Connection, String> {
-	// An `ocapn://…iroh` URI dials over iroh with the relay-less `Direct` posture
-	// its direct-addresses imply; a bare `host:port` is a `tcp` locator, which
-	// ignores reachability (`None`). `connect` has one signature either way — a
-	// tcp-only build still takes the argument and fails an iroh locator with a
-	// rebuild hint — so this is one call, not a feature-forked pair.
+/// it differs. A URI carrying direct-addresses dials those directly (relay-less
+/// Direct); a node-id-only URI resolves the peer through discovery.
+async fn dial(locator: &str) -> Result<Session, String> {
 	if locator.contains("://") {
-		return connect(locator, Some(pancake::Reachability::Direct))
+		let loc = parse_locator(locator).map_err(|e| {
+			format!("rooms expected an iroh ocapn:// URI, got parse error for {locator}: {e:?}")
+		})?;
+		if loc.transport != TRANSPORT_IROH {
+			return Err(format!(
+				"rooms expected an iroh ocapn:// URI, got \"{}\": {locator}",
+				loc.transport
+			));
+		}
+		let hints = loc
+			.hints
+			.get(HINT_DIRECT_ADDRESSES)
+			.map(String::as_str)
+			.unwrap_or("");
+		let reachability = if hints.is_empty() {
+			pancake::Reachability::Discovery
+		} else {
+			pancake::Reachability::Direct
+		};
+		return connect(locator, Some(reachability), None)
 			.await
 			.map_err(|e| format!("connect iroh: {e:?}"));
 	}
-	let (host, port) = locator.rsplit_once(':').ok_or_else(|| {
-		format!("rooms locator is neither host:port nor an ocapn:// URI: {locator}")
+	let (host, port) = designator_host_port(locator).map_err(|e| {
+		format!("rooms locator is neither host:port nor an ocapn:// URI: {locator}: {e:?}")
 	})?;
-	let port: u16 = port
-		.parse()
-		.map_err(|_| format!("rooms locator has no valid port: {locator}"))?;
-	let loc = tcp_locator(host, port);
-	connect(&loc, None)
+	let loc = tcp_locator(&host, port);
+	connect(&loc, None, None)
 		.await
 		.map_err(|e| format!("connect: {e:?}"))
 }
@@ -219,7 +232,7 @@ fn read_presence(args: &[Argument]) -> Option<Presence> {
 /// A membership in a chat room: the connection plus a stream of the lines the
 /// room pushes. `recv` for the next line, `say` to talk, `leave` when done.
 pub struct Room {
-	conn: Rc<Connection>,
+	conn: Rc<Session>,
 	room: pancake::Ref,
 	msg_rx: mpsc::UnboundedReceiver<Message>,
 }
@@ -235,7 +248,7 @@ impl Room {
 	/// open connection, as `nick`. Call inside a `LocalSet` (the peer is
 	/// `!Send`).
 	pub async fn subscribe(
-		conn: Rc<Connection>,
+		conn: Rc<Session>,
 		room: pancake::Ref,
 		nick: &str,
 	) -> Result<Room, String> {

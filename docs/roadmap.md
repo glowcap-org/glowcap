@@ -10,9 +10,22 @@ file changes in the same diff.
 Sections follow dependency, not priority.
 
 1. **Watch items** wait on upstream, not on this repository.
-2. **Independent tracks** are localized and can proceed in parallel.
-3. **Platform reach** needs hardware or toolchains this environment lacks.
-4. **Scale and external blocks** rest on the shipped iroh substrate.
+2. **Platform reach** needs hardware or toolchains this environment lacks.
+3. **Scale, packaging, and external blocks** rest on shipped substrates or on
+   release/ops work outside a single in-tree pass.
+
+Independent tracks that used to live here have either shipped (grant-on-marshal
+per ADR-0074; loop-side dial executor and C ABI `local_turn_budget` per
+ADR-0076; C ABI `pancake_peer_expect_partner_key` per ADR-0075) or moved below
+as deferred packaging / binding / convergence work.
+
+ADR-0053 refuses a read/write fiber split for the blocking pump: cooperative
+request/response stays on one fiber; duplex backpressure rides a completion
+loop (`net.TcpLoop`, or `completion.Loop(iroh.Backend, iroh.DialResolver)`).
+
+Wall-clock tripwires already gate under `zig build check` via `perf-check`
+(ADR-0073 / ladder rung 2). Tighter hardware-stable ceilings remain a
+measurement concern, not a missing gate.
 
 ## 1. Watch items (upstream)
 
@@ -26,41 +39,7 @@ Sections follow dependency, not priority.
   already exercises pipelined `op:index` and `op:get`; a live untag gate slots
   in when Goblins ships the op's marshaller.
 
-## 2. Independent tracks
-
-- **Export-on-marshal for spawned capabilities.** `driver.spawnAt` (and the
-  `spawn` verbs on it) mints the export when the actor is spawned. Minting only
-  when the reference first marshals onto the wire would close the early-export
-  window. Today that contract is documented on `spawn` / `spawnAt`; `Vat.spawn`
-  is the no-export alternative.
-- **Binding-level keyed-tcp surfaces.** The library already ships
-  `net.tcp_keyed` and `engine.Peer.expectPartnerKey` (ADR-0075), gated by
-  `test/driver/keyed_tcp_restart_test.zig`. Open: per-binding dial/host
-  surfaces, a C ABI partner-key-pin export, and the byte-fed iroh dial pin
-  (ADR-0075 § Scope).
-- **Loop-side dial executor.** `driver.LoopBridge` (ADR-0076) feeds the
-  byte-fed host from `net.Loop` and is gated by `zig build tcp-loop` plus the
-  handoff-across-one-loop test. It answers every `dial` action fail-closed, so
-  a bridged host can mint gives but cannot yet redeem as a handoff recipient
-  on one loop thread.
-- **C ABI `local_turn_budget`.** The Zig TCP bridge can set
-  `Host.Options.local_turn_budget`; `pancake_host_new` does not surface it, so
-  every binding loop over the C ABI still drives unbounded amplification
-  (ADR-0076 § Scope).
-- **A hosted, versioned C release of the archives.** Bindings already resolve
-  archives through the cascade in [`bindings/README.md`](../bindings/README.md).
-  Deferred is the find leg's upstream: a hosted, versioned, per-platform release
-  keyed to `pancake_abi_version`, the prerequisite for runtime-download or npm
-  per-platform packaging.
-
-ADR-0053 refuses a read/write fiber split for the blocking pump: cooperative
-request/response stays on one fiber; duplex backpressure rides a completion
-loop (`net.Loop` or iroh's `LoopHost`).
-
-Wall-clock tripwires already gate under `zig build check` via `perf-check`
-(ADR-0073 / ladder rung 2). Tighter hardware-stable ceilings remain a
-measurement concern, not a missing gate.
-## 3. Platform reach
+## 2. Platform reach
 
 - **Windows / IOCP backend.** The completion loop is OS-neutral; io_uring and
   kqueue ship (kqueue compile-gated by `cross-check`). IOCP needs a Windows
@@ -73,20 +52,28 @@ measurement concern, not a missing gate.
   browser. See
   [ADR-0070](decisions/adr/ADR-0070-browser-binding-via-wasm.md).
 
-## 4. Scale and external blocks
+## 3. Scale, packaging, and external blocks
 
 The iroh substrate is shipped (channel, discovery postures, key unification,
 durable identity, mesh, loop scale path). See [shipped.md](shipped.md). What
 remains:
 
-- **Live-socket ~500k measurement.** `iroh.LoopHost` (ADR-0057) is gated by
+- **Live-socket ~500k measurement.** iroh scale (ADR-0057) rides
+  `completion.Loop(iroh.Backend, iroh.DialResolver)` + `driver.Bridge` + `driver_core.Host`, gated by
   `iroh-loop` and `bindings-iroh-loop`; `bench-peer-scaling`'s `served` row
   extrapolates in-process; `zig build tcp-loop` prints TCP bridge footprint.
-  The open work is measuring under real live sockets at the footprint target.
-- **iroh `LoopHost` → `net.Loop` + `LoopBridge` convergence.** The iroh scale
-  path still duplicates the TCP loop's slot/outbound/close machine (~467 lines
-  in `src/net/transport/iroh.zig`); every host-bridge hardening lands twice or
-  TCP-only until that converges (ADR-0076 § Scope).
+  Opt-in Phase 2 of `bench-peer-scaling` (`--live`) measures TCP loopback under
+  `completion.Loop` + `driver.Bridge` at stepped N (RSS, connect success,
+  ns/turn); it is not part of `zig build check`.
+- **A hosted, versioned C release of the archives.** `zig build release-pack`
+  and the `v*` GitHub release workflow exist; bindings resolve archives through
+  the publishable cascade in [`bindings/README.md`](../bindings/README.md)
+  ([ADR-0077](decisions/adr/ADR-0077-publishable-c-abi-resolve.md)): each
+  package ships `c-abi-resolve.json` and downloads language-natively, so a
+  published binding (or a future separate binding repo) does not need a Zig
+  checkout. What remains is ops: flip `releases_published` and cut the first
+  versioned per-platform tarballs keyed to `pancake_abi_version` (checklist in
+  `bindings/README.md`).
 - **Goblins interop over iroh.** Upstream: Goblins ships no iroh netlayer.
   Teaching a Goblins vat that seam unblocks extending the existing
   `*-goblins-interop` / `*-goblins-handoff` gates over iroh on the pancake side.

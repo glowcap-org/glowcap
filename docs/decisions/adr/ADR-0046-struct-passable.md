@@ -101,7 +101,7 @@ and frees entries; `view.zig` gains the view entry type, the lazy sequence, the
 `fromOwned`/`toOwned` arms, and a `StructEntry` branch in the sequence unwind;
 `equality.zig` gains `structsEqualDepth`. Both codecs gain encode and decode
 arms (`syrup/encode.zig`, `syrup/decode.zig`, `capnp/encode.zig`,
-`capnp/core.zig`, `capnp/shared.zig`'s `ArgKind`). Tests flip the Syrup refusal
+`capnp/decode.zig`, `capnp/shared.zig`'s `ArgKind`). Tests flip the Syrup refusal
 to a round-trip, add a Cap'n Proto round-trip, and add a struct case to the
 cross-codec equivalence corpus. The README drops the "Struct not modeled" claim,
 states that `.void` is Undefined, and records Null as a present fail-closed

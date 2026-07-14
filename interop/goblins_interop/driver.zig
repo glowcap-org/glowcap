@@ -262,7 +262,7 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     defer allocator.free(read_buf);
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
-    var conn = listener.accept(&peer, read_buf, write_buf) catch |err| {
+    var conn = listener.accept(&peer, read_buf, write_buf, .{}) catch |err| {
         std.debug.print("goblins-interop: accept failed ({s} scenario): {s}\n", .{ scenario.kind, @errorName(err) });
         goblins_child.dumpChildStderr(io, "goblins-interop", &child);
         return err;
@@ -271,8 +271,10 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
 
     // 5. Keyed op:start-session, signed over a `tcp`/`#f`-hints locator so Goblins
     //    verifies it the same way the client scenario verifies Goblins'.
-    var designator_buf: [64]u8 = undefined;
-    const designator = try std.fmt.bufPrint(&designator_buf, "{s}:{s}", .{ host, port_text });
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const port_num = try std.fmt.parseInt(u16, port_text, 10);
+    const designator_addr = try tcp.parseHostPort(host, port_num);
+    const designator = tcp.locator(&designator_buf, designator_addr).designator;
     _ = try goblins_child.openKeyedSession(io, &peer, &conn, designator);
     std.debug.print("goblins-interop: session open (pancake as listener, {s})\n", .{scenario.kind});
 
@@ -341,19 +343,16 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_st
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var designator_buf: [64]u8 = undefined;
-    const designator = try std.fmt.bufPrint(&designator_buf, "{s}:{s}", .{ host, port_str });
-    const dial: model.PeerLocator = .{
-        .transport = tcp.transport_name, // "tcp"
-        .designator = designator,
-        .hints = model.Hints.emptyFalse(),
-    };
-    var conn = try tcp.connect(io, &peer, dial, read_buf, write_buf);
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const port_num = try std.fmt.parseInt(u16, port_str, 10);
+    const designator_addr = try tcp.parseHostPort(host, port_num);
+    const dial = tcp.locator(&designator_buf, designator_addr);
+    var conn = try tcp.connect(io, &peer, dial, read_buf, write_buf, .{});
     defer conn.deinit();
 
     // 1. Keyed op:start-session. Our location is signed with a `tcp`/`#f`-hints
     //    locator so Goblins' verification (which re-encodes `#f`) matches.
-    _ = try goblins_child.openKeyedSession(io, &peer, &conn, host ++ ":1");
+    _ = try goblins_child.openKeyedSession(io, &peer, &conn, dial.designator);
     try verifyGoblinsStartSession(allocator, &peer);
     std.debug.print("goblins-interop: session open, goblins start-session signature verified\n", .{});
 
@@ -556,7 +555,7 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_st
 
     // The repeat enliven must hit the cache: same import position, no wire traffic.
     const repeat = try engine.sturdyref.prepareEnliven(allocator, &peer.session_state, .{
-        .peer = .{ .transport = tcp.transport_name, .designator = designator, .hints = model.Hints.emptyFalse() },
+        .peer = .{ .transport = tcp.transport_name, .designator = dial.designator, .hints = model.Hints.emptyFalse() },
         .swissnum = swiss,
     });
     switch (repeat) {

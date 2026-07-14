@@ -25,7 +25,8 @@
 //! The high-fan-out completion `Loop` is deliberately *outside* this contract.
 //! It multiplexes raw kernel fds and cannot drive a userspace UDP transport, so
 //! it is a tcp affordance beside the contract, not part of it. A userspace
-//! transport scales through its own loop source instead: iroh's `LoopHost`
+//! transport scales through a completion `Backend` instead: iroh's
+//! `iroh.Backend` under `completion.Loop`
 //! (ADR-0057) multiplexes many QUIC connections over the sidecar's one
 //! readiness fd, the userspace-QUIC sibling of the kernel-fd `Loop`.
 
@@ -34,6 +35,9 @@ const std = @import("std");
 const model = @import("model");
 const engine = @import("engine");
 const connection = @import("connection.zig");
+const stream_shim = @import("stream_shim.zig");
+
+const Io = std.Io;
 
 pub const Connection = connection.Connection;
 
@@ -44,6 +48,71 @@ pub const Buffers = struct {
     read: []u8,
     write: []u8,
 };
+
+/// One pinned byte-source stream: a `stream_shim.Shim(Source)` reader/writer pair
+/// plus the one per-connection allocation the userspace transports need, so the
+/// vtable can recover the concrete reader and writer from `&interface` by field
+/// offset (the same pin tcp's `TcpStream` holds, ADR-0043). A transport supplies
+/// its `Source` (the Shim byte source) and a `Context` that owns the transport
+/// handle and declares `fn closeStream(Context) void`, run once inside `close`
+/// before the allocation is freed. Allocated at connect/accept, freed by the
+/// connection's transport handle on `close`. tcp does not ride this: its stream
+/// is `std.Io.net.Stream`, which carries its own reader/writer and a real fd.
+pub fn PinnedStream(comptime Source: type, comptime Context: type) type {
+    return struct {
+        const Self = @This();
+        const ShimT = stream_shim.Shim(Source);
+
+        reader: ShimT.Reader,
+        writer: ShimT.Writer,
+        allocator: std.mem.Allocator,
+        context: Context,
+
+        /// Pin a stream on `allocator`. `read_source` and `write_source` are the
+        /// Shim byte sources for each direction — the same value both ways when a
+        /// transport reads and writes one handle, distinct channels when it does
+        /// not. `context` owns the transport handle `close` releases.
+        pub fn create(
+            allocator: std.mem.Allocator,
+            read_source: Source,
+            write_source: Source,
+            bufs: Buffers,
+            context: Context,
+        ) std.mem.Allocator.Error!*Self {
+            const self = try allocator.create(Self);
+            self.* = .{
+                .reader = ShimT.Reader.init(read_source, bufs.read),
+                .writer = ShimT.Writer.init(write_source, bufs.write),
+                .allocator = allocator,
+                .context = context,
+            };
+            return self;
+        }
+
+        pub fn intoConnection(self: *Self, io: Io, peer: *engine.Peer) Connection {
+            return Connection.init(io, peer, &self.reader.interface, &self.writer.interface, .{
+                .ctx = self,
+                .close_fn = close,
+                .socket_handle_fn = socketHandle,
+            });
+        }
+
+        /// Release the transport handle through the context hook, then free the
+        /// pinned allocation. The hook runs before the free, so a source whose
+        /// bytes live in the handle (an in-process pipe) is closed while it is
+        /// still valid.
+        pub fn close(ctx: *anyopaque) void {
+            const self: *Self = @ptrCast(@alignCast(ctx));
+            self.context.closeStream();
+            self.allocator.destroy(self);
+        }
+
+        fn socketHandle(ctx: *anyopaque) ?Io.net.Socket.Handle {
+            _ = ctx;
+            return null; // No fd: a userspace stream is not pollable.
+        }
+    };
+}
 
 /// What to bind a `Listener` to. `designator` is the transport's address form
 /// (a `host:port` for tcp; a node default for a userspace transport).
@@ -69,7 +138,7 @@ pub const DesignatorScheme = enum { address, key };
 /// designator needs, since the designator itself no longer says where to dial.
 /// The iroh resident re-exports this name; keyed TCP requires the hint on every
 /// dial (TCP has no discovery).
-pub const hint_direct_addresses = "direct-addresses";
+pub const hint_direct_addresses = model.transport.hint_direct_addresses;
 
 /// The locator's `hint_direct_addresses` string hint, or null when the hint is
 /// missing or carries a non-string value.

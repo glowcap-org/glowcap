@@ -108,7 +108,7 @@ flowchart TD
 ```
 
 One deliberate survivor: the handoff-count replay guard is keyed by the
-Exporter–Receiver session identity, not the carrying connection, and it lives in
-the vat-scoped gift registry. A host that keeps one registry across connections
-therefore refuses a reconnecting Receiver's replayed count (see
+Exporter–Receiver session identity, not the carrying transport, and it lives in
+the vat-scoped gift registry. A host that keeps one registry across CapTP
+sessions therefore refuses a reconnecting Receiver's replayed count (see
 [06-handoffs.md](06-handoffs.md) HO-7).

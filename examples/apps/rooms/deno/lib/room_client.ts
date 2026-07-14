@@ -20,7 +20,7 @@
 // name is the directory's lookup key; the room itself is the capability the
 // directory returns.
 
-import { type AppValue, type Connection, Ref } from "@pancake/stack";
+import { type AppValue, Ref, type Session } from "@pancake/stack";
 import { dial } from "./locator.ts";
 import type { Presence } from "./wire.ts";
 import {
@@ -35,6 +35,7 @@ import {
 	POST,
 	REGISTER,
 	SUBSCRIBE,
+	TYPING,
 	WATCH,
 } from "./protocol.ts";
 
@@ -77,10 +78,10 @@ function parseRooms(raw: AppValue): RoomInfo[] {
  * the rooms that have people in them, as a snapshot or a live feed. The
  * directory owns the connection; close it with `close` when the session ends. */
 export class Directory {
-	readonly conn: Connection;
+	readonly conn: Session;
 	#directory: Ref;
 
-	private constructor(conn: Connection, directory: Ref) {
+	private constructor(conn: Session, directory: Ref) {
 		this.conn = conn;
 		this.#directory = directory;
 	}
@@ -165,7 +166,7 @@ export class Directory {
 		return ref;
 	}
 
-	/** Close the connection, ending every room's `messages` stream. */
+	/** Close the session, ending every room's `messages` stream. */
 	async close(): Promise<void> {
 		this.conn.close();
 		await this.conn.serve().catch(() => {});
@@ -178,11 +179,11 @@ export class Directory {
  * directory is not on the message path. It vouched for the introduction once, and
  * after that the two of you talk without it. */
 export class DirectMessage {
-	#conn: Connection;
+	#conn: Session;
 	#dm: Ref;
 	readonly peer: string;
 
-	private constructor(conn: Connection, dm: Ref, peer: string) {
+	private constructor(conn: Session, dm: Ref, peer: string) {
 		this.#conn = conn;
 		this.#dm = dm;
 		this.peer = peer;
@@ -232,7 +233,7 @@ export function readPresence(args: AppValue[]): Presence | undefined {
  * `joinRoom` in `enter_room.ts` is the friendly wrapper), read `messages`, call
  * `say`, and `leave` when you are done. */
 export class Room {
-	#conn: Connection;
+	#conn: Session;
 	#room: Ref;
 	// Captured synchronously by the ReadableStream `start` callback.
 	#lines!: ReadableStreamDefaultController<Message>;
@@ -242,7 +243,7 @@ export class Room {
 	 * when you `leave` or the room hangs up. */
 	readonly messages: ReadableStream<Message>;
 
-	private constructor(conn: Connection, room: Ref) {
+	private constructor(conn: Session, room: Ref) {
 		this.#conn = conn;
 		this.#room = room;
 		this.messages = new ReadableStream<Message>({
@@ -254,11 +255,13 @@ export class Room {
 
 	/** Subscribe to a room you already hold a reference to, on an open connection.
 	 * Publishes the inbox, hands the room that capability, and surfaces the
-	 * room's callbacks on `messages`. */
+	 * room's callbacks on `messages`. `onTyping`, if given, fires with each
+	 * other member's ephemeral typing flag; those signals never reach `messages`. */
 	static async subscribe(
-		conn: Connection,
+		conn: Session,
 		roomRef: Ref,
 		nick: string,
+		onTyping?: (from: string, on: boolean) => void,
 	): Promise<Room> {
 		const self = new Room(conn, roomRef);
 
@@ -266,6 +269,12 @@ export class Room {
 		// line may carry a structured presence change after its text.
 		const inbox = conn.spawn((verb, args) => {
 			if (verb !== NOTIFY) throw new Error(`inbox has no method ${verb}`);
+			// A typing flag is ephemeral presence, not a line: it carries no text and
+			// must never enter the message stream. Route it to `onTyping` and stop.
+			if (args[2] === "typing" && typeof args[3] === "string") {
+				onTyping?.(args[3], args[4] === true);
+				return null;
+			}
 			const from = typeof args[0] === "string" ? args[0] : "?";
 			const text = typeof args[1] === "string" ? args[1] : "";
 			self.#emit(from, text, readPresence(args));
@@ -291,9 +300,16 @@ export class Room {
 		await this.#conn.send(this.#room, POST, [text]);
 	}
 
+	/** Flag whether we are typing in this room. Fire-and-forget (`tell`, no reply):
+	 * a typing signal is ephemeral, so a lost one costs nothing and never blocks a
+	 * keystroke. The room drops it silently if we are no longer subscribed. */
+	setTyping(on: boolean): Promise<void> {
+		return this.#conn.tell(this.#room, TYPING, [on]).catch(() => {});
+	}
+
 	/** Leave this room — drop the membership and end the `messages` stream —
 	 * without closing the connection, so the same connection can enter another
-	 * room. Close the connection itself with `Directory.close`. */
+	 * room. Close the session itself with `Directory.close`. */
 	async leave(): Promise<void> {
 		this.#leaving = true;
 		await this.#conn.send(this.#room, LEAVE, []).catch(() => {});

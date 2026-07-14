@@ -53,7 +53,7 @@ The run walks eight steps and asserts each:
 | `zig/accountable.zig`                                        | The store that records an Episode and flushes it to disk.                  |
 | `zig/host.zig`                                               | Standalone host for cross-language demos (listens, serves one connection). |
 | `zig/three_party_test.zig`                                   | Three-party attribution: C attributes B, not A, after a handoff.           |
-| `deno/caller.ts`                                             | Deno caller: signs with Ed25519, invokes the Zig host over OCapN/TCP.      |
+| `deno/caller.ts`                                             | Deno caller: signs with Ed25519, invokes the Zig host over an OCapN session on the `tcp` netlayer. |
 | `deno/demo.ts`                                               | Cross-seam orchestrator: starts the Zig host, runs Deno + Python callers.  |
 | `python/caller.py`                                           | Python caller: signs with PyNaCl Ed25519, invokes the Zig host.            |
 | [`why-this-couldnt-be-http.md`](why-this-couldnt-be-http.md) | Why the three-party accountability story needs OCapN, not HTTP.            |
@@ -94,7 +94,7 @@ The demo starts a fresh Zig host for each caller, connects from Deno and Python,
 generates an Ed25519 identity (Web Crypto / PyNaCl), signs the request, and
 invokes. The host verifies the signature and returns `ack:read-thermostat`. A
 tampered signature is refused as a broken promise (`UnattestedCaller`). Same
-application, three languages, over real OCapN/TCP.
+application, three languages, over a real OCapN session on the `tcp` netlayer.
 
 ## Three-party introduction (in-memory protocol proof)
 

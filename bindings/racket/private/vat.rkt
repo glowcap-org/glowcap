@@ -13,12 +13,13 @@
 ;; vows and their listeners, `bcom`, and the time-travel history. Everything
 ;; wire-shaped — hosting exports, far sends, far vows, three-party redemption —
 ;; lives in the byte-fed host archive (libpancake_driver) behind
-;; `private/connection.rkt`. A connection installs a `far-ops` record into its
+;; `private/session.rkt`. A connection installs a `far-ops` record into its
 ;; vat, so `<-` to a far reference and `on` over a far vow stay
 ;; location-transparent for the application; a pure-local vat (no connection)
 ;; refuses far work with a clear error, as a peerless Goblins vat would.
 
 (require racket/match
+         "constants.rkt"
          "value.rkt"
          (for-syntax racket/base))
 
@@ -61,7 +62,7 @@
 ;; observes a far vow, and how `break-far-vows!` severs them on disconnect. The
 ;; box keeps the vat itself connection-agnostic.
 ;; `revocables` maps a caretaker proxy's actor id to the shared `live` box
-;; `conn-caretaker` installs; `conn-revoke!` clears the flag and drops the row.
+;; `session-caretaker` installs; `session-revoke!` clears the flag and drops the row.
 (struct vat (cells next queue listeners exports tt far revocables) #:transparent)
 
 ;; A behavior's tail-forward of its answer to another reference — the binding's
@@ -74,14 +75,38 @@
 ;; proxy is a plain near capability called locally or over the wire alike.
 (struct forward (target method args) #:transparent)
 
-;; Bounds one turn's synchronous local forward chain; hop 257 breaks the answer
-;; instead of spinning. The wire path defers each hop onto a fresh turn, so a
-;; forward cycle there loops asynchronously; the local chase runs its hops
-;; synchronously, and a caretaker forwarding to itself would spin forever
-;; without the bound. Legitimate proxy chains are a handful deep. The same
-;; bound (and break message) the sibling bindings carry.
-(define MAX-LOCAL-FORWARD-HOPS 256)
-(define FORWARD-CYCLE-MESSAGE "forward cycle: the local forward chain never terminates")
+;; Hop cap and cycle message live in constants.rkt (mirrored against
+;; PANCAKE_MAX_LOCAL_FORWARD_HOPS). Sentinels the shared chase returns so
+;; callers translate them into error / on-break / turn-break.
+(struct forward-cycle () #:transparent)
+(struct hop-broke (message) #:transparent)
+
+;; Chase a Forward chain while each *resolved* target is a local `actor-ref`.
+;; `run-hop` runs one near hop: `(target method args) -> next-value` (may
+;; return a `hop-broke`). `#:resolve-target` maps the forward's target before
+;; the actor-ref? test (vat-resolve-target on the wire path; identity under
+;; `$`). Returns a plain value, a surviving `forward` (target already
+;; resolved), a `forward-cycle`, or a `hop-broke`. Shared by `$`
+;; (`near-resolve`), local drive (`resolve-behavior`), and the wire trampoline
+;; (`settle-turn-reply`).
+(define (chase-local-actor-forwards value run-hop
+                                    #:resolve-target [resolve-target values])
+  (let loop ([value value] [hops 0])
+    (cond
+      [(forward? value)
+       (define target (resolve-target (forward-target value)))
+       (cond
+         [(actor-ref? target)
+          (if (>= hops MAX-LOCAL-FORWARD-HOPS)
+              (forward-cycle)
+              (let ([next (run-hop target
+                                   (forward-method value)
+                                   (forward-args value))])
+                (if (hop-broke? next)
+                    next
+                    (loop next (add1 hops)))))]
+         [else (forward target (forward-method value) (forward-args value))])]
+      [else value])))
 
 ;; The connection-installed far half. `send` is
 ;; `(ref method-symbol args answer?) -> vow-or-void` — the wire `<-`/`<-np`;
@@ -91,7 +116,7 @@
 ;; breaking every far vow still parked on the connection.
 (struct far-ops (send on break) #:transparent)
 
-;; Install the far half into `v`. Binding-internal: `private/connection.rkt`
+;; Install the far half into `v`. Binding-internal: `private/session.rkt`
 ;; calls it as a connection's vat is built.
 (define (vat-install-far! v ops) (set-box! (vat-far v) ops))
 
@@ -114,7 +139,7 @@
 ;; every actor in this vat into a retained, revisable behavior history reachable
 ;; through `vat-snapshot` / `vat-restore!`; the default vat keeps no history and
 ;; its turn path is the in-place box write below, unchanged. A connection builds
-;; its own vat and installs the far half; an application uses `conn-vat`.
+;; its own vat and installs the far half; an application uses `session-vat`.
 (define (make-vat #:time-travel? [time-travel? #f])
   (vat (make-hasheqv) (box 1) (box '()) (make-hasheqv) (make-hasheqv)
        (and time-travel? (time-travel (box (hasheqv)) (box '())))
@@ -205,17 +230,15 @@
 ;; `$`, exactly as `$` to a far ref is — the eventual `<-` path defers it
 ;; instead.
 (define (near-resolve value)
-  (let chase ([value value] [hops 0])
-    (cond
-      [(forward? value)
-       (define target (forward-target value))
-       (cond
-         [(actor-ref? target)
-          (when (>= hops MAX-LOCAL-FORWARD-HOPS) (error FORWARD-CYCLE-MESSAGE))
-          (chase (run-turn target (forward-method value) (forward-args value))
-                 (add1 hops))]
-         [else (error '$ "cannot near-call a proxy forwarding to a far reference — use <-")])]
-      [else value])))
+  (define result
+    (chase-local-actor-forwards value
+                                (lambda (target method args)
+                                  (run-turn target method args))))
+  (cond
+    [(forward-cycle? result) (error FORWARD-CYCLE-MESSAGE)]
+    [(forward? result)
+     (error '$ "cannot near-call a proxy forwarding to a far reference — use <-")]
+    [else result]))
 
 ;; Run one turn of a local actor: invoke its behavior, and if it returned a
 ;; `bcom`, install the new behavior and yield the bcom's result. This is the one
@@ -307,7 +330,7 @@
 ;; broken vow. It catches an actor's arbitrary `raise`d value (Goblins semantics)
 ;; and every `exn:fail`, but lets `exn:break?` propagate: a `break-thread` — the
 ;; standard Racket cancellation and timeout mechanism — aimed at a thread pumping
-;; a blocking `conn-send`/`conn-await`/`conn-fetch` loop must terminate that thread,
+;; a blocking `session-send`/`session-await`/`session-fetch` loop must terminate that thread,
 ;; not be absorbed into a broken vow and swallowed. Every convert-to-broken handler
 ;; uses this rather than a bare `(lambda (_) #t)` so the loops stay interruptible.
 (define (converts-to-broken? e) (not (exn:break? e)))
@@ -337,7 +360,7 @@
             (settle-local v vow-id value #t)
             ;; A plain value settles now; a `forward` (a caretaker/attenuator)
             ;; tail-resolves the vow from the forwarded send, deferring it for a
-            ;; far target, which the awaiting `conn-send` loop pumps to settle
+            ;; far target, which the awaiting `session-send` loop pumps to settle
             ;; (ADR-0064).
             (resolve-behavior v value
                               (lambda (reply) (settle-local v vow-id reply #f))
@@ -353,32 +376,30 @@
 ;; the same contract through the host's own turn verbs (ADR-0064's
 ;; `Turn.forward`).
 (define (resolve-behavior v value on-fulfill on-break)
-  (let chase ([value value] [hops 0])
-    (cond
-      [(forward? value)
-       (define target (forward-target value))
-       (define method (forward-method value))
-       (define args (forward-args value))
-       (cond
-         [(actor-ref? target)
-          (cond
-            [(>= hops MAX-LOCAL-FORWARD-HOPS) (on-break FORWARD-CYCLE-MESSAGE)]
-            [else
-             (define-values (inner broken?)
-               (with-handlers ([converts-to-broken? (lambda (e) (values (exn->message e) #t))])
-                 (values (run-turn target method args) #f)))
-             (if broken? (on-break inner) (chase inner (add1 hops)))])]
-         [else
-          (with-vat v
-            (on (apply <- target method args) on-fulfill #:catch on-break))])]
-      [else (on-fulfill value)])))
+  (define result
+    (chase-local-actor-forwards
+     value
+     (lambda (target method args)
+       (with-handlers ([converts-to-broken?
+                        (lambda (e) (hop-broke (exn->message e)))])
+         (run-turn target method args)))))
+  (cond
+    [(hop-broke? result) (on-break (hop-broke-message result))]
+    [(forward-cycle? result) (on-break FORWARD-CYCLE-MESSAGE)]
+    [(forward? result)
+     (define target (forward-target result))
+     (define method (forward-method result))
+     (define args (forward-args result))
+     (with-vat v
+       (on (apply <- target method args) on-fulfill #:catch on-break))]
+    [else (on-fulfill result)]))
 
 ;; ── bind-export! : the export → local-actor record ────────────────────────────
 ;; Binding-internal. `(bind-export! v actor export-id)` records that
 ;; `export-id` names `actor` in this vat, so a near reference at that position
 ;; resolves to its own actor in process (`vat-resolve-target`). The wire half —
 ;; allocating the position and hosting the behavior for partner delivers — is
-;; the connection's (`conn-spawn` / `conn-publish` bind through here after
+;; the connection's (`session-spawn` / `session-publish` bind through here after
 ;; registering with the host).
 (define (bind-export! v actor export-id)
   (unless (actor-ref? actor) (error 'bind-export! "can only bind a local actor reference"))
@@ -388,7 +409,7 @@
 ;; hosts to its local `actor-ref` so a self-spawned capability resolves
 ;; in-process rather than going out on the wire to its own export — the same
 ;; self-routing the sibling bindings perform through their hosted tables
-;; (Rust's `Connection::hosted_cell` chase, Python's trampoline
+;; (Rust's `SessionShared::hosted_cell` chase, Python's trampoline
 ;; `resolve_local`). A reference this vat does not host comes back unchanged.
 (define (vat-resolve-target v target)
   (define actor-id

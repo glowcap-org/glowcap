@@ -14,7 +14,7 @@
 //! (DNS/pkarr with no relay fallback) needs the node to own a publishable,
 //! reachable direct address — which a NAT'd host or container does not have, so
 //! its dial-by-id is unreachable there and cannot be a portable gate. The
-//! `connect_iroh` dialers still settle/retry under `.discovery_no_relay` on the
+//! `connect(locator)` dialers still settle/retry under `.discovery_no_relay` on the
 //! same propagation principle (it resolves by id); only a *live gate* for it is
 //! infeasible without a publicly-addressable host.
 //!

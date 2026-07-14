@@ -54,10 +54,10 @@ Goblins, so the gap a run reports is the substrate's and nothing else:
   `client-close`). A capability the server returns is minted through a
   backend-supplied `mint-cap`: on Goblins a returned actor reference
   auto-marshals, so `mint-cap` is `spawn`; on pancake it exports and publishes
-  the actor, so `mint-cap` is `conn-spawn`. The app calls `mint-cap` either way.
+  the actor, so `mint-cap` is `session-spawn`. The app calls `mint-cap` either way.
 - **Same driving model.** One client unit is one synchronous _send + settle_:
   issue an eventual-send and run the substrate until the reply settles. On
-  pancake that is the binding's own `conn-send` (it pumps the sans-io peer to
+  pancake that is the binding's own `session-send` (it pumps the sans-io peer to
   quiescence); on Goblins it is an eventual-send awaited on the vat. Neither
   side gets a hand-tuned fast path the other lacks.
 - **Same transport.** Both run over real loopback TCP, server and client in

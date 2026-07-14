@@ -16,7 +16,7 @@
 //! object itself is allocated through the host allocator, so a host-backed
 //! handle family — context included — frees entirely through host policy.
 //!
-//! The allocator machinery itself (`library_allocator`, `HostAllocator`,
+//! The allocator machinery itself (`library_allocator`, `ContextAllocator`,
 //! `Context`, `ctxFromOpaque`) lives in the shared leaf (`src/c_abi/shared/`) so the iroh
 //! transport ABI shares one allocation policy without this file's `export fn`s.
 
@@ -41,7 +41,7 @@ pub const ctxFromOpaque = abi.ctxFromOpaque;
 pub export fn pancake_context_new(out_context: ?*?*PancakeContext) i32 {
     const slot = out_context orelse return PANCAKE_ERR_NULL_POINTER;
     const ctx = library_allocator.create(Context) catch return PANCAKE_ERR_INTERNAL;
-    ctx.* = .{ .allocator = library_allocator, .backing = .library, .host = undefined };
+    ctx.* = .library;
     slot.* = @ptrCast(ctx);
     return PANCAKE_OK;
 }
@@ -61,17 +61,11 @@ pub export fn pancake_context_new_with_allocator(spec: ?*const PancakeAllocator,
 
     const raw = alloc_fn(s.user_data, @sizeOf(Context), @alignOf(Context)) orelse return PANCAKE_ERR_INTERNAL;
     const ctx: *Context = @ptrCast(@alignCast(raw));
-    ctx.* = .{
-        .allocator = undefined,
-        .backing = .host,
-        .host = .{
-            .alloc_fn = alloc_fn,
-            .free_fn = free_fn,
-            .user_data = s.user_data,
-        },
-    };
-    // The vtable borrows `&ctx.host`, valid because `ctx` is heap-pinned.
-    ctx.allocator = ctx.host.allocator();
+    ctx.* = .{ .embedder = .{
+        .alloc_fn = alloc_fn,
+        .free_fn = free_fn,
+        .user_data = s.user_data,
+    } };
     slot.* = @ptrCast(ctx);
     return PANCAKE_OK;
 }
@@ -84,8 +78,8 @@ pub export fn pancake_context_new_with_allocator(spec: ?*const PancakeAllocator,
 /// undefined behavior; there is no runtime check.
 pub export fn pancake_context_release(context: ?*PancakeContext) void {
     const ctx = ctxFromOpaque(context) orelse return;
-    switch (ctx.backing) {
+    switch (ctx.*) {
         .library => library_allocator.destroy(ctx),
-        .host => ctx.host.free_fn(ctx.host.user_data, ctx, @sizeOf(Context), @alignOf(Context)),
+        .embedder => |*e| e.free_fn(e.user_data, ctx, @sizeOf(Context), @alignOf(Context)),
     }
 }

@@ -16,7 +16,7 @@
 //! greeter (whose home is the gifter↔Bob connection) on Carol's connection trips
 //! the transparent gifter — it deposits the greeter back with Bob over its own
 //! Bob connection and resolves Carol's send with a signed give. One node identity
-//! (`gifter.node()`) serves both the recipient and the exporter connection, so
+//! (`gifter.host()`) serves both the recipient and the exporter connection, so
 //! the give's signature matches the deposit. Goblins Bob must accept the deposit;
 //! Goblins Carol must redeem the give and reach Bob directly. The proof is
 //! Carol's `GIFT OK` line carrying the greeter's reply with the name she sent.
@@ -27,7 +27,9 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use pancake_rust_dogfood::{listen, Argument, Connection};
+use pancake_rust_dogfood::{
+	connect, listen, socket_addr_designator, tcp_locator, Argument, Session,
+};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
 
@@ -96,7 +98,7 @@ async fn main() -> Result<(), Fail> {
 		"rust-goblins-gift: goblins-bob exporting greeter swiss={GREETER_SWISS} on {HOST}:{port}"
 	);
 
-	// The `Connection`/`Server` are `!Send`, so the gifter runs on a `LocalSet`.
+	// The `Session`/`Server` are `!Send`, so the gifter runs on a `LocalSet`.
 	let local = tokio::task::LocalSet::new();
 	let result = local.run_until(gift(port)).await;
 
@@ -122,13 +124,13 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	// connection, so the give's signature matches the deposit.
 	let server = listen((HOST, 0)).await?;
 	let gifter_port = server.local_addr()?.port();
-	let node = server.node();
+	let host = server.host();
 
 	// Run the accept loop, retaining every accepted connection: dropping a
-	// `Connection` closes it, so the recipient's connection must be held for the
+	// `Session` closes it, so the recipient's connection must be held for the
 	// duration of the handoff.
 	tokio::task::spawn_local(async move {
-		let mut held: Vec<Connection> = Vec::new();
+		let mut held: Vec<Session> = Vec::new();
 		while let Ok(conn) = server.accept().await {
 			held.push(conn);
 		}
@@ -137,17 +139,17 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	// Dial Bob and fetch his greeter, sharing the gifter's node identity. The
 	// fetched ref's home is this gifter↔Bob connection, which is what lets
 	// pancake re-gift it across to the recipient.
-	let to_bob = Connection::connect_with_node((HOST, port), node.clone()).await?;
+	let to_bob = connect(&tcp_locator(HOST, port), None, Some(host.clone())).await?;
 	let greeter = to_bob.fetch(GREETER_SWISS).await?;
 	println!("rust-goblins-gift: fetched goblins-bob's greeter");
 
-	// Publish the introducer node-wide. Returning Bob's greeter (home = the Bob
-	// connection) to the recipient's connection trips the transparent gifter,
+	// Publish the introducer Host-wide. Returning Bob's greeter (home = the Bob
+	// session) to the recipient's session trips the transparent gifter,
 	// which deposits with Bob and resolves the recipient with a signed give. The
 	// giftable is a factory because an actor behavior is a `!Clone` `FnMut`: each
-	// connection it is published on gets a freshly minted behavior with the same
+	// session it is published on gets a freshly minted behavior with the same
 	// logic, all returning the one greeter.
-	node.publish_giftable(INTRODUCER_SWISS, move || {
+	host.publish_giftable(INTRODUCER_SWISS, move || {
 		let greeter = greeter.clone();
 		Box::new(move |verb: &str, _args: &[Argument]| {
 			if verb == "get-greeter" {
@@ -164,7 +166,7 @@ async fn gift(port: u16) -> Result<(), Fail> {
 	let mut carol = Command::new(RACKET)
 		.args([
 			RECIPIENT_SCRIPT,
-			&format!("{HOST}:{gifter_port}"),
+			&socket_addr_designator(HOST, gifter_port),
 			INTRODUCER_SWISS,
 			&(port + 1).to_string(),
 		])

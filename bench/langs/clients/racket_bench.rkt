@@ -1,7 +1,7 @@
 #lang racket/base
 ;; The Racket-binding bench client for the per-language consumer-cost bench. It
 ;; drives the taskboard unit against the fixed Zig host through pancake's Racket
-;; binding (the same `connect`/`conn-fetch`/`conn-send` the demos use) and prints
+;; binding (the same `connect`/`session-fetch`/`session-send` the demos use) and prints
 ;; one NDJSON metric line in the shared schema (see bench/langs/contract.md).
 ;;
 ;;   racket racket_bench.rkt <mode> <host> <port> <n>
@@ -24,23 +24,23 @@
 ;; One bench unit: create a task, then assign/complete/status it, returning the
 ;; final status (the bytes #"done").
 (define (run-unit c root)
-  (define task (conn-send c root 'create #"benchmark"))
-  (conn-send c task 'assign #"alice")
-  (conn-send c task 'complete)
-  (conn-send c task 'status))
+  (define task (session-send c root 'create #"benchmark"))
+  (session-send c task 'assign #"alice")
+  (session-send c task 'complete)
+  (session-send c task 'status))
 
 ;; The same four verbs as run-unit, but pipelined (ADR-0007, questioner half):
 ;; assign/complete/status are addressed at the answer `create` will resolve to —
-;; the promise-ref `conn-send-promise` returns, passed as the target, without
+;; the promise-ref `session-send-promise` returns, passed as the target, without
 ;; settling it — so the unit costs one round trip instead of four. Only the final
-;; status is settled (`conn-await`), which flushes the queued batch. The
+;; status is settled (`session-await`), which flushes the queued batch. The
 ;; throughput unit; run-unit stays sequential so the latency row keeps measuring
 ;; one round trip.
 (define (run-unit-pipelined c root)
-  (define create (conn-send-promise c root 'create #"benchmark"))
-  (conn-send-promise c create 'assign #"alice")
-  (conn-send-promise c create 'complete)
-  (conn-await c (conn-send-promise c create 'status)))
+  (define create (session-send-promise c root 'create #"benchmark"))
+  (session-send-promise c create 'assign #"alice")
+  (session-send-promise c create 'complete)
+  (session-await c (session-send-promise c create 'status)))
 
 (define (assert-ok v) (unless (equal? v #"done") (error 'racket-bench "bad status ~v" v)))
 
@@ -52,14 +52,14 @@
 
 (define (run-latency)
   (define c (connect (tcp-locator host port)))
-  (define root (conn-fetch c "root"))
+  (define root (session-fetch c "root"))
   (warm+settle c root)
   (define lats
     (for/list ([_ (in-range N)])
       (define s (now))
       (assert-ok (run-unit c root))
       (- (now) s)))
-  (connection-close! c)
+  (session-close! c)
   (printf "{\"v\":1,\"metric\":\"latency\",\"client\":\"~a\",\"suite\":\"taskboard\",\"n\":~a,\"p50_ms\":~a,\"p99_ms\":~a,\"p999_ms\":~a,\"mean_ms\":~a,\"runtime\":\"~a\",\"warmup_n\":~a}\n"
           CLIENT N
           (real->decimal-string (percentile lats 0.50) 4)
@@ -70,12 +70,12 @@
 
 (define (run-throughput)
   (define c (connect (tcp-locator host port)))
-  (define root (conn-fetch c "root"))
+  (define root (session-fetch c "root"))
   (warm+settle c root run-unit-pipelined)
   (define t0 (now))
   (for ([_ (in-range N)]) (assert-ok (run-unit-pipelined c root)))
   (define total (- (now) t0))
-  (connection-close! c)
+  (session-close! c)
   (printf "{\"v\":1,\"metric\":\"throughput\",\"client\":\"~a\",\"suite\":\"taskboard\",\"n\":~a,\"total_ms\":~a,\"rps\":~a,\"runtime\":\"~a\",\"warmup_n\":~a}\n"
           CLIENT N
           (real->decimal-string total 2)
@@ -88,7 +88,7 @@
   (define warm
     (for/list ([_ (in-range CONN-WARMUP)])
       (define c (connect (tcp-locator host port)))
-      (conn-fetch c "root")
+      (session-fetch c "root")
       c))
   (collect-garbage) (collect-garbage)
   (printf "{\"v\":1,\"event\":\"warmed\"}\n")
@@ -97,7 +97,7 @@
   (define handles
     (for/list ([_ (in-range N)])
       (define c (connect (tcp-locator host port)))
-      (conn-fetch c "root")
+      (session-fetch c "root")
       c))
   (define total (- (now) t0))
   (printf "{\"v\":1,\"metric\":\"connections\",\"client\":\"~a\",\"suite\":\"taskboard\",\"conns\":~a,\"total_ms\":~a,\"per_conn_ms\":~a,\"runtime\":\"~a\"}\n"
@@ -106,14 +106,14 @@
           (real->decimal-string (/ total (max 1 N)) 4)
           RUNTIME)
   (sleep 2.5)
-  (for ([c (in-list handles)]) (connection-close! c))
-  (for ([c (in-list warm)]) (connection-close! c)))
+  (for ([c (in-list handles)]) (session-close! c))
+  (for ([c (in-list warm)]) (session-close! c)))
 
 (define (run-cold)
   (define c (connect (tcp-locator host port)))
-  (define root (conn-fetch c "root"))
+  (define root (session-fetch c "root"))
   (assert-ok (run-unit c root))
-  (connection-close! c)
+  (session-close! c)
   (printf "{\"v\":1,\"event\":\"cold-done\",\"client\":\"~a\"}\n" CLIENT))
 
 ;; The local-turn counter: `hit` increments and returns the count, any other
@@ -130,13 +130,13 @@
 ;; send→settle units against `target`, asserting the final count equals
 ;; WARMUP + N. Returns the per-turn latencies in nanoseconds.
 (define (measure-hits c target)
-  (for ([_ (in-range WARMUP)]) (conn-send c target 'hit))
+  (for ([_ (in-range WARMUP)]) (session-send c target 'hit))
   (collect-garbage) (collect-garbage) (collect-garbage)
   (define final (box 0))
   (define lats
     (for/list ([_ (in-range N)])
       (define s (now))
-      (set-box! final (conn-send c target 'hit))
+      (set-box! final (session-send c target 'hit))
       (* (- (now) s) 1e6)))
   (unless (equal? (unbox final) (+ WARMUP N))
     (error 'racket-bench "bad final count ~v (expected ~a)" (unbox final) (+ WARMUP N)))
@@ -163,20 +163,20 @@
                           (eprintf "racket-bench local: accept/publish failed: ~a\n" e)
                           (exit 1))])
          (define conn (accept srv))
-         (conn-publish conn "counter" ^counter)
+         (session-publish conn "counter" ^counter)
          conn))
-     (with-handlers ([(lambda (_) #t) void]) (conn-serve conn))))
+     (with-handlers ([(lambda (_) #t) void]) (session-serve conn))))
   (define c (connect (tcp-locator "127.0.0.1" (server-port srv))))
 
   ;; (a) in_lang: the binding's in-process actor dispatch.
-  (define local-counter (conn-spawn c ^counter))
+  (define local-counter (session-spawn c ^counter))
   (define in-lang (measure-hits c local-counter))
 
   ;; (b) via_host: the published counter across the loopback pair.
-  (define far-counter (conn-fetch c "counter"))
+  (define far-counter (session-fetch c "counter"))
   (define via-host (measure-hits c far-counter))
 
-  (connection-close! c)
+  (session-close! c)
   (server-close! srv)
 
   (define in-mean (mean in-lang))

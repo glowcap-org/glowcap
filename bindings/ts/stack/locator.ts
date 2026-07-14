@@ -5,9 +5,17 @@
 
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
-import { ab } from "./internal/seam.ts";
-import { INVALID_ARGUMENT, OK } from "./internal/abi.ts";
+import { ab, readBytes } from "./internal/seam.ts";
+import { BUFFER_TOO_SMALL, INVALID_ARGUMENT, OK } from "./internal/abi.ts";
 import { check, PancakeError } from "./errors.ts";
+
+export const HINT_DIRECT_ADDRESSES = "direct-addresses";
+
+/** OCapN transport symbols; mirrors `model.transport.*`. */
+export const TRANSPORT_TCP = "tcp";
+export const TRANSPORT_KEYED_TCP = "keyed-tcp";
+export const TRANSPORT_INPROC = "inproc";
+export const TRANSPORT_IROH = "iroh";
 
 //
 // The `ocapn://<designator>.<transport>[?hints]` grammar is core OCapN
@@ -26,7 +34,7 @@ export interface Locator {
 	/** The designator's `host:port` split when the core grammar
 	 * (`pancake_locator_host_port`) accepts it, `null` otherwise; a socket
 	 * dialer consumes the split instead of re-deriving it. */
-	hostPort: { host: string; port: number } | null;
+	hostPort: { hostname: string; port: number } | null;
 }
 
 // Read a (pointer, length) view pair the locator accessors fill, decoding the
@@ -114,10 +122,10 @@ export function parseLocator(uri: string, sturdyref = false): Locator {
 			ab(hLen),
 			ab(portBuf),
 		);
-		let hostPort: { host: string; port: number } | null = null;
+		let hostPort: { hostname: string; port: number } | null = null;
 		if (hpRc === OK) {
 			hostPort = {
-				host: readLocatorView(hPtr, hLen),
+				hostname: readLocatorView(hPtr, hLen),
 				port: new DataView(portBuf.buffer).getUint16(0, true),
 			};
 		} else if (hpRc !== INVALID_ARGUMENT) {
@@ -174,7 +182,7 @@ export function formatPeerUri(
 		);
 		const need = Number(new DataView(outLen.buffer).getBigUint64(0, true));
 		if (rc === OK) return new TextDecoder().decode(out.subarray(0, need));
-		if (rc === INVALID_ARGUMENT && need > cap) {
+		if (rc === BUFFER_TOO_SMALL && need > cap) {
 			cap = need;
 			continue;
 		}
@@ -203,11 +211,109 @@ function lengthArray(bufs: Uint8Array<ArrayBuffer>[]): Uint8Array<ArrayBuffer> {
 	return new Uint8Array(arr.buffer) as Uint8Array<ArrayBuffer>;
 }
 
-/** Build a `tcp` locator from a literal host and port: `ocapn://host:port.tcp`,
+/** Render host:port as a tcp designator; bracket IPv6 for the core grammar. */
+export function socketAddrDesignator(hostname: string, port: number): string {
+	if (hostname.includes(":") && !(hostname.startsWith("[") && hostname.endsWith("]"))) {
+		return `[${hostname}]:${port}`;
+	}
+	return `${hostname}:${port}`;
+}
+
+/** Split a `direct-addresses` hint into host and port (first address when
+ * comma-separated). */
+export function hostPortFromDirectHint(hint: string): { hostname: string; port: number } {
+	const first = hint.split(",")[0]?.trim() ?? "";
+	if (first.length === 0) {
+		throw new PancakeError(
+			INVALID_ARGUMENT,
+			"keyed-tcp requires a non-empty direct-addresses hint",
+		);
+	}
+	try {
+		return designatorHostPort(first);
+	} catch {
+		throw new PancakeError(
+			INVALID_ARGUMENT,
+			`direct-addresses hint is not host:port: ${first}`,
+		);
+	}
+}
+
+/** Split a bare designator as `host:port` through the core grammar
+ * (`pancake_designator_host_port`). Prefer this over minting a peer URI
+ * just to call `parseLocator`. */
+export function designatorHostPort(designator: string): { hostname: string; port: number } {
+	const data = new TextEncoder().encode(designator);
+	const hPtr = new Uint8Array(8), hLen = new Uint8Array(8);
+	const portBuf = new Uint8Array(2);
+	check(s.pancake_designator_host_port(
+		ab(data),
+		BigInt(data.length),
+		ab(hPtr),
+		ab(hLen),
+		ab(portBuf),
+	));
+	return {
+		hostname: readLocatorView(hPtr, hLen),
+		port: new DataView(portBuf.buffer).getUint16(0, true),
+	};
+}
+
+/** Build a `tcp` locator from a literal hostname and port: `ocapn://hostname:port.tcp`,
  * rendered through the core grammar. The convenience for the common case, a
- * caller holding a host and port passes `connect(tcpLocator(host, port))`
- * instead of hand-formatting the URI. `host:port` is not a dial of its own; it
+ * caller holding a hostname and port passes `connect(tcpLocator(hostname, port))`
+ * instead of hand-formatting the URI. `hostname:port` is not a dial of its own; it
  * is a locator like any other. */
-export function tcpLocator(host: string, port: number): string {
-	return formatPeerUri("tcp", `${host}:${port}`);
+export function tcpLocator(hostname: string, port: number): string {
+	return formatPeerUri(TRANSPORT_TCP, socketAddrDesignator(hostname, port));
+}
+
+/** Build a `keyed-tcp` locator: the designator is the listener's Ed25519 public
+ * key in canonical hex, and `hostname`/`port` ride the `direct-addresses` hint
+ * (ADR-0075). */
+export function keyedTcpLocator(designator: string, hostname: string, port: number): string {
+	return formatPeerUri(
+		TRANSPORT_KEYED_TCP,
+		designator,
+		new Map([[HINT_DIRECT_ADDRESSES, socketAddrDesignator(hostname, port)]]),
+	);
+}
+
+/** Build the verbatim exporter location-record bytes to record on the host
+ * when the exporter is reachable only by a dial hint (ADR-0009), for an
+ * exporter whose own session record carries no hint. `transport`/`designator`
+ * name the exporter; a non-empty `directAddresses` adds the exporter's
+ * comma-separated socket addresses as a `direct-addresses` hint, so a
+ * cross-process recipient dials it directly with no discovery service (an iroh
+ * exporter reachable only by address). An empty `directAddresses` yields a
+ * hint-less location identical to the exporter's own signed session record.
+ * The bytes are in the handoff codec (Syrup, as a give is); the result feeds
+ * `Session.setExporterLocator`. */
+export function encodePeerLocator(opts: {
+	transport: string;
+	designator: string;
+	directAddresses?: string;
+}): Uint8Array {
+	const utf8 = new TextEncoder();
+	const transport = utf8.encode(opts.transport);
+	const designator = utf8.encode(opts.designator);
+	const addrs = utf8.encode(opts.directAddresses ?? "");
+	const outLoc = new Uint8Array(8), outLen = new Uint8Array(8);
+	check(s.pancake_encode_peer_locator(
+		ab(transport),
+		BigInt(transport.length),
+		ab(designator),
+		BigInt(designator.length),
+		ab(addrs),
+		BigInt(addrs.length),
+		ab(outLoc),
+		ab(outLen),
+	));
+	const ptr = new DataView(outLoc.buffer).getBigUint64(0, true);
+	const len = new DataView(outLen.buffer).getBigUint64(0, true);
+	try {
+		return readBytes(ptr, len);
+	} finally {
+		s.pancake_peer_locator_bytes_release(ptr, len);
+	}
 }

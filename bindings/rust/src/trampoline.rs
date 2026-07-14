@@ -1,8 +1,8 @@
 //! The behavior trampoline: the ONE native callback in the whole binding
 //! (plus its ctx-free sibling). Every hosted object — a
-//! [`Connection::spawn`](crate::Connection::spawn) /
-//! [`publish`](crate::Connection::publish) actor, a caretaker or attenuator
-//! proxy, a node-wide giftable — shares a single process-lifetime
+//! [`Session::spawn`](crate::Session::spawn) /
+//! [`publish`](crate::Session::publish) actor, a caretaker or attenuator
+//! proxy, a host-wide giftable — shares a single process-lifetime
 //! `PancakeHostBehavior` whose ctx is a [`Box<ActorCell>`] raw pointer;
 //! `PancakeHostCtxFree` re-boxes and drops it exactly once when the host tears
 //! the object down (connection or host release), so there is no keep table and
@@ -20,17 +20,21 @@
 //! behavior's own words; a bare non-OK return would flatten them into a
 //! generic reason. A [`TurnOutcome::Forward`] maps onto
 //! `pancake_host_turn_forward` (the caretaker/attenuator primitive): a target
-//! hosted by the same connection composes in process, a far target defers the
+//! hosted by the same session composes in process, a far target defers the
 //! answer onto the forwarded send's vow.
 
 use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::rc::Weak;
+use std::rc::{Rc, Weak};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
-use crate::connection::ConnShared;
-use crate::host::{check_host, host_last_error};
+use crate::host::{check_host, drain_pending_releases, host_last_error};
+use crate::promise::CmdTarget;
+use crate::session_shared::{Caretaker, Ref, SessionShared};
 use crate::sys::driver as ffi;
-use crate::{args_from_sys, sys, Argument, Reference, Result, SendArena};
+use crate::{args_from_sys, sys, Argument, Error, Reference, Result, SendArena};
 
 /// What one turn of a hosted behavior produced: a plain reply value, a
 /// tail-forward of the answer to another reference (ADR-0064), or a broken
@@ -61,19 +65,62 @@ pub(crate) fn outcome_behavior(
 	})
 }
 
+/// ADR-0064 caretaker: spawn a proxy that forwards to `target` until revoke,
+/// then breaks every call `Revoked`.
+pub(crate) fn caretaker_proxy(shared: &Rc<SessionShared>, target: &Ref) -> Result<Caretaker> {
+	let live = Arc::new(AtomicBool::new(true));
+	let flag = Arc::clone(&live);
+	let target = target.reference();
+	let behavior: InternalBehavior = Box::new(move |verb, args| {
+		if !flag.load(Ordering::SeqCst) {
+			TurnOutcome::Break("Revoked".to_string())
+		} else {
+			TurnOutcome::Forward {
+				target: target.clone(),
+				verb: verb.to_string(),
+				args: args.to_vec(),
+			}
+		}
+	});
+	Ok(Caretaker::new(shared.spawn_actor(behavior)?, live))
+}
+
+/// ADR-0064 attenuator: spawn a proxy that forwards only allow-listed verbs
+/// and breaks every other call `Attenuated`.
+pub(crate) fn attenuate_proxy(
+	shared: &Rc<SessionShared>,
+	target: &Ref,
+	verbs: &[&str],
+) -> Result<Ref> {
+	let allowed: HashSet<String> = verbs.iter().map(|verb| verb.to_string()).collect();
+	let target = target.reference();
+	let behavior: InternalBehavior = Box::new(move |verb, args| {
+		if !allowed.contains(verb) {
+			TurnOutcome::Break("Attenuated".to_string())
+		} else {
+			TurnOutcome::Forward {
+				target: target.clone(),
+				verb: verb.to_string(),
+				args: args.to_vec(),
+			}
+		}
+	});
+	shared.spawn_actor(behavior)
+}
+
 /// One hosted object: its behavior, and the connection it serves (identity for
 /// turn-ownership checks, and the hosted table a `Forward` chain composes
-/// through in process). `None` for a node-wide giftable, whose forwards always
+/// through in process). `None` for a host-wide giftable, whose forwards always
 /// go through the host. Owned by the host row: `ctx = Box::into_raw`, freed
 /// exactly once by [`ctx_free`] when the host tears the object down.
 pub(crate) struct ActorCell {
 	pub(crate) behavior: RefCell<InternalBehavior>,
-	pub(crate) conn: Option<Weak<ConnShared>>,
+	pub(crate) conn: Option<Weak<SessionShared>>,
 }
 
 // The turn context while a hosted object's trampoline runs: the opaque
 // `PancakeHostTurn*` and the identity of the connection the turn arrived on
-// (0 for a giftable), or None outside any turn. `Connection::spawn` reads it to
+// (0 for a giftable), or None outside any turn. `Session::spawn` reads it to
 // pick the turn-time spawn over the top-level one (which the host refuses
 // inside a callback); the action drain reads it to defer to the enclosing
 // verb's unwind. A plain thread-local is enough: behaviors are synchronous, so
@@ -83,7 +130,7 @@ thread_local! {
 }
 
 /// The current turn pointer when it belongs to the connection identified by
-/// `conn_key` (the `Rc<ConnShared>` address), else `None`.
+/// `conn_key` (the `Rc<SessionShared>` address), else `None`.
 pub(crate) fn current_turn_for(conn_key: usize) -> Option<*mut ffi::PancakeHostTurn> {
 	CURRENT_TURN.with(|t| match t.get() {
 		Some((turn, key)) if key == conn_key => Some(turn as *mut ffi::PancakeHostTurn),
@@ -110,8 +157,8 @@ thread_local! {
 	static LOCAL_RUN_DEPTH: Cell<usize> = const { Cell::new(0) };
 }
 
-/// Marks a locally-run behavior (`ConnShared::run_hosted`) for its synchronous
-/// duration, so a behavior that closes or drops its own captured `Connection`
+/// Marks a locally-run behavior (`SessionShared::run_hosted`) for its synchronous
+/// duration, so a behavior that closes or drops its own captured `Session`
 /// parks the release — `close_transport`'s immediate arm would free the
 /// `Box<ActorCell>` whose `behavior.borrow_mut()` frame is still running. The
 /// caller drains the parked releases right after this drops, mirroring the
@@ -160,6 +207,98 @@ thread_local! {
 	static LAST_REPLY_KEEP: RefCell<Option<(Argument, SendArena)>> = const { RefCell::new(None) };
 }
 
+/// Chase a behavior outcome through the locally hosted `Forward` prefix:
+/// while it forwards to a near target this session hosts, run that
+/// behavior in the same turn (a caretaker over an attenuator composes
+/// exactly as it does over the wire). Returns the terminal — a `Value`, a
+/// `Break`, or the first `Forward` whose target is not hosted here, which
+/// each caller defers its own way: the trampoline through the host's
+/// turn-forward, `send` onto the forwarded send's wire reply, `tell` as a
+/// far tell. Shared by the wire trampoline and `Session`'s local send arm.
+pub(crate) fn chase_local_forwards(conn: &SessionShared, mut outcome: TurnOutcome) -> TurnOutcome {
+	// The wire path defers each hop onto a fresh turn, so a forward cycle
+	// there loops asynchronously; the local chase runs hops synchronously
+	// and must bound them, or a caretaker forwarding to itself spins this
+	// loop forever. Legitimate proxy chains are a handful deep.
+	const MAX_LOCAL_FORWARD_HOPS: usize = crate::abi_constants::MAX_LOCAL_FORWARD_HOPS;
+	let mut hops = 0usize;
+	loop {
+		let TurnOutcome::Forward { target, verb, args } = outcome else {
+			return outcome;
+		};
+		hops += 1;
+		if hops > MAX_LOCAL_FORWARD_HOPS {
+			return TurnOutcome::Break(crate::abi_constants::FORWARD_CYCLE_MESSAGE.to_string());
+		}
+		let hosted = match &target {
+			Reference::Near { id, .. } => conn.hosted_cell(*id),
+			_ => None,
+		};
+		let Some(cell) = hosted else {
+			return TurnOutcome::Forward { target, verb, args };
+		};
+		// The cell is host-owned and alive while its connection is
+		// unreleased; the hosted table is cleared before the release that
+		// frees it.
+		let cell = unsafe { &*cell };
+		outcome = (cell.behavior.borrow_mut())(&verb, &args);
+	}
+}
+
+/// Run the hosted behavior at `position` and chase its Forward prefix, or
+/// `None` when this side does not host it — the one lookup/run/chase prefix
+/// under the local send and tell arms.
+pub(crate) fn run_hosted(
+	shared: &SessionShared,
+	position: u64,
+	verb: &str,
+	args: &[Argument],
+) -> Option<TurnOutcome> {
+	let cell = shared.hosted_cell(position)?;
+	let outcome = {
+		// The local-turn marker: a behavior that closes (or drops) its own
+		// captured `Session` mid-run would otherwise take
+		// `close_transport`'s immediate-release arm and free this very
+		// cell's `Box<ActorCell>` while its `behavior.borrow_mut()` frame
+		// is still on the stack. With the marker, `inside_turn()` is true
+		// and the release parks, exactly as on the wire path's `TurnGuard`.
+		let _guard = LocalRunGuard::enter();
+		let first = {
+			let cell = unsafe { &*cell };
+			(cell.behavior.borrow_mut())(verb, args)
+		};
+		chase_local_forwards(shared, first)
+	};
+	// The marker dropped before anything can await (the callers' own
+	// Forward-to-far send comes after this returns): run the parked
+	// releases and kick the drain, mirroring the feed path.
+	drain_pending_releases();
+	shared.host.schedule_kick();
+	Some(outcome)
+}
+
+/// The local arm of `send`, run on first observation: a `Forward` to another
+/// object this side hosts composes in process; a `Forward` to a far target
+/// defers the answer onto the forwarded send's reply (ADR-0064); a behavior
+/// error breaks with its own words, as over the wire.
+pub(crate) async fn run_local_send(
+	shared: Rc<SessionShared>,
+	position: u64,
+	verb: String,
+	args: Vec<Argument>,
+) -> Result<Argument> {
+	let Some(outcome) = run_hosted(&shared, position, &verb, &args) else {
+		return Err(Error::broken("no such hosted object".to_string()));
+	};
+	match outcome {
+		TurnOutcome::Value(value) => Ok(value),
+		TurnOutcome::Break(message) => Err(Error::broken(message)),
+		TurnOutcome::Forward { target, verb, args } => {
+			crate::promise::send_promise(&shared, CmdTarget::Ref(target), &verb, &args).await
+		}
+	}
+}
+
 // Break this turn's answer with the actor's own diagnostic and return the code
 // the trampoline hands back (OK: the break already settled the answer).
 fn turn_break(turn: *mut ffi::PancakeHostTurn, message: &str) -> i32 {
@@ -184,7 +323,7 @@ fn settle_reply(
 	// The locally hosted Forward prefix runs in this same turn (a giftable has
 	// no connection, so its forwards always go through the host).
 	let outcome = match cell.conn.as_ref().and_then(|conn| conn.upgrade()) {
-		Some(conn) => conn.chase_local_forwards(outcome),
+		Some(conn) => chase_local_forwards(&conn, outcome),
 		None => outcome,
 	};
 	match outcome {

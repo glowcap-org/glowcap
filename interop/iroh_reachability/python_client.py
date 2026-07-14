@@ -7,7 +7,7 @@ Both endpoints bind with the ``DISCOVERY`` posture. The server publishes its nod
 info to pkarr on bind; the client dials the server by its 64-hex node id with an
 empty hint set, so a session that opens proves the dial was resolved over real
 discovery infrastructure and carried over a real relay / hole-punched path, not
-hinted, not loopback-booked. The client's dial rides the ``connect_iroh``
+hinted, not loopback-booked. The client's dial rides the ``connect(locator)``
 ``DISCOVERY`` retry that settles while the publish propagates.
 
 Not a hermetic gate. This step touches public n0 infrastructure
@@ -31,9 +31,9 @@ from helpers import fail, ignore_port_args, insert_bindings_path  # noqa: E402
 
 insert_bindings_path()
 
+from pancake import connect, format_peer_uri, TRANSPORT_IROH  # noqa: E402
 from pancake.iroh import (  # noqa: E402
     Reachability,
-    connect_iroh,
     listen_iroh,
 )
 
@@ -61,7 +61,7 @@ async def accept_loop(server, served: list) -> None:
 async def run() -> None:
     # ── Server: a giftable greeter, dialable by node id alone over discovery ──────
     server = listen_iroh(Reachability.DISCOVERY)
-    server.node.publish_giftable("greeter", greeter)
+    server.host.publish_giftable("greeter", greeter)
     server_id = server.node_id
     served: list = []
     server_task = asyncio.create_task(accept_loop(server, served))
@@ -71,7 +71,7 @@ async def run() -> None:
     )
 
     # ── Client: dial by node id ALONE — empty hints — over real n0 discovery ──────
-    client = await connect_iroh(server_id, "", Reachability.DISCOVERY)
+    client = await connect(format_peer_uri(TRANSPORT_IROH, server_id), Reachability.DISCOVERY)
     print("python-iroh-reachability: client dialed by node id alone and opened the keyed session")
 
     greeter_ref = await client.fetch("greeter")

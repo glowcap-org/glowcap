@@ -82,6 +82,19 @@ def op_resolve_fulfill_promise() -> Record:
     return Record(Symbol("op:resolve"), (7, resolution))
 
 
+def op_resolve_fulfill_import_promise() -> Record:
+    """``<op:resolve 7 <resolve:fulfill <desc:import-promise 99>>>``.
+
+    Encoder side of the perspective flip for a local unresolved
+    promise: sender's ``Reference::Near{.promise}`` becomes
+    ``<desc:import-promise N>`` in payload position
+    (ADR-0080 ``Slot.local_unresolved``).
+    """
+    desc = Record(Symbol("desc:import-promise"), (99,))
+    resolution = Record(Symbol("resolve:fulfill"), (desc,))
+    return Record(Symbol("op:resolve"), (7, resolution))
+
+
 def op_listen_promise_target() -> Record:
     """``<op:listen <desc:answer 7> <desc:import-object 9>>``.
 
@@ -683,6 +696,7 @@ FIXTURES = {
     "op_resolve_fulfill_far.bin": op_resolve_fulfill_far,
     "op_resolve_fulfill_near.bin": op_resolve_fulfill_near,
     "op_resolve_fulfill_promise.bin": op_resolve_fulfill_promise,
+    "op_resolve_fulfill_import_promise.bin": op_resolve_fulfill_import_promise,
     "op_listen_promise_target.bin": op_listen_promise_target,
     "op_listen_export_target.bin": op_listen_export_target,
     "op_listen_v1_0_wants_partial_false.bin": op_listen_v1_0_wants_partial_false,

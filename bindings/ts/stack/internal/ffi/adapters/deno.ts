@@ -125,14 +125,23 @@ const net: RuntimeNet = {
 	},
 	listen(host: string, port: number): Promise<NetListener> {
 		const listener = D.listen({ hostname: host, port });
-		const bound = (listener.addr as Deno.NetAddr).port;
+		const addr = listener.addr as Deno.NetAddr;
+		const boundHost = addr.hostname;
+		const boundPort = addr.port;
 		return Promise.resolve({
-			port: bound,
+			port: boundPort,
+			localAddr(): { hostname: string; port: number } {
+				return { hostname: boundHost, port: boundPort };
+			},
 			async accept(): Promise<NetConn> {
 				return wrapConn(await listener.accept());
 			},
 			close(): void {
-				listener.close();
+				try {
+					listener.close();
+				} catch {
+					// Idempotent: the async-iterator finally may already have closed.
+				}
 			},
 		});
 	},

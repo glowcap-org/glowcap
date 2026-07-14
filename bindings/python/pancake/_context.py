@@ -1,6 +1,6 @@
 """Internal: the allocation :class:`Context`.
 
-An allocation scope peers and netlayers can be created in, routing every
+An allocation scope Hosts and netlayers can be created in, routing every
 allocation through host-supplied callables (or the default allocator). Holds the
 ``CFUNCTYPE`` trampolines alive for as long as the library can call them.
 Re-exported from the :mod:`pancake` package; import from there.
@@ -16,7 +16,7 @@ from ._errors import _check
 from ._ffi_ocapn import _AllocFn, _Allocator, _FreeFn, _lib
 
 class Context:
-    """An allocation scope. Peers and netlayers created *in* a context route
+    """An allocation scope. Hosts and netlayers created *in* a context route
     every allocation through it. The context must outlive every handle created
     in it: release the handles first, then the context. Released on
     :meth:`close` / context exit / GC.

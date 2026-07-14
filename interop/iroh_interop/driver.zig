@@ -193,7 +193,7 @@ fn callByIdOnly(
 /// that key as the 64 lowercase hex digits `Resident.nodeId` produces; the
 /// session pubkey is its 32 raw bytes. Equality on both means one key is the
 /// transport identity, the locator designator, and the session signing key.
-fn assertPartnerIsNodeId(cv: *driver.ConnectedVat, node_id_hex: []const u8) !void {
+fn assertPartnerIsNodeId(cv: *driver.BlockingSession, node_id_hex: []const u8) !void {
     const designator = cv.served.peer.session_state.partnerDesignator() orelse return error.NoPartnerDesignator;
     if (!std.mem.eql(u8, designator, node_id_hex)) return error.PartnerDesignatorMismatch;
     const key = cv.served.peer.session_state.partnerSessionKey() orelse return error.NoPartnerKey;

@@ -28,11 +28,13 @@ export const LIST = "list";
 export const WATCH = "watch";
 
 /** Room methods a client sends. `subscribe(nick, inboxCap)` returns a welcome
- * line; `post(text)` broadcasts to every subscriber; `leave()` drops this
- * membership (so a client can switch rooms on one connection) without closing
- * the connection. */
+ * line; `post(text)` broadcasts to every subscriber; `typing(on)` broadcasts an
+ * ephemeral "I am typing" flag to the other members and is never stored or
+ * echoed; `leave()` drops this membership (so a client can switch rooms on one
+ * connection) without closing the connection. */
 export const SUBSCRIBE = "subscribe";
 export const POST = "post";
+export const TYPING = "typing";
 export const LEAVE = "leave";
 
 /** Directory introduction methods (three-party handoff, gifter side).
@@ -63,5 +65,11 @@ export const DM = "dm";
  * `count` its members), and a member becoming `"registered"` / `"unregistered"`
  * for direct messages (where `name` is the member's nick and `count` is 1 or 0).
  * A member's own register inbox also hears `notify("registered", nick)` once its
- * dial-back completes, the signal that its nick is introducible. */
+ * dial-back completes, the signal that its nick is introducible.
+ *
+ * A room also pushes an ephemeral typing signal on this same inbox as
+ * `notify("room", "", "typing", nick, on)`: `nick` is the member who started or
+ * stopped typing and `on` is a boolean. It carries no line text and is never
+ * stored, so a client that does not care simply skips any `notify` whose third
+ * argument is `"typing"`. */
 export const NOTIFY = "notify";

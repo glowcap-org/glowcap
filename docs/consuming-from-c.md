@@ -10,7 +10,18 @@ transport is its own archive, and the byte-fed host tier is its own archive
 (`libpancake_driver`). The per-archive headers document every
 function's ownership behavior next to its declaration, and
 [`include/pancake_ocapn.h`](../include/pancake_ocapn.h) is the one to read
-first. This page is the orientation those comments assume.
+first (peer waist and shared vocabulary). Multi-session CapTP product work
+uses [`pancake_driver.h`](../include/pancake_driver.h) (`pancake_host_*`).
+This page is the orientation those comments assume.
+
+**CapTP sticky note (ADR-0079).** `PancakeHost` / binding `Host` is the
+multi-session CapTP product (owns `engine.Node`). Binding `Session` /
+`PancakeTcpSession` is the one-partner app object (`driver.Session`).
+`BlockingSession` is `Served` + `net.Connection` with a blocking pump.
+`HostedActor` / `spawnHosted` is embedder-hosted behavior. `DialResolver` is
+transport dial resolve. There is no multi-session “node” alias for
+`PancakeHost`, and no `driver.Connection` type — CapTP partners are sessions;
+`net.Connection` is the framed byte stream only.
 
 ## Build and link
 
@@ -26,19 +37,20 @@ That installs the archives under `zig-out/lib/` (each in static `.a` and shared
 
 | Archive                           | Header                           | What it carries                                                                                  |
 | --------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `libpancake_ocapn`                | `pancake_ocapn.h`                | the sans-io peer, contexts, frames, events, URIs: the shared vocabulary every consumer needs    |
-| `libpancake_driver`               | `pancake_driver.h`               | the byte-fed host tier (`pancake_host_*`): a multi-connection node you feed and drain yourself, with publish/fetch/send, vows, and the three-party handoff inside the library (ADR-0072) |
+| `libpancake_ocapn`                | `pancake_ocapn.h`                | the sans-io peer, contexts, frames, events, URIs: the shared vocabulary every consumer needs. Multi-session CapTP product work uses `pancake_host_*` |
+| `libpancake_driver`               | `pancake_driver.h`               | the byte-fed host tier (`pancake_host_*`): a multi-session CapTP Host you feed and drain yourself, with publish/fetch/send, vows, and the three-party handoff inside the library (ADR-0072) |
 | `libpancake_net`                  | —                                | the net-core base; links in the chain, exports nothing on its own                                |
 | `libpancake_net_transport_tcp`    | `pancake_net_transport_tcp.h`    | the blocking TCP layer (`pancake_tcp_*`): the frame boundary plus the owning `PancakeTcpSession` |
 | `libpancake_net_transport_inproc` | `pancake_net_transport_inproc.h` | the socket-free in-process layer (`pancake_inproc_*`)                                            |
 | `libpancake_net_transport_iroh`   | `pancake_net_transport_iroh.h`   | encrypted QUIC (`pancake_iroh_*`); optional, links the Rust sidecar                             |
 
 Each header is generated from its Zig source: `pancake_ocapn.h` by
-`zig build gen-header-ocapn`, the transport headers by
-`zig build gen-header-net-transport-tcp` and `gen-header-net-transport-inproc`,
-and `pancake_driver.h` by `zig build gen-header-driver`. `zig build check`
-fails if a committed copy is stale, so the header you compile against cannot
-disagree with the archive you link.
+`zig build gen-header-ocapn`, the
+transport headers by `zig build gen-header-net-transport-tcp` and
+`gen-header-net-transport-inproc`, and `pancake_driver.h` by
+`zig build gen-header-driver`. `zig build check` fails if a committed copy is
+stale, so the header you compile against cannot disagree with the archive you
+link.
 
 You link only the archives you use. A TCP consumer takes the chain
 `ocapn + net + tcp`; statically, that needs nothing beyond libc:
@@ -94,7 +106,7 @@ advance one unit of work at a time.
 
 A consumer that only wants to dial a peer, fetch a capability, and call it does
 not have to run that pump at all. `libpancake_net_transport_tcp` also ships an
-owning `PancakeTcpSession`, the C spelling of the Zig `driver.Connection`
+owning `PancakeTcpSession`, the C spelling of the Zig `driver.Session`
 (ADR-0062): `pancake_tcp_session_connect` dials and completes the keyed
 handshake, `pancake_tcp_session_fetch(name)` yields a `PancakeReference`,
 `pancake_tcp_session_call(target, verb, args)` delivers and pumps until the
@@ -103,7 +115,7 @@ it down. It reuses `pancake_ocapn.h`'s `PancakeReference` / `PancakeArgument`
 value vocabulary by layout; `PancakeSettled` itself is the owning session's
 outcome, declared in `pancake_net_transport_tcp.h` beside its only producer. The
 session is a client: it pairs with an actor-runtime host (a Zig `driver.Server`,
-a binding, or a Goblins vat), the same hosting half the Zig `Connection` dials.
+a binding, or a Goblins vat), the same hosting half the Zig `driver.Session` dials.
 The sans-io peer below it is the right primitive when _you_ own the loop and the
 host. `test/c_abi/tcp_session_test.zig` is the worked round trip.
 

@@ -19,6 +19,7 @@ export interface Conv {
 	key: string;
 	history: Item[];
 	members: Map<string, boolean>; // rooms only: name -> online
+	typers: Map<string, number>; // rooms only: nick -> auto-clear timer handle
 	unread: number;
 	noted: boolean; // dm only: whether the provenance note has been shown
 	ready: boolean; // dm only: introduction confirmed live

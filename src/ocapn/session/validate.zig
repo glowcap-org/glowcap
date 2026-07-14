@@ -102,7 +102,7 @@ pub fn validateInboundResolve(self: *Session, resolve: anytype, introduced: *Int
     // already-settled answer is a partner protocol violation, not a fresh
     // settlement: reject it (a protocol_error abort) instead of re-mutating
     // status and re-introducing the fulfill's imports.
-    if (entry.status != .pending) return Error.UnexpectedMessage;
+    if (entry.status() != .pending) return Error.UnexpectedMessage;
     switch (resolve.resolution) {
         .fulfill => |arg| try validateInboundArgument(self, arg, 0, introduced),
         .@"break" => {},
@@ -122,7 +122,7 @@ pub fn validateSend(self: *Session, message: model.Message) !void {
             // inbound answer would put our own protocol violation on the wire.
             const entry = self.inbound_answers.getPtr(resolve.answer) orelse
                 return Error.InvalidReference;
-            if (entry.status != .pending) return Error.UnexpectedMessage;
+            if (entry.status() != .pending) return Error.UnexpectedMessage;
             // The fulfill payload's `near` references are deliberately *not*
             // validated as held here: resolving an answer with a `.near` is how
             // the application exports that object for the first time, so
@@ -426,7 +426,11 @@ fn validateInboundArgument(
             try validateReference(self, reference, .received, .introduction);
             if (reference == .far) try introduced.noteFar(self, reference.far.import_position);
         },
-        .list, .set => |items| try validateInboundArguments(self, items, depth + 1, introduced),
+        .list => |items| try validateInboundArguments(self, items, depth + 1, introduced),
+        .set => |items| {
+            try validateInboundArguments(self, items, depth + 1, introduced);
+            try checkInboundSetUniqueness(self, items);
+        },
         .tagged => |tagged| try validateInboundArguments(self, tagged.value, depth + 1, introduced),
         .@"struct" => |entries| try validateInboundStructEntries(self, entries, depth + 1, introduced),
         // Exhaustive on purpose: a new Argument arm must decide here whether it
@@ -440,6 +444,59 @@ fn validateInboundArgument(
 /// one; walk every entry's value like a list element. Dual-shape like its
 /// callers: the borrowed `model.view.StructEntries` walks its lazy cursor,
 /// the owned slice walks directly.
+/// A set admits each member once: two Equal elements are two wire spellings of
+/// one set, so an inbound duplicate is refused (`DuplicateSetElement`) instead
+/// of admitted. The Syrup decoder already refuses this at the byte layer
+/// (strictly ascending encoded elements), so in practice this fold is the
+/// backstop that holds the same invariant for Cap'n Proto — whose pointer wire
+/// form cannot prove uniqueness for free — and for any future codec. It runs
+/// on the shared walk, so both the borrowed view path and the owned fallback
+/// enforce it identically. Turn-scratch in `recv_scratch` (borrowed elements
+/// materialized once for hashing, plus the hash rows), reclaimed by the
+/// recordRecv* reset; a hash group is confirmed with `argumentsEqual` before
+/// refusing, so a collision costs one compare, never a false refusal. The
+/// nesting depth of every element was already bounded by the surrounding walk.
+fn checkInboundSetUniqueness(self: *Session, items: anytype) RecvViewError!void {
+    const arena = self.recv_scratch.allocator();
+    var elements: []const model.Argument = undefined;
+    if (comptime @TypeOf(items) == model.view.Args) {
+        var count: usize = 0;
+        var counter = items.iterator();
+        while (try counter.next()) |_| count += 1;
+        if (count < 2) return;
+        const owned = try arena.alloc(model.Argument, count);
+        var it = items.iterator();
+        var i: usize = 0;
+        while (try it.next()) |element| : (i += 1) owned[i] = try element.toOwned(arena);
+        elements = owned;
+    } else {
+        if (items.len < 2) return;
+        elements = items;
+    }
+    const Row = struct {
+        hash: u64,
+        index: usize,
+        fn lessThan(_: void, a: @This(), b: @This()) bool {
+            return a.hash < b.hash;
+        }
+    };
+    const rows = try arena.alloc(Row, elements.len);
+    for (elements, 0..) |element, i| {
+        rows[i] = .{ .hash = model.equality.argumentHash(element), .index = i };
+    }
+    std.mem.sort(Row, rows, {}, Row.lessThan);
+    var run_start: usize = 0;
+    for (rows, 0..) |row, i| {
+        if (row.hash != rows[run_start].hash) run_start = i;
+        for (rows[run_start..i]) |prior| {
+            if (model.equality.argumentsEqual(elements[prior.index], elements[row.index])) {
+                return Error.DuplicateSetElement;
+            }
+        }
+    }
+    return;
+}
+
 fn validateInboundStructEntries(
     self: *Session,
     entries: anytype,

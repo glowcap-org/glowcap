@@ -21,7 +21,7 @@
 // Needs `deno` + `racket` + the `goblins` collection on PATH, so it runs as the
 // sibling build step `zig build deno-goblins-gift`.
 
-import { Connection, listen, type Ref } from "@pancake/stack";
+import { connect, listen, type Ref, socketAddrDesignator, tcpLocator } from "@pancake/stack";
 import { acceptLoop, fail, parsePort } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
@@ -99,15 +99,15 @@ try {
 
 	// Dial Bob and fetch his greeter. The fetched ref's home is this gifter↔Bob
 	// connection, which is what lets pancake re-gift it across to the recipient.
-	const toBob = await Connection.connect(HOST, PORT, gifter.node);
+	const toBob = await connect(tcpLocator(HOST, PORT), undefined, gifter.host);
 	toBob.serve().catch(() => {});
 	const greeter = await toBob.fetch(GREETER_SWISS);
 	console.log("deno-goblins-gift: fetched goblins-bob's greeter");
 
-	// Publish the introducer node-wide. Returning Bob's greeter (home = the Bob
+	// Publish the introducer host-wide. Returning Bob's greeter (home = the Bob
 	// connection) to the recipient's connection trips the transparent gifter,
 	// which deposits with Bob and resolves the recipient with a signed give.
-	gifter.node.publishGiftable(
+	gifter.host.publishGiftable(
 		INTRODUCER_SWISS,
 		(verb) => (verb === "get-greeter" ? greeter : null),
 	);
@@ -120,7 +120,7 @@ try {
 	carol = new Deno.Command(RACKET, {
 		args: [
 			RECIPIENT_SCRIPT,
-			`${HOST}:${gifterPort}`,
+			socketAddrDesignator(HOST, gifterPort),
 			INTRODUCER_SWISS,
 			String(PORT + 1),
 		],

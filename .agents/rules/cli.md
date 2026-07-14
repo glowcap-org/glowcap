@@ -77,6 +77,7 @@ zig build iroh-interop      # live encrypted OCapN conversation: two pancake pee
 zig build iroh-reachability # opt-in: live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (needs cargo + internet)
 zig build iroh-mesh         # live three-party handoff over iroh: recipient reaches the introduced exporter by node id (needs cargo)
 zig build iroh-loop         # live iroh scale: many concurrent connections served from one loop thread (ADR-0057; needs cargo)
+zig build iroh-bridge-redeem # live iroh redeem dial on driver.Bridge: recipient on one loop thread redeems via Loop.dialLocator (ADR-0076; needs cargo)
 zig build tcp-loop          # live TCP scale: many concurrent connections served from one loop thread through the Host bridge (ADR-0076)
 zig build bindings-iroh-loop # per-binding iroh scale proof: many connections served from one loop, every binding (needs cargo + the runtimes)
 zig build python-iroh-loop  # live iroh scale: the Python binding serves many connections from one readiness loop (ADR-0057; needs cargo + python3)
@@ -91,6 +92,11 @@ zig build deno-iroh-redeem-posture # hermetic configured-redeem-posture proof fo
 zig build python-iroh-redeem-posture # hermetic configured-redeem-posture proof for a hint-less iroh give: the Python binding (needs cargo + python3)
 zig build rust-iroh-redeem-posture # hermetic configured-redeem-posture proof for a hint-less iroh give: the Rust binding (needs cargo)
 zig build racket-iroh-redeem-posture # hermetic configured-redeem-posture proof for a hint-less iroh give: the Racket binding (needs cargo + racket)
+zig build bindings-keyed-tcp-restart # per-binding keyed-tcp restart proof: happy path, squatter refusal, same-seed fresh-port restart, every binding
+zig build deno-keyed-tcp-restart # keyed-tcp restart proof: the Deno binding (happy, squatter, restart)
+zig build python-keyed-tcp-restart # keyed-tcp restart proof: the Python binding (happy, squatter, restart)
+zig build rust-keyed-tcp-restart # keyed-tcp restart proof: the Rust binding (happy, squatter, restart; needs cargo)
+zig build racket-keyed-tcp-restart # keyed-tcp restart proof: the Racket binding (happy, squatter, restart; needs racket)
 zig build bindings-iroh-reachability # per-binding live dial-by-id over n0 relays + DNS/pkarr discovery, every binding (opt-in; needs cargo + the runtimes + internet)
 zig build python-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr discovery: the Python binding (opt-in; needs cargo + python3 + internet)
 zig build rust-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr discovery: the Rust binding (opt-in; needs cargo + internet)
@@ -98,13 +104,14 @@ zig build racket-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr 
 zig build iroh-abi          # build libpancake_net_transport_iroh, the iroh transport's public C ABI companion (needs cargo)
 zig build release-pack      # stage the installed archives, headers, and licenses into one versioned, checksummed per-target tarball under zig-out/release/ (needs cargo; .github/workflows/release.yml runs it per platform on a version tag)
 zig build fixture-gen-check # regenerate the Syrup fixture corpus via the upstream Racket Syrup encoder and diff against the committed bytes (needs racket + syrup)
+zig build c-abi-extract-check # hermetic C-ABI extract hygiene: refuse zip-slip/symlink fixtures, accept clean lib/ (ADR-0077; part of check)
 zig build ocapn-conformance # run the upstream OCapN test suite against a pancake peer (needs uv + the ocapn-conformance submodule)
 zig build demo-rooms             # cross-language rooms chat: Zig/Rust/Python/Racket/Deno in one room (needs deno; joins python3/racket/cargo clients when present)
 zig build demo-rooms-iroh        # the rooms chat over iroh's encrypted QUIC: an iroh-enabled Zig client + cross-language clients through the iroh C ABI (needs cargo + deno)
 zig build demo-rooms-dm          # rooms direct-message-by-introduction over TCP: a room introduces two members who then DM directly, room out of the path (needs deno)
 zig build demo-rooms-dm-iroh     # rooms DM-by-introduction over iroh's encrypted QUIC: cross-endpoint three-party handoff where the gift names the exporter's direct addresses, redeemed by a direct dial (needs cargo + deno)
 zig build demo-rooms-dm-iroh-discovery # opt-in: the same rooms DM-by-introduction over iroh, but the gift names the exporter by node id ALONE and the recipient resolves it through n0 discovery (relays + DNS/pkarr), no direct-address hints (needs cargo + deno + internet)
-zig build rooms-client           # run the native Zig rooms chat client (one-shot) against a room you started; pass `-- <locator> <nick> <line> [roster]`
+zig build rooms-client           # run the native Zig rooms chat client (one-shot) against a room you started; pass `-- <locator> <room> <nick> <line> [roster]`
 zig build rooms-web              # serve the rooms browser UI over TCP (public rooms + direct messages by introduction); open the printed URL (needs deno). `-Dport` pins the HTTP port (default 8000)
 zig build rooms-web-iroh         # serve the rooms browser UI over iroh's encrypted QUIC (public rooms + direct messages by introduction); open the printed URL (needs cargo + deno)
 zig build demo-tasks             # cross-language tasks board: Zig/Rust/Python/Racket/Deno on one board (needs deno; joins python3/racket/cargo clients when present)
@@ -114,11 +121,15 @@ zig build accountability-three-party # three-party accountability attribution ac
 zig build demo-accountability        # cross-language accountability demo: Zig host + Deno/Python callers (needs deno)
 zig build examples
 zig build gen-header-ocapn          # regenerate include/pancake_ocapn.h from src/c_abi/ocapn
-zig build gen-header-ocapn-check    # verify include/pancake_ocapn.h matches src/c_abi/ocapn (fails if stale), part of check
+zig build gen-header-ocapn-check    # verify that header matches src/c_abi/ocapn (fails if stale), part of check
 zig build gen-header-driver         # regenerate include/pancake_driver.h from src/c_abi/driver
 zig build gen-header-driver-check   # verify include/pancake_driver.h matches src/c_abi/driver (fails if stale), part of check
 zig build gen-ts-abi                # regenerate bindings/ts/stack/internal/abi.ts (constants + struct layouts) from src/c_abi (the ocapn and driver archives)
 zig build gen-ts-abi-check          # verify bindings/ts/stack/internal/abi.ts matches src/c_abi (fails if stale), part of check
+zig build gen-binding-host-action   # regenerate binding HostAction decode/types from src/c_abi/driver
+zig build gen-binding-host-action-check # verify binding HostAction decode/types match src/c_abi/driver (fails if stale), part of check
+zig build gen-binding-constants     # regenerate binding ABI constants from src/c_abi (the ocapn and driver archives)
+zig build gen-binding-constants-check # verify binding ABI constants match src/c_abi (fails if stale), part of check
 zig build gen-header-net-transport-tcp        # regenerate include/pancake_net_transport_tcp.h from src/c_abi/net_transport/tcp
 zig build gen-header-net-transport-tcp-check  # verify include/pancake_net_transport_tcp.h matches src/c_abi/net_transport/tcp (fails if stale), part of check
 zig build gen-header-net-transport-inproc        # regenerate include/pancake_net_transport_inproc.h from src/c_abi/net_transport/inproc
@@ -186,3 +197,8 @@ Agents do not mutate git history. Read-only git commands are fine: `status`,
 on a tree carrying uncommitted work they destroy that work. To undo a probe
 edit, restore from a copy saved beside the scratchpad before probing, never
 from git.
+
+A commit made when directed stages explicit paths, never `-a`/`-u`/`add .`:
+other sessions work this tree concurrently, and a sweep commit that picks up
+half of another session's in-flight edits ships a HEAD that does not compile.
+Read `git status` immediately before staging and claim only your own files.

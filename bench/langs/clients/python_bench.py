@@ -20,7 +20,7 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "bindings" / "python"))
 
-from pancake import Connection, Ref, connect, listen, tcp_locator  # noqa: E402
+from pancake import Session, Ref, connect, listen, tcp_locator  # noqa: E402
 
 CLIENT = "python"
 RUNTIME = f"cpython/{platform.python_version()}"
@@ -50,7 +50,7 @@ def status_text(v) -> str:
     return str(v)
 
 
-async def run_unit(conn: Connection, root) -> None:
+async def run_unit(conn: Session, root) -> None:
     task = await conn.send(root, "create", ["benchmark"])
     await conn.send(task, "assign", ["alice"])
     await conn.send(task, "complete", [])
@@ -59,7 +59,7 @@ async def run_unit(conn: Connection, root) -> None:
         raise RuntimeError(f"bad status: {status_text(status)!r}")
 
 
-async def run_unit_pipelined(conn: Connection, root) -> None:
+async def run_unit_pipelined(conn: Session, root) -> None:
     # The same four verbs as run_unit, but pipelined (ADR-0007, questioner half):
     # assign/complete/status are addressed at the answer `create` will resolve to
     # — the RemotePromise it returns, passed as the send target, without awaiting
@@ -78,7 +78,7 @@ def warmup_count(n: int) -> int:
     return min(n, 500)
 
 
-async def warm(conn: Connection, root, n: int, unit=run_unit) -> None:
+async def warm(conn: Session, root, n: int, unit=run_unit) -> None:
     for _ in range(warmup_count(n)):
         await unit(conn, root)
     gc.collect()
@@ -173,7 +173,7 @@ def counter_behavior():
     return counter
 
 
-async def measure_hits(conn: Connection, target: Ref, n: int) -> list:
+async def measure_hits(conn: Session, target: Ref, n: int) -> list:
     # min(n, 500) warmup hits, a forced collection, then n measured sequential
     # send→settle units, asserting the final count equals warmup + n. Returns
     # the sorted per-turn latencies in nanoseconds.

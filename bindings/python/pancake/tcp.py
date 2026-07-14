@@ -18,7 +18,7 @@ whole frames over TCP by hand composes it with the core:
 
 This is the explicit, synchronous shuttle. The async, transport-neutral
 application surface (:func:`pancake.connect`, :func:`pancake.listen`,
-:class:`pancake.Connection`) lives in the core and drives TCP over asyncio
+:class:`pancake.Session`) lives in the core and drives TCP over asyncio
 without this archive, reach here only when you want the blocking endpoints
 themselves.
 """

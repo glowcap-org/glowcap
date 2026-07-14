@@ -3,7 +3,7 @@
 // Starts the Deno tools coordinator, then runs one agent per available language
 // against it: Zig and Deno always, plus Python (python3), Racket (racket), and
 // Rust (cargo) when each is on PATH. Each agent
-// proves the capability trio (delegation, attenuation, revocation) over OCapN/TCP.
+// proves the capability trio (delegation, attenuation, revocation) over an OCapN session on the `tcp` netlayer.
 // The coordinator and the agent are different languages on the wire, so the
 // capability passing, attenuation, and revocation are real, not in-process.
 //

@@ -182,12 +182,58 @@ pub fn format_peer_uri(
 			buf.truncate(out_len);
 			return Ok(String::from_utf8_lossy(&buf).into_owned());
 		}
-		if rc == sys::ERR_INVALID_ARGUMENT && out_len > cap {
+		if rc == sys::ERR_BUFFER_TOO_SMALL && out_len > cap {
 			cap = out_len;
 			continue;
 		}
 		return Err(Error::from_code(rc));
 	}
+}
+
+/// Render host:port as a tcp designator; bracket IPv6 for the core grammar.
+pub fn socket_addr_designator(host: &str, port: u16) -> String {
+	if host.contains(':') && !(host.starts_with('[') && host.ends_with(']')) {
+		format!("[{host}]:{port}")
+	} else {
+		format!("{host}:{port}")
+	}
+}
+
+/// Split a `direct-addresses` hint into a host and port (first address when
+/// comma-separated).
+pub fn host_port_from_direct_hint(hint: &str) -> Result<(String, u16)> {
+	let first = hint.split(',').next().unwrap_or("").trim();
+	if first.is_empty() {
+		return Err(Error::with_transport_detail(
+			sys::ERR_INVALID_ARGUMENT,
+			Some("keyed-tcp requires a non-empty direct-addresses hint".to_string()),
+		));
+	}
+	designator_host_port(first).map_err(|_| {
+		Error::with_transport_detail(
+			sys::ERR_INVALID_ARGUMENT,
+			Some(format!("direct-addresses hint is not host:port: {first}")),
+		)
+	})
+}
+
+/// Split a bare designator as `host:port` through the core grammar
+/// (`pancake_designator_host_port`). Prefer this over minting a peer URI
+/// just to call [`parse_locator`].
+pub fn designator_host_port(designator: &str) -> Result<(String, u16)> {
+	let mut host_ptr: *const c_uchar = core::ptr::null();
+	let mut host_len: usize = 0;
+	let mut port: u16 = 0;
+	check(unsafe {
+		sys::pancake_designator_host_port(
+			designator.as_ptr(),
+			designator.len(),
+			&mut host_ptr,
+			&mut host_len,
+			&mut port,
+		)
+	})?;
+	Ok((unsafe { view_to_string(host_ptr, host_len) }, port))
 }
 
 /// Build a `tcp` locator from a literal host and port: `ocapn://host:port.tcp`,
@@ -196,8 +242,30 @@ pub fn format_peer_uri(
 /// instead of hand-formatting the URI. `host:port` is not a dial of its own; it
 /// is a locator like any other.
 pub fn tcp_locator(host: &str, port: u16) -> String {
-	format_peer_uri("tcp", &format!("{host}:{port}"), &BTreeMap::new())
-		.expect("a tcp host:port locator always formats through the core grammar")
+	format_peer_uri(
+		crate::abi_constants::TRANSPORT_TCP,
+		&socket_addr_designator(host, port),
+		&BTreeMap::new(),
+	)
+	.expect("a tcp host:port locator always formats through the core grammar")
+}
+
+/// Build a `keyed-tcp` locator: the designator is the listener's Ed25519 public
+/// key in canonical hex, and `host`/`port` ride the `direct-addresses` hint
+/// (ADR-0075). A partner dials with [`crate::connect`] and re-dials after a
+/// restart with only the hint updated.
+pub fn keyed_tcp_locator(designator: &str, host: &str, port: u16) -> String {
+	let mut hints = BTreeMap::new();
+	hints.insert(
+		crate::abi_constants::HINT_DIRECT_ADDRESSES.to_string(),
+		socket_addr_designator(host, port),
+	);
+	format_peer_uri(
+		crate::abi_constants::TRANSPORT_KEYED_TCP,
+		designator,
+		&hints,
+	)
+	.expect("a keyed-tcp locator always formats through the core grammar")
 }
 
 /// Build the verbatim exporter location-record bytes a gifter embeds in a give
@@ -207,7 +275,7 @@ pub fn tcp_locator(host: &str, port: u16) -> String {
 /// the exporter; a non-empty `direct_addresses` (comma-separated socket
 /// addresses) adds a `direct-addresses` hint so a cross-process recipient dials
 /// it directly with no discovery service (an iroh exporter reachable only by
-/// address). The result feeds `Connection::set_exporter_locator`. An empty
+/// address). The result feeds `Session::set_exporter_locator`. An empty
 /// `direct_addresses` yields a hint-less location identical to the exporter's own
 /// signed record, so a TCP or discovery-reachable exporter needs no override.
 pub fn encode_peer_locator(

@@ -7,8 +7,9 @@
 //! shapes — because those types reference one another and read best as one unit.
 //! The separable leaves are sibling files this hub re-exports: `negotiated` (the
 //! words two peers settle on — `CodecId`, `CaptpVersion`, `WireProfile`,
-//! `FeatureSet`), `handoff` (the three-party handoff payloads), and `abort`
-//! (`AbortKind`, `AbortReason`).
+//! `FeatureSet`), `handoff` (the three-party handoff payloads), `abort`
+//! (`AbortKind`, `AbortReason`), and `transport` (locator transport symbols and
+//! the shared `direct-addresses` hint name).
 //!
 //! None of it carries a codec, an allocation policy, or any authority. It's just
 //! the shape. `session` is what decides whether a given message is valid, and
@@ -65,6 +66,11 @@ pub const peerLocatorsEqual = equality.peerLocatorsEqual;
 /// locator types here, with no netlayer and no I/O. See `uri`.
 pub const uri = @import("uri.zig");
 
+/// Transport symbols carried in a `PeerLocator` (`tcp`, `keyed-tcp`, …) and the
+/// shared `direct-addresses` hint name. Netlayers and `driver_core` both import
+/// these so the strings cannot drift across the I/O ban. See `transport`.
+pub const transport = @import("transport.zig");
+
 /// The one hard ceiling on value-tree recursion depth, shared by `view`'s
 /// owned materialization and `equality`'s comparison walk so the two bounds
 /// cannot drift apart. The session validates inbound data against its own,
@@ -118,6 +124,22 @@ pub const Hints = struct {
 
     pub fn emptyFalse() Hints {
         return .{ .wire_form = .boolean_false };
+    }
+
+    /// The hints a keyed self-locator advertises for its `direct_addresses`:
+    /// the `#f` empty spelling (`emptyFalse`) when there are none, or a single
+    /// `hint_direct_addresses` entry carrying them. This is the one place that
+    /// empty-vs-entry decision lives, so every keyed hello signs identical
+    /// bytes — the blocking driver's `acceptVia` and the byte-fed `Host`, over
+    /// `keyed-tcp` or `iroh`. The empty case must stay `#f`, not `{}`: a
+    /// partner verifies the location signature over the exact spelling, and the
+    /// two do not verify against each other. The caller owns `entry_buf`; the
+    /// returned `Hints` borrows it for the hello's lifetime, so a keyed hello on
+    /// the connection-open path allocates nothing.
+    pub fn forDirectAddresses(direct_addresses: []const u8, entry_buf: *[1]HintEntry) Hints {
+        if (direct_addresses.len == 0) return emptyFalse();
+        entry_buf[0] = .{ .name = transport.hint_direct_addresses, .value = .{ .string = direct_addresses } };
+        return .{ .entries = entry_buf[0..1] };
     }
 };
 
@@ -487,5 +509,34 @@ pub fn assertMirrorsMessageKinds(comptime Registry: type) void {
         if (!std.mem.eql(u8, arm.name, field.name))
             @compileError("kind registry must mirror model.Message arm '" ++
                 arm.name ++ "' in order, found '" ++ field.name ++ "'");
+    }
+}
+
+/// Bind a wire kind registry to a model union by *set*: every arm name appears
+/// on both sides and the counts match, without pinning the order. This is the
+/// order-independent sibling of `assertMirrorsMessageKinds`, for the one pair
+/// whose orders legitimately differ: a wire enum's discriminants are an external
+/// contract, and the Cap'n Proto `ArgKind` numbers `@"struct"` and `big_integer`
+/// in wire order — not the order `model.Argument` declares them. So only the set
+/// is asserted. A new `Model` arm without its registry field (or the reverse) is
+/// a compile error, so the two cannot drift apart even though neither derives
+/// from the other. Equal arity plus every model arm matched proves the bijection,
+/// since names are unique within each type.
+pub fn assertKindSetMatches(comptime Model: type, comptime Registry: type) void {
+    const arms = @typeInfo(Model).@"union".fields;
+    const fields = switch (@typeInfo(Registry)) {
+        .@"enum" => |info| info.fields,
+        else => @compileError("kind registry must be an enum"),
+    };
+    if (arms.len != fields.len)
+        @compileError("kind registry arity drifted from " ++ @typeName(Model));
+    inline for (arms) |arm| {
+        comptime var found = false;
+        inline for (fields) |field| {
+            if (std.mem.eql(u8, arm.name, field.name)) found = true;
+        }
+        if (!found)
+            @compileError(@typeName(Model) ++ " arm '" ++ arm.name ++
+                "' has no matching " ++ @typeName(Registry) ++ " field");
     }
 }

@@ -55,6 +55,7 @@ export function makeConv(type: "room" | "dm", id: string): Conv {
 		key,
 		history: [],
 		members: new Map(), // rooms only: name -> online
+		typers: new Map(), // rooms only: nick -> auto-clear timer handle
 		unread: 0,
 		noted: false, // dm only: whether the provenance note has been shown
 		ready: false, // dm only: introduction confirmed live

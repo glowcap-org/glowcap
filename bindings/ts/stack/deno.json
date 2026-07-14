@@ -10,6 +10,12 @@
 		"./transport/inproc": "./transport/inproc.ts",
 		"./ffi": "./ffi.ts"
 	},
+	"publish": {
+		"include": [
+			"**/*.ts",
+			"**/c-abi-resolve.json"
+		]
+	},
 	"tasks": {
 		"check": "deno check mod.ts transport/tcp.ts transport/inproc.ts ffi.ts"
 	}
