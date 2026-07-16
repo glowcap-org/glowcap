@@ -41,7 +41,8 @@
    guard-open
    with-host-drain
    with-breaking-drain
-   drain-host!)]
+   drain-host!
+   run-drain-effects!)]
  ["action.rkt"
   (drain-host-actions!)])
 
@@ -50,6 +51,7 @@
          drain-effects-fires
          drain-effects?
          no-drain-effects
+         current-defer-drain-effects
          drain-outbound!
          write-pending!
          feed-inbox!
@@ -68,11 +70,18 @@
 ;; vows' listeners, dial executors, condemned-connection closes. Everything
 ;; here must run post-lock: a socket write can block, a dial is a connect
 ;; syscall plus a whole keyed handshake, and a listener is application code
-;; that may pump. A fire still runs inside the reader window of the
-;; connection whose feed produced it, so a listener may pump *other*
-;; connections but must only enqueue on this one.
+;; that may pump. When the feed runs under the reader gate,
+;; `current-defer-drain-effects` parks this record until the gate releases —
+;; writes and fires never share the reader window with a blocking TCP write.
 (struct drain-effects (touched fires))
 (define no-drain-effects (drain-effects '() '()))
+
+;; When non-#f, a box of `drain-effects`. `with-host-drain` parks writes and
+;; fires into it instead of running them, and does not bump progress — the
+;; reader that set the parameter runs them after releasing the gate. Lives
+;; here (not session) so `parameterize` sees a real parameter; lazy-require
+;; would wrap it as a procedure.
+(define current-defer-drain-effects (make-parameter #f))
 
 ;; The typed cause of this CapTP session's most recent local dispatch failure, or
 ;; #f — the host counterpart of the Zig `Peer.lastAbort`, read through the
@@ -111,6 +120,9 @@
 ;; Write everything parked on `c`'s pending-writes FIFO to the transport,
 ;; flushing once, serialized by the connection's write gate. Runs outside the
 ;; host lock; a dead transport's write error is the caller's to tolerate.
+;; Callers must not hold `c`'s reader gate: reader-held feeds park frames in
+;; `drain-effects` via `current-defer-drain-effects`, and `pump-until` writes
+;; only after the gate clears.
 (define (write-pending! c)
   (unless (session-released? c)
     (define tr (async-connection-transport (session-async c)))
@@ -143,8 +155,10 @@
      (guard-open 'session-serve c)
      (define m (session-host c))
      ;; Two values ride out of the locked drain: the consumed byte count and
-     ;; the refusal captured under the lock (raised only after the effects ran
-     ;; and the pumps woke, so the projected op:abort is already parked).
+     ;; the refusal captured under the lock. Refusal parks the abort on the
+     ;; FIFO and marks `c` touched so `run-drain-effects!` writes it — under
+     ;; the reader that runs after the gate clears; outside the reader it
+     ;; runs before this returns. Then raise.
      (define-values (consumed refusal)
        (with-host-drain m
          (lambda ()
@@ -156,8 +170,11 @@
               (async-consume! ac n)
               (host-drain-parked-releases! m)
               (values (drain-host-actions! m) n #f)]
-             [else (values no-drain-effects 0 (capture-feed-refusal c rc))]))))
-     (when refusal (raise-feed-refusal c refusal))
+             [else
+              ;; Park the abort on the FIFO and mark `c` touched so the shared
+              ;; drain spine writes it — refusal is a flush, not a private exit.
+              (values (drain-effects (list c) '()) 0 (capture-feed-refusal c rc))]))))
+     (when refusal (raise-feed-refusal refusal))
      consumed]))
 
 ;; Append freshly read bytes onto the inbox and feed it — the pump's
@@ -169,18 +186,17 @@
 ;; The feed refusal choreography, split around the host lock. Under the lock
 ;; (`capture-feed-refusal`): read the typed cause before another verb can
 ;; clobber the last-error slot, and park the projected op:abort on the
-;; connection's pending-writes FIFO (`take_outbound` is a host verb). After
-;; the lock releases (`raise-feed-refusal`): write the abort so the partner
-;; hears why — a socket write must never run under the host lock, teardown
-;; included — then raise the typed failure carrying the `abort-info`.
+;; connection's pending-writes FIFO (`take_outbound` is a host verb). The
+;; feed returns `c` in `drain-effects.touched` so `run-drain-effects!` writes
+;; the abort after the lock (and after the reader gate, when deferred).
+;; `raise-feed-refusal` only raises — it never writes.
 (define (capture-feed-refusal c rc)
   (define msg (host-last-error))
   (define abort (session-last-abort c))
   (with-handlers ([converts-to-broken? void]) (drain-outbound! c))
   (list rc msg abort))
 
-(define (raise-feed-refusal c refusal)
-  (with-handlers ([converts-to-broken? void]) (write-pending! c))
+(define (raise-feed-refusal refusal)
   (define rc (car refusal))
   (define msg (cadr refusal))
   (define abort (caddr refusal))
@@ -212,9 +228,16 @@
 ;; progress (empty, or a partial frame needing more bytes), wait on the
 ;; transport and the host's progress event together — 'woke means another
 ;; thread moved the host, so the caller re-checks its predicate.
-(define (pump-read-once! c gen)
+;;
+;; Snapshot the wake evt only after a no-progress feed. Under the reader,
+;; feed parks drain effects (no bump); bumping before the fill would wake
+;; waiters while this thread still holds the gate. After effects run and the
+;; gate clears, `pump-until` bumps once.
+(define (pump-read-once! c)
   (define ac (session-async c))
+  (define m (session-host c))
   (when (zero? (feed-inbox! c))
+    (define gen (host-progress-evt m))
     (define got
       ;; A port closed under us (another thread's `session-close!`) is an
       ;; end of stream, not a fault.
@@ -231,26 +254,55 @@
 ;; closed check runs after `done`, so a predicate satisfied by the closure
 ;; itself (a vow broken by the disconnect, `session-serve`'s own exit) wins over
 ;; the typed ERR-CLOSED refusal.
+;;
+;; Reader contract: under the gate, lock+feed may only queue `drain-effects`.
+;; Clears the gate, then runs writes/fires, then bumps — so a waiter never
+;; sees a retired generation while the gate is still held, and a blocking
+;; write never shares the reader window.
 (define (pump-until c done who #:closed-message [closed-message #f])
   (define m (session-host c))
   (define ac (session-async c))
+  (define (raise-closed)
+    (raise-pancake who ERR-CLOSED "~a" (or closed-message "connection closed")))
+  (define (run-reader)
+    (define deferred (box no-drain-effects))
+    (dynamic-wind
+     void
+     (lambda ()
+       (parameterize ([current-defer-drain-effects deferred])
+         (pump-read-once! c)))
+     (lambda ()
+       (set-box! (async-connection-reader ac) #f)
+       ;; The bump advertises state already committed above (reader cleared,
+       ;; vows settled by the feed). A break — a timeout wrapped around
+       ;; `session-await`, a custodian shutdown — landing between the effects
+       ;; and the bump would skip it and strand a waiter spinning on that state.
+       ;; The post-thunk fires the bump on a break escape too; effects still run
+       ;; first on the normal path, and a spare bump is harmless (waiters
+       ;; re-check and re-park).
+       (dynamic-wind
+        void
+        (lambda () (run-drain-effects! (unbox deferred)))
+        (lambda () (host-bump-progress! m))))))
+  ;; True when this thread wins the single-reader gate; the CAS is the claim.
+  (define (claim-reader?)
+    (box-cas! (async-connection-reader ac) #f (current-thread)))
   (let loop ()
     (drain-host! m)
-    (define gen (host-progress-evt m))
     (define r (done))
     (cond
       [r r]
-      [(unbox (async-connection-closed? ac))
-       (raise-pancake who ERR-CLOSED "~a" (or closed-message "connection closed"))]
-      [(box-cas! (async-connection-reader ac) #f (current-thread))
-       (dynamic-wind
-        void
-        (lambda () (pump-read-once! c gen))
-        (lambda ()
-          (set-box! (async-connection-reader ac) #f)
-          (host-bump-progress! m)))
-       (loop)]
-      [else (sync gen) (loop)])))
+      [(unbox (async-connection-closed? ac)) (raise-closed)]
+      [(claim-reader?) (run-reader) (loop)]
+      [else
+       ;; Snapshot under the host lock, then recheck before waiting so a
+       ;; released gate cannot retire the generation this waiter will sync.
+       (define gen (host-progress-evt m))
+       (cond
+         [(done) => (lambda (v) v)]
+         [(unbox (async-connection-closed? ac)) (raise-closed)]
+         [(claim-reader?) (run-reader) (loop)]
+         [else (sync gen) (loop)])])))
 
 ;; Drive a freshly opened connection's keyed handshake to an open session.
 ;; The signed op:start-session leaves on the first drain-host!; pump-until

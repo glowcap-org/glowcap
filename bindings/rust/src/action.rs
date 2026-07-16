@@ -1,10 +1,11 @@
-//! Host action execute: pop one embedder effect from
-//! `pancake_host_next_action` and honor it (dial / flush / close / gift-id /
-//! settle / fail). Decode/types come from the generated
+//! Host action park + execute: run `pancake_host_pump_drain` with sync
+//! park-only hooks, then honor each parked arm (dial / flush / close /
+//! gift-id / settle / fail). Decode/types come from the generated
 //! [`host_action_gen`](crate::host_action_gen) module
 //! (`zig build gen-binding-host-action`). The CapTP [`Host`](crate::Host) and
-//! vow table stay in `host.rs`; this module is the drain's execute half that
-//! [`HostShared::kick_actions`](crate::host::HostShared::kick_actions) drives.
+//! vow table stay in `host.rs`; this module is the drain's park+execute half
+//! that [`HostShared::kick_actions`](crate::host::HostShared::kick_actions)
+//! drives. Async I/O never runs inside the C callback.
 
 use std::rc::Rc;
 
@@ -14,24 +15,41 @@ use crate::host_action_gen::{self, HostAction};
 use crate::sys::driver as ffi;
 use crate::{sys, Error, Result};
 
-/// Pop the next embedder action, its borrowed views lifted to owned Rust
-/// values — a SETTLE's PancakeArgument whole — before anything else can call
-/// `pancake_host_next_action` (which frees them), and before the drain's
-/// first await. `None` when the queue is dry.
-pub(crate) fn pop(host: &HostShared) -> Option<HostAction> {
-	let mut raw: ffi::PancakeHostAction = unsafe { core::mem::zeroed() };
-	let rc = unsafe { ffi::pancake_host_next_action(host.raw(), &mut raw) };
-	if rc == sys::WOULD_BLOCK {
-		return None;
+/// Sync park arm for every `PancakeHostPumpHooks` slot: decode+append, set
+/// progress, return. Views are copied inside [`host_action_gen::decode`]
+/// before the next pop frees them.
+unsafe extern "C" fn park_arm(
+	ctx: *mut core::ffi::c_void,
+	_host: *mut ffi::PancakeHost,
+	action: *const ffi::PancakeHostAction,
+	out_progressed: *mut u32,
+) -> i32 {
+	debug_assert!(!ctx.is_null());
+	debug_assert!(!action.is_null());
+	let parked = unsafe { &mut *(ctx as *mut Vec<HostAction>) };
+	parked.push(host_action_gen::decode(unsafe { &*action }));
+	if !out_progressed.is_null() {
+		unsafe { *out_progressed = 1 };
 	}
-	if rc != sys::OK {
-		// The only non-WOULD_BLOCK refusal the header names is the
-		// callback latch, and the drain never runs inside a callback; a
-		// refusal here is a binding bug, not an empty queue.
-		debug_assert!(false, "pancake_host_next_action refused with rc {rc}");
-		return None;
-	}
-	Some(host_action_gen::decode(&raw))
+	sys::OK
+}
+
+/// Run `pancake_host_pump_drain` with park-only arms; return decoded actions
+/// in queue order. The hooks struct and the parked vec stay alive for the
+/// duration of the C call.
+pub(crate) fn park(host: &HostShared) -> Vec<HostAction> {
+	let mut parked: Vec<HostAction> = Vec::new();
+	let hooks = ffi::PancakeHostPumpHooks {
+		ctx: &mut parked as *mut Vec<HostAction> as *mut core::ffi::c_void,
+		flush: Some(park_arm),
+		close: Some(park_arm),
+		need_gift_id: Some(park_arm),
+		complete: Some(park_arm),
+		dial: Some(park_arm),
+	};
+	let mut acted: u32 = 0;
+	let _ = check_host(unsafe { ffi::pancake_host_pump_drain(host.raw(), &hooks, &mut acted) });
+	parked
 }
 
 /// The executor is deliberately dumb: every decision was already made in the

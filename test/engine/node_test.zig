@@ -105,6 +105,33 @@ fn pendingWithdrawAnswer(node: *Node, exporter: engine.PeerId) u64 {
     return key.answer;
 }
 
+/// A structurally valid signed `desc:handoff-give`, for tests that exercise
+/// `Node`'s withdraw bookkeeping rather than the give's own signature or
+/// content — any two calls are interchangeable here. `Node.acceptGive` hands
+/// its `give` bytes to `Peer.sendWithdrawGift`, which now decodes them into
+/// typed fields (`decodeSignedHandoffGiveOwned`) so a Cap'n Proto session can
+/// carry a binding-originated give too; an ASCII placeholder no longer parses
+/// as Syrup, where this file used to get away with one. Caller owns the
+/// returned bytes.
+fn testGiveBytes(allocator: std.mem.Allocator) ![]u8 {
+    const location = try engine.encodePeerLocatorRecord(allocator, .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:9099",
+        .hints = model.Hints.emptyFalse(),
+    });
+    defer allocator.free(location);
+    const secret = crypto.SecretKey.fromSeed([_]u8{0x77} ** crypto.SEED_BYTES);
+    return engine.handoff_gifter.buildSignedGive(
+        allocator,
+        secret,
+        &([_]u8{0x01} ** 32),
+        location,
+        &([_]u8{0x02} ** 32),
+        &([_]u8{0x03} ** 32),
+        &([_]u8{0x04} ** 32),
+    );
+}
+
 /// Mint a routable redeemed token through the public redeem flow: accept a
 /// give on `recipient`, report `exporter` (whose keyed session is open) as the
 /// dialed connection, and claim the withdraw's resolve with `far_id`. Returns
@@ -117,7 +144,9 @@ fn mintRedeemedToken(
     far_id: u64,
     locator: []const u8,
 ) !u64 {
-    try node.acceptGive(recipient, answer, "give-bytes", locator);
+    const give = try testGiveBytes(node.allocator);
+    defer node.allocator.free(give);
+    try node.acceptGive(recipient, answer, give, locator);
     const dial = node.nextAction().?;
     try node.exporterDialed(dial.dial.pending, exporter);
     _ = node.nextAction().?; // the withdraw flush
@@ -361,7 +390,9 @@ test "a live exporter withdraws immediately and the claimed resolve settles a ro
     defer counterpart.deinit();
 
     const locator = "ocapn://127.0.0.1%3A9052.tcp";
-    try node.acceptGive(recipient, 31, "give-bytes", locator);
+    const give = try testGiveBytes(allocator);
+    defer allocator.free(give);
+    try node.acceptGive(recipient, 31, give, locator);
     const dial = node.nextAction().?;
     try node.exporterDialed(dial.dial.pending, exporter);
 
@@ -388,7 +419,9 @@ test "a live exporter withdraws immediately and the claimed resolve settles a ro
 
     // The exporter is cached: a later give for the same locator withdraws
     // immediately, no dial action.
-    try node.acceptGive(recipient, 32, "give-more", locator);
+    const give_more = try testGiveBytes(allocator);
+    defer allocator.free(give_more);
+    try node.acceptGive(recipient, 32, give_more, locator);
     const flush_again = node.nextAction().?;
     try std.testing.expectEqual(exporter, flush_again.flush);
     try std.testing.expect(node.nextAction() == null);
@@ -405,7 +438,9 @@ test "a broken or non-capability withdraw breaks the application answer" {
     defer counterpart.deinit();
 
     const locator = "ocapn://127.0.0.1%3A9053.tcp";
-    try node.acceptGive(recipient, 41, "give-a", locator);
+    const give_a = try testGiveBytes(allocator);
+    defer allocator.free(give_a);
+    try node.acceptGive(recipient, 41, give_a, locator);
     const dial = node.nextAction().?;
     try node.exporterDialed(dial.dial.pending, exporter);
     _ = node.nextAction().?; // the flush
@@ -417,7 +452,9 @@ test "a broken or non-capability withdraw breaks the application answer" {
     try std.testing.expectEqualStrings("handoff redeem failed: no such gift", broke.fail.reason);
 
     // A withdraw fulfilled with a non-capability breaks with the named reason.
-    try node.acceptGive(recipient, 42, "give-b", locator);
+    const give_b = try testGiveBytes(allocator);
+    defer allocator.free(give_b);
+    try node.acceptGive(recipient, 42, give_b, locator);
     _ = node.nextAction().?; // the flush (exporter already cached)
     const second_answer = pendingWithdrawAnswer(&node, exporter);
     try std.testing.expect(try node.claimResolve(exporter, second_answer, .not_capability));
@@ -584,7 +621,9 @@ test "removePeer evicts the exporter cache and fails stranded withdraws closed" 
     defer counterpart.deinit();
 
     const locator = "ocapn://127.0.0.1%3A9054.tcp";
-    try node.acceptGive(recipient, 61, "give-bytes", locator);
+    const give = try testGiveBytes(allocator);
+    defer allocator.free(give);
+    try node.acceptGive(recipient, 61, give, locator);
     const dial = node.nextAction().?;
     try node.exporterDialed(dial.dial.pending, exporter);
     _ = node.nextAction().?; // the flush

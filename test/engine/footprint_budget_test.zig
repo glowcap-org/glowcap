@@ -33,12 +33,12 @@ const foundation = pancake.foundation;
 const LiveBytesAllocator = @import("../support/alloc_metrics.zig").LiveBytesAllocator;
 const copyFromBorrowed = @import("../support/frame.zig").copyFromBorrowed;
 
-/// One inbound `op:deliver` to live local export 7 carrying one inline bytes
-/// argument. Driving it once grows a peer's event/queue and table backing arrays
-/// to their warmed size, so the measured footprint reflects a connection that has
-/// carried traffic, not a bare `init`. This is the same warmed turn the
-/// steady-state allocation budget pins.
-const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
+/// One inbound no-answer (`#f` answer position) `op:deliver` to live local
+/// export 7 carrying one inline bytes argument. Driving it once grows a peer's
+/// event/queue and table backing arrays to their warmed size, so the measured
+/// footprint reflects a connection that has carried traffic, not a bare
+/// `init`. Same warmed turn the steady-state allocation budget pins.
+const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// The committed per-connection core-state ceiling. The inline struct budget is
 /// the compiler-held half (`engine.peer_session_struct_budget_bytes`); this is
@@ -116,12 +116,15 @@ test "a burst-drained session releases its burst queue capacity back under the w
     defer peer.deinit();
     try warmPeer(&peer);
 
-    // One burst: many small delivers fed as a single owned batch, then fully
-    // drained — frames through `step`, events through `pollEvent`, encoded
-    // output through `takeOutbound` — so every queue crosses its drain-reset.
+    // One burst: many small answerless delivers (tells) fed as owned frames,
+    // then fully drained — frames through `step`, events through `pollEvent`,
+    // encoded output through `takeOutbound` — so every queue crosses its
+    // drain-reset. Tells avoid growing the inbound-answer table; the gate is
+    // queue capacity release, not answer-row retention.
     const burst = 512;
+    const tell = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
     for (0..burst) |_| {
-        const frame = try copyFromBorrowed(tracked, deliver_to_live_export, .byte);
+        const frame = try copyFromBorrowed(tracked, tell, .byte);
         try peer.feedOwned(frame);
     }
     while ((try peer.step()) != .idle) {}

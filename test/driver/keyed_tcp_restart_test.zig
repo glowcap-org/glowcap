@@ -55,7 +55,7 @@ fn hostOnce(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf) catch |err| switch (err) {
+    var cv = driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf, 0) catch |err| switch (err) {
         // A pinned dialer that refuses our key drops the socket mid-handshake;
         // that is this vat's whole (expected) conversation in the negative arm.
         error.ConnectionLost, error.TruncatedFrame, driver.Error.ConnectionClosed => return,
@@ -91,7 +91,7 @@ fn callKeyed(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectVia(allocator, &netlayers, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, &netlayers, &peer, locator, .ephemeral, read_buf, write_buf, 0);
     defer cv.deinit();
 
     // The knot: the partner's signed designator is the key that was dialed,
@@ -211,7 +211,7 @@ test "keyed-tcp negative: a listener holding a different key under the dialed de
     // typed member readable on the peer (`AbortInfo`).
     try std.testing.expectError(
         error.ProtocolAbort,
-        driver.connectVia(allocator, &netlayers, &peer, locator, .ephemeral, read_buf, write_buf),
+        driver.connectVia(allocator, &netlayers, &peer, locator, .ephemeral, read_buf, write_buf, 0),
     );
     const abort = peer.lastAbort() orelse return error.NoAbortRecorded;
     try std.testing.expectEqualStrings("PartnerKeyMismatch", abort.error_name);

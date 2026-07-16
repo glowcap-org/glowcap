@@ -104,7 +104,7 @@ fn hostExporter(listener: net.netlayer.Listener, allocator: std.mem.Allocator, g
     defer allocator.free(write_buf);
 
     const secret = crypto.SecretKey.fromSeed(c_seed);
-    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf, 0);
     defer cv.deinit();
 
     const greeter = try cv.publish("greeter", Greeter, .{});
@@ -131,7 +131,7 @@ fn hostIntroducer(listener: net.netlayer.Listener, allocator: std.mem.Allocator,
     defer allocator.free(write_buf);
 
     const secret = crypto.SecretKey.fromSeed(a_seed);
-    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf, 0);
     defer cv.deinit();
 
     _ = try cv.publish("introducer", Introducer, .{
@@ -163,7 +163,7 @@ fn fetchGive(
 
     const secret = crypto.SecretKey.fromSeed(b_seed);
     const locator: model.PeerLocator = .{ .transport = iroh.transport_name, .designator = a_id, .hints = model.Hints.emptyFalse() };
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = a_id } }, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = a_id } }, read_buf, write_buf, 0);
     defer cv.deinit();
 
     const introducer = try cv.fetch("introducer");
@@ -231,7 +231,7 @@ fn withdrawAndCall(
 
     const secret = crypto.SecretKey.fromSeed(b_seed);
     const locator: model.PeerLocator = .{ .transport = iroh.transport_name, .designator = exporter_id, .hints = model.Hints.emptyFalse() };
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = b_id } }, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = b_id } }, read_buf, write_buf, 0);
     defer cv.deinit();
     std.debug.print("iroh-mesh: B dialed the introduced exporter C over iroh, by the gifted node id\n", .{});
 
@@ -354,11 +354,11 @@ pub fn main(init: std.process.Init) !void {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var a = try iroh.Resident.init(io, &a_seed, .local_discovery);
+    var a = try iroh.Resident.init(io, &a_seed, .{ .reachability = .local_discovery });
     defer a.deinit();
-    var b = try iroh.Resident.init(io, &b_seed, .local_discovery);
+    var b = try iroh.Resident.init(io, &b_seed, .{ .reachability = .local_discovery });
     defer b.deinit();
-    var c = try iroh.Resident.init(io, &c_seed, .local_discovery);
+    var c = try iroh.Resident.init(io, &c_seed, .{ .reachability = .local_discovery });
     defer c.deinit();
 
     var a_id_buf: [iroh.node_id_len]u8 = undefined;

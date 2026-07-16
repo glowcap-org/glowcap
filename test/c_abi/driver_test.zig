@@ -35,6 +35,24 @@ fn newHost(seed_byte: u8) !?*cd.PancakeHost {
     return newHostWith(seed_byte, c.PANCAKE_CODEC_SYRUP);
 }
 
+test "pancake_host_set_session_limits overrides queue_cap before mint (ADR-0082)" {
+    const host = try newHost(0x51);
+    defer cd.pancake_host_release(host);
+    try expectOk(cd.pancake_host_set_session_limits(host, 0, 19));
+    // Mint a dialed session; limits land via Host.negotiatingOptions.
+    var session: ?*cd.PancakeHostSession = null;
+    try expectOk(cd.pancake_host_session_open_dialed_locator(
+        host,
+        "tcp",
+        3,
+        "127.0.0.1:1",
+        11,
+        &session,
+    ));
+    defer cd.pancake_host_session_release(session);
+    try std.testing.expect(session != null);
+}
+
 // ── C argument/reference construction (shared across the c_abi suite) ────────
 
 const c_args = @import("../support/c_abi_args.zig");

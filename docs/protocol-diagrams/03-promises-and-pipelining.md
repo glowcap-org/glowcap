@@ -106,14 +106,19 @@ sequenceDiagram
 
 ## PP-7: op:listen on an already-settled target
 
-Listening on a target that is already settled (for example a live local export)
-fires the listener immediately with that resolution. Nothing waits.
+Listening on a target that is already settled fires the listener immediately
+with that resolution. Nothing waits. Two shapes:
+
+- an already-settled **answer** (suite `test_op_listen_already_has_answer`)
+- a live **object export** with no inbound answer row (fulfill of that export)
+
+An unresolved promise export without an answer row refuses loud (ADR-0007).
 
 ```mermaid
 sequenceDiagram
     participant Q as Questioner
     participant R as Answerer
     Q->>R: op:listen (desc:export 5, desc:import-object 9, wants-partial false)
-    Note over R: export 5 is live, nothing pending
+    Note over R: export 5 is a live object, nothing pending
     R->>Q: op:deliver (to desc:import-object 9, ['fulfill, desc:import-object 5], answer-pos false)
 ```

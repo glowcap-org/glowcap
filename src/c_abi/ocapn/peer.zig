@@ -773,6 +773,28 @@ pub export fn pancake_peer_send_untag(
     return PANCAKE_OK;
 }
 
+/// Queue an `op:abort` that tears the CapTP session down after
+/// `pancake_peer_step` commits the frame to outbound. `kind_name` is an
+/// `AbortKind` wire label (e.g. `"GracefulShutdown"`); unknown labels are
+/// `PANCAKE_ERR_INVALID_ARGUMENT`. `message` is borrowed for the call and
+/// copied onto the queued abort. After a successful step the peer is no
+/// longer open (`pancake_peer_session_is_open` is false).
+pub export fn pancake_peer_send_abort(
+    peer: ?*PancakePeer,
+    kind_name: ?[*]const u8,
+    kind_name_len: usize,
+    message: ?[*]const u8,
+    message_len: usize,
+) i32 {
+    const ptr = peerFromOpaque(peer) orelse return PANCAKE_ERR_NULL_POINTER;
+    const kind_bytes = sliceFromC(kind_name, kind_name_len) catch |err| return marshalErrorToCode(err);
+    if (kind_bytes.len == 0) return PANCAKE_ERR_INVALID_ARGUMENT;
+    const kind = model.AbortKind.fromWireName(kind_bytes) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    const msg = sliceFromC(message, message_len) catch |err| return marshalErrorToCode(err);
+    ptr.sendCopying(.{ .abort = .{ .kind = kind, .message = msg } }) catch |err| return feedErrorToCode(err);
+    return PANCAKE_OK;
+}
+
 /// Construct and queue an `op:gc-export` releasing wire-delta counts on the
 /// partner's exports this peer imported (ADR-0008): `positions[i]` is released
 /// by `deltas[i]`, for `len` parallel entries. Both arrays are borrowed for the

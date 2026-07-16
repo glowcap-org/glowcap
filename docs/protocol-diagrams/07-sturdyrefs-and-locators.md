@@ -24,8 +24,8 @@ flowchart TD
 ## ST-2: Enlivenment
 
 Turning a sturdyref into a live reference takes two moves: establish a session
-per the locator (if none exists), then bootstrap-`fetch` the swiss number. The
-result is an ordinary import. From here on, the sturdyref origin is invisible.
+per the locator if none exists, then bootstrap-`fetch` the swiss number. The
+result is an ordinary import.
 
 ```mermaid
 sequenceDiagram
@@ -41,9 +41,8 @@ sequenceDiagram
 ## ST-3: Enlivenment dedup
 
 OCapN's equality rules require successive enlivenments of the same sturdyref
-over the same session to yield references that compare equal. In practice, a
-second fetch of an already-enlivened swiss number reuses the existing live
-import rather than minting a divergent one.
+over the same session to compare equal. A second fetch of an already-enlivened
+swiss number therefore reuses the existing live import.
 
 ```mermaid
 flowchart TD

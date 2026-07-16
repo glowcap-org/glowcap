@@ -47,29 +47,21 @@ pub fn dispatchOwnedFrame(self: *Peer, frame_in: foundation.Frame) !void {
 }
 
 /// Best-effort emit of the outbound `op:abort` an inbound failure projects to
-/// (`abort_projection.abortForError`), then close if the projection says
-/// so. The abort frame is encoded directly (aborts are always admitted) and
-/// appended to `outbound`; it bypasses `recordSend`, which would reject it
-/// against the post-failure session state. Swallows its own allocation
-/// failures so the original dispatch error is never masked, but still closes
-/// when the projection requires it, since the decision to abort stands
-/// regardless of whether the frame could be encoded.
+/// (`abort_projection.abortForError`). Shares `Peer.commitAbortOutbound` with
+/// app-queued aborts so a successful queue push applies the projected CapTP
+/// disposition. Bypasses `recordSend`, which would reject against post-failure
+/// session state. Swallows encode/push failures so the original dispatch
+/// error is never masked; when the disposition is `.close`, still closes
+/// even if the abort frame could not be queued.
 pub fn emitAbortForError(self: *Peer, err: anyerror) void {
     self.recordFailure(err);
     const projected = abort_projection.abortForError(err) orelse return;
-    defer if (projected.close) self.session_state.close();
-
-    const message: model.Message = .{ .abort = .{
+    self.commitAbortOutbound(.{
         .kind = projected.kind,
         .message = projected.message,
-    } };
-    var frame = codec.dispatch.encodeMessageForProfile(
-        self.session_state.codec,
-        self.allocator,
-        self.session_state.wire_profile,
-        message,
-    ) catch return;
-    self.outbound.push(self.allocator, frame) catch frame.deinit();
+    }, projected.disposition) catch {
+        if (projected.disposition == .close) self.session_state.close();
+    };
 }
 
 pub fn dispatchOwnedFrameInner(self: *Peer, frame_in: foundation.Frame) !void {
@@ -180,7 +172,13 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
         }
     }
 
-    try self.events.push(self.allocator, .{ .frame = frame, .tag = tag, .answer_override = answer_override, .codec = self.session_state.codec });
+    try self.events.push(self.allocator, .{
+        .frame = frame,
+        .tag = tag,
+        .answer_override = answer_override,
+        .codec = self.session_state.codec,
+        .allocator = self.allocator,
+    });
     stored = true;
     var appended = true;
     errdefer if (appended) {
@@ -188,12 +186,41 @@ pub fn applyDecodedOwnedFrame(self: *Peer, frame_in: foundation.Frame, decoded_b
         removed.frame.deinit();
     };
 
+    // The introduced-import record the validate walk fills and apply
+    // consumes for an ordinary deliver (`session.validate.IntroducedImports`),
+    // captured here so its far positions can be patched onto the event just
+    // pushed above, for post-dispatch stateless GC
+    // (`driver.core.gc.emitExportsForDeliver`) instead of a second walk of
+    // the same argument tree once the event is polled. Backed by
+    // `self.allocator`, not `recv_scratch`: `recordRecvView`'s own turn-
+    // scratch record resets before that call even returns, too short-lived
+    // to reach the event. Every other surfaced kind still runs through
+    // `recordRecvView`'s throwaway record, unchanged.
+    var introduced: session.validate.IntroducedImports = .init(self.allocator);
+    defer introduced.deinit();
+
     if (v1_0_resolve) |resolve| {
         try self.session_state.recordResolverCallbackResolve(resolve);
+    } else if (tag == .deliver) {
+        try self.session_state.recordInboundDeliverView(decoded_body, &introduced);
     } else {
         try self.session_state.recordRecvView(decoded_body);
     }
     appended = false;
+
+    // Patch the far mentions onto the just-pushed event when the deliver
+    // introduced at least one (the common case introduces none, so no
+    // allocation then). Apply has already committed by this point, so a
+    // copy failure is swallowed rather than propagated — failing loud here
+    // would misreport a successful receive as a failed one. The event is
+    // still correct either way; `gc` just falls back to its own walk for
+    // this one deliver when the field stays null. Nothing between the push
+    // above and here can grow `self.events`, so the back pointer is stable.
+    if (introduced.mentions.items.len != 0) {
+        if (self.allocator.dupe(model.ImportPosition, introduced.mentions.items)) |dup| {
+            self.events.backPtr().?.introduced_far_imports = dup;
+        } else |_| {}
+    }
 
     // op:get / op:index / op:untag responder (ADR-0050): apply above
     // installed the projected answer; anchor the projection on the

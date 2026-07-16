@@ -98,3 +98,13 @@ overrides it for hosts whose reply patterns want a different trade.
 - [ADR-0041](ADR-0041-bounded-inbound-spill.md) is the inbound mirror;
   [ADR-0030](ADR-0030-netlayer-connection-and-memory-posture.md) named the
   full-duplex deferral this closes the completion-loop half of.
+
+## Amendment: fan-in throttle and park-kill (ADR-0082)
+
+Per-connection park (this ADR) remains the default. Opt-in
+`completion.Loop.Options.fan_in_throttle` additionally parks *source* reads
+while any connection is a true sink park (outbound past high-water). Opt-in
+`park_kill_ms` closes a connection that stays `.parked` past a wall-clock
+deadline. Both live on the completion loop only; they do not change CapTP wire
+or the sans-io core. See
+[ADR-0082](ADR-0082-adapter-continuity-and-host-resource-honesty.md).

@@ -185,11 +185,32 @@ pub const Connection = struct {
     }
 
     /// Pump until `pred(peer)` holds or the stream closes. The only blocking
-    /// convenience; the primitive it builds on is `pump`. Returns the last `Progress`
-    /// (`.closed` if the stream ended first).
-    pub fn runUntil(self: *Connection, pred: *const fn (*engine.Peer) bool) PumpError!Progress {
+    /// convenience; the primitive it builds on is `pump`. Returns the last
+    /// `Progress` (`.closed` if the stream ended first).
+    ///
+    /// `timeout_ms` is the per-read deadline, the bounded-read hook on an
+    /// untrusted partner (ADR-0081): 0 leaves each read blocking, the ordinary
+    /// cooperative case. A positive value flushes queued outbound first (the
+    /// partner cannot answer a request still queued on our side, so waiting
+    /// before flushing would deadlock), then waits up to `timeout_ms` for the
+    /// read to make progress, returning `error.Timeout` on a poll timeout
+    /// instead of parking the fiber for the connection's life. The deadline
+    /// value is the caller's — policy lives above the net layer — but exposing
+    /// the bound is the net layer's job. A transport with no pollable fd (a
+    /// userspace stream that multiplexes in its own loop) is unbounded even with
+    /// a deadline, exactly as `waitReadable` reports: the timeout binds fd-backed
+    /// transports (tcp, keyed-tcp).
+    pub fn runUntil(
+        self: *Connection,
+        pred: *const fn (*engine.Peer) bool,
+        timeout_ms: i32,
+    ) (PumpError || error{Timeout})!Progress {
         if (pred(self.peer)) return .idle;
         while (true) {
+            if (timeout_ms != 0) {
+                try self.flush();
+                if (!try self.waitReadable(timeout_ms)) return error.Timeout;
+            }
             const progress = try self.pump();
             if (progress == .closed) return .closed;
             if (pred(self.peer)) return progress;

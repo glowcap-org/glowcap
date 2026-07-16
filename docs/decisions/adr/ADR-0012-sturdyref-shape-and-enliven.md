@@ -64,9 +64,8 @@ reference-validation paths in
 `Reference.sturdy` with `Error.FeatureNotNegotiated` when the session did not
 negotiate the flag — on inbound decode and on outbound encode alike, so a peer
 cannot smuggle a sturdyref across a session that never agreed to speak them.
-`FeatureSet.fullExceptStreaming` turns `sturdyref` (and `equality`, consumed by
-the Cross-session distributed equality section below) on; the handshake
-`intersect` reduces the negotiated set to what both peers advertised.
+`FeatureSet.full()` turns `sturdyref` on; the handshake `intersect` reduces the
+negotiated set to what both peers advertised.
 
 ### Enliven over bootstrap-fetch
 
@@ -104,16 +103,14 @@ overflow rather than erroring.
 ### Cross-session distributed equality
 
 This builds on the sturdyref dedup cache above. One session per peer pair is
-enforced by a caller-held `SessionRegistry` keyed on `PeerId`, consulted at the
-`negotiating → open` transition; a second open to a peer already held is a loud
-`Error.PeerAlreadyOpen`. With that invariant, in-memory structural `Reference`
-equality (`referencesEqual`) is the distributed-equality evidence for OCapN Pass
-Invariant Equality: two references naming the same target compare equal on
-`(import_id, kind)` regardless of which codec carried them, because the same
-target always lands in the same import row. The sturdyref dedup cache above
-supplies the sturdyref-vs-handoff collapse onto one import row. The `equality`
-feature gate means "this peer commits to session-pair uniqueness." No new wire
-field carries equality.
+ADR-0012's Host / enrollment posture (not a CapTP `FeatureSet` bit): a
+caller-held registry keyed on `PeerId` should refuse a second open to a peer
+already held. That refuse is not yet wired at Host enrollment
+([boundaries.md](../../boundaries.md)); until it is, same-session structural
+`Reference` equality (`referencesEqual`) is the distributed-equality evidence
+for OCapN Pass Invariant Equality on `(import_id, kind)`. The sturdyref dedup
+cache above supplies the sturdyref-vs-handoff collapse onto one import row. No
+wire field carries equality.
 
 ## Scope (what this does not decide)
 

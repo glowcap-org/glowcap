@@ -153,15 +153,30 @@ pub const PancakeIrohReadyEvent = extern struct {
     events: u32,
 };
 
+/// One iroh endpoint's configuration, filled by the caller and passed to
+/// `pancake_iroh_netlayer_new` / `_new_in`. `reachability` is mandatory (one of
+/// `PANCAKE_IROH_REACH_*`; an unknown value is refused). `connect_timeout_ms` is
+/// the per-endpoint stream-establishment deadline in milliseconds — the dial's
+/// connect + first-stream open and each accepted stream ride it — with 0 meaning
+/// the built-in default. Callers must zero-initialize the whole struct before
+/// filling the fields they set, so a field added in a later version defaults to
+/// 0 rather than reading a caller's stack garbage. The `extern struct`
+/// counterpart of the header's `PancakeIrohConfig`.
+pub const PancakeIrohConfig = extern struct {
+    reachability: u32,
+    connect_timeout_ms: u64,
+};
+
 // ── Netlayer lifecycle ───────────────────────────────────────────────────────
 
 /// Create an iroh netlayer (one bound endpoint) allocating through the
 /// library-owned allocator. `secret_seed`/`secret_seed_len` is either a 32-byte
 /// Ed25519 secret key (borrowed) or empty (`secret_seed_len == 0`) for a fresh
 /// random key; any other length is `PANCAKE_ERR_INVALID_ARGUMENT`.
-/// `reachability` is one of `PANCAKE_IROH_REACH_*` and is mandatory, it decides
-/// whether the endpoint uses relays or a discovery service, with no default; an
-/// unknown value is `PANCAKE_ERR_INVALID_ARGUMENT`. Binds the endpoint and arms
+/// `config` carries the mandatory reachability (`PANCAKE_IROH_REACH_*`; an
+/// unknown value or a null `config` is `PANCAKE_ERR_INVALID_ARGUMENT` /
+/// `PANCAKE_ERR_NULL_POINTER`) and the optional `connect_timeout_ms` (0 = the
+/// built-in default). Binds the endpoint and arms
 /// the readiness loop, so the returned netlayer is immediately driveable through
 /// `pancake_iroh_netlayer_readiness_fd`; `PANCAKE_ERR_IO` (see
 /// `pancake_iroh_last_error`) if the endpoint cannot bind or the loop cannot arm.
@@ -170,13 +185,14 @@ pub const PancakeIrohReadyEvent = extern struct {
 pub export fn pancake_iroh_netlayer_new(
     secret_seed: ?[*]const u8,
     secret_seed_len: usize,
-    reachability: u32,
+    config: ?*const PancakeIrohConfig,
     out_netlayer: ?*?*PancakeIrohNetlayer,
 ) i32 {
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
+    const cfg = config orelse return PANCAKE_ERR_NULL_POINTER;
     const seed = decodeSeed(secret_seed, secret_seed_len) catch return PANCAKE_ERR_INVALID_ARGUMENT;
-    const reach = reachabilityFromC(reachability) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
-    return netlayerNewIn(c.library_allocator, seed, reach, slot);
+    const reach = reachabilityFromC(cfg.reachability) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    return netlayerNewIn(c.library_allocator, seed, reach, cfg.connect_timeout_ms, slot);
 }
 
 /// As `pancake_iroh_netlayer_new`, allocating the netlayer, endpoint, and every
@@ -185,14 +201,15 @@ pub export fn pancake_iroh_netlayer_new_in(
     context: ?*PancakeContext,
     secret_seed: ?[*]const u8,
     secret_seed_len: usize,
-    reachability: u32,
+    config: ?*const PancakeIrohConfig,
     out_netlayer: ?*?*PancakeIrohNetlayer,
 ) i32 {
     const cc = c.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_netlayer orelse return PANCAKE_ERR_NULL_POINTER;
+    const cfg = config orelse return PANCAKE_ERR_NULL_POINTER;
     const seed = decodeSeed(secret_seed, secret_seed_len) catch return PANCAKE_ERR_INVALID_ARGUMENT;
-    const reach = reachabilityFromC(reachability) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
-    return netlayerNewIn(cc.allocator(), seed, reach, slot);
+    const reach = reachabilityFromC(cfg.reachability) orelse return PANCAKE_ERR_INVALID_ARGUMENT;
+    return netlayerNewIn(cc.allocator(), seed, reach, cfg.connect_timeout_ms, slot);
 }
 
 fn decodeSeed(seed: ?[*]const u8, seed_len: usize) error{InvalidSeed}!?*const [32]u8 {
@@ -212,7 +229,7 @@ fn reachabilityFromC(reachability: u32) ?iroh.Reachability {
     return null;
 }
 
-fn netlayerNewIn(alloc: std.mem.Allocator, seed: ?*const [32]u8, reachability: iroh.Reachability, slot: *?*PancakeIrohNetlayer) i32 {
+fn netlayerNewIn(alloc: std.mem.Allocator, seed: ?*const [32]u8, reachability: iroh.Reachability, connect_timeout_ms: u64, slot: *?*PancakeIrohNetlayer) i32 {
     const payload = alloc.create(NetlayerPayload) catch return PANCAKE_ERR_INTERNAL;
     payload.* = .{
         .threaded = std.Io.Threaded.init(alloc, .{}),
@@ -221,7 +238,7 @@ fn netlayerNewIn(alloc: std.mem.Allocator, seed: ?*const [32]u8, reachability: i
     };
     // `Threaded.io()` borrows `&payload.threaded`, valid because `payload` is
     // heap-pinned; the resident captures it for the connections it mints.
-    payload.resident = iroh.Resident.init(payload.threaded.io(), seed, reachability) catch {
+    payload.resident = iroh.Resident.init(payload.threaded.io(), seed, .{ .reachability = reachability, .connect_timeout_ms = connect_timeout_ms }) catch {
         payload.threaded.deinit();
         alloc.destroy(payload);
         setLastError("iroh netlayer_new: endpoint bind failed", .{});
@@ -536,9 +553,10 @@ fn destroyConn(payload: *ConnPayload) void {
 
 fn dialErrorToCode(err: net.netlayer.DialError) i32 {
     return switch (err) {
-        error.InvalidAddress => PANCAKE_ERR_INVALID_ARGUMENT,
+        // Permanent under ADR-0082 `isTransient` — bindings must not discovery-retry these.
+        error.InvalidAddress, error.ConnectionRefused => PANCAKE_ERR_INVALID_ARGUMENT,
         error.OutOfMemory => PANCAKE_ERR_INTERNAL,
-        else => blk: {
+        error.NetworkUnreachable, error.TimedOut, error.ConnectionLost => blk: {
             setLastError("connect: {s}", .{@errorName(err)});
             break :blk PANCAKE_ERR_IO;
         },

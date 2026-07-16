@@ -14,13 +14,13 @@ actor layer for the two moves that make capabilities compose.
 | 01 | [`zig/01_connect_and_serve.zig`](zig/01_connect_and_serve.zig)       | The application surface over a real TCP socket: the host `listen`s, accepts, publishes by name, and `serve`s; the client `connect`s, fetches by name, `call`s, and switches on the settled outcome. One owning `driver.Session` per side. |
 | 02 | [`zig/02_introduce_and_redeem.zig`](zig/02_introduce_and_redeem.zig) | The capability pattern pancake exists for: a directory introduces the client to a service, the host redeems the gift inside the call so the answer settles as the service itself, and the direct call leaves the directory out of the path. Three `Host` + `Bridge` + `TcpLoop` parties in one process.  |
 | 03 | [`zig/03_actor_far_send.zig`](zig/03_actor_far_send.zig)             | Bind an actor to an export, far-send to it across a paired session, and settle the vow. The `actors.Vat` pattern beneath chapter 01's `call`, and the one every networked application builds on.                                             |
-| 04 | [`zig/04_look_up_by_name.zig`](zig/04_look_up_by_name.zig)           | Fetch a capability through the bootstrap object using a swiss number: the machinery beneath fetch-by-name (the server side is one `registerBootstrapCap` call; the engine answers the `'fetch`).                                            |
+| 04 | [`zig/04_look_up_by_name.zig`](zig/04_look_up_by_name.zig)           | Fetch a capability through the bootstrap object using a swiss number: the machinery beneath fetch-by-name. The server side is one `registerBootstrapCap` call; the engine answers the `'fetch`.                                            |
 | 05 | [`zig/05_call_a_remote_method.zig`](zig/05_call_a_remote_method.zig) | The raw engine: pair two peers, export and import by hand, and shuttle the deliver and resolve frames one explicit `step` at a time.                                                                                                         |
-| 06 | [`zig/06_pipeline_and_attenuate.zig`](zig/06_pipeline_and_attenuate.zig) | Promise pipelining and attenuation together: `sendToAnswer` aims dependent calls at an unresolved answer (one batch, no round trips), and the reply is an attenuated proxy that forwards `play` but breaks `eject`: refused authority is unrepresentable, not permission-checked.  |
+| 06 | [`zig/06_pipeline_and_attenuate.zig`](zig/06_pipeline_and_attenuate.zig) | Promise pipelining and attenuation together: `sendToAnswer` aims dependent calls at an unresolved answer (one batch, no round trips), and the reply is an attenuated proxy that forwards `play` but breaks `eject`. Refused authority is unrepresentable, not permission-checked.  |
 
 Full applications run in every binding, each built on the same small surface
 (`connect`, `listen`, `fetch`, `publish`, `spawn`, `send`, `tell`, `serve`,
-`close`), and that surface reads the same in every language:
+`close`). That surface reads the same in every language:
 
 - [`apps/rooms/`](apps/rooms/): a capability-secure chat (real-time). A Deno
   server hosts a directory of rooms (`open`/`enter`, each returning a room
@@ -40,23 +40,24 @@ Full applications run in every binding, each built on the same small surface
   Deno coordinator hands an agent capabilities to tools (attenuated to
   read-only, and revocable) and an agent in each language (Zig, Rust, Python,
   Racket, Deno) proves delegation, attenuation, and revocation over OCapN.
-  `zig build demo-tools` runs each available agent against the coordinator;
-  coordinator and agent are different languages on the wire, so the capability
+  `zig build demo-tools` runs each available agent against the coordinator.
+  Coordinator and agent are different languages on the wire, so the capability
   trio is real, not in-process.
 - [`apps/accountability-on-pancake/`](apps/accountability-on-pancake/): a
   signed-call accountability application: KERI-anchored identity, a signed
   Episode per capability invocation, and a Merkle transparency log, all above
   pancake's runtime over an OCapN session on the `tcp` netlayer. `zig build accountability`
-  runs the native Zig walk (ridden by `zig build check`);
+  runs the native Zig walk (ridden by `zig build check`).
   `zig build demo-accountability` runs the Zig host with Deno and Python callers
-  over the C ABI; `zig build accountability-three-party` proves a handoff-
+  over the C ABI. `zig build accountability-three-party` proves a handoff-
   introduced caller is attributed, not the introducer.
 
 Each demo binds an ephemeral port by default. Pin the port with `-Dport`
 (`zig build demo-rooms -Dport=9099`), or add `-Dattach=true` to join a server
 you already started on that port instead of spawning one. Each app's README
-shows the standalone server command the attach mode pairs with. (`demo-accountability`
-is the exception: it rejects `-Dattach`, since each caller needs a fresh host.)
+shows the standalone server command the attach mode pairs with.
+`demo-accountability` is the exception: it rejects `-Dattach`, since each
+caller needs a fresh host.
 
 Each client is built the same way: it `fetch`es the server's capability by name,
 `spawn`s a local actor (an inbox or watcher), and hands the server a reference to
@@ -69,10 +70,10 @@ native Zig client pumps `step` in an explicit loop.
 Lower-level library mechanics:
 
 - [`zig/readme_quick_start.zig`](zig/readme_quick_start.zig): the README's
-  Quick Start snippet, runnable: its `client` function is the snippet verbatim,
+  Quick Start snippet, runnable. Its `client` function is the snippet verbatim,
   paired with the minimal greeter host the snippet needs.
 - [`zig/connect_explicit_buffers.zig`](zig/connect_explicit_buffers.zig):
-  chapter 01 one layer down: the caller owns the peer, its frame limit, and both
+  chapter 01 one layer down. The caller owns the peer, its frame limit, and both
   buffers (`connectTcp` / `acceptTcp`), and observes the reply through the
   explicit promise idiom (`send`, `on`, `step`).
 - [`zig/frame_view.zig`](zig/frame_view.zig): moving an owned `Frame` into a
@@ -80,11 +81,11 @@ Lower-level library mechanics:
 - [`c/frame_view.c`](c/frame_view.c): the same over the C ABI.
 - [`c/context_alloc.c`](c/context_alloc.c): C-owned allocation policy through
   `PancakeContext`.
-- [`c/echo_peer.c`](c/echo_peer.c): a complete in-process event loop in pure C:
-  two peers exchange frames through memory, the client fetches a published
+- [`c/echo_peer.c`](c/echo_peer.c): a complete in-process event loop in pure C.
+  Two peers exchange frames through memory; the client fetches a published
   capability with `pancake_peer_send_bootstrap_fetch`, calls it, and reads the
-  typed reply. This is the sans-io primitive for a host that owns its own loop;
-  a consumer that just wants to dial, fetch, and call reaches instead for the
+  typed reply. This is the sans-io primitive for a host that owns its own loop.
+  A consumer that just wants to dial, fetch, and call reaches instead for the
   owning `PancakeTcpSession` (ADR-0062), worked end-to-end against a runtime
   host in
   [`test/c_abi/tcp_session_test.zig`](../test/c_abi/tcp_session_test.zig).

@@ -29,7 +29,12 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "_common" / "python"))
-from helpers import fail, insert_bindings_path, parse_port  # noqa: E402
+from helpers import (  # noqa: E402
+    await_greeter_ready,
+    fail,
+    insert_bindings_path,
+    parse_port,
+)
 
 insert_bindings_path()
 
@@ -45,18 +50,6 @@ RECIPIENT_SCRIPT = "conformance/goblins-peer/racket/gift-recipient.rkt"
 # interop clients fix the echo swiss.
 GREETER_SWISS = "pancakeGiftGreeterSwissnum000001"
 INTRODUCER_SWISS = "introducer"
-
-
-async def await_bob_ready(proc: asyncio.subprocess.Process) -> None:
-    assert proc.stdout is not None
-    deadline = asyncio.get_running_loop().time() + 30.0
-    while asyncio.get_running_loop().time() < deadline:
-        line = await asyncio.wait_for(proc.stdout.readline(), timeout=30.0)
-        if not line:
-            break
-        if b'"name":"greeter"' in line:
-            return
-    fail("python-goblins-gift", "never saw the exporter's greeter readiness line")
 
 
 async def run() -> None:
@@ -85,7 +78,7 @@ async def run() -> None:
     gifter = None
     to_bob = None
     try:
-        await await_bob_ready(bob)
+        await await_greeter_ready(bob, "python-goblins-gift")
         print(f"python-goblins-gift: goblins-bob exporting greeter swiss={GREETER_SWISS} on {HOST}:{PORT}")
 
         # pancake (the gifter) listens for the recipient on an ephemeral port and

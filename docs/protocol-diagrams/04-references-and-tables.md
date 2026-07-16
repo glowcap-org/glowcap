@@ -5,8 +5,7 @@ Anchors: CapTP Specification § Descriptors, § Export and import tables.
 ## RT-1: Descriptor taxonomy
 
 Four wire descriptors name positions in session tables. Which table they index,
-and on whose side, is the whole game. The next two diagrams, RT-2 and RT-3, pin
-it down.
+and on whose side, is fixed in RT-2 and RT-3.
 
 ```mermaid
 flowchart TD

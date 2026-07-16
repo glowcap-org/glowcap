@@ -166,14 +166,22 @@ test "C ABI send_withdraw_gift queues a signed withdraw-gift to the exporter boo
     }
 
     // Mint a genuine signed give, exactly what a gifter would have handed back:
-    // it names the recipient's session key and points at the exporter's locator.
+    // it names the recipient's session key and points at the exporter's
+    // locator, a verbatim `<ocapn-peer …>` record (`buildSignedGive` embeds
+    // this raw, not a bare string).
     const gifter_secret = crypto.SecretKey.fromSeed([_]u8{0x33} ** 32);
     const recipient_pub = crypto.SecretKey.fromSeed(recipient_seed).publicKey();
+    const exporter_location_record = try engine.encodePeerLocatorRecord(std.testing.allocator, .{
+        .transport = transport,
+        .designator = exporter_loc,
+        .hints = pancake.ocapn.model.Hints.emptyFalse(),
+    });
+    defer std.testing.allocator.free(exporter_location_record);
     const give = try engine.handoff_gifter.buildSignedGive(
         std.testing.allocator,
         gifter_secret,
         recipient_pub.asBytes(),
-        exporter_loc,
+        exporter_location_record,
         &([_]u8{0xcc} ** 32),
         &([_]u8{0x11} ** 32),
         &([_]u8{0x01} ** 32),

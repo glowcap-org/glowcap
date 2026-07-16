@@ -3,7 +3,7 @@ id: ADR-0046
 status: accepted
 date: 2026-06-11
 tags: [model, codec, syrup, capnp, conformance, data-model]
-decision: "The OCapN Struct passable is modeled as an ordered-on-the-wire, equality-unordered sequence of (String key, Value) entries (model.StructEntry), carried by both codecs — Syrup as a dict {} and Cap'n Proto as a composite list of entry structs — with String-only keys, duplicate keys refused at decode, canonical key order on encode, and order-independent structural equality. Undefined is already the existing .void arm (Goblins marshals the unspecified value as the <void> record); Null stays fail-closed because Goblins has no Null marshalling and the upstream encoding is unsettled."
+decision: "The OCapN Struct passable is modeled as an ordered-on-the-wire, equality-unordered sequence of (String key, Value) entries (model.StructEntry), carried by both codecs — Syrup as a dict {} and Cap'n Proto as a composite list of entry structs — with String-only keys, duplicate keys refused at decode, canonical key order on encode, and order-independent structural equality. Undefined is already the existing .void arm (Goblins marshals the unspecified value as the <void> record); Null stays unmodeled because Goblins has no Null marshalling and the upstream encoding is unsettled."
 supersedes: []
 superseded_by: []
 ---
@@ -69,10 +69,10 @@ different key order and still be Equal.
 
 ## Scope (what this does not decide)
 
-- **Null stays refused.** Goblins has no Null marshalling and the upstream
+- **Null stays unmodeled.** Goblins has no Null marshalling and the upstream
   encoding is unsettled (Model.md marks the Guile/Python mappings "tentative" /
-  "imported"). pancake holds the fail-closed boundary and documents why, rather
-  than guess a wire shape that cannot interop.
+  "imported"). pancake does not invent a Null arm; unknown Syrup records project
+  as `Tagged` (break/exception leniency), not as a dedicated Null refuse.
 - **Undefined is not a new arm.** It is the existing `.void` arm, the `<void>`
   record Goblins uses for the unspecified value. This ADR only clarifies that
   mapping in the docs.
@@ -104,10 +104,10 @@ arms (`syrup/encode.zig`, `syrup/decode.zig`, `capnp/encode.zig`,
 `capnp/decode.zig`, `capnp/shared.zig`'s `ArgKind`). Tests flip the Syrup refusal
 to a round-trip, add a Cap'n Proto round-trip, and add a struct case to the
 cross-codec equivalence corpus. The README drops the "Struct not modeled" claim,
-states that `.void` is Undefined, and records Null as a present fail-closed
-boundary.
+states that `.void` is Undefined, and records Null as an unmodeled boundary
+(unknown Syrup records project as `Tagged`, not a dedicated Null refuse).
 
 ## Notes
 
 Relates to ADR-0026 (the hand-rolled Cap'n Proto codec) for the wire
-representation, and to the roadmap's bignum item for the remaining atom.
+representation, and to ADR-0049 for arbitrary-precision Integer (shipped).

@@ -69,6 +69,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try checkAbiFreeingVerb(io, gpa, root, &violations);
     try checkCAbiSurfaceShape(io, gpa, root, &violations);
     try checkAbiExportsConsumed(io, gpa, root, &violations);
+    try checkPeerEventSendParity(io, gpa, root, &violations);
     try checkBindingConstants(io, gpa, root, &violations);
     try checkBindingHostActionDrains(io, gpa, root, &violations);
     try checkBindingHostActionSpine(io, gpa, root, &violations);
@@ -93,6 +94,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try checkDesignatorSchemeSync(io, gpa, root, &violations);
     try checkCAbiResolve(io, gpa, root, &violations);
     try checkIrohLoopConvergence(io, gpa, root, &violations);
+    try checkIrohBindingAggregatesComplete(io, gpa, root, &violations);
     try checkCaptpIoSpine(io, gpa, root, &violations);
     try checkRuleFrontmatter(io, gpa, root, &violations);
     try checkLayerOwnership(io, gpa, root, &violations);
@@ -102,6 +104,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try checkProtocolCheatsheet(io, gpa, root, &violations);
     try checkGeneratedStateIgnores(io, gpa, root, &violations, b.build_root.path orelse ".");
     try checkPrereleaseLanguage(io, gpa, root, &violations);
+    try checkHumanDocVoice(io, gpa, root, &violations);
     try checkSiteSvgAscii(io, gpa, root, &violations);
     try checkRemoveDiscards(io, gpa, root, &violations);
     try checkArchiveTables(io, gpa, root, &violations);
@@ -110,6 +113,7 @@ fn make(step: *Step, options: Step.MakeOptions) anyerror!void {
     try checkCaptpVocabulary(io, gpa, root, &violations);
     try checkHostPumpImportGate(io, gpa, root, &violations);
     try checkCAbiServedSurface(io, gpa, root, &violations);
+    try checkNoAdrInRuntimeStrings(io, gpa, root, &violations);
 
     if (violations.items.len != 0) {
         for (violations.items) |msg| std.debug.print("meta-check: {s}\n", .{msg});
@@ -1608,6 +1612,83 @@ fn checkIrohLoopConvergence(
     }
 }
 
+/// Find the `{ ... }` block opened by the `{`-terminated `marker`, matching
+/// braces so a nested struct literal inside the block cannot close it early.
+/// Returns the interior (excluding the outer braces), or `null` when the
+/// marker is absent or its brace never closes.
+fn extractBraceBlock(text: []const u8, marker: []const u8) ?[]const u8 {
+    std.debug.assert(std.mem.endsWith(u8, marker, "{"));
+    const start = std.mem.indexOf(u8, text, marker) orelse return null;
+    const open = start + marker.len - 1;
+    var depth: usize = 1;
+    var i = open + 1;
+    while (i < text.len) : (i += 1) {
+        switch (text[i]) {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if (depth == 0) return text[open + 1 .. i];
+            },
+            else => {},
+        }
+    }
+    return null;
+}
+
+/// The iroh `BindingClientRow` tables (`iroh_loop_clients`,
+/// `iroh_handoff_clients`, `iroh_reach_clients`) each feed a `bindings-iroh-*`
+/// aggregate. A binding silently missing from one of these tables would still
+/// build — the aggregate degrades to whichever rows remain — so the gap is
+/// invisible to `zig build check` unless something demands every step name
+/// explicitly. This holds the closed binding set (deno/python/rust/racket) the
+/// sibling `iroh_redeem_clients` and `keyed_tcp_restart_clients` tables already
+/// carry.
+fn checkIrohBindingAggregatesComplete(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const path = "build.zig";
+    const contents = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for iroh-binding-aggregate check with {s}", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(contents);
+
+    const families = [_]struct {
+        marker: []const u8,
+        steps: []const []const u8,
+    }{
+        .{
+            .marker = "iroh_loop_clients = [_]BindingClientRow{",
+            .steps = &.{ "deno-iroh-loop", "python-iroh-loop", "rust-iroh-loop", "racket-iroh-loop" },
+        },
+        .{
+            .marker = "iroh_handoff_clients = [_]BindingClientRow{",
+            .steps = &.{ "deno-iroh-handoff", "python-iroh-handoff", "rust-iroh-handoff", "racket-iroh-handoff" },
+        },
+        .{
+            .marker = "iroh_reach_clients = [_]BindingClientRow{",
+            .steps = &.{ "deno-iroh-reachability", "python-iroh-reachability", "rust-iroh-reachability", "racket-iroh-reachability" },
+        },
+    };
+
+    for (families) |family| {
+        const block = extractBraceBlock(contents, family.marker) orelse {
+            try appendViolation(gpa, violations, "{s}: missing `{s}` — cannot find the iroh binding-client row table", .{ path, family.marker });
+            continue;
+        };
+        for (family.steps) |step| {
+            var buf: [64]u8 = undefined;
+            const needle = std.fmt.bufPrint(&buf, "\"{s}\"", .{step}) catch continue;
+            if (std.mem.indexOf(u8, block, needle) == null) {
+                try appendViolation(gpa, violations, "{s}: `{s}` is missing a `{s}` row — every iroh binding aggregate must carry deno, python, rust, and racket", .{ path, family.marker, step });
+            }
+        }
+    }
+}
+
 /// Apex for one CapTP I/O spine: forbid reintroducing `BlockingHost`, the
 /// `net.Loop` TCP convenience alias, dual `dialTcp`/`dialIroh` Loop APIs,
 /// shared `ConnectTarget`, soft `@hasDecl(Backend` dial/shutdown forks,
@@ -2603,7 +2684,7 @@ fn checkCaptpIoSpine(
                 .banned = &.{"(format \"~a:~a\" HOST gifter-port)"},
             },
             .{
-                .path = "bindings/rust/examples/goblins_gift.rs",
+                .path = "interop/goblins_interop/rust_gift_client.rs",
                 .required = "socket_addr_designator",
                 .banned = &.{"format!(\"{HOST}:{gifter_port}\")"},
             },
@@ -2714,10 +2795,13 @@ fn checkCaptpIoSpine(
         }
         // External dialers use connect(locator); parallel connect_iroh* is binding-internal.
         const no_public_iroh_connect = [_]struct { path: []const u8, banned: []const []const u8 }{
+            .{ .path = "interop/iroh_loop/deno_client.ts", .banned = &.{ "connectIroh(", "_connectIroh(" } },
             .{ .path = "interop/iroh_loop/python_client.py", .banned = &.{"connect_iroh("} },
             .{ .path = "interop/iroh_loop/racket_client.rkt", .banned = &.{ "(connect-iroh ", "(connect-iroh/node " } },
+            .{ .path = "interop/iroh_reachability/deno_client.ts", .banned = &.{ "connectIroh(", "_connectIroh(" } },
             .{ .path = "interop/iroh_reachability/python_client.py", .banned = &.{"connect_iroh("} },
             .{ .path = "interop/iroh_reachability/racket_client.rkt", .banned = &.{ "(connect-iroh ", "(connect-iroh/node " } },
+            .{ .path = "interop/iroh_handoff/deno_client.ts", .banned = &.{ "connectIroh(", "_connectIroh(" } },
             .{ .path = "interop/iroh_handoff/python_client.py", .banned = &.{ "connect_iroh(", "connect_iroh_with_node(" } },
             .{ .path = "interop/iroh_handoff/racket_client.rkt", .banned = &.{ "(connect-iroh ", "(connect-iroh/node " } },
             .{ .path = "interop/iroh_redeem_posture/python_client.py", .banned = &.{ "connect_iroh(", "connect_iroh_with_node(" } },
@@ -3685,6 +3769,12 @@ fn checkCAbiResolve(
         }
         if (std.mem.indexOf(u8, contents, "open-pancake-archive") == null) {
             try appendViolation(gpa, violations, "{s}: must open archives through open-pancake-archive", .{path});
+        }
+        // Automatic FFI out cells (`(_ptr o …)`) lose values under concurrent
+        // Racket green threads. Archive loaders must wrap outs with caller-owned
+        // cells; the literal token is banned so the race cannot return.
+        if (std.mem.indexOf(u8, contents, "(_ptr o") != null) {
+            try appendViolation(gpa, violations, "{s}: automatic FFI out cells banned — wrap outs with call/out or wrap-out1 (caller-owned cells)", .{path});
         }
     }
 
@@ -4702,6 +4792,97 @@ fn checkPrereleaseLanguage(
     }
 }
 
+/// Agent-facing CapTP vocabulary cheat-sheets ("sticky notes") belong in
+/// `.agents/rules/architecture.md`, not in human first-read docs. This bans the
+/// high-signal label that reintroduces that dump on human paths (doc-voice
+/// audience split). ADRs under `docs/decisions/` and `.agents/**` are out of
+/// scope on purpose.
+fn checkHumanDocVoice(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const phrase = "CapTP sticky note";
+
+    const fixed = [_][]const u8{
+        "README.md",
+        "CONTRIBUTING.md",
+        "bindings/README.md",
+        "bindings/rust/README.md",
+        "bindings/ts/README.md",
+        "bindings/python/README.md",
+        "bindings/racket/README.md",
+        "examples/README.md",
+        ".devcontainer/README.md",
+    };
+    for (fixed) |path| {
+        try banPhraseInFile(io, gpa, root, violations, path, phrase, true);
+    }
+
+    var docs = root.openDir(io, "docs", .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "docs: failed to open for human-doc-voice check with {s}", .{@errorName(err)});
+        return;
+    };
+    defer docs.close(io);
+    var docs_it = docs.iterate();
+    while (try docs_it.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.name, ".md")) continue;
+        const path = try std.fmt.allocPrint(gpa, "docs/{s}", .{entry.name});
+        defer gpa.free(path);
+        try banPhraseInFile(io, gpa, root, violations, path, phrase, false);
+    }
+
+    try banPhraseUnder(io, gpa, root, violations, "docs/protocol-diagrams", ".md", phrase);
+    try banPhraseUnder(io, gpa, root, violations, "site/content", ".smd", phrase);
+}
+
+fn banPhraseUnder(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    dir_path: []const u8,
+    suffix: []const u8,
+    phrase: []const u8,
+) !void {
+    var dir = root.openDir(io, dir_path, .{ .iterate = true }) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to open for human-doc-voice check with {s}", .{ dir_path, @errorName(err) });
+        return;
+    };
+    defer dir.close(io);
+    var walker = try dir.walk(gpa);
+    defer walker.deinit();
+    while (try walker.next(io)) |entry| {
+        if (entry.kind != .file) continue;
+        if (!std.mem.endsWith(u8, entry.path, suffix)) continue;
+        const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ dir_path, entry.path });
+        defer gpa.free(path);
+        try banPhraseInFile(io, gpa, root, violations, path, phrase, false);
+    }
+}
+
+fn banPhraseInFile(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+    path: []const u8,
+    phrase: []const u8,
+    optional: bool,
+) !void {
+    const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+        if (optional and err == error.FileNotFound) return;
+        try appendViolation(gpa, violations, "{s}: failed to read for human-doc-voice check with {s}", .{ path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(contents);
+    if (std.ascii.indexOfIgnoreCase(contents, phrase) != null) {
+        try appendViolation(gpa, violations, "{s}: contains `{s}` — CapTP vocabulary cheat-sheets live in the architecture agent rule, not human docs (doc-voice)", .{ path, phrase });
+    }
+}
+
 const ConstantsFile = struct {
     path: []const u8,
     /// Racket states constants as `(define NAME INT)`; the other three as a
@@ -5134,6 +5315,99 @@ fn checkAbiExportsConsumed(
             if (export_names.contains(base)) continue;
         }
         try appendViolation(gpa, violations, "{s}: exported `{s}` has no consumer under bindings/, examples/, interop/, or test/ — dead surface; retire it or give it the consumer that justifies it", .{ exported.header, exported.name });
+    }
+}
+
+/// CapTP `PANCAKE_EVENT_*` kinds (except `NONE`) must have a peer send constructor
+/// in `pancake_ocapn.h`, or an explicit allowlist reason. Renamed constructors
+/// (start_session, handoff deposit/withdraw/resolve-give) count; LISTEN is
+/// allowlisted as engine-synthesized / inbound-only. Adding an event without a
+/// send or allowlist row fails this check.
+fn checkPeerEventSendParity(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const header_path = "include/pancake_ocapn.h";
+    const header = root.readFileAlloc(io, header_path, gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, "{s}: failed to read for event/send parity with {s}", .{ header_path, @errorName(err) });
+        return;
+    };
+    defer gpa.free(header);
+
+    const Row = struct {
+        event: []const u8,
+        send: ?[]const u8 = null,
+        also: []const []const u8 = &.{},
+        allowlist: ?[]const u8 = null,
+    };
+    const rows = [_]Row{
+        .{ .event = "DELIVER", .send = "pancake_peer_send_deliver" },
+        .{ .event = "RESOLVE", .send = "pancake_peer_send_resolve" },
+        .{ .event = "GC_EXPORT", .send = "pancake_peer_send_gc_export" },
+        .{ .event = "GC_ANSWER", .send = "pancake_peer_send_gc_answer" },
+        .{ .event = "HANDOFF", .also = &.{
+            "pancake_peer_send_deposit_gift",
+            "pancake_peer_send_withdraw_gift",
+            "pancake_peer_send_resolve_handoff_give",
+        } },
+        .{ .event = "START_SESSION", .send = "pancake_peer_start_session" },
+        .{ .event = "ABORT", .send = "pancake_peer_send_abort" },
+        .{ .event = "LISTEN", .allowlist = "engine-synthesized / inbound install; not an app send at the peer ABI" },
+        .{ .event = "GET", .send = "pancake_peer_send_get" },
+        .{ .event = "INDEX", .send = "pancake_peer_send_index" },
+        .{ .event = "UNTAG", .send = "pancake_peer_send_untag" },
+    };
+
+    var seen_events = std.StringHashMap(void).init(gpa);
+    defer seen_events.deinit();
+
+    var rest = header;
+    const event_needle = "#define PANCAKE_EVENT_";
+    while (std.mem.indexOf(u8, rest, event_needle)) |start| {
+        const after = rest[start + event_needle.len ..];
+        const line_end = std.mem.indexOfScalar(u8, after, '\n') orelse after.len;
+        const line = after[0..line_end];
+        rest = after[line_end..];
+        const name_end = std.mem.indexOfAny(u8, line, " \t") orelse continue;
+        const suffix = line[0..name_end];
+        if (std.mem.eql(u8, suffix, "NONE")) continue;
+        try seen_events.put(suffix, {});
+
+        var matched_row: ?Row = null;
+        for (rows) |row| {
+            if (std.mem.eql(u8, row.event, suffix)) {
+                matched_row = row;
+                break;
+            }
+        }
+        const row = matched_row orelse {
+            try appendViolation(gpa, violations, "{s}: PANCAKE_EVENT_{s} has no peer send/allowlist row in checkPeerEventSendParity — add pancake_peer_send_* or an allowlist reason", .{ header_path, suffix });
+            continue;
+        };
+        if (row.allowlist != null) continue;
+
+        var ok = false;
+        if (row.send) |send_name| {
+            if (std.mem.indexOf(u8, header, send_name) != null) ok = true;
+        }
+        for (row.also) |alt| {
+            if (std.mem.indexOf(u8, header, alt) != null) ok = true;
+        }
+        if (!ok) {
+            if (row.send) |send_name| {
+                try appendViolation(gpa, violations, "{s}: PANCAKE_EVENT_{s} needs `{s}` (or a listed alternate) in the header, or an allowlist reason in checkPeerEventSendParity", .{ header_path, suffix, send_name });
+            } else {
+                try appendViolation(gpa, violations, "{s}: PANCAKE_EVENT_{s} needs one of its alternate send constructors in the header, or an allowlist reason in checkPeerEventSendParity", .{ header_path, suffix });
+            }
+        }
+    }
+
+    for (rows) |row| {
+        if (!seen_events.contains(row.event)) {
+            try appendViolation(gpa, violations, "{s}: checkPeerEventSendParity lists EVENT_{s} but the header has no PANCAKE_EVENT_{s} — drop the stale row", .{ header_path, row.event, row.event });
+        }
     }
 }
 
@@ -5712,8 +5986,8 @@ fn checkBindingPromiseSpine(
     }
 }
 
-/// Binding spine Pass 5 (Rust): `Ref` / `Caretaker` / `ConnShared` live in
-/// `conn.rs`, not `session.rs`. Grep-level.
+/// Binding spine Pass 5 (Rust): `Ref` / `Caretaker` / `SessionShared` live in
+/// `session_shared.rs`, not `session.rs`. Grep-level.
 fn checkBindingRustConnSpine(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -5722,17 +5996,17 @@ fn checkBindingRustConnSpine(
 ) !void {
     const path = "bindings/rust/src/session_shared.rs";
     root.access(io, path, .{}) catch {
-        try appendViolation(gpa, violations, "{s}: file must exist — Rust conn module (binding spine Pass 5)", .{path});
+        try appendViolation(gpa, violations, "{s}: file must exist — Rust session_shared module (binding spine Pass 5)", .{path});
         return;
     };
     const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
-        try appendViolation(gpa, violations, "{s}: failed to read for rust-conn check with {s}", .{ path, @errorName(err) });
+        try appendViolation(gpa, violations, "{s}: failed to read for rust session_shared check with {s}", .{ path, @errorName(err) });
         return;
     };
     defer gpa.free(contents);
     for ([_][]const u8{ "pub struct Ref", "pub struct Caretaker", "pub(crate) struct SessionShared", "fn tell(" }) |needle| {
         if (std.mem.indexOf(u8, contents, needle) == null) {
-            try appendViolation(gpa, violations, "{s}: conn module missing `{s}`", .{ path, needle });
+            try appendViolation(gpa, violations, "{s}: session_shared module missing `{s}`", .{ path, needle });
         }
     }
     const banned = [_]struct { path: []const u8, needle: []const u8 }{
@@ -5742,12 +6016,12 @@ fn checkBindingRustConnSpine(
     };
     for (banned) |b| {
         const session = root.readFileAlloc(io, b.path, gpa, .limited(2 << 20)) catch |err| {
-            try appendViolation(gpa, violations, "{s}: failed to read for rust-conn ban with {s}", .{ b.path, @errorName(err) });
+            try appendViolation(gpa, violations, "{s}: failed to read for rust session_shared ban with {s}", .{ b.path, @errorName(err) });
             continue;
         };
         defer gpa.free(session);
         if (std.mem.indexOf(u8, session, b.needle) != null) {
-            try appendViolation(gpa, violations, "{s}: `{s}` belongs in conn.rs, not session (Pass 5)", .{ b.path, b.needle });
+            try appendViolation(gpa, violations, "{s}: `{s}` belongs in session_shared.rs, not session (Pass 5)", .{ b.path, b.needle });
         }
     }
 }
@@ -6049,6 +6323,35 @@ fn checkBindingEmbedderPump(
         if (!kick_ok) {
             try appendViolation(gpa, violations, "{s}: pump missing post-feed action kick/drain (kickActions / kick_actions / drain-host-actions!)", .{path});
         }
+        // Feed refusal must use the shared drain, not a private take_outbound
+        // flush — the same spine as a steady FLUSH (bindings/README checklist).
+        const private_refusal_flush = [_][]const u8{
+            "await flushOutbound(h)",
+            "flush_outbound(shared).await",
+            "await flush_outbound(session)",
+        };
+        for (private_refusal_flush) |needle| {
+            if (std.mem.indexOf(u8, contents, needle) != null) {
+                try appendViolation(gpa, violations, "{s}: feed-refusal must not private-flush via `{s}` — use kick_actions / kickActions / drain-effects", .{ path, needle });
+            }
+        }
+        // EOF / break_far_vows must drain FAIL completions (shared spine). Match
+        // the FFI *call* (`…break_far_vows(`) so module-doc mentions do not fire.
+        // Kick may appear just before (Racket `with-breaking-drain`) or after.
+        var search_from: usize = 0;
+        while (std.mem.indexOfPos(u8, contents, search_from, "pancake_host_session_break_far_vows(")) |break_at| {
+            const lo = if (break_at > 400) break_at - 400 else 0;
+            const hi = @min(contents.len, break_at + 800);
+            const window = contents[lo..hi];
+            const kick_near = std.mem.indexOf(u8, window, "kickActions") != null or
+                std.mem.indexOf(u8, window, "kick_actions") != null or
+                std.mem.indexOf(u8, window, "drain-host-actions!") != null or
+                std.mem.indexOf(u8, window, "with-breaking-drain") != null;
+            if (!kick_near) {
+                try appendViolation(gpa, violations, "{s}: pancake_host_session_break_far_vows without nearby action kick/drain — EOF must settle FAIL completions", .{path});
+            }
+            search_from = break_at + 1;
+        }
         // Keyed handshake loop lives in pump (Pass 4a), not session.
         const hs_ok = std.mem.indexOf(u8, contents, "runHandshake") != null or
             std.mem.indexOf(u8, contents, "_run_handshake") != null or
@@ -6146,6 +6449,29 @@ fn checkBindingEmbedderPump(
     for ([_][]const u8{ "drainHost", "drainHosts", "pancake_host_next_action" }) |needle| {
         if (std.mem.indexOf(u8, zig_pump_contents, needle) == null) {
             try appendViolation(gpa, violations, "{s}: missing `{s}` — shared C-ABI drain helper", .{ zig_pump, needle });
+        }
+    }
+
+    // Binding action modules drain via pancake_host_pump_drain (ADR-0072 sixth).
+    // Ban hand-rolled pancake_host_next_action pop loops in those modules — the
+    // C symbol may still appear in FFI loaders and comments outside action/.
+    const action_mods = [_][]const u8{
+        "bindings/ts/stack/action.ts",
+        "bindings/python/pancake/_action.py",
+        "bindings/rust/src/action.rs",
+        "bindings/racket/private/action.rkt",
+    };
+    for (action_mods) |path| {
+        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for pump_drain adoption check with {s}", .{ path, @errorName(err) });
+            continue;
+        };
+        defer gpa.free(contents);
+        if (std.mem.indexOf(u8, contents, "pancake_host_pump_drain") == null) {
+            try appendViolation(gpa, violations, "{s}: missing pancake_host_pump_drain — action module must use the shared C drain", .{path});
+        }
+        if (std.mem.indexOf(u8, contents, "pancake_host_next_action") != null) {
+            try appendViolation(gpa, violations, "{s}: pancake_host_next_action in action module — use pancake_host_pump_drain (no hand-rolled pop loop)", .{path});
         }
     }
 }
@@ -6336,7 +6662,7 @@ fn checkBindingEmbedderSpineDocs(
                 "embedder-spine module split is complete",
                 "trampoline",
                 "caretaker",
-                "named `conn`",
+                "named `session_shared`",
                 "embedder_pump",
                 "pancake_host_pump_drain",
                 "handshake",
@@ -6358,7 +6684,7 @@ fn checkBindingEmbedderSpineDocs(
                 "trampoline",
                 "caretaker/attenuate",
                 "spawn/publish",
-                "**conn** module",
+                "**session_shared** module",
                 "embedder_pump",
                 "pancake_host_pump_drain",
                 "handshake",
@@ -7152,11 +7478,16 @@ fn collectCommandDocsUnder(
 }
 
 fn collectBuildSteps(gpa: std.mem.Allocator, build_zig: []const u8, steps: *std.StringHashMap(void)) !void {
-    // Steps are declared three ways: directly as `b.step("name", …)`,
-    // table-driven as `.step_name = "name"` rows later passed to `b.step`, and
-    // header-gen rows that carry a check/write pair as `.check_step_name` /
-    // `.write_step_name`, each also passed to `b.step`.
-    const patterns = [_][]const u8{ "b.step(\"", ".step_name = \"", ".check_step_name = \"", ".write_step_name = \"" };
+    // Steps are declared as `b.step("name", …)`, table-driven `.step_name = "name"`
+    // rows, header-gen `.check_step_name` / `.write_step_name` pairs, and
+    // binding-family `.aggregate_name = "name"` rows passed to `addBindingFamily`.
+    const patterns = [_][]const u8{
+        "b.step(\"",
+        ".step_name = \"",
+        ".check_step_name = \"",
+        ".write_step_name = \"",
+        ".aggregate_name = \"",
+    };
     for (patterns) |pattern| {
         var rest = build_zig;
         while (std.mem.indexOf(u8, rest, pattern)) |start| {
@@ -7627,6 +7958,82 @@ fn checkDocCAbiCites(
         };
         try scanDocCAbiCitesInContents(gpa, path, contents, &symbols, violations);
     }
+}
+
+/// ADR names belong in docs and comments, never in strings that can reach a
+/// panic message, CapTP abort text, log line, or other runtime surface.
+fn checkNoAdrInRuntimeStrings(
+    io: std.Io,
+    gpa: std.mem.Allocator,
+    root: std.Io.Dir,
+    violations: *std.ArrayList([]const u8),
+) !void {
+    const roots = [_][]const u8{ "src", "interop" };
+    for (roots) |rel| {
+        var dir = root.openDir(io, rel, .{ .iterate = true }) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to open for ADR-runtime-string check with {s}", .{ rel, @errorName(err) });
+            continue;
+        };
+        defer dir.close(io);
+        var walker = try dir.walk(gpa);
+        defer walker.deinit();
+        while (try walker.next(io)) |entry| {
+            if (entry.kind != .file) continue;
+            if (!std.mem.endsWith(u8, entry.path, ".zig")) continue;
+            const path = try std.fmt.allocPrint(gpa, "{s}/{s}", .{ rel, entry.path });
+            defer gpa.free(path);
+            const contents = root.readFileAlloc(io, path, gpa, .limited(4 << 20)) catch |err| {
+                try appendViolation(gpa, violations, "{s}: failed to read for ADR-runtime-string check with {s}", .{ path, @errorName(err) });
+                continue;
+            };
+            defer gpa.free(contents);
+            var line_no: usize = 1;
+            var lines = std.mem.splitScalar(u8, contents, '\n');
+            while (lines.next()) |line| : (line_no += 1) {
+                if (zigLineHasAdrInStringLiteral(line)) {
+                    try appendViolation(gpa, violations, "{s}:{d}: ADR citation in a string literal — keep ADR names in comments/docs, not panic/abort/log text", .{ path, line_no });
+                }
+            }
+        }
+    }
+}
+
+/// True when a double-quoted Zig string literal on `line` contains `ADR-`.
+/// Line comments (`//`) outside strings are ignored. Multiline strings and
+/// character literals are out of scope (ADR citations do not live there).
+fn zigLineHasAdrInStringLiteral(line: []const u8) bool {
+    var i: usize = 0;
+    var in_string = false;
+    while (i < line.len) : (i += 1) {
+        const c = line[i];
+        if (!in_string) {
+            if (c == '/' and i + 1 < line.len and line[i + 1] == '/') return false;
+            if (c == '"') {
+                in_string = true;
+            }
+            continue;
+        }
+        if (c == '\\') {
+            i += 1; // skip escaped byte
+            continue;
+        }
+        if (c == '"') {
+            in_string = false;
+            continue;
+        }
+        if (c == 'A' and i + 4 <= line.len and std.mem.eql(u8, line[i..][0..4], "ADR-")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+test "zigLineHasAdrInStringLiteral ignores comments and flags string literals" {
+    try std.testing.expect(!zigLineHasAdrInStringLiteral("// (ADR-0082) comment only"));
+    try std.testing.expect(!zigLineHasAdrInStringLiteral("const x = 1; // (ADR-0001)"));
+    try std.testing.expect(zigLineHasAdrInStringLiteral("@panic(\"needs store (ADR-0082)\");"));
+    try std.testing.expect(zigLineHasAdrInStringLiteral(".message = \"cap (ADR-0025)\","));
+    try std.testing.expect(!zigLineHasAdrInStringLiteral(".message = \"cap exceeded\","));
 }
 
 fn appendViolation(

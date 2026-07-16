@@ -4,15 +4,13 @@ Anchors: CapTP Specification § op:deliver, § The bootstrap Object, § op:get, 
 op:index.
 
 One vocabulary note before the diagrams. The draft CapTP specification has no
-`op:resolve` section. pancake's `op:resolve`, with its `resolve:fulfill` and
-`resolve:break` arms, is a PreSpec profile shape: it tracks the two settlement
-operators (`op:resolve` and `op:break`) the OCapN working group has agreed to
-adopt. The 2026-02-10 meeting minutes in `conformance/ocapn-spec/` record that
-consensus. The wire encoding is still unsettled upstream, so pancake folds the
-pair into one `op:resolve` with fulfill and break arms. On the v1.0 wire that
-Goblins speaks, settlement travels as the resolver-callback deliver of DR-4.
-Every `op:resolve` arrow in these diagrams draws the PreSpec shape of that
-settlement.
+`op:resolve` section. The OCapN working group has agreed to adopt two settlement
+operators, `op:resolve` and `op:break` (see the 2026-02-10 minutes in
+`conformance/ocapn-spec/`). The wire encoding is still unsettled, so pancake
+folds both into one `op:resolve` with fulfill and break arms. That PreSpec shape
+is what every `op:resolve` arrow in these diagrams draws. On the v1.0 wire that
+Goblins speaks, settlement instead travels as the resolver-callback deliver in
+DR-4.
 
 ## DR-1: op:deliver with an answer
 
@@ -30,10 +28,8 @@ sequenceDiagram
 
 ## DR-2: op:deliver with no answer (one-way)
 
-Fire-and-forget: the answer position is `false`, so no `op:resolve` ever
-returns. The receiver invokes the target and the transaction ends there. There
-is no separate one-way record: a one-way send is an `op:deliver` whose answer
-is `false`.
+Fire-and-forget: the answer position is `false`, so no `op:resolve` returns.
+The receiver invokes the target and the transaction ends.
 
 ```mermaid
 sequenceDiagram

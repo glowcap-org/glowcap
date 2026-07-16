@@ -1,12 +1,13 @@
-// Host-action pop + execute — the embedder-contract switch the CapTP host
+// Host-action park + execute — the embedder-contract switch the CapTP host
 // drain runs. `Host` owns park/kick/vows and the Session registry; decode/types
 // come from the generated `internal/host_action.ts`
-// (`zig build gen-binding-host-action`); this module owns popping via
-// `pancake_host_next_action` and honoring each arm (dial, flush, close,
-// gift-id entropy, settle, fail).
+// (`zig build gen-binding-host-action`); this module owns the shared C drain
+// (`pancake_host_pump_drain`) with sync park-only hooks, then runs each parked
+// arm (dial, flush, close, gift-id entropy, settle, fail) after the C loop
+// returns — so async I/O never runs inside the C callback.
 
 import { driverS } from "./internal/ffi/driver.ts";
-import { type Ptr } from "./internal/ffi/runtime.ts";
+import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab } from "./internal/seam.ts";
 import {
 	CLOSED,
@@ -17,7 +18,7 @@ import {
 	HOST_ACTION_NEED_GIFT_ID,
 	HOST_ACTION_SETTLE,
 	HOST_ACTION_SIZE,
-	WOULD_BLOCK,
+	OK,
 } from "./internal/abi.ts";
 import { decodeHostAction, type HostAction } from "./internal/host_action.ts";
 import { checkHost, PancakeError, VowBroken } from "./errors.ts";
@@ -28,8 +29,18 @@ export type { HostAction };
 
 const utf8Encoder = new TextEncoder();
 
+// PancakeHostPumpHooks (pancake_driver.h) — hand-mirrored LP64 layout, pinned
+// against the header's documented 48-byte size the way Python's ctypes mirror
+// is. gen-ts-abi does not emit this layout today.
+const HOST_PUMP_HOOKS_SIZE = 48;
+const HOST_PUMP_HOOKS_FLUSH_OFF = 8;
+const HOST_PUMP_HOOKS_CLOSE_OFF = 16;
+const HOST_PUMP_HOOKS_NEED_GIFT_ID_OFF = 24;
+const HOST_PUMP_HOOKS_COMPLETE_OFF = 32;
+const HOST_PUMP_HOOKS_DIAL_OFF = 40;
+
 /** Live host state the action drain needs. `Host` satisfies this structurally
- * via its binding-internal methods so `popAction` / `runAction` never reach
+ * via its binding-internal methods so `parkActions` / `runAction` never reach
  * into private class fields. */
 export interface ActionHost {
 	readonly raw: Ptr;
@@ -43,16 +54,42 @@ export interface ActionHost {
 	): Promise<Session>;
 }
 
-/** Pop the next embedder action, decoded per kind so each arm copies out only
- * the borrowed views the C struct fills for it — a SETTLE's PancakeArgument
- * lifted whole — before anything else can call `pancake_host_next_action`
- * (which frees them). Null when the queue is dry. */
-export function popAction(host: ActionHost): HostAction | null {
-	const buf = new Uint8Array(HOST_ACTION_SIZE);
-	const rc = driverS.pancake_host_next_action(host.raw, ab(buf));
-	if (rc === WOULD_BLOCK) return null;
-	checkHost(rc);
-	return decodeHostAction(new DataView(buf.buffer));
+/** Run `pancake_host_pump_drain` with park-only arms; return decoded actions
+ * in queue order. Views are copied inside `decodeHostAction` before the next
+ * pop frees them. The arm callback and hooks buffer stay alive for the C call. */
+export function parkActions(host: ActionHost): HostAction[] {
+	const parked: HostAction[] = [];
+	const parkCb = ffi.makeCallback(
+		{
+			parameters: ["pointer", "pointer", "pointer", "pointer"],
+			result: "i32",
+		},
+		(_ctx: Ptr, _hostPtr: Ptr, actionPtr: Ptr, outProgressed: Ptr): number => {
+			const bytes = ffi.readMemory(actionPtr, HOST_ACTION_SIZE);
+			parked.push(decodeHostAction(new DataView(bytes)));
+			if (outProgressed !== NULL) {
+				const flag = new Uint8Array(4);
+				new DataView(flag.buffer).setUint32(0, 1, true);
+				ffi.writeMemory(outProgressed, flag);
+			}
+			return OK;
+		},
+	);
+	try {
+		const hooks = new Uint8Array(HOST_PUMP_HOOKS_SIZE);
+		const dv = new DataView(hooks.buffer);
+		const arm = parkCb.pointer;
+		dv.setBigUint64(HOST_PUMP_HOOKS_FLUSH_OFF, arm, true);
+		dv.setBigUint64(HOST_PUMP_HOOKS_CLOSE_OFF, arm, true);
+		dv.setBigUint64(HOST_PUMP_HOOKS_NEED_GIFT_ID_OFF, arm, true);
+		dv.setBigUint64(HOST_PUMP_HOOKS_COMPLETE_OFF, arm, true);
+		dv.setBigUint64(HOST_PUMP_HOOKS_DIAL_OFF, arm, true);
+		const acted = new Uint8Array(4);
+		checkHost(driverS.pancake_host_pump_drain(host.raw, ab(hooks), ab(acted)));
+		return parked;
+	} finally {
+		parkCb.close();
+	}
 }
 
 /** The executor is deliberately dumb: every decision was already made in the

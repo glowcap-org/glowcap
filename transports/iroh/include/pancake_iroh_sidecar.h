@@ -90,10 +90,14 @@ typedef struct pancake_iroh_sidecar_conn pancake_iroh_sidecar_conn;
  * 32 bytes of secret key material the caller keeps owning. `reachability` is
  * one of PANCAKE_IROH_REACH_* and is mandatory — it decides whether the
  * endpoint uses relays or a discovery service, and there is no default. An
- * unknown value returns NULL. Returns an owned handle, or NULL on failure.
- * Blocks until the sockets are bound. */
+ * unknown value returns NULL. `connect_timeout_ms` is the per-endpoint
+ * stream-establishment deadline in milliseconds (0 = the built-in default) that
+ * bounds every dial connect + first-stream open and each accepted stream on
+ * this endpoint. Returns an owned handle, or NULL on failure. Blocks until the
+ * sockets are bound. */
 pancake_iroh_sidecar_endpoint *pancake_iroh_sidecar_endpoint_new(const uint8_t *secret_seed32,
-                                                                 uint32_t reachability);
+                                                                 uint32_t reachability,
+                                                                 uint64_t connect_timeout_ms);
 
 /* Write this endpoint's id — its Ed25519 public key, the dialable designator —
  * into `out` as lowercase hex (64 bytes; iroh's canonical string form, parsed
@@ -120,10 +124,17 @@ intptr_t pancake_iroh_sidecar_endpoint_direct_addrs(const pancake_iroh_sidecar_e
  * borrowed for the call only. Blocks until the QUIC connection is up. The
  * returned stream is lazy: the dialer must write first, which OCapN
  * guarantees (the dialer sends op:start-session). Returns an owned handle,
- * or NULL on failure. The endpoint must outlive the connection. */
+ * or NULL on failure. The endpoint must outlive the connection.
+ *
+ * `out_code` (when non-NULL) receives a dial classification: 0 on success,
+ * then on failure 1 = invalid (malformed id/hint), 2 = timed out, 3 =
+ * unreachable (the QUIC connection could not be established), 4 = lost (up,
+ * then the stream failed). iroh has no connection-refused: a dead port never
+ * answers, so it times out. */
 pancake_iroh_sidecar_conn *pancake_iroh_sidecar_connect(pancake_iroh_sidecar_endpoint *ep,
                                                         const uint8_t *node_id, size_t node_id_len,
-                                                        const uint8_t *addr_hints, size_t addr_hints_len);
+                                                        const uint8_t *addr_hints, size_t addr_hints_len,
+                                                        int32_t *out_code);
 
 /* Block until a partner dials this endpoint, then accept its connection and
  * its first bidirectional stream. Returns only once the dialer has written

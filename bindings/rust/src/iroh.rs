@@ -19,7 +19,6 @@
 //! reactor multiplexes every connection — no thread per connection, no parked
 //! blocking read.
 
-use core::ffi::c_uint;
 use std::collections::HashMap;
 use std::future::Future;
 use std::io;
@@ -33,6 +32,7 @@ use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::Notify;
 
+use crate::abi_constants::{DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS};
 use crate::sys::iroh as ffi;
 use crate::{sys, Error, Host, Reachability, Result, Session};
 
@@ -125,13 +125,14 @@ impl IrohNetlayer {
 	/// session key, and endpoint id stay one value (ADR-0075).
 	pub fn from_seed(reachability: Reachability, seed: &[u8; 32]) -> Result<IrohNetlayer> {
 		let mut raw: *mut PancakeIrohNetlayer = core::ptr::null_mut();
+		// `..Default::default()` zero-fills the rest; `connect_timeout_ms` stays
+		// 0 (the built-in default) — the header's zero-init contract.
+		let config = ffi::PancakeIrohConfig {
+			reachability: reachability as u32,
+			..Default::default()
+		};
 		check_iroh(unsafe {
-			ffi::pancake_iroh_netlayer_new(
-				seed.as_ptr(),
-				seed.len(),
-				reachability as c_uint,
-				&mut raw,
-			)
+			ffi::pancake_iroh_netlayer_new(seed.as_ptr(), seed.len(), &config, &mut raw)
 		})?;
 		Ok(IrohNetlayer {
 			raw: Arc::new(NetlayerRaw(raw)),
@@ -229,16 +230,9 @@ impl IrohNetlayer {
 	}
 }
 
-// The discovery-posture dial retry budget: how long pkarr propagation is given
-// before each retry, and how many attempts (~72s total, covering n0 DNS/pkarr
-// propagation). Matches the TS `dialResolving` budget.
-const DISCOVERY_DIAL_RETRY_MS: u64 = 3_000;
-const DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = 24;
-
-// Dial, retrying only under a propagating-discovery posture while it resolves the
-// partner by id. A dial-stage error (the sidecar's "no addressing information"
-// during pkarr propagation) is retried on the budget; every other posture, and a
-// spawn join failure, surfaces immediately. Mirrors TS `dialResolving`.
+// Discovery-posture dial retry (ADR-0082): lockstep with `PANCAKE_DISCOVERY_DIAL_*`.
+// Only transient dial faults (projected as `ERR_IO`) are retried; permanent
+// faults (`InvalidArgument`, `Internal`, …) surface immediately.
 async fn dial_resolving(raw: usize, node_id: &str, hints: &str, retry: bool) -> Result<usize> {
 	let mut attempt: u32 = 1;
 	loop {
@@ -251,14 +245,19 @@ async fn dial_resolving(raw: usize, node_id: &str, hints: &str, retry: bool) -> 
 		{
 			Ok(Ok(conn)) => return Ok(conn),
 			Ok(Err(e)) => {
-				if !retry || attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS {
+				if e.kind() != crate::ErrorKind::Io
+					|| !retry || attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS as u32
+				{
 					return Err(e);
 				}
 			}
 			Err(_) => return Err(Error::from_code(sys::ERR_IO)),
 		}
 		attempt += 1;
-		tokio::time::sleep(std::time::Duration::from_millis(DISCOVERY_DIAL_RETRY_MS)).await;
+		tokio::time::sleep(std::time::Duration::from_millis(
+			DISCOVERY_DIAL_RETRY_MS as u64,
+		))
+		.await;
 	}
 }
 

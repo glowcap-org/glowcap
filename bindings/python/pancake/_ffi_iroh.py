@@ -14,6 +14,14 @@ from __future__ import annotations
 
 import ctypes
 
+from ._layouts_gen import (
+    PANCAKE_IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF,
+    PANCAKE_IROH_CONFIG_REACHABILITY_OFF,
+    PANCAKE_IROH_CONFIG_SIZE,
+    PANCAKE_IROH_READY_EVENT_CONN_OFF,
+    PANCAKE_IROH_READY_EVENT_EVENTS_OFF,
+    PANCAKE_IROH_READY_EVENT_SIZE,
+)
 from ._lib_resolve import _lib_file, _lib_path
 
 _IROH_LIB_PATH = _lib_path("pancake_net_transport_iroh")
@@ -36,20 +44,51 @@ class _IrohReadyEvent(ctypes.Structure):
     _fields_ = [("conn", ctypes.c_void_p), ("events", ctypes.c_uint32)]
 
 
+class _IrohConfig(ctypes.Structure):
+    """One iroh endpoint's config, the ``extern struct`` counterpart of the
+    header's ``PancakeIrohConfig``. ``ctypes.Structure`` zero-initializes every
+    field, so filling only ``reachability`` leaves ``connect_timeout_ms`` (and
+    any field a future version adds) at 0 — the header's zero-init contract."""
+
+    _fields_ = [("reachability", ctypes.c_uint32), ("connect_timeout_ms", ctypes.c_uint64)]
+
+
 def _pin_layout() -> None:
     # The layout gate at the declaration site, the same import-time pin
-    # _ffi_ocapn._pin_layout runs for the shared cstructs: the header's
-    # PancakeIrohReadyEvent is {PancakeIrohConn *conn; uint32_t events;} — 16
-    # bytes on LP64, conn at offset 0, events at 8 (4 bytes of tail padding).
-    # A plain `raise` rather than `assert`, so `python -O` cannot strip it.
+    # _ffi_ocapn._pin_layout runs for the shared cstructs: pinned against the
+    # size and offsets `_layouts_gen` reflects off the real Zig
+    # PancakeIrohReadyEvent. A plain `raise` rather than `assert`, so
+    # `python -O` cannot strip it.
     got = ctypes.sizeof(_IrohReadyEvent)
     conn_off = _IrohReadyEvent.conn.offset
     events_off = _IrohReadyEvent.events.offset
-    if got != 16 or conn_off != 0 or events_off != 8:
+    if (
+        got != PANCAKE_IROH_READY_EVENT_SIZE
+        or conn_off != PANCAKE_IROH_READY_EVENT_CONN_OFF
+        or events_off != PANCAKE_IROH_READY_EVENT_EVENTS_OFF
+    ):
         raise ImportError(
             f"pancake FFI layout drift: _IrohReadyEvent is {got} bytes "
-            f"(conn@{conn_off}, events@{events_off}); the C header says 16 "
-            "bytes with conn@0, events@8; re-mirror the struct"
+            f"(conn@{conn_off}, events@{events_off}); expected "
+            f"{PANCAKE_IROH_READY_EVENT_SIZE} bytes with "
+            f"conn@{PANCAKE_IROH_READY_EVENT_CONN_OFF}, "
+            f"events@{PANCAKE_IROH_READY_EVENT_EVENTS_OFF}; re-mirror the struct"
+        )
+    config_size = ctypes.sizeof(_IrohConfig)
+    reachability_off = _IrohConfig.reachability.offset
+    timeout_off = _IrohConfig.connect_timeout_ms.offset
+    if (
+        config_size != PANCAKE_IROH_CONFIG_SIZE
+        or reachability_off != PANCAKE_IROH_CONFIG_REACHABILITY_OFF
+        or timeout_off != PANCAKE_IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF
+    ):
+        raise ImportError(
+            f"pancake FFI layout drift: _IrohConfig is {config_size} bytes "
+            f"(reachability@{reachability_off}, connect_timeout_ms@{timeout_off}); "
+            f"expected {PANCAKE_IROH_CONFIG_SIZE} bytes with "
+            f"reachability@{PANCAKE_IROH_CONFIG_REACHABILITY_OFF}, "
+            f"connect_timeout_ms@{PANCAKE_IROH_CONFIG_CONNECT_TIMEOUT_MS_OFF}; "
+            "re-mirror the struct"
         )
 
 
@@ -63,7 +102,7 @@ def _load_iroh():
     size_p = ctypes.POINTER(ctypes.c_size_t)
     ev_p = ctypes.POINTER(_IrohReadyEvent)
     sigs = {
-        "pancake_iroh_netlayer_new": ([ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.POINTER(P)], ctypes.c_int32),
+        "pancake_iroh_netlayer_new": ([ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(_IrohConfig), ctypes.POINTER(P)], ctypes.c_int32),
         "pancake_iroh_netlayer_close": ([P], None),
         "pancake_iroh_netlayer_release": ([P], None),
         "pancake_iroh_netlayer_node_id": ([P, u8p, ctypes.c_size_t, size_p], ctypes.c_int32),

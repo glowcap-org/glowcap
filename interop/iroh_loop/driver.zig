@@ -68,7 +68,7 @@ fn runLoop(loop: *IrohLoop, until_closed: usize, out_err: *?anyerror) void {
 /// `local_discovery` book resolves it), fetch the greeter, and call it
 /// `calls_per_conn` times, checking every reply.
 fn clientOnce(io: std.Io, allocator: std.mem.Allocator, server_id: []const u8) anyerror!void {
-    var client = try iroh.Resident.init(io, null, .local_discovery);
+    var client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
     defer client.deinit();
 
     const entries = [_]net.netlayer.Netlayer{client.netlayer()};
@@ -87,7 +87,7 @@ fn clientOnce(io: std.Io, allocator: std.mem.Allocator, server_id: []const u8) a
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf, 0);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -116,7 +116,7 @@ pub fn main(init: std.process.Init) !void {
     // transport, and each dialing client pins the session identity to the
     // node id it dialed.
     const server_seed: [32]u8 = @splat(0x47);
-    var server = iroh.Resident.init(io, &server_seed, .local_discovery) catch |err| {
+    var server = iroh.Resident.init(io, &server_seed, .{ .reachability = .local_discovery }) catch |err| {
         std.debug.print("iroh-loop: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
@@ -127,7 +127,7 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("iroh-loop: server endpoint id {s}\n", .{server_id});
 
     var host = driver.core.Host.init(allocator, server_seed, .{
-        .frame_cap = frame_cap,
+        .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
     });
     defer host.deinit();

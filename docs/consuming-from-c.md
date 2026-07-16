@@ -1,26 +1,19 @@
 # Consuming pancake from C
 
-This is the route for anyone calling pancake's C ABI, whether from C itself or
-from any language with a C foreign-function interface. It walks through building
-and linking, then a first complete program and the ownership rules, and finally
-points at the four shipped bindings as worked references. The C ABI ships as a
-set of composable per-family archives you link à la carte (ADR-0059):
-`libpancake_ocapn` carries the sans-io peer and the shared vocabulary, each
-transport is its own archive, and the byte-fed host tier is its own archive
-(`libpancake_driver`). The per-archive headers document every
-function's ownership behavior next to its declaration, and
-[`include/pancake_ocapn.h`](../include/pancake_ocapn.h) is the one to read
-first (peer waist and shared vocabulary). Multi-session CapTP product work
-uses [`pancake_driver.h`](../include/pancake_driver.h) (`pancake_host_*`).
-This page is the orientation those comments assume.
+This is the route for anyone calling pancake's C ABI, from C or from any
+language with a C foreign-function interface. It covers building and linking, a
+first complete program, ownership rules, and the four shipped bindings as worked
+references.
 
-**CapTP sticky note (ADR-0079).** `PancakeHost` / binding `Host` is the
-multi-session CapTP product (owns `engine.Node`). Binding `Session` /
-`PancakeTcpSession` is the one-partner app object (`driver.Session`).
-`BlockingSession` is `Served` + `net.Connection` with a blocking pump.
-`HostedActor` / `spawnHosted` is embedder-hosted behavior. `DialResolver` is
-transport dial resolve. There is no multi-session “node” alias for
-`PancakeHost`, and no `driver.Connection` type — CapTP partners are sessions;
+The C ABI ships as composable per-family archives you link à la carte
+(ADR-0059). `libpancake_ocapn` carries the sans-io peer and the shared
+vocabulary. Each transport is its own archive. The byte-fed host tier is
+`libpancake_driver`. Per-archive headers document ownership next to each
+declaration. Start with [`include/pancake_ocapn.h`](../include/pancake_ocapn.h).
+Multi-session CapTP product work uses
+[`pancake_driver.h`](../include/pancake_driver.h) (`pancake_host_*`). A
+`PancakeHost` is the multi-session CapTP product; a `PancakeTcpSession` is the
+one-partner application object. CapTP partners are sessions;
 `net.Connection` is the framed byte stream only.
 
 ## Build and link

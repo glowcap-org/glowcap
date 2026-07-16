@@ -18,9 +18,9 @@ Nothing here cites another implementation's internals as the oracle.
 - **Mermaid kinds:** `sequenceDiagram` for transactions, `stateDiagram-v2` for
   lifecycles, `flowchart` for structure and validation decisions. No styling
   directives.
-- **Living-state surface.** When an op's semantics change, in the upstream spec
-  or the Zig implementation, the matching diagram updates in the same change. A
-  diagram claiming behavior the session doesn't enforce is drift.
+- **Living-state surface.** When an op's semantics change in the upstream spec
+  or in Zig, update the matching diagram in the same change. A diagram that
+  claims behavior the session does not enforce is drift.
 
 ## Catalog
 

@@ -5,6 +5,28 @@ globs: **/*.md, src/**/*.zig, examples/**
 
 # pancake — Documentation Voice
 
+## Audience Split
+
+Human docs explain the system to a person. Agent scaffolding instructs an
+executor. Do not mix the two voices.
+
+| Audience | Surfaces |
+| -------- | -------- |
+| Humans | `README.md`, top-level `docs/*.md`, `docs/protocol-diagrams/**`, `site/content/**`, binding and example READMEs, Zig `//!` / `///` on public APIs, example narration |
+| Agents | `.agents/**`, plus root `AGENTS.md` / `CLAUDE.md` as agent entry points |
+
+CapTP vocabulary cheat-sheets (symbol maps, “sticky note” dumps) live in the
+[architecture rule](architecture.md), not in human living-state pages. Human
+pages name the product in sentences a newcomer can follow, then link an ADR when
+a decision needs a record. `zig build meta-check` bans the literal
+`CapTP sticky note` label on human first-read paths.
+
+ADRs under `docs/decisions/adr/**` stay precise memos. Planning docs under
+`docs/planning/**` declare their own role. Ordinary inline comments inside
+function bodies are not bound by this rule.
+
+## What This Rule Governs
+
 Docs are one person explaining the system to another. Write them as that
 conversation. A reader should be able to follow the prose out loud and have it
 sound like speech, not like a notation they have to decode first.
@@ -12,27 +34,6 @@ sound like speech, not like a notation they have to decode first.
 This rule is about how prose _reads_. Whether a state claim is _true_ is
 [doc-drift](doc-drift.md)'s job. The two run together: a doc has to be both
 honest and readable.
-
-## Where This Applies
-
-The human-first surfaces, the ones someone reads to understand the system:
-
-- `README.md`, `docs/vision.md`, `docs/architecture.md`, and other first-read
-  docs;
-- `docs/protocol-diagrams/**`;
-- `site/content/**`, the documentation site's pages;
-- the `//!` file headers and the `///` doc comments on exported Zig
-  declarations;
-- the narration in `examples/**`.
-
-Deliberately _not_ bound by this rule, because they are terse-by-design records
-rather than dialog:
-
-- ADRs under `docs/decisions/adr/**`, which read like a precise memo;
-- `docs/planning/**`, which declare their own role and read like plan records;
-- the `.agents/**` rule and skill files, which are short agent-facing
-  instructions;
-- ordinary inline comments inside function bodies.
 
 ## Neighbors And Citations
 

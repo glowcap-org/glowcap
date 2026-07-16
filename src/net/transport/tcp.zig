@@ -331,8 +331,18 @@ fn residentDial(
 ) netlayer.DialError!Connection {
     const self: *Resident = @ptrCast(@alignCast(ctx));
     const address = DialResolver.resolve(loc.transport, loc.designator, &.{}) catch return error.InvalidAddress;
-    return connectAddress(self.io, peer, address, bufs.read, bufs.write, .{}) catch |err| switch (err) {
+    return connectAddress(self.io, peer, address, bufs.read, bufs.write, .{}) catch |err| classifyConnect(err);
+}
+
+/// Project the std connect fault onto the DialError retry axis (ADR-0081): a
+/// refused partner, a missing route, and a timeout are distinct retryable arms;
+/// OutOfMemory is transient local pressure; everything else stays ConnectionLost.
+pub fn classifyConnect(err: (IpAddress.ConnectError || std.mem.Allocator.Error)) netlayer.DialError {
+    return switch (err) {
         error.OutOfMemory => error.OutOfMemory,
+        error.ConnectionRefused => error.ConnectionRefused,
+        error.HostUnreachable, error.NetworkUnreachable, error.NetworkDown => error.NetworkUnreachable,
+        error.Timeout => error.TimedOut,
         else => error.ConnectionLost,
     };
 }

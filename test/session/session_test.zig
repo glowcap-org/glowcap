@@ -133,6 +133,73 @@ test "an inbound set carrying two Equal elements is refused on both walk shapes"
     } });
 }
 
+test "inbound deliver with a pathed promise target is refused, an empty path is not" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerExport(.from(7));
+    // A prior inbound deliver mints answer 3 that a pipelined target can name.
+    try s.recordRecv(.{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(7) } },
+        .args = &.{},
+        .answer = .from(3),
+    } });
+
+    // A promise target carrying a non-empty pipeline path is refused: pancake
+    // decomposes multi-hop sends before encode, so it never receives a pathed
+    // inbound target — a path here names an inert, unvalidated payload. Both the
+    // owned and the borrowed dispatch shapes refuse it identically.
+    var ops = [_]model.PipelineOp{.{ .field = "manager" }};
+    const pathed = model.Message{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(3), .path = .{ .ops = &ops } } },
+        .args = &.{},
+        .answer = null,
+    } };
+    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordRecv(pathed));
+    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordRecvView(model.view.Body.fromOwned(&pathed)));
+
+    // Negative control: the same target with an empty path is not refused for the
+    // path — the refusal is specific to a non-empty path, not the promise target.
+    const flat = model.Message{ .deliver = .{
+        .target = .{ .promise = .{ .answer_position = .from(3), .path = .{} } },
+        .args = &.{},
+        .answer = null,
+    } };
+    if (s.recordRecv(flat)) |_| {} else |err| {
+        try std.testing.expect(err != session.Error.UnexpectedMessage);
+    }
+}
+
+test "inbound deliver reusing a live answer position is UnexpectedMessage" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerExport(.from(7));
+
+    const first = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(7) } },
+        .args = &.{},
+        .answer = .from(1),
+    } };
+    try s.recordRecv(first);
+
+    // Same answer still live (pending): a second wire deliver is a protocol
+    // violation, refused on recv — not deferred to our outbound resolve.
+    const replay = model.Message{ .deliver = .{
+        .target = .{ .near = .{ .export_position = .from(7) } },
+        .args = &.{},
+        .answer = .from(1),
+    } };
+    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordRecv(replay));
+
+    // After we resolve the answer, reuse is still refused until gc-answers.
+    try s.recordSend(.{ .resolve = .{
+        .answer = .from(1),
+        .resolution = .{ .fulfill = .{ .integer = 0 } },
+    } });
+    try std.testing.expectError(session.Error.UnexpectedMessage, s.recordRecv(replay));
+}
+
 test "inbound deliver nested past max_nesting_depth fails closed" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
@@ -587,8 +654,6 @@ test "session stores selected wire profile and negotiated features" {
         .handoff = false,
         .wire_delta = true,
         .sturdyref = false,
-        .stream = false,
-        .equality = true,
     };
     var s = session.Session.initWith(std.testing.allocator, .{
         .wire_profile = model.WireProfile.v1_0,
@@ -1109,7 +1174,7 @@ test "imported-promise substrate owns host, listeners, and relayed resolution" {
 
     // A listener (POD far listener cap) and a stored relayed resolution.
     try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
-    try s.recordRelayedResolution(.from(5), .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } });
+    try std.testing.expect(try s.recordRelayedResolution(.from(5), s.importedPromiseRowId(.from(5)).?, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } }));
     const peeked = s.importedPromiseResolution(.from(5)) orelse return error.TestUnexpectedResult;
     try std.testing.expectEqualStrings("v", peeked.fulfill.bytes);
 
@@ -1118,6 +1183,7 @@ test "imported-promise substrate owns host, listeners, and relayed resolution" {
     // and the stored value is untouched.
     try std.testing.expectError(error.UnexpectedMessage, s.recordRelayedResolution(
         .from(5),
+        s.importedPromiseRowId(.from(5)).?,
         .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "w") } },
     ));
     try std.testing.expectEqualStrings("v", s.importedPromiseResolution(.from(5)).?.fulfill.bytes);
@@ -1125,6 +1191,7 @@ test "imported-promise substrate owns host, listeners, and relayed resolution" {
     // Recording on an unknown import frees the resolution and errors.
     try std.testing.expectError(error.InvalidReference, s.recordRelayedResolution(
         .from(99),
+        0,
         .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "z") } },
     ));
 
@@ -1163,7 +1230,7 @@ test "outbound gc-export releasing a third-party import drops its imported-promi
 
     try s.installThirdPartyImport(.from(5), "h");
     try s.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
-    try s.recordRelayedResolution(.from(5), .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } });
+    try std.testing.expect(try s.recordRelayedResolution(.from(5), s.importedPromiseRowId(.from(5)).?, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "v") } }));
     try std.testing.expect(s.isThirdPartyImport(.from(5)));
 
     // Outbound op:gc-exports releasing import 5 (count 1 → 0) evicts the row,

@@ -1,11 +1,29 @@
-//! Thin conformance host: canonical swiss-nums over `tcp-testing-only`.
+//! Thin conformance host: canonical swiss-nums over `tcp-testing-only`, served
+//! by one `driver.core.Host` behind a `driver.Bridge` over a completion loop —
+//! the single-thread, many-session host tier (ADR-0076), not a thread per
+//! connection.
 //!
-//! Protocol policy (stateless GC, bootstrap handoff) lives in the library
-//! `driver` and `engine` layers. This file owns the conformance actors, the
-//! small interceptors the suite requires (promise-resolver, sturdyref
-//! enlivener), and — because it serves each connection on its own thread,
-//! unlike the one-thread host tier — its own io-locked crossed-hellos
-//! registry (ADR-0030), wired through the serve core's `before_serve` hook.
+//! The Host owns every protocol-policy seam the suite exercises through the
+//! library rather than this file: crossed-hellos tiebreak (`Host.CrossedHellos`,
+//! ADR-0030), one node identity reused as every session's signing key, and a
+//! shared gift registry. What stays here is what the Host cannot know — the
+//! conformance actors, and the three suite-specific interceptors the harness
+//! requires on the serve path:
+//!
+//!   * the promise-resolver bootstrap object (a `fulfill`/`break` to a minted
+//!     resolver export becomes an `op:resolve` on its paired answer);
+//!   * a `desc:handoff-give` delivered to the greeter — the recipient half:
+//!     the Host redeems it (`Node.acceptGive`) by dialing the named exporter
+//!     and withdrawing the gift;
+//!   * a sturdyref enliven to the enlivener — the gifter half: fetch the object
+//!     on the exporter session, then claim the reply
+//!     (`Node.interceptFulfilledRef`) so the Host deposits it and signs the give.
+//!
+//! The `tcp-testing-only` transport carries the exporter's address in locator
+//! hints (`host`/`port`), not in its designator (a bare uuid), so the loop's
+//! dialer resolves it through a conformance `Locator` backed by a uuid→address
+//! table this file fills as it sees each locator. That is the one transport
+//! seam the standard `tcp.DialResolver` does not cover.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -18,9 +36,16 @@ const net = pancake.net;
 const driver = pancake.driver;
 const codec = pancake.ocapn.codec;
 const tcp = net.tcp;
-const Stream = std.Io.net.Stream;
 
-const host = "127.0.0.1";
+const Host = driver.core.Host;
+const HostSession = driver.core.HostSession;
+const PeerId = engine.PeerId;
+
+/// The transport symbol the suite dials pancake on. Its designator is a bare
+/// uuid; the dialable address lives in the locator's `host`/`port` hints.
+const transport_name = "tcp-testing-only";
+
+const host_ip = "127.0.0.1";
 /// The suite dials this fixed port; `--port=N` (threaded by
 /// `run-against-pancake.sh` from `zig build ocapn-conformance -Dport=N`)
 /// moves it when 22055 is taken.
@@ -33,326 +58,69 @@ const GREETER = "VMDDd1voKWarCe2GvgLbxbVFysNzRPzx";
 const PROMISE_RESOLVER = "IokCxYmMj04nos2JN1TDoY1bT8dXh6Lr";
 const STURDYREF_ENLIVENER = "gi02I1qghIwPiKGKleCQAOhpy3ZtYRpB";
 
-/// Crossed-hellos tiebreak state for this multi-threaded conformance host
-/// (ADR-0030): the designator-keyed outbound-dial table. The library's host
-/// tier keeps an unlocked registry under its one-thread contract
-/// (`driver.core.CrossedHellos`); this host serves each connection on its own
-/// thread, so every method locks the io-aware blocking `std.Io.Mutex`.
-const CrossedRegistry = struct {
-    mutex: std.Io.Mutex = .init,
-    entries: std.ArrayList(Entry) = .empty,
+// ── The conformance dial resolver ────────────────────────────────────────────
 
-    const Entry = struct {
-        partner_designator: []const u8,
-        our_pid: pancake.foundation.PeerId,
-        should_abort: bool = false,
-    };
-
-    fn registerOutbound(self: *CrossedRegistry, io: std.Io, allocator: std.mem.Allocator, partner_designator: []const u8, our_pid: pancake.foundation.PeerId) !void {
-        // Dupe before taking the lock: the allocation can block or fail, and
-        // neither belongs inside the critical section.
-        const owned = try allocator.dupe(u8, partner_designator);
-        errdefer allocator.free(owned);
-        self.mutex.lockUncancelable(io);
-        defer self.mutex.unlock(io);
-        try self.entries.append(allocator, .{ .partner_designator = owned, .our_pid = our_pid });
-    }
-
-    /// Compare an inbound start-session against the registered outbound dials;
-    /// null when no dial to `partner_designator` is outstanding. On a
-    /// collision the strictly lower-keyed seat flags its own outbound as the
-    /// loser for `shouldAbortOutbound` to read.
-    fn checkInbound(self: *CrossedRegistry, io: std.Io, partner_designator: []const u8, inbound_partner_pid: pancake.foundation.PeerId) ?bool {
-        self.mutex.lockUncancelable(io);
-        defer self.mutex.unlock(io);
-        for (self.entries.items) |*entry| {
-            if (std.mem.eql(u8, entry.partner_designator, partner_designator)) {
-                const order = std.mem.order(u8, &entry.our_pid.bytes, &inbound_partner_pid.bytes);
-                const abort_inbound = order != .lt;
-                if (!abort_inbound) entry.should_abort = true;
-                return abort_inbound;
-            }
-        }
-        return null;
-    }
-
-    fn shouldAbortOutbound(self: *CrossedRegistry, io: std.Io, partner_designator: []const u8) bool {
-        self.mutex.lockUncancelable(io);
-        defer self.mutex.unlock(io);
-        for (self.entries.items) |entry| {
-            if (std.mem.eql(u8, entry.partner_designator, partner_designator)) return entry.should_abort;
-        }
-        return false;
-    }
-
-    fn unregister(self: *CrossedRegistry, io: std.Io, allocator: std.mem.Allocator, partner_designator: []const u8) void {
-        self.mutex.lockUncancelable(io);
-        defer self.mutex.unlock(io);
-        // Remove exactly one entry: one row is appended per dial, so a sweep
-        // would drop a sibling dial's still-live entry.
-        for (self.entries.items, 0..) |entry, i| {
-            if (std.mem.eql(u8, entry.partner_designator, partner_designator)) {
-                allocator.free(entry.partner_designator);
-                _ = self.entries.orderedRemove(i);
-                return;
-            }
-        }
-    }
-
-    fn deinit(self: *CrossedRegistry, io: std.Io, allocator: std.mem.Allocator) void {
-        self.mutex.lockUncancelable(io);
-        defer self.mutex.unlock(io);
-        for (self.entries.items) |entry| allocator.free(entry.partner_designator);
-        self.entries.deinit(allocator);
-    }
-};
-
-/// After an inbound `op:start-session` event, consult the registry: on a
-/// crossed-hellos collision the not-lower side aborts its own inbound session,
-/// so the pair keeps the session the higher-keyed peer opened.
-fn maybeAbortCrossedInbound(
-    registry: *CrossedRegistry,
-    io: std.Io,
-    peer: *engine.Peer,
-    conn: *net.Connection,
-    event: *engine.Event,
-) !void {
-    const body = try event.view();
-    const ss = switch (body) {
-        .start_session => |start| start,
-        else => return,
-    };
-    const partner_key = crypto.PeerKey.fromSlice(ss.session_pubkey) catch return;
-    const partner_pid = crypto.derivePublicIdentifier(partner_key);
-    const abort_inbound = registry.checkInbound(io, ss.acceptable_location.designator, partner_pid) orelse return;
-    if (abort_inbound) {
-        try peer.sendCopying(.{ .abort = .{
-            .kind = .crossed_hellos,
-            .message = "crossed hellos: higher-keyed side aborting its inbound session",
-        } });
-        _ = conn.pump() catch {};
-    }
-}
-
-/// Send the outbound abort when the registry flagged the lower-keyed side's
-/// outbound dial as the tiebreak loser.
-fn abortCrossedOutbound(
-    registry: *CrossedRegistry,
-    io: std.Io,
-    partner_designator: []const u8,
-    peer: *engine.Peer,
-    conn: *net.Connection,
-) !void {
-    if (!registry.shouldAbortOutbound(io, partner_designator)) return;
-    try peer.sendCopying(.{ .abort = .{
-        .kind = .crossed_hellos,
-        .message = "crossed hellos: lower-keyed side aborting its outbound session",
-    } });
-    _ = conn.pump() catch {};
-}
-
-const SharedState = struct {
+/// uuid → `host:port`, filled on the loop thread whenever a give or sturdyref
+/// names a `tcp-testing-only` exporter, read when the Host's redeem or gifter
+/// dial resolves that locator. Single loop thread owns it, so no lock.
+const AddrTable = struct {
     allocator: std.mem.Allocator,
-    io: std.Io,
-    listener: *tcp.Listener,
-    /// The `host:port` this peer signs its own locator with — runtime state
-    /// because `--port` can move the listening port off `default_port`.
-    local_designator: []const u8,
-    registry: CrossedRegistry = .{},
-    /// One gift registry shared by every accepted connection's peer, so a gift
-    /// deposited on the gifter's session is withdrawable on the recipient's.
-    handoff_gifts: engine.bootstrap.GiftRegistry = .{},
-    /// The registry carries no lock (the engine is externally synchronized), and
-    /// this host serves each connection on its own thread — so every pump that
-    /// can dispatch a `deposit-gift` / `withdraw-gift` on a peer sharing
-    /// `handoff_gifts` runs under this mutex. The host owns the threads and may
-    /// block, so the blocking io-aware `std.Io.Mutex` is the right tool here.
-    gift_mutex: std.Io.Mutex = .init,
-    gifter: GifterHub = .{},
-};
+    entries: std.StringHashMapUnmanaged([]u8) = .{},
 
-// ── Gifter handoff orchestration across two connections ──────────────────────
-//
-// When pancake is the gifter, the recipient's enliven arrives on one connection
-// while the exporter pancake must fetch from and deposit the gift with is a
-// *different* connection. Each connection runs on its own thread, so the two
-// coordinate through this hub: the recipient thread posts a request to the
-// exporter connection's slot (matched by the exporter's session designator), the
-// exporter thread runs the fetch/deposit and signs the give, and the recipient
-// thread resolves the enliven once the give is back. Only serializable data
-// crosses the hub, each thread still touches only its own peer.
-
-/// The signed handoff-give the exporter thread produces, polled by the recipient
-/// thread. Every field is read and written only under the hub mutex, so the two
-/// threads never race. `recipient_gone` lets a recipient that tears down before
-/// its give arrives hand ownership of this result (and the give bytes) to
-/// whichever thread finishes last, so it is freed exactly once on every path.
-const GifterResult = struct {
-    give_bytes: ?[]u8 = null,
-    failed: bool = false,
-    done: bool = false,
-    recipient_gone: bool = false,
-};
-
-/// A gifter request the recipient thread routes to an exporter connection.
-const GifterRequest = struct {
-    swiss: []u8,
-    exporter_location_raw: []u8,
-    recipient_key: [32]u8,
-    result: *GifterResult,
-};
-
-/// One connection's registration in the hub: its partner designator (for routing)
-/// and a slot for a pending request the exporter thread should serve.
-const ExporterSlot = struct {
-    designator: []u8,
-    request: ?GifterRequest = null,
-};
-
-const GifterHub = struct {
-    mutex: std.atomic.Mutex = .unlocked,
-    slots: std.ArrayList(*ExporterSlot) = .empty,
-
-    fn lock(self: *GifterHub) void {
-        while (!self.mutex.tryLock()) std.atomic.spinLoopHint();
-    }
-    fn unlock(self: *GifterHub) void {
-        self.mutex.unlock();
-    }
-
-    /// Register a connection by its partner designator. Returns a caller-owned
-    /// slot the connection polls for inbound gifter requests and unregisters on
-    /// exit. Null on allocation failure.
-    fn register(self: *GifterHub, allocator: std.mem.Allocator, designator: []const u8) ?*ExporterSlot {
-        const slot = allocator.create(ExporterSlot) catch return null;
-        slot.* = .{ .designator = allocator.dupe(u8, designator) catch {
-            allocator.destroy(slot);
-            return null;
-        } };
-        self.lock();
-        defer self.unlock();
-        self.slots.append(allocator, slot) catch {
-            allocator.free(slot.designator);
-            allocator.destroy(slot);
-            return null;
-        };
-        return slot;
-    }
-
-    fn unregister(self: *GifterHub, allocator: std.mem.Allocator, slot: *ExporterSlot) void {
-        self.lock();
-        for (self.slots.items, 0..) |s, i| {
-            if (s == slot) {
-                _ = self.slots.swapRemove(i);
-                break;
-            }
+    fn put(self: *AddrTable, uuid: []const u8, hostport: []const u8) void {
+        const gop = self.entries.getOrPut(self.allocator, uuid) catch return;
+        if (gop.found_existing) {
+            self.allocator.free(gop.value_ptr.*);
+        } else {
+            gop.key_ptr.* = self.allocator.dupe(u8, uuid) catch {
+                _ = self.entries.remove(uuid);
+                return;
+            };
         }
-        // An exporter connection that closes with a request still parked in its
-        // slot must not strand the recipient waiting on it: take the orphan out
-        // and report failure so the recipient's enliven settles broken. The
-        // recipient still owns its `result`, so `complete(..., null)` (not a free)
-        // is the right hand-off.
-        const orphan = slot.request;
-        slot.request = null;
-        self.unlock();
-        if (orphan) |req| {
-            allocator.free(req.swiss);
-            allocator.free(req.exporter_location_raw);
-            self.complete(allocator, req.result, null);
-        }
-        allocator.free(slot.designator);
-        allocator.destroy(slot);
+        gop.value_ptr.* = self.allocator.dupe(u8, hostport) catch "";
     }
 
-    /// Route `request` to the connection whose partner designator matches
-    /// `exporter_designator`. Returns true if a slot accepted it. An empty
-    /// designator never routes: two unkeyed connections would both sit under ""
-    /// and a request would claim whichever was free first, cross-routing between
-    /// unrelated exporter sessions. Real peers always carry a host:port designator.
-    fn postRequest(self: *GifterHub, exporter_designator: []const u8, request: GifterRequest) bool {
-        if (exporter_designator.len == 0) return false;
-        self.lock();
-        defer self.unlock();
-        for (self.slots.items) |slot| {
-            if (slot.designator.len == 0) continue;
-            if (std.mem.eql(u8, slot.designator, exporter_designator) and slot.request == null) {
-                slot.request = request;
-                return true;
-            }
-        }
-        return false;
+    fn get(self: *const AddrTable, uuid: []const u8) ?[]const u8 {
+        return self.entries.get(uuid);
     }
 
-    /// The exporter thread claims any request waiting in its slot.
-    fn takeRequest(self: *GifterHub, slot: *ExporterSlot) ?GifterRequest {
-        self.lock();
-        defer self.unlock();
-        const req = slot.request;
-        slot.request = null;
-        return req;
-    }
-
-    /// The exporter thread hands a finished give (or a failure) back to the
-    /// recipient thread's result. If the recipient already tore down
-    /// (`recipient_gone`), no one will consume the result, so the caller frees the
-    /// give bytes and the result here; it is the last thread out. `allocator` is
-    /// the shared process allocator every result and give was built with.
-    fn complete(self: *GifterHub, allocator: std.mem.Allocator, result: *GifterResult, give_bytes: ?[]u8) void {
-        self.lock();
-        const gone = result.recipient_gone;
-        if (!gone) {
-            result.give_bytes = give_bytes;
-            result.failed = give_bytes == null;
-            result.done = true;
+    fn deinit(self: *AddrTable) void {
+        var it = self.entries.iterator();
+        while (it.next()) |e| {
+            self.allocator.free(e.key_ptr.*);
+            self.allocator.free(e.value_ptr.*);
         }
-        self.unlock();
-        if (gone) {
-            if (give_bytes) |b| allocator.free(b);
-            allocator.destroy(result);
-        }
-    }
-
-    /// The recipient connection is tearing down before consuming its give. Free
-    /// the result safely against the exporter thread, which may be mid-flight:
-    ///   * if an un-taken request still references it, reclaim that request (the
-    ///     exporter will never run) and free the result outright;
-    ///   * if the exporter already completed, consume and free what it left;
-    ///   * otherwise mark `recipient_gone` and let the exporter's `complete` free
-    ///     it when it finishes.
-    /// All decisions are made under the lock, so the exporter and recipient never
-    /// both free.
-    fn cancelPendingRecipient(self: *GifterHub, allocator: std.mem.Allocator, result: *GifterResult) void {
-        self.lock();
-        for (self.slots.items) |slot| {
-            if (slot.request) |req| {
-                if (req.result == result) {
-                    allocator.free(req.swiss);
-                    allocator.free(req.exporter_location_raw);
-                    slot.request = null;
-                    self.unlock();
-                    allocator.destroy(result);
-                    return;
-                }
-            }
-        }
-        if (result.done) {
-            self.unlock();
-            if (result.give_bytes) |b| allocator.free(b);
-            allocator.destroy(result);
-            return;
-        }
-        result.recipient_gone = true;
-        self.unlock();
-    }
-
-    fn isDone(self: *GifterHub, result: *GifterResult) bool {
-        self.lock();
-        defer self.unlock();
-        return result.done;
+        self.entries.deinit(self.allocator);
     }
 };
 
-// ── Conformance actors ──────────────────────────────────────────────────────
+/// Process-global address table. The conformance peer is one Host on one loop
+/// in one process, and the loop's `Locator.resolve` is a free function with no
+/// context slot, so the table it consults lives here. `main` owns its storage.
+var g_addrs: ?*AddrTable = null;
+
+/// The loop's OCapN-locator → dial-target resolver. `tcp-testing-only` resolves
+/// through the address table (the designator is a uuid, the address a hint we
+/// recorded); every other transport defers to the standard `tcp.DialResolver`.
+const ConformanceLocator = struct {
+    pub fn resolve(
+        transport: []const u8,
+        designator: []const u8,
+        direct_addresses_hint: []const u8,
+    ) !std.Io.net.IpAddress {
+        if (std.mem.eql(u8, transport, transport_name)) {
+            const table = g_addrs orelse return error.InvalidAddress;
+            const hostport = table.get(designator) orelse return error.InvalidAddress;
+            return tcp.parseDesignator(hostport);
+        }
+        return tcp.DialResolver.resolve(transport, designator, direct_addresses_hint);
+    }
+};
+
+const ConfLoop = net.completion.Loop(net.Backend, ConformanceLocator);
+const ConfBridge = driver.Bridge(ConfLoop);
+
+// ── Conformance actors ───────────────────────────────────────────────────────
 
 const Echo = struct {
     pub fn handle(self: *Echo, turn: *actors.Turn, msg: actors.Message) !model.Argument {
@@ -426,8 +194,12 @@ const Car = struct {
     }
 };
 
+/// The promise-resolver bootstrap object: a deliver mints a fresh answer and a
+/// resolver export, returns the `(vow, resolver)` pair, and records the
+/// resolver→answer link in this session's map so a later `fulfill`/`break` to
+/// the resolver resolves the vow (`tryPromiseResolve`).
 const PromiseResolver = struct {
-    resolver_map: *std.AutoHashMapUnmanaged(u64, u64),
+    conf: *ConfCtx,
 
     pub fn handle(self: *PromiseResolver, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         _ = msg;
@@ -436,7 +208,7 @@ const PromiseResolver = struct {
         try peer.session_state.installInboundAnswer(answer_position);
         const resolver_export = try peer.session_state.allocateExport();
         try peer.session_state.registerExport(resolver_export);
-        try self.resolver_map.put(turn.vat.allocator, resolver_export.int(), answer_position.int());
+        try self.conf.resolver_map.put(turn.vat.allocator, resolver_export.int(), answer_position.int());
         const pair = try turn.vat.allocator.alloc(model.Argument, 2);
         pair[0] = .{ .reference = .{ .near = model.NearRef.promise(answer_position.int()) } };
         pair[1] = .{ .reference = .{ .near = model.NearRef.object(resolver_export.int()) } };
@@ -460,540 +232,173 @@ fn publishLocal(turn: *actors.Turn, ref: actors.Ref) !u64 {
     return export_position.int();
 }
 
-// ── Entry point ─────────────────────────────────────────────────────────────
+// ── Per-session and shared state ─────────────────────────────────────────────
 
-pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const io = init.io;
-
-    var args = std.process.Args.Iterator.init(init.minimal.args);
-    _ = args.next(); // program name
-    var port: u16 = default_port;
-    while (args.next()) |arg| {
-        if (std.mem.startsWith(u8, arg, "--port=")) {
-            port = std.fmt.parseInt(u16, arg["--port=".len..], 10) catch {
-                std.debug.print("pancake-ocapn-peer: --port must be an integer in 1..65535\n", .{});
-                return error.BadPort;
-            };
-        } else {
-            std.debug.print("pancake-ocapn-peer: unknown argument '{s}'\n", .{arg});
-            return error.BadArgument;
-        }
-    }
-
-    const listen_addr = try tcp.parseHostPort(host, port);
-    var listener = try tcp.Listener.bind(io, listen_addr);
-    defer listener.deinit();
-
-    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
-    const local_designator = tcp.locator(&designator_buf, listen_addr).designator;
-    var shared = SharedState{ .allocator = allocator, .io = io, .listener = &listener, .local_designator = local_designator };
-    defer shared.registry.deinit(io, allocator);
-    defer shared.handoff_gifts.deinit(allocator);
-    defer shared.gifter.slots.deinit(allocator);
-
-    std.debug.print(
-        "PANCAKE-OCAPN-PEER-READY ocapn://{s}.tcp-testing-only?host={s}&port={d}\n",
-        .{ CAR_FACTORY_BUILDER, host, port },
-    );
-
-    var accept_future = try io.concurrent(acceptLoop, .{ &shared, io });
-    accept_future.await(io);
-}
-
-fn acceptLoop(shared: *SharedState, io: std.Io) void {
-    var group: std.Io.Group = .init;
-    defer group.cancel(io);
-
-    while (true) {
-        const stream = shared.listener.server.accept(io) catch return;
-        group.concurrent(io, serveOneConnection, .{ shared, io, stream }) catch |err| switch (err) {
-            error.ConcurrencyUnavailable => {
-                var s = stream;
-                s.close(io);
-                continue;
-            },
-        };
-    }
-}
-
-/// The wire export position a registered bootstrap swissnum serves, as the
-/// raw integer the vat's `bindExport` takes; 0 only if registration failed.
-fn bootstrapPosition(peer: *engine.Peer, swissnum: []const u8) u64 {
-    const position = peer.session_state.bootstrapLookup(swissnum) orelse return 0;
-    return position.int();
-}
-
-/// Read one syrup bytestring (`N:bytes`) at `cursor`, advancing past it — the
-/// one raw decode this harness does outside the codec's public surface.
-fn readSyrupBytes(bytes: []const u8, cursor: *usize) ![]const u8 {
-    var i = cursor.*;
-    var len: usize = 0;
-    var saw_digit = false;
-    while (i < bytes.len and bytes[i] >= '0' and bytes[i] <= '9') : (i += 1) {
-        saw_digit = true;
-        len = try std.math.add(usize, try std.math.mul(usize, len, 10), bytes[i] - '0');
-    }
-    if (!saw_digit or i >= bytes.len or bytes[i] != ':') return error.BadByteString;
-    i += 1;
-    if (bytes.len - i < len) return error.BadByteString;
-    cursor.* = i + len;
-    return bytes[i .. i + len];
-}
-
-fn serveOneConnection(shared: *SharedState, io: std.Io, stream_in: Stream) void {
-    var enliven_group: std.Io.Group = .init;
-    defer enliven_group.cancel(io);
-
-    const allocator = shared.allocator;
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-    peer.session_state.next_export_position = 1;
-
-    _ = peer.registerBootstrapCap(ECHO) catch return;
-    _ = peer.registerBootstrapCap(CAR_FACTORY_BUILDER) catch return;
-    _ = peer.registerBootstrapCap(GREETER) catch return;
-    _ = peer.registerBootstrapCap(PROMISE_RESOLVER) catch return;
-    _ = peer.registerBootstrapCap(STURDYREF_ENLIVENER) catch return;
-
-    const read_buf = allocator.alloc(u8, frame_cap) catch return;
-    defer allocator.free(read_buf);
-    const write_buf = allocator.alloc(u8, frame_cap) catch return;
-    defer allocator.free(write_buf);
-
-    var conn = net.tcp.connectionOver(io, &peer, stream_in, read_buf, write_buf, .{}) catch return;
-    defer conn.deinit();
-
-    var resolver_map: std.AutoHashMapUnmanaged(u64, u64) = .{};
-    defer resolver_map.deinit(allocator);
-
-    var cv = driver.BlockingSession.over(allocator, &peer, conn);
-    cv.served.serve_options = .{ .gc_stateless = true };
-
-    const echo_id = bootstrapPosition(&peer, ECHO);
-    const cfb_id = bootstrapPosition(&peer, CAR_FACTORY_BUILDER);
-    const greeter_id = bootstrapPosition(&peer, GREETER);
-    const resolver_id = bootstrapPosition(&peer, PROMISE_RESOLVER);
-    const enlivener_id = bootstrapPosition(&peer, STURDYREF_ENLIVENER);
-
-    cv.served.vat.bindExport(cv.served.vat.spawn(Echo, .{}) catch return, echo_id) catch return;
-    cv.served.vat.bindExport(cv.served.vat.spawn(Greeter, .{}) catch return, greeter_id) catch return;
-    cv.served.vat.bindExport(cv.served.vat.spawn(CarFactoryBuilder, .{}) catch return, cfb_id) catch return;
-    cv.served.vat.bindExport(cv.served.vat.spawn(PromiseResolver, .{ .resolver_map = &resolver_map }) catch return, resolver_id) catch return;
-    cv.served.vat.bindExport(cv.served.vat.spawn(Unimplemented, .{}) catch return, enlivener_id) catch return;
-
-    // One session identity for this whole connection. A three-party handoff where
-    // pancake is the recipient signs its `desc:handoff-receive` with this key,
-    // because the gifter named pancake's session public key as the give's
-    // recipient key, so the handshake and the later withdraw must use the same
-    // secret.
-    var session_seed: [crypto.SEED_BYTES]u8 = undefined;
-    io.randomSecure(&session_seed) catch return;
-    const session_secret = crypto.SecretKey.fromSeed(session_seed);
-
-    const local_designator = shared.local_designator;
-    // The handshake pump must not hold the gift mutex: it blocks until the
-    // partner's hello arrives, which can be never (a crossed-hellos abort), and
-    // an unbounded hold would stall every other connection's dispatch. The peer
-    // therefore runs the handshake on its private registry and joins the shared
-    // one just below, before any bootstrap deliver can dispatch, non-handshake
-    // traffic is refused until the session is open.
-    cv.startKeyedSessionWithSecret(.{
-        .transport = "tcp-testing-only",
-        .designator = local_designator,
-        .hints = model.Hints.emptyFalse(),
-    }, session_secret) catch return;
-    peer.shared_gift_registry = &shared.handoff_gifts;
-
-    // Register this connection in the gifter hub under its partner's designator,
-    // so a gifter enliven arriving on another connection can route a fetch/deposit
-    // request here when this is the exporter it names.
-    const slot = shared.gifter.register(allocator, peer.session_state.partnerDesignator() orelse "") orelse return;
-    defer shared.gifter.unregister(allocator, slot);
-
-    var hook_ctx = HookCtx{
-        .shared = shared,
-        .resolver_map = &resolver_map,
-        .enliven_group = &enliven_group,
-        .io = io,
-        .handoff_secret = session_secret,
-        .greeter_export = greeter_id,
-        .enlivener_export = enlivener_id,
-        .exporter_slot = slot,
-        .conn = &cv.conn,
-    };
-    cv.served.serve_options.hook_ctx = &hook_ctx;
-    cv.served.serve_options.before_serve = beforeServe;
-    // If this connection closes while it is still waiting on a gifter give it
-    // routed to an exporter, hand the pending result off safely so it is freed on
-    // every exit path and never stranded. `resolvePendingRecipient` clears
-    // `pending_recipient` once it consumes the give, so this is a no-op on the
-    // normal path.
-    defer if (hook_ctx.pending_recipient) |pending| {
-        shared.gifter.cancelPendingRecipient(allocator, pending.result);
-    };
-
-    while (true) {
-        // Wait for readability *without* the gift mutex: an idle connection
-        // parked in its poll must never starve another connection's dispatch.
-        if (!cv.conn.hasBufferedInbound()) {
-            if (cv.conn.socketHandle()) |handle| {
-                var fds = [_]std.posix.pollfd{.{ .fd = handle, .events = std.posix.POLL.IN, .revents = 0 }};
-                _ = std.posix.poll(&fds, 20) catch return;
-            }
-        }
-        // The step can dispatch a deposit-gift / withdraw-gift against the
-        // shared registry, so the dispatch runs under the host's gift mutex; the
-        // zero timeout means the lock is held for work, never for waiting.
-        const progress = blk: {
-            shared.gift_mutex.lockUncancelable(shared.io);
-            defer shared.gift_mutex.unlock(shared.io);
-            break :blk cv.stepReadable(0) catch return;
-        };
-        if (progress) |p| {
-            if (p == .closed) return;
-        }
-        // Between reads, advance any cross-connection gifter work: serve an
-        // inbound gifter request as the exporter, and resolve our own enliven once
-        // its give is back.
-        serveGifterExport(&cv, &hook_ctx) catch return;
-        resolvePendingRecipient(&cv, &hook_ctx) catch return;
-    }
-}
-
-/// If this connection is the exporter for a pending gifter handoff, run it: fetch
-/// the gifted object, deposit it as a gift, sign the `desc:handoff-give`, and hand
-/// the give back to the recipient thread. Each step drives only this connection.
-fn serveGifterExport(cv: *driver.BlockingSession, hook: *HookCtx) !void {
-    const request = hook.shared.gifter.takeRequest(hook.exporter_slot) orelse return;
-    const allocator = hook.shared.allocator;
-    defer {
-        allocator.free(request.swiss);
-        allocator.free(request.exporter_location_raw);
-    }
-    const give = gifterExportGive(cv, hook, request) catch |err| {
-        std.debug.print("pancake-peer: gifter export failed: {s}\n", .{@errorName(err)});
-        hook.shared.gifter.complete(allocator, request.result, null);
-        return;
-    };
-    hook.shared.gifter.complete(allocator, request.result, give);
-}
-
-/// The exporter half of a gifter handoff over this connection: fetch the swiss,
-/// deposit it under a fresh gift id, and return the signed give bytes (caller, via
-/// the hub, owns them).
-fn gifterExportGive(cv: *driver.BlockingSession, hook: *HookCtx, request: GifterRequest) ![]u8 {
-    const allocator = hook.shared.allocator;
-    const peer = cv.served.peer;
-
-    // 1. Fetch the gifted object from the exporter over this connection.
-    const prepared = try engine.fetch.prepareFetchSwissnum(allocator, &peer.session_state, request.swiss);
-    try peer.send(prepared.message);
-    var gifted: ?model.Reference = null;
-    errdefer if (gifted) |g| model.freeReference(allocator, g);
-    while (gifted == null) {
-        // This pump dispatches inbound frames on a peer sharing the registry,
-        // so it holds the gift mutex like the serve loop's step.
-        const progress = blk: {
-            hook.shared.gift_mutex.lockUncancelable(hook.shared.io);
-            defer hook.shared.gift_mutex.unlock(hook.shared.io);
-            break :blk try cv.conn.pump();
-        };
-        while (peer.pollEvent()) |event_value| {
-            var event = event_value;
-            defer event.deinit();
-            const owned = event.decodeOwned(allocator) catch continue;
-            const match = engine.fetch.tryMatchFetchOutcome(allocator, prepared.resolver_export, prepared.answer_position, owned) catch continue;
-            switch (match) {
-                .settled => |outcome| switch (outcome) {
-                    .fulfilled => |reference| gifted = reference,
-                    .broken => |reason| {
-                        allocator.free(reason);
-                        return error.GifterFetchBroke;
-                    },
-                    .malformed => return error.GifterFetchMalformed,
-                },
-                .unrelated => |msg| model.freeMessage(allocator, msg),
-            }
-        }
-        if (progress == .closed) return error.GifterConnectionClosed;
-    }
-    const obj = gifted.?;
-    defer model.freeReference(allocator, obj);
-
-    // 2. Deposit it as a gift under a fresh id (derived from the swiss so it is
-    //    stable for this exchange). The exporter expects no answer.
-    const gift_id = blk: {
-        const Sha256 = std.crypto.hash.sha2.Sha256;
-        var inner: [Sha256.digest_length]u8 = undefined;
-        Sha256.hash(request.swiss, &inner, .{});
-        var outer: [Sha256.digest_length]u8 = undefined;
-        Sha256.hash(&inner, &outer, .{});
-        break :blk outer;
-    };
-    var deposit_args = [_]model.Argument{
-        .{ .symbol = "deposit-gift" },
-        .{ .bytes = gift_id[0..] },
-        .{ .reference = obj },
-    };
-    try peer.sendCopying(.{ .deliver = .{
-        .target = .{ .far = model.FarRef.object(0) },
-        .args = &deposit_args,
-        .answer = null,
-    } });
-    try cv.conn.flush();
-
-    // 3. Sign a desc:handoff-give that names this exporter session and the gift.
-    const our_pubkey = hook.handoff_secret.publicKey();
-    const exporter_key = peer.session_state.partnerSessionKey() orelse return error.GifterNoExporterKey;
-    const our_side = try engine.handoff_recipient.sideName(our_pubkey.asBytes());
-    const exporter_side = try engine.handoff_recipient.sideName(exporter_key);
-    const session = engine.handoff_recipient.sessionName(our_side, exporter_side);
-    return engine.handoff_gifter.buildSignedGive(
-        allocator,
-        hook.handoff_secret,
-        request.recipient_key[0..],
-        request.exporter_location_raw,
-        session[0..],
-        our_side[0..],
-        gift_id[0..],
-    );
-}
-
-/// If this connection's enliven is awaiting a give from the exporter thread,
-/// resolve it once the give is back: fulfill the enliven answer with the signed
-/// `desc:handoff-give`.
-fn resolvePendingRecipient(cv: *driver.BlockingSession, hook: *HookCtx) !void {
-    const pending = hook.pending_recipient orelse return;
-    if (!hook.shared.gifter.isDone(pending.result)) return;
-    const allocator = hook.shared.allocator;
-    hook.pending_recipient = null;
-    defer allocator.destroy(pending.result);
-
-    const give_bytes = pending.result.give_bytes orelse {
-        cv.served.peer.sendCopying(.{ .resolve = .{
-            .answer = model.AnswerPosition.from(pending.answer),
-            .resolution = .{ .@"break" = .{ .message = "gifter handoff failed" } },
-        } }) catch {};
-        try cv.flush();
-        return;
-    };
-    defer allocator.free(give_bytes);
-
-    var handoff = model.Handoff{ .give = .{
-        .recipient_key = "",
-        .exporter_location = "",
-        .gifter_exporter_session = "",
-        .gifter_side = "",
-        .gift_id = "",
-        .signature = "",
-        .raw_signed = give_bytes,
-    } };
-    cv.served.peer.sendCopying(.{ .resolve = .{
-        .answer = model.AnswerPosition.from(pending.answer),
-        .resolution = .{ .fulfill = .{ .handoff = &handoff } },
-    } }) catch {};
-    try cv.flush();
-}
-
-const HookCtx = struct {
-    shared: *SharedState,
-    resolver_map: *std.AutoHashMapUnmanaged(u64, u64),
-    enliven_group: *std.Io.Group,
-    io: std.Io,
-    handoff_secret: crypto.SecretKey,
-    greeter_export: u64,
-    enlivener_export: u64,
-    /// This connection's hub slot, an exporter thread polls it for gifter work.
-    exporter_slot: *ExporterSlot,
-    /// The live connection, so the crossed-hellos arm can flush its abort.
-    conn: *net.Connection,
-    /// Set when this connection is a gifter's recipient awaiting a give: the
-    /// pending result and the enliven answer to resolve once it arrives.
-    pending_recipient: ?PendingRecipient = null,
+/// Per-accepted-session conformance state: the resolver→answer map the promise
+/// resolver fills and the serve interceptor reads. Allocated at adoption
+/// (`publishConf`), freed at close (`confFreeConnCtx`).
+const ConfCtx = struct {
+    shared: *Shared,
+    session: *HostSession,
+    resolver_map: std.AutoHashMapUnmanaged(u64, u64) = .{},
 };
 
-const PendingRecipient = struct {
-    result: *GifterResult,
+/// A gifter enliven waiting for an exporter session to open before its fetch
+/// can go out — the no-prior-connection gifter path. Bounded by concurrent
+/// enlivens; `runGifterFetch` consumes one when its exporter opens.
+const PendingEnliven = struct {
+    exporter_uuid: []u8,
+    swiss: []u8,
+    recipient_peer: PeerId,
     answer: u64,
 };
 
-fn beforeServe(ctx: ?*anyopaque, cv: *driver.Served, event: *engine.Event) !bool {
-    const hook: *HookCtx = @ptrCast(@alignCast(ctx.?));
-    const allocator = hook.shared.allocator;
-
-    if (event.kind() == .start_session) {
-        try maybeAbortCrossedInbound(&hook.shared.registry, hook.io, cv.peer, hook.conn, event);
-        return false;
-    }
-    if (event.kind() == .deliver) {
-        if (tryHandoffGiveFromEvent(hook, event)) return true;
-        if (tryResolveFromEvent(allocator, cv.peer, hook.resolver_map, event)) return true;
-        if (tryGifterEnliven(hook, cv, event)) return true;
-        if (tryEnlivenFromEvent(hook, cv.peer, event)) return true;
-    }
-    return false;
-}
-
-/// Recognize a recipient's enliven of a sturdyref hosted by an exporter pancake
-/// already has a session with: route a fetch/deposit request to that exporter
-/// connection's thread (the gifter's exporter half), and remember the enliven
-/// answer so the give it produces resolves it. Returns false — falling through to
-/// the dialing enliven path — when no such exporter session is registered.
-fn tryGifterEnliven(hook: *HookCtx, cv: *driver.Served, event: *engine.Event) bool {
-    const body = event.view() catch return false;
-    const deliver = switch (body) {
-        .deliver => |d| d,
-        else => return false,
-    };
-    const target_id = switch (deliver.target) {
-        .near => |near| near.export_position.int(),
-        else => return false,
-    };
-    if (target_id != hook.enlivener_export) return false;
-
-    const allocator = hook.shared.allocator;
-    const frame_bytes = event.frame.bytes();
-
-    // The sturdyref names the exporter as a verbatim `ocapn-peer` locator followed
-    // by the swiss-num bytes. Decode the locator (for its designator) and keep its
-    // exact bytes (for the give's exporter location).
-    const peer_start = std.mem.indexOf(u8, frame_bytes, "<10'ocapn-peer") orelse return false;
-    var cursor = peer_start;
-    const locator = codec.syrup.readLocatorOwned(allocator, frame_bytes, &cursor) catch return false;
-    defer model.freePeerLocator(allocator, locator);
-    const exporter_loc_raw = frame_bytes[peer_start..cursor];
-    const swiss = readSyrupBytes(frame_bytes, &cursor) catch return false;
-
-    const answer = enlivenAnswer(deliver, &cv.peer.session_state) orelse return false;
-    const recipient_key = cv.peer.session_state.partnerSessionKey() orelse return false;
-    if (recipient_key.len != 32) return false;
-
-    const swiss_owned = allocator.dupe(u8, swiss) catch return false;
-    const loc_owned = allocator.dupe(u8, exporter_loc_raw) catch {
-        allocator.free(swiss_owned);
-        return false;
-    };
-    const result = allocator.create(GifterResult) catch {
-        allocator.free(swiss_owned);
-        allocator.free(loc_owned);
-        return false;
-    };
-    result.* = .{};
-    var request = GifterRequest{
-        .swiss = swiss_owned,
-        .exporter_location_raw = loc_owned,
-        .recipient_key = undefined,
-        .result = result,
-    };
-    @memcpy(&request.recipient_key, recipient_key[0..32]);
-
-    var posted = false;
-    for (0..20) |attempt| {
-        if (hook.shared.gifter.postRequest(locator.designator, request)) {
-            posted = true;
-            break;
-        }
-        if (attempt != 19) {
-            std.Io.sleep(hook.io, std.Io.Duration.fromMilliseconds(5), .real) catch break;
-        }
-    }
-    if (!posted) {
-        allocator.free(swiss_owned);
-        allocator.free(loc_owned);
-        allocator.destroy(result);
-        return false;
-    }
-    hook.pending_recipient = .{ .result = result, .answer = answer };
-    return true;
-}
-
-/// The virtual answer the engine installed for a V1.0 enliven deliver (no wire
-/// answer, only a `resolve_me_desc`), or null when neither is present.
-fn enlivenAnswer(deliver: model.view.Deliver, session: *const pancake.ocapn.session.Session) ?u64 {
-    if (deliver.answer) |a| return a.int();
-    if (deliver.resolve_me_desc) |rmd| {
-        const import_position = switch (rmd) {
-            .far => |far| far.import_position,
-            .near => |near| model.ImportPosition.from(near.export_position.int()),
-            else => return null,
-        };
-        const answer = session.answerForResolverImport(import_position) orelse return null;
-        return answer.int();
-    }
-    return null;
-}
-
-fn tryHandoffGiveFromEvent(hook: *HookCtx, event: *engine.Event) bool {
-    const body = event.view() catch return false;
-    const deliver = switch (body) {
-        .deliver => |d| d,
-        else => return false,
-    };
-    const target_id = switch (deliver.target) {
-        .near => |near| near.export_position.int(),
-        else => return false,
-    };
-    if (target_id != hook.greeter_export) return false;
-    if (std.mem.indexOf(u8, event.frame.bytes(), "desc:handoff-give") == null) return false;
-
-    const give_bytes = codec.syrup.spanSignedHandoffGive(event.frame.bytes()) orelse return false;
-    const owned_give = hook.shared.allocator.dupe(u8, give_bytes) catch return false;
-    // The give names the exporter as a full `ocapn-peer` locator whose host and
-    // port live in its hints, not in the designator (the `tcp-testing-only`
-    // designator is just a uuid). Decode that locator the same way the enliven
-    // path does and build the `host:port` the recipient dials.
-    const owned_loc = exporterDialTarget(hook.shared.allocator, owned_give) orelse {
-        hook.shared.allocator.free(owned_give);
-        return false;
-    };
-    hook.enliven_group.concurrent(hook.io, handoffWithdrawTask, .{ hook.shared, hook.handoff_secret, owned_give, owned_loc }) catch {
-        hook.shared.allocator.free(owned_give);
-        hook.shared.allocator.free(owned_loc);
-        return false;
-    };
-    return true;
-}
-
-/// Find the exporter's `ocapn-peer` locator in the signed give bytes, decode it
-/// (hints included), and return an allocated `host:port` the recipient can dial.
-/// Falls back to the locator designator when it has no host/port hints (a Goblins
-/// `tcp` locator already carries `host:port` there).
-fn exporterDialTarget(allocator: std.mem.Allocator, give_bytes: []const u8) ?[]u8 {
-    const marker = "<10'ocapn-peer";
-    const at = std.mem.indexOf(u8, give_bytes, marker) orelse return null;
-    var cursor = at;
-    const locator = codec.syrup.readLocatorOwned(allocator, give_bytes, &cursor) catch return null;
-    defer model.freePeerLocator(allocator, locator);
-
-    var dial_host: ?[]const u8 = null;
-    var dial_port: ?[]const u8 = null;
-    for (locator.hints.entries) |entry| {
-        if (std.mem.eql(u8, entry.name, "host")) {
-            if (entry.value == .string) dial_host = entry.value.string;
-        } else if (std.mem.eql(u8, entry.name, "port")) {
-            if (entry.value == .string) dial_port = entry.value.string;
-        }
-    }
-    if (dial_host) |h| {
-        if (dial_port) |p| {
-            const port_num = std.fmt.parseInt(u16, p, 10) catch return null;
-            const addr = tcp.parseHostPort(h, port_num) catch return null;
-            var buf: [tcp.designator_buf_len]u8 = undefined;
-            return allocator.dupe(u8, tcp.locator(&buf, addr).designator) catch null;
-        }
-    }
-    // Goblins `tcp` locators carry `host:port` directly in the designator.
-    return allocator.dupe(u8, locator.designator) catch null;
-}
-
-fn tryResolveFromEvent(
+const Shared = struct {
     allocator: std.mem.Allocator,
-    peer: *engine.Peer,
-    resolver_map: *std.AutoHashMapUnmanaged(u64, u64),
-    event: *engine.Event,
-) bool {
+    host: *Host,
+    bridge: *ConfBridge,
+    /// Per-session conformance state, keyed by session. Only accepted sessions
+    /// (desks) register here; dialed exporter/redeem legs never do.
+    confs: std.AutoHashMapUnmanaged(PeerId, *ConfCtx) = .{},
+    /// Gifter enlivens whose exporter session was not yet open when the enliven
+    /// arrived; drained in `on_open`.
+    pending: std.ArrayListUnmanaged(PendingEnliven) = .empty,
+
+    fn deinit(self: *Shared) void {
+        var it = self.confs.valueIterator();
+        while (it.next()) |c| {
+            c.*.resolver_map.deinit(self.allocator);
+            self.allocator.destroy(c.*);
+        }
+        self.confs.deinit(self.allocator);
+        for (self.pending.items) |p| {
+            self.allocator.free(p.exporter_uuid);
+            self.allocator.free(p.swiss);
+        }
+        self.pending.deinit(self.allocator);
+    }
+};
+
+/// The gifter fetch's settle listener: the fetched exporter object is foreign to
+/// the recipient session, so claiming it (`interceptFulfilledRef`) makes the
+/// Host deposit it on the exporter and sign the give resolving the recipient's
+/// enliven answer. Fires under the host callback latch, where only enqueueing
+/// verbs are legal — and `interceptFulfilledRef` only queues a `need_gift_id`.
+const GifterWait = struct {
+    shared: *Shared,
+    recipient_peer: PeerId,
+    answer: u64,
+
+    fn fire(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+        const self: *GifterWait = @ptrCast(@alignCast(ctx.?));
+        defer self.shared.allocator.destroy(self);
+        switch (resolution) {
+            .fulfilled => |value| {
+                if (value == .reference and value.reference == .far) {
+                    _ = self.shared.host.node.interceptFulfilledRef(
+                        self.recipient_peer,
+                        self.answer,
+                        value.reference.far.import_position.int(),
+                    ) catch {};
+                }
+            },
+            else => {},
+        }
+    }
+};
+
+// ── Bridge hooks ─────────────────────────────────────────────────────────────
+
+/// Publish the five bootstrap actors on every accepted session and allocate its
+/// conformance state. Runs at adoption, before any inbound frame is served, so
+/// a partner's first fetch cannot race the registration.
+fn publishConf(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
+    const shared: *Shared = @ptrCast(@alignCast(ctx.?));
+    const session: *HostSession = @fieldParentPtr("served", served);
+
+    const conf = try shared.allocator.create(ConfCtx);
+    errdefer shared.allocator.destroy(conf);
+    conf.* = .{ .shared = shared, .session = session };
+    try shared.confs.put(shared.allocator, session.peer_id, conf);
+
+    // The suite's GC modules expect wire-delta drops for every reference an actor
+    // consumed and did not retain. The Host wires its own before-serve hook at
+    // enroll; flip stateless GC on without disturbing it.
+    served.serve_options.gc_stateless = true;
+
+    _ = try served.publish(ECHO, Echo, .{});
+    _ = try served.publish(GREETER, Greeter, .{});
+    _ = try served.publish(CAR_FACTORY_BUILDER, CarFactoryBuilder, .{});
+    _ = try served.publish(PROMISE_RESOLVER, PromiseResolver, .{ .conf = conf });
+    _ = try served.publish(STURDYREF_ENLIVENER, Unimplemented, .{});
+}
+
+fn confFreeConnCtx(ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void {
+    const bridge: *ConfBridge = @ptrCast(@alignCast(ctx.?));
+    const shell: *ConfBridge.Slot = @ptrCast(@alignCast(conn_ctx orelse return));
+    const shared: *Shared = @ptrCast(@alignCast(bridge.publish_ctx.?));
+    if (shared.confs.fetchRemove(shell.session.peer_id)) |kv| {
+        kv.value.resolver_map.deinit(shared.allocator);
+        shared.allocator.destroy(kv.value);
+    }
+    ConfBridge.freeConnCtx(ctx, conn_ctx);
+}
+
+/// The loop's serve hook: try the three conformance interceptors first (each
+/// consumes the event and never serves it into the vat), else the bridge's
+/// ordinary serve.
+fn confServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) anyerror!void {
+    const shell: *ConfBridge.Slot = @ptrCast(@alignCast(conn_ctx.?));
+    const bridge = shell.bridge;
+    const shared: *Shared = @ptrCast(@alignCast(bridge.publish_ctx.?));
+
+    if (event.kind() == .deliver) {
+        if (shared.confs.get(shell.session.peer_id)) |conf| {
+            if (try tryPromiseResolve(conf, event)) {
+                try bridge.drainActions();
+                return;
+            }
+            if (try tryRecipientGive(conf, event)) {
+                try bridge.drainActions();
+                return;
+            }
+            if (try tryGifterEnliven(conf, event)) {
+                try bridge.drainActions();
+                return;
+            }
+        }
+    }
+    try ConfBridge.serve(conn_ctx, peer, event);
+}
+
+/// When a session opens, run any gifter enliven that was waiting for this
+/// exporter to become reachable.
+fn confOnOpen(ctx: ?*anyopaque, bridge: *ConfBridge, shell: *ConfBridge.Slot) anyerror!void {
+    _ = bridge;
+    const shared: *Shared = @ptrCast(@alignCast(ctx.?));
+    const designator = shell.session.served.peer.session_state.partnerDesignator() orelse return;
+    var i: usize = 0;
+    while (i < shared.pending.items.len) {
+        const p = shared.pending.items[i];
+        if (std.mem.eql(u8, p.exporter_uuid, designator)) {
+            runGifterFetch(shared, shell.session, p.swiss, p.recipient_peer, p.answer) catch {};
+            shared.allocator.free(p.exporter_uuid);
+            shared.allocator.free(p.swiss);
+            _ = shared.pending.swapRemove(i);
+            continue;
+        }
+        i += 1;
+    }
+}
+
+// ── Interceptors ─────────────────────────────────────────────────────────────
+
+/// A `fulfill`/`break` deliver to a resolver export minted by the promise
+/// resolver: push the matching `op:resolve` on its paired answer. Returns false
+/// for any deliver to a target that is not a live resolver.
+fn tryPromiseResolve(conf: *ConfCtx, event: *engine.Event) !bool {
+    const peer = conf.session.served.peer;
+    const allocator = conf.shared.allocator;
     const body = event.view() catch return false;
     const deliver = switch (body) {
         .deliver => |d| d,
@@ -1003,7 +408,7 @@ fn tryResolveFromEvent(
         .near => |near| near.export_position.int(),
         else => return false,
     };
-    const answer_position = resolver_map.get(target_id) orelse return false;
+    const answer_position = conf.resolver_map.get(target_id) orelse return false;
     const arg_count = deliver.args.len() catch return false;
     if (arg_count < 2) return false;
     const verb = switch (deliver.args.at(0) catch return false) {
@@ -1027,141 +432,282 @@ fn tryResolveFromEvent(
     return true;
 }
 
-fn tryEnlivenFromEvent(hook: *HookCtx, peer: *engine.Peer, event: *engine.Event) bool {
+/// A `desc:handoff-give` delivered to the greeter: the recipient half. Record
+/// the exporter's uuid→address, then hand the give to the Host, which dials the
+/// exporter and withdraws the gift (`Node.acceptGive`). The greet deliver
+/// carries no answer, so a throwaway inbound answer absorbs the redeem outcome
+/// the suite never reads.
+fn tryRecipientGive(conf: *ConfCtx, event: *engine.Event) !bool {
+    const peer = conf.session.served.peer;
+    const shared = conf.shared;
+    const allocator = shared.allocator;
     const body = event.view() catch return false;
     const deliver = switch (body) {
         .deliver => |d| d,
         else => return false,
     };
     const target_id = switch (deliver.target) {
-        .near => |near| near.export_position,
+        .near => |near| near.export_position.int(),
         else => return false,
     };
-    const enlivener_id = peer.session_state.bootstrapLookup(STURDYREF_ENLIVENER) orelse return false;
-    if (target_id != enlivener_id) return false;
+    const greeter_pos = peer.session_state.bootstrapLookup(GREETER) orelse return false;
+    if (target_id != greeter_pos.int()) return false;
+    if (std.mem.indexOf(u8, event.bytes(), "desc:handoff-give") == null) return false;
 
-    const frame_bytes = event.frame.bytes();
-    const marker = "<10'ocapn-peer";
-    const peer_start = std.mem.indexOf(u8, frame_bytes, marker) orelse return false;
-    var loc_cursor = peer_start;
-    const owned_locator = codec.syrup.readLocatorOwned(hook.shared.allocator, frame_bytes, &loc_cursor) catch return false;
+    const give_bytes = codec.syrup.spanSignedHandoffGive(event.bytes()) orelse return false;
 
-    hook.enliven_group.concurrent(hook.io, enlivenOutbound, .{ hook.shared, hook.io, owned_locator }) catch {
-        model.freePeerLocator(hook.shared.allocator, owned_locator);
-        return false;
-    };
+    // The give names the exporter as a verbatim ocapn-peer locator whose address
+    // lives in `host`/`port` hints. Decode it for its uuid and address, record
+    // the address for the dialer, and rebuild the dialable URI for the Host.
+    const uri = locatorFromGive(allocator, shared, event.bytes()) orelse return false;
+    defer allocator.free(uri);
+
+    const answer = (peer.session_state.allocateExport() catch return false).int();
+    peer.session_state.installInboundAnswer(model.AnswerPosition.from(answer)) catch return false;
+    shared.host.acceptGive(conf.session, answer, give_bytes, uri) catch return true;
     return true;
 }
 
-fn enlivenOutbound(shared: *SharedState, io: std.Io, locator: model.PeerLocator) void {
-    defer model.freePeerLocator(shared.allocator, locator);
-    enlivenOutboundInner(shared, io, locator) catch {};
+/// A sturdyref enliven to the enlivener: the gifter half. Fetch the object on
+/// the exporter session; its later settle claims the reply into a signed give
+/// (`GifterWait`). If the exporter session is already open, fetch now; else dial
+/// it and defer the fetch to `on_open`.
+fn tryGifterEnliven(conf: *ConfCtx, event: *engine.Event) !bool {
+    const peer = conf.session.served.peer;
+    const shared = conf.shared;
+    const allocator = shared.allocator;
+    const body = event.view() catch return false;
+    const deliver = switch (body) {
+        .deliver => |d| d,
+        else => return false,
+    };
+    const target_id = switch (deliver.target) {
+        .near => |near| near.export_position.int(),
+        else => return false,
+    };
+    const enlivener_pos = peer.session_state.bootstrapLookup(STURDYREF_ENLIVENER) orelse return false;
+    if (target_id != enlivener_pos.int()) return false;
+
+    const frame_bytes = event.bytes();
+    const peer_start = std.mem.indexOf(u8, frame_bytes, "<10'ocapn-peer") orelse return false;
+    var cursor = peer_start;
+    const locator = codec.syrup.readLocatorOwned(allocator, frame_bytes, &cursor) catch return false;
+    defer model.freePeerLocator(allocator, locator);
+    const swiss = readSyrupBytes(frame_bytes, &cursor) catch return false;
+
+    recordLocatorAddr(shared, locator);
+    const existing = findSessionByDesignator(shared, locator.designator);
+
+    // An answered enliven is the gifter handoff: fetch the exporter object, whose
+    // settle signs the give resolving this answer. A fetch needs an open exporter
+    // session — use one that exists, else dial and defer the fetch to `on_open`.
+    if (enlivenAnswer(deliver, peer)) |answer| {
+        if (existing) |exporter| {
+            const swiss_owned = allocator.dupe(u8, swiss) catch return true;
+            defer allocator.free(swiss_owned);
+            runGifterFetch(shared, exporter, swiss_owned, conf.session.peer_id, answer) catch return true;
+            return true;
+        }
+        const swiss_owned = allocator.dupe(u8, swiss) catch return true;
+        const uuid_owned = allocator.dupe(u8, locator.designator) catch {
+            allocator.free(swiss_owned);
+            return true;
+        };
+        shared.pending.append(allocator, .{
+            .exporter_uuid = uuid_owned,
+            .swiss = swiss_owned,
+            .recipient_peer = conf.session.peer_id,
+            .answer = answer,
+        }) catch {
+            allocator.free(uuid_owned);
+            allocator.free(swiss_owned);
+            return true;
+        };
+        shared.bridge.dialOutbound(transport_name, locator.designator, "") catch {};
+        return true;
+    }
+
+    // An unanswered enliven still opens the outbound session to the exporter,
+    // which is what the crossed-hellos tiebreak (Host, ADR-0030) needs on the
+    // wire; there is no answer to resolve, so no fetch follows.
+    if (existing == null) {
+        shared.bridge.dialOutbound(transport_name, locator.designator, "") catch {};
+    }
+    return true;
 }
 
-fn enlivenOutboundInner(shared: *SharedState, io: std.Io, locator: model.PeerLocator) !void {
-    const allocator = shared.allocator;
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
+/// Fetch `swiss` on the exporter session and arm a `GifterWait` on the vow so
+/// the fulfilled foreign object is claimed into a signed give for the recipient.
+fn runGifterFetch(shared: *Shared, exporter: *HostSession, swiss: []const u8, recipient_peer: PeerId, answer: u64) !void {
+    const wait = try shared.allocator.create(GifterWait);
+    errdefer shared.allocator.destroy(wait);
+    wait.* = .{ .shared = shared, .recipient_peer = recipient_peer, .answer = answer };
+    const vow = try shared.host.fetch(exporter, swiss);
+    try shared.host.vowOn(vow, .{ .ctx = wait, .func = GifterWait.fire });
+    try shared.bridge.drainActions();
+}
 
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+// ── Locator helpers ──────────────────────────────────────────────────────────
 
-    var connect_host: []const u8 = "127.0.0.1";
-    var connect_port: u16 = 0;
+/// Record a `tcp-testing-only` locator's uuid → `host:port` for the dialer.
+fn recordLocatorAddr(shared: *Shared, locator: model.PeerLocator) void {
+    const hostport = hostPortFromHints(shared.allocator, locator) orelse return;
+    defer shared.allocator.free(hostport);
+    if (g_addrs) |table| table.put(locator.designator, hostport);
+}
+
+/// The `host:port` built from a locator's `host`/`port` hints, caller-owned;
+/// null when either hint is missing. Falls back to the designator when the
+/// locator carries no host/port hints (a plain `tcp` locator's designator is
+/// already `host:port`).
+fn hostPortFromHints(allocator: std.mem.Allocator, locator: model.PeerLocator) ?[]u8 {
+    var dial_host: ?[]const u8 = null;
+    var dial_port: ?[]const u8 = null;
     for (locator.hints.entries) |entry| {
         if (std.mem.eql(u8, entry.name, "host")) {
-            connect_host = switch (entry.value) {
-                .string => |s| s,
-                else => "127.0.0.1",
-            };
-        }
-        if (std.mem.eql(u8, entry.name, "port")) {
-            connect_port = switch (entry.value) {
-                .string => |s| std.fmt.parseInt(u16, s, 10) catch 0,
-                .integer => |i| @intCast(@as(u64, @bitCast(i))),
-                else => 0,
-            };
+            if (entry.value == .string) dial_host = entry.value.string;
+        } else if (std.mem.eql(u8, entry.name, "port")) {
+            if (entry.value == .string) dial_port = entry.value.string;
         }
     }
-    if (connect_port == 0) return error.MissingPort;
+    if (dial_host) |h| {
+        if (dial_port) |p| {
+            const port_num = std.fmt.parseInt(u16, p, 10) catch return null;
+            const addr = tcp.parseHostPort(h, port_num) catch return null;
+            var buf: [tcp.designator_buf_len]u8 = undefined;
+            return allocator.dupe(u8, tcp.locator(&buf, addr).designator) catch null;
+        }
+    }
+    return allocator.dupe(u8, locator.designator) catch null;
+}
 
-    const address = try tcp.parseHostPort(connect_host, connect_port);
-    var conn = try tcp.connectAddress(io, &peer, address, read_buf, write_buf, .{});
-    defer conn.deinit();
+/// Decode the exporter locator embedded in a signed give, record its address,
+/// and return the dialable `ocapn://…` URI (caller-owned) the Host redeems with.
+fn locatorFromGive(allocator: std.mem.Allocator, shared: *Shared, give_bytes: []const u8) ?[]u8 {
+    const at = std.mem.indexOf(u8, give_bytes, "<10'ocapn-peer") orelse return null;
+    var cursor = at;
+    const locator = codec.syrup.readLocatorOwned(allocator, give_bytes, &cursor) catch return null;
+    defer model.freePeerLocator(allocator, locator);
+    recordLocatorAddr(shared, locator);
+    return model.uri.writePeer(allocator, locator) catch null;
+}
+
+/// The accepted session whose partner advertised `designator`, or null.
+fn findSessionByDesignator(shared: *Shared, designator: []const u8) ?*HostSession {
+    var it = shared.confs.valueIterator();
+    while (it.next()) |conf| {
+        const session = conf.*.session;
+        if (!session.sessionOpen()) continue;
+        const partner = session.served.peer.session_state.partnerDesignator() orelse continue;
+        if (std.mem.eql(u8, partner, designator)) return session;
+    }
+    return null;
+}
+
+/// The virtual inbound answer a V1.0 enliven deliver resolves through — its
+/// wire answer-position, or the answer the classifier allocated for its
+/// `resolve_me_desc` resolver-callback.
+fn enlivenAnswer(deliver: model.view.Deliver, peer: *engine.Peer) ?u64 {
+    if (deliver.answer) |a| return a.int();
+    if (deliver.resolve_me_desc) |rmd| {
+        const import_position = switch (rmd) {
+            .far => |far| far.import_position,
+            .near => |near| model.ImportPosition.from(near.export_position.int()),
+            else => return null,
+        };
+        const answer = peer.session_state.answerForResolverImport(import_position) orelse return null;
+        return answer.int();
+    }
+    return null;
+}
+
+/// Read one syrup bytestring (`N:bytes`) at `cursor`, advancing past it — the
+/// one raw decode this harness does outside the codec's public surface.
+fn readSyrupBytes(bytes: []const u8, cursor: *usize) ![]const u8 {
+    var i = cursor.*;
+    var len: usize = 0;
+    var saw_digit = false;
+    while (i < bytes.len and bytes[i] >= '0' and bytes[i] <= '9') : (i += 1) {
+        saw_digit = true;
+        len = try std.math.add(usize, try std.math.mul(usize, len, 10), bytes[i] - '0');
+    }
+    if (!saw_digit or i >= bytes.len or bytes[i] != ':') return error.BadByteString;
+    i += 1;
+    if (bytes.len - i < len) return error.BadByteString;
+    cursor.* = i + len;
+    return bytes[i .. i + len];
+}
+
+// ── Entry point ──────────────────────────────────────────────────────────────
+
+pub fn main(init: std.process.Init) !void {
+    const allocator = init.gpa;
+    const io = init.io;
+
+    var args = std.process.Args.Iterator.init(init.minimal.args);
+    _ = args.next(); // program name
+    var port: u16 = default_port;
+    while (args.next()) |arg| {
+        if (std.mem.startsWith(u8, arg, "--port=")) {
+            port = std.fmt.parseInt(u16, arg["--port=".len..], 10) catch {
+                std.debug.print("pancake-ocapn-peer: --port must be an integer in 1..65535\n", .{});
+                return error.BadPort;
+            };
+        } else {
+            std.debug.print("pancake-ocapn-peer: unknown argument '{s}'\n", .{arg});
+            return error.BadArgument;
+        }
+    }
+
+    var addrs = AddrTable{ .allocator = allocator };
+    defer addrs.deinit();
+    g_addrs = &addrs;
+    defer g_addrs = null;
 
     var seed: [crypto.SEED_BYTES]u8 = undefined;
-    io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
-    const secret = crypto.SecretKey.fromSeed(seed);
-    const local_pubkey = secret.publicKey();
-    try peer.sendKeyedStartSession(.v1_0, .{
-        .transport = "tcp-testing-only",
-        .designator = shared.local_designator,
-        .hints = model.Hints.emptyFalse(),
-    }, secret);
-    _ = conn.pump() catch return;
+    try io.randomSecure(&seed);
 
-    const local_pid = crypto.derivePublicIdentifier(local_pubkey);
-    try shared.registry.registerOutbound(io, allocator, locator.designator, local_pid);
-    defer shared.registry.unregister(io, allocator, locator.designator);
+    var host = Host.init(allocator, seed, blk: {
+        var o = Host.Options.withFrameCap(frame_cap);
+        o.local_turn_budget = 64;
+        break :blk o;
+    });
+    defer host.deinit();
 
-    while (true) {
-        if (shared.registry.shouldAbortOutbound(io, locator.designator)) {
-            try abortCrossedOutbound(&shared.registry, io, locator.designator, &peer, &conn);
-            return;
-        }
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(50), .real) catch return;
-    }
-}
+    var shared = Shared{ .allocator = allocator, .host = &host, .bridge = undefined };
+    defer shared.deinit();
 
-fn handoffWithdrawTask(shared: *SharedState, secret: crypto.SecretKey, give_bytes: []const u8, exporter_location: []const u8) void {
-    defer shared.allocator.free(give_bytes);
-    defer shared.allocator.free(exporter_location);
-    handoffWithdrawInner(shared, secret, give_bytes, exporter_location) catch {};
-}
+    var loop: ConfLoop = undefined;
+    var bridge = ConfBridge.init(allocator, &host, io, &loop, .{
+        .publish = publishConf,
+        .publish_ctx = &shared,
+        .on_open = confOnOpen,
+        .on_open_ctx = &shared,
+    });
+    defer bridge.deinit();
+    shared.bridge = &bridge;
 
-fn handoffWithdrawInner(shared: *SharedState, secret: crypto.SecretKey, give_bytes: []const u8, exporter_location: []const u8) !void {
-    const allocator = shared.allocator;
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    loop = try ConfLoop.init(allocator, ConfBridge.makePeer, @ptrCast(&bridge), .{
+        .frame_cap = frame_cap,
+        .max_conns = 256,
+        .listen = port,
+        .make_conn_ctx = ConfBridge.makeConnCtx,
+        .serve = confServe,
+        .free_conn_ctx = confFreeConnCtx,
+        .on_close = ConfBridge.onClose,
+    });
+    defer loop.deinit();
 
-    const address = try tcp.parseDesignator(exporter_location);
-    var conn = try tcp.connectAddress(shared.io, &peer, address, read_buf, write_buf, .{});
-    defer conn.deinit();
+    const bound_port = loop.port.?;
+    // The suite's `tcp-testing-only` designator is a bare uuid; pancake advertises
+    // the reused CAR_FACTORY_BUILDER swiss as its own, and its address lives in
+    // the banner's `host`/`port` the suite parses.
+    try bridge.attach(transport_name, CAR_FACTORY_BUILDER, "");
 
-    try peer.sendKeyedStartSession(.v1_0, .{
-        .transport = "tcp-testing-only",
-        .designator = exporter_location,
-        .hints = model.Hints.emptyFalse(),
-    }, secret);
-    while (!peer.sessionIsOpen()) {
-        const progress = try conn.pump();
-        if (progress == .closed) return error.ConnectionClosed;
-    }
-
-    const our_pubkey = secret.publicKey();
-    const exporter_key = peer.session_state.partnerSessionKey() orelse return error.NoExporterKey;
-    const signed_receive = try engine.handoff_recipient.signedReceiveFromGiveBytes(
-        allocator,
-        peer.session_state.limits,
-        peer.giftRegistry(),
-        secret,
-        our_pubkey,
-        exporter_key,
-        give_bytes,
+    std.debug.print(
+        "PANCAKE-OCAPN-PEER-READY ocapn://{s}.tcp-testing-only?host={s}&port={d}\n",
+        .{ CAR_FACTORY_BUILDER, host_ip, bound_port },
     );
 
-    var handoff_msg = model.Handoff{ .receive = signed_receive.message() };
-    try peer.sendCopying(.{
-        .deliver = .{
-            .target = .{ .far = model.FarRef.object(0) },
-            .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff_msg } },
-            .answer = model.AnswerPosition.from(1),
-        },
-    });
-    _ = conn.pump() catch {};
+    try loop.run(.forever);
 }

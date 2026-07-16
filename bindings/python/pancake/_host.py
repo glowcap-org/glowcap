@@ -25,10 +25,10 @@ from collections import deque
 from typing import Callable, Optional
 
 from . import _constants as _abi
-from ._action import _pop_action, _run_action
+from ._action import _park_actions, _run_action
 from ._codec import _codec_id
 from ._errors import PancakeError, _check_host
-from ._ffi_driver import _host, _HostAction
+from ._ffi_driver import _host
 from ._ffi_ocapn import _byte_buf
 from ._trampoline import _BehaviorEntry, _inside_turn, _register_behavior, _TRAMPOLINE
 from ._value import Behavior
@@ -107,10 +107,6 @@ class Host:
         # FIFO of settled-but-unobserved vow ids, for the eviction cap
         # (a deque: the eviction pops from the head).
         self._unobserved: "deque[int]" = deque()
-        # One scratch action struct reused across pops: the drain runs one at
-        # a time on the loop thread, and every borrowed view is lifted into
-        # Python values before the next pop overwrites it.
-        self._action_scratch = _HostAction()
         # Fire-and-forget drain tasks, retained because the event loop holds
         # tasks only weakly: an unreferenced drain could be collected mid-flight.
         self._kick_tasks: "set[asyncio.Task]" = set()
@@ -178,6 +174,12 @@ class Host:
         # header documents for that arm.
         buf, ptr = _byte_buf(data) if data else (None, None)
         _check_host(_host.pancake_host_set_self_designator(self._raw, ptr, len(data)))
+
+    def set_session_limits(self, max_frame_bytes: int = 0, queue_cap: int = 0) -> None:
+        """Selective session-limit knobs (ADR-0082). Pass 0 to leave a field
+        unchanged. Affects peers minted after this call."""
+        _check_host(_host.pancake_host_set_session_limits(
+            self._raw, int(max_frame_bytes), int(queue_cap)))
 
     def designator(self) -> str:
         """The canonical key designator (64 lowercase hex digits) for this
@@ -312,11 +314,6 @@ class Host:
         the mid-turn close park. Binding-internal."""
         return len(self._parked_releases)
 
-    @property
-    def action_scratch(self):
-        """Reusable ``PancakeHostAction`` buffer for ``next_action``. Binding-internal."""
-        return self._action_scratch
-
     def schedule_kick(self) -> None:
         """Kick the action drain from a synchronous verb: schedule it as its
         own task, retained until done. Binding-internal."""
@@ -331,15 +328,17 @@ class Host:
         task.add_done_callback(self._kick_tasks.discard)
 
     async def kick_actions(self) -> None:
-        """Run the action drain to empty, honoring each action. Reentrant on
-        purpose: the DIAL arm's dial executor establishes a whole new
+        """Run the shared C action drain, then honor each parked arm. Reentrant
+        on purpose: the DIAL arm's dial executor establishes a whole new
         connection *inside* an action, and that establish must itself drain
         (its start-session FLUSH) — a single-flighted drain would await its own
-        completion there. Each action is popped exactly once
-        (:func:`pancake._action._pop_action` is synchronous), so overlapping
-        drains split the queue between them rather than double-running anything.
-        A no-op inside a hosted turn: the host refuses the driving verbs there,
-        and everything the turn enqueued pumps when the enclosing feed unwinds
+        completion there. Arms are parked under ``pancake_host_pump_drain``
+        (sync hooks only) and awaited after the C loop returns, so overlapping
+        kickers never await inside the C callback. Re-parks until empty: a
+        NEED_GIFT_ID's ``provide_gift_id`` can queue FLUSH legs after the C
+        drain returns (same as Racket's ``drain-host-actions!``). A no-op
+        inside a hosted turn: the host refuses the driving verbs there, and
+        everything the turn enqueued pumps when the enclosing feed unwinds
         into this same drain. Binding-internal."""
         if _inside_turn():
             return
@@ -349,15 +348,16 @@ class Host:
         if not self._raw:
             return
         while True:
-            action = _pop_action(self)
-            if action is None:
+            parked = _park_actions(self)
+            if not parked:
                 return
-            # One failing action must not strand the rest of the drain: a FLUSH
-            # to a session whose socket just died fails here while the
-            # actions behind it belong to other, live sessions. The failed
-            # session tears itself down through its own serve loop (a DIAL
-            # failure is reported to the core inside the arm).
-            try:
-                await _run_action(self, action)
-            except Exception:  # noqa: BLE001 — the drain reaches every action
-                pass
+            for action in parked:
+                # One failing action must not strand the rest of the drain: a
+                # FLUSH to a session whose socket just died fails here while
+                # the actions behind it belong to other, live sessions. The
+                # failed session tears itself down through its own serve loop
+                # (a DIAL failure is reported to the core inside the arm).
+                try:
+                    await _run_action(self, action)
+                except Exception:  # noqa: BLE001 — the drain reaches every action
+                    pass

@@ -341,7 +341,9 @@ pub const Network = struct {
         // Acquire pins the listener for this whole dial: a concurrent
         // `listenerClose` waits for the pin to drop before freeing the listener,
         // so the `enqueue` below never races a destroyed mutex or pending list.
-        const listener = self.acquire(designator) orelse return error.ConnectionLost;
+        // No endpoint registered at this designator is the in-process
+        // refused-partner case (ADR-0081): the peer is not listening.
+        const listener = self.acquire(designator) orelse return error.ConnectionRefused;
         defer self.releaseDial(listener);
 
         const duplex = try Duplex.create(self.allocator, self.io);

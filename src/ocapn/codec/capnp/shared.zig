@@ -92,6 +92,15 @@ pub const ResolutionKind = enum(u16) { fulfill = 0, @"break" = 1 };
 pub const PipelineOpKind = enum(u16) { field = 0, call = 1 };
 pub const HandoffKind = enum(u16) { give = 0, receive = 1 };
 
+/// A `model.HintValue` entry's discriminant, carried in a hint-entry element's
+/// data word 0 (bit 16 doubles as the boolean value, mirroring `ArgKind`'s
+/// boolean/big-integer bit reuse).
+pub const HintValueKind = enum(u16) { string = 0, bytes = 1, boolean = 2, integer = 3 };
+
+comptime {
+    model.assertKindSetMatches(model.HintValue, HintValueKind);
+}
+
 /// A struct's location: the segment index of its data section plus its section
 /// sizes. The pointer section begins at `data_idx + data_words`.
 pub const StructLoc = struct {

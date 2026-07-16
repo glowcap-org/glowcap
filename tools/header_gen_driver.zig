@@ -29,6 +29,7 @@ const emitted_fn_names = [_][]const u8{
     "pancake_host_release",
     "pancake_host_designator_from_seed",
     "pancake_host_set_self_designator",
+    "pancake_host_set_session_limits",
     "pancake_host_session_open_dialed_locator",
     "pancake_host_session_open_accepted",
     "pancake_host_plan_dial",
@@ -82,6 +83,8 @@ const Spec = struct {
         .{ .name = "PANCAKE_HOST_ACTION_CLOSE", .doc = "PancakeHostAction.kind: the host condemned session mid-pump (local turn budget exceeded); write its queued abort, close its transport, and release the session." },
         .{ .name = "PANCAKE_DEFAULT_FRAME_CAP", .doc = "Default maximum admissible frame for pancake_host_new / pancake_host_new_in (bytes): mirrors session.SessionLimits.max_frame_bytes (1 MiB)." },
         .{ .name = "PANCAKE_MAX_LOCAL_FORWARD_HOPS", .doc = "Bound on one turn's synchronous local Forward chase (caretaker over attenuator). Hop N+1 breaks the answer instead of spinning." },
+        .{ .name = "PANCAKE_DISCOVERY_DIAL_RETRY_MS", .doc = "Discovery-posture dial retry interval in milliseconds (ADR-0082). Keep lockstep with driver.discovery_retry_ms." },
+        .{ .name = "PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS", .doc = "Discovery-posture dial attempt budget (ADR-0082). Keep lockstep with driver.discovery_max_attempts." },
         .{ .name = "PANCAKE_DIAL_SHAPE_HOST_PORT", .doc = "PancakeDialPlan.shape: open a TCP socket to host:port (tcp, keyed-tcp)." },
         .{ .name = "PANCAKE_DIAL_SHAPE_IROH", .doc = "PancakeDialPlan.shape: dial an iroh endpoint by node id (the designator)." },
         .{ .name = "PANCAKE_DIAL_REACH_DIRECT", .doc = "PancakeDialPlan.reach_kind (iroh shape): the relay-less direct posture." },
@@ -237,6 +240,8 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitConst(&b, gpa, "PANCAKE_HOST_ACTION_CLOSE");
     try emitConst(&b, gpa, "PANCAKE_DEFAULT_FRAME_CAP");
     try emitConst(&b, gpa, "PANCAKE_MAX_LOCAL_FORWARD_HOPS");
+    try emitConst(&b, gpa, "PANCAKE_DISCOVERY_DIAL_RETRY_MS");
+    try emitConst(&b, gpa, "PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS");
     try b.appendSlice(gpa, "\n");
     try emitDoc(&b, gpa,
         \\One embedder effect popped from pancake_host_next_action. kind selects the
@@ -302,6 +307,7 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
     try emitFn(&b, gpa, "pancake_host_release", &.{"host"}, "Release the host and everything it owns: every still-open session (each\nstill-parked vow breaks inside this call, its undrained completion freed\nwith the rest of the action queue), the vow map, parked actions, the node,\nand the giftable rows (each giftable's free runs exactly once here). NULL is\na no-op. Session (PancakeHostSession) handles this host minted are freed with it —\nnever touch one after its host is gone. Refused (last error set, nothing freed) from\ninside a callback.");
     try emitFn(&b, gpa, "pancake_host_designator_from_seed", &.{ "seed", "seed_len", "out", "out_len" }, "Derive the canonical key designator (exactly 64 lowercase hex digits) from a\n32-byte Ed25519 identity seed — the public half of the key pancake_host_new\nsigns with. Writes 64 bytes into out (out_len must be at least 64). Used by a\nkeyed-tcp listener whose Node identity is the locator designator (ADR-0075).");
     try emitFn(&b, gpa, "pancake_host_set_self_designator", &.{ "host", "designator", "len" }, "Record the designator this host's dials sign as their own dialable address (a\nhost that also listens). designator is borrowed and copied into the host's\nretained buffer; longer than 64 bytes is refused\nPANCAKE_ERR_INVALID_ARGUMENT, and empty resets to the unreachable-client\nplaceholder.");
+    try emitFn(&b, gpa, "pancake_host_set_session_limits", &.{ "host", "max_frame_bytes", "queue_cap" }, "Selective session-limit knobs (ADR-0082): override max_frame_bytes and/or\nqueue_cap on a host before minting sessions. Pass 0 for a field to leave it\nunchanged. Already-open peers keep the limits they were minted with.");
     try emitFn(&b, gpa, "pancake_host_session_open_dialed_locator", &.{ "host", "transport", "transport_len", "designator", "designator_len", "out_session" }, "Mint the dialing half from an already-parsed locator (transport +\ndesignator), the same pieces a DIAL action carries. The keyed op:start-session\nis signed under the host identity and encoded before this returns, so drain\ntake_outbound (a FLUSH action is queued) and drive the handshake byte-fed.\nEvery host-wide giftable (pancake_host_publish) is published on the new\nsession before it is returned. A URI-holding caller parses first\n(pancake_uri_parse_peer) and passes the pieces — there is no parallel\nURI-string mint entry. The dialed hello does not consume a direct-addresses\nhint. *out_session is host-owned; release with pancake_host_session_release.");
     try emitFn(&b, gpa, "pancake_host_session_open_accepted", &.{ "host", "transport", "transport_len", "designator", "designator_len", "direct_addresses_hint", "direct_addresses_hint_len", "out_session" }, "Mint the accepting half of a connection your own listener produced: the keyed\nop:start-session signs the listener's own transport/designator — the key\ndesignator for keyed-tcp, the address designator for tcp — and the locator a\ngive made on this host names as the exporter location. On keyed-tcp,\ndirect_addresses_hint is the bound host:port riding the signed locator\n(borrowed; NULL/0 = none, refused for keyed-tcp because TCP has no discovery);\nan address-designator transport ignores it. Same giftable replay, flush, and\nrelease contract as pancake_host_session_open_dialed_locator.");
     try b.appendSlice(gpa, "\n");

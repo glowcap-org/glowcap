@@ -74,6 +74,7 @@ const constants = [_]Const{
     k("INVALID_ARGUMENT", "PANCAKE_ERR_INVALID_ARGUMENT"),
     k("WOULD_BLOCK", "PANCAKE_ERR_WOULD_BLOCK"),
     k("CLOSED", "PANCAKE_ERR_CLOSED"),
+    k("IO", "PANCAKE_ERR_IO"),
     k("BUFFER_TOO_SMALL", "PANCAKE_ERR_BUFFER_TOO_SMALL"),
     k("UNSUPPORTED_VALUE", "PANCAKE_ERR_UNSUPPORTED_VALUE"),
     k("BROKEN", "PANCAKE_ERR_BROKEN"),
@@ -90,6 +91,8 @@ const constants = [_]Const{
     // Default host connection frame cap (session.SessionLimits.max_frame_bytes).
     kd("DEFAULT_FRAME_CAP", "PANCAKE_DEFAULT_FRAME_CAP"),
     kd("MAX_LOCAL_FORWARD_HOPS", "PANCAKE_MAX_LOCAL_FORWARD_HOPS"),
+    kd("DISCOVERY_DIAL_RETRY_MS", "PANCAKE_DISCOVERY_DIAL_RETRY_MS"),
+    kd("DISCOVERY_DIAL_MAX_ATTEMPTS", "PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS"),
     // The resolved dial the core hands back from pancake_host_plan_dial: the
     // byte channel to open (PancakeDialPlan.shape) and, for iroh, the posture.
     kd("DIAL_SHAPE_HOST_PORT", "PANCAKE_DIAL_SHAPE_HOST_PORT"),

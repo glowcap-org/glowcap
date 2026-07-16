@@ -1123,6 +1123,30 @@ pub fn readLocatorOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor:
     return .{ .transport = t, .designator = d, .hints = hints };
 }
 
+/// Decode a standalone signed `<desc:sig-envelope <desc:handoff-give …>
+/// <sig-val …>>` byte buffer — the exact shape `handoff_gifter.buildSignedGive`
+/// returns and a binding's `pancake_build_handoff_give` hands back — into an
+/// owned, codec-neutral `model.HandoffGive`. Typed fields (`recipient_key`,
+/// `exporter_location`, `signature`, …) are populated from the parse alongside
+/// `raw_signed`, so a caller can hand the result to *any* session codec: Syrup
+/// keeps its `raw_signed` fast path (`writeSignedGive` emits it verbatim), while
+/// Cap'n Proto, which does not understand `raw_signed`, encodes the typed
+/// fields instead. Before this, a binding-originated give only carried
+/// `raw_signed`, so it silently went out empty on a Cap'n Proto session. Free
+/// the result with `model.freeHandoffGive`.
+pub fn decodeSignedHandoffGiveOwned(allocator: std.mem.Allocator, bytes: []const u8) shared.WalkError!model.HandoffGive {
+    var cursor: usize = 0;
+    const handoff = try readBorrowedSignedHandoff(bytes, &cursor, bytes.len);
+    const give = switch (handoff) {
+        .give => |g| g,
+        .receive => return Error.MalformedFrame,
+    };
+    return give.toOwned(allocator) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.MalformedView => return Error.MalformedFrame,
+    };
+}
+
 fn readStringOrSymbol(bytes: []const u8, cursor: *usize) Error![]const u8 {
     if (cursor.* >= bytes.len) return Error.Incomplete;
     const start = cursor.* + countDigits(bytes[cursor.*..]);

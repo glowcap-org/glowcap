@@ -188,11 +188,24 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\  uint32_t events;
         \\} PancakeIrohReadyEvent;
         \\
+        \\/* One iroh endpoint's configuration, passed to pancake_iroh_netlayer_new /
+        \\   _new_in. reachability is mandatory (one of PANCAKE_IROH_REACH_*; an unknown
+        \\   value is refused). connect_timeout_ms is the per-endpoint stream-
+        \\   establishment deadline in milliseconds — the dial's connect + first-stream
+        \\   open and each accepted stream ride it — with 0 meaning the built-in default.
+        \\   Zero-initialize the whole struct before filling the fields you set (e.g.
+        \\   `PancakeIrohConfig cfg = {0};`), so a field added in a later version
+        \\   defaults to 0 rather than reading stack garbage. */
+        \\typedef struct PancakeIrohConfig {
+        \\  uint32_t reachability;
+        \\  uint64_t connect_timeout_ms;
+        \\} PancakeIrohConfig;
+        \\
         \\
     );
 
-    try emitFn(&b, gpa, "pancake_iroh_netlayer_new", &.{ "secret_seed", "secret_seed_len", "reachability", "out_netlayer" }, "Create an iroh netlayer (one bound endpoint) allocating through the library\nallocator. secret_seed/secret_seed_len is either a 32-byte Ed25519 secret key\n(borrowed) or empty (secret_seed_len == 0) for a fresh random key; any other\nlength is PANCAKE_ERR_INVALID_ARGUMENT. reachability is one of\nPANCAKE_IROH_REACH_* and is mandatory — it decides whether the endpoint uses\nrelays or a discovery service, with no default; an unknown value is\nPANCAKE_ERR_INVALID_ARGUMENT. Binds the endpoint and arms the readiness loop, so\nthe netlayer is immediately driveable through pancake_iroh_netlayer_readiness_fd;\nPANCAKE_ERR_IO (see pancake_iroh_last_error) if the endpoint cannot bind or the\nloop cannot arm. Release with pancake_iroh_netlayer_release after releasing\nevery connection made from it.");
-    try emitFn(&b, gpa, "pancake_iroh_netlayer_new_in", &.{ "context", "secret_seed", "secret_seed_len", "reachability", "out_netlayer" }, "As pancake_iroh_netlayer_new, allocating the netlayer, endpoint, and every\nper-connection buffer through context.");
+    try emitFn(&b, gpa, "pancake_iroh_netlayer_new", &.{ "secret_seed", "secret_seed_len", "config", "out_netlayer" }, "Create an iroh netlayer (one bound endpoint) allocating through the library\nallocator. secret_seed/secret_seed_len is either a 32-byte Ed25519 secret key\n(borrowed) or empty (secret_seed_len == 0) for a fresh random key; any other\nlength is PANCAKE_ERR_INVALID_ARGUMENT. config carries the mandatory reachability\n(PANCAKE_IROH_REACH_*; an unknown value or a NULL config is\nPANCAKE_ERR_INVALID_ARGUMENT / PANCAKE_ERR_NULL_POINTER) and the optional\nconnect_timeout_ms (0 = the built-in default). Binds the endpoint and arms the\nreadiness loop, so the netlayer is immediately driveable through\npancake_iroh_netlayer_readiness_fd; PANCAKE_ERR_IO (see pancake_iroh_last_error)\nif the endpoint cannot bind or the loop cannot arm. Release with\npancake_iroh_netlayer_release after releasing every connection made from it.");
+    try emitFn(&b, gpa, "pancake_iroh_netlayer_new_in", &.{ "context", "secret_seed", "secret_seed_len", "config", "out_netlayer" }, "As pancake_iroh_netlayer_new, allocating the netlayer, endpoint, and every\nper-connection buffer through context.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_close", &.{"netlayer"}, "Close the endpoint without releasing the handle: subsequent dials fail and the\nreadiness loop winds down. Idempotent. The shutdown lever for a host whose\nreadiness wait parks on another thread.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_release", &.{"netlayer"}, "Release the netlayer, its endpoint, and the runtime. Every connection made\nfrom it must already be released. NULL is a no-op.");
     try emitFn(&b, gpa, "pancake_iroh_netlayer_node_id", &.{ "netlayer", "out", "cap", "out_len" }, "Write this endpoint's id — its Ed25519 public key, the dialable designator —\ninto out as lowercase hex, and the byte count into out_len. cap must be at\nleast the id length (64) or the call is PANCAKE_ERR_BUFFER_TOO_SMALL. No\nterminator is written.");

@@ -82,7 +82,7 @@ fn hostOnce(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf, 0);
     defer cv.deinit();
     std.debug.print("iroh-interop: server accepted a QUIC stream and opened the keyed session\n", .{});
 
@@ -132,7 +132,7 @@ fn callOnce(
         .designator = designator,
         .hints = .{ .entries = &hint_entries },
     };
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, 0);
     defer cv.deinit();
     std.debug.print("iroh-interop: client dialed by endpoint id and opened the keyed session\n", .{});
 
@@ -173,7 +173,7 @@ fn callByIdOnly(
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, 0);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -222,7 +222,7 @@ fn hostUnified(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf, 0);
     defer cv.deinit();
     try assertPartnerIsNodeId(&cv, expect_partner_id);
 
@@ -255,7 +255,7 @@ fn callUnified(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = self_id } }, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = self_id } }, read_buf, write_buf, 0);
     defer cv.deinit();
     try assertPartnerIsNodeId(&cv, server_id);
 
@@ -283,7 +283,7 @@ fn restartCycle(
     server_secret: pancake.foundation.crypto.SecretKey,
     dial_id: []const u8,
 ) !void {
-    var client = try iroh.Resident.init(io, null, .local_discovery);
+    var client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
     defer client.deinit();
 
     const s_entries = [_]net.netlayer.Netlayer{server.netlayer()};
@@ -318,12 +318,12 @@ pub fn main(init: std.process.Init) !void {
     // session identity to the node id it dialed.
     const main_server_seed: [32]u8 = @splat(0x31);
     const main_server_secret = pancake.foundation.crypto.SecretKey.fromSeed(main_server_seed);
-    var server = iroh.Resident.init(io, &main_server_seed, .direct) catch |err| {
+    var server = iroh.Resident.init(io, &main_server_seed, .{ .reachability = .direct }) catch |err| {
         std.debug.print("iroh-interop: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
     defer server.deinit();
-    var client = iroh.Resident.init(io, null, .direct) catch |err| {
+    var client = iroh.Resident.init(io, null, .{ .reachability = .direct }) catch |err| {
         std.debug.print("iroh-interop: client endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
@@ -382,7 +382,7 @@ pub fn main(init: std.process.Init) !void {
 
     {
         const seed: [32]u8 = @splat(0x42);
-        var seeded = try iroh.Resident.init(io, &seed, .direct);
+        var seeded = try iroh.Resident.init(io, &seed, .{ .reachability = .direct });
         defer seeded.deinit();
         var seeded_buf: [iroh.node_id_len]u8 = undefined;
         const seeded_id = seeded.nodeId(&seeded_buf);
@@ -395,9 +395,9 @@ pub fn main(init: std.process.Init) !void {
     {
         const d_server_seed: [32]u8 = @splat(0x33);
         const d_server_secret = pancake.foundation.crypto.SecretKey.fromSeed(d_server_seed);
-        var d_server = try iroh.Resident.init(io, &d_server_seed, .local_discovery);
+        var d_server = try iroh.Resident.init(io, &d_server_seed, .{ .reachability = .local_discovery });
         defer d_server.deinit();
-        var d_client = try iroh.Resident.init(io, null, .local_discovery);
+        var d_client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
         defer d_client.deinit();
 
         var d_id_buf: [iroh.node_id_len]u8 = undefined;
@@ -431,9 +431,9 @@ pub fn main(init: std.process.Init) !void {
         const server_secret = crypto.SecretKey.fromSeed(server_seed);
         const client_secret = crypto.SecretKey.fromSeed(client_seed);
 
-        var u_server = try iroh.Resident.init(io, &server_seed, .local_discovery);
+        var u_server = try iroh.Resident.init(io, &server_seed, .{ .reachability = .local_discovery });
         defer u_server.deinit();
-        var u_client = try iroh.Resident.init(io, &client_seed, .local_discovery);
+        var u_client = try iroh.Resident.init(io, &client_seed, .{ .reachability = .local_discovery });
         defer u_client.deinit();
 
         var u_server_buf: [iroh.node_id_len]u8 = undefined;
@@ -468,14 +468,14 @@ pub fn main(init: std.process.Init) !void {
         var sturdyref: [iroh.node_id_len]u8 = undefined;
 
         {
-            var v1 = try iroh.Resident.init(io, &dur_seed, .local_discovery);
+            var v1 = try iroh.Resident.init(io, &dur_seed, .{ .reachability = .local_discovery });
             defer v1.deinit();
             _ = v1.nodeId(&sturdyref);
             try restartCycle(io, allocator, &v1, dur_secret, sturdyref[0..]);
         }
 
         {
-            var v2 = try iroh.Resident.init(io, &dur_seed, .local_discovery);
+            var v2 = try iroh.Resident.init(io, &dur_seed, .{ .reachability = .local_discovery });
             defer v2.deinit();
             var v2_buf: [iroh.node_id_len]u8 = undefined;
             const v2_id = v2.nodeId(&v2_buf);

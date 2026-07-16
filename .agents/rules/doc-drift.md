@@ -6,8 +6,8 @@ globs: **/*.md, src/**/*.zig, test/**/*.zig, bench/**/*.zig, examples/**/*.zig, 
 # pancake — Doc Drift Prevention
 
 This rule keeps doc claims _true_. Its sibling, [doc-voice](doc-voice.md), keeps
-doc prose _readable_, written as dialog for a person, not as private shorthand.
-Run the two together whenever you touch a doc.
+human-facing prose _readable_ (speech for a person; agent instruction stays
+under `.agents/**`). Run the two together whenever you touch a doc.
 
 Every doc surface that makes a state claim must satisfy one of:
 

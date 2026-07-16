@@ -232,7 +232,7 @@ fn dialIroh(io: std.Io, allocator: std.mem.Allocator, uri: []const u8, state: *S
     const hints = net.netlayer.directAddrHint(loc.hints) orelse "";
     const reachability: @import("iroh").Reachability = if (hints.len > 0) .direct else .discovery;
     const iroh = @import("iroh");
-    var resident = try iroh.Resident.init(io, null, reachability);
+    var resident = try iroh.Resident.init(io, null, .{ .reachability = reachability });
     defer resident.deinit();
     var conn = try driver.connect(allocator, &.{resident.netlayer()}, loc, .ephemeral, .{ .frame_cap = frame_cap });
     defer conn.deinit();

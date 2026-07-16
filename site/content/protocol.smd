@@ -6,22 +6,21 @@
 .draft = false,
 ---
 
-Every conversation pancake has on the wire is built from a small, fixed vocabulary,
-defined by the
+Every conversation pancake has on the wire uses a small, fixed vocabulary from the
 [OCapN specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications):
-the CapTP messages, the descriptors they carry, and the locators that say where a peer
-lives. This page is the one-glance map: what each part is for, in a sentence. For
-the why behind them, [Concepts]($link.page('concepts')) tells the story and the
+CapTP messages, the descriptors they carry, and the locators that say where a peer
+lives. This page is the one-glance map. [Concepts]($link.page('concepts')) tells the
+story behind each part, and the
 [protocol diagrams](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/protocol-diagrams/README.md)
 draw the flows.
 
-The list is not hand-kept: a build check pins every entry on this page to the
-labels the Syrup codec reads and writes. If the protocol surface grows a label
-or drops one, this page moves with it or the gate goes red.
+The list is not hand-kept. A build check pins every entry here to the labels the
+Syrup codec reads and writes. If the protocol surface grows a label or drops one,
+this page moves with it or the gate goes red.
 
 ## Operations
 
-An operation (`op:...`) is a message that does something in the session: it opens the
+An operation (`op:...`) is a message that acts in the session. It opens the
 session, makes a call, settles a promise, or tears the whole thing down.
 
 | Message | What it does |
@@ -40,7 +39,7 @@ session, makes a call, settles a promise, or tears the whole thing down.
 ## Reference descriptors
 
 A descriptor (`desc:...`) is not a message on its own. It is how a reference or a
-handoff rides *inside* a message, naming what a slot in the conversation points at.
+handoff rides *inside* a message, naming what a slot points at.
 
 | Descriptor | What it names |
 | --- | --- |
@@ -54,18 +53,16 @@ handoff rides *inside* a message, naming what a slot in the conversation points 
 
 ## Locators
 
-A locator (`ocapn-...`) is not a message either, and not a reference. It is an
-*address*: where a peer lives, and, for a sturdyref, which object to ask it for. A
-locator rides inside `op:start-session` as the location each side announces, and
-travels as an argument when one peer hands another a long-lived reference to enliven
-later. The `ocapn://` URI you paste into a config is one of these records, in text.
+A locator (`ocapn-...`) is neither a message nor a reference. It is an *address*:
+where a peer lives, and, for a sturdyref, which object to ask it for. It rides
+inside `op:start-session` as the location each side announces, and travels as an
+argument when one peer hands another a long-lived reference to enliven later. The
+`ocapn://` URI you paste into a config is one of these records, in text.
 
 | Locator | What it addresses |
 | --- | --- |
 | `ocapn-peer` | A peer's location: its transport (`tcp`, `iroh`), the designator to reach it at, and any connection hints. An `ocapn://<designator>.<transport>` URI is this record. |
 | `ocapn-sturdyref` | A peer location plus a swiss number: a restorable, long-lived reference to one object, the thing an `ocapn://…/s/<swiss>` URI names. |
 
-If a name here is new, start with [Concepts]($link.page('concepts')), which
-introduces capabilities, promises, and the three-party handoff before any of these
-labels appear. The [Transports]($link.page('transports')) page covers the netlayers
-a locator can name.
+If a name here is new, start with [Concepts]($link.page('concepts')). The
+[Transports]($link.page('transports')) page covers the netlayers a locator can name.

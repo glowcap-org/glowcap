@@ -357,3 +357,23 @@ took for HostAction decode.
 `pancake_host_pump_drain` + `PancakeHostPumpHooks`, and
 `examples/c/host_embedder_pump.c` rewritten to call the export. Bindings keep
 their hand-rolled drains (async dial / promise settlement / Racket sync lock).
+
+## Amendment (2026-07-15, sixth): bindings adopt `pancake_host_pump_drain`
+
+The fifth amendment authorized the opt-in wrapper; this amendment lands the
+binding adoption. Every language action module drains through
+`pancake_host_pump_drain` with **synchronous park-only arms** — decode and
+append (or accumulate `drain-effects`), never await inside the C loop. Async
+bindings (Python / TypeScript / Rust) await parked arms after the C call
+returns; Racket keeps its sync `with-host-drain` spelling (flush / gift-id
+under the host lock, dial / close / settle as post-lock fires).
+
+The pull-queue remains normative: `pancake_host_next_action` stays the C
+contract the wrapper pops internally, and `examples/c/host_embedder_pump.c`
+still names it. Binding action modules must not hand-roll a
+`pancake_host_next_action` pop loop — `zig build meta-check` refuses that
+symbol in those four files and requires `pancake_host_pump_drain` instead.
+
+**Landed.** All four bindings' action modules call `pancake_host_pump_drain`;
+executor arm bodies (socket I/O, language promise settlement) stay hand-written
+per language.

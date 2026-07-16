@@ -17,14 +17,15 @@ const foundation = pancake.foundation;
 const engine = pancake.ocapn.engine;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 
-/// `op:deliver` to local export 7 carrying one inline bytes argument, answer-pos
-/// 11. The argument exercises the borrowed-validate path without retained owned
-/// message materialization, so the budget measures the irreducible owned-frame
-/// copy rather than transient validation clones.
-/// Reusing one fixed frame keeps the inbound-answer install idempotent after the
-/// first turn (answer 11 is registered once), so steady-state turns mutate no
-/// table.
-const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
+/// A no-answer (`#f` answer position) `op:deliver` to local export 7 carrying one
+/// inline bytes argument — the fire-and-forget one-way send. The argument
+/// exercises the borrowed-validate path without retained owned message
+/// materialization, so the budget measures the irreducible owned-frame copy
+/// rather than transient validation clones. With no answer position every turn
+/// installs no inbound answer row, so a steady stream mutates no table; a
+/// distinct-answer deliver would both grow the answer table per turn and, on a
+/// reused position, trip the live-answer-reuse refusal.
+const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// Drive one wire turn: dispatch the borrowed deliver and drain every surfaced
 /// event (releasing each owned frame), matching how a host pumps the peer. The
@@ -44,8 +45,8 @@ test "steady-state deliver to a live export holds its allocation budget" {
     defer peer.deinit();
     try peer.session_state.registerExport(.from(7));
 
-    // Warm up: install answer 11 and grow the inbound/event backing arrays so
-    // the measured window sees only per-turn wire-path traffic.
+    // Warm up: grow the inbound/event backing arrays so the measured window sees
+    // only per-turn wire-path traffic.
     const warmup = 8;
     for (0..warmup) |_| try driveOneTurn(&peer);
 

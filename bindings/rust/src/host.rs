@@ -157,7 +157,12 @@ pub(crate) struct HostShared {
 }
 
 impl HostShared {
-	fn new(seed: [u8; 32], codec: Codec, context: Option<&Context>) -> Result<Rc<HostShared>> {
+	fn new(
+		seed: [u8; 32],
+		codec: Codec,
+		local_turn_budget: u32,
+		context: Option<&Context>,
+	) -> Result<Rc<HostShared>> {
 		let mut raw: *mut ffi::PancakeHost = core::ptr::null_mut();
 		check_host(match context {
 			Some(context) => unsafe {
@@ -168,7 +173,7 @@ impl HostShared {
 					HOST_FRAME_CAP,
 					1,
 					codec.to_c(),
-					0,
+					local_turn_budget,
 					&mut raw,
 				)
 			},
@@ -179,7 +184,7 @@ impl HostShared {
 					HOST_FRAME_CAP,
 					1,
 					codec.to_c(),
-					0,
+					local_turn_budget,
 					&mut raw,
 				)
 			},
@@ -216,6 +221,18 @@ impl HostShared {
 				designator.as_ptr(),
 				designator.len(),
 			)
+		})
+	}
+
+	/// Selective session-limit knobs (ADR-0082). Pass `0` to leave a field
+	/// unchanged. Affects peers minted after this call.
+	pub(crate) fn set_session_limits(
+		&self,
+		max_frame_bytes: usize,
+		queue_cap: usize,
+	) -> Result<()> {
+		check_host(unsafe {
+			ffi::pancake_host_set_session_limits(self.raw.get(), max_frame_bytes, queue_cap)
 		})
 	}
 
@@ -361,31 +378,36 @@ impl HostShared {
 		});
 	}
 
-	/// Run the action drain to empty, honoring each action. Reentrant on
+	/// Run the shared C action drain, then honor each parked arm. Reentrant on
 	/// purpose, the async spelling of the Racket binding's reentrant host lock:
 	/// the DIAL arm's dial executor establishes a whole new session *inside*
 	/// an action, and that establish must itself drain (its start-session
 	/// FLUSH) — a single-flighted drain would await its own completion there.
-	/// Each action is popped exactly once (`action::pop` is synchronous), so
-	/// overlapping drains split the queue between them rather than double-
-	/// running anything. A no-op inside a hosted turn: the host refuses the
-	/// driving verbs there, and everything the turn enqueued pumps when the
-	/// enclosing feed unwinds into this same drain.
+	/// Arms are parked under `pancake_host_pump_drain` (sync hooks only) and
+	/// awaited after the C loop returns, so overlapping kickers never await
+	/// inside the C callback. Re-parks until empty: a NEED_GIFT_ID's
+	/// `provide_gift_id` can queue FLUSH legs after the C drain returns (same
+	/// as Racket's `drain-host-actions!`). A no-op inside a hosted turn: the
+	/// host refuses the driving verbs there, and everything the turn enqueued
+	/// pumps when the enclosing feed unwinds into this same drain.
 	pub(crate) async fn kick_actions(self: &Rc<HostShared>) {
 		if inside_turn() || self.raw.get().is_null() {
 			return;
 		}
 		drain_pending_releases();
 		loop {
-			let Some(action) = crate::action::pop(self) else {
+			let parked = crate::action::park(self);
+			if parked.is_empty() {
 				return;
-			};
-			// One failing action must not strand the rest of the drain: a FLUSH
-			// to a session whose socket just died fails here while the actions
-			// behind it belong to other, live sessions. The failed session
-			// tears itself down through its own serve loop (a DIAL failure is
-			// reported to the core inside the arm).
-			let _ = crate::action::run(self, action).await;
+			}
+			for action in parked {
+				// One failing action must not strand the rest of the drain: a
+				// FLUSH to a session whose socket just died fails here while
+				// the actions behind it belong to other, live sessions. The
+				// failed session tears itself down through its own serve loop
+				// (a DIAL failure is reported to the core inside the arm).
+				let _ = crate::action::run(self, action).await;
+			}
 		}
 	}
 }
@@ -420,6 +442,34 @@ pub struct Host {
 	shared: Rc<HostShared>,
 }
 
+/// Construction knobs for [`Host`]. Codec and local-turn budget are mint-time;
+/// selective session limits stay on [`Host::set_session_limits`] (ADR-0082).
+#[derive(Debug, Clone, Copy)]
+pub struct HostOptions {
+	pub codec: Codec,
+	/// `0` = unbounded (default); nonzero caps local-turn amplification per drive
+	/// (ADR-0076).
+	pub local_turn_budget: u32,
+}
+
+impl Default for HostOptions {
+	fn default() -> Self {
+		Self {
+			codec: Codec::Syrup,
+			local_turn_budget: 0,
+		}
+	}
+}
+
+impl HostOptions {
+	pub fn with_codec(codec: Codec) -> Self {
+		Self {
+			codec,
+			..Self::default()
+		}
+	}
+}
+
 impl Host {
 	// A fresh Host with a random retained identity, minted at the I/O boundary
 	// (the sans-io core never generates entropy). The OS RNG failing is not a
@@ -435,9 +485,14 @@ impl Host {
 	/// [`connect`](crate::connect) as `Some(host)` or
 	/// [`listen_with_host`](crate::listen_with_host).
 	pub fn with_codec(codec: Codec) -> Host {
+		Host::with_options(HostOptions::with_codec(codec))
+	}
+
+	/// A fresh Host from [`HostOptions`] (codec + local-turn budget).
+	pub fn with_options(options: HostOptions) -> Host {
 		let mut seed = [0u8; 32];
 		getrandom::fill(&mut seed).expect("the OS RNG provides a Host identity seed");
-		Host::from_seed_with_codec(seed, codec).expect("the allocator provides a Host")
+		Host::from_seed_with_options(seed, options).expect("the allocator provides a Host")
 	}
 
 	/// A Host whose retained Ed25519 identity is reconstructed from `seed` —
@@ -450,9 +505,20 @@ impl Host {
 
 	/// [`from_seed`] with an explicit wire grammar.
 	pub fn from_seed_with_codec(seed: [u8; 32], codec: Codec) -> Result<Host> {
+		Host::from_seed_with_options(seed, HostOptions::with_codec(codec))
+	}
+
+	/// [`from_seed`] with full [`HostOptions`] (codec + local-turn budget).
+	pub fn from_seed_with_options(seed: [u8; 32], options: HostOptions) -> Result<Host> {
 		Ok(Host {
-			shared: HostShared::new(seed, codec, None)?,
+			shared: HostShared::new(seed, options.codec, options.local_turn_budget, None)?,
 		})
+	}
+
+	/// Selective session-limit knobs (ADR-0082). Pass `0` to leave a field
+	/// unchanged. Affects peers minted after this call.
+	pub fn set_session_limits(&self, max_frame_bytes: usize, queue_cap: usize) -> Result<()> {
+		self.shared.set_session_limits(max_frame_bytes, queue_cap)
 	}
 
 	/// The canonical key designator (64 lowercase hex digits) for this host's
@@ -478,7 +544,7 @@ impl Host {
 		getrandom::fill(&mut seed)
 			.map_err(|_| Error::with_detail(sys::ERR_INTERNAL, "no OS entropy".to_string()))?;
 		Ok(Host {
-			shared: HostShared::new(seed, codec, Some(context))?,
+			shared: HostShared::new(seed, codec, 0, Some(context))?,
 		})
 	}
 
@@ -562,5 +628,25 @@ mod tests {
 			host.clone().redeem_reachability(),
 			Reachability::DiscoveryNoRelay
 		);
+	}
+
+	// Public Host surfaces the ADR-0082 selective knobs (not only HostShared).
+	#[test]
+	fn set_session_limits_is_callable_on_host() {
+		let host = Host::new_host();
+		host.set_session_limits(0, 0)
+			.expect("0 leaves both fields unchanged");
+		host.set_session_limits(64 * 1024, 0)
+			.expect("max_frame_bytes alone is accepted");
+	}
+
+	#[test]
+	fn host_options_carry_local_turn_budget() {
+		let host = Host::with_options(HostOptions {
+			codec: Codec::Syrup,
+			local_turn_budget: 64,
+		});
+		host.set_session_limits(0, 0)
+			.expect("minted host answers limits");
 	}
 }

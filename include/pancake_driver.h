@@ -99,6 +99,10 @@ typedef void (*PancakeHostCtxFree)(void *ctx);
 #define PANCAKE_DEFAULT_FRAME_CAP 1048576
 /* Bound on one turn's synchronous local Forward chase (caretaker over attenuator). Hop N+1 breaks the answer instead of spinning. */
 #define PANCAKE_MAX_LOCAL_FORWARD_HOPS 256
+/* Discovery-posture dial retry interval in milliseconds (ADR-0082). Keep lockstep with driver.discovery_retry_ms. */
+#define PANCAKE_DISCOVERY_DIAL_RETRY_MS 3000
+/* Discovery-posture dial attempt budget (ADR-0082). Keep lockstep with driver.discovery_max_attempts. */
+#define PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS 24
 
 /* One embedder effect popped from pancake_host_next_action. kind selects the
    live fields: DIAL carries ticket (its report-back handle), the full
@@ -192,6 +196,10 @@ int32_t pancake_host_designator_from_seed(const uint8_t *seed, size_t seed_len, 
    PANCAKE_ERR_INVALID_ARGUMENT, and empty resets to the unreachable-client
    placeholder. */
 int32_t pancake_host_set_self_designator(PancakeHost *host, const uint8_t *designator, size_t len);
+/* Selective session-limit knobs (ADR-0082): override max_frame_bytes and/or
+   queue_cap on a host before minting sessions. Pass 0 for a field to leave it
+   unchanged. Already-open peers keep the limits they were minted with. */
+int32_t pancake_host_set_session_limits(PancakeHost *host, size_t max_frame_bytes, size_t queue_cap);
 /* Mint the dialing half from an already-parsed locator (transport +
    designator), the same pieces a DIAL action carries. The keyed op:start-session
    is signed under the host identity and encoded before this returns, so drain

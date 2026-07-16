@@ -55,19 +55,18 @@ single pass over a borrowed view, so it never pays that price.
 
 Cap'n Proto is the second codec: a layout of 8-byte words where every field sits at a known
 offset, reached by following struct and list pointers. pancake's is hand-rolled against the
-wire format with no schema compiler in the build, because it is a
-*pancake-to-pancake dialect* with no third-party reader to satisfy; a generated
-schema would buy nothing. Both peers settle on it at the handshake
-(`pairedWithCodec` in Zig, `pancake_peer_new_negotiated` over the C ABI, the matching idiom
-in every binding), and the whole conversation rides it from there. It never reaches a
-Goblins peer.
+wire format with no schema compiler in the build, because it is a *pancake-to-pancake dialect*
+with no third-party reader to satisfy; a generated schema would buy nothing. Both peers
+settle on it at the handshake (`pairedWithCodec` in Zig, `pancake_peer_new_negotiated` over
+the C ABI, the matching idiom in every binding), and the whole conversation rides it from
+there. It never reaches a Goblins peer.
 
 Fixed offsets are the point. Reaching field *i* is arithmetic, not a scan, so random access
 is constant-time and the borrowed decode projection is cheap. That is the edge the
 benchmark's faster Cap'n Proto decode reflects. The cost is size: padding every value to a
 word and spending words on pointers makes frames larger, most visibly for the small messages
-that dominate control traffic. Cap'n Proto can also carry a typed value, an
-abort reason for example, where Syrup projects a string.
+that dominate control traffic. Cap'n Proto can also carry a typed value (an abort reason, for
+example) where Syrup projects a string.
 
 ## The tradeoffs, plainly
 
@@ -132,8 +131,8 @@ The set is open on purpose: the codec layer is a registry, not a fixed switch. A
 Zig consumer declares `pub const pancake_codecs` in the root source file, binds a
 wire id to an implementation, and the same core speaks it with no change to the
 session above. The registry resolves at compile time, so a third codec costs the
-dispatch nothing the two built-ins did not. Bringing one is a Zig-consumer
-move: the C ABI and the four bindings negotiate among the codecs the archives were
+dispatch nothing the two built-ins did not. Bringing one is a Zig-consumer move:
+the C ABI and the four bindings negotiate among the codecs the archives were
 compiled with, which today means Syrup and Cap'n Proto. The
 [architecture doc](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/architecture.md)
 spells out the codec layer's contract.

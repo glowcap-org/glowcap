@@ -22,8 +22,7 @@
     (define hconn (accept srv #:time-travel? #t))
     (thread
      (lambda ()
-       (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-         (define (mint-cap ctor) (session-spawn hconn ctor))
-         (session-publish hconn name (build-root mint-cap))
-         (session-serve hconn))))
+       (define (mint-cap ctor) (session-spawn hconn ctor))
+       (session-publish hconn name (build-root mint-cap))
+       (session-serve hconn)))
     (accept-loop)))

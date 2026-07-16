@@ -144,10 +144,10 @@ fn fetchRef(pair: Pair, name: []const u8) !model.Reference {
 
 test "a fed frame whose own dispatch amplifies past the budget fails that feed" {
     const allocator = std.testing.allocator;
-    var client = Host.init(allocator, [_]u8{0x0a} ** 32, .{ .frame_cap = frame_cap });
+    var client = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
     var server = Host.init(allocator, [_]u8{0x0b} ** 32, .{
-        .frame_cap = frame_cap,
+        .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = budget,
     });
     defer server.deinit();
@@ -172,12 +172,12 @@ test "a fed frame whose own dispatch amplifies past the budget fails that feed" 
 
 test "a fed connection flooding a sibling condemns the sibling with a close action; the fed verb and connection survive" {
     const allocator = std.testing.allocator;
-    var client_a = Host.init(allocator, [_]u8{0x0a} ** 32, .{ .frame_cap = frame_cap });
+    var client_a = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client_a.deinit();
-    var client_b = Host.init(allocator, [_]u8{0x0c} ** 32, .{ .frame_cap = frame_cap });
+    var client_b = Host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client_b.deinit();
     var server = Host.init(allocator, [_]u8{0x0b} ** 32, .{
-        .frame_cap = frame_cap,
+        .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = budget,
     });
     defer server.deinit();

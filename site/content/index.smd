@@ -16,11 +16,11 @@ speaks it.
 
 [Their program hands yours a reference to an object called "greeter." Holding that reference is the whole permission to call it.]($image.siteAsset('diagram-capability.svg'))
 
-Everything else in pancake keeps that promise. The protocol
-core is deterministic, synchronous, and does no I/O of its own, so the sockets and
-the scheduling live in adapters stacked above it. Nothing important hides either.
-Where a frame is owned or borrowed, where a copy happens, and which wire format is on
-the line all stay visible at the boundary that owns them.
+Everything else in pancake keeps that promise. The protocol core is
+deterministic, synchronous, and does no I/O of its own, so the sockets and the
+scheduling live in adapters stacked above it. Nothing important hides either.
+Where a frame is owned or borrowed, where a copy happens, and which wire format is
+on the line all stay visible at the boundary that owns them.
 
 Two peers can reach each other directly, with no server in the middle. The
 [iroh transport]($link.page('transports/iroh')) carries a session over encrypted
@@ -35,5 +35,4 @@ each feel native in Rust, TypeScript, Python, and Racket.
 This site is the front door. The
 [deep documentation](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs)
 lives next to the source, so a claim about the code travels in the same change as
-the code itself. Pick a path
-below, or wander the modules from the sidebar.
+the code itself. Pick a path below, or wander the modules from the sidebar.

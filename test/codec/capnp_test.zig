@@ -337,17 +337,19 @@ test "abort round-trips with typed kind and message" {
     try expectRoundTrip(.{ .abort = .{ .kind = .normal_shutdown, .message = "" } });
 }
 
-test "Cap'n Proto refuses to encode a locator carrying hint entries instead of dropping them" {
-    // The layout carries only the two empty hint spellings. Dropping entries
-    // silently would put a different locator on the wire than the caller named,
-    // so a hint-carrying locator must fail loud.
+test "Cap'n Proto encodes op:start-session locator hint entries" {
+    // `op:start-session`'s `acceptable_location` carries hint entries on the
+    // wire (mirrors Syrup's `writePeerLocatorRecord`, the encoder Syrup's own
+    // `op:start-session` path calls) instead of refusing them the way a
+    // sturdyref locator still does below.
+    const allocator = std.testing.allocator;
     const pubkey = [_]u8{0xaa} ** 32;
     const sig = [_]u8{0xcc} ** 64;
     const entries = [_]model.HintEntry{
         .{ .name = "host", .value = .{ .string = "127.0.0.1" } },
     };
 
-    try std.testing.expectError(capnp.Error.UnsupportedArgument, capnp.encodeMessage(std.testing.allocator, .{
+    var frame = try capnp.encodeMessage(allocator, .{
         .start_session = .{
             .captp_version = .v1_0,
             .session_pubkey = .{ .bytes = pubkey[0..] },
@@ -357,6 +359,42 @@ test "Cap'n Proto refuses to encode a locator carrying hint entries instead of d
                 .hints = .{ .entries = &entries },
             },
             .acceptable_location_sig = .{ .bytes = sig[0..] },
+        },
+    });
+    defer frame.deinit();
+
+    // Decode still projects only the two empty hint spellings — the same
+    // asymmetry Syrup's own borrowed decode has for `op:start-session`
+    // (Syrup instead recovers the signing domain via the raw-bytes capture
+    // `acceptable_location_raw`; Cap'n Proto has no analogous capture yet, a
+    // named gap, not this task's target). Transport/designator still
+    // round-trip untouched.
+    const decoded = try capnp.decodeOwned(allocator, frame.view());
+    defer model.freeMessage(allocator, decoded);
+    try std.testing.expectEqualStrings("tcp", decoded.start_session.acceptable_location.transport);
+    try std.testing.expectEqualStrings("127.0.0.1:9001", decoded.start_session.acceptable_location.designator);
+    try std.testing.expectEqual(@as(usize, 0), decoded.start_session.acceptable_location.hints.entries.len);
+}
+
+test "Cap'n Proto refuses to encode a sturdyref locator carrying hint entries instead of dropping them" {
+    // The sturdyref wire path carries only the two empty hint spellings.
+    // Dropping entries silently would put a different locator on the wire
+    // than the caller named, so a hint-carrying locator must fail loud.
+    const entries = [_]model.HintEntry{
+        .{ .name = "host", .value = .{ .string = "127.0.0.1" } },
+    };
+
+    try std.testing.expectError(capnp.Error.UnsupportedArgument, capnp.encodeMessage(std.testing.allocator, .{
+        .deliver = .{
+            .target = .{ .sturdy = .{
+                .peer = .{
+                    .transport = "tcp",
+                    .designator = "127.0.0.1:9001",
+                    .hints = .{ .entries = &entries },
+                },
+                .swissnum = &.{0xde},
+            } },
+            .args = &.{},
         },
     }));
 }

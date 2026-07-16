@@ -8,13 +8,16 @@
 // spans `../../host.ts`, `../../session.ts`, `../../action.ts`, and
 // `../../pump.ts`.
 //
-// Callback discipline: the ONE native callback in the whole binding — the
-// shared behavior trampoline (`../../trampoline.ts`) — fires synchronously on
-// the thread executing the enclosing `pancake_host_*` call. Deno and Bun both
-// register callbacks globally, so it is minted through the runtime FFI's
-// `makeCallback`, callable from any loaded archive. Settlements carry no
-// callback at all: they ride the action queue as SETTLE/FAIL and the drain
-// routes them by vow id (`../../action.ts` + `../../promise.ts`).
+// Callback discipline: the ONE native *behavior* callback in the whole
+// binding — the shared trampoline (`../../trampoline.ts`) — fires
+// synchronously on the thread executing the enclosing `pancake_host_*`
+// call. Deno and Bun both register callbacks globally, so it is minted
+// through the runtime FFI's `makeCallback`, callable from any loaded
+// archive. Settlements carry no callback at all: they ride the action
+// queue as SETTLE/FAIL and the drain routes them by vow id
+// (`../../action.ts` + `../../promise.ts`). Sync park arms for
+// `pancake_host_pump_drain` are a separate, short-lived callback family
+// owned by the action module for the duration of each C drain.
 //
 // `fetch`/`enliven`/`send` and the `vow_*` verbs each mint a host vow whose id
 // lands in the trailing out-buffer; the outcome arrives as that vow's
@@ -39,6 +42,7 @@ export const driverS = ffi.dlopen(libPath("pancake_driver"), {
 	pancake_host_release: { parameters: [P], result: V },
 	pancake_host_designator_from_seed: { parameters: [B, U, B, U], result: I },
 	pancake_host_set_self_designator: { parameters: [P, B, U], result: I },
+	pancake_host_set_session_limits: { parameters: [P, U, U], result: I },
 	pancake_host_session_open_dialed_locator: { parameters: [P, B, U, B, U, B], result: I },
 	// Resolve a dial to a PancakeDialPlan (grammar + hint + iroh posture); a free function.
 	pancake_host_plan_dial: { parameters: [B, U, B, U, B, U, "u32", "u32", B], result: I },
@@ -49,6 +53,10 @@ export const driverS = ffi.dlopen(libPath("pancake_driver"), {
 	pancake_host_session_feed_bytes: { parameters: [P, B, U, B], result: I },
 	pancake_host_session_take_outbound: { parameters: [P, B], result: I },
 	pancake_host_next_action: { parameters: [P, B], result: I },
+	// Opt-in convenience drain (ADR-0072 fifth): hooks buffer is
+	// PancakeHostPumpHooks; out_acted is a u32. Bindings park decoded
+	// actions in sync arm callbacks and await after the C loop returns.
+	pancake_host_pump_drain: { parameters: [P, B, B], result: I },
 	pancake_host_dialed: { parameters: [P, U64, P], result: I },
 	pancake_host_dial_failed: { parameters: [P, U64, B, U], result: I },
 	pancake_host_provide_gift_id: { parameters: [P, U64, B, U], result: I },

@@ -1,4 +1,4 @@
-"""Live three-party handoff over iroh, all in the Python binding (ADR-0009), the
+"""Live three-party handoff over iroh, all in the Python binding, the
 Python sibling of the Deno ``zig build demo-rooms-dm-iroh`` proof and the iroh
 companion of ``python-goblins-handoff``. It proves both halves of an iroh handoff
 through the binding's own surface: the gifter mints a ``desc:handoff-give`` whose

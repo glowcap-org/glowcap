@@ -45,18 +45,29 @@
 ;; The TCP port transport: frames concatenate into the byte stream and flush
 ;; once; a fill reads whatever is ready, waiting on the port and the wake event
 ;; together (both yield to the scheduler); close shuts both ports.
+;; Leave the ports on Racket's TCP default (`'block`): since 8.8.0.8 that mode
+;; sets TCP_NODELAY. `'none` would re-enable Nagle; `flush!` is what pushes.
 (define (port-transport in out)
+  (define (read-avail)
+    (define buf (make-bytes 65536))
+    (define n (read-bytes-avail! buf in))
+    (if (eof-object? n) eof (subbytes buf 0 n)))
   (async-transport
    (lambda (frame) (write-bytes frame out))
    (lambda () (flush-output out))
    (lambda (wake-evt)
-     (define ready (sync in wake-evt))
+     ;; Bytes always beat wake: `sync` among ready events is nondeterministic,
+     ;; so a posted progress evt can starve an input port that already holds
+     ;; the partner's reply (CLIENT_TIMEOUT, serve still alive). Recheck after
+     ;; wake for the same reason — both can become ready together.
      (cond
-       [(eq? ready in)
-        (define buf (make-bytes 65536))
-        (define n (read-bytes-avail! buf in))
-        (if (eof-object? n) eof (subbytes buf 0 n))]
-       [else 'woke]))
+       [(byte-ready? in) (read-avail)]
+       [else
+        (define ready (sync in wake-evt))
+        (cond
+          [(eq? ready in) (read-avail)]
+          [(byte-ready? in) (read-avail)]
+          [else 'woke])]))
    (lambda () (close-output-port out) (close-input-port in))))
 
 ;; Append freshly read bytes onto the inbox.

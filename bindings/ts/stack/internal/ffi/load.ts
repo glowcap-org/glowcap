@@ -215,20 +215,36 @@ function hostTargetTriple(): string {
 	return `${arch}-${zigOs}`;
 }
 
-function cacheBase(contract: Contract): string {
+function cacheBase(contract: Contract): string | null {
 	const override = envVar("PANCAKE_CACHE_DIR");
 	if (override !== null) return override;
 	const xdg = envVar("XDG_CACHE_HOME");
 	if (xdg !== null) return join(xdg, "pancake/c-abi");
-	try {
-		return join(homedir(), ".cache/pancake/c-abi");
-	} catch {
-		return join(tmpdir(), contract.fallback_cache_name);
+	// homedir()/tmpdir() read HOME/TMPDIR and throw without --allow-env, so gate
+	// them the way envVar() gates its own reads. When the environment is fully
+	// ungranted the cache rung is simply unavailable (null), and libDir() degrades
+	// to the in-tree or bare-name rung — the loader's documented contract — rather
+	// than throwing out of the whole cascade.
+	if (envGranted("HOME")) {
+		try {
+			return join(homedir(), ".cache/pancake/c-abi");
+		} catch { /* fall through to tmpdir */ }
 	}
+	if (envGranted("TMPDIR")) {
+		try {
+			return join(tmpdir(), contract.fallback_cache_name);
+		} catch { /* fall through to null */ }
+	}
+	return null;
 }
 
-function cacheLibDir(contract: Contract, version: string, target: string): string {
+function cacheLibDir(
+	contract: Contract,
+	version: string,
+	target: string,
+): string | null {
 	const base = cacheBase(contract);
+	if (base === null) return null;
 	return applyContractTemplate(contract.cache_layout, version, target, base);
 }
 
@@ -487,7 +503,9 @@ function libDir(): string | null {
 	const zigOut = devRoot !== null ? join(devRoot, "zig-out/lib") : null;
 
 	try {
-		if (existsSync(markerPath(cacheLib, contract))) return cacheLib;
+		if (cacheLib !== null && existsSync(markerPath(cacheLib, contract))) {
+			return cacheLib;
+		}
 	} catch { /* no read permission */ }
 
 	let zigHasMarker = false;
@@ -500,7 +518,7 @@ function libDir(): string | null {
 	if (zigHasMarker) {
 		// PANCAKE_DOWNLOAD refreshes the cache even when zig-out exists,
 		// including when releases_published is false.
-		if (envTruthy("PANCAKE_DOWNLOAD")) {
+		if (cacheLib !== null && envTruthy("PANCAKE_DOWNLOAD")) {
 			fetchIntoCache(contract, version, target, cacheLib);
 			try {
 				if (existsSync(markerPath(cacheLib, contract))) return cacheLib;
@@ -509,7 +527,7 @@ function libDir(): string | null {
 		return zigOut;
 	}
 
-	if (wantReleaseFetch(contract)) {
+	if (cacheLib !== null && wantReleaseFetch(contract)) {
 		fetchIntoCache(contract, version, target, cacheLib);
 		try {
 			if (existsSync(markerPath(cacheLib, contract))) return cacheLib;

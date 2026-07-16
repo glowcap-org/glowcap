@@ -6,7 +6,7 @@ const negotiation = pancake.ocapn.engine.negotiation;
 
 test "FeatureSet.intersect is the field-wise AND and is symmetric" {
     const a = model.FeatureSet.full();
-    const b = model.FeatureSet.pipeliningAndHandoff(); // no sturdyref / stream / equality
+    const b = model.FeatureSet.pipeliningAndHandoff(); // no sturdyref
 
     const ab = a.intersect(b);
     const ba = b.intersect(a);
@@ -18,8 +18,6 @@ test "FeatureSet.intersect is the field-wise AND and is symmetric" {
     try std.testing.expect(ab.handoff);
     try std.testing.expect(ab.wire_delta);
     try std.testing.expect(!ab.sturdyref);
-    try std.testing.expect(!ab.stream);
-    try std.testing.expect(!ab.equality);
 }
 
 test "intersect with minimum yields minimum" {
@@ -57,7 +55,7 @@ test "negotiate is symmetric under perspective swap" {
     const b: negotiation.Offer = .{
         .profiles = &.{ model.WireProfile.v1_0, model.WireProfile.pre_spec },
         .codecs = &.{.syrup},
-        .features = model.FeatureSet.fullExceptStreaming(),
+        .features = model.FeatureSet.full(),
     };
 
     const from_a = negotiation.negotiate(a, b).?;

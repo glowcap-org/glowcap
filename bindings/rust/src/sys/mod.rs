@@ -23,6 +23,7 @@
 
 #[cfg(feature = "async")]
 pub mod driver;
+mod layouts_gen;
 mod ocapn;
 pub use ocapn::*;
 

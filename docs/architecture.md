@@ -12,429 +12,299 @@ protocol semantics: fixed, correct, interoperable
 implementation overhead: aggressively minimized
 ```
 
-Performance is part of the correctness contract: every allocation and copy on
-the wire path is forbidden, intentional, or measured. Setup follows the same
-rule: build steps stay obvious, examples compile, public artifacts are named for
-`pancake`, and no tooling layer hides ownership, allocation, I/O, scheduling, or
-authority.
+Performance is part of that contract: every allocation and copy on the wire
+path is forbidden, intentional, or measured. Setup follows the same rule,
+so build steps stay obvious, examples compile, public artifacts keep the
+plain `pancake` name, and no tooling layer hides ownership, allocation,
+I/O, scheduling, or authority.
 
-**CapTP sticky note (ADR-0079).** `Host` / `PancakeHost` / binding `Host` is the
-multi-session CapTP product (owns `engine.Node`). `engine.Node` is the sans-io
-handoff router. Binding `Session` is the one-partner app object
-(`driver.Session`). `BlockingSession` is `Served` + `net.Connection` with a
-blocking pump. `HostedActor` / `spawnHosted` is embedder-hosted behavior.
-`DialResolver` is transport dial resolve. Goblins `mycapn` is two roles —
-endpoint ≈ Host, router tables ≈ `engine.Node`. Binding `Node` and binding
-`Connection` are deleted; `net.Connection` remains the framed byte stream only.
+## Protocol Authority
 
-## Protocol Oracle, Zig Shape
+OCapN behavior, Spritely Goblins wire fixtures, and pancake's own checked
+protocol scenarios decide what the protocol means, and Zig expresses that
+behavior directly. The Rust, Deno, Python, and Racket bindings prove the C
+ABI is consumable; they are never the authority for the protocol's
+semantics, and a binding earns a compatibility claim only after it has been
+dogfooded.
 
-OCapN behavior, Spritely Goblins wire fixtures, and pancake's checked protocol
-scenarios are the conformance gates. Zig expresses those boundaries directly;
-Rust dogfood is consumer proof for the C ABI, not the semantic authority.
+A few invariants hold everywhere: semantics stay codec-neutral, session
+state stays authoritative, the canonical engine stays synchronous and does
+no I/O, frame ownership stays explicit with message views borrowed, and the
+C ABI keeps every ownership promise it makes.
 
-Core invariants:
-
-- Semantics are codec-neutral.
-- Session state is authoritative.
-- The canonical engine is sync and does no I/O.
-- Frame ownership is explicit, and message views are borrowed.
-- The C ABI keeps its ownership promises.
-- Conformance fixtures and scenario traces gate every release.
-- Dogfooding comes before compatibility claims.
-
-The local oracle bridge under `test/oracle/` does three things. It enumerates
-the shipped message model. It embeds the pancake-authored Syrup fixture corpus
-under `test/oracle/corpus/`, whose byte vectors are cross-checked through the
+The oracle bridge under `test/oracle/` enumerates the shipped message model
+and embeds a pancake-authored Syrup fixture corpus cross-checked against
 upstream Syrup encoders rather than captured from Goblins (see
-[`test/oracle/README.md`](../test/oracle/README.md)). And it defines the
-session-trace shape the engine scenario tests use. Goblins-canonical wire
-authority comes from the live Goblins peer under `conformance/goblins-peer/` and
-the upstream conformance suite, not this corpus.
-
-Out of the core:
-
-- runtime-specific I/O structure;
-- package-manager-shaped topology;
-- wrapper layers that hide ownership, allocation, or authority decisions.
+[`test/oracle/README.md`](../test/oracle/README.md)). The live Goblins peer
+under `conformance/goblins-peer/` and the upstream OCapN conformance suite
+carry the actual wire authority, and both gate every release.
 
 ## Core Boundary
 
-The canonical core owns protocol semantics and nothing else:
+The canonical core owns protocol semantics and nothing else: no sockets, no
+`std.Io`, no background tasks, no hidden scheduler, and no process-level
+runtime object. Dispatch runs in a layer called `engine`, not `runtime`,
+because it is caller-driven rather than an ambient executor, dispatching a
+session synchronously with no scheduler or tasks of its own.
 
-- no sockets;
-- no `std.Io`;
-- no background tasks;
-- no hidden scheduler;
-- no process-level runtime object.
+The layering is compiler-enforced: each `src/` layer is a build.zig module
+with a one-way import table, so a cross-layer reach is a compile error
+(ADR-0040). The same rule runs one level deeper, so Syrup and Cap'n Proto
+cannot import each other and only the codec root knows both (ADR-0048). The
+four layers that are the OCapN / CapTP protocol itself, model, codec,
+session, and engine, live under `src/ocapn/` (ADR-0044), and `src/root.zig`
+curates the one public `pancake` namespace over all of them.
 
-The driving layer is `engine`, not `runtime`: caller-driven rather than an
-ambient executor, it dispatches a session synchronously and holds no scheduler
-or tasks of its own.
-
-The layering is compiler-enforced. Each `src/` layer is a build.zig module with
-a one-way import table (ADR-0040), so a cross-layer reach is a compile error. The
-same law runs one level deeper: each sibling wire codec is its own module over
-the shared `framing` verdict module, so Syrup and Cap'n Proto cannot import each
-other and only the codec root (`dispatch`, `registry`) knows both (ADR-0048).
-The four layers that _are_ the OCapN / CapTP protocol (`model`, `codec`,
-`session`, `engine`) live under `src/ocapn/` and are reached as
-`pancake.ocapn.<layer>` (ADR-0044). `src/root.zig` curates the one public
-`pancake` namespace over them.
-
-Adapters feed inbound frames, call `Peer.step`, drain outbound frames, and poll
-events. They may use `std.Io`, native transports, or host callbacks, but they
-add no CapTP behavior.
+Adapters feed inbound frames, call `Peer.step`, drain outbound frames, and
+poll events; they may use `std.Io`, native transports, or host callbacks,
+but add no CapTP behavior of their own.
 
 ## Netlayer (`net`)
 
-The netlayer is the one place `std.Io` enters. The arch gate
-(`tools/arch_check.zig`) keeps it out of every core layer: `foundation`,
-`model`, the codec stack (`framing`, `syrup`, `capnp`, and the `codec` root),
-`session`, `engine`, `actors`, `persistent`, and `driver/core`. The build.zig
-layer module tables (ADR-0040) admit `net` as a non-core module imported by the
-`driver` layer, the transport archives, and the public root.
+`net` is the one layer where `std.Io` enters pancake; the architecture gate
+keeps every other layer free of it, and only `driver`, the transport
+archives, and the public root may import it (ADR-0040).
 
-- **One parser (ADR-0029).** Stream frame boundaries are found by the active
-  codec's own decoder (`codec.dispatch.decodePrefix`), which distinguishes
-  `incomplete` (read more), `decoded` (whole frame + consumed length),
-  `malformed`, and `too_large`. The engine consumes that single verdict in
-  `Peer.recvStreamPrefix`; there is no separate length-prefix or delimiter
-  scanner. A deeply nested untrusted prefix is rejected at decode time
-  (`max_decode_nesting`) before it can overflow the stack.
-- **Connection (ADR-0030, ADR-0043).** `net.Connection.pumpOver` folds that
-  parser over a type-erased `std.Io.Reader` and `std.Io.Writer`. One pump cycle
-  encodes and flushes outbound frames, applies one inbound frame without a
-  second parse, and distinguishes graceful EOF from a mid-frame truncation. The
-  framing core is tested with `Reader.fixed` and `Writer.fixed`, without a
-  socket. `Connection` is transport-generic: it borrows the reader and writer
-  interfaces and closes the underlying stream through a `TransportHandle`, so any
-  transport that yields those std.Io interfaces can drive it. `net.tcp` is the
-  only `std.Io.net`-to-socket site. `net.FrameStream` is the peer-less frame
-  boundary the C ABI sits on.
-- **Netlayer contract (ADR-0043).** A transport is a runtime resident, not a
-  privileged built-in. `net.netlayer.Netlayer` is a vtable that dials a locator
-  to a `Connection` and binds a `Listener`. The driver's `connectVia` and
-  `acceptVia` resolve the locator's transport symbol against a caller-owned
-  `[]const net.netlayer.Netlayer` slice through `net.netlayer.resolve`, failing
-  closed on an unknown symbol. Four residents satisfy it: `tcp` through
-  `net.tcp.Resident`; `keyed-tcp` through `net.tcp_keyed` (ADR-0075), which
-  reuses `tcp`'s sockets and owns only locator grammar (`keyed-tcp` dials
-  through the same `std.Io.net`-to-socket site); the in-process switchboard
-  `net.inproc` (ADR-0047), which wires a dialer and listener through byte pipes
-  with no sockets so a full OCapN conversation runs inside one process; and the
-  iroh QUIC netlayer through the resident in `src/net/transport/iroh.zig`
-  (ADR-0055). The inproc and iroh residents each registered without an edit to
-  the driver or the core. The completion loop stays outside this contract, an
-  fd-based option a raw-fd transport may offer beside the netlayer API, not a
-  capability every netlayer must satisfy.
-- **Bounded per-connection memory (ADR-0030, ADR-0041, ADR-0042).**
-  `SessionLimits.max_frame_bytes` caps inbound frame size, so an oversized frame
-  is refused as `too_large` and projected to a `resource_exhausted` abort. The
-  read buffer sizes the steady state, not the largest admissible frame. A frame
-  that outgrows it accumulates once in `net.Spill`, the bounded owned spill
-  shared by the pump, the peer-less frame reader, and the completion loop, freed
-  as soon as it drains, so per-connection memory does not scale with the cap. On
-  the completion loop the read buffers are a shared backend-owned pool
-  (ADR-0054), so an idle connection holds no read-buffer memory. Outbound memory
-  is bounded the same way: when pending reply bytes cross a high-water mark,
-  that connection's reads park until the partner drains the queue, and burst
-  capacity is freed on drain. The blocking pump stays a single fiber by contract, serving
-  cooperative request/response; a partner that streams without draining belongs
-  on the completion loop (ADR-0053). Crossed hellos sits one layer higher: the
-  sans-io host core (`driver_core.Host`) owns the tiebreak registry. A dial
-  registers the outbound before bytes move, an accepted session compares an
-  inbound start-session against it and condemns the losing side, and the
-  engine only projects the typed abort (ADR-0068).
+A single decoder, the active codec's `decodePrefix`, finds every frame
+boundary in a stream and returns one of four verdicts: incomplete, decoded,
+malformed, or too large, so there is no separate delimiter scanner
+(ADR-0029), and a nesting limit rejects a deeply nested prefix before it can
+overflow the stack. `net.Connection.pumpOver` folds that parser over a
+borrowed reader and writer: one pump cycle flushes outbound frames, applies
+one inbound frame without a second parse, and tells a graceful EOF apart
+from a mid-frame truncation (ADR-0030, ADR-0043). `Connection` is
+transport-generic, so any transport that can hand it a reader and a writer
+can drive it; `net.tcp` is the only site where a socket meets `std.Io.net`.
 
-## Actors and local time-travel (`actors`, `persistent`)
+A transport is a resident the runtime plugs in, not a privileged built-in
+(ADR-0043): `net.netlayer.Netlayer` is a vtable that dials a locator into a
+`Connection`, and the driver resolves a locator's transport symbol against a
+caller-owned list, failing closed on an unknown one. Four residents satisfy
+that contract today: `tcp`; `keyed-tcp`, reusing `tcp`'s sockets under its
+own locator grammar (ADR-0075); the in-process switchboard `net.inproc`,
+wiring a dialer and listener through byte pipes with no sockets (ADR-0047);
+and the iroh QUIC netlayer (ADR-0055), the latter two registering without
+an edit to the driver or the core.
 
-The `actors` layer owns opt-in local time-travel: a `Vat` can `snapshot` its
-local actor heap and `restore` it, sharing each actor's state behind a
-non-atomic refcounted box (O(objects), no byte copy), with copy-on-write for
-mutable actors and functional `become` for persistent ones (ADR-0060). It is
-local-only: a snapshot never captures session state and a restore never rewinds
-a peer. The sibling `persistent` leaf supplies one refcounted-HAMT
-`PersistentMap` (ADR-0061) so a persistent actor's incremental `become` is
-O(log n) with structural sharing; it imports nothing and is not on the public
+`SessionLimits.max_frame_bytes` caps inbound frame size, turning an
+oversized frame into a `resource_exhausted` abort. The read buffer is sized
+for the steady state, not the largest admissible frame; an oversized frame
+accumulates once in a bounded owned spill freed as soon as it drains, so
+per-connection memory never scales with the cap (ADR-0030, ADR-0041,
+ADR-0042, ADR-0054). Outbound memory is bounded the same way, parking reads
+once pending reply bytes cross a high-water mark. The blocking pump stays a
+single fiber, good for cooperative request/response; a partner that streams
+without draining belongs on the completion loop instead (ADR-0053).
+Crossed hellos, two peers dialing each other at once, are resolved one layer
+up by the host core described below, not here (ADR-0068).
+
+## Actors And Local Time-Travel (`actors`, `persistent`)
+
+The `actors` layer owns opt-in local time-travel. A `Vat` can snapshot its
+local actor heap and restore it later, sharing each actor's state behind a
+non-atomic refcounted box so the operation is O(objects) with no byte copy;
+mutable actors get copy-on-write, and persistent actors get a functional
+`become` (ADR-0060). Time-travel is local only: a snapshot never captures
+session state, and a restore never rewinds a peer.
+
+The sibling `persistent` leaf supplies one refcounted-HAMT `PersistentMap`
+(ADR-0061), so a persistent actor's incremental `become` runs in O(log n)
+with structural sharing; it imports nothing and does not sit on the public
 namespace.
 
-## Application surface (`driver`)
+## Application Surface (`driver`)
 
-The `driver` layer sits above both the actor turn loop and the netlayer, the one
-place that may touch `std.Io` and the actor vat at once.
+The `driver` layer sits above the actor turn loop and the netlayer; it is the
+one place allowed to touch `std.Io` and the actor vat at the same time.
 
-`driver.BlockingSession` binds an `actors.Vat` to a live `net.Connection` over one
-caller-owned `engine.Peer`, sparing a networked app the hand-written open, pump,
-and dispatch loop. Every read and write is one explicit `BlockingSession.step`, and
-a host that answers until the partner leaves calls `BlockingSession.serve`.
+`driver.BlockingSession` binds a `Served`, the sans-io vat-serve core, to a
+live `net.Connection` over one caller-owned `engine.Peer`, sparing a
+networked app the hand-written open/pump/dispatch loop. Above that sits the
+owning `driver.Session`, the one-partner application object: `driver.connect`
+dials, `driver.listen` hosts, and `Session.call` blocks until the reply
+settles, returning fulfilled, broken, or a `.give`, the typed introduction a
+three-party handoff delivers.
 
-The one-object face above it is the owning `driver.Session`. `driver.connect`
-dials and `driver.listen` hosts, each `accept` handing back a session that
-owns its peer and buffers; one `frame_cap` sizes the buffers and the session's
-frame limit together. `Session.call` blocks until the reply settles and
-returns the outcome into a caller-supplied arena: fulfilled, broken, or a
-`.give`, the typed introduction a three-party handoff delivers.
+A `Host` is the multi-session CapTP product: it owns one identity, one
+`engine.Node`, the sans-io handoff router, many sessions, vows, and the
+crossed-hellos tiebreak (ADR-0079). `driver_core` supplies its sans-io
+version, banned from sockets and threads exactly like `engine` (ADR-0072).
+An embedder, `driver.Bridge` over a completion loop or a language binding
+over `libpancake_driver`, answers the Host's action queue: dial, flush,
+close, entropy, settled or failed (ADR-0068, ADR-0072, ADR-0076). A call
+whose answer is a three-party introduction settles as the introduced
+capability itself, because the host claims the give and withdraws it inside
+the wait; there is no separate redeem verb to call. Language bindings drive
+the same `Host` through `pancake_host_*` rather than rebuilding this tier.
 
-`driver_core` (`src/driver/core/`) is the sans-io multi-session CapTP serve
-core: `Served`, the shared vocabulary, and the byte-fed `Host` that owns one
-identity, one `engine.Node`, many sessions, vows, and the crossed-hellos
-tiebreak (ADR-0072). It is `core = true` in the layer table, so `arch-check`
-bans sockets and threads there exactly as in `engine`. Embedders answer its
-action queue — dial, flush, close, gift-id entropy, settled/failed — whether
-they are `driver.Bridge` over a completion loop, or a language binding over
-`libpancake_driver`.
+### Options vocabulary (ADR-0082)
 
-`driver.Bridge` + `completion.Loop` is the native Zig multi-session CapTP path over
-`driver_core.Host` (ADR-0068/0072/0076). The bridge owns the sockets and answers
-the core's action queue — a dial action becomes a real dial, a flush a socket
-write, a gift-id draw the entropy boundary. A
-call whose answer is a three-party introduction settles as the introduced
-capability itself, because the host claims the give and withdraws inside the
-wait; there is no redeem verb to call. Language bindings do **not** rebuild
-this tier: they drive the same `driver_core.Host` through `pancake_host_*` on
-`libpancake_driver`.
+Several Options structs share field names because they share a concept. They
+are deliberately not merged into one mega-struct:
 
-`driver.Bridge` feeds the same
-`driver_core.Host` from `net.TcpLoop` or `completion.Loop(iroh.Backend, iroh.DialResolver)` (ADR-0076): adoption via
-`Host.openAcceptedOver` / `Host.openDialedOver`, per-event serving via
-`Host.serveEvent`, cross-session flushes via `Loop.armOutbound`, outbound
-redeem dials via `Loop.dialLocator` (OCapN locator parts; the Loop's
-`DialResolver` resolves, the Backend `startDial`s) then
-`exporterDialed` at session open, and a budgeted drive whose breach condemns
-the flooded session. Its first consumers are `zig build tcp-loop` and
-`zig build iroh-bridge-redeem`. Blocking `Netlayer.dial` and completion
-`dialLocator` share the same admission (`DialResolver.resolve` per transport
-family); transport symbol literals live in `model.transport` so netlayers and
-`driver_core` cannot drift.
+| Surface | Owns | Shared names |
+|---------|------|--------------|
+| `session.SessionLimits` | CapTP table and admission caps | `max_frame_bytes`, `queue_cap`, … |
+| `Host.Options.limits` | Full limits projected onto every minted peer | same `SessionLimits` |
+| `SessionOptions.frame_cap` | One owned session's admission | maps to `max_frame_bytes` |
+| `completion.Loop.Options.frame_cap` | Read-buffer pool sizing | not peer admission |
+| `Loop.Options.outbound_high_water` / `fan_in_throttle` / `park_kill_ms` | Backpressure and reclaim | loop I/O only |
+| `Host.Options.bootstrap_durability` | Registry posture (`ephemeral` live; `durable_bootstrap` refused at init until an embedder store) | Host only |
 
-Below these are the explicit-ownership escapes. `connectTcp` and `acceptTcp` are
-thin tcp-named wrappers over `connectVia` / `acceptVia` (same hello and
-admission spine; they still hand the caller the allocator, buffers, and peer
-directly). `BlockingSession.over` wraps a `net.Connection` the caller already
-holds over any stream. All keep actor policy in `driver`, leaving `net` only fd
-readiness and peer I/O. A consumer who outgrows the whole surface reaches the
-raw peer through `BlockingSession.peer`.
+Default Host admission is 1 MiB; the loop's `frame_cap` defaults to 64 KiB.
+Raise either for larger frames or bigger steady-state chunks.
+`driver.ResilientClient` sits above the loop: it classifies `DialError`s,
+rebuilds dial plus handshake as a new CapTP session, and budgets discovery at
+3000 ms times 24 attempts. Embedder metrics ride `Loop.Options.on_park` and
+`ResilientClient.on_dial_outcome`.
+
+Below all of this sit the explicit-ownership escapes, thin wrappers such as
+`connectTcp` that still hand the caller the allocator, buffers, and peer
+directly. A consumer who outgrows the surface entirely reaches the raw peer
+through `BlockingSession.peer`.
 
 ## Session Representation
 
-The session is authoritative state, and its interior is data-oriented: the
-protocol hands out dense, monotonically-allocated integer positions
-(`next_export_position++`, `next_outbound_answer++`, partner-allocated
-import/answer positions), so the session spends those positions as keys instead
-of re-deriving them with linear scans.
+Session state is authoritative, and it is data-oriented. The protocol hands
+out dense, monotonically increasing integer positions
+(`next_export_position++`, `next_outbound_answer++`, plus positions the
+partner allocates), and the session spends them as table keys instead of
+re-deriving them by scanning.
 
-- **Position-keyed tables.** Exports, imports, and inbound/outbound answers are
-  O(1) position-keyed maps, not linearly-scanned lists. Exports and imports
-  share one wire-delta refcount core (`SlotTable`) but wrap it in distinct
-  `ExportTable` and `ImportTable` types, so the cap that bounds partner-driven
-  imports is a property of `ImportTable` rather than a check each call site must
-  restate; answers use `AnswerTable`. GC validation is a single pass with O(1)
-  per-position lookup.
-- **Hot/cold answers.** An answer row is the hot state-machine fields (status +
-  refcount); its pipelining payload (queued calls, listeners, projections,
-  stored resolution) hangs off a pointer allocated only when an answer actually
-  accrues one. The public accessor returns a by-value `AnswerView`.
-- **Byte-keyed tables are hashed.** The session's `bootstrap` registry is a
-  `StringHashMap` whose key bytes live in one per-session byte arena (one free
-  at teardown); the FIFO-evicting `sturdyref_cache` and the individually-removed
-  `pending_enlivens` / imported-promise hosts keep precise per-row ownership,
-  because a bump arena cannot reclaim an evicted row. The handoff `gifts` and
-  `handoff_counts` tables are vat-scoped, not per-session: they live in
-  `engine.bootstrap.GiftRegistry` (ADR-0056) with precise per-row frees, because
-  a re-deposit replaces a row.
-- **Borrowed validation, owned only when retained.** The steady-state inbound
-  path validates and applies authority straight from the borrowed codec
-  projection. An owned message is materialized only when a deliver must be
-  queued for pipelining, the path that retains the message. The rare
-  sub-structure-heavy kinds, such as `gc_*`, `handoff`, `get`, and `index`,
-  materialize one transient copy into a per-turn scratch arena reset at the end
-  of the turn. A steady-state deliver to a live export costs exactly one
-  allocation, the owned-frame copy required by the event model, asserted by
-  `test/engine/alloc_budget_test.zig`.
-- **Forward-cursor argument walks.** The borrowed `Args` / `PositionList` /
-  `PipelinePath` sequences expose a forward `iterator()` whose `next()` advances
-  a codec-interpreted cursor, so the validate / install / materialize walks make
-  one linear pass. Random-access `at(i)` re-scans a byte-framed list from the
-  start, so a loop of `at(i)` is O(n^2) with a per-element indirect call; the
-  iterator is the shape the hot paths use.
-- **Bounded recursion (resilience).** Recursive argument-tree walks are bounded
-  by `SessionLimits.max_nesting_depth`, so an attacker-nested inbound frame
-  fails loudly instead of overflowing the native stack. The walk raises
-  `NestingTooDeep`, which projects to a `resource_exhausted` abort (ADR-0025).
-  `view.toOwned` and `model.argumentsEqual` carry an independent fixed ceiling
-  as a model-layer backstop.
-- **Structural state gate.** Inbound and outbound dispatch run an exhaustive
-  `switch (session.state)` admission gate (`admitInState`) at the dispatch head,
-  so a new state variant cannot silently inherit "admit everything"; the
-  per-message validators hold only kind-specific rules.
-- **Float64 equality is `Object.is`, not IEEE `==`** (ADR-0021): every NaN is
-  Equal to every other NaN and `+0.0` is distinct from `-0.0`, the
-  Pass-Invariant-Equality axis Model.md requires.
+- Exports, imports, and inbound/outbound answers are each O(1) position-keyed
+  maps, not linearly scanned lists, and CapTP's three position namespaces
+  stay three separate tables rather than one merged map (ADR-0080). They do
+  unify on reference identity, though: a near export, a far import, a
+  promise, and an answer are one `Slot` sum type, with the four wire
+  descriptors computed from that slot at render time instead of stored, so
+  pipelining, resolution, and handoff read one shape instead of four.
+  `ImportTable` separately caps partner-driven imports.
+- An answer row keeps its hot state-machine fields inline; its pipelining
+  payload hangs off a pointer allocated only once an answer actually accrues
+  one. Byte-keyed tables are hashed too: the `bootstrap` registry lives in
+  one per-session byte arena, and the handoff `gifts` table is vat-scoped
+  with precise per-row frees, since a re-deposit replaces a row (ADR-0056).
+- The steady-state inbound path validates straight from the borrowed codec
+  projection and only materializes an owned message when a deliver must be
+  queued for pipelining, so a deliver to a live export costs exactly one
+  allocation, a budget `test/engine/alloc_budget_test.zig` asserts. Argument
+  sequences expose a forward iterator for the same reason: a loop that
+  instead re-scans the list with random-access lookups is quadratic.
+- Recursive argument walks are bounded by `SessionLimits.max_nesting_depth`,
+  so an attacker-nested inbound frame fails loudly instead of overflowing
+  the stack (ADR-0025), and dispatch runs an exhaustive
+  `switch (session.state)` admission gate so a new state variant can never
+  silently inherit "admit everything."
+- Float equality uses `Object.is`, not IEEE `==`: every NaN equals every
+  other NaN, and `+0.0` is distinct from `-0.0` (ADR-0021).
 
-### Bare-position keys, no generational handles
-
-pancake allocates its _own_ positions monotonically (`next_export_position++`,
-`next_outbound_answer++`) and never reuses them, so a position it issues is a
-stable key for the life of the session. A _partner_ is not bound by that policy:
-the CapTP spec lets a peer reuse an `answer-pos` once it has been GC'd
-("provided the answer position is not in use, it is a valid answer position";
-`op:gc-answers`: "the `answer-pos` can be re-used"), and import positions are
-likewise partner-named. The slot tables still need no generational handle or ABA
-guard, but not because "positions are never reused": every position-keyed row is
-removed at GC (the answer row and its queued calls, listeners, and resolver
-links die together in `decrementAnswer`). A partner's permitted reuse therefore
-lands on a cleared table, indistinguishable from a fresh position, so a bare
-position is a sufficient key.
-
-The tables are integer-keyed hashes rather than raw position-to-slot vectors
-because partner-allocated positions are attacker-influenced: a hostile peer
-could name a sparse `import_position` and force a flat backing store to grow to
-that index. The hash keeps O(1) lookup without that memory denial-of-service
-risk. pancake's own export and outbound-answer namespaces are dense enough for
-flat vectors, but the tables use one hashed representation for both trusted and
-partner-named positions.
+pancake never reuses a position it allocates itself, so its own positions
+stay stable keys for the session's life. A partner is not bound by that
+policy: CapTP lets a peer reuse an answer position once garbage-collected.
+The slot tables still need no generational handle, though, because a
+position-keyed row is removed at GC entirely, so a partner's reuse always
+lands on a cleared, indistinguishable table. The tables are hashed rather
+than flat vectors for a related reason: a hostile peer could otherwise name
+a sparse import position and force a flat array to grow to that index, a
+memory denial-of-service the hash avoids.
 
 ## Memory Contract
 
-`Frame` owns wire bytes. `FrameView` borrows wire bytes for a bounded call
-scope. Default frame movement is either ownership transfer (`Frame`) or bounded
-borrow (`FrameView`). Session state must not retain borrowed wire memory.
+`Frame` owns wire bytes; `FrameView` borrows wire bytes for a bounded call
+scope, and session state must never retain borrowed wire memory. The decode
+split follows the same rule: `decodeBody` projects a borrowed semantic view
+over frame bytes, while `decodeOwned` materializes an owned value only when
+persistence, tests, or a cross-boundary handoff requires one.
 
-The correct decode split is:
-
-- `decodeBody`: project a borrowed semantic view over frame bytes;
-- `decodeOwned`: materialize an owned semantic value only when persistence,
-  tests, debugging, or cross-boundary ownership require it.
-
-`FrameShape` distinguishes byte storage from word-aligned storage (the `word`
-shape is 8-byte-aligned storage with a byte length divisible by 8). Syrup is
-byte-framed; Cap'n Proto is word-framed. A codec-neutral core keeps that shape
-distinction explicit at the frame boundary instead of flattening every frame to
-generic bytes.
+`FrameShape` also distinguishes byte storage from word-aligned storage (the
+`word` shape is 8-byte-aligned with a length divisible by 8): Syrup is
+byte-framed, Cap'n Proto is word-framed, and a codec-neutral core keeps that
+distinction explicit instead of flattening every frame to generic bytes.
 
 ## Copy Budget
 
-Copies must be named at the boundary where they occur. They are not the default
-frame movement model:
+A copy must be named at the boundary where it happens; it is never the
+default way a frame moves.
 
-- `Frame.initOwned` adopts an already-owned allocation without copying. Callers
-  pass the allocation alignment explicitly so `Frame.deinit` frees with the same
-  metadata used to allocate.
-- `Frame.initExternal` adopts externally managed storage without copying and
-  invokes the supplied release hook on `Frame.deinit`.
-- `test/support/frame.zig` may copy caller bytes into frame-owned allocations
-  for tests and fixtures. Production `Frame` has no copy constructor.
-- `Frame.view` must not allocate or copy.
-- `Peer.sendCopying` names its queueing cost at the API boundary.
-- `Peer.recvBorrowed` retains the transient borrowed wire bytes with a single
-  named copy; `Peer.feedOwned` / `Peer.step` move an already-owned frame into
-  the surfaced event with zero copies.
-- A surfaced `Event` retains the originating frame in the negotiated codec.
-  `Event.view` projects it without allocating; `Event.decodeOwned` materializes
-  an owned model only on demand. The C ABI returns those exact bytes without
-  decoding and re-encoding, so the event surface stays codec-neutral.
-- Test-support frame copy helpers in `test/support/frame.zig` (e.g.
-  `copyFromBorrowed`) materialize borrowed wire bytes for assertions; production
-  paths use owned transfer or bounded borrow instead.
+- `Frame.initOwned` and `Frame.initExternal` both adopt existing storage
+  without copying, the latter calling a supplied release hook on `deinit`;
+  `Frame.view` never allocates or copies.
+- `Peer.sendCopying` names its queueing cost right in its name.
+  `Peer.recvBorrowed` retains transient borrowed wire bytes with exactly one
+  named copy, while `Peer.feedOwned` and `Peer.step` move an already-owned
+  frame into the surfaced event with zero copies.
+- A surfaced `Event` keeps its originating frame in the negotiated codec, so
+  the C ABI hands back those exact bytes without decoding and re-encoding
+  them.
+- `test/support/frame.zig` is the one place allowed to copy caller bytes
+  into frame-owned allocations, for tests and fixtures; production `Frame`
+  has no copy constructor.
 
-The target shape is explicit: inbound C ABI borrowed frames dispatch
-synchronously, inbound C ABI managed frames transfer into a peer-owned queued
-frame without copying, engine-owned frames move by transfer, events return the
-originating frame in the negotiated codec without re-encoding, and outbound C
-ABI returns a managed frame with a release callback. Zig must preserve that
-contract and make accidental copies harder to write.
+Put together: inbound C ABI frames dispatch and transfer without copying,
+engine-owned frames move by transfer, events return their originating frame
+with no re-encoding, and outbound C ABI calls return a managed frame with a
+release callback.
 
 ## C ABI Contract
 
-The C ABI stays boring:
+The C ABI stays boring on purpose: opaque handles, fixed-width integer
+discriminants, `ptr + len` byte views, explicit release functions, callbacks
+that carry caller context, and clear return codes.
 
-- opaque handles;
-- fixed-width integer discriminants;
-- `ptr + len` byte views;
-- explicit release functions;
-- callbacks with caller context;
-- clear return codes.
-
-The C ABI ships as a set of composable per-family archives, linked à la carte,
-rather than one umbrella library (ADR-0059). A consumer links the protocol it
-needs and the transports it chooses, and the pieces compose the way a C program
-that includes two headers and links two archives composes:
+The C ABI ships as a set of composable per-family archives a consumer links
+à la carte rather than one umbrella library (ADR-0059), composing the way a
+C program composes by including two headers and linking two archives:
 
 | Archive                           | Header                           | Exported family                                                                                                                                                                                                                   |
-| --------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `libpancake_ocapn`                | `pancake_ocapn.h`                | the sans-io peer plus the shared vocabulary: `pancake_abi_version`, `pancake_context_*`, `pancake_peer_*`, `pancake_uri_*` / `pancake_locator_*`, the frame/event releases, and `pancake_last_error` / `pancake_clear_last_error`. Multi-session CapTP product work uses `pancake_host_*` |
+| --- | --- | --- |
+| `libpancake_ocapn`                | `pancake_ocapn.h`                | the sans-io peer plus shared vocabulary: `pancake_abi_version`, `pancake_context_*`, `pancake_peer_*`, `pancake_uri_*`/`pancake_locator_*`, frame/event releases, `pancake_last_error`. Multi-session work uses `pancake_host_*` |
 | `libpancake_driver`               | `pancake_driver.h`               | the byte-fed host tier (`pancake_host_*`): multi-session CapTP routing, vows, and three-party handoff an embedder feeds and drains itself (ADR-0072)                                                                                |
-| `libpancake_net`                  | —                                | net-core base; exports nothing under the shipping mechanism (Model A), so it adds no symbol but holds its place in the link recipe                                                                                                |
-| `libpancake_net_transport_tcp`    | `pancake_net_transport_tcp.h`    | `pancake_tcp_*` plus its own `pancake_tcp_last_error` / `_clear`                                                                                                                                                                  |
-| `libpancake_net_transport_inproc` | `pancake_net_transport_inproc.h` | `pancake_inproc_*` plus its own `pancake_inproc_last_error` / `_clear`                                                                                                                                                            |
+| `libpancake_net`                  | —                                | net-core base; exports no symbol of its own but holds its place in the link recipe                                                                                          |
+| `libpancake_net_transport_tcp`    | `pancake_net_transport_tcp.h`    | `pancake_tcp_*` plus its own last-error pair                                                                                                                                                                  |
+| `libpancake_net_transport_inproc` | `pancake_net_transport_inproc.h` | `pancake_inproc_*` plus its own last-error pair                                                                                                                                                            |
 | `libpancake_net_transport_iroh`   | `pancake_net_transport_iroh.h`   | `pancake_iroh_*` (links a Rust sidecar)                                                                                                                                                                                           |
 
-Each archive ships in both static (`.a`) and shared (`.so`) form, exports only
-its own `pancake_<family>_*` symbols, and carries its own last-error reader.
-`libpancake_ocapn` owns the shared vocabulary (the C-visible types, return
-codes, and codec selector) and is the universal base every consumer links. Each
-transport header and `pancake_driver.h` `#include` `pancake_ocapn.h` to share
-those types by layout.
-There is no umbrella archive and no catch-all header (ADR-0059). A transport
-archive shares no runtime symbol with the peer: it cooperates only through the
-`PancakeContext` the consumer creates and through type layout, so the archives
-stay symbol-disjoint and link together without collision (ADR-0055, ADR-0059).
+Each archive exports only its own `pancake_<family>_*` symbols and carries
+its own last-error reader; `libpancake_ocapn` owns the shared C-visible
+types and return codes, so every consumer links it as the universal base.
+There is no umbrella archive and no catch-all header, and a transport
+archive shares no runtime symbol with the peer, cooperating only through
+the `PancakeContext` the consumer creates and through type layout
+(ADR-0055, ADR-0059). The ABI is versioned: `pancake_abi_version` reports
+what the linked library implements so header/library skew is detectable,
+and since the major version is still 0, symbols and layouts can still
+change.
 
-The ABI is versioned. `pancake_ocapn.h` carries `PANCAKE_VERSION_*` macros for
-the version the headers were compiled against. `pancake_abi_version` reports the
-version the linked library implements, so header and library skew is detectable.
-Each shared archive carries a soname tracking the major version, currently `.0`.
-The major version is 0, so the ABI is unstable: symbols, layouts, and return
-codes can still change.
-
-Allocation policy is a context. A `PancakeContext` owns the allocator for a
-family of handles. `pancake_context_new` uses the library-owned allocator, and
-`pancake_context_new_with_allocator` binds host `alloc` and `free` callbacks.
-The `*_in` constructors, such as `pancake_peer_new_in` and
-`pancake_tcp_netlayer_new_in`, allocate from a context. Every allocation made by
-a context-scoped handle frees back through that context: handle objects, managed
-outbound and event frames, adopted inbound frames, and TCP connection/listener
-payloads with their buffers. The context must outlive its handles. In a
-host-backed context the allocator vtable lives inside the context object, and
-the context object itself is allocated through the host callbacks, so the whole
-handle family follows host policy. Callers still free handles only through the
-explicit release functions. The context is allocation policy, not a `free` a
-caller invokes by hand (ADR-0031).
-
-A Zig `std.mem.Allocator`, slices, error unions, futures, and `std.Io` objects
-do not cross the C ABI. Allocation policy crosses as plain C callbacks bound by
-a context, never as a Zig allocator. The blocking TCP endpoint handles
-(`pancake_tcp_*`: cleartext, no TLS) keep this contract. A host that owns the
-peer reads a whole frame, feeds the owned frame to the peer, steps the peer,
-takes outbound frames, and writes them back. Because `std.Io` cannot cross the
-boundary, the I/O backend is an explicit owned handle rather than a hidden
-global runtime: `PancakeTcpNetlayer` owns one `std.Io.Threaded`, created and
-released by the host. `pancake_last_error` re-surfaces the concrete socket cause
-behind a flat `PANCAKE_ERR_IO` (ADR-0030).
+Allocation policy travels as a context rather than a bare allocator. A
+`PancakeContext` owns the allocator for a family of handles, either the
+library's own or host-bound `alloc`/`free` callbacks, and everything a
+context-scoped handle allocates frees back through that same context
+(ADR-0031). A Zig `std.mem.Allocator`, a slice, an error union, or a
+`std.Io` object never crosses the C ABI; only plain C callbacks bound to a
+context do. The blocking TCP endpoint handles follow that contract exactly,
+reading a whole frame, feeding it to the peer, and writing outbound frames
+back, and `pancake_last_error` re-surfaces the concrete socket cause behind
+a flat `PANCAKE_ERR_IO` (ADR-0030).
 
 ## Examples As Contract
 
-Examples are not snippets. They are build targets. The numbered chapters under
-`examples/zig/` are the CapTP walkthrough, reading from the application surface
-down to the raw engine, and [`examples/README.md`](../examples/README.md)
-indexes them. The lower-level mechanics have build targets too:
+Examples are not snippets; they are build targets. The numbered chapters
+under `examples/zig/` walk CapTP from the application surface down to the
+raw engine, and [`examples/README.md`](../examples/README.md) indexes them.
+The lower-level mechanics have build targets of their own too:
 
-- `examples/zig/frame_view.zig` proves the Zig library surface can express owned
-  frame transfer and borrowed views directly.
+- `examples/zig/frame_view.zig` proves the Zig library surface can express
+  owned frame transfer and borrowed views directly.
 - `examples/c/frame_view.c` proves `pancake_ocapn.h` is ordinary C ABI
-  vocabulary and links an exported symbol from `libpancake_ocapn`.
+  vocabulary by linking an exported symbol from `libpancake_ocapn`.
 - `examples/c/context_alloc.c` proves a C embedder can own every pancake
-  allocation: it drives a `PancakeContext` from host `alloc`/`free` callbacks
-  over a bump arena, creates a peer in it, and asserts the frees balance the
-  allocations.
+  allocation, driving a `PancakeContext` from host callbacks over a bump
+  arena and asserting the frees balance the allocations.
 - `examples/c/echo_peer.c` links `libpancake_ocapn` and
   `libpancake_net_transport_tcp` together, the à-la-carte composition a TCP
   consumer uses.
-- `examples/c/compose_transports.c` includes `pancake_ocapn.h`,
-  `pancake_net_transport_tcp.h`, and `pancake_net_transport_inproc.h` and links
-  all three archives into one binary. It is the standing proof that the archives
-  compose without a duplicate-symbol collision and that each family resolves
-  (ADR-0059).
+- `examples/c/compose_transports.c` links `libpancake_ocapn` with both the
+  tcp and inproc transport archives into one binary, standing proof that
+  the archives compose without a symbol collision (ADR-0059).
 
 `zig build check` runs every example.

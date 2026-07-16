@@ -568,6 +568,12 @@ int32_t pancake_peer_send_index(PancakePeer *peer, const PancakeReference *recei
    wrong-shape value). `answer` must come from pancake_peer_next_answer on this
    peer; `tag` is borrowed. */
 int32_t pancake_peer_send_untag(PancakePeer *peer, const PancakeReference *receiver, const uint8_t *tag, size_t tag_len, uint64_t answer);
+/* Queue an op:abort that tears the CapTP session down after pancake_peer_step
+   commits the frame to outbound. `kind_name` is an AbortKind wire label (e.g.
+   "GracefulShutdown"); unknown labels are PANCAKE_ERR_INVALID_ARGUMENT.
+   `message` is borrowed and copied onto the queued abort. After a successful
+   step the peer is no longer open (pancake_peer_session_is_open is false). */
+int32_t pancake_peer_send_abort(PancakePeer *peer, const uint8_t *kind_name, size_t kind_name_len, const uint8_t *message, size_t message_len);
 /* Construct and queue an op:gc-export releasing wire-delta counts on imports
    this peer holds: positions[i] is released by deltas[i], for `len` parallel
    entries (both borrowed; len == 0 is PANCAKE_ERR_INVALID_ARGUMENT). */

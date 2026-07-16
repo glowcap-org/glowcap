@@ -79,10 +79,7 @@ fn residentDial(
     // shape + required hint + hostport parse.
     const direct = netlayer.directAddrHint(loc.hints) orelse &.{};
     const address = tcp.DialResolver.resolve(loc.transport, loc.designator, direct) catch return error.InvalidAddress;
-    return tcp.connectAddress(self.io, peer, address, bufs.read, bufs.write, .{}) catch |err| switch (err) {
-        error.OutOfMemory => error.OutOfMemory,
-        else => error.ConnectionLost,
-    };
+    return tcp.connectAddress(self.io, peer, address, bufs.read, bufs.write, .{}) catch |err| tcp.classifyConnect(err);
 }
 
 fn residentListen(

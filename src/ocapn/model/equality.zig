@@ -7,13 +7,14 @@
 //! hold. Which codec or Syrup profile carried a value doesn't matter: the same
 //! two values compare equal either way.
 //!
-//! The case that really earns its keep is `Reference.far`. Once a host holds to
-//! one session per peer pair (ADR-0012's session-pair-uniqueness posture),
-//! comparing two far refs across sessions comes down to comparing `(import_position,
-//! kind)` within a session. The other arms compare field by field, and promise
-//! paths and arguments recurse, so the check is total over the whole tree. (The
-//! finer question of what equality *means* for container shapes is a separate
-//! conformance concern; the structural groundwork is here.)
+//! The case that really earns its keep is `Reference.far`. ADR-0012's
+//! session-pair-uniqueness posture means same-session equality is on
+//! `(import_position, kind)`; Host enrollment refuse for a second session to
+//! the same peer is not yet the gate that makes cross-session far-ref
+//! comparison collapse the same way. The other arms compare field by field,
+//! and promise paths and arguments recurse, so the check is total over the
+//! whole tree. (The finer question of what equality *means* for container
+//! shapes is a separate conformance concern; the structural groundwork is here.)
 
 const std = @import("std");
 const model = @import("mod.zig");

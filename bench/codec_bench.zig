@@ -91,7 +91,9 @@ fn benchDecode(
 /// Steady-state inbound dispatch: feed a borrowed `op:deliver` to a live export
 /// and drain the surfaced event. Complements `test/engine/alloc_budget_test.zig`.
 fn benchDispatch(io: std.Io, allocator: std.mem.Allocator, turns: usize) !void {
-    const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
+    // No-answer (`#f` answer) deliver: driven repeatedly to one peer below, so a
+    // live-answer position would be refused on the second apply.
+    const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
     try peer.exportObject(7);

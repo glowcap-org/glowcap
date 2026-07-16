@@ -96,8 +96,9 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
 		if (!h.closing) throw err;
 	} finally {
 		// The wire is gone: pending far vows can never settle, so break them
-		// (classified as closure — `closingFlag` is set first) and release the
-		// conn, freeing the fd. Idempotent with an application `close()`.
+		// (classified as closure — `closingFlag` is set first), drain the FAIL
+		// completions the break queued (same spine as Python/Rust/Racket), then
+		// release the conn. Idempotent with an application `close()`.
 		if (!h.closing) {
 			h.closingFlag = true;
 			const msg = utf8Encoder.encode("connection closed");
@@ -107,6 +108,7 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
 					ab(msg),
 					BigInt(msg.length),
 				));
+				await h.kickActions();
 			} catch {
 				// teardown is best-effort; release still reclaims the rows
 			}
@@ -180,10 +182,10 @@ export function lastAbort(h: PumpHandle): AbortDetail | null {
 	};
 }
 
-/** The feed refusal choreography: capture the host's last error BEFORE the
- * abort reader can clobber it, read the typed cause (`last_abort`), write the
- * typed op:abort the core already projected so the partner hears why, then
- * throw. */
+/** Capture last_error / last_abort before another verb can clobber them,
+ * then run the shared action drain so the projected op:abort (and any
+ * CLOSE/FAIL queued with it) leave through the same spine as a steady
+ * FLUSH — not a private `take_outbound` path. */
 export async function raiseFeedRefusal(
 	h: PumpHandle,
 	rc: number,
@@ -191,7 +193,7 @@ export async function raiseFeedRefusal(
 	const err = hostError(rc);
 	err.abort = lastAbort(h);
 	try {
-		await flushOutbound(h);
+		await h.kickActions();
 	} catch {
 		// the transport may already be gone; the local typed error stands
 	}

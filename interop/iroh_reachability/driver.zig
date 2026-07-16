@@ -72,7 +72,7 @@ fn hostOnce(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf, 0);
     defer cv.deinit();
     std.debug.print("iroh-reachability: server accepted a discovered partner and opened the keyed session\n", .{});
 
@@ -85,8 +85,10 @@ fn hostOnce(
 /// visibility over real discovery infrastructure is seconds-scale and variable,
 /// which is exactly why this step is opt-in and never a hermetic gate.
 const publish_settle_ms: u64 = 8_000;
-const dial_retry_ms: u64 = 5_000;
-const dial_max_attempts: usize = 12;
+// Discovery dial budget: lockstep with `driver.ResilientClient` / ADR-0082
+// (`PANCAKE_DISCOVERY_DIAL_*`). Was 5s×12; unified to the binding budget.
+// Attempt/backoff values are read from `pancake.driver.discovery_*` inside
+// `callByIdOnlyRetrying` so this file cannot drift from the policy owner.
 
 /// Dial by id alone, retrying while discovery has not yet resolved the partner.
 /// Only a dial-stage `ConnectionLost` (the sidecar's "no addressing information"
@@ -98,14 +100,29 @@ fn callByIdOnlyRetrying(
     server_id: []const u8,
     allocator: std.mem.Allocator,
 ) !void {
-    var attempt: usize = 1;
+    // Continuity policy is `driver.ResilientClient` / `isTransientDialError`
+    // (ADR-0082). This harness owns `std.Io` sleep, so it applies the same
+    // classifier inline rather than remapping CapTP faults (e.g. WrongReply)
+    // onto DialError.
+    const max = pancake.driver.discovery_max_attempts;
+    const retry_ms = pancake.driver.discovery_retry_ms;
+    var attempt: u32 = 1;
     while (true) : (attempt += 1) {
         if (callByIdOnly(netlayers, server_id, allocator)) |_| {
             return;
         } else |err| {
-            if (err != error.ConnectionLost or attempt >= dial_max_attempts) return err;
+            const transient = switch (err) {
+                error.InvalidAddress => pancake.driver.isTransientDialError(error.InvalidAddress),
+                error.ConnectionRefused => pancake.driver.isTransientDialError(error.ConnectionRefused),
+                error.NetworkUnreachable => pancake.driver.isTransientDialError(error.NetworkUnreachable),
+                error.TimedOut => pancake.driver.isTransientDialError(error.TimedOut),
+                error.ConnectionLost => pancake.driver.isTransientDialError(error.ConnectionLost),
+                error.OutOfMemory => pancake.driver.isTransientDialError(error.OutOfMemory),
+                else => false,
+            };
+            if (!transient or attempt >= max) return err;
             std.debug.print("iroh-reachability: dial attempt {d} not yet resolvable ({s}); retrying after publish propagates\n", .{ attempt, @errorName(err) });
-            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(dial_retry_ms), .real) catch {};
+            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(retry_ms), .real) catch {};
         }
     }
 }
@@ -132,7 +149,7 @@ fn callByIdOnly(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, 0);
     defer cv.deinit();
     std.debug.print("iroh-reachability: client dialed by node id alone and opened the keyed session\n", .{});
 
@@ -165,12 +182,12 @@ pub fn main(init: std.process.Init) !void {
         return err;
     };
     const server_secret = pancake.foundation.crypto.SecretKey.fromSeed(server_seed);
-    var server = iroh.Resident.init(io, &server_seed, .discovery) catch |err| {
+    var server = iroh.Resident.init(io, &server_seed, .{ .reachability = .discovery }) catch |err| {
         std.debug.print("iroh-reachability: server endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };
     defer server.deinit();
-    var client = iroh.Resident.init(io, null, .discovery) catch |err| {
+    var client = iroh.Resident.init(io, null, .{ .reachability = .discovery }) catch |err| {
         std.debug.print("iroh-reachability: client endpoint bind failed: {s}\n", .{@errorName(err)});
         return err;
     };

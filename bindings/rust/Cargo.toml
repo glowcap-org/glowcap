@@ -62,23 +62,28 @@ tokio = { version = "1", default-features = false, features = ["process"] }
 
 # Live interop proof: a peer on the C ABI holds a keyed OCapN conversation with a
 # real Goblins vat. Run via `zig build rust-goblins-interop` (needs racket +
-# goblins); the async I/O surface it drives over is the `async` feature.
+# goblins); the async I/O surface it drives over is the `async` feature. The
+# source lives under `interop/goblins_interop/`, alongside the Deno/Python/
+# Racket goblins clients it mirrors.
 [[example]]
-name = "goblins_interop"
+name = "rust_client"
+path = "../../interop/goblins_interop/rust_client.rs"
 required-features = ["async"]
 
 # Live three-party gift: the binding deposits a capability with a real Goblins
 # exporter and the recipient withdraws it. Run via `zig build rust-goblins-gift`
 # (needs racket + goblins); drives over the `async` I/O surface.
 [[example]]
-name = "goblins_gift"
+name = "rust_gift_client"
+path = "../../interop/goblins_interop/rust_gift_client.rs"
 required-features = ["async"]
 
 # Live three-party handoff: the binding redeems a give from a real Goblins
 # introducer and calls the exporter. Run via `zig build rust-goblins-handoff`
 # (needs racket + goblins); drives over the `async` I/O surface.
 [[example]]
-name = "goblins_handoff"
+name = "rust_handoff_client"
+path = "../../interop/goblins_interop/rust_handoff_client.rs"
 required-features = ["async"]
 
 # Live iroh scale proof: many concurrent connections served from one readiness

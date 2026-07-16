@@ -171,12 +171,14 @@ pub fn applySend(self: *Session, message: model.Message) !void {
             if (self.handshake_remote_received) try self.transitionToOpen();
             self.handshake_local_sent = true;
         },
-        // No send-side authority change beyond the `retainSentExports`
-        // accounting above: `op:listen` anchors at the engine seam, `op:handoff`
-        // carries its own gift bookkeeping, and `op:abort` tears the session
-        // down. Listing them explicitly (rather than `else`) makes a new
-        // `model.Message` kind fail to compile until its apply decision is
-        // classified here.
+        // No send-side table mutation beyond the `retainSentExports` accounting
+        // above: `op:listen` anchors at the engine seam, `op:handoff` carries
+        // its own gift bookkeeping, and `op:abort` records here without closing
+        // — CapTP close (when required) is `Peer.commitAbortOutbound` after the
+        // frame is on `outbound`, so the partner can still take it. Listing
+        // them explicitly (rather
+        // than `else`) makes a new `model.Message` kind fail to compile until
+        // its apply decision is classified here.
         .listen, .handoff, .abort => {},
     }
 }
@@ -391,9 +393,8 @@ fn retainSentExportArg(self: *Session, arg: model.Argument, depth: usize) RecvVi
 fn applyGcAnswerDecrementInbound(self: *Session, positions: []const u64) Error!void {
     for (positions) |position| {
         if (try decrementAnswer(self, &self.inbound_answers, model.AnswerPosition.from(position))) {
-            if (self.v1_0_inbound_resolvers.fetchRemove(model.AnswerPosition.from(position))) |kv| {
-                std.debug.assert(self.v1_0_inbound_resolver_answers.remove(kv.value));
-            }
+            // Drop the whole link (both directions) with the answer it describes.
+            _ = self.v1_0_inbound_resolver_link.removeByKey(model.AnswerPosition.from(position));
         }
     }
 }
@@ -408,8 +409,10 @@ fn applyGcAnswerDecrementInbound(self: *Session, positions: []const u64) Error!v
 fn applyGcAnswerDecrementOutbound(self: *Session, positions: []const u64) Error!void {
     for (positions) |position| {
         if (try decrementAnswer(self, &self.outbound_answers, model.AnswerPosition.from(position))) {
-            if (self.v1_0_outbound_resolver_answers.fetchRemove(model.AnswerPosition.from(position))) |kv| {
-                std.debug.assert(self.v1_0_outbound_resolvers.remove(kv.value));
+            // Drop the whole link by its answer side; `fetchRemoveByValue` hands
+            // back the resolver export so the release step below — which the
+            // `BiMap` deliberately does not own — stays explicit here.
+            if (self.v1_0_outbound_resolver_link.fetchRemoveByValue(model.AnswerPosition.from(position))) |resolver_export| {
                 // Release the resolver export's own reference (the count-1
                 // `allocateExport` gave it in `mintOutboundResolver`, on which the
                 // wire mention retained one more). The answer is gone, so the
@@ -419,7 +422,7 @@ fn applyGcAnswerDecrementOutbound(self: *Session, positions: []const u64) Error!
                 // session teardown, so a long V1.0 session leaks one export per
                 // answered deliver. `catch` tolerates a partner that already
                 // over-released the mention (a separate GC protocol violation).
-                self.exports.decrement(kv.value, 1) catch {};
+                self.exports.decrement(resolver_export, 1) catch {};
             }
         }
     }
@@ -444,14 +447,19 @@ fn decrementAnswer(self: *Session, table: *AnswerTable, position: model.AnswerPo
 /// are partner-named and capped by `SessionLimits.max_inbound_answers`;
 /// outbound rows are positions we allocate, bounded by our own sends, so the
 /// cap is the direction's policy, not a property of which pointer was passed.
-/// Idempotent: an already-present row is left untouched (the engine installs a
-/// queued pipelined call's answer at queue time and again at redirect time).
+/// Idempotent for a still-pending row (the engine installs a queued pipelined
+/// call's answer at queue time and again at redirect time). A settled inbound
+/// row must not be quietly reused: that path used to no-op here and then fail
+/// on our outbound resolve with an unprojected `UnexpectedMessage`.
 pub fn installAnswer(self: *Session, direction: AnswerDirection, position: model.AnswerPosition) !void {
     const table = switch (direction) {
         .inbound => &self.inbound_answers,
         .outbound => &self.outbound_answers,
     };
-    if (table.contains(position)) return;
+    if (table.getPtr(position)) |entry| {
+        if (entry.status() != .pending) return Error.UnexpectedMessage;
+        return;
+    }
     if (direction == .inbound and table.len() >= self.limits.max_inbound_answers) {
         return Error.InboundAnswerCapExceeded;
     }

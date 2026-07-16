@@ -33,6 +33,33 @@ from ._ffi_ocapn import (
     _ManagedFrame,
     _Reference,
 )
+from ._layouts_gen import (
+    PANCAKE_DIAL_PLAN_ADDRESSES_LEN_OFF,
+    PANCAKE_DIAL_PLAN_ADDRESSES_OFF,
+    PANCAKE_DIAL_PLAN_HOST_LEN_OFF,
+    PANCAKE_DIAL_PLAN_HOST_OFF,
+    PANCAKE_DIAL_PLAN_PORT_OFF,
+    PANCAKE_DIAL_PLAN_REACH_KIND_OFF,
+    PANCAKE_DIAL_PLAN_REACH_VALUE_OFF,
+    PANCAKE_DIAL_PLAN_SHAPE_OFF,
+    PANCAKE_DIAL_PLAN_SIZE,
+    PANCAKE_HOST_ACTION_DESIGNATOR_LEN_OFF,
+    PANCAKE_HOST_ACTION_DESIGNATOR_OFF,
+    PANCAKE_HOST_ACTION_DIRECT_ADDRESSES_HINT_LEN_OFF,
+    PANCAKE_HOST_ACTION_DIRECT_ADDRESSES_HINT_OFF,
+    PANCAKE_HOST_ACTION_KIND_OFF,
+    PANCAKE_HOST_ACTION_LOCATOR_LEN_OFF,
+    PANCAKE_HOST_ACTION_LOCATOR_OFF,
+    PANCAKE_HOST_ACTION_MESSAGE_LEN_OFF,
+    PANCAKE_HOST_ACTION_MESSAGE_OFF,
+    PANCAKE_HOST_ACTION_SESSION_OFF,
+    PANCAKE_HOST_ACTION_SIZE,
+    PANCAKE_HOST_ACTION_TICKET_OFF,
+    PANCAKE_HOST_ACTION_TRANSPORT_LEN_OFF,
+    PANCAKE_HOST_ACTION_TRANSPORT_OFF,
+    PANCAKE_HOST_ACTION_VALUE_OFF,
+    PANCAKE_HOST_PUMP_HOOKS_SIZE,
+)
 from ._lib_resolve import _lib_path
 
 
@@ -81,8 +108,8 @@ class _DialPlan(ctypes.Structure):
 def _pin_layout() -> None:
     # The layout gate, the Rust mirror's `const` assert block made Pythonic
     # (bindings/rust/src/sys/driver.rs): the hand-mirrored struct is pinned at
-    # import time against the LP64 sizes and offsets pancake_driver.h
-    # documents, hand-copied here — so the gate catches a mirror that drifts
+    # import time against the sizes and offsets `_layouts_gen` reflects off
+    # the real Zig C ABI types — so the gate catches a mirror that drifts
     # from its documented layout, not a C-side change that updates neither;
     # the dogfoods defend that behaviorally. A plain `raise` rather than
     # `assert`, so `python -O` cannot strip the gate.
@@ -90,55 +117,55 @@ def _pin_layout() -> None:
     # declared (_ffi_ocapn._pin_layout); this pin owns only _HostAction,
     # this module's own declaration.
     got_size = ctypes.sizeof(_HostAction)
-    if got_size != 176:
+    if got_size != PANCAKE_HOST_ACTION_SIZE:
         raise ImportError(
             f"pancake FFI layout drift: sizeof(_HostAction) == {got_size}, "
-            f"pancake_driver.h says 176; re-mirror the struct"
+            f"expected {PANCAKE_HOST_ACTION_SIZE}; re-mirror the struct"
         )
     expected_offsets = (
-        ("kind", 0),
-        ("ticket", 8),
-        ("conn", 16),
-        ("locator", 24),
-        ("locator_len", 32),
-        ("transport", 40),
-        ("transport_len", 48),
-        ("designator", 56),
-        ("designator_len", 64),
-        ("direct_addresses_hint", 72),
-        ("direct_addresses_hint_len", 80),
-        ("value", 88),
-        ("message", 160),
-        ("message_len", 168),
+        ("kind", PANCAKE_HOST_ACTION_KIND_OFF),
+        ("ticket", PANCAKE_HOST_ACTION_TICKET_OFF),
+        ("conn", PANCAKE_HOST_ACTION_SESSION_OFF),
+        ("locator", PANCAKE_HOST_ACTION_LOCATOR_OFF),
+        ("locator_len", PANCAKE_HOST_ACTION_LOCATOR_LEN_OFF),
+        ("transport", PANCAKE_HOST_ACTION_TRANSPORT_OFF),
+        ("transport_len", PANCAKE_HOST_ACTION_TRANSPORT_LEN_OFF),
+        ("designator", PANCAKE_HOST_ACTION_DESIGNATOR_OFF),
+        ("designator_len", PANCAKE_HOST_ACTION_DESIGNATOR_LEN_OFF),
+        ("direct_addresses_hint", PANCAKE_HOST_ACTION_DIRECT_ADDRESSES_HINT_OFF),
+        ("direct_addresses_hint_len", PANCAKE_HOST_ACTION_DIRECT_ADDRESSES_HINT_LEN_OFF),
+        ("value", PANCAKE_HOST_ACTION_VALUE_OFF),
+        ("message", PANCAKE_HOST_ACTION_MESSAGE_OFF),
+        ("message_len", PANCAKE_HOST_ACTION_MESSAGE_LEN_OFF),
     )
     for name, want in expected_offsets:
         got = getattr(_HostAction, name).offset
         if got != want:
             raise ImportError(
                 f"pancake FFI layout drift: _HostAction.{name} at offset {got}, "
-                f"pancake_driver.h says {want}; re-mirror the struct"
+                f"expected {want}; re-mirror the struct"
             )
     plan_size = ctypes.sizeof(_DialPlan)
-    if plan_size != 56:
+    if plan_size != PANCAKE_DIAL_PLAN_SIZE:
         raise ImportError(
             f"pancake FFI layout drift: sizeof(_DialPlan) == {plan_size}, "
-            f"pancake_driver.h says 56; re-mirror the struct"
+            f"expected {PANCAKE_DIAL_PLAN_SIZE}; re-mirror the struct"
         )
     for name, want in (
-        ("shape", 0),
-        ("host", 8),
-        ("host_len", 16),
-        ("port", 24),
-        ("addresses", 32),
-        ("addresses_len", 40),
-        ("reach_kind", 48),
-        ("reach_value", 52),
+        ("shape", PANCAKE_DIAL_PLAN_SHAPE_OFF),
+        ("host", PANCAKE_DIAL_PLAN_HOST_OFF),
+        ("host_len", PANCAKE_DIAL_PLAN_HOST_LEN_OFF),
+        ("port", PANCAKE_DIAL_PLAN_PORT_OFF),
+        ("addresses", PANCAKE_DIAL_PLAN_ADDRESSES_OFF),
+        ("addresses_len", PANCAKE_DIAL_PLAN_ADDRESSES_LEN_OFF),
+        ("reach_kind", PANCAKE_DIAL_PLAN_REACH_KIND_OFF),
+        ("reach_value", PANCAKE_DIAL_PLAN_REACH_VALUE_OFF),
     ):
         got = getattr(_DialPlan, name).offset
         if got != want:
             raise ImportError(
                 f"pancake FFI layout drift: _DialPlan.{name} at offset {got}, "
-                f"pancake_driver.h says {want}; re-mirror the struct"
+                f"expected {want}; re-mirror the struct"
             )
 
 
@@ -161,6 +188,35 @@ _HostBehavior = ctypes.CFUNCTYPE(
     ctypes.POINTER(_Argument),
 )
 
+# PancakeHostPumpArmFn / PancakeHostPumpHooks — sync arms for
+# pancake_host_pump_drain; bindings park decoded actions and await after.
+_HostPumpArmFn = ctypes.CFUNCTYPE(
+    ctypes.c_int32,
+    ctypes.c_void_p,
+    ctypes.c_void_p,
+    ctypes.POINTER(_HostAction),
+    ctypes.POINTER(ctypes.c_uint32),
+)
+
+
+class _HostPumpHooks(ctypes.Structure):
+    _fields_ = [
+        ("ctx", ctypes.c_void_p),
+        ("flush", _HostPumpArmFn),
+        ("close", _HostPumpArmFn),
+        ("need_gift_id", _HostPumpArmFn),
+        ("complete", _HostPumpArmFn),
+        ("dial", _HostPumpArmFn),
+    ]
+
+
+_hooks_size = ctypes.sizeof(_HostPumpHooks)
+if _hooks_size != PANCAKE_HOST_PUMP_HOOKS_SIZE:
+    raise ImportError(
+        f"pancake FFI layout drift: sizeof(_HostPumpHooks) == {_hooks_size}, "
+        f"expected {PANCAKE_HOST_PUMP_HOOKS_SIZE}; re-mirror the struct"
+    )
+
 
 def _load():
     P = ctypes.c_void_p
@@ -179,6 +235,7 @@ def _load():
         "pancake_host_release": ([P], None),
         "pancake_host_designator_from_seed": ([P, size, P, size], i32),
         "pancake_host_set_self_designator": ([P, P, size], i32),
+        "pancake_host_set_session_limits": ([P, size, size], i32),
         "pancake_host_session_open_dialed_locator": ([P, P, size, P, size, ctypes.POINTER(P)], i32),
         # Resolve a dial to a _DialPlan (grammar + hint + iroh posture); free function.
         "pancake_host_plan_dial": ([P, size, P, size, P, size, u32, u32, ctypes.POINTER(_DialPlan)], i32),
@@ -189,6 +246,7 @@ def _load():
         "pancake_host_session_feed_bytes": ([P, P, size, size_p], i32),
         "pancake_host_session_take_outbound": ([P, ctypes.POINTER(_ManagedFrame)], i32),
         "pancake_host_next_action": ([P, ctypes.POINTER(_HostAction)], i32),
+        "pancake_host_pump_drain": ([P, ctypes.POINTER(_HostPumpHooks), ctypes.POINTER(u32)], i32),
         "pancake_host_dialed": ([P, u64, P], i32),
         "pancake_host_dial_failed": ([P, u64, P, size], i32),
         "pancake_host_provide_gift_id": ([P, u64, P, size], i32),

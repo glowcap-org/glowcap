@@ -58,7 +58,7 @@ test "finalizer-driven gc-export churn reclaims import rows and holds flat heap"
     const grown = after - before;
     if (grown > 4096) {
         std.debug.print(
-            "gc reclamation regression: {d} import/release pairs grew live heap by {d} B — released rows are not reclaimed (ADR-0063)\n",
+            "gc reclamation regression: {d} import/release pairs grew live heap by {d} B — released rows are not reclaimed\n",
             .{ churn - 2, grown },
         );
         return error.ImportRowsNotReclaimed;

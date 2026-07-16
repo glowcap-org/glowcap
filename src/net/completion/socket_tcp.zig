@@ -120,7 +120,7 @@ fn openStream(comptime os: Os) !i32 {
         },
         .linux => {
             const fd_rc = linux.socket(linux.AF.INET, linux.SOCK.STREAM, 0);
-            try checkLinux(fd_rc);
+            try checkLinux(fd_rc, error.SocketFailed);
             return @intCast(fd_rc);
         },
     }
@@ -142,7 +142,7 @@ fn setReuseAddr(comptime os: Os, fd: i32) !void {
                 linux.SO.REUSEADDR,
                 std.mem.asBytes(&enable),
                 @sizeOf(u32),
-            ));
+            ), error.SocketFailed);
         },
     }
 }
@@ -154,7 +154,7 @@ fn bind(comptime os: Os, fd: i32, addr: *SockaddrIn(os)) !void {
             if (c.bind(fd, @ptrCast(addr), @sizeOf(SockaddrIn(os))) < 0) return error.BindFailed;
         },
         .linux => {
-            try checkLinux(linux.bind(fd, @ptrCast(addr), @sizeOf(SockaddrIn(os))));
+            try checkLinux(linux.bind(fd, @ptrCast(addr), @sizeOf(SockaddrIn(os))), error.BindFailed);
         },
     }
 }
@@ -166,7 +166,7 @@ fn listen(comptime os: Os, fd: i32, backlog: u31) !void {
             if (c.listen(fd, backlog) < 0) return error.ListenFailed;
         },
         .linux => {
-            try checkLinux(linux.listen(fd, backlog));
+            try checkLinux(linux.listen(fd, backlog), error.ListenFailed);
         },
     }
 }
@@ -178,9 +178,31 @@ fn closeFd(comptime os: Os, fd: i32) void {
     }
 }
 
-fn checkLinux(rc: usize) !void {
+/// The typed setup-fault set both OS siblings speak: the actionable errno axis
+/// plus the per-operation fallback. The Linux path once collapsed every
+/// unrecognized fault to one `SyscallFailed`, losing which syscall failed while
+/// the kqueue sibling already named each; `checkLinux` now takes the operation's
+/// fallback so both name the operation (ADR-0081, contract 1).
+const CheckError = error{
+    AddressInUse,
+    PermissionDenied,
+    AddressNotAvailable,
+    SocketFailed,
+    BindFailed,
+    ListenFailed,
+};
+
+fn checkLinux(rc: usize, comptime fallback: CheckError) CheckError!void {
     return switch (linux.errno(rc)) {
         .SUCCESS => {},
-        else => error.SyscallFailed,
+        // Name the actionable bind/listen faults so openListener's caller can
+        // tell "my prior socket is in TIME_WAIT / a squatter holds the port"
+        // (retry on another port) from a fatal misconfig (fail hard) — the
+        // decision a keyed-tcp restart and a reconnecting client must make
+        // (ADR-0081). Everything else names the operation that failed.
+        .ADDRINUSE => error.AddressInUse,
+        .ACCES => error.PermissionDenied,
+        .ADDRNOTAVAIL => error.AddressNotAvailable,
+        else => fallback,
     };
 }

@@ -53,7 +53,7 @@ pub use session_shared::{Caretaker, Ref};
 #[cfg(feature = "async")]
 mod host;
 #[cfg(feature = "async")]
-pub use host::Host;
+pub use host::{Host, HostOptions};
 #[cfg(feature = "async")]
 mod trampoline;
 // Byte-fed embedder pump: feed / flush / serve-loop / feed-refusal (crate-private).

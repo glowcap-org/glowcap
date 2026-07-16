@@ -892,3 +892,95 @@ test "faultToClosed: a non-transport fault during a blocking call breaks far vow
     try std.testing.expect(capture.broke);
     try std.testing.expect(capture.reasonHas("connection failed"));
 }
+
+/// Manual dial (not `connectTcp`, whose bundled handshake is unbounded): dial
+/// the socket, bind the vat over it, arm the deadline, then drive the keyed
+/// handshake ourselves so the timeout has an entry point. A partner that
+/// completes connect and then never speaks must break the handshake, not park
+/// the fiber (ADR-0081, contract 2).
+fn silentPartnerHandshakeTimesOut(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
+    var peer = engine.Peer.initNegotiating(allocator);
+    defer peer.deinit();
+    peer.session_state.limits.max_frame_bytes = frame_cap;
+
+    const read_buf = try allocator.alloc(u8, 64);
+    defer allocator.free(read_buf);
+    const write_buf = try allocator.alloc(u8, frame_cap);
+    defer allocator.free(write_buf);
+
+    var resident = tcp.Resident{ .io = io };
+    const netlayers = [_]net.netlayer.Netlayer{resident.netlayer()};
+    var designator_buf: [tcp.designator_buf_len]u8 = undefined;
+    const locator = tcp.locator(&designator_buf, address);
+    const nl = net.netlayer.resolve(&netlayers, locator.transport).?;
+    const conn = try nl.dial(&peer, locator, .{ .read = read_buf, .write = write_buf });
+
+    var vat = driver.BlockingSession.over(allocator, &peer, conn);
+    defer vat.deinit();
+    vat.handshake_timeout_ms = 200;
+
+    const ident: driver.Identity = .ephemeral;
+    const self_locator: model.PeerLocator = .{
+        .transport = locator.transport,
+        .designator = ident.dialedDesignator(),
+        .hints = model.Hints.emptyFalse(),
+    };
+    try std.testing.expectError(driver.Error.HandshakeTimedOut, vat.startKeyedSession(self_locator));
+}
+
+test "driver loopback: a silent partner's keyed handshake breaks with HandshakeTimedOut, not a parked fiber" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    // Bind but never accept: the kernel completes connect into the backlog while
+    // the peer stays silent through the whole handshake window.
+    var listener = try tcp.Listener.bind(io, .{ .ip4 = ip.Ip4Address.loopback(0) });
+    defer listener.deinit();
+    const address = listener.localAddress();
+
+    try silentPartnerHandshakeTimesOut(io, address, allocator);
+}
+
+/// Host half that completes the keyed handshake and publishes, then never
+/// serves — the partner opens then stalls, the settle budget's target.
+fn hostAcceptPublishThenStall(server: *driver.Server, io: std.Io) anyerror!void {
+    var conn = try server.accept();
+    defer conn.deinit();
+    _ = try conn.publish("root", Greeter, .{});
+    // Hold the connection open without pumping CapTP until the client's
+    // settle budget fires and it drops the socket; then exit.
+    std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2000), .real) catch {};
+}
+
+fn silentPartnerSettleTimesOut(io: std.Io, address: ip.IpAddress, allocator: std.mem.Allocator) !void {
+    var tcp_resident = tcp.Resident{ .io = io };
+    var buf: [64]u8 = undefined;
+    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, tcp.locator(&buf, address), .ephemeral, .{
+        .frame_cap = frame_cap,
+        .settle_timeout_ms = 200,
+    });
+    defer conn.deinit();
+    try std.testing.expectError(driver.Error.WaitTimedOut, conn.fetch("root"));
+}
+
+test "driver loopback: a partner that opens then stalls breaks settle with WaitTimedOut, not a parked fiber" {
+    const allocator = std.testing.allocator;
+
+    var threaded = std.Io.Threaded.init(allocator, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    var tcp_resident = tcp.Resident{ .io = io };
+    var server = try driver.listen(allocator, tcp_resident.netlayer(), .{ .designator = "127.0.0.1:0" }, .ephemeral, .{ .frame_cap = frame_cap });
+    defer server.close();
+    var addr_buf: [64]u8 = undefined;
+    const address = try tcp.parseDesignator(server.localDesignator(&addr_buf));
+
+    const host_thread = try std.Thread.spawn(.{}, hostAcceptPublishThenStall, .{ &server, io });
+    defer host_thread.join();
+
+    try silentPartnerSettleTimesOut(io, address, allocator);
+}

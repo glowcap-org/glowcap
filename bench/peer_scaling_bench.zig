@@ -95,11 +95,12 @@ const LiveBytesAllocator = struct {
     }
 };
 
-/// One inbound `op:deliver` to live local export 7, the steady-state turn the
-/// alloc-budget test pins. Driving it once grows a peer's event-queue and table
-/// backing arrays to their warmed size, so the measured footprint reflects a
-/// connection that has actually carried traffic rather than a bare `init`.
-const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
+/// One inbound no-answer (`#f` answer position) `op:deliver` to live local
+/// export 7, the steady-state turn the alloc-budget test pins. Driving it once
+/// grows a peer's event-queue and table backing arrays to their warmed size, so
+/// the measured footprint reflects a connection that has actually carried
+/// traffic rather than a bare `init`.
+const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 const Scenario = enum {
     /// Freshly constructed peer: a connection accepted but not yet active.
@@ -355,7 +356,7 @@ fn runLivePhase(parent_io: std.Io, allocator: std.mem.Allocator, smoke: bool, li
         const step_io = threaded.io();
 
         var host = driver.core.Host.init(allocator, [_]u8{0x42} ** 32, .{
-            .frame_cap = live_frame_cap,
+            .limits = .{ .max_frame_bytes = live_frame_cap },
             .local_turn_budget = actors.Vat.max_batch_local_turns,
         });
         defer host.deinit();

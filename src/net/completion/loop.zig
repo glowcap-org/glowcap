@@ -79,9 +79,12 @@
 //!     the pool buffer behind a recv completion back. The loop calls it exactly
 //!     once per completion whose `recv_bytes` is non-null, after consuming the
 //!     bytes; the borrowed view is invalid afterward.
-//!   * `pub fn poll(self: *Backend, out: []Completion) !usize;` — flush submitted
-//!     operations, block until at least one has completed, and fill `out` with up
-//!     to `out.len` completions, returning the count.
+//!   * `pub fn poll(self: *Backend, out: []Completion, timeout_ms: i32) !usize;` —
+//!     flush submitted operations and wait for completions. A negative
+//!     `timeout_ms` blocks until at least one completes (or the backend's
+//!     idle-wake policy applies). A non-negative `timeout_ms` waits at most that
+//!     many milliseconds; zero completions in that window returns 0, not an
+//!     error. Fills `out` with up to `out.len` completions and returns the count.
 //!
 //! The Loop is also parameterized by a `Locator`: OCapN
 //! `(transport, designator, hint)` → `Backend.ConnectTarget`. That grammar
@@ -227,11 +230,26 @@ pub const FreeConnCtx = *const fn (ctx: ?*anyopaque, conn_ctx: ?*anyopaque) void
 /// dial). This is the loop's only failure surface for a dialed connection,
 /// `dial` returns before the connect completes, so a refused dial is
 /// observable nowhere else.
+/// Why a connection is tearing down (ADR-0082). Surfaced on `OnClose` so an
+/// embedder can tell ordinary peer loss from park-duration reclaim.
+pub const CloseReason = enum {
+    /// Partner EOF, read error, keepalive, `closeSlot`, refused dial, …
+    ordinary,
+    /// Stayed `.parked` past `Options.park_kill_ms`.
+    park_kill,
+};
+
 /// `slot` is the connection's loop index: refused dials tear down before
 /// `make_conn_ctx` runs (`conn_ctx` is null), so an embedder correlating an
 /// in-flight dial to a ticket needs the slot — `conn_ctx` alone cannot name
 /// it (ADR-0076 loop-side dial executor).
-pub const OnClose = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool) void;
+/// `reason` is `.park_kill` only when `park_kill_ms` reclaimed the seat.
+pub const OnClose = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: CloseReason) void;
+
+/// Optional park notification (ADR-0082): fired when a connection's read seat
+/// first enters `.parked`. `slot` and `conn_ctx` match `OnClose` so an embedder
+/// can correlate lag to an open connection without scraping private Loop state.
+pub const OnPark = *const fn (ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque) void;
 
 /// The listen backlog both platform backends pass to `listen(2)`: pending,
 /// not-yet-accepted connections the kernel queues before refusing new ones.
@@ -282,15 +300,44 @@ pub const Options = struct {
     /// `make_conn_ctx` allocates.
     free_conn_ctx: ?FreeConnCtx = null,
     /// Optional close notification (see `OnClose`), fired once per connection
-    /// at teardown. Null leaves closes (including failed dials) unobserved.
+    /// at teardown. Null leaves closes (including failed dials) unobserved. This
+    /// fires under `run`, not only at `closeAndDrain`: the moment any completion
+    /// ends a connection — a partner's clean FIN, a read error from an RST, or a
+    /// keepalive probe giving up on a dead remote host — the loop reclaims that
+    /// one slot and fires `on_close(…, opened)` for it, leaving the rest of the
+    /// loop running (ADR-0081).
     on_close: ?OnClose = null,
+    /// Optional park notification (ADR-0082): fired when a connection's read
+    /// seat enters `.parked` (outbound high-water or fan-in throttle). Embedders
+    /// scrape lag without an in-core HTTP monitor.
+    on_park: ?OnPark = null,
     /// Opt-in TCP keepalive. When set, all of idle/interval/count are applied
     /// on every accepted and dialed TCP fd (best-effort). Null — the default —
     /// leaves sockets without keepalive (NODELAY only). Do not "just enable"
     /// SO_KEEPALIVE: the OS idle default is hours. Rationale is NAT hold-open /
-    /// dead-remote-host reclaim — not reaping a live orphaned process. See
-    /// `tcp_keepalive.Keepalive`.
+    /// dead-remote-host reclaim — not reaping a live orphaned process.
+    ///
+    /// This is also the loop's only automatic detector of a *silently* vanished
+    /// peer (ADR-0081): a remote that disappears with no FIN and no RST — a
+    /// crash, a cable pull, a partition — sends nothing, so its armed recv never
+    /// completes and its slot is held until a completion surfaces. Keepalive is
+    /// what makes one surface: its probes eventually fail, the recv completes
+    /// with a read error, and `on_close` fires under `run`. Without it, and
+    /// without application-level heartbeats, such a slot is reclaimed only at
+    /// `closeAndDrain`. The detection deadline is deliberately the caller's — a
+    /// liveness policy lives above pancake — which is why this stays opt-in
+    /// rather than a silent default. See `tcp_keepalive.Keepalive`.
     keepalive: ?tcp_keepalive.Keepalive = null,
+    /// Fan-in source throttle (ADR-0082): when any live connection is parked
+    /// under ADR-0042 outbound high-water, also refuse to arm reads on every
+    /// *other* connection until no connection remains parked. Off by default
+    /// so existing scale harnesses keep per-connection-only backpressure;
+    /// enable to prove many-A→one-B sources slow when the sink parks.
+    fan_in_throttle: bool = false,
+    /// Park-duration kill (ADR-0082 / NATS write_deadline analogue): if a
+    /// connection stays `.parked` longer than this many milliseconds, the loop
+    /// closes it. `null` (default) never kills on park age alone.
+    park_kill_ms: ?u64 = null,
 };
 
 /// When `Loop.run` returns. Production servers and dialers run `.forever`;
@@ -312,6 +359,17 @@ fn opOf(ud: u64) Op {
 }
 fn slotOf(ud: u64) usize {
     return @intCast(ud >> 3);
+}
+
+/// Wall-clock milliseconds since the Unix epoch for `runUntil` deadlines.
+fn milliTimestamp() i64 {
+    var ts: std.posix.timespec = .{ .sec = 0, .nsec = 0 };
+    switch (std.posix.errno(std.posix.system.clock_gettime(std.posix.CLOCK.REALTIME, &ts))) {
+        .SUCCESS => {},
+        else => return 0,
+    }
+    return @as(i64, @intCast(ts.sec)) * std.time.ms_per_s +
+        @divFloor(@as(i64, @intCast(ts.nsec)), std.time.ns_per_ms);
 }
 
 /// Size of one shared pool buffer (the spill carries the rare larger frame).
@@ -336,7 +394,7 @@ const steady_outbound_bytes: usize = frame_stream.steady_outbound_bytes;
 /// is 112 bytes on every backend (`Backend.Fd` is `i32` for tcp, kqueue, uring,
 /// and iroh alike, so `Conn` carries no backend-dependent width); the ceiling
 /// keeps one word of headroom over that for cross-target padding stability.
-const conn_slot_overhead_bytes: usize = 120;
+const conn_slot_overhead_bytes: usize = 128;
 
 /// How recv-completion consumption ended, decided by `onRecvConsume` while
 /// the completion's pool buffer is still borrowed and acted on by
@@ -379,10 +437,16 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             /// high-water mark; `onSend`'s drain resumes it), `.starved` when
             /// the shared pool was empty (ADR-0054; a recycle resumes it).
             read: enum { idle, armed, parked, starved } = .idle,
+            /// Wall-clock ms when this connection entered `.parked`, or 0 when
+            /// not parked. Used by `Options.park_kill_ms` (ADR-0082).
+            parked_at_ms: i64 = 0,
             /// True once the connection completed its connect or accept; false
             /// for a dialed connection that failed before opening. Reported to
             /// `Options.on_close` at teardown.
             opened: bool = false,
+            /// Why this connection is closing; set before `closeConn` for
+            /// park-kill so `on_close` can name the reclaim (ADR-0082).
+            close_reason: CloseReason = .ordinary,
             fd: Fd = undefined,
             peer: engine.Peer = undefined,
             /// Bounded overflow for a frame that does not complete within one
@@ -448,8 +512,14 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         make_conn_ctx: ?MakeConnCtx,
         free_conn_ctx: ?FreeConnCtx,
         on_close: ?OnClose,
+        /// Optional park notification (ADR-0082); see `Options.on_park`.
+        on_park: ?OnPark,
         /// Opt-in TCP keepalive applied at connect/accept finish (see `Options`).
         keepalive: ?tcp_keepalive.Keepalive,
+        /// Fan-in source throttle (ADR-0082); see `Options.fan_in_throttle`.
+        fan_in_throttle: bool,
+        /// Park-duration kill (ADR-0082); see `Options.park_kill_ms`.
+        park_kill_ms: ?u64,
         closed_count: usize = 0,
         /// True while `deinit` tears the loop down: cross-connection entries
         /// (`armOutbound`, `closeSlot`) no-op then, because a submit during
@@ -516,7 +586,10 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
                 .make_conn_ctx = options.make_conn_ctx,
                 .free_conn_ctx = options.free_conn_ctx,
                 .on_close = options.on_close,
+                .on_park = options.on_park,
                 .keepalive = options.keepalive,
+                .fan_in_throttle = options.fan_in_throttle,
+                .park_kill_ms = options.park_kill_ms,
                 .free_head = 0,
                 .starved_head = conns.len,
             };
@@ -576,19 +649,26 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
                 .forever => true,
                 .after_closed => |n| self.closed_count < n,
             }) {
-                const n = try self.backend.poll(&completions);
+                const n = try self.backend.poll(&completions, -1);
                 for (completions[0..n]) |c| try self.dispatch(c);
                 // Every pool buffer this batch carried has been recycled, so
                 // re-arm whatever parked buffer-starved during the batch. A
                 // starved completion can be dispatched after the recycle that
                 // should have resumed it; this sweep closes that ordering gap.
                 self.resumeStarved(.all);
+                self.reapParkKills();
             }
         }
 
         /// Drive the loop until `done` is true. Same poll/dispatch body as
         /// `run` until the flag a Host vow callback (or peer teardown) sets.
         /// Call from the loop-owner thread — the same affinity as `dial`.
+        ///
+        /// `deadline_ms` bounds wall-clock wait time from the first poll:
+        /// `0` is unbounded (prior behavior); a positive value polls with the
+        /// remaining milliseconds and returns `error.Timeout` if the deadline
+        /// elapses while `done` is still false — the same contract as
+        /// `Connection.runUntil`.
         ///
         /// If `done` is set from another thread, that thread must also wake
         /// this loop's `poll` (for a listening loop, a connect-and-drop against
@@ -597,15 +677,23 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         ///
         /// After return, slots may still hold armed recvs; call `closeAndDrain`
         /// before `deinit`.
-        pub fn runUntil(self: *Self, done: *const std.atomic.Value(bool)) !void {
+        pub fn runUntil(self: *Self, done: *const std.atomic.Value(bool), deadline_ms: i32) !void {
             self.latchOwner();
             if (self.listen_fd) |fd| try self.backend.submitAccept(userData(.accept, 0), fd);
             const poll_batch = 256;
             var completions: [poll_batch]Completion = undefined;
+            const deadline_start: ?i64 = if (deadline_ms > 0) milliTimestamp() else null;
             while (!done.load(.acquire)) {
-                const n = try self.backend.poll(&completions);
+                const poll_timeout: i32 = if (deadline_ms > 0) blk: {
+                    const elapsed = milliTimestamp() - deadline_start.?;
+                    const remaining = deadline_ms - @as(i32, @intCast(elapsed));
+                    if (remaining <= 0) return error.Timeout;
+                    break :blk remaining;
+                } else -1;
+                const n = try self.backend.poll(&completions, poll_timeout);
                 for (completions[0..n]) |c| try self.dispatch(c);
                 self.resumeStarved(.all);
+                self.reapParkKills();
             }
             // closeAndDrain is separate: callers that need honest deinit invoke
             // it after runUntil (same thread), once CapTP work is done.
@@ -646,7 +734,7 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             const poll_batch = 256;
             var completions: [poll_batch]Completion = undefined;
             while (self.anyBusy()) {
-                const n = try self.backend.poll(&completions);
+                const n = try self.backend.poll(&completions, -1);
                 for (completions[0..n]) |c| try self.dispatch(c);
                 self.resumeStarved(.all);
             }
@@ -897,14 +985,50 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// Pending outbound past the high-water mark means every newly applied
         /// inbound frame would pile more replies onto an unread socket, so the
         /// read parks instead and `onSend` resumes it when the queue drains
-        /// (ADR-0042). Protocol frames are never dropped; the queue is bounded
-        /// at the mark plus the replies of frames already buffered.
+        /// (ADR-0042). With `fan_in_throttle`, a parked sink also parks every
+        /// other connection's reads so many-A→one-B sources slow (ADR-0082).
+        /// Protocol frames are never dropped; the queue is bounded at the mark
+        /// plus the replies of frames already buffered.
         fn armOrPark(self: *Self, slot: usize, c: *Conn) !void {
             if (pendingOut(c) > self.outbound_high_water) {
-                c.read = .parked;
+                self.markParked(slot, c);
+                return;
+            }
+            if (self.fan_in_throttle and self.anySinkParked()) {
+                self.markParked(slot, c);
                 return;
             }
             try self.armRecv(slot, c);
+        }
+
+        fn markParked(self: *Self, slot: usize, c: *Conn) void {
+            if (c.read != .parked) {
+                c.parked_at_ms = if (self.park_kill_ms != null) milliTimestamp() else 0;
+                if (self.on_park) |hook| hook(self.make_ctx, slot, c.app_ctx);
+            }
+            c.read = .parked;
+        }
+
+        /// True when any open connection is over its outbound high-water mark
+        /// (a true ADR-0042 sink park, not a fan-in source park).
+        fn anySinkParked(self: *Self) bool {
+            for (self.conns) |*c| {
+                if (c.state == .open and pendingOut(c) > self.outbound_high_water) return true;
+            }
+            return false;
+        }
+
+        /// Close connections that have stayed `.parked` past `park_kill_ms`.
+        fn reapParkKills(self: *Self) void {
+            const limit = self.park_kill_ms orelse return;
+            const now = milliTimestamp();
+            for (self.conns, 0..) |*c, slot| {
+                if (c.state != .open or c.read != .parked) continue;
+                if (c.parked_at_ms == 0) continue;
+                if (now - c.parked_at_ms < @as(i64, @intCast(limit))) continue;
+                c.close_reason = .park_kill;
+                self.closeConn(slot, c);
+            }
         }
 
         /// Consume one recv completion's bytes while its pool buffer is still
@@ -1069,7 +1193,11 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
                 c.read = .idle;
                 if (c.state != .open) continue;
                 if (pendingOut(c) > self.outbound_high_water) {
-                    c.read = .parked;
+                    self.markParked(slot, c);
+                    continue;
+                }
+                if (self.fan_in_throttle and self.anySinkParked()) {
+                    self.markParked(slot, c);
                     continue;
                 }
                 self.armRecv(slot, c) catch {
@@ -1158,10 +1286,33 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
                 return;
             };
             // The partner caught up: a read parked at the high-water mark
-            // resumes, unless this drive refilled the queue past it.
+            // resumes, unless this drive refilled the queue past it — or
+            // fan-in still has another sink parked (ADR-0082).
             if (c.read == .parked and pendingOut(c) <= self.outbound_high_water) {
-                c.read = .idle;
-                self.armRecv(slot, c) catch self.closeConn(slot, c);
+                if (!(self.fan_in_throttle and self.anySinkParked())) {
+                    c.read = .idle;
+                    c.parked_at_ms = 0;
+                    self.armRecv(slot, c) catch self.closeConn(slot, c);
+                }
+            }
+            // Fan-in sources parked only because a sink was over high-water must
+            // resume when the last true sink drains — onSend only sees the
+            // draining slot, so walk the rest (ADR-0082).
+            if (self.fan_in_throttle and !self.anySinkParked()) {
+                self.resumeFanInSources();
+            }
+        }
+
+        /// Re-arm connections parked solely by `fan_in_throttle` once no true
+        /// ADR-0042 sink remains over the high-water mark. Skip seats that are
+        /// still sink-parked (`pendingOut` over the mark) or not `.parked`.
+        fn resumeFanInSources(self: *Self) void {
+            for (self.conns, 0..) |*other, other_slot| {
+                if (other.state != .open or other.read != .parked) continue;
+                if (pendingOut(other) > self.outbound_high_water) continue;
+                other.read = .idle;
+                other.parked_at_ms = 0;
+                self.armOrPark(other_slot, other) catch self.closeConn(other_slot, other);
             }
         }
 
@@ -1212,7 +1363,7 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             // is still alive: this fires once per connection, and `opened`
             // tells a dialer whether the connection ever completed its
             // connect (a refused dial reports `opened == false`).
-            if (self.on_close) |on_close| on_close(self.make_ctx, slot, c.app_ctx, c.opened);
+            if (self.on_close) |on_close| on_close(self.make_ctx, slot, c.app_ctx, c.opened, c.close_reason);
             // Free the per-connection app context next: it may hold a vat that
             // borrows this peer, so it must release before the peer deinits.
             if (c.app_ctx) |app_ctx| {

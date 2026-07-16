@@ -27,10 +27,9 @@ surface where they would in production.
 An application holds one object, a `Session`, and uses the small set of
 application verbs the
 [bindings contract](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/README.md)
-defines. The contract is the authoritative description of the
-surface and the value model beneath it; this section is the per-language tour.
-A `Host` is the multi-session CapTP product those sessions share (owns
-`engine.Node`; ADR-0079).
+defines. The contract is the authoritative description of the surface and the value
+model beneath it; this section is the per-language tour. A `Host` is the
+multi-session CapTP product those sessions share.
 
 The shape is uniform on purpose. You fetch a [capability]($link.page('concepts')) by
 name, spawn a local object, and hand a partner a reference to it; the partner

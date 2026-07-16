@@ -54,6 +54,15 @@ feature request, even if it needs an unusual configuration to trigger:
 - Dependency issues that don't reach pancake's threat surface (report those
   upstream).
 
+## Handoff signature verification
+
+The engine router verifies three-party handoff certificates with
+`foundation.crypto` on the production path. Test support exposes
+`testOnlyAcceptingVerifier` for in-process substrates and trusted fixtures
+only. That stub is not a production default on an untrusted network; a
+deployment that swaps it in for live traffic is misconfigured, not a
+protocol feature.
+
 ## Acknowledgements
 
 Reporters of valid security issues are credited in the corresponding release

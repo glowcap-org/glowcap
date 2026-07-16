@@ -13,6 +13,7 @@ pub const decodeBody = decode.decodeBody;
 pub const decodePrefix = decode.decodePrefix;
 pub const decodeOwned = decode.decodeOwned;
 pub const readLocatorOwned = decode.readLocatorOwned;
+pub const decodeSignedHandoffGiveOwned = decode.decodeSignedHandoffGiveOwned;
 pub const spanSignedHandoffGive = decode.spanSignedHandoffGive;
 
 pub const encodeMessage = encode.encodeMessage;

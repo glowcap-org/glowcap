@@ -47,6 +47,7 @@ import {
 	CLOSED,
 	ffi,
 	INVALID_ARGUMENT,
+	IO,
 	IROH_EV_ACCEPT,
 	IROH_EV_CLOSED,
 	IROH_EV_READABLE,
@@ -60,6 +61,7 @@ import {
 	type Symbols,
 	WOULD_BLOCK,
 } from "@pancake/stack/ffi";
+import { DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS } from "../stack/internal/abi.ts";
 import { irohS } from "./ffi.ts";
 
 // The calling thread's last error from the iroh transport, or null when there
@@ -103,11 +105,16 @@ export class IrohNetlayer {
 	constructor(reachability: Reachability, secretSeed?: Uint8Array) {
 		const seed = secretSeed ?? new Uint8Array(0);
 		const out = new Uint8Array(8);
+		// PancakeIrohConfig: u32 reachability @0 (4 pad), u64 connect_timeout_ms
+		// @8, 16 bytes. Zero-initialized, so connect_timeout_ms stays 0 (the
+		// built-in default) — the header's zero-init contract.
+		const config = new Uint8Array(16);
+		new DataView(config.buffer).setUint32(0, reachability, true);
 		irohCheck(
 			irohS().pancake_iroh_netlayer_new(
 				ab(seed),
 				BigInt(seed.length),
-				reachability,
+				ab(config),
 				out,
 			),
 		);
@@ -632,15 +639,9 @@ function join(chunks: Uint8Array[]): Uint8Array {
 // record takes seconds to propagate after it binds, so a dial-by-id can fail with
 // "no addressing information" until it lands. Every posture that resolves by id
 // through a propagating service — `Discovery` (n0 relays + DNS/pkarr) and
-// `DiscoveryNoRelay` (DNS/pkarr, no relay) — therefore retries the dial on a
-// bounded budget; `Direct` dials once (its addresses are in hand) and
-// `LocalDiscovery` dials once (its in-process address book resolves instantly).
-// The C ABI flattens a not-yet-resolvable dial to the same code as a hard
-// failure, so a genuinely unreachable peer simply exhausts the budget rather than
-// failing fast. Mirrors the Zig `iroh-reachability` driver's settle/retry shape.
-const DISCOVERY_DIAL_RETRY_MS = 3_000;
-const DISCOVERY_DIAL_MAX_ATTEMPTS = 24; // ~72s, covers pkarr propagation
-
+// `DiscoveryNoRelay` (DNS/pkarr, no relay) — therefore retries on the
+// `PANCAKE_DISCOVERY_DIAL_*` budget (ADR-0082). `Direct` and `LocalDiscovery`
+// dial once. Only transient dial faults (projected as IO) are retried.
 /** Whether a posture resolves the partner by id through a propagating discovery
  * service, so a dial-by-id should settle/retry while the record lands. */
 function settlesWhileResolving(reachability: Reachability): boolean {
@@ -664,6 +665,9 @@ async function dialResolving(
 		try {
 			return await netlayer.tryConnect(nodeId, directAddresses);
 		} catch (e) {
+			// ADR-0082: only transient dial faults (iroh projects them as IO).
+			// InvalidAddress / ConnectionRefused / OOM map to non-IO codes.
+			if (!(e instanceof PancakeError) || e.code !== IO) throw e;
 			if (attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS) throw e;
 			await new Promise<void>((r) => setTimeout(r, DISCOVERY_DIAL_RETRY_MS));
 		}

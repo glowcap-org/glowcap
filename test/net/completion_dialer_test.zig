@@ -43,7 +43,7 @@ fn serveOne(listener: *tcp.Listener, allocator: std.mem.Allocator) anyerror!void
     var conn = try listener.accept(&peer, read_buf, write_buf, .{});
     defer conn.deinit();
 
-    _ = try conn.runUntil(fetch_pump.isOpen);
+    _ = try conn.runUntil(fetch_pump.isOpen, 0);
 
     var saw_fetch = false;
     var spins: usize = 0;
@@ -199,8 +199,9 @@ const CloseJournal = struct {
     closes: usize = 0,
     opened_closes: usize = 0,
 
-    fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool) void {
+    fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: completion.CloseReason) void {
         _ = slot;
+        _ = reason;
         const self: *CloseJournal = @ptrCast(@alignCast(ctx.?));
         // A connection that never opened never built a per-connection ctx.
         if (!opened) std.debug.assert(conn_ctx == null);
@@ -339,7 +340,8 @@ const FailingConnectBackend = struct {
         _ = fd;
     }
 
-    pub fn poll(self: *FailingConnectBackend, out: []completion.Completion) !usize {
+    pub fn poll(self: *FailingConnectBackend, out: []completion.Completion, timeout_ms: i32) !usize {
+        _ = timeout_ms;
         _ = self;
         _ = out;
         return 0;

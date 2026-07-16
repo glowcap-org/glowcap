@@ -76,13 +76,14 @@ pub const WireProfile = struct {
     }
 };
 
+/// Optional CapTP capabilities a session may negotiate. Every field here is
+/// gated in `session.validate` when the matching ops run — do not add a bit
+/// that nothing enforces.
 pub const FeatureSet = struct {
     pipelining: bool = false,
     handoff: bool = false,
     wire_delta: bool = false,
     sturdyref: bool = false,
-    stream: bool = false,
-    equality: bool = false,
 
     /// The minimal set: Deliver, Resolve, and Abort only.
     pub fn minimum() FeatureSet {
@@ -99,18 +100,10 @@ pub const FeatureSet = struct {
         return out;
     }
 
-    /// Pipelining, handoff, and wire-delta, without sturdyrefs or equality
-    /// (ADR-0008, ADR-0009).
+    /// Pipelining, handoff, and wire-delta, without sturdyrefs (ADR-0008,
+    /// ADR-0009).
     pub fn pipeliningAndHandoff() FeatureSet {
         return .{ .pipelining = true, .handoff = true, .wire_delta = true };
-    }
-
-    /// Everything except streaming: the full set with `stream` switched off
-    /// (ADR-0012).
-    pub fn fullExceptStreaming() FeatureSet {
-        var out = full();
-        out.stream = false;
-        return out;
     }
 
     /// Per-feature intersection, the handshake-negotiated set is the AND of the

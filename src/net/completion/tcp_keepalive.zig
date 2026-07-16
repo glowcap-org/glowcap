@@ -13,7 +13,11 @@
 //!
 //! Applied best-effort (same posture as `TCP_NODELAY`): a stream whose options
 //! cannot be set still works; the caller asked for detection, not a hard fail on
-//! exotic sockets. Platform differences stay named: Linux `TCP_KEEPIDLE` vs
+//! exotic sockets. Best-effort does not mean a wrong window is left active,
+//! though: if `SO_KEEPALIVE` enables but a timer `setsockopt` then fails,
+//! keepalive is rolled back off rather than left riding the OS multi-hour
+//! default under the appearance of the configured window. Platform differences
+//! stay named: Linux `TCP_KEEPIDLE` vs
 //! Darwin `TCP_KEEPALIVE` for the idle second. Option numbers are written as
 //! named locals (not a platform OS module import) so this file stays under the
 //! portable `std.posix` arch-check rule; the numbers match the kernel ABIs.
@@ -55,20 +59,37 @@ pub fn apply(fd: std.posix.socket_t, ka: Keepalive) void {
     const idle_opt: c_int = switch (builtin.os.tag) {
         .linux => 4, // TCP_KEEPIDLE
         .macos, .ios, .tvos, .watchos, .visionos => 0x10, // TCP_KEEPALIVE
-        else => return,
+        // SO_KEEPALIVE is already on; unsupported OS must roll it back so we
+        // never leave the socket on with multi-hour OS defaults (ADR-0081).
+        else => return disableKeepalive(fd),
     };
     const intvl_opt: c_int = switch (builtin.os.tag) {
         .linux => 5, // TCP_KEEPINTVL
         .macos, .ios, .tvos, .watchos, .visionos => 0x101, // TCP_KEEPINTVL
-        else => return,
+        else => return disableKeepalive(fd),
     };
     const cnt_opt: c_int = switch (builtin.os.tag) {
         .linux => 6, // TCP_KEEPCNT
         .macos, .ios, .tvos, .watchos, .visionos => 0x102, // TCP_KEEPCNT
-        else => return,
+        else => return disableKeepalive(fd),
     };
 
-    std.posix.setsockopt(fd, std.posix.IPPROTO.TCP, idle_opt, std.mem.asBytes(&idle)) catch {};
-    std.posix.setsockopt(fd, std.posix.IPPROTO.TCP, intvl_opt, std.mem.asBytes(&intvl)) catch {};
-    std.posix.setsockopt(fd, std.posix.IPPROTO.TCP, cnt_opt, std.mem.asBytes(&cnt)) catch {};
+    // All three timers must take together. Leaving `SO_KEEPALIVE` enabled with a
+    // timer unset would ride the OS multi-hour idle default under the appearance
+    // of the caller's configured window — the silent-default state ADR-0081
+    // forbids. On any timer failure, roll keepalive back off so the state stays
+    // honest: the full configured window, or nothing.
+    std.posix.setsockopt(fd, std.posix.IPPROTO.TCP, idle_opt, std.mem.asBytes(&idle)) catch return disableKeepalive(fd);
+    std.posix.setsockopt(fd, std.posix.IPPROTO.TCP, intvl_opt, std.mem.asBytes(&intvl)) catch return disableKeepalive(fd);
+    std.posix.setsockopt(fd, std.posix.IPPROTO.TCP, cnt_opt, std.mem.asBytes(&cnt)) catch return disableKeepalive(fd);
+}
+
+/// Roll `SO_KEEPALIVE` back off after a timer `setsockopt` failed, so a partly
+/// configured socket never rides the OS multi-hour idle default under the
+/// appearance of the caller's window (ADR-0081). Best-effort: disabling an
+/// option that just enabled cannot realistically fail, and if it did the stream
+/// still works.
+fn disableKeepalive(fd: std.posix.socket_t) void {
+    const disable: c_int = 0;
+    std.posix.setsockopt(fd, std.posix.SOL.SOCKET, std.posix.SO.KEEPALIVE, std.mem.asBytes(&disable)) catch {};
 }

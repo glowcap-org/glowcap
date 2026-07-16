@@ -9,7 +9,7 @@
 ;; threads), the conn-pointer → session registry the action drain routes by,
 ;; the giftable trampolines' strong retention, gift-id entropy, and the iroh
 ;; redeem-reachability posture the dial executor reads. Action decode +
-;; execute (`host-next-action!` / `drain-host-actions!`) live in
+;; execute (`drain-host-actions!` via `pancake_host_pump_drain`) live in
 ;; `private/action.rkt`; the dial executor lives in `private/dial.rkt`;
 ;; the conn byte path lives in `private/pump.rkt`.
 
@@ -41,11 +41,8 @@
 ;; ever crosses the C boundary for a settlement; `redeem-reachability` is the
 ;; iroh posture a hint-less handoff give is redeemed under (default Discovery,
 ;; 1; `set-host-redeem-reachability!` lowers it for a relay-policy
-;; deployment); `released?` guards the handle against use after release;
-;; `action-scratch` is the one cstruct `action.rkt`'s `host-next-action!`
-;; pops into, reused across pops — every pop runs under the host lock and
-;; copies its borrowed views out before the next pop overwrites it.
-(struct host (ptr lock lock-owner sessions progress keep vows redeem-reachability released? codec action-scratch))
+;; deployment); `released?` guards the handle against use after release.
+(struct host (ptr lock lock-owner sessions progress keep vows redeem-reachability released? codec))
 
 ;; `#:codec` is the wire grammar every session this host mints negotiates
 ;; in ('syrup by default, 'capnp for a Cap'n Proto session); both ends of a
@@ -56,10 +53,7 @@
   (define-values (rc ptr) (pancake_host_new sbuf 32 HOST-FRAME-CAP 1 (codec-id codec) local-turn-budget))
   (check/host rc)
   (define m (host ptr (make-semaphore 1) (box #f) (make-hash) (box (make-semaphore 0))
-                  (make-hasheq) (make-hash) (box 1) (box #f) codec
-                  (make-PancakeHostAction 0 0 #f #f 0 #f 0 #f 0 #f 0
-                                          (make-PancakeArgument 0 0 0 0.0 #f 0 (make-PancakeReference 0 0 0) #f 0)
-                                          #f 0)))
+                  (make-hasheq) (make-hash) (box 1) (box #f) codec))
   (register-finalizer m (lambda (q) (host-release! q)))
   m)
 
@@ -100,12 +94,21 @@
 ;; made since it was read; a pump snapshots it, re-checks its predicate, then
 ;; waits on the snapshot together with its own transport. `semaphore-peek-evt`
 ;; wakes every waiter without consuming the post.
-(define (host-progress-evt m) (semaphore-peek-evt (unbox (host-progress m))))
+;;
+;; Snapshot and bump both run under the host lock so a waiter cannot observe a
+;; generation the holder already retired between a failed reader CAS and the
+;; wait — that schedule left the waiter on an unposted semaphore forever.
+(define (host-progress-evt m)
+  (call-with-host m
+    (lambda () (semaphore-peek-evt (unbox (host-progress m))))))
 
 (define (host-bump-progress! m)
-  (define old (unbox (host-progress m)))
-  (set-box! (host-progress m) (make-semaphore 0))
-  (semaphore-post old))
+  (call-with-host m
+    (lambda ()
+      (define old (unbox (host-progress m)))
+      (set-box! (host-progress m) (make-semaphore 0))
+      (semaphore-post old)
+      (void))))
 
 ;; ── Callback retention ────────────────────────────────────────────────────────
 ;; Strongly retain `cb` (a behavior closure whose C trampoline the host
@@ -140,8 +143,8 @@
   (length (hash-ref host-parked-releases m '())))
 
 ;; ── Host verbs the drain loop answers actions with ───────────────────────────
-;; Decode (`host-next-action!`) and the drain switch (`drain-host-actions!`)
-;; live in `private/action.rkt`. The verbs below are what those arms call.
+;; Decode and the drain switch (`drain-host-actions!`) live in
+;; `private/action.rkt`. The verbs below are what those arms call.
 
 ;; Answer a NEED_GIFT_ID action: entropy is a host effect, drawn only when a
 ;; reply actually becomes a gift. The host originates the claimed handoff and
@@ -166,6 +169,13 @@
   (call-with-host m
     (lambda ()
       (check/host (pancake_host_set_self_designator (host-ptr m) (pin-immobile bs) (bytes-length bs))))))
+
+;; Selective session-limit knobs (ADR-0082). Pass 0 to leave a field unchanged.
+;; Affects peers minted after this call.
+(define (host-set-session-limits! m max-frame-bytes queue-cap)
+  (call-with-host m
+    (lambda ()
+      (check/host (pancake_host_set_session_limits (host-ptr m) max-frame-bytes queue-cap)))))
 
 ;; Derive the canonical key designator (64 lowercase hex digits) from a 32-byte
 ;; Ed25519 identity seed — the public half of the key a host signs with

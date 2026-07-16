@@ -138,7 +138,7 @@ fn encodeStartSession(b: *wire.Builder, allocator: std.mem.Allocator, ss: model.
     const loc = try allocStruct(b, allocator, 0, 4);
     try setData(b, allocator, loc, 0, ss.captp_version.wireString());
     try setData(b, allocator, loc, 1, ss.session_pubkey.bytes);
-    setStructPtr(b, ptrIndex(loc, 2), try encodePeerLocator(b, allocator, ss.acceptable_location));
+    setStructPtr(b, ptrIndex(loc, 2), try encodeHintedPeerLocator(b, allocator, ss.acceptable_location));
     try setData(b, allocator, loc, 3, ss.acceptable_location_sig.bytes);
     return loc;
 }
@@ -220,16 +220,73 @@ fn encodeReference(b: *wire.Builder, allocator: std.mem.Allocator, reference: mo
     return loc;
 }
 
+/// Encode a `PeerLocator` refusing hint entries: the sturdyref wire path,
+/// mirroring Syrup's `writeLocator` — refused loudly rather than silently
+/// dropped, since that would put a different locator on the wire than the
+/// caller named. A hint-carrying sturdyref has no dedicated entry-carrying
+/// wire path in either codec today; `op:start-session`'s locator uses
+/// `encodeHintedPeerLocator` below instead.
 fn encodePeerLocator(b: *wire.Builder, allocator: std.mem.Allocator, locator: model.PeerLocator) EncodeError!StructLoc {
-    // The layout carries only the two empty hint spellings (the `#f` bit). A
-    // locator carrying hint entries is refused loudly: silently dropping the
-    // entries would put a different locator on the wire than the caller named.
     if (locator.hints.entries.len != 0) return Error.UnsupportedArgument;
-    const loc = try allocStruct(b, allocator, 1, 2);
+    return encodePeerLocatorStruct(b, allocator, locator);
+}
+
+/// Encode a `PeerLocator` carrying hint entries when present: the
+/// `op:start-session` `acceptable_location` wire path, mirroring Syrup's
+/// entry-carrying `writePeerLocatorRecord` (the encoder Syrup's own
+/// `op:start-session` path calls). Closes the "Cap'n Proto refuses non-empty
+/// locator hints" boundary — a keyed-tcp/iroh peer advertising a
+/// `direct-addresses` hint can open a Cap'n Proto session, not just Syrup.
+fn encodeHintedPeerLocator(b: *wire.Builder, allocator: std.mem.Allocator, locator: model.PeerLocator) EncodeError!StructLoc {
+    return encodePeerLocatorStruct(b, allocator, locator);
+}
+
+fn encodePeerLocatorStruct(b: *wire.Builder, allocator: std.mem.Allocator, locator: model.PeerLocator) EncodeError!StructLoc {
+    const loc = try allocStruct(b, allocator, 1, 3);
     if (locator.hints.wire_form == .boolean_false) b.set(loc.data_idx, 1);
     try setData(b, allocator, loc, 0, locator.transport);
     try setData(b, allocator, loc, 1, locator.designator);
+    setListPtr(b, ptrIndex(loc, 2), try encodeHintEntries(b, allocator, locator.hints.entries));
     return loc;
+}
+
+/// Composite list of hint entries: each element is a 2-data / 2-pointer struct
+/// holding a discriminant plus inline payload in the data words (data word 0
+/// bit 16 doubles as the boolean value; data word 1 carries an integer value),
+/// the entry's String name at pointer 0, and a String/Bytes payload at pointer
+/// 1 for the `string`/`bytes` value kinds. Unlike `encodeStructEntries`, entries
+/// are emitted in the model's own order: hint names are unique by construction
+/// (`model.Hints.forDirectAddresses` is the one producer, and it never emits
+/// more than one entry), so there is no canonical order to sort into.
+fn encodeHintEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: []const model.HintEntry) EncodeError!ListContent {
+    const data_words: u16 = 2;
+    const ptr_words: u16 = 2;
+    const stride: usize = data_words + ptr_words;
+    const tag_idx = try b.allocWords(allocator, 1);
+    b.set(tag_idx, wire.Builder.compositeTag(@intCast(entries.len), data_words, ptr_words));
+    const block = try b.allocWords(allocator, entries.len * stride);
+    for (entries, 0..) |entry, i| {
+        const loc = StructLoc{ .data_idx = block + i * stride, .data_words = data_words, .ptr_words = ptr_words };
+        try setData(b, allocator, loc, 0, entry.name);
+        switch (entry.value) {
+            .string => |s| {
+                b.set(loc.data_idx, @intFromEnum(shared.HintValueKind.string));
+                try setData(b, allocator, loc, 1, s);
+            },
+            .bytes => |by| {
+                b.set(loc.data_idx, @intFromEnum(shared.HintValueKind.bytes));
+                try setData(b, allocator, loc, 1, by);
+            },
+            .boolean => |bo| {
+                b.set(loc.data_idx, @intFromEnum(shared.HintValueKind.boolean) | (if (bo) shared.data0_flag else 0));
+            },
+            .integer => |int| {
+                b.set(loc.data_idx, @intFromEnum(shared.HintValueKind.integer));
+                b.set(loc.data_idx + 1, @bitCast(int));
+            },
+        }
+    }
+    return .{ .data_idx = tag_idx, .elem = .composite, .count = entries.len * stride };
 }
 
 fn encodeError(b: *wire.Builder, allocator: std.mem.Allocator, err: model.BreakReason) EncodeError!StructLoc {

@@ -7,20 +7,20 @@
 ---
 
 The JavaScript/TypeScript binding is one source that runs on Deno and Bun; all
-runtime coupling lives behind a thin FFI/socket seam that
-loads the matching adapter at startup. The binding reaches the installed shared
-pancake archives over the host's FFI and mirrors the à-la-carte archive set as
-two packages. `@pancake/stack`
+runtime coupling lives behind a thin FFI/socket seam that loads the matching
+adapter at startup. The binding reaches the installed shared pancake archives over
+the host's FFI and mirrors the à-la-carte archive set as two packages.
+`@pancake/stack`
 ([`bindings/ts/stack/mod.ts`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/stack/mod.ts))
 is the core: a full OCapN Host over the byte-fed host archive
-`libpancake_driver` — the `Session`/`Server` surface, values, capabilities,
-locators — plus the built-in transports `@pancake/stack/transport/tcp` and
+`libpancake_driver` (the `Session`/`Server` surface, values, capabilities,
+locators) plus the built-in transports `@pancake/stack/transport/tcp` and
 `@pancake/stack/transport/inproc`. The optional `@pancake/iroh` package adds the
 encrypted-QUIC transport, and the core's `connect` loads it lazily on the first
 `iroh` locator. Each module opens only its own archive, so importing the core
-never loads a transport. The library owns every CapTP decision — routing,
-three-party redemption, gift origination, far vows — and the binding moves
-bytes and honors the host's action queue.
+never loads a transport. CapTP routing, three-party redemption, gift origination,
+and far vows stay in the library; the binding moves bytes and honors the host's
+action queue.
 
 ## What you need
 
@@ -31,7 +31,10 @@ bytes and honors the host's action queue.
   need `zig build iroh-abi`, which needs cargo) and point
   `PANCAKE_LIB_DIR` at the build output (or install the archives on the system
   library path).
-- Deno and Bun are the tested and gated runtimes: run with
+- Deno and Bun share one TypeScript source. CapTP smoke is gated on both
+  (`zig build deno-dogfood` / `bun-dogfood`). Iroh aggregates
+  (`bindings-iroh-loop` / `handoff` / `reachability` / `redeem-posture`) gate
+  Deno; Bun is not a separate iroh member today. Run with
   `deno run --allow-ffi --allow-read`, add `--allow-net` for any program that
   dials or listens over TCP, and add `--allow-env` when `PANCAKE_LIB_DIR` does
   the pointing.
@@ -83,9 +86,9 @@ dispatching until close; `fetch` and `send` start the inbound loop on demand.
 > ```
 
 The iroh tab swaps the built host-and-port locator for a bare node id and adds
-the posture import; everything below `connect` is the tcp tab, line for line. The node id itself still arrives out of band, exactly like a
-host and port; discovery turns a name you were given into a route, and it does
-not browse for peers.
+the posture import; everything below `connect` is the tcp tab, line for line. The
+node id itself still arrives out of band, exactly like a host and port; discovery
+turns a name you were given into a route, and it does not browse for peers.
 
 The `serve` promise resolves when the connection closes cleanly and rejects on
 a transport or protocol error. When the loop ends, every `send` still awaiting
@@ -155,5 +158,5 @@ zig build bun-dogfood     # the same source, on Bun
 The full surface lives in the
 [TypeScript binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/README.md),
 and the
-[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/deno/room_client.ts)
+[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/deno/lib/room_client.ts)
 builds a small capability-secure room on this surface.

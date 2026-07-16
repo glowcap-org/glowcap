@@ -43,6 +43,23 @@ pub const BlockingSession = struct {
     served: Served,
     conn: net.Connection,
 
+    /// An opt-in per-read deadline for the keyed handshake pump, in
+    /// milliseconds; 0 (the default) leaves the handshake unbounded, the prior
+    /// behavior. When set, `startKeyedSession*` bounds each handshake read on
+    /// `conn.waitReadable` and breaks with `Error.HandshakeTimedOut` if a
+    /// partner finishes connect and then goes silent — the slowloris a
+    /// one-connection-per-thread accept must not park on (ADR-0081). The value
+    /// is the caller's policy. It binds fd-backed transports (tcp, keyed-tcp); a
+    /// userspace-multiplexed transport (iroh) has no pollable fd to bound here.
+    handshake_timeout_ms: i32 = 0,
+
+    /// An opt-in wall-clock deadline for blocking answer-waits (`settle` /
+    /// `call` / `fetch`), in milliseconds; 0 (the default) leaves them
+    /// unbounded. When set, a partner that opens then never settles breaks
+    /// with `Error.WaitTimedOut` instead of parking the fiber forever
+    /// (ADR-0076). Same fd-backed binding as `handshake_timeout_ms`.
+    settle_timeout_ms: i32 = 0,
+
     /// Bind a vat to an existing `net.Connection` over `peer`. Transport-neutral:
     /// the stream may ride any netlayer.
     pub fn over(allocator: std.mem.Allocator, peer: *engine.Peer, conn: net.Connection) BlockingSession {
@@ -137,6 +154,14 @@ pub const BlockingSession = struct {
     /// placeholder. The peer must have been built with `engine.Peer.initNegotiating`.
     pub fn startKeyedSessionWithSecret(self: *BlockingSession, locator: model.PeerLocator, secret: crypto.SecretKey) !void {
         try self.served.peer.sendKeyedStartSession(.v1_0, locator, secret);
+        if (self.handshake_timeout_ms != 0) {
+            const progress = self.conn.runUntil(sessionOpenPred, self.handshake_timeout_ms) catch |err| switch (err) {
+                error.Timeout => return Error.HandshakeTimedOut,
+                else => |e| return e,
+            };
+            if (progress == .closed) return Error.ConnectionClosed;
+            return;
+        }
         while (!self.served.peer.sessionIsOpen()) {
             const progress = try self.conn.pump();
             if (progress == .closed) return Error.ConnectionClosed;
@@ -251,7 +276,32 @@ pub const BlockingSession = struct {
         // forever on a reply the partner was never asked for.
         self.flush() catch |err| return self.faultToClosed(err);
         if (settle_state.done) return;
+
+        const deadline_ms = self.settle_timeout_ms;
+        const start_ms: i64 = if (deadline_ms != 0) milliTimestamp() else 0;
+
         while (!settle_state.done) {
+            if (deadline_ms != 0) {
+                const elapsed = milliTimestamp() - start_ms;
+                if (elapsed >= deadline_ms) {
+                    // Take the stack-bound listener off the vat before returning.
+                    self.served.vat.breakFarVows("wait timed out");
+                    return Error.WaitTimedOut;
+                }
+                const remaining_i64 = deadline_ms - elapsed;
+                const remaining: i32 = if (remaining_i64 > std.math.maxInt(i32))
+                    std.math.maxInt(i32)
+                else
+                    @intCast(remaining_i64);
+                const progress = self.stepReadable(remaining) catch |err| return self.faultToClosed(err);
+                if (progress == null) {
+                    self.served.vat.breakFarVows("wait timed out");
+                    return Error.WaitTimedOut;
+                }
+                if (settle_state.done) return;
+                if (progress.? == .closed) return Error.ConnectionClosed;
+                continue;
+            }
             // A transport fault is the partner leaving, exactly as in serve():
             // break the far vows (which fires this call's listener broken and
             // removes it, so the stack-bound listener can't dangle on the vat)
@@ -270,6 +320,23 @@ pub const BlockingSession = struct {
         }
     }
 };
+
+/// The handshake pump's completion predicate: the session has opened. A
+/// file-scope function so `conn.runUntil` can take it by pointer.
+fn sessionOpenPred(peer: *engine.Peer) bool {
+    return peer.sessionIsOpen();
+}
+
+/// Wall-clock milliseconds since the Unix epoch for settle deadlines.
+fn milliTimestamp() i64 {
+    var ts: std.posix.timespec = .{ .sec = 0, .nsec = 0 };
+    switch (std.posix.errno(std.posix.system.clock_gettime(std.posix.CLOCK.REALTIME, &ts))) {
+        .SUCCESS => {},
+        else => return 0,
+    }
+    return @as(i64, @intCast(ts.sec)) * std.time.ms_per_s +
+        @divFloor(@as(i64, @intCast(ts.nsec)), std.time.ns_per_ms);
+}
 
 /// Open a TCP connection to `address`, bind a vat to a fresh-wired peer, and
 /// return the connected vat. The transport is named here, at the constructor;
@@ -301,6 +368,7 @@ pub fn connectTcp(
         .ephemeral,
         read_buf,
         write_buf,
+        0,
     );
 }
 
@@ -320,7 +388,7 @@ pub fn acceptTcp(
 ) !BlockingSession {
     // Same spine as `acceptVia`: contract listener + AcceptIdentity.ephemeral.
     // The typed tcp.Listener is borrowed for the call; the caller still owns it.
-    return acceptVia(allocator, listener.asNetlayer(), peer, .ephemeral, read_buf, write_buf);
+    return acceptVia(allocator, listener.asNetlayer(), peer, .ephemeral, read_buf, write_buf, 0);
 }
 
 /// Dial a locator through the netlayer contract, signing the keyed handshake
@@ -332,6 +400,8 @@ pub fn acceptTcp(
 /// with a caller-held key over the dialer's own designator. The caller owns
 /// `peer`, `read_buf`, and `write_buf`; `netlayers` must outlive the returned
 /// vat. `connectTcp` is the tcp-named convenience over this same path.
+/// `handshake_timeout_ms` bounds each handshake read (0 leaves it unbounded);
+/// see `BlockingSession.handshake_timeout_ms` (ADR-0081).
 pub fn connectVia(
     allocator: std.mem.Allocator,
     netlayers: []const net.netlayer.Netlayer,
@@ -340,6 +410,7 @@ pub fn connectVia(
     identity: Identity,
     read_buf: []u8,
     write_buf: []u8,
+    handshake_timeout_ms: i32,
 ) !BlockingSession {
     const nl = net.netlayer.resolve(netlayers, locator.transport) orelse return Error.UnknownTransport;
     // The dial-side identity pin: on a key-designator transport the dialed
@@ -355,6 +426,7 @@ pub fn connectVia(
     }
     const conn = try nl.dial(peer, locator, .{ .read = read_buf, .write = write_buf });
     var vat = BlockingSession.over(allocator, peer, conn);
+    vat.handshake_timeout_ms = handshake_timeout_ms;
     errdefer vat.deinit();
     const self_locator: model.PeerLocator = .{
         .transport = locator.transport,
@@ -386,7 +458,7 @@ pub fn connectUri(
 ) !BlockingSession {
     const locator = try model.uri.parsePeer(allocator, uri_str);
     defer model.freePeerLocator(allocator, locator);
-    return connectVia(allocator, netlayers, peer, locator, identity, read_buf, write_buf);
+    return connectVia(allocator, netlayers, peer, locator, identity, read_buf, write_buf, 0);
 }
 
 /// Accept one partner through a contract `net.netlayer.Listener`, bind a vat, and
@@ -402,7 +474,12 @@ pub fn connectUri(
 /// bound `host:port`) riding as the locator's `direct-addresses` hint; an
 /// `.ephemeral` identity is refused there
 /// (`Error.EphemeralIdentityOnKeyedTransport`), because a throwaway key cannot
-/// produce the durable designator the transport advertises.
+/// produce the durable designator the transport advertises. The accept side is
+/// the slowloris target — a dialer that completes connect and then never speaks
+/// would park a one-connection-per-thread accepter for the connection's life —
+/// so `handshake_timeout_ms` bounds each handshake read (0 leaves it unbounded);
+/// `Server.accept` threads it from `SessionOptions.handshake_timeout_ms`
+/// (ADR-0081).
 pub fn acceptVia(
     allocator: std.mem.Allocator,
     listener: net.netlayer.Listener,
@@ -410,9 +487,11 @@ pub fn acceptVia(
     identity: driver.AcceptIdentity,
     read_buf: []u8,
     write_buf: []u8,
+    handshake_timeout_ms: i32,
 ) !BlockingSession {
     const conn = try listener.accept(peer, .{ .read = read_buf, .write = write_buf });
     var vat = BlockingSession.over(allocator, peer, conn);
+    vat.handshake_timeout_ms = handshake_timeout_ms;
     errdefer vat.deinit();
     switch (listener.designatorScheme()) {
         .address => {

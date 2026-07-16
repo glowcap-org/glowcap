@@ -80,17 +80,29 @@ only `armOutbound` can reach) and the `zig build tcp-loop` scale harness.
 
 ## Scope (what this does not decide)
 
-- **No loop-global fan-in backpressure.** ADR-0042 stays per-connection: a
-  many-to-one fan-in's sources are not throttled by the sink's read-park.
+- ~~**No loop-global fan-in backpressure.**~~ **Amended (ADR-0082).** ADR-0042
+  remains the per-connection default; opt-in `fan_in_throttle` and
+  `park_kill_ms` on `completion.Loop.Options` are the loop-global controls.
 - ~~**The iroh `LoopHost` is not converged.**~~ **Converged (amendment
   below).** `iroh.LoopHost` is deleted; iroh scale is
   `completion.Loop(iroh.Backend, iroh.DialResolver)` + `driver.Bridge` + Host.
-- **No deadline on blocking answer-waits.** `BlockingSession.settle` / Bridge vow callbacks and
-  `BlockingSession.settle` still spin forever if a partner opens then never
-  answers. The handshake budget on `finishOpen(…, ?budget_ms)` is the
-  pattern; an optional `deadline_ms` → `error.WaitTimedOut` plus a
-  "partner opens then stalls" scenario is the follow-up, deferred only
-  for scope.
+- ~~**No deadline on blocking answer-waits.**~~ **Shipped (amendment
+  below).** `BlockingSession.settle_timeout_ms` / `SessionOptions.settle_timeout_ms`
+  and `Loop.runUntil(…, deadline_ms)` bound post-handshake waits; the handshake
+  budget remains `handshake_timeout_ms` (not a phantom `finishOpen`).
+
+## Amendment: settle / `runUntil` deadlines
+
+Blocking answer-waits no longer park forever on a partner that opens then
+stalls. `BlockingSession.settle_timeout_ms` (default `0` = unbounded) is a
+wall-clock budget for `settle` / `call` / `fetch`; expiry returns
+`Error.WaitTimedOut` after breaking the stack-bound far listener.
+`SessionOptions.settle_timeout_ms` threads the same knob onto owned
+`Session`/`Server` paths. Completion-`Loop.runUntil` takes `deadline_ms`
+(same `0` = unbounded convention) and returns `error.Timeout` when the flag
+is still clear at the deadline — Backends' `poll` accepts a millisecond
+timeout so the loop can wake to check it. Gated by the silent-partner settle
+scenario in `test/driver/blocking_session_test.zig`.
 
 ## Amendment: loop-side dial executor
 

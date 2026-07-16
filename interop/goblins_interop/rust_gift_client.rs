@@ -33,7 +33,7 @@ use pancake_rust_dogfood::{
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::{Child, ChildStdout, Command};
 
-#[path = "../../../interop/_common/rust/helpers.rs"]
+#[path = "../_common/rust/helpers.rs"]
 mod helpers;
 
 type Fail = helpers::Fail;
@@ -90,7 +90,7 @@ async fn main() -> Result<(), Fail> {
 
 	let stdout = bob.stdout.take().ok_or("no exporter stdout")?;
 	let mut reader = BufReader::new(stdout);
-	await_bob_ready(&mut reader).await?;
+	helpers::await_greeter_ready(&mut reader).await?;
 	// Keep draining Bob's stdout for the rest of the run, same pipe-deadlock
 	// guard the stderr drain gives.
 	drain_in_background(reader);
@@ -207,22 +207,6 @@ async fn gift(port: u16) -> Result<(), Fail> {
     );
 	to_bob.close();
 	Ok(())
-}
-
-// Read Bob's NDJSON readiness lines until the greeter's appears, or time out.
-async fn await_bob_ready(reader: &mut BufReader<ChildStdout>) -> Result<(), Fail> {
-	let mut line = String::new();
-	let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-	loop {
-		line.clear();
-		let read = tokio::time::timeout_at(deadline, reader.read_line(&mut line)).await??;
-		if read == 0 {
-			return Err("exporter exited before publishing the greeter".into());
-		}
-		if line.contains("\"name\":\"greeter\"") {
-			return Ok(());
-		}
-	}
 }
 
 // Keep emptying a child stream to the end so its OS pipe never fills (which would

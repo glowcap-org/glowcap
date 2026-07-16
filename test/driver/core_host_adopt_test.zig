@@ -79,9 +79,9 @@ fn pumpToQuiescence(client_host: *Host, client: *HostSession, server_host: *Host
 test "openAcceptedOver adopts an embedder-pinned peer: handshake, fetch, per-event serve, release without freeing" {
     const allocator = std.testing.allocator;
 
-    var server = Host.init(allocator, [_]u8{0x0b} ** 32, .{ .frame_cap = frame_cap });
+    var server = Host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
-    var client = Host.init(allocator, [_]u8{0x0a} ** 32, .{ .frame_cap = frame_cap });
+    var client = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
 
     // The embedder-pinned peer: owned by this frame, adopted by the host,

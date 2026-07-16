@@ -248,11 +248,21 @@ fn dialErrorToCode(err: net.netlayer.DialError) i32 {
             setLastError("connect: empty inproc designator", .{});
             break :blk PANCAKE_ERR_INVALID_ARGUMENT;
         },
-        error.ConnectionLost => blk: {
+        error.ConnectionRefused => blk: {
             setLastError("connect: no listener bound at that inproc designator", .{});
             break :blk PANCAKE_ERR_IO;
         },
         error.OutOfMemory => PANCAKE_ERR_INTERNAL,
+        // ConnectionLost is reachable — a listener acquired for the dial can be
+        // torn down before `enqueue`. NetworkUnreachable and TimedOut have no
+        // in-memory meaning and never arise for inproc; the shared DialError set
+        // only spells them because network transports need them. Surface the
+        // exact classification by name rather than collapsing it, so a consumer
+        // reading `pancake_inproc_last_error` sees which one it hit.
+        else => blk: {
+            setLastError("connect: inproc dial failed: {s}", .{@errorName(err)});
+            break :blk PANCAKE_ERR_IO;
+        },
     };
 }
 

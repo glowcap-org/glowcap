@@ -35,6 +35,19 @@ const Identity = driver.Identity;
 pub const SessionOptions = struct {
     frame_cap: usize = 1 << 16,
     codec: model.CodecId = .syrup,
+    /// An opt-in per-read deadline for the keyed handshake, in milliseconds; 0
+    /// (the default) leaves the handshake unbounded. When set, `Server.accept`
+    /// and `connect` bound each handshake read and break with
+    /// `Error.HandshakeTimedOut` if a partner finishes connect and then goes
+    /// silent — the slowloris a one-connection-per-thread `accept` must not park
+    /// on (ADR-0081). The value is the caller's policy; it binds fd-backed
+    /// transports (tcp, keyed-tcp), where the handshake read has a pollable fd.
+    handshake_timeout_ms: i32 = 0,
+    /// An opt-in wall-clock deadline for blocking answer-waits after the
+    /// session is open (`settle` / `call` / `fetch`), in milliseconds; 0 leaves
+    /// them unbounded. Threaded onto `BlockingSession.settle_timeout_ms`
+    /// (ADR-0076).
+    settle_timeout_ms: i32 = 0,
 };
 
 /// An owning connection, the one object a native Zig application holds. It
@@ -240,7 +253,8 @@ pub fn connect(
 ) !*Session {
     const self = try createShell(allocator, opts);
     errdefer self.freeShell();
-    self.cv = try connectVia(allocator, netlayers, &self.peer, locator, identity, self.read_buf, self.write_buf);
+    self.cv = try connectVia(allocator, netlayers, &self.peer, locator, identity, self.read_buf, self.write_buf, opts.handshake_timeout_ms);
+    self.cv.settle_timeout_ms = opts.settle_timeout_ms;
     return self;
 }
 
@@ -293,7 +307,8 @@ pub const Server = struct {
     pub fn accept(self: *Server) !*Session {
         const conn = try createShell(self.allocator, self.opts);
         errdefer conn.freeShell();
-        conn.cv = try acceptVia(self.allocator, self.listener, &conn.peer, self.identity, conn.read_buf, conn.write_buf);
+        conn.cv = try acceptVia(self.allocator, self.listener, &conn.peer, self.identity, conn.read_buf, conn.write_buf, self.opts.handshake_timeout_ms);
+        conn.cv.settle_timeout_ms = self.opts.settle_timeout_ms;
         return conn;
     }
 

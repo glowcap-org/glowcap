@@ -183,12 +183,16 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *RedeemShared) anyerror!vo
     defer threaded.deinit();
     const io = threaded.io();
 
-    var resident = try iroh.Resident.init(io, &exporter_seed, .local_discovery);
+    var resident = try iroh.Resident.init(io, &exporter_seed, .{ .reachability = .local_discovery });
     defer resident.deinit();
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const id = resident.nodeId(&id_buf);
 
-    var host = Host.init(allocator, exporter_seed, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    var host = Host.init(allocator, exporter_seed, blk: {
+        var o = Host.Options.withFrameCap(frame_cap);
+        o.local_turn_budget = 64;
+        break :blk o;
+    });
     defer host.deinit();
     var state = ExporterState{ .host = &host, .bridge = undefined };
     var loop: IrohLoop = undefined;
@@ -340,7 +344,7 @@ fn gifterTask(allocator: std.mem.Allocator, shared: *RedeemShared) anyerror!void
     defer threaded.deinit();
     const io = threaded.io();
 
-    var resident = try iroh.Resident.init(io, &gifter_seed, .local_discovery);
+    var resident = try iroh.Resident.init(io, &gifter_seed, .{ .reachability = .local_discovery });
     defer resident.deinit();
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const id = resident.nodeId(&id_buf);
@@ -348,7 +352,11 @@ fn gifterTask(allocator: std.mem.Allocator, shared: *RedeemShared) anyerror!void
     defer allocator.free(id_owned);
     shared.gifter_id = id_owned;
 
-    var host = Host.init(allocator, gifter_seed, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    var host = Host.init(allocator, gifter_seed, blk: {
+        var o = Host.Options.withFrameCap(frame_cap);
+        o.local_turn_budget = 64;
+        break :blk o;
+    });
     defer host.deinit();
     var state = GifterState{ .host = &host, .bridge = undefined, .shared = shared };
     var loop: IrohLoop = undefined;
@@ -482,7 +490,7 @@ pub fn main(init: std.process.Init) !void {
 
     // Publish R's id and start its loop before G/E so G's dial-to-R cannot
     // race a not-yet-polling listener.
-    var recipient_resident = try iroh.Resident.init(io, &recipient_seed, .local_discovery);
+    var recipient_resident = try iroh.Resident.init(io, &recipient_seed, .{ .reachability = .local_discovery });
     defer recipient_resident.deinit();
     var recipient_id_buf: [iroh.node_id_len]u8 = undefined;
     const recipient_id = recipient_resident.nodeId(&recipient_id_buf);
@@ -490,7 +498,11 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(recipient_id_owned);
     shared.recipient_id = recipient_id_owned;
 
-    var recipient_host = Host.init(allocator, recipient_seed, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    var recipient_host = Host.init(allocator, recipient_seed, blk: {
+        var o = Host.Options.withFrameCap(frame_cap);
+        o.local_turn_budget = 64;
+        break :blk o;
+    });
     defer recipient_host.deinit();
     var state = RecipientState{ .host = &recipient_host, .shared = &shared };
     var loop: IrohLoop = undefined;

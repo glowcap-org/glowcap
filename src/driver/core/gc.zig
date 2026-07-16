@@ -58,10 +58,17 @@ const GcExportBatch = struct {
 
 /// After an inbound deliver is dispatched, emit `op:gc-exports` for every `far`
 /// reference the deliver's args (and `resolve_me_desc`) introduced that this
-/// stateless host does not retain. The args walk recurses through lists, sets,
-/// tagged values, and structs — the same shape the session's import-install
-/// walk takes — so a nested introduction's refcount is released exactly like a
-/// top-level one and the wire-delta accounting balances.
+/// stateless host does not retain. When the event carries
+/// `introduced_far_imports` — the session's own validate walk
+/// (`session.validate.IntroducedImports`), threaded here by
+/// `engine.inbound.applyDecodedOwnedFrame` instead of thrown away — that
+/// record is reused directly rather than re-walked. Absent (a deliver
+/// surfaced by a path other than the engine's own inbound dispatch, today
+/// only a drained pipelined call redirected locally), this falls back to the
+/// args walk below, which recurses through lists, sets, tagged values, and
+/// structs — the same shape the session's import-install walk takes — so a
+/// nested introduction's refcount is released exactly like a top-level one
+/// and the wire-delta accounting balances either way.
 fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) void {
     const body = event.view() catch return;
     const deliver = switch (body) {
@@ -71,8 +78,12 @@ fn emitExportsForDeliver(peer: *engine.Peer, event: *engine.Event) void {
 
     var batch = GcExportBatch{ .peer = peer };
 
-    const max_depth = peer.limits().max_nesting_depth;
-    addIntroducedFarsInArgs(&batch, deliver.args, 0, max_depth);
+    if (event.introduced_far_imports) |mentions| {
+        for (mentions) |import_position| batch.add(import_position.int());
+    } else {
+        const max_depth = peer.limits().max_nesting_depth;
+        addIntroducedFarsInArgs(&batch, deliver.args, 0, max_depth);
+    }
 
     if (deliver.resolve_me_desc) |rmd| {
         switch (rmd) {

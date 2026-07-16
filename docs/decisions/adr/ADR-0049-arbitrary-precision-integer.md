@@ -18,7 +18,7 @@ magnitude outside that range at decode — a pinned fail-closed boundary, and th
 last missing atom of the passable set. Completing it has one design question:
 what bytes represent the magnitude in the codec-neutral model? Syrup carries
 decimal digits on the wire; a binary (limb) representation would force a
-decimal↔binary conversion inside the Syrup codec, which both allocates on the
+decimal-to-binary conversion inside the Syrup codec, which both allocates on the
 zero-copy borrowed-view path and drags bignum arithmetic into the tree.
 
 ## Decision
@@ -48,8 +48,9 @@ zero-copy borrowed-view path and drags bignum arithmetic into the tree.
 
 ## Scope (what this does not decide)
 
-- OCapN Null stays fail-closed: Goblins has no Null marshalling and the upstream
-  encoding is unsettled (ADR-0046 context holds).
+- OCapN Null stays unmodeled: Goblins has no Null marshalling and the upstream
+  encoding is unsettled (ADR-0046). Unknown Syrup records project as `Tagged`,
+  not as a dedicated Null refuse.
 - The protocol-position integers (export/answer positions, list indexes, wire
   deltas) stay `u64`/`i64`; arbitrary precision applies to the passable value
   space only.

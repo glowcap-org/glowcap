@@ -12,7 +12,7 @@ import { ffi, libFile, libPath, type Symbols } from "@pancake/stack/ffi";
 const irohSymbolDefs = {
 	pancake_iroh_last_error: { parameters: ["buffer", "usize"], result: "usize" },
 	pancake_iroh_netlayer_new: {
-		parameters: ["buffer", "usize", "u32", "buffer"],
+		parameters: ["buffer", "usize", "buffer", "buffer"],
 		result: "i32",
 	},
 	pancake_iroh_netlayer_close: { parameters: ["pointer"], result: "void" },

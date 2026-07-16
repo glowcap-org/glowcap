@@ -52,6 +52,7 @@ comptime {
     _ = @import("session/bootstrap_test.zig");
     _ = @import("engine/peer_test.zig");
     _ = @import("engine/alloc_budget_test.zig");
+    _ = @import("engine/cross_codec_budget_test.zig");
     _ = @import("engine/resolve_alloc_budget_test.zig");
     _ = @import("engine/listener_fire_budget_test.zig");
     _ = @import("engine/footprint_budget_test.zig");
@@ -73,6 +74,8 @@ comptime {
     _ = @import("driver/blocking_session_test.zig");
     _ = @import("driver/core_host_test.zig");
     _ = @import("driver/dial_plan_test.zig");
+    _ = @import("driver/resilient_client_test.zig");
+    _ = @import("driver/host_limits_test.zig");
     _ = @import("driver/served_budget_test.zig");
     _ = @import("driver/core_host_budget_test.zig");
     _ = @import("driver/core_host_adopt_test.zig");

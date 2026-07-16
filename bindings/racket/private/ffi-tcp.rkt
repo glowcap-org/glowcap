@@ -9,11 +9,18 @@
 ;; cstructs from `ffi-shared.rkt`, which the TCP and core archives agree on by
 ;; layout; reading a frame back through `pancake_managed_frame_release` is a core
 ;; call, so the public module reaches that through the core seam, not here.
+;;
+;; Out-params are fresh caller-owned cells inside the public wrappers.
 (require ffi/unsafe
          ffi/unsafe/define
          "ffi-shared.rkt"
          "lib-resolve.rkt")
-(provide (all-defined-out))
+(provide (except-out (all-defined-out)
+                     pancake_tcp_netlayer_new*
+                     pancake_tcp_connect*
+                     pancake_tcp_listen*
+                     pancake_tcp_listener_port*
+                     pancake_tcp_accept*))
 
 (define tcp-lib (open-pancake-archive "pancake_net_transport_tcp"))
 
@@ -22,19 +29,30 @@
 ;; thread-local last-error: a tcp call's diagnostic is read through
 ;; `pancake_tcp_last_error`, never the ocapn family's `pancake_last_error`.
 (define-pancake-tcp pancake_tcp_last_error (_fun _pointer _size -> _size))
-(define-pancake-tcp pancake_tcp_netlayer_new (_fun (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
+(define-pancake-tcp pancake_tcp_netlayer_new*
+  (_fun _pointer -> _int32)
+  #:c-id pancake_tcp_netlayer_new)
+(define pancake_tcp_netlayer_new (wrap-out1 pancake_tcp_netlayer_new* _pointer #f))
 (define-pancake-tcp pancake_tcp_netlayer_release (_fun _pointer -> _void))
 ;; connect/accept/read/write park the calling thread on the socket, so
 ;; #:blocking? lets the Racket scheduler and GC run while one waits, other
 ;; green threads keep going instead of the place freezing.
-(define-pancake-tcp pancake_tcp_connect
-  (_fun #:blocking? #t _pointer _pointer _size _uint16 _uint32 _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake-tcp pancake_tcp_listen
-  (_fun _pointer _pointer _size _uint16 (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-(define-pancake-tcp pancake_tcp_listener_port
-  (_fun _pointer (out : (_ptr o _uint16)) -> (r : _int32) -> (values r out)))
-(define-pancake-tcp pancake_tcp_accept
-  (_fun #:blocking? #t _pointer _uint32 _size (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
+(define-pancake-tcp pancake_tcp_connect*
+  (_fun #:blocking? #t _pointer _pointer _size _uint16 _uint32 _size _pointer -> _int32)
+  #:c-id pancake_tcp_connect)
+(define pancake_tcp_connect (wrap-out1 pancake_tcp_connect* _pointer #f))
+(define-pancake-tcp pancake_tcp_listen*
+  (_fun _pointer _pointer _size _uint16 _pointer -> _int32)
+  #:c-id pancake_tcp_listen)
+(define pancake_tcp_listen (wrap-out1 pancake_tcp_listen* _pointer #f))
+(define-pancake-tcp pancake_tcp_listener_port*
+  (_fun _pointer _pointer -> _int32)
+  #:c-id pancake_tcp_listener_port)
+(define pancake_tcp_listener_port (wrap-out1 pancake_tcp_listener_port* _uint16 0))
+(define-pancake-tcp pancake_tcp_accept*
+  (_fun #:blocking? #t _pointer _uint32 _size _pointer -> _int32)
+  #:c-id pancake_tcp_accept)
+(define pancake_tcp_accept (wrap-out1 pancake_tcp_accept* _pointer #f))
 (define-pancake-tcp pancake_tcp_conn_read_frame (_fun #:blocking? #t _pointer _PancakeManagedFrame-pointer -> _int32))
 (define-pancake-tcp pancake_tcp_conn_write_frame (_fun #:blocking? #t _pointer _PancakeFrame-pointer -> _int32))
 (define-pancake-tcp pancake_tcp_conn_release (_fun _pointer -> _void))

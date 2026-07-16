@@ -92,7 +92,7 @@
   (provide (struct-out async-transport) make-fresh-host make-host
            establish-dialed-locator-session
            establish-accepted-session
-           host-set-self-designator! format-peer-uri
+           host-set-self-designator! host-set-session-limits! format-peer-uri
            check check-with read-last-error raise-pancake bytes<-c codec-id
            pin-immobile
            _PancakeFrame _PancakeFrame-pointer make-PancakeFrame

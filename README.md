@@ -20,16 +20,14 @@ objects and call methods on them across a session, with the same authority
 rules as a local call. Hold the reference and you can use it. There is no
 ambient authority and no string-typed permission to forge.
 
-It's a Zig implementation of the object-capability networking core, targeting
-OCapN, the open object-capability network protocol from
+It is a Zig library for OCapN, the open object-capability network protocol from
 [Spritely Institute](https://spritely.institute/) and the OCapN community. You
-link it as a library and manage its memory yourself. Nothing hides: every copy,
-every allocation, the wire format in play, and where I/O and scheduling live all
-stay visible at the boundary that owns them.
+link it and manage its memory yourself. Every copy, every allocation, the wire
+format in play, and where I/O and scheduling live stay visible at the boundary
+that owns them.
 
 New to capabilities, CapTP, or OCapN? Start with
-[`docs/capabilities.md`](docs/capabilities.md). It explains the ideas and the
-vocabulary before any code appears.
+[`docs/capabilities.md`](docs/capabilities.md).
 
 <p align="center">
   <img src="assets/pancake-goblin-512.png" alt="a purple goblin studying a smiling stack of pancakes" width="320" />
@@ -105,24 +103,19 @@ an AI-agent tool harness with delegation, attenuation, and revocation
 
 ## Design posture
 
-The portable core is deterministic, sync, and no-I/O; adapters own sockets,
+The portable core is deterministic, sync, and no-I/O. Adapters own sockets,
 scheduling, and host integration. Session state is authoritative; codecs parse
 and render but decide nothing. Every wire-path allocation and copy is forbidden,
-named, or measured, and the budgets are build gates, not intentions. Conformance
-is load-bearing: a real Spritely Goblins peer holds a live conversation with
-pancake in both directions, and the upstream OCapN test suite runs against it.
-The whole argument lives in [`docs/architecture.md`](docs/architecture.md) and
-[`docs/vision.md`](docs/vision.md).
+named, or measured, and the budgets are build gates. A real Spritely Goblins
+peer holds a live conversation with pancake in both directions, and the upstream
+OCapN test suite runs against it. See [`docs/architecture.md`](docs/architecture.md)
+and [`docs/vision.md`](docs/vision.md).
 
 ## Status
 
-[`docs/shipped.md`](docs/shipped.md) inventories what ships today: the wire
-operation surface, both codecs, the shipped netlayers, the actor layer, third-party
-handoffs, and live Goblins interop from every binding. The edges that remain
-(cleartext TCP, process-lifetime bootstrap registrations, the fail-closed OCapN
-Null, the unbuilt `griddle` network simulator) live in
-[`docs/boundaries.md`](docs/boundaries.md), and the ordered route to 1.0 in
-[`docs/ladder.md`](docs/ladder.md).
+[`docs/shipped.md`](docs/shipped.md) inventories what ships today.
+[`docs/boundaries.md`](docs/boundaries.md) names the edges that remain.
+[`docs/ladder.md`](docs/ladder.md) is the ordered route to 1.0.
 
 ## Build
 

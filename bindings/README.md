@@ -15,7 +15,7 @@ vocabulary is small and shared across the bindings:
 
 | Verb                           | What it does                                                                                                                                                                                           |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `connect(locator)`             | **The one dialer.** Dial a peer from its `ocapn://` locator, whatever the transport: a `tcp` locator needs nothing else, a `keyed-tcp` locator needs its `direct-addresses` hint, an `iroh` locator adds a reachability posture. There is no `host:port` dial. Internally, `connect` parses once and dispatches through `dial_parsed_locator`, which mints the dialing half via `open_dialed_locator` (C ABI `pancake_host_session_open_dialed_locator`). |
+| `connect(locator)`             | Dial a peer from its `ocapn://` locator. A `tcp` locator needs nothing else; a `keyed-tcp` locator needs its `direct-addresses` hint; an `iroh` locator adds a reachability posture. There is no bare `host:port` dial. Internally, `connect` parses once and dispatches through `dial_parsed_locator` / `open_dialed_locator` (C ABI `pancake_host_session_open_dialed_locator`). |
 | `tcp_locator(host, port)`      | Build a `tcp` locator (`ocapn://host:port.tcp`) from a literal address through `socket_addr_designator` (IPv6 bracketing), to pass to `connect`                                                                                                           |
 | `keyed_tcp_locator(key, host, port)` | Build a `keyed-tcp` locator: the designator is the listener's Ed25519 key in hex, and `host`/`port` ride the `direct-addresses` hint (ADR-0075)                                                   |
 | `listen(bind_host, port)`       | Accept TCP connections, yield a `Session` each                                                                                                                                                      |
@@ -388,9 +388,15 @@ modules: a **pump module** (`ts/stack/pump.ts`, `python/pancake/_pump.py`,
 `rust/src/pump.rs`, `racket/private/pump.rkt`) for the conn byte path
 (keyed handshake + feed/flush/serve + `last_abort`), and an
 **action module** (`ts/stack/action.ts`, `python/pancake/_action.py`,
-`rust/src/action.rs`, `racket/private/action.rkt`) for pop + execute of
-`pancake_host_next_action`. Host owns vow tables, mid-turn park, and the drain
-loop as `kickActions` / `kick_actions`. Python owning modules
+`rust/src/action.rs`, `racket/private/action.rkt`) for park + execute via
+`pancake_host_pump_drain` (sync park-only hooks; async I/O after the C loop).
+Host owns vow tables, mid-turn park, and the drain
+loop as `kickActions` / `kick_actions`. Every binding tunes selective session
+limits through the same C knobs (`setSessionLimits`, `set_session_limits`,
+`host-set-session-limits!`), and discovery dial budgets share that spine too
+(ADR-0082). Rust also exposes mint-time codec and local-turn budget through
+`HostOptions`.
+Python owning modules
 (pump/promise/trampoline/action/gc) call Session/Host through binding-internal
 seams (`raw`/`host`/`gc`/`hosted`/`park_release`/`settle_vow`/…), never
 underscore reach-ins — gated by `meta-check`. Racket keeps `drain-host-actions!` in
@@ -423,11 +429,11 @@ in pump. Each binding also keeps a named
 chase (bounded by `PANCAKE_MAX_LOCAL_FORWARD_HOPS`), local send/tell arms plus
 far-tell mint (TS/Python; Racket folds far tell into `session-far-send`) and
 near/far send·tell dispatch (`dispatchSend` / `_dispatch_send` /
-`dispatch-send`; Rust tell dispatch on `ConnShared`), ADR-0064 caretaker/attenuate factories, spawn/publish hosting
+`dispatch-send`; Rust tell dispatch on `SessionShared`), ADR-0064 caretaker/attenuate factories, spawn/publish hosting
 (`spawnHosted` / `_spawn_hosted` / `register-hosted-actor!`, including actor
-registration; Rust keeps spawn/publish on `ConnShared`), mid-turn latch, and reply keep. Rust
-also keeps a named **conn** module
-(`conn.rs`) for `Ref` / `Caretaker` / `ConnShared`.
+registration; Rust keeps spawn/publish on `SessionShared`), mid-turn latch, and reply keep. Rust
+also keeps a named **session_shared** module
+(`session_shared.rs`) for `Ref` / `Caretaker` / `SessionShared`.
 `examples/c/host_embedder_pump.c` is the compiled
 checklist (feed + FLUSH drain via `pancake_host_pump_drain`, feed-refusal/`last_abort`, EOF/`break_far_vows`).
 `zig build meta-check` fails if a pump/action/promise/gc/dial/listen/trampoline module,
@@ -435,15 +441,17 @@ mid-turn park marker, generated decode import, session dial/listen re-export,
 or that C reference disappears. The embedder-spine module split is complete.
 A Zig-facing `embedder_pump` helper (`src/c_abi/driver/embedder_pump.zig`) and
 the opt-in C export `pancake_host_pump_drain` drain through
-`pancake_host_next_action` (ADR-0072 fifth amendment — the pull-queue stays
-normative). Bindings keep owning their async/sync loop idioms.
+`pancake_host_next_action` (ADR-0072 fifth / sixth amendments — the pull-queue
+stays normative; every binding action module calls the wrapper). Bindings keep
+owning their async/sync loop idioms (park in sync arms, await or fire after).
 
 `include/pancake_driver.h`'s preamble carries the same contract in C-consumer
 form; this is the binding author's checklist, written once so four
 implementations cannot drift.
 
 - **The one loop rule.** After any top-level `pancake_host_*` call returns OK,
-  drain `pancake_host_next_action` until `WOULD_BLOCK`, honoring each action:
+  drain via `pancake_host_pump_drain` (or an equivalent pull of
+  `pancake_host_next_action` until `WOULD_BLOCK`), honoring each action:
   `DIAL` (open your own connection to the action's exporter — the parsed
   transport/designator/direct-address-hint views ride beside the URI — drive
   its session open, report `dialed`/`dial_failed` with the ticket), `FLUSH`
@@ -451,14 +459,14 @@ implementations cannot drift.
   `NEED_GIFT_ID` (32 random bytes into `provide_gift_id`), `SETTLE`/`FAIL`
   (route the outcome to whatever awaits the vow the action's `ticket` names).
   Nothing enforces the drain; an ignored action strands the dial, flush,
-  handoff, or settlement it carries.
-- **CapTP sticky note (ADR-0079).** `Host` / `PancakeHost` / binding `Host`
-  is the multi-session CapTP product (`pancake_host_*` in `pancake_driver.h`); it
-  owns `engine.Node`, the sans-io handoff router. Binding `Session` is the
-  one-partner app object (`driver.Session`). Goblins `mycapn` is two roles —
-  endpoint ≈ Host, router tables ≈ `engine.Node`. Binding `Node` and binding
-  `Connection` are deleted; map CapTP multi-session work to the host tier, not
-  the peer waist.
+  handoff, or settlement it carries. Binding action modules must use the
+  shared C wrapper — `meta-check` bans a hand-rolled `pancake_host_next_action`
+  pop loop there.
+- **CapTP product names (ADR-0079).** A binding `Host` is the multi-session
+  CapTP product (`pancake_host_*` in `pancake_driver.h`). A binding `Session` is
+  the one-partner application object. Map multi-session CapTP work to the host
+  tier, not the peer waist. Binding `Node` and binding `Connection` types are
+  gone; `net.Connection` is the framed byte stream only.
 - **Bytes in, frames out.** Feed raw inbound bytes through
   `conn_feed_bytes` and keep only the unconsumed tail — the core owns frame
   delimiting for both codecs, including the `FRAME_TOO_LARGE` cap. Never
@@ -468,8 +476,11 @@ implementations cannot drift.
   a fast partner coalesced behind its hello stay in your tail until you have
   published and fed again.
 - **Feed failure choreography.** A failed feed leaves a typed `op:abort` on
-  the outbound queue: still drain `take_outbound` and write it (the partner
-  hears why), read `conn_last_abort` for the local detail, then release.
+  the outbound queue: capture `conn_last_abort` / last-error, then run the
+  shared action drain (`kick_actions` / `with-host-drain`) so the abort — and
+  any CLOSE/FAIL queued with it — leave through the same FLUSH spine as a
+  steady write, not a private `take_outbound` path. Then surface the typed
+  error and release.
 - **EOF means break.** When the transport reports the connection gone, call
   `conn_break_far_vows` before releasing, so pending vows settle broken with
   the partner's retained abort diagnostic instead of hanging.
@@ -561,24 +572,25 @@ surface. Every binding parks on that fd natively, each in its own idiom: Deno's
 `IrohLoop` (a `node:net` socket on a dup'd fd), Python's `_IrohLoop` (asyncio
 `add_reader`), Rust's `AsyncFd` task, and Racket's
 `unsafe-file-descriptor->semaphore` park. No dedicated polling thread, no
-busy-poll. The Python, Rust, and Racket loops are each held to the same scale
-bar by a many-connection gate: `zig build bindings-iroh-loop` runs
-`python-iroh-loop`, `rust-iroh-loop`, and `racket-iroh-loop`, the binding
-siblings of `iroh-loop`. The
+busy-poll. Every binding's loop is held to the same scale bar by a
+many-connection gate: `zig build bindings-iroh-loop` runs
+`deno-iroh-loop`, `python-iroh-loop`, `rust-iroh-loop`, and `racket-iroh-loop`,
+the binding siblings of `iroh-loop`. The
 `examples/apps/rooms/` clients dial a transport-neutral locator, so
 `zig build demo-rooms-iroh` runs the same cross-language room over iroh; a
 binding joins when its runtime and the iroh library are both present.
 
 Every binding also mints and redeems a three-party handoff **over iroh** through
 its own surface. Hinted gives dial the exporter's `direct-addresses` under the
-relay-less `Direct` posture (`bindings-iroh-handoff`, Deno via
-`demo-rooms-dm-iroh`). A give that names the exporter by **node id alone** is
+relay-less `Direct` posture (`zig build bindings-iroh-handoff`:
+`deno-`/`python-`/`rust-`/`racket-iroh-handoff`). A give that names the exporter by **node id alone** is
 redeemed under the recipient's configured redeem posture — `Discovery` by
 default, lowerable to `DiscoveryNoRelay` via each binding's knob
 (`setRedeemReachability` in TS, `redeem_reachability` in Python,
 `set-host-redeem-reachability!` in Racket); a hinted give always dials `Direct`
 and ignores the knob. Hermetic posture proof:
 `bindings-iroh-redeem-posture`. Offline dial-by-id: `*-iroh-loop`. Live
+dial-by-id over n0: `bindings-iroh-reachability`.
 public-internet dial-by-id (opt-in, out of `check`):
 `bindings-iroh-reachability`. The full shipped story is in
 [`docs/shipped.md`](../docs/shipped.md).
@@ -675,12 +687,20 @@ a GitHub release.
 ### Publishing C archives (flip checklist)
 
 Until `releases_published` is flipped, cold-cache resolves do not hit the
-network, and a `v*` tag does not call `gh release create`. To publish:
+network, and a `v*` tag does not call `gh release create`. `zig build
+release-pack` stages a checksummed per-target tarball under
+`zig-out/release/`. Shared-library soname symlinks are dereferenced so the
+archive contains only regular files, which is ADR-0077 extract hygiene. To
+publish:
 
-1. Set `releases_published: true` in [`c-abi-resolve.json`](c-abi-resolve.json)
+1. Confirm `zig build release-pack` succeeds on each published OS/arch.
+2. Set `releases_published: true` in [`c-abi-resolve.json`](c-abi-resolve.json)
    and copy it into every path listed under `package_copies`.
-2. Tag `v{abi_version}` matching `include/pancake_ocapn.h` and the contract.
-3. Push the tag; confirm the release workflow publishes (not
+3. Tag `v{abi_version}` matching `include/pancake_ocapn.h` and the contract.
+4. Push the tag; confirm the release workflow publishes (not
    `publish disabled (releases_published is false)`).
-4. Smoke a cold-cache resolve against the live URL. Before the flip, rehearse
+5. Smoke a cold-cache resolve against the live URL. Before the flip, rehearse
    fetch with `PANCAKE_DOWNLOAD=1` only.
+
+Do not flip `releases_published` before the GitHub release assets exist.
+Cold-cache clients would otherwise fetch 404s.

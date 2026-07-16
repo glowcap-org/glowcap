@@ -38,7 +38,7 @@ pub fn handshakeToOpen(
     start_session: model.Message,
 ) !void {
     try peer.sendCopying(start_session);
-    _ = try conn.runUntil(isOpen);
+    _ = try conn.runUntil(isOpen, 0);
     drainEvents(peer);
 }
 

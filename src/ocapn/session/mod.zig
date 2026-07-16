@@ -26,8 +26,15 @@ const sturdyref_cache = @import("sturdyref_cache.zig");
 const imported_promise = @import("imported_promise.zig");
 const gc = @import("gc.zig");
 const v1_0 = @import("v1_0.zig");
+const bimap = @import("bimap.zig");
 const handshake = @import("handshake.zig");
 const limits = @import("limits.zig");
+
+/// Re-exported so a caller that must keep the recv-turn's introduced-import
+/// record alive past the call (`recordInboundDeliverView`'s caller,
+/// `engine.inbound.applyDecodedOwnedFrame`) can name `validate.IntroducedImports`
+/// without reaching past this module into `session/validate.zig` directly.
+pub const validate = @import("validate.zig");
 
 /// Position-keyed wire-delta refcount tables. Exports and imports share one
 /// integer-keyed hash core (`slot_table` explains why partner-controlled
@@ -182,22 +189,19 @@ comptime {
 /// actor and bootstrap exports, and collision is impossible because the
 /// session is the single minter.
 ///
-/// `OutboundResolvers` maps a resolver-export position to an answer-pos, because the
-/// hot lookup (`answerForResolverExport`, run per inbound deliver) needs that
-/// reverse direction; its inverse `OutboundResolverAnswers` serves the
-/// per-position removal on the `op:gc-answers` path
-/// (`removeOutboundResolverByAnswer`), which would otherwise scan every
-/// outstanding link per released answer — O(Q²) across a full release wave.
-/// `InboundResolverImports` maps an answer-pos to a resolver import; its
-/// inverse `InboundResolverAnswers` (`answerForResolverImport`, on the
-/// inbound-deliver break-propagation path) needs the other direction. Each
-/// forward/inverse pair is written and pruned in lockstep rather than
-/// scanning. Keying each on its position newtype makes the direction a
-/// property of the type. None owns heap memory beyond its map backing.
-const OutboundResolvers = std.AutoHashMapUnmanaged(model.ExportPosition, model.AnswerPosition);
-const OutboundResolverAnswers = std.AutoHashMapUnmanaged(model.AnswerPosition, model.ExportPosition);
-const InboundResolverImports = std.AutoHashMapUnmanaged(model.AnswerPosition, model.ImportPosition);
-const InboundResolverAnswers = std.AutoHashMapUnmanaged(model.ImportPosition, model.AnswerPosition);
+/// The V1.0 resolver links (ADR-0010) are two bijections held in `BiMap`s so
+/// each direction stays in lockstep by construction rather than by comment. The
+/// outbound link binds a resolver-export position to the answer-pos it
+/// resolves: the hot lookup (`answerForResolverExport`, run per inbound deliver)
+/// reads it forward, and the `op:gc-answers` prune reads it by its answer side,
+/// both O(1) — no scan of every outstanding link per released answer, which
+/// would be O(Q²) across a full release wave. The inbound link binds an
+/// answer-pos to the partner's resolver import (`resolverForInboundAnswer`
+/// forward, `answerForResolverImport` reverse). Keying each on its position
+/// newtype makes the direction a property of the type. Neither owns heap beyond
+/// its two map backings.
+const OutboundResolverLink = bimap.BiMap(model.ExportPosition, model.AnswerPosition);
+const InboundResolverLink = bimap.BiMap(model.AnswerPosition, model.ImportPosition);
 
 pub const State = enum {
     negotiating,
@@ -361,29 +365,19 @@ pub const Session = struct {
     /// apply path does not). Lives in `key_arena`.
     partner_acceptable_location_raw: []const u8 = &.{},
     /// V1.0 resolver-callback links for our *outbound* answers, mapping a
-    /// resolver-export position to an answer-pos. An inbound deliver to that export is
-    /// the partner resolving the answer. Keyed for the reverse lookup that runs
-    /// per inbound deliver. See `OutboundResolvers`.
-    v1_0_outbound_resolvers: OutboundResolvers,
-    /// The inverse of `v1_0_outbound_resolvers`, mapping an answer-pos back to
-    /// its resolver export, so releasing an answer (`op:gc-answers`) drops its
-    /// resolver link in O(1) instead of scanning every outstanding link — a
-    /// client GCing Q answered delivers would otherwise pay O(Q²). Written and
-    /// pruned in lockstep with the forward map: both rows appear together in
-    /// `installOutboundResolver` and both drop together on answer release, so
-    /// neither map outlives the answer it describes.
-    v1_0_outbound_resolver_answers: OutboundResolverAnswers,
-    /// V1.0 resolver-callback links for the partner's *inbound* answers, mapping
-    /// an answer-pos to the resolver import position we target when we send our
-    /// resolution. See `InboundResolvers`.
-    v1_0_inbound_resolvers: InboundResolverImports,
-    /// The inverse of `v1_0_inbound_resolvers`, mapping a resolver import position back
-    /// to its answer-pos, so `answerForResolverImport` is O(1) instead of a scan.
-    /// Written and pruned in lockstep with `v1_0_inbound_resolvers`: both rows
-    /// appear together when a resolver is installed and both drop together when
-    /// the answer is fully released by `op:gc-answers`, so neither map outlives
-    /// the answer it describes.
-    v1_0_inbound_resolver_answers: InboundResolverAnswers,
+    /// V1.0 outbound resolver link (ADR-0010): a resolver-export position bound
+    /// to the answer-pos it resolves. An inbound deliver to that export is the
+    /// partner resolving the answer (`answerForResolverExport`, forward, per
+    /// inbound deliver); a fully-released answer drops the link on the
+    /// `op:gc-answers` path by its answer side, O(1) either way. One `BiMap`
+    /// holds both directions, so no half-installed link can survive.
+    v1_0_outbound_resolver_link: OutboundResolverLink,
+    /// V1.0 inbound resolver link (ADR-0010): an answer-pos bound to the
+    /// resolver import position we target when we send our resolution
+    /// (`resolverForInboundAnswer` forward, `answerForResolverImport` reverse).
+    /// One `BiMap`, pruned whole when the answer is fully released by
+    /// `op:gc-answers`.
+    v1_0_inbound_resolver_link: InboundResolverLink,
     /// Resolved sturdyref enlivenments, mapping a swissnum to its `(import, kind)`
     /// (ADR-0012 dedup).
     /// FIFO-evicting (cap `max_sturdyref_cache_entries`), so it keeps insertion
@@ -456,10 +450,8 @@ pub const Session = struct {
             .partner_session_key = &.{},
             .partner_designator = &.{},
             .partner_acceptable_location_raw = &.{},
-            .v1_0_outbound_resolvers = .empty,
-            .v1_0_outbound_resolver_answers = .empty,
-            .v1_0_inbound_resolvers = .empty,
-            .v1_0_inbound_resolver_answers = .empty,
+            .v1_0_outbound_resolver_link = .empty,
+            .v1_0_inbound_resolver_link = .empty,
             .sturdyref_cache = .empty,
             .sturdyref_cache_index = .empty,
             .pending_enlivens = .empty,
@@ -477,10 +469,8 @@ pub const Session = struct {
         var imported_it = self.imported_promises.valueIterator();
         while (imported_it.next()) |entry| deinitImportedPromise(self.allocator, entry);
         self.imported_promises.deinit(self.allocator);
-        self.v1_0_outbound_resolvers.deinit(self.allocator);
-        self.v1_0_outbound_resolver_answers.deinit(self.allocator);
-        self.v1_0_inbound_resolvers.deinit(self.allocator);
-        self.v1_0_inbound_resolver_answers.deinit(self.allocator);
+        self.v1_0_outbound_resolver_link.deinit(self.allocator);
+        self.v1_0_inbound_resolver_link.deinit(self.allocator);
         // Drop the index before freeing row swissnums (keys alias those slices).
         self.sturdyref_cache_index.deinit(self.allocator);
         for (self.sturdyref_cache.items) |entry| self.allocator.free(entry.swissnum);
@@ -682,6 +672,25 @@ pub const Session = struct {
         }
     }
 
+    /// `recordRecvView`, restricted to a wire `op:deliver` and with the
+    /// introduced-import record supplied by the caller instead of a
+    /// throwaway turn-scratch one. `recordRecvView`'s own record lives in
+    /// `recv_scratch`, reset before that call even returns — too short-lived
+    /// for a consumer that needs the far positions a deliver introduced
+    /// *after* the event is surfaced. The engine's inbound dispatch
+    /// (`engine.inbound.applyDecodedOwnedFrame`) calls this instead, backing
+    /// `introduced` with an allocator that outlives the turn, so it can copy
+    /// the mentions onto the surfaced `Event` for post-dispatch stateless GC
+    /// (`driver.core.gc.emitExportsForDeliver`) rather than re-walking the
+    /// same argument tree a second time once the event is polled.
+    /// `introduced`'s allocator and lifetime are the caller's.
+    pub fn recordInboundDeliverView(self: *Session, body: model.view.Body, introduced: *validate.IntroducedImports) !void {
+        std.debug.assert(body == .deliver);
+        try self.admitInState(body);
+        try self.validateRecvView(body, introduced);
+        try self.applyRecvView(body, introduced);
+    }
+
     /// Record the inbound resolve the engine synthesizes when a V1.0 partner
     /// fulfills a promise by delivering to its resolver callback (ADR-0010).
     /// Validates and applies straight from the borrowed resolution view, so the
@@ -707,11 +716,11 @@ pub const Session = struct {
         try self.applyRecvView(body, &introduced);
     }
 
-    // Per-kind validate/apply live in `validate.zig` and `apply.zig`; the
-    // public spine is `recordSend` / `recordRecv` / `recordRecvView` /
-    // `admits`. Three per-kind entry points stay public because one engine
-    // pre-step must run the same rule before `recordRecv*`.
-    const validate = @import("validate.zig");
+    // Per-kind validate/apply live in `validate.zig` (the module-level
+    // `validate` re-export above) and `apply.zig`; the public spine is
+    // `recordSend` / `recordRecv` / `recordRecvView` / `admits`. Three
+    // per-kind entry points stay public because one engine pre-step must run
+    // the same rule before `recordRecv*`.
     const apply = @import("apply.zig");
 
     const validateRecvView = validate.validateRecvView;
@@ -738,6 +747,10 @@ pub const Session = struct {
     /// returns 0, so a zero-initialized stamp can never false-match one.
     pub fn nextStoreStamp(self: *Session) u64 {
         self.store_stamp_counter += 1;
+        // Load-bearing: a 0 stamp would false-match a zero-initialized carrier
+        // (`settled_answer` / `listener_fire`) and ship the wrong payload. The
+        // pre-increment guarantees it; this pins the guarantee against a wrap.
+        std.debug.assert(self.store_stamp_counter != 0);
         return self.store_stamp_counter;
     }
 
@@ -1085,6 +1098,7 @@ pub const Session = struct {
     pub const recordRelayedResolution = imported_promise.recordRelayedResolution;
     pub const takeImportedPromiseListeners = imported_promise.takeImportedPromiseListeners;
     pub const importedPromiseResolution = imported_promise.importedPromiseResolution;
+    pub const importedPromiseRowId = imported_promise.importedPromiseRowId;
     pub const findImportedPromise = imported_promise.findImportedPromise;
 
     // Sturdyref-enliven dedup (ADR-0012): the resolved-enlivenment cache and the

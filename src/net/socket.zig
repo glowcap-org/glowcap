@@ -8,7 +8,7 @@
 //! it lives here. Residents reach socket bits through `net.socket`, never by
 //! importing `completion/` internals or `@import`-ing a sibling file, so "tcp
 //! logic" cannot leak back into a netlayer or across a module boundary. The
-//! implementation files stay where they are for now; this module is the boundary
+//! implementation files live under `completion/`; this module is the boundary
 //! that names them as one library.
 
 const socket_tcp = @import("completion/socket_tcp.zig");

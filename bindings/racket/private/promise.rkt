@@ -21,7 +21,7 @@
 ;; session ↔ promise and promise ↔ pump cycles (session eagerly requires this
 ;; module; pump lazy-requires session).
 (lazy-require
- ["session.rkt" (session-host session-ptr guard-open)]
+ ["session.rkt" (session-host session-ptr guard-open session-flush!)]
  ["pump.rkt" (pump-until)])
 
 (provide (struct-out session-vow)
@@ -116,8 +116,11 @@
 
 ;; Pump until the far vow settles and classify: the fulfilled value, a typed
 ;; ERR-BROKEN carrying the partner's break, or a typed ERR-CLOSED when the
-;; settle was the disconnect's own break.
+;; settle was the disconnect's own break. Flush before parking so a deliver
+;; minted on another thread (or ahead of this await) cannot sit unsent while
+;; both peers wait on the socket.
 (define (await-vow c v who label)
+  (session-flush! c)
   (pump-until c
               (lambda () (and (not (eq? (session-vow-state v) 'pending)) (session-vow-state v)))
               who
@@ -144,6 +147,8 @@
         (define fresh (session-vow c id 'pending '()))
         (register-vow! m fresh)
         fresh)))
+  ;; Fetch/enliven mint outside `session-far-send`; flush before the await.
+  (session-flush! c)
   (pump-until c
               (lambda () (and (not (eq? (session-vow-state v) 'pending)) (session-vow-state v)))
               who
@@ -163,10 +168,11 @@
 
 ;; Far-send / far-tell mint: encode args, enqueue `conn_send` / `vow_send` /
 ;; `conn_tell`, register any answer vow. Local-hosted targets stay in Session
-;; (`session-send-local`). Nothing is flushed here — the bytes leave on the
-;; next drain, so a pipelined chain travels as one batch on the settling
-;; send's pump. Legal inside a hosted turn (the host encodes at unwind). An
-;; empty verb symbol is a methodless positional deliver (verb length zero on
+;; (`session-send-local`). Outside a turn, flush this connection after the mint
+;; so the deliver cannot sit unsent while a partner waits; inside a turn the
+;; flush is deferred (`session-flush!` no-ops) and the host encodes at unwind,
+;; so a pipelined chain still travels as one batch on the settling send's pump.
+;; An empty verb symbol is a methodless positional deliver (verb length zero on
 ;; the wire). `answer?` #t returns the minted `session-vow`; #f is tell
 ;; (Goblins `<-np`). Promise-pipelined targets ride `vow_send`.
 (define (session-far-send c target verb args answer?)
@@ -175,30 +181,33 @@
   (define vb (string->bytes/utf-8 (symbol->string verb)))
   (define vbuf (pin-immobile vb))
   (define vlen (bytes-length vb))
-  (call-with-host m
-    (lambda ()
-      (define keep (box '()))
-      (define-values (aptr acnt) (args->c args keep))
-      (cond
-        [(session-vow? target)
-         (define-values (rc id)
-           (pancake_host_vow_send (host-ptr m) (session-vow-id target) vbuf vlen aptr acnt))
-         (check/host rc)
-         (define home (session-vow-conn target))
-         (define v (session-vow home id 'pending '()))
-         (register-vow! m v)
-         (if answer? v (void))]
-        [(or (far-ref? target) (near-ref? target))
-         (cond
-           [answer?
-            (define-values (rc id)
-              (pancake_host_session_send (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
-            (check/host rc)
-            (define v (session-vow c id 'pending '()))
-            (register-vow! m v)
-            v]
-           [else
-            (check/host (pancake_host_session_tell (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
-            (void)])]
-        [else
-         (raise-pancake 'session-send ERR-INVALID-ARGUMENT "not a sendable reference: ~a" target)]))))
+  (define result
+    (call-with-host m
+      (lambda ()
+        (define keep (box '()))
+        (define-values (aptr acnt) (args->c args keep))
+        (cond
+          [(session-vow? target)
+           (define-values (rc id)
+             (pancake_host_vow_send (host-ptr m) (session-vow-id target) vbuf vlen aptr acnt))
+           (check/host rc)
+           (define home (session-vow-conn target))
+           (define v (session-vow home id 'pending '()))
+           (register-vow! m v)
+           (if answer? v (void))]
+          [(or (far-ref? target) (near-ref? target))
+           (cond
+             [answer?
+              (define-values (rc id)
+                (pancake_host_session_send (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
+              (check/host rc)
+              (define v (session-vow c id 'pending '()))
+              (register-vow! m v)
+              v]
+             [else
+              (check/host (pancake_host_session_tell (session-ptr c) (ref->c target) vbuf vlen aptr acnt))
+              (void)])]
+          [else
+           (raise-pancake 'session-send ERR-INVALID-ARGUMENT "not a sendable reference: ~a" target)]))))
+  (session-flush! c)
+  result)

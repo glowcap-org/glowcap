@@ -32,7 +32,7 @@
 ;; Session + pump for the local-send await path (session eagerly requires this
 ;; module; lazy-require breaks the cycle).
 (lazy-require
- ["session.rkt" (session-vat session-host session-ptr drain-host!)]
+ ["session.rkt" (session-vat session-host session-ptr)]
  ["pump.rkt" (pump-until)]
  ["host.rkt" (host-retain! call-with-host)]
  ["promise.rkt" (await-vow session-far-send)])
@@ -195,6 +195,8 @@
 
 ;; Near-hosted vs far send dispatch (blocking): resolve the target, then local
 ;; `session-send-local` or far mint + `await-vow`. Session keeps guard/drain.
+;; Far mint flushes inside `session-far-send`; `await-vow` flushes again before
+;; parking so a cross-thread deliver cannot sit unsent.
 (define (dispatch-send c target verb args)
   (define resolved (vat-resolve-target (session-vat c) target))
   (cond
@@ -202,7 +204,7 @@
     [else (await-vow c (session-far-send c resolved verb args #t) 'session-send verb)]))
 
 ;; Near-hosted vs far send-promise dispatch: local runs `<-` + `drive` and
-;; returns the vow; far mints through `session-far-send`.
+;; returns the vow; far mints through `session-far-send` (which flushes).
 (define (dispatch-send-promise c target verb args)
   (define v (session-vat c))
   (define resolved (vat-resolve-target v target))
@@ -215,8 +217,7 @@
      vow]
     [else (session-far-send c resolved verb args #t)]))
 
-;; Near-hosted vs far tell dispatch: local `<-np` + `drive`; far mint + host
-;; drain flush.
+;; Near-hosted vs far tell dispatch: local `<-np` + `drive`; far mint (flushes).
 (define (dispatch-tell c target verb args)
   (define v (session-vat c))
   (define resolved (vat-resolve-target v target))
@@ -224,9 +225,7 @@
     [(actor-ref? resolved)
      (with-vat v (apply <-np resolved verb args))
      (drive v)]
-    [else
-     (session-far-send c resolved verb args #f)
-     (drain-host! (session-host c))]))
+    [else (session-far-send c resolved verb args #f)]))
 
 ;; ADR-0064 caretaker actor constructor: forwards to `target` while `live` is
 ;; true, else breaks with "Revoked". Session registers the spawn and tracks

@@ -42,7 +42,9 @@ const TotalCountingAllocator = struct {
     }
 };
 
-const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
+// No-answer (`#f` answer position) deliver: re-applied to one peer across the
+// measured turns, so a live-answer position would be refused on the second apply.
+const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// Steady-state heap traffic for one inbound `op:deliver` to a live local export.
 /// Mirrors `test/engine/alloc_budget_test.zig`.

@@ -63,6 +63,24 @@ pub const Event = struct {
     /// (ADR-0010). A sum, not two optionals: illegal combinations (both set,
     /// or set under the wrong tag) are unrepresentable.
     answer_override: AnswerOverride = .none,
+    /// The allocator that owns `introduced_far_imports`, when set. Every
+    /// `Event` the engine surfaces carries the same peer-lifetime allocator
+    /// here regardless of whether that field is populated, so `deinit` has
+    /// one place to free it from.
+    allocator: std.mem.Allocator,
+    /// For a `.deliver` event: the far import positions the session's
+    /// validate walk introduced for this deliver
+    /// (`session.validate.IntroducedImports.mentions`, threaded through
+    /// `session.recordInboundDeliverView`), captured while that record was
+    /// still alive — its own backing arena resets before this event is ever
+    /// polled. Null for every non-deliver kind, and for a deliver that
+    /// introduced no far reference (the common case: no allocation then).
+    /// `driver.core.gc` reads this instead of re-walking the deliver's args
+    /// when set. A deliver surfaced by any other path — today, only a
+    /// drained pipelined call redirected to a local export
+    /// (`engine.pipeline.deliverDrainedCallLocally`) — leaves this null, and
+    /// `gc` falls back to its own walk.
+    introduced_far_imports: ?[]model.ImportPosition = null,
 
     pub fn kind(self: Event) EventKind {
         return self.tag;
@@ -99,6 +117,7 @@ pub const Event = struct {
     }
 
     pub fn deinit(self: *Event) void {
+        if (self.introduced_far_imports) |imports| self.allocator.free(imports);
         self.frame.deinit();
     }
 };

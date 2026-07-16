@@ -63,16 +63,21 @@ zig build deno-goblins-interop   # live keyed conversation: Deno binding vs a re
 zig build python-goblins-interop # live keyed conversation: Python binding vs a real Goblins vat (needs python3 + racket + goblins)
 zig build rust-goblins-interop   # live keyed conversation: Rust binding vs a real Goblins vat (needs cargo + racket + goblins)
 zig build racket-goblins-interop # live keyed conversation: Racket binding vs a real Goblins vat (needs racket + goblins)
+zig build bindings-goblins-interop # per-binding live keyed conversation vs a real Goblins vat, every binding (needs racket + goblins + the runtimes)
 zig build goblins-handoff   # live three-party handoff vs Goblins, pancake as recipient (needs racket + goblins)
+zig build goblins-gift      # live three-party handoff vs Goblins, pancake as gifter (needs racket + goblins)
 zig build deno-goblins-handoff # live three-party handoff: the Deno binding redeems a give from a real Goblins introducer and calls the exporter (needs deno + racket + goblins)
 zig build python-goblins-handoff # live three-party handoff: the Python binding redeems a give from a real Goblins introducer and calls the exporter (needs python3 + racket + goblins)
 zig build rust-goblins-handoff # live three-party handoff: the Rust binding redeems a give from a real Goblins introducer and calls the exporter (needs cargo + racket + goblins)
 zig build racket-goblins-handoff # live three-party handoff: the Racket binding redeems a give from a real Goblins introducer and calls the exporter (needs racket + goblins)
+zig build bindings-goblins-handoff # per-binding three-party handoff vs Goblins as recipient, every binding (needs racket + goblins + the runtimes)
 zig build deno-goblins-gift # live three-party handoff: the Deno binding mints a give a real Goblins recipient redeems, reaching the exporter (needs deno + racket + goblins)
 zig build python-goblins-gift # live three-party handoff: the Python binding mints a give a real Goblins recipient redeems, reaching the exporter (needs python3 + racket + goblins)
 zig build rust-goblins-gift # live three-party handoff: the Rust binding mints a give a real Goblins recipient redeems, reaching the exporter (needs cargo + racket + goblins)
 zig build racket-goblins-gift # live three-party handoff: the Racket binding mints a give a real Goblins recipient redeems, reaching the exporter (needs racket + goblins)
+zig build bindings-goblins-gift # per-binding three-party handoff vs Goblins as gifter, every binding (needs racket + goblins + the runtimes)
 zig build iroh-lib          # build the iroh netlayer sidecar staticlib in transports/iroh (needs cargo)
+zig build iroh-sidecar-test # run the iroh sidecar Rust unit tests, including the connect-timeout positive-fire proof against a bound-but-silent UDP black hole (needs cargo)
 zig build iroh-interop      # live encrypted OCapN conversation: two pancake peers over real iroh endpoints (needs cargo)
 zig build iroh-reachability # opt-in: live real-internet dial-by-id over n0 relays + DNS/pkarr discovery (needs cargo + internet)
 zig build iroh-mesh         # live three-party handoff over iroh: recipient reaches the introduced exporter by node id (needs cargo)
@@ -80,10 +85,12 @@ zig build iroh-loop         # live iroh scale: many concurrent connections serve
 zig build iroh-bridge-redeem # live iroh redeem dial on driver.Bridge: recipient on one loop thread redeems via Loop.dialLocator (ADR-0076; needs cargo)
 zig build tcp-loop          # live TCP scale: many concurrent connections served from one loop thread through the Host bridge (ADR-0076)
 zig build bindings-iroh-loop # per-binding iroh scale proof: many connections served from one loop, every binding (needs cargo + the runtimes)
+zig build deno-iroh-loop    # live iroh scale: the Deno binding serves many connections from one readiness loop (ADR-0057; needs cargo + deno)
 zig build python-iroh-loop  # live iroh scale: the Python binding serves many connections from one readiness loop (ADR-0057; needs cargo + python3)
 zig build rust-iroh-loop    # live iroh scale: the Rust binding serves many connections from one readiness loop (ADR-0057; needs cargo)
 zig build racket-iroh-loop  # live iroh scale: the Racket binding serves many connections from one readiness loop (ADR-0057; needs cargo + racket)
 zig build bindings-iroh-handoff # per-binding three-party handoff over iroh: every binding mints and redeems an iroh handoff give in one process (needs cargo + the runtimes)
+zig build deno-iroh-handoff # three-party handoff over iroh: the Deno binding mints and redeems an iroh handoff give in one process (needs cargo + deno)
 zig build python-iroh-handoff # three-party handoff over iroh: the Python binding mints and redeems an iroh handoff give in one process (needs cargo + python3)
 zig build rust-iroh-handoff # three-party handoff over iroh: the Rust binding mints and redeems an iroh handoff give in one process (needs cargo)
 zig build racket-iroh-handoff # three-party handoff over iroh: the Racket binding mints and redeems an iroh handoff give in one process (needs cargo + racket)
@@ -98,6 +105,7 @@ zig build python-keyed-tcp-restart # keyed-tcp restart proof: the Python binding
 zig build rust-keyed-tcp-restart # keyed-tcp restart proof: the Rust binding (happy, squatter, restart; needs cargo)
 zig build racket-keyed-tcp-restart # keyed-tcp restart proof: the Racket binding (happy, squatter, restart; needs racket)
 zig build bindings-iroh-reachability # per-binding live dial-by-id over n0 relays + DNS/pkarr discovery, every binding (opt-in; needs cargo + the runtimes + internet)
+zig build deno-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr discovery: the Deno binding (opt-in; needs cargo + deno + internet)
 zig build python-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr discovery: the Python binding (opt-in; needs cargo + python3 + internet)
 zig build rust-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr discovery: the Rust binding (opt-in; needs cargo + internet)
 zig build racket-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr discovery: the Racket binding (opt-in; needs cargo + racket + internet)
@@ -112,6 +120,7 @@ zig build demo-rooms-dm          # rooms direct-message-by-introduction over TCP
 zig build demo-rooms-dm-iroh     # rooms DM-by-introduction over iroh's encrypted QUIC: cross-endpoint three-party handoff where the gift names the exporter's direct addresses, redeemed by a direct dial (needs cargo + deno)
 zig build demo-rooms-dm-iroh-discovery # opt-in: the same rooms DM-by-introduction over iroh, but the gift names the exporter by node id ALONE and the recipient resolves it through n0 discovery (relays + DNS/pkarr), no direct-address hints (needs cargo + deno + internet)
 zig build rooms-client           # run the native Zig rooms chat client (one-shot) against a room you started; pass `-- <locator> <room> <nick> <line> [roster]`
+zig build rooms-bot              # run the persistent native Zig rooms bot — a CapTP peer that joins a room and runs the inbox/outbox/state file harness so an agent is present while it works (the native rewrite of the rooms-bot skill); pass `-- <verb> [flags]` (peer/reply/status/tick)
 zig build rooms-web              # serve the rooms browser UI over TCP (public rooms + direct messages by introduction); open the printed URL (needs deno). `-Dport` pins the HTTP port (default 8000)
 zig build rooms-web-iroh         # serve the rooms browser UI over iroh's encrypted QUIC (public rooms + direct messages by introduction); open the printed URL (needs cargo + deno)
 zig build demo-tasks             # cross-language tasks board: Zig/Rust/Python/Racket/Deno on one board (needs deno; joins python3/racket/cargo clients when present)
@@ -130,6 +139,8 @@ zig build gen-binding-host-action   # regenerate binding HostAction decode/types
 zig build gen-binding-host-action-check # verify binding HostAction decode/types match src/c_abi/driver (fails if stale), part of check
 zig build gen-binding-constants     # regenerate binding ABI constants from src/c_abi (the ocapn and driver archives)
 zig build gen-binding-constants-check # verify binding ABI constants match src/c_abi (fails if stale), part of check
+zig build gen-binding-ffi-layouts    # regenerate binding FFI layout facts (sizes/offsets) from src/c_abi (the ocapn, driver, and iroh transport archives)
+zig build gen-binding-ffi-layouts-check # verify binding FFI layout facts match src/c_abi (fails if stale), part of check
 zig build gen-header-net-transport-tcp        # regenerate include/pancake_net_transport_tcp.h from src/c_abi/net_transport/tcp
 zig build gen-header-net-transport-tcp-check  # verify include/pancake_net_transport_tcp.h matches src/c_abi/net_transport/tcp (fails if stale), part of check
 zig build gen-header-net-transport-inproc        # regenerate include/pancake_net_transport_inproc.h from src/c_abi/net_transport/inproc

@@ -362,9 +362,19 @@
    "\n<p class=\"bench-note\">Each row is a whole consumer stack — runtime, binding, the app rewritten in that language, and its garbage collector — over one native Zig host. Read it as consumer cost, not a language race; the Goblins row is the reference CapTP implementation dialing in, not a pancake binding.</p>"))
 
 ;; ── Run + splice (effectful) ─────────────────────────────────────────────────
+;; `system` returns #f on a non-zero exit without raising; check it so a failed
+;; bench cannot leave the page half-freshened with a stale goblins/langs report.
+;; CapTP flake retries live in `bench/goblins/bench.rkt`, not here.
 (define (run cmd)
   (printf "  $ ~a\n" cmd) (flush-output)
-  (with-output-to-string (lambda () (system cmd))))
+  (define out (open-output-string))
+  (define ok (parameterize ([current-output-port out]
+                            [current-error-port out])
+               (system cmd)))
+  (define text (get-output-string out))
+  (display text)
+  (unless ok (error 'site-report "command failed: ~a" cmd))
+  text)
 
 (define (sh1 cmd) (string-trim (with-output-to-string (lambda () (system cmd)))))
 
@@ -389,7 +399,7 @@
   (define racket-v
     (let ([m (regexp-match #px"v([0-9.]+) \\[(\\w+)\\]" (sh1 "racket --version"))])
       (if m (format "Racket v~a ~a" (list-ref m 1) (string-upcase (list-ref m 2))) "Racket")))
-  (format "<p class=\"bench-stamp\"><em>Measured ~a on one machine: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, with the <code>pancake</code> archives built by Zig ~a in ReleaseFast. One person's numbers, measure your own with the commands below.</em></p>"
+  (format "<p class=\"bench-stamp\"><em>Measured ~a on one machine: ~a, ~a logical CPUs, ~a GiB RAM, ~a, Spritely Goblins v~a, with the <code>pancake</code> archives built by Zig ~a in ReleaseFast. Measure your own with the commands below.</em></p>"
           (sh1 "date +%Y-%m-%d") (sh1 "uname -srm") (sh1 "nproc") gib
           racket-v goblins-v (sh1 "zig version")))
 
@@ -402,11 +412,13 @@
 
 (module+ main
   (printf "running benches in ReleaseFast (this takes a few minutes)...\n") (flush-output)
+  ;; Goblins first: fail fast on the CapTP step before burning ReleaseFast
+  ;; minutes on the Zig benches. Retries for CapTP flakes are inside bench-goblins.
+  (run "zig build bench-goblins 2>&1")
+  (define goblins (parse-goblins-md (latest-goblins-md)))
   (define codec (parse-codec (run "zig build bench-codec -Doptimize=ReleaseFast 2>&1")))
   (define fv (parse-frameview (run "zig build bench-frame-view -Doptimize=ReleaseFast 2>&1")))
   (define peer (parse-peer (run "zig build bench-peer-scaling -Doptimize=ReleaseFast 2>&1")))
-  (run "zig build bench-goblins 2>&1")
-  (define goblins (parse-goblins-md (latest-goblins-md)))
   (define snap-p (parse-snapshot (run "zig build bench-snapshot -Doptimize=ReleaseFast 2>&1")))
   (define snap-g (parse-goblins-snapshot (run "racket bench/goblins/snapshot.rkt 2>&1")))
   (define iroh (parse-iroh (run "zig build bench-iroh -Doptimize=ReleaseFast 2>&1")))

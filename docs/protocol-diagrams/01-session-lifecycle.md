@@ -92,23 +92,26 @@ flowchart TD
 ## SL-6: Abort teardown effects
 
 Anchor: CapTP Specification § Ending a session. `op:abort` (in either direction)
-severs the session: all imports and exports release, unresolved promises break,
-and per-session key material is discarded. An unrecognized wire record reaches
-the same teardown: a record the receiver does not recognize is a protocol error,
-and a protocol error aborts the session.
+severs an open session: all imports and exports release, unresolved promises
+break, and per-session key material is discarded. An unrecognized wire record
+reaches the same teardown: a record the receiver does not recognize is a
+protocol error, and a protocol error aborts the session. Handshake refusals
+while still `negotiating` (version mismatch, bad signature, partner-key pin)
+queue an outbound `op:abort` without moving to Closed
+([ADR-0083](../decisions/adr/ADR-0083-outbound-abort-closes-session.md)).
 
 ```mermaid
 flowchart TD
-    AB["op:abort sent or received"] --> CL["state becomes Closed"]
+    AB["op:abort sent or received on an open session"] --> CL["state becomes Closed"]
     CL --> T1["release all imports and exports"]
     CL --> T2["break every unresolved promise"]
     CL --> T3["release answer tables"]
     CL --> T4["discard per-session key material"]
     UR["unrecognized wire record"] --> PE["protocol error"] --> AB
+    HR["handshake refusal while negotiating"] --> AO["queue op:abort, stay Negotiating"]
 ```
 
-One deliberate survivor: the handoff-count replay guard is keyed by the
-Exporter–Receiver session identity, not the carrying transport, and it lives in
-the vat-scoped gift registry. A host that keeps one registry across CapTP
-sessions therefore refuses a reconnecting Receiver's replayed count (see
-[06-handoffs.md](06-handoffs.md) HO-7).
+One deliberate survivor is the handoff-count replay guard. It lives in the
+vat-scoped gift registry, not in any one CapTP session, so a host that keeps the
+registry across reconnects still refuses a replayed count. See
+[06-handoffs.md](06-handoffs.md) HO-7.

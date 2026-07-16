@@ -52,7 +52,7 @@ inventory; update it in the same change as any intentional scaffolding move.
 
 | Skill                            | Purpose                                                                              |
 | -------------------------------- | ------------------------------------------------------------------------------------ |
-| [rooms-bot](skills/rooms-bot/SKILL.md) | Always-on headless CapTP rooms bot (room + DM, ≤2s wake) |
+| [rooms-bot](skills/rooms-bot/SKILL.md) | Background CapTP rooms bot (room chat) as one native `rooms-bot` binary; a background `tick` wakes the agent on each room message (no filter — full participant); start/tick/reply/dismiss/stop |
 | [serena](skills/serena/SKILL.md) | Operating notes for Serena MCP tools in the Zig repo                                 |
 | [work](skills/work/SKILL.md)     | Substantial work: assess, act or prove inaction, verify, compound for the next agent |
 

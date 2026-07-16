@@ -22,7 +22,7 @@ import { insideTurn, registerBehavior, trampolinePointer } from "./trampoline.ts
 import type { Context } from "./context.ts";
 import { Session } from "./session.ts";
 import { dialExporter as dialExporterFn } from "./dial.ts";
-import { popAction, runAction } from "./action.ts";
+import { parkActions, runAction } from "./action.ts";
 
 // Every connection's maximum admissible frame; mirrors PANCAKE_DEFAULT_FRAME_CAP.
 const HOST_FRAME_CAP = DEFAULT_FRAME_CAP;
@@ -187,6 +187,16 @@ export class Host {
 		));
 	}
 
+	/** Selective session-limit knobs (ADR-0082). Pass `0n` / `0` to leave a
+	 * field unchanged. Affects peers minted after this call. */
+	setSessionLimits(maxFrameBytes: bigint | number = 0, queueCap: bigint | number = 0): void {
+		checkHost(driverS.pancake_host_set_session_limits(
+			this.#raw,
+			BigInt(maxFrameBytes),
+			BigInt(queueCap),
+		));
+	}
+
 	/** The canonical key designator (64 lowercase hex digits) for this host's
 	 * identity seed — what a keyed-tcp locator names as its designator
 	 * (ADR-0075). */
@@ -343,17 +353,18 @@ export class Host {
 		return this.#parkedReleases.length;
 	}
 
-	/** Run the action drain to empty, honoring each action, and resolve when
-	 * the queue is dry. Reentrant on purpose, the async spelling of the Racket
-	 * binding's reentrant host lock: the DIAL arm's dial executor establishes a
-	 * whole new session *inside* an action, and that establish must itself
-	 * drain (its start-session FLUSH) — a single-flighted drain would await its
-	 * own completion there. Each action is popped exactly once (`popAction`
-	 * is synchronous), so overlapping drains split the queue between them
-	 * rather than double-running anything. A no-op inside a hosted turn: the
-	 * host refuses the driving verbs there, and everything the turn enqueued
-	 * pumps when the enclosing feed unwinds into this same drain.
-	 * Binding-internal. */
+	/** Run the shared C action drain, then honor each parked arm. Reentrant on
+	 * purpose, the async spelling of the Racket binding's reentrant host lock:
+	 * the DIAL arm's dial executor establishes a whole new session *inside* an
+	 * action, and that establish must itself drain (its start-session FLUSH) —
+	 * a single-flighted drain would await its own completion there. Arms are
+	 * parked under `pancake_host_pump_drain` (sync hooks only) and awaited
+	 * after the C loop returns, so overlapping kickers never await inside the
+	 * C callback. Re-parks until empty: a NEED_GIFT_ID's `provide_gift_id` can
+	 * queue FLUSH legs after the C drain returns (same as Racket's
+	 * `drain-host-actions!`). A no-op inside a hosted turn: the host refuses
+	 * the driving verbs there, and everything the turn enqueued pumps when the
+	 * enclosing feed unwinds into this same drain. Binding-internal. */
 	async kickActions(): Promise<void> {
 		if (insideTurn()) return;
 		// Parked releases run first — before the raw-handle check, because a
@@ -361,17 +372,19 @@ export class Host {
 		this.drainParkedReleases();
 		if (this.#raw === NULL) return;
 		while (true) {
-			const action = popAction(this);
-			if (action === null) return;
-			// One failing action must not strand the rest of the drain: a FLUSH
-			// to a session whose socket just died throws here while the
-			// actions behind it belong to other, live sessions. The failed
-			// session tears itself down through its own serve loop (a DIAL
-			// failure is reported to the core inside the arm).
-			try {
-				await runAction(this, action);
-			} catch {
-				// swallowed so the drain reaches every remaining action
+			const parked = parkActions(this);
+			if (parked.length === 0) return;
+			for (const action of parked) {
+				// One failing action must not strand the rest of the drain: a
+				// FLUSH to a session whose socket just died throws here while
+				// the actions behind it belong to other, live sessions. The
+				// failed session tears itself down through its own serve loop
+				// (a DIAL failure is reported to the core inside the arm).
+				try {
+					await runAction(this, action);
+				} catch {
+					// swallowed so the drain reaches every remaining action
+				}
 			}
 		}
 	}

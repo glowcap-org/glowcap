@@ -148,6 +148,8 @@ const constants = [_]Const{
     // (usize, libpancake_driver).
     con("DEFAULT_FRAME_CAP", cd.PANCAKE_DEFAULT_FRAME_CAP, .usize, null),
     con("MAX_LOCAL_FORWARD_HOPS", cd.PANCAKE_MAX_LOCAL_FORWARD_HOPS, .usize, null),
+    con("DISCOVERY_DIAL_RETRY_MS", cd.PANCAKE_DISCOVERY_DIAL_RETRY_MS, .usize, null),
+    con("DISCOVERY_DIAL_MAX_ATTEMPTS", cd.PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS, .usize, null),
 };
 
 /// One reflected constant wider than the languages' native integer range.

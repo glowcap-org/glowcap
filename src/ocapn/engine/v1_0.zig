@@ -164,7 +164,7 @@ pub fn interceptInboundDeliver(peer: *Peer, deliver: model.view.Deliver) !Inboun
             const answer = deliver.answer orelse blk: {
                 const virtual = peer.session_state.allocateInboundAnswer();
                 // Install before the resolver row below: a swallowed failure
-                // here would leave `v1_0_inbound_resolvers` referencing a
+                // here would leave `v1_0_inbound_resolver_link` referencing a
                 // virtual answer absent from `inbound_answers`, breaking the
                 // authoritative-state invariant on OOM.
                 try peer.session_state.installInboundAnswer(virtual);

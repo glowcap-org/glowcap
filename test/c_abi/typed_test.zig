@@ -268,6 +268,39 @@ fn expectProjectionListener(peer: ?*c.PancakePeer) !void {
     try std.testing.expect(std.mem.startsWith(u8, wire, "<9'op:listen"));
 }
 
+test "C ABI send_abort commits op:abort then closes the CapTP session" {
+    var peer: ?*c.PancakePeer = null;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&peer));
+    defer c.pancake_peer_release(peer);
+
+    try std.testing.expectEqual(@as(i32, 1), c.pancake_peer_session_is_open(peer));
+    try std.testing.expectEqual(
+        c.PANCAKE_OK,
+        c.pancake_peer_send_abort(peer, "GracefulShutdown", "GracefulShutdown".len, "done", "done".len),
+    );
+    // Queued, not yet committed — still open until step.
+    try std.testing.expectEqual(@as(i32, 1), c.pancake_peer_session_is_open(peer));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_step(peer));
+    try std.testing.expectEqual(@as(i32, 0), c.pancake_peer_session_is_open(peer));
+
+    var frame: c.PancakeManagedFrame = undefined;
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_take_outbound(peer, &frame));
+    defer c.pancake_managed_frame_release(&frame);
+    const wire = frame.bytes.?[0..frame.len];
+    try std.testing.expect(std.mem.startsWith(u8, wire, "<8'op:abort"));
+    try std.testing.expect(std.mem.indexOf(u8, wire, "GracefulShutdown") != null);
+    try std.testing.expect(std.mem.indexOf(u8, wire, "done") != null);
+
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        c.pancake_peer_send_abort(peer, "NotARealKind", "NotARealKind".len, "", 0),
+    );
+    try std.testing.expectEqual(
+        c.PANCAKE_ERR_INVALID_ARGUMENT,
+        c.pancake_peer_send_abort(peer, "", 0, "", 0),
+    );
+}
+
 test "C ABI send projection refuses a null receiver" {
     var peer: ?*c.PancakePeer = null;
     try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_raw_open(&peer));

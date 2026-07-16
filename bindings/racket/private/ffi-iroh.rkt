@@ -9,10 +9,12 @@
 ;; records; frame bytes themselves ride raw pointers through the companion ABI.
 (require ffi/unsafe
          "ffi-shared.rkt"
+         "layouts-gen.rkt"
          "lib-resolve.rkt")
 (provide iroh-fn
          _PancakeIrohReadyEvent
          PancakeIrohReadyEvent-conn PancakeIrohReadyEvent-events
+         make-PancakeIrohConfig
          IROH-EV-READABLE IROH-EV-WRITABLE IROH-EV-CLOSED IROH-EV-ACCEPT)
 
 ;; Readiness event bits (the header's PANCAKE_IROH_EV_*), carried by a
@@ -32,9 +34,19 @@
   #:malloc-mode 'atomic-interior)
 
 ;; The layout gate, as in `ffi-shared.rkt`: the hand-mirrored ready-event
-;; record is pinned at require time against the header's documented LP64
-;; layout (conn at 0, events at 8, trailing pad to 16).
-(pin-layout! '_PancakeIrohReadyEvent _PancakeIrohReadyEvent 16 '(pointer uint32))
+;; record is pinned at require time against `PANCAKE-IROH-READY-EVENT-SIZE`
+;; (from `layouts-gen.rkt`) and the field layout hand-copied here (conn at 0,
+;; events at 8, trailing pad to 16).
+(pin-layout! '_PancakeIrohReadyEvent _PancakeIrohReadyEvent PANCAKE-IROH-READY-EVENT-SIZE '(pointer uint32))
+
+;; One iroh endpoint's config, the cstruct counterpart of the header's
+;; PancakeIrohConfig: reachability (mandatory) + connect_timeout_ms (0 = the
+;; built-in default). `make-PancakeIrohConfig` sets both fields explicitly, so
+;; nothing rides on uninitialized memory (the zero-init contract).
+(define-cstruct _PancakeIrohConfig ([reachability _uint32] [connect_timeout_ms _uint64])
+  #:malloc-mode 'atomic-interior)
+;; layout (reachability at 0, 4 pad, connect_timeout_ms at 8, 16 total).
+(pin-layout! '_PancakeIrohConfig _PancakeIrohConfig PANCAKE-IROH-CONFIG-SIZE '(uint32 uint64))
 
 (define iroh-ffi-cache (box #f))
 
@@ -59,14 +71,20 @@
    ;; The iroh archive keeps its own thread-local last-error slot, read through
    ;; `pancake_iroh_last_error` rather than the ocapn family's `pancake_last_error`.
    'last-error     (get-ffi-obj 'pancake_iroh_last_error L (_fun _pointer _size -> _size))
-   'netlayer-new   (get-ffi-obj 'pancake_iroh_netlayer_new L
-                     (_fun _pointer _size _uint32 (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
+   'netlayer-new   (wrap-out1
+                    (get-ffi-obj 'pancake_iroh_netlayer_new L
+                      (_fun _pointer _size _PancakeIrohConfig-pointer _pointer -> _int32))
+                    _pointer #f)
    'netlayer-close (get-ffi-obj 'pancake_iroh_netlayer_close L (_fun _pointer -> _void))
    'netlayer-release (get-ffi-obj 'pancake_iroh_netlayer_release L (_fun _pointer -> _void))
-   'node-id        (get-ffi-obj 'pancake_iroh_netlayer_node_id L
-                     (_fun _pointer _pointer _size (out : (_ptr o _size)) -> (r : _int32) -> (values r out)))
-   'direct-addrs   (get-ffi-obj 'pancake_iroh_netlayer_direct_addrs L
-                     (_fun _pointer _pointer _size (out : (_ptr o _size)) -> (r : _int32) -> (values r out)))
+   'node-id        (wrap-out1
+                    (get-ffi-obj 'pancake_iroh_netlayer_node_id L
+                      (_fun _pointer _pointer _size _pointer -> _int32))
+                    _size 0)
+   'direct-addrs   (wrap-out1
+                    (get-ffi-obj 'pancake_iroh_netlayer_direct_addrs L
+                      (_fun _pointer _pointer _size _pointer -> _int32))
+                    _size 0)
    'conn-release   (get-ffi-obj 'pancake_iroh_conn_release L (_fun _pointer -> _void))
    ;; The event-driven loop surface (ADR-0057): the netlayer's one I/O model.
    ;; Park a green thread on the readiness fd (via `unsafe-file-descriptor->semaphore`),
@@ -75,16 +93,25 @@
    ;; into a caller-owned array (read with `ptr-ref`, so a plain pointer). Only
    ;; `try-connect` (the dial blocks) is #:blocking?; everything else never parks.
    'readiness-fd   (get-ffi-obj 'pancake_iroh_netlayer_readiness_fd L (_fun _pointer -> _int32))
-   'drain-ready    (get-ffi-obj 'pancake_iroh_netlayer_drain_ready L
-                     (_fun _pointer _pointer _size (out : (_ptr o _size)) -> (r : _int32) -> (values r out)))
-   'try-accept     (get-ffi-obj 'pancake_iroh_netlayer_try_accept L
-                     (_fun _pointer (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-   'try-connect    (get-ffi-obj 'pancake_iroh_netlayer_try_connect L
-                     (_fun #:blocking? #t _pointer _pointer _size _pointer _size
-                           (out : (_ptr o _pointer)) -> (r : _int32) -> (values r out)))
-   'conn-try-read  (get-ffi-obj 'pancake_iroh_conn_try_read L
-                     (_fun _pointer _pointer _size (out : (_ptr o _size)) -> (r : _int32) -> (values r out)))
-   'conn-try-write (get-ffi-obj 'pancake_iroh_conn_try_write L
-                     (_fun _pointer _pointer _size (out : (_ptr o _size)) -> (r : _int32) -> (values r out)))))
+   'drain-ready    (wrap-out1
+                    (get-ffi-obj 'pancake_iroh_netlayer_drain_ready L
+                      (_fun _pointer _pointer _size _pointer -> _int32))
+                    _size 0)
+   'try-accept     (wrap-out1
+                    (get-ffi-obj 'pancake_iroh_netlayer_try_accept L
+                      (_fun _pointer _pointer -> _int32))
+                    _pointer #f)
+   'try-connect    (wrap-out1
+                    (get-ffi-obj 'pancake_iroh_netlayer_try_connect L
+                      (_fun #:blocking? #t _pointer _pointer _size _pointer _size _pointer -> _int32))
+                    _pointer #f)
+   'conn-try-read  (wrap-out1
+                    (get-ffi-obj 'pancake_iroh_conn_try_read L
+                      (_fun _pointer _pointer _size _pointer -> _int32))
+                    _size 0)
+   'conn-try-write (wrap-out1
+                    (get-ffi-obj 'pancake_iroh_conn_try_write L
+                      (_fun _pointer _pointer _size _pointer -> _int32))
+                    _size 0)))
 
 (define (iroh-fn key) (hash-ref (iroh-ffi) key))

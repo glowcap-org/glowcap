@@ -155,7 +155,18 @@ pub fn directAddrHint(hints: model.Hints) ?[]const u8 {
 
 /// A dial could not produce a connection. The transport's private errors are
 /// projected onto this shared set so the driver dispatches without knowing them.
-pub const DialError = error{ InvalidAddress, ConnectionLost } || std.mem.Allocator.Error;
+/// The arms form a retry axis (ADR-0081 / ADR-0082): `InvalidAddress` and
+/// `ConnectionRefused` are permanent (bad designator/hint, or an active peer
+/// refusal — never retry); `NetworkUnreachable` / `TimedOut` / `ConnectionLost`
+/// are transient (retry with backoff under `driver.ResilientClient`);
+/// `OutOfMemory` is permanent local pressure (not a network transient).
+pub const DialError = error{
+    InvalidAddress,
+    ConnectionRefused,
+    NetworkUnreachable,
+    TimedOut,
+    ConnectionLost,
+} || std.mem.Allocator.Error;
 /// Binding a listener failed: the designator did not parse (`InvalidAddress`),
 /// or the bind/listen syscall failed, e.g. the port is in use (`BindFailed`).
 pub const ListenError = error{ InvalidAddress, BindFailed } || std.mem.Allocator.Error;

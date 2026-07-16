@@ -9,9 +9,9 @@
 //! the partner gave us for each of its inbound answers.
 //!
 //! The links are authoritative session state, so they live on `Session`; this
-//! file owns the operations over them. The fields (`v1_0_outbound_resolvers`,
-//! `v1_0_outbound_resolver_answers`, `v1_0_inbound_resolvers`,
-//! `v1_0_inbound_resolver_answers`, `next_virtual_inbound_answer`) stay on
+//! file owns the operations over them. The fields (`v1_0_outbound_resolver_link`
+//! and `v1_0_inbound_resolver_link`, each a `BiMap` holding both directions, plus
+//! `next_virtual_inbound_answer`) stay on
 //! `Session`, and `Session` aliases each
 //! function below so the call sites read as ordinary methods. The engine's
 //! encode-side V1.0 hooks live separately in `engine/v1_0.zig`; this is only the
@@ -31,21 +31,15 @@ pub fn needsV1_0Translation(self: *const Session) bool {
 
 /// Record that our outbound `answer` is resolved via local resolver export
 /// `resolver_export` (the id we advertised in `resolve_me_desc`). Committed
-/// after the augmented deliver is accepted. Writes the forward row and its
-/// answer-keyed inverse in lockstep (see `OutboundResolverAnswers`), all-or-
-/// none: a failure on the inverse put rolls the forward row back, so no
-/// half-installed link survives. Re-installing an answer's resolver replaces
-/// the whole link, dropping the stale forward row with the inverse it served.
+/// after the augmented deliver is accepted. The `BiMap` holds both directions
+/// in lockstep, all-or-none, so no half-installed link can survive a failure.
+/// Re-installing an answer's resolver replaces the whole link, evicting the
+/// stale export the answer previously bound.
 pub fn installOutboundResolver(self: *Session, answer: model.AnswerPosition, resolver_export: model.ExportPosition) !void {
-    try self.v1_0_outbound_resolvers.put(self.allocator, resolver_export, answer);
-    const gop = self.v1_0_outbound_resolver_answers.getOrPut(self.allocator, answer) catch |err| {
-        std.debug.assert(self.v1_0_outbound_resolvers.remove(resolver_export));
-        return err;
-    };
-    if (gop.found_existing and gop.value_ptr.* != resolver_export) {
-        std.debug.assert(self.v1_0_outbound_resolvers.remove(gop.value_ptr.*));
-    }
-    gop.value_ptr.* = resolver_export;
+    // The `BiMap` keeps both directions in lockstep and evicts any prior export
+    // that shared this answer, so re-installing an answer's resolver replaces
+    // the whole link with no half-installed row surviving a failure.
+    try self.v1_0_outbound_resolver_link.put(self.allocator, resolver_export, answer);
 }
 
 /// Mint a synthesized V1.0 resolver export for `answer` and commit, in one
@@ -69,10 +63,7 @@ pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model
     // would have bumped the export past count 1, where the single-decrement
     // `releaseUnsharedExport` no longer removes it. Removing the link first
     // (errdefers run last-in-first-out) keeps the failure path clean.
-    errdefer {
-        std.debug.assert(self.v1_0_outbound_resolvers.remove(resolver_export));
-        std.debug.assert(self.v1_0_outbound_resolver_answers.remove(answer));
-    }
+    errdefer std.debug.assert(self.v1_0_outbound_resolver_link.removeByKey(resolver_export));
     try self.retainSentExportRef(session.slot.toReference(self.exportSlot(resolver_export).?).?);
     return resolver_export;
 }
@@ -84,14 +75,11 @@ pub fn mintOutboundResolver(self: *Session, answer: model.AnswerPosition) !model
 /// resolver row survives.
 pub fn installInboundResolver(self: *Session, answer: model.AnswerPosition, resolver_import: model.ImportPosition) !void {
     try self.registerImport(resolver_import);
-    // The retain above just succeeded, so the rollback decrement cannot
-    // underflow; `unreachable` keeps that construction loud in safe builds.
-    self.v1_0_inbound_resolvers.put(self.allocator, answer, resolver_import) catch |err| {
-        self.imports.decrement(resolver_import, 1) catch unreachable;
-        return err;
-    };
-    self.v1_0_inbound_resolver_answers.put(self.allocator, resolver_import, answer) catch |err| {
-        std.debug.assert(self.v1_0_inbound_resolvers.remove(answer));
+    // The `BiMap` put is all-or-none across both directions, so a failure needs
+    // only the import retain rolled back (the one piece the map cannot own). The
+    // retain above just succeeded, so the decrement cannot underflow;
+    // `unreachable` keeps that construction loud in safe builds.
+    self.v1_0_inbound_resolver_link.put(self.allocator, answer, resolver_import) catch |err| {
         self.imports.decrement(resolver_import, 1) catch unreachable;
         return err;
     };
@@ -100,14 +88,14 @@ pub fn installInboundResolver(self: *Session, answer: model.AnswerPosition, reso
 /// The partner's resolver import for an inbound `answer`, if one was
 /// advertised, the target our outbound resolution deliver addresses.
 pub fn resolverForInboundAnswer(self: *const Session, answer: model.AnswerPosition) ?model.ImportPosition {
-    return self.v1_0_inbound_resolvers.get(answer);
+    return self.v1_0_inbound_resolver_link.getByKey(answer);
 }
 
 /// The inbound `answer` a resolver import was installed for, the reverse
 /// of `resolverForInboundAnswer`. Used by bootstrap-fetch detection when the
 /// V1.0 resolver-only pattern has no wire answer-position.
 pub fn answerForResolverImport(self: *const Session, resolver_import: model.ImportPosition) ?model.AnswerPosition {
-    return self.v1_0_inbound_resolver_answers.get(resolver_import);
+    return self.v1_0_inbound_resolver_link.getByValue(resolver_import);
 }
 
 /// Allocate a fresh virtual inbound answer for V1.0 resolver-only fetches,
@@ -128,5 +116,5 @@ pub fn allocateInboundAnswer(self: *Session) model.AnswerPosition {
 /// that export is a known resolver, the signal to translate the inbound
 /// deliver into a semantic `Resolve`.
 pub fn answerForResolverExport(self: *const Session, resolver_export: model.ExportPosition) ?model.AnswerPosition {
-    return self.v1_0_outbound_resolvers.get(resolver_export);
+    return self.v1_0_outbound_resolver_link.getByKey(resolver_export);
 }

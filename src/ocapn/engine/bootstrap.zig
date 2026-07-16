@@ -104,6 +104,13 @@ pub const GiftRegistry = struct {
     /// exporter checks, so a count this node mints is the count that exporter
     /// expects.
     emitted_handoff_counts: std.StringHashMapUnmanaged(u64) = .empty,
+    /// Monotonic count of accepted deposits. A withdraw parked on one session
+    /// awaits a deposit that lands on another (`deposit`/`withdraw` travel on
+    /// different sessions); a shared-registry owner watches this to know a new
+    /// deposit arrived and re-drive parked withdraws, without a per-frame sweep.
+    /// Bumped on every accepted deposit, including a re-deposit that overwrites
+    /// a live row, since a re-deposit is exactly what a replayed withdraw awaits.
+    deposits: u64 = 0,
 
     /// Free everything a gift row owns. Used at deinit, on re-deposit overwrite,
     /// and on the removed row a withdraw pulls out of the map.
@@ -269,6 +276,7 @@ pub const GiftRegistry = struct {
             // live count is unchanged.
             freeGiftEntry(allocator, entry);
             entry.* = .{ .gifter_key = gifter_copy, .payload = stored };
+            self.deposits +%= 1;
             return;
         }
         // A consumed gift's row is removed, so the row count is the live count.
@@ -281,6 +289,7 @@ pub const GiftRegistry = struct {
         const gop = try self.gifts.getOrPut(allocator, id_copy);
         gop.key_ptr.* = id_copy;
         gop.value_ptr.* = .{ .gifter_key = gifter_copy, .payload = stored };
+        self.deposits +%= 1;
     }
 
     /// Whether `gift_id` names a live, not-yet-consumed gift — equivalently,

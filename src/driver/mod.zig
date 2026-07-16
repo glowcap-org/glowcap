@@ -106,3 +106,14 @@ pub const SessionOptions = session.SessionOptions;
 pub const connect = session.connect;
 pub const connectUriOwned = session.connectUriOwned;
 pub const listen = session.listen;
+
+const resilient_client = @import("resilient_client.zig");
+/// CapTP-honest dial continuity (ADR-0082): DialError classification, discovery
+/// budget, and dial-retry. Not a Session facade — rebuild yields a new session.
+pub const ResilientClient = resilient_client.ResilientClient;
+pub const DialPolicy = resilient_client.DialPolicy;
+pub const DialOutcome = resilient_client.DialOutcome;
+pub const OnDialOutcome = resilient_client.OnDialOutcome;
+pub const isTransientDialError = resilient_client.isTransient;
+pub const discovery_retry_ms = resilient_client.discovery_retry_ms;
+pub const discovery_max_attempts = resilient_client.discovery_max_attempts;

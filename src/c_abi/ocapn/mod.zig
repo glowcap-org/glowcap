@@ -363,6 +363,7 @@ pub const pancake_peer_send_resolve = peer.pancake_peer_send_resolve;
 pub const pancake_peer_send_get = peer.pancake_peer_send_get;
 pub const pancake_peer_send_index = peer.pancake_peer_send_index;
 pub const pancake_peer_send_untag = peer.pancake_peer_send_untag;
+pub const pancake_peer_send_abort = peer.pancake_peer_send_abort;
 pub const pancake_peer_send_gc_export = peer.pancake_peer_send_gc_export;
 pub const pancake_peer_send_gc_answer = peer.pancake_peer_send_gc_answer;
 pub const pancake_peer_send_withdraw_gift = peer.pancake_peer_send_withdraw_gift;

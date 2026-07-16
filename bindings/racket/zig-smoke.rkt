@@ -1044,9 +1044,9 @@
 ;; lock releases — a listener that ran under the lock could wedge every other
 ;; thread sharing the host. The listener proves it directly: at fire time this
 ;; thread must not own the host lock, and an enqueueing verb (a tell) must go
-;; through. (A fire still runs inside the connection's reader window, so a
-;; listener must not *block* on this connection's own wire traffic — enqueue
-;; and return, the same discipline a hosted behavior carries.)
+;; through. (Fires also run after the reader gate clears, so a listener may
+;; pump this connection — but must not block the reader turn that produced
+;; the settle; enqueue and return.)
 (define lf-server (listen "127.0.0.1" 0))
 (define lf-ready (make-semaphore 0))
 (define lf-told (make-channel))

@@ -1,7 +1,7 @@
 #lang racket
 ;; Shared helpers for Racket interop client scripts.
 
-(provide fail read-swiss parse-port ignore-port-args start-accept-loop)
+(provide fail read-swiss await-greeter-ready parse-port ignore-port-args start-accept-loop)
 
 (define (fail gate msg)
   (eprintf "~a FAILED: ~a\n" gate msg)
@@ -13,6 +13,14 @@
     (cond
       [(eof-object? line) (fail "interop" miss)]
       [(regexp-match #px"\"swiss\":\"([^\"]+)\"" line) => cadr]
+      [else (loop)])))
+
+(define (await-greeter-ready in [miss "never saw the exporter's greeter readiness line"])
+  (let loop ()
+    (define line (read-line in))
+    (cond
+      [(eof-object? line) (fail "interop" miss)]
+      [(regexp-match? #rx"\"name\":\"greeter\"" line) (void)]
       [else (loop)])))
 
 (define (ignore-port-args gate)

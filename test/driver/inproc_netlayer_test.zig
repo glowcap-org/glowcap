@@ -62,7 +62,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyer
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, .ephemeral, read_buf, write_buf, 0);
     defer cv.deinit();
 
     _ = try cv.publish("greeter", Greeter, .{});
@@ -86,7 +86,7 @@ fn callOnce(network: *inproc.Network, allocator: std.mem.Allocator) !void {
         .transport = inproc.transport_name,
         .designator = node_designator,
         .hints = model.Hints.emptyFalse(),
-    }, .ephemeral, read_buf, write_buf);
+    }, .ephemeral, read_buf, write_buf, 0);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -136,11 +136,14 @@ test "inproc netlayer: dialing an unbound designator fails closed" {
     var write_buf: [256]u8 = undefined;
 
     const netlayers = [_]net.netlayer.Netlayer{network.netlayer()};
-    try std.testing.expectError(error.ConnectionLost, driver.connectVia(allocator, &netlayers, &peer, .{
+    // No listener bound at that designator is the in-memory refused-partner
+    // case (ADR-0081): the dial fails closed with ConnectionRefused, the typed
+    // reason a reconnecting caller acts on.
+    try std.testing.expectError(error.ConnectionRefused, driver.connectVia(allocator, &netlayers, &peer, .{
         .transport = inproc.transport_name,
         .designator = "no-such-node",
         .hints = model.Hints.emptyFalse(),
-    }, .ephemeral, &read_buf, &write_buf));
+    }, .ephemeral, &read_buf, &write_buf, 0));
 }
 
 /// Park an accept on the listener and expect the clean closed verdict: the
@@ -194,7 +197,12 @@ fn dialAgainstClose(network: *inproc.Network, allocator: std.mem.Allocator) anye
         .designator = "race-me",
         .hints = model.Hints.emptyFalse(),
     }, .{ .read = &read_buf, .write = &write_buf }) catch |err| switch (err) {
-        error.ConnectionLost => return, // the close won
+        // The close won, two ways (ADR-0081): the listener was flagged closed
+        // after this dial pinned it but before enqueue (ConnectionLost), or it
+        // was already unregistered when the dial looked it up, so the dial never
+        // found a listener at all (ConnectionRefused). Both are the race
+        // resolving cleanly; anything else is a real fault.
+        error.ConnectionLost, error.ConnectionRefused => return,
         else => return err,
     };
     conn.deinit();
@@ -227,12 +235,13 @@ test "inproc netlayer: closing the listener races concurrent dials without touch
     };
     if (first_err) |err| return err;
 
-    // The listener is gone from the switchboard: a late dial fails closed.
-    try std.testing.expectError(error.ConnectionLost, dialAgainstCloseDirect(&network, allocator));
+    // The listener is gone from the switchboard: a late dial finds no listener
+    // and fails closed with the refused-partner reason (ADR-0081).
+    try std.testing.expectError(error.ConnectionRefused, dialAgainstCloseDirect(&network, allocator));
 }
 
-/// As `dialAgainstClose`, but surfacing `ConnectionLost` to the caller so the
-/// post-close assertion can demand it.
+/// As `dialAgainstClose`, but surfacing the dial error to the caller so the
+/// post-close assertion can demand the refused-partner reason.
 fn dialAgainstCloseDirect(network: *inproc.Network, allocator: std.mem.Allocator) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();

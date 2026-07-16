@@ -104,7 +104,7 @@ checked against.
 > carries a signed introduction you present to that third party yourself. From then on
 > you call them directly, rather than relaying every call through the peer in the middle.
 > In the application surface a multi-session CapTP host presents that introduction
-> yourself: a Host + `driver.Bridge` call settles directly with the live reference;
+> for you: a Host + `driver.Bridge` call settles directly with the live reference;
 > [example chapter 02](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/02_introduce_and_redeem.zig)
 > walks the whole move.
 
@@ -152,16 +152,16 @@ The application code is identical either way; only the bytes on the wire change.
 ## Frames, ownership, and the memory contract
 
 Whichever codec writes the conversation down, the bytes it produces need an
-owner. pancake treats every allocation and copy on the wire path as a design event. Each one
-is forbidden, named, or measured, and never left to chance. The rule that makes this
-tractable is an explicit split in who owns the bytes: a `Frame` owns its wire bytes, a
-`FrameView` borrows them for a bounded scope, and session state never holds on to
-borrowed memory.
+owner. pancake treats every allocation and copy on the wire path as a design event.
+Each one is forbidden, named, or measured, and never left to chance. The rule that
+makes this tractable is an explicit split in who owns the bytes: a `Frame` owns its
+wire bytes, a `FrameView` borrows them for a bounded scope, and session state never
+holds on to borrowed memory.
 
 The budget that falls out is two numbers. A steady-state delivery to a live exported
-object costs exactly **one heap allocation**: the owned-frame copy the event model requires,
-and nothing more. And a whole warmed connection, one that has already processed a
-delivery, holds **under about two kilobytes** of protocol state. A build gate holds
+object costs exactly **one heap allocation**: the owned-frame copy the event model
+requires, and nothing more. A whole warmed connection (one that has already processed
+a delivery) holds **under about two kilobytes** of protocol state. A build gate holds
 both, so they stay facts rather than hopes. The
 [architecture](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/architecture.md)
 spells out the full memory and copy contract.
@@ -179,13 +179,13 @@ fit on one tuned machine if the budget holds. Above it the limits are the
 kernel's, which pancake has not measured yet.
 
 The [ladder](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/ladder.md) has the
-exact ceilings and the arithmetic; the [Performance]($link.page('performance')) page has
+exact ceilings and the arithmetic. The [Performance]($link.page('performance')) page has
 the benchmarks and how to run them.
 
 ## What proves it
 
-Every semantic claim in these docs is backed by something that runs. Three proof layers do
-the work:
+Every semantic claim in these docs is backed by something that runs. Three proof layers
+do the work:
 
 - **Live Goblins interop.** pancake holds a real, two-way OCapN conversation with a
   Spritely Goblins peer, Goblins calling pancake and pancake calling back, from every
@@ -196,4 +196,4 @@ the work:
   must produce an identical trace, so switching codecs cannot quietly change behavior.
 
 The [project page]($link.page('project')) tracks how much of the protocol these cover
-today, and the [examples]($link.page('examples')) let you watch a round-trip run.
+today. The [examples]($link.page('examples')) let you watch a round-trip run.

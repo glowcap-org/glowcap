@@ -101,10 +101,10 @@ pub const node_id_len = crypto.PeerKey.designator_len;
 const CEndpoint = opaque {};
 const CConn = opaque {};
 
-extern fn pancake_iroh_sidecar_endpoint_new(secret_seed32: ?*const [32]u8, reachability: u32) ?*CEndpoint;
+extern fn pancake_iroh_sidecar_endpoint_new(secret_seed32: ?*const [32]u8, reachability: u32, connect_timeout_ms: u64) ?*CEndpoint;
 extern fn pancake_iroh_sidecar_endpoint_node_id(ep: *const CEndpoint, out: [*]u8, out_cap: usize) isize;
 extern fn pancake_iroh_sidecar_endpoint_direct_addrs(ep: *const CEndpoint, out: [*]u8, out_cap: usize) isize;
-extern fn pancake_iroh_sidecar_connect(ep: *CEndpoint, node_id: [*]const u8, node_id_len: usize, addr_hints: [*]const u8, addr_hints_len: usize) ?*CConn;
+extern fn pancake_iroh_sidecar_connect(ep: *CEndpoint, node_id: [*]const u8, node_id_len: usize, addr_hints: [*]const u8, addr_hints_len: usize, out_code: *i32) ?*CConn;
 extern fn pancake_iroh_sidecar_accept(ep: *CEndpoint) ?*CConn;
 extern fn pancake_iroh_sidecar_conn_read(conn: *CConn, buf: [*]u8, len: usize) isize;
 extern fn pancake_iroh_sidecar_conn_write(conn: *CConn, buf: [*]const u8, len: usize) isize;
@@ -206,14 +206,25 @@ pub const Resident = struct {
 
     pub const InitError = error{EndpointBindFailed};
 
+    /// One endpoint's configuration, the iroh mirror of the completion loop's
+    /// opt-in `Keepalive`: `reachability` is mandatory (no default — enabling
+    /// relays or discovery is always the host's visible choice), and
+    /// `connect_timeout_ms` is the per-endpoint stream-establishment deadline
+    /// (0 keeps the sidecar's built-in default). A single config so a future
+    /// endpoint knob rides it without growing the constructor's arity.
+    pub const Config = struct {
+        reachability: Reachability,
+        connect_timeout_ms: u64 = 0,
+    };
+
     /// Bind an iroh endpoint. `secret_seed` is either null (a fresh random
     /// endpoint key) or 32 bytes of Ed25519 secret key material, borrowed for
-    /// the call. `reachability` chooses the endpoint's reachability posture and
-    /// is mandatory; there is no default. `io` is captured for the connections
-    /// this resident mints.
-    pub fn init(io: Io, secret_seed: ?*const [32]u8, reachability: Reachability) InitError!Resident {
-        const endpoint = pancake_iroh_sidecar_endpoint_new(secret_seed, @intFromEnum(reachability)) orelse return error.EndpointBindFailed;
-        return .{ .io = io, .endpoint = endpoint, .reachability = reachability };
+    /// the call. `config` carries the mandatory reachability posture and the
+    /// optional dial/accept timeout. `io` is captured for the connections this
+    /// resident mints.
+    pub fn init(io: Io, secret_seed: ?*const [32]u8, config: Config) InitError!Resident {
+        const endpoint = pancake_iroh_sidecar_endpoint_new(secret_seed, @intFromEnum(config.reachability), config.connect_timeout_ms) orelse return error.EndpointBindFailed;
+        return .{ .io = io, .endpoint = endpoint, .reachability = config.reachability };
     }
 
     /// Close the endpoint without freeing it: a blocked `accept` returns
@@ -238,9 +249,13 @@ pub const Resident = struct {
 
     /// Dial a partner by its canonical endpoint id (`designator`) and
     /// comma-separated `direct_addrs` hint, opening the session's one QUIC
-    /// stream. An address defect is the caller's, typed `InvalidAddress`
-    /// before the network is touched; `ConnectionLost` is reserved for the
-    /// dial itself. The returned `*CConn` is owned by the caller, freed with
+    /// stream. A hint-less dial on a direct endpoint is the caller's defect,
+    /// typed `InvalidAddress` before the network is touched. The dial itself
+    /// projects the sidecar's classification onto the `DialError` retry axis:
+    /// a malformed id or hint is `InvalidAddress`, a deadline is `TimedOut`, a
+    /// connection that could not be established is `NetworkUnreachable`, and a
+    /// connection that came up then failed is `ConnectionLost` (ADR-0081). The
+    /// returned `*CConn` is owned by the caller, freed with
     /// `pancake_iroh_sidecar_conn_free`.
     fn dialRawConn(self: *Resident, designator: []const u8, direct_addrs: []const u8) net.netlayer.DialError!*CConn {
         // Canonical node-id shape is owned by `DialResolver.resolve` (blocking
@@ -250,13 +265,24 @@ pub const Resident = struct {
         // address for, so a hint-less dial is a caller defect, refused before
         // the network. A discovery endpoint resolves the partner by id.
         if (direct_addrs.len == 0 and !self.reachability.resolvesById()) return error.InvalidAddress;
-        return pancake_iroh_sidecar_connect(
+        var code: i32 = 0;
+        if (pancake_iroh_sidecar_connect(
             self.endpoint,
             designator.ptr,
             designator.len,
             direct_addrs.ptr,
             direct_addrs.len,
-        ) orelse return error.ConnectionLost;
+            &code,
+        )) |conn| return conn;
+        // The sidecar header's dial codes: 1 invalid, 2 timeout, 3 unreachable,
+        // 4 lost. iroh has no connection-refused — a dead port times out — so
+        // that arm never appears here.
+        return switch (code) {
+            1 => error.InvalidAddress,
+            2 => error.TimedOut,
+            3 => error.NetworkUnreachable,
+            else => error.ConnectionLost,
+        };
     }
 
     /// Write this endpoint's id — the dialable designator — into `out` and
@@ -754,6 +780,10 @@ pub const Backend = struct {
         const queued = blk: {
             self.connect_done.append(self.allocator, .{ .user_data = user_data, .cconn = cconn }) catch {
                 if (cconn) |c| pancake_iroh_sidecar_conn_free(c);
+                // Fallback failure marker so the dial fails observably. A second
+                // OOM here drops ConnectDone entirely (no further channel) —
+                // accepted residual under ADR-0081; the common single-OOM path
+                // already queues cconn=null and the dial fails closed.
                 self.connect_done.append(self.allocator, .{ .user_data = user_data, .cconn = null }) catch break :blk false;
                 break :blk true;
             };
@@ -955,7 +985,7 @@ pub const Backend = struct {
         }
     }
 
-    pub fn poll(self: *Backend, out: []completion.Completion) !usize {
+    pub fn poll(self: *Backend, out: []completion.Completion, timeout_ms: i32) !usize {
         try self.harvestReadiness();
         {
             const n = self.takeReady(out);
@@ -967,7 +997,8 @@ pub const Backend = struct {
             .{ .fd = self.readiness_fd, .events = posix.POLL.IN, .revents = 0 },
             .{ .fd = self.wakeup_r, .events = posix.POLL.IN, .revents = 0 },
         };
-        _ = posix.poll(&pfds, self.poll_timeout_ms) catch 0;
+        const poll_ms: i32 = if (timeout_ms < 0) self.poll_timeout_ms else timeout_ms;
+        _ = posix.poll(&pfds, poll_ms) catch 0;
 
         // Same harvest body as the non-blocking path — no duplicated drain.
         try self.harvestReadiness();

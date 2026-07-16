@@ -196,6 +196,18 @@ pub const Host = struct {
     /// design — `pending_flush` is encode work; `actions.flush` is the
     /// embedder write signal.
     pending_flush: std.ArrayListUnmanaged(engine.PeerId) = .empty,
+    /// Sessions holding a `withdraw-gift` parked awaiting its deposit
+    /// (ADR-0056). A deposit and its matching withdraw travel on different
+    /// sessions of one host, so a withdraw that arrives first parks until the
+    /// deposit lands — on a *sibling* session. The pump re-steps these when the
+    /// shared registry gains a deposit (`last_deposit_gen`), the single-thread
+    /// analog of the thread-per-connection driver's continuous per-session
+    /// step. Small: only handoff exporters in flight, not every connection.
+    parked_withdraw_sessions: std.ArrayListUnmanaged(engine.PeerId) = .empty,
+    /// The shared gift registry's deposit generation last acted on. When it
+    /// moves, a deposit landed, so `parked_withdraw_sessions` are re-driven
+    /// once. Bounds the retry to actual deposits, never a per-frame sweep.
+    last_deposit_gen: u64 = 0,
     /// The reentrancy latch: true while a top-level verb is firing callbacks
     /// or pumping. Nested verbs enqueue only — the enclosing verb's unwind
     /// encodes and pumps — and the host-driving verbs refuse `ReenteredHost`.
@@ -207,16 +219,25 @@ pub const Host = struct {
     owner_tid: if (std.debug.runtime_safety) ?std.Thread.Id else void =
         if (std.debug.runtime_safety) null else {},
 
+    /// Bootstrap / sturdyref registry durability (ADR-0082). `ephemeral` is
+    /// today's process-lifetime registry. `durable_bootstrap` names the
+    /// embedder-store posture; selecting it is refused until a store is wired
+    /// (no silent ephemeral twin).
+    pub const BootstrapDurability = enum { ephemeral, durable_bootstrap };
+
     pub const Options = struct {
-        /// The session's maximum admissible frame, applied to every minted peer
-        /// as its `max_frame_bytes`. Defaults to the canonical
-        /// `session.SessionLimits.max_frame_bytes` (1 MiB), the same value the
-        /// driver C ABI publishes as `PANCAKE_DEFAULT_FRAME_CAP`, so a native
-        /// Zig `Host` embedder and a C embedder admit the same frame size by
-        /// default. This is purely the admission cap; the completion loop's
-        /// read buffers come from a shared 16 KiB pool (ADR-0054), not from
-        /// this number, so raising it costs no per-session memory.
-        frame_cap: usize = (engine.SessionLimits{}).max_frame_bytes,
+        /// Full CapTP session limits applied to every minted peer (ADR-0082).
+        /// Defaults match `session.SessionLimits{}`, including the 1 MiB
+        /// `max_frame_bytes` the driver C ABI publishes as
+        /// `PANCAKE_DEFAULT_FRAME_CAP`. The completion loop's read buffers
+        /// come from a shared 16 KiB pool (ADR-0054), not from
+        /// `max_frame_bytes`, so raising the admission cap costs no
+        /// per-session memory.
+        limits: engine.SessionLimits = .{},
+        /// Registry durability posture (ADR-0082). `.ephemeral` is live;
+        /// `.durable_bootstrap` fails closed at `Host.init` until an embedder
+        /// store lands.
+        bootstrap_durability: BootstrapDurability = .ephemeral,
         /// Verify the partner's `op:start-session` signature — the secure
         /// default a real peer keeps.
         verify_partner: bool = true,
@@ -233,7 +254,28 @@ pub const Host = struct {
         /// names it for the embedder. Null (the default) drives unbounded, the
         /// blocking one-session-per-thread posture.
         local_turn_budget: ?usize = null,
+
+        /// Convenience for the common case: default Options with only the
+        /// frame admission cap overridden.
+        pub fn withFrameCap(cap: usize) Options {
+            var o: Options = .{};
+            o.limits.max_frame_bytes = cap;
+            return o;
+        }
+
+        /// Admission cap shortcut (`limits.max_frame_bytes`).
+        pub fn frameCap(self: Options) usize {
+            return self.limits.max_frame_bytes;
+        }
     };
+
+    /// Override selective session limits before minting peers (ADR-0082).
+    /// `null` leaves that field unchanged. Already-open sessions keep the
+    /// limits they were minted with.
+    pub fn setSessionLimits(self: *Host, max_frame_bytes: ?usize, queue_cap: ?usize) void {
+        if (max_frame_bytes) |v| self.opts.limits.max_frame_bytes = v;
+        if (queue_cap) |v| self.opts.limits.queue_cap = v;
+    }
 
     /// One live host vow. The row holds the vow's single vat listener slot
     /// from mint (`fire`), so settlement always retires the row. An
@@ -265,7 +307,14 @@ pub const Host = struct {
     /// embedder's entropy boundary; the sans-io host never generates it). The
     /// node reuses the identity for every CapTP session, so an exporter verifies
     /// a handoff signature against the one key the gifter named.
+    ///
+    /// `bootstrap_durability` must be `.ephemeral` today. Selecting
+    /// `.durable_bootstrap` panics: that posture needs an embedder store
+    /// (ADR-0082) and must not silently behave as ephemeral.
     pub fn init(allocator: std.mem.Allocator, seed: [crypto.SEED_BYTES]u8, opts: Options) Host {
+        if (opts.bootstrap_durability != .ephemeral) {
+            @panic("Host.Options.bootstrap_durability.durable_bootstrap requires an embedder store; use .ephemeral until then");
+        }
         return .{
             .allocator = allocator,
             .node = engine.Node.init(allocator, seed),
@@ -307,6 +356,7 @@ pub const Host = struct {
         while (vow_it.next()) |row| self.allocator.destroy(row.*);
         self.vows.deinit(self.allocator);
         self.pending_flush.deinit(self.allocator);
+        self.parked_withdraw_sessions.deinit(self.allocator);
         self.node.deinit();
     }
 
@@ -503,7 +553,7 @@ pub const Host = struct {
         return .{
             .codec = self.opts.codec,
             .verify_partner_handshake = self.opts.verify_partner,
-            .limits = .{ .max_frame_bytes = self.opts.frame_cap },
+            .limits = self.opts.limits,
         };
     }
 
@@ -801,6 +851,25 @@ pub const Host = struct {
                 return id;
             },
         }
+    }
+
+    /// Redeem a `desc:handoff-give` this recipient `session` received outside
+    /// the auto-redeem path — a give delivered to an application object rather
+    /// than surfaced as the `op:resolve` `hostBeforeServe` claims — by dialing
+    /// the exporter `exporter_locator` names and withdrawing the gift under the
+    /// host identity, settling `answer` with the redeemed capability. This is
+    /// the same node redeem the before-serve hook runs for an inbound
+    /// give-as-resolve (ADR-0009), exposed for an embedder whose protocol
+    /// carries gives another way — the OCapN conformance greeter delivers the
+    /// give as a plain argument. Running it as a host verb (not a raw
+    /// `node.acceptGive`) is what moves the queued dial onto the embedder's
+    /// action queue; a bare node call strands it. Top-level: refused from
+    /// inside a callback.
+    pub fn acceptGive(self: *Host, session: *HostSession, answer: u64, give: []const u8, exporter_locator: []const u8) !void {
+        try self.refuseReentry();
+        try checkLive(session);
+        try self.node.acceptGive(session.peer_id, answer, give, exporter_locator);
+        try host_pump.finishVerb(self);
     }
 
     /// Register a one-shot in-process listener on a host vow, which hears

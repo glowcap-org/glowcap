@@ -227,14 +227,23 @@ pub const Backend = struct {
         self.ready.appendAssumeCapacity(.{ .user_data = user_data, .result = 0 });
     }
 
-    pub fn poll(self: *Backend, out: []completion.Completion) !usize {
+    pub fn poll(self: *Backend, out: []completion.Completion, timeout_ms: i32) !usize {
         // Drain readiness-free completions (closes) first; never block if any.
         if (self.ready.items.len > 0) return completion.drainReady(&self.ready, out);
 
         var events: [256]c.Kevent = undefined;
         const want: c_int = @intCast(@min(out.len, events.len));
-        const got = c.kevent(self.kq, @ptrCast(&events), 0, @ptrCast(&events), want, null);
+        var ts: c.timespec = undefined;
+        const timeout_ptr: ?*const c.timespec = if (timeout_ms >= 0) blk: {
+            ts = .{
+                .tv_sec = @divTrunc(timeout_ms, 1000),
+                .tv_nsec = @as(c_long, @mod(timeout_ms, 1000)) * std.time.ns_per_ms,
+            };
+            break :blk &ts;
+        } else null;
+        const got = c.kevent(self.kq, @ptrCast(&events), 0, @ptrCast(&events), want, timeout_ptr);
         if (got < 0) return error.KeventFailed;
+        if (got == 0) return 0;
 
         var produced: usize = 0;
         for (events[0..@intCast(got)]) |ev| {

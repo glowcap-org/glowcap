@@ -139,7 +139,7 @@ fn gifterServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) 
 }
 
 fn runLoopUntilCapturing(loop: *net.TcpLoop, done: *const std.atomic.Value(bool), out_err: *?anyerror, loop_done: *std.atomic.Value(bool)) void {
-    loop.runUntil(done) catch |err| {
+    loop.runUntil(done, 0) catch |err| {
         out_err.* = err;
         loop_done.store(true, .release);
         return;
@@ -220,7 +220,11 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = Host.init(allocator, [_]u8{0x0e} ** 32, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    var host = Host.init(allocator, [_]u8{0x0e} ** 32, blk: {
+        var o = Host.Options.withFrameCap(frame_cap);
+        o.local_turn_budget = 64;
+        break :blk o;
+    });
     defer host.deinit();
     var state = ExporterState{ .host = &host, .bridge = undefined };
     var loop: net.TcpLoop = undefined;
@@ -365,7 +369,7 @@ test "three-party handoff across one loop: the deposit leaves on a connection on
     // still calls `Loop.deinit` after `runUntil` → `closeAndDrain`.
     const g_alloc = std.heap.page_allocator;
     var gifter_host = Host.init(g_alloc, [_]u8{0x06} ** 32, .{
-        .frame_cap = frame_cap,
+        .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = 64,
     });
     defer gifter_host.deinit();
@@ -415,7 +419,7 @@ test "three-party handoff across one loop: the deposit leaves on a connection on
     var poked = std.atomic.Value(bool).init(false);
     const r_alloc = std.heap.page_allocator;
     var recipient_host = Host.init(r_alloc, [_]u8{0x0c} ** 32, .{
-        .frame_cap = frame_cap,
+        .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = 64,
     });
     defer recipient_host.deinit();
@@ -510,7 +514,7 @@ test "budget runaway over the bridge: the flooding connection closes typed, a si
     const io = threaded.io();
 
     var host = Host.init(allocator, [_]u8{0x0b} ** 32, .{
-        .frame_cap = frame_cap,
+        .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = runaway_budget,
     });
     defer host.deinit();
@@ -602,7 +606,7 @@ test "a second attach is refused" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = Host.init(allocator, [_]u8{0x0b} ** 32, .{ .frame_cap = frame_cap });
+    var host = Host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     var loop: net.TcpLoop = undefined;
     var bridge = TcpBridge.init(allocator, &host, io, &loop, .{});
@@ -635,7 +639,11 @@ test "closeAndDrain: one live accepted connection with an armed recv" {
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = Host.init(allocator, [_]u8{0x0b} ** 32, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    var host = Host.init(allocator, [_]u8{0x0b} ** 32, blk: {
+        var o = Host.Options.withFrameCap(frame_cap);
+        o.local_turn_budget = 64;
+        break :blk o;
+    });
     defer host.deinit();
     var loop: net.TcpLoop = undefined;
     var bridge = TcpBridge.init(allocator, &host, io, &loop, .{ .publish = publishRunaway });
@@ -661,7 +669,7 @@ test "closeAndDrain: one live accepted connection with an armed recv" {
     var loop_done = std.atomic.Value(bool).init(false);
     var loop_future = try io.concurrent(struct {
         fn run(l: *net.TcpLoop, d: *const std.atomic.Value(bool), e: *?anyerror, f: *std.atomic.Value(bool)) void {
-            l.runUntil(d) catch |err| {
+            l.runUntil(d, 0) catch |err| {
                 e.* = err;
                 f.store(true, .release);
                 return;

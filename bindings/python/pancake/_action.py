@@ -3,9 +3,10 @@ host drain runs.
 
 :class:`~pancake._host.Host` owns park/kick/vows and the Session registry;
 decode/types come from the generated ``_host_action_gen`` module
-(``zig build gen-binding-host-action``); this module owns pop + run
-(``pancake_host_next_action`` and each I/O arm: dial, flush, close, gift-id
-entropy, settle, fail).
+(``zig build gen-binding-host-action``); this module owns the shared C drain
+(``pancake_host_pump_drain``) with sync park-only hooks, then runs each parked
+arm (dial, flush, close, gift-id entropy, settle, fail) after the C loop
+returns — so async I/O never runs inside the C callback.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from typing import Optional
 
 from . import _constants as _abi
 from ._errors import PancakeError, VowBroken, _check_host
-from ._ffi_driver import _host
+from ._ffi_driver import _HostPumpArmFn, _HostPumpHooks, _host
 from ._ffi_ocapn import _byte_buf
 from ._host_action_gen import (
     Close,
@@ -29,21 +30,31 @@ from ._host_action_gen import (
     decode,
 )
 
-_WOULD_BLOCK = _abi.WOULD_BLOCK
+_OK = _abi.OK
 _ERR_CLOSED = _abi.ERR_CLOSED
 
 
-def _pop_action(host) -> Optional[HostAction]:
-    # Pop the next embedder action, its borrowed views copied into Python
-    # values — a SETTLE's PancakeArgument lifted whole — before anything
-    # else can call `pancake_host_next_action` (which frees them), and
-    # before the drain's first await. None when the queue is dry.
-    a = host.action_scratch
-    rc = _host.pancake_host_next_action(host.raw, ctypes.byref(a))
-    if rc == _WOULD_BLOCK:
-        return None
-    _check_host(rc)
-    return decode(a)
+def _park_actions(host) -> list[HostAction]:
+    """Run ``pancake_host_pump_drain`` with park-only arms; return decoded
+    actions in queue order. Views are copied inside ``decode`` before the
+    next pop frees them."""
+    parked: list[HostAction] = []
+
+    @_HostPumpArmFn
+    def park(_ctx, _host_ptr, action, out_progressed) -> int:
+        parked.append(decode(action.contents))
+        if out_progressed:
+            out_progressed[0] = 1
+        return _OK
+
+    # Keep the callback + hooks alive for the duration of the C call via
+    # locals (do not stash on Host private fields).
+    hooks = _HostPumpHooks(None, park, park, park, park, park)
+    acted = ctypes.c_uint32(0)
+    _check_host(_host.pancake_host_pump_drain(
+        host.raw, ctypes.byref(hooks), ctypes.byref(acted),
+    ))
+    return parked
 
 
 async def _run_action(host, action: HostAction) -> None:

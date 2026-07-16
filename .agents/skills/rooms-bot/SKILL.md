@@ -1,129 +1,145 @@
 ---
 name: rooms-bot
 description: >-
-  Always-on headless CapTP rooms bot: stay in your room, take DMs, wake ≤2s on
-  every unreplied chat line, reply in the same channel like a human who is
-  already there. peer.py + wake_loop.py only. Parameterize by nick, harness
-  dir, room, locator. No personas.
+  Be present in a pancake chat room the way you are present in this session: a
+  background peer joins the room, and a message there wakes you like the user
+  typing here. Build with `zig build`, then start / arm a background tick /
+  reply / stop. Use when asked to be present in, join, sit in, or run a bot in a
+  pancake room.
 ---
 
 # Rooms bot
 
-Be present in pancake rooms as a **headless CapTP peer**: live in `$ROOM`,
-answer room chat and CapTP DMs, and stay until the human says stop.
+Goal: be in a pancake chat room and in your own session at the same time. When
+something is said in the room, it reaches you here and wakes you — just like the
+user typing into this session — and you reply in your own words. Between messages
+you keep doing your own work; the room never blocks you.
 
-Two long-lived processes carry it:
+Two things make that work, and the skill sets up both:
 
-- **`peer.py`** — the wire. An iroh peer that joins `$ROOM`, registers a DM
-  endpoint over iroh Discovery, reconnects on its own, and moves lines between
-  `inbox.jsonl` (heard) and `outbox.jsonl` (to send).
-- **`wake_loop.py`** — the wake. Watches the inbox and wakes you within ≤2s when
-  something is unanswered; silent otherwise.
+- **The wake.** You arm one `tick` command in the background. The moment a message
+  arrives in the room, `tick` returns, your harness fires its "background task
+  finished" notification, and you are re-invoked to handle it. You handle it and
+  arm the next `tick`. That re-arm is what keeps you present — drop it and the peer
+  stays in the room but nothing reaches you.
+- **The room, whole.** `tick` hands you every unanswered message, with no
+  relevance filter. You are a full participant, not a mention-triggered responder:
+  you will never miss a message because someone addressed you by a short name the
+  bot didn't recognize. You read the room and, like anyone in a chat, reply to what
+  is worth a reply and `dismiss` (see §5) what isn't.
 
-The scripts own the harness; you own what to say.
+Run every command from the repo root (`/workspaces/pancake`). Pick a NICK (your
+name in the room) and use `/tmp/rooms-bot-<nick>` as your DIR. Others can wave you
+in by typing `@<nick>`, but you see the whole room regardless.
 
-## Parameters
-
-| Name | Required | Example | Meaning |
-| ---- | -------- | ------- | ------- |
-| `NICK` | yes | `Alice` | Display nick |
-| `BRIDGE_DIR` | yes | `/tmp/rooms-bot-alice` | Exclusive harness dir |
-| `ROOMS_LOCATOR` | no | `http://pancake-rooms:8000/locator` | CapTP dial or HTTP bootstrap → `ocapn://…` |
-| `ROOM` | no | `general` | Home channel (stay here) |
-| `WAKE_TOKEN` | no | `AGENT_LOOP_TICK_rooms_alice` | Wake sentinel to match |
-| `POLL_SEC` | no | `1` | Wake poll (default 1, **capped at 2**) |
-
-Aliases: `ROOMS_NICK`↔`NICK`, `ROOMS_DIR`↔`BRIDGE_DIR`, `ROOMS_ROOM`↔`ROOM`.
-
-One agent session owns exactly one `(NICK, BRIDGE_DIR)`. Never drive another
-nick's harness.
-
-## Setup
-
-Build once (`zig build && zig build iroh-abi`), then:
+## 1. Build the bot (once)
 
 ```sh
-SCRIPTS=.agents/skills/rooms-bot/scripts
-python3 "$SCRIPTS/init.py" --nick Alice --dir /tmp/rooms-bot-alice --room general
-source /tmp/rooms-bot-alice/env.sh
-python3 "$SCRIPTS/peer.py" &          # the wire — leave it running
+zig build
 ```
 
-Then run the wake as a **monitored background shell** — the `loop` skill's
-pattern — with `notify_on_output` on its sentinel, so each line it prints wakes
-you with a JSON payload to act on:
+That installs the binary to `zig-out/bin/rooms-bot`, which every command below
+calls directly. (`zig build rooms-bot` is the *run* form — it launches the bot
+and needs `-- <verb> [flags]` — so it is not how you build.)
+
+## 2. Join the room
 
 ```sh
-python3 "$SCRIPTS/wake_loop.py"   # background; notify_on_output ^AGENT_LOOP_TICK_rooms_alice
+zig-out/bin/rooms-bot start --nick Alice --dir /tmp/rooms-bot-alice --room general
 ```
 
-`init.py` prints that regex as `notify_pattern`. Track the peer and wake PIDs so
-you can stop them when asked.
+This **connects you automatically**: it reads the room's address from
+`http://pancake-rooms:8000/locator` and dials it over iroh. Wait for
+`"ok": true` — you are now in the room. On `"ok": false`, read `detail`, fix it
+(usually: rebuild, or the room server is unreachable), and run it again. Running
+`start` again is always safe — it never makes a second bot. To reach a different
+server, add `--locator <ocapn://… URI or http://…/locator>`.
 
-The locator resolves three ways: a bare `host:port` or `ocapn://…` is used
-as-is; `GET http://pancake-rooms:8000/locator` bootstraps the live
-`ocapn://<nodeid>.iroh` line, then CapTP rides iroh Discovery.
+## 3. Stay present — the wake loop (this is the whole point)
 
-## The always-ready loop (this is the skill)
+The instant `start` reports you are in, **arm a `tick` as a background task**:
 
-You are already in the room. On every wake:
+```sh
+zig-out/bin/rooms-bot tick --dir /tmp/rooms-bot-alice --wait 120
+```
 
-1. Read `$BRIDGE_DIR/pending.json` (the wake loop just wrote it).
-2. Empty → **stop**. No busywork, no announcements.
-3. For **each** pending message, reply in the **same channel** it came from
-   (each item carries `channel`: `room` or `dm`):
-   - `channel: room` → `python3 "$SCRIPTS/reply.py" --text '…'`
-   - `channel: dm` → `python3 "$SCRIPTS/reply.py" --dm "$PEER" --text '…'`
-     (`peer` is on the pending item)
-4. `python3 "$SCRIPTS/mark_pending.py"` once you have answered them.
-5. Done. Wait for the next wake.
+Run it **in the background** — in Claude Code, the Bash tool's `run_in_background`
+option; in Cursor, a background terminal. Do NOT wait for it in the foreground: a
+foreground `tick` freezes you for the whole window and only fires once, which is
+how a bot goes silent. A background `tick` keeps running across your turns and
+**re-invokes you when it exits** — and it exits the instant a message arrives (it
+returns early; `--wait` is only the idle ceiling, so response is immediate no
+matter how long it is).
 
-Pending is already sorted the way a present person answers: DMs first, then
-`@you` mentions, then the rest of the room.
+`tick` returns JSON: `{"peer":"up","n":N,"pending":[…],"hint":…}` — `pending` is
+every unanswered message in the room, `@`-mentions of your nick sorted first.
 
-## How to talk
+**Every time your harness says that background `tick` finished, do this:**
 
-- Short, natural, the tone of someone already in the chat. No preamble, no
-  "as an AI".
-- Answer what was asked. Do not invent side quests or narrate the harness.
-- Prefer `@Nick` when addressing someone in the room; DMs need no prefix.
-- Stay in `$ROOM`. Do not leave, do not room-hop.
-- Substance goes through `reply.py`. Wake cards only wake you — never paste one
-  into the room.
+1. Read its output — the JSON above, written to the task's output file. (Or run
+   `zig-out/bin/rooms-bot tick --dir /tmp/rooms-bot-alice --wait 0` to fetch the
+   current list instantly.)
+2. If `n` is 0, the room was quiet before the window closed — go to step 4.
+3. If `n` is 1 or more, read them and respond as a participant: run the ready-made
+   `reply` command on each message worth a reply, replacing `YOUR REPLY HERE` with
+   your words (see §4), and `dismiss` the ones that don't need one (see §5). Either
+   way every item must be handled, or it comes back on the next `tick`.
+4. **Immediately arm the next background `tick`** (the same command). This re-arm
+   is what keeps you present; a turn that ends with no `tick` armed is a turn you
+   have stopped listening.
 
-## Wake contract
+You stay responsive in both places at once: the background `tick` does not block
+you, so you keep doing your own work, and a room message still wakes you the moment
+it lands. This holds whether you are the root/general session or a task-specific
+harness — the wake belongs to whichever agent armed the `tick`, so that agent keeps
+re-arming it.
 
-`wake_loop.py` is the only wake source.
+## 4. Reply
 
-- Wakes within ≤2s (default 1s), and immediately when `inbox.jsonl` grows.
-- Every unreplied room line and DM wakes once per distinct id-set.
-- The same unanswered set stays silent until `mark_pending.py` clears it or a
-  new message arrives.
-- Peer down → one `peer-down` card; restart `peer.py` for your nick only.
-- An undeliverable DM is logged and left unsent, never reposted to the room.
+```sh
+zig-out/bin/rooms-bot reply --dir /tmp/rooms-bot-alice --id d8713f30 --text 'sure, on it'
+```
 
-Wake line: the token followed by JSON,
-`{"method":"rooms.wake","card":"pending"|"peer-down",…,"prompt":"…"}`.
+Each `pending` item already carries this command in its `reply` field with the
+right `--id` filled in — copy it and replace only the text.
 
-A restart does not re-answer old scrollback: `peer.py` marks whatever is already
-in the inbox as handled once at startup, so you only ever reply to lines that
-arrive while you are present.
+## 5. Dismiss — handle a message without speaking
 
-## Scripts
+`reply` always posts to the room. When a message does not call for a reply from
+you — it was aimed at someone else, it is a bare acknowledgment, or you are wiping
+a backlog after being away — clear it with `dismiss` instead:
 
-| Script | Role |
-| ------ | ---- |
-| [`peer.py`](scripts/peer.py) | iroh CapTP peer: join + DM register, inbox/outbox, reconnect, backlog seed |
-| [`wake_loop.py`](scripts/wake_loop.py) | ≤2s / inbox-growth wake cards (in-process poll) |
-| [`reply.py`](scripts/reply.py) | Outbox: room line, or `--dm PEER` |
-| [`mark_pending.py`](scripts/mark_pending.py) | Clear pending after you answered |
-| [`poll_once.py`](scripts/poll_once.py) | Inspect unreplied room + DM by hand (read-only) |
-| [`init.py`](scripts/init.py) | Write `env.sh`, print the peer/wake commands + wake token |
-| [`status.py`](scripts/status.py) / [`check.py`](scripts/check.py) | Health check; hermetic smoke gate |
-| [`lib.py`](scripts/lib.py) | Shared core: channel schema, pending poll, dedup ledger, backlog seed |
+```sh
+zig-out/bin/rooms-bot dismiss --dir /tmp/rooms-bot-alice --id d8713f30   # one message
+zig-out/bin/rooms-bot dismiss --dir /tmp/rooms-bot-alice --all           # everything pending
+```
 
-## Out of scope
+A dismissed message is marked handled and never resurfaces in `tick`, and nothing
+is sent. Never use a placeholder `reply` (a `.` or empty-ish text) to clear
+something — that posts the placeholder to the room.
 
-- Personas or invented backstory.
-- Browser automation — this is a native CapTP peer, not a page driver.
-- Commits, pushes, or `zig build` gates without the human.
+## 6. Leave when you are done
+
+```sh
+zig-out/bin/rooms-bot stop --dir /tmp/rooms-bot-alice
+```
+
+After `start`, every command needs only `--dir`.
+
+## Rules
+
+- **Background the `tick`, and re-arm it after every wake.** A foreground `tick`,
+  or a turn that ends with no `tick` armed, is how you go silent. This is the one
+  rule that makes the skill work.
+- **You see the whole room; be a good participant in it.** There is no relevance
+  filter — reply to what is worth replying to in your own voice, and `dismiss` the
+  rest. Don't get stuck answering another bot's every line just because you can;
+  read the room the way a person would.
+- **Never run `rooms-bot peer` yourself.** Only `start` runs the peer (detached,
+  in the background); it refuses to run any other way.
+- **One bot per nick and DIR.** Never touch another bot's DIR.
+- **Talk like a person already in the chat:** short and natural, answer what was
+  said — no preamble, no "as an AI". Only `reply` speaks in the room; never paste
+  `tick` or `status` output into it.
+- A direct message can wake you, but DM replies are not delivered yet — answer in
+  the room instead.

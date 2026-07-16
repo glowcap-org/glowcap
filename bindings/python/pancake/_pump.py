@@ -137,14 +137,14 @@ async def _feed(session, chunk: bytes) -> None:
 
 
 async def _raise_feed_refusal(session, rc: int) -> None:
-    # The feed refusal choreography: capture the host's last error BEFORE
-    # the abort reader can clobber it, read the typed cause, write the
-    # typed op:abort the core already projected so the partner hears why,
-    # then raise.
+    # Capture last_error / last_abort before another verb can clobber them,
+    # then run the shared action drain so the projected op:abort (and any
+    # CLOSE/FAIL queued with it) leave through the same spine as a steady
+    # FLUSH — not a private take_outbound path.
     message = _host_last_error()
     abort = last_abort(session)
     try:
-        await flush_outbound(session)
+        await session.host.kick_actions()
     except Exception:
         pass  # the transport may already be gone; the local typed error stands
     raise PancakeError(rc, message, abort=abort)

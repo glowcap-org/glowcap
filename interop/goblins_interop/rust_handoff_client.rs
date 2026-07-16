@@ -22,7 +22,7 @@
 use pancake_rust_dogfood::{connect, tcp_locator, Argument, Ref};
 use tokio::process::Command;
 
-#[path = "../../../interop/_common/rust/helpers.rs"]
+#[path = "../_common/rust/helpers.rs"]
 mod helpers;
 
 type Fail = helpers::Fail;

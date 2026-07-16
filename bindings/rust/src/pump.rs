@@ -175,15 +175,15 @@ pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()>
 	Ok(())
 }
 
-/// The feed refusal choreography: capture the host's last error BEFORE the
-/// abort reader can clobber it, read the typed cause, write the typed
-/// op:abort the core already projected so the partner hears why, then
-/// surface the typed error.
+/// The feed refusal choreography: capture last_error / last_abort before
+/// another verb can clobber them, then run the shared action drain so the
+/// projected op:abort (and any CLOSE/FAIL queued with it) leave through the
+/// same spine as a steady FLUSH — not a private `take_outbound` path.
 async fn feed_refusal(shared: &Rc<SessionShared>, rc: i32) -> Error {
 	let message = host_last_error();
 	let abort = last_abort(shared);
 	// The transport may already be gone; the local typed error stands.
-	let _ = flush_outbound(shared).await;
+	shared.host.kick_actions().await;
 	Error::with_transport_detail(rc, message).with_abort(abort)
 }
 

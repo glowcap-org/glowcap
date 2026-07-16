@@ -164,6 +164,12 @@ fn LazySequence(comptime OwnedElem: type, comptime ViewElem: type) type {
             };
         }
 
+        /// Whether the sequence carries no elements. The borrowed twin of the
+        /// owned record's `isEmpty`, so a dual-shape walker can ask either.
+        pub fn isEmpty(self: Self) ProjectError!bool {
+            return (try self.len()) == 0;
+        }
+
         pub fn at(self: Self, index: usize) ProjectError!ViewElem {
             return switch (self.inner) {
                 .slice => |s| if (index < s.len) project(&s[index]) else error.MalformedView,

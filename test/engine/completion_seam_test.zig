@@ -17,10 +17,13 @@ const pancake = @import("pancake");
 
 const engine = pancake.ocapn.engine;
 
-/// `op:deliver` to live local export 7, answer position 11, the same fixed
-/// frame the alloc-budget test reuses, so re-applying it is idempotent on the
-/// session tables and a steady stream of them never errors.
-const deliver_to_export7 = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
+/// A no-answer (`#f` answer position) `op:deliver` to live local export 7 — the
+/// fire-and-forget one-way send. With no answer position it installs no inbound
+/// answer row, so re-applying it is idempotent on the session tables and a steady
+/// stream of them never errors. A distinct-answer deliver would instead trip the
+/// live-answer-reuse refusal in `validateInboundDeliverAny` the second time the
+/// same position arrived, which is a real protocol violation, not a test concern.
+const deliver_to_export7 = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// Apply every whole frame currently buffered, compacting the unconsumed tail to
 /// the front of `buf` — exactly the loop's inner drain. Returns the number of

@@ -110,21 +110,34 @@ typedef struct PancakeIrohReadyEvent {
   uint32_t events;
 } PancakeIrohReadyEvent;
 
+/* One iroh endpoint's configuration, passed to pancake_iroh_netlayer_new /
+   _new_in. reachability is mandatory (one of PANCAKE_IROH_REACH_*; an unknown
+   value is refused). connect_timeout_ms is the per-endpoint stream-
+   establishment deadline in milliseconds — the dial's connect + first-stream
+   open and each accepted stream ride it — with 0 meaning the built-in default.
+   Zero-initialize the whole struct before filling the fields you set (e.g.
+   `PancakeIrohConfig cfg = {0};`), so a field added in a later version
+   defaults to 0 rather than reading stack garbage. */
+typedef struct PancakeIrohConfig {
+  uint32_t reachability;
+  uint64_t connect_timeout_ms;
+} PancakeIrohConfig;
+
 /* Create an iroh netlayer (one bound endpoint) allocating through the library
    allocator. secret_seed/secret_seed_len is either a 32-byte Ed25519 secret key
    (borrowed) or empty (secret_seed_len == 0) for a fresh random key; any other
-   length is PANCAKE_ERR_INVALID_ARGUMENT. reachability is one of
-   PANCAKE_IROH_REACH_* and is mandatory — it decides whether the endpoint uses
-   relays or a discovery service, with no default; an unknown value is
-   PANCAKE_ERR_INVALID_ARGUMENT. Binds the endpoint and arms the readiness loop, so
-   the netlayer is immediately driveable through pancake_iroh_netlayer_readiness_fd;
-   PANCAKE_ERR_IO (see pancake_iroh_last_error) if the endpoint cannot bind or the
-   loop cannot arm. Release with pancake_iroh_netlayer_release after releasing
-   every connection made from it. */
-int32_t pancake_iroh_netlayer_new(const uint8_t *secret_seed, size_t secret_seed_len, uint32_t reachability, PancakeIrohNetlayer **out_netlayer);
+   length is PANCAKE_ERR_INVALID_ARGUMENT. config carries the mandatory reachability
+   (PANCAKE_IROH_REACH_*; an unknown value or a NULL config is
+   PANCAKE_ERR_INVALID_ARGUMENT / PANCAKE_ERR_NULL_POINTER) and the optional
+   connect_timeout_ms (0 = the built-in default). Binds the endpoint and arms the
+   readiness loop, so the netlayer is immediately driveable through
+   pancake_iroh_netlayer_readiness_fd; PANCAKE_ERR_IO (see pancake_iroh_last_error)
+   if the endpoint cannot bind or the loop cannot arm. Release with
+   pancake_iroh_netlayer_release after releasing every connection made from it. */
+int32_t pancake_iroh_netlayer_new(const uint8_t *secret_seed, size_t secret_seed_len, const PancakeIrohConfig *config, PancakeIrohNetlayer **out_netlayer);
 /* As pancake_iroh_netlayer_new, allocating the netlayer, endpoint, and every
    per-connection buffer through context. */
-int32_t pancake_iroh_netlayer_new_in(PancakeContext *context, const uint8_t *secret_seed, size_t secret_seed_len, uint32_t reachability, PancakeIrohNetlayer **out_netlayer);
+int32_t pancake_iroh_netlayer_new_in(PancakeContext *context, const uint8_t *secret_seed, size_t secret_seed_len, const PancakeIrohConfig *config, PancakeIrohNetlayer **out_netlayer);
 /* Close the endpoint without releasing the handle: subsequent dials fail and the
    readiness loop winds down. Idempotent. The shutdown lever for a host whose
    readiness wait parks on another thread. */

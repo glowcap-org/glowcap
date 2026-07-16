@@ -10,14 +10,33 @@ wrappers and small Racket programs around that API.
 
 ## Files
 
+### Shared
+
+| File                      | Role                                               |
+| ------------------------- | -------------------------------------------------- |
+| `racket/tcp-netlayer.rkt` | Testing TCP netlayer for loopback OCapN runs.      |
+| `run.sh`                  | Native launcher using the devcontainer's `racket`. |
+
+### Demos and suite target
+
 | File                         | Role                                                                      |
 | ---------------------------- | ------------------------------------------------------------------------- |
-| `racket/tcp-netlayer.rkt`    | Testing TCP netlayer for loopback OCapN runs.                             |
 | `racket/captp-demo.rkt`      | In-process CapTP demo over Goblins fake-intarwebs.                        |
 | `racket/tcp-demo.rkt`        | Two Goblins peers over local TCP; exits after one roundtrip.              |
 | `racket/three-vat-demo.rkt`  | Three-party introduction over local TCP.                                  |
 | `racket/seven-caps-peer.rkt` | Long-running peer registering the seven caps expected by the OCapN suite. |
-| `run.sh`                     | Native launcher using the devcontainer's `racket`.                        |
+
+### Live Goblins interop (`zig build goblins-interop` and siblings)
+
+| File                              | Role                                                                                         |
+| --------------------------------- | -------------------------------------------------------------------------------------------- |
+| `racket/goblins-host.rkt`         | Echo + Struct host pancake dials as client (NDJSON readiness).                               |
+| `racket/pancake-actor-call.rkt`   | Goblins client: settle-call a pancake-hosted actor.                                          |
+| `racket/goblins-tap-dialer.rkt`   | Goblins client: pipelined enliven-and-call against pancake.                                  |
+| `racket/pancake-break-call.rkt`   | Goblins client: unknown-swiss fetch, asserts pancake's break reason.                         |
+| `racket/handoff-introducer-host.rkt` | Goblins Alice+Bob for recipient-side handoff (`goblins-handoff` / `*-goblins-handoff`).   |
+| `racket/gift-exporter-host.rkt`   | Goblins Bob (exporter) for pancake-as-gifter (`*-goblins-gift`).                                  |
+| `racket/gift-recipient.rkt`       | Goblins Carol (recipient) that redeems a pancake-minted give (`*-goblins-gift`).             |
 
 ## Running
 
@@ -39,6 +58,15 @@ bash conformance/goblins-peer/run.sh seven-caps-peer
 bash conformance/ocapn-conformance/run.sh test \
   'ocapn://JadQ0++RzsD4M+40uLxTWVaVqM10DcBJ.tcp-testing-only?host=127.0.0.1&port=22045'
 ```
+
+## Two TCP paths
+
+| Path | Transport symbol | Who dials whom |
+| ---- | ---------------- | -------------- |
+| Live Goblins interop (`zig build goblins-interop`, handoff, gift, binding clients) | `tcp` (`tcp-netlayer.rkt`, pancake `net.tcp`) | Real Goblins ↔ pancake CapTP over cleartext TCP |
+| Upstream OCapN suite target (`seven-caps-peer`, `ocapn-conformance`) | `tcp-testing-only` in printed URLs | Suite harness ↔ pancake or seven-caps peer |
+
+Do not infer that the suite netlayer is the Goblins parity path.
 
 ## How Pancake Uses This
 

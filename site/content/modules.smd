@@ -7,16 +7,16 @@
 ---
 
 You do not have to keep this layering in your head; the build keeps it for you.
-Each layer is its own module with a one-way import table,
-so a reach across layers is a compile error, not a comment a reviewer has to catch.
-The diagram above is the map, and the
+Each layer is its own module with a one-way import table, so a reach across layers
+is a compile error, not a comment a reviewer has to catch. The diagram above is the
+map. The
 [architecture](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/architecture.md)
 is the authoritative account of every layer.
 
 ## The protocol core
 
 The core owns the protocol and nothing else. It is synchronous, holds no sockets, and
-starts no background work, which is what lets it be tested deterministically and
+starts no background work. That is what lets it be tested deterministically and
 dropped into any host without dragging a runtime along.
 
 - **foundation** owns the primitives every other layer shares. A `Frame` has one
@@ -29,10 +29,9 @@ dropped into any host without dragging a runtime along.
   [Cap'n Proto](https://capnproto.org/) is the second codec; the
   [Codecs]($link.page('codecs')) page covers both. Sibling codecs cannot import each
   other, so neither can quietly grow a dependency on the other's shape.
-- **session** is the authority. It owns the import, export, and answer tables,
-  with the GC reference counts that release entries from them, and it decides
-  what is valid. A codec never gets to decide whether a reference or a release
-  is allowed.
+- **session** is the authority. It owns the import, export, and answer tables, with
+  the GC reference counts that release entries from them, and it decides what is
+  valid. A codec never gets to decide whether a reference or a release is allowed.
 - **engine** is the caller-owned `Peer`. You feed it inbound frames, call `step`,
   drain the outbound frames, and read the events. It dispatches a session and does
   nothing more.
@@ -43,18 +42,17 @@ The framework-shaped pieces sit on top of the core, never inside it.
 
 - **actors** is a Goblins-shaped `Vat`. You spawn a local object, call it near with
   `$`, send it eventually with `<-`, and observe the promise that comes back. It
-  adds no protocol semantics the engine lacks; it is the friendlier face on the
+  adds no protocol semantics the engine lacks; it is a friendlier face on the
   substrate.
 - **driver/core** is the sans-io multi-session CapTP serve core (`Served`, the
-  byte-fed `Host`). It owns identity, `engine.Node`, vows, and crossed hellos, and
-  the build bans sockets there so they cannot creep back in.
-- **net** is the one place `std.Io` enters. A netlayer is a contract
-  the core dispatches against rather than a privileged built-in, so a transport is a
-  resident you register. Four ship today: cleartext TCP, keyed-tcp (same sockets,
-  key-derived designator), an in-process switchboard for whole conversations
-  inside one process, and [iroh](https://www.iroh.computer/)'s encrypted QUIC as a
-  separate optional artifact. The
-  [Transports]($link.page('transports')) page walks all four.
+  byte-fed `Host`). It owns identity, `engine.Node`, vows, and crossed hellos. The
+  build bans sockets there so they cannot creep back in.
+- **net** is the one place `std.Io` enters. A netlayer is a contract the core
+  dispatches against rather than a privileged built-in, so a transport is a resident
+  you register. Four ship today: cleartext TCP, keyed-tcp (same sockets, key-derived
+  designator), an in-process switchboard for whole conversations inside one process,
+  and [iroh](https://www.iroh.computer/)'s encrypted QUIC as a separate optional
+  artifact. The [Transports]($link.page('transports')) page walks all four.
 
 > **Vat**: one single-threaded container of objects, the unit
 > [Spritely Goblins](https://spritely.institute/goblins/) and
@@ -70,17 +68,17 @@ The framework-shaped pieces sit on top of the core, never inside it.
 
 ## The surfaces
 
-Two surfaces carry pancake out to the people building on it, and the
+Two surfaces carry pancake out to the people building on it. The
 [Surfaces]($link.page('surfaces')) page is the consumer's-eye view of both.
 
-- **c_abi** is the deliberate public surface: opaque
-  handles, fixed-width return codes, `ptr + len` views, callbacks, and explicit
-  release, so a consumer can wrap it well without knowing any Zig. The host archive
-  (`libpancake_driver`) is the multi-session CapTP byte-fed face bindings wrap.
+- **c_abi** is the deliberate public surface: opaque handles, fixed-width return
+  codes, `ptr + len` views, callbacks, and explicit release, so a consumer can wrap
+  it well without knowing any Zig. The host archive (`libpancake_driver`) is the
+  multi-session CapTP byte-fed face bindings wrap.
 - **driver** is the native Zig application surface above `driver/core`. It offers
-  one-session `Session`, multi-session CapTP `Bridge` + Host over a
-  completion loop (`net.TcpLoop` / iroh Backend), and the byte-fed C ABI host.
+  one-session `Session`, multi-session CapTP `Bridge` + Host over a completion loop
+  (`net.TcpLoop` / iroh Backend), and the byte-fed C ABI host.
 
 The [bindings]($link.page('bindings')) are that same application surface once more, in
-Rust, TypeScript, Python, and Racket. Each consumes the C ABI and presents it in its own
-idiom, which is why an app reads like an app no matter the language.
+Rust, TypeScript, Python, and Racket. Each consumes the C ABI and presents it in its
+own idiom.

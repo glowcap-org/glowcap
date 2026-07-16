@@ -10,12 +10,11 @@ bindings are gated.
 
 The binding exposes one tier: the CapTP `session` over the byte-fed host
 archive (`libpancake_driver`, ADR-0072 / ADR-0079). The host owns an
-`engine.Node` (sans-io router); Goblins `mycapn` is two roles — endpoint ≈
-host, router tables ≈ `engine.Node`. The raw `pancake_peer_*` family has no
-Racket wrapper — it stays a C-consumer surface, covered by the Zig C-ABI tests
+`engine.Node` (the sans-io router). The raw `pancake_peer_*` family has no
+Racket wrapper; it stays a C-consumer surface, covered by the Zig C-ABI tests
 and the C examples. The wire codec is a host option: `connect` and `listen`
-take `#:codec` (`'syrup` by default, `'capnp` for a Cap'n Proto session; both
-ends must agree, exactly as on the C tier's `pancake_host_new`). The upstream
+take `#:codec` (`'syrup` by default, `'capnp` for a Cap'n Proto session). Both
+ends must agree, exactly as on the C tier's `pancake_host_new`. The upstream
 pre-spec profile is not on the binding surface.
 
 ## Module map
@@ -25,10 +24,10 @@ the core links no transport, and requiring one transport links no other.
 
 | Module                                     | Archive it loads                         | What it offers                                                                                                                                                                                                                                                                                       |
 | ------------------------------------------ | ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`pancake.rkt`](pancake.rkt)               | `libpancake_ocapn` + `libpancake_driver` | The core: the CapTP `session` surface (`connect`, `listen`, `accept`, `session-*`) over the byte-fed host archive (`libpancake_driver`, ADR-0072) and Racket's own scheduler-aware TCP ports, the Goblins-shaped vat (`spawn`, `$`, `<-`, `on`, `bcom`, `methods`), native-value marshalling, typed errors, and OCapN locator URIs.                                                                          |
-| [`pancake-tcp.rkt`](pancake-tcp.rkt)       | `libpancake_net_transport_tcp`           | The explicit blocking TCP netlayer handles: `make-netlayer`, `netlayer-listen`, `netlayer-connect`, `listener-accept`, the `endpoint-*` whole-frame shuttle, and `tcp-last-error`.                                                                                                                   |
+| [`pancake.rkt`](pancake.rkt)               | `libpancake_ocapn` + `libpancake_driver` | The session surface (`connect`, `listen`, `accept`, `session-*`) over the byte-fed host and Racket's scheduler-aware TCP ports, plus the Goblins-shaped vat (`spawn`, `$`, `<-`, `on`, `bcom`, `methods`), native-value marshalling, typed errors, and OCapN locator URIs. |
+| [`pancake-tcp.rkt`](pancake-tcp.rkt)       | `libpancake_net_transport_tcp`           | Blocking TCP netlayer handles: `make-netlayer`, `netlayer-listen`, `netlayer-connect`, `listener-accept`, the `endpoint-*` whole-frame shuttle, and `tcp-last-error`.                                                                                                                   |
 | [`pancake-inproc.rkt`](pancake-inproc.rkt) | `libpancake_net_transport_inproc`        | The socket-free in-process netlayer, addressed by a string designator: `make-inproc-netlayer`, `inproc-netlayer-listen`, `inproc-netlayer-connect`, `inproc-listener-accept`, the `inproc-endpoint-*` shuttle, and `inproc-last-error`.                                                              |
-| [`pancake-iroh.rkt`](pancake-iroh.rkt)     | `libpancake_net_transport_iroh` (lazily) | The optional encrypted-QUIC netlayer: `listen-iroh`, the `iroh-server-*` surface, and the `IROH-REACH-*` postures. `connect` loads it on the first `iroh` locator, so a program that never speaks iroh neither links the library nor requires this module.                                           |
+| [`pancake-iroh.rkt`](pancake-iroh.rkt)     | `libpancake_net_transport_iroh` (lazily) | Optional encrypted-QUIC netlayer: `listen-iroh`, the `iroh-server-*` surface, and the `IROH-REACH-*` postures. `connect` loads it on the first `iroh` locator, so a program that never speaks iroh neither links the library nor requires this module.                                           |
 
 The core is the universal base. The transport modules build on it (they share
 the frame layout through the core's transport seam, and they are
@@ -44,26 +43,26 @@ symbol-disjoint) but they never depend on each other.
 ```
 
 One rule inside a hosted behavior: a method runs on the pumping thread, inside
-the enclosing feed, so it must neither drive the host (a `session-fetch` or
+the enclosing feed, so it must neither drive the host nor park the thread on
+something only another green thread can provide. A `session-fetch` or
 `session-send` on this host mid-turn is refused loud by the C tier's callback
-latch, and the refusal breaks the method's own answer — the smoke pins this)
-nor park the thread on something only another green thread can provide (Racket
-CS may run the trampoline in atomic mode, where a blocking
-`async-channel-get`-style wait deadlocks the place). Return a value, `bcom`, or
+latch, and the refusal breaks the method's own answer (the smoke pins this).
+Racket CS may run the trampoline in atomic mode, where a blocking
+`async-channel-get`-style wait deadlocks the place. Return a value, `bcom`, or
 a forward; hand longer work to another thread and settle it through an
 eventual-send.
 
 ## The internal FFI split
 
-The raw `ffi/unsafe` layer is never required by a consumer; it follows Racket's
+The raw `ffi/unsafe` layer is never required by a consumer. It follows Racket's
 `private/` convention and mirrors the C ABI's own module split:
 
 - [`private/ffi-shared.rkt`](private/ffi-shared.rkt): the shared frame,
   allocator, reference, argument, and event cstructs the archives agree on by
-  layout. It opens no library, the Racket mirror of the C ABI's `c_abi/shared`
+  layout. It opens no library; the Racket mirror of the C ABI's `c_abi/shared`
   leaf.
 - [`private/lib-resolve.rkt`](private/lib-resolve.rkt): publishable archive
-  resolve + open (`open-pancake-archive`), the ADR-0077 cascade for every
+  resolve and open (`open-pancake-archive`), the ADR-0077 cascade for every
   per-archive loader.
 - [`private/ffi-ocapn.rkt`](private/ffi-ocapn.rkt): opens `libpancake_ocapn` and
   binds the library-level `pancake_*` family the binding consumes: version,
@@ -105,21 +104,21 @@ binding-internal transport seam (`private/seam.rkt` re-provides it in turn).
 - [`private/codec.rkt`](private/codec.rkt): the native-value argument codec
   (`arg->c` / `args->c` / `arg<-c` / `args<-c` / `ref->c` / `bytes<-c`).
 - [`private/vat.rkt`](private/vat.rkt): the Goblins-shaped vat's local half
-  ONLY — actor state, the queued turn loop, local vows, `bcom`, and
+  only — actor state, the queued turn loop, local vows, `bcom`, and
   time-travel (`spawn`, `$`, `<-`, `on`, `methods`). Everything wire-shaped is
   the host's: a connection installs the far half, so `<-` to a far reference
-  stays location-transparent. The semantics this half mirrors are pinned by
-  the smoke's actor section and the `bench-goblins` app parity: a raising
-  handler's staged `bcom` never installs, a listener fires once, and local
-  `<-` turns run FIFO at `drive`. One boundary is narrower than Goblins and
-  deliberate: there is no cross-actor turn transactionality — an outer turn
-  erroring after an inner `$`'s `bcom` leaves the inner swap installed, where
-  Goblins would roll it back. Time-travel is accept-side (server) only today:
-  `accept` takes `#:time-travel?`; `connect` and the iroh surface do not.
+  stays location-transparent. The smoke's actor section and the `bench-goblins`
+  app parity pin the semantics this half mirrors: a raising handler's staged
+  `bcom` never installs, a listener fires once, and local `<-` turns run FIFO
+  at `drive`. One boundary is narrower than Goblins and deliberate: there is no
+  cross-actor turn transactionality. An outer turn erroring after an inner `$`'s
+  `bcom` leaves the inner swap installed, where Goblins would roll it back.
+  Time-travel is accept-side (server) only today: `accept` takes
+  `#:time-travel?`; `connect` and the iroh surface do not.
 - [`private/trampoline.rkt`](private/trampoline.rkt): the bridge between vat
-  actors and the host's wire hosting — the `PancakeHostBehavior` trampoline that
-  reads an actor's current closure per call (so `bcom` and `vat-restore!` retarget
-  wire delivers), the turn verbs, and reply marshalling.
+  actors and the host's wire hosting. The `PancakeHostBehavior` trampoline reads
+  an actor's current closure per call (so `bcom` and `vat-restore!` retarget
+  wire delivers), plus the turn verbs and reply marshalling.
 - [`private/locator.rkt`](private/locator.rkt): the OCapN locator URI grammar
   (`parse-locator`, `format-peer-uri`, `tcp-locator`).
 - [`private/async.rkt`](private/async.rkt): the transport layer: the
@@ -128,11 +127,10 @@ binding-internal transport seam (`private/seam.rkt` re-provides it in turn).
   hands the inbox to `pancake_host_session_feed_bytes` and keeps only the
   unconsumed tail.
 - [`private/host.rkt`](private/host.rkt): the CapTP `host` over the byte-fed
-  host handle (owns `engine.Node`; Goblins `mycapn` endpoint half): the
-  reentrant host lock, the session registry, host-wide giftables, gift-id
-  entropy, and the iroh redeem posture.
-- [`private/action.rkt`](private/action.rkt): host-action decode+execute
-  (`drain-host-actions!` / `host-next-action!`).
+  host handle (owns `engine.Node`): the reentrant host lock, the session
+  registry, host-wide giftables, gift-id entropy, and the iroh redeem posture.
+- [`private/action.rkt`](private/action.rkt): host-action decode and execute
+  (`drain-host-actions!` via `pancake_host_pump_drain`).
 - [`private/promise.rkt`](private/promise.rkt): far vows (`session-vow` /
   `session-index` / `session-untag` / settle).
 - [`private/gc.rkt`](private/gc.rkt): ADR-0063 opt-in distributed GC.
@@ -140,20 +138,19 @@ binding-internal transport seam (`private/seam.rkt` re-provides it in turn).
   `connect` + redeem).
 - [`private/listen.rkt`](private/listen.rkt): `server` / `listen` / keyed-tcp
   hosting.
-- [`private/pump.rkt`](private/pump.rkt): conn byte path (feed / flush / EOF /
-  `break_far_vows`).
-- [`private/session.rkt`](private/session.rkt): the CapTP partner surface: the
-  `session` struct, mint/handshake (`establish-*`), and the `session-*`
+- [`private/pump.rkt`](private/pump.rkt): connection byte path (feed / flush /
+  EOF / `break_far_vows`).
+- [`private/session.rkt`](private/session.rkt): the partner surface: the
+  `session` struct, mint and handshake (`establish-*`), and the `session-*`
   application verbs.
 
-[`zig-smoke.rkt`](zig-smoke.rkt) is the consumer `zig build bindings` runs: it
+[`zig-smoke.rkt`](zig-smoke.rkt) is the consumer `zig build bindings` runs. It
 drives real OCapN conversations through the session surface — keyed
 handshakes, pipelining, projections, proxies, a Cap'n Proto session through
 `#:codec`, distributed GC observed on the wire through a sniffing relay — then
-composes the host tier with each explicit
-transport module to shuttle a counter call over the in-process and TCP
-netlayers. Racket must be on `PATH` (provided by
-[`../../.devcontainer/`](../../.devcontainer/)); the build step typically
+composes the host tier with each explicit transport module to shuttle a counter
+call over the in-process and TCP netlayers. Racket must be on `PATH` (provided
+by [`../../.devcontainer/`](../../.devcontainer/)). The build step typically
 resolves archives from in-tree `zig-out/lib` (ADR-0077 rung 3), or from
 `PANCAKE_LIB_DIR` / the versioned download cache when configured.
 

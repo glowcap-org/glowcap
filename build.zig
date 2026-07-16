@@ -184,6 +184,44 @@ fn addInstalledSystemRun(b: *std.Build, argv: []const []const u8) *std.Build.Ste
     return run;
 }
 
+/// One per-binding client row under a `bindings-*` family aggregate.
+const BindingClientRow = struct {
+    step_name: []const u8,
+    description: []const u8,
+    argv: []const []const u8,
+    /// True when the runner needs a `--` separator before program args
+    /// (cargo run forwards trailing args to the example only after one).
+    dashdash_before_args: bool = false,
+};
+
+/// One per-binding client family: an aggregate step plus its language rows.
+const BindingFamily = struct {
+    aggregate_name: []const u8,
+    aggregate_desc: []const u8,
+    needs_iroh_abi: bool,
+    rows: []const BindingClientRow,
+};
+
+/// Register a `bindings-*` aggregate and every per-binding step under it.
+fn addBindingFamily(
+    b: *std.Build,
+    family: BindingFamily,
+    pin_port: ?u16,
+    iroh_abi_step: *std.Build.Step,
+) void {
+    const aggregate = b.step(family.aggregate_name, family.aggregate_desc);
+    for (family.rows) |client| {
+        const run = addInstalledSystemRun(b, client.argv);
+        if (family.needs_iroh_abi) run.step.dependOn(iroh_abi_step);
+        if (pin_port) |p| {
+            if (client.dashdash_before_args) run.addArg("--");
+            run.addArg(b.fmt("--port={d}", .{p}));
+        }
+        b.step(client.step_name, client.description).dependOn(&run.step);
+        aggregate.dependOn(&run.step);
+    }
+}
+
 /// The full `src/root.zig` module graph for an arbitrary target, used by the
 /// cross-compile gate to type-check the platform backends (notably the
 /// macOS/BSD `kqueue` path, which the host io_uring build never compiles)
@@ -927,134 +965,21 @@ pub fn build(b: *std.Build) void {
     const goblins_handoff_step = b.step("goblins-handoff", "Live three-party handoff vs Goblins, pancake as recipient (needs racket + goblins)");
     goblins_handoff_step.dependOn(&run_goblins_handoff.step);
 
-    // Each binding drives the same keyed conversation against a real Goblins
-    // vat through the installed C ABI archives, the binding↔live-Goblins keyed
-    // conversation, not just the in-Zig one. Every entry needs `racket` + the
-    // `goblins` collection on PATH plus its own runtime; each script spawns and
-    // tears down the Goblins vat itself. The Rust entry runs a feature-gated
-    // tokio example, so it needs the async feature.
-    const goblins_clients = [_]struct {
-        step_name: []const u8,
-        description: []const u8,
-        argv: []const []const u8,
-        /// True when the runner needs a `--` separator before program args
-        /// (cargo run forwards trailing args to the example only after one).
-        dashdash_before_args: bool = false,
-    }{
-        .{
-            .step_name = "deno-goblins-interop",
-            .description = "Live keyed OCapN conversation: Deno binding vs a real Goblins vat (needs deno + racket + goblins)",
-            .argv = &.{ "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "interop/goblins_interop/deno_client.ts" },
-        },
-        .{
-            .step_name = "python-goblins-interop",
-            .description = "Live keyed OCapN conversation: Python binding vs a real Goblins vat (needs python3 + racket + goblins)",
-            .argv = &.{ "python3", "interop/goblins_interop/python_client.py" },
-        },
-        .{
-            .step_name = "racket-goblins-interop",
-            .description = "Live keyed OCapN conversation: Racket binding vs a real Goblins vat (needs racket + goblins)",
-            .argv = &.{ "racket", "interop/goblins_interop/racket_client.rkt" },
-        },
-        .{
-            .step_name = "rust-goblins-interop",
-            .description = "Live keyed OCapN conversation: Rust binding vs a real Goblins vat (needs cargo + racket + goblins)",
-            .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async", "--example", "goblins_interop" },
-            .dashdash_before_args = true,
-        },
-    };
-    for (goblins_clients) |client| {
-        const run = addInstalledSystemRun(b, client.argv);
-        if (pin_port) |p| {
-            if (client.dashdash_before_args) run.addArg("--");
-            run.addArg(b.fmt("--port={d}", .{p}));
-        }
-        b.step(client.step_name, client.description).dependOn(&run.step);
-    }
+    // Live three-party handoff, pancake as gifter (needs racket + goblins).
+    // Bob listens on N; Carol binds N+1. `-Dport=N` pins the pair.
+    const goblins_gift_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-goblins-gift", "interop/goblins_interop/gift_driver.zig");
+    const run_goblins_gift = b.addRunArtifact(goblins_gift_exe);
+    run_goblins_gift.setCwd(b.path("."));
+    run_goblins_gift.has_side_effects = true;
+    check_step.dependOn(&goblins_gift_exe.step);
+    if (pin_port) |p| run_goblins_gift.addArg(b.fmt("--port={d}", .{p}));
+    const goblins_gift_step = b.step("goblins-gift", "Live three-party handoff vs Goblins, pancake as gifter (needs racket + goblins)");
+    goblins_gift_step.dependOn(&run_goblins_gift.step);
 
-    // Live three-party handoff with a binding as recipient: the binding redeems a
-    // `desc:handoff-give` from a real Goblins introducer transparently through
-    // `connect`/`fetch`/`send`, then calls the exporter object directly. The
-    // binding counterpart of `goblins-handoff` (which proves it at the Zig driver
-    // level). Spawns the Goblins introducer + exporter pair itself; `-Dport=N`
-    // pins the introducer port (the exporter listens on N+1).
-    const run_deno_handoff = addInstalledSystemRun(b, &.{
-        "deno",                                           "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
-        "interop/goblins_interop/deno_handoff_client.ts",
-    });
-    if (pin_port) |p| run_deno_handoff.addArg(b.fmt("--port={d}", .{p}));
-    b.step("deno-goblins-handoff", "Live three-party handoff: the Deno binding redeems a give from a real Goblins introducer and calls the exporter (needs deno + racket + goblins)")
-        .dependOn(&run_deno_handoff.step);
 
-    const run_python_handoff = addInstalledSystemRun(b, &.{
-        "python3", "interop/goblins_interop/python_handoff_client.py",
-    });
-    if (pin_port) |p| run_python_handoff.addArg(b.fmt("--port={d}", .{p}));
-    b.step("python-goblins-handoff", "Live three-party handoff: the Python binding redeems a give from a real Goblins introducer and calls the exporter (needs python3 + racket + goblins)")
-        .dependOn(&run_python_handoff.step);
-
-    const run_rust_handoff = addInstalledSystemRun(b, &.{
-        "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async", "--example", "goblins_handoff",
-    });
-    if (pin_port) |p| {
-        run_rust_handoff.addArg("--");
-        run_rust_handoff.addArg(b.fmt("--port={d}", .{p}));
-    }
-    b.step("rust-goblins-handoff", "Live three-party handoff: the Rust binding redeems a give from a real Goblins introducer and calls the exporter (needs cargo + racket + goblins)")
-        .dependOn(&run_rust_handoff.step);
-
-    const run_racket_handoff = addInstalledSystemRun(b, &.{
-        "racket", "interop/goblins_interop/racket_handoff_client.rkt",
-    });
-    if (pin_port) |p| run_racket_handoff.addArg(b.fmt("--port={d}", .{p}));
-    b.step("racket-goblins-handoff", "Live three-party handoff: the Racket binding redeems a give from a real Goblins introducer and calls the exporter (needs racket + goblins)")
-        .dependOn(&run_racket_handoff.step);
-
-    // Live three-party handoff with the Deno binding as the *gifter*: pancake
-    // fetches a greeter from a Goblins exporter, publishes an introducer, and
-    // mints a `desc:handoff-give` a Goblins recipient redeems, reaching the
-    // exporter directly. The mirror of `deno-goblins-handoff`, proving the
-    // exporter half of ADR-0009 cross-implementation: Goblins accepts pancake's
-    // `deposit-gift` and redeems pancake's give. The client spawns the Goblins
-    // exporter + recipient itself; `-Dport=N` pins the exporter port (the
-    // recipient binds on N+1; the gifter takes an ephemeral port).
-    const run_deno_gift = addInstalledSystemRun(b, &.{
-        "deno",                                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
-        "interop/goblins_interop/deno_gift_client.ts",
-    });
-    if (pin_port) |p| run_deno_gift.addArg(b.fmt("--port={d}", .{p}));
-    b.step("deno-goblins-gift", "Live three-party handoff: the Deno binding mints a give a real Goblins recipient redeems, reaching the exporter (needs deno + racket + goblins)")
-        .dependOn(&run_deno_gift.step);
-
-    // The per-binding mirrors of `deno-goblins-gift`: pancake is the gifter in
-    // each language, deposits with the live Goblins exporter, and mints a give a
-    // live Goblins recipient redeems, proving the transparent gifter half of
-    // ADR-0009 in Python, Rust, and Racket too. Each client spawns the shared
-    // Goblins exporter + recipient scripts itself; `-Dport=N` pins the exporter
-    // port (the recipient binds on N+1; the gifter takes an ephemeral port).
-    const run_python_gift = addInstalledSystemRun(b, &.{
-        "python3", "interop/goblins_interop/python_gift_client.py",
-    });
-    if (pin_port) |p| run_python_gift.addArg(b.fmt("--port={d}", .{p}));
-    b.step("python-goblins-gift", "Live three-party handoff: the Python binding mints a give a real Goblins recipient redeems, reaching the exporter (needs python3 + racket + goblins)")
-        .dependOn(&run_python_gift.step);
-
-    const run_rust_gift = addInstalledSystemRun(b, &.{
-        "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async", "--example", "goblins_gift",
-    });
-    if (pin_port) |p| {
-        run_rust_gift.addArg("--");
-        run_rust_gift.addArg(b.fmt("--port={d}", .{p}));
-    }
-    b.step("rust-goblins-gift", "Live three-party handoff: the Rust binding mints a give a real Goblins recipient redeems, reaching the exporter (needs cargo + racket + goblins)")
-        .dependOn(&run_rust_gift.step);
-
-    const run_racket_gift = addInstalledSystemRun(b, &.{
-        "racket", "interop/goblins_interop/racket_gift_client.rkt",
-    });
-    if (pin_port) |p| run_racket_gift.addArg(b.fmt("--port={d}", .{p}));
-    b.step("racket-goblins-gift", "Live three-party handoff: the Racket binding mints a give a real Goblins recipient redeems, reaching the exporter (needs racket + goblins)")
-        .dependOn(&run_racket_gift.step);
+    // Per-binding Goblins clients (interop / handoff / gift) register with the
+    // shared `binding_families` table after `iroh-abi` below — same emitter as
+    // the iroh and keyed-tcp families.
 
     // Cross-implementation benchmark: one shared Racket application run on
     // pancake's Racket binding and on Spritely Goblins, comparing latency,
@@ -1138,6 +1063,15 @@ pub fn build(b: *std.Build) void {
     });
     const iroh_lib_step = b.step("iroh-lib", "Build the iroh netlayer sidecar staticlib (needs cargo)");
     iroh_lib_step.dependOn(&iroh_lib.step);
+
+    // The sidecar's own Rust unit tests, chief among them the positive-fire proof
+    // that a caller-set connect timeout trips fast against a bound-but-silent UDP
+    // black hole. Needs cargo, so it is a sibling step like `iroh-lib`.
+    const iroh_sidecar_test = b.addSystemCommand(&.{
+        "cargo", "test", "--release", "--manifest-path", "transports/iroh/Cargo.toml",
+    });
+    const iroh_sidecar_test_step = b.step("iroh-sidecar-test", "Run the iroh sidecar Rust unit tests, including the connect-timeout positive-fire proof (needs cargo)");
+    iroh_sidecar_test_step.dependOn(&iroh_sidecar_test.step);
 
     // The resident compiles as its own module over the same layer-module
     // instances, *outside* the `pancake` root namespace: its externs resolve
@@ -1267,7 +1201,9 @@ pub fn build(b: *std.Build) void {
         b.fmt(
             \\rm -rf zig-out/release
             \\mkdir -p zig-out/release/stage
-            \\cp -a zig-out/lib zig-out/include zig-out/release/stage/
+            \\# Dereference soname symlinks so the tarball has only regular files
+            \\# (ADR-0077 extract hygiene refuses symlink members).
+            \\cp -aL zig-out/lib zig-out/include zig-out/release/stage/
             \\if find zig-out/release/stage/lib \( -type l -o -type b -o -type c \) 2>/dev/null | grep -q .; then
             \\  echo 'release-pack: lib/ must contain only regular files and directories (no symlinks/special files)' >&2
             \\  exit 1
@@ -1284,21 +1220,104 @@ pub fn build(b: *std.Build) void {
     const release_pack_step = b.step("release-pack", "Stage the installed archives + headers into a versioned, checksummed per-target tarball under zig-out/release/ (needs cargo for the iroh companion)");
     release_pack_step.dependOn(&release_pack_run.step);
 
-    // Per-binding iroh scale proof: the binding sibling of `iroh-loop`. Each
-    // drives many concurrent connections served from one readiness loop through
-    // the iroh C ABI companion (ADR-0057), so a peer in any binding reaches the
-    // same scale as the native one, not only Deno. Each needs its runtime plus
-    // the installed iroh ABI library, so they are siblings of `check` like
-    // `iroh-interop`. The `bindings-iroh-loop` aggregate runs them together.
-    const bindings_iroh_loop_step = b.step("bindings-iroh-loop", "Per-binding iroh scale proof: many connections served from one loop, every binding (needs cargo + the runtimes)");
-    const iroh_loop_clients = [_]struct {
-        step_name: []const u8,
-        description: []const u8,
-        argv: []const []const u8,
-        /// True when the runner needs a `--` separator before program args
-        /// (cargo run forwards trailing args to the example only after one).
-        dashdash_before_args: bool = false,
-    }{
+    // ── Per-binding client families ──────────────────────────────────────────
+    // One emitter over every `bindings-*` aggregate: Goblins interop/handoff/gift,
+    // iroh loop/handoff/redeem/reachability, and keyed-tcp restart. Row order is
+    // deno → python → rust → racket wherever a language is present. Native
+    // one-offs (`goblins-interop`, `goblins-handoff`, `tcp-loop`) stay above —
+    // they are Zig drivers, not binding clients.
+
+    // Each binding drives the same keyed conversation against a real Goblins
+    // vat through the installed C ABI archives. Every entry needs `racket` + the
+    // `goblins` collection on PATH plus its own runtime; each script spawns and
+    // tears down the Goblins vat itself. The Rust entry runs a feature-gated
+    // tokio example, so it needs the async feature.
+    const goblins_interop_clients = [_]BindingClientRow{
+        .{
+            .step_name = "deno-goblins-interop",
+            .description = "Live keyed OCapN conversation: Deno binding vs a real Goblins vat (needs deno + racket + goblins)",
+            .argv = &.{ "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "interop/goblins_interop/deno_client.ts" },
+        },
+        .{
+            .step_name = "python-goblins-interop",
+            .description = "Live keyed OCapN conversation: Python binding vs a real Goblins vat (needs python3 + racket + goblins)",
+            .argv = &.{ "python3", "interop/goblins_interop/python_client.py" },
+        },
+        .{
+            .step_name = "rust-goblins-interop",
+            .description = "Live keyed OCapN conversation: Rust binding vs a real Goblins vat (needs cargo + racket + goblins)",
+            .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async", "--example", "rust_client" },
+            .dashdash_before_args = true,
+        },
+        .{
+            .step_name = "racket-goblins-interop",
+            .description = "Live keyed OCapN conversation: Racket binding vs a real Goblins vat (needs racket + goblins)",
+            .argv = &.{ "racket", "interop/goblins_interop/racket_client.rkt" },
+        },
+    };
+
+    // Binding as recipient: redeems a `desc:handoff-give` from a real Goblins
+    // introducer, then calls the exporter directly. Counterpart of the Zig
+    // `goblins-handoff` driver. `-Dport=N` pins the introducer (exporter on N+1).
+    const goblins_handoff_clients = [_]BindingClientRow{
+        .{
+            .step_name = "deno-goblins-handoff",
+            .description = "Live three-party handoff: the Deno binding redeems a give from a real Goblins introducer and calls the exporter (needs deno + racket + goblins)",
+            .argv = &.{ "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "interop/goblins_interop/deno_handoff_client.ts" },
+        },
+        .{
+            .step_name = "python-goblins-handoff",
+            .description = "Live three-party handoff: the Python binding redeems a give from a real Goblins introducer and calls the exporter (needs python3 + racket + goblins)",
+            .argv = &.{ "python3", "interop/goblins_interop/python_handoff_client.py" },
+        },
+        .{
+            .step_name = "rust-goblins-handoff",
+            .description = "Live three-party handoff: the Rust binding redeems a give from a real Goblins introducer and calls the exporter (needs cargo + racket + goblins)",
+            .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async", "--example", "rust_handoff_client" },
+            .dashdash_before_args = true,
+        },
+        .{
+            .step_name = "racket-goblins-handoff",
+            .description = "Live three-party handoff: the Racket binding redeems a give from a real Goblins introducer and calls the exporter (needs racket + goblins)",
+            .argv = &.{ "racket", "interop/goblins_interop/racket_handoff_client.rkt" },
+        },
+    };
+
+    // Binding as gifter: mints a give a real Goblins recipient redeems. Proves
+    // the exporter half of ADR-0009. `-Dport=N` pins the exporter (recipient on
+    // N+1; gifter takes an ephemeral port). Deno needs `--allow-env`.
+    const goblins_gift_clients = [_]BindingClientRow{
+        .{
+            .step_name = "deno-goblins-gift",
+            .description = "Live three-party handoff: the Deno binding mints a give a real Goblins recipient redeems, reaching the exporter (needs deno + racket + goblins)",
+            .argv = &.{ "deno", "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env", "interop/goblins_interop/deno_gift_client.ts" },
+        },
+        .{
+            .step_name = "python-goblins-gift",
+            .description = "Live three-party handoff: the Python binding mints a give a real Goblins recipient redeems, reaching the exporter (needs python3 + racket + goblins)",
+            .argv = &.{ "python3", "interop/goblins_interop/python_gift_client.py" },
+        },
+        .{
+            .step_name = "rust-goblins-gift",
+            .description = "Live three-party handoff: the Rust binding mints a give a real Goblins recipient redeems, reaching the exporter (needs cargo + racket + goblins)",
+            .argv = &.{ "cargo", "run", "--manifest-path", "bindings/rust/Cargo.toml", "--features", "async", "--example", "rust_gift_client" },
+            .dashdash_before_args = true,
+        },
+        .{
+            .step_name = "racket-goblins-gift",
+            .description = "Live three-party handoff: the Racket binding mints a give a real Goblins recipient redeems, reaching the exporter (needs racket + goblins)",
+            .argv = &.{ "racket", "interop/goblins_interop/racket_gift_client.rkt" },
+        },
+    };
+
+    // Binding sibling of `iroh-loop`: many concurrent connections from one
+    // readiness loop through the iroh C ABI (ADR-0057).
+    const iroh_loop_clients = [_]BindingClientRow{
+        .{
+            .step_name = "deno-iroh-loop",
+            .description = "Live iroh scale: the Deno binding serves many connections from one readiness loop (ADR-0057; needs cargo + deno)",
+            .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "interop/iroh_loop/deno_client.ts" },
+        },
         .{
             .step_name = "python-iroh-loop",
             .description = "Live iroh scale: the Python binding serves many connections from one readiness loop (ADR-0057; needs cargo + python3)",
@@ -1316,32 +1335,15 @@ pub fn build(b: *std.Build) void {
             .argv = &.{ "racket", "interop/iroh_loop/racket_client.rkt" },
         },
     };
-    for (iroh_loop_clients) |client| {
-        const run = addInstalledSystemRun(b, client.argv);
-        run.step.dependOn(iroh_abi_step);
-        if (pin_port) |p| {
-            if (client.dashdash_before_args) run.addArg("--");
-            run.addArg(b.fmt("--port={d}", .{p}));
-        }
-        b.step(client.step_name, client.description).dependOn(&run.step);
-        bindings_iroh_loop_step.dependOn(&run.step);
-    }
 
-    // Per-binding three-party handoff over iroh, each self-contained in one
-    // process (exporter + gifter + recipient, relay-less Direct posture): the
-    // binding sibling of the Deno `demo-rooms-dm-iroh` proof and the iroh
-    // companion of the `*-goblins-handoff` gates. Each proves both halves of an
-    // iroh handoff through its own surface, minting a give whose exporter
-    // location names an iroh endpoint, and redeeming it by dialing that endpoint
-    // directly over encrypted QUIC. Deterministic and flake-free: no discovery
-    // service, no relays, no network.
-    const bindings_iroh_handoff_step = b.step("bindings-iroh-handoff", "Per-binding three-party handoff over iroh: every binding mints and redeems an iroh handoff give in one process (needs cargo + the runtimes)");
-    const iroh_handoff_clients = [_]struct {
-        step_name: []const u8,
-        description: []const u8,
-        argv: []const []const u8,
-        dashdash_before_args: bool = false,
-    }{
+    // Binding sibling of demo-rooms-dm-iroh: mint + redeem an iroh handoff give
+    // in one process (relay-less Direct posture). Deterministic, flake-free.
+    const iroh_handoff_clients = [_]BindingClientRow{
+        .{
+            .step_name = "deno-iroh-handoff",
+            .description = "Three-party handoff over iroh: the Deno binding mints and redeems an iroh handoff give in one process (needs cargo + deno)",
+            .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "interop/iroh_handoff/deno_client.ts" },
+        },
         .{
             .step_name = "python-iroh-handoff",
             .description = "Three-party handoff over iroh: the Python binding mints and redeems an iroh handoff give in one process (needs cargo + python3)",
@@ -1359,33 +1361,10 @@ pub fn build(b: *std.Build) void {
             .argv = &.{ "racket", "interop/iroh_handoff/racket_client.rkt" },
         },
     };
-    for (iroh_handoff_clients) |client| {
-        const run = addInstalledSystemRun(b, client.argv);
-        run.step.dependOn(iroh_abi_step);
-        if (pin_port) |p| {
-            if (client.dashdash_before_args) run.addArg("--");
-            run.addArg(b.fmt("--port={d}", .{p}));
-        }
-        b.step(client.step_name, client.description).dependOn(&run.step);
-        bindings_iroh_handoff_step.dependOn(&run.step);
-    }
 
-    // Per-binding hermetic proof that a recipient's configured redeem posture
-    // governs a *hint-less* iroh give (one naming its exporter by node id alone,
-    // no direct-addresses): each binding sets its recipient machine's redeem
-    // posture to `local_discovery` and redeems the hint-less give by resolving the
-    // exporter's id through an in-process address book, no network. A
-    // discriminating proof: the default `discovery` posture would reach for n0's
-    // relays + DNS and fail with no internet, so the redeem succeeds only because
-    // `dial_exporter` honors the configured posture. Deterministic and flake-free,
-    // like `bindings-iroh-handoff`.
-    const bindings_iroh_redeem_step = b.step("bindings-iroh-redeem-posture", "Per-binding hermetic proof that a configured redeem posture governs a hint-less iroh give, every binding (needs cargo + the runtimes)");
-    const iroh_redeem_clients = [_]struct {
-        step_name: []const u8,
-        description: []const u8,
-        argv: []const []const u8,
-        dashdash_before_args: bool = false,
-    }{
+    // Hermetic proof that configured redeem posture governs a hint-less iroh
+    // give (node id alone, in-process address book). Flake-free like handoff.
+    const iroh_redeem_clients = [_]BindingClientRow{
         .{
             .step_name = "deno-iroh-redeem-posture",
             .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Deno binding (needs cargo + deno)",
@@ -1408,27 +1387,10 @@ pub fn build(b: *std.Build) void {
             .argv = &.{ "racket", "interop/iroh_redeem_posture/racket_client.rkt" },
         },
     };
-    for (iroh_redeem_clients) |client| {
-        const run = addInstalledSystemRun(b, client.argv);
-        run.step.dependOn(iroh_abi_step);
-        if (pin_port) |p| {
-            if (client.dashdash_before_args) run.addArg("--");
-            run.addArg(b.fmt("--port={d}", .{p}));
-        }
-        b.step(client.step_name, client.description).dependOn(&run.step);
-        bindings_iroh_redeem_step.dependOn(&run.step);
-    }
 
-    // Per-binding keyed-tcp restart proof (ADR-0075): happy path, key-squatter
-    // refusal, and same-seed-fresh-port restart — the binding siblings of
-    // `test/driver/keyed_tcp_restart_test.zig`. No iroh companion needed.
-    const bindings_keyed_tcp_restart_step = b.step("bindings-keyed-tcp-restart", "Per-binding keyed-tcp restart proof: happy path, squatter refusal, same-seed fresh-port restart, every binding");
-    const keyed_tcp_restart_clients = [_]struct {
-        step_name: []const u8,
-        description: []const u8,
-        argv: []const []const u8,
-        dashdash_before_args: bool = false,
-    }{
+    // Keyed-tcp restart proof (ADR-0075): happy path, squatter refusal, same-
+    // seed fresh-port restart. No iroh companion needed.
+    const keyed_tcp_restart_clients = [_]BindingClientRow{
         .{
             .step_name = "deno-keyed-tcp-restart",
             .description = "Keyed-tcp restart proof: the Deno binding (happy, squatter, restart)",
@@ -1451,33 +1413,15 @@ pub fn build(b: *std.Build) void {
             .argv = &.{ "racket", "interop/keyed_tcp_restart/racket_client.rkt" },
         },
     };
-    for (keyed_tcp_restart_clients) |client| {
-        const run = addInstalledSystemRun(b, client.argv);
-        if (pin_port) |p| {
-            if (client.dashdash_before_args) run.addArg("--");
-            run.addArg(b.fmt("--port={d}", .{p}));
-        }
-        b.step(client.step_name, client.description).dependOn(&run.step);
-        bindings_keyed_tcp_restart_step.dependOn(&run.step);
-    }
 
-    // Per-binding live real-internet reachability: each binding reaches a peer by
-    // node id ALONE over n0's public relays and DNS/pkarr discovery — no
-    // direct-address hints, no in-process address book — the binding siblings of
-    // the Zig `iroh-reachability` driver. Each binds two `Discovery`-posture
-    // endpoints in one process; the client dials by id only and the dial rides
-    // the binding's `Discovery` settle/retry while the publish propagates. Like
-    // `iroh-reachability`, these touch public n0 infrastructure and
-    // pkarr-propagation timing, so they are opt-in and never part of `check` or
-    // the deterministic `bindings-iroh-handoff`. The offline, deterministic
-    // dial-by-id proof is `local_discovery` in the `*-iroh-loop` gates.
-    const bindings_iroh_reach_step = b.step("bindings-iroh-reachability", "Per-binding live dial-by-id over n0 relays + DNS/pkarr discovery, every binding (opt-in; needs cargo + the runtimes + internet)");
-    const iroh_reach_clients = [_]struct {
-        step_name: []const u8,
-        description: []const u8,
-        argv: []const []const u8,
-        dashdash_before_args: bool = false,
-    }{
+    // Opt-in live dial-by-id over n0 relays + DNS/pkarr. Touches public infra;
+    // never part of `check`. Offline dial-by-id is `local_discovery` in *-iroh-loop.
+    const iroh_reach_clients = [_]BindingClientRow{
+        .{
+            .step_name = "deno-iroh-reachability",
+            .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Deno binding (opt-in; needs cargo + deno + internet)",
+            .argv = &.{ "deno", "run", "-A", "--unstable-ffi", "interop/iroh_reachability/deno_client.ts" },
+        },
         .{
             .step_name = "python-iroh-reachability",
             .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Python binding (opt-in; needs cargo + python3 + internet)",
@@ -1495,15 +1439,59 @@ pub fn build(b: *std.Build) void {
             .argv = &.{ "racket", "interop/iroh_reachability/racket_client.rkt" },
         },
     };
-    for (iroh_reach_clients) |client| {
-        const run = addInstalledSystemRun(b, client.argv);
-        run.step.dependOn(iroh_abi_step);
-        if (pin_port) |p| {
-            if (client.dashdash_before_args) run.addArg("--");
-            run.addArg(b.fmt("--port={d}", .{p}));
-        }
-        b.step(client.step_name, client.description).dependOn(&run.step);
-        bindings_iroh_reach_step.dependOn(&run.step);
+
+    const binding_families = [_]BindingFamily{
+        .{
+            .aggregate_name = "bindings-goblins-interop",
+            .aggregate_desc = "Per-binding live keyed conversation vs a real Goblins vat, every binding (needs racket + goblins + the runtimes)",
+            .needs_iroh_abi = false,
+            .rows = &goblins_interop_clients,
+        },
+        .{
+            .aggregate_name = "bindings-goblins-handoff",
+            .aggregate_desc = "Per-binding three-party handoff vs Goblins as recipient, every binding (needs racket + goblins + the runtimes)",
+            .needs_iroh_abi = false,
+            .rows = &goblins_handoff_clients,
+        },
+        .{
+            .aggregate_name = "bindings-goblins-gift",
+            .aggregate_desc = "Per-binding three-party handoff vs Goblins as gifter, every binding (needs racket + goblins + the runtimes)",
+            .needs_iroh_abi = false,
+            .rows = &goblins_gift_clients,
+        },
+        .{
+            .aggregate_name = "bindings-iroh-loop",
+            .aggregate_desc = "Per-binding iroh scale proof: many connections served from one loop, every binding (needs cargo + the runtimes)",
+            .needs_iroh_abi = true,
+            .rows = &iroh_loop_clients,
+        },
+        .{
+            .aggregate_name = "bindings-iroh-handoff",
+            .aggregate_desc = "Per-binding three-party handoff over iroh: every binding mints and redeems an iroh handoff give in one process (needs cargo + the runtimes)",
+            .needs_iroh_abi = true,
+            .rows = &iroh_handoff_clients,
+        },
+        .{
+            .aggregate_name = "bindings-iroh-redeem-posture",
+            .aggregate_desc = "Per-binding hermetic proof that a configured redeem posture governs a hint-less iroh give, every binding (needs cargo + the runtimes)",
+            .needs_iroh_abi = true,
+            .rows = &iroh_redeem_clients,
+        },
+        .{
+            .aggregate_name = "bindings-keyed-tcp-restart",
+            .aggregate_desc = "Per-binding keyed-tcp restart proof: happy path, squatter refusal, same-seed fresh-port restart, every binding",
+            .needs_iroh_abi = false,
+            .rows = &keyed_tcp_restart_clients,
+        },
+        .{
+            .aggregate_name = "bindings-iroh-reachability",
+            .aggregate_desc = "Per-binding live dial-by-id over n0 relays + DNS/pkarr discovery, every binding (opt-in; needs cargo + the runtimes + internet)",
+            .needs_iroh_abi = true,
+            .rows = &iroh_reach_clients,
+        },
+    };
+    for (binding_families) |family| {
+        addBindingFamily(b, family, pin_port, iroh_abi_step);
     }
 
     // Hermetic type-check of the public iroh C ABI: an object, so its externs
@@ -1549,6 +1537,43 @@ pub fn build(b: *std.Build) void {
     const gen_header_iroh_step = b.step("gen-header-net-transport-iroh", "Regenerate include/pancake_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig");
     gen_header_iroh_step.dependOn(&iroh_gen_write_run.step);
 
+    // The FFI layout facts every binding's hand-mirrored struct pins against
+    // (Rust's `const` assert blocks, Python's `_pin_layout()`, Racket's
+    // `pin-layout!` want-size): reflected from `c_abi` + `c_abi_driver` +
+    // `c_abi_net_transport_iroh` the same way the headers and the TS mirror
+    // are, so the three languages cannot silently disagree with the Zig
+    // struct or with each other. Cargo-free like the iroh header gen above:
+    // reflects types only and links the sidecar stubs.
+    const ffi_layouts_check_mod = b.createModule(.{
+        .root_source_file = b.path("tools/gen_binding_ffi_layouts_check.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ffi_layouts_check_mod.addImport("c_abi", host_mods[layerIndex("c_abi")]);
+    ffi_layouts_check_mod.addImport("c_abi_driver", driver_abi_mod);
+    ffi_layouts_check_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
+    const ffi_layouts_check_exe = b.addExecutable(.{ .name = "gen-binding-ffi-layouts-check", .root_module = ffi_layouts_check_mod });
+    const ffi_layouts_check_run = b.addRunArtifact(ffi_layouts_check_exe);
+    ffi_layouts_check_run.setCwd(b.path("."));
+    const gen_binding_ffi_layouts_check_step = b.step("gen-binding-ffi-layouts-check", "Verify binding FFI layout facts match src/c_abi (fails if stale)");
+    gen_binding_ffi_layouts_check_step.dependOn(&ffi_layouts_check_run.step);
+    check_step.dependOn(gen_binding_ffi_layouts_check_step);
+
+    const ffi_layouts_write_mod = b.createModule(.{
+        .root_source_file = b.path("tools/gen_binding_ffi_layouts_write.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    ffi_layouts_write_mod.addImport("c_abi", host_mods[layerIndex("c_abi")]);
+    ffi_layouts_write_mod.addImport("c_abi_driver", driver_abi_mod);
+    ffi_layouts_write_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
+    const ffi_layouts_write_exe = b.addExecutable(.{ .name = "gen-binding-ffi-layouts-write", .root_module = ffi_layouts_write_mod });
+    const ffi_layouts_write_run = b.addRunArtifact(ffi_layouts_write_exe);
+    ffi_layouts_write_run.setCwd(b.path("."));
+    ffi_layouts_write_run.has_side_effects = true;
+    const gen_binding_ffi_layouts_step = b.step("gen-binding-ffi-layouts", "Regenerate binding FFI layout facts (sizes/offsets) from src/c_abi (the ocapn, driver, and iroh transport archives)");
+    gen_binding_ffi_layouts_step.dependOn(&ffi_layouts_write_run.step);
+
     // ── External conformance pressure (siblings of `check`) ──────────────────
     // A pancake peer the upstream OCapN test suite can dial: it serves the
     // canonical conformance swiss-nums over `tcp-testing-only`. The orchestrator
@@ -1557,6 +1582,11 @@ pub fn build(b: *std.Build) void {
     // the suite submodule. The peer installs only for this step, not on every
     // default build.
     const ocapn_peer_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-ocapn-peer", "conformance/ocapn-conformance/pancake_peer.zig");
+    // The peer is pure Zig over the pancake API; running the suite needs uv, but
+    // compiling the peer does not, so it rides `check`. A core-API change that
+    // breaks this consumer then fails fast on `zig build check` rather than only
+    // under the uv-driven ocapn-conformance sibling.
+    check_step.dependOn(&ocapn_peer_exe.step);
     const ocapn_peer_install = b.addInstallArtifact(ocapn_peer_exe, .{});
     const ocapn_conformance = addInstalledSystemRun(b, &.{ "bash", "conformance/ocapn-conformance/run-against-pancake.sh" });
     if (pin_port) |p| ocapn_conformance.addArg(b.fmt("--port={d}", .{p}));
@@ -1644,7 +1674,7 @@ pub fn build(b: *std.Build) void {
     });
 
     const rooms_demo = addInstalledSystemRun(b, &.{
-        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "examples/apps/rooms/demo.ts",
     });
     rooms_demo.addArtifactArg(rooms_client_exe); // the Zig client's built path
@@ -1681,6 +1711,36 @@ pub fn build(b: *std.Build) void {
     linkIrohSidecar(b, rooms_client_iroh_mod);
     const rooms_client_iroh_exe = b.addExecutable(.{ .name = "pancake-rooms-client-iroh", .root_module = rooms_client_iroh_mod });
     rooms_client_iroh_exe.step.dependOn(&iroh_lib.step);
+    // The client's `dialIroh` path lives behind `iroh_enabled`, so the TCP client
+    // that rides `check` (above) compiles it out. Ride a second, cargo-free
+    // compile guard on `check` with the flag on — externs stay unresolved — so a
+    // core-API change through the iroh resident cannot break this consumer unseen,
+    // the same split as `rooms-bot-check`.
+    const rooms_client_iroh_check_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "examples/apps/rooms/zig/client.zig");
+    rooms_client_iroh_check_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
+    rooms_client_iroh_check_mod.addImport("demo_rooms_cli", demo_rooms_cli_mod);
+    rooms_client_iroh_check_mod.addImport("demo_usage", demo_usage_mod);
+    check_step.dependOn(&b.addObject(.{ .name = "rooms-client-iroh-check", .root_module = rooms_client_iroh_check_mod }).step);
+
+    // The persistent Zig rooms bot: a CapTP peer that joins a room and runs the
+    // inbox/outbox/state harness so an agent can be present while it works
+    // (the native rewrite of .agents/skills/rooms-bot). It always speaks iroh, so
+    // the runnable artifact links the sidecar; a second, unlinked object rides
+    // `check` as the cargo-free compile guard (externs stay unresolved), the same
+    // split the iroh interop drivers use.
+    const rooms_bot_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "examples/apps/rooms/zig/bot.zig");
+    linkIrohSidecar(b, rooms_bot_mod);
+    const rooms_bot_exe = b.addExecutable(.{ .name = "rooms-bot", .root_module = rooms_bot_mod });
+    rooms_bot_exe.step.dependOn(&iroh_lib.step);
+    b.installArtifact(rooms_bot_exe);
+    const rooms_bot_run = b.addRunArtifact(rooms_bot_exe);
+    rooms_bot_run.setCwd(b.path("."));
+    rooms_bot_run.has_side_effects = true;
+    if (b.args) |args| rooms_bot_run.addArgs(args);
+    b.step("rooms-bot", "Run the persistent native Zig rooms bot; pass `-- <verb> [flags]` (peer/reply/status/tick)")
+        .dependOn(&rooms_bot_run.step);
+    const rooms_bot_check_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "examples/apps/rooms/zig/bot.zig");
+    check_step.dependOn(&b.addObject(.{ .name = "rooms-bot-check", .root_module = rooms_bot_check_mod }).step);
 
     const rooms_demo_iroh = addInstalledSystemRun(b, &.{
         "deno",                        "run", "-A", "--unstable-ffi",
@@ -1763,7 +1823,7 @@ pub fn build(b: *std.Build) void {
     check_step.dependOn(&tasks_client_exe.step);
 
     const tasks_demo = addInstalledSystemRun(b, &.{
-        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "examples/apps/tasks/demo.ts",
     });
     tasks_demo.addArtifactArg(tasks_client_exe);
@@ -1786,7 +1846,7 @@ pub fn build(b: *std.Build) void {
     check_step.dependOn(&tools_agent_exe.step);
 
     const tools_demo = addInstalledSystemRun(b, &.{
-        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "examples/apps/tools/demo.ts",
     });
     tools_demo.addArtifactArg(tools_agent_exe); // the Zig agent's built path
@@ -1823,7 +1883,7 @@ pub fn build(b: *std.Build) void {
     const host_exe = pancakeExecutable(b, lib_mod, target, optimize, "accountability-host", "examples/apps/accountability-on-pancake/zig/host.zig");
     const host_install = b.addInstallArtifact(host_exe, .{});
     const accountability_demo = addInstalledSystemRun(b, &.{
-        "deno",                                                 "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "deno",                                                 "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
         "examples/apps/accountability-on-pancake/deno/demo.ts",
     });
     accountability_demo.addArtifactArg(host_exe); // the Zig host's built path
@@ -1983,8 +2043,9 @@ pub fn build(b: *std.Build) void {
     const deno_check = b.addSystemCommand(&.{
         "deno",                      "check",
         "stack/mod.ts",              "stack/transport/tcp.ts",
-        "stack/transport/inproc.ts", "dogfood/zig_smoke.ts",
-        "dogfood/gifter_handoff.ts",
+        "stack/transport/inproc.ts", "stack/ffi.ts",
+        "iroh/mod.ts",               "iroh/internal.ts",
+        "dogfood/zig_smoke.ts",      "dogfood/gifter_handoff.ts",
     });
     deno_check.setCwd(b.path("bindings/ts"));
     bindings_fmt_check_step.dependOn(&deno_check.step);

@@ -77,18 +77,75 @@ fn drainWork(self: *Host) !void {
                     try queueUniqueSessionAction(self, .close, peer_id);
                     continue;
                 },
-                else => return err,
+                else => {
+                    // `Peer.step` projects aborts itself; failures from
+                    // `drainEvents` / `vat.serve` (e.g. an outbound resolve
+                    // refused as `UnexpectedMessage`) do not. Record and
+                    // project here so `last_abort` and the partner see the
+                    // same typed cause the feed path already promises.
+                    if (session.served.peer.lastAbort() == null) {
+                        session.served.peer.emitFailure(err);
+                    }
+                    return err;
+                },
             };
             // Tell the embedder only when a frame is actually queued: a
             // feed that encoded nothing must not cost a flush round-trip.
             if (session.served.hasOutbound()) try queueUniqueSessionAction(self, .flush, peer_id);
+            try noteParkedWithdraws(self, session);
         }
         while (self.node.nextAction()) |action| {
             progressed = true;
             try execNodeAction(self, action);
         }
+        // A deposit landed on the shared gift registry since the last drive: a
+        // `withdraw-gift` parked on a *sibling* session (its gift lands on the
+        // gifter's session, the withdraw on the recipient's — ADR-0056) may now
+        // be satisfiable, so re-drive every session holding one. `Peer.step`
+        // settles the parked withdraw against the shared registry. Fires once
+        // per deposit generation, never a per-frame sweep, and only over the
+        // small set of handoff exporters actually holding a parked withdraw —
+        // the single-thread host's replacement for the thread-per-connection
+        // driver's continuous per-session step.
+        if (self.node.gifts.deposits != self.last_deposit_gen and
+            self.parked_withdraw_sessions.items.len > 0)
+        {
+            self.last_deposit_gen = self.node.gifts.deposits;
+            var i: usize = 0;
+            while (i < self.parked_withdraw_sessions.items.len) {
+                const peer_id = self.parked_withdraw_sessions.items[i];
+                const session = self.sessions.get(peer_id);
+                if (session == null or session.?.condemned) {
+                    // tolerant: a released or condemned session drops out of the
+                    // parked set; swapRemove hands back the entry we discard.
+                    _ = self.parked_withdraw_sessions.swapRemove(i);
+                    continue;
+                }
+                progressed = true;
+                try markDirty(self, peer_id);
+                i += 1;
+            }
+        }
         if (!progressed) return;
     }
+}
+
+/// Track whether `session` holds a parked `withdraw-gift` so the deposit-gen
+/// retry in `drainWork` re-drives exactly the sessions that need it. Called
+/// after every drive: a fresh park adds the session, a drive that settled the
+/// last parked withdraw drops it.
+fn noteParkedWithdraws(self: *Host, session: *HostSession) !void {
+    const parked = session.served.peer.hasPendingWithdraws();
+    const items = &self.parked_withdraw_sessions;
+    for (items.items, 0..) |peer_id, i| {
+        if (peer_id == session.peer_id) {
+            // tolerant: a session that settled its last parked withdraw leaves
+            // the set; swapRemove hands back the entry we discard.
+            if (!parked) _ = items.swapRemove(i);
+            return;
+        }
+    }
+    if (parked) try items.append(self.allocator, session.peer_id);
 }
 
 /// The non-blocking executor of node serve-step actions: settles and

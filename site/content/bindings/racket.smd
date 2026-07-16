@@ -62,12 +62,11 @@ not browse for peers.
 
 Racket keeps the Goblins verbs intact. You define an actor constructor with
 `(define (^name bcom arg ...) ...)`, return its `methods` behavior, and then
-`spawn` it. You
-call it near with `$`, send it eventually with `<-` or `<-np`, observe a promise
-with `on`, and become a new behavior with `bcom`, all inside `with-vat`. On top of
-that, `connect`, `session-fetch`, and `session-send` reach a partner, and
-`(accept (listen bind_host port))` hands back the same `session` that `connect`
-returns.
+`spawn` it. You call it near with `$`, send it eventually with `<-` or `<-np`,
+observe a promise with `on`, and become a new behavior with `bcom`, all inside
+`with-vat`. On top of that, `connect`, `session-fetch`, and `session-send` reach
+a partner, and `(accept (listen bind_host port))` hands back the same `session`
+that `connect` returns.
 
 > **Near-call (`$`) and eventual-send (`<-`)**: the two ways to invoke an object,
 > straight from the [E language](http://erights.org/). `$` calls a near object now
@@ -80,7 +79,7 @@ returns.
 
 The async surface uses Racket's green threads and ports. A session pumps
 the byte-fed host over a Racket port pair (`tcp-connect` on the dial side,
-`accept` on the listening side) or a transport a companion module injects; a
+`tcp-accept` on the listening side) or a transport a companion module injects; a
 background `(session-serve sess)` thread keeps a served session pumped, and
 `(on vow handler)` fires when a promise settles.
 

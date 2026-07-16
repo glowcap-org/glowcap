@@ -19,6 +19,7 @@
          ffi/unsafe/port
          racket/random
          "private/constants.rkt"
+         "private/errors.rkt"
          "private/ffi-iroh.rkt"
          "private/seam.rkt")
 
@@ -63,7 +64,8 @@
 (define (iroh-netlayer-new reachability [seed #f])
   (define seed* (or seed (crypto-random-bytes 32)))
   (define-values (rc h)
-    ((iroh-fn 'netlayer-new) (pin-immobile seed*) (bytes-length seed*) reachability))
+    ;; connect_timeout_ms 0 = the built-in default (the header's zero-init contract).
+    ((iroh-fn 'netlayer-new) (pin-immobile seed*) (bytes-length seed*) (make-PancakeIrohConfig reachability 0)))
   (check/iroh rc)
   (values (iroh-netlayer h) seed*))
 
@@ -302,7 +304,15 @@
             [(conn-waiters-closed? w) eof]
             [else
              (define ready (sync (conn-waiters-readable w) wake-evt))
-             (if (eq? ready wake-evt) 'woke (loop))])]
+             ;; Same rule as TCP port-transport: bytes beat wake. A posted
+             ;; progress evt can win `sync` while a try-read would succeed.
+             (define-values (rc2 n2) ((iroh-fn 'conn-try-read) conn read-buf READ-CHUNK))
+             (cond
+               [(= rc2 OK) (bytes<-c read-buf n2)]
+               [(= rc2 WOULD-BLOCK)
+                (if (eq? ready wake-evt) 'woke (loop))]
+               [(= rc2 ERR-CLOSED) eof]
+               [else (check/iroh rc2)])])]
          [(= rc ERR-CLOSED) eof]
          [else (check/iroh rc)])))
    ;; close!: drop the routing entry (waking any parked waiter), release the
@@ -334,11 +344,8 @@
 ;; recorded, exactly as `dial-parsed-locator`'s TCP arm does. Delegates to the
 ;; node-keyed dial with a fresh host rather than keying the session
 ;; independently of the host it builds.
-;; The discovery-posture dial retry budget: how long pkarr propagation is given
-;; before each retry, and how many attempts (~72s total, covering n0 DNS/pkarr
-;; propagation). Matches the TS `dialResolving` budget.
-(define DISCOVERY-DIAL-RETRY-S 3.0)
-(define DISCOVERY-DIAL-MAX-ATTEMPTS 24)
+;; Discovery-posture dial retry (ADR-0082): lockstep with PANCAKE_DISCOVERY_DIAL_*.
+(define DISCOVERY-DIAL-RETRY-S (/ DISCOVERY-DIAL-RETRY-MS 1000.0))
 
 ;; Dial, retrying only under a propagating-discovery posture (DISCOVERY and
 ;; DISCOVERY-NO-RELAY) while it resolves the partner by id. A dial-by-id can fail
@@ -353,9 +360,15 @@
       ;; loop sleeps for seconds under discovery, so catching exn:break here
       ;; would make the dial uninterruptible — the same defect the convert-to-
       ;; broken sites fixed. Only a non-break failure is a retry candidate.
+      ;; ADR-0082: only transient dial faults (ERR-IO) are retried.
       (with-handlers ([(lambda (e) (not (exn:break? e)))
                        (lambda (e)
-                         (if (and retry? (< attempt DISCOVERY-DIAL-MAX-ATTEMPTS))
+                         (define code
+                           (cond [(exn:fail:pancake? e) (exn:fail:pancake-code e)]
+                                 [else #f]))
+                         (if (and retry?
+                                  (eqv? code ERR-IO)
+                                  (< attempt DISCOVERY-DIAL-MAX-ATTEMPTS))
                              'retry
                              (raise e)))])
         (iroh-netlayer-try-connect netlayer node-id direct-addresses)))

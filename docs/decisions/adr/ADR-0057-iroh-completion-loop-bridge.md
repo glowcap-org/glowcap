@@ -3,7 +3,7 @@ id: ADR-0057
 status: accepted
 date: 2026-06-12
 tags: [net, netlayer, iroh, transport, driver, completion-loop, performance]
-decision: "iroh stays a sidecar (ADR-0055), and reaching pancake-scale concurrency over it is the netlayer's one I/O model: one tokio runtime per endpoint exposes a single readiness fd plus non-blocking try-read/try-write, adapted by `iroh.Backend` to `completion.Loop` so CapTP fan-out rides `driver.Bridge` + Host (ADR-0076) — N iroh connections multiplex through one loop thread instead of N blocking threads. Shipped: the sidecar exposes the readiness fd + drain, `iroh.Backend` is the completion consumer, the public iroh netlayer C ABI (`pancake_iroh_netlayer_*`) is loop-only — `readiness_fd` + `drain_ready`, armed at construction, with no blocking frame surface — and `zig build iroh-loop` proves many concurrent connections served from one thread through Bridge + Host. Every binding parks on the readiness fd natively in its own idiom (Python, Rust, and Racket gated by `bindings-iroh-loop`; Deno parks the same way without a member step)."
+decision: "iroh stays a sidecar (ADR-0055), and reaching pancake-scale concurrency over it is the netlayer's one I/O model: one tokio runtime per endpoint exposes a single readiness fd plus non-blocking try-read/try-write, adapted by `iroh.Backend` to `completion.Loop` so CapTP fan-out rides `driver.Bridge` + Host (ADR-0076) — N iroh connections multiplex through one loop thread instead of N blocking threads. Shipped: the sidecar exposes the readiness fd + drain, `iroh.Backend` is the completion consumer, the public iroh netlayer C ABI (`pancake_iroh_netlayer_*`) is loop-only — `readiness_fd` + `drain_ready`, armed at construction, with no blocking frame surface — and `zig build iroh-loop` proves many concurrent connections served from one thread through Bridge + Host. Every binding parks on the readiness fd natively in its own idiom; `zig build bindings-iroh-loop` gates Deno, Python, Rust, and Racket together."
 supersedes: []
 superseded_by: []
 ---
@@ -173,7 +173,7 @@ busy-poll, and each is proven by a many-connection gate the way `iroh-loop`
 proves the Zig resident:
 
 - **Deno** — `IrohLoop` parks a `node:net` socket on a dup of the readiness fd
-  and drains on its `data` event.
+  and drains on its `data` event. Gate: `zig build deno-iroh-loop`.
 - **Python** — `_IrohLoop` registers the fd with the asyncio event loop
   (`add_reader`) and drains in the callback — no thread, no
   `call_soon_threadsafe`. Gate: `zig build python-iroh-loop`.
@@ -183,7 +183,7 @@ proves the Zig resident:
   `unsafe-file-descriptor->semaphore`, so the place's poller wakes it without
   freezing the cooperative scheduler. Gate: `zig build racket-iroh-loop`.
 
-`zig build bindings-iroh-loop` runs the three binding gates together. Exposing
+`zig build bindings-iroh-loop` runs the four binding gates together. Exposing
 the fd, rather than an in-ABI blocking wait, is what lets each runtime integrate
 the endpoint into its own reactor instead of dedicating a thread to it.
 

@@ -63,9 +63,9 @@ dispatching until close; `fetch` and `send` start the inbound loop on demand.
 > ```
 
 The iroh tab swaps the built host-and-port locator for a bare node id and adds
-the posture import; everything below `connect` is the tcp tab, line for line. The node id itself still arrives out of band, exactly like a
-host and port; discovery turns a name you were given into a route. It does
-not browse for peers.
+the posture import; everything below `connect` is the tcp tab, line for line. The
+node id itself still arrives out of band, exactly like a host and port; discovery
+turns a name you were given into a route. It does not browse for peers.
 
 ## Async
 

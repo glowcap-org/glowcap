@@ -65,7 +65,7 @@ fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator, ident
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.acceptVia(allocator, listener, &peer, identity, read_buf, write_buf);
+    var cv = try driver.acceptVia(allocator, listener, &peer, identity, read_buf, write_buf, 0);
     defer cv.deinit();
     _ = try cv.publish("greeter", Greeter, .{});
     try cv.serve();
@@ -95,7 +95,7 @@ fn clientMeasure(
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, 0);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -177,9 +177,9 @@ fn benchTcp(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: []
 fn benchIroh(io: std.Io, allocator: std.mem.Allocator, warmup: usize, samples: []u64) !void {
     const server_seed: [32]u8 = @splat(0x61);
     const server_secret = pancake.foundation.crypto.SecretKey.fromSeed(server_seed);
-    var server = try iroh.Resident.init(io, &server_seed, .local_discovery);
+    var server = try iroh.Resident.init(io, &server_seed, .{ .reachability = .local_discovery });
     defer server.deinit();
-    var client = try iroh.Resident.init(io, null, .local_discovery);
+    var client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
     defer client.deinit();
 
     const server_entries = [_]net.netlayer.Netlayer{server.netlayer()};
@@ -255,7 +255,7 @@ fn loopClient(
     calls: usize,
     sync: *LoopSync,
 ) anyerror!void {
-    var client = try iroh.Resident.init(io, null, .local_discovery);
+    var client = try iroh.Resident.init(io, null, .{ .reachability = .local_discovery });
     defer client.deinit();
     const entries = [_]net.netlayer.Netlayer{client.netlayer()};
 
@@ -273,7 +273,7 @@ fn loopClient(
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf);
+    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf, 0);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
@@ -303,14 +303,14 @@ fn loopClient(
 /// reciprocal is the contrast the page draws.
 fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls: usize) !void {
     const server_seed: [32]u8 = @splat(0x62);
-    var server = try iroh.Resident.init(io, &server_seed, .local_discovery);
+    var server = try iroh.Resident.init(io, &server_seed, .{ .reachability = .local_discovery });
     defer server.deinit();
 
     var id_buf: [iroh.node_id_len]u8 = undefined;
     const server_id = server.nodeId(&id_buf);
 
     var host = driver.core.Host.init(allocator, server_seed, .{
-        .frame_cap = frame_cap,
+        .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
     });
     defer host.deinit();

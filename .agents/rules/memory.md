@@ -39,13 +39,14 @@ Production paths use owned transfer or bounded borrow:
 - `Peer.recvBorrowed(FrameView)` dispatches during the call and retains no wire
   borrow.
 - `Peer.emitAbortForError` handles a dispatch failure — an inbound refusal or a
-  `step` drain/encode failure — by encoding a fresh outbound `op:abort` frame
-  straight onto `outbound`, bypassing `recordSend`. Aborts are always admitted
-  because the session is being torn down. The abort's diagnostic is a static
-  `[]const u8` borrowed by encode, so there is no message clone. This path is
-  best-effort: an encode or append failure is swallowed so the original dispatch
-  error is never masked, but the session still closes when the
-  `abort_projection` requires it.
+  `step` drain/encode failure — by committing a fresh outbound `op:abort`
+  through `Peer.commitAbortOutbound`, bypassing `recordSend`. Aborts are
+  always admitted because the session is being refused or torn down. The
+  abort's diagnostic is a static `[]const u8` borrowed by encode, so there is
+  no message clone. This path is best-effort: an encode or append failure is
+  swallowed so the original dispatch error is never masked; when the
+  projection requires close, the session still closes even without a queued
+  frame.
 - Test-support frame copy helpers (`test/support/frame.zig`, e.g.
   `copyFromBorrowed`) materialize borrowed wire bytes for assertions; production
   paths use owned transfer or bounded borrow instead.
@@ -236,7 +237,7 @@ here.
   drain can arm sibling slots but never the dead one. The peers themselves
   are never bridge-owned: the loop's fixed slots hold them inline and the
   host adopts without freeing (`Host.openAcceptedOver` over
-  `engine.Node.registerConnOver`).
+  `engine.Node.registerPeerOver`).
 - **Owned inbound frame: `ownedFrameFromView` (`Peer.recvBorrowed`).** A
   borrowed `FrameView` is transient; a surfaced event must outlive it, so the
   bytes are copied once into an owned `Frame`. Word-shaped frames need

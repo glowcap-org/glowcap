@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Child;
+use tokio::process::{Child, ChildStdout};
 
 pub type Fail = Box<dyn std::error::Error>;
 
@@ -53,4 +53,23 @@ pub fn extract_swiss(line: &str) -> Option<String> {
 	let rest = &line[start..];
 	let end = rest.find('"')?;
 	Some(rest[..end].to_string())
+}
+
+/// Read an exporter's NDJSON readiness lines until the greeter's appears, or
+/// time out. Keeps the reader (rather than the whole `Child`) so a caller that
+/// must keep draining the exporter's stdout afterward, to avoid deadlocking it
+/// on a full OS pipe, can hand the same reader to a background drain task.
+pub async fn await_greeter_ready(reader: &mut BufReader<ChildStdout>) -> Result<(), Fail> {
+	let mut line = String::new();
+	let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+	loop {
+		line.clear();
+		let read = tokio::time::timeout_at(deadline, reader.read_line(&mut line)).await??;
+		if read == 0 {
+			return Err("exporter exited before publishing the greeter".into());
+		}
+		if line.contains("\"name\":\"greeter\"") {
+			return Ok(());
+		}
+	}
 }

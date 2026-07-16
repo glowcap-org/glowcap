@@ -6,8 +6,8 @@
 .draft = false,
 ---
 
-A transport, a *netlayer*, moves a session's bytes between two peers: the
-core hands each frame to whichever netlayer a
+A transport, a *netlayer*, moves a session's bytes between two peers. The core
+hands each frame to whichever netlayer a
 [locator]($link.page('concepts'))'s transport symbol names, and never learns which
 one carried it. Four residents ship today.
 
@@ -19,7 +19,7 @@ one carried it. Four residents ship today.
 
 The driver holds a slice of netlayers and dispatches `connectVia` and
 `acceptVia` on the transport symbol it reads off a locator. Every resident funnels
-through one transport-generic `Connection`, a reader, a writer, and a close handle,
+through one transport-generic `Connection` (a reader, a writer, and a close handle),
 so it reuses the one framing core instead of reinventing it. A new transport is one
 new resident and a registry entry; the driver and the core do not change to admit
 it.
@@ -27,7 +27,7 @@ it.
 | Transport | Symbol | Channel | Addressed by | Reach for it when |
 | --- | --- | --- | --- | --- |
 | TCP | `tcp` | cleartext TCP, no TLS | `host:port` | a real network, or interop with Goblins over TCP |
-| Keyed TCP | `keyed-tcp` | cleartext TCP, key-derived designator | Ed25519 pubkey hex; socket address in `direct-addresses` | restart-stable designators and key-squatter refusal (ADR-0075) |
+| Keyed TCP | `keyed-tcp` | cleartext TCP, key-derived designator | Ed25519 pubkey hex; socket address in `direct-addresses` | restart-stable designators and key-squatter refusal ([ADR-0075](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0075-keyed-tcp-designator.md)) |
 | In-process | `inproc` | in-memory byte pipes, no sockets | a name within one process | tests and demos that run both peers in one process |
 | iroh | `iroh` | encrypted QUIC (separate artifact) | a self-authenticating node id in an `ocapn://` URI | you want an encrypted channel today, or peer-to-peer reach |
 
@@ -35,21 +35,21 @@ it.
 
 The default real-network transport, and the one that addresses a Goblins peer. It
 is cleartext, no TLS, because `tcp` has to speak the same wire as Goblins' cleartext
-`tcp`. The transport is proven against a
-live [Goblins](https://spritely.institute/goblins/) vat over a real socket, then
-re-exposed over the C ABI as blocking
-endpoint handles. Two I/O paths sit above it: a blocking pump for
-cooperative request/response, and the completion loop (io_uring on Linux, kqueue on
-macOS and BSD) for many connections without a thread apiece.
+`tcp`. The transport is proven against a live
+[Goblins](https://spritely.institute/goblins/) vat over a real socket, then
+re-exposed over the C ABI as blocking endpoint handles. Two I/O paths sit above it:
+a blocking pump for cooperative request/response, and the completion loop (io_uring
+on Linux, kqueue on macOS and BSD) for many connections without a thread apiece.
 
 ### Keyed TCP
 
-Same cleartext TCP sockets as `tcp`, different locator grammar: the designator is
-the listener's Ed25519 public key in canonical hex, the socket address rides the
-`direct-addresses` hint, and the driver pins the handshake to the dialed key so a
-partner can re-dial the same designator across a process restart and a key
-squatter is refused before the session opens (ADR-0075). Bindings expose
-`listen_keyed_tcp` / `KeyedTcpServer` and `keyed_tcp_locator`.
+Same cleartext TCP sockets as `tcp`, different locator grammar. The designator is
+the listener's Ed25519 public key in canonical hex, and the socket address rides the
+`direct-addresses` hint. The driver pins the handshake to the dialed key so a
+partner can re-dial the same designator across a process restart, and a key
+squatter is refused before the session opens
+([ADR-0075](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/adr/ADR-0075-keyed-tcp-designator.md)).
+Bindings expose `listen_keyed_tcp` / `KeyedTcpServer` and `keyed_tcp_locator`.
 
 ### In-process (inproc)
 
@@ -61,15 +61,16 @@ conversation without binding a port.
 
 ### iroh
 
-An encrypted, peer-to-peer transport: [QUIC](https://www.rfc-editor.org/rfc/rfc9000.html)
-carried by an [iroh](https://www.iroh.computer/) Rust sidecar staticlib, kept in a
-*separate optional library*, `libpancake_net_transport_iroh`, so the base archives
-stay pure Zig. A peer is reached by its self-authenticating Ed25519 endpoint id in an
-`ocapn://<node-id>.iroh` URI rather than a `host:port`, and that one key is at once
-the network route, the OCapN designator, and the session signing key. A dial
-resolves three ways: by direct-address hints, by a deterministic local address
-book, and by node id alone over the public n0 relays and DNS/pkarr discovery. A
-loop host can serve many connections from one thread. The dedicated
+An encrypted, peer-to-peer transport:
+[QUIC](https://www.rfc-editor.org/rfc/rfc9000.html) carried by an
+[iroh](https://www.iroh.computer/) Rust sidecar staticlib, kept in a separate
+optional library, `libpancake_net_transport_iroh`, so the base archives stay pure
+Zig. A peer is reached by its self-authenticating Ed25519 endpoint id in an
+`ocapn://<node-id>.iroh` URI rather than a `host:port`. That one key is at once the
+network route, the OCapN designator, and the session signing key. A dial resolves
+three ways: by direct-address hints, by a deterministic local address book, and by
+node id alone over the public n0 relays and DNS/pkarr discovery. A loop host can
+serve many connections from one thread. The dedicated
 [iroh page]($link.page('transports/iroh')) covers all of it.
 
 ## Encryption is the netlayer's job
@@ -78,7 +79,7 @@ Confidentiality is something a netlayer provides, not a flag the API sets. The
 contract a transport meets says nothing about whether the stream is encrypted, so
 each netlayer answers that for itself: `tcp` stays cleartext to match Goblins byte
 for byte, and `iroh` is encrypted because its QUIC channel is keyed. A confidential
-TCP, TLS over a socket, would be another netlayer under the same contract with its
+TCP (TLS over a socket) would be another netlayer under the same contract with its
 own transport symbol; nothing forbids it, and it is not written yet. Where pancake
 heads beyond today's transports lives in the
 [vision](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/vision.md).

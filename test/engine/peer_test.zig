@@ -1020,6 +1020,60 @@ test "a fire staled by row teardown and re-registration at the same import posit
     try std.testing.expectEqualStrings("new-promise", peer.session_state.importedPromiseResolution(.from(5)).?.fulfill.bytes);
 }
 
+// F-A apex: the RECORD side of the same hazard the test above pins for the FIRE
+// side. A relayed resolution queued against a third-party import row, then
+// drained after that row is torn down and a *different* third-party promise
+// re-registers at the position, must be dropped as moot — never written to the
+// new promise's row nor fired to its listeners. The `PendingRelayedResolution`
+// carries the row id it was queued against, and `recordRelayedResolution`
+// checks it, exactly as `settled_answer` / `listener_fire` do at encode. The
+// test itself opens the queue→drain window a production host would.
+test "a relayed resolution staled by row teardown and re-registration at the same import position is dropped, not written to the new promise" {
+    const allocator = std.testing.allocator;
+    var peer = engine.Peer.init(allocator);
+    defer peer.deinit();
+
+    // Import 5 is a third-party promise (row R1) with a listener.
+    try peer.session_state.installThirdPartyImport(.from(5), "exporter");
+    try peer.session_state.registerImport(.from(9));
+    try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
+
+    // Relay a resolution for R1 but DO NOT drain it: the carrier is stamped with
+    // R1's row id and parked. This is the window a production host opens by
+    // processing inbound between the relay's queue and the drain.
+    try peer.relayResolution(5, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "stale-promise") } });
+
+    // Tear R1 down (op:gc-exports releases import 5 fully; the imported-promise
+    // row and its listener co-evict), then re-register a DIFFERENT third-party
+    // promise (row R2, a fresh row id) at the reused position, with its own
+    // listener.
+    try peer.sendCopying(.{ .gc_export = .{ .positions = &.{5}, .deltas = &.{1} } });
+    try peer.session_state.installThirdPartyImport(.from(5), "other-exporter");
+    try peer.session_state.registerImport(.from(11));
+    try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(11) }, .wants_partial = false });
+
+    // Draining the stale relay against R2: its R1 stamp misses R2's row id, so
+    // the record is moot — neither stored on R2 nor fired to R2's listener.
+    try std.testing.expect(try engine.cross_peer.drainRelayedResolutions(&peer));
+
+    // R2 was never resolved by the stale relay: no wrong payload written.
+    try std.testing.expect(peer.session_state.importedPromiseResolution(.from(5)) == null);
+
+    // Nothing fired to R2's listener 11 — draining emits only the gc frame, and
+    // the stale payload never touches the wire.
+    while ((try peer.step()) != .idle) {}
+    var frames: usize = 0;
+    while (peer.takeOutbound()) |frame_in| {
+        var frame = frame_in;
+        defer frame.deinit();
+        const view = try codec.syrup.decodeBody(frame.view());
+        try std.testing.expect(view == .gc_export);
+        try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "stale-promise") == null);
+        frames += 1;
+    }
+    try std.testing.expectEqual(@as(usize, 1), frames);
+}
+
 test "a pipelined call queues until its answer resolves, then delivers locally" {
     const allocator = std.testing.allocator;
     var p1 = engine.Peer.init(allocator);
@@ -1223,6 +1277,64 @@ test "an inbound protocol violation emits a typed op:abort and closes the sessio
     try std.testing.expectEqual(model.AbortKind.protocol_error, decoded.abort.kind);
     // Exactly one outbound frame, the abort.
     try std.testing.expect(pair.p2.takeOutbound() == null);
+}
+
+test "an app-queued op:abort commits outbound then closes the CapTP session" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.paired(allocator);
+    defer pair.deinit();
+
+    try std.testing.expectEqual(session.State.open, pair.p1.session_state.state);
+    // recordSend must not close — the partner still needs to take the frame
+    // after step encodes it.
+    try pair.p1.sendCopying(.{ .abort = .{ .kind = .graceful_shutdown, .message = "done" } });
+    try std.testing.expectEqual(session.State.open, pair.p1.session_state.state);
+
+    _ = try pair.p1.step();
+    try std.testing.expectEqual(session.State.closed, pair.p1.session_state.state);
+
+    var abort_frame = pair.p1.takeOutbound().?;
+    defer abort_frame.deinit();
+    const decoded = try codec.syrup.decodeBody(abort_frame.view());
+    try std.testing.expect(decoded == .abort);
+    try std.testing.expectEqual(model.AbortKind.graceful_shutdown, decoded.abort.kind);
+    try std.testing.expectEqualStrings("done", decoded.abort.message);
+
+    try std.testing.expectError(
+        session.Error.SessionClosed,
+        pair.p1.sendCopying(.{ .deliver = .{
+            .target = .{ .far = .{ .import_position = .from(0) } },
+            .args = &.{},
+        } }),
+    );
+}
+
+test "a closing projected abort still closes when the abort frame cannot allocate" {
+    var failing = FailAfterAllocator{
+        .backing = std.testing.allocator,
+        .fail_after = std.math.maxInt(usize),
+    };
+    var peer = engine.Peer.init(failing.allocator());
+    defer peer.deinit();
+    try std.testing.expectEqual(session.State.open, peer.session_state.state);
+
+    // Own the garbage with the real testing allocator so feed does not touch
+    // the failing peer allocator; the next peer alloc is abort encode/push.
+    const storage = try std.testing.allocator.dupe(u8, "this is not a syrup frame");
+    const frame = try foundation.Frame.initOwned(
+        std.testing.allocator,
+        storage,
+        .byte,
+        .fromByteUnits(1),
+    );
+    try peer.feedOwned(frame);
+    failing.fail_after = failing.allocation_count;
+    try std.testing.expectError(error.MalformedFrame, peer.step());
+
+    try std.testing.expectEqual(session.State.closed, peer.session_state.state);
+    try std.testing.expect(peer.takeOutbound() == null);
+    const cause = peer.lastAbort().?;
+    try std.testing.expectEqual(model.AbortKind.malformed_frame, cause.kind.?);
 }
 
 test "a malformed inbound frame emits a malformed-frame abort and closes" {
@@ -1607,7 +1719,7 @@ test "a V1.0 resolver export survives the partner's gc of its wire mention" {
 
     // The partner releases the one wire mention. The local reference keeps the
     // export row alive, without the encode-time retain this gc would drive the
-    // count to zero and remove the row while `v1_0_outbound_resolvers` still
+    // count to zero and remove the row while `v1_0_outbound_resolver_link` still
     // points at it.
     {
         const positions = [_]u64{resolver_export};
@@ -1649,7 +1761,7 @@ test "a V1.0 resolver export survives the partner's gc of its wire mention" {
 
 test "a gc wave over many answered delivers drops every V1.0 resolver link" {
     // The outbound resolver link map is pruned per released answer through its
-    // answer-keyed inverse (`v1_0_outbound_resolver_answers`), two O(1) keyed
+    // answer side of the `v1_0_outbound_resolver_link` BiMap, two O(1) keyed
     // removals per position instead of a scan of every outstanding link. This
     // pins the correctness half of that shape: after a full release wave every
     // link — and only the released links — is gone, and both map directions

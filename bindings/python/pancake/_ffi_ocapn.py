@@ -25,6 +25,18 @@ import ctypes
 # lives in ``_lib_resolve`` so every ``_ffi_*`` loader shares one cascade.
 from ._lib_resolve import _lib_path
 
+# Expected sizes for the hand-mirrored ctypes.Structure types below, reflected
+# off the real Zig C ABI types (``zig build gen-binding-ffi-layouts``), so
+# this pin cannot drift from them.
+from ._layouts_gen import (
+    PANCAKE_ALLOCATOR_SIZE,
+    PANCAKE_ARGUMENT_SIZE,
+    PANCAKE_FRAME_SIZE,
+    PANCAKE_LAST_ABORT_SIZE,
+    PANCAKE_MANAGED_FRAME_SIZE,
+    PANCAKE_REFERENCE_SIZE,
+)
+
 # ── Raw ctypes layer (private) ───────────────────────────────────────────────
 
 
@@ -90,19 +102,19 @@ class _LastAbort(ctypes.Structure):
 def _pin_layout() -> None:
     # The layout gate for the shared cstructs this module declares, at the
     # declaration site (the driver mirror pins its own _HostAction the same
-    # way): each mirror is pinned at import time against the LP64 sizes the C
-    # headers document, hand-copied here — so the gate catches a mirror that
-    # drifts from its documented layout (a mis-swept field, a wrong ctype),
-    # not a C-side change that updates neither; the dogfoods defend that
-    # behaviorally. A plain `raise` rather than `assert`, so `python -O`
-    # cannot strip the gate.
+    # way): each mirror is pinned at import time against the sizes
+    # `_layouts_gen` reflects off the real Zig C ABI types — so the gate
+    # catches a mirror that drifts from its documented layout (a mis-swept
+    # field, a wrong ctype), not a C-side change that updates neither; the
+    # dogfoods defend that behaviorally. A plain `raise` rather than
+    # `assert`, so `python -O` cannot strip the gate.
     expected_sizes = (
-        (_Reference, 16),
-        (_Argument, 72),
-        (_Frame, 24),
-        (_ManagedFrame, 40),
-        (_Allocator, 24),
-        (_LastAbort, 56),
+        (_Reference, PANCAKE_REFERENCE_SIZE),
+        (_Argument, PANCAKE_ARGUMENT_SIZE),
+        (_Frame, PANCAKE_FRAME_SIZE),
+        (_ManagedFrame, PANCAKE_MANAGED_FRAME_SIZE),
+        (_Allocator, PANCAKE_ALLOCATOR_SIZE),
+        (_LastAbort, PANCAKE_LAST_ABORT_SIZE),
     )
     for struct, want in expected_sizes:
         got = ctypes.sizeof(struct)

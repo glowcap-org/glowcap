@@ -22,7 +22,7 @@
 // sibling build step `zig build deno-goblins-gift`.
 
 import { connect, listen, type Ref, socketAddrDesignator, tcpLocator } from "@pancake/stack";
-import { acceptLoop, fail, parsePort } from "../_common/deno/helpers.ts";
+import { acceptLoop, awaitGreeterReady, fail, parsePort } from "../_common/deno/helpers.ts";
 
 const HOST = "127.0.0.1";
 // Bob (the Goblins exporter) listens on PORT; Carol binds her own peer on PORT+1.
@@ -69,23 +69,10 @@ const bobStderrDrain = (async () => {
 	for await (const chunk of bob.stderr) bobStderrChunks.push(chunk);
 })().catch(() => {});
 
-async function awaitBobReady(): Promise<void> {
-	const decoder = new TextDecoder();
-	let buf = "";
-	const deadline = Date.now() + 30_000;
-	while (Date.now() < deadline) {
-		const { value, done } = await bobStdout.read();
-		if (done) break;
-		buf += decoder.decode(value, { stream: true });
-		if (buf.includes('"name":"greeter"')) return;
-	}
-	giftFail("never saw the exporter's greeter readiness line");
-}
-
 let ok = false;
 let carol: Deno.ChildProcess | null = null;
 try {
-	await awaitBobReady();
+	await awaitGreeterReady(bobStdout, "deno-goblins-gift");
 	console.log(
 		`deno-goblins-gift: goblins-bob exporting greeter swiss=${GREETER_SWISS} on ${HOST}:${PORT}`,
 	);

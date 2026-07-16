@@ -18,7 +18,7 @@ the iroh artifact.
         conn.serve()
 
 The byte unit is identical to TCP's — the core's stream delimiter
-(``pancake_host_conn_feed_bytes``) owns framing — so the same byte-fed
+(``pancake_host_session_feed_bytes``) owns framing — so the same byte-fed
 :class:`pancake.Session` serve loop drives a session over it; only the
 addressing differs, an endpoint id plus direct-address hints, no host:port.
 The sidecar's loop surface (ADR-0057) is the netlayer's one I/O model:
@@ -49,6 +49,7 @@ from ._locator import format_peer_uri
 from ._ffi_ocapn import _byte_buf, _read_last_error
 from ._ffi_iroh import (
     _iroh,
+    _IrohConfig,
     _IrohReadyEvent,
     _IROH_EV_ACCEPT,
     _IROH_EV_CLOSED,
@@ -175,8 +176,11 @@ class IrohNetlayer:
         # documents for that arm.
         buf, ptr = _byte_buf(seed) if seed else (None, None)
         out = ctypes.c_void_p()
+        # Zero-initialized by `ctypes.Structure`; `connect_timeout_ms` stays 0
+        # (the built-in default) — the header's zero-init contract.
+        cfg = _IrohConfig(reachability=int(reachability))
         _check_iroh(_iroh().pancake_iroh_netlayer_new(
-            ptr, len(seed), int(reachability), ctypes.byref(out),
+            ptr, len(seed), ctypes.byref(cfg), ctypes.byref(out),
         ))
         self._raw = out
 
@@ -544,11 +548,11 @@ class _IrohTransport:
                 self._owned_netlayer.release()
 
 
-# The discovery-posture dial retry budget: how long pkarr propagation is given
-# before each retry, and how many attempts (~72s total, covering n0 DNS/pkarr
-# propagation). Matches the TS ``dialResolving`` budget.
-_DISCOVERY_DIAL_RETRY_S = 3.0
-_DISCOVERY_DIAL_MAX_ATTEMPTS = 24
+# The discovery-posture dial retry budget (ADR-0082): lockstep with
+# ``PANCAKE_DISCOVERY_DIAL_*`` / ``driver.ResilientClient``.
+from ._constants_gen import DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS
+
+_DISCOVERY_DIAL_RETRY_S = DISCOVERY_DIAL_RETRY_MS / 1000.0
 
 
 async def _dial_resolving(netlayer: IrohNetlayer, node_id: str, direct_addresses: str, retry: bool) -> IrohConn:
@@ -557,14 +561,24 @@ async def _dial_resolving(netlayer: IrohNetlayer, node_id: str, direct_addresses
     fail with "no addressing information" until the exporter's pkarr record
     propagates to the n0 resolver (seconds, variable); every other posture dials
     once (Direct's addresses are in hand, local_discovery resolves instantly).
-    Mirrors the TS ``dialResolving`` and the Zig ``iroh-reachability`` driver."""
+    Mirrors the TS ``dialResolving`` and the Zig ``iroh-reachability`` driver.
+
+    ADR-0082: only transient dial faults (projected as ``ERR_IO``) are retried;
+    permanent faults (``ERR_INVALID_ARGUMENT``, ``ERR_INTERNAL``, …) surface
+    immediately.
+    """
+    from ._errors import PancakeError
+    from ._constants_gen import ERR_IO
+
     attempt = 1
     while True:
         try:
             return await asyncio.to_thread(netlayer.try_connect, node_id, direct_addresses)
-        except Exception:
-            if not retry or attempt >= _DISCOVERY_DIAL_MAX_ATTEMPTS:
+        except PancakeError as e:
+            if e.code != ERR_IO or not retry or attempt >= DISCOVERY_DIAL_MAX_ATTEMPTS:
                 raise
+        except Exception:
+            raise
         attempt += 1
         await asyncio.sleep(_DISCOVERY_DIAL_RETRY_S)
 

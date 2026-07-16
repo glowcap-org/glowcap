@@ -18,7 +18,7 @@ const Loop = pancake.net.TcpLoop;
 const completion = pancake.net.completion;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
-const no_dial = @import("no_dial_locator.zig");
+const no_dial = @import("../support/no_dial_locator.zig");
 
 const frame_cap = 4096;
 
@@ -300,7 +300,8 @@ const CrossArmBackend = struct {
         self.push(.{ .user_data = user_data, .result = 0 });
     }
 
-    pub fn poll(self: *CrossArmBackend, out: []completion.Completion) !usize {
+    pub fn poll(self: *CrossArmBackend, out: []completion.Completion, timeout_ms: i32) !usize {
+        _ = timeout_ms;
         if (self.ready_len == 0) {
             if (!hold_sends and self.held_len > 0) {
                 const held = self.held[0];

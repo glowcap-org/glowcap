@@ -313,8 +313,31 @@ fn validateInboundDeliverAny(self: *Session, deliver: anytype, introduced: *Intr
         // session-allocated virtual answers; a partner claim there could
         // collide with a virtual allocation, so it is refused loudly.
         if (answer.int() >= VIRTUAL_INBOUND_ANSWER_BASE) return Error.InvalidReference;
+        // An answer position names one outstanding question. A second wire
+        // deliver that reuses a still-live inbound row (pending or already
+        // settled, awaiting `op:gc-answers`) is a partner protocol violation.
+        // Refusing here projects a typed abort on the recv path; letting it
+        // through left `installAnswer` a no-op and failed later on our own
+        // outbound resolve with `UnexpectedMessage` and no abort recorded.
+        if (self.inbound_answers.contains(answer)) return Error.UnexpectedMessage;
     }
     try validateReference(self, deliver.target, .received, .held_import);
+    // A promise target's pipeline path is refused inbound: pancake decomposes
+    // every multi-hop pipeline into single-hop links at the *sender*
+    // (`engine.pipeline`, the flat-inbound invariant in `pipeline.zig`), and the
+    // inbound path reads only the target's `answer_position`, never the path —
+    // so a non-empty path names call arguments nothing validates and nothing
+    // dispatches. Refusing it fails closed on that ignored sub-structure rather
+    // than accepting a frame with an inert, unvalidated payload. Only Cap'n
+    // Proto can carry a path on the wire; a Syrup target is always flat.
+    if (deliver.target == .promise) {
+        const path = deliver.target.promise.path;
+        const empty = if (comptime @TypeOf(path) == model.view.PipelinePath)
+            try path.isEmpty()
+        else
+            path.isEmpty();
+        if (!empty) return Error.UnexpectedMessage;
+    }
     if (deliver.resolve_me_desc) |reference| {
         try validateReference(self, reference, .received, .held_import);
     }

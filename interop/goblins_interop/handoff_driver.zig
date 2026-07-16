@@ -56,7 +56,7 @@ fn waitFlag(io: std.Io, flag: *const std.atomic.Value(bool)) !void {
 }
 
 fn runLoop(loop: *net.TcpLoop, done: *const std.atomic.Value(bool), out_err: *?anyerror) void {
-    loop.runUntil(done) catch |err| {
+    loop.runUntil(done, 0) catch |err| {
         out_err.* = err;
         return;
     };
@@ -213,7 +213,11 @@ fn recipientStep(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, al
     var seed: [crypto.SEED_BYTES]u8 = undefined;
     io.randomSecure(&seed) catch return error.HandshakeEntropyFailed;
 
-    var host = Host.init(allocator, seed, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    var host = Host.init(allocator, seed, blk: {
+        var o = Host.Options.withFrameCap(frame_cap);
+        o.local_turn_budget = 64;
+        break :blk o;
+    });
     defer host.deinit();
 
     var greeter_done = std.atomic.Value(bool).init(false);

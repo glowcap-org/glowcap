@@ -27,7 +27,7 @@ const Loop = pancake.net.TcpLoop;
 const completion = pancake.net.completion;
 const fetch_pump = @import("../support/fetch_pump.zig");
 const handshake = @import("../support/handshake.zig");
-const no_dial = @import("no_dial_locator.zig");
+const no_dial = @import("../support/no_dial_locator.zig");
 
 const frame_cap = 4096;
 const client_count = 8;
@@ -435,6 +435,9 @@ const FakeBackend = struct {
 
     /// The inbound wire script, set by the test before `Loop.init`.
     var chunks: []const []const u8 = &.{};
+    /// When true, an idle poll returns 0 instead of releasing a held send so
+    /// park-kill scenarios can observe a connection that stays parked.
+    var never_drain: bool = false;
 
     chunk_idx: usize = 0,
     pool_free: usize = 0,
@@ -541,8 +544,11 @@ const FakeBackend = struct {
         self.push(.{ .user_data = user_data, .result = 0 });
     }
 
-    pub fn poll(self: *FakeBackend, out: []completion.Completion) !usize {
+    pub fn poll(self: *FakeBackend, out: []completion.Completion, timeout_ms: i32) !usize {
+        _ = timeout_ms;
         if (self.ready_len == 0) {
+            // Stay parked without draining the held write (park-kill tests).
+            if (never_drain and self.held_send != null) return 0;
             // The loop is out of work: the slow reader finally drains the
             // held write. A stall with no held write would be a loop bug.
             const held = self.held_send orelse return error.FakeBackendStalled;
@@ -683,7 +689,8 @@ const OneBadPartnerBackend = struct {
         self.push(.{ .user_data = user_data, .result = 0 });
     }
 
-    pub fn poll(self: *OneBadPartnerBackend, out: []completion.Completion) !usize {
+    pub fn poll(self: *OneBadPartnerBackend, out: []completion.Completion, timeout_ms: i32) !usize {
+        _ = timeout_ms;
         // The loop stalled with no completion to deliver: a loop bug, fail loud.
         if (self.ready_len == 0) return error.FakeBackendStalled;
         const n = @min(out.len, self.ready_len);
@@ -785,19 +792,31 @@ test "completion loop: outbound past the high-water mark parks reads until the p
     const high_water: usize = 16;
     try std.testing.expect(server_ss.items.len > high_water);
 
+    var park_hits: usize = 0;
+    const ParkCount = struct {
+        fn onPark(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque) void {
+            _ = slot;
+            _ = conn_ctx;
+            const n: *usize = @ptrCast(@alignCast(ctx.?));
+            n.* += 1;
+        }
+    };
+
     FakeBackend.chunks = &.{ client_ss.items, fetch_bytes.items };
     defer FakeBackend.chunks = &.{};
 
-    var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
+    var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(allocator, makeServerPeer, &park_hits, .{
         .frame_cap = frame_cap,
         .max_conns = 4,
         .listen = 0,
         .outbound_high_water = high_water,
+        .on_park = ParkCount.onPark,
     });
     defer loop.deinit();
 
     try loop.run(.{ .after_closed = 1 });
 
+    try std.testing.expect(park_hits >= 1);
     try std.testing.expectEqualSlices(FakeEvent, &[_]FakeEvent{
         .send_submitted, // accept: the server's start-session crosses the mark → read parks
         .send_released, // the partner drains; only now…
@@ -928,7 +947,8 @@ const ScriptBackend = struct {
         self.push(.{ .user_data = user_data, .result = 0 });
     }
 
-    pub fn poll(self: *ScriptBackend, out: []completion.Completion) !usize {
+    pub fn poll(self: *ScriptBackend, out: []completion.Completion, timeout_ms: i32) !usize {
+        _ = timeout_ms;
         // The loop stalled with no completion to deliver: a loop bug, a
         // starved connection that was never resumed would die here, loudly.
         if (self.ready_len == 0) return error.FakeBackendStalled;
@@ -1172,7 +1192,8 @@ const HeldSendBackend = struct {
         self.push(.{ .user_data = user_data, .result = 0 });
     }
 
-    pub fn poll(self: *HeldSendBackend, out: []completion.Completion) !usize {
+    pub fn poll(self: *HeldSendBackend, out: []completion.Completion, timeout_ms: i32) !usize {
+        _ = timeout_ms;
         if (self.ready_len == 0) {
             // The loop is out of other work: the "kernel" finally performs the
             // held write, reading the borrowed slice now. If anything moved or
@@ -1363,4 +1384,398 @@ test "completion loop: an incomplete prefix over frame_cap but under the peer's 
     // Both prefix chunks were consumed (3 = client_ss + prefix1 + prefix2): the
     // admissible-but-incomplete frame was never falsely aborted at `frame_cap`.
     try std.testing.expectEqual(@as(usize, 3), loop.backend.chunk_idx[0]);
+}
+
+/// A peer that vanishes without a clean close: its armed recv finally surfaces
+/// a read error (an RST, or a keepalive probe giving up on a dead remote host).
+/// One connection accepts, its opening send lands, then the next recv errors.
+const DeadPeerBackend = struct {
+    pub const Fd = i32;
+    const ok_fd: Fd = 200;
+    // -ECONNRESET on Linux: the shape a vanished-then-surfaced peer produces.
+    const read_error: i64 = -104;
+
+    accepts: usize = 0,
+    pool_free: usize = 0,
+    ready: [16]completion.Completion = undefined,
+    ready_len: usize = 0,
+
+    pub fn init(allocator: std.mem.Allocator, queue_entries: u16, read_buffers: u16, read_buffer_bytes: u32) !DeadPeerBackend {
+        _ = allocator;
+        _ = queue_entries;
+        _ = read_buffer_bytes;
+        return .{ .pool_free = read_buffers };
+    }
+    pub fn deinit(self: *DeadPeerBackend) void {
+        self.* = .{};
+    }
+    pub fn openListener(self: *@This(), port: u16) !Fd {
+        _ = self;
+        _ = port;
+        return 1;
+    }
+    pub fn boundPort(fd: Fd) !u16 {
+        _ = fd;
+        return 1;
+    }
+    pub fn closeFd(self: *@This(), fd: Fd) void {
+        _ = self;
+        _ = fd;
+    }
+    pub const ConnectTarget = void;
+    pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
+        _ = self;
+        _ = user_data;
+        _ = target;
+        return error.UnsupportedTransport;
+    }
+    pub fn shutdownFd(self: *@This(), fd: Fd) void {
+        _ = self;
+        _ = fd;
+    }
+    fn push(self: *DeadPeerBackend, c: completion.Completion) void {
+        self.ready[self.ready_len] = c;
+        self.ready_len += 1;
+    }
+    pub fn submitAccept(self: *DeadPeerBackend, user_data: u64, listen_fd: Fd) !void {
+        _ = listen_fd;
+        if (self.accepts >= 1) return; // one connection; later re-arms pend
+        self.accepts += 1;
+        self.push(.{ .user_data = user_data, .result = ok_fd });
+    }
+    pub fn submitSend(self: *DeadPeerBackend, user_data: u64, fd: Fd, bytes: []const u8) !void {
+        _ = fd;
+        self.push(.{ .user_data = user_data, .result = @intCast(bytes.len) });
+    }
+    pub fn submitRecv(self: *DeadPeerBackend, user_data: u64, fd: Fd) !void {
+        _ = fd;
+        // The vanish surfaces: a read error, not a clean EOF (result 0).
+        self.push(.{ .user_data = user_data, .result = read_error });
+    }
+    pub fn recycleRecv(self: *DeadPeerBackend, comp: completion.Completion) void {
+        _ = comp;
+        self.pool_free += 1;
+    }
+    pub fn submitClose(self: *DeadPeerBackend, user_data: u64, fd: Fd) !void {
+        _ = fd;
+        self.push(.{ .user_data = user_data, .result = 0 });
+    }
+    pub fn poll(self: *DeadPeerBackend, out: []completion.Completion, timeout_ms: i32) !usize {
+        _ = timeout_ms;
+        if (self.ready_len == 0) return error.FakeBackendStalled;
+        const n = @min(out.len, self.ready_len);
+        @memcpy(out[0..n], self.ready[0..n]);
+        std.mem.copyForwards(completion.Completion, self.ready[0 .. self.ready_len - n], self.ready[n..self.ready_len]);
+        self.ready_len -= n;
+        return n;
+    }
+};
+
+/// Records the loop's `on_close` firing, so the test can prove the callback ran
+/// under `run` (not only at `closeAndDrain`) and carried `opened == true`.
+const CloseWatch = struct {
+    var fired: usize = 0;
+    var opened: bool = false;
+};
+fn watchClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: completion.CloseReason) void {
+    _ = ctx;
+    _ = slot;
+    _ = conn_ctx;
+    _ = reason;
+    CloseWatch.fired += 1;
+    CloseWatch.opened = opened;
+}
+
+test "completion loop: a dead peer's read error reclaims the slot and fires on_close under run (ADR-0081)" {
+    const allocator = std.testing.allocator;
+
+    CloseWatch.fired = 0;
+    CloseWatch.opened = false;
+
+    var loop = try completion.Loop(DeadPeerBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
+        .frame_cap = frame_cap,
+        .max_conns = 4,
+        .listen = 0,
+        .on_close = watchClose,
+    });
+    defer loop.deinit();
+
+    // The remote vanished: its armed recv completes with a read error while the
+    // loop is running. The loop must reclaim the slot and fire on_close *now*,
+    // not defer liveness to closeAndDrain (ADR-0081, contract 3).
+    try loop.run(.{ .after_closed = 1 });
+
+    try std.testing.expectEqual(@as(usize, 1), loop.closed_count);
+    try std.testing.expectEqual(@as(usize, 1), CloseWatch.fired);
+    // The connection had accepted (transport-opened) before the read error, so
+    // the close reports opened == true — a surfaced vanish, not a refused dial.
+    try std.testing.expect(CloseWatch.opened);
+}
+
+/// Park-kill (ADR-0082): a connection that stays `.parked` past `park_kill_ms`
+/// is reclaimed and `on_close` reports `CloseReason.park_kill`.
+const ParkKillWatch = struct {
+    var fired: usize = 0;
+    var reason: completion.CloseReason = .ordinary;
+};
+
+fn watchParkKill(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: completion.CloseReason) void {
+    _ = ctx;
+    _ = slot;
+    _ = conn_ctx;
+    _ = opened;
+    ParkKillWatch.fired += 1;
+    ParkKillWatch.reason = reason;
+}
+
+test "completion loop: park past park_kill_ms reclaims with CloseReason.park_kill" {
+    const allocator = std.testing.allocator;
+
+    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    defer client.deinit();
+    client.session_state.limits.max_frame_bytes = frame_cap;
+    var client_ss: std.ArrayList(u8) = .empty;
+    defer client_ss.deinit(allocator);
+    try client.sendCopying(startSession("client"));
+    try drainOutboundBytes(&client, allocator, &client_ss);
+
+    const high_water: usize = 16;
+    try std.testing.expect(client_ss.items.len > high_water); // server hello is larger still
+
+    var server_twin = try makeServerPeer(null, allocator);
+    defer server_twin.deinit();
+    var server_ss: std.ArrayList(u8) = .empty;
+    defer server_ss.deinit(allocator);
+    try drainOutboundBytes(&server_twin, allocator, &server_ss);
+    try std.testing.expect(server_ss.items.len > high_water);
+
+    FakeBackend.chunks = &.{};
+    defer FakeBackend.chunks = &.{};
+
+    ParkKillWatch.fired = 0;
+    ParkKillWatch.reason = .ordinary;
+
+    var loop = try completion.Loop(FakeBackend, no_dial.Unsupported).init(allocator, makeServerPeer, null, .{
+        .frame_cap = frame_cap,
+        .max_conns = 4,
+        .listen = 0,
+        .outbound_high_water = high_water,
+        .park_kill_ms = 0, // reclaim as soon as reap runs after park
+        .on_close = watchParkKill,
+    });
+    defer loop.deinit();
+
+    try loop.run(.{ .after_closed = 1 });
+
+    try std.testing.expectEqual(@as(usize, 1), loop.closed_count);
+    try std.testing.expectEqual(@as(usize, 1), ParkKillWatch.fired);
+    try std.testing.expectEqual(completion.CloseReason.park_kill, ParkKillWatch.reason);
+}
+
+/// Two-connection fan-in throttle (ADR-0082): while the sink stays over
+/// high-water, a drained source stays parked; when the sink finally drains,
+/// the source's read re-arms.
+const FanInBackend = struct {
+    pub const Fd = i32;
+
+    const sink_fd: Fd = 10;
+    const source_fd: Fd = 20;
+
+    /// Per-connection inbound scripts (index 0 = sink, 1 = source).
+    var scripts: [2][]const []const u8 = .{ &.{}, &.{} };
+    /// Hold the sink's write until fan-in hold is observed.
+    var hold_sink: bool = true;
+    /// Set true when poll sees: both accepted, source write drained, source
+    /// never armed a recv while the sink was still held.
+    var saw_fan_in_hold: bool = false;
+
+    accepts: usize = 0,
+    chunk_idx: [2]usize = .{ 0, 0 },
+    pool_free: usize = 0,
+    handed: usize = 0,
+    recycles: usize = 0,
+    ready: [16]completion.Completion = undefined,
+    ready_len: usize = 0,
+    held: [2]?struct { user_data: u64, len: usize } = .{ null, null },
+    recv_armed: [2]usize = .{ 0, 0 },
+    source_released: bool = false,
+
+    pub fn init(allocator: std.mem.Allocator, queue_entries: u16, read_buffers: u16, read_buffer_bytes: u32) !FanInBackend {
+        _ = allocator;
+        _ = queue_entries;
+        _ = read_buffer_bytes;
+        return .{ .pool_free = read_buffers };
+    }
+
+    pub fn deinit(self: *FanInBackend) void {
+        self.* = .{ .pool_free = 0 };
+    }
+
+    pub fn openListener(self: *@This(), port: u16) !Fd {
+        _ = self;
+        _ = port;
+        return 1;
+    }
+
+    pub fn boundPort(fd: Fd) !u16 {
+        _ = fd;
+        return 1;
+    }
+
+    pub fn closeFd(self: *@This(), fd: Fd) void {
+        _ = self;
+        _ = fd;
+    }
+
+    pub const ConnectTarget = void;
+
+    pub fn startDial(self: *@This(), user_data: u64, target: ConnectTarget) !Fd {
+        _ = self;
+        _ = user_data;
+        _ = target;
+        return error.UnsupportedTransport;
+    }
+
+    pub fn shutdownFd(self: *@This(), fd: Fd) void {
+        _ = self;
+        _ = fd;
+    }
+
+    fn idx(fd: Fd) usize {
+        return if (fd == sink_fd) 0 else 1;
+    }
+
+    fn push(self: *FanInBackend, c: completion.Completion) void {
+        self.ready[self.ready_len] = c;
+        self.ready_len += 1;
+    }
+
+    pub fn submitAccept(self: *FanInBackend, user_data: u64, listen_fd: Fd) !void {
+        _ = listen_fd;
+        if (self.accepts >= 2) return;
+        self.accepts += 1;
+        const fd: Fd = if (self.accepts == 1) sink_fd else source_fd;
+        self.push(.{ .user_data = user_data, .result = fd });
+    }
+
+    pub fn submitRecv(self: *FanInBackend, user_data: u64, fd: Fd) !void {
+        const i = idx(fd);
+        self.recv_armed[i] += 1;
+        const script = scripts[i];
+        if (self.chunk_idx[i] < script.len) {
+            if (self.pool_free == 0) {
+                self.push(.{ .user_data = user_data, .result = -1, .recv_no_buffer = true });
+                return;
+            }
+            self.pool_free -= 1;
+            self.handed += 1;
+            const chunk = script[self.chunk_idx[i]];
+            self.chunk_idx[i] += 1;
+            self.push(.{ .user_data = user_data, .result = @intCast(chunk.len), .recv_bytes = chunk });
+        } else {
+            self.push(.{ .user_data = user_data, .result = 0 });
+        }
+    }
+
+    pub fn recycleRecv(self: *FanInBackend, comp: completion.Completion) void {
+        _ = comp;
+        self.recycles += 1;
+        self.pool_free += 1;
+    }
+
+    pub fn submitSend(self: *FanInBackend, user_data: u64, fd: Fd, bytes: []const u8) !void {
+        self.held[idx(fd)] = .{ .user_data = user_data, .len = bytes.len };
+    }
+
+    pub fn submitClose(self: *FanInBackend, user_data: u64, fd: Fd) !void {
+        _ = fd;
+        self.push(.{ .user_data = user_data, .result = 0 });
+    }
+
+    pub fn poll(self: *FanInBackend, out: []completion.Completion, timeout_ms: i32) !usize {
+        _ = timeout_ms;
+        if (self.ready_len == 0) {
+            // Prefer releasing the source write so it drains while the sink
+            // stays held — that is the fan-in shape under test.
+            if (self.held[1]) |h| {
+                self.held[1] = null;
+                self.source_released = true;
+                self.push(.{ .user_data = h.user_data, .result = @intCast(h.len) });
+            } else if (self.held[0]) |h| {
+                if (hold_sink) {
+                    // After the source's write completed, a fan-in hold means
+                    // the source never armed a recv while the sink was stuck.
+                    if (self.accepts >= 2 and self.source_released and self.recv_armed[1] == 0) {
+                        saw_fan_in_hold = true;
+                        hold_sink = false;
+                    } else return 0;
+                }
+                self.held[0] = null;
+                self.push(.{ .user_data = h.user_data, .result = @intCast(h.len) });
+            } else return error.FakeBackendStalled;
+        }
+        const n = @min(out.len, self.ready_len);
+        @memcpy(out[0..n], self.ready[0..n]);
+        std.mem.copyForwards(completion.Completion, self.ready[0 .. self.ready_len - n], self.ready[n..self.ready_len]);
+        self.ready_len -= n;
+        return n;
+    }
+};
+
+test "completion loop: fan_in_throttle parks a drained source while a sink is over high-water" {
+    const allocator = std.testing.allocator;
+
+    var client = engine.Peer.initNegotiatingWith(allocator, .{ .verify_partner_handshake = false });
+    defer client.deinit();
+    client.session_state.limits.max_frame_bytes = frame_cap;
+    var client_ss: std.ArrayList(u8) = .empty;
+    defer client_ss.deinit(allocator);
+    try client.sendCopying(startSession("client"));
+    try drainOutboundBytes(&client, allocator, &client_ss);
+
+    var server_twin = try makeServerPeer(null, allocator);
+    defer server_twin.deinit();
+    var server_ss: std.ArrayList(u8) = .empty;
+    defer server_ss.deinit(allocator);
+    try drainOutboundBytes(&server_twin, allocator, &server_ss);
+
+    const high_water: usize = 16;
+    try std.testing.expect(server_ss.items.len > high_water);
+
+    FanInBackend.scripts = .{ &.{client_ss.items}, &.{client_ss.items} };
+    FanInBackend.hold_sink = true;
+    FanInBackend.saw_fan_in_hold = false;
+    defer {
+        FanInBackend.scripts = .{ &.{}, &.{} };
+        FanInBackend.hold_sink = true;
+        FanInBackend.saw_fan_in_hold = false;
+    }
+
+    var park_hits: usize = 0;
+    const ParkCount = struct {
+        fn onPark(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque) void {
+            _ = slot;
+            _ = conn_ctx;
+            const n: *usize = @ptrCast(@alignCast(ctx.?));
+            n.* += 1;
+        }
+    };
+
+    var loop = try completion.Loop(FanInBackend, no_dial.Unsupported).init(allocator, makeServerPeer, &park_hits, .{
+        .frame_cap = frame_cap,
+        .max_conns = 4,
+        .listen = 0,
+        .outbound_high_water = high_water,
+        .fan_in_throttle = true,
+        .on_park = ParkCount.onPark,
+    });
+    defer loop.deinit();
+
+    try loop.run(.{ .after_closed = 2 });
+
+    try std.testing.expect(FanInBackend.saw_fan_in_hold);
+    try std.testing.expect(park_hits >= 2);
+    try std.testing.expect(loop.backend.recv_armed[1] >= 1);
+    try std.testing.expectEqual(@as(usize, 2), loop.closed_count);
+    try std.testing.expectEqual(loop.backend.handed, loop.backend.recycles);
 }

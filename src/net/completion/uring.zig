@@ -171,10 +171,22 @@ pub const Backend = struct {
         IoUring.buf_ring_advance(self.buf_ring, 1);
     }
 
-    /// Flush queued submissions, wait for at least one completion, and copy up to
-    /// `out.len` completions back to the server, surfacing each selected pool
-    /// buffer as a borrowed view.
-    pub fn poll(self: *Backend, out: []completion.Completion) !usize {
+    /// Flush queued submissions, wait for completions, and copy up to `out.len`
+    /// completions back to the server, surfacing each selected pool buffer as a
+    /// borrowed view. A negative `timeout_ms` blocks until at least one
+    /// completion; a non-negative value waits at most that many milliseconds and
+    /// returns 0 when nothing completes in time.
+    pub fn poll(self: *Backend, out: []completion.Completion, timeout_ms: i32) !usize {
+        const poll_timeout_sentinel: u64 = std.math.maxInt(u64);
+        const etime_res: i32 = -@as(i32, @intFromEnum(linux.E.TIME));
+
+        if (timeout_ms >= 0) {
+            const ts = linux.kernel_timespec{
+                .sec = @divTrunc(timeout_ms, 1000),
+                .nsec = @as(i64, @mod(timeout_ms, 1000)) * std.time.ns_per_ms,
+            };
+            _ = try self.ring.timeout(poll_timeout_sentinel, &ts, 1, 0);
+        }
         _ = self.ring.submit_and_wait(1) catch |err| switch (err) {
             error.SignalInterrupt => return 0,
             else => return err,
@@ -182,7 +194,9 @@ pub const Backend = struct {
         var cqes: [256]linux.io_uring_cqe = undefined;
         const want = @min(out.len, cqes.len);
         const n = try self.ring.copy_cqes(cqes[0..want], 0);
-        for (cqes[0..n], 0..) |cqe, i| {
+        var produced: usize = 0;
+        for (cqes[0..n]) |cqe| {
+            if (cqe.user_data == poll_timeout_sentinel or cqe.res == etime_res) continue;
             var comp: completion.Completion = .{ .user_data = cqe.user_data, .result = cqe.res };
             if (cqe.flags & linux.IORING_CQE_F_BUFFER != 0) {
                 // A recv that selected a pool buffer (possibly zero bytes on
@@ -198,9 +212,10 @@ pub const Backend = struct {
                 // when a buffer recycles.
                 comp.recv_no_buffer = true;
             }
-            out[i] = comp;
+            out[produced] = comp;
+            produced += 1;
         }
-        return n;
+        return produced;
     }
 
     fn bufferSlice(self: *Backend, buffer_id: u16) []u8 {
@@ -238,9 +253,13 @@ pub const Backend = struct {
     }
 };
 
-fn check(rc: usize) !void {
+// `openListener`/`openSocket` delegate their socket/bind/listen naming to
+// `socket_tcp`, so the one syscall this backend checks itself is `getsockname`
+// (the kernel-chosen port after a port-0 bind). Name it rather than collapse it
+// to a generic syscall fault (ADR-0081, contract 1).
+fn check(rc: usize) error{GetSockNameFailed}!void {
     return switch (linux.errno(rc)) {
         .SUCCESS => {},
-        else => error.SyscallFailed,
+        else => error.GetSockNameFailed,
     };
 }

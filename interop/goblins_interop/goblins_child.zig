@@ -52,7 +52,7 @@ pub fn openKeyedSessionWith(
         .designator = designator,
         .hints = model.Hints.emptyFalse(),
     }, secret);
-    _ = try conn.runUntil(isOpen);
+    _ = try conn.runUntil(isOpen, 0);
 }
 
 /// Bootstrap-fetch a cap by its swiss-num over the live connection, pumping

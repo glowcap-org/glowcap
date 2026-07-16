@@ -208,6 +208,18 @@ fn Queue(comptime T: type) type {
             return self.items.pop();
         }
 
+        /// A mutable pointer to the most-recently pushed element, for a
+        /// follow-up step that fills in a field the pusher could not know
+        /// yet (`inbound.applyDecodedOwnedFrame` patching a deliver event's
+        /// introduced-far-imports record once apply has run). Null when
+        /// empty. Valid only until the next queue mutation — nothing may grow
+        /// or shrink the queue between the push this borrows and the read
+        /// through it.
+        pub fn backPtr(self: *Self) ?*T {
+            if (self.items.items.len == 0) return null;
+            return &self.items.items[self.items.items.len - 1];
+        }
+
         /// A borrowed pointer to the front element without dequeuing it, or null
         /// when drained. The pointer aliases the queued element and stays valid
         /// until the next queue mutation, read through it, do not own it.
@@ -522,7 +534,7 @@ pub const Peer = struct {
         self.outbound.deinit(self.allocator);
 
         for (self.events.pending()) |*event| {
-            event.frame.deinit();
+            event.deinit();
         }
         self.events.deinit(self.allocator);
 
@@ -764,6 +776,7 @@ pub const Peer = struct {
             exporter_key,
             give_bytes,
         );
+        defer signed.deinit(self.allocator);
         // `signed.message()` borrows `signed`; both outlive `sendCopying`, which
         // deep-copies the deliver before this returns.
         var handoff = model.Handoff{ .receive = signed.message() };
@@ -789,22 +802,20 @@ pub const Peer = struct {
     }
 
     /// Resolve `answer` (a question a recipient asked this gifter) with a signed
-    /// `desc:handoff-give`: queue an `op:resolve` whose fulfill carries
-    /// `give_bytes` verbatim, so the encoder emits the exact bytes the gifter
-    /// signed and the recipient redeems them transparently. Only `raw_signed` is
-    /// set; the empty descriptor fields are never read on the verbatim path. This
-    /// is the one definition of the resolve-give shape; `Node.originateGive` and
-    /// the C ABI both drive it. `give_bytes` is borrowed for the call.
+    /// `desc:handoff-give`: queue an `op:resolve` whose fulfill carries the give
+    /// `give_bytes` names. `give_bytes` is the Syrup-encoded
+    /// `<desc:sig-envelope …>` `handoff_gifter.buildSignedGive` (or a binding's
+    /// `pancake_build_handoff_give`) returns; this parses it into a typed
+    /// `model.HandoffGive` carrying both `raw_signed` (so a Syrup session still
+    /// emits the exact bytes the gifter signed) and the typed fields a Cap'n
+    /// Proto session encodes instead — a binding-originated give rides *this*
+    /// session's codec, not just Syrup's. This is the one definition of the
+    /// resolve-give shape; `Node.originateGive` and the C ABI both drive it.
+    /// `give_bytes` is borrowed for the call.
     pub fn sendResolveHandoffGive(self: *Peer, answer: model.AnswerPosition, give_bytes: []const u8) !void {
-        var handoff = model.Handoff{ .give = .{
-            .recipient_key = "",
-            .exporter_location = "",
-            .gifter_exporter_session = "",
-            .gifter_side = "",
-            .gift_id = "",
-            .signature = "",
-            .raw_signed = give_bytes,
-        } };
+        const give = try codec.syrup.decodeSignedHandoffGiveOwned(self.allocator, give_bytes);
+        defer model.freeHandoffGive(self.allocator, give);
+        var handoff = model.Handoff{ .give = give };
         try self.sendCopying(.{ .resolve = .{
             .answer = answer,
             .resolution = .{ .fulfill = .{ .handoff = &handoff } },
@@ -933,8 +944,16 @@ pub const Peer = struct {
     /// the resolution is freed.
     pub fn relayResolution(self: *Peer, import_position: u64, resolution: model.Resolution) !void {
         errdefer freeResolution(self.allocator, resolution);
+        const position = model.ImportPosition.from(import_position);
+        // Stamp the row this relay targets at queue time; the drain re-checks it,
+        // so a position released and re-registered as a different third-party
+        // promise before the drain can never satisfy this stale relay. A row
+        // absent now stamps 0 (`nextStoreStamp` never mints 0), which no live row
+        // matches, so the relay is moot at drain.
+        const row_id = self.session_state.importedPromiseRowId(position) orelse 0;
         try self.pending_relayed_resolutions.append(self.allocator, .{
-            .import_position = model.ImportPosition.from(import_position),
+            .import_position = position,
+            .row_id = row_id,
             .resolution = resolution,
         });
     }
@@ -954,7 +973,7 @@ pub const Peer = struct {
     /// token it carries is lowered to its wire reference here (ADR-0069),
     /// before the store owns it, keeping "a token never reaches the wire" true
     /// for the relayed path too.
-    pub fn applyRelayedResolution(self: *Peer, import_position: model.ImportPosition, resolution_in: model.Resolution) !void {
+    pub fn applyRelayedResolution(self: *Peer, import_position: model.ImportPosition, row_id: u64, resolution_in: model.Resolution) !void {
         var resolution = resolution_in;
         if (self.lowering) |lowering| {
             if (lowering.active.*) lower.lowerResolution(lowering, &resolution) catch |err| {
@@ -962,8 +981,12 @@ pub const Peer = struct {
                 return err;
             };
         }
-        try self.session_state.recordRelayedResolution(import_position, resolution);
-        try pipeline.fireImportedPromiseListeners(self, import_position);
+        // A `row_id` mismatch means the row this relay was queued against was
+        // torn down and a different third-party promise re-registered at this
+        // position; the stale relay is moot, so fire nothing — exactly as a
+        // `listener_fire` carrier whose stamp misses drops at encode.
+        if (try self.session_state.recordRelayedResolution(import_position, row_id, resolution))
+            try pipeline.fireImportedPromiseListeners(self, import_position);
     }
 
     /// Transfer an owned inbound frame into the peer for the next `step`
@@ -994,6 +1017,14 @@ pub const Peer = struct {
         };
     }
 
+    /// Project `err` to a typed outbound `op:abort` (and `lastAbort`) when a
+    /// failure did not already pass through `step` / `recvStreamPrefix`. The
+    /// host pump's `driveFed` catch uses this so an outbound resolve refusal
+    /// is not silent to the partner.
+    pub fn emitFailure(self: *Peer, err: anyerror) void {
+        inbound.emitAbortForError(self, err);
+    }
+
     /// Drive `step` until both queues are idle. The caller then drains
     /// `takeOutbound` (encoded frames) and `pollEvent` (surfaced events). The one
     /// spelling of "encode everything pending" every driver and adapter shares.
@@ -1009,9 +1040,8 @@ pub const Peer = struct {
         return self.last_abort;
     }
 
-    /// Classify `err` and keep it readable through `lastAbort`. Idempotent for
-    /// one failure: the inbound path records inside `emitAbortForError` and
-    /// again in `step`'s exit, overwriting with the same classification.
+    /// Classify `err` and keep it readable through `lastAbort`. Overwritten by
+    /// the next failure at the same error boundary that calls this.
     pub fn recordFailure(self: *Peer, err: anyerror) void {
         const classified = abort_projection.classify(err);
         self.last_abort = .{
@@ -1132,8 +1162,14 @@ pub const Peer = struct {
     ///     (ADR-0050, ADR-0052). The listen must follow the op that opened the
     ///     answer on the wire, so it is pushed after the encode.
     /// PreSpec encodes the message as it stands. Borrows `message`; the caller
-    /// owns and frees it.
+    /// owns and frees it. An `op:abort` goes through `commitAbortOutbound`
+    /// (close after successful push) so the partner can still take the frame.
     fn emitOutboundMessage(self: *Peer, message: model.Message) !void {
+        if (message == .abort) {
+            try self.commitAbortOutbound(message.abort, .close);
+            return;
+        }
+
         const needs_v1_0 = self.session_state.needsV1_0Translation();
 
         if (needs_v1_0 and message == .resolve) {
@@ -1164,6 +1200,27 @@ pub const Peer = struct {
             .untag => |u| try v1_0.installListenerForOutboundProjection(self, u.answer),
             else => {},
         };
+    }
+
+    /// Encode `op:abort` onto outbound. When `disposition` is `.close`, CapTP
+    /// closes only after a successful queue push so the partner can still take
+    /// the frame. Handshake refusals pass `.keep_negotiating`. Fatal projected
+    /// refusals that must close even when encode/push fails close themselves
+    /// in their `catch` after calling this.
+    pub fn commitAbortOutbound(
+        self: *Peer,
+        abort: model.AbortReason,
+        disposition: abort_projection.AbortDisposition,
+    ) !void {
+        var frame = try codec.dispatch.encodeMessageForProfile(
+            self.session_state.codec,
+            self.allocator,
+            self.session_state.wire_profile,
+            .{ .abort = abort },
+        );
+        errdefer frame.deinit();
+        try self.outbound.push(self.allocator, frame);
+        if (disposition == .close) self.session_state.close();
     }
 
     /// Settle the local consequences of a just-sent `op:resolve`: drain the
@@ -1229,6 +1286,14 @@ pub const Peer = struct {
     /// popping.
     pub fn hasOutbound(self: *const Peer) bool {
         return !self.outbound.isEmpty();
+    }
+
+    /// Whether an inbound `withdraw-gift` is parked awaiting its deposit
+    /// (ADR-0056). A shared-registry owner reads this to track which sessions
+    /// need re-stepping when a sibling session's deposit lands; `step` settles
+    /// the parked withdraw against the shared registry on its next drive.
+    pub fn hasPendingWithdraws(self: *const Peer) bool {
+        return self.pending_withdraws.items.len > 0;
     }
 
     /// Dispatch a borrowed inbound frame. The borrowed bytes are transient, so

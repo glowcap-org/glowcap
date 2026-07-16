@@ -416,7 +416,7 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.Nea
         rewritten,
     );
     errdefer frame.deinit();
-    try peer.events.push(peer.allocator, .{ .frame = frame, .tag = .deliver, .codec = peer.session_state.codec });
+    try peer.events.push(peer.allocator, .{ .frame = frame, .tag = .deliver, .codec = peer.session_state.codec, .allocator = peer.allocator });
     peer.local_delivery_depth += 1;
 }
 

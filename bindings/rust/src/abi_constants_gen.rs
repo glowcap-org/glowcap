@@ -61,4 +61,6 @@ pub const DIAL_POSTURE_EXPLICIT: c_uint = 1;
 pub const DIAL_POSTURE_EXPLICIT_NONE: c_uint = 2;
 pub const DEFAULT_FRAME_CAP: usize = 1048576;
 pub const MAX_LOCAL_FORWARD_HOPS: usize = 256;
+pub const DISCOVERY_DIAL_RETRY_MS: usize = 3000;
+pub const DISCOVERY_DIAL_MAX_ATTEMPTS: usize = 24;
 pub const REDEEMED_TOKEN_BASE: u64 = 1152921504606846976;

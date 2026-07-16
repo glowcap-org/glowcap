@@ -31,6 +31,7 @@ const std = @import("std");
 
 const engine = @import("engine");
 const driver_core = @import("driver_core");
+const net = @import("net");
 
 /// Which dial produced a `PendingDial`: an application dial (`dialOutbound`)
 /// carries no ticket, a redeem dial from the host's action queue carries the
@@ -362,7 +363,8 @@ pub fn Bridge(comptime LoopT: type) type {
         /// `completion.OnClose`: a refused connect never builds a shell, so the
         /// pending dial row is the only place the ticket lives — report
         /// `dialFailed` and free it. Opened teardowns are handled by `freeConnCtx`.
-        pub fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool) void {
+        pub fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: net.completion.CloseReason) void {
+            _ = reason;
             const self: *Self = @ptrCast(@alignCast(ctx.?));
             if (conn_ctx != null) return;
             if (opened) return;

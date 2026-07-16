@@ -118,3 +118,16 @@ else if (@import("builtin").os.tag.isDarwin())
     completion.Loop(kqueue.Backend, tcp.DialResolver)
 else
     struct {};
+
+/// The host platform's completion `Backend` (io_uring on Linux, kqueue on
+/// macOS/BSD), the type `TcpLoop` is bound over. Exposed so an embedder that
+/// needs a non-`tcp.DialResolver` locator grammar — a conformance transport
+/// whose address lives in locator hints, say — can bind its own
+/// `completion.Loop(net.Backend, CustomLocator)` without re-declaring the
+/// per-OS backend selection. An empty struct off the supported platforms.
+pub const Backend = if (@import("builtin").os.tag == .linux)
+    uring.Backend
+else if (@import("builtin").os.tag.isDarwin())
+    kqueue.Backend
+else
+    struct {};

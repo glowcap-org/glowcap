@@ -65,7 +65,7 @@ fn waitFlag(io: std.Io, flag: *const std.atomic.Value(bool)) !void {
 }
 
 fn runLoopUntil(loop: *net.TcpLoop, done: *const std.atomic.Value(bool), out_err: *?anyerror, loop_done: *std.atomic.Value(bool)) void {
-    loop.runUntil(done) catch |err| {
+    loop.runUntil(done, 0) catch |err| {
         out_err.* = err;
         loop_done.store(true, .release);
         return;
@@ -125,7 +125,11 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
     defer threaded.deinit();
     const io = threaded.io();
 
-    var host = Host.init(allocator, [_]u8{0x0e} ** 32, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    var host = Host.init(allocator, [_]u8{0x0e} ** 32, blk: {
+        var o = Host.Options.withFrameCap(frame_cap);
+        o.local_turn_budget = 64;
+        break :blk o;
+    });
     defer host.deinit();
     var state = ExporterState{ .host = &host, .bridge = undefined };
     var loop: net.TcpLoop = undefined;
@@ -289,7 +293,11 @@ pub fn main(init: std.process.Init) !void {
     const io = threaded.io();
 
     var shared = Shared{};
-    var gifter_host = Host.init(allocator, [_]u8{0x06} ** 32, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    var gifter_host = Host.init(allocator, [_]u8{0x06} ** 32, blk: {
+        var o = Host.Options.withFrameCap(frame_cap);
+        o.local_turn_budget = 64;
+        break :blk o;
+    });
     defer gifter_host.deinit();
     var g_state = GifterState{ .host = &gifter_host, .shared = &shared };
     var loop: net.TcpLoop = undefined;
@@ -329,7 +337,11 @@ pub fn main(init: std.process.Init) !void {
     try waitFlag(io, &shared.fetched);
 
     var poked = std.atomic.Value(bool).init(false);
-    var recipient_host = Host.init(allocator, [_]u8{0x0c} ** 32, .{ .frame_cap = frame_cap, .local_turn_budget = 64 });
+    var recipient_host = Host.init(allocator, [_]u8{0x0c} ** 32, blk: {
+        var o = Host.Options.withFrameCap(frame_cap);
+        o.local_turn_budget = 64;
+        break :blk o;
+    });
     defer recipient_host.deinit();
     var r_state = ClientState{ .host = &recipient_host, .poked = &poked };
     var r_loop: net.TcpLoop = undefined;

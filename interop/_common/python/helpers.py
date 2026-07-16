@@ -67,3 +67,20 @@ async def accept_loop(server) -> None:
     """Serve every connection a server accepts until it closes."""
     async for conn in server:
         conn.serve()
+
+
+async def await_greeter_ready(
+    proc: asyncio.subprocess.Process,
+    gate: str,
+    *,
+    miss: str = "never saw the exporter's greeter readiness line",
+) -> None:
+    assert proc.stdout is not None
+    deadline = asyncio.get_running_loop().time() + 30.0
+    while asyncio.get_running_loop().time() < deadline:
+        line = await asyncio.wait_for(proc.stdout.readline(), timeout=30.0)
+        if not line:
+            break
+        if b'"name":"greeter"' in line:
+            return
+    fail(gate, miss)

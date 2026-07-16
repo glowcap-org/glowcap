@@ -67,11 +67,16 @@ application, above pancake.
 
 The registry carries no lock. The engine is externally synchronized everywhere;
 the prior spinlock made the registry the one self-locking corner. A host that
-shares one registry across OS threads owns the locking — the conformance host
-(`conformance/ocapn-conformance/pancake_peer.zig`) wraps every pump that can
-dispatch a `deposit-gift` / `withdraw-gift` on a sharing peer in one host-owned
-blocking mutex, and waits for socket readability outside it so an idle
-connection never starves another's dispatch.
+shares one registry across OS threads owns the locking; a single-threaded host
+needs none. The OCapN conformance host
+(`conformance/ocapn-conformance/pancake_peer.zig`) is the latter — one
+`driver.core.Host` behind a `driver.Bridge` over a single completion loop, so
+every `deposit-gift` / `withdraw-gift` on a sharing peer dispatches on the one
+loop thread with no lock. A `deposit-gift` and its matching `withdraw-gift`
+still travel on different sessions, so a withdraw parked awaiting a not-yet-seen
+deposit is re-driven by the Host pump when the shared registry's deposit count
+(`GiftRegistry.deposits`) advances, the single-thread analog of a
+thread-per-connection driver's continuous per-session `step`.
 
 ## Scope (what this does not decide)
 

@@ -46,7 +46,11 @@ test "C ABI recv_stream frames a byte stream one frame at a time" {
     defer c_abi.pancake_peer_release(peer);
     try std.testing.expectEqual(c_abi.PANCAKE_OK, c_abi.pancake_peer_register_export(peer, 7));
 
-    const frame = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
+    // A no-answer (`#f` answer position) deliver, the fire-and-forget one-way
+    // send: this test applies two of them back-to-back, and a reused live answer
+    // position would (correctly) be refused the second time. No answer means no
+    // inbound answer row, so the two applies stay independent.
+    const frame = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
     // A partial frame consumes nothing and asks for more bytes.
     var consumed: usize = 123;

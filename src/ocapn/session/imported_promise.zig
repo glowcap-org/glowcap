@@ -63,16 +63,29 @@ pub fn installImportedPromiseListener(self: *Session, import_position: model.Imp
 /// (`validate.validateInboundResolve`) — accepting it would hand two listeners
 /// two different final values. On any refusal (unknown import or already
 /// settled) the resolution is freed; this function owns it on every outcome.
-pub fn recordRelayedResolution(self: *Session, import_position: model.ImportPosition, resolution: model.Resolution) !void {
+/// Record a relayed resolution against the third-party import row, returning
+/// whether it was stored (`false` = moot, dropped). `row_id` is the row
+/// identity the relay was queued against: a mismatch means that row was torn
+/// down (GC co-eviction) and a *different* third-party promise re-registered at
+/// this position, so the stale relay is moot and fires nothing — the same
+/// row-identity guard `resolveStoreChecked` gives the `settled_answer` and
+/// `listener_fire` carriers over this store (a queued carrier reading a store by
+/// position must prove the row is the instance it was accounted against).
+pub fn recordRelayedResolution(self: *Session, import_position: model.ImportPosition, row_id: u64, resolution: model.Resolution) !bool {
     const entry = findImportedPromise(self, import_position) orelse {
         model.freeResolution(self.allocator, resolution);
         return Error.InvalidReference;
     };
+    if (entry.row_id != row_id) {
+        model.freeResolution(self.allocator, resolution);
+        return false;
+    }
     if (entry.resolution != null) {
         model.freeResolution(self.allocator, resolution);
         return Error.UnexpectedMessage;
     }
     entry.resolution = resolution;
+    return true;
 }
 
 /// Hand the caller the listeners registered on third-party import
@@ -95,6 +108,16 @@ pub fn importedPromiseResolution(self: *Session, import_position: model.ImportPo
 
 pub fn findImportedPromise(self: *Session, import_position: model.ImportPosition) ?*ImportedPromise {
     return self.imported_promises.getPtr(import_position);
+}
+
+/// The identity stamp of the live third-party imported-promise row at
+/// `import_position`, or null when absent — the imported-promise twin of
+/// `inboundAnswerRowId`, captured when a relayed resolution is queued and
+/// re-checked at drain so a released-and-re-registered position can never
+/// satisfy a stale relay.
+pub fn importedPromiseRowId(self: *Session, import_position: model.ImportPosition) ?u64 {
+    const entry = findImportedPromise(self, import_position) orelse return null;
+    return entry.row_id;
 }
 
 /// Release the owned memory an `ImportedPromise` holds: the host designator,

@@ -12,7 +12,9 @@
 //! deterministic core. The frame routing itself (deposit the give with the
 //! exporter, send the receive, pump the frames) is host choreography, not
 //! engine semantics; the in-repo harness for it lives in
-//! `test/support/cross_peer.zig`.
+//! `test/support/cross_peer.zig`. Multi-session handoff and introducing-session
+//! auto-relay live on `engine.Node` / `driver_core.Host`, not in this helper —
+//! `drainRelayedResolutions` only drains one peer's pending queue.
 
 const model = @import("model");
 const engine = @import("mod.zig");
@@ -26,6 +28,12 @@ const Peer = engine.Peer;
 /// synthesizes a fire `op:deliver` for each. Owns its `resolution` until drained.
 pub const PendingRelayedResolution = struct {
     import_position: model.ImportPosition,
+    /// The imported-promise row identity this relay was queued against
+    /// (`Session.importedPromiseRowId` at relay time). The drain re-checks it so
+    /// a released-and-re-registered position can never satisfy a stale relay —
+    /// the imported-store twin of the `settled_answer` / `listener_fire` carrier
+    /// stamp.
+    row_id: u64,
     resolution: model.Resolution,
 };
 
@@ -34,9 +42,8 @@ pub const PendingRelayedResolution = struct {
 /// store the resolution so a late `op:listen` fires immediately (ADR-0009).
 /// Returns whether any entry was processed.
 ///
-/// Single-peer today (every entry mutates one session). Cross-session
-/// forwarding — an entry that also takes the introducing session — is not
-/// implemented.
+/// Single-peer: every entry mutates one session. Multi-session routing (which
+/// peer's introduce to relay onto which) is Host / `engine.Node` choreography.
 pub fn drainRelayedResolutions(peer: *Peer) !bool {
     if (peer.pending_relayed_resolutions.items.len == 0) return false;
     const pending = try peer.pending_relayed_resolutions.toOwnedSlice(peer.allocator);
@@ -49,7 +56,7 @@ pub fn drainRelayedResolutions(peer: *Peer) !bool {
     while (index < pending.len) {
         const entry = pending[index];
         index += 1;
-        try peer.applyRelayedResolution(entry.import_position, entry.resolution);
+        try peer.applyRelayedResolution(entry.import_position, entry.row_id, entry.resolution);
     }
     return true;
 }

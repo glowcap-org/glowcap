@@ -37,7 +37,9 @@ const model = pancake.ocapn.model;
 /// One inbound `op:deliver` to live local export 7 — the steady-state turn the
 /// alloc-budget test pins and `bench-codec`'s dispatch drives, so the N=1 row
 /// is directly comparable.
-const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]11+f>";
+// No-answer (`#f` answer position) deliver: re-applied to one peer across the
+// measured turns, so a live-answer position would be refused on the second apply.
+const deliver_to_live_export = "<10'op:deliver<11'desc:export7+>[5:hello]ff>";
 
 /// The enforced ceiling for one warm inbound dispatch turn under `--gate`
 /// (ReleaseFast). docs/ladder.md rung 2 owns this number. It is a tripwire at

@@ -1,4 +1,4 @@
-"""Per-binding keyed-tcp restart proof (ADR-0075): happy path, key-squatter
+"""Per-binding keyed-tcp restart proof: happy path, key-squatter
 refusal, and same-seed-fresh-port restart — the Python sibling of
 ``test/driver/keyed_tcp_restart_test.zig``.
 

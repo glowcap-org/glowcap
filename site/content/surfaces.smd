@@ -22,7 +22,7 @@ you choose whichever matches the language you are writing in.
 ## The Zig package
 
 `zig fetch --save git+https://codeberg.org/jimisaacs/pancake`, import `pancake`,
-and you have the application surface, the owning `Session` and its small verb
+and you have the application surface: the owning `Session` and its small verb
 vocabulary, plus everything beneath it, down to the raw engine. The
 [Start building]($link.page('start')) page walks a first round-trip line by line,
 and the [examples](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/README.md)
@@ -39,10 +39,10 @@ and header beside it. Every header is generated from the same Zig declarations i
 archive compiles, so a header can never silently disagree with the binary. The
 surface is deliberately boring: opaque handles, fixed-width return codes,
 `ptr + len` views, callbacks, and explicit release functions, so a consumer can
-wrap it well without knowing any Zig. The full archive-and-header
-inventory lives on the [API reference]($link.page('reference')) page, and the
-consuming-from-C guide linked in the table above walks the build, the ownership
-rules, and a first complete program.
+wrap it well without knowing any Zig. The full archive-and-header inventory lives
+on the [API reference]($link.page('reference')) page. The consuming-from-C guide
+linked in the table above walks the build, the ownership rules, and a first complete
+program.
 
 ## The bindings
 
@@ -52,21 +52,21 @@ each one dogfoods the archives through its own `*-dogfood` step.
 
 ## One library, one build, one engine
 
-There is no separate "C build" or "Zig build" of the protocol: a Zig peer, a C
+There is no separate "C build" or "Zig build" of the protocol. A Zig peer, a C
 consumer, and a peer written against any binding hold the same OCapN conversation,
-byte for byte. A session *does* negotiate its codec and CapTP version, and it settles that
-with whoever answers, not by which surface you built on. One instance
-can therefore run many sessions speaking different codecs at once; the
+byte for byte. A session does negotiate its codec and CapTP version, and it settles
+that with whoever answers, not by which surface you built on. One instance can
+therefore run many sessions speaking different codecs at once; the
 [Concepts]($link.page('concepts')) page walks that handshake.
 
-The surfaces
-also come from one build: every artifact above is produced by `zig build`, and
-`zig build check` runs the hermetic gate: tests, oracle and conformance scenarios,
-examples, and the structure checks. The cross-language dogfoods and live interop run
-as sibling steps, since they need non-Zig runtimes on PATH. The build steps in the
+Every artifact above is produced by `zig build`. `zig build check` runs the
+in-tree build check: tests, protocol reference fixtures, examples, and the
+structure checks. The upstream OCapN suite (`zig build ocapn-conformance`),
+cross-language binding checks, and live interop run as sibling steps, since
+they need non-Zig runtimes on PATH. The build steps in the
 [README](https://codeberg.org/jimisaacs/pancake/src/branch/main/README.md#build)
-cover the common focused gates; the full inventory lives in
+cover the common focused check steps; the full inventory lives in
 [CONTRIBUTING](https://codeberg.org/jimisaacs/pancake/src/branch/main/CONTRIBUTING.md#verifying-changes).
 
-The one place the surfaces diverge is encryption: iroh rides a separate optional
+The one place the surfaces diverge is encryption. iroh rides a separate optional
 artifact, which the [Transports]($link.page('transports')) page covers.

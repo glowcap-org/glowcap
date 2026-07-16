@@ -183,8 +183,6 @@ test "pairedWithOffers builds both peers with the negotiated (intersected) featu
             .handoff = false,
             .wire_delta = true,
             .sturdyref = false,
-            .stream = true,
-            .equality = true,
         },
     };
 
@@ -472,7 +470,7 @@ test "a verifying peer aborts an op:start-session whose signature does not match
     // The verifier refuses the forged handshake and does not open the session.
     try verifier.feedOwned(forged);
     try std.testing.expectError(error.InvalidStartSessionSignature, verifier.step());
-    try std.testing.expect(!verifier.sessionIsOpen());
+    try std.testing.expectEqual(session.State.negotiating, verifier.session_state.state);
 
     // The refusal is fail-loud: a typed op:abort is queued for the partner.
     var abort_frame = verifier.takeOutbound().?;
@@ -504,7 +502,7 @@ test "a pinned peer refuses an op:start-session from any key but the expected on
 
     try verifier.feedOwned(hello);
     try std.testing.expectError(error.PartnerKeyMismatch, verifier.step());
-    try std.testing.expect(!verifier.sessionIsOpen());
+    try std.testing.expectEqual(session.State.negotiating, verifier.session_state.state);
 
     // The refusal is fail-loud and rides the handshake abort domain.
     var abort_frame = verifier.takeOutbound().?;
@@ -638,7 +636,7 @@ test "a verifying peer refuses a hinted-locator handshake whose hint bytes were 
     const frame = try hintedStartSessionFrame(allocator, partner_secret, tampered);
     try verifier.feedOwned(frame);
     try std.testing.expectError(error.InvalidStartSessionSignature, verifier.step());
-    try std.testing.expect(!verifier.sessionIsOpen());
+    try std.testing.expectEqual(session.State.negotiating, verifier.session_state.state);
 }
 
 test "the handshake records each partner's session key for later signature checks" {

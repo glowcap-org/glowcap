@@ -38,6 +38,17 @@ const greeting = "hello over the tcp loop";
 const conns_per_wave: usize = 128;
 /// Two waves, so slot recycling and churn are covered: 256 lifecycles total.
 const waves: usize = 2;
+
+/// ADR-0082 park-metric dogfood: Loop.on_park increments this (make_ctx is the
+/// bridge, so the counter lives here rather than on the hook ctx).
+var park_hits: std.atomic.Value(usize) = .init(0);
+
+fn reportPark(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque) void {
+    _ = ctx;
+    _ = slot;
+    _ = conn_ctx;
+    _ = park_hits.fetchAdd(1, .monotonic);
+}
 /// Calls each connection makes, several turns per connection so the proof is
 /// sustained multiplexing, not a single round trip.
 const calls_per_conn: usize = 4;
@@ -179,7 +190,7 @@ pub fn main(init: std.process.Init) !void {
     const server_alloc = counting.allocator();
 
     var host = driver.core.Host.init(server_alloc, [_]u8{0x42} ** 32, .{
-        .frame_cap = frame_cap,
+        .limits = .{ .max_frame_bytes = frame_cap },
         .local_turn_budget = actors.Vat.max_batch_local_turns,
     });
     defer host.deinit();
@@ -195,6 +206,8 @@ pub fn main(init: std.process.Init) !void {
         .serve = TcpBridge.serve,
         .free_conn_ctx = TcpBridge.freeConnCtx,
         .on_close = TcpBridge.onClose,
+        // ADR-0082: embedder park-metric dogfood (completion_loop_test pins the hook).
+        .on_park = reportPark,
     });
     defer loop.deinit();
     const port = loop.port.?;
@@ -247,7 +260,11 @@ pub fn main(init: std.process.Init) !void {
         .{ conns_per_wave, waves, total_lifecycles, calls_per_conn },
     );
     std.debug.print(
-        "tcp-loop: measured server-side footprint {d} bytes/connection warmed ({d} connections; ~{d} MiB at 500k), printed not gated (ADR-0073)\n",
+        "tcp-loop: measured server-side footprint {d} bytes/connection warmed ({d} connections; ~{d} MiB at 500k), printed not gated\n",
         .{ marginal, conns_per_wave, at_500k_mib },
+    );
+    std.debug.print(
+        "tcp-loop: on_park fired {d} time(s) (embedder metrics dogfood)\n",
+        .{park_hits.load(.monotonic)},
     );
 }

@@ -28,10 +28,19 @@ pub const Error = error{
     FetchNotACapability,
     /// The OS entropy source could not fill the session seed for the handshake.
     HandshakeEntropyFailed,
-    /// A host-owned redeem dial's keyed handshake made no progress within its
-    /// budget: the exporter accepted the socket but never spoke. The redeem
-    /// breaks with this reason instead of wedging the waiting party forever.
+    /// A keyed handshake made no progress within its caller-set budget: the
+    /// partner accepted the socket but never spoke. The blocking
+    /// `BlockingSession` handshake breaks with this reason when its opt-in
+    /// `handshake_timeout_ms` elapses, instead of parking the fiber for the
+    /// connection's life; a host-owned redeem dial reserves it for the same
+    /// silent-exporter case (ADR-0081).
     HandshakeTimedOut,
+    /// A blocking answer-wait (`settle` / `call` / `fetch`) made no progress
+    /// within its caller-set budget: the partner opened a session then stalled
+    /// without settling the vow. Opt-in via `BlockingSession.settle_timeout_ms`
+    /// (0 = unbounded). Sibling of `HandshakeTimedOut` for post-handshake waits
+    /// (ADR-0076 follow-up).
+    WaitTimedOut,
     /// A locator named a transport no registered netlayer hosts.
     UnknownTransport,
     /// `callReference` was given a target that is not an eventual-send target:

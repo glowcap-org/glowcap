@@ -50,6 +50,23 @@ export async function acceptLoop(
 	for await (const conn of server) conn.serve().catch(() => {});
 }
 
+export async function awaitGreeterReady(
+	reader: ReadableStreamDefaultReader<Uint8Array>,
+	gate: string,
+	miss = "never saw the exporter's greeter readiness line",
+): Promise<void> {
+	const decoder = new TextDecoder();
+	let buf = "";
+	const deadline = Date.now() + 30_000;
+	while (Date.now() < deadline) {
+		const { value, done } = await reader.read();
+		if (done) break;
+		buf += decoder.decode(value, { stream: true });
+		if (buf.includes('"name":"greeter"')) return;
+	}
+	fail(gate, miss);
+}
+
 export async function drainStderr(stderr: ReadableStream<Uint8Array>): Promise<string> {
 	const chunks: Uint8Array[] = [];
 	for await (const chunk of stderr) chunks.push(chunk);

@@ -11,8 +11,9 @@ OCapN behavior, Spritely Goblins fixtures, and Zig-local protocol scenarios are
 the conformance authority. The Rust, Deno, Python, and Racket bindings are C ABI
 dogfood consumers, never the oracle for Zig semantics.
 
-**CapTP sticky note (ADR-0079):** `Host` / `PancakeHost` / binding `Host` =
-multi-session CapTP product (owns `engine.Node`); `engine.Node` = sans-io handoff router;
+**CapTP vocabulary (ADR-0079, agent reference):** Keep this map here, not in
+human first-read docs. `Host` / `PancakeHost` / binding `Host` = multi-session
+CapTP product (owns `engine.Node`); `engine.Node` = sans-io handoff router;
 binding `Session` = one-partner app object (`driver.Session`); Goblins `mycapn`
 = endpoint ≈ Host + router tables ≈ `engine.Node`. Binding `Node` /
 `Connection` deleted; `net.Connection` is the byte stream only. No
@@ -125,8 +126,8 @@ not a second CapTP stack. CapTP never names a transport.
   - `c_abi/driver` (module `c_abi_driver`): `libpancake_driver`, the byte-fed
     host tier over the C ABI (ADR-0072). An embedder that owns its own loop,
     sockets, and entropy drives a full multi-session CapTP Host with bytes:
-    `pancake_host_conn_feed` hands a CapTP session an inbound frame,
-    `pancake_host_conn_take_outbound` drains an outbound one, and the host's
+    `pancake_host_session_feed` hands a CapTP session an inbound frame,
+    `pancake_host_session_take_outbound` drains an outbound one, and the host's
     own effects (dials, gift-id entropy, flushes) surface as actions through
     `pancake_host_next_action` — so publish/fetch/send, vows, projections, and
     the full three-party handoff run from C with no socket. It wraps

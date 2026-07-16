@@ -61,15 +61,33 @@
   (thread (lambda () (let drain () (define l (read-line err)) (unless (eof-object? l) (drain)))))
   (values proc (subprocess-pid proc)))
 
+;; Cap how long a latency/throughput client may sit silent. A wedged CapTP
+;; round-trip used to park `port->lines` forever and stall `bench-site-report`
+;; with both peers at 0% CPU; fail loud so the orchestrator can kill the server
+;; and surface the backend/suite/mode instead of looking hung. Full runs finish
+;; in seconds at n=2000; anything past two minutes is a hang, not a slow bench.
+(define CLIENT-TIMEOUT-S (if smoke? 30 120))
+
+(struct exn:fail:client-timeout exn:fail ())
+
 ;; Run a client measurement to completion; return its result NDJSON line.
 (define (run-client backend suite port mode n [conns 1])
   (define-values (proc out in err)
     (subprocess #f #f (current-error-port) RACKET CLIENT backend suite HOST (number->string port)
                 mode (number->string n) (number->string conns)))
-  (define lines (port->lines out))
-  (subprocess-wait proc)
-  (or (findf (lambda (l) (regexp-match? #px"\"metric\"" l)) lines)
-      (error 'run-client "no result from ~a/~a/~a" backend suite mode)))
+  (define lines-box (box #f))
+  (define reader (thread (lambda () (set-box! lines-box (port->lines out)))))
+  (cond
+    [(sync/timeout CLIENT-TIMEOUT-S reader)
+     (subprocess-wait proc)
+     (or (findf (lambda (l) (regexp-match? #px"\"metric\"" l)) (unbox lines-box))
+         (error 'run-client "no result from ~a/~a/~a" backend suite mode))]
+    [else
+     (subprocess-kill proc #t)
+     (raise (exn:fail:client-timeout
+             (format "run-client: timed out after ~as on ~a/~a/~a"
+                     CLIENT-TIMEOUT-S backend suite mode)
+             (current-continuation-marks)))]))
 
 ;; Sample a pid's RSS `n` times `dt` seconds apart and keep the minimum, the
 ;; floor closest to the live set after a GC cycle, stripping transient allocation
@@ -114,7 +132,8 @@
   (define m (regexp-match (regexp (format "\"~a\":\"?([^,\"}]+)\"?" key)) line))
   (and m (cadr m)))
 
-(define (bench-one suite backend)
+;; One attempt of suite×backend on a fresh server/port.
+(define (bench-one-attempt suite backend)
   (define port (next-port!))
   (define-values (proc pid) (start-server backend suite port))
   (with-handlers ([(lambda (_) #t) (lambda (e) (subprocess-kill proc #t) (raise e))])
@@ -137,6 +156,23 @@
                      (cons 'base_rss base-rss)
                      (cons 'loaded_rss loaded-rss)
                      (cons 'per_conn_kb (real->decimal-string (/ (max 0 (- loaded-rss base-rss)) (max 1 CONNS)) 1))))))
+
+;; CapTP under load can kill a serve thread (UnexpectedMessage) or rarely stall
+;; until the client timeout. Retry on a fresh server so one bad pair does not
+;; fail the whole suite / site regen.
+(define (bench-one suite backend)
+  (define (attempt remaining)
+    (with-handlers ([exn:fail?
+                     (lambda (e)
+                       (cond
+                         [(> remaining 0)
+                          (eprintf "bench-one: ~a; retrying ~a/~a on a fresh server (~a left)\n"
+                                   (exn-message e) suite backend remaining)
+                          (flush-output (current-error-port))
+                          (attempt (sub1 remaining))]
+                         [else (raise e)]))])
+      (bench-one-attempt suite backend)))
+  (attempt 2))
 
 (for ([suite (in-list SUITES)])
   (for ([backend (in-list BACKENDS)])

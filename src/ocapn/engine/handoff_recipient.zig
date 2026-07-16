@@ -27,16 +27,20 @@ pub fn sessionName(side_a: [32]u8, side_b: [32]u8) [32]u8 {
     return crypto.sessionIdFromPeerIds(.fromBytes(side_a), .fromBytes(side_b)).bytes;
 }
 
-/// A signed `desc:handoff-receive` that owns its derived bytes. The session and
-/// side names and the signature live inline, so the `model.HandoffReceive` that
-/// `message` projects borrows only this value, no dangling stack references
-/// once the builder returns. The caller holds the `SignedReceive` until the
-/// withdraw it carries has been encoded, and keeps owning `give_bytes`.
+/// A signed `desc:handoff-receive` that owns its derived bytes, including the
+/// gifter's give it parsed from `give_bytes` (`give` carries both `raw_signed`,
+/// for a Syrup session's verbatim fast path, and the typed fields a Cap'n Proto
+/// session encodes instead — so the receive rides *this* session's codec, not
+/// just Syrup's). The session and side names and the signature live inline, so
+/// the `model.HandoffReceive` that `message` projects borrows only this value,
+/// no dangling stack references once the builder returns. The caller holds the
+/// `SignedReceive` until the withdraw it carries has been encoded, then
+/// releases it with `deinit`.
 pub const SignedReceive = struct {
     receiving_session: [32]u8,
     receiving_side: [32]u8,
     signature: [crypto.SIGNATURE_BYTES]u8,
-    give_bytes: []const u8,
+    give: model.HandoffGive,
     handoff_count: u64,
 
     /// Project the borrowed wire `desc:handoff-receive`. The returned value
@@ -46,23 +50,26 @@ pub const SignedReceive = struct {
             .receiving_session = &self.receiving_session,
             .receiving_side = &self.receiving_side,
             .handoff_count = self.handoff_count,
-            .signed_give = .{
-                .recipient_key = "",
-                .exporter_location = "",
-                .gifter_exporter_session = "",
-                .gifter_side = "",
-                .gift_id = "",
-                .signature = "",
-                .raw_signed = self.give_bytes,
-            },
+            .signed_give = self.give,
             .signature = &self.signature,
         };
     }
+
+    /// Release the give `signedReceiveFromGiveBytes` parsed and owns. Safe to
+    /// call once the withdraw `message()` projected has been encoded —
+    /// `sendCopying` deep-copies before it returns, so the caller's one send
+    /// call always finishes first.
+    pub fn deinit(self: *const SignedReceive, allocator: std.mem.Allocator) void {
+        model.freeHandoffGive(allocator, self.give);
+    }
 };
 
-/// Build a signed `desc:handoff-receive` embedding the gifter's exact give bytes,
-/// returning a self-contained `SignedReceive` the caller keeps alive while it
-/// encodes the withdraw. `secret` is the recipient's session key — the one the
+/// Build a signed `desc:handoff-receive` embedding the gifter's give, returning
+/// a self-contained `SignedReceive` the caller keeps alive while it encodes the
+/// withdraw, then releases with `SignedReceive.deinit`. `give_bytes` is the
+/// Syrup-encoded `<desc:sig-envelope …>` a gifter returned (or a binding's
+/// `pancake_build_handoff_give` built); it is parsed once here into a typed,
+/// codec-neutral give. `secret` is the recipient's session key — the one the
 /// gifter named as the give's recipient key — so the exporter verifies the
 /// receive against it. The `handoff_count` is minted from `registry` against the
 /// derived receiving session, so the monotonic replay counter is owned by the
@@ -76,6 +83,8 @@ pub fn signedReceiveFromGiveBytes(
     exporter_partner_key: []const u8,
     give_bytes: []const u8,
 ) !SignedReceive {
+    const give = try codec.syrup.decodeSignedHandoffGiveOwned(allocator, give_bytes);
+    errdefer model.freeHandoffGive(allocator, give);
     const our_side = try sideName(our_pubkey.asBytes());
     const exporter_side = try sideName(exporter_partner_key);
     const receiving_session = sessionName(our_side, exporter_side);
@@ -84,7 +93,7 @@ pub fn signedReceiveFromGiveBytes(
         .receiving_session = receiving_session,
         .receiving_side = our_side,
         .signature = [_]u8{0} ** crypto.SIGNATURE_BYTES,
-        .give_bytes = give_bytes,
+        .give = give,
         .handoff_count = handoff_count,
     };
     const receive_signed = try codec.syrup.canonicalHandoffReceiveSignedBytes(allocator, result.message());

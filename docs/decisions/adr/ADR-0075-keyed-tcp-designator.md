@@ -93,9 +93,14 @@ confidentiality and integrity remain iroh's job; keyed TCP is the durable
 
 ## Scope (what this does not decide)
 
-- The Cap'n Proto codec refuses non-empty locator hints on encode, so a hinted
-  keyed location is a Syrup-session feature today — the same boundary hinted
-  iroh locators already live with.
+- ~~The Cap'n Proto codec refuses non-empty locator hints on encode, so a
+  hinted keyed location is a Syrup-session feature today.~~ Closed: Cap'n
+  Proto's `op:start-session` now encodes hint entries on `acceptable_location`
+  (`encodeHintedPeerLocator`), so a hinted keyed or iroh location opens a
+  Cap'n Proto session too. The sturdyref locator wire path still refuses
+  non-empty hints (no dedicated entry-carrying wire path in either codec), and
+  decode of `op:start-session`'s hints is not yet symmetric with encode — see
+  [boundaries.md § Netlayer](../../boundaries.md#netlayer).
 - Binding-level `keyed-tcp` dial/host surfaces and per-binding restart gates
   are shipped (`listen_keyed_tcp` / `keyed_tcp_locator` / `connect` on a
   `keyed-tcp` URI; `zig build bindings-keyed-tcp-restart`). The C ABI

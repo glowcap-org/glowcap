@@ -5,7 +5,7 @@
 ;; `session-tell`, `session-serve`, …), plus mint/handshake (`establish-*`).
 ;; The dial executor (plan + channel open + `connect`) lives in
 ;; `private/dial.rkt`. Server/`listen`/`accept` live in `private/listen.rkt`.
-;; The host action switch (`drain-host-actions!` / `host-next-action!`) lives
+;; The host action switch (`drain-host-actions!`) lives
 ;; in `private/action.rkt`. Far vows (`session-vow` / `session-index` /
 ;; `session-untag` / settle), far-send mint (`session-far-send`), and the
 ;; shared fetch wait live in `private/promise.rkt`. The conn byte path
@@ -25,9 +25,10 @@
 ;; host sees one caller at a time; everything that can block (socket writes,
 ;; dial executors, listener fires) runs after the lock releases. Reads happen
 ;; outside the lock too: `pump-until` (in `pump.rkt`) makes one thread the
-;; session's reader (the `async-connection` reader gate) and parks everyone
-;; else on the host's progress event, so a settle fired by a sibling session's
-;; feed wakes a pump parked on its own quiet socket.
+;; session's reader (the `async-connection` reader gate), parks drain effects
+;; until that gate clears, and parks every other pump on the host's progress
+;; event — so a settle another session's feed recorded wakes a pump parked on
+;; its own quiet socket without sharing the reader window with a write or fire.
 
 (require ffi/unsafe
          racket/string
@@ -90,7 +91,7 @@
 ;; `private/gc.rkt`. Feed-refusal / `session-last-abort` lives in `private/pump.rkt`.
 
 ;; ── The action drain ──────────────────────────────────────────────────────────
-;; Decode + execute (`host-next-action!` / `drain-host-actions!`) live in
+;; Decode + execute (`drain-host-actions!`) live in
 ;; `private/action.rkt`. Conn byte path (feed / flush / EOF / `pump-until`)
 ;; lives in `private/pump.rkt`.
 
@@ -107,19 +108,41 @@
   (for ([fire (in-list (drain-effects-fires fx))])
     (with-handlers ([converts-to-broken? void]) (fire))))
 
+;; Merge two drain-effects records in FIFO order (earlier first). Used when a
+;; reader-held feed nests further locked drains under the same deferral box.
+(define (merge-drain-effects a b)
+  (drain-effects
+   (append (drain-effects-touched a) (drain-effects-touched b))
+   (append (drain-effects-fires a) (drain-effects-fires b))))
+
 ;; The one drain choreography every host-driving path shares: run `thunk`
 ;; under the host lock — it returns the locked drain's `drain-effects` (most
 ;; sites end in `drain-host-actions!`; some substitute `no-drain-effects` or a
 ;; merged record) plus any extra values — then run those effects (socket
 ;; writes, listener fires) after the lock releases, wake every parked pump,
-;; and hand the extra values back to the caller.
+;; and hand the extra values back to the caller. Under
+;; `current-defer-drain-effects` (pump.rkt), only the merge happens here; the
+;; reader after-thunk owns effects + bump.
 (define (with-host-drain m thunk)
   (call-with-values
    (lambda () (call-with-host m thunk))
    (lambda (fx . rest)
-     (run-drain-effects! fx)
-     (host-bump-progress! m)
-     (apply values rest))))
+     (cond
+       [(current-defer-drain-effects)
+        => (lambda (box)
+             (set-box! box (merge-drain-effects (unbox box) fx))
+             (apply values rest))]
+       [else
+        ;; Guarantee the bump even if a break interrupts the effects: the
+        ;; drain already committed the state a parked pump spins on (settles,
+        ;; closes), so a skipped bump would strand that waiter. The post-thunk
+        ;; fires it on a break escape too (same shape as the reader after-thunk
+        ;; in `pump-until`); a spare bump is harmless.
+        (dynamic-wind
+         void
+         (lambda () (run-drain-effects! fx))
+         (lambda () (host-bump-progress! m)))
+        (apply values rest)]))))
 
 ;; The breaking window the teardown paths share: unless `c` is already
 ;; released (its handle must see no further host verb), run `thunk` and drain
@@ -433,9 +456,18 @@
 ;; pump. When the wire is gone the pump has already broken every far vow still
 ;; awaiting a reply (with the partner's retained abort diagnostic when one
 ;; arrived), the same disconnect guarantee the Deno and Python connections give.
+;; A mid-serve failure (a feed refusal, a partner protocol violation) must close
+;; the transport before the error escapes: otherwise the partner's blocking
+;; `session-send` parks forever on a half-open TCP socket — the Python serve
+;; loop's `finally` closes for the same reason.
 (define (session-serve c)
   (drain-gc! c)
-  (pump-until c
-              (lambda () (and (session-closed? c) 'closed))
-              'session-serve)
-  (void))
+  (with-handlers ([(lambda (_) #t)
+                   (lambda (e)
+                     (with-handlers ([(lambda (_) #t) void])
+                       (session-close! c))
+                     (raise e))])
+    (pump-until c
+                (lambda () (and (session-closed? c) 'closed))
+                'session-serve)
+    (void)))

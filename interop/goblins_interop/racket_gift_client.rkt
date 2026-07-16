@@ -68,18 +68,9 @@
   (kill-children!)
   (exit 1))
 
-;; Wait for the exporter's readiness NDJSON naming the greeter.
-(define (await-bob-ready)
-  (let loop ()
-    (define line (read-line bob-out))
-    (cond
-      [(eof-object? line) (gift-fail "never saw the exporter's greeter readiness line")]
-      [(regexp-match? #rx"\"name\":\"greeter\"" line) (void)]
-      [else (loop)])))
-
 (with-handlers ([(lambda (_) #t)
                  (lambda (e) (gift-fail (if (exn? e) (exn-message e) (format "~a" e))))])
-  (await-bob-ready)
+  (await-greeter-ready bob-out "never saw the exporter's greeter readiness line")
   (printf "racket-goblins-gift: goblins-bob exporting greeter swiss=~a on ~a:~a\n"
           GREETER-SWISS HOST PORT)
 

@@ -74,7 +74,12 @@ from ._value import (
     Symbol,
     Tagged,
 )
-from ._constants import TRANSPORT_IROH, TRANSPORT_KEYED_TCP, TRANSPORT_TCP
+from ._constants import (
+    HINT_DIRECT_ADDRESSES,
+    TRANSPORT_IROH,
+    TRANSPORT_KEYED_TCP,
+    TRANSPORT_TCP,
+)
 from ._context import Context
 from ._locator import (
     Locator,
@@ -147,4 +152,6 @@ __all__ = [
     "TRANSPORT_TCP",
     "TRANSPORT_KEYED_TCP",
     "TRANSPORT_IROH",
+    # Locator hint keys
+    "HINT_DIRECT_ADDRESSES",
 ]

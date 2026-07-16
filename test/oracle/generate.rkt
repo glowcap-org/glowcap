@@ -96,7 +96,7 @@
 ;; `desc:import-object` for `Reference::Near` listener arguments
 ;; via the standard payload-position perspective flip.
 ;;
-;; Same shape on PreSpec and V1_0 — adding a new record is wire-
+;; Same shape on next and V1_0 — adding a new record is wire-
 ;; additive. The V1_0 Goblins-canonical 3-operand `wants-partial?`
 ;; extension lives in a separate fixture once the Goblins-canonical
 ;; wire profile lands.
@@ -107,9 +107,10 @@
 
 ;; <op:listen <desc:export 5> <desc:import-object 9>>.
 ;;
-;; Local-export listen target case per ADR-0007 § Decision 9, the
-;; listener fires immediately with the export as the `Fulfill`
-;; argument when the receiver records the listen.
+;; Wire-shape fixture for an export-target listen. CapTP fires the
+;; listener immediately when the target is already settled; pancake's
+;; engine does not yet implement export-side listen on its own exports
+;; (ADR-0007). This fixture locks the Syrup bytes only.
 (define (op-listen-export-target)
   (record* 'op:listen
            (record* 'desc:export 5)

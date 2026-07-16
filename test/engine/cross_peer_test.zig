@@ -801,6 +801,93 @@ test "a signed handoff give re-encodes across codecs and its gifter signature st
     }
 }
 
+test "a binding-originated give carries typed fields over a Cap'n Proto session, not just Syrup's raw_signed" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.pairedWithCodec(allocator, .capnp);
+    defer pair.deinit();
+
+    // The exact shape a binding hands `Peer.sendResolveHandoffGive`:
+    // `handoff_gifter.buildSignedGive` (what `pancake_build_handoff_give`
+    // calls) returns a Syrup-encoded `<desc:sig-envelope …>`. Before this, the
+    // send path only ever set that envelope as `raw_signed` and left the typed
+    // fields empty, so a Cap'n Proto session (which does not understand
+    // `raw_signed`) shipped an empty give.
+    const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x51));
+    const recipient_pub_key = repeated(32, 0x52);
+    // Empty-map hints, not `emptyFalse`: a give's `exporter_location` travels
+    // as a flattened `transport:designator` string whenever `raw_signed` does
+    // not ride along (Cap'n Proto carries no wire slot for it), and that
+    // flattened form always re-parses to the empty-map spelling — a give
+    // naming a keyed-tcp/iroh self-locator (`#f` hints, `Hints.forDirectAddresses`)
+    // could not re-verify past that seam either, a pre-existing, orthogonal
+    // property of the flattened representation, not one this test's fix
+    // introduces or claims to close.
+    const exporter_location = try engine.encodePeerLocatorRecord(allocator, .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:9200",
+        .hints = model.Hints.emptyMap(),
+    });
+    defer allocator.free(exporter_location);
+    const give_bytes = try engine.handoff_gifter.buildSignedGive(
+        allocator,
+        gifter_secret,
+        recipient_pub_key[0..],
+        exporter_location,
+        gifter_session[0..],
+        gifter_side[0..],
+        gift_id_a[0..],
+    );
+    defer allocator.free(give_bytes);
+
+    // `op:resolve` answers a question the partner asked; mint a real one by
+    // having p2 deliver to an object p1 exports, with an answer position.
+    try pair.p1.exportObject(9);
+    try pair.p2.importObject(9);
+    try pair.p2.sendCopying(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(9) },
+        .args = &.{},
+        .answer = model.AnswerPosition.from(5),
+    } });
+    try cross_peer.pumpOne(&pair.p2, &pair.p1);
+    {
+        var ask = pair.p1.pollEvent() orelse return error.ExpectedDeliverEvent;
+        defer ask.deinit();
+    }
+
+    try pair.p1.sendResolveHandoffGive(model.AnswerPosition.from(5), give_bytes);
+    try cross_peer.pumpOne(&pair.p1, &pair.p2);
+
+    var event = pair.p2.pollEvent() orelse return error.ExpectedResolveEvent;
+    defer event.deinit();
+    const view = try event.view();
+    const arg = switch (view.resolve.resolution) {
+        .fulfill => |a| a,
+        .@"break" => return error.ExpectedFulfill,
+    };
+    const give_view = switch (arg) {
+        .handoff => |h| switch (h) {
+            .give => |g| g,
+            .receive => return error.ExpectedGive,
+        },
+        else => return error.ExpectedHandoffArgument,
+    };
+
+    const owned_give = try give_view.toOwned(allocator);
+    defer model.freeHandoffGive(allocator, owned_give);
+    try std.testing.expectEqualSlices(u8, recipient_pub_key[0..], owned_give.recipient_key);
+    try std.testing.expectEqualStrings("tcp:127.0.0.1:9200", owned_give.exporter_location);
+    try std.testing.expectEqualSlices(u8, gifter_session[0..], owned_give.gifter_exporter_session);
+    try std.testing.expectEqualSlices(u8, gifter_side[0..], owned_give.gifter_side);
+    try std.testing.expectEqualSlices(u8, gift_id_a[0..], owned_give.gift_id);
+
+    // The typed fields re-canonicalize to exactly the Syrup bytes the gifter
+    // signed, so the carried signature still verifies.
+    const recanonical = try syrup.canonicalHandoffGiveSignedBytes(allocator, owned_give);
+    defer allocator.free(recanonical);
+    const carried = crypto.Signature.fromBytes(owned_give.signature[0..crypto.SIGNATURE_BYTES].*);
+    try crypto.verify(gifter_secret.publicKey(), recanonical, carried);
+}
+
 test "handoff side-name helper enforces the 32-byte Ed25519 key contract" {
     const handoff = engine.handoff_recipient;
 

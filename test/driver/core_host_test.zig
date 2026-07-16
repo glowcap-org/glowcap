@@ -29,7 +29,7 @@ test "Host admission frame cap defaults to the canonical session limit" {
     // default.
     try std.testing.expectEqual(
         (engine.SessionLimits{}).max_frame_bytes,
-        (Host.Options{}).frame_cap,
+        (Host.Options{}).frameCap(),
     );
 }
 
@@ -214,9 +214,9 @@ fn openPair(
 
 test "core host: two hosts complete the keyed handshake over fed bytes" {
     const allocator = std.testing.allocator;
-    var a = Host.init(allocator, [_]u8{0x0a} ** 32, .{ .frame_cap = frame_cap });
+    var a = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer a.deinit();
-    var b = Host.init(allocator, [_]u8{0x0b} ** 32, .{ .frame_cap = frame_cap });
+    var b = Host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer b.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -227,7 +227,7 @@ test "core host: two hosts complete the keyed handshake over fed bytes" {
 
 test "core host: feedBytes fails closed on incomplete-at-cap" {
     const allocator = std.testing.allocator;
-    var host = Host.init(allocator, [_]u8{0x0a} ** 32, .{ .frame_cap = 8 });
+    var host = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(8));
     defer host.deinit();
     const conn = try host.openAccepted("tcp", "127.0.0.1:7010", &.{});
     const junk = [_]u8{ '<', '1', '0', '\'', 'o', 'p', ':', 'd' };
@@ -236,9 +236,9 @@ test "core host: feedBytes fails closed on incomplete-at-cap" {
 
 test "core host: publish, fetch, and a settled send over fed bytes" {
     const allocator = std.testing.allocator;
-    var client = Host.init(allocator, [_]u8{0x0a} ** 32, .{ .frame_cap = frame_cap });
+    var client = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = Host.init(allocator, [_]u8{0x0b} ** 32, .{ .frame_cap = frame_cap });
+    var server = Host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -264,11 +264,11 @@ test "core host: publish, fetch, and a settled send over fed bytes" {
 
 test "core host: the full three-party handoff runs over fed bytes and one dial action" {
     const allocator = std.testing.allocator;
-    var exporter = Host.init(allocator, [_]u8{0x0e} ** 32, .{ .frame_cap = frame_cap });
+    var exporter = Host.init(allocator, [_]u8{0x0e} ** 32, Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
-    var gifter = Host.init(allocator, [_]u8{0x06} ** 32, .{ .frame_cap = frame_cap });
+    var gifter = Host.init(allocator, [_]u8{0x06} ** 32, Host.Options.withFrameCap(frame_cap));
     defer gifter.deinit();
-    var recipient = Host.init(allocator, [_]u8{0x0c} ** 32, .{ .frame_cap = frame_cap });
+    var recipient = Host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -387,9 +387,9 @@ const ReentryProbe = struct {
 
 test "core host: inside a callback every top-level verb refuses and every enqueueing verb lands at the unwind" {
     const allocator = std.testing.allocator;
-    var client = Host.init(allocator, [_]u8{0x2a} ** 32, .{ .frame_cap = frame_cap });
+    var client = Host.init(allocator, [_]u8{0x2a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = Host.init(allocator, [_]u8{0x2b} ** 32, .{ .frame_cap = frame_cap });
+    var server = Host.init(allocator, [_]u8{0x2b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -417,9 +417,9 @@ test "core host: inside a callback every top-level verb refuses and every enqueu
 
 test "core host: a crossed-hellos loser refuses every verb condemned; release still works" {
     const allocator = std.testing.allocator;
-    var a = Host.init(allocator, [_]u8{0x3a} ** 32, .{ .frame_cap = frame_cap });
+    var a = Host.init(allocator, [_]u8{0x3a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer a.deinit();
-    var b = Host.init(allocator, [_]u8{0x3b} ** 32, .{ .frame_cap = frame_cap });
+    var b = Host.init(allocator, [_]u8{0x3b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer b.deinit();
 
     // Both sides dial the same partner designator: a's outbound dial is
@@ -460,9 +460,9 @@ test "core host: a crossed-hellos loser refuses every verb condemned; release st
 
 test "core host: vow rows retire on settle; the map stays empty and release frees the rest" {
     const allocator = std.testing.allocator;
-    var client = Host.init(allocator, [_]u8{0x4a} ** 32, .{ .frame_cap = frame_cap });
+    var client = Host.init(allocator, [_]u8{0x4a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = Host.init(allocator, [_]u8{0x4b} ** 32, .{ .frame_cap = frame_cap });
+    var server = Host.init(allocator, [_]u8{0x4b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -508,11 +508,11 @@ test "core host: vow rows retire on settle; the map stays empty and release free
 
 test "core host: a failed dial breaks the redeeming vow with the reason" {
     const allocator = std.testing.allocator;
-    var exporter = Host.init(allocator, [_]u8{0x0e} ** 32, .{ .frame_cap = frame_cap });
+    var exporter = Host.init(allocator, [_]u8{0x0e} ** 32, Host.Options.withFrameCap(frame_cap));
     defer exporter.deinit();
-    var gifter = Host.init(allocator, [_]u8{0x06} ** 32, .{ .frame_cap = frame_cap });
+    var gifter = Host.init(allocator, [_]u8{0x06} ** 32, Host.Options.withFrameCap(frame_cap));
     defer gifter.deinit();
-    var recipient = Host.init(allocator, [_]u8{0x0c} ** 32, .{ .frame_cap = frame_cap });
+    var recipient = Host.init(allocator, [_]u8{0x0c} ** 32, Host.Options.withFrameCap(frame_cap));
     defer recipient.deinit();
     const hosts = [_]*Host{ &exporter, &gifter, &recipient };
     var dials: std.ArrayList(ParkedDial) = .empty;
@@ -563,9 +563,9 @@ fn openWidgetPair(
 
 test "core host: an unlistened settle rides the action queue owned, valid until the next nextAction frees it" {
     const allocator = std.testing.allocator;
-    var client = Host.init(allocator, [_]u8{0x5a} ** 32, .{ .frame_cap = frame_cap });
+    var client = Host.init(allocator, [_]u8{0x5a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = Host.init(allocator, [_]u8{0x5b} ** 32, .{ .frame_cap = frame_cap });
+    var server = Host.init(allocator, [_]u8{0x5b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -617,9 +617,9 @@ test "core host: an unlistened settle rides the action queue owned, valid until 
 
 test "core host: an unlistened fetch completion carries the node-enrolled token" {
     const allocator = std.testing.allocator;
-    var client = Host.init(allocator, [_]u8{0x6a} ** 32, .{ .frame_cap = frame_cap });
+    var client = Host.init(allocator, [_]u8{0x6a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = Host.init(allocator, [_]u8{0x6b} ** 32, .{ .frame_cap = frame_cap });
+    var server = Host.init(allocator, [_]u8{0x6b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -650,9 +650,9 @@ test "core host: an unlistened fetch completion carries the node-enrolled token"
 
 test "core host: a burst of unlistened settles never strands — every completion lands on the reserved queue" {
     const allocator = std.testing.allocator;
-    var client = Host.init(allocator, [_]u8{0x7a} ** 32, .{ .frame_cap = frame_cap });
+    var client = Host.init(allocator, [_]u8{0x7a} ** 32, Host.Options.withFrameCap(frame_cap));
     defer client.deinit();
-    var server = Host.init(allocator, [_]u8{0x7b} ** 32, .{ .frame_cap = frame_cap });
+    var server = Host.init(allocator, [_]u8{0x7b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer server.deinit();
     var dials: std.ArrayList(ParkedDial) = .empty;
     defer dials.deinit(allocator);
@@ -704,9 +704,9 @@ test "core host: a settle under OOM never strands a vow and never trips the rese
         const allocator = failing.allocator();
         var saw_oom = false;
         {
-            var client = Host.init(allocator, [_]u8{0x9a} ** 32, .{ .frame_cap = frame_cap });
+            var client = Host.init(allocator, [_]u8{0x9a} ** 32, Host.Options.withFrameCap(frame_cap));
             defer client.deinit();
-            var server = Host.init(allocator, [_]u8{0x9b} ** 32, .{ .frame_cap = frame_cap });
+            var server = Host.init(allocator, [_]u8{0x9b} ** 32, Host.Options.withFrameCap(frame_cap));
             defer server.deinit();
             var dials: std.ArrayList(ParkedDial) = .empty;
             defer dials.deinit(std.testing.allocator);
@@ -777,9 +777,9 @@ test "byte-fed iroh dial pin: matching key opens; squatter key is PartnerKeyMism
 
     // Happy path: acceptor Host seed ≡ dialed iroh designator → pin holds.
     {
-        var dialer = Host.init(allocator, [_]u8{0x0a} ** 32, .{ .frame_cap = frame_cap });
+        var dialer = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
         defer dialer.deinit();
-        var acceptor = Host.init(allocator, honest_seed, .{ .frame_cap = frame_cap });
+        var acceptor = Host.init(allocator, honest_seed, Host.Options.withFrameCap(frame_cap));
         defer acceptor.deinit();
         var dials: std.ArrayList(ParkedDial) = .empty;
         defer dials.deinit(allocator);
@@ -798,9 +798,9 @@ test "byte-fed iroh dial pin: matching key opens; squatter key is PartnerKeyMism
     // Negative: acceptor signs with a different key under the dialed designator.
     {
         const squatter_seed = [_]u8{0x42} ** 32;
-        var dialer = Host.init(allocator, [_]u8{0x0a} ** 32, .{ .frame_cap = frame_cap });
+        var dialer = Host.init(allocator, [_]u8{0x0a} ** 32, Host.Options.withFrameCap(frame_cap));
         defer dialer.deinit();
-        var acceptor = Host.init(allocator, squatter_seed, .{ .frame_cap = frame_cap });
+        var acceptor = Host.init(allocator, squatter_seed, Host.Options.withFrameCap(frame_cap));
         defer acceptor.deinit();
 
         const accepted = try acceptor.openAccepted("iroh", designator[0..], &.{});
@@ -819,7 +819,7 @@ test "byte-fed iroh dial pin: matching key opens; squatter key is PartnerKeyMism
 
 test "queueUniqueSessionAction keeps one flush and one close per conn" {
     const allocator = std.testing.allocator;
-    var host = Host.init(allocator, [_]u8{0x0b} ** 32, .{ .frame_cap = frame_cap });
+    var host = Host.init(allocator, [_]u8{0x0b} ** 32, Host.Options.withFrameCap(frame_cap));
     defer host.deinit();
     const a: engine.PeerId = @enumFromInt(1);
     const b: engine.PeerId = @enumFromInt(2);
