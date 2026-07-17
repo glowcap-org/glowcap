@@ -65,7 +65,7 @@ fn parseErrToCode(err: model.uri.Error) i32 {
     };
 }
 
-// ── Parse: string → owned locator handle ─────────────────────────────────────
+// ── Parse: string to owned locator handle ─────────────────────────────────────
 
 /// Parse an `ocapn://` peer URI into an owned locator handle. The bytes are
 /// borrowed for the call. Returns PANCAKE_ERR_INVALID_ARGUMENT (see
@@ -179,7 +179,7 @@ pub export fn pancake_locator_host_port(
 /// Split a bare designator (or a `direct-addresses` hint entry) as
 /// `host:port` — same grammar as `pancake_locator_host_port`, without minting
 /// a peer URI or a locator handle. A DIAL action already carries the
-/// designator; redeem dials call this instead of format→parse→host_port. The
+/// designator; redeem dials call this instead of format, parse, then host_port. The
 /// host view aliases `designator` for the call; copy it before mutating that
 /// buffer.
 pub export fn pancake_designator_host_port(
@@ -257,7 +257,7 @@ pub export fn pancake_locator_hint_at(
     return writeView(bytes, out_val, out_val_len);
 }
 
-// ── Format: structure → string ───────────────────────────────────────────────
+// ── Format: structure to string ───────────────────────────────────────────────
 
 const BuildError = error{ OutOfMemory, NullPointer };
 

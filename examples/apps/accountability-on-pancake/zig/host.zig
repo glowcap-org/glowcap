@@ -1,7 +1,7 @@
 //! Standalone host for the accountability-on-pancake application.
 //!
-//! Listens on 127.0.0.1 — an ephemeral port by default, or the one named by
-//! `--port=N` — prints the port so a foreign caller can connect, then serves
+//! Listens on 127.0.0.1, an ephemeral port by default or the one named by
+//! `--port=N`. It prints the port so a foreign caller can connect, then serves
 //! one connection: publishes the Affordance under the name "affordance",
 //! processes invocations, and exits when the caller leaves.
 //!

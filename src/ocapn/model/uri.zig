@@ -29,6 +29,11 @@ pub const Error = error{
     UnsupportedHintValue,
     UriParseError,
     InvalidHostPort,
+    /// `tcpConnectHostPort` was asked for a transport it does not resolve
+    /// (`tcp` and `keyed-tcp` only).
+    UnknownTransport,
+    /// A `keyed-tcp` dial has no usable `direct-addresses` hint entry.
+    MissingDirectAddressesHint,
     OutOfMemory,
 };
 
@@ -171,6 +176,15 @@ pub const HostPort = struct {
 /// C ABI (`pancake_designator_host_port` / `pancake_locator_host_port`) both split
 /// through it, so a consumer dialing with its own sockets validates the same
 /// way the native dialer does.
+/// The first entry of a comma-separated `direct-addresses` hint, trimmed.
+/// A `keyed-tcp` hint carries the address(es) to dial; an implementation that
+/// published several picks the first. Returns a sub-slice of `hint` (empty when
+/// the first entry is empty or the hint is only separators).
+pub fn firstDirectAddress(hint: []const u8) []const u8 {
+    const comma = std.mem.indexOfScalar(u8, hint, ',') orelse hint.len;
+    return std.mem.trim(u8, hint[0..comma], " \t");
+}
+
 pub fn splitHostPort(designator: []const u8) Error!HostPort {
     const colon = std.mem.lastIndexOfScalar(u8, designator, ':') orelse return Error.InvalidHostPort;
     var host = designator[0..colon];
@@ -189,6 +203,28 @@ pub fn splitHostPort(designator: []const u8) Error!HostPort {
     return .{ .host = host, .port = port };
 }
 
+/// Resolve the TCP-family connect `host:port` from locator pieces. This is the
+/// one admission for `tcp` / `keyed-tcp` hostport selection: `planDial` and
+/// `tcp.DialResolver` both call it so the first-address / split grammar cannot
+/// drift. Key-shape checks stay with the callers that own crypto
+/// (`PeerKey.fromDesignator`). Views borrow `designator` or `hint`.
+pub fn tcpConnectHostPort(
+    transport: []const u8,
+    designator: []const u8,
+    direct_addresses_hint: []const u8,
+) Error!HostPort {
+    if (std.mem.eql(u8, transport, model.transport.tcp)) {
+        return splitHostPort(designator);
+    }
+    if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) {
+        if (direct_addresses_hint.len == 0) return Error.MissingDirectAddressesHint;
+        const first = firstDirectAddress(direct_addresses_hint);
+        if (first.len == 0) return Error.MissingDirectAddressesHint;
+        return splitHostPort(first);
+    }
+    return Error.UnknownTransport;
+}
+
 // ── Emit ─────────────────────────────────────────────────────────────────────
 
 pub fn writePeer(allocator: std.mem.Allocator, locator: model.PeerLocator) Error![]u8 {
@@ -196,6 +232,25 @@ pub fn writePeer(allocator: std.mem.Allocator, locator: model.PeerLocator) Error
     errdefer out.deinit(allocator);
     try writeInto(allocator, &out, locator, null);
     return try out.toOwnedSlice(allocator);
+}
+
+/// Cache-key form of a peer URI: transport + designator only, hints stripped,
+/// percent-encoding normalized through parse→write. Matches
+/// `equality.peerLocatorsEqual` (hints are connection advice, not identity).
+/// An unparseable string is returned as an exact dupe so verbatim exporter
+/// overrides still join only on byte identity.
+pub fn canonicalPeerIdentityUri(allocator: std.mem.Allocator, uri_str: []const u8) Error![]u8 {
+    const parsed = parsePeer(allocator, uri_str) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return try allocator.dupe(u8, uri_str),
+    };
+    defer model.freePeerLocator(allocator, parsed);
+    const bare: model.PeerLocator = .{
+        .transport = parsed.transport,
+        .designator = parsed.designator,
+        .hints = model.Hints.emptyFalse(),
+    };
+    return writePeer(allocator, bare);
 }
 
 pub fn writeSturdyref(allocator: std.mem.Allocator, sturdyref: model.SturdyRef) Error![]u8 {

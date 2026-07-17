@@ -7,10 +7,10 @@ One vocabulary note before the diagrams. The draft CapTP specification has no
 `op:resolve` section. The OCapN working group has agreed to adopt two settlement
 operators, `op:resolve` and `op:break` (see the 2026-02-10 minutes in
 `conformance/ocapn-spec/`). The wire encoding is still unsettled, so pancake
-folds both into one `op:resolve` with fulfill and break arms. That PreSpec shape
-is what every `op:resolve` arrow in these diagrams draws. On the v1.0 wire that
-Goblins speaks, settlement instead travels as the resolver-callback deliver in
-DR-4.
+folds both into one `op:resolve` with fulfill and break arms. That
+`pancake-next` profile shape is what every `op:resolve` arrow in these diagrams
+draws. On the v1.0 wire that Goblins speaks, settlement instead travels as the
+resolver-callback deliver in DR-4.
 
 ## DR-1: op:deliver with an answer
 

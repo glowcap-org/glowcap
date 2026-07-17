@@ -3,7 +3,7 @@
 //!
 //! A resolve we send is *recorded* (its inbound answer's status flips to
 //! settled, `applySentResolve`) the instant `Peer.send` queues it, but the frame is
-//! *emitted* — and its calls / projections / listeners drained — only on a
+//! *emitted*, and its calls, projections, and listeners drained, only on a
 //! later `step` (`settleSentResolve`). Because `stepInner` drains every inbound
 //! frame before emitting any outbound one, that window is as wide as a whole
 //! inbound batch: an `op:listen`, projection op, or pipelined `op:deliver` that
@@ -19,8 +19,8 @@
 //! status, so the window cannot be observed: settled implies a stored
 //! resolution, always.
 //!
-//! These scenarios drive each consumer into the window at the pure engine layer
-//! — a resolve queued but not stepped — so the class is caught here, by
+//! These scenarios drive each consumer into the window at the pure engine layer:
+//! a resolve queued but not stepped. The class is caught here, by
 //! `zig build test`, and never again only by a binding's async timing.
 
 const std = @import("std");

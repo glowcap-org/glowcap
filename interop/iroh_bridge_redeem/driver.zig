@@ -1,15 +1,16 @@
 //! Iroh redeem dial on `driver.Bridge`: the recipient sits on
-//! `completion.Loop(iroh.Backend, iroh.DialResolver)` and introducing an E-homed capability forces
-//! `Exec.dial` → `Loop.dialLocator` → `openDialedOver` → `exporterDialed`, so the
-//! withdraw settles on one loop thread over iroh (ADR-0057, ADR-0076).
+//! `completion.Loop(iroh.Backend, iroh.DialResolver)`. Introducing an E-homed
+//! capability forces `Exec.dial`, then `Loop.dialLocator`, then `openDialedOver`,
+//! then `exporterDialed`, so the withdraw settles on one loop thread over iroh
+//! (ADR-0057, ADR-0076).
 //!
 //! Topology mirrors the TCP redeem theorem in `test/driver/bridge_test.zig`,
 //! but every party rides Bridge+Loop: iroh has no pollable fd for a blocking
 //! `stepReadable` round-robin the way a TCP Connection does.
 //!
-//!   G (gifter)     Bridge + Loop — desk that introduces E's widget
-//!   E (exporter)   Bridge + Loop — publishes the widget, accepts R's redeem
-//!   R (recipient)  Bridge + Loop — redeems by dialing E by node id
+//!   G (gifter)     Bridge + Loop, the desk that introduces E's widget
+//!   E (exporter)   Bridge + Loop, publishes the widget and accepts R's redeem
+//!   R (recipient)  Bridge + Loop, redeems by dialing E by node id
 //!
 //! Not part of the hermetic `zig build check`: it links the Rust sidecar
 //! staticlib, so it runs as the sibling step `zig build iroh-bridge-redeem`.

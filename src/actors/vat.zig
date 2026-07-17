@@ -506,7 +506,7 @@ pub const Turn = struct {
     /// state changes never roll back — and the moved bytes are still freed by
     /// the vat, so nothing leaks.
     ///
-    /// Eventual-path accounting, honestly: on a listened `send` → `drive`
+    /// Eventual-path accounting, honestly: on a listened `send` then `drive`
     /// path the moved reply is still cloned once for the listener —
     /// necessarily, because a listener-opened top-level turn would drain the
     /// moved bytes mid-call — so the full O(1) win is on `near` and `tell`; a
@@ -674,7 +674,7 @@ pub const Vat = struct {
     /// mid-call. This arena resets only when `settle_depth` returns to zero.
     settle_arena: std.heap.ArenaAllocator,
     /// Nesting depth of in-flight far-resolve settles. A far listener can
-    /// re-enter `serve` (a driver pump: `BlockingSession.step` → `drainEvents`),
+    /// re-enter `serve` (a driver pump: `BlockingSession.step` then `drainEvents`),
     /// and the nested settle must not reset the arena the outer listener's
     /// value still lives in; only the return to depth 0 resets it.
     settle_depth: u32 = 0,
@@ -1343,7 +1343,7 @@ pub const Vat = struct {
             .far => return Error.NotLocal,
         };
         const peer = self.peer orelse return Error.NotConnected;
-        // Reject a collision before touching the peer: the export → actor map is
+        // Reject a collision before touching the peer: the export to actor map is
         // authority (it decides which local object a partner reaches), so a second
         // bind to the same position fails loud rather than orphaning the first.
         const gop = try self.exports.getOrPut(self.allocator, position);
@@ -1712,19 +1712,18 @@ pub const Vat = struct {
                 // A give whose envelope or location does not project
                 // falls through and fires as the plain argument.
                 if (value == .handoff and value.handoff == .give) {
-                    if (engine.spanSignedHandoffGive(event.bytes())) |span| {
-                        const uri = engine.handoff_recipient.exporterLocatorUri(
-                            self.allocator,
-                            value.handoff.give.exporter_location,
-                        ) catch |err| switch (err) {
-                            error.OutOfMemory => return error.OutOfMemory,
-                            error.MalformedLocatorRecord => null,
-                        };
-                        if (uri) |locator_uri| {
-                            defer self.allocator.free(locator_uri);
+                    var projected = try engine.handoff_recipient.projectGiveForRedeem(
+                        self.allocator,
+                        event.bytes(),
+                        value.handoff.give,
+                    );
+                    defer projected.deinit(self.allocator);
+                    if (projected.bytes()) |give_bytes| {
+                        if (projected.locator == .uri) {
+                            const locator_uri = projected.locator.uri;
                             std.debug.assert(self.far_listeners.fetchRemove(resolve.answer) != null);
                             listener.func(listener.ctx, .{ .give = .{
-                                .give_bytes = span,
+                                .give_bytes = give_bytes,
                                 .exporter_locator_uri = locator_uri,
                                 .recipient_key = value.handoff.give.recipient_key,
                             } });

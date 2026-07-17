@@ -322,7 +322,7 @@ try {
 			bridge(socket).catch((err) => console.error("bridge ended:", err?.message ?? err));
 			return response;
 		}
-		// CapTP peers (rooms-bot) bootstrap the live ocapn:// locator over HTTP
+		// CapTP peers (rooms-peer) bootstrap the live ocapn:// locator over HTTP
 		// on the shared Docker network, then dial via iroh Discovery — not CapTP
 		// over this port.
 		if (url.pathname === "/locator") {
@@ -356,7 +356,7 @@ try {
 	Deno.exit(1);
 }
 
-// The browser↔bridge protocol is defined once, as zod schemas, in lib/wire.ts:
+// The browser-to-bridge protocol is defined once, as zod schemas, in lib/wire.ts:
 // `Inbound` is what the browser sends us (validated below before we act on it), and
 // `Outbound` is everything we send back (so `safeSend` is type-checked against it).
 function safeSend(ws: WebSocket, msg: Outbound): void {
@@ -418,7 +418,7 @@ async function startDmMember(
 	const accept = (server: AsyncIterable<{ serve(): Promise<unknown> }>) =>
 		void (async () => {
 			try {
-				for await (const conn of server) conn.serve().catch(() => {});
+				for await (const session of server) session.serve().catch(() => {});
 			} catch { /* the listener closed */ }
 		})();
 	const closer = (server: { close: () => void }) => () => {
@@ -510,7 +510,7 @@ async function bridge(ws: WebSocket): Promise<void> {
 	// teardown below runs and the room drops us like any clean departure.
 	const LIVENESS_MS = 45_000;
 	const liveness = setInterval(() => {
-		if (Date.now() - lastSeen > LIVENESS_MS) safeClose(ws); // → ws.onclose → onSocketClose
+		if (Date.now() - lastSeen > LIVENESS_MS) safeClose(ws); // closes into ws.onclose / onSocketClose
 	}, 15_000);
 
 	// Closing the tab stops its liveness timer and closes its DM peer and directory
@@ -567,7 +567,7 @@ async function bridge(ws: WebSocket): Promise<void> {
 	// If the directory connection drops (the server respawning), end the tab; the
 	// browser reconnects and gets a fresh directory. A dropped connection makes
 	// serve() reject, so catch it: the drop is expected, not a crash.
-	dir.conn.serve().finally(() => safeClose(ws)).catch(() => {});
+	dir.session.serve().finally(() => safeClose(ws)).catch(() => {});
 
 	let current: Room | null = null;
 
@@ -595,7 +595,7 @@ async function bridge(ws: WebSocket): Promise<void> {
 			// Forward every other member's typing flag straight to the browser; the
 			// signal never enters the message stream, so it is a pure presence hint.
 			const next = await Room.subscribe(
-				dir!.conn,
+				dir!.session,
 				ref,
 				nick,
 				(from, on) => safeSend(ws, { typing: { from, on } }),

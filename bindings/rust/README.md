@@ -21,7 +21,7 @@ how the bindings are gated.
 | `async`  | `Session`, `Host`, `connect`/`listen`   | none: native tokio                        | no      |
 
 `tcp` and `inproc` are on by default, so a plain `cargo build` (and
-`zig build rust-dogfood`) links the same set the dogfood always has. The core is
+`zig build rust-dogfood`) links the same set the binding check always has. The core is
 usable standalone: `cargo build --no-default-features` links only the core
 archives and compiles no transport FFI. A single transport composes on top of
 it: `cargo build --no-default-features --features tcp` links the core plus the
@@ -55,18 +55,38 @@ Rust values. Build them with `Into`
 `as_i64` / `as_str` / `as_bytes` / `as_list` accessors, so a call site never
 spells out an enum variant.
 
-The `async` feature carries that application surface. `connect(uri, reachability, host)`
-is the one dialer. `listen` and `Server::accept` host. A `Session` fetches,
-publishes, spawns, sends, and tells. `send` returns a `RemotePromise` that
-pipelines as the target of a later send and projects with `index`/`untag`.
-`caretaker` and `attenuate` wrap any `Ref` in a revocable or narrowed proxy.
-`Host::publish_giftable` publishes host-wide for three-party handoffs. The host
-archive owns routing, redemption, and gift origination. The crate implements
-the embedder contract: it pumps raw bytes through
-`pancake_host_session_feed_bytes`, honors the host's action queue (dial, flush,
-gift-id entropy, vow settlements), and hosts every actor closure through one
-shared behavior trampoline. A panic in that trampoline settles the answer broken
-instead of unwinding across the C frame. Everything runs on one tokio
+The `async` feature carries that application surface. Round-trip shape (tcp;
+site tabs add iroh). `connect` already starts the inbound loop — call
+`Session::serve` only to await shutdown:
+
+```rust
+use pancake::{connect, tcp_locator, Argument};
+
+let partner = tcp_locator("127.0.0.1", 9099);
+let session = connect(&partner, None, None).await?;
+let greeter = session.fetch("greeter").await?; // a capability, by name
+match session
+    .send(&greeter, "greet", &[Argument::String("world".into())])
+    .await
+{
+    Ok(Argument::String(reply)) => println!("{reply}"),
+    Ok(other) => println!("unexpected reply: {other:?}"),
+    Err(reason) => eprintln!("the greeter refused: {reason:?}"),
+}
+session.close();
+```
+
+`connect(uri, reachability, host)` is the one dialer. `listen` and
+`Server::accept` host. A `Session` fetches, publishes, spawns, sends, and tells.
+`send` returns a `RemotePromise` that pipelines as the target of a later send
+and projects with `index`/`untag`. `caretaker` and `attenuate` wrap any `Ref` in
+a revocable or narrowed proxy. `Host::publish_giftable` publishes host-wide for
+three-party handoffs. The host archive owns routing, redemption, and gift
+origination. The crate implements the embedder contract: it pumps raw bytes
+through `pancake_host_session_feed_bytes`, honors the host's action queue (dial,
+flush, gift-id entropy, vow settlements), and hosts every actor closure through
+one shared behavior trampoline. A panic in that trampoline settles the answer
+broken instead of unwinding across the C frame. Everything runs on one tokio
 current-thread `LocalSet`. The handles are `!Send` by construction.
 
 A `Host` is minted per session by default and shared explicitly for the handoff
@@ -97,18 +117,18 @@ in [`src/iroh.rs`](src/iroh.rs), which establishes connections through the same
 byte-fed pump, so a tcp-only build references no iroh symbol. The iroh module
 routes its diagnostics through `pancake_iroh_last_error`.
 
-## Gates
+## Build checks
 
-The crate is the dogfood consumer `zig build rust-dogfood` runs, so the
+The crate is the binding check consumer `zig build rust-dogfood` runs, so the
 ergonomic surface stays aligned with the real library.
 `zig build rust-goblins-interop` drives the async surface
 ([`interop/goblins_interop/rust_client.rs`](../../interop/goblins_interop/rust_client.rs))
-through the keyed handshake, bootstrap fetch, and a call against a live
+through the keyed handshake, `enliven` + dedup, and a call against a live
 Goblins vat.
 
 ```sh
 zig build rust-dogfood           # build the pancake archives, run this crate's smoke tests
-zig build rust-goblins-interop   # live Goblins conversation (needs racket + goblins)
+zig build rust-goblins-interop   # live Goblins client-direction interop (needs racket + goblins)
 ```
 
 The à-la-carte composition is checkable directly with cargo:
@@ -122,6 +142,6 @@ zig build iroh-abi && cargo build --features iroh # opt-in iroh companion links
 
 The crate's unit tests run under `--features async` (that is what
 `zig build rust-dogfood` drives), so the `iroh` module has no unit coverage of
-its own. Its proof is the live example gates (`rust-iroh-handoff`,
+its own. Its proof is the live example checks (`rust-iroh-handoff`,
 `rust-iroh-loop`, `rust-iroh-redeem-posture`), which link the sidecar and run
 real endpoints.

@@ -1,7 +1,7 @@
 //! Native orchestrator for the per-language consumer-cost bench
 //! (`zig build bench-langs`).
 //!
-//! One fixed reference host — the native Zig taskboard server — is held constant
+//! One fixed reference host, the native Zig taskboard server, is held constant
 //! while the *client* language varies. For each client language present on the
 //! machine this driver spawns a fresh host, runs the taskboard workload from
 //! that language's bench client, parses the NDJSON it prints, samples the client
@@ -13,7 +13,7 @@
 //! (runtime + binding + per-language app + GC/JIT) over one pancake host. See
 //! `bench/langs/README.md` for the fairness model and caveats.
 //!
-//! Being native Zig, it needs no Racket — Racket joins only as two of the client
+//! Being native Zig, it needs no Racket. Racket joins only as two of the client
 //! rows (the binding row and the Goblins reference), each skipped with a note
 //! when its runtime is absent. The substrate bench (`bench-goblins`) and the
 //! site report keep their Racket orchestration; this one stands on the Zig

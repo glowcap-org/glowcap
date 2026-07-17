@@ -30,10 +30,10 @@ fn greeter(verb: &str, _args: &[Argument]) -> Result<Argument, String> {
 /// concurrently with `accept` so the listener unblocks; the oneshot orders
 /// publish ahead of fetch.
 async fn call_greeter(uri: &str, published: oneshot::Receiver<()>) -> Result<(), String> {
-	let conn = connect(uri, None, None).await.map_err(|e| e.to_string())?;
+	let session = connect(uri, None, None).await.map_err(|e| e.to_string())?;
 	let _ = published.await;
-	let greeter = conn.fetch("greeter").await.map_err(|e| e.to_string())?;
-	let reply = conn
+	let greeter = session.fetch("greeter").await.map_err(|e| e.to_string())?;
+	let reply = session
 		.send(&greeter, "greet", &[])
 		.await
 		.map_err(|e| e.to_string())?;
@@ -45,11 +45,11 @@ async fn call_greeter(uri: &str, published: oneshot::Receiver<()>) -> Result<(),
 
 async fn host_one(server: Rc<KeyedTcpServer>, published: oneshot::Sender<()>) {
 	match server.accept().await {
-		Ok(conn) => {
-			if conn.publish("greeter", greeter).await.is_ok() {
+		Ok(session) => {
+			if session.publish("greeter", greeter).await.is_ok() {
 				let _ = published.send(());
 			}
-			let _served: Session = conn;
+			let _served: Session = session;
 			std::future::pending::<()>().await;
 		}
 		Err(_) => {}
@@ -95,7 +95,7 @@ async fn scene_squatter() -> Result<(), String> {
 	let addr = squatter.local_addr().map_err(|e| e.to_string())?;
 	let uri = keyed_tcp_locator(&designator, &addr.ip().to_string(), addr.port());
 	match connect(&uri, None, None).await {
-		Ok(_conn) => return Err("squatter dial should have been refused".into()),
+		Ok(_session) => return Err("squatter dial should have been refused".into()),
 		Err(e) => println!("rust-keyed-tcp-restart: squatter refused ({e})"),
 	}
 	drop(host);

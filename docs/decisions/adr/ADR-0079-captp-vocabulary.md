@@ -3,12 +3,12 @@ id: ADR-0079
 status: accepted
 date: 2026-07-12
 tags: [vocabulary, driver, bindings, c-abi, captp]
-decision: "CapTP vocabulary is one sticky note across Zig, C, and bindings: Host is the multi-session CapTP product (owns engine.Node); engine.Node is the sans-io handoff router (router half of Goblins mycapn); Session is the CapTP one-partner app object (driver.Session / binding Session / PancakeTcpSession); BlockingSession is Served + net.Connection with a blocking pump (formerly ConnectedVat); Host.Conn / PancakeHostSession is the host-registered shell; net.Connection is the framed byte stream only; HostedActor / spawnHosted is embedder-hosted behavior (formerly ForeignActor / spawnForeign); DialResolver replaces transport Locator; ContextAllocator replaces HostAllocator. Goblins mycapn is two roles — endpoint ≈ Host, router tables ≈ engine.Node — never a single-type equation. Binding Node and binding Connection are deleted. driver.Node re-export is deleted."
+decision: "CapTP vocabulary is one sticky note across Zig, C, and bindings: Host is the multi-session CapTP product (owns engine.Node); engine.Node is the sans-io handoff router (router half of Goblins mycapn); Session is the CapTP one-partner app object (driver.Session / binding Session / PancakeTcpSession); BlockingSession is Served + net.Connection with a blocking pump (formerly ConnectedVat); Host.Conn / PancakeHostSession is the host-registered shell; net.Connection is the framed byte stream only; HostedActor / spawnHosted is embedder-hosted behavior (formerly ForeignActor / spawnForeign); DialResolver replaces transport Locator; ContextAllocator replaces HostAllocator. Goblins mycapn is two roles (endpoint ≈ Host, router tables ≈ engine.Node) never a single-type equation. Binding Node and binding Connection are deleted. driver.Node re-export is deleted."
 supersedes: []
 superseded_by: []
 ---
 
-# ADR-0079 CapTP vocabulary — Host, Node, Session, sticky note
+# ADR-0079 CapTP vocabulary. Host, Node, Session, sticky note
 
 ## Context
 
@@ -45,34 +45,35 @@ superseded for living guidance.
 `engine.Node`. Never “X IS mycapn” as a single equation.
 
 **Internal-vocabulary rule (amendment):** `conn`/`connection` names *only* a byte
-stream — `net.Connection`, and the transport handles `PancakeTcpConn`,
+stream. `net.Connection`, and the transport handles `PancakeTcpConn`,
 `PancakeInprocConn`, `PancakeIrohConn`. A CapTP conversation with one partner is
 a `session` everywhere above `engine.Peer`: type names, fields, params, and C
 symbols alike. This is the rule the byte-fed host tier once broke by spelling its
 per-partner session `Conn` / `PancakeHostConn`, which collided with the
-byte-stream `Conn` in the same C ABI — the old host-conn spelling even carried
+byte-stream `Conn` in the same C ABI: the old host-conn spelling even carried
 both words in one symbol, a conn whose check verb read session-open. The driver
 family is now `PancakeHostSession` /
 `pancake_host_session_*` and `driver_core.Session`; `checkCaptpVocabulary` in
-`tools/meta_check.zig` keeps the collision from returning.
+`tools/check/meta_check.zig` keeps the collision from returning.
 
 **`endpoint`:** reserve it for the transport-bound local identity (an iroh
 endpoint, a netlayer's bound address), not as a `Host` synonym. `endpoint` is a
 transport concept; `Host` is the CapTP product.
 
-**Deletes / renames:** binding `Node` → `Host`; binding `Connection` →
-`Session`; `ConnectedVat` → `BlockingSession`; `ForeignActor` → `HostedActor`;
-`spawnForeign` → `spawnHosted`; delete `Served.bindForeign` (use `bindExport`);
-delete `driver.Node` re-export; `HostAllocator` → `ContextAllocator`; transport
-`Locator` → `DialResolver`.
+**Deletes / renames:** binding `Node` becomes `Host`; binding `Connection`
+becomes `Session`; `ConnectedVat` becomes `BlockingSession`; `ForeignActor`
+becomes `HostedActor`; `spawnForeign` becomes `spawnHosted`; delete
+`Served.bindForeign` (use `bindExport`); delete `driver.Node` re-export;
+`HostAllocator` becomes `ContextAllocator`; transport `Locator` becomes
+`DialResolver`.
 
-**Rejected:** renaming `engine.Node` → `Router`; reverting `driver.Session` →
-`Connection`; renaming `net.Connection` → `Stream` to free the word; bimodal
+**Rejected:** renaming `engine.Node` to `Router`; reverting `driver.Session` to
+`Connection`; renaming `net.Connection` to `Stream` to free the word; bimodal
 owning/borrowing Session.
 
 ## Consequences
 
-- Living-state docs and `tools/meta_check.zig` ban resurrected lies.
+- Living-state docs and `tools/check/meta_check.zig` ban resurrected lies.
 - ADR-0066 binding-Node guidance is historical; read product as `Host`.
 
 ### Once-there holds (assessed after Phase A gated green)

@@ -304,9 +304,9 @@ async fn an_outstanding_send_rejects_on_disconnect() {
 				let conn = Session::establish_accepted(
 					captp.shared(),
 					crate::abi_constants::TRANSPORT_TCP,
-					&designator,
-					stream,
 					"",
+					stream,
+					&designator,
 				)
 				.await
 				.unwrap();
@@ -332,7 +332,7 @@ async fn an_outstanding_send_rejects_on_disconnect() {
 			.unwrap();
 			let cap = conn.fetch("svc").await.unwrap();
 			let err = conn.send(&cap, "hang", &[]).await.unwrap_err();
-			assert_eq!(err.code(), crate::sys::ERR_BROKEN);
+			assert_eq!(err.code(), crate::sys::ERR_CLOSED);
 			assert_eq!(err.message(), Some("session closed"));
 			conn.close();
 			host.await.unwrap();
@@ -657,6 +657,13 @@ async fn pipelined_projections_reach_a_field() {
 			// Neither projection awaits a prior reply: they ride the
 			// unresolved make answer and the whole chain leaves on one flush.
 			let made = conn.send(&root, "make", &[Argument::String("alice".into())]);
+			// `get` mints a sibling vow at the answer (Struct fields; bindings
+			// cannot publish Struct replies, so we only assert the mint surface).
+			let field = made.get("name");
+			assert!(
+				field.vow().is_some(),
+				"RemotePromise::get should mint a pipelinable vow"
+			);
 			let label = made.untag("task").index(1).await.unwrap();
 			assert_eq!(label, Argument::String("alice".into()));
 			// The source answer settled while the projection pumped the loop;
@@ -1002,9 +1009,9 @@ async fn dropping_a_fetched_cap_releases_its_import_when_gc_is_on() {
 				let conn = Session::establish_accepted(
 					captp.shared(),
 					crate::abi_constants::TRANSPORT_TCP,
-					&designator,
-					stream,
 					"",
+					stream,
+					&designator,
 				)
 				.await
 				.unwrap();

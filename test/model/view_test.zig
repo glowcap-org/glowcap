@@ -1,4 +1,5 @@
-//! Codec-neutral view round-trips: owned → `view.Body.fromOwned` → `toOwned`.
+//! Codec-neutral view round-trips: owned message through `view.Body.fromOwned`
+//! and back through `toOwned`.
 //!
 //! These exercise the owned-fallback (slice) backings of `Args` /
 //! `PositionList` / `PipelinePath` and the full materialization tree. The
@@ -91,7 +92,7 @@ test "start_session round-trips" {
 test "handoff give and receive round-trip" {
     const give = model.HandoffGive{
         .recipient_key = "rk",
-        .exporter_location = "el",
+        .exporter = .{ .transport = "memory", .designator = "el" },
         .gifter_exporter_session = "ges",
         .gifter_side = "gs",
         .gift_id = "gid",
@@ -147,19 +148,13 @@ test "toOwned bounds nesting through promise pipeline-path call ops, not just li
     try std.testing.expectError(error.MalformedView, body.toOwned(allocator));
 }
 
-test "ExporterLocation.toOwned refuses a transport containing ':'" {
-    // The flattened `transport:designator` form splits back on the first ':',
-    // so a transport carrying one would re-split into a different locator.
-    const ambiguous = view.ExporterLocation{
-        .locator = .{ .transport = "tcp:extra", .designator = "host" },
+test "view.PeerLocator.toOwned clones transport and designator" {
+    const loc = view.PeerLocator{
+        .transport = "tcp",
+        .designator = "host:9045",
     };
-    try std.testing.expectError(error.MalformedView, ambiguous.toOwned(std.testing.allocator));
-
-    // A colon-free transport still flattens, colon-bearing designator and all.
-    const valid = view.ExporterLocation{
-        .locator = .{ .transport = "tcp", .designator = "host:9045" },
-    };
-    const owned = try valid.toOwned(std.testing.allocator);
-    defer std.testing.allocator.free(owned);
-    try std.testing.expectEqualStrings("tcp:host:9045", owned);
+    const owned = try loc.toOwned(std.testing.allocator);
+    defer model.freePeerLocator(std.testing.allocator, owned);
+    try std.testing.expectEqualStrings("tcp", owned.transport);
+    try std.testing.expectEqualStrings("host:9045", owned.designator);
 }

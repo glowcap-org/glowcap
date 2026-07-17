@@ -1,4 +1,4 @@
-/* Generated from src/c_abi/ocapn/mod.zig by tools/header_gen.zig.
+/* Generated from src/c_abi/ocapn/mod.zig by tools/gen/header/ocapn.zig.
    Do not edit by hand: run `zig build gen-header-ocapn`. Struct layouts,
    constant values, and function signatures are reflected from the Zig
    source, so this header cannot drift from the implementation.
@@ -156,8 +156,8 @@ void pancake_abi_version(uint32_t *out_major, uint32_t *out_minor, uint32_t *out
 #define PANCAKE_HINTS_EMPTY_FALSE 1
 /* captp_version for pancake_peer_new_negotiated: the authenticated v1.0 profile. */
 #define PANCAKE_CAPTP_VERSION_V1_0 0
-/* captp_version for pancake_peer_new_negotiated: PreSpec, the upstream OCapN prerelease profile. */
-#define PANCAKE_CAPTP_VERSION_PRE_SPEC 1
+/* captp_version for pancake_peer_new_negotiated: next, the pancake-forward private CapTP track. */
+#define PANCAKE_CAPTP_VERSION_NEXT 1
 /* PancakeLastAbort.domain: a codec decode/encode malformation. */
 #define PANCAKE_ABORT_DOMAIN_CODEC 0
 /* PancakeLastAbort.domain: the session state machine refused the operation. */
@@ -254,8 +254,8 @@ int32_t pancake_peer_new(PancakePeer **out_peer);
 /* Context-backed counterpart of pancake_peer_new. */
 int32_t pancake_peer_new_in(PancakeContext *context, PancakePeer **out_peer);
 /* Create a negotiating peer carrying an out-of-band negotiated profile and
-   codec: captp_version is a PANCAKE_CAPTP_VERSION_* value (_V1_0, or _PRE_SPEC
-   for the upstream OCapN prerelease profile), codec a PANCAKE_CODEC_* value.
+   codec: captp_version is a PANCAKE_CAPTP_VERSION_* value (_V1_0, or _NEXT
+   for the pancake-forward private CapTP track), codec a PANCAKE_CODEC_* value.
    Both ends of a connection must construct with the same pair —
    op:start-session carries the profile but no codec operand, so codec
    agreement is the caller's, the same agreement the matching codec argument

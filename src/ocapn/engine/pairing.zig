@@ -5,10 +5,15 @@
 //! Two negotiating `Peer`s exchange their `op:start-session` halves through a
 //! frame shuttle: each peer steps, the outbound frames it produced are fed into
 //! the partner's inbound queue, and the loop terminates when both peers reach
-//! `StepOutcome.idle` with no traffic in flight. After
-//! `paired` / `pairedWithKeys` returns, both peers sit in the canonical
+//! `StepOutcome.idle` with no traffic in flight. After `paired` /
+//! `pairedGoblins` / `pairedWithKeys` returns, both peers sit in the canonical
 //! `open` state (both handshake halves observed) with the bootstrap export
 //! installed at id 0.
+//!
+//! Offer jobs: `paired` runs `Offer.native()` (prefers `next` / Cap'n Proto);
+//! `pairedGoblins` and `pairedWithKeys` run `Offer.goblins()` (`v1_0` / Syrup).
+//! Callers that need an arbitrary intersected offer use `negotiate` then
+//! `pairedNegotiated`.
 //!
 //! This is the no-I/O primitive the netlayer adapters wrap: an adapter delegates
 //! the handshake here, then pairs the resulting sync peers with its transport glue.
@@ -45,9 +50,9 @@ pub const Error = error{
     /// The two offers share no codec — negotiation produced no session
     /// (`engine.negotiation.negotiate` returned null).
     NoSharedCodec,
-    /// The two offers share no profile — negotiation produced no session
+    /// The two offers share no CapTP version — negotiation produced no session
     /// (`engine.negotiation.negotiate` returned null).
-    NoSharedProfile,
+    NoSharedCaptpVersion,
 };
 
 /// Outcome of `shuttleUntilQuiescent`.
@@ -98,47 +103,70 @@ pub fn shuttleUntilQuiescent(p1: *Peer, p2: *Peer) !ShuttleOutcome {
 
 /// Construct a paired pair and drive the in-process handshake with stub-zero
 /// `session_pubkey` / `acceptable_location_sig` (the no-crypto fixture path).
-/// Both peers reach `open` with handshake bookkeeping populated; the
-/// handshake-artifact events are drained so the caller sees empty event queues.
+/// Settles `Offer.native()` — typically `next` / `"pancake-next"` over Cap'n
+/// Proto. Goblins-shaped fixtures use `pairedGoblins` instead. Both peers reach
+/// `open` with handshake bookkeeping populated; the handshake-artifact events
+/// are drained so the caller sees empty event queues.
 pub fn paired(allocator: std.mem.Allocator) !Pair {
-    return pairedWithFeatures(allocator, model.FeatureSet.full());
+    return pairedWithOffers(allocator, engine.negotiation.Offer.native(model.FeatureSet.full()), engine.negotiation.Offer.native(model.FeatureSet.full()));
 }
 
 /// Construct a paired pair from an already-negotiated handshake outcome.
-/// Both peers are built with the *same* negotiated profile, codec, and feature
-/// set. Callers that start from two `Offer`s run `negotiation.negotiate` first
-/// (and map a null result to `Error.NoSharedCodec` / `NoSharedProfile`). The
-/// no-crypto stub-key handshake path otherwise matches `paired`.
+/// Both peers are built with the *same* negotiated CapTP version, codec, and
+/// feature set. Callers that start from two `Offer`s run `negotiation.negotiate`
+/// first (and map a null result to `Error.NoSharedCodec` /
+/// `NoSharedCaptpVersion`). The no-crypto stub-key handshake path otherwise
+/// matches `paired`.
 pub fn pairedNegotiated(
     allocator: std.mem.Allocator,
     negotiated: engine.negotiation.Negotiated,
 ) !Pair {
-    return pairedWithProfileCodecAndFeatures(allocator, negotiated.profile, negotiated.chosen, negotiated.features);
+    return pairedWithCaptpVersionCodecAndFeatures(allocator, negotiated.captp_version, negotiated.codec, negotiated.features);
 }
 
-/// As `paired`, but both peers run `codec_id` (full feature set). The whole
-/// handshake and all subsequent traffic ride that codec through the
-/// codec-dispatch boundary on `session.codec` — the entry point a cross-codec
-/// conformance parity run uses to drive one scenario over each codec and assert
-/// the semantic traces match across both codecs.
-pub fn pairedWithCodec(allocator: std.mem.Allocator, codec_id: model.CodecId) !Pair {
-    return pairedWithProfileCodecAndFeatures(allocator, model.WireProfile.v1_0, codec_id, model.FeatureSet.full());
-}
-
-/// Shared body of `paired` / `pairedNegotiated`: build two negotiating peers
-/// carrying `features`, drive the stub-key in-process handshake to quiescence,
-/// and drain the handshake-artifact events. Defaults to the Syrup codec.
-fn pairedWithFeatures(allocator: std.mem.Allocator, features: model.FeatureSet) !Pair {
-    return pairedWithProfileCodecAndFeatures(allocator, model.WireProfile.v1_0, .syrup, features);
-}
-
-/// As `pairedWithFeatures`, building both peers on the negotiated
-/// `model.CodecId`. The whole handshake and all subsequent
-/// traffic ride that codec, since the peers' send/recv route through the
-/// codec-dispatch boundary on `session.codec`.
-fn pairedWithProfileCodecAndFeatures(
+/// Resolve two offers through `negotiation.negotiate` and pair on the result.
+fn pairedWithOffers(
     allocator: std.mem.Allocator,
-    wire_profile: model.WireProfile,
+    local: engine.negotiation.Offer,
+    remote: engine.negotiation.Offer,
+) !Pair {
+    const negotiated = engine.negotiation.negotiate(local, remote) orelse {
+        if (offersShareCaptpVersion(local, remote)) return Error.NoSharedCodec;
+        return Error.NoSharedCaptpVersion;
+    };
+    return pairedNegotiated(allocator, negotiated);
+}
+
+fn offersShareCaptpVersion(local: engine.negotiation.Offer, remote: engine.negotiation.Offer) bool {
+    for (local.captp_versions) |lp| {
+        for (remote.captp_versions) |rp| {
+            if (lp == rp) return true;
+        }
+    }
+    return false;
+}
+
+/// As `paired`, but both peers run `codec_id` under Goblins `v1_0` (full feature
+/// set). Cross-codec Goblins-shape parity uses this so resolver-callback
+/// translation stays on; native Cap'n Proto without V1.0 translation goes
+/// through `paired` / `pairedWithOffers`.
+pub fn pairedWithCodec(allocator: std.mem.Allocator, codec_id: model.CodecId) !Pair {
+    return pairedWithCaptpVersionCodecAndFeatures(allocator, .v1_0, codec_id, model.FeatureSet.full());
+}
+
+/// Goblins-interop pairing: `Offer.goblins()` yields authenticated `v1_0` / `"1.0"`
+/// over Syrup (full feature set). Use this for fixtures and examples that must
+/// match live Goblins wire shape; `paired` is the pancake-forward CapNP path.
+pub fn pairedGoblins(allocator: std.mem.Allocator) !Pair {
+    return pairedWithOffers(allocator, engine.negotiation.Offer.goblins(model.FeatureSet.full()), engine.negotiation.Offer.goblins(model.FeatureSet.full()));
+}
+
+/// Shared body for stub-key pairing on an already-chosen CapTP version, codec,
+/// and feature set. Handshake and subsequent traffic ride `codec_id` through
+/// the codec-dispatch boundary on `session.codec`.
+fn pairedWithCaptpVersionCodecAndFeatures(
+    allocator: std.mem.Allocator,
+    captp_version: model.CaptpVersion,
     codec_id: model.CodecId,
     features: model.FeatureSet,
 ) !Pair {
@@ -146,14 +174,14 @@ fn pairedWithProfileCodecAndFeatures(
     // partner-signature verification cannot apply here, keyed tests construct
     // verifying peers and call `sendKeyedStartSession`.
     var p1 = Peer.initNegotiatingWith(allocator, .{
-        .wire_profile = wire_profile,
+        .captp_version = captp_version,
         .codec = codec_id,
         .features = features,
         .verify_partner_handshake = false,
     });
     errdefer p1.deinit();
     var p2 = Peer.initNegotiatingWith(allocator, .{
-        .wire_profile = wire_profile,
+        .captp_version = captp_version,
         .codec = codec_id,
         .features = features,
         .verify_partner_handshake = false,
@@ -189,9 +217,24 @@ pub fn pairedWithKeys(
     p1_seed: [crypto.SEED_BYTES]u8,
     p2_seed: [crypto.SEED_BYTES]u8,
 ) !Pair {
-    var p1 = Peer.initNegotiating(allocator);
+    // Keyed handshake is the authenticated Goblins-interop path (ADR-0006):
+    // `v1_0` + Syrup. Native CapNP keyed pairs go through `pairedWithOffers`
+    // + `sendKeyedStartSession`.
+    const negotiated = engine.negotiation.negotiate(
+        engine.negotiation.Offer.goblins(model.FeatureSet.full()),
+        engine.negotiation.Offer.goblins(model.FeatureSet.full()),
+    ) orelse return Error.NoSharedCodec;
+    var p1 = Peer.initNegotiatingWith(allocator, .{
+        .captp_version = negotiated.captp_version,
+        .codec = negotiated.codec,
+        .features = negotiated.features,
+    });
     errdefer p1.deinit();
-    var p2 = Peer.initNegotiating(allocator);
+    var p2 = Peer.initNegotiatingWith(allocator, .{
+        .captp_version = negotiated.captp_version,
+        .codec = negotiated.codec,
+        .features = negotiated.features,
+    });
     errdefer p2.deinit();
 
     const p1_secret = crypto.SecretKey.fromSeed(p1_seed);
@@ -231,7 +274,7 @@ fn sendStartSession(
 ) !void {
     try peer.sendCopying(.{
         .start_session = .{
-            .captp_version = peer.session_state.wire_profile.captp_version,
+            .captp_version = peer.session_state.captp_version,
             .session_pubkey = .{ .bytes = pubkey },
             .acceptable_location = locator,
             .acceptable_location_sig = .{ .bytes = sig },

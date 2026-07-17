@@ -1,4 +1,4 @@
-/* Generated from src/c_abi/net_transport/inproc/mod.zig by tools/header_gen_net_inproc.zig.
+/* Generated from src/c_abi/net_transport/inproc/mod.zig by tools/gen/header/net_inproc.zig.
    Do not edit by hand: run `zig build gen-header-net-transport-inproc`.
    Function signatures are reflected from the Zig source, so this header
    cannot drift from the implementation.

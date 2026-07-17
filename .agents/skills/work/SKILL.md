@@ -26,6 +26,9 @@ Read only what the task needs:
 | Frames, allocators, wire-path copies                  | [memory rule](../../rules/memory.md)                                                                       |
 | Semantic claims, fixtures, conformance                | [tests rule](../../rules/tests.md) + `test/oracle/`                                                        |
 | Docs, README, agent scaffolding                       | [doc-drift](../../rules/doc-drift.md) + [doc-voice](../../rules/doc-voice.md)                              |
+| Live CapTP from the shell (argv/REPL/listen/`--json`) | [pancake-cli skill](../pancake-cli/SKILL.md)                                                               |
+| Live CapTP via Cursor/Claude MCP tools                | [pancake-mcp skill](../pancake-mcp/SKILL.md) — dogfood CapTP while editing pancake                         |
+| Room presence wake-loop                               | [rooms-peer skill](../rooms-peer/SKILL.md)                                                                   |
 | A settled boundary or vocabulary choice               | matching ADR under `docs/decisions/adr/`                                                                   |
 | OCapN spec text (when semantics are unclear)          | `conformance/ocapn-spec/`                                                                                  |
 
@@ -75,4 +78,4 @@ Use focused gates while iterating (see [cli rule](../../rules/cli.md)).
   it.
 - Do not leave "someone should fix X later" without recording X as a present
   boundary in vision, `docs/boundaries.md`, or an ADR.
-- Scaffolding changes: update `tools/meta_check.zig` in the same change.
+- Scaffolding changes: update `tools/check/meta_check.zig` in the same change.

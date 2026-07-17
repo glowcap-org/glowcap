@@ -61,7 +61,7 @@ pub fn canonicalHandoffGiveSignedBytes(
     if (give.raw_signed) |raw| {
         return handoffGiveSignedPayloadBytes(allocator, raw);
     }
-    return encode.renderRecordExact(allocator, encode.writeHandoffGiveRecord, .{give});
+    return encode.renderRecordExact(allocator, encode.writeHandoffGiveRecord, .{ allocator, give });
 }
 
 /// Build the inner `<desc:handoff-give …>` record taking the exporter location as
@@ -106,7 +106,7 @@ pub fn canonicalHandoffReceiveSignedBytes(
     allocator: std.mem.Allocator,
     receive: model.HandoffReceive,
 ) ![]u8 {
-    return encode.renderRecordExact(allocator, encode.writeHandoffReceiveRecord, .{receive});
+    return encode.renderRecordExact(allocator, encode.writeHandoffReceiveRecord, .{ allocator, receive });
 }
 
 /// Recover the inner `<desc:handoff-give …>` payload bytes from a verbatim signed

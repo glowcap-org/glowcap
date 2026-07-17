@@ -45,7 +45,7 @@
   (dir-watch d (lambda (kind name count)
                  (printf "[~a] directory: ~a ~a (~a)\n" nick kind name count)
                  (flush-output)))
-  (room-subscribe (directory-conn d)
+  (room-subscribe (directory-session d)
                   (enter-or-open (lambda (n) (dir-enter d n))
                                  (lambda (n) (dir-open d n))
                                  room-name)

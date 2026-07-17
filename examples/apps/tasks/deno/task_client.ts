@@ -34,7 +34,7 @@ function parseSnapshot(raw: AppValue): Task[] {
 }
 
 export class TaskBoard {
-	#conn: Session;
+	#session: Session;
 	#board: Ref;
 	#snapshots!: ReadableStreamDefaultController<Task[]>;
 	#leaving = false;
@@ -43,8 +43,8 @@ export class TaskBoard {
 	 * state. Ends when you `leave` or the board hangs up. */
 	readonly updates: ReadableStream<Task[]>;
 
-	private constructor(conn: Session, board: Ref) {
-		this.#conn = conn;
+	private constructor(session: Session, board: Ref) {
+		this.#session = session;
 		this.#board = board;
 		this.updates = new ReadableStream<Task[]>({
 			start: (controller) => {
@@ -54,42 +54,42 @@ export class TaskBoard {
 	}
 
 	static async join(host: string, port: number): Promise<TaskBoard> {
-		const conn = await connect(tcpLocator(host, port));
-		conn.serve().catch(() => {});
-		const board = await conn.fetch(BOARD);
-		const self = new TaskBoard(conn, board);
+		const session = await connect(tcpLocator(host, port));
+		session.serve().catch(() => {});
+		const board = await session.fetch(BOARD);
+		const self = new TaskBoard(session, board);
 
-		const watcher = conn.spawn((verb, args) => {
+		const watcher = session.spawn((verb, args) => {
 			if (verb !== UPDATE) throw new Error(`watcher has no method ${verb}`);
 			self.#push(args[0]);
 			return null;
 		});
 
-		conn.serve().finally(() => self.#endStream());
-		await conn.send(board, WATCH, [watcher]);
+		session.serve().finally(() => self.#endStream());
+		await session.send(board, WATCH, [watcher]);
 		return self;
 	}
 
 	/** Add a task. Returns the new task's ID. */
 	async add(text: string): Promise<number> {
-		const result = await this.#conn.send(this.#board, ADD, [text]);
+		const result = await this.#session.send(this.#board, ADD, [text]);
 		return typeof result === "bigint" ? Number(result) : 0;
 	}
 
 	/** Mark a task as completed. */
 	async done(id: number): Promise<void> {
-		await this.#conn.send(this.#board, DONE, [BigInt(id)]);
+		await this.#session.send(this.#board, DONE, [BigInt(id)]);
 	}
 
 	/** Get the current task list (a one-shot query). */
 	async list(): Promise<Task[]> {
-		return parseSnapshot(await this.#conn.send(this.#board, LIST, []));
+		return parseSnapshot(await this.#session.send(this.#board, LIST, []));
 	}
 
 	async leave(): Promise<void> {
 		this.#leaving = true;
-		this.#conn.close();
-		await this.#conn.serve().catch(() => {});
+		this.#session.close();
+		await this.#session.serve().catch(() => {});
 	}
 
 	#push(raw: AppValue): void {

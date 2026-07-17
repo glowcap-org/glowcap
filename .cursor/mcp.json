@@ -9,6 +9,10 @@
         "--project",
         "${workspaceFolder}"
       ]
+    },
+    "pancake": {
+      "command": "${workspaceFolder}/pancake",
+      "args": ["mcp", "--tools", "default"]
     }
   }
 }

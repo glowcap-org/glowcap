@@ -3,25 +3,27 @@ locator into an open, handshaken :class:`~pancake.Session`, shared by
 :func:`connect` and handoff-redeem alike.
 
 Every dial decision — the host:port grammar, the direct-addresses hint rule,
-the iroh reachability posture, the scheme dispatch, and the typed errors —
+the peer-id reachability posture, the scheme dispatch, and the typed errors —
 is resolved once in the core by ``pancake_host_plan_dial``, which hands back a
 ``PancakeDialPlan``. This module holds no dial business logic: it marshals the
-posture, reads the plan, and performs the one thing the core cannot — the
-async byte-channel open (``asyncio.open_connection``, or the iroh companion).
-Adding a transport is a core change, not an edit here. Session owns
-mint/handshake (``establish_dialed_locator`` / ``establish_accepted``); this
-module owns plan + channel open + the public :func:`connect` dialer.
+posture, reads the plan into a language sum, and performs the one thing the
+core cannot — the async byte-channel open (``asyncio.open_connection``, or the
+iroh companion). Adding a transport is a core change, not an edit here.
+Session owns mint/handshake (``establish_dialed_locator`` /
+``establish_accepted``); this module owns plan + channel open + the public
+:func:`connect` dialer.
 """
 
 from __future__ import annotations
 
 import asyncio
 import ctypes
-from typing import NamedTuple, Optional
+from dataclasses import dataclass
+from typing import Optional, Union
 
 from . import _constants as _abi
 from ._errors import PancakeError, _check_host
-from ._ffi_driver import _DialPlan, _host
+from ._ffi_driver import _DialPlan, _PendingDial, _host
 from ._ffi_ocapn import _byte_buf
 from ._host import Host
 from ._locator import parse_locator
@@ -29,24 +31,49 @@ from ._locator import parse_locator
 _ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
 
 
-class _ResolvedDial(NamedTuple):
-    """A resolved dial from ``pancake_host_plan_dial``: what channel to open and
-    how. ``shape`` selects the live fields."""
-
-    shape: int
+@dataclass(frozen=True, slots=True)
+class _HostPortDial:
     host: str
     port: int
+    tag: str = "host_port"
+
+
+@dataclass(frozen=True, slots=True)
+class _PeerIdDial:
     addresses: str
     reach_kind: int
     reach_value: int
+    tag: str = "peer_id"
+
+
+_ResolvedDial = Union[_HostPortDial, _PeerIdDial]
+
+
+def _decode_plan_view(sources, ptr, length: int) -> str:
+    """Decode a plan view that aliases one of the ctypes input buffers (one OS
+    connect decode). A non-alias view is a core contract break. ``sources`` is
+    ``(buf, base_ptr, raw_len)`` where ``raw_len`` is the logical UTF-8 length
+    passed to the core."""
+    if not ptr or not length:
+        return ""
+    vp = ctypes.cast(ptr, ctypes.c_void_p).value
+    if vp is None:
+        return ""
+    for buf, base_ptr, raw_len in sources:
+        base = base_ptr.value
+        if base is None or raw_len == 0:
+            continue
+        if base <= vp and vp + length <= base + raw_len:
+            off = vp - base
+            return bytes(memoryview(buf)[off:off + length]).decode("utf-8", errors="replace")
+    raise PancakeError(_ERR_INVALID_ARGUMENT, "dial plan view does not alias input buffers")
 
 
 def _plan_dial(transport_name: str, designator: str, hint: str,
                posture_policy: int, posture_value: int) -> _ResolvedDial:
     """Resolve a dial in the core — the host:port grammar, the hint rule, the
-    iroh posture, and the error cases all decided by ``pancake_host_plan_dial``.
-    The plan's ``host`` / ``addresses`` borrow the input buffers, so they are read
-    into strings here while those buffers are alive."""
+    peer-id posture, and the error cases all decided by ``pancake_host_plan_dial``.
+    Plan views alias the input UTF-8 buffers; decode those subslices only."""
     t, d, h = transport_name.encode(), designator.encode(), hint.encode()
     tbuf, tptr = _byte_buf(t)
     dbuf, dptr = _byte_buf(d)
@@ -56,18 +83,21 @@ def _plan_dial(transport_name: str, designator: str, hint: str,
         tptr, len(t), dptr, len(d), hptr, len(h),
         posture_policy, posture_value, ctypes.byref(plan),
     ))
-
-    def view(ptr, length):
-        return ctypes.string_at(ptr, length).decode(errors="replace") if ptr and length else ""
-
-    return _ResolvedDial(
-        shape=plan.shape,
-        host=view(plan.host, plan.host_len),
-        port=plan.port,
-        addresses=view(plan.addresses, plan.addresses_len),
-        reach_kind=plan.reach_kind,
-        reach_value=plan.reach_value,
-    )
+    # Keep the ctypes buffers alive across the view decode (plan pointers alias them).
+    _ = (tbuf, dbuf, hbuf)
+    sources = ((dbuf, dptr, len(d)), (hbuf, hptr, len(h)))
+    if plan.shape == _abi.DIAL_SHAPE_PEER_ID:
+        return _PeerIdDial(
+            addresses=_decode_plan_view(sources, plan.addresses, plan.addresses_len),
+            reach_kind=plan.reach_kind,
+            reach_value=plan.reach_value,
+        )
+    if plan.shape == _abi.DIAL_SHAPE_HOST_PORT:
+        return _HostPortDial(
+            host=_decode_plan_view(sources, plan.host, plan.host_len),
+            port=plan.port,
+        )
+    raise PancakeError(_ERR_INVALID_ARGUMENT, f"unknown dial shape {plan.shape}")
 
 
 class _StreamTransport:
@@ -131,7 +161,7 @@ async def dial_parsed_locator(
         else:
             policy, value = _abi.DIAL_POSTURE_EXPLICIT_NONE, 0
     plan = _plan_dial(transport_name, designator, direct_addresses_hint, policy, value)
-    if plan.shape == _abi.DIAL_SHAPE_IROH:
+    if isinstance(plan, _PeerIdDial):
         from . import iroh as _iroh
         if plan.reach_kind == _abi.DIAL_REACH_DIRECT:
             reach = _iroh.Reachability.DIRECT
@@ -154,29 +184,45 @@ async def dial_exporter(transport_name: str, designator: str,
     """Dial an exporter a DIAL action names, keyed with ``host``'s retained
     identity, and bind the result to that same Host so the redeemed
     capability and any further handoff it triggers share one identity and
-    session table. The action carries the locator's parsed pieces, so
-    nothing re-parses the full give URI — tcp splits the already-parsed
-    designator via the core host:port grammar.
-    Binding-internal: the Host's action drain calls this to redeem a give.
-    Dispatches on the transport: a ``tcp`` locator dials its host:port
-    designator (already parsed out of the dial action); an
-    ``iroh`` give with direct-address hints dials them with no discovery
-    service (Direct), and a bare node id resolves by id under the Host's
-    configured redeem posture (default Discovery; a relay-policy Host
-    lowers it), so one give shape covers an offline direct dial and an
-    internet dial-by-id alike."""
+    session table. Binding-internal: the Host's action drain calls this to
+    redeem a give."""
     return await dial_parsed_locator(
         transport_name, designator, direct_addresses_hint, host, redeem=True,
     )
 
 
+async def run_dial_ticket(host: Host, ticket: int) -> None:
+    """Ticket-only DIAL arm: borrow parsed parts (no URI re-parse), dial, report."""
+    from ._ffi_ocapn import _byte_buf
+
+    try:
+        view = _PendingDial()
+        _check_host(_host.pancake_host_pending_dial(host.raw, ticket, ctypes.byref(view)))
+
+        def _view_str(ptr: int | None, length: int) -> str:
+            if not ptr or not length:
+                return ""
+            return bytes(ctypes.string_at(ptr, length)).decode("utf-8", errors="replace")
+
+        transport = _view_str(view.transport, view.transport_len)
+        designator = _view_str(view.designator, view.designator_len)
+        hint = _view_str(view.hint, view.hint_len)
+        session = await dial_exporter(transport, designator, hint, host)
+        session.host_dialed = True
+        session.serve()
+        _check_host(_host.pancake_host_dialed(host.raw, ticket, session.raw))
+    except Exception as error:  # noqa: BLE001 — a failed dial breaks the redeems
+        reason = (str(error) or type(error).__name__).encode()
+        _buf, ptr = _byte_buf(reason)
+        _check_host(_host.pancake_host_dial_failed(host.raw, ticket, ptr, len(reason)))
+
+
 async def connect(uri: str, reachability: "Optional[int]" = None,
                   host: "Optional[Host]" = None, codec: Optional[str] = None):
-    """Dial a partner from its ``ocapn://`` locator, the one dialer,
-    dispatching on the locator's transport: ``iroh`` dials the endpoint id with
-    its ``direct-addresses`` hints, ``tcp`` dials the ``host:port`` designator.
+    """Dial a partner from its ``ocapn://`` locator: parse once, call
+    ``pancake_host_plan_dial``, and open the byte channel the plan names.
     There is no other dial: a literal address is a ``tcp`` locator, built with
-    :func:`tcp_locator`. Parse once, the core grammar picks the netlayer.
+    :func:`tcp_locator`. The core owns transport dispatch and grammar.
 
     A ``tcp`` locator needs only this core module. An ``iroh`` locator reaches
     into the companion :mod:`pancake.iroh` (the optional encrypted-QUIC

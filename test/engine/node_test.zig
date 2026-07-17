@@ -1,8 +1,8 @@
-//! `engine.Node` routing-core proof (ADR-0066).
+//! `engine.Node` routing-core test (ADR-0066).
 //!
 //! Hermetic, no-I/O: exercises the sans-io router's connection table, the
 //! redeemed-token model, and foreign-home recording directly, without a socket.
-//! The live three-party proof that the same router drives a real Goblins handoff
+//! The live three-party test that the same router drives a real Goblins handoff
 //! is `zig build goblins-handoff`.
 
 const std = @import("std");
@@ -190,6 +190,145 @@ test "a redeemed token routes to its exporter with the real reference swapped in
     try std.testing.expect(node.routeReference(recipient_conn, token_ref) == null);
 }
 
+test "enrollForeign preserves promise RefKind on the token" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{3} ** crypto.SEED_BYTES);
+    defer node.deinit();
+    const home = try node.registerPeer(.{});
+    const token = try node.enrollForeign(home, .{ .far = model.FarRef.promise(8) });
+    try std.testing.expectEqual(model.RefKind.promise, token.far.kind);
+    const object_token = try node.enrollForeign(home, .{ .far = model.FarRef.object(9) });
+    try std.testing.expectEqual(model.RefKind.object, object_token.far.kind);
+}
+
+test "proxyForeignPromiseFulfill refuses when the home session is not open" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{11} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const home = try node.registerPeer(.{});
+    const recipient = try node.registerPeer(.{});
+    const token = try node.enrollForeign(home, .{ .far = model.FarRef.promise(4) });
+    try std.testing.expectError(
+        error.session_not_open,
+        node.proxyForeignPromiseFulfill(recipient, token.far.import_position.int()),
+    );
+}
+
+test "proxyForeignPromiseFulfill mints a third-party import-promise on the recipient peer" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{11} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const home = try node.registerPeer(.{});
+    const recipient = try node.registerPeer(.{});
+    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, [_]u8{19} ** crypto.SEED_BYTES);
+    defer home_counterpart.deinit();
+
+    const wire_pos: u64 = 4;
+    try node.peer(home).?.session_state.registerImport(.from(wire_pos));
+    const token = try node.enrollForeign(home, .{ .far = model.FarRef.promise(wire_pos) });
+    const far_id = token.far.import_position.int();
+
+    const rewritten = (try node.proxyForeignPromiseFulfill(recipient, far_id)).?;
+    try std.testing.expectEqual(model.RefKind.promise, rewritten.near.kind);
+    const pos = rewritten.near.export_position;
+    const peer = node.peer(recipient).?;
+    try std.testing.expect(peer.session_state.isThirdPartyImport(.from(pos.int())));
+
+    const obj = try node.enrollForeign(home, .{ .far = model.FarRef.object(5) });
+    try std.testing.expect((try node.proxyForeignPromiseFulfill(recipient, obj.far.import_position.int())) == null);
+    try std.testing.expect((try node.proxyForeignPromiseFulfill(home, far_id)) == null);
+}
+
+test "proxyForeignPromise home listen relays settlement to the recipient third-party import" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{13} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const home = try node.registerPeer(.{});
+    const recipient = try node.registerPeer(.{});
+    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, [_]u8{21} ** crypto.SEED_BYTES);
+    defer home_counterpart.deinit();
+
+    const wire_pos: u64 = 4;
+    try node.peer(home).?.session_state.registerImport(.from(wire_pos));
+    const token = try node.enrollForeign(home, .{ .far = model.FarRef.promise(wire_pos) });
+    const far_id = token.far.import_position.int();
+
+    const rewritten = (try node.proxyForeignPromiseFulfill(recipient, far_id)).?;
+    const import_pos = rewritten.near.export_position.int();
+
+    // Home listen is queued; step encodes it. The listener export is what Host
+    // will match on an inbound fire deliver.
+    try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(home).?.step());
+    const listener = blk: {
+        var frame = node.peer(home).?.takeOutbound().?;
+        defer frame.deinit();
+        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        try std.testing.expect(view == .listen);
+        // Own-outbound decode flips near export → far import; position is the
+        // listener export we allocated on the home peer.
+        break :blk view.listen.listener.far.import_position.int();
+    };
+    const payload = try allocator.dupe(u8, "relayed");
+    try std.testing.expect(try node.consumeProxyListenerFire(home, listener, .{ .fulfill = .{ .bytes = payload } }));
+
+    const recip = node.peer(recipient).?;
+    try std.testing.expectEqualStrings("relayed", recip.session_state.importedPromiseResolution(.from(import_pos)).?.fulfill.bytes);
+
+    // After settle the proxy is torn down; a second deliver is not claimed
+    // (resolve-once lives in the import store, not a zombie Node index).
+    const second = try allocator.dupe(u8, "again");
+    defer allocator.free(second);
+    try std.testing.expect(!try node.consumeProxyListenerFire(home, listener, .{ .fulfill = .{ .bytes = second } }));
+}
+
+test "proxyForeignPromise multi-introduce shares one home listen and materializes into each store" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{15} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const home = try node.registerPeer(.{});
+    const recipient_a = try node.registerPeer(.{});
+    const recipient_b = try node.registerPeer(.{});
+    var home_counterpart = try openKeyedSessionWithCounterpart(allocator, &node, node.peer(home).?, [_]u8{23} ** crypto.SEED_BYTES);
+    defer home_counterpart.deinit();
+
+    const wire_pos: u64 = 4;
+    try node.peer(home).?.session_state.registerImport(.from(wire_pos));
+    const token = try node.enrollForeign(home, .{ .far = model.FarRef.promise(wire_pos) });
+    const far_id = token.far.import_position.int();
+
+    const rewritten_a = (try node.proxyForeignPromiseFulfill(recipient_a, far_id)).?;
+    const rewritten_b = (try node.proxyForeignPromiseFulfill(recipient_b, far_id)).?;
+    const import_a = rewritten_a.near.export_position.int();
+    const import_b = rewritten_b.near.export_position.int();
+
+    // Exactly one home listen for both introduces.
+    try std.testing.expectEqual(engine.StepOutcome.progress, try node.peer(home).?.step());
+    const listener = blk: {
+        var frame = node.peer(home).?.takeOutbound().?;
+        defer frame.deinit();
+        const view = try pancake.ocapn.codec.syrup.decodeBody(frame.view());
+        try std.testing.expect(view == .listen);
+        break :blk view.listen.listener.far.import_position.int();
+    };
+    try std.testing.expectEqual(engine.StepOutcome.idle, try node.peer(home).?.step());
+
+    const payload = try allocator.dupe(u8, "shared");
+    try std.testing.expect(try node.consumeProxyListenerFire(home, listener, .{ .fulfill = .{ .bytes = payload } }));
+
+    try std.testing.expectEqualStrings(
+        "shared",
+        node.peer(recipient_a).?.session_state.importedPromiseResolution(.from(import_a)).?.fulfill.bytes,
+    );
+    try std.testing.expectEqualStrings(
+        "shared",
+        node.peer(recipient_b).?.session_state.importedPromiseResolution(.from(import_b)).?.fulfill.bytes,
+    );
+}
+
 test "send-argument routability: a capability on another connection is foreign, its home native" {
     const allocator = std.testing.allocator;
     var node = Node.init(allocator, [_]u8{3} ** crypto.SEED_BYTES);
@@ -288,7 +427,9 @@ test "an unknown exporter becomes one dial action; a second give joins it" {
     try node.acceptGive(recipient, 12, "give-two", locator);
 
     const action = node.nextAction().?;
-    try std.testing.expectEqualStrings(locator, action.dial.locator);
+    const join_view = node.pendingDial(action.dial.pending).?;
+    try std.testing.expectEqualStrings("tcp", join_view.transport);
+    try std.testing.expectEqualStrings("127.0.0.1:9050", join_view.designator);
     try std.testing.expect(node.nextAction() == null);
 
     // The dial failing breaks both waiting answers, in order.
@@ -302,6 +443,82 @@ test "an unknown exporter becomes one dial action; a second give joins it" {
 
     // The settled ticket is retired: reporting it again is a no-op.
     try node.dialFailed(action.dial.pending, "late");
+    try std.testing.expect(node.nextAction() == null);
+}
+
+test "acceptGive materializes dial view once for pendingDial" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{4} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    const locator = "ocapn://127.0.0.1%3A9049.tcp?direct-addresses=10.0.0.1%3A1";
+    try node.acceptGive(recipient, 9, "give-bytes", locator);
+    const action = node.nextAction().?;
+    const view = node.pendingDial(action.dial.pending).?;
+    try std.testing.expectEqualStrings("tcp", view.transport);
+    try std.testing.expectEqualStrings("127.0.0.1:9049", view.designator);
+    try std.testing.expectEqualStrings("10.0.0.1:1", view.direct_addresses_hint);
+    try node.dialFailed(action.dial.pending, "stop");
+    _ = node.nextAction();
+}
+
+test "acceptGive fails closed on unparseable exporter locator" {
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{6} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    try node.acceptGive(recipient, 3, "give-bytes", "not-a-locator");
+    const action = node.nextAction().?;
+    try std.testing.expect(action == .fail);
+    try std.testing.expectEqual(@as(u64, 3), action.fail.answer);
+    try std.testing.expect(std.mem.indexOf(u8, action.fail.reason, "unparseable") != null);
+    try std.testing.expect(node.nextAction() == null);
+}
+
+test "exporterDialed frees empty hint sentinel without leaking" {
+    // Hint-less URI stages an unowned empty hint; exporterDialed must free
+    // through freeDialPart (not raw allocator.free on "").
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{7} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    const exporter = try node.registerPeer(.{});
+    const locator = "ocapn://127.0.0.1%3A9051.tcp";
+    try node.acceptGive(recipient, 4, "give-bytes", locator);
+    const action = node.nextAction().?;
+    const view = node.pendingDial(action.dial.pending).?;
+    try std.testing.expectEqual(@as(usize, 0), view.direct_addresses_hint.len);
+    try node.exporterDialed(action.dial.pending, exporter);
+    // Withdraw flush against the exporter; drain so deinit is clean.
+    while (node.nextAction()) |_| {}
+}
+
+test "acceptGive joins pending dials on peer identity, not URI spelling" {
+    // ADR-0012: hints are connection advice, not identity. Two gives that name
+    // the same transport+designator must share one in-flight dial even when the
+    // URI bytes differ (query hints / encoding).
+    const allocator = std.testing.allocator;
+    var node = Node.init(allocator, [_]u8{5} ** crypto.SEED_BYTES);
+    defer node.deinit();
+
+    const recipient = try node.registerPeer(.{});
+    const bare = "ocapn://127.0.0.1%3A9050.tcp";
+    const hinted = "ocapn://127.0.0.1%3A9050.tcp?host=127.0.0.1&port=9050";
+    try node.acceptGive(recipient, 11, "give-one", bare);
+    try node.acceptGive(recipient, 12, "give-two", hinted);
+
+    const action = node.nextAction().?;
+    const identity_view = node.pendingDial(action.dial.pending).?;
+    try std.testing.expectEqualStrings("tcp", identity_view.transport);
+    try std.testing.expectEqualStrings("127.0.0.1:9050", identity_view.designator);
+    try std.testing.expect(node.nextAction() == null);
+
+    try node.dialFailed(action.dial.pending, "connection refused");
+    try std.testing.expectEqual(@as(u64, 11), node.nextAction().?.fail.answer);
+    try std.testing.expectEqual(@as(u64, 12), node.nextAction().?.fail.answer);
     try std.testing.expect(node.nextAction() == null);
 }
 
@@ -354,13 +571,13 @@ fn openKeyedSessionWithCounterpart(
     const partner_sig = crypto.sign(&partner_secret, partner_signed);
 
     try p.sendCopying(.{ .start_session = .{
-        .captp_version = p.session_state.wire_profile.captp_version,
+        .captp_version = p.session_state.captp_version,
         .session_pubkey = .{ .bytes = node_secret.publicKey().asBytes() },
         .acceptable_location = node_loc,
         .acceptable_location_sig = .{ .bytes = node_sig.asBytes() },
     } });
     try counterpart.sendCopying(.{ .start_session = .{
-        .captp_version = counterpart.session_state.wire_profile.captp_version,
+        .captp_version = counterpart.session_state.captp_version,
         .session_pubkey = .{ .bytes = partner_secret.publicKey().asBytes() },
         .acceptable_location = partner_loc,
         .acceptable_location_sig = .{ .bytes = partner_sig.asBytes() },
@@ -641,5 +858,7 @@ test "removePeer evicts the exporter cache and fails stranded withdraws closed" 
 
     try node.acceptGive(recipient, 62, "give-again", locator);
     const redial = node.nextAction().?;
-    try std.testing.expectEqualStrings(locator, redial.dial.locator);
+    const redial_view = node.pendingDial(redial.dial.pending).?;
+    try std.testing.expectEqualStrings("tcp", redial_view.transport);
+    try std.testing.expectEqualStrings("127.0.0.1:9054", redial_view.designator);
 }

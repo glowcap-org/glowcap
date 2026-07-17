@@ -29,7 +29,7 @@ import { listenIroh, Reachability } from "@pancake/iroh";
 
 const server = listenIroh(Reachability.Direct);
 console.log(server.uri); // hand this to a partner
-for await (const conn of server) conn.serve();
+for await (const session of server) session.serve();
 ```
 
 `Reachability` is required at every entry point. The caller owns the reach and privacy posture;

@@ -255,23 +255,37 @@
   (finish-establish! c))
 
 ;; Mint the accepting half over a connection the caller's own listener
-;; produced: the keyed op:start-session signs the listener's own
-;; `transport-name`/`designator` — the address a partner can actually dial, and
-;; the locator a give made on this host names as the exporter location.
-(define (establish-accepted-session m transport-name designator transport
-                                       #:direct-addresses-hint [direct-addresses-hint ""]
+;; produced. `server-designator` is the listener's signing designator (key for
+;; keyed-tcp/iroh; unused for tcp); `accepted-local-addr` is what accept
+;; reported. Signing designator/hint come from `pancake_host_plan_accept`
+;; (ADR-0078).
+(define (establish-accepted-session m transport-name server-designator transport
+                                       #:accepted-local-addr [accepted-local-addr ""]
                                        #:time-travel? [time-travel? #f])
   (define tb (string->bytes/utf-8 transport-name))
-  (define db (string->bytes/utf-8 designator))
-  (define hb (string->bytes/utf-8 direct-addresses-hint))
+  (define sb (string->bytes/utf-8 server-designator))
+  (define lb (string->bytes/utf-8 accepted-local-addr))
   (define c
     (call-with-host m
       (lambda ()
+        ;; Pin once: plan_accept views borrow these (or the static unreachable
+        ;; placeholder); pass those pointers into open_accepted with no copy.
+        (define tpin (pin-immobile tb))
+        (define spin (pin-immobile sb))
+        (define lpin (pin-immobile lb))
+        (define plan (make-PancakeAcceptPlan #f 0 #f 0))
+        (check/host (pancake_host_plan_accept
+                     tpin (bytes-length tb)
+                     spin (bytes-length sb)
+                     lpin (bytes-length lb)
+                     plan))
         (define-values (rc ptr)
           (pancake_host_session_open_accepted (host-ptr m)
-                                           (pin-immobile tb) (bytes-length tb)
-                                           (pin-immobile db) (bytes-length db)
-                                           (pin-immobile hb) (bytes-length hb)))
+                                           tpin (bytes-length tb)
+                                           (PancakeAcceptPlan-designator plan)
+                                           (PancakeAcceptPlan-designator-len plan)
+                                           (PancakeAcceptPlan-direct-addresses-hint plan)
+                                           (PancakeAcceptPlan-direct-addresses-hint-len plan)))
         (check/host rc)
         (build-session m ptr transport time-travel?))))
   (finish-establish! c))

@@ -10,7 +10,8 @@
 //! dispatches the inbound deliver and resolves it, and `on` fires the listener
 //! when the resolution arrives. The Goblins V1.0 resolver-callback translation
 //! (no wire `op:resolve`) is invisible; chapter 05 shows the raw `Peer`-level
-//! deliver/resolve underneath all of it.
+//! deliver/resolve underneath all of it. Sessions open via
+//! `pairing.pairedGoblins` (authenticated `"1.0"` / Syrup).
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
@@ -66,7 +67,7 @@ pub fn main() !void {
     defer if (gpa.deinit() == .leak) @panic("leaked memory");
     const allocator = gpa.allocator();
 
-    var pair = try engine.pairing.paired(allocator);
+    var pair = try engine.pairing.pairedGoblins(allocator);
     defer pair.deinit();
     const host_peer = &pair.p1;
     const caller_peer = &pair.p2;

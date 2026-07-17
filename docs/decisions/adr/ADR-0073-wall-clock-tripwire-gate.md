@@ -14,11 +14,11 @@ superseded_by: []
 
 ADR-0045 gates the byte side of the performance contract: exact allocation
 counts, a `comptime` ceiling on `@sizeOf(engine.Peer)`, and the warmed
-2 KiB-per-connection footprint. Wall-clock time was only printed — the benches
+2 KiB-per-connection footprint. Wall-clock time was only printed: the benches
 ran in Debug under `check` with a `mode=` stamp and the instruction to "compare
 relative regressions" by eye. A measured number no gate defends is a wish, and
 the regression classes the allocation gates are blind to (a copy inside a loop,
-a Debug-only path leaking into hot code, a reverted inverse map — all
+a Debug-only path leaking into hot code, a reverted inverse map: all
 allocation-free) had no mechanical check at all. This engages the First
 Principle "Performance is a public contract": every cost is forbidden, named,
 or measured, and a measured cost needs a gate to stay measured.
@@ -33,23 +33,23 @@ several times in single-thread speed, so a threshold tight enough to catch a
 ReleaseFast and holds three ceilings:
 
 - one warm inbound dispatch turn (`bench/dispatch_scaling_bench.zig --gate`),
-  gated on the **minimum of five batch means** — the right estimator for
+  gated on the **minimum of five batch means**: the right estimator for
   CPU-bound work, since contention inflates some batches but almost never all
-  of them — against an absolute ceiling roughly an order of magnitude over the
+  of them: against an absolute ceiling roughly an order of magnitude over the
   measured figure;
 - one answered outbound send (`bench/outbound_bench.zig --gate`), same
   estimator, same headroom;
 - the `op:gc-answers` release storm's linearity, gated as the **ratio** of
   ns/answer at Q=8,000 to Q=1,000. The ratio is the same code at two sizes, so
   machine speed cancels out of it entirely; it mechanically defends the
-  answer→resolver inverse map (`session.OutboundResolverAnswers`), which a
+  answer-to-resolver inverse map (`session.OutboundResolverAnswers`), which a
   reintroduced per-position scan would show as roughly Q-proportional growth.
 
 The ceilings are `pub const`s at the top of the two bench files;
 `docs/ladder.md` rung 2 owns the numbers, and a ceiling moves there and in the
 constant together. Each gate arm refuses to run outside ReleaseFast, so a
 mis-wired Debug run fails loud instead of gating noise. The gate runs replace
-those two benches' former Debug `--smoke` runs under `check` — a ReleaseFast
+those two benches' former Debug `--smoke` runs under `check`: a ReleaseFast
 gate run proves "still runs" strictly stronger.
 
 Because optimize mode is per-module, the gate executables import a dedicated
@@ -70,8 +70,8 @@ per-machine baselines: a gate passes by its exit code from a fresh checkout.
 ## Alternatives Considered
 
 - **Self-calibrated ratio against a reference op** (turn cost in units of one
-  boundary clone): cancels contention but not microarchitecture — the ratio
-  itself varies 2–3× across CPU families — and a regression in the reference
+  boundary clone): cancels contention but not microarchitecture: the ratio
+  itself varies 2–3× across CPU families: and a regression in the reference
   op masks the gated one. Rejected for the absolute gates; the ratio form is
   kept exactly where numerator and denominator are the same code (the storm).
 - **Stored per-machine baseline**: state; makes the first run undefined and

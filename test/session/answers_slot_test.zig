@@ -1,4 +1,4 @@
-//! Answer → Slot projection and AnswerCell (status derived from binding).
+//! Answer-to-Slot projection and AnswerCell (status derived from binding).
 
 const std = @import("std");
 const pancake = @import("pancake");

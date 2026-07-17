@@ -10,7 +10,7 @@
 //! and the driver dispatches on its symbol. That demonstrates the pluggability the
 //! vision claims: a QUIC/iroh resident slots in the same way.
 //!
-//! The resident's bytes ride tcp under the hood. This is a loopback proof, not a
+//! The resident's bytes ride tcp under the hood. This is a loopback test, not a
 //! new wire protocol. The driver reaches it only through the contract vtable under
 //! an arbitrary symbol, which is the same boundary an external transport author
 //! uses.
@@ -86,6 +86,7 @@ const LoopbackResident = struct {
     const listener_vtable: net.netlayer.Listener.VTable = .{
         .transport_name = transport,
         .accept = accept,
+        .waitAcceptable = waitAcceptable,
         .localDesignator = localDesignator,
         .close = close,
     };
@@ -96,6 +97,11 @@ const LoopbackResident = struct {
             error.OutOfMemory => error.OutOfMemory,
             else => error.ConnectionLost,
         };
+    }
+
+    fn waitAcceptable(ctx: *anyopaque, timeout_ms: i32) net.netlayer.AcceptError!bool {
+        const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+        return tcp.waitAcceptableOnListener(&box.listener, timeout_ms);
     }
 
     fn localDesignator(ctx: *anyopaque, out: []u8) []const u8 {

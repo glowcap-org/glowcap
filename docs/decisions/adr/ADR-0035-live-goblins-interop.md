@@ -13,7 +13,7 @@ superseded_by: []
 ## Context
 
 The whole point of pancake is OCapN conformance, yet every prior conformance
-artifact was pancake-vs-pancake or pancake-vs-pancake-authored fixtures — a
+artifact was pancake-vs-pancake or pancake-vs-pancake-authored fixtures: a
 Goblins maintainer's fair charge was "you've never actually parsed a byte
 Goblins emitted." Two things stood in the way of a live conversation, and both
 were small once measured against a real Goblins v0.18.0 (installed here as a
@@ -22,7 +22,7 @@ version, the same `op:start-session` record, the **same** Ed25519 signed-bytes
 derivation `syrup(<my-location <ocapn-peer …>>)`, the same `public-key` /
 `sig-val` descriptors, the same self-delimiting framing), but pancake advertised
 the transport symbol `tcp-testing-only` while Goblins' conformance netlayer
-(`^tcp-netlayer`) matches only `tcp` — so the two could not address each other.
+(`^tcp-netlayer`) matches only `tcp`: so the two could not address each other.
 
 ## Decision
 
@@ -53,26 +53,31 @@ a reverse-pipelined enliven-and-call
 and a bootstrap miss→break with a Goblins-readable
 `['break, reason-symbol]`
 ([`pancake-break-call.rkt`](../../../conformance/goblins-peer/racket/pancake-break-call.rkt)).
-That is live proof of the actor layer against a non-pancake peer, not
-export-side object listen (ADR-0007).
+That is live proof of the actor layer against a non-pancake peer. The asker
+`op:index` / `op:get` legs exercise engine-synthesized `op:listen` on
+projection answers (ADR-0007). Export-side listen on pancake's own object and
+promise exports ships in-tree; this driver does not re-prove those against
+Goblins.
 
 ## Scope (what this does not decide)
 
 This proves, over a live socket and in both directions, the keyed handshake,
 signature verification, bootstrap fetch, deliver/resolve (including break),
-bignum round-trip, asker-side `op:index` / `op:get`, sturdyref enliven + dedup,
-inbound pipelined enliven-and-call, and a published actor a Goblins client
-enlivens and calls. Sibling `zig build goblins-handoff` proves recipient-side
-three-party handoff; `zig build goblins-gift` proves gifter-vs-Goblins (binding
-`*-goblins-gift` twins that path over the C ABI).
-Crossed hellos, wait-before-deposit, and export-side object listen stay with the
-upstream suite (or open ADR-0007), not this driver. The transport remains
-cleartext `tcp`; a confidential transport is a separate netlayer slice.
+bignum round-trip, asker-side `op:index` / `op:get` (and the synthesized listen
+those projections imply), sturdyref enliven + dedup, inbound pipelined
+enliven-and-call, and a published actor a Goblins client enlivens and calls.
+It does not prove Goblins-as-asker against pancake's get/index responders,
+live `op:untag`, or Goblins over iroh. Sibling `zig build goblins-handoff`
+proves recipient-side three-party handoff; `zig build goblins-gift` proves
+gifter-vs-Goblins (binding `*-goblins-gift` twins that path over the C ABI).
+Crossed hellos and wait-before-deposit stay with the upstream suite, not this
+driver. The transport remains cleartext `tcp`; a confidential transport is a
+separate netlayer slice.
 
 ## Alternatives Considered
 
 - **Keep comparing only against pancake-authored fixtures**. Rejected: it never
-  establishes that Goblins emits or accepts the same bytes — exactly the gap.
+  establishes that Goblins emits or accepts the same bytes: exactly the gap.
 - **Rename to `tcp` only in docs, keep `tcp-testing-only` on the wire**.
   Rejected: the wire symbol is what Goblins' netlayer matches; it must be `tcp`
   to address.

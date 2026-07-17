@@ -1,4 +1,4 @@
-/* Generated from src/c_abi/driver/mod.zig by tools/header_gen_driver.zig.
+/* Generated from src/c_abi/driver/mod.zig by tools/gen/header/driver.zig.
    Do not edit by hand: run `zig build gen-header-driver`.
    Function signatures are reflected from the Zig source, so this header
    cannot drift from the implementation.
@@ -30,10 +30,11 @@ extern "C" {
 
    THE ONE LOOP RULE. After any top-level pancake_host_* call returns OK,
    drain pancake_host_next_action until PANCAKE_ERR_WOULD_BLOCK, honoring each
-   action: DIAL — open your own session with the action's transport and
-   designator (pancake_host_session_open_dialed_locator), drive its session open,
-   then report
-   pancake_host_dialed (or pancake_host_dial_failed); FLUSH — drain
+   action: DIAL — borrow the pending view with
+   pancake_host_pending_dial(ticket), open your own session from its
+   transport/designator (pancake_host_session_open_dialed_locator), drive
+   its session open, then report pancake_host_dialed (or
+   pancake_host_dial_failed); FLUSH — drain
    take_outbound on that session until WOULD_BLOCK and write the frames;
    NEED_GIFT_ID — draw 32 random bytes and call pancake_host_provide_gift_id;
    SETTLE / FAIL — route the outcome to whatever awaits the vow the action's
@@ -45,7 +46,7 @@ extern "C" {
    drives one host; nothing locks. The one callback — a behavior answering
    a deliver — fires on the thread executing the enclosing pancake_host_*
    call. Inside it the enqueueing verbs are legal — session_send/session_tell,
-   vow_send/vow_index/vow_untag, the turn verbs (with the callback's own turn),
+   vow_send/vow_index/vow_untag/vow_get, the turn verbs (with the callback's own turn),
    gc_release, session_set_exporter_location, session_session_open, the error
    readers — and their effects encode and pump when the enclosing call
    unwinds. The host-driving verbs (feed, feed_bytes, take_outbound,
@@ -83,7 +84,7 @@ typedef int32_t (*PancakeHostBehavior)(void *ctx, PancakeHostTurn *turn,
    ctx. Runs exactly once per registration that took ownership; must call
    no pancake_host_* function. */
 typedef void (*PancakeHostCtxFree)(void *ctx);
-/* PancakeHostAction.kind: dial the exporter at locator, then report pancake_host_dialed / pancake_host_dial_failed with the ticket. */
+/* PancakeHostAction.kind: dial the exporter named by ticket (borrow the pending view with pancake_host_pending_dial), then report pancake_host_dialed / pancake_host_dial_failed. */
 #define PANCAKE_HOST_ACTION_DIAL 0
 /* PancakeHostAction.kind: drain pancake_host_session_take_outbound on session until WOULD_BLOCK and write the frames. */
 #define PANCAKE_HOST_ACTION_FLUSH 1
@@ -105,11 +106,8 @@ typedef void (*PancakeHostCtxFree)(void *ctx);
 #define PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS 24
 
 /* One embedder effect popped from pancake_host_next_action. kind selects the
-   live fields: DIAL carries ticket (its report-back handle), the full
-   ocapn:// exporter locator in locator/locator_len, and the locator's parsed
-   pieces — transport, designator, and its direct-addresses hint, each empty
-   when the locator does not parse as an ocapn URI or when the hint is
-   absent — so the dial executor never re-parses the URI. FLUSH carries session;
+   live fields: DIAL carries only ticket (borrow the pending view with
+   pancake_host_pending_dial). FLUSH and CLOSE carry session;
    NEED_GIFT_ID carries ticket. SETTLE carries the settled vow id in ticket
    and the fulfilled value in value; FAIL carries the vow id in ticket and
    the break reason in message/message_len. Every popped byte view and
@@ -120,15 +118,8 @@ typedef struct PancakeHostAction {
     uint32_t kind;
     /* DIAL: the report-back handle; SETTLE/FAIL: the vow that settled. */
     uint64_t ticket;
+    /* FLUSH/CLOSE: the session to drain or condemn; NULL otherwise. */
     PancakeHostSession *session;
-    const uint8_t *locator;
-    size_t locator_len;
-    const uint8_t *transport;
-    size_t transport_len;
-    const uint8_t *designator;
-    size_t designator_len;
-    const uint8_t *direct_addresses_hint;
-    size_t direct_addresses_hint_len;
     /* SETTLE: the fulfilled value; zeroed otherwise. */
     PancakeArgument value;
     /* FAIL: the break reason; NULL otherwise. */
@@ -201,11 +192,12 @@ int32_t pancake_host_set_self_designator(PancakeHost *host, const uint8_t *desig
    unchanged. Already-open peers keep the limits they were minted with. */
 int32_t pancake_host_set_session_limits(PancakeHost *host, size_t max_frame_bytes, size_t queue_cap);
 /* Mint the dialing half from an already-parsed locator (transport +
-   designator), the same pieces a DIAL action carries. The keyed op:start-session
-   is signed under the host identity and encoded before this returns, so drain
-   take_outbound (a FLUSH action is queued) and drive the handshake byte-fed.
-   Every host-wide giftable (pancake_host_publish) is published on the new
-   session before it is returned. A URI-holding caller parses first
+   designator). A DIAL action carries only ticket — borrow the pending view with
+   pancake_host_pending_dial and pass its transport/designator here. The keyed
+   op:start-session is signed under the host identity and encoded before this
+   returns, so drain take_outbound (a FLUSH action is queued) and drive the
+   handshake byte-fed. Every host-wide giftable (pancake_host_publish) is published
+   on the new session before it is returned. A URI-holding caller parses first
    (pancake_uri_parse_peer) and passes the pieces — there is no parallel
    URI-string mint entry. The dialed hello does not consume a direct-addresses
    hint. *out_session is host-owned; release with pancake_host_session_release. */
@@ -222,24 +214,24 @@ int32_t pancake_host_session_open_accepted(PancakeHost *host, const uint8_t *tra
 
 /* PancakeDialPlan.shape: open a TCP socket to host:port (tcp, keyed-tcp). */
 #define PANCAKE_DIAL_SHAPE_HOST_PORT 0
-/* PancakeDialPlan.shape: dial an iroh endpoint by node id (the designator). */
-#define PANCAKE_DIAL_SHAPE_IROH 1
-/* PancakeDialPlan.reach_kind (iroh shape): the relay-less direct posture. */
+/* PancakeDialPlan.shape: peer-id open (node-id designator + addresses + reach; today from the iroh locator scheme). */
+#define PANCAKE_DIAL_SHAPE_PEER_ID 1
+/* PancakeDialPlan.reach_kind (peer-id shape): the relay-less direct posture. */
 #define PANCAKE_DIAL_REACH_DIRECT 0
-/* PancakeDialPlan.reach_kind (iroh shape): the node's own configured redeem posture. */
+/* PancakeDialPlan.reach_kind (peer-id shape): the node's own configured redeem posture. */
 #define PANCAKE_DIAL_REACH_CONFIGURED 1
-/* PancakeDialPlan.reach_kind (iroh shape): the caller posture carried in reach_value. */
+/* PancakeDialPlan.reach_kind (peer-id shape): the caller posture carried in reach_value. */
 #define PANCAKE_DIAL_REACH_EXPLICIT 2
 /* pancake_host_plan_dial posture_policy: a redeem (a DIAL action) — direct when a hint is present, else the node's configured posture. */
 #define PANCAKE_DIAL_POSTURE_REDEEM 0
 /* pancake_host_plan_dial posture_policy: a connect carrying a posture in posture_value. */
 #define PANCAKE_DIAL_POSTURE_EXPLICIT 1
-/* pancake_host_plan_dial posture_policy: a connect that named no posture; an iroh dial refuses PANCAKE_ERR_INVALID_ARGUMENT. */
+/* pancake_host_plan_dial posture_policy: a connect that named no posture; a peer-id dial refuses PANCAKE_ERR_INVALID_ARGUMENT. */
 #define PANCAKE_DIAL_POSTURE_EXPLICIT_NONE 2
 
 /* A resolved dial from pancake_host_plan_dial: what byte channel to open and
    how. shape (PANCAKE_DIAL_SHAPE_*) selects the live fields — HOST_PORT fills
-   host/host_len/port, IROH fills addresses/addresses_len and the reachability.
+   host/host_len/port, PEER_ID fills addresses/addresses_len and the reachability.
    Every view borrows the transport/designator/hint the caller passed in, so
    the plan is valid only while those buffers are. */
 typedef struct PancakeDialPlan {
@@ -250,12 +242,12 @@ typedef struct PancakeDialPlan {
     size_t host_len;
     /* HOST_PORT: the resolved TCP port. */
     uint16_t port;
-    /* IROH: the direct-addresses to dial (borrows the hint verbatim). */
+    /* PEER_ID: the direct-addresses to dial (borrows the hint verbatim). */
     const uint8_t *addresses;
     size_t addresses_len;
-    /* IROH: a PANCAKE_DIAL_REACH_* value. */
+    /* PEER_ID: a PANCAKE_DIAL_REACH_* value. */
     uint32_t reach_kind;
-    /* IROH: the caller posture when reach_kind is PANCAKE_DIAL_REACH_EXPLICIT. */
+    /* PEER_ID: the caller posture when reach_kind is PANCAKE_DIAL_REACH_EXPLICIT. */
     uint32_t reach_value;
 } PancakeDialPlan;
 
@@ -272,16 +264,41 @@ typedef struct PancakeAcceptPlan {
     size_t direct_addresses_hint_len;
 } PancakeAcceptPlan;
 
+/* Borrowed in-flight pending dial for one ticket (parsed dial parts).
+   Host-owned views valid until pancake_host_dialed / pancake_host_dial_failed
+   consumes the row (or host teardown). Empty hint means the give carried none
+   (hint is NULL, hint_len is 0). Dial authority is transport/designator/hint —
+   no verbatim URI field. */
+typedef struct PancakePendingDial {
+    /* Parsed transport (always non-empty on a live ticket). */
+    const uint8_t *transport;
+    size_t transport_len;
+    /* Parsed designator (always non-empty on a live ticket). */
+    const uint8_t *designator;
+    size_t designator_len;
+    /* Direct-addresses hint, or NULL when the give carried none. */
+    const uint8_t *hint;
+    size_t hint_len;
+} PancakePendingDial;
+
+/* Borrow the in-flight pending dial for ticket into *out
+   (transport/designator/hint). Staged once when the give was accepted —
+   no re-parse. A live ticket always has non-empty transport/designator
+   (unparseable gives never become pending rows); an empty hint means the give
+   carried none (hint is NULL). Unknown ticket returns
+   PANCAKE_ERR_INVALID_ARGUMENT. Host-owned views valid until pancake_host_dialed
+   / pancake_host_dial_failed (or host teardown). */
+int32_t pancake_host_pending_dial(PancakeHost *host, uint64_t ticket, PancakePendingDial *out);
 /* Resolve a dial without opening a socket: the transport dispatch, designator
-   validation, host:port resolution, and iroh reachability decision every binding
+   validation, host:port resolution, and peer-id reachability decision every binding
    used to re-express, done once here. transport/designator are the locator's
-   pieces (a DIAL action carries them parsed); direct_addresses_hint is the
-   locator's direct-addresses hint (NULL/0 = none); posture_policy is a
-   PANCAKE_DIAL_POSTURE_* choosing the iroh reachability rule, with posture_value
-   the caller's posture under PANCAKE_DIAL_POSTURE_EXPLICIT. On PANCAKE_OK
-   *out_plan is filled with views borrowing the caller's buffers; a bad locator
-   returns PANCAKE_ERR_INVALID_ARGUMENT (pancake_host_last_error carries which).
-   Open the channel the plan names, then feed it to
+   pieces (from pancake_host_pending_dial or pancake_uri_parse_peer);
+   direct_addresses_hint is the locator's direct-addresses hint (NULL/0 = none);
+   posture_policy is a PANCAKE_DIAL_POSTURE_* choosing the peer-id reachability rule,
+   with posture_value the caller's posture under PANCAKE_DIAL_POSTURE_EXPLICIT.
+   On PANCAKE_OK *out_plan is filled with views borrowing the caller's buffers; a
+   bad locator returns PANCAKE_ERR_INVALID_ARGUMENT (pancake_host_last_error
+   carries which). Open the channel the plan names, then feed it to
    pancake_host_session_open_dialed_locator. */
 int32_t pancake_host_plan_dial(const uint8_t *transport, size_t transport_len, const uint8_t *designator, size_t designator_len, const uint8_t *direct_addresses_hint, size_t direct_addresses_hint_len, uint32_t posture_policy, uint32_t posture_value, PancakeDialPlan *out_plan);
 /* Resolve what an accepted session signs, without a socket. transport is the
@@ -331,21 +348,22 @@ int32_t pancake_host_session_feed_bytes(PancakeHostSession *session, const uint8
    untouched) when the queue is empty. Refused inside a callback. */
 int32_t pancake_host_session_take_outbound(PancakeHostSession *session, PancakeManagedFrame *out_frame);
 /* Pop the next embedder action into *out_action, or return
-   PANCAKE_ERR_WOULD_BLOCK when none is pending. A popped action's byte views —
-   a DIAL's locator pieces, a SETTLE's value sub-structure, a FAIL's message —
-   are host-owned and valid until the NEXT pancake_host_next_action call, which
-   frees them. See the one loop rule in the header preamble. Refused inside a
-   callback. */
+   PANCAKE_ERR_WOULD_BLOCK when none is pending. A DIAL carries only ticket
+   (borrow the pending view with pancake_host_pending_dial). A SETTLE's value
+   and a FAIL's message are host-owned until the NEXT pancake_host_next_action
+   call, which frees them. See the one loop rule in the header preamble.
+   Refused inside a callback. */
 int32_t pancake_host_next_action(PancakeHost *host, PancakeHostAction *out_action);
 /* Opt-in convenience drain over pancake_host_next_action (ADR-0072 fifth
    amendment). Still pops through the pull-queue internally; does not replace
    it. hooks may be NULL (every action is discarded). *out_acted is 1 when any
    arm reported progress (optional, may be NULL). See PancakeHostPumpHooks. */
 int32_t pancake_host_pump_drain(PancakeHost *host, const PancakeHostPumpHooks *hooks, uint32_t *out_acted);
-/* Report a DIAL action's success: session is an open_dialed_locator against that
-   action's locator parts, driven to an open session. The host withdraws every
-   give waiting on the ticket; the withdraws, their settles, and their flushes
-   pump inside this call. A stale ticket is a no-op success. */
+/* Report a DIAL action's success: session is an open_dialed_locator against the
+   pending dial for ticket (pancake_host_pending_dial), driven to an
+   open session. The host withdraws every give waiting on the ticket; the
+   withdraws, their settles, and their flushes pump inside this call. A stale
+   ticket is a no-op success. */
 int32_t pancake_host_dialed(PancakeHost *host, uint64_t ticket, PancakeHostSession *session);
 /* Report a DIAL action's failure: every redeem waiting on the ticket breaks
    with reason, its FAIL completion queued inside this call. A stale ticket is a
@@ -414,6 +432,10 @@ int32_t pancake_host_vow_index(PancakeHost *host, uint64_t vow, uint64_t index, 
    the unwrapped payload (a single-value Tagged unwraps to that value; a
    variadic one to its value list). tag is borrowed. */
 int32_t pancake_host_vow_untag(PancakeHost *host, uint64_t vow, const uint8_t *tag, size_t tag_len, uint64_t *out_vow);
+/* Pipeline an op:get projection against a far host vow, minting a new vow for
+   the named Struct field. Same local-vow and unknown-vow refusals as
+   pancake_host_vow_send; field is borrowed. */
+int32_t pancake_host_vow_get(PancakeHost *host, uint64_t vow, const uint8_t *field, size_t field_len, uint64_t *out_vow);
 /* From inside a behavior callback, forward this turn's call to target and let
    this object's own answer settle on the forwarded result — the
    caretaker/attenuator primitive. target resolves within the turn's own

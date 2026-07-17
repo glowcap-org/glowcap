@@ -43,22 +43,26 @@ from ._layouts_gen import (
     PANCAKE_DIAL_PLAN_REACH_VALUE_OFF,
     PANCAKE_DIAL_PLAN_SHAPE_OFF,
     PANCAKE_DIAL_PLAN_SIZE,
-    PANCAKE_HOST_ACTION_DESIGNATOR_LEN_OFF,
-    PANCAKE_HOST_ACTION_DESIGNATOR_OFF,
-    PANCAKE_HOST_ACTION_DIRECT_ADDRESSES_HINT_LEN_OFF,
-    PANCAKE_HOST_ACTION_DIRECT_ADDRESSES_HINT_OFF,
     PANCAKE_HOST_ACTION_KIND_OFF,
-    PANCAKE_HOST_ACTION_LOCATOR_LEN_OFF,
-    PANCAKE_HOST_ACTION_LOCATOR_OFF,
     PANCAKE_HOST_ACTION_MESSAGE_LEN_OFF,
     PANCAKE_HOST_ACTION_MESSAGE_OFF,
     PANCAKE_HOST_ACTION_SESSION_OFF,
     PANCAKE_HOST_ACTION_SIZE,
     PANCAKE_HOST_ACTION_TICKET_OFF,
-    PANCAKE_HOST_ACTION_TRANSPORT_LEN_OFF,
-    PANCAKE_HOST_ACTION_TRANSPORT_OFF,
     PANCAKE_HOST_ACTION_VALUE_OFF,
+    PANCAKE_ACCEPT_PLAN_DESIGNATOR_LEN_OFF,
+    PANCAKE_ACCEPT_PLAN_DESIGNATOR_OFF,
+    PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF,
+    PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF,
+    PANCAKE_ACCEPT_PLAN_SIZE,
     PANCAKE_HOST_PUMP_HOOKS_SIZE,
+    PANCAKE_PENDING_DIAL_DESIGNATOR_LEN_OFF,
+    PANCAKE_PENDING_DIAL_DESIGNATOR_OFF,
+    PANCAKE_PENDING_DIAL_HINT_LEN_OFF,
+    PANCAKE_PENDING_DIAL_HINT_OFF,
+    PANCAKE_PENDING_DIAL_SIZE,
+    PANCAKE_PENDING_DIAL_TRANSPORT_LEN_OFF,
+    PANCAKE_PENDING_DIAL_TRANSPORT_OFF,
 )
 from ._lib_resolve import _lib_path
 
@@ -75,14 +79,6 @@ class _HostAction(ctypes.Structure):
         ("kind", ctypes.c_uint32),
         ("ticket", ctypes.c_uint64),
         ("conn", ctypes.c_void_p),
-        ("locator", ctypes.c_void_p),
-        ("locator_len", ctypes.c_size_t),
-        ("transport", ctypes.c_void_p),
-        ("transport_len", ctypes.c_size_t),
-        ("designator", ctypes.c_void_p),
-        ("designator_len", ctypes.c_size_t),
-        ("direct_addresses_hint", ctypes.c_void_p),
-        ("direct_addresses_hint_len", ctypes.c_size_t),
         ("value", _Argument),
         ("message", ctypes.c_void_p),
         ("message_len", ctypes.c_size_t),
@@ -91,8 +87,8 @@ class _HostAction(ctypes.Structure):
 
 class _DialPlan(ctypes.Structure):
     # PancakeDialPlan (pancake_driver.h) — the resolved dial pancake_host_plan_dial
-    # hands back: `shape` selects the live fields (HOST_PORT fills host/port, IROH
-    # fills addresses/reach). host/addresses borrow the caller's input buffers.
+    # hands back: `shape` selects the live fields (HOST_PORT fills host/port,
+    # PEER_ID fills addresses/reach). host/addresses borrow the caller's input buffers.
     _fields_ = [
         ("shape", ctypes.c_uint32),
         ("host", ctypes.c_void_p),
@@ -102,6 +98,28 @@ class _DialPlan(ctypes.Structure):
         ("addresses_len", ctypes.c_size_t),
         ("reach_kind", ctypes.c_uint32),
         ("reach_value", ctypes.c_uint32),
+    ]
+
+
+class _AcceptPlan(ctypes.Structure):
+    # PancakeAcceptPlan (pancake_driver.h) — resolved accept signing parts.
+    _fields_ = [
+        ("designator", ctypes.c_void_p),
+        ("designator_len", ctypes.c_size_t),
+        ("direct_addresses_hint", ctypes.c_void_p),
+        ("direct_addresses_hint_len", ctypes.c_size_t),
+    ]
+
+
+class _PendingDial(ctypes.Structure):
+    # PancakePendingDial (pancake_driver.h) — borrowed pending dial view.
+    _fields_ = [
+        ("transport", ctypes.c_void_p),
+        ("transport_len", ctypes.c_size_t),
+        ("designator", ctypes.c_void_p),
+        ("designator_len", ctypes.c_size_t),
+        ("hint", ctypes.c_void_p),
+        ("hint_len", ctypes.c_size_t),
     ]
 
 
@@ -126,14 +144,6 @@ def _pin_layout() -> None:
         ("kind", PANCAKE_HOST_ACTION_KIND_OFF),
         ("ticket", PANCAKE_HOST_ACTION_TICKET_OFF),
         ("conn", PANCAKE_HOST_ACTION_SESSION_OFF),
-        ("locator", PANCAKE_HOST_ACTION_LOCATOR_OFF),
-        ("locator_len", PANCAKE_HOST_ACTION_LOCATOR_LEN_OFF),
-        ("transport", PANCAKE_HOST_ACTION_TRANSPORT_OFF),
-        ("transport_len", PANCAKE_HOST_ACTION_TRANSPORT_LEN_OFF),
-        ("designator", PANCAKE_HOST_ACTION_DESIGNATOR_OFF),
-        ("designator_len", PANCAKE_HOST_ACTION_DESIGNATOR_LEN_OFF),
-        ("direct_addresses_hint", PANCAKE_HOST_ACTION_DIRECT_ADDRESSES_HINT_OFF),
-        ("direct_addresses_hint_len", PANCAKE_HOST_ACTION_DIRECT_ADDRESSES_HINT_LEN_OFF),
         ("value", PANCAKE_HOST_ACTION_VALUE_OFF),
         ("message", PANCAKE_HOST_ACTION_MESSAGE_OFF),
         ("message_len", PANCAKE_HOST_ACTION_MESSAGE_LEN_OFF),
@@ -165,6 +175,44 @@ def _pin_layout() -> None:
         if got != want:
             raise ImportError(
                 f"pancake FFI layout drift: _DialPlan.{name} at offset {got}, "
+                f"expected {want}; re-mirror the struct"
+            )
+    accept_size = ctypes.sizeof(_AcceptPlan)
+    if accept_size != PANCAKE_ACCEPT_PLAN_SIZE:
+        raise ImportError(
+            f"pancake FFI layout drift: sizeof(_AcceptPlan) == {accept_size}, "
+            f"expected {PANCAKE_ACCEPT_PLAN_SIZE}; re-mirror the struct"
+        )
+    for name, want in (
+        ("designator", PANCAKE_ACCEPT_PLAN_DESIGNATOR_OFF),
+        ("designator_len", PANCAKE_ACCEPT_PLAN_DESIGNATOR_LEN_OFF),
+        ("direct_addresses_hint", PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF),
+        ("direct_addresses_hint_len", PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF),
+    ):
+        got = getattr(_AcceptPlan, name).offset
+        if got != want:
+            raise ImportError(
+                f"pancake FFI layout drift: _AcceptPlan.{name} at offset {got}, "
+                f"expected {want}; re-mirror the struct"
+            )
+    pending_size = ctypes.sizeof(_PendingDial)
+    if pending_size != PANCAKE_PENDING_DIAL_SIZE:
+        raise ImportError(
+            f"pancake FFI layout drift: sizeof(_PendingDial) == {pending_size}, "
+            f"expected {PANCAKE_PENDING_DIAL_SIZE}; re-mirror the struct"
+        )
+    for name, want in (
+        ("transport", PANCAKE_PENDING_DIAL_TRANSPORT_OFF),
+        ("transport_len", PANCAKE_PENDING_DIAL_TRANSPORT_LEN_OFF),
+        ("designator", PANCAKE_PENDING_DIAL_DESIGNATOR_OFF),
+        ("designator_len", PANCAKE_PENDING_DIAL_DESIGNATOR_LEN_OFF),
+        ("hint", PANCAKE_PENDING_DIAL_HINT_OFF),
+        ("hint_len", PANCAKE_PENDING_DIAL_HINT_LEN_OFF),
+    ):
+        got = getattr(_PendingDial, name).offset
+        if got != want:
+            raise ImportError(
+                f"pancake FFI layout drift: _PendingDial.{name} at offset {got}, "
                 f"expected {want}; re-mirror the struct"
             )
 
@@ -239,6 +287,8 @@ def _load():
         "pancake_host_session_open_dialed_locator": ([P, P, size, P, size, ctypes.POINTER(P)], i32),
         # Resolve a dial to a _DialPlan (grammar + hint + iroh posture); free function.
         "pancake_host_plan_dial": ([P, size, P, size, P, size, u32, u32, ctypes.POINTER(_DialPlan)], i32),
+        "pancake_host_plan_accept": ([P, size, P, size, P, size, ctypes.POINTER(_AcceptPlan)], i32),
+        "pancake_host_pending_dial": ([P, u64, ctypes.POINTER(_PendingDial)], i32),
         "pancake_host_session_open_accepted": ([P, P, size, P, size, P, size, ctypes.POINTER(P)], i32),
         "pancake_host_session_release": ([P], None),
         "pancake_host_session_session_open": ([P], i32),
@@ -264,6 +314,7 @@ def _load():
         "pancake_host_vow_send": ([P, u64, P, size, arg_p, size, u64_p], i32),
         "pancake_host_vow_index": ([P, u64, u64, u64_p], i32),
         "pancake_host_vow_untag": ([P, u64, P, size, u64_p], i32),
+        "pancake_host_vow_get": ([P, u64, P, size, u64_p], i32),
         # Turn verbs (legal only inside a behavior callback). `turn_forward`'s
         # out-reply is the raw pointer the trampoline was handed.
         "pancake_host_turn_forward": ([P, ref_p, P, size, arg_p, size, arg_p], i32),

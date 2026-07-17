@@ -10,17 +10,17 @@
 //! The payoff of key unification rides here too: B's one Ed25519 key is at once
 //! its iroh node id, its keyed-session signing key, and the `recipient-key` the
 //! gift names. So the recipient A introduces and the endpoint B dials C from are
-//! provably the same key — the driver asserts the three spellings agree.
+//! provably the same key, and the driver asserts the three spellings agree.
 //!
 //! Topology (three real iroh endpoints, one process, `local_discovery` so the
-//! dial-by-id is deterministic and infrastructure-free — the same posture that
+//! dial-by-id is deterministic and infrastructure-free. It uses the same posture that
 //! carries `iroh-interop`, not the public-internet `iroh-reachability`):
 //!
 //!   A (gifter)    hosts an introducer; B fetches it and calls `get-greeter`,
 //!                 and A returns a `desc:handoff-give` naming C by iroh node id,
 //!                 signed with A's key.
 //!   C (exporter)  hosts the greeter, deposits it under the gift id with A's key
-//!                 as provenance, and serves — its engine answers B's
+//!                 as provenance, and serves. Its engine answers B's
 //!                 `withdraw-gift` after verifying both certificates.
 //!   B (recipient) dials A by id, gets the give, then dials C by the **gifted**
 //!                 node id, withdraws the greeter, and calls it.
@@ -60,12 +60,12 @@ const Greeter = struct {
 
 /// A's introducer: on `get-greeter` it returns a signed `desc:handoff-give` that
 /// names the recipient (B's session key, read from the live session) and the
-/// exporter (C, by its iroh node id, as a `transport:designator` location), gift
-/// id, and A's signature. The whole give is built in the turn arena so it lives
-/// exactly as long as the reply it rides in.
+/// exporter (C, as a structural PeerLocator: iroh transport + node-id designator),
+/// gift id, and A's signature. The whole give is built in the turn arena so it
+/// lives exactly as long as the reply it rides in.
 const Introducer = struct {
     gifter_secret: crypto.SecretKey,
-    exporter_location: []const u8,
+    exporter_designator: []const u8,
 
     pub fn handle(self: *Introducer, turn: *actors.Turn, msg: actors.Message) !model.Argument {
         if (!std.mem.eql(u8, msg.verb, "get-greeter")) return error.NoSuchMethod;
@@ -74,7 +74,10 @@ const Introducer = struct {
 
         var give: model.HandoffGive = .{
             .recipient_key = recipient_key,
-            .exporter_location = self.exporter_location,
+            .exporter = .{
+                .transport = iroh.transport_name,
+                .designator = self.exporter_designator,
+            },
             .gifter_exporter_session = &zero32,
             .gifter_side = &zero32,
             .gift_id = &gift_id,
@@ -120,7 +123,7 @@ fn hostExporter(listener: net.netlayer.Listener, allocator: std.mem.Allocator, g
 }
 
 /// A: accept B's session and host the introducer that hands back the give.
-fn hostIntroducer(listener: net.netlayer.Listener, allocator: std.mem.Allocator, exporter_location: []const u8) anyerror!void {
+fn hostIntroducer(listener: net.netlayer.Listener, allocator: std.mem.Allocator, exporter_designator: []const u8) anyerror!void {
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
@@ -136,7 +139,7 @@ fn hostIntroducer(listener: net.netlayer.Listener, allocator: std.mem.Allocator,
 
     _ = try cv.publish("introducer", Introducer, .{
         .gifter_secret = crypto.SecretKey.fromSeed(a_seed),
-        .exporter_location = exporter_location,
+        .exporter_designator = exporter_designator,
     });
     std.debug.print("iroh-mesh: gifter A accepted B and is serving the introducer\n", .{});
     try cv.serve();
@@ -189,10 +192,7 @@ fn fetchGive(
                     .fulfill => |arg| {
                         if (arg != .handoff) return error.NotAHandoff;
                         const give = arg.handoff.give;
-                        const designator = switch (give.exporter_location) {
-                            .locator => |loc| loc.designator,
-                            .raw => return error.ExporterLocationNotLocator,
-                        };
+                        const designator = give.exporter.designator;
                         const span = codec.syrup.spanSignedHandoffGive(event.bytes()) orelse return error.NoSignedGive;
                         exporter_id_out.* = try allocator.dupe(u8, designator);
                         give_bytes_out.* = try allocator.dupe(u8, span);
@@ -243,7 +243,7 @@ fn withdrawAndCall(
         .handoff_count = 1,
         .signed_give = .{
             .recipient_key = "",
-            .exporter_location = "",
+            .exporter = .{ .transport = "", .designator = "" },
             .gifter_exporter_session = "",
             .gifter_side = "",
             .gift_id = "",
@@ -373,9 +373,6 @@ pub fn main(init: std.process.Init) !void {
     if (!std.mem.eql(u8, b_id, &b_key_hex)) return error.BNodeIdNotItsKey;
     std.debug.print("iroh-mesh: B's node id is the hex of its session/recipient key, one key, three roles\n", .{});
 
-    const exporter_location = try std.fmt.allocPrint(allocator, "{s}:{s}", .{ iroh.transport_name, c_id });
-    defer allocator.free(exporter_location);
-
     const a_secret = crypto.SecretKey.fromSeed(a_seed);
     const a_key = a_secret.publicKey().asBytes();
 
@@ -388,7 +385,7 @@ pub fn main(init: std.process.Init) !void {
     var c_listener = try net.netlayer.resolve(&c_entries, iroh.transport_name).?.listen(allocator, .{ .designator = "", .hints = model.Hints.emptyFalse() });
     defer c_listener.close();
 
-    var a_host = try io.concurrent(hostIntroducer, .{ a_listener, allocator, exporter_location });
+    var a_host = try io.concurrent(hostIntroducer, .{ a_listener, allocator, c_id });
     var c_host = try io.concurrent(hostExporter, .{ c_listener, allocator, a_key });
 
     var exporter_id: []u8 = &.{};

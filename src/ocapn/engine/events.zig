@@ -147,7 +147,7 @@ pub fn resolutionFromResolverCallback(
 /// The one break-payload shape table: the reason text a break payload carries,
 /// or null when the shape has no usable text. Accepts every shape a live
 /// partner emits, pancake's own bare Symbol (mirroring the listener fire), a
-/// PreSpec `<error>` record, text, or a Goblins exception record such as
+/// next `<error>` record, text, or a Goblins exception record such as
 /// `<exn:fail:mystery>`, whose tag is the only reason it carries. `anytype`
 /// over the borrowed `model.view.Argument` and the owned `model.Argument`, the
 /// same dual-shape pattern as the session's validate walkers, so the borrowed

@@ -39,13 +39,19 @@ round-trip:
 > var tcp_resident = pancake.net.tcp.Resident{ .io = io };
 > const partner = pancake.net.tcp.at(designator);
 >
-> const conn = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, partner, .ephemeral, .{});
-> defer conn.deinit();
+> const session = try pancake.driver.connect(
+>     allocator,
+>     &.{tcp_resident.netlayer()},
+>     partner,
+>     .ephemeral,
+>     .{},
+> );
+> defer session.deinit();
 >
-> const greeter = try conn.fetch("greeter"); // a capability, by name
+> const greeter = try session.fetch("greeter"); // a capability, by name
 > var arena = std.heap.ArenaAllocator.init(allocator);
 > defer arena.deinit();
-> const settled = try conn.call(greeter, .{
+> const settled = try session.call(greeter, .{
 >     .verb = "greet",
 >     .args = &.{.{ .string = "world" }},
 > }, arena.allocator());
@@ -71,13 +77,19 @@ round-trip:
 > defer iroh_resident.deinit();
 > const partner = "ocapn://3b6a…da29.iroh";
 >
-> const conn = try pancake.driver.connectUriOwned(allocator, &.{iroh_resident.netlayer()}, partner, .ephemeral, .{});
-> defer conn.deinit();
+> const session = try pancake.driver.connectUriOwned(
+>     allocator,
+>     &.{iroh_resident.netlayer()},
+>     partner,
+>     .ephemeral,
+>     .{},
+> );
+> defer session.deinit();
 >
-> const greeter = try conn.fetch("greeter"); // a capability, by name
+> const greeter = try session.fetch("greeter"); // a capability, by name
 > var arena = std.heap.ArenaAllocator.init(allocator);
 > defer arena.deinit();
-> const settled = try conn.call(greeter, .{
+> const settled = try session.call(greeter, .{
 >     .verb = "greet",
 >     .args = &.{.{ .string = "world" }},
 > }, arena.allocator());
@@ -90,58 +102,40 @@ round-trip:
 > }
 > ```
 
-Read it as four moves:
+What the snippet does not spell out:
 
-1. **Connect.** `pancake.driver.connect` opens a session over a netlayer and
-   hands you one owning `Session`; the iroh tab's `connectUriOwned` parses
-   the locator string and calls it. A netlayer is pancake's word for a
-   transport; the [Transports]($link.page('transports')) page introduces them.
-   The `defer conn.deinit()` on the next line is the only connection cleanup the
-   program needs; the arena's `deinit` reclaims the reply values.
-2. **Fetch a capability.** `conn.fetch("greeter")` asks the partner for the object it
-   published under the name `greeter`. What comes back is a capability, not a copy, so
-   from here on you are calling the partner's object, not your own.
-3. **Call it.** `conn.call` sends the `greet` method with one string argument. The
-   arena you pass in owns whatever the reply allocates, so you free the result by
-   dropping the arena rather than tracking each piece.
-4. **Switch on the outcome.** A call settles one of three ways: `fulfilled` with a
-   value, `broken` with a reason, or `give`, an introduction to a capability on
-   another peer, which a multi-session CapTP Host + `driver.Bridge` redeems into a live
-   reference for you. The compiler makes you handle every arm; this client meets
-   a plain greeter, so its `give` arm is empty.
+- A **netlayer** is pancake's word for a transport
+  ([Transports]($link.page('transports'))).
+- The **arena** owns reply allocations; drop it to free them.
+- The third settle arm, **`give`**, is an introduction a Host + `driver.Bridge`
+  redeems — [Concepts]($link.page('concepts')). This greeter never sends one.
+- Tcp uses `connect`; iroh uses `connectUriOwned` on the same `Session` path.
 
-The tcp snippet is carried verbatim by
-[`examples/zig/readme_quick_start.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/readme_quick_start.zig),
-which `zig build examples` compiles and runs, and `zig build meta-check` holds
-this page to the example's lines, so the page cannot drift away from the
-library. The iroh tab is the
-[rooms client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/zig/client.zig)'s
-shape: the endpoint bind gains a reachability posture, the locator shrinks to
-the partner's bare node id, and fetch, call, and the settled switch do not
-move. The id itself still arrives out of band, exactly like a host and port;
-discovery turns a name you were given into a route, it does not browse for
-peers.
+The tcp tab is carried verbatim by
+[`readme_quick_start.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/readme_quick_start.zig);
+`zig build examples` runs it and `zig build meta-check` holds this page to those
+lines. The iroh tab follows the
+[rooms client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/zig/client.zig):
+reachability posture, bare node id, same fetch / call / switch. The id still
+arrives out of band. Discovery turns a name you were given into a route; it
+does not browse for peers. Dial-by-id: [iroh]($link.page('transports/iroh')).
+The iroh tab is illustrative of that shape; the tcp fence is the checked
+contract.
 
-The hosting half, the program that publishes `greeter` and answers the call, has the
-same shape, and
-[`examples/zig/01_connect_and_serve.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/01_connect_and_serve.zig)
-runs both halves together. From there the
-[example chapters](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/README.md)
-keep going down, from this application surface all the way to the raw engine, one
-`step` at a time.
+Both halves together:
+[`01_connect_and_serve.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/01_connect_and_serve.zig).
 
 ## From C, or any FFI host
 
-The same library is also a plain C ABI, and that is the door for everyone not
-writing Zig. It comes in two shapes. To dial, fetch, and call, use the owning
-session: `pancake_tcp_session_connect` through `pancake_tcp_session_release`.
-When your program owns the event loop, drive the sans-io peer instead:
-`pancake_peer_recv_stream` in, `pancake_peer_next_event` and
-`pancake_peer_take_outbound` out. Either way the surface is opaque handles,
-fixed-width return codes, `ptr + len` views, callbacks, and explicit release,
-the shape every binding wraps. Start with
-[consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md)
-for the build, the artifacts, the ownership rules, and a first complete program.
+The same library is a plain C ABI in two shapes. To dial, fetch, and call in one
+thread, use the owning session (`pancake_tcp_session_connect` through
+`pancake_tcp_session_release`). When your program already owns the event loop,
+drive the sans-io peer instead: `pancake_peer_recv_stream` in,
+`pancake_peer_next_event` and `pancake_peer_take_outbound` out. Either way the
+surface is opaque handles, fixed-width return codes, `ptr + len` views, and
+explicit release. That is the shape every binding wraps. Build, ownership, and a
+first program:
+[consuming pancake from C](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md).
 
 ## In Rust, TypeScript, Python, or Racket
 
@@ -157,7 +151,7 @@ shape they share, then jump to your language:
 
 ## Then go deeper
 
-Once a round-trip works, two paths open up. Read [the modules]($link.page('modules'))
-to see how the library is layered and where each responsibility lives. Or read
-[the concepts]($link.page('concepts')) first if capabilities, CapTP, and OCapN are
-new to you and you want the ideas before the API.
+New to capabilities, locators, pipelining, or three-party handoff? Read
+[Concepts]($link.page('concepts')) first. Those are the hard ideas, once.
+Layer names (`Session` vs `Host` vs `Peer`): [modules]($link.page('modules')).
+More surfaces: [Surfaces]($link.page('surfaces')).

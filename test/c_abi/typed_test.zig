@@ -432,7 +432,7 @@ test "C ABI any-poll falls back to the frame arm for a handoff deliver" {
     try sender.importObject(7);
     var handoff = model.Handoff{ .give = .{
         .recipient_key = &([_]u8{0x42} ** 32),
-        .exporter_location = "memory:exporter",
+        .exporter = .{ .transport = "memory", .designator = "exporter" },
         .gifter_exporter_session = &([_]u8{0xcc} ** 32),
         .gifter_side = &([_]u8{0x11} ** 32),
         .gift_id = &([_]u8{0x01} ** 32),
@@ -507,8 +507,8 @@ test "C ABI resolve fulfilled with a handoff give projects to PANCAKE_RESOLUTION
 
     // A native partner hosts object 9, receives the call, and resolves the answer
     // to a give, gifter origination the C ABI cannot yet do, so a Zig peer
-    // stands in. The flat `transport:designator` exporter location round-trips to
-    // a parsed locator the projection formats as an `ocapn://` URI.
+    // stands in. The exporter is a structural PeerLocator that the projection
+    // formats as an `ocapn://` URI.
     var sender = engine.Peer.initRawOpenFixture(std.testing.allocator);
     defer sender.deinit();
     try sender.exportObject(9);
@@ -517,7 +517,7 @@ test "C ABI resolve fulfilled with a handoff give projects to PANCAKE_RESOLUTION
 
     var handoff = model.Handoff{ .give = .{
         .recipient_key = &([_]u8{0x42} ** 32),
-        .exporter_location = "tcp:127.0.0.1:9099",
+        .exporter = .{ .transport = "tcp", .designator = "127.0.0.1:9099" },
         .gifter_exporter_session = &([_]u8{0xcc} ** 32),
         .gifter_side = &([_]u8{0x11} ** 32),
         .gift_id = &([_]u8{0x01} ** 32),

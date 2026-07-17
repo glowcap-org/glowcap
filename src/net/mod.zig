@@ -109,7 +109,7 @@ const kqueue = if (@import("builtin").os.tag.isDarwin()) @import("completion/kqu
 
 /// The ready-to-use TCP completion loop for the host platform: the portable
 /// `completion.Loop` over the platform Backend plus `tcp.DialResolver` (OCapN
-/// locator → `IpAddress`). Linux uses io_uring, macOS/BSD use kqueue; on any
+/// locator into `IpAddress`). Linux uses io_uring, macOS/BSD use kqueue; on any
 /// other platform this is an empty struct. Named `TcpLoop` so it is not
 /// confused with the generic `completion.Loop(Backend, Locator)`.
 pub const TcpLoop = if (@import("builtin").os.tag == .linux)

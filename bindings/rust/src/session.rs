@@ -68,21 +68,54 @@ impl Session {
 	}
 
 	/// Mint the accepting half over a connection the caller's own listener
-	/// produced: the keyed op:start-session signs the listener's own
-	/// `transport_name`/`designator` — the address a partner can actually dial,
-	/// and the locator a give made on this host names as the exporter location.
-	/// Every host-wide giftable is published on the new session before the
-	/// open returns, so a dialer's pipelined fetch finds it. Binding-internal.
+	/// produced. `server_designator` is the listener's signing designator (key
+	/// for keyed-tcp/iroh; unused for tcp); `accepted_local_addr` is what
+	/// accept reported. Signing designator/hint come from
+	/// `pancake_host_plan_accept` (ADR-0078). Binding-internal.
 	pub(crate) async fn establish_accepted<S>(
 		host: Rc<HostShared>,
 		transport_name: &str,
-		designator: &str,
+		server_designator: &str,
 		stream: S,
-		direct_addresses_hint: &str,
+		accepted_local_addr: &str,
 	) -> Result<Session>
 	where
 		S: AsyncRead + AsyncWrite + Unpin + 'static,
 	{
+		let mut plan = ffi::PancakeAcceptPlan {
+			designator: core::ptr::null(),
+			designator_len: 0,
+			direct_addresses_hint: core::ptr::null(),
+			direct_addresses_hint_len: 0,
+		};
+		check_host(unsafe {
+			ffi::pancake_host_plan_accept(
+				transport_name.as_ptr(),
+				transport_name.len(),
+				server_designator.as_ptr(),
+				server_designator.len(),
+				accepted_local_addr.as_ptr(),
+				accepted_local_addr.len(),
+				&mut plan,
+			)
+		})?;
+		let designator = unsafe {
+			if plan.designator_len == 0 {
+				&[][..]
+			} else {
+				core::slice::from_raw_parts(plan.designator, plan.designator_len)
+			}
+		};
+		let hint = unsafe {
+			if plan.direct_addresses_hint_len == 0 {
+				&[][..]
+			} else {
+				core::slice::from_raw_parts(
+					plan.direct_addresses_hint,
+					plan.direct_addresses_hint_len,
+				)
+			}
+		};
 		let mut ptr: *mut ffi::PancakeHostSession = core::ptr::null_mut();
 		check_host(unsafe {
 			ffi::pancake_host_session_open_accepted(
@@ -91,8 +124,8 @@ impl Session {
 				transport_name.len(),
 				designator.as_ptr(),
 				designator.len(),
-				direct_addresses_hint.as_ptr(),
-				direct_addresses_hint.len(),
+				hint.as_ptr(),
+				hint.len(),
 				&mut ptr,
 			)
 		})?;

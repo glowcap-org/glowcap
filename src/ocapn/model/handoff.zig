@@ -6,12 +6,17 @@
 //! allocation. The session is what mints, signs, and checks them; `codec` is
 //! what frames them as `<desc:sig-envelope …>` records.
 
+const peer_locator = @import("peer_locator.zig");
+
 /// The gifter's signed gift: who may redeem it (`recipient_key`), where the
-/// exporter lives (`exporter_location`), and the bookkeeping that ties the gift
-/// to one exporter session so it cannot be replayed elsewhere.
+/// exporter lives (`exporter`), and the bookkeeping that ties the gift to one
+/// exporter session so it cannot be replayed elsewhere.
 pub const HandoffGive = struct {
     recipient_key: []const u8,
-    exporter_location: []const u8,
+    /// Structural peer locator (transport, designator, hints) — the same shape
+    /// Cap'n Proto and Syrup carry for sturdyrefs / start-session, so `#f` and
+    /// dial hints survive without a flattened `transport:designator` sidecar.
+    exporter: peer_locator.PeerLocator,
     gifter_exporter_session: []const u8,
     gifter_side: []const u8,
     gift_id: []const u8,

@@ -6,12 +6,13 @@
 .draft = false,
 ---
 
-The surest way to trust a protocol is to watch it run. pancake ships runnable
-examples at three levels: short Zig chapters that peel the library one layer at a
-time, small C programs that exercise the same library through its C ABI, and full
-cross-language apps where a coordinator in one language talks to clients in four
-others over real [OCapN](https://github.com/ocapn/ocapn). Every one compiles and
-runs under the build, so the code on the page cannot drift from the library.
+Watch the protocol run. Three levels: Zig chapters (one layer at a time), C ABI
+programs, and cross-language apps over real [OCapN](https://github.com/ocapn/ocapn).
+Every example is a build target, so prose cannot drift from the library.
+
+Hard moves have a chapter: **chapter 02** is three-party handoff (settle as the
+introduced capability); **chapter 06** is promise pipelining plus attenuation.
+Ideas first: [Concepts]($link.page('concepts')).
 
 ## The Zig chapters
 
@@ -62,31 +63,14 @@ Rust, Python, Racket, and TypeScript.
 | [tools](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tools/) | a capability showcase for AI agent harnesses: delegation, attenuation, revocation | `zig build demo-tools` |
 | [accountability](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/accountability-on-pancake/) | a signed-call accountability app over a real OCapN session on the `tcp` netlayer | `zig build demo-accountability` |
 
-The `rooms` app has a browser front end, and it is the most complete way to watch
-OCapN at work. `zig build rooms-web` serves it at `http://localhost:8000`: a
-real-time chat with a live directory of rooms, presence, rich text, and reconnect.
-It also does the move a broadcast server cannot. Pick a member and choose
-_Message_, and the room introduces you through a three-party handoff; from then on
-your direct messages travel straight to that person, and the room server is no
-longer on the path. The conversation's own header says so. `zig build rooms-web-iroh`
-runs the same page with the OCapN connections over an encrypted
-[iroh]($link.page('transports/iroh')) channel instead of TCP. The browser still
-reaches the server over a plaintext WebSocket, so that encryption covers the hop
-between peers, not the browser's own hop to the server.
+`rooms` is the fullest live picture. `zig build rooms-web` serves
+`http://localhost:8000`. Pick a member and choose _Message_: the room runs a
+three-party handoff, then steps out of the path. The conversation header says so.
+`rooms-web-iroh` puts peer CapTP on [iroh]($link.page('transports/iroh')); the
+browser-to-server WebSocket stays plaintext. Five-language peer hops over iroh:
+`zig build demo-rooms-iroh` (needs `cargo`). App code does not change; the
+address does.
 
-The `rooms over iroh` demo (`zig build demo-rooms-iroh`) runs that same five-language
-chat with every peer-to-peer hop over iroh instead of a local TCP port. Each peer is
-addressed by a self-authenticating node id, and the app code does not change; only
-the address does. It needs `cargo` for the iroh sidecar.
-
-The `rooms`, `tasks`, and `tools` demos need only `deno` and the always-built Zig
-client; the Python, Racket, and Rust clients join when their runtimes are present
-and are skipped with a note otherwise. The `accountability` demo pairs a Zig host
-with Deno and Python callers. Each binds an ephemeral port by default; pin it with
-`-Dport`, or add `-Dattach=true` to join a server you already started.
-`accountability` refuses `-Dattach` because each caller needs a fresh host. The
-demos run as siblings of `check`, not as part of the hermetic gate.
-
-Why an application at all? A protocol can pass every conformance scenario and still
-be miserable to build on. These apps are where the surface meets a real program, in
-five languages at once, and where the rough edges show up that no fixture reaches.
+`rooms` / `tasks` / `tools` need `deno` plus Zig; other languages join when
+present. `accountability` is Zig host + Deno/Python callers (no `-Dattach`).
+Pin ports with `-Dport`. Demos are siblings of `check`, not inside it.

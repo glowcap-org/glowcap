@@ -3,7 +3,7 @@ id: ADR-0008
 status: accepted
 date: 2026-05-05
 tags: [syrup, wire-profile, gc, reference-counting, abort, goblins-parity]
-decision: The Goblins-canonical Syrup profile carries split GC — `op:gc-exports` (parallel position + wire-delta lists) and `op:gc-answers` (position list) — with wire-delta reference counting in the import / export / answer tables and fail-loud underflow. There is no `op:release`. `op:abort` carries a typed `AbortKind` taxonomy that `v1_0` projects to a spec-compliant single string and `pre_spec` carries structured.
+decision: The Goblins-canonical Syrup profile carries split GC (`op:gc-exports` (parallel position + wire-delta lists) and `op:gc-answers` (position list)) with wire-delta reference counting in the import / export / answer tables and fail-loud underflow. There is no `op:release`. `op:abort` carries a typed `AbortKind` taxonomy that `v1_0` projects to a spec-compliant single string and `next` (Cap'n Proto sessions) carries structured kind+message.
 supersedes: []
 superseded_by: []
 ---
@@ -17,28 +17,29 @@ Goblins garbage-collects references with two operations and a batched
 the same import and expects batched `op:gc-exports` carrying positive
 wire-deltas. The OCapN `CapTP Specification.md` (§ `op:gc-exports`, §
 `op:gc-answers`, § `op:abort`) and Goblins's `captp.rkt` pin the wire shapes
-precisely, so the wire half is a transcription. The session-state half — where
-the counts live, what underflow does — is pancake's call.
+precisely, so the wire half is a transcription. The session-state half: where
+the counts live, what underflow does: is pancake's call.
 
 `op:abort` rides the same profile. Goblins emits a single-string
 `<op:abort reason>`. pancake carries a typed kind on the model surface and
-projects it per profile, so a pancake↔pancake session can route abort decisions
-on the kind while a pancake↔Goblins session stays spec-strict.
+projects it per profile, so a pancake-to-pancake session can route abort decisions
+on the kind while a pancake-to-Goblins session stays spec-strict.
 
 Engages the First Principles _session state is authoritative_ (counts live in
 the session tables, not the codec), _conformance is load-bearing_ (the shapes
-are pinned against Goblins fixtures), and _fail loud rather than succeed wrong_
+are pinned against the pancake-authored Syrup corpus and live Goblins /
+suite arms), and _fail loud rather than succeed wrong_
 (underflow is an error, never a silent clamp).
 
 ## Decision
 
 ### Split GC wire shapes
 
-`op:gc-exports` is two **parallel** lists — `position-list[i]` is the export id,
+`op:gc-exports` is two **parallel** lists. `position-list[i]` is the export id,
 `delta-list[i]` is the count of references to it the sender has dropped since
 its last `op:gc-exports` for that id. The receiver decrements its export count
 by the delta; at zero the export is collected. `op:gc-answers` is a single
-position list — promises are single-reference per answer-pos, so "done with N"
+position list: promises are single-reference per answer-pos, so "done with N"
 needs no delta, and a gc'd answer-pos becomes reusable. The model mirrors the
 wire ([`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig)):
 
@@ -55,7 +56,7 @@ The import, export, and answer tables in
 [`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig) carry a
 wire-delta count. Applying `op:gc-exports` validates then applies atomically: a
 `positions`/`deltas` length mismatch and a count underflow are both loud errors
-(`GcUnderflow` and siblings), surfaced — never saturating-subtracted. Underflow
+(`GcUnderflow` and siblings), surfaced, never saturating-subtracted. Underflow
 is a peer-or-protocol bug; absorbing it would hide the bug class. This is the
 behavior the C ABI dogfood pins: a fresh peer fed `op:gc-answers` for an
 answer-pos it never owned rejects the frame and projects an abort.
@@ -65,10 +66,10 @@ answer-pos it never owned rejects the frame and projects an abort.
 `AbortReason { kind: AbortKind, message: []const u8 }` carries a
 `non_exhaustive`-style `AbortKind` enum. Projection per profile:
 
-- **`pre_spec`:** carries both kind and message; a pancake↔pancake session
-  routes on the kind.
+- **`next`:** Cap'n Proto sessions carry both kind and message; a pancake-to-pancake
+  session routes on the kind.
 - **`v1_0`:** emits the single-string `<op:abort message>` the spec requires.
-  The kind rides as a discoverable prefix — `"<KindName>: <message>"` — which
+  The kind rides as a discoverable prefix (`"<KindName>: <message>"`) which
   the Syrup decoder matches back to a kind, falling to `.other` when no prefix
   matches. The wire-string format is the codec's in both directions; the model
   carries only the typed `AbortReason`. Spec-strict on the wire, typed within
@@ -80,7 +81,7 @@ The taxonomy spans the conditions the protocol core originates
 `invalid_handoff_signature`, `handoff_replay`) **and** the connection-lifecycle
 conditions an adapter detects (`connection_lost`, `graceful_shutdown`,
 `crossed_hellos`, `timeout`). The no-I/O core does not detect a lost socket or a
-crossed-hellos collision — those are dial/transport concerns an adapter owns —
+crossed-hellos collision: those are dial/transport concerns an adapter owns,
 but the kind and its wire projection live here so an adapter can project a
 _typed_ abort through the one shared projection path rather than inventing its
 own wire shape.
@@ -90,11 +91,11 @@ maps a rejected inbound frame (codec-malformed or session-refused) to the typed
 
 ## Scope (what this does not decide)
 
-- The handoff cryptographic suite and three-party protocol —
+- The handoff cryptographic suite and three-party protocol,
   [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
-- Promise pipelining queue/drain and `op:listen` —
+- Promise pipelining queue/drain and `op:listen`,
   [ADR-0007](ADR-0007-promise-pipelining-substrate.md).
-- The session table caps that bound these accumulators against a hostile peer —
+- The session table caps that bound these accumulators against a hostile peer,
   [ADR-0025](ADR-0025-session-table-cap-policy.md).
 - Adapter detection of connection loss / crossed hellos / graceful shutdown. The
   core carries the kinds and projects them; an adapter decides when to raise

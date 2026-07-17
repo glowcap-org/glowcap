@@ -85,11 +85,27 @@ pub const Served = struct {
         self.vat.deinit();
     }
 
+    /// Borrowed view of the partner's retained `op:abort` (kind + message).
+    /// The message slice points into this core's buffer.
+    pub const PartnerAbortView = struct {
+        kind: model.AbortKind,
+        message: []const u8,
+    };
+
+    /// The partner's retained abort, or null when no `op:abort` arrived.
+    pub fn partnerAbort(self: *const Served) ?PartnerAbortView {
+        if (self.last_abort) |*info| return .{
+            .kind = info.kind,
+            .message = info.message_buf[0..info.message_len],
+        };
+        return null;
+    }
+
     /// The partner's retained abort diagnostic, or null when no `op:abort`
     /// arrived. The slice points into this core's own buffer, so it stays valid
     /// as long as the core does.
     pub fn abortReason(self: *const Served) ?[]const u8 {
-        if (self.last_abort) |*info| return info.message_buf[0..info.message_len];
+        if (self.partnerAbort()) |info| return info.message;
         return null;
     }
 

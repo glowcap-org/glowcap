@@ -46,6 +46,8 @@ export const driverS = ffi.dlopen(libPath("pancake_driver"), {
 	pancake_host_session_open_dialed_locator: { parameters: [P, B, U, B, U, B], result: I },
 	// Resolve a dial to a PancakeDialPlan (grammar + hint + iroh posture); a free function.
 	pancake_host_plan_dial: { parameters: [B, U, B, U, B, U, "u32", "u32", B], result: I },
+	pancake_host_plan_accept: { parameters: [B, U, B, U, B, U, B], result: I },
+	pancake_host_pending_dial: { parameters: [P, U64, B], result: I },
 	pancake_host_session_open_accepted: { parameters: [P, B, U, B, U, B, U, B], result: I },
 	pancake_host_session_release: { parameters: [P], result: V },
 	pancake_host_session_session_open: { parameters: [P], result: I },
@@ -74,6 +76,7 @@ export const driverS = ffi.dlopen(libPath("pancake_driver"), {
 	pancake_host_vow_send: { parameters: [P, U64, B, U, B, U, B], result: I },
 	pancake_host_vow_index: { parameters: [P, U64, U64, B], result: I },
 	pancake_host_vow_untag: { parameters: [P, U64, B, U, B], result: I },
+	pancake_host_vow_get: { parameters: [P, U64, B, U, B], result: I },
 	// Turn verbs (legal only inside a behavior callback). `turn_forward`'s
 	// out-reply is the raw pointer the trampoline was handed, so it crosses as
 	// a pointer, not a JS buffer.

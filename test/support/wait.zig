@@ -15,7 +15,7 @@ pub const Error = error{WaitTimedOut};
 pub const default_deadline_ms: u64 = 15_000;
 
 /// Spin until `pred(ctx)` is true, or fail with `error.WaitTimedOut`.
-pub fn until(
+fn until(
     io: std.Io,
     deadline_ms: u64,
     ctx: anytype,

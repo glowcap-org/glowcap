@@ -17,6 +17,10 @@
 			<h3>Start building</h3>
 			<p>Get to a working program in Zig, C, or your binding of choice.</p>
 		</a>
+		<a class="card" href="$site.page('cli').link()">
+			<h3>CapTP CLI</h3>
+			<p>Listen, dial, and call from a shell. Same library, not a second stack.</p>
+		</a>
 		<a class="card" href="$site.page('modules').link()">
 			<h3>The modules</h3>
 			<p>Walk the layers, from the sans-io protocol core up to the netlayers.</p>

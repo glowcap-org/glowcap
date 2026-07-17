@@ -151,7 +151,7 @@ def _send_local(session, ctx: int, verb: str, args: list) -> RemotePromise:
         except Exception as error:  # noqa: BLE001 — a raise breaks the answer
             raise VowBroken(str(error) or type(error).__name__)
 
-    return RemotePromise(None, begin, None)
+    return RemotePromise.local(begin)
 
 
 async def _tell_local(session, ctx: int, verb: str, args: list) -> None:

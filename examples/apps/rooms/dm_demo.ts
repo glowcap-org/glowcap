@@ -21,7 +21,7 @@
 //      room's register dial-back — Carol reached Bob directly, by the gift's
 //      locator, not through the room.
 //   3. The room never carries the DM: it only deposited the gift on its own
-//      connection to Bob; the DM text travels solely on Carol↔Bob.
+//      connection to Bob; the DM text travels solely on Carol-to-Bob.
 //
 // The nodes are separate identities on separate loopback ports — a genuine
 // three-party handoff — run in one process so the assertions are precise and the
@@ -65,9 +65,9 @@ async function main(): Promise<void> {
 		return null;
 	});
 	const bobAccept = (async () => {
-		for await (const conn of bob) {
+		for await (const session of bob) {
 			bobInbound += 1;
-			conn.serve().catch(() => {});
+			session.serve().catch(() => {});
 		}
 	})();
 	const bobLocator = loopbackTcpDesignator(await bob.ready());
@@ -103,9 +103,9 @@ async function main(): Promise<void> {
 	const carol = await connect(tcpLocator("127.0.0.1", roomPort));
 	carol.serve().catch(() => {});
 	const carolDir = await carol.fetch(DIRECTORY);
-	// `introduce` returns Bob's dm (home = room↔Bob); the binding transparently
+	// `introduce` returns Bob's dm (home = room-to-Bob); the binding transparently
 	// turns that foreign-home reference into a redeemed cap on a fresh, direct
-	// Carol↔Bob connection, the gifter half of the handoff, end to end.
+	// Carol-to-Bob connection, the gifter half of the handoff, end to end.
 	const introduced = await carol.send(carolDir, INTRODUCE, ["bob"]);
 	if (!(introduced instanceof Ref)) {
 		fail("introduce did not return a capability");
@@ -126,7 +126,7 @@ async function main(): Promise<void> {
 	);
 
 	// The room only ever deposited the gift on its own Bob connection; the DM rode
-	// Carol↔Bob. Bob's two connections are the room's dial-back and Carol's direct
+	// Carol-to-Bob. Bob's two connections are the room's dial-back and Carol's direct
 	// dial — proof the room was never in the message path.
 	console.log("rooms-dm demo OK:");
 	console.log(

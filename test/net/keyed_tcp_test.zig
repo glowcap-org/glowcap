@@ -1,12 +1,12 @@
-//! Keyed TCP designator grammar — the `keyed-tcp` locator's two halves.
+//! Keyed TCP designator grammar: the `keyed-tcp` locator's two halves.
 //!
 //! A `keyed-tcp` locator names *who* in the designator (an Ed25519 key in
 //! canonical lowercase hex) and *where* in the `direct-addresses` hint (a
 //! `host:port`). These units pin the grammar's edges without a socket: the one
 //! canonical key spelling (`foundation.crypto.PeerKey`'s
 //! `toDesignator`/`fromDesignator`), and the dial refusals that fire before
-//! any I/O — a non-key designator, and a hint-less dial (TCP has no
-//! discovery). The full restart-stable loopback proof lives in
+//! any I/O: a non-key designator, and a hint-less dial (TCP has no
+//! discovery). The full restart-stable loopback test lives in
 //! `test/driver/keyed_tcp_restart_test.zig`.
 
 const std = @import("std");

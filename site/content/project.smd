@@ -14,7 +14,7 @@ below argue the direction without pretending unfinished work is done.
 <nav class="cards" aria-label="Project status">
 	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/shipped.md">
 		<h3>What ships today</h3>
-		<p>The gated inventory of implemented behavior: the wire operation surface, both codecs, the shipped netlayers, the actor layer, third-party handoffs, and live Goblins interop from every binding. A claim that stops matching the tree is treated as a bug.</p>
+		<p>The verified inventory of implemented behavior: the wire operation surface, both codecs, the shipped netlayers, the actor layer, third-party handoffs, Zig bidirectional Goblins interop, and per-binding client-direction Goblins check steps. A claim that stops matching the tree is treated as a bug.</p>
 	</a>
 	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/boundaries.md">
 		<h3>Where the edges are</h3>
@@ -33,8 +33,10 @@ below argue the direction without pretending unfinished work is done.
 
 Two more documents carry the route in detail: the
 [ladder](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/ladder.md) is the
-ordered climb to 1.0 with each rung's standing, and the
+ordered climb to 1.0 with each step's standing, and the
 [roadmap](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/roadmap.md) is the
-concrete remaining work. Each claim in the shipped inventory is held by a gate, a
-scenario, or a live interop run against
+concrete remaining work. For an OCapN or Goblins-facing read,
+[community review](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/community-review.md)
+is the one-page brief of what each evidence check step proves. Each claim in the shipped
+inventory is held by a check step, a scenario, or a live interop run against
 [Spritely Goblins](https://spritely.institute/goblins/).

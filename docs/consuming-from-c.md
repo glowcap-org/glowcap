@@ -28,14 +28,14 @@ That installs the archives under `zig-out/lib/` (each in static `.a` and shared
 `.so` form, plus the platform's versioned names) and their headers under
 `zig-out/include/`:
 
-| Archive                           | Header                           | What it carries                                                                                  |
+| Archive | Header | What it carries |
 | --------------------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------ |
-| `libpancake_ocapn`                | `pancake_ocapn.h`                | the sans-io peer, contexts, frames, events, URIs: the shared vocabulary every consumer needs. Multi-session CapTP product work uses `pancake_host_*` |
-| `libpancake_driver`               | `pancake_driver.h`               | the byte-fed host tier (`pancake_host_*`): a multi-session CapTP Host you feed and drain yourself, with publish/fetch/send, vows, and the three-party handoff inside the library (ADR-0072) |
-| `libpancake_net`                  | —                                | the net-core base; links in the chain, exports nothing on its own                                |
-| `libpancake_net_transport_tcp`    | `pancake_net_transport_tcp.h`    | the blocking TCP layer (`pancake_tcp_*`): the frame boundary plus the owning `PancakeTcpSession` |
-| `libpancake_net_transport_inproc` | `pancake_net_transport_inproc.h` | the socket-free in-process layer (`pancake_inproc_*`)                                            |
-| `libpancake_net_transport_iroh`   | `pancake_net_transport_iroh.h`   | encrypted QUIC (`pancake_iroh_*`); optional, links the Rust sidecar                             |
+| `libpancake_ocapn` | `pancake_ocapn.h` | the sans-io peer, contexts, frames, events, URIs: the shared vocabulary every consumer needs. Multi-session CapTP product work uses `pancake_host_*` |
+| `libpancake_driver` | `pancake_driver.h` | the byte-fed host tier (`pancake_host_*`): a multi-session CapTP Host you feed and drain yourself, with publish/fetch/send, vows, and the three-party handoff inside the library (ADR-0072) |
+| `libpancake_net` |, | the net-core base; links in the chain, exports nothing on its own |
+| `libpancake_net_transport_tcp` | `pancake_net_transport_tcp.h` | the blocking TCP layer (`pancake_tcp_*`): the frame boundary plus the owning `PancakeTcpSession` |
+| `libpancake_net_transport_inproc` | `pancake_net_transport_inproc.h` | the socket-free in-process layer (`pancake_inproc_*`) |
+| `libpancake_net_transport_iroh` | `pancake_net_transport_iroh.h` | encrypted QUIC (`pancake_iroh_*`); optional, links the Rust sidecar |
 
 Each header is generated from its Zig source: `pancake_ocapn.h` by
 `zig build gen-header-ocapn`, the
@@ -189,6 +189,6 @@ transport header for a transport call) is the contract.
 [`bindings/`](../bindings/README.md) holds four consumers of this exact surface
 (Rust, Deno, Python, and Racket), each wrapping the same calls in its
 language's idiom, each exercised by `zig build bindings`, and each holding a
-live conversation with a real Goblins peer in its `*-goblins-interop` gate. When
+live conversation with a real Goblins peer in its `*-goblins-interop` check step. When
 you are unsure how a sequence of calls composes, the binding nearest your
 language is a tested, runnable answer.

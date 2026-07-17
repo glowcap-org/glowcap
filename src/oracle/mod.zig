@@ -141,6 +141,95 @@ pub fn runDrivenDeliverResolve(allocator: std.mem.Allocator, codec: model.CodecI
     return out.toOwnedSlice(allocator);
 }
 
+/// Deliver → listen on the answer → resolve → listener-fire. Scenario authority
+/// for answer-side `op:listen` (ADR-0007); codec-parameterized like
+/// `runDrivenDeliverResolve`.
+pub fn runDrivenListenResolve(allocator: std.mem.Allocator, codec: model.CodecId) ![]u8 {
+    var pair = try engine.pairing.pairedWithCodec(allocator, codec);
+    defer pair.deinit();
+
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    try out.appendSlice(allocator, "scenario=driven_listen_resolve\n");
+
+    try pair.p1.session_state.registerImport(.from(7));
+    try pair.p2.session_state.registerExport(.from(7));
+    try pair.p1.session_state.registerExport(.from(9));
+
+    try pair.p1.sendCopying(.{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(7) } },
+        .args = &.{},
+        .answer = .from(42),
+    } });
+    _ = try pair.p1.step();
+    try out.appendSlice(allocator, "p1=sent:deliver:answer=42\n");
+    {
+        const frame = pair.p1.takeOutbound().?;
+        try pair.p2.feedOwned(frame);
+    }
+    _ = try pair.p2.step();
+    if (pair.p2.pollEvent()) |event_value| {
+        var event = event_value;
+        defer event.deinit();
+        try appendTraceLine(allocator, &out, "p2=event:{s}\n", .{@tagName(event.kind())});
+    }
+
+    try pair.p1.sendCopying(.{ .listen = .{
+        .target = .{ .promise = .{ .answer_position = .from(42) } },
+        .listener = .{ .near = .{ .export_position = .from(9) } },
+        .wants_partial = false,
+    } });
+    _ = try pair.p1.step();
+    try out.appendSlice(allocator, "p1=sent:listen:answer=42\n");
+    {
+        const frame = pair.p1.takeOutbound().?;
+        try pair.p2.feedOwned(frame);
+    }
+    _ = try pair.p2.step();
+    if (pair.p2.pollEvent()) |event_value| {
+        var event = event_value;
+        defer event.deinit();
+        try appendTraceLine(allocator, &out, "p2=event:{s}\n", .{@tagName(event.kind())});
+    }
+
+    try pair.p2.sendCopying(.{ .resolve = .{
+        .answer = .from(42),
+        .resolution = .{ .fulfill = .{ .bytes = "ok" } },
+    } });
+    _ = try pair.p2.step();
+    try out.appendSlice(allocator, "p2=sent:resolve:answer=42\n");
+    {
+        const frame = pair.p2.takeOutbound().?;
+        try pair.p1.feedOwned(frame);
+    }
+    _ = try pair.p2.step();
+    {
+        const frame = pair.p2.takeOutbound().?;
+        try pair.p1.feedOwned(frame);
+    }
+
+    _ = try pair.p1.step();
+    if (pair.p1.pollEvent()) |event_value| {
+        var event = event_value;
+        defer event.deinit();
+        try appendTraceLine(allocator, &out, "p1=event:{s}\n", .{@tagName(event.kind())});
+    }
+    _ = try pair.p1.step();
+    if (pair.p1.pollEvent()) |event_value| {
+        var event = event_value;
+        defer event.deinit();
+        const view = try event.view();
+        try appendTraceLine(allocator, &out, "p1=event:{s}:listener={d}:fulfill={s}\n", .{
+            @tagName(event.kind()),
+            view.deliver.target.near.export_position.int(),
+            (try view.deliver.args.at(1)).bytes,
+        });
+    }
+    try out.appendSlice(allocator, "\n");
+
+    return out.toOwnedSlice(allocator);
+}
+
 /// The peers hand-shake, the responder registers a bootstrap cap, the initiator
 /// fetches it, and the responder auto-resolves with no hand-rolled reply. The exporter-side
 /// proof for ADR-0006's responder half: serving an inbound `'fetch` lives in the

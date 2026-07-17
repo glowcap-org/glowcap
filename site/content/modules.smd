@@ -8,77 +8,67 @@
 
 You do not have to keep this layering in your head; the build keeps it for you.
 Each layer is its own module with a one-way import table, so a reach across layers
-is a compile error, not a comment a reviewer has to catch. The diagram above is the
-map. The
-[architecture](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/architecture.md)
-is the authoritative account of every layer.
+is a compile error. The diagram above is the map. The full account:
+[architecture](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/architecture.md).
+
+## Four names that confuse newcomers
+
+| Name | Job |
+| --- | --- |
+| **Peer** | Caller-owned engine handle: feed inbound frames, `step`, drain outbound, read events. No sockets. |
+| **Session** | One-partner application object: `connect` / `listen`, `fetch`, blocking `call`. Owns one live conversation. |
+| **Host** | Multi-session CapTP product: one identity, many sessions, vows, handoff router, crossed-hello tiebreak. Sans-io core lives in `driver/core`. |
+| **Bridge** | Zig embedder that answers the Host's action queue (dial, flush, close, entropy) over a completion loop. Bindings do the same job through `libpancake_driver`. |
+
+Ordinary apps stay on `Session`. Introductions and many peers need a Host (Zig
+`Bridge`, or a binding's host). Three-party settle-as-capability:
+[Concepts]($link.page('concepts')).
 
 ## The protocol core
 
-The core owns the protocol and nothing else. It is synchronous, holds no sockets, and
-starts no background work. That is what lets it be tested deterministically and
-dropped into any host without dragging a runtime along.
+The core is synchronous. It holds no sockets and starts no background work, so
+you can test it without a host runtime.
 
-- **foundation** owns the primitives every other layer shares. A `Frame` has one
-  visible owner, a `FrameView` borrows bytes for a bounded scope, and IDs are plain
-  values.
-- **model** is the codec-neutral CapTP vocabulary: references, answers, arguments,
-  and resolutions, all defined independently of the bytes that carried them.
+- **foundation** owns the shared primitives: a `Frame` owns bytes, a `FrameView`
+  borrows them, and IDs are plain values.
+- **model** is the CapTP vocabulary, independent of the bytes that carried it.
 - **codec** turns model values into wire bytes and back.
-  [Syrup](https://github.com/ocapn/syrup) is the Goblins-canonical profile and
-  [Cap'n Proto](https://capnproto.org/) is the second codec; the
-  [Codecs]($link.page('codecs')) page covers both. Sibling codecs cannot import each
-  other, so neither can quietly grow a dependency on the other's shape.
-- **session** is the authority. It owns the import, export, and answer tables, with
-  the GC reference counts that release entries from them, and it decides what is
-  valid. A codec never gets to decide whether a reference or a release is allowed.
-- **engine** is the caller-owned `Peer`. You feed it inbound frames, call `step`,
-  drain the outbound frames, and read the events. It dispatches a session and does
-  nothing more.
+  [Syrup](https://github.com/ocapn/syrup) is the Goblins floor;
+  [Cap'n Proto](https://capnproto.org/) is the second spelling.
+  [Codecs]($link.page('codecs')). Sibling codecs cannot import each other.
+- **session** is the authority: import, export, and answer tables, and what is
+  valid. A codec never decides whether a reference is allowed.
+- **engine** is the `Peer` above: feed frames, `step`, drain outbound, read
+  events. Dispatch only.
 
 ## Above the core
 
-The framework-shaped pieces sit on top of the core, never inside it.
-
-- **actors** is a Goblins-shaped `Vat`. You spawn a local object, call it near with
-  `$`, send it eventually with `<-`, and observe the promise that comes back. It
-  adds no protocol semantics the engine lacks; it is a friendlier face on the
-  substrate.
-- **driver/core** is the sans-io multi-session CapTP serve core (`Served`, the
-  byte-fed `Host`). It owns identity, `engine.Node`, vows, and crossed hellos. The
-  build bans sockets there so they cannot creep back in.
-- **net** is the one place `std.Io` enters. A netlayer is a contract the core
-  dispatches against rather than a privileged built-in, so a transport is a resident
-  you register. Four ship today: cleartext TCP, keyed-tcp (same sockets, key-derived
-  designator), an in-process switchboard for whole conversations inside one process,
-  and [iroh](https://www.iroh.computer/)'s encrypted QUIC as a separate optional
-  artifact. The [Transports]($link.page('transports')) page walks all four.
+- **actors** is a Goblins-shaped `Vat`: near-call `$`, eventual-send `<-`, and
+  promises. It adds no protocol semantics the engine lacks.
+- **driver/core** is the sans-io multi-session serve (`Served`, byte-fed
+  `Host`). The build bans sockets here.
+- **net** is where `std.Io` enters. Residents today: cleartext TCP, keyed-tcp,
+  inproc, and [iroh](https://www.iroh.computer/) QUIC as an optional artifact.
+  [Transports]($link.page('transports')).
 
 > **Vat**: one single-threaded container of objects, the unit
-> [Spritely Goblins](https://spritely.institute/goblins/) and
-> the wider ocap world organize around. Every call into a vat runs as one *turn*,
-> start to finish, before the next begins, so an object never sees a half-applied
-> state and you reason about it the way you reason about a single thread.
+> [Spritely Goblins](https://spritely.institute/goblins/) and the wider ocap
+> world organize around. Every call into a vat runs as one *turn*, start to
+> finish, before the next begins.
 
-> **Near-call (`$`) and eventual-send (`<-`)**: two ways to invoke an object,
-> borrowed from the [E language](http://erights.org/). A near-call runs now and returns the result, because
-> the object lives in your own vat. An eventual-send queues the call for a later turn
-> and hands back a promise; it is also the only way to call across a session, since a
-> partner's object is never in your vat.
+> **Near-call (`$`) and eventual-send (`<-`)**: from
+> [E](http://erights.org/). Near runs now in your vat. Eventual queues a later
+> turn and returns a promise. That is also the only way to call across a
+> session.
 
-## The surfaces
+## Surfaces out of the core
 
-Two surfaces carry pancake out to the people building on it. The
-[Surfaces]($link.page('surfaces')) page is the consumer's-eye view of both.
+Consumer view: [Surfaces]($link.page('surfaces')).
 
-- **c_abi** is the deliberate public surface: opaque handles, fixed-width return
-  codes, `ptr + len` views, callbacks, and explicit release, so a consumer can wrap
-  it well without knowing any Zig. The host archive (`libpancake_driver`) is the
-  multi-session CapTP byte-fed face bindings wrap.
-- **driver** is the native Zig application surface above `driver/core`. It offers
-  one-session `Session`, multi-session CapTP `Bridge` + Host over a completion loop
-  (`net.TcpLoop` / iroh Backend), and the byte-fed C ABI host.
+- **c_abi** is opaque handles, fixed-width codes, `ptr + len`, and explicit
+  release. `libpancake_driver` is the multi-session host bindings wrap.
+- **driver** is native Zig above `driver/core`: one-session `Session`, and
+  `Bridge` + Host over `net.TcpLoop` / iroh Backend.
 
-The [bindings]($link.page('bindings')) are that same application surface once more, in
-Rust, TypeScript, Python, and Racket. Each consumes the C ABI and presents it in its
-own idiom.
+[Bindings]($link.page('bindings')) are that application surface again in Rust,
+TypeScript, Python, and Racket, each over the C ABI.

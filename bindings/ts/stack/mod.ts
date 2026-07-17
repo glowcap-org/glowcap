@@ -55,7 +55,6 @@ export {
 	encodePeerLocator,
 	formatPeerUri,
 	HINT_DIRECT_ADDRESSES,
-	hostPortFromDirectHint,
 	keyedTcpLocator,
 	type Locator,
 	parseLocator,

@@ -87,7 +87,7 @@
 //!     error. Fills `out` with up to `out.len` completions and returns the count.
 //!
 //! The Loop is also parameterized by a `Locator`: OCapN
-//! `(transport, designator, hint)` → `Backend.ConnectTarget`. That grammar
+//! `(transport, designator, hint)` maps to `Backend.ConnectTarget`. That grammar
 //! belongs on the netlayer (`tcp.DialResolver`, `iroh.DialResolver`), never on a
 //! platform Backend. `Loop.dialLocator` is the only public dial verb.
 //!
@@ -332,7 +332,7 @@ pub const Options = struct {
     /// under ADR-0042 outbound high-water, also refuse to arm reads on every
     /// *other* connection until no connection remains parked. Off by default
     /// so existing scale harnesses keep per-connection-only backpressure;
-    /// enable to prove many-A→one-B sources slow when the sink parks.
+    /// enable to prove many-A-to-one-B sources slow when the sink parks.
     fan_in_throttle: bool = false,
     /// Park-duration kill (ADR-0082 / NATS write_deadline analogue): if a
     /// connection stays `.parked` longer than this many milliseconds, the loop
@@ -415,7 +415,7 @@ const RecvVerdict = enum {
 };
 
 /// The portable completion-driven connection loop over a platform `Backend`
-/// and a netlayer `DialResolver` (OCapN locator parts → `Backend.ConnectTarget`).
+/// and a netlayer `DialResolver` (OCapN locator parts to `Backend.ConnectTarget`).
 pub fn Loop(comptime Backend: type, comptime Locator: type) type {
     comptime validateBackend(Backend);
     comptime validateLocator(Locator, Backend.ConnectTarget);
@@ -986,7 +986,7 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// inbound frame would pile more replies onto an unread socket, so the
         /// read parks instead and `onSend` resumes it when the queue drains
         /// (ADR-0042). With `fan_in_throttle`, a parked sink also parks every
-        /// other connection's reads so many-A→one-B sources slow (ADR-0082).
+        /// other connection's reads so many-A-to-one-B sources slow (ADR-0082).
         /// Protocol frames are never dropped; the queue is bounded at the mark
         /// plus the replies of frames already buffered.
         fn armOrPark(self: *Self, slot: usize, c: *Conn) !void {

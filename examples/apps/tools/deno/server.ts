@@ -8,7 +8,7 @@
 // capability it can reach.
 //
 // Read how the capability trio falls out of ordinary code:
-//   - delegation  — `grant` returns `conn.spawn(toolBehavior)`, a reference the
+//   - delegation  — `grant` returns `session.spawn(toolBehavior)`, a reference the
 //     agent receives and calls. Authority travels as a reference.
 //   - attenuation — a read-only view is a function wrapping a function: it
 //     forwards `read` and refuses `write`. No special API.
@@ -80,19 +80,19 @@ function toolFor(name: string): Tool {
 
 /** The coordinator behavior for one connected agent. It closes over that agent's
  * connection (to spawn capabilities on it) and the last revocable grant. */
-function coordinatorBehavior(conn: Session) {
+function coordinatorBehavior(session: Session) {
 	let lastRevoke: (() => void) | null = null;
 	return (verb: string, args: AppValue[]): AppValue => {
 		if (verb === GRANT) {
 			const name = typeof args[0] === "string" ? args[0] : "";
 			// Delegation: hand the agent a capability to the requested tool.
-			return conn.spawn(toolFor(name));
+			return session.spawn(toolFor(name));
 		}
 		if (verb === GRANT_REVOCABLE) {
 			const name = typeof args[0] === "string" ? args[0] : "";
 			const { behavior, revoke } = revocable(toolFor(name));
 			lastRevoke = revoke;
-			return conn.spawn(behavior);
+			return session.spawn(behavior);
 		}
 		if (verb === REVOKE_LAST) {
 			lastRevoke?.();
@@ -107,7 +107,7 @@ const port = Number(Deno.args[0] ?? "0");
 const server = listen("127.0.0.1", port);
 console.log(`TOOLS-SERVER-LISTENING ${await server.ready()}`);
 
-for await (const conn of server) {
-	conn.publish(TOOLS, coordinatorBehavior(conn));
-	conn.serve().catch(() => {});
+for await (const session of server) {
+	session.publish(TOOLS, coordinatorBehavior(session));
+	session.serve().catch(() => {});
 }

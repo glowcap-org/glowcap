@@ -69,12 +69,42 @@ test "handshake then bootstrap-fetch auto-serves the registered cap" {
 // incomplete: a scenario driven over Syrup and over Cap'n Proto must produce
 // byte-identical semantic traces. The session state machine is codec-neutral; the codec only decides
 // wire bytes, so the observable trace cannot depend on which codec carried it.
+test "driven listen/resolve fires the registered listener across paired peers" {
+    const allocator = std.testing.allocator;
+
+    const actual = try oracle.runDrivenListenResolve(allocator, .syrup);
+    defer allocator.free(actual);
+
+    try std.testing.expectEqualStrings(
+        "scenario=driven_listen_resolve\n" ++
+            "p1=sent:deliver:answer=42\n" ++
+            "p2=event:deliver\n" ++
+            "p1=sent:listen:answer=42\n" ++
+            "p2=event:listen\n" ++
+            "p2=sent:resolve:answer=42\n" ++
+            "p1=event:resolve\n" ++
+            "p1=event:deliver:listener=9:fulfill=ok\n\n",
+        actual,
+    );
+}
+
 test "deliver/resolve trace is identical on Syrup and Cap'n Proto" {
     const allocator = std.testing.allocator;
 
     const syrup = try oracle.runDrivenDeliverResolve(allocator, .syrup);
     defer allocator.free(syrup);
     const capnp = try oracle.runDrivenDeliverResolve(allocator, .capnp);
+    defer allocator.free(capnp);
+
+    try std.testing.expectEqualStrings(syrup, capnp);
+}
+
+test "listen/resolve trace is identical on Syrup and Cap'n Proto" {
+    const allocator = std.testing.allocator;
+
+    const syrup = try oracle.runDrivenListenResolve(allocator, .syrup);
+    defer allocator.free(syrup);
+    const capnp = try oracle.runDrivenListenResolve(allocator, .capnp);
     defer allocator.free(capnp);
 
     try std.testing.expectEqualStrings(syrup, capnp);

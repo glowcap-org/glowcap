@@ -34,9 +34,9 @@ async def run(port: int) -> None:
     print(f"  connecting to 127.0.0.1:{port}…")
 
     # `connect` completes the keyed op:start-session handshake before returning.
-    conn = await connect(tcp_locator("127.0.0.1", port))
+    session = await connect(tcp_locator("127.0.0.1", port))
     # `fetch`/`send` drive the inbound loop themselves, no separate serve() call.
-    affordance = await conn.fetch("affordance")
+    affordance = await session.fetch("affordance")
 
     # Generate an Ed25519 identity (above pancake, like the Zig/Deno sides).
     signing_key = SigningKey.generate()
@@ -54,7 +54,7 @@ async def run(port: int) -> None:
     sig_b64 = b64url(sig_raw)
 
     print("  sending legitimate invoke…")
-    result = await conn.send(affordance, "invoke", [subject, verkey, request, sig_b64])
+    result = await session.send(affordance, "invoke", [subject, verkey, request, sig_b64])
     if not isinstance(result, str) or not result.startswith("ack:"):
         print(f"  FAIL: unexpected result: {result!r}", file=sys.stderr)
         sys.exit(1)
@@ -69,7 +69,7 @@ async def run(port: int) -> None:
     refused = False
     break_msg = ""
     try:
-        await conn.send(affordance, "invoke", [subject, verkey, request, bad_sig_b64])
+        await session.send(affordance, "invoke", [subject, verkey, request, bad_sig_b64])
     except VowBroken as exc:
         refused = True
         break_msg = str(exc)
@@ -79,7 +79,7 @@ async def run(port: int) -> None:
         sys.exit(1)
     print(f"  correctly refused: {break_msg}")
 
-    await conn.close()
+    await session.close()
     print("\naccountability-on-pancake python caller OK: same application, two languages.")
 
 

@@ -16,7 +16,7 @@
 //
 //   const server = listenIroh(Reachability.Direct);
 //   console.log(server.uri);              // hand this to a partner
-//   for await (const conn of server) conn.serve();
+//   for await (const session of server) session.serve();
 //
 // The byte unit is identical to TCP's — the core's stream delimiter owns
 // framing — so the same byte-fed `Session` serve loop drives a session over
@@ -736,7 +736,7 @@ function acceptIroh(
 }
 
 /** A listening iroh endpoint. Iterate it for an accepted `Session` per
- * partner — `for await (const conn of listenIroh()) { ... }` — and read `uri`
+ * partner — `for await (const session of listenIroh()) { ... }` — and read `uri`
  * for the dialable address (endpoint id + direct-address hints) to hand a
  * client. The iroh sibling of the core's `Server`. */
 export class IrohServer {

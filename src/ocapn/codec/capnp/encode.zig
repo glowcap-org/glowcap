@@ -8,6 +8,7 @@ const std = @import("std");
 
 const foundation = @import("foundation");
 const model = @import("model");
+const codec_order = @import("codec_order");
 const shared = @import("shared.zig");
 const wire = shared.wire;
 
@@ -21,7 +22,7 @@ const PipelineOpKind = shared.PipelineOpKind;
 const HandoffKind = shared.HandoffKind;
 const StructLoc = shared.StructLoc;
 
-/// Encode for a wire profile, the codec-dispatch boundary's counterpart to
+/// Encode for a CapTP version, the codec-dispatch boundary's counterpart to
 /// `syrup.encodeMessageForProfile`. Cap'n Proto is pancake's self-consistent
 /// dialect (ADR-0026): the struct schema always carries `resolve_me_desc` /
 /// `wants_partial`, and the engine applies the V1.0 semantic translation
@@ -30,7 +31,7 @@ const StructLoc = shared.StructLoc;
 /// uniformity and intentionally unused.
 pub fn encodeMessageForProfile(
     allocator: std.mem.Allocator,
-    _: model.WireProfile,
+    _: model.CaptpVersion,
     message: model.Message,
 ) EncodeError!foundation.Frame {
     return encodeMessage(allocator, message);
@@ -138,7 +139,7 @@ fn encodeStartSession(b: *wire.Builder, allocator: std.mem.Allocator, ss: model.
     const loc = try allocStruct(b, allocator, 0, 4);
     try setData(b, allocator, loc, 0, ss.captp_version.wireString());
     try setData(b, allocator, loc, 1, ss.session_pubkey.bytes);
-    setStructPtr(b, ptrIndex(loc, 2), try encodeHintedPeerLocator(b, allocator, ss.acceptable_location));
+    setStructPtr(b, ptrIndex(loc, 2), try encodePeerLocator(b, allocator, ss.acceptable_location));
     try setData(b, allocator, loc, 3, ss.acceptable_location_sig.bytes);
     return loc;
 }
@@ -176,7 +177,8 @@ fn encodeHandoff(b: *wire.Builder, allocator: std.mem.Allocator, handoff: model.
 fn encodeHandoffGive(b: *wire.Builder, allocator: std.mem.Allocator, give: model.HandoffGive) EncodeError!StructLoc {
     const loc = try allocStruct(b, allocator, 0, 6);
     try setData(b, allocator, loc, 0, give.recipient_key);
-    try setData(b, allocator, loc, 1, give.exporter_location);
+    // Structural PeerLocator (same layout as sturdyref / start-session).
+    setStructPtr(b, ptrIndex(loc, 1), try encodePeerLocator(b, allocator, give.exporter));
     try setData(b, allocator, loc, 2, give.gifter_exporter_session);
     try setData(b, allocator, loc, 3, give.gifter_side);
     try setData(b, allocator, loc, 4, give.gift_id);
@@ -220,28 +222,11 @@ fn encodeReference(b: *wire.Builder, allocator: std.mem.Allocator, reference: mo
     return loc;
 }
 
-/// Encode a `PeerLocator` refusing hint entries: the sturdyref wire path,
-/// mirroring Syrup's `writeLocator` — refused loudly rather than silently
-/// dropped, since that would put a different locator on the wire than the
-/// caller named. A hint-carrying sturdyref has no dedicated entry-carrying
-/// wire path in either codec today; `op:start-session`'s locator uses
-/// `encodeHintedPeerLocator` below instead.
+/// Encode a `PeerLocator`, including hint entries when present. Sturdyrefs,
+/// `op:start-session` `acceptable_location`, and `desc:handoff-give` exporters
+/// all share this one layout, so a hint-carrying locator round-trips on every
+/// arm instead of being refused or silently dropped.
 fn encodePeerLocator(b: *wire.Builder, allocator: std.mem.Allocator, locator: model.PeerLocator) EncodeError!StructLoc {
-    if (locator.hints.entries.len != 0) return Error.UnsupportedArgument;
-    return encodePeerLocatorStruct(b, allocator, locator);
-}
-
-/// Encode a `PeerLocator` carrying hint entries when present: the
-/// `op:start-session` `acceptable_location` wire path, mirroring Syrup's
-/// entry-carrying `writePeerLocatorRecord` (the encoder Syrup's own
-/// `op:start-session` path calls). Closes the "Cap'n Proto refuses non-empty
-/// locator hints" boundary — a keyed-tcp/iroh peer advertising a
-/// `direct-addresses` hint can open a Cap'n Proto session, not just Syrup.
-fn encodeHintedPeerLocator(b: *wire.Builder, allocator: std.mem.Allocator, locator: model.PeerLocator) EncodeError!StructLoc {
-    return encodePeerLocatorStruct(b, allocator, locator);
-}
-
-fn encodePeerLocatorStruct(b: *wire.Builder, allocator: std.mem.Allocator, locator: model.PeerLocator) EncodeError!StructLoc {
     const loc = try allocStruct(b, allocator, 1, 3);
     if (locator.hints.wire_form == .boolean_false) b.set(loc.data_idx, 1);
     try setData(b, allocator, loc, 0, locator.transport);
@@ -362,9 +347,7 @@ fn encodeArgumentInto(b: *wire.Builder, allocator: std.mem.Allocator, arg: model
         },
         .set => |set| {
             b.set(loc.data_idx, @intFromEnum(ArgKind.set));
-            const ordered = try canonicalSetOrder(allocator, set);
-            defer allocator.free(ordered);
-            setListPtr(b, ptrIndex(loc, 0), try encodeArgumentList(b, allocator, ordered));
+            setListPtr(b, ptrIndex(loc, 0), try encodeArgumentSetList(b, allocator, set));
         },
         .tagged => |tagged| {
             b.set(loc.data_idx, @intFromEnum(ArgKind.tagged));
@@ -412,19 +395,18 @@ fn encodeStructEntries(b: *wire.Builder, allocator: std.mem.Allocator, entries: 
 /// the same shape the big-integer arm uses, rather than shipped. Keys are
 /// adjacent after the sort, so one linear pass finds any repeat.
 fn canonicalStructOrder(allocator: std.mem.Allocator, entries: []const model.StructEntry) EncodeError![]model.StructEntry {
-    const ordered = try allocator.alloc(model.StructEntry, entries.len);
-    errdefer allocator.free(ordered);
-    for (entries, 0..) |entry, i| ordered[i] = entry;
-    std.mem.sort(model.StructEntry, ordered, {}, lessByEntryKey);
-    var i: usize = 1;
-    while (i < ordered.len) : (i += 1) {
-        if (std.mem.eql(u8, ordered[i - 1].key, ordered[i].key)) return Error.UnsupportedArgument;
-    }
-    return ordered;
-}
-
-fn lessByEntryKey(_: void, a: model.StructEntry, b: model.StructEntry) bool {
-    return std.mem.lessThan(u8, a.key, b.key);
+    return codec_order.orderedCopyByKey(
+        model.StructEntry,
+        EncodeError,
+        allocator,
+        entries,
+        struct {
+            fn key(entry: model.StructEntry) []const u8 {
+                return entry.key;
+            }
+        }.key,
+        true,
+    );
 }
 
 /// Composite list of `Argument` (2 data words, 1 pointer word per element).
@@ -441,56 +423,123 @@ fn encodeArgumentList(b: *wire.Builder, allocator: std.mem.Allocator, args: []co
     return .{ .data_idx = tag_idx, .elem = .composite, .count = args.len * stride };
 }
 
-/// Return a set's elements in canonical order: each element is encoded to its
-/// own standalone Cap'n Proto message, the elements are sorted by those encoded
-/// bytes, and the reordered (shallow) slice is returned for the caller to encode
-/// in place. Caller owns the returned slice.
-fn canonicalSetOrder(allocator: std.mem.Allocator, args: []const model.Argument) EncodeError![]model.Argument {
-    const ordered = try allocator.alloc(model.Argument, args.len);
-    errdefer allocator.free(ordered);
-    for (args, 0..) |arg, i| ordered[i] = arg;
-    if (args.len < 2) return ordered;
+const EncodedSetElement = struct {
+    /// The element's standalone message bytes, the canonical sort key. Owned as
+    /// the `finish` frame itself, not a second copy of its bytes; `builder`
+    /// stays live so the graft reads the encoded struct directly.
+    key_frame: foundation.Frame,
+    builder: wire.Builder,
+    loc: StructLoc,
+};
 
-    const keys = try allocator.alloc([]u8, args.len);
-    var built: usize = 0;
-    defer {
-        for (keys[0..built]) |key| allocator.free(key);
-        allocator.free(keys);
+fn deinitEncodedSetElements(allocator: std.mem.Allocator, encoded: []EncodedSetElement) void {
+    for (encoded) |*enc| {
+        enc.key_frame.deinit();
+        enc.builder.deinit(allocator);
     }
+}
+
+/// Composite list of `Argument` in canonical set order. Each element is encoded
+/// once into a scratch builder; the standalone message bytes are the sort key,
+/// then the encoded subgraph is grafted into the list slot without a second
+/// model walk (the Syrup codec's encode-once / append-sorted shape).
+fn encodeArgumentSetList(b: *wire.Builder, allocator: std.mem.Allocator, args: []const model.Argument) EncodeError!ListContent {
+    const data_words: u16 = 2;
+    const ptr_words: u16 = 1;
+    const stride: usize = data_words + ptr_words;
+    if (args.len < 2) return encodeArgumentList(b, allocator, args);
+
+    const encoded = try allocator.alloc(EncodedSetElement, args.len);
+    defer allocator.free(encoded);
+    var built: usize = 0;
+    // One cleanup for success and error — never pair errdefer + defer on the
+    // same `built` slice (UnsupportedArgument would double-free).
+    defer deinitEncodedSetElements(allocator, encoded[0..built]);
+
     for (args) |arg| {
-        keys[built] = try encodeArgumentKey(allocator, arg);
+        var tb = wire.Builder{};
+        errdefer tb.deinit(allocator);
+        const root_idx = try tb.allocWords(allocator, 1);
+        const loc = try encodeArgument(&tb, allocator, arg);
+        setStructPtr(&tb, root_idx, loc);
+        // `finish` copies the segment into a frame whose bytes are the sort key;
+        // the builder stays live for graft, so adopt the frame rather than copy
+        // its bytes a second time.
+        const frame = try tb.finish(allocator);
+        encoded[built] = .{
+            .key_frame = frame,
+            .builder = tb,
+            .loc = loc,
+        };
+        tb = undefined;
         built += 1;
     }
 
     const order = try allocator.alloc(usize, args.len);
     defer allocator.free(order);
     for (order, 0..) |*o, i| o.* = i;
-    std.mem.sort(usize, order, keys, lessByKeyBytes);
+    const keys = try allocator.alloc([]const u8, args.len);
+    defer allocator.free(keys);
+    for (encoded[0..built], 0..) |enc, i| keys[i] = enc.key_frame.bytes();
     // Symmetric refusal (ADR-0003): a set's elements are unique, so a duplicate
     // element (equal canonical key, adjacent after the sort) is refused here
     // rather than emitted, matching the Syrup codec and the duplicate-key struct.
-    for (order[1..], 1..) |src, i| {
-        if (std.mem.eql(u8, keys[order[i - 1]], keys[src])) return Error.UnsupportedArgument;
+    try codec_order.sortIndicesByKeys(EncodeError, order, keys, true);
+
+    const tag_idx = try b.allocWords(allocator, 1);
+    b.set(tag_idx, wire.Builder.compositeTag(@intCast(args.len), data_words, ptr_words));
+    const block = try b.allocWords(allocator, args.len * stride);
+    for (order, 0..) |src, i| {
+        const enc = encoded[src];
+        const copy_start: usize = 1;
+        const src_tail = enc.builder.words.items[copy_start..];
+        const base = try b.allocWords(allocator, src_tail.len);
+        for (src_tail, 0..) |word, j| b.set(base + j, word);
+        const struct_main = base + enc.loc.data_idx - copy_start;
+        const list_slot = block + i * stride;
+        installArgumentSlot(b, struct_main, enc.loc, list_slot);
     }
-    for (order, 0..) |src, i| ordered[i] = args[src];
-    return ordered;
+    return .{ .data_idx = tag_idx, .elem = .composite, .count = args.len * stride };
 }
 
-fn lessByKeyBytes(keys: []const []u8, a: usize, b: usize) bool {
-    return std.mem.lessThan(u8, keys[a], keys[b]);
+/// Copy an encoded Argument struct from `src_struct_idx` into composite-list
+/// slot `dst_struct_idx`, adjusting pointer offsets for the relocation.
+fn installArgumentSlot(
+    b: *wire.Builder,
+    src_struct_idx: usize,
+    loc: StructLoc,
+    dst_struct_idx: usize,
+) void {
+    const delta = @as(i32, @intCast(src_struct_idx)) - @as(i32, @intCast(dst_struct_idx));
+    const words = b.words.items;
+    for (0..loc.data_words) |d| {
+        b.set(dst_struct_idx + d, words[src_struct_idx + d]);
+    }
+    for (0..loc.ptr_words) |p| {
+        const src_ptr = src_struct_idx + loc.data_words + p;
+        const dst_ptr = dst_struct_idx + loc.data_words + p;
+        b.set(dst_ptr, relocatePointerOffset(words[src_ptr], delta));
+    }
 }
 
-/// Encode a single `Argument` as a standalone Cap'n Proto message and return its
-/// owned bytes, the canonical sort key for set ordering. Caller owns the slice.
-fn encodeArgumentKey(allocator: std.mem.Allocator, arg: model.Argument) EncodeError![]u8 {
-    var builder = wire.Builder{};
-    defer builder.deinit(allocator);
-    const root_idx = try builder.allocWords(allocator, 1);
-    const loc = try encodeArgument(&builder, allocator, arg);
-    setStructPtr(&builder, root_idx, loc);
-    var frame = try builder.finish(allocator);
-    defer frame.deinit();
-    return allocator.dupe(u8, frame.bytes());
+fn relocatePointerOffset(word: u64, delta: i32) u64 {
+    // A null pointer word (0) names no target, so it never relocates. Grafting a
+    // scalar Argument arm (`.integer`, `.boolean`, `.void`, `.float64`) copies
+    // its single pointer word, which the scalar left null; without this guard the
+    // struct-kind branch would turn that 0 into `encodeStructPointer(delta, 0, 0)`
+    // — a spurious non-null pointer where canonical wire form requires 0.
+    if (word == 0) return 0;
+    return switch (wire.pointerKind(word)) {
+        .@"struct" => blk: {
+            const sp = wire.decodeStructPointer(word);
+            break :blk wire.encodeStructPointer(sp.offset + delta, sp.data_words, sp.ptr_words);
+        },
+        .list => blk: {
+            const lp = wire.decodeListPointer(word);
+            break :blk wire.encodeListPointer(lp.offset + delta, lp.elem, lp.count);
+        },
+        else => word,
+    };
 }
 
 /// Composite list of `PipelineOp` (1 data word, 1 pointer word per element).

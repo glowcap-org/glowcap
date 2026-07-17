@@ -28,7 +28,6 @@ pub const events = @import("events.zig");
 pub const fetch = @import("fetch.zig");
 pub const handoff_gifter = @import("handoff_gifter.zig");
 pub const handoff_recipient = @import("handoff_recipient.zig");
-pub const handoff_re_encode = @import("handoff_re_encode.zig");
 /// Lowering node-local foreign-import tokens to their wire reference at the
 /// outbound chokepoint (ADR-0069). A node hands the application synthetic far
 /// tokens; the peer swaps each back to its wire reference in `send`, so a token
@@ -40,6 +39,7 @@ pub const LoweringError = lower.LoweringError;
 /// The per-peer lowering hook a `Node` installs at registration.
 pub const Lowering = lower.Lowering;
 pub const negotiation = @import("negotiation.zig");
+const outbound = @import("outbound.zig");
 const node = @import("node.zig");
 /// The sans-io cross-connection handoff router (ADR-0066): a tier above the
 /// per-connection `Peer` that owns the retained node identity, the shared gift
@@ -53,6 +53,9 @@ pub const ActionFifo = @import("action_fifo.zig").ActionFifo;
 pub const PeerId = node.PeerId;
 pub const pairing = @import("pairing.zig");
 pub const pipeline = @import("pipeline.zig");
+/// Outbound queue carriers and encode helpers; `FireTarget` is re-exported here
+/// for `pipeline` and binding docs that name `engine.FireTarget`.
+pub const FireTarget = outbound.FireTarget;
 pub const sturdyref = @import("sturdyref.zig");
 pub const v1_0 = @import("v1_0.zig");
 
@@ -60,15 +63,10 @@ pub const StepOutcome = events.StepOutcome;
 pub const EventKind = events.EventKind;
 pub const Event = events.Event;
 
-/// Verbatim byte span of the `<desc:sig-envelope <desc:handoff-give …> …>` a
-/// recipient relays unaltered to the exporter. Surfaced here so the C ABI
-/// projects a received give without reaching past the engine into the codec.
-pub const spanSignedHandoffGive = codec.syrup.spanSignedHandoffGive;
-
 /// Encode a verbatim `<ocapn-peer …>` Syrup record carrying hint entries, so a
 /// gifter can name an exporter reachable only by a dial hint (an iroh exporter's
-/// direct addresses). The recipient re-parses it with `readLocatorOwned`
-/// (see `handoff_recipient.exporterLocatorUri`).
+/// direct addresses). Decode materializes a structural `PeerLocator`; redeem
+/// URI projection reads that peer (`handoff_recipient.exporterLocatorUri`).
 /// Surfaced here so the C ABI builds a give location without reaching past the
 /// engine into the codec.
 pub const encodePeerLocatorRecord = codec.syrup.encodePeerLocatorRecord;
@@ -178,7 +176,8 @@ fn Queue(comptime T: type) type {
         /// because the tail-slide below can consume the final element with the
         /// head already rewound to zero — burst capacity must not survive that
         /// path either.
-        fn pop(self: *Self, allocator: std.mem.Allocator) ?T {
+        /// Dequeue front; pub so `outbound.zig` can drain encoded frames.
+        pub fn pop(self: *Self, allocator: std.mem.Allocator) ?T {
             if (self.head == self.items.items.len) {
                 self.items.clearRetainingCapacity();
                 self.head = 0;
@@ -230,7 +229,8 @@ fn Queue(comptime T: type) type {
 
         /// Whether the queue holds nothing to dequeue — the queue owns its own
         /// emptiness question, so no reader reaches into the cursor fields.
-        fn isEmpty(self: *const Self) bool {
+        /// Pub so `outbound.zig` can probe without popping.
+        pub fn isEmpty(self: *const Self) bool {
             return self.head == self.items.items.len;
         }
 
@@ -274,88 +274,6 @@ const PendingWithdraw = struct {
     answer: model.AnswerPosition,
 };
 
-/// One slot in the outbound queue. Most kinds queue a fully-built `message` the
-/// queue owns until `step` encodes it. A sent `op:resolve` is the exception: its
-/// resolution lives in the answer store (it moved there at record time), so the
-/// queue holds only `settled_answer` — the position of the inbound answer it
-/// settles, plus that row's identity stamp — and `step` reads the resolution
-/// back from the store to encode.
-/// That single store ownership is the point: the resolution is not copied into a
-/// frame here and the store there. An inbound `op:gc-answers` that drops the row
-/// between record and emit leaves nothing to encode, and a partner that reuses
-/// the freed position for a fresh answer leaves a row whose identity stamp no
-/// longer matches — either way the carrier's `row_id` check emits nothing wrong
-/// (a self-contained frame copy would dangle or ship the reused payload on
-/// exactly those sequences; this stamped carrier cannot).
-///
-/// A listener fire rides the same store-borrow pattern: when a promise with N
-/// listeners resolves, each fire queues a POD `listener_fire` carrier instead
-/// of N payload clones, and `step` borrows the stored resolution back to encode
-/// (`pipeline.borrowedListenerFire`). A row dropped (or replaced by a different
-/// row instance at the same position — the carrier carries the row's identity
-/// stamp) between queue and encode leaves the fire moot, the same semantics
-/// `settled_answer` ships. A surviving row's stored payload cannot change under
-/// a queued carrier: an answer resolves once (`validateInboundResolve` /
-/// `applySentResolve`) and a relayed resolution records once
-/// (`recordRelayedResolution` refuses a second relay), so a matching identity
-/// stamp proves the payload too.
-const Outbound = union(enum) {
-    message: model.Message,
-    /// A sent `op:resolve` whose resolution lives in the inbound answer store
-    /// (it moved there at record time). Carries the answer position *and* the
-    /// store row's identity stamp, exactly as `listener_fire` does over the
-    /// same store: answer positions are partner-named, so a released one can be
-    /// reused by a fresh answer with a different resolution before this carrier
-    /// is encoded. At encode `step` drops the resolve when the row is gone
-    /// (`peekResolution` null) *or* its `row_id` no longer matches (a reused
-    /// position now holding a different answer), so the reused row's payload is
-    /// never emitted under this carrier.
-    settled_answer: struct {
-        position: model.AnswerPosition,
-        row_id: u64,
-    },
-    /// One `op:listen` fire for a stored resolution. The `target` names which
-    /// store holds it: an inbound answer (`peekResolution`) or a handoff-
-    /// imported third-party promise (ADR-0009, the relay's stored value). One
-    /// carrier serves both because the two stores are the same promise cell
-    /// keyed on different position spaces; `Peer.resolveFireStore` is the one
-    /// lookup that reads either. The carrier holds the far export position the
-    /// fire targets, the store target, and the store row's identity stamp at
-    /// queue time. Queue-time accounting already ran (`pipeline.enqueueFire`).
-    /// At encode `step` borrows the store back and drops the fire when the row
-    /// is gone or its `row_id` changed: answer positions are partner-named so a
-    /// released one can be reused, and an imported row can be torn down by GC
-    /// co-eviction and re-registered as a different promise. Emitting the
-    /// reused row's payload under this fire's accounting would drift the wire-
-    /// delta retains. A matching stamp proves the payload the fire was accounted
-    /// against is the one that ships (each store records its resolution once).
-    listener_fire: struct {
-        listener_position: u64,
-        target: FireTarget,
-        row_id: u64,
-    },
-
-    fn deinit(self: Outbound, allocator: std.mem.Allocator) void {
-        switch (self) {
-            // The store owns a settled answer's / fire's resolution and frees
-            // it at row GC, overwrite, or session teardown; the carriers own
-            // nothing.
-            .settled_answer, .listener_fire => {},
-            .message => |message| freeMessage(allocator, message),
-        }
-    }
-};
-
-/// Which store holds a listener fire's stored resolution: an inbound answer's
-/// row or a handoff-imported third-party promise's row (ADR-0009). The two are
-/// the same promise cell — `{ row_id, resolution, listeners }` — keyed on
-/// distinct wire position spaces, so one carrier and one `resolveFireStore`
-/// lookup serve both instead of a parallel arm, enqueue, and step branch each.
-pub const FireTarget = union(enum) {
-    answer: model.AnswerPosition,
-    import: model.ImportPosition,
-};
-
 /// The caller-owned CapTP engine: one peer per session, no I/O, no hidden
 /// scheduler. The host feeds inbound frames (`recvBorrowed` / `feedOwned`),
 /// advances the peer with `step`, drains `outbound`, and reads surfaced
@@ -365,13 +283,9 @@ pub const Peer = struct {
     allocator: std.mem.Allocator,
     session_state: session.Session,
     inbound: Queue(foundation.Frame),
-    pending_send: Queue(Outbound),
+    pending_send: Queue(outbound.Outbound),
     outbound: Queue(foundation.Frame),
     events: Queue(Event),
-    /// Resolutions forwarded for handoff-imported promises (ADR-0009) awaiting
-    /// the cross-peer `cross_peer.drainRelayedResolutions` drain. Each entry
-    /// owns its resolution until drained.
-    pending_relayed_resolutions: std.ArrayList(cross_peer.PendingRelayedResolution),
     /// The peer's private gift / handoff-count authority (ADR-0056), consulted
     /// through `giftRegistry` unless a host shares one across peers via
     /// `shared_gift_registry`. Owned: freed in `deinit`.
@@ -433,21 +347,21 @@ pub const Peer = struct {
 
     /// Already-open v1.0 fixture peer for tests that inject frames directly.
     /// Real sessions should start with `initNegotiating` and authenticate
-    /// `op:start-session`; PreSpec should arrive through negotiation, not through
+    /// `op:start-session`; `next` should arrive through negotiation, not through
     /// this raw-open shortcut.
     pub fn initRawOpenFixture(allocator: std.mem.Allocator) Peer {
         return initWithSession(allocator, session.Session.initWith(allocator, .{
-            .wire_profile = model.WireProfile.v1_0,
+            .captp_version = model.CaptpVersion.v1_0,
         }));
     }
 
-    /// Negotiated knobs for `initNegotiatingWith`. Profile, codec, and feature
+    /// Negotiated knobs for `initNegotiatingWith`. Version, codec, and feature
     /// set are independent axes; both peers of a pair must carry the same
-    /// negotiated values so neither exercises a profile, codec, or capability the
+    /// negotiated values so neither exercises a version, codec, or capability the
     /// other did not advertise. Defaults match the Goblins interop target:
     /// authenticated OCapN v1.0 over Syrup.
     pub const NegotiatingOptions = struct {
-        wire_profile: model.WireProfile = model.WireProfile.v1_0,
+        captp_version: model.CaptpVersion = model.CaptpVersion.v1_0,
         codec: model.CodecId = .syrup,
         features: model.FeatureSet = model.FeatureSet.full(),
         /// Resource bounds for the session (`session.SessionLimits`), fixed at
@@ -474,7 +388,7 @@ pub const Peer = struct {
         var peer = initWithSession(allocator, session.Session.initWith(allocator, .{
             .negotiating = true,
             .codec = options.codec,
-            .wire_profile = options.wire_profile,
+            .captp_version = options.captp_version,
             .features = options.features,
             .limits = options.limits,
         }));
@@ -491,7 +405,7 @@ pub const Peer = struct {
         std.debug.assert(self.session_state.state == .negotiating);
         std.debug.assert(self.outbound.isEmpty() and self.pending_send.isEmpty());
         self.session_state.codec = options.codec;
-        self.session_state.wire_profile = options.wire_profile;
+        self.session_state.captp_version = options.captp_version;
         self.session_state.features = options.features;
         self.session_state.limits = options.limits;
         self.verify_partner_handshake = options.verify_partner_handshake;
@@ -508,15 +422,14 @@ pub const Peer = struct {
             .pending_send = .{},
             .outbound = .{},
             .events = .{},
-            .pending_relayed_resolutions = .empty,
         };
     }
 
     /// Frees everything the peer still owns: queued inbound/outbound frames,
-    /// pending messages and events, parked withdraws and relayed resolutions,
-    /// the private gift registry, and the session with its tables. A shared
-    /// gift registry (`shared_gift_registry`) is the one thing not freed
-    /// here, its owner outlives every peer pointed at it.
+    /// pending messages and events, parked withdraws, the private gift
+    /// registry, and the session with its tables. A shared gift registry
+    /// (`shared_gift_registry`) is the one thing not freed here, its owner
+    /// outlives every peer pointed at it.
     pub fn deinit(self: *Peer) void {
         for (self.inbound.pending()) |*frame| {
             frame.deinit();
@@ -537,11 +450,6 @@ pub const Peer = struct {
             event.deinit();
         }
         self.events.deinit(self.allocator);
-
-        for (self.pending_relayed_resolutions.items) |pending| {
-            freeResolution(self.allocator, pending.resolution);
-        }
-        self.pending_relayed_resolutions.deinit(self.allocator);
 
         for (self.pending_withdraws.items) |pending| {
             model.freeHandoff(self.allocator, pending.handoff);
@@ -591,7 +499,7 @@ pub const Peer = struct {
             return self.sendDecomposedPipeline(message);
         }
 
-        return self.enqueueRecorded(message);
+        return outbound.enqueueRecorded(self, message);
     }
 
     /// Commit a prepared bootstrap-fetch (`fetch.prepareFetchSwissnum`, or
@@ -615,60 +523,9 @@ pub const Peer = struct {
     }
 
     /// Record and enqueue one *flat* (no-decomposition) `message` for outbound
-    /// encode, taking ownership of its heap. The shared tail of `send` and the
-    /// decomposed-chain links — kept separate so the chain links bypass the
-    /// (already-checked) multi-hop guard, breaking the `send` recursion cycle.
+    /// encode. Delegates to `outbound.enqueueRecorded`.
     fn enqueueRecorded(self: *Peer, message_in: model.Message) !void {
-        // Lower any node-local foreign-import token this message carries to its
-        // wire reference, in place, before it is recorded or encoded (ADR-0069).
-        // This is the single chokepoint every flat outbound message funnels
-        // through — the direct send, each decomposed pipeline link, a prepared
-        // fetch — so a token cannot leak onto the wire in any position. A
-        // `TokenNotLiftable` aborts the send with the message still owned here.
-        var message = message_in;
-        if (self.lowering) |lowering| {
-            if (lowering.active.*) lower.lowerMessage(lowering, &message) catch |err| {
-                freeMessage(self.allocator, message);
-                return err;
-            };
-        }
-
-        // A sent `op:resolve` moves its resolution into the answer store at
-        // record time (`recordSend` consumes it), so the queue carries only the
-        // settled answer position. Reserve the carrier slot *before* recording:
-        // the resolution transfer is then committed by an infallible push, never
-        // by an undo — a record that succeeded but failed to enqueue would settle
-        // the answer with no frame to carry it to the partner.
-        if (message == .resolve) {
-            const answer = message.resolve.answer;
-            // Reserve before `recordSend` consumes the resolution. A failure here
-            // is the one spot on this fast path that leaves `message` unrecorded
-            // and unqueued, so free it — `recordSend` owns it from the next line
-            // on (it frees on refusal), and `pushAssumeCapacity` is infallible.
-            self.pending_send.ensureUnusedCapacityForOne(self.allocator) catch |err| {
-                freeMessage(self.allocator, message);
-                return err;
-            };
-            try self.session_state.recordSend(message);
-            // Stamp the carrier with the answer row's identity: `recordSend`
-            // stored the resolution in this row, so its `row_id` is live now.
-            // If the partner GCs this position and reuses it before `step`
-            // encodes, the stamp mismatch makes the stale carrier moot.
-            const row_id = self.session_state.inboundAnswerRowId(answer) orelse unreachable;
-            self.pending_send.pushAssumeCapacity(.{ .settled_answer = .{ .position = answer, .row_id = row_id } });
-            return;
-        }
-
-        var owned_needs_free = true;
-        errdefer if (owned_needs_free) freeMessage(self.allocator, message);
-
-        try self.pending_send.push(self.allocator, .{ .message = message });
-        owned_needs_free = false;
-        var appended = true;
-        errdefer if (appended) self.pending_send.popBack().?.deinit(self.allocator);
-
-        try self.session_state.recordSend(message);
-        appended = false;
+        return outbound.enqueueRecorded(self, message_in);
     }
 
     /// Decompose a multi-hop pipelined deliver and enqueue each single-hop link
@@ -713,12 +570,12 @@ pub const Peer = struct {
     }
 
     /// Send a settled `withdraw-gift` outcome and reclaim the one owned arm it
-    /// may carry. `bootstrap.resolveForWithdraw` clones a verbatim gifted
-    /// capability into the message (the gift row is freed before we can send),
-    /// so once `sendCopying` has copied it onto the wire we free that clone.
-    /// The free runs whether the send succeeds or fails: `sendCopying` frees
-    /// only its own clone on failure, never the borrowed argument. The POD near
-    /// arm and the static break arms free as no-ops.
+    /// may carry. `bootstrap.resolveForWithdraw` moves a verbatim gifted
+    /// capability into the message, so once `sendCopying` has copied it onto
+    /// the wire we free that owned reference. The free runs whether the send
+    /// succeeds or fails: `sendCopying` frees only its own clone on failure,
+    /// never the borrowed argument. The POD near arm and the static break arms
+    /// free as no-ops.
     pub fn sendWithdrawSettled(self: *Peer, message: model.Message) !void {
         defer bootstrap.freeSettledWithdrawOwned(self.allocator, message);
         try self.sendCopying(message);
@@ -843,10 +700,10 @@ pub const Peer = struct {
         return self.session_state.codec;
     }
 
-    /// The wire profile the session speaks (draft or V1.0), fixed at
+    /// The CapTP version the session speaks (`next` or `v1_0`), fixed at
     /// construction or settled by negotiation.
-    pub fn wireProfile(self: *const Peer) model.WireProfile {
-        return self.session_state.wire_profile;
+    pub fn captpVersion(self: *const Peer) model.CaptpVersion {
+        return self.session_state.captp_version;
     }
 
     /// The partner's session public key, learned from its `op:start-session`,
@@ -936,28 +793,6 @@ pub const Peer = struct {
         self.session_state.finishPendingEnliven(swissnum);
     }
 
-    /// Enqueue a forwarded resolution for handoff-imported promise `import_position`
-    /// (ADR-0009), taking ownership of `resolution`. The cross-peer phase
-    /// (`cross_peer.drainRelayedResolutions`) later fires the import's
-    /// listeners with it. The application-facing entry point for the introducing
-    /// session forwarding a third-party promise's resolution; on enqueue failure
-    /// the resolution is freed.
-    pub fn relayResolution(self: *Peer, import_position: u64, resolution: model.Resolution) !void {
-        errdefer freeResolution(self.allocator, resolution);
-        const position = model.ImportPosition.from(import_position);
-        // Stamp the row this relay targets at queue time; the drain re-checks it,
-        // so a position released and re-registered as a different third-party
-        // promise before the drain can never satisfy this stale relay. A row
-        // absent now stamps 0 (`nextStoreStamp` never mints 0), which no live row
-        // matches, so the relay is moot at drain.
-        const row_id = self.session_state.importedPromiseRowId(position) orelse 0;
-        try self.pending_relayed_resolutions.append(self.allocator, .{
-            .import_position = position,
-            .row_id = row_id,
-            .resolution = resolution,
-        });
-    }
-
     /// Apply one forwarded resolution (ADR-0009), taking ownership of
     /// `resolution`: move it into the import's stored slot first
     /// (`recordRelayedResolution` owns it on every outcome, and refuses a
@@ -965,8 +800,8 @@ pub const Peer = struct {
     /// installed on `import_position` from the store — each fire is a POD
     /// carrier whose encode borrows the stored value, no clone anywhere.
     /// Store-then-fire, not fire-then-store, because the carriers must find a
-    /// durable owner already in place when `step` encodes them. Called by
-    /// `cross_peer.drainRelayedResolutions`.
+    /// durable owner already in place when `step` encodes them. Production
+    /// caller: `Node.consumeProxyListenerFire` (enroll-stamped `row_id`).
     ///
     /// The application supplies this resolution directly — it never funnels
     /// through `send`'s lowering chokepoint — so any node-local foreign-import
@@ -1071,135 +906,11 @@ pub const Peer = struct {
             return .progress;
         }
 
-        switch (self.pending_send.pop(self.allocator) orelse return .idle) {
-            .message => |message| {
-                defer freeMessage(self.allocator, message);
-                try self.emitOutboundMessage(message);
-            },
-            .settled_answer => |sa| {
-                // The resolution lives in the answer store (it moved there at
-                // record time); borrow it to encode and to drive the local
-                // settlement, the store keeps owning it. Moot when the row is
-                // gone (an inbound `op:gc-answers` dropped it — its pipelined
-                // calls, projections, and listeners were freed with it) or when
-                // the position was reused by a fresh answer whose `row_id` no
-                // longer matches: `resolveStoreChecked` guards both, so the
-                // reused row's payload is never resolved under this carrier.
-                const stored = self.resolveStoreChecked(.{ .answer = sa.position }, sa.row_id) orelse return .progress;
-                const resolve: model.Resolve = .{ .answer = sa.position, .resolution = stored.* };
-                try self.emitOutboundMessage(.{ .resolve = resolve });
-                // A sent `op:resolve` also settles one of our inbound answers locally.
-                try self.settleSentResolve(resolve);
-            },
-            .listener_fire => |fire| {
-                // Borrow the fire's payload from whichever store holds it and
-                // encode, through the same `resolveStoreChecked` guard
-                // `settled_answer` uses. The fire is moot when the row is gone
-                // (an inbound `op:gc-answers` dropped an answer, or GC
-                // co-eviction tore down an imported promise) or when a surviving
-                // row's `row_id` no longer matches — a partner released and
-                // reused an answer position, or an imported row was re-registered
-                // as a *different* third-party promise. Either way the stale
-                // fire's accounting names the dead instance's payload, so nothing
-                // emits. (The queue-time export retains of a dropped fire stay
-                // recorded until session end, the same stranded-retain posture a
-                // GC'd `settled_answer` ships.)
-                const stored = self.resolveStoreChecked(fire.target, fire.row_id) orelse return .progress;
-                var args: [2]model.Argument = undefined;
-                try self.emitOutboundMessage(pipeline.borrowedListenerFire(fire.listener_position, stored.*, &args));
-            },
+        if (self.pending_send.pop(self.allocator)) |item| {
+            try outbound.stepPending(self, item);
+            return .progress;
         }
-        return .progress;
-    }
-
-    /// The current row id and borrowed stored resolution behind a fire target,
-    /// or null when the store row is gone or has no resolution yet. The one
-    /// lookup both the fire enqueue (for the stamp) and `step` (to encode) read,
-    /// so the answer store and the imported-promise store are reached the same
-    /// way. The returned resolution borrows the store; it is valid only until
-    /// the store is next mutated.
-    fn resolveFireStore(self: *Peer, target: FireTarget) ?struct {
-        row_id: u64,
-        resolution: *const model.Resolution,
-    } {
-        switch (target) {
-            .answer => |answer| {
-                const row_id = self.session_state.inboundAnswerRowId(answer) orelse return null;
-                const resolution = self.session_state.peekResolution(answer) orelse return null;
-                return .{ .row_id = row_id, .resolution = resolution };
-            },
-            .import => |import_position| {
-                const row = self.session_state.findImportedPromise(import_position) orelse return null;
-                if (row.resolution) |*resolution| return .{ .row_id = row.row_id, .resolution = resolution };
-                return null;
-            },
-        }
-    }
-
-    /// The borrowed stored resolution behind `target`, but only when the store
-    /// row still carries `row_id` — the one guard both queued store-borrow
-    /// carriers apply at encode. A row that is gone, has no resolution yet, or
-    /// whose identity changed (a partner reused an answer position, or an
-    /// imported promise row was torn down and re-registered) fails to match, so
-    /// the stale carrier emits nothing rather than the reused row's payload.
-    /// `settled_answer` and `listener_fire` read the store through this one seam.
-    fn resolveStoreChecked(self: *Peer, target: FireTarget, row_id: u64) ?*const model.Resolution {
-        const found = self.resolveFireStore(target) orelse return null;
-        if (found.row_id != row_id) return null;
-        return found.resolution;
-    }
-
-    /// Encode one popped pending message onto `outbound`, applying the V1.0
-    /// translations that have no wire form under PreSpec (`v1_0`, ADR-0010):
-    ///   - a semantic `Resolve` ships as a resolver-callback `op:deliver` to the
-    ///     partner's resolver import, or is dropped when only `op:listen`
-    ///     listeners settle the answer (the listener fire in `settleSentResolve`
-    ///     handles notification);
-    ///   - an answered `op:deliver` gains a synthesized resolver export at encode
-    ///     time, committing the resolver link as it does;
-    ///   - a projection trails an `op:listen` that carries its new answer's
-    ///     resolution back, since the projection ops carry no inline resolver
-    ///     (ADR-0050, ADR-0052). The listen must follow the op that opened the
-    ///     answer on the wire, so it is pushed after the encode.
-    /// PreSpec encodes the message as it stands. Borrows `message`; the caller
-    /// owns and frees it. An `op:abort` goes through `commitAbortOutbound`
-    /// (close after successful push) so the partner can still take the frame.
-    fn emitOutboundMessage(self: *Peer, message: model.Message) !void {
-        if (message == .abort) {
-            try self.commitAbortOutbound(message.abort, .close);
-            return;
-        }
-
-        const needs_v1_0 = self.session_state.needsV1_0Translation();
-
-        if (needs_v1_0 and message == .resolve) {
-            if (self.session_state.resolverForInboundAnswer(message.resolve.answer) != null) {
-                try v1_0.encodeResolveAsCallback(self, message.resolve);
-            }
-            return;
-        }
-
-        const wire_message = if (needs_v1_0 and message == .deliver)
-            try v1_0.installResolverForOutboundDeliver(self, message.deliver)
-        else
-            message;
-        {
-            var frame = try codec.dispatch.encodeMessageForProfile(
-                self.session_state.codec,
-                self.allocator,
-                self.session_state.wire_profile,
-                wire_message,
-            );
-            errdefer frame.deinit();
-            try self.outbound.push(self.allocator, frame);
-        }
-
-        if (needs_v1_0) switch (message) {
-            .get => |g| try v1_0.installListenerForOutboundProjection(self, g.answer),
-            .index => |i| try v1_0.installListenerForOutboundProjection(self, i.answer),
-            .untag => |u| try v1_0.installListenerForOutboundProjection(self, u.answer),
-            else => {},
-        };
+        return .idle;
     }
 
     /// Encode `op:abort` onto outbound. When `disposition` is `.close`, CapTP
@@ -1215,32 +926,12 @@ pub const Peer = struct {
         var frame = try codec.dispatch.encodeMessageForProfile(
             self.session_state.codec,
             self.allocator,
-            self.session_state.wire_profile,
+            self.session_state.captp_version,
             .{ .abort = abort },
         );
         errdefer frame.deinit();
         try self.outbound.push(self.allocator, frame);
         if (disposition == .close) self.session_state.close();
-    }
-
-    /// Settle the local consequences of a just-sent `op:resolve`: drain the
-    /// calls the partner pipelined against the answer and the projections
-    /// anchored on it (calls first — a drained call may settle further answers,
-    /// ADR-0007 § Queue ownership and drain), then fire its listeners. The
-    /// resolution itself is already stored — `applySentResolve` stored it when
-    /// this resolve was recorded (`recordSend` routes a sent resolve there), the
-    /// same moment the answer's status flipped — so a
-    /// pipelined call, projection, or `op:listen` that arrived between record and
-    /// this emit already saw the settled answer with its value on hand and was
-    /// served directly; only the calls / projections / listeners that anchored
-    /// while the answer was still pending remain for these drains. The resolution
-    /// frame is already on `outbound`, so a drain refusal surfaces as a step
-    /// error without un-sending it. Borrows `resolve`; the caller owns and frees
-    /// it.
-    fn settleSentResolve(self: *Peer, resolve: model.Resolve) !void {
-        try pipeline.drainPipelinedCalls(self, resolve);
-        try pipeline.drainProjections(self, resolve);
-        try pipeline.fireListenersOnResolve(self, resolve);
     }
 
     /// Retry every parked `withdraw-gift` whose gift is already deposited: re-run
@@ -1461,8 +1152,23 @@ pub fn verifyPartnerStartSession(allocator: std.mem.Allocator, ss: model.view.St
     const signed = if (ss.acceptable_location_raw) |raw|
         try codec.syrup.canonicalLocationSignedBytesRaw(allocator, raw)
     else signed: {
-        const location = try ss.acceptable_location.toOwned(allocator);
-        defer model.freePeerLocator(allocator, location);
+        // Borrow transport/designator (and projected hints); materialize only
+        // the lazy arm. Signing must see full hint fidelity, not URI export.
+        var owned_hints: ?model.Hints = null;
+        defer if (owned_hints) |h| model.freeHints(allocator, h);
+        const hints: model.Hints = switch (ss.acceptable_location.hints) {
+            .empty => |wf| .{ .wire_form = wf },
+            .projected => |h| h,
+            .lazy => blk: {
+                owned_hints = try ss.acceptable_location.hints.toOwned(allocator);
+                break :blk owned_hints.?;
+            },
+        };
+        const location: model.PeerLocator = .{
+            .transport = ss.acceptable_location.transport,
+            .designator = ss.acceptable_location.designator,
+            .hints = hints,
+        };
         break :signed try codec.syrup.canonicalLocationSignedBytes(allocator, location);
     };
     defer allocator.free(signed);

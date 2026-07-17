@@ -14,12 +14,12 @@ pub const AnswerStatus = enum {
     broken,
 };
 
-/// Pending inbound answer → `Slot.remote_unresolved`.
+/// Pending inbound answer as `Slot.remote_unresolved`.
 pub fn pendingInboundSlot(position: model.AnswerPosition) slot.Slot {
     return answerSlot(position, .pending);
 }
 
-/// Answer `(position, status)` → CapTP Slot. Agrees with `slot.fulfill` /
+/// Answer `(position, status)` as CapTP Slot. Agrees with `slot.fulfill` /
 /// `slot.breakSlot` on the pending arm.
 pub fn answerSlot(position: model.AnswerPosition, status: AnswerStatus) slot.Slot {
     const p = position.int();

@@ -26,7 +26,7 @@ const gift_id_b = repeated(32, 0x02);
 fn giveWith(gift_id: []const u8) model.HandoffGive {
     return .{
         .recipient_key = recipient_key[0..],
-        .exporter_location = "memory:exporter",
+        .exporter = .{ .transport = "memory", .designator = "exporter" },
         .gifter_exporter_session = gifter_session[0..],
         .gifter_side = gifter_side[0..],
         .gift_id = gift_id,
@@ -94,7 +94,7 @@ fn signedGive(
 ) !model.HandoffGive {
     var give: model.HandoffGive = .{
         .recipient_key = recipient,
-        .exporter_location = "memory:exporter",
+        .exporter = .{ .transport = "memory", .designator = "exporter" },
         .gifter_exporter_session = gifter_session[0..],
         .gifter_side = gifter_side[0..],
         .gift_id = gift_id,
@@ -214,9 +214,8 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
         gifter_pub.asBytes(),
     );
 
-    // Withdraw it. `resolveForWithdraw` clones the gifted cap out while the gift
-    // is still live and only then calls `applyWithdraw`, which reclaims the row's
-    // payload, so the resolution fulfills with the deposited reference.
+    // Withdraw it. `resolveForWithdraw` moves the gifted cap out of the row via
+    // `applyWithdraw`, so the resolution fulfills with the deposited reference.
     const handoff = model.Handoff{ .receive = receive };
     const view_handoff = model.view.Handoff.fromOwned(&handoff);
     const resolution_msg = switch (try engine.bootstrap.resolveForWithdraw(allocator, &peer.session_state, peer.giftRegistry(), .{
@@ -237,7 +236,7 @@ test "withdraw fulfills with the deposited capability, and a re-deposit replaces
     try std.testing.expect(!peer.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
-test "withdraw of a verbatim gifted cap reclaims the clone through the settled helper" {
+test "withdraw of a verbatim gifted cap reclaims the moved reference through the settled helper" {
     const allocator = std.testing.allocator;
 
     const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x73));
@@ -265,13 +264,12 @@ test "withdraw of a verbatim gifted cap reclaims the clone through the settled h
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
 
-    // A verbatim gifted cap (a broken reference): unlike a POD near/far, its
-    // clone inside `resolveForWithdraw` allocates, so the settled message the
-    // exporter sends carries an owned arm that must be reclaimed after the send.
-    // The registry adopts this reference and frees it at `applyWithdraw`; the
-    // clone is a second allocation the production `sendWithdrawSettled` path
-    // frees through `freeSettledWithdrawOwned`. The testing allocator is the
-    // verdict — a helper that missed the owned arm would leak here.
+    // A verbatim gifted cap (a broken reference): unlike a POD near/far, the
+    // settled message the exporter sends carries an owned arm moved out of the
+    // gift row that must be reclaimed after the send. The production
+    // `sendWithdrawSettled` path frees it through `freeSettledWithdrawOwned`.
+    // The testing allocator is the verdict — a helper that missed the owned
+    // arm would leak here.
     const gifted = model.Reference{ .broken = .{ .message = try allocator.dupe(u8, "gifted-was-broken") } };
     try peer.giftRegistry().depositOwned(allocator, peer.session_state.limits, gift_id_a[0..], gifted, gifter_pub.asBytes());
 
@@ -450,7 +448,7 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     const receive_sig = crypto.sign(&recipient_secret, receive_signed);
     receive.signature = receive_sig.asBytes();
 
-    // PreSpec carries a wire `op:resolve`, so the settled answer is observable
+    // next carries a wire `op:resolve`, so the settled answer is observable
     // as one outbound frame without the V1.0 resolver-callback choreography.
     var exporter = peer_fixture.openPeer(allocator);
     defer exporter.deinit();
@@ -580,7 +578,7 @@ test "third-party handoff routes a give and authorizes a withdrawal across peers
         &recipient_to_exporter,
         &exporter,
         receiveWith(gift_id_a[0..], 1, receive_signature[0..]),
-        cross_peer.acceptingVerifier(),
+        cross_peer.testOnlyAcceptingVerifier(),
     );
 
     {
@@ -609,14 +607,14 @@ test "third-party handoff rejects a replayed handoff count across peers" {
         &recipient_to_exporter,
         &exporter,
         receiveWith(gift_id_a[0..], 2, receive_signature[0..]),
-        cross_peer.acceptingVerifier(),
+        cross_peer.testOnlyAcceptingVerifier(),
     );
 
     try std.testing.expectError(session.Error.HandoffReplay, cross_peer.withdrawGift(
         &recipient_to_exporter,
         &exporter,
         receiveWith(gift_id_b[0..], 1, receive_signature[0..]),
-        cross_peer.acceptingVerifier(),
+        cross_peer.testOnlyAcceptingVerifier(),
     ));
     try std.testing.expect(exporter.giftRegistry().giftLive(gift_id_b[0..]));
 }
@@ -758,13 +756,13 @@ test "a signed handoff give re-encodes across codecs and its gifter signature st
     defer allocator.free(give_signed);
     try crypto.verify(gifter_secret.publicKey(), give_signed, give_sig);
 
-    const profile = model.WireProfile.v1_0;
+    const profile = model.CaptpVersion.v1_0;
     const message = model.Message{ .handoff = .{ .give = give } };
 
     // The cross-codec re-encode contract (ADR-0003 / ADR-0009): the signature
     // covers the *decoded* record's Syrup canonicalization, not the carrying
     // codec's bytes. So for every ordered pair of distinct codecs — encode in
-    // the source, decode to a typed record, `reEncodeHandoff` into the target,
+    // the source, decode to a typed record, re-encode into the target codec,
     // decode again — re-deriving the signing domain reproduces the exact bytes
     // the gifter signed, and the carried signature still verifies over them.
     const codecs = [_]model.CodecId{ .syrup, .capnp };
@@ -778,11 +776,16 @@ test "a signed handoff give re-encodes across codecs and its gifter signature st
             const src_owned = try src_body.toOwned(allocator);
             defer model.freeMessage(allocator, src_owned);
 
-            var tgt_frame = try engine.handoff_re_encode.reEncodeHandoff(
-                allocator,
-                src_owned.handoff,
+            // Re-encode the decoded handoff into the OTHER codec: its typed
+            // fields and verbatim signature bytes ride along, so the signature
+            // still verifies on the far side (ADR-0009 / ADR-0003). Production
+            // re-encode rides the ordinary `Peer.send` → codec encode path; this
+            // spells the same move out to prove the cross-codec property.
+            var tgt_frame = try dispatch.encodeMessageForProfile(
                 target,
+                allocator,
                 profile,
+                .{ .handoff = src_owned.handoff },
             );
             defer tgt_frame.deinit();
             const tgt_body = try dispatch.decodeBody(target, tgt_frame.view());
@@ -814,24 +817,54 @@ test "a binding-originated give carries typed fields over a Cap'n Proto session,
     // `raw_signed`) shipped an empty give.
     const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x51));
     const recipient_pub_key = repeated(32, 0x52);
-    // Empty-map hints, not `emptyFalse`: a give's `exporter_location` travels
-    // as a flattened `transport:designator` string whenever `raw_signed` does
-    // not ride along (Cap'n Proto carries no wire slot for it), and that
-    // flattened form always re-parses to the empty-map spelling — a give
-    // naming a keyed-tcp/iroh self-locator (`#f` hints, `Hints.forDirectAddresses`)
-    // could not re-verify past that seam either, a pre-existing, orthogonal
-    // property of the flattened representation, not one this test's fix
-    // introduces or claims to close.
-    const exporter_location = try engine.encodePeerLocatorRecord(allocator, .{
+    try expectCapnpGiveRoundTrip(allocator, &pair, gifter_secret, recipient_pub_key[0..], .{
         .transport = "tcp",
         .designator = "127.0.0.1:9200",
         .hints = model.Hints.emptyMap(),
     });
+}
+
+test "a Cap'n Proto session round-trips a handoff give with #f exporter hints" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.pairedWithCodec(allocator, .capnp);
+    defer pair.deinit();
+    const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x61));
+    const recipient_pub_key = repeated(32, 0x62);
+    try expectCapnpGiveRoundTrip(allocator, &pair, gifter_secret, recipient_pub_key[0..], .{
+        .transport = "tcp",
+        .designator = "127.0.0.1:9201",
+        .hints = model.Hints.emptyFalse(),
+    });
+}
+
+test "a Cap'n Proto session round-trips a handoff give with direct-addresses hints" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.pairedWithCodec(allocator, .capnp);
+    defer pair.deinit();
+    const gifter_secret = crypto.SecretKey.fromSeed(repeated(32, 0x71));
+    const recipient_pub_key = repeated(32, 0x72);
+    var entry_buf: [1]model.HintEntry = undefined;
+    const hints = model.Hints.forDirectAddresses("127.0.0.1:9202", &entry_buf);
+    try expectCapnpGiveRoundTrip(allocator, &pair, gifter_secret, recipient_pub_key[0..], .{
+        .transport = "keyed-tcp",
+        .designator = "aa" ** 32,
+        .hints = hints,
+    });
+}
+
+fn expectCapnpGiveRoundTrip(
+    allocator: std.mem.Allocator,
+    pair: *engine.pairing.Pair,
+    gifter_secret: crypto.SecretKey,
+    recipient_pub_key: []const u8,
+    peer: model.PeerLocator,
+) !void {
+    const exporter_location = try engine.encodePeerLocatorRecord(allocator, peer);
     defer allocator.free(exporter_location);
     const give_bytes = try engine.handoff_gifter.buildSignedGive(
         allocator,
         gifter_secret,
-        recipient_pub_key[0..],
+        recipient_pub_key,
         exporter_location,
         gifter_session[0..],
         gifter_side[0..],
@@ -839,8 +872,6 @@ test "a binding-originated give carries typed fields over a Cap'n Proto session,
     );
     defer allocator.free(give_bytes);
 
-    // `op:resolve` answers a question the partner asked; mint a real one by
-    // having p2 deliver to an object p1 exports, with an answer position.
     try pair.p1.exportObject(9);
     try pair.p2.importObject(9);
     try pair.p2.sendCopying(.{ .deliver = .{
@@ -874,14 +905,16 @@ test "a binding-originated give carries typed fields over a Cap'n Proto session,
 
     const owned_give = try give_view.toOwned(allocator);
     defer model.freeHandoffGive(allocator, owned_give);
-    try std.testing.expectEqualSlices(u8, recipient_pub_key[0..], owned_give.recipient_key);
-    try std.testing.expectEqualStrings("tcp:127.0.0.1:9200", owned_give.exporter_location);
-    try std.testing.expectEqualSlices(u8, gifter_session[0..], owned_give.gifter_exporter_session);
-    try std.testing.expectEqualSlices(u8, gifter_side[0..], owned_give.gifter_side);
-    try std.testing.expectEqualSlices(u8, gift_id_a[0..], owned_give.gift_id);
+    try std.testing.expectEqualSlices(u8, recipient_pub_key, owned_give.recipient_key);
+    try std.testing.expectEqualStrings(peer.transport, owned_give.exporter.transport);
+    try std.testing.expectEqualStrings(peer.designator, owned_give.exporter.designator);
+    try std.testing.expectEqual(peer.hints.wire_form, owned_give.exporter.hints.wire_form);
+    try std.testing.expectEqual(peer.hints.entries.len, owned_give.exporter.hints.entries.len);
 
-    // The typed fields re-canonicalize to exactly the Syrup bytes the gifter
-    // signed, so the carried signature still verifies.
+    const uri = try engine.handoff_recipient.exporterLocatorUri(allocator, give_view.exporter);
+    defer allocator.free(uri);
+    try std.testing.expect(std.mem.startsWith(u8, uri, "ocapn://"));
+
     const recanonical = try syrup.canonicalHandoffGiveSignedBytes(allocator, owned_give);
     defer allocator.free(recanonical);
     const carried = crypto.Signature.fromBytes(owned_give.signature[0..crypto.SIGNATURE_BYTES].*);

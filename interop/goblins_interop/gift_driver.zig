@@ -12,7 +12,7 @@
 //!                              directly.
 //!
 //! Needs `racket` + the `goblins` collection on PATH; runs as the sibling step
-//! `zig build goblins-gift`, not in the hermetic gate.
+//! `zig build goblins-gift`, not in the in-tree check.
 
 const std = @import("std");
 const pancake = @import("pancake");

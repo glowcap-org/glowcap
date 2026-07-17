@@ -509,12 +509,12 @@ test "C ABI send_withdraw_gift fails closed without an open keyed session" {
     try std.testing.expectEqual(c.PANCAKE_ERR_NULL_POINTER, c.pancake_peer_send_withdraw_gift(peer, null, 0, &seed, seed.len, 1));
 }
 
-test "C ABI negotiated constructor drives PreSpec keyed peers to an open session" {
+test "C ABI negotiated constructor drives next keyed peers to an open session" {
     var dialer: ?*c.PancakePeer = null;
     var listener: ?*c.PancakePeer = null;
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_negotiated(c.PANCAKE_CAPTP_VERSION_PRE_SPEC, c.PANCAKE_CODEC_SYRUP, &dialer));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_negotiated(c.PANCAKE_CAPTP_VERSION_NEXT, c.PANCAKE_CODEC_SYRUP, &dialer));
     defer c.pancake_peer_release(dialer);
-    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_negotiated(c.PANCAKE_CAPTP_VERSION_PRE_SPEC, c.PANCAKE_CODEC_SYRUP, &listener));
+    try std.testing.expectEqual(c.PANCAKE_OK, c.pancake_peer_new_negotiated(c.PANCAKE_CAPTP_VERSION_NEXT, c.PANCAKE_CODEC_SYRUP, &listener));
     defer c.pancake_peer_release(listener);
 
     const transport = "tcp";

@@ -120,7 +120,7 @@ pub mod iroh;
 // the always-linked core too, so they ship in every build, async or not.
 mod uri;
 pub use uri::{
-	designator_host_port, encode_peer_locator, format_peer_uri, host_port_from_direct_hint,
+	designator_host_port, encode_peer_locator, format_peer_uri,
 	keyed_tcp_locator, parse_locator, parse_sturdyref, socket_addr_designator, tcp_locator,
 	Locator,
 };

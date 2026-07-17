@@ -105,7 +105,7 @@ test "oracle-check exercises a three-peer handoff give and withdrawal" {
         &recipient_to_exporter,
         &exporter,
         handoff_fixtures.receive(),
-        cross_peer.acceptingVerifier(),
+        cross_peer.testOnlyAcceptingVerifier(),
     );
     try std.testing.expect(!exporter.giftRegistry().giftLive(handoff_fixtures.gift_id[0..]));
 
@@ -125,7 +125,8 @@ test "oracle-check verifies supported owned fixture decoding parity" {
     defer model.freeMessage(allocator, decoded);
 
     try std.testing.expectEqualStrings(handoff_fixtures.recipient_key[0..], decoded.handoff.give.recipient_key);
-    try std.testing.expectEqualStrings("memory:exporter", decoded.handoff.give.exporter_location);
+    try std.testing.expectEqualStrings("memory", decoded.handoff.give.exporter.transport);
+    try std.testing.expectEqualStrings("exporter", decoded.handoff.give.exporter.designator);
     try std.testing.expectEqualStrings(handoff_fixtures.gift_id[0..], decoded.handoff.give.gift_id);
 }
 

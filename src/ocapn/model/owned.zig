@@ -117,6 +117,15 @@ pub fn freeResolution(allocator: std.mem.Allocator, resolution: model.Resolution
     }
 }
 
+/// Copy an owned resolution into a second durable store (a session import row).
+/// The fire owner keeps `resolution`; the caller moves the return into
+/// `recordRelayedResolution` or frees it. Named for the introducing-session
+/// proxy's one-home-listen → N recipient stores path — not a free-floating
+/// fan-out API (see memory.md).
+pub fn materializeResolutionForStore(allocator: std.mem.Allocator, resolution: model.Resolution) model.view.Error!model.Resolution {
+    return model.view.Resolution.fromOwned(&resolution).toOwned(allocator);
+}
+
 fn freeBreakReason(allocator: std.mem.Allocator, err: model.BreakReason) void {
     allocator.free(err.message);
 }
@@ -173,7 +182,7 @@ pub fn freeHandoff(allocator: std.mem.Allocator, handoff: model.Handoff) void {
 
 pub fn freeHandoffGive(allocator: std.mem.Allocator, give: model.HandoffGive) void {
     allocator.free(give.recipient_key);
-    allocator.free(give.exporter_location);
+    freePeerLocator(allocator, give.exporter);
     allocator.free(give.gifter_exporter_session);
     allocator.free(give.gifter_side);
     allocator.free(give.gift_id);

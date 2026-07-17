@@ -21,11 +21,11 @@ flatten refused, unreachable, timeout, and a syntactically invalid address into
 one `ConnectionLost`. The keyed handshake pump
 (`src/driver/blocking_session.zig`) and its `net.connection.runUntil` read with
 no deadline, so a peer that finishes connect and then goes silent parks the
-calling thread for the connection's life — a slowloris stall of a
+calling thread for the connection's life: a slowloris stall of a
 one-connection-per-thread `Server.accept` on peer-controlled input. A remote
 that vanishes without a FIN leaves its armed recv pending forever: the
 `completion.Loop` slot is never reclaimed and `on_close` never fires under
-`run`. And several paths that settle protocol state swallow their failure — the
+`run`. And several paths that settle protocol state swallow their failure: the
 bridge redeem leg drops the only `dialFailed` a ticket will ever get, the iroh
 `connectWorker` can drop the only `ConnectDone`, and the `c_abi/driver` release
 verbs return void and degrade a projection failure to a generic `FAIL` with a
@@ -56,7 +56,7 @@ caller can always tell *what* failed and *whether to retry*. Four contracts:
    bounded-read hook (a pump gated on `waitReadable(timeout_ms)` returning a
    typed `error.Timeout`); `driver.blocking_session` gates the handshake on an
    opt-in `handshake_timeout_ms` returning `Error.HandshakeTimedOut`. The
-   deadline *value* stays caller-supplied — policy lives above pancake — but the
+   deadline *value* stays caller-supplied (policy lives above pancake) but the
    net layer owns exposing the bounded hook.
 
 3. **Liveness is surfaced.** A vanished or half-open peer is reclaimed during
@@ -65,8 +65,8 @@ caller can always tell *what* failed and *whether to retry*. Four contracts:
    keepalive either takes fully or reports that it did not (no silent OS
    multi-hour default left active under the appearance of a configured window).
 
-4. **No silent state loss.** No path that settles protocol state — a dial
-   ticket, a vow, a session release, a sibling flush — does `catch {}` without a
+4. **No silent state loss.** No path that settles protocol state: a dial
+   ticket, a vow, a session release, a sibling flush: does `catch {}` without a
    recorded side channel. The `c_abi/driver` boundary records the real
    `@errorName` into `last_error` before any degrade, separates transient (OOM,
    resource pressure) from permanent (refused, malformed, unsupported), and

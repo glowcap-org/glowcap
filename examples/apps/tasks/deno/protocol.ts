@@ -11,10 +11,10 @@
 export const BOARD = "board";
 
 /** Board methods a client sends. */
-export const ADD = "add"; // add(text) → id
-export const DONE = "done"; // done(id) → "ok"
-export const LIST = "list"; // list() → [[id, text, completed], ...]
-export const WATCH = "watch"; // watch(watcherCap) → "watching"
+export const ADD = "add"; // add(text) returns id
+export const DONE = "done"; // done(id) returns "ok"
+export const LIST = "list"; // list() returns [[id, text, completed], ...]
+export const WATCH = "watch"; // watch(watcherCap) returns "watching"
 
 /** The method the board calls back on a watcher: `update([[id, text, completed], ...])`. */
 export const UPDATE = "update";

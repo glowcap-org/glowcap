@@ -245,22 +245,9 @@ impl SessionShared {
 	pub(crate) fn spawn_serve(self: &Rc<SessionShared>) {
 		let shared = Rc::clone(self);
 		let handle = tokio::task::spawn_local(async move {
-			shared.serve_loop().await;
+			crate::pump::serve_loop(shared).await;
 		});
 		self.serving.set(Some(handle));
-	}
-
-	// ── The pump (thin wrappers into [`crate::pump`]) ───────────────────────────
-
-	async fn serve_loop(self: Rc<SessionShared>) {
-		crate::pump::serve_loop(self).await
-	}
-
-	/// Drain every encoded outbound frame on this CapTP session and write it to
-	/// the transport — how a FLUSH action lands. Writes serialize on the write
-	/// half's lock, so frames stay whole and in submission order.
-	pub(crate) async fn flush_outbound(self: &Rc<SessionShared>) -> Result<()> {
-		crate::pump::flush_outbound(self).await
 	}
 
 	// ── Teardown ────────────────────────────────────────────────────────────────

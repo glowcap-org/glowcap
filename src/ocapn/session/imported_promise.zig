@@ -14,6 +14,7 @@
 const std = @import("std");
 const model = @import("model");
 const session = @import("mod.zig");
+const cell_ops = @import("promise_listen_cell.zig");
 
 const Session = session.Session;
 const Error = session.Error;
@@ -23,19 +24,28 @@ const ListenerEntry = session.ListenerEntry;
 /// Root `import_position` at a third-party `host`, registering the import (so it
 /// validates as a reference) and marking it handoff-imported. Idempotent for
 /// the same host; a re-root with a different host is `Error.HostMismatch`.
-/// `host` is duped into session-owned storage.
+/// `host` is interned in `key_arena` (session-lifetime; shared across rows that
+/// name the same introducing host — never N gpa dupes of one designator).
 pub fn installThirdPartyImport(self: *Session, import_position: model.ImportPosition, host: []const u8) !void {
     if (findImportedPromise(self, import_position)) |existing| {
         if (!std.mem.eql(u8, existing.host, host)) return Error.HostMismatch;
         return;
     }
-    const host_copy = try self.allocator.dupe(u8, host);
-    errdefer self.allocator.free(host_copy);
+    const host_interned = try internThirdPartyHost(self, host);
     try self.registerImport(import_position);
     try self.imported_promises.put(self.allocator, import_position, .{
-        .host = host_copy,
-        .row_id = self.nextStoreStamp(),
+        .host = host_interned,
+        .cell = .{ .row_id = self.nextStoreStamp() },
     });
+}
+
+/// One designator buffer per distinct host string for the session's life.
+fn internThirdPartyHost(self: *Session, host: []const u8) ![]const u8 {
+    var it = self.imported_promises.valueIterator();
+    while (it.next()) |entry| {
+        if (std.mem.eql(u8, entry.host, host)) return entry.host;
+    }
+    return try self.key_arena.allocator().dupe(u8, host);
 }
 
 /// Whether `import_position` is a promise imported from a third party (ADR-0009),
@@ -50,19 +60,9 @@ pub fn isThirdPartyImport(self: *Session, import_position: model.ImportPosition)
 /// third-party-hosted.
 pub fn installImportedPromiseListener(self: *Session, import_position: model.ImportPosition, listener: ListenerEntry) !void {
     const entry = findImportedPromise(self, import_position) orelse return Error.InvalidReference;
-    if (entry.listeners.len() >= self.limits.max_listeners_per_target) {
-        return Error.ListenerCapExceeded;
-    }
-    try entry.listeners.append(self.allocator, listener);
+    try cell_ops.installListener(&entry.cell, self.allocator, self.limits.max_listeners_per_target, listener);
 }
 
-/// Store the relayed `resolution` for third-party import `import_position` (taking
-/// ownership), so a late `op:listen` fires immediately. A promise resolves
-/// exactly once: a second relay for an already-settled import is refused with
-/// `Error.UnexpectedMessage`, mirroring the answer-side resolve-once rule
-/// (`validate.validateInboundResolve`) — accepting it would hand two listeners
-/// two different final values. On any refusal (unknown import or already
-/// settled) the resolution is freed; this function owns it on every outcome.
 /// Record a relayed resolution against the third-party import row, returning
 /// whether it was stored (`false` = moot, dropped). `row_id` is the row
 /// identity the relay was queued against: a mismatch means that row was torn
@@ -76,15 +76,15 @@ pub fn recordRelayedResolution(self: *Session, import_position: model.ImportPosi
         model.freeResolution(self.allocator, resolution);
         return Error.InvalidReference;
     };
-    if (entry.row_id != row_id) {
+    if (entry.cell.row_id != row_id) {
         model.freeResolution(self.allocator, resolution);
         return false;
     }
-    if (entry.resolution != null) {
+    if (entry.cell.resolution != null) {
         model.freeResolution(self.allocator, resolution);
         return Error.UnexpectedMessage;
     }
-    entry.resolution = resolution;
+    entry.cell.resolution = resolution;
     return true;
 }
 
@@ -94,7 +94,7 @@ pub fn recordRelayedResolution(self: *Session, import_position: model.ImportPosi
 /// returned slice and frees it with `allocator`; the entries are POD.
 pub fn takeImportedPromiseListeners(self: *Session, import_position: model.ImportPosition) ![]ListenerEntry {
     const entry = findImportedPromise(self, import_position) orelse return &.{};
-    return entry.listeners.take(self.allocator);
+    return cell_ops.takeListeners(&entry.cell, self.allocator);
 }
 
 /// Borrow the stored relayed resolution for third-party import `import_position`,
@@ -102,8 +102,7 @@ pub fn takeImportedPromiseListeners(self: *Session, import_position: model.Impor
 /// removed.
 pub fn importedPromiseResolution(self: *Session, import_position: model.ImportPosition) ?*const model.Resolution {
     const entry = findImportedPromise(self, import_position) orelse return null;
-    if (entry.resolution) |*resolution| return resolution;
-    return null;
+    return cell_ops.resolution(&entry.cell);
 }
 
 pub fn findImportedPromise(self: *Session, import_position: model.ImportPosition) ?*ImportedPromise {
@@ -117,15 +116,11 @@ pub fn findImportedPromise(self: *Session, import_position: model.ImportPosition
 /// satisfy a stale relay.
 pub fn importedPromiseRowId(self: *Session, import_position: model.ImportPosition) ?u64 {
     const entry = findImportedPromise(self, import_position) orelse return null;
-    return entry.row_id;
+    return entry.cell.row_id;
 }
 
-/// Release the owned memory an `ImportedPromise` holds: the host designator,
-/// the listener list's backing (entries are POD), and any stored relayed
-/// resolution. The struct is safe to drop or remove afterward.
+/// Release the listen cell an `ImportedPromise` holds. The host designator
+/// lives in `Session.key_arena` (interned) and is freed with the session.
 pub fn deinitImportedPromise(allocator: std.mem.Allocator, entry: *ImportedPromise) void {
-    allocator.free(entry.host);
-    entry.listeners.deinit(allocator);
-    if (entry.resolution) |resolution| model.freeResolution(allocator, resolution);
-    entry.resolution = null;
+    cell_ops.deinit(allocator, &entry.cell);
 }

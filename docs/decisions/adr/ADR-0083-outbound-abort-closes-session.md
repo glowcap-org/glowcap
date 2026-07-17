@@ -37,7 +37,7 @@ App-queued aborts call it with `.close` from `emitOutboundMessage` (after
 `.keep_negotiating` with an abort frame for the partner
 ([ADR-0075](ADR-0075-keyed-tcp-designator.md)).
 
-Close does **not** run at bare `recordSend` time before encode — the partner
+Close does **not** run at bare `recordSend` time before encode: the partner
 must still be able to `takeOutbound` the frame.
 
 When encode or push fails on a `.close` disposition, `emitAbortForError`
@@ -47,7 +47,7 @@ never sees an abort frame.
 
 `pancake_peer_send_abort` queues a typed abort (`AbortKind` wire label +
 message); after a successful `pancake_peer_step` the peer is no longer open.
-There is no CapTP `draining` state and no second Peer `shutdown` verb —
+There is no CapTP `draining` state and no second Peer `shutdown` verb,
 `AbortKind.graceful_shutdown` is enough. Host transport soft-stop
 (`condemned` + flush/close) stays above CapTP.
 
@@ -62,5 +62,5 @@ allowlisted (engine-synthesized / inbound install); `ABORT` is not.
 - Handshake-refusal tests assert `state == .negotiating` with an abort frame
   queued (not merely `!sessionIsOpen()`).
 - Further delivers refuse on a closed session.
-- Protocol diagram SL-6 ("`op:abort` sent or received → Closed") holds for
+- Protocol diagram SL-6 ("`op:abort` sent or received becomes Closed") holds for
   open-session teardown; handshake refusals are the named exception.

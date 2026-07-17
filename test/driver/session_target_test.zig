@@ -1,4 +1,4 @@
-//! Eventual-send target refusal — the owning `driver.Session` reference-keyed
+//! Eventual-send target refusal: the owning `driver.Session` reference-keyed
 //! verbs (`callReference` / `sendReference`, the C surface's
 //! `pancake_tcp_session_call` / `_send`, ADR-0062) admit only an _object_
 //! near/far reference. A promise-kind near/far (an unresolved import/export
@@ -7,8 +7,8 @@
 //! (`sendToAnswer`), never a promise-kind target.
 //!
 //! Driven over the in-process netlayer, so the refusal is proven on a real,
-//! keyed, handshaken session with no socket. The positive control — a genuine
-//! far object still calls and settles — shows the gate refuses on _kind_, not
+//! keyed, handshaken session with no socket. The positive control is a genuine
+//! far object that still calls and settles. That shows the gate refuses on _kind_, not
 //! by over-rejecting every reference.
 
 const std = @import("std");

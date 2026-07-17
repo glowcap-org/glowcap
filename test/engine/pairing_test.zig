@@ -10,23 +10,24 @@ const pairing = engine.pairing;
 
 const crypto = foundation.crypto;
 
-fn offersShareProfile(local: engine.negotiation.Offer, remote: engine.negotiation.Offer) bool {
-    for (local.profiles) |lp| {
-        for (remote.profiles) |rp| {
-            if (lp.captp_version == rp.captp_version) return true;
+fn offersShareCaptpVersion(local: engine.negotiation.Offer, remote: engine.negotiation.Offer) bool {
+    for (local.captp_versions) |lp| {
+        for (remote.captp_versions) |rp| {
+            if (lp == rp) return true;
         }
     }
     return false;
 }
 
+/// Test helper: `negotiate` + `pairedNegotiated` (pairing keeps `pairedWithOffers` private).
 fn pairedWithOffers(
     allocator: std.mem.Allocator,
     local: engine.negotiation.Offer,
     remote: engine.negotiation.Offer,
 ) !pairing.Pair {
     const negotiated = engine.negotiation.negotiate(local, remote) orelse {
-        if (offersShareProfile(local, remote)) return pairing.Error.NoSharedCodec;
-        return pairing.Error.NoSharedProfile;
+        if (offersShareCaptpVersion(local, remote)) return pairing.Error.NoSharedCodec;
+        return pairing.Error.NoSharedCaptpVersion;
     };
     return pairing.pairedNegotiated(allocator, negotiated);
 }
@@ -103,7 +104,7 @@ test "sendKeyedStartSession drives two negotiating peers to an open session" {
 
 test "sendKeyedStartSession rejects a version outside the peer profile" {
     const allocator = std.testing.allocator;
-    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .wire_profile = model.WireProfile.v1_0 });
+    var peer = engine.Peer.initNegotiatingWith(allocator, .{ .captp_version = model.CaptpVersion.v1_0 });
     defer peer.deinit();
 
     const loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:1", .hints = model.Hints.emptyFalse() };
@@ -111,14 +112,14 @@ test "sendKeyedStartSession rejects a version outside the peer profile" {
 
     try std.testing.expectError(
         session.Error.CaptpVersionMismatch,
-        peer.sendKeyedStartSession(.pre_spec, loc, secret),
+        peer.sendKeyedStartSession(.next, loc, secret),
     );
     try std.testing.expect(!peer.session_state.handshake_local_sent);
 }
 
 test "v1.0 resolve round-trips as a resolver-callback deliver across paired peers" {
     const allocator = std.testing.allocator;
-    var pair = try pairing.paired(allocator);
+    var pair = try pairing.pairedGoblins(allocator);
     defer pair.deinit();
 
     try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
@@ -172,10 +173,12 @@ test "pairedWithOffers builds both peers with the negotiated (intersected) featu
     // One side withholds handoff + sturdyref; the intersection must too, on both
     // peers, so neither exercises a capability the other did not advertise.
     const local: engine.negotiation.Offer = .{
+        .captp_versions = &.{.v1_0},
         .codecs = &.{.syrup},
         .features = model.FeatureSet.full(),
     };
     const remote: engine.negotiation.Offer = .{
+        .captp_versions = &.{.v1_0},
         .codecs = &.{.syrup},
         // full minus handoff + sturdyref.
         .features = .{
@@ -201,8 +204,8 @@ test "pairedWithOffers builds both peers with the negotiated (intersected) featu
 
 test "pairedWithOffers rejects offers that share no codec" {
     const allocator = std.testing.allocator;
-    const local: engine.negotiation.Offer = .{ .codecs = &.{.capnp}, .features = model.FeatureSet.full() };
-    const remote: engine.negotiation.Offer = .{ .codecs = &.{.syrup}, .features = model.FeatureSet.full() };
+    const local: engine.negotiation.Offer = .{ .captp_versions = &.{.next}, .codecs = &.{.capnp}, .features = model.FeatureSet.full() };
+    const remote: engine.negotiation.Offer = .{ .captp_versions = &.{.next}, .codecs = &.{.syrup}, .features = model.FeatureSet.full() };
     try std.testing.expectError(
         pairing.Error.NoSharedCodec,
         pairedWithOffers(allocator, local, remote),
@@ -212,17 +215,17 @@ test "pairedWithOffers rejects offers that share no codec" {
 test "pairedWithOffers rejects offers that share no profile" {
     const allocator = std.testing.allocator;
     const local: engine.negotiation.Offer = .{
-        .profiles = &.{model.WireProfile.pre_spec},
+        .captp_versions = &.{model.CaptpVersion.next},
         .codecs = &.{.syrup},
         .features = model.FeatureSet.full(),
     };
     const remote: engine.negotiation.Offer = .{
-        .profiles = &.{model.WireProfile.v1_0},
+        .captp_versions = &.{model.CaptpVersion.v1_0},
         .codecs = &.{.syrup},
         .features = model.FeatureSet.full(),
     };
     try std.testing.expectError(
-        pairing.Error.NoSharedProfile,
+        pairing.Error.NoSharedCaptpVersion,
         pairedWithOffers(allocator, local, remote),
     );
 }
@@ -230,12 +233,12 @@ test "pairedWithOffers rejects offers that share no profile" {
 test "pairedWithOffers carries the negotiated profile onto both sessions" {
     const allocator = std.testing.allocator;
     const local: engine.negotiation.Offer = .{
-        .profiles = &.{model.WireProfile.pre_spec},
+        .captp_versions = &.{model.CaptpVersion.next},
         .codecs = &.{.syrup},
         .features = model.FeatureSet.full(),
     };
     const remote: engine.negotiation.Offer = .{
-        .profiles = &.{model.WireProfile.pre_spec},
+        .captp_versions = &.{model.CaptpVersion.next},
         .codecs = &.{.syrup},
         .features = model.FeatureSet.full(),
     };
@@ -244,21 +247,21 @@ test "pairedWithOffers carries the negotiated profile onto both sessions" {
     defer pair.deinit();
 
     inline for (.{ &pair.p1, &pair.p2 }) |peer| {
-        try std.testing.expectEqual(model.CaptpVersion.pre_spec, peer.session_state.wire_profile.captp_version);
+        try std.testing.expectEqual(model.CaptpVersion.next, peer.session_state.captp_version);
         try std.testing.expectEqual(model.CodecId.syrup, peer.session_state.codec);
         try std.testing.expectEqual(session.State.open, peer.session_state.state);
     }
 }
 
-test "PreSpec Syrup peers authenticate start-session before opening" {
+test "next Syrup peers authenticate start-session before opening" {
     const allocator = std.testing.allocator;
     var p1 = engine.Peer.initNegotiatingWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
+        .captp_version = model.CaptpVersion.next,
         .codec = .syrup,
     });
     defer p1.deinit();
     var p2 = engine.Peer.initNegotiatingWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
+        .captp_version = model.CaptpVersion.next,
         .codec = .syrup,
     });
     defer p2.deinit();
@@ -268,8 +271,8 @@ test "PreSpec Syrup peers authenticate start-session before opening" {
     const secret1 = crypto.SecretKey.fromSeed([_]u8{0x77} ** crypto.SEED_BYTES);
     const secret2 = crypto.SecretKey.fromSeed([_]u8{0x88} ** crypto.SEED_BYTES);
 
-    try p1.sendKeyedStartSession(.pre_spec, loc1, secret1);
-    try p2.sendKeyedStartSession(.pre_spec, loc2, secret2);
+    try p1.sendKeyedStartSession(.next, loc1, secret1);
+    try p2.sendKeyedStartSession(.next, loc2, secret2);
     try std.testing.expect(!p1.sessionIsOpen());
     try std.testing.expect(!p2.sessionIsOpen());
 
@@ -279,21 +282,21 @@ test "PreSpec Syrup peers authenticate start-session before opening" {
 
     try std.testing.expect(p1.sessionIsOpen());
     try std.testing.expect(p2.sessionIsOpen());
-    try std.testing.expectEqual(model.CaptpVersion.pre_spec, p1.session_state.wire_profile.captp_version);
-    try std.testing.expectEqual(model.CaptpVersion.pre_spec, p2.session_state.wire_profile.captp_version);
+    try std.testing.expectEqual(model.CaptpVersion.next, p1.session_state.captp_version);
+    try std.testing.expectEqual(model.CaptpVersion.next, p2.session_state.captp_version);
     try std.testing.expect(p1.session_state.partnerSessionKey() != null);
     try std.testing.expect(p2.session_state.partnerSessionKey() != null);
 }
 
-test "PreSpec Cap'n Proto peers authenticate start-session before opening" {
+test "next Cap'n Proto peers authenticate start-session before opening" {
     const allocator = std.testing.allocator;
     var p1 = engine.Peer.initNegotiatingWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
+        .captp_version = model.CaptpVersion.next,
         .codec = .capnp,
     });
     defer p1.deinit();
     var p2 = engine.Peer.initNegotiatingWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
+        .captp_version = model.CaptpVersion.next,
         .codec = .capnp,
     });
     defer p2.deinit();
@@ -303,8 +306,8 @@ test "PreSpec Cap'n Proto peers authenticate start-session before opening" {
     const secret1 = crypto.SecretKey.fromSeed([_]u8{0x99} ** crypto.SEED_BYTES);
     const secret2 = crypto.SecretKey.fromSeed([_]u8{0xaa} ** crypto.SEED_BYTES);
 
-    try p1.sendKeyedStartSession(.pre_spec, loc1, secret1);
-    try p2.sendKeyedStartSession(.pre_spec, loc2, secret2);
+    try p1.sendKeyedStartSession(.next, loc1, secret1);
+    try p2.sendKeyedStartSession(.next, loc2, secret2);
 
     if (try pairing.shuttleUntilQuiescent(&p1, &p2) != .quiescent) {
         return error.HandshakeDidNotQuiesce;
@@ -312,7 +315,7 @@ test "PreSpec Cap'n Proto peers authenticate start-session before opening" {
 
     try std.testing.expect(p1.sessionIsOpen());
     try std.testing.expect(p2.sessionIsOpen());
-    try std.testing.expectEqual(model.CaptpVersion.pre_spec, p1.session_state.wire_profile.captp_version);
+    try std.testing.expectEqual(model.CaptpVersion.next, p1.session_state.captp_version);
     try std.testing.expectEqual(model.CodecId.capnp, p1.session_state.codec);
     try std.testing.expect(p1.session_state.partnerSessionKey() != null);
     try std.testing.expect(p2.session_state.partnerSessionKey() != null);
@@ -320,7 +323,7 @@ test "PreSpec Cap'n Proto peers authenticate start-session before opening" {
 
 /// Offers that negotiate the Cap'n Proto codec on both peers.
 fn capnpOffer() engine.negotiation.Offer {
-    return .{ .codecs = &.{.capnp}, .features = model.FeatureSet.full() };
+    return .{ .captp_versions = &.{.next}, .codecs = &.{.capnp}, .features = model.FeatureSet.full() };
 }
 
 test "pairedWithOffers carries the negotiated codec onto a live Cap'n Proto session" {
@@ -370,7 +373,12 @@ test "paired Cap'n Proto peers exchange a deliver (parity with Syrup)" {
 
 test "v1.0 resolve round-trips as a resolver-callback deliver over Cap'n Proto" {
     const allocator = std.testing.allocator;
-    var pair = try pairedWithOffers(allocator, capnpOffer(), capnpOffer());
+    const v1_capnp: engine.negotiation.Offer = .{
+        .captp_versions = &.{.v1_0},
+        .codecs = &.{.capnp},
+        .features = model.FeatureSet.full(),
+    };
+    var pair = try pairedWithOffers(allocator, v1_capnp, v1_capnp);
     defer pair.deinit();
 
     try pair.p1.session_state.registerImport(.from(session.BOOTSTRAP_POSITION));
@@ -598,10 +606,10 @@ test "a verifying peer accepts a hinted-locator handshake (signature checked on 
     var hello = verifier.takeOutbound().?;
     hello.deinit();
 
-    // The partner's hello carries hint entries in its locator. The borrowed
-    // locator decode does not retain those hints, so verification must check
-    // the signature over the *received* `<ocapn-peer …>` bytes; a re-encode of
-    // the decoded locator would drop the hints and fail this valid signature.
+    // The partner's hello carries hint entries in its locator. Borrowed decode
+    // projects them through `BorrowedHints`, but the signing domain is the
+    // received `acceptable_location_raw` octets — re-encoding the structured
+    // locator can miss the partner's exact spelling and fail a valid signature.
     const frame = try hintedStartSessionFrame(allocator, partner_secret, hinted_locator_bytes);
     try verifier.feedOwned(frame);
     _ = try verifier.step();
@@ -662,7 +670,7 @@ test "the handshake records each partner's session key for later signature check
 
 test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins interop), not only desc:error" {
     const allocator = std.testing.allocator;
-    var pair = try pairing.paired(allocator);
+    var pair = try pairing.pairedGoblins(allocator);
     defer pair.deinit();
 
     // p1 calls the partner bootstrap, allocating answer 42 and a resolver export.
@@ -715,7 +723,7 @@ test "v1.0 resolver-callback accepts a record-shaped break reason (Goblins inter
 
 test "v1.0 resolver-callback break encodes its reason as a bare Symbol, the shape Goblins unmarshals" {
     const allocator = std.testing.allocator;
-    var pair = try pairing.paired(allocator);
+    var pair = try pairing.pairedGoblins(allocator);
     defer pair.deinit();
 
     // p1 calls the partner bootstrap with an answer, minting a resolver export.

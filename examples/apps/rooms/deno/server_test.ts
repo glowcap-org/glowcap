@@ -169,21 +169,21 @@ async function withIrohServer(
 	}
 }
 
-/** Enter the named room over `conn`, opening it if it does not exist, the
+/** Enter the named room over `session`, opening it if it does not exist, the
  * directory dance every client does, inlined here so the tests drive the same
  * wire the clients do. */
-async function enterOrOpen(conn: Session, room: string): Promise<Ref> {
-	const directory = await conn.fetch(DIRECTORY);
+async function enterOrOpen(session: Session, room: string): Promise<Ref> {
+	const directory = await session.fetch(DIRECTORY);
 	try {
-		return await conn.send(directory, ENTER, [room]) as Ref;
+		return await session.send(directory, ENTER, [room]) as Ref;
 	} catch (err) {
 		if (roomErrorOf(err)?.code !== NO_SUCH_ROOM) throw err;
 	}
 	try {
-		return await conn.send(directory, OPEN, [room]) as Ref;
+		return await session.send(directory, OPEN, [room]) as Ref;
 	} catch (err) {
 		if (roomErrorOf(err)?.code !== ROOM_EXISTS) throw err;
-		return await conn.send(directory, ENTER, [room]) as Ref;
+		return await session.send(directory, ENTER, [room]) as Ref;
 	}
 }
 
@@ -191,26 +191,26 @@ async function enterOrOpen(conn: Session, room: string): Promise<Ref> {
  * welcome, and close. The transport (TCP or iroh) is whatever the connection
  * rides. */
 async function subscribeOnceConn(
-	conn: Session,
+	session: Session,
 	room: string,
 	nick: string,
 ): Promise<string> {
-	conn.serve().catch(() => {});
-	const roomRef = await enterOrOpen(conn, room);
+	session.serve().catch(() => {});
+	const roomRef = await enterOrOpen(session, room);
 	// The welcome + roster arrive as the first `notify` (a "roster" line), not as the
 	// subscribe return, so capture it off the inbox.
 	let resolveWelcome!: (w: string) => void;
 	const welcome = new Promise<string>((r) => (resolveWelcome = r));
-	const inbox = conn.spawn((verb, args) => {
+	const inbox = session.spawn((verb, args) => {
 		if (verb === NOTIFY && args[2] === "roster" && typeof args[1] === "string") {
 			resolveWelcome(args[1]);
 		}
 		return null;
 	});
-	await conn.send(roomRef, SUBSCRIBE, [nick, inbox]);
+	await session.send(roomRef, SUBSCRIBE, [nick, inbox]);
 	const text = await welcome;
-	conn.close();
-	await conn.serve().catch(() => {});
+	session.close();
+	await session.serve().catch(() => {});
 	return text;
 }
 
@@ -239,22 +239,22 @@ async function trySubscribe(port: number, room: string, nick: string): Promise<{
 	code?: RoomErrorCode | null;
 	leave: () => Promise<void>;
 }> {
-	const conn = await connect(tcpLocator("127.0.0.1", port));
-	conn.serve().catch(() => {});
+	const session = await connect(tcpLocator("127.0.0.1", port));
+	session.serve().catch(() => {});
 	try {
-		const roomRef = await enterOrOpen(conn, room);
-		const inbox = conn.spawn(() => null);
-		await conn.send(roomRef, SUBSCRIBE, [nick, inbox]);
+		const roomRef = await enterOrOpen(session, room);
+		const inbox = session.spawn(() => null);
+		await session.send(roomRef, SUBSCRIBE, [nick, inbox]);
 		return {
 			ok: true,
 			leave: async () => {
-				conn.close();
-				await conn.serve().catch(() => {});
+				session.close();
+				await session.serve().catch(() => {});
 			},
 		};
 	} catch (err) {
-		conn.close();
-		await conn.serve().catch(() => {});
+		session.close();
+		await session.serve().catch(() => {});
 		return {
 			ok: false,
 			code: roomErrorOf(err)?.code ?? null,
@@ -267,29 +267,29 @@ async function subscribeTwiceAndClose(
 	port: number,
 	room: string,
 ): Promise<void> {
-	const conn = await connect(tcpLocator("127.0.0.1", port));
-	conn.serve().catch(() => {});
-	const roomRef = await enterOrOpen(conn, room);
-	const inbox = conn.spawn(() => null);
-	await conn.send(roomRef, SUBSCRIBE, ["first-a", inbox]);
-	await conn.send(roomRef, SUBSCRIBE, ["first-b", inbox]);
-	conn.close();
-	await conn.serve().catch(() => {});
+	const session = await connect(tcpLocator("127.0.0.1", port));
+	session.serve().catch(() => {});
+	const roomRef = await enterOrOpen(session, room);
+	const inbox = session.spawn(() => null);
+	await session.send(roomRef, SUBSCRIBE, ["first-a", inbox]);
+	await session.send(roomRef, SUBSCRIBE, ["first-b", inbox]);
+	session.close();
+	await session.serve().catch(() => {});
 }
 
 async function resubscribeAndHold(port: number, room: string): Promise<{
 	leave: () => Promise<void>;
 }> {
-	const conn = await connect(tcpLocator("127.0.0.1", port));
-	conn.serve().catch(() => {});
-	const roomRef = await enterOrOpen(conn, room);
-	const inbox = conn.spawn(() => null);
-	await conn.send(roomRef, SUBSCRIBE, ["first-a", inbox]);
-	await conn.send(roomRef, SUBSCRIBE, ["first-b", inbox]);
+	const session = await connect(tcpLocator("127.0.0.1", port));
+	session.serve().catch(() => {});
+	const roomRef = await enterOrOpen(session, room);
+	const inbox = session.spawn(() => null);
+	await session.send(roomRef, SUBSCRIBE, ["first-a", inbox]);
+	await session.send(roomRef, SUBSCRIBE, ["first-b", inbox]);
 	return {
 		leave: async () => {
-			conn.close();
-			await conn.serve().catch(() => {});
+			session.close();
+			await session.serve().catch(() => {});
 		},
 	};
 }
@@ -309,28 +309,28 @@ async function waitForMatch(
 }
 
 async function watchRoomConn(
-	conn: Session,
+	session: Session,
 	room: string,
 	nick: string,
 ): Promise<{
 	lines: string[];
 	leave: () => Promise<void>;
 }> {
-	conn.serve().catch(() => {});
+	session.serve().catch(() => {});
 	const lines: string[] = [];
-	const roomRef = await enterOrOpen(conn, room);
-	const inbox = conn.spawn((_verb, args) => {
+	const roomRef = await enterOrOpen(session, room);
+	const inbox = session.spawn((_verb, args) => {
 		const from = typeof args[0] === "string" ? args[0] : "?";
 		const text = typeof args[1] === "string" ? args[1] : "";
 		lines.push(`${from}: ${text}`);
 		return null;
 	});
-	await conn.send(roomRef, SUBSCRIBE, [nick, inbox]);
+	await session.send(roomRef, SUBSCRIBE, [nick, inbox]);
 	return {
 		lines,
 		leave: async () => {
-			conn.close();
-			await conn.serve().catch(() => {});
+			session.close();
+			await session.serve().catch(() => {});
 		},
 	};
 }
@@ -359,43 +359,43 @@ async function waitForLine(lines: string[], pattern: RegExp): Promise<string> {
 
 Deno.test("rooms directory opens a room and rejects opening it twice", async () => {
 	await withServer(async (port) => {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
 		try {
-			const directory = await conn.fetch(DIRECTORY);
-			const room = await conn.send(directory, OPEN, ["lounge"]);
+			const directory = await session.fetch(DIRECTORY);
+			const room = await session.send(directory, OPEN, ["lounge"]);
 			assert(room !== null, "open should return a room reference");
 
 			let duplicateError = "";
 			try {
-				await conn.send(directory, OPEN, ["lounge"]);
+				await session.send(directory, OPEN, ["lounge"]);
 			} catch (err) {
 				duplicateError = err instanceof Error ? err.message : String(err);
 			}
 			assertMatch(duplicateError, /room "lounge" already exists/);
 		} finally {
-			conn.close();
-			await conn.serve().catch(() => {});
+			session.close();
+			await session.serve().catch(() => {});
 		}
 	});
 });
 
 Deno.test("rooms directory rejects entering a room that does not exist", async () => {
 	await withServer(async (port) => {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
 		try {
-			const directory = await conn.fetch(DIRECTORY);
+			const directory = await session.fetch(DIRECTORY);
 			let missingError = "";
 			try {
-				await conn.send(directory, ENTER, ["nowhere"]);
+				await session.send(directory, ENTER, ["nowhere"]);
 			} catch (err) {
 				missingError = err instanceof Error ? err.message : String(err);
 			}
 			assertMatch(missingError, /no room named "nowhere"/);
 		} finally {
-			conn.close();
-			await conn.serve().catch(() => {});
+			session.close();
+			await session.serve().catch(() => {});
 		}
 	});
 });
@@ -517,30 +517,30 @@ Deno.test("rooms server announces members leaving", async () => {
 
 /** The directory's live room list as `[name, count]` pairs (counts arrive as
  * bigint), over an already-serving connection. */
-async function listRooms(conn: Session): Promise<Array<[string, number]>> {
-	const directory = await conn.fetch(DIRECTORY);
-	const raw = await conn.send(directory, LIST, []) as unknown[];
+async function listRooms(session: Session): Promise<Array<[string, number]>> {
+	const directory = await session.fetch(DIRECTORY);
+	const raw = await session.send(directory, LIST, []) as unknown[];
 	return raw.map((pair) => {
 		const p = pair as unknown[];
 		return [String(p[0]), Number(p[1])];
 	});
 }
 
-/** Register a directory watcher over `conn` and collect its `notify(event, name,
+/** Register a directory watcher over `session` and collect its `notify(event, name,
  * count)` deltas as `"event name count"` strings, returning the baseline
  * snapshot too. */
-async function watchDirectory(conn: Session): Promise<{
+async function watchDirectory(session: Session): Promise<{
 	events: string[];
 	snapshot: Array<[string, number]>;
 }> {
-	conn.serve().catch(() => {});
-	const directory = await conn.fetch(DIRECTORY);
+	session.serve().catch(() => {});
+	const directory = await session.fetch(DIRECTORY);
 	const events: string[] = [];
-	const observer = conn.spawn((_verb, args) => {
+	const observer = session.spawn((_verb, args) => {
 		events.push(`${args[0]} ${args[1]} ${Number(args[2])}`);
 		return null;
 	});
-	const raw = await conn.send(directory, WATCH, [observer]) as unknown[];
+	const raw = await session.send(directory, WATCH, [observer]) as unknown[];
 	return {
 		events,
 		snapshot: raw.map((pair) => {
@@ -557,10 +557,10 @@ Deno.test("rooms directory lists the live rooms with member counts", async () =>
 		const beta2 = await watchRoom(port, "beta", "b2");
 		await waitForLine(beta.lines, /^room: b2 joined \(2 here\)$/);
 
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
 		try {
-			const rooms = new Map(await listRooms(conn));
+			const rooms = new Map(await listRooms(session));
 			assert(
 				rooms.get("alpha") === 1,
 				`alpha should have 1 member, got ${rooms.get("alpha")}`,
@@ -572,16 +572,16 @@ Deno.test("rooms directory lists the live rooms with member counts", async () =>
 
 			// A room opened but not yet subscribed has no members, so it stays out of
 			// the live list until someone is actually in it.
-			const directory = await conn.fetch(DIRECTORY);
-			await conn.send(directory, OPEN, ["ghost"]);
-			const afterOpen = new Map(await listRooms(conn));
+			const directory = await session.fetch(DIRECTORY);
+			await session.send(directory, OPEN, ["ghost"]);
+			const afterOpen = new Map(await listRooms(session));
 			assert(
 				!afterOpen.has("ghost"),
 				"an empty just-opened room must not be listed",
 			);
 		} finally {
-			conn.close();
-			await conn.serve().catch(() => {});
+			session.close();
+			await session.serve().catch(() => {});
 		}
 
 		await alpha.leave();
@@ -612,19 +612,19 @@ Deno.test("rooms directory pushes open/count/close deltas to a watcher", async (
 
 Deno.test("a room leave drops just that membership, keeping the connection", async () => {
 	await withServer(async (port) => {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
 		try {
-			const one = await enterOrOpen(conn, "one");
-			const two = await enterOrOpen(conn, "two");
-			const inbox = conn.spawn(() => null);
-			await conn.send(one, SUBSCRIBE, ["solo", inbox]);
-			await conn.send(two, SUBSCRIBE, ["solo", inbox]);
+			const one = await enterOrOpen(session, "one");
+			const two = await enterOrOpen(session, "two");
+			const inbox = session.spawn(() => null);
+			await session.send(one, SUBSCRIBE, ["solo", inbox]);
+			await session.send(two, SUBSCRIBE, ["solo", inbox]);
 
 			// Leaving "one" (its only member) closes it; "two" survives on the same
 			// still-open session.
-			await conn.send(one, LEAVE, []);
-			const rooms = new Map(await listRooms(conn));
+			await session.send(one, LEAVE, []);
+			const rooms = new Map(await listRooms(session));
 			assert(!rooms.has("one"), "left room should be gone");
 			assert(
 				rooms.get("two") === 1,
@@ -632,10 +632,10 @@ Deno.test("a room leave drops just that membership, keeping the connection", asy
 			);
 
 			// The connection is still usable: we can post in the room we kept.
-			await conn.send(two, POST, ["still here"]);
+			await session.send(two, POST, ["still here"]);
 		} finally {
-			conn.close();
-			await conn.serve().catch(() => {});
+			session.close();
+			await session.serve().catch(() => {});
 		}
 	});
 });

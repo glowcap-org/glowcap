@@ -67,7 +67,7 @@ const ReferenceView = union(enum) {
     sturdy: SturdyRefView,
 
     const SturdyRefView = struct {
-        peer: model.PeerLocator,
+        peer: model.view.PeerLocator,
         swissnum: []const u8,
     };
 };
@@ -83,10 +83,9 @@ pub const SignatureView = struct {
 /// `model.view.Body.toOwned`. One decode vocabulary, every *argument* arm the
 /// encoder emits reads back with full fidelity (strings stay strings, symbols
 /// stay symbols, numeric/list/set/tagged arms included), mirroring
-/// `capnp.decodeOwned` and the symmetric-refusal posture of ADR-0003. Locator
-/// hints are the one exception: this path consumes a non-empty hints map and
-/// projects it as empty; hint entries survive only through the allocating
-/// `readLocatorOwned`.
+/// `capnp.decodeOwned` and the symmetric-refusal posture of ADR-0003. Non-empty
+/// locator hints ride `BorrowedHints` and materialize through `toOwned`
+/// (same path as Cap'n Proto); empty `#f` / `{}` spellings are the `.empty` arm.
 pub fn decodeOwned(allocator: std.mem.Allocator, frame: foundation.FrameView) !model.Message {
     return (try decodeBody(frame)).toOwned(allocator);
 }
@@ -186,11 +185,7 @@ fn neutralReference(reference: ReferenceView) model.view.Reference {
         // decoded promise target always has the empty path.
         .promise => |promise| .{ .promise = .{ .answer_position = promise.answer_position } },
         .sturdy => |sturdy| .{ .sturdy = .{
-            .peer = .{
-                .transport = sturdy.peer.transport,
-                .designator = sturdy.peer.designator,
-                .hints = sturdy.peer.hints,
-            },
+            .peer = sturdy.peer,
             .swissnum = sturdy.swissnum,
         } },
     };
@@ -267,15 +262,11 @@ fn readNeutralRecord(bytes: []const u8, cursor: *usize, depth: usize, limit: usi
             }
         },
         "ocapn-sturdyref".len => if (std.mem.eql(u8, tag, "ocapn-sturdyref")) {
-            const peer_locator = try readLocator(bytes, cursor, limit);
+            const peer = try readPeerLocatorView(bytes, cursor, limit);
             const swissnum = try readBytesLimited(bytes, cursor, limit);
             try readByte(bytes, cursor, '>');
             return .{ .reference = .{ .sturdy = .{
-                .peer = .{
-                    .transport = peer_locator.transport,
-                    .designator = peer_locator.designator,
-                    .hints = peer_locator.hints,
-                },
+                .peer = peer,
                 .swissnum = swissnum,
             } } };
         },
@@ -714,18 +705,14 @@ fn decodeStartSessionBody(bytes: []const u8, cursor: *usize, limit: usize, messa
     // Span the exact `<ocapn-peer …>` location-record bytes around the read so
     // a verifier checks the signature over what was received, not a re-encode.
     const location_start = cursor.*;
-    const acceptable_location = try readLocator(bytes, cursor, limit);
+    const acceptable_location = try readPeerLocatorView(bytes, cursor, limit);
     const location_raw = bytes[location_start..cursor.*];
     const acceptable_location_sig = try readSignatureViewLimited(bytes, cursor, limit);
     try readByte(bytes, cursor, '>');
     return .{ .start_session = .{
         .captp_version = captp_version,
         .session_pubkey = session_pubkey,
-        .acceptable_location = .{
-            .transport = acceptable_location.transport,
-            .designator = acceptable_location.designator,
-            .hints = acceptable_location.hints,
-        },
+        .acceptable_location = acceptable_location,
         .acceptable_location_sig = .{ .halves = .{ .r = acceptable_location_sig.r, .s = acceptable_location_sig.s } },
         .acceptable_location_raw = location_raw,
     } };
@@ -794,19 +781,15 @@ fn finishSignedHandoff(bytes: []const u8, cursor: *usize, limit: usize, envelope
 
 fn readBorrowedHandoffGivePayload(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.HandoffGive {
     const recipient_key = try readPeerKeyQ(bytes, cursor, limit);
-    // Capture the verbatim `<ocapn-peer …>` span so a consumer can recover hint
-    // entries the borrowed session reader discards. A real Goblins give writes
-    // `#f` hints (no entries); an exporter reachable only by direct address
-    // names them here, and the redeem projection re-parses this span to dial.
-    const locator_start = cursor.*;
-    const locator = try readLocator(bytes, cursor, limit);
-    const locator_record = bytes[locator_start..cursor.*];
+    // Structural peer locator (BorrowedHints), same shape as start-session /
+    // sturdyref — redeem URI projection reads `exporter` directly.
+    const locator = try readPeerLocatorView(bytes, cursor, limit);
     const gifter_exporter_session = try readBytesLimited(bytes, cursor, limit);
     const gifter_side = try readBytesLimited(bytes, cursor, limit);
     const gift_id = try readBytesLimited(bytes, cursor, limit);
     return .{
         .recipient_key = recipient_key,
-        .exporter_location = .{ .locator = .{ .transport = locator.transport, .designator = locator.designator, .record = locator_record } },
+        .exporter = locator,
         .gifter_exporter_session = gifter_exporter_session,
         .gifter_side = gifter_side,
         .gift_id = gift_id,
@@ -1026,7 +1009,10 @@ fn expectSymbol(bytes: []const u8, cursor: *usize, expected: []const u8) Error!v
     if (!std.mem.eql(u8, symbol, expected)) return Error.MalformedFrame;
 }
 
-fn readLocator(bytes: []const u8, cursor: *usize, limit: usize) Error!model.PeerLocator {
+/// Borrowed peer locator: empty hint spellings and lazy non-empty dicts land in
+/// `BorrowedHints` (one arm). `acceptable_location_raw` remains the signing
+/// domain for start-session.
+fn readPeerLocatorView(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.PeerLocator {
     try readByte(bytes, cursor, '<');
     const tag = try readSymbolLimited(bytes, cursor, limit);
     if (!std.mem.eql(u8, tag, "ocapn-peer")) {
@@ -1034,7 +1020,7 @@ fn readLocator(bytes: []const u8, cursor: *usize, limit: usize) Error!model.Peer
     }
     const transport = try readSymbolLimited(bytes, cursor, limit);
     const designator = try readStringLimited(bytes, cursor, limit);
-    const hints = try readHints(bytes, cursor, limit);
+    const hints = try readHintsView(bytes, cursor, limit);
     try readByte(bytes, cursor, '>');
     return .{
         .transport = transport,
@@ -1043,24 +1029,67 @@ fn readLocator(bytes: []const u8, cursor: *usize, limit: usize) Error!model.Peer
     };
 }
 
-fn readHints(bytes: []const u8, cursor: *usize, limit: usize) Error!model.Hints {
+fn syrupMaterializeHintList(
+    allocator: std.mem.Allocator,
+    hl: model.view.HintList,
+    wire_form: model.Hints.WireForm,
+) model.view.Error!model.Hints {
+    _ = wire_form;
+    var cursor: usize = 0;
+    const hints = readHintsOwned(allocator, hl.bytes, &cursor) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.MalformedView,
+    };
+    return hints;
+}
+
+/// One hints-dict entry: a Cap'n Proto–expressible value, or an exotic Syrup
+/// shape that was skipped (hints are advisory).
+const SyrupHintStep = union(enum) {
+    known: model.HintEntry,
+    skipped,
+};
+
+/// Shared walk for owned materialize: read name, then keep a known
+/// HintValueKind or skipSyrupValue past an exotic. One place owns the
+/// tolerate-and-skip rule.
+fn nextSyrupHintStep(bytes: []const u8, cursor: *usize) Error!SyrupHintStep {
+    const name = try readStringOrSymbol(bytes, cursor);
+    if (readHintValueBorrowed(bytes, cursor)) |value| {
+        return .{ .known = .{ .name = name, .value = value } };
+    } else |_| {
+        try skipSyrupValue(bytes, cursor);
+        return .skipped;
+    }
+}
+
+fn readHintsView(bytes: []const u8, cursor: *usize, limit: usize) Error!model.view.BorrowedHints {
     if (cursor.* >= bytes.len) return Error.Incomplete;
     if (bytes[cursor.*] == 'f') {
         cursor.* += 1;
-        return model.Hints.emptyFalse();
+        return .{ .empty = .boolean_false };
     }
     if (bytes[cursor.*] == '{') {
         if (cursor.* + 2 > bytes.len) return Error.Incomplete;
         if (bytes[cursor.* + 1] == '}') {
             cursor.* += 2;
-            return model.Hints.emptyMap();
+            return .{ .empty = .map };
         }
-        // Non-empty hints: consumed so the frame decodes whole. The session
-        // path does not surface entries (it keys off designator + session key).
-        // Callers that need entries (sturdyref arguments) use the allocating
-        // `readHintsOwned` path.
+        // Non-empty hints: keep the balanced dict span so borrowed views and
+        // `toOwned` expose entries (Cap'n Proto parity). Start-session still
+        // captures `acceptable_location_raw` for the signing domain.
+        const start = cursor.*;
         _ = try readBalancedLimited(bytes, cursor, '{', '}', limit);
-        return model.Hints.emptyMap();
+        const span = bytes[start..cursor.*];
+        return .{
+            .lazy = .{
+                .wire_form = .map,
+                .list = .{
+                    .bytes = span,
+                    .materialize = syrupMaterializeHintList,
+                },
+            },
+        };
     }
     return Error.MalformedFrame;
 }
@@ -1088,13 +1117,17 @@ fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usiz
             entries.deinit(allocator);
         }
         while (cursor.* < bytes.len and bytes[cursor.*] != '}') {
-            const name_raw = readStringOrSymbol(bytes, cursor) catch return Error.MalformedFrame;
-            const value_raw = try readHintValueBorrowed(bytes, cursor);
-            const name = try allocator.dupe(u8, name_raw);
-            errdefer allocator.free(name);
-            const value = try model.cloneHintValue(allocator, value_raw);
-            errdefer model.freeHintValue(allocator, value);
-            try entries.append(allocator, .{ .name = name, .value = value });
+            // Known HintValueKind only; exotic Syrup shapes skip via nextSyrupHintStep.
+            switch (try nextSyrupHintStep(bytes, cursor)) {
+                .skipped => continue,
+                .known => |borrowed| {
+                    const name = try allocator.dupe(u8, borrowed.name);
+                    errdefer allocator.free(name);
+                    const value = try model.cloneHintValue(allocator, borrowed.value);
+                    errdefer model.freeHintValue(allocator, value);
+                    try entries.append(allocator, .{ .name = name, .value = value });
+                },
+            }
         }
         try readByte(bytes, cursor, '}');
         return .{
@@ -1105,9 +1138,9 @@ fn readHintsOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usiz
     return Error.MalformedFrame;
 }
 
-/// Like `readLocator` but allocates hint entries. Free the result's hints with
-/// `model.freeHints`. Used for sturdyref arguments where the actor needs the
-/// hints (e.g. sturdyref enlivener extracting host/port).
+/// Allocates hint entries. Free the result's hints with `model.freeHints`.
+/// Used for sturdyref arguments where the actor needs the hints (e.g. sturdyref
+/// enlivener extracting host/port).
 pub fn readLocatorOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor: *usize) shared.WalkError!model.PeerLocator {
     try readByte(bytes, cursor, '<');
     const tag = try readSymbol(bytes, cursor);
@@ -1127,7 +1160,7 @@ pub fn readLocatorOwned(allocator: std.mem.Allocator, bytes: []const u8, cursor:
 /// <sig-val …>>` byte buffer — the exact shape `handoff_gifter.buildSignedGive`
 /// returns and a binding's `pancake_build_handoff_give` hands back — into an
 /// owned, codec-neutral `model.HandoffGive`. Typed fields (`recipient_key`,
-/// `exporter_location`, `signature`, …) are populated from the parse alongside
+/// `exporter`, `signature`, …) are populated from the parse alongside
 /// `raw_signed`, so a caller can hand the result to *any* session codec: Syrup
 /// keeps its `raw_signed` fast path (`writeSignedGive` emits it verbatim), while
 /// Cap'n Proto, which does not understand `raw_signed`, encodes the typed

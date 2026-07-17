@@ -27,7 +27,7 @@ test "Syrup locator encoding uses typed locator and preserves empty false hints"
     const pubkey = repeatedByte(32, 0xaa);
     const sig = repeatedByte(64, 0xcc);
 
-    var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
+    var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, .{
         .start_session = .{
             .captp_version = .v1_0,
             .session_pubkey = .{ .bytes = pubkey[0..] },
@@ -46,7 +46,7 @@ test "Syrup locator encoding uses typed locator and preserves empty false hints"
     try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "f>") != null);
 
     const decoded = try syrup.decodeBody(frame.view());
-    try std.testing.expectEqual(model.Hints.WireForm.boolean_false, decoded.start_session.acceptable_location.hints.wire_form);
+    try std.testing.expectEqual(model.Hints.WireForm.boolean_false, decoded.start_session.acceptable_location.hints.wireForm());
 }
 
 test "Syrup start-session carries hint entries canonically and signs over the same bytes" {
@@ -69,7 +69,7 @@ test "Syrup start-session carries hint entries canonically and signs over the sa
     };
     const locator_bytes = "<10'ocapn-peer3'tcp14\"127.0.0.1:9001{4\"host9\"127.0.0.1}>";
 
-    var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
+    var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, .{
         .start_session = .{
             .captp_version = .v1_0,
             .session_pubkey = .{ .bytes = pubkey[0..] },
@@ -138,7 +138,7 @@ test "op:abort with a typed kind encodes the wire label prefix" {
     try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "VersionMismatch: expected ocapn-1.0") != null);
 }
 
-test "minimal op:deliver encodes to the PreSpec Syrup byte shape" {
+test "minimal op:deliver encodes to the next Syrup byte shape" {
     const allocator = std.testing.allocator;
     const target = model.Reference{ .far = .{ .import_position = .from(7) } };
     const args = [_]model.Argument{.{ .bytes = "hello" }};
@@ -205,11 +205,53 @@ test "Syrup encodes an empty Set as the bare #$ markers and the neutral decode a
     try std.testing.expectEqual(@as(usize, 0), try arg.set.len());
 }
 
+test "Syrup materializes hints by skipping exotic values Cap'n Proto cannot express" {
+    // Hints are advisory. A symbol (or nested dict/list/double) inside a
+    // locator hints map is legal Syrup but outside `HintValueKind`; materialize
+    // skips it so a retained path (`toOwned`, pipelined deliver) still applies.
+    const allocator = std.testing.allocator;
+    const frame_bytes: []const u8 =
+        "<16'op:start-session3\"1.0" ++
+        "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
+        "<10'ocapn-peer3'tcp9\"127.0.0.1{4\"host9\"127.0.0.15'extra3'bad4\"port5\"52833}>" ++
+        "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
+    const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    const body = try syrup.decodeBody(view);
+    try std.testing.expect(body.start_session.acceptable_location.hints == .lazy);
+    // Materialize keeps only the known-shaped entries (host, port) — not `extra`.
+    const owned = try body.toOwned(allocator);
+    defer {
+        allocator.free(owned.start_session.session_pubkey.bytes);
+        allocator.free(owned.start_session.acceptable_location.transport);
+        allocator.free(owned.start_session.acceptable_location.designator);
+        model.freeHints(allocator, owned.start_session.acceptable_location.hints);
+        allocator.free(owned.start_session.acceptable_location_sig.bytes);
+    }
+    try std.testing.expectEqual(@as(usize, 2), owned.start_session.acceptable_location.hints.entries.len);
+    try std.testing.expectEqualStrings("host", owned.start_session.acceptable_location.hints.entries[0].name);
+    try std.testing.expectEqualStrings("port", owned.start_session.acceptable_location.hints.entries[1].name);
+}
+
+test "Syrup refuses start-session captp_version ocapn-1.0 as malformed" {
+    // Deliberate tightening: `fromWireString` matches only `wireString` spellings
+    // (`1.0`, `pancake-next`). The former lenient `ocapn-1.0` alias is gone.
+    const frame_bytes: []const u8 =
+        "<16'op:start-session8\"ocapn-1.0" ++
+        "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
+        "<10'ocapn-peer3'tcp9\"127.0.0.1f>" ++
+        "[7'sig-val[5'eddsa[1'r32:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB][1's32:CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC]]]>";
+    const view = pancake.foundation.FrameView{ .bytes = frame_bytes, .shape = .byte };
+    try std.testing.expectError(error.MalformedFrame, syrup.decodeBody(view));
+}
+
 test "Syrup decodes a start-session whose location carries non-empty hints" {
     // A real netlayer (the OCapN conformance suite's `tcp-testing-only`) puts the
     // address in the locator's hints map `{host …, port …}`. The decoder must
-    // consume it so the whole frame decodes, Goblins uses `#f` hints, so this
-    // shape was unexercised until an external peer sent a hinted locator.
+    // consume it so the whole frame decodes, and borrowed decode must expose the
+    // entries through `BorrowedHints.lazy` (Cap'n Proto parity) so a Host can
+    // dial without a separate re-parse. Goblins uses `#f` hints, so this shape
+    // was unexercised until an external peer sent a hinted locator.
+    const allocator = std.testing.allocator;
     const frame_bytes: []const u8 =
         "<16'op:start-session3\"1.0" ++
         "[10'public-key[3'ecc[5'curve7'Ed25519][5'flags5'eddsa][1'q32:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA]]]" ++
@@ -219,6 +261,19 @@ test "Syrup decodes a start-session whose location carries non-empty hints" {
     const body = try syrup.decodeBody(view);
     try std.testing.expect(body == .start_session);
     try std.testing.expectEqualStrings("127.0.0.1", body.start_session.acceptable_location.designator);
+    try std.testing.expect(body.start_session.acceptable_location.hints == .lazy);
+
+    const owned = try body.toOwned(allocator);
+    defer {
+        allocator.free(owned.start_session.session_pubkey.bytes);
+        allocator.free(owned.start_session.acceptable_location.transport);
+        allocator.free(owned.start_session.acceptable_location.designator);
+        model.freeHints(allocator, owned.start_session.acceptable_location.hints);
+        allocator.free(owned.start_session.acceptable_location_sig.bytes);
+    }
+    try std.testing.expectEqual(@as(usize, 2), owned.start_session.acceptable_location.hints.entries.len);
+    try std.testing.expectEqualStrings("host", owned.start_session.acceptable_location.hints.entries[0].name);
+    try std.testing.expectEqualStrings("52833", owned.start_session.acceptable_location.hints.entries[1].value.string);
 }
 
 test "Syrup encodes an error in argument position and the neutral decode reads it back" {
@@ -562,7 +617,7 @@ test "a big integer round-trips through encode and non-canonical forms are refus
         .args = &.{big},
         .answer = .from(42),
     } };
-    var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, message);
+    var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, message);
     defer frame.deinit();
     try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "340282366920938463463374607431768211456-") != null);
     const round = try syrup.decodeOwned(allocator, frame.view());
@@ -585,7 +640,7 @@ test "a big integer round-trips through encode and non-canonical forms are refus
     } };
     try std.testing.expectError(
         syrup.Error.UnsupportedArgument,
-        syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, small),
+        syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, small),
     );
 }
 
@@ -598,7 +653,7 @@ test "a no-answer deliver encodes as a single op:deliver, never op:deliver-only"
     // A one-way (no-answer) send is a single op:deliver with a #f answer position
     // on every profile, including the Goblins-canonical V1.0 one. OCapN 1.0 has no
     // separate one-way record.
-    var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, message);
+    var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, message);
     defer frame.deinit();
     try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "op:deliver-only") == null);
     try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "op:deliver") != null);
@@ -908,10 +963,11 @@ test "decodeOwned materializes handoff give and receive fixtures" {
     {
         const fixture = protocol_oracle.fixtureByName("op_handoff_give.bin").?;
         const decoded = try syrup.decodeOwned(allocator, .{ .bytes = fixture.bytes(), .shape = .byte });
-        defer handoff_fixtures.freeHandoff(allocator, decoded.handoff);
+        defer model.freeHandoff(allocator, decoded.handoff);
 
         try std.testing.expectEqualStrings(handoff_fixtures.recipient_key[0..], decoded.handoff.give.recipient_key);
-        try std.testing.expectEqualStrings("memory:exporter", decoded.handoff.give.exporter_location);
+        try std.testing.expectEqualStrings("memory", decoded.handoff.give.exporter.transport);
+        try std.testing.expectEqualStrings("exporter", decoded.handoff.give.exporter.designator);
         try std.testing.expectEqualStrings(handoff_fixtures.gifter_session[0..], decoded.handoff.give.gifter_exporter_session);
         try std.testing.expectEqualStrings(handoff_fixtures.gifter_side[0..], decoded.handoff.give.gifter_side);
         try std.testing.expectEqualStrings(handoff_fixtures.gift_id[0..], decoded.handoff.give.gift_id);
@@ -921,7 +977,7 @@ test "decodeOwned materializes handoff give and receive fixtures" {
     {
         const fixture = protocol_oracle.fixtureByName("op_handoff_receive.bin").?;
         const decoded = try syrup.decodeOwned(allocator, .{ .bytes = fixture.bytes(), .shape = .byte });
-        defer handoff_fixtures.freeHandoff(allocator, decoded.handoff);
+        defer model.freeHandoff(allocator, decoded.handoff);
 
         try std.testing.expectEqualStrings(handoff_fixtures.receiving_session[0..], decoded.handoff.receive.receiving_session);
         try std.testing.expectEqualStrings(handoff_fixtures.receiving_side[0..], decoded.handoff.receive.receiving_side);
@@ -1167,7 +1223,7 @@ test "Syrup: corrupting any byte of a frame stays total: typed error or message,
     };
 
     for (messages) |message| {
-        const profile = if (message == .resolve) model.WireProfile.pre_spec else model.WireProfile.v1_0;
+        const profile = if (message == .resolve) model.CaptpVersion.next else model.CaptpVersion.v1_0;
         var frame = try syrup.encodeMessageForProfile(allocator, profile, message);
         defer frame.deinit();
 
@@ -1206,7 +1262,7 @@ test "Syrup encoder matches core Goblins operation fixtures" {
     const allocator = std.testing.allocator;
 
     {
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.next, .{
             .abort = .{ .kind = .other, .message = "shutting down" },
         });
         defer frame.deinit();
@@ -1215,7 +1271,7 @@ test "Syrup encoder matches core Goblins operation fixtures" {
 
     {
         const args = [_]model.Argument{.{ .bytes = "hello" }};
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.next, .{
             .deliver = .{
                 .target = .{ .far = .{ .import_position = .from(7) } },
                 .args = args[0..],
@@ -1227,7 +1283,7 @@ test "Syrup encoder matches core Goblins operation fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.next, .{
             .gc_export = .{
                 .positions = &.{ 3, 7 },
                 .deltas = &.{ 1, 2 },
@@ -1238,7 +1294,7 @@ test "Syrup encoder matches core Goblins operation fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.next, .{
             .gc_answer = .{ .positions = &.{ 11, 13 } },
         });
         defer frame.deinit();
@@ -1282,7 +1338,7 @@ test "Syrup encoder matches core Goblins operation fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.next, .{
             .resolve = .{
                 .answer = .from(42),
                 .resolution = .{ .@"break" = .{ .message = "target unreachable" } },
@@ -1297,7 +1353,7 @@ test "Syrup encoder matches reference and rich argument fixtures" {
     const allocator = std.testing.allocator;
 
     {
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.next, .{
             .resolve = .{
                 .answer = .from(7),
                 .resolution = .{ .fulfill = .{ .reference = .{ .far = .{ .import_position = .from(5) } } } },
@@ -1308,7 +1364,7 @@ test "Syrup encoder matches reference and rich argument fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.next, .{
             .resolve = .{
                 .answer = .from(7),
                 .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = .from(9) } } } },
@@ -1319,7 +1375,7 @@ test "Syrup encoder matches reference and rich argument fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.next, .{
             .resolve = .{
                 .answer = .from(7),
                 .resolution = .{ .fulfill = .{ .reference = .{ .promise = .{ .answer_position = .from(11) } } } },
@@ -1330,7 +1386,7 @@ test "Syrup encoder matches reference and rich argument fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.next, .{
             .listen = .{
                 .target = .{ .promise = .{ .answer_position = .from(7) } },
                 .listener = .{ .near = .{ .export_position = .from(9) } },
@@ -1342,7 +1398,7 @@ test "Syrup encoder matches reference and rich argument fixtures" {
     }
 
     {
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.next, .{
             .listen = .{
                 .target = .{ .far = .{ .import_position = .from(5) } },
                 .listener = .{ .near = .{ .export_position = .from(9) } },
@@ -1448,7 +1504,7 @@ test "Syrup encoder matches V1_0 listen and deliver fixture batch" {
     const allocator = std.testing.allocator;
 
     {
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, .{
             .listen = .{
                 .target = .{ .promise = .{ .answer_position = .from(7) } },
                 .listener = .{ .near = .{ .export_position = .from(9) } },
@@ -1460,7 +1516,7 @@ test "Syrup encoder matches V1_0 listen and deliver fixture batch" {
     }
 
     {
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, .{
             .listen = .{
                 .target = .{ .promise = .{ .answer_position = .from(7) } },
                 .listener = .{ .near = .{ .export_position = .from(9) } },
@@ -1473,7 +1529,7 @@ test "Syrup encoder matches V1_0 listen and deliver fixture batch" {
 
     {
         const args = [_]model.Argument{.{ .bytes = "hello" }};
-        var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
+        var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, .{
             .deliver = .{
                 .target = .{ .far = .{ .import_position = .from(7) } },
                 .args = args[0..],
@@ -1491,7 +1547,7 @@ test "Syrup encoder matches start-session fixture" {
     const pubkey = repeatedByte(32, 0xaa);
     const sig = repeatedByte(64, 0xcc);
 
-    var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
+    var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, .{
         .start_session = .{
             .captp_version = .v1_0,
             .session_pubkey = .{ .bytes = pubkey[0..] },
@@ -1559,7 +1615,7 @@ test "Syrup encoder matches handoff fixture batch" {
 test "Syrup near-promise payload encodes desc:import-promise and round-trips kind" {
     const allocator = std.testing.allocator;
     const args = [_]model.Argument{.{ .reference = .{ .near = model.NearRef.promise(7) } }};
-    var frame = try syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
+    var frame = try syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, .{
         .deliver = .{
             .target = .{ .far = .{ .import_position = .from(1) } },
             .args = args[0..],
@@ -1586,7 +1642,7 @@ test "Syrup near-promise payload encodes desc:import-promise and round-trips kin
 // bytes survive the round trip. This is the strongest fidelity check: any arm
 // the projection drops or mis-shapes diverges on re-encode.
 
-fn expectBodyByteRoundTrip(profile: model.WireProfile, message: model.Message) !void {
+fn expectBodyByteRoundTrip(profile: model.CaptpVersion, message: model.Message) !void {
     const allocator = std.testing.allocator;
     // The codec flips reference perspective on every wire crossing (ADR-0010),
     // so a single encode→decode→encode is NOT byte-stable: a payload `Near`
@@ -1636,7 +1692,7 @@ test "neutral view projects every Syrup-encodable argument arm" {
     // target (see `expectBodyByteRoundTrip`). Object-kind refs only: the far/
     // import promise-kind is intentionally not on the wire (`Far`→`<desc:export>`
     // drops it), covered separately by the desc:import-promise kind test above.
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .deliver = .{
+    try expectBodyByteRoundTrip(model.CaptpVersion.v1_0, .{ .deliver = .{
         .target = .{ .promise = .{ .answer_position = .from(7) } },
         .args = args[0..],
         .answer = .from(42),
@@ -1645,7 +1701,7 @@ test "neutral view projects every Syrup-encodable argument arm" {
 
 test "neutral view round-trips deliver with promise target and resolver-callback" {
     const args = [_]model.Argument{ .{ .symbol = "fulfill" }, .{ .reference = .{ .near = model.NearRef.object(3) } } };
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{
+    try expectBodyByteRoundTrip(model.CaptpVersion.v1_0, .{
         .deliver = .{
             .target = .{ .promise = .{ .answer_position = .from(5) } },
             .args = args[0..],
@@ -1659,42 +1715,42 @@ test "neutral view round-trips deliver with promise target and resolver-callback
 }
 
 test "neutral view round-trips resolve, gc, abort, listen, get, index" {
-    try expectBodyByteRoundTrip(model.WireProfile.pre_spec, .{ .resolve = .{
+    try expectBodyByteRoundTrip(model.CaptpVersion.next, .{ .resolve = .{
         .answer = .from(1),
         .resolution = .{ .fulfill = .{ .reference = .{ .far = model.FarRef.object(2) } } },
     } });
-    try expectBodyByteRoundTrip(model.WireProfile.pre_spec, .{ .resolve = .{
+    try expectBodyByteRoundTrip(model.CaptpVersion.next, .{ .resolve = .{
         .answer = .from(1),
         .resolution = .{ .@"break" = .{ .message = "boom" } },
     } });
     const positions = [_]u64{ 5, 6, 7 };
     const deltas = [_]u64{ 1, 1, 2 };
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .gc_export = .{ .positions = positions[0..], .deltas = deltas[0..] } });
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .gc_answer = .{ .positions = positions[0..] } });
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .abort = .{ .kind = .protocol_error, .message = "bye" } });
+    try expectBodyByteRoundTrip(model.CaptpVersion.v1_0, .{ .gc_export = .{ .positions = positions[0..], .deltas = deltas[0..] } });
+    try expectBodyByteRoundTrip(model.CaptpVersion.v1_0, .{ .gc_answer = .{ .positions = positions[0..] } });
+    try expectBodyByteRoundTrip(model.CaptpVersion.v1_0, .{ .abort = .{ .kind = .protocol_error, .message = "bye" } });
     // Promise targets/receivers: a `Far` target decodes to an un-re-encodable
     // `Near` target (see `expectBodyByteRoundTrip`). Far-receiver decoding for
     // listen/get/index is covered by the oracle-fixture tests.
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .listen = .{
+    try expectBodyByteRoundTrip(model.CaptpVersion.v1_0, .{ .listen = .{
         .target = .{ .promise = .{ .answer_position = .from(7) } },
         .listener = .{ .near = model.NearRef.object(9) },
         .wants_partial = true,
     } });
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .get = .{ .receiver = .{ .promise = .{ .answer_position = .from(2) } }, .field = "name", .answer = .from(3) } });
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .index = .{ .receiver = .{ .promise = .{ .answer_position = .from(2) } }, .index = 5, .answer = .from(4) } });
+    try expectBodyByteRoundTrip(model.CaptpVersion.v1_0, .{ .get = .{ .receiver = .{ .promise = .{ .answer_position = .from(2) } }, .field = "name", .answer = .from(3) } });
+    try expectBodyByteRoundTrip(model.CaptpVersion.v1_0, .{ .index = .{ .receiver = .{ .promise = .{ .answer_position = .from(2) } }, .index = 5, .answer = .from(4) } });
 }
 
 test "neutral view round-trips start_session and handoff (deferred sig/locator joins)" {
     const pubkey = repeatedByte(32, 0xaa);
     const sig = repeatedByte(64, 0xcc);
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .start_session = .{
+    try expectBodyByteRoundTrip(model.CaptpVersion.v1_0, .{ .start_session = .{
         .captp_version = .v1_0,
         .session_pubkey = .{ .bytes = pubkey[0..] },
         .acceptable_location = .{ .transport = "memory", .designator = "exporter" },
         .acceptable_location_sig = .{ .bytes = sig[0..] },
     } });
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .handoff = .{ .give = handoff_fixtures.give() } });
-    try expectBodyByteRoundTrip(model.WireProfile.v1_0, .{ .handoff = .{ .receive = handoff_fixtures.receive() } });
+    try expectBodyByteRoundTrip(model.CaptpVersion.v1_0, .{ .handoff = .{ .give = handoff_fixtures.give() } });
+    try expectBodyByteRoundTrip(model.CaptpVersion.v1_0, .{ .handoff = .{ .receive = handoff_fixtures.receive() } });
 }
 
 test "Syrup decode refuses non-canonical digit spellings" {
@@ -1722,18 +1778,6 @@ test "Syrup decode refuses non-canonical digit spellings" {
         .shape = .byte,
     });
     try std.testing.expectEqual(@as(i64, 0), (try decoded.deliver.args.at(0)).integer);
-}
-
-test "Syrup refuses a flattened exporter location with no transport/designator boundary" {
-    // `desc:handoff-give` re-splits the flattened `transport:designator` form
-    // on its first ':'. A location with no ':' has no boundary at all, so the
-    // encoder refuses the value instead of guessing one.
-    var boundaryless = handoff_fixtures.give();
-    boundaryless.exporter_location = "nocolon";
-
-    try std.testing.expectError(syrup.Error.UnsupportedArgument, syrup.encodeMessage(std.testing.allocator, .{
-        .handoff = .{ .give = boundaryless },
-    }));
 }
 
 // R1 apex: the keyed self-locator hint spelling is a wire invariant Goblins

@@ -4,8 +4,22 @@ This page is for a careful OCapN or Spritely Goblins read of pancake. It names
 the interop target, what each evidence check proves, and the deliberate
 asterisks.
 
-Maintainers preparing a review use the
-[`community-review` skill](../.agents/skills/community-review/SKILL.md).
+Maintainers: read the evidence matrix below, run the named build steps, and cite
+file and line for any claim.
+
+## Destination vs today
+
+[`vision.md`](vision.md) describes a complete Goblins-facing CapTP conversation
+with no gaps. The evidence matrix below is what ships today. When you invite a
+reviewer, name these open items first, then point at the matrix.
+
+- A foreign **promise** introduced on one session and fulfilled on another is
+  proven only in-tree. Live Goblins has not yet introduced an unresolved vow
+  that way. Object gift and redeem steps do not cover this path.
+- Goblins can send `op:get` / `op:index` toward pancake on the wire, but a live
+  Goblins client vow that settles those projections is still unfinished.
+- OCapN Null, live `op:untag`, and Goblins over iroh wait on upstream work.
+  See [`roadmap.md`](roadmap.md) §1 and §3. Do not invent that wire here.
 
 ## Interop target
 
@@ -25,13 +39,20 @@ Syrup, and Goblins ships no iroh netlayer.
 
 | Evidence | Proves | Does not prove |
 | -------- | ------ | -------------- |
-| `zig build check` (includes `oracle-check`) | In-tree Zig scenarios, the message-arm registry, Syrup fixture parity versus the upstream encoder, and Cap'n Proto golden encode/decode lock (`test/codec/capnp_fixtures/`) | A live Goblins conversation |
-| `zig build ocapn-conformance` | The suite's current CapTP modules against a pancake peer: `op_start_session`, `op_abort`, `op_deliver`, `op_listen`, `op_gc`, and `third_party_handoffs` | Netlayer modules (e.g. onion) or CapTP modules the suite adds later |
-| `zig build goblins-interop` | A bidirectional live Syrup/TCP conversation with a real Goblins vat: handshake, bootstrap, deliver, V1.0 resolver-callback settlement (fulfill/break), engine-synthesized `op:listen` on projection answers, bootstrap miss→break, pancake-as-asker `op:index` / `op:get`, sturdyref enliven | Live `op:untag` (Goblins has no marshaller yet); Goblins-as-asker against pancake's get/index responders; Goblins over iroh; listen on an unresolved promise export without an answer row |
-| `zig build goblins-handoff` | Recipient-side three-party handoff against Goblins (pancake redeems) | That pancake minted the give (see `goblins-gift`) |
-| `zig build goblins-gift` | Gifter-side three-party handoff against Goblins (pancake mints; Goblins redeems) | That pancake redeemed (see `goblins-handoff`) |
-| Binding `*-goblins-interop` steps | Client direction only: keyed handshake + bootstrap fetch + call over the C ABI (Rust, TypeScript, Python, Racket) | Zig listener / projection / enliven-dedup / break legs, demo apps, binding listen/hosting, or that a binding is the semantic source of truth |
-| Binding `*-goblins-handoff` / `*-goblins-gift` | Binding as recipient (redeems a Goblins give) or binding as gifter (Goblins recipient redeems) | Native Zig bidirectional handoff (`goblins-handoff` / `goblins-gift`) |
+| `zig build check` (includes `oracle-check`) | In-tree Zig scenarios, the message-arm registry, Syrup fixtures held against the upstream encoder, and Cap'n Proto goldens | A live Goblins conversation |
+| `zig build ocapn-conformance` | The suite CapTP modules against a pancake peer, plus the short handshake-abort probe | Netlayer modules the suite adds later |
+| `zig build goblins-interop` | A live Syrup/TCP conversation with a real Goblins vat both ways: handshake, bootstrap, deliver, fulfill/break, bignum, pancake asking Goblins with `op:index` / `op:get`, sturdyref enliven, pipelined call, Goblins calling a published pancake actor, and Goblins listening on a live pancake object export | A Goblins client vow that settles `op:get` / `op:index` against pancake; live `op:untag`; Goblins over iroh |
+| `zig build goblins-handoff` | Recipient-side three-party handoff (pancake redeems a Goblins give) | That pancake minted the give (see `goblins-gift`) |
+| `zig build goblins-gift` | Gifter-side three-party handoff (pancake mints; Goblins redeems) | That pancake redeemed (see `goblins-handoff`) |
+| `zig build goblins-gc` | Live inbound `op:gc-exports` from Goblins after echo drops a near export | Binding finalizer GC, outbound export release, or `op:gc-answers` |
+| Binding `*-goblins-interop` steps | Client direction only: keyed handshake, `enliven`/dedup, and an echo call over the C ABI | Listener, projection, or break legs; that a binding is the semantic source of truth |
+| `zig build deno-goblins-listen` | Deno `Host`/`listen` publishes an actor; a Goblins vat dials it | Other bindings as listener |
+| Binding `*-goblins-handoff` / `*-goblins-gift` | Binding as recipient or gifter against Goblins | Native Zig bidirectional handoff |
+| Introducing-session promise proxy | In-tree Node/Host coverage for foreign-promise listen and relay | A live Goblins introducer that returns an unresolved foreign vow |
+| `zig build cli-test` / `pancake` | Product CapTP shell: budgets, hang-proof dial, listen/call goldens, REPL/MCP (ADR-0084) | Suite modules, Goblins conversation, or rooms/iroh demos |
+
+For a quick product poke on Syrup/TCP (not matrix evidence): see [`docs/cli.md`](cli.md).
+Room presence is `pancake app rooms-peer` / `rooms-peer`; iroh stays on its own steps.
 
 ## Divergences and watch items
 
@@ -45,23 +66,26 @@ They are summarized here so they are not surprises:
 - **Live `op:untag`.** The in-tree responder and fixtures ship. There is no live
   Goblins marshaller yet.
 - **Cap'n Proto versus Syrup.** Cap'n Proto is a second codec. Do not debug
-  Goblins against Cap'n Proto bytes. A Cap'n Proto session that flattens a
-  handoff exporter locator to `transport:designator` cannot carry keyed dial
-  hints the way a Syrup peer-record path can; that is not a Goblins parity
-  claim.
+  Goblins against Cap'n Proto bytes. Cap'n Proto handoff gives carry a
+  structural peer locator (hints included); that is pancake-to-pancake
+  completeness, not a Goblins parity claim.
 - **Start-session locator hints.** The suite requires non-empty hints to be
-  consumed, not rejected. Both codecs project entries through borrowed
-  `PeerLocator.hint_list` (and `toOwned`); Syrup also keeps
+  consumed, not rejected. Both codecs project entries through
+  `view.BorrowedHints` (and `toOwned`); Syrup also keeps
   `acceptable_location_raw` for the signing domain.
 - **`op:listen`.** Engine-synthesized V1.0 listen covers answer and promise
   projections, including promise targets named as `desc:export` (suite
-  `op_listen`; ADR-0009). A live object export (no answer row) fires
-  fulfill of that export immediately. An unresolved promise export without an
-  answer row refuses loud (`UnexpectedMessage`) — remaining ADR-0007 boundary.
-  Live Goblins settlement in `goblins-interop` is the V1.0 resolver-callback
-  path; outbound projection listeners are engine-synthesized. The draft CapTP
-  text sketches a 2-operand listen; Goblins-canonical / suite listen is
-  3-operand (`wants_partial`); pancake follows the suite.
+  `op_listen`; ADR-0009). A live object export fulfills that export
+  immediately. A bare unresolved promise export is refused
+  (`InvalidReference`), because pancake exports no free-standing resolvable
+  promise (ADR-0007). Third-party-backed promise exports admit CapTP-normal
+  `<desc:export>` listen onto the relayed-resolution row. Home listen for
+  foreign **promise** fulfills is in-tree; live Goblins proof of that
+  introducer path is still open. `goblins-interop` settles via the V1.0
+  resolver-callback path, and proves Goblins listening on a live pancake
+  **object** export (`pancake-export-listen.rkt`). Draft CapTP sketches a
+  2-operand listen; Goblins and the suite use 3-operand (`wants_partial`).
+  pancake follows the suite.
 - **Settlement shape.** Draft CapTP discussion sometimes names a separate
   `op:break`; pancake CapTP v1.0 speaks Goblins resolver-callback fulfill/break.
   `pancake-next` folds fulfill/break under `op:resolve`.
@@ -71,39 +95,46 @@ They are summarized here so they are not surprises:
   `"pancake-next"` as OCapN interop.
 - **Two TCP symbols.** Live Goblins interop uses transport symbol `tcp`
   (`net.tcp`, Goblins `tcp-netlayer.rkt`). The upstream suite target uses
-  `tcp-testing-only` URLs — not the Goblins parity path.
+  `tcp-testing-only` URLs, not the Goblins parity path.
 - **Cleartext TCP and keyed-tcp.** keyed-tcp pins the key holder. It does not
   encrypt the channel. Confidentiality is iroh's job.
 - **Distributed GC.** Wire `gc-exports` / `gc-answers` ship (suite `op_gc`).
   Binding finalizer GC is opt-in and covers fetched far refs only. Live inbound
-  export GC against a Goblins vat ships as `zig build goblins-gc`.
+  export GC against Goblins is `zig build goblins-gc`.
 - **Bootstrap durability.** The default is ephemeral. `durable_bootstrap` fails
   closed until an embedder store exists.
 - **Handoff signature verification.** The engine verifies via an injected
-  `SignatureVerifier`; production paths use `foundation.crypto`. Test support
+  `SignatureVerifier`. Production paths use `foundation.crypto`. Test support
   exposes `testOnlyAcceptingVerifier` for in-process substrates. That is not a
   production default on an untrusted network.
 - **Upstream watch.** Goblins over iroh, Null, live untag, draft `op:listen`
   arity, and settlement encoding stay parked until their flip conditions in
   [`roadmap.md`](roadmap.md) §1 and §3 trip. Do not invent that wire here.
-- **In-tree Goblins evidence still open.** Export-side listen on an unresolved
-  promise export: parked in [`roadmap.md`](roadmap.md) §3 with a flip
-  condition. Native Zig recipient/gifter handoff and live Goblins GC all ship
-  (`goblins-handoff` / `goblins-gift` / `goblins-gc`).
 
 ## Reproduce in one sitting
 
-From the repository root, with submodules initialized
-(`bash conformance/bootstrap-submodules.sh` once):
+`zig build check` holds the in-tree scenarios and compiles the interop drivers.
+It is not a live Goblins or suite run. For that, run the sibling steps below.
+Pin Goblins with `GOBLINS_VERSION` in [`.devcontainer/pins.sh`](../.devcontainer/pins.sh).
+
+`goblins-interop` is where pancake asks Goblins with projections, Goblins calls
+a published pancake actor, and Goblins listens on a live pancake object export.
+A Goblins client vow that settles projections against pancake is still open.
+
+From the repository root, with submodules initialized once
+(`bash conformance/bootstrap-submodules.sh`):
 
 ```sh
 zig build check
 zig build ocapn-conformance
 zig build goblins-interop
+zig build deno-goblins-listen
 zig build goblins-handoff
+zig build goblins-gift
+zig build goblins-gc
 ```
 
-Live steps need Racket with Goblins (and `uv` for the upstream suite). The
+Live steps need Racket with Goblins, and `uv` for the upstream suite. The
 devcontainer provides them; see [`CONTRIBUTING.md`](../CONTRIBUTING.md).
 
 ## Security

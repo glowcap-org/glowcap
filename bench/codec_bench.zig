@@ -51,14 +51,14 @@ fn benchEncode(
     iters: usize,
 ) !void {
     // Warm encode to learn frame size for the throughput figure.
-    var probe = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.WireProfile.v1_0, message);
+    var probe = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.CaptpVersion.v1_0, message);
     const frame_len = probe.bytes().len;
     probe.deinit();
 
     const start = nowNs(io);
     var i: usize = 0;
     while (i < iters) : (i += 1) {
-        var frame = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.WireProfile.v1_0, message);
+        var frame = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.CaptpVersion.v1_0, message);
         std.mem.doNotOptimizeAway(frame.bytes().len);
         frame.deinit();
     }
@@ -74,7 +74,7 @@ fn benchDecode(
     message: model.Message,
     iters: usize,
 ) !void {
-    var frame = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.WireProfile.v1_0, message);
+    var frame = try codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.CaptpVersion.v1_0, message);
     defer frame.deinit();
     const frame_len = frame.bytes().len;
     const view = frame.view();

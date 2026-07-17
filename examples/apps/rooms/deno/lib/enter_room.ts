@@ -40,5 +40,5 @@ export async function joinRoom(
 ): Promise<{ dir: Directory; room: Room }> {
 	const dir = await Directory.connect(locator);
 	const roomRef = await enterOrOpen(dir, room);
-	return { dir, room: await Room.subscribe(dir.conn, roomRef, nick) };
+	return { dir, room: await Room.subscribe(dir.session, roomRef, nick) };
 }

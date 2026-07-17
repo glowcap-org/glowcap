@@ -102,20 +102,20 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put fs-ch e))])
-       (define hconn (accept fs-server))
-       (session-publish hconn "counter" ^counter 10)
+       (define hsession (accept fs-server))
+       (session-publish hsession "counter" ^counter 10)
        (semaphore-post fs-ready)
-       (session-serve hconn)
+       (session-serve hsession)
        (channel-put fs-ch 'served)))))
-(define fs-conn (connect (tcp-locator "127.0.0.1" (server-port fs-server))))
+(define fs-session (connect (tcp-locator "127.0.0.1" (server-port fs-server))))
 (semaphore-wait fs-ready)
-(define fs-svc (session-fetch fs-conn "counter"))
+(define fs-svc (session-fetch fs-session "counter"))
 (define fs-observed (box #f))
-(define fs-vow (with-vat (session-vat fs-conn) (<- fs-svc 'add 5)))
-(with-vat (session-vat fs-conn) (on fs-vow (lambda (total) (set-box! fs-observed total))))
-(expect (= 15 (session-await fs-conn fs-vow)) "far: (<- svc 'add 5) settled over the wire with 15")
+(define fs-vow (with-vat (session-vat fs-session) (<- fs-svc 'add 5)))
+(with-vat (session-vat fs-session) (on fs-vow (lambda (total) (set-box! fs-observed total))))
+(expect (= 15 (session-await fs-session fs-vow)) "far: (<- svc 'add 5) settled over the wire with 15")
 (expect (= 15 (unbox fs-observed)) "far: the on listener observed the same settlement")
-(session-close! fs-conn)
+(session-close! fs-session)
 (define fs-host-result (channel-get fs-ch))
 (when (exn? fs-host-result) (raise fs-host-result))
 (expect (eq? 'served fs-host-result) "far: host served to a clean close")
@@ -133,22 +133,22 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-       (define hconn (accept dc-server))
-       (session-publish hconn "svc" (lambda (bcom) (methods [(greet who) "hi"])))
+       (define hsession (accept dc-server))
+       (session-publish hsession "svc" (lambda (bcom) (methods [(greet who) "hi"])))
        (semaphore-post dc-ready)
-       (session-serve hconn)))))
-(define dc-conn (connect (tcp-locator "127.0.0.1" (server-port dc-server))))
+       (session-serve hsession)))))
+(define dc-session (connect (tcp-locator "127.0.0.1" (server-port dc-server))))
 (semaphore-wait dc-ready)
-(define dc-svc (session-fetch dc-conn "svc"))
+(define dc-svc (session-fetch dc-session "svc"))
 (define dc-broken (box #f))
 ;; The send is queued but never pumped to settlement, so the vow is pending
 ;; when the break fires.
-(define dc-vow (with-vat (session-vat dc-conn) (<- dc-svc 'greet "x")))
-(with-vat (session-vat dc-conn) (on dc-vow #f #:catch (lambda (msg) (set-box! dc-broken msg))))
-(break-far-vows! (session-vat dc-conn) "connection closed")
+(define dc-vow (with-vat (session-vat dc-session) (<- dc-svc 'greet "x")))
+(with-vat (session-vat dc-session) (on dc-vow #f #:catch (lambda (msg) (set-box! dc-broken msg))))
+(break-far-vows! (session-vat dc-session) "connection closed")
 (expect (equal? "connection closed" (unbox dc-broken))
         "disconnect: break-far-vows! fired the far vow's #:catch handler")
-(session-close! dc-conn)
+(session-close! dc-session)
 (void (sync/timeout 2 (thread-dead-evt dc-host)))
 (server-close! dc-server)
 
@@ -162,14 +162,14 @@
 ;; server as an argument; a separate server thread tells it and flushes.
 (define xf-server (listen "127.0.0.1" 0))
 (define xf-ready (make-semaphore 0))
-(define xf-conn-box (box #f))
+(define xf-session-box (box #f))
 (define xf-host
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-       (define hconn (accept xf-server))
-       (set-box! xf-conn-box hconn)
-       (session-publish hconn "registry"
+       (define hsession (accept xf-server))
+       (set-box! xf-session-box hsession)
+       (session-publish hsession "registry"
                      (lambda (bcom)
                        (methods
                         [(register cap)
@@ -177,32 +177,32 @@
                          ;; tells it and flushes — the cross-thread send seam.
                          (thread
                           (lambda ()
-                            (define c (unbox xf-conn-box))
+                            (define c (unbox xf-session-box))
                             (session-tell c cap 'note "broadcast")
                             (session-flush! c)))
                          "registered"])))
        (semaphore-post xf-ready)
-       (session-serve hconn)))))
-(define xf-conn (connect (tcp-locator "127.0.0.1" (server-port xf-server))))
+       (session-serve hsession)))))
+(define xf-session (connect (tcp-locator "127.0.0.1" (server-port xf-server))))
 (semaphore-wait xf-ready)
 (define xf-notes (box '()))
 (define xf-inbox
-  (session-spawn xf-conn
+  (session-spawn xf-session
               (lambda (bcom)
                 (methods [(note text) (set-box! xf-notes (cons text (unbox xf-notes)))]))))
-(define xf-registry (session-fetch xf-conn "registry"))
-(expect (equal? "registered" (session-send xf-conn xf-registry 'register xf-inbox))
+(define xf-registry (session-fetch xf-session "registry"))
+(expect (equal? "registered" (session-send xf-session xf-registry 'register xf-inbox))
         "cross-thread: the inbox capability registered")
 ;; Pump until the broadcast lands (the far tell arrives as a wire deliver into
 ;; our inbox actor).
 (let loop ([i 0])
   (when (and (null? (unbox xf-notes)) (< i 200))
     (with-handlers ([exn:fail:pancake? void])
-      (session-send xf-conn xf-registry 'register xf-inbox))
+      (session-send xf-session xf-registry 'register xf-inbox))
     (loop (add1 i))))
 (expect (member "broadcast" (unbox xf-notes))
         "cross-thread: session-flush! put the other thread's tell on the wire")
-(session-close! xf-conn)
+(session-close! xf-session)
 (void (sync/timeout 2 (thread-dead-evt xf-host)))
 (server-close! xf-server)
 
@@ -220,23 +220,23 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put hl-ch e))])
-       (define hconn (accept hl-server))
-       (session-publish hconn "svc"
+       (define hsession (accept hl-server))
+       (session-publish hsession "svc"
                      (lambda (bcom)
                        (methods
                         [(greet who) (string-append "hello " who)])))
        (semaphore-post hl-ready)
-       (session-serve hconn)
+       (session-serve hsession)
        (channel-put hl-ch 'served)))))
 
 ;; `accept` blocks until someone dials, so connect first, then wait for the
 ;; publish before fetching.
-(define hl-conn (connect (tcp-locator "127.0.0.1" (server-port hl-server))))
+(define hl-session (connect (tcp-locator "127.0.0.1" (server-port hl-server))))
 (semaphore-wait hl-ready)
-(define hl-svc (session-fetch hl-conn "svc"))
-(expect (equal? "hello pancake" (session-send hl-conn hl-svc 'greet "pancake"))
+(define hl-svc (session-fetch hl-session "svc"))
+(expect (equal? "hello pancake" (session-send hl-session hl-svc 'greet "pancake"))
         "listen/accept: high-level call round-tripped")
-(session-close! hl-conn)
+(session-close! hl-session)
 (define hl-host-result (channel-get hl-ch))
 (when (exn? hl-host-result) (raise hl-host-result))
 (expect (eq? 'served hl-host-result) "listen/accept: host served to a clean close")
@@ -256,28 +256,28 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put en-ch e))])
-       (define hconn (accept en-server))
-       (session-publish hconn "greeter"
+       (define hsession (accept en-server))
+       (session-publish hsession "greeter"
                      (lambda (bcom)
                        (methods
                         [(hello) (sym "alive")])))
        (semaphore-post en-ready)
-       (session-serve hconn)
+       (session-serve hsession)
        (channel-put en-ch 'served)))))
 
-(define en-conn (connect (tcp-locator "127.0.0.1" (server-port en-server))))
+(define en-session (connect (tcp-locator "127.0.0.1" (server-port en-server))))
 (semaphore-wait en-ready)
 ;; The connection is already open; enliven keys on the sturdyref's swissnum,
 ;; carried by the URI as `/s/greeter`.
 (define en-sturdyref "ocapn://greeter-host.tcp/s/greeter")
-(define en-cap (session-enliven en-conn en-sturdyref))
+(define en-cap (session-enliven en-session en-sturdyref))
 (expect (far-ref? en-cap) "enliven: a sturdyref enlivened to a far capability")
-(expect (equal? (sym "alive") (session-send en-conn en-cap 'hello)) "enliven: the live capability answers hello")
+(expect (equal? (sym "alive") (session-send en-session en-cap 'hello)) "enliven: the live capability answers hello")
 ;; A repeat enliven hits the dedup cache: the same live reference, no wire fetch.
-(define en-again (session-enliven en-conn en-sturdyref))
+(define en-again (session-enliven en-session en-sturdyref))
 (expect (equal? en-again en-cap) "enliven: a repeat enliven hits the cache")
-(expect (equal? (sym "alive") (session-send en-conn en-again 'hello)) "enliven: the cached capability answers hello")
-(session-close! en-conn)
+(expect (equal? (sym "alive") (session-send en-session en-again 'hello)) "enliven: the cached capability answers hello")
+(session-close! en-session)
 (define en-host-result (channel-get en-ch))
 (when (exn? en-host-result) (raise en-host-result))
 (expect (eq? 'served en-host-result) "enliven: host served to a clean close")
@@ -299,22 +299,22 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put cx-ch e))])
-       (define hconn (accept cx-server))
-       (session-publish hconn "board"
+       (define hsession (accept cx-server))
+       (session-publish hsession "board"
                      (lambda (bcom)
                        (methods
                         [(echo big k bs) (list big k bs)])))
        (semaphore-post cx-ready)
-       (session-serve hconn)
+       (session-serve hsession)
        (channel-put cx-ch 'served)))))
-(define cx-conn (connect (tcp-locator "127.0.0.1" (server-port cx-server)) #:codec 'capnp))
+(define cx-session (connect (tcp-locator "127.0.0.1" (server-port cx-server)) #:codec 'capnp))
 (semaphore-wait cx-ready)
-(define cx-svc (session-fetch cx-conn "board"))
+(define cx-svc (session-fetch cx-session "board"))
 (define cx-big (expt 2 80))
 (expect (equal? (list cx-big (kw "prio") #"hi")
-                (session-send cx-conn cx-svc 'echo cx-big (kw "prio") #"hi"))
+                (session-send cx-session cx-svc 'echo cx-big (kw "prio") #"hi"))
         "capnp: big-integer + keyword + bytes args round-trip a Cap'n Proto session")
-(session-close! cx-conn)
+(session-close! cx-session)
 (define cx-host-result (channel-get cx-ch))
 (when (exn? cx-host-result) (raise cx-host-result))
 (expect (eq? 'served cx-host-result) "capnp: host served to a clean close")
@@ -374,22 +374,22 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-       (define hconn (accept gc-server))
-       (session-publish hconn "svc" (lambda (bcom) (methods [(ping) (sym "alive")])))
+       (define hsession (accept gc-server))
+       (session-publish hsession "svc" (lambda (bcom) (methods [(ping) (sym "alive")])))
        (semaphore-post gc-ready)
-       (session-serve hconn)))))
+       (session-serve hsession)))))
 (define gc-saw (box #f))
 (define-values (gc-relay gc-relay-port)
   (start-sniffing-relay (server-port gc-server)
                         (lambda (chunk)
                           (when (regexp-match? #rx#"op:gc-export" chunk) (set-box! gc-saw #t))
                           #f)))
-(define gc-conn (session-with-gc! (connect (tcp-locator "127.0.0.1" gc-relay-port))))
+(define gc-session (session-with-gc! (connect (tcp-locator "127.0.0.1" gc-relay-port))))
 (semaphore-wait gc-ready)
 ;; Fetch and drop inside a thunk so the capability falls out of scope (a
 ;; module-level binding would root it forever and never finalize).
 (define (gc-fetch-and-drop!)
-  (define cap (session-fetch gc-conn "svc"))
+  (define cap (session-fetch gc-session "svc"))
   (expect (far-ref? cap) "gc: fetched a far import")
   (void))
 (gc-fetch-and-drop!)
@@ -398,10 +398,10 @@
 (let loop ([i 0])
   (collect-garbage)
   (sleep 0.02)
-  (session-fetch gc-conn "svc")
+  (session-fetch gc-session "svc")
   (unless (or (unbox gc-saw) (>= i 100)) (loop (add1 i))))
 (expect (unbox gc-saw) "gc: the wire carried op:gc-export for the dropped fetched import")
-(session-close! gc-conn)
+(session-close! gc-session)
 (void (sync/timeout 2 (thread-dead-evt gc-host)))
 (tcp-close gc-relay)
 (server-close! gc-server)
@@ -451,16 +451,16 @@
 ;; uses, into a byte-fed connection whose transport discards the projected
 ;; outbound abort.
 (define oc-host (make-fresh-host))
-(define oc-conn (open-accepted-over oc-host "tcp" (socket-addr-designator "127.0.0.1" 9)
+(define oc-session (open-accepted-over oc-host "tcp" (socket-addr-designator "127.0.0.1" 9)
                                     (async-transport (lambda (_f) (void)) void
                                                      (lambda (_wake) eof) void)))
 (drain-host! oc-host) ; the signed op:start-session leaves into the discard transport
 (define oc-code
   (with-handlers ([exn:fail:pancake? (lambda (e) (exn:fail:pancake-code e))])
-    (feed-bytes! oc-conn #"<10'op:deliver<11'desc:export7+>[2000000:")
+    (feed-bytes! oc-session #"<10'op:deliver<11'desc:export7+>[2000000:")
     'no-error))
 (expect (equal? -11 oc-code) "over-cap frame: typed FRAME_TOO_LARGE refusal")
-(session-close! oc-conn)
+(session-close! oc-session)
 
 (printf "racket zig-smoke OK: an over-cap frame refuses typed instead of buffering\n")
 
@@ -471,14 +471,14 @@
 ;; byte-fed connection through the core's stream delimiter, whose transport
 ;; discards the projected outbound abort.
 (define la-host (make-fresh-host))
-(define la-conn (open-accepted-over la-host "tcp" (socket-addr-designator "127.0.0.1" 9)
+(define la-session (open-accepted-over la-host "tcp" (socket-addr-designator "127.0.0.1" 9)
                                     (async-transport (lambda (_f) (void)) void
                                                      (lambda (_wake) eof) void)))
 (drain-host! la-host) ; the signed op:start-session leaves into the discard transport
-(expect (not (session-last-abort la-conn)) "last-abort: nothing recorded before a failure")
+(expect (not (session-last-abort la-session)) "last-abort: nothing recorded before a failure")
 (define la-exn
   (with-handlers ([exn:fail:pancake? values])
-    (feed-bytes! la-conn #"this is not a frame")
+    (feed-bytes! la-session #"this is not a frame")
     'no-error))
 (expect (exn:fail:pancake? la-exn) "last-abort: a refused frame raised exn:fail:pancake")
 (define la-info (exn:fail:pancake-abort la-exn))
@@ -486,8 +486,8 @@
 (expect (eq? 'codec (abort-info-domain la-info)) "last-abort: domain is codec")
 (expect (equal? "MalformedFrame" (abort-info-kind la-info)) "last-abort: kind is MalformedFrame")
 (expect (equal? "MalformedFrame" (abort-info-error-name la-info)) "last-abort: error-name is MalformedFrame")
-(expect (abort-info? (session-last-abort la-conn)) "last-abort: the reader reads the same recorded cause")
-(session-close! la-conn)
+(expect (abort-info? (session-last-abort la-session)) "last-abort: the reader reads the same recorded cause")
+(session-close! la-session)
 
 (printf "racket zig-smoke OK: a refused frame carries its typed last-abort cause\n")
 
@@ -506,31 +506,31 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put cp-ch e))])
-       (define hconn (accept cp-server))
-       (session-publish hconn "svc"
+       (define hsession (accept cp-server))
+       (session-publish hsession "svc"
                      (lambda (bcom)
                        (methods
                         [(boom) (error 'svc "deliberate failure")])))
        (semaphore-post cp-ready)
-       (session-serve hconn)
+       (session-serve hsession)
        (channel-put cp-ch 'served)))))
 
-(define cp-conn (connect (tcp-locator "127.0.0.1" (server-port cp-server))))
+(define cp-session (connect (tcp-locator "127.0.0.1" (server-port cp-server))))
 (semaphore-wait cp-ready)
 
 ;; Self-spawned send and tell: the client never runs a serve loop, so only an
 ;; in-process turn can settle these.
-(define cp-me (session-spawn cp-conn ^counter 10))
+(define cp-me (session-spawn cp-session ^counter 10))
 (expect (near-ref? cp-me) "self-spawn: session-spawn returns a near capability")
-(expect (= 15 (session-send cp-conn cp-me 'add 5)) "self-spawn: session-send resolved in process")
-(session-tell cp-conn cp-me 'add 100)
-(expect (= 115 (session-send cp-conn cp-me 'get)) "self-spawn: session-tell ran the local turn")
+(expect (= 15 (session-send cp-session cp-me 'add 5)) "self-spawn: session-send resolved in process")
+(session-tell cp-session cp-me 'add 100)
+(expect (= 115 (session-send cp-session cp-me 'get)) "self-spawn: session-tell ran the local turn")
 
 ;; A partner break is a typed pancake failure carrying PANCAKE_ERR_BROKEN (-14).
-(define cp-svc (session-fetch cp-conn "svc"))
+(define cp-svc (session-fetch cp-session "svc"))
 (define cp-broken
   (with-handlers ([exn:fail:pancake? values])
-    (session-send cp-conn cp-svc 'boom)
+    (session-send cp-session cp-svc 'boom)
     'no-error))
 (expect (exn:fail:pancake? cp-broken) "break: session-send raised exn:fail:pancake")
 (expect (equal? -14 (exn:fail:pancake-code cp-broken)) "break: code is PANCAKE_ERR_BROKEN")
@@ -541,12 +541,12 @@
 ;; failure untouched instead of flattening it to a generic exn:fail.
 (define cp-missing
   (with-handlers ([exn:fail:pancake? values])
-    (session-fetch cp-conn "no-such-name")
+    (session-fetch cp-session "no-such-name")
     'no-error))
 (expect (exn:fail:pancake? cp-missing) "fetch: an unknown name raised exn:fail:pancake")
 (expect (equal? -14 (exn:fail:pancake-code cp-missing)) "fetch: code is PANCAKE_ERR_BROKEN")
 
-(session-close! cp-conn)
+(session-close! cp-session)
 (define cp-host-result (channel-get cp-ch))
 (when (exn? cp-host-result) (raise cp-host-result))
 (expect (eq? 'served cp-host-result) "connection parity: host served to a clean close")
@@ -559,32 +559,40 @@
 ;; as an argument — the host refuses the send whole (typed INVALID_ARGUMENT)
 ;; rather than mis-encode a reference the partner never imported — and the
 ;; refusal walks containers, so hiding the foreign capability inside a list
-;; changes nothing.
-(define fa-server (listen "127.0.0.1" 0))
-(define fa-ready (make-semaphore 0))
-(define fa-host
+;; changes nothing. Two listens give two partner designators so one client host
+;; can hold both sessions (a second dial to the same address refuses
+;; SessionPairExists).
+(define fa-server-1 (listen "127.0.0.1" 0))
+(define fa-server-2 (listen "127.0.0.1" 0))
+(define fa-ready-1 (make-semaphore 0))
+(define fa-ready-2 (make-semaphore 0))
+(define (fa-serve! server ready)
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-       (let accept-loop ([served '()])
-         (define hconn (accept fa-server))
-         (session-publish hconn "svc" (lambda (bcom) (methods [(echo x) x])))
-         (when (null? served) (semaphore-post fa-ready))
-         (accept-loop (cons (thread (lambda () (with-handlers ([(lambda (_) #t) void]) (session-serve hconn)))) served)))))))
-(define fa-conn-1 (connect (tcp-locator "127.0.0.1" (server-port fa-server))))
-(semaphore-wait fa-ready)
-(define fa-conn-2 (connect (tcp-locator "127.0.0.1" (server-port fa-server)) #:host (session-host fa-conn-1)))
-(define fa-cap-1 (session-fetch fa-conn-1 "svc"))
-(define fa-cap-2 (session-fetch fa-conn-2 "svc"))
+       (define hsession (accept server))
+       (session-publish hsession "svc" (lambda (bcom) (methods [(echo x) x])))
+       (semaphore-post ready)
+       (with-handlers ([(lambda (_) #t) void]) (session-serve hsession))))))
+(void (fa-serve! fa-server-1 fa-ready-1))
+(void (fa-serve! fa-server-2 fa-ready-2))
+(define fa-session-1 (connect (tcp-locator "127.0.0.1" (server-port fa-server-1))))
+(semaphore-wait fa-ready-1)
+(define fa-session-2 (connect (tcp-locator "127.0.0.1" (server-port fa-server-2))
+                           #:host (session-host fa-session-1)))
+(semaphore-wait fa-ready-2)
+(define fa-cap-1 (session-fetch fa-session-1 "svc"))
+(define fa-cap-2 (session-fetch fa-session-2 "svc"))
 (define fa-refused
   (with-handlers ([exn:fail:pancake? values])
-    (session-send fa-conn-2 fa-cap-2 'echo (list 1 fa-cap-1 2))
+    (session-send fa-session-2 fa-cap-2 'echo (list 1 fa-cap-1 2))
     'no-error))
 (expect (exn:fail:pancake? fa-refused) "foreign arg: the cross-connection send was refused")
 (expect (equal? -3 (exn:fail:pancake-code fa-refused)) "foreign arg: code is PANCAKE_ERR_INVALID_ARGUMENT")
-(session-close! fa-conn-1)
-(session-close! fa-conn-2)
-(server-close! fa-server)
+(session-close! fa-session-1)
+(session-close! fa-session-2)
+(server-close! fa-server-1)
+(server-close! fa-server-2)
 
 (printf "racket zig-smoke OK: a foreign capability in argument position fails closed, containers included\n")
 
@@ -610,27 +618,27 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put pl-ch e))])
-       (define hconn (accept pl-server))
-       (session-publish hconn "root"
+       (define hsession (accept pl-server))
+       (session-publish hsession "root"
                      (lambda (bcom)
                        (methods
-                        [(create name) (session-spawn hconn ^task)])))
+                        [(create name) (session-spawn hsession ^task)])))
        (semaphore-post pl-ready)
-       (session-serve hconn)
+       (session-serve hsession)
        (channel-put pl-ch 'served)))))
 
-(define pl-conn (connect (tcp-locator "127.0.0.1" (server-port pl-server))))
+(define pl-session (connect (tcp-locator "127.0.0.1" (server-port pl-server))))
 (semaphore-wait pl-ready)
-(define pl-root (session-fetch pl-conn "root"))
+(define pl-root (session-fetch pl-session "root"))
 ;; The four verbs leave together: none waits for create's reply, and assign /
 ;; complete / status target the create answer directly.
-(define pl-task (session-send-promise pl-conn pl-root 'create "benchmark"))
-(void (session-send-promise pl-conn pl-task 'assign "alice"))
-(void (session-send-promise pl-conn pl-task 'complete))
-(define pl-status (session-send pl-conn pl-task 'status))
+(define pl-task (session-send-promise pl-session pl-root 'create "benchmark"))
+(void (session-send-promise pl-session pl-task 'assign "alice"))
+(void (session-send-promise pl-session pl-task 'complete))
+(define pl-status (session-send pl-session pl-task 'status))
 (expect (equal? "done" pl-status) "pipelining: the chained status settled to done")
 
-(session-close! pl-conn)
+(session-close! pl-session)
 (define pl-host-result (channel-get pl-ch))
 (when (exn? pl-host-result) (raise pl-host-result))
 (expect (eq? 'served pl-host-result) "pipelining: host served to a clean close")
@@ -657,30 +665,30 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put pj-ch e))])
-       (define hconn (accept pj-server))
-       (session-publish hconn "root"
+       (define hsession (accept pj-server))
+       (session-publish hsession "root"
                      (lambda (bcom)
                        (methods
                         [(make label) (tagged-arg "task" (list (list "assigned" label 7)))])))
        (semaphore-post pj-ready)
-       (session-serve hconn)
+       (session-serve hsession)
        (channel-put pj-ch 'served)))))
 
-(define pj-conn (connect (tcp-locator "127.0.0.1" (server-port pj-server))))
+(define pj-session (connect (tcp-locator "127.0.0.1" (server-port pj-server))))
 (semaphore-wait pj-ready)
-(define pj-root (session-fetch pj-conn "root"))
+(define pj-root (session-fetch pj-session "root"))
 ;; Neither projection waits for make's reply: they ride the unresolved make
 ;; answer and the whole chain leaves on one pump.
-(define pj-made (session-send-promise pj-conn pj-root 'make "alice"))
-(define pj-label (session-await pj-conn (session-index pj-conn (session-untag pj-conn pj-made "task") 1)))
+(define pj-made (session-send-promise pj-session pj-root 'make "alice"))
+(define pj-label (session-await pj-session (session-index pj-session (session-untag pj-session pj-made "task") 1)))
 (expect (equal? "alice" pj-label) "projections: pipelined untag->index reached the label")
 ;; The source answer settled while the projection pumped the loop; awaiting it
 ;; now must still resolve from the vow's recorded state.
-(define pj-full (session-await pj-conn pj-made))
+(define pj-full (session-await pj-session pj-made))
 (expect (and (tagged-arg? pj-full) (equal? "task" (tagged-arg-tag pj-full)))
         "projections: the late source await still settled to the tagged row")
 
-(session-close! pj-conn)
+(session-close! pj-session)
 (define pj-host-result (channel-get pj-ch))
 (when (exn? pj-host-result) (raise pj-host-result))
 (expect (eq? 'served pj-host-result) "projections: host served to a clean close")
@@ -700,23 +708,23 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-       (define hconn (accept ub-server))
-       (session-publish hconn "svc"
+       (define hsession (accept ub-server))
+       (session-publish hsession "svc"
                      (lambda (bcom)
                        (methods
                         [(boom) (error "kaboom: refused")]
                         [(ok) (sym "fine")])))
        (semaphore-post ub-ready)
-       (session-serve hconn)))))
-(define ub-conn (connect (tcp-locator "127.0.0.1" (server-port ub-server))))
+       (session-serve hsession)))))
+(define ub-session (connect (tcp-locator "127.0.0.1" (server-port ub-server))))
 (semaphore-wait ub-ready)
-(define ub-cap (session-fetch ub-conn "svc"))
+(define ub-cap (session-fetch ub-session "svc"))
 ;; Fire the failing verb and never await it; the break arrives while the next
 ;; call pumps and must stay silent.
-(void (session-send-promise ub-conn ub-cap 'boom))
-(expect (equal? (sym "fine") (session-send ub-conn ub-cap 'ok))
+(void (session-send-promise ub-session ub-cap 'boom))
+(expect (equal? (sym "fine") (session-send ub-session ub-cap 'ok))
         "unawaited: a later call still settles after an unawaited break")
-(session-close! ub-conn)
+(session-close! ub-session)
 (server-close! ub-server)
 
 ;; Real disconnect: both ends are high-level; a sniffing relay between them
@@ -728,23 +736,23 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-       (define hconn (accept dcs-server))
-       (session-publish hconn "svc" (lambda (bcom) (methods [(hang) (sym "never")])))
+       (define hsession (accept dcs-server))
+       (session-publish hsession "svc" (lambda (bcom) (methods [(hang) (sym "never")])))
        (semaphore-post dcs-ready)
-       (session-serve hconn)))))
+       (session-serve hsession)))))
 (define-values (dcs-relay dcs-relay-port)
   (start-sniffing-relay (server-port dcs-server)
                         (lambda (chunk) (if (regexp-match? #rx#"hang" chunk) 'close #f))))
-(define dcs-conn (connect (tcp-locator "127.0.0.1" dcs-relay-port)))
+(define dcs-session (connect (tcp-locator "127.0.0.1" dcs-relay-port)))
 (semaphore-wait dcs-ready)
-(define dcs-cap (session-fetch dcs-conn "svc"))
+(define dcs-cap (session-fetch dcs-session "svc"))
 (define dcs-err
   (with-handlers ([exn:fail:pancake? (lambda (e) e)])
-    (session-send dcs-conn dcs-cap 'hang)
+    (session-send dcs-session dcs-cap 'hang)
     #f))
 (expect (and dcs-err (= -8 (exn:fail:pancake-code dcs-err))) ; PANCAKE_ERR_CLOSED
         "disconnect: the pending send failed typed ERR-CLOSED, never hung")
-(session-close! dcs-conn)
+(session-close! dcs-session)
 (void (sync/timeout 2 (thread-dead-evt dcs-host)))
 (tcp-close dcs-relay)
 (server-close! dcs-server)
@@ -763,26 +771,26 @@
   (thread
    (lambda ()
      (let accept-loop ()
-       (define hconn
+       (define hsession
          (with-handlers ([(lambda (_) #t) (lambda (_e) #f)])
            (accept rp-server)))
        (cond
-         [hconn
-          (session-publish hconn "svc" (lambda (bcom) (methods [(ping) (sym "alive")])))
+         [hsession
+          (session-publish hsession "svc" (lambda (bcom) (methods [(ping) (sym "alive")])))
           (semaphore-post rp-ready)
           (with-handlers ([(lambda (_) #t) (lambda (_e) (void))])
-            (session-serve hconn))]
+            (session-serve hsession))]
          [else (accept-loop)])))))
 ;; The probe: open a socket and immediately hang up.
 (define-values (rp-in rp-out) (tcp-connect "127.0.0.1" (server-port rp-server)))
 (close-output-port rp-out)
 (close-input-port rp-in)
-(define rp-conn (connect (tcp-locator "127.0.0.1" (server-port rp-server))))
+(define rp-session (connect (tcp-locator "127.0.0.1" (server-port rp-server))))
 (semaphore-wait rp-ready)
-(define rp-cap (session-fetch rp-conn "svc"))
-(expect (equal? (sym "alive") (session-send rp-conn rp-cap 'ping))
+(define rp-cap (session-fetch rp-session "svc"))
+(expect (equal? (sym "alive") (session-send rp-session rp-cap 'ping))
         "probe: the listener survived the rude probe and served the next client")
-(session-close! rp-conn)
+(session-close! rp-session)
 (server-close! rp-server)
 
 (printf "racket zig-smoke OK: a rude probe cannot close the listener\n")
@@ -806,52 +814,52 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put mb-ch e))])
-       (define hconn (accept mb-server))
+       (define hsession (accept mb-server))
        ;; The caretaker the host hands out, stashed so `revoke` can sever it.
        (define proxy-box (box #f))
-       (session-publish hconn "root"
+       (session-publish hsession "root"
                      (lambda (bcom)
                        (methods
                         [(make-proxy tool)
-                         (define proxy (session-caretaker hconn tool))
+                         (define proxy (session-caretaker hsession tool))
                          (set-box! proxy-box proxy)
                          proxy]
-                        [(make-readonly tool) (session-attenuate hconn tool '("get"))]
-                        [(revoke) (session-revoke! hconn (unbox proxy-box)) "revoked"])))
+                        [(make-readonly tool) (session-attenuate hsession tool '("get"))]
+                        [(revoke) (session-revoke! hsession (unbox proxy-box)) "revoked"])))
        (semaphore-post mb-ready)
-       (session-serve hconn)
+       (session-serve hsession)
        (channel-put mb-ch 'served)))))
 
-(define mb-conn (connect (tcp-locator "127.0.0.1" (server-port mb-server))))
+(define mb-session (connect (tcp-locator "127.0.0.1" (server-port mb-server))))
 (semaphore-wait mb-ready)
-(define mb-tool (session-spawn mb-conn ^tool))
-(define mb-root (session-fetch mb-conn "root"))
+(define mb-tool (session-spawn mb-session ^tool))
+(define mb-root (session-fetch mb-session "root"))
 
 ;; Live caretaker: a call forwards across the host to the client's far tool.
-(define mb-proxy (session-send mb-conn mb-root 'make-proxy mb-tool))
+(define mb-proxy (session-send mb-session mb-root 'make-proxy mb-tool))
 (expect mb-proxy "proxy: the host returned a caretaker proxy")
-(expect (= 42 (session-send mb-conn mb-proxy 'add 41)) "proxy: caretaker forwards to the far tool")
+(expect (= 42 (session-send mb-session mb-proxy 'add 41)) "proxy: caretaker forwards to the far tool")
 
 ;; Attenuator: the allow-listed verb forwards; any other breaks.
-(define mb-ro (session-send mb-conn mb-root 'make-readonly mb-tool))
-(expect (= 7 (session-send mb-conn mb-ro 'get)) "proxy: attenuator forwards an allowed verb")
+(define mb-ro (session-send mb-session mb-root 'make-readonly mb-tool))
+(expect (= 7 (session-send mb-session mb-ro 'get)) "proxy: attenuator forwards an allowed verb")
 (define mb-denied
   (with-handlers ([exn:fail:pancake? (lambda (e) e)])
-    (session-send mb-conn mb-ro 'add 1) #f))
+    (session-send mb-session mb-ro 'add 1) #f))
 (expect (and (exn:fail:pancake? mb-denied)
              (regexp-match? #rx"Attenuated" (exn-message mb-denied)))
         "proxy: an out-of-list verb breaks Attenuated")
 
 ;; Revoke: every later call through the proxy breaks.
-(void (session-send mb-conn mb-root 'revoke))
+(void (session-send mb-session mb-root 'revoke))
 (define mb-severed
   (with-handlers ([exn:fail:pancake? (lambda (e) e)])
-    (session-send mb-conn mb-proxy 'add 1) #f))
+    (session-send mb-session mb-proxy 'add 1) #f))
 (expect (and (exn:fail:pancake? mb-severed)
              (regexp-match? #rx"Revoked" (exn-message mb-severed)))
         "proxy: a revoked proxy breaks Revoked")
 
-(session-close! mb-conn)
+(session-close! mb-session)
 (define mb-host-result (channel-get mb-ch))
 (when (exn? mb-host-result) (raise mb-host-result))
 (expect (eq? 'served mb-host-result) "proxy: host served to a clean close")
@@ -875,38 +883,38 @@
   (thread
    (lambda ()
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put lc-ch e))])
-       (define hconn (accept lc-server))
-       (session-publish hconn "tool" ^ping)
+       (define hsession (accept lc-server))
+       (session-publish hsession "tool" ^ping)
        (semaphore-post lc-ready)
-       (session-serve hconn)
+       (session-serve hsession)
        (channel-put lc-ch 'served)))))
 
-(define lc-conn (connect (tcp-locator "127.0.0.1" (server-port lc-server))))
+(define lc-session (connect (tcp-locator "127.0.0.1" (server-port lc-server))))
 (semaphore-wait lc-ready)
 
 ;; A caretaker over a local tool, called locally by its own host.
-(define lc-local (session-spawn lc-conn ^doubler))
-(define lc-care (session-caretaker lc-conn lc-local))
-(expect (= 42 (session-send lc-conn lc-care 'double 21))
+(define lc-local (session-spawn lc-session ^doubler))
+(define lc-care (session-caretaker lc-session lc-local))
+(expect (= 42 (session-send lc-session lc-care 'double 21))
         "local-call: a local proxy answers a local call")
 
 ;; A caretaker over a far tool, called locally: the proxy forwards across the wire
 ;; and the local send still settles on the partner's reply.
-(define lc-far (session-fetch lc-conn "tool"))
-(define lc-care-far (session-caretaker lc-conn lc-far))
-(expect (= 99 (session-send lc-conn lc-care-far 'ping))
+(define lc-far (session-fetch lc-session "tool"))
+(define lc-care-far (session-caretaker lc-session lc-far))
+(expect (= 99 (session-send lc-session lc-care-far 'ping))
         "local-call: a local call over a far tool settles")
 
 ;; Revoke severs the local call exactly as it severs a partner's.
-(session-revoke! lc-conn lc-care)
+(session-revoke! lc-session lc-care)
 (define lc-severed
   (with-handlers ([exn:fail:pancake? (lambda (e) e)])
-    (session-send lc-conn lc-care 'double 1) #f))
+    (session-send lc-session lc-care 'double 1) #f))
 (expect (and (exn:fail:pancake? lc-severed)
              (regexp-match? #rx"Revoked" (exn-message lc-severed)))
         "local-call: revoke breaks a local call too")
 
-(session-close! lc-conn)
+(session-close! lc-session)
 (define lc-host-result (channel-get lc-ch))
 (when (exn? lc-host-result) (raise lc-host-result))
 (server-close! lc-server)
@@ -926,29 +934,29 @@
 (define rt-host
   (thread
    (lambda ()
-     (define hconn (accept rt-server))
-     (session-publish hconn "svc"
+     (define hsession (accept rt-server))
+     (session-publish hsession "svc"
                    (lambda (bcom)
                      (methods
-                      [(reenter) (session-fetch hconn "nested")]
+                      [(reenter) (session-fetch hsession "nested")]
                       [(ping) (sym "pong")])))
      (semaphore-post rt-ready)
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put rt-ch e))])
-       (session-serve hconn)
+       (session-serve hsession)
        (channel-put rt-ch 'served)))))
 
-(define rt-conn (connect (tcp-locator "127.0.0.1" (server-port rt-server))))
+(define rt-session (connect (tcp-locator "127.0.0.1" (server-port rt-server))))
 (semaphore-wait rt-ready)
-(define rt-cap (session-fetch rt-conn "svc"))
+(define rt-cap (session-fetch rt-session "svc"))
 (define rt-broken
   (with-handlers ([exn:fail:pancake? values])
-    (session-send rt-conn rt-cap 'reenter) #f))
+    (session-send rt-session rt-cap 'reenter) #f))
 (expect (exn:fail:pancake? rt-broken)
         "reentry: a mid-turn driving verb breaks the answer")
 ;; The turn unwound cleanly: the same session still answers.
-(expect (equal? (sym "pong") (session-send rt-conn rt-cap 'ping))
+(expect (equal? (sym "pong") (session-send rt-session rt-cap 'ping))
         "reentry: the connection survives the refused turn")
-(session-close! rt-conn)
+(session-close! rt-session)
 (define rt-host-result (channel-get rt-ch))
 (when (exn? rt-host-result) (raise rt-host-result))
 (server-close! rt-server)
@@ -969,36 +977,36 @@
 (define mc-acceptor
   (thread
    (lambda ()
-     (define hconn (accept mc-server))
-     (session-publish hconn "svc"
+     (define hsession (accept mc-server))
+     (session-publish hsession "svc"
                    (lambda (_bcom)
                      (methods
                       [(die)
-                       (session-close! hconn)
+                       (session-close! hsession)
                        ;; Still inside the trampoline: the release must be parked.
                        (channel-put mc-during
-                                    (host-pending-release-count (session-host hconn)))
+                                    (host-pending-release-count (session-host hsession)))
                        (sym "closing")])))
      (semaphore-post mc-ready)
      (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put mc-ch e))])
-       (session-serve hconn)
+       (session-serve hsession)
        (channel-put mc-ch 'served)))))
 
-(define mc-conn (connect (tcp-locator "127.0.0.1" (server-port mc-server))))
+(define mc-session (connect (tcp-locator "127.0.0.1" (server-port mc-server))))
 (semaphore-wait mc-ready)
-(define mc-svc (session-fetch mc-conn "svc"))
+(define mc-svc (session-fetch mc-session "svc"))
 ;; Drive the deliver without awaiting a reply: closing the exporter mid-turn
 ;; drops the wire before a settle can land. A bounded thread races the send.
 (define mc-client
   (thread
    (lambda ()
      (with-handlers ([exn:fail:pancake? void])
-       (session-send mc-conn mc-svc 'die)))))
+       (session-send mc-session mc-svc 'die)))))
 (define mc-parked (sync/timeout 10 mc-during))
 (expect (equal? 1 mc-parked)
         (format "mid-turn-close: release parked during the trampoline turn (got ~a)" mc-parked))
 (thread-wait mc-client)
-(session-close! mc-conn)
+(session-close! mc-session)
 (define mc-host-result (sync/timeout 10 mc-ch))
 (when (exn? mc-host-result) (raise mc-host-result))
 (server-close! mc-server)
@@ -1016,24 +1024,24 @@
 (define tt-host
   (thread
    (lambda ()
-     (define hconn (accept tt-server #:time-travel? #t))
-     (set-box! tt-vat-box (session-vat hconn))
-     (session-publish hconn "counter" ^counter 10)
+     (define hsession (accept tt-server #:time-travel? #t))
+     (set-box! tt-vat-box (session-vat hsession))
+     (session-publish hsession "counter" ^counter 10)
      (semaphore-post tt-ready)
-     (with-handlers ([(lambda (_) #t) void]) (session-serve hconn)))))
-(define tt-conn (connect (tcp-locator "127.0.0.1" (server-port tt-server))))
+     (with-handlers ([(lambda (_) #t) void]) (session-serve hsession)))))
+(define tt-session (connect (tcp-locator "127.0.0.1" (server-port tt-server))))
 (semaphore-wait tt-ready)
-(define tt-cap (session-fetch tt-conn "counter"))
-(expect (= 15 (session-send tt-conn tt-cap 'add 5)) "time-travel: first wire add lands")
+(define tt-cap (session-fetch tt-session "counter"))
+(expect (= 15 (session-send tt-session tt-cap 'add 5)) "time-travel: first wire add lands")
 (define tt-snap (vat-snapshot (unbox tt-vat-box)))
-(expect (= 115 (session-send tt-conn tt-cap 'add 100)) "time-travel: second wire add lands")
+(expect (= 115 (session-send tt-session tt-cap 'add 100)) "time-travel: second wire add lands")
 (vat-restore! (unbox tt-vat-box) tt-snap)
 ;; The next WIRE deliver must see the restored state (15), not the later one.
-(expect (= 15 (session-send tt-conn tt-cap 'get))
+(expect (= 15 (session-send tt-session tt-cap 'get))
         "time-travel: restore retargeted the wire deliver to the snapshot state")
-(expect (= 22 (session-send tt-conn tt-cap 'add 7))
+(expect (= 22 (session-send tt-session tt-cap 'add 7))
         "time-travel: the restored behavior keeps serving from the snapshot")
-(session-close! tt-conn)
+(session-close! tt-session)
 (server-close! tt-server)
 
 (printf "racket zig-smoke OK: vat-restore! retargets wire delivers to the snapshot state\n")
@@ -1053,33 +1061,33 @@
 (define lf-acceptor
   (thread
    (lambda ()
-     (define hconn (accept lf-server))
-     (session-publish hconn "svc"
+     (define hsession (accept lf-server))
+     (session-publish hsession "svc"
                    (lambda (bcom)
                      (methods
                       [(first) 1]
                       [(notify) (channel-put lf-told 'told) 2])))
      (semaphore-post lf-ready)
-     (with-handlers ([(lambda (_) #t) void]) (session-serve hconn)))))
-(define lf-conn (connect (tcp-locator "127.0.0.1" (server-port lf-server))))
+     (with-handlers ([(lambda (_) #t) void]) (session-serve hsession)))))
+(define lf-session (connect (tcp-locator "127.0.0.1" (server-port lf-server))))
 (semaphore-wait lf-ready)
-(define lf-svc (session-fetch lf-conn "svc"))
-(define lf-host (session-host lf-conn))
+(define lf-svc (session-fetch lf-session "svc"))
+(define lf-host (session-host lf-session))
 (define lf-under-lock (box 'unfired))
-(define lf-vow (with-vat (session-vat lf-conn) (<- lf-svc 'first)))
-(with-vat (session-vat lf-conn)
+(define lf-vow (with-vat (session-vat lf-session) (<- lf-svc 'first)))
+(with-vat (session-vat lf-session)
   (on lf-vow
       (lambda (v)
         (set-box! lf-under-lock (eq? (unbox (host-lock-owner lf-host)) (current-thread)))
         ;; An enqueueing verb from inside the fire: legal, takes the host lock
         ;; the fire no longer holds.
-        (session-tell lf-conn lf-svc 'notify))))
-(expect (= 1 (session-await lf-conn lf-vow)) "listener-fire: the send settled")
+        (session-tell lf-session lf-svc 'notify))))
+(expect (= 1 (session-await lf-session lf-vow)) "listener-fire: the send settled")
 (expect (eq? #f (unbox lf-under-lock))
         "listener-fire: the fire ran with the host lock released")
 (expect (eq? 'told (sync/timeout 10 lf-told))
         "listener-fire: the listener's tell reached the partner")
-(session-close! lf-conn)
+(session-close! lf-session)
 (server-close! lf-server)
 
 (printf "racket zig-smoke OK: an on listener fires outside the host lock and can enqueue\n")
@@ -1109,12 +1117,16 @@
        ;; Accept exactly one connection now — the gifter's — and serve it so
        ;; the gifter's deposit is read. The recipient's redeem dial waits in
        ;; the listen backlog until released.
-       (define hconn (accept rd-e-server))
-       (thread (lambda () (with-handlers ([(lambda (_) #t) void]) (session-serve hconn))))
+       (define hsession (accept rd-e-server))
+       (thread (lambda () (with-handlers ([(lambda (_) #t) void]) (session-serve hsession))))
        (semaphore-wait rd-release-e)
        (define rconn (accept rd-e-server))
        (with-handlers ([(lambda (_) #t) void]) (session-serve rconn))))))
 (define rd-g-server (listen "127.0.0.1" 0))
+;; Sibling probe peer: a second listen so the recipient host can hold two
+;; live sessions without a second dial to the same address designator
+;; (SessionPairExists). Same host, different partner — that is the lock pin.
+(define rd-ping-server (listen "127.0.0.1" 0))
 ;; The gifter dials the exporter on its server's host, so the tool it fetches
 ;; and the introductions it serves share one identity and gift registry.
 (define rd-gc (connect (tcp-locator "127.0.0.1" (server-port rd-e-server))
@@ -1126,23 +1138,33 @@
    (lambda ()
      (with-handlers ([(lambda (_) #t) void])
        (let accept-loop ([first? #t])
-         (define hconn (accept rd-g-server))
-         (session-publish hconn "intro"
+         (define hsession (accept rd-g-server))
+         (session-publish hsession "intro"
                        (lambda (bcom)
                          (methods
                           ;; Replying with a capability that lives on another
                           ;; connection makes the host originate a give.
-                          [(get-tool) rd-tool]
-                          [(ping) "pong"])))
+                          [(get-tool) rd-tool])))
          (when first? (semaphore-post rd-g-ready))
-         (thread (lambda () (with-handlers ([(lambda (_) #t) void]) (session-serve hconn))))
+         (thread (lambda () (with-handlers ([(lambda (_) #t) void]) (session-serve hsession))))
          (accept-loop #f))))))
+(define rd-ping-ready (make-semaphore 0))
+(define rd-ping-thread
+  (thread
+   (lambda ()
+     (with-handlers ([(lambda (_) #t) void])
+       (define hsession (accept rd-ping-server))
+       (session-publish hsession "ping"
+                     (lambda (bcom) (methods [(ping) "pong"])))
+       (semaphore-post rd-ping-ready)
+       (with-handlers ([(lambda (_) #t) void]) (session-serve hsession))))))
 (define rd-r-main (connect (tcp-locator "127.0.0.1" (server-port rd-g-server))))
 (semaphore-wait rd-g-ready)
-(define rd-r-side (connect (tcp-locator "127.0.0.1" (server-port rd-g-server))
+(define rd-r-side (connect (tcp-locator "127.0.0.1" (server-port rd-ping-server))
                            #:host (session-host rd-r-main)))
+(semaphore-wait rd-ping-ready)
 (define rd-intro-main (session-fetch rd-r-main "intro"))
-(define rd-intro-side (session-fetch rd-r-side "intro"))
+(define rd-ping-side (session-fetch rd-r-side "ping"))
 ;; Trigger the handoff: the reply is a give, the recipient's host auto-redeems
 ;; it, and the send settles only after the withdraw — so this thread is parked
 ;; in the stalled dial until the exporter is released.
@@ -1165,7 +1187,7 @@
 (void (thread
        (lambda ()
          (with-handlers ([(lambda (_) #t) (lambda (e) (channel-put rd-probe-ch e))])
-           (channel-put rd-probe-ch (session-send rd-r-side rd-intro-side 'ping))))))
+           (channel-put rd-probe-ch (session-send rd-r-side rd-ping-side 'ping))))))
 (define rd-probe (sync/timeout 15 rd-probe-ch))
 (expect (equal? rd-probe "pong")
         "redeem-dial: a sibling send settled while the dial was stalled")
@@ -1181,6 +1203,7 @@
 (session-close! rd-r-side)
 (session-close! rd-gc)
 (server-close! rd-g-server)
+(server-close! rd-ping-server)
 (server-close! rd-e-server)
 
 (printf "racket zig-smoke OK: a redeem dial runs post-lock and a stalled exporter parks one redeem, not the host\n")
@@ -1235,30 +1258,30 @@
   (define chost (make-fresh-host))
   (define shost (make-fresh-host))
   ;; Both hellos leave before either side pumps, so neither establish blocks.
-  (define client-conn (open-dialed-over chost "tcp" (socket-addr-designator "127.0.0.1" 1)
+  (define client-session (open-dialed-over chost "tcp" (socket-addr-designator "127.0.0.1" 1)
                                         (endpoint-transport client-read client-write!)))
   (drain-host! chost)  ; the dialer's signed op:start-session is in flight
-  (define server-conn (open-accepted-over shost "tcp" (socket-addr-designator "127.0.0.1" 2)
+  (define server-session (open-accepted-over shost "tcp" (socket-addr-designator "127.0.0.1" 2)
                                           (endpoint-transport server-read server-write!)))
   (drain-host! shost)  ; the acceptor's hello crosses it
-  (finish-establish! server-conn)
-  (finish-establish! client-conn)
+  (finish-establish! server-session)
+  (finish-establish! client-session)
   ;; Publish, fetch, call: deliver, serve, resolve, one leg at a time.
-  (session-publish server-conn "counter" ^counter 10)
-  (define fetched (scripted-fetch! client-conn "counter"))
-  (feed-next! server-conn server-read)   ; the bootstrap fetch deliver
-  (feed-next! client-conn client-read)   ; its resolution settles the fetch
+  (session-publish server-session "counter" ^counter 10)
+  (define fetched (scripted-fetch! client-session "counter"))
+  (feed-next! server-session server-read)   ; the bootstrap fetch deliver
+  (feed-next! client-session client-read)   ; its resolution settles the fetch
   (expect (and (pair? (session-vow-state fetched)) (eq? 'ok (car (session-vow-state fetched))))
           "transport: the scripted fetch fulfilled")
   (define counter-ref (cdr (session-vow-state fetched)))
   (expect (far-ref? counter-ref) "transport: fetched a far capability")
-  (define vow (session-far-send client-conn counter-ref 'add '(5) #t))
+  (define vow (session-far-send client-session counter-ref 'add '(5) #t))
   (drain-host! chost)                    ; the deliver leaves
-  (feed-next! server-conn server-read)   ; the served turn runs, the resolve leaves
-  (feed-next! client-conn client-read)   ; the resolve settles the vow
+  (feed-next! server-session server-read)   ; the served turn runs, the resolve leaves
+  (feed-next! client-session client-read)   ; the resolve settles the vow
   (define settled (session-vow-state vow))
-  (session-close! client-conn)
-  (session-close! server-conn)
+  (session-close! client-session)
+  (session-close! server-session)
   (and (pair? settled) (eq? 'ok (car settled)) (cdr settled)))
 
 ;; libpancake_net_transport_inproc: the socket-free netlayer. A listener binds a

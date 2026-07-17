@@ -14,8 +14,11 @@ archive (`libpancake_driver`, ADR-0072 / ADR-0079). The host owns an
 Racket wrapper; it stays a C-consumer surface, covered by the Zig C-ABI tests
 and the C examples. The wire codec is a host option: `connect` and `listen`
 take `#:codec` (`'syrup` by default, `'capnp` for a Cap'n Proto session). Both
-ends must agree, exactly as on the C tier's `pancake_host_new`. The upstream
-pre-spec profile is not on the binding surface.
+ends must agree, exactly as on the C tier's `pancake_host_new`. Host
+`connect` / `listen` stay on Goblins CapTP `"1.0"`; the pancake-forward
+`next` / `"pancake-next"` track is available as ABI constants
+(`CAPTP-VERSION-NEXT`) for the raw negotiated-peer C surface, not as a Host
+option. Goblins interop uses `"1.0"`.
 
 ## Module map
 
@@ -36,10 +39,11 @@ symbol-disjoint) but they never depend on each other.
 ```racket
 (require "pancake.rkt")        ; the session surface and the vat
 
-(define server (listen "127.0.0.1" 0))
-(define sess (connect (tcp-locator "127.0.0.1" (server-port server))))
-(define svc (session-fetch sess "svc"))        ; a partner's published capability
-(session-send sess svc 'add 5)                 ; eventual-send, settled to a value
+;; Against a peer that publishes "greeter" (see site Start / CLI listen --publish).
+(define sess (connect (tcp-locator "127.0.0.1" 9099)))
+(define greeter (session-fetch sess "greeter")) ; a capability, by name
+(session-send sess greeter 'greet "world")      ; eventual-send, settled to a value
+(session-close! sess)
 ```
 
 One rule inside a hosted behavior: a method runs on the pumping thread, inside
@@ -104,9 +108,9 @@ binding-internal transport seam (`private/seam.rkt` re-provides it in turn).
 - [`private/codec.rkt`](private/codec.rkt): the native-value argument codec
   (`arg->c` / `args->c` / `arg<-c` / `args<-c` / `ref->c` / `bytes<-c`).
 - [`private/vat.rkt`](private/vat.rkt): the Goblins-shaped vat's local half
-  only — actor state, the queued turn loop, local vows, `bcom`, and
+  only. It covers actor state, the queued turn loop, local vows, `bcom`, and
   time-travel (`spawn`, `$`, `<-`, `on`, `methods`). Everything wire-shaped is
-  the host's: a connection installs the far half, so `<-` to a far reference
+  the host's. A connection installs the far half, so `<-` to a far reference
   stays location-transparent. The smoke's actor section and the `bench-goblins`
   app parity pin the semantics this half mirrors: a raising handler's staged
   `bcom` never installs, a listener fires once, and local `<-` turns run FIFO
@@ -132,7 +136,7 @@ binding-internal transport seam (`private/seam.rkt` re-provides it in turn).
 - [`private/action.rkt`](private/action.rkt): host-action decode and execute
   (`drain-host-actions!` via `pancake_host_pump_drain`).
 - [`private/promise.rkt`](private/promise.rkt): far vows (`session-vow` /
-  `session-index` / `session-untag` / settle).
+  `session-index` / `session-untag` / `session-get` / settle).
 - [`private/gc.rkt`](private/gc.rkt): ADR-0063 opt-in distributed GC.
 - [`private/dial.rkt`](private/dial.rkt): unified dial executor (`plan_dial` +
   `connect` + redeem).
@@ -145,13 +149,13 @@ binding-internal transport seam (`private/seam.rkt` re-provides it in turn).
   application verbs.
 
 [`zig-smoke.rkt`](zig-smoke.rkt) is the consumer `zig build bindings` runs. It
-drives real OCapN conversations through the session surface — keyed
-handshakes, pipelining, projections, proxies, a Cap'n Proto session through
-`#:codec`, distributed GC observed on the wire through a sniffing relay — then
-composes the host tier with each explicit transport module to shuttle a counter
-call over the in-process and TCP netlayers. Racket must be on `PATH` (provided
+drives real OCapN conversations through the session surface: keyed handshakes,
+pipelining, projections, proxies, a Cap'n Proto session through `#:codec`, and
+distributed GC observed on the wire through a sniffing relay. It then composes
+the host tier with each explicit transport module to shuttle a counter call over
+the in-process and TCP netlayers. Racket must be on `PATH` (provided
 by [`../../.devcontainer/`](../../.devcontainer/)). The build step typically
-resolves archives from in-tree `zig-out/lib` (ADR-0077 rung 3), or from
+resolves archives from in-tree `zig-out/lib` (ADR-0077's in-tree discovery step), or from
 `PANCAKE_LIB_DIR` / the versioned download cache when configured.
 
 ```sh

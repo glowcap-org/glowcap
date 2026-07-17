@@ -3,7 +3,7 @@ id: ADR-0067
 status: accepted
 date: 2026-07-05
 tags: [engine, handoff, three-party, node, c-abi, bindings, sans-io]
-decision: "The three-party redeem and origination sequencing sinks into a sans-io serve step on `engine.Node`: the node owns the exporter cache, the pending dial/withdraw/gift tables, the per-exporter give-location override, and every decision, consuming feeds (`acceptGive`, `exporterDialed`/`dialFailed`, `claimResolve`, `interceptFulfilledRef`, `provideGiftId`) and emitting data actions (`dial`, `flush`, `settle`, `fail`, `need_gift_id`) the embedder executes — I/O, scheduling, and entropy stay host-side, with entropy an explicit requested effect. At acceptance this was projected as pancake_node_* serve verbs over PancakeNodeAction in `libpancake_ocapn` (since deleted; CapTP product work drains the same decisions through `pancake_host_*` / `PancakeHostAction`); all four bindings and the native interop driver collapsed onto the serve step as dumb action executors, deleting their hand-rolled redeem/origination orchestration; proven hermetically by `test/engine/node_test.zig` and live by the goblins handoff/gift and iroh handoff matrices."
+decision: "The three-party redeem and origination sequencing sinks into a sans-io serve step on `engine.Node`: the node owns the exporter cache, the pending dial/withdraw/gift tables, the per-exporter give-location override, and every decision, consuming feeds (`acceptGive`, `exporterDialed`/`dialFailed`, `claimResolve`, `interceptFulfilledRef`, `provideGiftId`) and emitting data actions (`dial`, `flush`, `settle`, `fail`, `need_gift_id`) the embedder executes. I/O, scheduling, and entropy stay host-side, with entropy an explicit requested effect. At acceptance this was projected as pancake_node_* serve verbs over PancakeNodeAction in `libpancake_ocapn` (since deleted; CapTP product work drains the same decisions through `pancake_host_*` / `PancakeHostAction`); all four bindings and the native interop driver collapsed onto the serve step as dumb action executors, deleting their hand-rolled redeem/origination orchestration; proven hermetically by `test/engine/node_test.zig` and live by the goblins handoff/gift and iroh handoff matrices."
 supersedes: []
 superseded_by: [ADR-0079]
 ---
@@ -31,7 +31,7 @@ exporter locator, consult an exporter cache keyed by the locator string, dial
 on a miss with the node identity, allocate a withdraw answer, subscribe before
 sending, `sendWithdraw`, flush, await the withdraw's resolution, assert it is a
 capability, enroll it, settle the original application answer with the token,
-and break it on any failure — plus the gifter mirror (foreign-home consult,
+and break it on any failure: plus the gifter mirror (foreign-home consult,
 home-is-self guard, gift-id entropy, `originateGive`, exporter-leg flush before
 recipient-leg flush). Four copies of a protocol sequence is the drift mode
 ADR-0066 fixed for the tables, still open for the choreography.
@@ -52,33 +52,33 @@ oracle.
 ## Decision
 
 `engine.Node` (`src/ocapn/engine/node.zig`) grows the serve state machine. New
-state: the exporter cache (locator bytes → `conn_id`), the pending-dial table
-(ticket → waiting redeems, so a second give for one exporter joins the dial
+state: the exporter cache (locator bytes to `conn_id`), the pending-dial table
+(ticket to waiting redeems, so a second give for one exporter joins the dial
 in flight instead of opening a second connection), the pending-withdraw table
-(`(exporter conn, withdraw answer)` → the recipient answer to settle), and an
+(`(exporter conn, withdraw answer)` to the recipient answer to settle), and an
 action queue. Feeds in, actions out:
 
-- `acceptGive(recipient_conn, answer, give, exporter_locator)` — a live
+- `acceptGive(recipient_conn, answer, give, exporter_locator)`: a live
   exporter withdraws immediately; an in-flight dial is joined; an unknown
   exporter queues `dial`; an empty locator queues `fail`.
-- `exporterDialed(pending, conn_id)` / `dialFailed(pending, reason)` — the
+- `exporterDialed(pending, conn_id)` / `dialFailed(pending, reason)`: the
   host reports the dial it performed; success caches the exporter and
   withdraws every waiter (allocating each withdraw answer from the exporter
   peer's own allocator), failure breaks every waiter.
-- `claimResolve(conn_id, answer, outcome)` — the host offers every polled
+- `claimResolve(conn_id, answer, outcome)`: the host offers every polled
   resolve; a pending withdraw's is consumed (enroll + `settle`, or `fail`),
   anything else is the application's, untouched.
-- `interceptFulfilledRef(conn_id, answer, far_id)` — the gifter mirror: a
+- `interceptFulfilledRef(conn_id, answer, far_id)`: the gifter mirror: a
   foreign-home reply is claimed and a `need_gift_id` action asks the host for
   32 bytes of entropy (an effect like dialing, requested only when a reply
   actually becomes a gift, so the ordinary reply path draws nothing);
   `provideGiftId(ticket, bytes)` answers it and the node originates the give
   and queues the two flushes, exporter first. Anything else is the host's
   plain resolve.
-- `setExporterLocation(conn_id, bytes)` — the per-exporter give-location
+- `setExporterLocation(conn_id, bytes)`: the per-exporter give-location
   override (a dial-hint-only iroh exporter), stored where the origination
   recipe reads it instead of once per binding.
-- `nextAction()` — drains `dial` / `flush` / `settle` / `fail` /
+- `nextAction()`: drains `dial` / `flush` / `settle` / `fail` /
   `need_gift_id`, byte views valid until the next drain.
 
 The step was projected into `libpancake_ocapn` as pancake_node_accept_give,
@@ -86,13 +86,13 @@ pancake_node_exporter_dialed, pancake_node_dial_failed,
 pancake_node_claim_resolve, pancake_node_intercept_fulfilled_ref,
 pancake_node_provide_gift_id, pancake_node_set_exporter_location, and
 pancake_node_next_action over the PancakeNodeAction struct
-(`src/c_abi/ocapn/node.zig` at acceptance; that C waist is deleted — see banner),
+(`src/c_abi/ocapn/node.zig` at acceptance; that C waist is deleted: see banner),
 and all four bindings collapsed onto it:
 each binding's `redeem` / `withdraw` / `originate` orchestration, exporter
 cache, and pending bookkeeping were deleted, leaving a deliberately dumb action
 executor (dial, flush, settle, break, draw entropy) plus the give/claim feeds
 in its serve loop. Claim is offered only on connections the serve step itself
-asked the executor to dial — pending withdraws exist nowhere else — so an
+asked the executor to dial (pending withdraws exist nowhere else) so an
 ordinary connection's reply path pays nothing for handoffs.
 
 ## Scope (what this does not decide)
@@ -100,8 +100,8 @@ ordinary connection's reply path pays nothing for handoffs.
 - The ADR-0066 boundary stands: the vat (turn loop, behavior dispatch, async
   suspension) stays in the host; the pre-existing router verbs
   (`sendWithdraw`, `originateGive`, `enrollRedeemed`, `routeReference`) remain
-  public — the serve step composes them, it does not replace them.
-- The dial itself — sockets, keyed-handshake pumping, reachability posture —
+  public: the serve step composes them, it does not replace them.
+- The dial itself: sockets, keyed-handshake pumping, reachability posture,
   stays host-side by construction; the `dial` action names the locator and the
   posture rule stays the transport-idiom ternary ADR-0066 recorded.
 
@@ -121,8 +121,8 @@ ordinary connection's reply path pays nothing for handoffs.
 ## Consequences
 
 - `interop/goblins_interop/handoff_driver.zig` is rebuilt as a pure action
-  executor — it feeds the give, performs the dial, offers resolves back, and
-  receives the settle — so `zig build goblins-handoff` proves the serve step
+  executor: it feeds the give, performs the dial, offers resolves back, and
+  receives the settle: so `zig build goblins-handoff` proves the serve step
   against live Goblins.
 - `test/engine/node_test.zig` pins the decisions hermetically: interception,
   the fail-closed empty-locator and unopened-session arms, dial dedup, dial

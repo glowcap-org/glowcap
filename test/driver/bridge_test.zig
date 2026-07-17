@@ -1,6 +1,6 @@
 //! `driver.Bridge` end to end: one completion-loop thread serving a full
 //! multi-session CapTP host. The three-party handoff theorem runs G, E, and R
-//! each as `Host` + `net.TcpLoop` + `Bridge` — the deposit leg is the one
+//! each as `Host` + `net.TcpLoop` + `Bridge`. The deposit leg is the one
 //! frame only the bridge's cross-session arm can put on the wire, and the
 //! recipient's redeem dial settles on one loop thread via `Loop.dialLocator`. A
 //! third test pins the budget contract over the bridge: a flooding client's
@@ -8,7 +8,7 @@
 //! sibling session keeps answering.
 //!
 //! Choreography note: G's fetch of the exporter's object rides a `ready`
-//! poke E sends *after* publishing, not the session-open edge — same-socket
+//! poke E sends *after* publishing, not the session-open edge. Same-socket
 //! ordering makes that deterministic, where a fetch fired at session open
 //! can race the partner's own post-handshake publish. The desk actors are
 //! published at adoption (`Bridge`'s publish callback) for the same

@@ -47,9 +47,9 @@ def main() -> int:
         received: list[bytes] = []
 
         def serve() -> None:
-            conn = listener.accept()
-            received.append(conn.read_frame())
-            conn.close()
+            accepted = listener.accept()
+            received.append(accepted.read_frame())
+            accepted.close()
 
         thread = threading.Thread(target=serve)
         thread.start()
@@ -68,9 +68,9 @@ def main() -> int:
         received_inproc: list[bytes] = []
 
         def serve_inproc() -> None:
-            conn = listener.accept()
-            received_inproc.append(conn.read_frame())
-            conn.close()
+            accepted = listener.accept()
+            received_inproc.append(accepted.read_frame())
+            accepted.close()
 
         thread = threading.Thread(target=serve_inproc)
         thread.start()
@@ -204,7 +204,7 @@ async def _allocator_context_round_trip() -> None:
         server = await listen("127.0.0.1", 0, host)
         try:
             async def serve_one() -> None:
-                async for conn in server:
+                async for session in server:
                     count = {"value": 10}
 
                     def counter(verb, args):
@@ -215,8 +215,8 @@ async def _allocator_context_round_trip() -> None:
                             return count["value"]
                         raise ValueError(f"no such method {verb!r}")
 
-                    conn.publish("counter", counter)
-                    await conn.serve()
+                    session.publish("counter", counter)
+                    await session.serve()
                     break
 
             hosted = asyncio.ensure_future(serve_one())
@@ -246,7 +246,7 @@ async def _capnp_codec_round_trip() -> None:
     server = await listen("127.0.0.1", 0, codec="capnp")
     try:
         async def serve_one() -> None:
-            async for conn in server:
+            async for session in server:
                 def svc(verb, args):
                     assert verb == "probe", verb
                     assert args[0] == big, args
@@ -254,17 +254,17 @@ async def _capnp_codec_round_trip() -> None:
                     assert args[2] == b"hi", args
                     return Keyword("done")
 
-                conn.publish("svc", svc)
-                await conn.serve()
+                session.publish("svc", svc)
+                await session.serve()
                 break
 
         hosted = asyncio.ensure_future(serve_one())
-        conn = await connect(tcp_locator("127.0.0.1", server.port), codec="capnp")
-        conn.serve()
-        svc_ref = await conn.fetch("svc")
-        reply = await conn.send(svc_ref, "probe", [big, Keyword("prio"), b"hi"])
+        session = await connect(tcp_locator("127.0.0.1", server.port), codec="capnp")
+        session.serve()
+        svc_ref = await session.fetch("svc")
+        reply = await session.send(svc_ref, "probe", [big, Keyword("prio"), b"hi"])
         assert isinstance(reply, Keyword) and reply == "done", reply
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(hosted, timeout=5)
     finally:
         server.close()
@@ -331,27 +331,27 @@ async def _disconnect_rejects_pending_send() -> None:
     closed = asyncio.Event()
     try:
         async def serve_one() -> None:
-            async for conn in server:
-                conn.publish("svc", lambda verb, args: None)
-                conn.serve()
+            async for session in server:
+                session.publish("svc", lambda verb, args: None)
+                session.serve()
                 await asyncio.sleep(0.05)
-                await conn.close()
+                await session.close()
                 closed.set()
                 break
 
         hosted = asyncio.ensure_future(serve_one())
-        conn = await connect(tcp_locator("127.0.0.1", server.port))
-        conn.serve()  # a disconnect ends the serve task; expected here
-        svc = await conn.fetch("svc")
-        await conn.send(svc, "ping", [])
+        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session.serve()  # a disconnect ends the serve task; expected here
+        svc = await session.fetch("svc")
+        await session.send(svc, "ping", [])
         await closed.wait()
         rejected = False
         try:
-            await conn.send(svc, "late", [])
+            await session.send(svc, "late", [])
         except (PancakeError, VowBroken):
             rejected = True
         assert rejected, "an outstanding send rejects when the connection drops"
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(hosted, timeout=5)
     finally:
         server.close()
@@ -368,9 +368,9 @@ async def _listen_surfaces_bound_port() -> None:
         accepted: list = []
 
         async def accept_one() -> None:
-            async for conn in server:
-                accepted.append(conn)
-                await conn.close()
+            async for session in server:
+                accepted.append(session)
+                await session.close()
                 break
 
         accept_task = asyncio.ensure_future(accept_one())
@@ -394,9 +394,9 @@ async def _rude_probe_cannot_close_the_listener() -> None:
         port = server.port
 
         async def serve_one() -> None:
-            async for conn in server:
-                conn.publish("svc", lambda verb, args: Symbol("alive"))
-                conn.serve()
+            async for session in server:
+                session.publish("svc", lambda verb, args: Symbol("alive"))
+                session.serve()
                 break  # one real client is the proof
 
         served = asyncio.ensure_future(serve_one())
@@ -406,11 +406,11 @@ async def _rude_probe_cannot_close_the_listener() -> None:
         probe_writer.close()
         del probe_reader
 
-        conn = await connect(tcp_locator("127.0.0.1", port))
-        svc = await conn.fetch("svc")
-        reply = await conn.send(svc, "ping", [])
+        session = await connect(tcp_locator("127.0.0.1", port))
+        svc = await session.fetch("svc")
+        reply = await session.send(svc, "ping", [])
         assert reply == Symbol("alive"), reply
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(served, timeout=5)
     finally:
         server.close()
@@ -423,7 +423,7 @@ async def _structured_args_round_trip() -> None:
     server = await listen("127.0.0.1", 0)
     try:
         async def serve_one() -> None:
-            async for conn in server:
+            async for session in server:
                 def svc(verb, args):
                     if verb == "boom":
                         raise ValueError("kaboom")
@@ -437,37 +437,37 @@ async def _structured_args_round_trip() -> None:
                     assert isinstance(note, Tagged), f"a Tagged argument arrives as a Tagged, got {note!r}"
                     assert isinstance(note.value[0], Ref), note.value
                     # The nested capability is sendable: poke back through it.
-                    asyncio.ensure_future(conn.tell(nested, "poke", []))
+                    asyncio.ensure_future(session.tell(nested, "poke", []))
                     return Set([Symbol("ok"), 7])
 
-                conn.publish("svc", svc)
-                await conn.serve()
+                session.publish("svc", svc)
+                await session.serve()
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await connect(tcp_locator("127.0.0.1", server.port))
-        conn.serve()
+        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session.serve()
         poked = asyncio.get_running_loop().create_future()
 
         def inbox_behavior(verb, args):
             if verb == "poke" and not poked.done():
                 poked.set_result(True)
 
-        inbox = conn.spawn(inbox_behavior)
-        svc_ref = await conn.fetch("svc")
-        reply = await conn.send(svc_ref, "probe", [Set([1, inbox]), Tagged("note", [inbox])])
+        inbox = session.spawn(inbox_behavior)
+        svc_ref = await session.fetch("svc")
+        reply = await session.send(svc_ref, "probe", [Set([1, inbox]), Tagged("note", [inbox])])
         assert type(reply) is Set, f"a Set reply survives the round-trip as a Set, got {type(reply).__name__}"
         assert reply[0] == Symbol("ok") and reply[1] == 7, reply
         await asyncio.wait_for(poked, timeout=5)
 
         # A partner break is the typed VowBroken, catchable by type.
         try:
-            await conn.send(svc_ref, "boom", [])
+            await session.send(svc_ref, "boom", [])
             raise AssertionError("a partner break must raise VowBroken")
         except VowBroken as exc:
             assert "kaboom" in str(exc), exc
 
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         server.close()
@@ -482,29 +482,29 @@ async def _enliven_round_trips_then_caches() -> None:
     server = await listen("127.0.0.1", 0)
     try:
         async def serve_one() -> None:
-            async for conn in server:
+            async for session in server:
                 def greeter(verb, args):
                     assert verb == "hello", verb
                     return Symbol("alive")
 
-                conn.publish("greeter", greeter)
-                await conn.serve()
+                session.publish("greeter", greeter)
+                await session.serve()
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await connect(tcp_locator("127.0.0.1", server.port))
-        conn.serve()
+        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session.serve()
         # The connection is already open to the peer; enliven keys on the
         # sturdyref's swissnum, carried by the URI as `/s/greeter`.
         sturdyref = "ocapn://greeter-host.tcp/s/greeter"
-        cap = await conn.enliven(sturdyref)
-        greeting = await conn.send(cap, "hello", [])
+        cap = await session.enliven(sturdyref)
+        greeting = await session.send(cap, "hello", [])
         assert greeting == Symbol("alive"), f"enlivened cap answers hello, got {greeting!r}"
         # A repeat enliven hits the dedup cache: the same live capability.
-        again = await conn.enliven(sturdyref)
-        greeting2 = await conn.send(again, "hello", [])
+        again = await session.enliven(sturdyref)
+        greeting2 = await session.send(again, "hello", [])
         assert greeting2 == Symbol("alive"), f"cached enliven answers hello, got {greeting2!r}"
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         server.close()
@@ -527,15 +527,15 @@ async def _gc_releases_dropped_import() -> None:
     relay_port, relay_close = await _start_relay(server.port, observe=observe)
     try:
         async def serve_one() -> None:
-            async for conn in server:
-                conn.publish("svc", lambda verb, args: None)
-                await conn.serve()
+            async for session in server:
+                session.publish("svc", lambda verb, args: None)
+                await session.serve()
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = (await connect(tcp_locator("127.0.0.1", relay_port))).with_gc()
-        conn.serve()
-        cap = await conn.fetch("svc")
+        session = (await connect(tcp_locator("127.0.0.1", relay_port))).with_gc()
+        session.serve()
+        cap = await session.fetch("svc")
         assert cap.far is not None, "the fetched cap is a far token"
         # Drop the only handle; refcounting fires the finalizer, which parks the
         # token and hops to the loop. Yield loop turns for it to flush.
@@ -545,7 +545,7 @@ async def _gc_releases_dropped_import() -> None:
                 break
             await asyncio.sleep(0.01)
         assert saw_gc.is_set(), "the wire never carried op:gc-export for the dropped import"
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         relay_close()
@@ -582,32 +582,32 @@ async def _fetch_failed_is_typed() -> None:
     relay_port, relay_close = await _start_relay(server.port, rewrite=retarget)
     try:
         async def serve_one() -> None:
-            async for conn in server:
+            async for session in server:
                 # The doctored fetch deliver lands here with verb "fetch";
                 # answer with a plain integer, which is exactly what a fetch
                 # must not resolve to.
-                plain = conn.publish("plain", lambda verb, args: 42)
+                plain = session.publish("plain", lambda verb, args: 42)
                 assert plain.near is not None and plain.near.id < 10, "the retarget needs a single-digit export"
                 plain_export.append(plain.near.id)
                 export_known.set()
-                await conn.serve()
+                await session.serve()
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await connect(tcp_locator("127.0.0.1", relay_port))
-        conn.serve()
+        session = await connect(tcp_locator("127.0.0.1", relay_port))
+        session.serve()
         await export_known.wait()
         # The granting fetch: its resolve marshals the "plain" reference,
         # which is what makes the position addressable for the doctored
         # deliver below.
-        await conn.fetch("plain")
+        await session.fetch("plain")
         state["armed"] = True
         try:
-            await conn.fetch("not-a-capability")
+            await session.fetch("not-a-capability")
             raise AssertionError("a non-capability fetch must raise FetchFailed")
         except FetchFailed as exc:
             assert exc.name == "not-a-capability", exc
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         relay_close()
@@ -626,7 +626,7 @@ async def _pipelining_drives_chain() -> None:
     server = await listen("127.0.0.1", 0)
     try:
         async def serve_one() -> None:
-            async for conn in server:
+            async for session in server:
                 def root(verb, args):
                     assert verb == "create", verb
                     state = {"done": False}
@@ -641,24 +641,24 @@ async def _pipelining_drives_chain() -> None:
                             return "done" if state["done"] else "open"
                         raise ValueError(f"no such method: {task_verb}")
 
-                    return conn.spawn(task)
+                    return session.spawn(task)
 
-                conn.publish("root", root)
-                await conn.serve()
+                session.publish("root", root)
+                await session.serve()
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await connect(tcp_locator("127.0.0.1", server.port))
-        conn.serve()
-        root_ref = await conn.fetch("root")
+        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session.serve()
+        root_ref = await session.fetch("root")
         # The four verbs leave together: none awaits create's reply, and assign /
         # complete / status target the create answer directly.
-        task = conn.send(root_ref, "create", ["benchmark"])
-        conn.send(task, "assign", ["alice"])
-        conn.send(task, "complete", [])
-        status = await conn.send(task, "status", [])
+        task = session.send(root_ref, "create", ["benchmark"])
+        session.send(task, "assign", ["alice"])
+        session.send(task, "complete", [])
+        status = await session.send(task, "status", [])
         assert status == "done", f"pipelined status should be done, got {status!r}"
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         server.close()
@@ -677,31 +677,31 @@ async def _unawaited_break_stays_silent() -> None:
     server = await listen("127.0.0.1", 0)
     try:
         async def serve_one() -> None:
-            async for conn in server:
+            async for session in server:
                 def root(verb, args):
                     if verb == "ping":
                         return "pong"
                     raise ValueError(f"boom: {verb}")
 
-                conn.publish("root", root)
-                await conn.serve()
+                session.publish("root", root)
+                await session.serve()
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await connect(tcp_locator("127.0.0.1", server.port))
-        conn.serve()
-        root_ref = await conn.fetch("root")
-        anchor = conn.send(root_ref, "explode", [])
+        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session.serve()
+        root_ref = await session.fetch("root")
+        anchor = session.send(root_ref, "explode", [])
         assert isinstance(anchor, asyncio.Future), "a send handle must be an asyncio.Future"
         # `anchor` is never awaited; awaiting ping flushes the queued batch, so
         # explode's deliver crosses the wire and the host breaks its answer. The
         # break's FAIL completion is recorded with no waiter -- no exception.
-        pong = await conn.send(root_ref, "ping", [])
+        pong = await session.send(root_ref, "ping", [])
         assert pong == "pong", f"expected pong, got {pong!r}"
         del anchor
         await asyncio.sleep(0.05)  # let the break land
         assert not seen, f"unawaited break must stay silent, saw {seen}"
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         server.close()
@@ -720,31 +720,31 @@ async def _projections_reach_a_field() -> None:
     server = await listen("127.0.0.1", 0)
     try:
         async def serve_one() -> None:
-            async for conn in server:
+            async for session in server:
                 def root(verb, args):
                     assert verb == "make", verb
                     label = str(args[0]) if args else "anon"
                     # A Tagged wrapping a single list value: untag unwraps to it.
                     return Tagged("task", [["assigned", label, 7]])
 
-                conn.publish("root", root)
-                await conn.serve()
+                session.publish("root", root)
+                await session.serve()
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await connect(tcp_locator("127.0.0.1", server.port))
-        conn.serve()
-        root_ref = await conn.fetch("root")
+        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session.serve()
+        root_ref = await session.fetch("root")
         # Neither projection awaits a prior reply: they ride the unresolved make
         # answer and the whole chain leaves on one flush.
-        made = conn.send(root_ref, "make", ["alice"])
+        made = session.send(root_ref, "make", ["alice"])
         label = await made.untag("task").index(1)
         assert label == "alice", f"pipelined untag->index should reach the label, got {label!r}"
         # The source answer settled while the projection pumped the loop; awaiting
         # it now must still resolve (a late observation settles from the store).
         full = await made
         assert isinstance(full, Tagged) and full.tag == "task", f"awaited source should be the tagged task, got {full!r}"
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         server.close()
@@ -762,12 +762,12 @@ async def _forwarding_proxies_over_the_wire() -> None:
     proxy_ready = asyncio.Event()
     try:
         async def serve_one() -> None:
-            async for conn in server:
-                conn.serve()
+            async for session in server:
+                session.serve()
                 await tool_ready.wait()
-                tool = await conn.fetch("tool")
-                care = conn.caretaker(tool)
-                readonly = conn.attenuate(tool, ["get"])
+                tool = await session.fetch("tool")
+                care = session.caretaker(tool)
+                readonly = session.attenuate(tool, ["get"])
 
                 def root(verb, args):
                     if verb == "proxy":
@@ -779,14 +779,14 @@ async def _forwarding_proxies_over_the_wire() -> None:
                         return None
                     raise ValueError(f"no such method: {verb}")
 
-                conn.publish("root", root)
+                session.publish("root", root)
                 proxy_ready.set()
-                await conn.serve()
+                await session.serve()
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await connect(tcp_locator("127.0.0.1", server.port))
-        conn.serve()  # serve so the server's forwarded call arrives
+        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session.serve()  # serve so the server's forwarded call arrives
 
         def tool(verb, args):
             if verb == "add":
@@ -796,39 +796,39 @@ async def _forwarding_proxies_over_the_wire() -> None:
                 return 7
             raise ValueError(f"no such method: {verb}")
 
-        conn.publish("tool", tool)
+        session.publish("tool", tool)
         tool_ready.set()
         await proxy_ready.wait()
-        root_ref = await conn.fetch("root")
+        root_ref = await session.fetch("root")
 
         # Live caretaker: a call forwards across the server to the far tool.
-        proxy = await conn.send(root_ref, "proxy", [])
+        proxy = await session.send(root_ref, "proxy", [])
         assert isinstance(proxy, Ref), "the caretaker proxy lifts to a Ref"
-        total = await conn.send(proxy, "add", [41])
+        total = await session.send(proxy, "add", [41])
         assert total == 42, f"caretaker forwards to the far tool, got {total!r}"
 
         # Attenuator: the allow-listed verb forwards; any other breaks.
-        readonly = await conn.send(root_ref, "readonly", [])
+        readonly = await session.send(root_ref, "readonly", [])
         assert isinstance(readonly, Ref), "the attenuator proxy lifts to a Ref"
-        got = await conn.send(readonly, "get", [])
+        got = await session.send(readonly, "get", [])
         assert got == 7, f"the attenuator forwards an allowed verb, got {got!r}"
         denied = None
         try:
-            await conn.send(readonly, "add", [1])
+            await session.send(readonly, "add", [1])
         except VowBroken as error:
             denied = error
         assert denied is not None and "Attenuated" in str(denied), "an out-of-list verb breaks Attenuated"
 
         # Revoke: every later call through the proxy breaks.
-        await conn.send(root_ref, "revoke", [])
+        await session.send(root_ref, "revoke", [])
         severed = None
         try:
-            await conn.send(proxy, "add", [1])
+            await session.send(proxy, "add", [1])
         except VowBroken as error:
             severed = error
         assert severed is not None and "Revoked" in str(severed), "a revoked proxy breaks Revoked"
 
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         server.close()
@@ -844,19 +844,19 @@ async def _forwarding_proxy_local_call() -> None:
     server = await listen("127.0.0.1", 0)
     try:
         async def serve_one() -> None:
-            async for conn in server:
+            async for session in server:
                 def tool(verb, args):
                     if verb == "ping":
                         return "pong"
                     raise ValueError(f"no such method: {verb}")
 
-                conn.publish("tool", tool)
-                await conn.serve()
+                session.publish("tool", tool)
+                await session.serve()
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await connect(tcp_locator("127.0.0.1", server.port))
-        conn.serve()
+        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session.serve()
 
         # A caretaker over a local tool, called locally by its own host.
         def local_tool(verb, args):
@@ -864,27 +864,27 @@ async def _forwarding_proxy_local_call() -> None:
                 return (args[0] if args and isinstance(args[0], int) else 0) * 2
             raise ValueError(f"no such method: {verb}")
 
-        care_local = conn.caretaker(conn.spawn(local_tool))
-        doubled = await conn.send(care_local.proxy, "double", [21])
+        care_local = session.caretaker(session.spawn(local_tool))
+        doubled = await session.send(care_local.proxy, "double", [21])
         assert doubled == 42, f"a local proxy answers a local call, got {doubled!r}"
 
         # A caretaker over a far tool, called locally: the proxy forwards across
         # the wire and the local send still settles on the partner's reply.
-        far = await conn.fetch("tool")
-        care_far = conn.caretaker(far)
-        pong = await conn.send(care_far.proxy, "ping", [])
+        far = await session.fetch("tool")
+        care_far = session.caretaker(far)
+        pong = await session.send(care_far.proxy, "ping", [])
         assert pong == "pong", f"a local call to a proxy over a far tool settles, got {pong!r}"
 
         # Revoke severs the local call exactly as it severs a partner's.
         care_local.revoke()
         severed = None
         try:
-            await conn.send(care_local.proxy, "double", [1])
+            await session.send(care_local.proxy, "double", [1])
         except VowBroken as error:
             severed = error
         assert severed is not None and "Revoked" in str(severed), "revoke breaks a local call too"
 
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         server.close()
@@ -899,34 +899,34 @@ async def _mid_turn_driving_verb_breaks_the_answer() -> None:
     server = await listen("127.0.0.1", 0)
     try:
         async def serve_one() -> None:
-            async for conn in server:
+            async for session in server:
                 def svc(verb, args):
                     if verb == "reenter":
                         # A driving verb inside the turn: the latch refuses it
                         # and the raised PancakeError's words become the broken
                         # answer.
-                        conn.publish("nested", lambda v, a: None)
+                        session.publish("nested", lambda v, a: None)
                         return "unreachable"
                     return "pong"
 
-                conn.publish("svc", svc)
-                await conn.serve()
+                session.publish("svc", svc)
+                await session.serve()
                 break
 
         serve_task = asyncio.ensure_future(serve_one())
-        conn = await connect(tcp_locator("127.0.0.1", server.port))
-        conn.serve()
-        svc_ref = await conn.fetch("svc")
+        session = await connect(tcp_locator("127.0.0.1", server.port))
+        session.serve()
+        svc_ref = await session.fetch("svc")
         broke = None
         try:
-            await conn.send(svc_ref, "reenter", [])
+            await session.send(svc_ref, "reenter", [])
         except VowBroken as error:
             broke = error
         assert broke is not None, "a mid-turn driving verb breaks the answer"
         # The turn unwound cleanly: the same session still answers.
-        pong = await conn.send(svc_ref, "ping", [])
+        pong = await session.send(svc_ref, "ping", [])
         assert pong == "pong", f"the connection survives the refused turn, got {pong!r}"
-        await conn.close()
+        await session.close()
         await asyncio.wait_for(serve_task, timeout=5)
     finally:
         server.close()

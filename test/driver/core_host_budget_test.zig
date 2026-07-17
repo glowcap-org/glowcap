@@ -2,8 +2,8 @@
 //! amplification cap, with its attribution contract. A budget breach inside
 //! the fed connection's own dispatch fails that feed (the embedder closes the
 //! connection, the iroh loop's shipped posture). A breach discovered inside
-//! the pump — the fed connection's work flooded a *sibling* connection's
-//! vat — must not fail the fed verb or the fed connection: the flooded
+//! the pump. When the fed connection's work flooded a sibling connection's
+//! vat, that must not fail the fed verb or the fed connection. The flooded
 //! sibling is condemned with a typed `resource_exhausted` abort and a `close`
 //! action names it for the embedder, while the connection that fed the pump
 //! keeps serving. Sans-io: hosts are wired by moving frames between

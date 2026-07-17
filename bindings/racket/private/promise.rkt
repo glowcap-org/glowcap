@@ -4,8 +4,8 @@
 ;; `blocking-fetch`), and the far-send/tell mint (`session-far-send`). Session
 ;; owns CapTP verb wrappers and `session-await`; this module owns the
 ;; `session-vow` type, the host vow table register/settle/listen path,
-;; `session-index`/`session-untag`, far-send mint, and the post-mint
-;; wait/classify. Binding spine Pass 3a / 4b / 4d / 4f.
+;; `session-index`/`session-untag`/`session-get`, far-send mint, and the
+;; post-mint wait/classify.
 
 (require ffi/unsafe
          racket/lazy-require
@@ -30,6 +30,7 @@
          session-vow-listen!
          session-index
          session-untag
+         session-get
          project-vow
          await-vow
          blocking-fetch
@@ -82,10 +83,10 @@
     [else (listener (cdr s) #t)]))
 
 ;; ── Pipelined projections (ADR-0050) ─────────────────────────────────────────
-;; Project an element or unwrapped tag out of a far vow WITHOUT waiting
-;; for it to settle, returning a new vow for the projected value. The
-;; projection rides the wire as `op:index` / `op:untag` against the
-;; receiver's answer (ADR-0052), so it pipelines exactly like a dependent call:
+;; Project an element, unwrapped tag, or Struct field out of a far vow WITHOUT
+;; waiting for it to settle, returning a new vow for the projected value. The
+;; projection rides the wire as `op:index` / `op:untag` / `op:get` against the
+;; receiver's answer (ADR-0050/ADR-0052), so it pipelines exactly like a dependent call:
 ;; `(session-untag c vow "row")` then `(session-index c that 0)` reaches the first
 ;; element of an unwrapped tagged record in one batch, before the source resolves.
 ;; The returned vow is itself a projection or `session-send` target, and settles via
@@ -100,6 +101,12 @@
   (project-vow (session-host c) a-vow
                (lambda (m id)
                  (pancake_host_vow_untag (host-ptr m) id (pin-immobile tb) (bytes-length tb)))))
+
+(define (session-get c a-vow field)
+  (define fb (string->bytes/utf-8 field))
+  (project-vow (session-host c) a-vow
+               (lambda (m id)
+                 (pancake_host_vow_get (host-ptr m) id (pin-immobile fb) (bytes-length fb)))))
 
 (define (project-vow m a-vow mint)
   (unless (session-vow? a-vow)

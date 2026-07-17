@@ -18,7 +18,7 @@
 //!             the greeter, transparently redeems the give by dialing the
 //!             exporter directly, and calls it — the reply must echo its name.
 //!
-//! Returning the exporter's greeter (home = gifter↔exporter) on the recipient's
+//! Returning the exporter's greeter (home = gifter-to-exporter) on the recipient's
 //! connection trips the transparent gifter; the recipient's `send` resolves to an
 //! ordinary capability whose calls route straight to the exporter. The proof is
 //! the greeter's reply carrying the name the recipient sent.
@@ -136,8 +136,8 @@ async fn run() -> Result<(), Fail> {
 fn accept_loop(server: Rc<pancake_rust_dogfood::IrohServer>) {
 	tokio::task::spawn_local(async move {
 		let mut held: Vec<Session> = Vec::new();
-		while let Ok(conn) = server.accept().await {
-			held.push(conn);
+		while let Ok(session) = server.accept().await {
+			held.push(session);
 		}
 	});
 }

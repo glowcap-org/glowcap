@@ -39,76 +39,170 @@ pub const ListenerDrainAction = resolution_math.ListenerDrainAction;
 pub const classifyListenerDrain = resolution_math.classifyListenerDrain;
 const projectResolution = resolution_math.projectResolution;
 
+/// Where an inbound `op:listen` anchors: an answer we owe, a third-party-hosted
+/// import promise, a live object export, or nowhere (ignore).
+const InboundListenClass = union(enum) {
+    answer: model.AnswerPosition,
+    third_party_import: model.ImportPosition,
+    live_export: model.ExportPosition,
+    ignore,
+};
+
+/// Classify `listen`'s target without mutating session state. A `.near` on an
+/// export position that is also an inbound answer follows the answer path; a
+/// third-party-backed promise export follows the import path; every other export
+/// is a live-object listen. A `.far` on a non-third-party import is ignored.
+fn classifyInboundListenTarget(peer: *Peer, listen: model.view.Listen) InboundListenClass {
+    switch (listen.target) {
+        .promise => |promise| return .{ .answer = promise.answer_position },
+        // `desc:export N`: answer and export spaces can coincide (a promise
+        // returned by the promise-resolver actor). Dispatch by which table
+        // actually holds N — do not funnel exports through AnswerPosition.
+        .near => |near| {
+            const as_answer = near.export_position.reinterpret(model.AnswerPosition);
+            if (peer.session_state.hasInboundAnswer(as_answer)) {
+                return .{ .answer = as_answer };
+            }
+            // CapTP-normal listen on a received import-promise: the partner
+            // encodes `<desc:export N>` (ADR-0010 → `.near`). When N is a
+            // third-party-backed promise export (introducing-session proxy),
+            // admit the same relayed-resolution listener path as `.far`.
+            const as_import = model.ImportPosition.from(near.export_position.int());
+            if (peer.session_state.isThirdPartyImport(as_import)) {
+                return .{ .third_party_import = as_import };
+            }
+            return .{ .live_export = near.export_position };
+        },
+        // An `op:listen` on a handoff-imported promise (ADR-0009): the target
+        // names one of our imports — post-flip (ADR-0010) `<desc:import-*>`
+        // decodes to a `far` whose import_position is the import. Only a
+        // third-party-hosted import admits a relayed-resolution listener;
+        // a direct-partner import (or unknown id) is ignored.
+        .far => |far| {
+            if (!peer.session_state.isThirdPartyImport(far.import_position)) return .ignore;
+            return .{ .third_party_import = far.import_position };
+        },
+        .sturdy, .broken => return .ignore,
+    }
+}
+
 /// Register an inbound `op:listen`'s listener against the targeted answer so
 /// our eventual `op:resolve` fires it (ADR-0007 § op:listen). Mirrors the
 /// V1.0 resolver-import pattern: the partner introduces their listener object
-/// as a descriptor we import; we reach it later via the matching `far`. A
-/// non-promise target or a listen on an answer we don't owe resolution for is
-/// not an error — it falls through to ordinary recv handling.
+/// as a descriptor we import; we reach it later via the matching `far`.
 ///
 /// Validated before anything mutates, like its sibling
 /// `maybeEnqueuePipelinedCall`: the session's `.listen` rule runs first, so an
 /// unauthorized listen (feature not negotiated, unheld target) is refused
 /// before any import or listener is installed.
+///
+/// A listen on a live object export (`local_value`) fires immediately with that
+/// export — CapTP already-settled target — through the POD `listener_fire`
+/// path. A listen on a bare unresolved promise export refuses loud: pancake exports no
+/// free-standing resolvable promise, so nothing could ever fire it. An answer
+/// we do not owe likewise refuses loud (`InvalidReference`).
 pub fn maybeInstallInboundListener(peer: *Peer, listen: model.view.Listen) !void {
     try peer.session_state.validateInboundListen(listen);
-    switch (listen.target) {
-        .promise => |promise| try installAnswerListener(peer, promise.answer_position, listen),
-        // A listen on one of our exports: the partner sent `desc:export N`,
-        // which is `.near` after the perspective flip. If N is an inbound
-        // answer (e.g. a promise returned by the promise-resolver actor),
-        // it takes the same install as a promise-descriptor listen — the
-        // export and answer spaces coincide here, so the reinterpret is
-        // explicit.
-        .near => |near| try installAnswerListener(peer, near.export_position.reinterpret(model.AnswerPosition), listen),
-        // An `op:listen` on a handoff-imported promise (ADR-0009): the target
-        // names one of our imports — post-flip (ADR-0010) `<desc:import-*>`
-        // decodes to a `far` whose import_position is the import. Only a
-        // third-party-hosted import admits a relayed-resolution listener;
-        // a direct-partner import (or unknown id) falls through to ordinary
-        // recv handling.
-        .far => |far| {
-            const import_position = far.import_position;
-            if (!peer.session_state.isThirdPartyImport(import_position)) return;
-            const position = listen.listener.position() orelse return;
-            try peer.session_state.registerImport(model.ImportPosition.from(position));
-            try peer.session_state.installImportedPromiseListener(import_position, .{
-                .listener = model.FarRef.object(position),
-                .wants_partial = listen.wants_partial,
-            });
-            // Late listener: if the relayed resolution already arrived, fire
-            // it now (the relay drain that recorded it already drained the
-            // listeners present at that time; a still-unrelayed row fires
-            // nothing and the listener stays installed).
-            try fireImportedPromiseListeners(peer, import_position);
-        },
-        .sturdy, .broken => return,
+    switch (classifyInboundListenTarget(peer, listen)) {
+        .answer => |answer| try installAnswerListener(peer, answer, listen),
+        .third_party_import => |import_position| try installThirdPartyImportListener(peer, import_position, listen),
+        .live_export => |export_position| try installExportListener(peer, export_position, listen),
+        .ignore => {},
     }
 }
 
-/// Install `listen`'s listener on inbound answer `answer` — the shared body
-/// for a listen that names the answer by promise descriptor or by export
-/// position. An unknown answer or a position-less listener falls through to
-/// ordinary recv handling. An already-settled answer fires the listener now
-/// against the stored resolution, or a generic break when none was kept.
-fn installAnswerListener(peer: *Peer, answer: model.AnswerPosition, listen: model.view.Listen) !void {
-    if (!peer.session_state.hasInboundAnswer(answer)) return;
-    const position = listen.listener.position() orelse return;
+/// Install `listen`'s listener on inbound answer `answer`. An already-settled
+/// answer fires this entry now; a pending answer installs for resolve drain.
+fn listenerEntryFromListen(peer: *Peer, listen: model.view.Listen) !session.ListenerEntry {
+    const position = listen.listener.position() orelse return session.Error.InvalidReference;
     try peer.session_state.registerImport(model.ImportPosition.from(position));
-    const listener_entry: session.ListenerEntry = .{
+    return .{
         .listener = model.FarRef.object(position),
         .wants_partial = listen.wants_partial,
     };
+}
+
+/// Install (or immediately fire) a listener on a third-party-hosted import
+/// promise. Shared by the `.far` (`desc:import-promise`) and `.near`
+/// (`desc:export` on a proxied promise export) listen arms.
+fn installThirdPartyImportListener(peer: *Peer, import_position: model.ImportPosition, listen: model.view.Listen) !void {
+    const listener_entry = try listenerEntryFromListen(peer, listen);
+    // Answer-shaped late listen: fire this entry if the relay already
+    // landed; otherwise install. Prior listeners were drained at record.
+    // Import fires always deliver (no wants_partial re-anchor).
+    if (peer.session_state.importedPromiseResolution(import_position)) |resolution| {
+        const row = peer.session_state.findImportedPromise(import_position).?;
+        try enqueueFire(
+            peer,
+            listener_entry.listener.import_position.int(),
+            .{ .import = import_position },
+            row.cell.row_id,
+            resolution.*,
+        );
+    } else {
+        try peer.session_state.installImportedPromiseListener(import_position, listener_entry);
+    }
+}
+
+fn installAnswerListener(peer: *Peer, answer: model.AnswerPosition, listen: model.view.Listen) !void {
+    const listener_entry = try listenerEntryFromListen(peer, listen);
     // A settled inbound answer always holds its stored resolution (the
     // `applySentResolve` invariant: status and resolution land together at
-    // record time). So the peek is the whole decision — present means settled, fire the
-    // listener now from the kept value; absent means still pending, install it
-    // for the answer's own resolve to fire (`fireListenersOnResolve`).
+    // record time). Peek present → fire this entry; absent → install for
+    // `fireListenersOnResolve`.
     if (peer.session_state.peekResolution(answer)) |resolution| {
-        try applyListenerAction(peer, answer, resolution.*, classifyListenerDrain(listener_entry, resolution.*));
+        try applyListenerDrain(peer, .{ .answer = answer }, 0, resolution.*, classifyListenerDrain(listener_entry, resolution.*));
     } else {
         try peer.session_state.installListener(answer, listener_entry);
     }
+}
+
+/// Listen on one of our exports. A live object export (`local_value`) fires
+/// immediately with `fulfill(near object)`. Every other export refuses loud:
+/// pancake exports no free-standing resolvable promise (the only promise
+/// exports it mints are resolver callbacks the partner delivers to, never
+/// listens on), so a listen on a bare promise export names a subscription
+/// nothing could ever fire — fail closed rather than accept it.
+fn installExportListener(peer: *Peer, export_position: model.ExportPosition, listen: model.view.Listen) !void {
+    if (peer.session_state.exportSlot(export_position)) |export_slot| {
+        if (export_slot == .local_value) {
+            try fireLiveObjectExportListener(peer, export_position, listen);
+            return;
+        }
+    }
+    return session.Error.InvalidReference;
+}
+
+/// CapTP already-settled object target: fire the listener once with
+/// `fulfill(near object export)` through the same POD `listener_fire` carrier
+/// path as answer/import listens — queue-time accounting on a borrowed stack
+/// message, encode from the export position at `step`.
+fn fireLiveObjectExportListener(peer: *Peer, export_position: model.ExportPosition, listen: model.view.Listen) !void {
+    const position = listen.listener.position() orelse return session.Error.InvalidReference;
+    try peer.session_state.registerImport(model.ImportPosition.from(position));
+    try enqueueNearObjectFire(peer, position, export_position);
+}
+
+/// Queue one live-object-export listen fire: same reserve-record-push spine as
+/// `enqueueFire`, but the payload is POD `fulfill(near)` — no answer or import
+/// store row to borrow from at encode.
+fn enqueueNearObjectFire(
+    peer: *Peer,
+    listener_position: u64,
+    export_position: model.ExportPosition,
+) !void {
+    const resolution: model.Resolution = .{ .fulfill = .{
+        .reference = .{ .near = model.NearRef.object(export_position.int()) },
+    } };
+    var args: [2]model.Argument = undefined;
+    const borrowed = borrowedListenerFire(listener_position, resolution, &args);
+    try peer.pending_send.ensureUnusedCapacityForOne(peer.allocator);
+    try peer.session_state.recordSend(borrowed);
+    peer.pending_send.pushAssumeCapacity(.{ .listener_fire = .{
+        .listener_position = listener_position,
+        .target = .{ .near_object = export_position },
+        .row_id = 0,
+    } });
 }
 
 /// Handle an inbound `op:deliver` that pipelines against an answer we owe,
@@ -177,7 +271,16 @@ pub fn maybeEnqueuePipelinedCall(peer: *Peer, deliver: model.view.Deliver) !bool
 /// § Queue ownership and drain). Queued inbound targets always carry an empty path: a
 /// multi-hop pipeline is decomposed at the *sender* into single-hop frames
 /// (`Peer.send`'s decomposition), so every `desc:answer` on the wire is flat.
-pub fn drainPipelinedCalls(peer: *Peer, resolve: model.Resolve) !void {
+/// Drain the local consequences of a just-sent `op:resolve`: pipelined calls,
+/// anchored projections, then listeners — in that order (ADR-0007 § Queue
+/// ownership and drain; ADR-0050 for projections).
+pub fn drainResolveConsequences(peer: *Peer, resolve: model.Resolve) !void {
+    try drainPipelinedCalls(peer, resolve);
+    try drainProjections(peer, resolve);
+    try fireListenersOnResolve(peer, resolve);
+}
+
+fn drainPipelinedCalls(peer: *Peer, resolve: model.Resolve) !void {
     // `local_delivery_depth` bounds the local deliveries *one* resolution's
     // drain produces (a drained call resolving to a local export). The drain
     // fans out only across the calls queued on this answer, it never
@@ -250,7 +353,7 @@ pub fn respondToProjection(
 /// total work is bounded by the projections the caps admitted. The one
 /// synchronous walk, following *stored* resolutions in
 /// `anchorProjection`, is hop-bounded by `max_projection_chain`.
-pub fn drainProjections(peer: *Peer, resolve: model.Resolve) !void {
+fn drainProjections(peer: *Peer, resolve: model.Resolve) !void {
     const projections = try peer.session_state.takeProjections(resolve.answer);
     if (projections.len == 0) return;
     defer peer.allocator.free(projections);
@@ -412,7 +515,7 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.Nea
     var frame = try codec.dispatch.encodeMessageForProfile(
         peer.session_state.codec,
         peer.allocator,
-        peer.session_state.wire_profile,
+        peer.session_state.captp_version,
         rewritten,
     );
     errdefer frame.deinit();
@@ -423,16 +526,22 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.Nea
 /// Drain the listeners registered against the answer a just-sent
 /// `op:resolve` settles, firing each per the (resolution × `wants_partial`)
 /// matrix (ADR-0007 § Listener fire matrix). Each fire queues a POD carrier on
-/// `pending_send` (`enqueueAnswerFire`) so a later `step` encodes it from
+/// `pending_send` (`applyListenerDrain`) so a later `step` encodes it from
 /// the store; partial promises re-anchor the listener on the next answer.
 /// `resolve.resolution` borrows the answer store (the caller peeked it), so
 /// nothing here owns heap: the drained entries are POD `.far` values.
-pub fn fireListenersOnResolve(peer: *Peer, resolve: model.Resolve) !void {
+fn fireListenersOnResolve(peer: *Peer, resolve: model.Resolve) !void {
     const listeners = try peer.session_state.takePipelinedListeners(resolve.answer);
     defer peer.allocator.free(listeners);
 
     for (listeners) |entry| {
-        try applyListenerAction(peer, resolve.answer, resolve.resolution, classifyListenerDrain(entry, resolve.resolution));
+        try applyListenerDrain(
+            peer,
+            .{ .answer = resolve.answer },
+            0,
+            resolve.resolution,
+            classifyListenerDrain(entry, resolve.resolution),
+        );
     }
 }
 
@@ -449,19 +558,41 @@ pub fn fireListenersOnResolve(peer: *Peer, resolve: model.Resolve) !void {
 /// here.
 pub fn fireImportedPromiseListeners(peer: *Peer, import_position: model.ImportPosition) !void {
     const row = peer.session_state.findImportedPromise(import_position) orelse return;
-    const resolution = row.resolution orelse return;
-    const row_id = row.row_id;
+    const resolution = row.cell.resolution orelse return;
     const listeners = try peer.session_state.takeImportedPromiseListeners(import_position);
     defer peer.allocator.free(listeners);
+    // Relayed resolutions are final (record-once); fire every listener, no
+    // wants_partial re-anchor.
+    try fireTakenListeners(peer, .{ .import = import_position }, row.cell.row_id, resolution, listeners, .always_fire);
+}
 
+const FireTakenPolicy = enum { always_fire, classify };
+
+fn fireTakenListeners(
+    peer: *Peer,
+    target: engine.FireTarget,
+    row_id: u64,
+    resolution: model.Resolution,
+    listeners: []const session.ListenerEntry,
+    policy: FireTakenPolicy,
+) !void {
     for (listeners) |entry| {
-        try enqueueFire(
-            peer,
-            entry.listener.import_position.int(),
-            .{ .import = import_position },
-            row_id,
-            resolution,
-        );
+        switch (policy) {
+            .always_fire => try enqueueFire(
+                peer,
+                entry.listener.import_position.int(),
+                target,
+                row_id,
+                resolution,
+            ),
+            .classify => try applyListenerDrain(
+                peer,
+                target,
+                row_id,
+                resolution,
+                classifyListenerDrain(entry, resolution),
+            ),
+        }
     }
 }
 
@@ -497,27 +628,38 @@ fn enqueueFire(
     } });
 }
 
-/// Queue one answer-store fire: stamp the carrier with the inbound answer's
-/// row id, or fire nothing when the row is absent by fire time (released mid-
-/// drain), the moot semantics encode applies anyway. The `enqueueFire` sibling
-/// that names the answer store, keeping the row-absent early return scoped to
-/// the fire so a `fire_and_reinstall` still reinstalls its listener.
-fn enqueueAnswerFire(peer: *Peer, listener_position: u64, answer: model.AnswerPosition, resolution: model.Resolution) !void {
-    const row_id = peer.session_state.inboundAnswerRowId(answer) orelse return;
-    try enqueueFire(peer, listener_position, .{ .answer = answer }, row_id, resolution);
-}
-
-/// Apply one `ListenerDrainAction` against the answer whose stored
-/// `resolution` is draining: a fire queues its carrier on `pending_send`; a
-/// re-anchored entry moves back into the listener table on its next answer.
-/// Every action is POD, so there is no heap to release on failure.
-fn applyListenerAction(peer: *Peer, answer: model.AnswerPosition, resolution: model.Resolution, action: ListenerDrainAction) !void {
+/// Apply one `ListenerDrainAction` against a stored resolution: fire queues a
+/// POD carrier; re-anchor moves the entry onto the next inbound answer.
+/// `row_id` stamps import/export carriers; answer fires re-lookup the row id
+/// so a GC'd answer mid-drain skips the fire but still reinstalls.
+fn applyListenerDrain(
+    peer: *Peer,
+    target: engine.FireTarget,
+    row_id: u64,
+    resolution: model.Resolution,
+    action: ListenerDrainAction,
+) !void {
     switch (action) {
-        .fire => |position| try enqueueAnswerFire(peer, position, answer, resolution),
+        .fire => |position| try enqueueDrainFire(peer, position, target, row_id, resolution),
         .fire_and_reinstall => |fr| {
-            try enqueueAnswerFire(peer, fr.fire, answer, resolution);
+            try enqueueDrainFire(peer, fr.fire, target, row_id, resolution);
             try peer.session_state.installListener(fr.next_answer, fr.entry);
         },
         .reinstall => |ri| try peer.session_state.installListener(ri.next_answer, ri.entry),
     }
+}
+
+fn enqueueDrainFire(
+    peer: *Peer,
+    listener_position: u64,
+    target: engine.FireTarget,
+    row_id: u64,
+    resolution: model.Resolution,
+) !void {
+    const stamp = switch (target) {
+        .answer => |answer| peer.session_state.inboundAnswerRowId(answer) orelse return,
+        .import => row_id,
+        .near_object => unreachable, // live-object export listens fire immediately
+    };
+    try enqueueFire(peer, listener_position, target, stamp, resolution);
 }

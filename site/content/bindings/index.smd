@@ -6,43 +6,20 @@
 .draft = false,
 ---
 
-pancake ships a set of composable C ABI archives and four ways to hold them from
-another language. Together the bindings are one of the three consumption
-[surfaces]($link.page('surfaces')).
-Each binding mirrors the archive set: a core module over `libpancake_ocapn`, plus
-one per-transport module that loads or links only its own archive. You add
-transports à la carte, exactly as a C consumer links archives or a Zig consumer
-imports modules.
-
-Every module presents an idiomatic API on top, so what you write is Rust,
-TypeScript, Python, or Racket rather than foreign function calls. Each binding
-has its own dogfood build step (`rust-dogfood`, `deno-dogfood`, and their
-siblings) that drives a real OCapN round-trip, so wire-shape or ABI regressions
-surface where they would in production.
+Four languages over the same C ABI archives, one of the three consumption
+[surfaces]($link.page('surfaces')). Each binding mirrors the archive set: a core
+over `libpancake_ocapn` / `libpancake_driver`, plus per-transport modules loaded
+à la carte. Capability ideas: [Concepts]($link.page('concepts')).
 
 [All four bindings wrap the same C ABI. The shared surface is what lets an app read the same way in every language.]($image.siteAsset('diagram-bindings.svg'))
 
 ## One surface, four idioms
 
-An application holds one object, a `Session`, and uses the small set of
-application verbs the
-[bindings contract](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/README.md)
-defines. The contract is the authoritative description of the surface and the value
-model beneath it; this section is the per-language tour. A `Host` is the
-multi-session CapTP product those sessions share.
-
-The shape is uniform on purpose. You fetch a [capability]($link.page('concepts')) by
-name, spawn a local object, and hand a partner a reference to it; the partner
-calls it back. There is no export-position bookkeeping, no manual flush, and no
-hand-rolled receive loop. A capability is a `Ref`, and a `Ref` marshals itself to
-the right wire reference when you pass it as an argument. That one move is why
-delegation, attenuation, and revocation are ordinary `spawn` and `send` code
-instead of special APIs.
-
-> **Ref** is the binding's word for a capability in hand: a live reference to an
-> object, yours or a partner's. Holding one is the right to call that object, and
-> the only way to get one is to be given it. Passing a `Ref` as an argument is how
-> that authority moves between peers.
+Hold a `Session` and the verbs in the
+[bindings contract](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/README.md).
+A `Host` is the multi-session product behind introductions
+([modules]($link.page('modules'))). A `Ref` is a capability in hand; pass it as
+an argument and authority moves.
 
 | Binding | Entry point | Async idiom | Actor idiom |
 | --- | --- | --- | --- |
@@ -51,50 +28,24 @@ instead of special APIs.
 | [Python]($link.page('bindings/python')) | `connect`, `Session`, native values | `asyncio` | `spawn` over callables |
 | [Racket]($link.page('bindings/racket')) | `connect`, `session`, event structs | green threads + ports | Goblins-faithful |
 
-Every binding enters the same way: `connect` takes a locator and returns the
-`Session` described above, and all four ride the shared byte-fed host in
-the library — one runtime, four idioms over it.
+`connect(locator)` returns an established session (handshake complete). All four
+ride the shared byte-fed host.
 
-## Sync, async, and the actor layer
+## Levels
 
-Each binding gives you levels, and you stay at the one your app needs. The
-async connection runs over the language's own non-blocking sockets, with no
-thread per call and no blocking netlayer. The actor layer is the Goblins-shaped
-top, where an actor is a plain native callable and an eventual-send to a
-partner-hosted reference travels over the wire and settles a promise. Racket's
-layer is the reference shape, because it reads the way a
-[Spritely Goblins](https://spritely.institute/goblins/) programmer expects.
+Stay at the level you need: sync verbs, the language's own async sockets, or the
+Goblins-shaped actor top. Vat / `$` / `<-`: [modules]($link.page('modules')).
 
-> **Vat**: a single-threaded home for local objects. Each call runs as one *turn*
-> before the next begins. The [modules page]($link.page('modules')) draws the full picture.
+## Archives and encryption
 
-## Encryption rides a separate artifact
-
-Cleartext TCP ships in the pure-Zig archives. Encrypted transport is
-[iroh](https://www.iroh.computer/) QUIC through a separate optional library,
-`libpancake_net_transport_iroh`, with per-binding modules that load only for an
-`iroh` locator. See [Transports]($link.page('transports')) for how hosting and
-dialing differ from TCP.
-
-## Getting the archives
-
-No prebuilt archives ship yet. Every binding opens the shared pancake archives,
-so build them with `zig build` in a pancake checkout; a Zig toolchain is the one
-prerequisite. Each binding finds them the same way: an explicit
-`PANCAKE_LIB_DIR` wins, a binding running in-tree falls back to
-the checkout's `zig-out/lib`, and otherwise the OS dynamic-linker search resolves
-the plain library name from the system library path.
-
-## Run the dogfoods
-
-The dogfoods are the repository's own verification gates, run from a checkout
-rather than a consumer install:
+No prebuilt archives yet. Run `zig build` in a checkout, then point
+`PANCAKE_LIB_DIR` or use `zig-out/lib`. Encrypted transport is optional
+[iroh]($link.page('transports/iroh')).
 
 ```sh
-zig build bindings        # rust + deno + bun + python + racket dogfoods
-zig build rust-dogfood    # just the Rust consumer
+zig build bindings        # rust + deno + bun + python + racket smokes
+zig build rust-dogfood    # just Rust
 ```
 
-These need `cargo`, `deno`, `bun`, `python3`, and `racket` on PATH. The
-[devcontainer](https://codeberg.org/jimisaacs/pancake/src/branch/main/.devcontainer/)
-provides all five.
+Needs `cargo`, `deno`, `bun`, `python3`, and `racket` on PATH (or the
+[devcontainer](https://codeberg.org/jimisaacs/pancake/src/branch/main/.devcontainer/)).

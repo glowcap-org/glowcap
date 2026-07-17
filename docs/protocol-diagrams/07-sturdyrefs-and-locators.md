@@ -2,8 +2,8 @@
 
 Anchors: OCapN Locators specification; CapTP Specification § The bootstrap
 Object (fetch). The `op:resolve` settlement arrow in ST-2 draws pancake's
-PreSpec shape; on the v1.0 wire the same settlement is the resolver-callback
-deliver (see the vocabulary note and DR-4 in
+`pancake-next` profile shape; on the v1.0 wire the same settlement is the
+resolver-callback deliver (see the vocabulary note and DR-4 in
 [02-deliver-and-resolve.md](02-deliver-and-resolve.md)).
 
 ## ST-1: Sturdyref anatomy

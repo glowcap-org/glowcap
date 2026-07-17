@@ -1,0 +1,519 @@
+//! Cooperative CapTP turn queue for the lab TUI (UI-thread only).
+//!
+//! Host ownership forbids a worker thread; waits use `send` / `beginFetch` +
+//! `on` + `stepReadable` while the event loop keeps painting and accepting input.
+//!
+//! Rendering contract: drain with non-blocking `stepReadable(0)` until idle or
+//! blocked on I/O; the TUI wakes on the session socket (or a frame timeout) —
+//! never a blind sleep while CapTP is busy. Spinner glyphs appear only after
+//! `spinner_show_after_ms` so same-turn settlement never flashes a wait.
+const std = @import("std");
+const pancake = @import("pancake");
+const Ctx = @import("../ctx.zig").Ctx;
+const ocapn = @import("../ocapn/mod.zig");
+const blocks = @import("blocks.zig");
+const copy = @import("copy.zig");
+const teach = @import("teach.zig");
+const complete = @import("complete.zig");
+const splitLine = @import("mod.zig").splitLine;
+
+const driver = pancake.driver;
+const model = pancake.ocapn.model;
+const actors = pancake.actors;
+
+pub const spinner_frames = [_][]const u8{ "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" };
+/// Frame budget while animating a wait (~60 Hz). Also the `stepReadable` cap so
+/// a remote answer wakes the loop early instead of sitting out a blind sleep.
+pub const frame_ms: i32 = 16;
+/// Defer spinner glyphs until a wait is perceptible (local/flush settle stays clean).
+pub const spinner_show_after_ms: i64 = 50;
+
+pub fn isSessionVerb(verb: []const u8) bool {
+    return std.mem.eql(u8, verb, "call") or
+        std.mem.eql(u8, verb, "tell") or
+        std.mem.eql(u8, verb, "fetch") or
+        std.mem.eql(u8, verb, "publish");
+}
+
+const flash_mod = @import("flash.zig");
+pub const Flash = flash_mod.Flash;
+
+const Queued = struct {
+    line: []u8,
+    block_idx: usize,
+};
+
+const AfterFetch = enum { call, tell };
+
+const StartResult = enum { waiting, finished };
+
+const Active = struct {
+    gpa: std.mem.Allocator,
+    arena: std.heap.ArenaAllocator,
+    capture: driver.SettleCapture,
+    flag: driver.SettleFlag,
+    block_idx: usize,
+    label: []u8,
+    started_ms: i64,
+    timeout_ms: i32,
+    after_fetch: ?AfterFetch = null,
+    method: []const u8 = "",
+    args: []model.Argument = &.{},
+    args_owned: bool = false,
+    tokens_owned: [][]u8,
+    tokens: []const []const u8,
+    verb: []const u8,
+
+    fn deinit(self: *Active) void {
+        if (self.args_owned) self.gpa.free(self.args);
+        for (self.tokens_owned) |t| self.gpa.free(t);
+        self.gpa.free(self.tokens_owned);
+        self.gpa.free(self.tokens);
+        self.gpa.free(self.label);
+        self.arena.deinit();
+        self.gpa.destroy(self);
+    }
+
+    fn resetListener(self: *Active) void {
+        _ = self.arena.reset(.retain_capacity);
+        self.capture = .{ .arena = self.arena.allocator() };
+        self.flag = .{
+            .inner = .{ .ctx = &self.capture, .func = driver.SettleCapture.fire },
+            .done = false,
+        };
+    }
+};
+
+pub const Queue = struct {
+    gpa: std.mem.Allocator,
+    pending: std.ArrayList(Queued) = .empty,
+    active: ?*Active = null,
+    spin_i: usize = 0,
+
+    pub fn init(gpa: std.mem.Allocator) Queue {
+        return .{ .gpa = gpa };
+    }
+
+    pub fn deinit(self: *Queue) void {
+        if (self.active) |a| a.deinit();
+        self.active = null;
+        for (self.pending.items) |q| self.gpa.free(q.line);
+        self.pending.deinit(self.gpa);
+    }
+
+    pub fn busy(self: *const Queue) bool {
+        return self.active != null or self.pending.items.len > 0;
+    }
+
+    pub fn enqueue(self: *Queue, ctx: *Ctx, line: []const u8, store: *blocks.Store) !void {
+        const owned = try self.gpa.dupe(u8, line);
+        errdefer self.gpa.free(owned);
+        // Plain label until a wait outlives `spinner_show_after_ms`.
+        try store.appendLine(.pending, line);
+        const block_idx = store.items.items.len - 1;
+        try self.pending.append(self.gpa, .{ .line = owned, .block_idx = block_idx });
+        if (self.active == null) try self.startNext(ctx, store);
+    }
+
+    pub fn cancelActive(
+        self: *Queue,
+        ctx: *Ctx,
+        store: *blocks.Store,
+        progress: *teach.Progress,
+        complete_state: *complete.State,
+    ) !Flash {
+        if (self.active == null) return .none;
+        if (ctx.session) |session| session.breakFarVows("cancelled");
+        return self.pump(ctx, store, progress, complete_state);
+    }
+
+    pub fn tick(
+        self: *Queue,
+        ctx: *Ctx,
+        store: *blocks.Store,
+        progress: *teach.Progress,
+        complete_state: *complete.State,
+    ) !Flash {
+        const flash = try self.pump(ctx, store, progress, complete_state);
+        self.paintSpinnerIfDue(store);
+        return flash;
+    }
+
+    fn paintSpinnerIfDue(self: *Queue, store: *blocks.Store) void {
+        const a = self.active orelse return;
+        if (milliTimestamp() - a.started_ms < spinner_show_after_ms) return;
+        self.spin_i = (self.spin_i + 1) % spinner_frames.len;
+        var buf: [520]u8 = undefined;
+        const text = std.fmt.bufPrint(&buf, "{s} {s}", .{ spinner_frames[self.spin_i], a.label }) catch a.label;
+        store.setLine(a.block_idx, .pending, text) catch {};
+    }
+
+    /// Drain until the queue is idle or the active vow needs socket progress.
+    /// One `stepReadable(0)` flushes (local settle) then polls without blocking.
+    pub fn pump(
+        self: *Queue,
+        ctx: *Ctx,
+        store: *blocks.Store,
+        progress: *teach.Progress,
+        complete_state: *complete.State,
+    ) !Flash {
+        var flash: Flash = .none;
+        while (true) {
+            const active = self.active orelse {
+                try self.startNext(ctx, store);
+                if (self.active == null) return flash;
+                continue;
+            };
+            const session = ctx.session orelse {
+                try store.setLine(active.block_idx, .error_line, "! No open session.");
+                self.clearActive();
+                continue;
+            };
+
+            if (active.timeout_ms != 0) {
+                const elapsed = milliTimestamp() - active.started_ms;
+                if (elapsed >= active.timeout_ms) {
+                    session.breakFarVows("wait timed out");
+                }
+            }
+
+            _ = session.stepReadable(0) catch |err| {
+                try finishErr(store, active.block_idx, err);
+                self.clearActive();
+                continue;
+            };
+
+            if (!active.flag.done) return flash;
+
+            const settled = active.capture.finish() catch |err| {
+                try finishErr(store, active.block_idx, err);
+                self.clearActive();
+                continue;
+            };
+
+            if (active.after_fetch) |after| {
+                const f = try self.continueAfterFetch(ctx, store, progress, complete_state, session, active, settled, after);
+                if (f != .none) flash = f;
+                continue;
+            }
+
+            const f = try self.finishTerminal(ctx, store, progress, complete_state, active, settled);
+            if (f != .none) flash = f;
+        }
+    }
+
+    fn continueAfterFetch(
+        self: *Queue,
+        ctx: *Ctx,
+        store: *blocks.Store,
+        progress: *teach.Progress,
+        complete_state: *complete.State,
+        session: *driver.Session,
+        active: *Active,
+        settled: driver.Settled,
+        after: AfterFetch,
+    ) !Flash {
+        const target = farRefFromFetch(settled) catch |err| {
+            if (err == error.FetchBroken) {
+                try store.setLine(active.block_idx, .error_line, "! fetch: FetchBroken");
+                try store.appendLine(.tip, "tip: publish that name on the peer, then fetch again");
+            } else {
+                try finishErr(store, active.block_idx, err);
+            }
+            self.clearActive();
+            try self.startNext(ctx, store);
+            return .none;
+        };
+
+        active.after_fetch = null;
+        active.resetListener();
+        active.started_ms = milliTimestamp();
+
+        switch (after) {
+            .call => {
+                const vow = session.send(target, .{ .verb = active.method, .args = active.args }) catch |err| {
+                    try finishErr(store, active.block_idx, err);
+                    self.clearActive();
+                    try self.startNext(ctx, store);
+                    return .none;
+                };
+                try session.on(vow, .{ .ctx = &active.flag, .func = driver.SettleFlag.fire });
+                _ = session.stepReadable(0) catch {};
+                return .none;
+            },
+            .tell => {
+                session.tell(target, .{ .verb = active.method, .args = active.args }) catch |err| {
+                    try finishErr(store, active.block_idx, err);
+                    self.clearActive();
+                    try self.startNext(ctx, store);
+                    return .none;
+                };
+                try store.setLine(active.block_idx, .result, "told");
+                try store.appendLine(.gloss, "↳ tell — fire-and-forget deliver");
+                progress.noteVerb("tell", ctx);
+                if (active.tokens.len >= 2) complete_state.rememberName(active.tokens[1]) catch {};
+                self.clearActive();
+                try self.startNext(ctx, store);
+                return .answers;
+            },
+        }
+    }
+
+    fn finishTerminal(
+        self: *Queue,
+        ctx: *Ctx,
+        store: *blocks.Store,
+        progress: *teach.Progress,
+        complete_state: *complete.State,
+        active: *Active,
+        settled: driver.Settled,
+    ) !Flash {
+        switch (settled) {
+            .broken => |reason| {
+                if (std.mem.eql(u8, reason, "cancelled")) {
+                    try store.setLine(active.block_idx, .error_line, "! cancelled");
+                    try store.appendLine(.tip, "tip: Esc cancels the active wait; queued CapTP turns still run");
+                } else if (std.mem.eql(u8, reason, "wait timed out")) {
+                    try store.setLine(active.block_idx, .error_line, "! WaitTimedOut");
+                    try store.appendLine(.tip, "tip: #0 is bootstrap — fetch then call #<import> from the Imports rail");
+                } else {
+                    var buf: [600]u8 = undefined;
+                    const msg = std.fmt.bufPrint(&buf, "broken: {s}", .{reason}) catch "broken";
+                    try store.setLine(active.block_idx, .error_line, msg);
+                }
+                const flash = flashForVerb(active.verb);
+                self.clearActive();
+                try self.startNext(ctx, store);
+                return flash;
+            },
+            else => {},
+        }
+
+        if (std.mem.eql(u8, active.verb, "fetch")) {
+            const import_pos = importPosFromFetch(settled) catch |err| {
+                try finishErr(store, active.block_idx, err);
+                self.clearActive();
+                try self.startNext(ctx, store);
+                return .none;
+            };
+            const name = active.tokens[1];
+            var fbuf: [256]u8 = undefined;
+            const msg = std.fmt.bufPrint(&fbuf, "fetched {s} → import {d}", .{ name, import_pos }) catch "fetched";
+            try store.setLine(active.block_idx, .result, msg);
+            var nbuf: [256]u8 = undefined;
+            const next = std.fmt.bufPrint(&nbuf, "next: call {s} <verb> [args…]   or   call #{d} <verb> [args…]", .{ name, import_pos }) catch copy.next_deliver;
+            try store.appendLine(.tip, next);
+        } else {
+            var out: std.ArrayList(u8) = .empty;
+            defer out.deinit(self.gpa);
+            const prev = ctx.sink;
+            ctx.sink = .{ .buffer = &out };
+            defer ctx.sink = prev;
+            try ocapn.printSettled(ctx, settled);
+            const text = std.mem.trimEnd(u8, out.items, "\n");
+            if (text.len == 0) {
+                try store.setLine(active.block_idx, .result, "ok");
+            } else {
+                try store.setLine(active.block_idx, .result, text);
+            }
+        }
+
+        var gbuf: [256]u8 = undefined;
+        const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{teach.gloss(active.verb)}) catch "↳ ok";
+        try store.appendLine(.gloss, gm);
+        progress.noteVerb(active.verb, ctx);
+        if (active.tokens.len >= 2) complete_state.rememberName(active.tokens[1]) catch {};
+        const flash = flashForVerb(active.verb);
+        self.clearActive();
+        try self.startNext(ctx, store);
+        return flash;
+    }
+
+    fn clearActive(self: *Queue) void {
+        if (self.active) |a| a.deinit();
+        self.active = null;
+    }
+
+    fn startNext(self: *Queue, ctx: *Ctx, store: *blocks.Store) !void {
+        while (self.active == null and self.pending.items.len > 0) {
+            const q = self.pending.orderedRemove(0);
+            defer self.gpa.free(q.line);
+
+            const session = ctx.session orelse {
+                try store.setLine(q.block_idx, .error_line, "! No open session.");
+                try store.appendLine(.tip, copy.tip_no_session);
+                continue;
+            };
+
+            const raw_tokens = try splitLine(self.gpa, q.line);
+            defer self.gpa.free(raw_tokens);
+            if (raw_tokens.len == 0) continue;
+
+            var owned_toks: std.ArrayList([]u8) = .empty;
+            errdefer {
+                for (owned_toks.items) |t| self.gpa.free(t);
+                owned_toks.deinit(self.gpa);
+            }
+            for (raw_tokens) |t| try owned_toks.append(self.gpa, try self.gpa.dupe(u8, t));
+            const tokens_owned = try owned_toks.toOwnedSlice(self.gpa);
+            errdefer {
+                for (tokens_owned) |t| self.gpa.free(t);
+                self.gpa.free(tokens_owned);
+            }
+            const tokens = try self.gpa.alloc([]const u8, tokens_owned.len);
+            errdefer self.gpa.free(tokens);
+            for (tokens_owned, 0..) |t, i| tokens[i] = t;
+
+            const verb = tokens[0];
+            const label = try self.gpa.dupe(u8, q.line);
+            errdefer self.gpa.free(label);
+
+            if (std.mem.eql(u8, verb, "publish")) {
+                try runPublish(session, tokens, q.block_idx, store);
+                self.gpa.free(label);
+                for (tokens_owned) |t| self.gpa.free(t);
+                self.gpa.free(tokens_owned);
+                self.gpa.free(tokens);
+                continue;
+            }
+
+            const active = try self.gpa.create(Active);
+            errdefer self.gpa.destroy(active);
+            active.* = .{
+                .gpa = self.gpa,
+                .arena = std.heap.ArenaAllocator.init(self.gpa),
+                .capture = undefined,
+                .flag = undefined,
+                .block_idx = q.block_idx,
+                .label = label,
+                .started_ms = milliTimestamp(),
+                .timeout_ms = ocapn.default_settle_timeout_ms,
+                .tokens_owned = tokens_owned,
+                .tokens = tokens,
+                .verb = verb,
+            };
+            active.resetListener();
+
+            const result = self.beginVerb(session, active, store) catch |err| {
+                try finishErr(store, active.block_idx, err);
+                if (err == error.Usage) try store.appendLine(.tip, copy.tip_missing_verb);
+                active.deinit();
+                continue;
+            };
+            switch (result) {
+                .waiting => return,
+                .finished => continue,
+            }
+        }
+    }
+
+    fn beginVerb(self: *Queue, session: *driver.Session, active: *Active, store: *blocks.Store) !StartResult {
+        const tokens = active.tokens;
+        const verb = tokens[0];
+
+        if (std.mem.eql(u8, verb, "fetch")) {
+            if (tokens.len < 2) return error.Usage;
+            const vow = try session.beginFetch(tokens[1]);
+            try session.on(vow, .{ .ctx = &active.flag, .func = driver.SettleFlag.fire });
+            _ = session.stepReadable(0) catch {};
+            self.active = active;
+            return .waiting;
+        }
+
+        if (std.mem.eql(u8, verb, "call") or std.mem.eql(u8, verb, "tell")) {
+            if (tokens.len < 3) return error.Usage;
+            const target_tok = tokens[1];
+            active.method = tokens[2];
+            active.args = try ocapn.parseArgsList(active.gpa, tokens[3..]);
+            active.args_owned = true;
+
+            if (try ocapn.parseImportTarget(target_tok)) |target| {
+                if (std.mem.eql(u8, verb, "tell")) {
+                    try session.tell(target, .{ .verb = active.method, .args = active.args });
+                    try store.setLine(active.block_idx, .result, "told");
+                    try store.appendLine(.gloss, "↳ tell — fire-and-forget deliver");
+                    active.deinit();
+                    return .finished;
+                }
+                const vow = try session.send(target, .{ .verb = active.method, .args = active.args });
+                try session.on(vow, .{ .ctx = &active.flag, .func = driver.SettleFlag.fire });
+                _ = session.stepReadable(0) catch {};
+                self.active = active;
+                return .waiting;
+            }
+
+            active.after_fetch = if (std.mem.eql(u8, verb, "call")) .call else .tell;
+            const vow = try session.beginFetch(target_tok);
+            try session.on(vow, .{ .ctx = &active.flag, .func = driver.SettleFlag.fire });
+            _ = session.stepReadable(0) catch {};
+            self.active = active;
+            return .waiting;
+        }
+
+        return error.Usage;
+    }
+};
+
+fn farRefFromFetch(settled: driver.Settled) !actors.Ref {
+    return switch (settled) {
+        .fulfilled => |arg| switch (arg) {
+            .reference => |reference| switch (reference) {
+                .far => |far| .{ .far = far },
+                else => driver.Error.FetchNotACapability,
+            },
+            else => driver.Error.FetchNotACapability,
+        },
+        .broken => error.FetchBroken,
+        .give => driver.Error.FetchNotACapability,
+    };
+}
+
+fn importPosFromFetch(settled: driver.Settled) !u64 {
+    const ref = try farRefFromFetch(settled);
+    return switch (ref) {
+        .far => |far| far.import_position.int(),
+        .local => driver.Error.FetchNotACapability,
+    };
+}
+
+fn runPublish(session: *driver.Session, tokens: []const []const u8, block_idx: usize, store: *blocks.Store) !void {
+    if (tokens.len < 2) {
+        try store.setLine(block_idx, .error_line, "! publish needs a built-in name (greeter|echo)");
+        return;
+    }
+    ocapn.publishBuiltin(session, tokens[1]) catch |err| {
+        try finishErr(store, block_idx, err);
+        return;
+    };
+    var buf: [128]u8 = undefined;
+    const msg = std.fmt.bufPrint(&buf, "published {s}", .{tokens[1]}) catch "published";
+    try store.setLine(block_idx, .result, msg);
+    try store.appendLine(.gloss, "↳ publish — name a local actor the partner can fetch");
+}
+
+const flashForVerb = flash_mod.flashForVerb;
+
+fn finishErr(store: *blocks.Store, block_idx: usize, err: anyerror) !void {
+    var buf: [128]u8 = undefined;
+    const msg = std.fmt.bufPrint(&buf, "! {s}", .{@errorName(err)}) catch "! error";
+    try store.setLine(block_idx, .error_line, msg);
+    if (err == error.WaitTimedOut) {
+        try store.appendLine(.tip, "tip: Esc cancels; #0 is bootstrap — fetch then call #<import> from the Imports rail");
+        return;
+    }
+    if (copy.tipForErrorDetail(@errorName(err))) |tip| {
+        var tbuf: [256]u8 = undefined;
+        const tm = std.fmt.bufPrint(&tbuf, "tip: {s}", .{tip}) catch tip;
+        try store.appendLine(.tip, tm);
+    }
+}
+
+fn milliTimestamp() i64 {
+    var ts: std.posix.timespec = .{ .sec = 0, .nsec = 0 };
+    switch (std.posix.errno(std.posix.system.clock_gettime(std.posix.CLOCK.REALTIME, &ts))) {
+        .SUCCESS => {},
+        else => return 0,
+    }
+    return @as(i64, @intCast(ts.sec)) * 1000 +
+        @divFloor(@as(i64, @intCast(ts.nsec)), 1_000_000);
+}

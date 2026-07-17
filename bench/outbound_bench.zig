@@ -1,19 +1,19 @@
-//! The outbound engine path, end to end — and the GC release storm.
+//! The outbound engine path, end to end, and the GC release storm.
 //!
 //! `bench-codec` times encode alone; nothing times what a caller actually pays
-//! to put a message on the wire: `send` (owned-tree validate walk +
-//! `recordSend`'s retain walk) → queue → `step` (on a v1.0 session, an
+//! to put a message on the wire: `send` (owned-tree validate walk plus
+//! `recordSend`'s retain walk), then queue, then `step` (on a v1.0 session, an
 //! answered `op:deliver` also mints a resolver export: an export allocation,
-//! the answer→resolver link insert, and the wire-delta retain) → encode →
-//! outbound push → `takeOutbound`. Scenario (a) measures that full path per
-//! answered deliver. The application boundary clone (`sendCopying`) is timed
+//! the answer-to-resolver link insert, and the wire-delta retain), then encode,
+//! then outbound push, then `takeOutbound`. Scenario (a) measures that full path
+//! per answered deliver. The application boundary clone (`sendCopying`) is timed
 //! separately so the engine-path figure reads net of it.
 //!
 //! Scenario (b) is the release wave: open Q answered delivers, then send one
 //! `op:gc-answers` naming all Q positions, timing the single send+step that
 //! releases them. Releasing an outbound answer drops its v1.0 resolver link
 //! via `removeOutboundResolverByAnswer`, an O(1) lookup through the session's
-//! answer→resolver inverse map, so the wave is linear and ns/answer holds
+//! answer-to-resolver inverse map, so the wave is linear and ns/answer holds
 //! flat across the Q sweep. The sweep defends that shape: ns/answer growing
 //! with Q means a per-position scan crept back.
 //!

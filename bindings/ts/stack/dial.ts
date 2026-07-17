@@ -3,19 +3,19 @@
 // handoff-redeem alike.
 //
 // Every dial decision — the host:port grammar, the direct-addresses hint rule,
-// the iroh reachability posture, the scheme dispatch, and the typed errors —
+// the peer-id reachability posture, the scheme dispatch, and the typed errors —
 // is resolved once in the core by `pancake_host_plan_dial`, which hands back a
 // `PancakeDialPlan`. This module holds no dial business logic: it marshals the
-// posture, reads the plan, and performs the one thing the core cannot — the
-// async byte-channel open (`net.connect`, or the iroh companion). Adding a
-// transport is a core change, not an edit here. Session owns mint/handshake
-// (`establishDialedLocator` / `establishAccepted`); this module owns plan +
-// channel open + the public `connect` dialer.
+// posture, reads the plan into a language sum, and performs the one thing the
+// core cannot — the async byte-channel open (`net.connect`, or the iroh
+// companion). Adding a transport is a core change, not an edit here. Session
+// owns mint/handshake (`establishDialedLocator` / `establishAccepted`); this
+// module owns plan + channel open + the public `connect` dialer.
 
 import { Session } from "./session.ts";
 import { Host } from "./host.ts";
 import { driverS } from "./internal/ffi/driver.ts";
-import { net } from "./internal/ffi/runtime.ts";
+import { ffi, net } from "./internal/ffi/runtime.ts";
 import { ab, readBytes } from "./internal/seam.ts";
 import { checkHost, PancakeError } from "./errors.ts";
 import { type Codec, Reachability } from "./value.ts";
@@ -35,8 +35,16 @@ import {
 	DIAL_POSTURE_REDEEM,
 	DIAL_REACH_CONFIGURED,
 	DIAL_REACH_DIRECT,
-	DIAL_SHAPE_IROH,
+	DIAL_SHAPE_HOST_PORT,
+	DIAL_SHAPE_PEER_ID,
 	INVALID_ARGUMENT,
+	PENDING_DIAL_DESIGNATOR_LEN_OFF,
+	PENDING_DIAL_DESIGNATOR_OFF,
+	PENDING_DIAL_HINT_LEN_OFF,
+	PENDING_DIAL_HINT_OFF,
+	PENDING_DIAL_SIZE,
+	PENDING_DIAL_TRANSPORT_LEN_OFF,
+	PENDING_DIAL_TRANSPORT_OFF,
 } from "./internal/abi.ts";
 
 const utf8Encoder = new TextEncoder();
@@ -59,19 +67,35 @@ export interface DialRequest {
 	readonly redeemReachability: Reachability;
 }
 
-/** A resolved dial from `pancake_host_plan_dial`: what channel to open and how. */
-interface DialPlan {
-	readonly shape: number;
-	readonly hostname: string;
-	readonly port: number;
-	readonly addresses: string;
-	readonly reachKind: number;
-	readonly reachValue: number;
+/** A resolved dial from `pancake_host_plan_dial`: language sum over the C
+ * shape flag (mirrors Zig `DialPlan`). */
+type DialPlan =
+	| { readonly tag: "host_port"; readonly hostname: string; readonly port: number }
+	| {
+		readonly tag: "peer_id";
+		readonly addresses: string;
+		readonly reachKind: number;
+		readonly reachValue: number;
+	};
+
+/** Decode a plan view that aliases one of the UTF-8 input buffers (one OS
+ * connect string decode). A non-alias view is a core contract break. */
+function decodePlanView(sources: Uint8Array[], ptr: bigint, len: bigint): string {
+	if (len === 0n) return "";
+	const n = Number(len);
+	for (const src of sources) {
+		const base = ffi.pointerOf(src);
+		if (ptr >= base && ptr + len <= base + BigInt(src.length)) {
+			const off = Number(ptr - base);
+			return utf8Decoder.decode(src.subarray(off, off + n));
+		}
+	}
+	throw new PancakeError(INVALID_ARGUMENT, "dial plan view does not alias input buffers");
 }
 
 /** Resolve a dial in the core: the grammar, the hint rule, the posture, and the
- * error cases all decided by `pancake_host_plan_dial`. The plan's `hostname` /
- * `addresses` borrow the input buffers, so they are read into strings here. */
+ * error cases all decided by `pancake_host_plan_dial`. Plan views alias the
+ * input UTF-8 buffers; decode those subslices only. */
 function planDial(
 	transport: string,
 	designator: string,
@@ -95,23 +119,38 @@ function planDial(
 		ab(out),
 	));
 	const dv = new DataView(out.buffer);
-	const str = (off: number, lenOff: number): string => {
-		const len = dv.getBigUint64(lenOff, true);
-		return len === 0n ? "" : utf8Decoder.decode(readBytes(dv.getBigUint64(off, true), len));
-	};
-	return {
-		shape: dv.getUint32(DIAL_PLAN_SHAPE_OFF, true),
-		hostname: str(DIAL_PLAN_HOST_OFF, DIAL_PLAN_HOST_LEN_OFF),
-		port: dv.getUint16(DIAL_PLAN_PORT_OFF, true),
-		addresses: str(DIAL_PLAN_ADDRESSES_OFF, DIAL_PLAN_ADDRESSES_LEN_OFF),
-		reachKind: dv.getUint32(DIAL_PLAN_REACH_KIND_OFF, true),
-		reachValue: dv.getUint32(DIAL_PLAN_REACH_VALUE_OFF, true),
-	};
+	const sources = [d, h];
+	const str = (off: number, lenOff: number): string =>
+		decodePlanView(
+			sources,
+			dv.getBigUint64(off, true),
+			dv.getBigUint64(lenOff, true),
+		);
+	const shape = dv.getUint32(DIAL_PLAN_SHAPE_OFF, true);
+	if (shape === DIAL_SHAPE_PEER_ID) {
+		return {
+			tag: "peer_id",
+			addresses: str(DIAL_PLAN_ADDRESSES_OFF, DIAL_PLAN_ADDRESSES_LEN_OFF),
+			reachKind: dv.getUint32(DIAL_PLAN_REACH_KIND_OFF, true),
+			reachValue: dv.getUint32(DIAL_PLAN_REACH_VALUE_OFF, true),
+		};
+	}
+	if (shape === DIAL_SHAPE_HOST_PORT) {
+		return {
+			tag: "host_port",
+			hostname: str(DIAL_PLAN_HOST_OFF, DIAL_PLAN_HOST_LEN_OFF),
+			port: dv.getUint16(DIAL_PLAN_PORT_OFF, true),
+		};
+	}
+	throw new PancakeError(INVALID_ARGUMENT, `unknown dial shape ${shape}`);
 }
 
-/** The core resolved which posture to dial iroh under; substitute the host's
- * configured value for the CONFIGURED marker (the core is postureless). */
-function reachOf(plan: DialPlan, configured: Reachability): Reachability {
+/** The core resolved which posture to dial a peer-id open under; substitute the
+ * host's configured value for the CONFIGURED marker (the core is postureless). */
+function reachOf(
+	plan: Extract<DialPlan, { tag: "peer_id" }>,
+	configured: Reachability,
+): Reachability {
 	switch (plan.reachKind) {
 		case DIAL_REACH_DIRECT:
 			return Reachability.Direct;
@@ -131,21 +170,25 @@ export async function dialResolved(host: Host, req: DialRequest): Promise<Sessio
 		? [DIAL_POSTURE_EXPLICIT, req.reachability]
 		: [DIAL_POSTURE_EXPLICIT_NONE, 0];
 	const plan = planDial(req.transport, req.designator, req.directAddresses, policy, value);
-	if (plan.shape === DIAL_SHAPE_IROH) {
-		const iroh = await import("@pancake/iroh/internal");
-		return iroh._connectIroh(
-			req.designator,
-			plan.addresses,
-			reachOf(plan, req.redeemReachability),
-			host,
-		);
-	}
-	const tcp = await net.connect(plan.hostname, plan.port);
-	try {
-		return await Session.establishDialedLocator(host, req.transport, req.designator, tcp);
-	} catch (err) {
-		tcp.close();
-		throw err;
+	switch (plan.tag) {
+		case "peer_id": {
+			const iroh = await import("@pancake/iroh/internal");
+			return iroh._connectIroh(
+				req.designator,
+				plan.addresses,
+				reachOf(plan, req.redeemReachability),
+				host,
+			);
+		}
+		case "host_port": {
+			const tcp = await net.connect(plan.hostname, plan.port);
+			try {
+				return await Session.establishDialedLocator(host, req.transport, req.designator, tcp);
+			} catch (err) {
+				tcp.close();
+				throw err;
+			}
+		}
 	}
 }
 
@@ -202,6 +245,37 @@ export async function dialExporter(
 		host,
 		{ redeem: true },
 	);
+}
+
+/** Ticket-only DIAL arm: borrow parsed parts (no URI re-parse), dial, report.
+ * Binding-internal: the action drain calls this. */
+export async function runDialTicket(host: Host, ticket: bigint): Promise<void> {
+	const out = new Uint8Array(PENDING_DIAL_SIZE);
+	try {
+		checkHost(driverS.pancake_host_pending_dial(host.raw, ticket, ab(out)));
+		const dv = new DataView(out.buffer);
+		const str = (off: number, lenOff: number): string => {
+			const len = dv.getBigUint64(lenOff, true);
+			return len === 0n ? "" : utf8Decoder.decode(readBytes(dv.getBigUint64(off, true), len));
+		};
+		const transport = str(PENDING_DIAL_TRANSPORT_OFF, PENDING_DIAL_TRANSPORT_LEN_OFF);
+		const designator = str(PENDING_DIAL_DESIGNATOR_OFF, PENDING_DIAL_DESIGNATOR_LEN_OFF);
+		const hint = str(PENDING_DIAL_HINT_OFF, PENDING_DIAL_HINT_LEN_OFF);
+		const session = await dialExporter(transport, designator, hint, host);
+		session.hostDialed = true;
+		session.serve().catch(() => {});
+		checkHost(driverS.pancake_host_dialed(host.raw, ticket, session.raw));
+	} catch (err) {
+		const reason = utf8Encoder.encode(
+			err instanceof Error ? err.message : String(err),
+		);
+		checkHost(driverS.pancake_host_dial_failed(
+			host.raw,
+			ticket,
+			ab(reason),
+			BigInt(reason.length),
+		));
+	}
 }
 
 /** Dial a partner from its `ocapn://` locator — the one public dialer. */

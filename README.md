@@ -35,7 +35,10 @@ New to capabilities, CapTP, or OCapN? Start with
 
 ## Quick start
 
-pancake is a Zig package:
+Fetch the Zig package, then connect / fetch / call. The human walkthrough
+(tcp + iroh, C, bindings) is
+[`site/content/start.smd`](site/content/start.smd) (`zig build docs-serve`).
+This snippet is the machine-checked contract only:
 
 ```sh
 zig fetch --save git+https://codeberg.org/jimisaacs/pancake
@@ -46,9 +49,6 @@ const pancake = b.dependency("pancake", .{ .target = target, .optimize = optimiz
 exe.root_module.addImport("pancake", pancake.module("pancake"));
 ```
 
-A client is one object and a handful of verbs: connect, fetch a capability by
-name, call it, switch on the settled outcome, close.
-
 ```zig
 const std = @import("std");
 const pancake = @import("pancake");
@@ -58,13 +58,19 @@ const pancake = @import("pancake");
 var tcp_resident = pancake.net.tcp.Resident{ .io = io };
 const partner = pancake.net.tcp.at(designator);
 
-const conn = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, partner, .ephemeral, .{});
-defer conn.deinit();
+const session = try pancake.driver.connect(
+    allocator,
+    &.{tcp_resident.netlayer()},
+    partner,
+    .ephemeral,
+    .{},
+);
+defer session.deinit();
 
-const greeter = try conn.fetch("greeter"); // a capability, by name
+const greeter = try session.fetch("greeter"); // a capability, by name
 var arena = std.heap.ArenaAllocator.init(allocator);
 defer arena.deinit();
-const settled = try conn.call(greeter, .{
+const settled = try session.call(greeter, .{
     .verb = "greet",
     .args = &.{.{ .string = "world" }},
 }, arena.allocator());
@@ -77,52 +83,38 @@ switch (settled) {
 }
 ```
 
-That snippet is machine-checked:
+Held identical to
 [`examples/zig/readme_quick_start.zig`](examples/zig/readme_quick_start.zig)
-carries the same code verbatim, runs under `zig build examples`, and
-`zig build meta-check` holds the two identical. The hosting
-half is the same shape;
-[`examples/zig/01_connect_and_serve.zig`](examples/zig/01_connect_and_serve.zig)
-is the runnable version of both halves.
-
-Not writing Zig? The same library ships a C ABI.
-[`docs/consuming-from-c.md`](docs/consuming-from-c.md) is the route for C and
-FFI consumers, and [`bindings/`](bindings/README.md) holds the Rust, TypeScript,
-Python, and Racket bindings, each exposing the same small application surface.
-
-## Learn by example
-
-The [example chapters](examples/README.md) read top-down, from the application
-surface to the raw engine: connect and serve, an introduction redeemed into a
-direct connection, actors and far-sends, lookup by name, then explicit frames
-one `step` at a time. Three full applications then
-run the same code across every binding on one wire: a capability-secure chat
-room (`zig build demo-rooms`), a shared task board (`zig build demo-tasks`), and
-an AI-agent tool harness with delegation, attenuation, and revocation
-(`zig build demo-tools`).
+(`zig build examples` + `meta-check`). Both halves:
+[`01_connect_and_serve.zig`](examples/zig/01_connect_and_serve.zig). C/FFI:
+[`docs/consuming-from-c.md`](docs/consuming-from-c.md). Language bindings:
+[`bindings/`](bindings/README.md). Chapters and demos:
+[`examples/README.md`](examples/README.md).
 
 ## Design posture
 
-The portable core is deterministic, sync, and no-I/O. Adapters own sockets,
-scheduling, and host integration. Session state is authoritative; codecs parse
-and render but decide nothing. Every wire-path allocation and copy is forbidden,
-named, or measured, and the budgets are build gates. A real Spritely Goblins
-peer holds a live conversation with pancake in both directions, and the upstream
-OCapN test suite runs against it. See [`docs/architecture.md`](docs/architecture.md)
-and [`docs/vision.md`](docs/vision.md).
+Sans-io core; adapters own I/O. Session state is authoritative. Wire-path
+cost is forbidden, named, or measured. Evidence:
+[`docs/architecture.md`](docs/architecture.md),
+[`docs/vision.md`](docs/vision.md),
+[`docs/community-review.md`](docs/community-review.md).
 
 ## Status
 
-[`docs/shipped.md`](docs/shipped.md) inventories what ships today.
-[`docs/boundaries.md`](docs/boundaries.md) names the edges that remain.
-[`docs/ladder.md`](docs/ladder.md) is the ordered route to 1.0.
+[shipped](docs/shipped.md) · [boundaries](docs/boundaries.md) ·
+[ladder](docs/ladder.md) · [community-review](docs/community-review.md)
 
 ## Build
 
 ```sh
-zig build          # the composable C ABI archives + their headers under zig-out/
-zig build check    # the full hermetic gate: tests, examples, oracles, budgets
+zig build          # C ABI archives + headers + pancake CLI (+ thin rooms-peer shim)
+zig build check    # full in-tree check: tests, examples, reference fixtures, budgets
+zig build pancake  # run the CapTP CLI; pass `-- help` / `-- ocapn …` / `-- mcp`
 ```
+
+Put the CLI on your `PATH` (`export PATH="$PWD/zig-out/bin:$PATH"`), then call a
+capability from your shell, script CapTP with `--json`, or drop pancake into an
+agent via MCP: [`docs/cli.md`](docs/cli.md).
 
 Focused steps while iterating:
 
@@ -131,8 +123,8 @@ zig build test
 zig build test -Dtest-filter=substring   # only tests whose names match
 zig build examples
 zig build bindings        # rust + deno + bun + python + racket C ABI smokes
-zig build oracle-check    # protocol manifest + Syrup fixture parity
-zig build meta-check      # scaffolding and documented build-step parity
+zig build oracle-check    # protocol reference fixtures + Syrup fixture parity
+zig build meta-check      # documented build steps, overlays, and doc registry
 ```
 
 Live interop, conformance, benchmarks, demos, and header regeneration need extra
@@ -145,12 +137,16 @@ the contributor verification workflow.
   OCapN from zero, plus the glossary.
 - [`docs/consuming-from-c.md`](docs/consuming-from-c.md): build, link,
   ownership rules, first complete C program.
+- [`docs/cli.md`](docs/cli.md): installable CapTP CLI walkthrough (listen, call,
+  REPL, MCP).
 - [`docs/architecture.md`](docs/architecture.md): layers, memory, and the C ABI
   contract.
 - [`docs/protocol-diagrams/`](docs/protocol-diagrams/README.md): the living
   CapTP diagrams.
 - [`docs/shipped.md`](docs/shipped.md) and
   [`docs/boundaries.md`](docs/boundaries.md): what exists and where it ends.
+- [`docs/community-review.md`](docs/community-review.md): interop target, evidence
+  matrix, and divergences for an external protocol read.
 - [`docs/decisions/`](docs/decisions/README.md): the accepted decision records.
 - [`SECURITY.md`](SECURITY.md): vulnerability reporting and the invariants a
   report may cite.

@@ -3,8 +3,8 @@
 //! Test support (not a production module): the view round-trip test and the
 //! cross-codec equivalence harness both need to ask "are these two decoded
 //! messages the same meaning?", independent of which codec or entry point
-//! produced them. Leans on the production `model.*Equal` helpers for the leaf
-//! comparisons (references, arguments, locators).
+//! produced them. Leans on the production `model.*Equal` helpers for leaf
+//! comparisons (references, arguments, argument slices, locators, handoffs).
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -23,7 +23,7 @@ pub fn messagesEqual(a: model.Message, b: model.Message) bool {
             if (x.resolve_me_desc) |xr| {
                 if (!model.referencesEqual(xr, y.resolve_me_desc.?)) break :blk false;
             }
-            break :blk argumentSlicesEqual(x.args, y.args);
+            break :blk model.equality.argumentSlicesEqual(x.args, y.args);
         },
         .resolve => |x| resolutionsEqual(x.resolution, b.resolve.resolution) and x.answer == b.resolve.answer,
         .gc_export => |x| std.mem.eql(u64, x.positions, b.gc_export.positions) and std.mem.eql(u64, x.deltas, b.gc_export.deltas),
@@ -44,14 +44,8 @@ pub fn messagesEqual(a: model.Message, b: model.Message) bool {
                 model.peerLocatorsEqual(x.acceptable_location, y.acceptable_location) and
                 std.mem.eql(u8, x.acceptable_location_sig.bytes, y.acceptable_location_sig.bytes);
         },
-        .handoff => |x| handoffsEqual(x, b.handoff),
+        .handoff => |x| model.handoffsEqual(x, b.handoff),
     };
-}
-
-fn argumentSlicesEqual(a: []const model.Argument, b: []const model.Argument) bool {
-    if (a.len != b.len) return false;
-    for (a, b) |x, y| if (!model.argumentsEqual(x, y)) return false;
-    return true;
 }
 
 fn resolutionsEqual(a: model.Resolution, b: model.Resolution) bool {
@@ -59,26 +53,5 @@ fn resolutionsEqual(a: model.Resolution, b: model.Resolution) bool {
     return switch (a) {
         .fulfill => |x| model.argumentsEqual(x, b.fulfill),
         .@"break" => |x| std.mem.eql(u8, x.message, b.@"break".message),
-    };
-}
-
-fn givesEqual(a: model.HandoffGive, b: model.HandoffGive) bool {
-    return std.mem.eql(u8, a.recipient_key, b.recipient_key) and
-        std.mem.eql(u8, a.exporter_location, b.exporter_location) and
-        std.mem.eql(u8, a.gifter_exporter_session, b.gifter_exporter_session) and
-        std.mem.eql(u8, a.gifter_side, b.gifter_side) and
-        std.mem.eql(u8, a.gift_id, b.gift_id) and
-        std.mem.eql(u8, a.signature, b.signature);
-}
-
-fn handoffsEqual(a: model.Handoff, b: model.Handoff) bool {
-    if (std.meta.activeTag(a) != std.meta.activeTag(b)) return false;
-    return switch (a) {
-        .give => |x| givesEqual(x, b.give),
-        .receive => |x| givesEqual(x.signed_give, b.receive.signed_give) and
-            x.handoff_count == b.receive.handoff_count and
-            std.mem.eql(u8, x.receiving_session, b.receive.receiving_session) and
-            std.mem.eql(u8, x.receiving_side, b.receive.receiving_side) and
-            std.mem.eql(u8, x.signature, b.receive.signature),
     };
 }

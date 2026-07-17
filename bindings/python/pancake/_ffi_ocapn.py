@@ -214,9 +214,6 @@ def _load():
         ),
         "pancake_locator_transport": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
         "pancake_locator_designator": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
-        "pancake_locator_host_port": (
-            [P, ctypes.POINTER(ctypes.c_void_p), size_p, ctypes.POINTER(ctypes.c_uint16)], ctypes.c_int32,
-        ),
         "pancake_designator_host_port": (
             [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p), size_p, ctypes.POINTER(ctypes.c_uint16)],
             ctypes.c_int32,

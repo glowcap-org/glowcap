@@ -115,20 +115,16 @@ pub fn mintOf(slot: Slot) Mint {
     };
 }
 
-pub fn isUnresolved(slot: Slot) bool {
-    return switch (slot) {
-        .local_unresolved, .remote_unresolved => true,
-        else => false,
-    };
-}
-
 pub const TransitionError = error{
     /// Fulfill / break require an unresolved slot.
     NotUnresolved,
 };
 
-/// Unresolved → same-mint value. Position preserved. One resolution path for
-/// both local promises and remote answers (ADR-0080).
+/// Unresolved becomes same-mint value, position preserved: the total
+/// unresolved→value transition over both mints. In this codebase only a remote
+/// answer binding is driven through it (`answers.zig`); a `local_unresolved`
+/// export is minted for a resolver callback and is terminal — pancake never
+/// settles a local promise export (ADR-0080, ADR-0007).
 pub fn fulfill(slot: Slot) TransitionError!Slot {
     return switch (slot) {
         .local_unresolved => |p| .{ .local_value = p },
@@ -137,7 +133,7 @@ pub fn fulfill(slot: Slot) TransitionError!Slot {
     };
 }
 
-/// Unresolved → broken, mint and position preserved.
+/// Unresolved becomes broken; mint and position preserved.
 pub fn breakSlot(slot: Slot) TransitionError!Slot {
     return switch (slot) {
         .local_unresolved => |p| .{ .broken = .{ .mint = .local, .position = p } },

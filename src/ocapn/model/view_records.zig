@@ -21,17 +21,70 @@ pub const BreakReason = struct {
     }
 };
 
-/// Borrowed mirror of `model.PeerLocator`. `hints` is carried by value.
+/// Lazy hint-entry packing left by a codec. Cap'n Proto fills `w0`/`w1`/`w2`;
+/// Syrup leaves them zero. The only owned path is `materialize` (one walk —
+/// Cap'n caches the frame reader; Syrup re-parses once). No `len`/`at`: those
+/// invited O(n) from-start re-walks nobody on the production path called.
+pub const HintList = struct {
+    bytes: []const u8 = &.{},
+    w0: u64 = 0,
+    w1: u64 = 0,
+    w2: u64 = 0,
+    materialize: *const fn (std.mem.Allocator, HintList, model.Hints.WireForm) Error!model.Hints,
+};
+
+/// Borrowed hint shape: exactly one arm — empty spelling, projected entries, or
+/// a lazy codec list.
+pub const BorrowedHints = union(enum) {
+    empty: model.Hints.WireForm,
+    projected: model.Hints,
+    lazy: struct {
+        wire_form: model.Hints.WireForm,
+        list: HintList,
+    },
+
+    pub fn wireForm(self: BorrowedHints) model.Hints.WireForm {
+        return switch (self) {
+            .empty => |wf| wf,
+            .projected => |h| h.wire_form,
+            .lazy => |l| l.wire_form,
+        };
+    }
+
+    pub fn toOwned(self: BorrowedHints, allocator: std.mem.Allocator) Error!model.Hints {
+        return switch (self) {
+            .empty => |wf| .{ .wire_form = wf },
+            .projected => |h| try model.cloneHints(allocator, h),
+            .lazy => |l| try l.list.materialize(allocator, l.list, l.wire_form),
+        };
+    }
+
+    /// Stack-only URI spelling when no allocation is required. `null` means the
+    /// caller must `toOwned` (lazy list).
+    pub fn stackUriHints(self: BorrowedHints) ?model.Hints {
+        return switch (self) {
+            .empty => |wf| if (wf == .boolean_false) model.Hints.emptyFalse() else model.Hints.emptyMap().forUriExport(),
+            .projected => |h| h.forUriExport(),
+            .lazy => null,
+        };
+    }
+};
+
+/// Borrowed mirror of `model.PeerLocator`.
 pub const PeerLocator = struct {
     transport: []const u8,
     designator: []const u8,
-    /// The wire-decode path projects only the empty hint spellings (`#f` or
-    /// `{}`): a non-empty hints map decodes as empty here. Hint entries
-    /// survive only via `syrup.readLocatorOwned`.
-    hints: model.Hints = .{},
+    hints: BorrowedHints = .{ .empty = .map },
 
     pub fn fromOwned(owned: *const model.PeerLocator) PeerLocator {
-        return .{ .transport = owned.transport, .designator = owned.designator, .hints = owned.hints };
+        return .{
+            .transport = owned.transport,
+            .designator = owned.designator,
+            .hints = if (owned.hints.entries.len == 0)
+                .{ .empty = owned.hints.wire_form }
+            else
+                .{ .projected = owned.hints },
+        };
     }
 
     pub fn toOwned(self: PeerLocator, allocator: std.mem.Allocator) Error!model.PeerLocator {
@@ -39,41 +92,8 @@ pub const PeerLocator = struct {
         errdefer allocator.free(transport);
         const designator = try allocator.dupe(u8, self.designator);
         errdefer allocator.free(designator);
-        const hints = try model.cloneHints(allocator, self.hints);
+        const hints = try self.hints.toOwned(allocator);
         return .{ .transport = transport, .designator = designator, .hints = hints };
-    }
-};
-
-/// A handoff's exporter location, in whichever shape its codec carried it.
-pub const ExporterLocation = union(enum) {
-    raw: []const u8,
-    locator: struct {
-        transport: []const u8,
-        designator: []const u8,
-        /// The verbatim `<ocapn-peer …>` record this locator parsed from, when
-        /// the codec carried one (the Syrup path; empty for capnp's opaque
-        /// bytes). A consumer that needs hint entries the borrowed session
-        /// reader discards — an exporter's direct-address dial hints, say —
-        /// re-parses this span with an allocator. The flattened
-        /// `transport:designator` form above cannot carry hints.
-        record: []const u8 = &.{},
-    },
-
-    pub fn toOwned(self: ExporterLocation, allocator: std.mem.Allocator) Error![]u8 {
-        return switch (self) {
-            .raw => |bytes| allocator.dupe(u8, bytes),
-            .locator => |loc| blk: {
-                // The flattened `transport:designator` form splits back on the
-                // first ':', so a transport containing ':' would re-split into
-                // a different locator. Refuse the ambiguity at the producer.
-                if (std.mem.indexOfScalar(u8, loc.transport, ':') != null) return error.MalformedView;
-                const out = try allocator.alloc(u8, loc.transport.len + 1 + loc.designator.len);
-                @memcpy(out[0..loc.transport.len], loc.transport);
-                out[loc.transport.len] = ':';
-                @memcpy(out[loc.transport.len + 1 ..], loc.designator);
-                break :blk out;
-            },
-        };
     }
 };
 
@@ -98,7 +118,7 @@ pub const Signature = union(enum) {
 /// Borrowed mirror of `model.HandoffGive`.
 pub const HandoffGive = struct {
     recipient_key: []const u8,
-    exporter_location: ExporterLocation,
+    exporter: PeerLocator,
     gifter_exporter_session: []const u8,
     gifter_side: []const u8,
     gift_id: []const u8,
@@ -108,7 +128,7 @@ pub const HandoffGive = struct {
     fn fromOwned(owned: *const model.HandoffGive) HandoffGive {
         return .{
             .recipient_key = owned.recipient_key,
-            .exporter_location = .{ .raw = owned.exporter_location },
+            .exporter = PeerLocator.fromOwned(&owned.exporter),
             .gifter_exporter_session = owned.gifter_exporter_session,
             .gifter_side = owned.gifter_side,
             .gift_id = owned.gift_id,
@@ -120,8 +140,8 @@ pub const HandoffGive = struct {
     pub fn toOwned(self: HandoffGive, allocator: std.mem.Allocator) Error!model.HandoffGive {
         const recipient_key = try allocator.dupe(u8, self.recipient_key);
         errdefer allocator.free(recipient_key);
-        const exporter_location = try self.exporter_location.toOwned(allocator);
-        errdefer allocator.free(exporter_location);
+        const exporter = try self.exporter.toOwned(allocator);
+        errdefer model.freePeerLocator(allocator, exporter);
         const gifter_exporter_session = try allocator.dupe(u8, self.gifter_exporter_session);
         errdefer allocator.free(gifter_exporter_session);
         const gifter_side = try allocator.dupe(u8, self.gifter_side);
@@ -133,7 +153,7 @@ pub const HandoffGive = struct {
         const raw_signed = if (self.raw_signed) |raw| try allocator.dupe(u8, raw) else null;
         return .{
             .recipient_key = recipient_key,
-            .exporter_location = exporter_location,
+            .exporter = exporter,
             .gifter_exporter_session = gifter_exporter_session,
             .gifter_side = gifter_side,
             .gift_id = gift_id,

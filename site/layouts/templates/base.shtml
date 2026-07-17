@@ -27,6 +27,7 @@
 					<span class="nav-heading">Build</span>
 					<a class="$site.page('start').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('start').link()">Start building</a>
 					<a class="$site.page('surfaces').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('surfaces').link()">Surfaces</a>
+					<a class="$site.page('cli').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('cli').link()">CapTP CLI</a>
 					<a class="$site.page('bindings').isCurrent().then('nav-link is-current', 'nav-link')" href="$site.page('bindings').link()">Bindings</a>
 					<div class="nav-sub">
 						<a class="$site.page('bindings/rust').isCurrent().then('is-current', '')" href="$site.page('bindings/rust').link()">Rust</a>

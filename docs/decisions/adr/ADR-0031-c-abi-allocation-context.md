@@ -3,7 +3,7 @@ id: ADR-0031
 status: accepted
 date: 2026-06-06
 tags: [c_abi, memory, performance, api]
-decision: "Allocation policy for the C ABI is a `PancakeContext`: an explicit, caller-owned handle that owns the allocator for a whole handle family. The simple constructors keep the library-owned allocator; the `*_in` constructors allocate a peer or netlayer — and everything it owns (managed outbound/event frames, adopted inbound frames, TCP connection/listener payloads and their buffers, the context object itself) — through one context, freed back through it. The host surface is `alloc` + `free` only (size + alignment explicit, no `realloc`); the context must outlive its handles. Teardown vocabulary is `_release` for `_new`-created handles, `_close` for endpoints."
+decision: "Allocation policy for the C ABI is a `PancakeContext`: an explicit, caller-owned handle that owns the allocator for a whole handle family. The simple constructors keep the library-owned allocator; the `*_in` constructors allocate a peer or netlayer (and everything it owns (managed outbound/event frames, adopted inbound frames, TCP connection/listener payloads and their buffers, the context object itself)) through one context, freed back through it. The host surface is `alloc` + `free` only (size + alignment explicit, no `realloc`); the context must outlive its handles. Teardown vocabulary is `_release` for `_new`-created handles, `_close` for endpoints."
 supersedes: []
 superseded_by: []
 ---
@@ -12,8 +12,8 @@ superseded_by: []
 
 ## Context
 
-A C embedder must be able to choose allocation policy for the C ABI — an arena,
-a tracked heap, a guarded pool — and have _every_ pancake allocation honor it,
+A C embedder must be able to choose allocation policy for the C ABI: an arena,
+a tracked heap, a guarded pool: and have _every_ pancake allocation honor it,
 not just some. The naive shape, a per-handle `pancake_peer_new_in`,
 is a footgun: it scatters the policy across constructors, says nothing about the
 frames and buffers a handle later allocates, and tempts a caller to `free` a
@@ -22,7 +22,7 @@ at all.
 
 This sits on three [First Principles](../../../AGENTS.md#first-principles):
 _production APIs make the correct path the easy path_ (one policy per handle
-family, not per call); _performance is a public contract — every allocation is
+family, not per call); _performance is a public contract: every allocation is
 forbidden, intentional, or measured_ (the allocator is visible at the boundary
 that allocates); and _the portable core stays sync and no-I/O; adapters own host
 integration_ (allocation policy is `c_abi` vocabulary, never `foundation` /
@@ -42,7 +42,7 @@ constructors (`pancake_peer_new`, `pancake_tcp_netlayer_new`) keep the
 library-owned policy for the common caller who does not care.
 
 **Every allocation a context-scoped handle makes frees back through that
-context** — the handle object, the managed outbound and event frames, adopted
+context**: the handle object, the managed outbound and event frames, adopted
 inbound frames, the TCP connection/listener payloads and their read/write
 buffers, and the context object itself (allocated through the host callbacks so
 a host-backed family frees entirely through host policy). The mechanism is
@@ -52,14 +52,14 @@ payload carries the allocator it was minted from. Release routes through the
 stored allocator, so the _same_ `pancake_*_release` works for both the simple
 and `*_in` paths, and a frame can even move between contexts because each
 allocation remembers its own origin. C callers free only through the explicit
-release functions — the context is policy, never a `free` a caller invokes by
+release functions: the context is policy, never a `free` a caller invokes by
 hand.
 
 **The host surface is `alloc` + `free` only**, both told the size and a
 power-of-two alignment. With both sides told the size, the only sound resize
-policy for an opaque host allocator is "never resize in place" (`resize` →
-false, `remap` → null): it keeps every `free` size exactly equal to its `alloc`
-size — correct even for a size-tracking host allocator — and never asks a
+policy for an opaque host allocator is "never resize in place" (`resize` returns
+false, `remap` returns null): it keeps every `free` size exactly equal to its `alloc`
+size (correct even for a size-tracking host allocator) and never asks a
 relocated block to honor the original over-alignment. A grow becomes
 alloc-copy-free.
 
@@ -123,8 +123,8 @@ created with `_new` are `_release` (`peer`, `context`, `managed_frame`, `event`,
 ## Typed driving surface
 
 The C ABI carries a typed driving surface, so a non-Zig binding can drive OCapN
-directly — construct an `op:deliver` or `op:resolve`, and read a delivery or
-resolution as structured values — instead of only shuttling opaque frames. The
+directly: construct an `op:deliver` or `op:resolve`, and read a delivery or
+resolution as structured values: instead of only shuttling opaque frames. The
 outbound path marshals fixed-layout C structs (`PancakeReference` /
 `PancakeArgument`) into a model message through `Peer.sendCopying`, the named
 boundary copy. The inbound path materializes one event into a per-event arena

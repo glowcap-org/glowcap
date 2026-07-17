@@ -26,7 +26,7 @@ interface Task {
 
 interface Watcher {
 	ref: Ref;
-	conn: Session;
+	session: Session;
 }
 
 const tasks: Task[] = [];
@@ -37,8 +37,8 @@ function snapshot(): AppValue {
 	return tasks.map((t) => [BigInt(t.id), t.text, t.completed]);
 }
 
-function removeWatcher(conn: Session): void {
-	const i = watchers.findIndex((w) => w.conn === conn);
+function removeWatcher(session: Session): void {
+	const i = watchers.findIndex((w) => w.session === session);
 	if (i >= 0) watchers.splice(i, 1);
 }
 
@@ -48,11 +48,11 @@ function removeWatcher(conn: Session): void {
 function notifyAll(): void {
 	const snap = snapshot();
 	for (const w of [...watchers]) {
-		w.conn.tell(w.ref, UPDATE, [snap]).catch(() => removeWatcher(w.conn));
+		w.session.tell(w.ref, UPDATE, [snap]).catch(() => removeWatcher(w.session));
 	}
 }
 
-function boardBehavior(conn: Session) {
+function boardBehavior(session: Session) {
 	return (verb: string, args: AppValue[]): AppValue => {
 		if (verb === ADD) {
 			const text = typeof args[0] === "string" ? args[0] : "";
@@ -81,7 +81,7 @@ function boardBehavior(conn: Session) {
 			if (!(ref instanceof Ref)) {
 				throw new Error("watch needs a watcher capability");
 			}
-			watchers.push({ ref, conn });
+			watchers.push({ ref, session });
 			return "watching";
 		}
 		throw new Error(`board has no method ${verb}`);
@@ -92,7 +92,7 @@ const port = Number(Deno.args[0] ?? "0");
 const server = listen("127.0.0.1", port);
 console.log(`TASKS-SERVER-LISTENING ${await server.ready()}`);
 
-for await (const conn of server) {
-	conn.publish(BOARD, boardBehavior(conn)); // fetchable by name
-	conn.serve().catch(() => removeWatcher(conn));
+for await (const session of server) {
+	session.publish(BOARD, boardBehavior(session)); // fetchable by name
+	session.serve().catch(() => removeWatcher(session));
 }

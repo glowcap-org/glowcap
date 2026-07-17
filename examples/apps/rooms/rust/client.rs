@@ -71,7 +71,7 @@ async fn join_room(locator: &str, room_name: &str, nick: &str) -> Result<Room, S
 	})
 	.await?;
 	let room_ref = enter_or_open(&dir, room_name).await?;
-	Room::subscribe(dir.conn(), room_ref, nick).await
+	Room::subscribe(dir.session(), room_ref, nick).await
 }
 
 async fn run_client(

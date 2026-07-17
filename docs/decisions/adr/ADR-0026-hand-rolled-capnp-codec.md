@@ -3,7 +3,7 @@ id: ADR-0026
 status: accepted
 date: 2026-06-04
 tags: [codec, capnp, wire-profile, zero-copy, view]
-decision: The Cap'n Proto codec is hand-rolled in Zig against the wire format directly — no schema compiler, no generated code. It emits and accepts single-segment messages, defines struct/list layout in code, and decodes view-first (a borrowed `MessageView` over the frame bytes) so the codec honors the zero-copy projection contract before any op is grown in.
+decision: The Cap'n Proto codec is hand-rolled in Zig against the wire format directly: no schema compiler, no generated code. It emits and accepts single-segment messages, defines struct/list layout in code, and decodes view-first (a borrowed `MessageView` over the frame bytes) so the codec honors the zero-copy projection contract before any op is grown in.
 supersedes: []
 superseded_by: []
 ---
@@ -20,7 +20,7 @@ reaches the wire.
 
 Cap'n Proto is normally schema-driven: a `.capnp` schema compiled by `capnpc`
 into generated accessors. That toolchain is not present in this project's build
-— there is no `capnp` binary, no codegen step in
+there is no `capnp` binary, no codegen step in
 [`build.zig`](../../../build.zig), and pulling one in would add a non-Zig build
 dependency and a generated-code surface to a codebase whose values put explicit,
 readable Zig first.
@@ -28,10 +28,14 @@ readable Zig first.
 The wire format itself is small and fully specified: a message is a sequence of
 8-byte little-endian words grouped into segments, and structured data is reached
 by following struct/list pointers that pack a signed word offset plus section
-sizes. Because Cap'n Proto here is the pancake↔pancake dialect (ADR-0003 §
-_spec-extending dialect_), the layout only has to be self-consistent between
-pancake peers — there is no third-party Cap'n Proto reader to satisfy, so a
-schema compiler buys nothing a hand-written layout does not.
+sizes. Because Cap'n Proto here is the pancake-to-pancake dialect (ADR-0003's
+pancake-forward / `next` track), the layout only has to be self-consistent
+between pancake peers: there is no third-party Cap'n Proto reader to satisfy, so
+a schema compiler buys nothing a hand-written layout does not. Layout drift is
+pinned by golden Cap'n Proto frames under
+[`test/codec/capnp_fixtures/`](../../../test/codec/capnp_fixtures/) (regenerate
+with `zig build gen-capnp-fixtures`); discriminant sets stay locked at comptime
+via `assertMirrorsMessageKinds` / `assertKindSetMatches`.
 
 Engages the First Principles _explicit over implicit_ (the layout is readable
 Zig, not generated output) and _protocol correctness before convenience_ (the
@@ -42,7 +46,7 @@ codec honors the zero-copy contract from the first op, not as a retrofit).
 The Cap'n Proto codec
 ([`src/ocapn/codec/capnp/`](../../../src/ocapn/codec/capnp/)) is hand-rolled
 against the wire format. [`wire.zig`](../../../src/ocapn/codec/capnp/wire.zig)
-is the mechanical substrate — segment framing, pointer bit-packing
+is the mechanical substrate: segment framing, pointer bit-packing
 (`encodeStructPointer` / `encodeListPointer` and their decoders), a
 single-segment `Builder` that back-patches pointers, and a bounds-checked word
 `Reader`. [`decode.zig`](../../../src/ocapn/codec/capnp/decode.zig) and
@@ -53,7 +57,9 @@ Three commitments fix the shape:
 
 - **No schema compiler.** Struct and list layout is defined in code against
   `wire.zig`. The layout is pancake-internal and moves with the model; there is
-  no generated module and no `.capnp` artifact.
+  no generated module and no `.capnp` schema source. Golden Cap'n Proto *frames*
+  under `test/codec/capnp_fixtures/` lock the bytes without introducing
+  `capnpc`.
 - **Single segment.** The codec emits one segment and rejects multi-segment
   frames (`Error.UnsupportedSegmentCount`). pancake messages are small;
   multi-segment support is additive if a message ever needs it.
@@ -82,9 +88,9 @@ is local-only and rejected on encode (`Error.UnsupportedReference`).
 ### Live-session integration
 
 The codec is selectable on a live session. `decode.zig` also projects
-[`decodeBody`](../../../src/ocapn/codec/capnp/decode.zig) — the shared
+[`decodeBody`](../../../src/ocapn/codec/capnp/decode.zig): the shared
 codec-neutral [`model.view.Body`](../../../src/ocapn/model/view.zig) the engine
-dispatches on — directly over the frame's words, the sibling of Syrup's
+dispatches on: directly over the frame's words, the sibling of Syrup's
 `decodeBody`. The unbounded sequences (`Args`, `PositionList`, `PipelinePath`)
 are reached through the same inline vtable backings the neutral view defines,
 with the `Ctx` scalars packing each list's word layout (element-0 index, section
@@ -98,7 +104,7 @@ encode, so that translation is codec-blind).
 Selection routes through the codec-dispatch seam
 ([`codec.dispatch`](../../../src/ocapn/codec/dispatch.zig)), keyed on the
 [`model.CodecId`](../../../src/ocapn/model/mod.zig) the session records from
-`negotiation.Negotiated.chosen`. Codecs resolve through an open comptime
+`negotiation.Negotiated.codec`. Codecs resolve through an open comptime
 registry (see the Open codec registry section below), so resolution unrolls at
 compile time to zero-indirection dispatch while the codec set stays open to
 consumer-supplied codecs. The session state machine and the V1.0 translation
@@ -118,7 +124,7 @@ the seam.
 
 - **Add `capnpc` + a codegen step to the build.** Rejected: a non-Zig build
   dependency and a generated-code surface, to satisfy a schema-compiler contract
-  no pancake↔pancake peer needs. The wire format is small enough to write
+  no pancake-to-pancake peer needs. The wire format is small enough to write
   directly.
 - **Vendor an external Zig Cap'n Proto library.** Rejected: a maturity and
   maintenance dependency for a layer that is a few hundred lines of
@@ -139,7 +145,7 @@ the seam.
   allocates word-aligned storage so the frame satisfies the shape's alignment
   invariant.
 - Cap'n Proto carries typed values Syrup projects to strings (e.g. a typed
-  `AbortKind` rather than Syrup's V1.0 abort wire string) — a concrete
+  `AbortKind` rather than Syrup's V1.0 abort wire string): a concrete
   demonstration of codec neutrality.
 - The codec is both a standalone tested module (`pancake.codec.capnp`) and a
   live-session option negotiated per direct session; a pair offering `capnp`
@@ -166,7 +172,7 @@ rather than a fork of pancake.
 ## Notes
 
 [ADR-0003](ADR-0003-codec-interoperability-posture.md) owns the codec posture
-(codec-neutral model, per-call `WireProfile`, the reserved slot this ADR fills).
+(codec-neutral model, per-call `CaptpVersion`, the reserved slot this ADR fills).
 The Syrup codec ([`src/ocapn/codec/syrup/`](../../../src/ocapn/codec/syrup/)) is
 the structural exemplar for the view-first decode adopted here; its borrowed
 view is the codec-neutral `model.view.Body`.

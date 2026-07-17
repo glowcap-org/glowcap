@@ -6,23 +6,17 @@
 .draft = false,
 ---
 
-The Racket binding loads the installed shared pancake archives and mirrors the
-à-la-carte archive set. The core module
-[`bindings/racket/pancake.rkt`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/racket/pancake.rkt)
-(over `libpancake_ocapn` and the byte-fed `libpancake_driver`) presents the
-`session` surface, native Racket values, and event structs — one tier; the
-raw peer family stays a C-consumer surface with no Racket wrapper. You
-`require` one module per transport (`pancake-tcp.rkt`,
-`pancake-inproc.rkt`, and the lazy `pancake-iroh.rkt`) to add only that
-transport's archive. The core is the reference shape for the whole binding
-family, because it reads the way a
-[Spritely Goblins](https://spritely.institute/goblins/) programmer expects.
+Goblins-shaped `session` surface with native values
+([`pancake.rkt`](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/racket/pancake.rkt)).
+Transports: `pancake-tcp.rkt`, `pancake-inproc.rkt`, lazy `pancake-iroh.rkt`.
+Install: [Bindings]($link.page('bindings')). Actor vocabulary:
+[modules]($link.page('modules')).
 
 ## The same round-trip
 
-The [Start building]($link.page('start')) round-trip (connect, fetch, call,
-handle the reply) reads like this in Racket, where `session-send` pumps the
-session and hands back the reply.
+The [Start building]($link.page('start')) round-trip (connect, fetch, send,
+handle the reply) reads like this in Racket. The local is `sess` so it does not
+shadow `session-fetch` / `session-send`.
 
 > []($block.attrs('code-tabs'))
 > **tcp**
@@ -32,10 +26,10 @@ session and hands back the reply.
 > ;; tcp: the peer is a place, a cleartext host and port.
 > (define partner (tcp-locator "127.0.0.1" 9099))
 >
-> (define c (connect partner))
-> (define greeter (session-fetch c "greeter")) ; a capability, by name
-> (printf "~a\n" (session-send c greeter 'greet "world"))
-> (session-close! c)
+> (define sess (connect partner))
+> (define greeter (session-fetch sess "greeter")) ; a capability, by name
+> (printf "~a\n" (session-send sess greeter 'greet "world"))
+> (session-close! sess)
 > ```
 > **iroh**
 > ```scheme
@@ -46,17 +40,14 @@ session and hands back the reply.
 > ;; resolves the bare node id over the open internet; no address in hand.
 > (define partner "ocapn://3b6a…da29.iroh")
 >
-> (define c (connect partner IROH-REACH-DISCOVERY))
-> (define greeter (session-fetch c "greeter")) ; a capability, by name
-> (printf "~a\n" (session-send c greeter 'greet "world"))
-> (session-close! c)
+> (define sess (connect partner IROH-REACH-DISCOVERY))
+> (define greeter (session-fetch sess "greeter")) ; a capability, by name
+> (printf "~a\n" (session-send sess greeter 'greet "world"))
+> (session-close! sess)
 > ```
 
-The iroh tab swaps the built host-and-port locator for a bare node id and adds
-the posture constant with its `require`; everything below `connect` is the tcp
-tab, line for line. The node id itself still arrives out of band, exactly like a
-host and port; discovery turns a name you were given into a route. It does
-not browse for peers.
+The iroh tab is a bare node id plus posture; fetch/send match the tcp tab.
+Dial-by-id and discovery: [iroh]($link.page('transports/iroh')).
 
 ## A Goblins-faithful actor layer
 
@@ -77,13 +68,10 @@ that `connect` returns.
 
 ## Async
 
-The async surface uses Racket's green threads and ports. A session pumps
-the byte-fed host over a Racket port pair (`tcp-connect` on the dial side,
-`tcp-accept` on the listening side) or a transport a companion module injects; a
-background `(session-serve sess)` thread keeps a served session pumped, and
-`(on vow handler)` fires when a promise settles.
+Green threads and ports. `(session-serve sess)` pumps inbound; `(on vow …)`
+fires on settle. CapTP ideas: [Concepts]($link.page('concepts')).
 
-## Dogfood and example
+## Binding check and example
 
 ```sh
 zig build racket-dogfood    # the Racket consumer against the pancake archives

@@ -1,11 +1,11 @@
 // The `RemotePromise` a Session send returns: lazy observation, promise
-// pipelining target, and `index`/`untag` projection (ADR-0007 / ADR-0050 /
-// ADR-0052). Also the shared fetch/enliven mint→await→classify path
-// (`awaitMinted` / `asLiveRef`), the far-send mint→`promiseFor` path
+// pipelining target, and `index`/`untag`/`get` projection (ADR-0007 /
+// ADR-0050 / ADR-0052). Also the shared fetch/enliven mint→await→classify
+// path (`awaitMinted` / `asLiveRef`), the far-send mint→`promiseFor` path
 // (`sendFar`), and RemotePromise construction. Session owns CapTP verb
 // wrappers; trampoline owns near/far send·tell dispatch and local arms;
 // this module owns the handle type, far-send/post-mint choreography, and
-// the `op:index`/`op:untag` projection FFI. Binding spine Pass 3a / 4b / 4d / 4f.
+// the projection FFI (`pancake_host_vow_*`).
 
 import { driverS } from "./internal/ffi/driver.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
@@ -39,11 +39,11 @@ export interface PromiseFactoryHandle {
 
 const utf8Encoder = new TextEncoder();
 
-/** Mint a sibling vow at `source` via `op:index` / `op:untag` (ADR-0050/0052). */
+/** Mint a sibling vow at `source` via `op:index` / `op:untag` / `op:get` (ADR-0050/0052). */
 function projectVow(
 	hostRaw: Ptr,
 	source: bigint,
-	op: "index" | "untag",
+	op: "index" | "untag" | "get",
 	key: string | bigint,
 ): bigint {
 	const out = new Uint8Array(8);
@@ -55,12 +55,13 @@ function projectVow(
 			ab(out),
 		));
 	} else {
-		const tag = utf8Encoder.encode(key as string);
-		checkHost(driverS.pancake_host_vow_untag(
+		const bytes = utf8Encoder.encode(key as string);
+		const fn = op === "get" ? driverS.pancake_host_vow_get : driverS.pancake_host_vow_untag;
+		checkHost(fn(
 			hostRaw,
 			source,
-			ab(tag),
-			BigInt(tag.length),
+			ab(bytes),
+			BigInt(bytes.length),
 			ab(out),
 		));
 	}
@@ -131,14 +132,14 @@ export function promiseFor(
 		return liftArg(await settled);
 	};
 	const project = (
-		op: "index" | "untag",
+		op: "index" | "untag" | "get",
 		key: string | bigint,
 	): RemotePromise => {
 		const projected = projectVow(h.hostRaw, vow, op, key);
 		h.vowMinted(projected);
 		return promiseFor(h, projected);
 	};
-	return new RemotePromise(vow, begin, project);
+	return RemotePromise.far(vow, begin, project);
 }
 
 /** Far-send mint→`RemotePromise`: encode args, mint the host vow
@@ -158,15 +159,10 @@ export function sendFar(
 	if (target instanceof RemotePromise) {
 		// Promise pipelining: eventual-send to the unresolved answer. A local
 		// send's promise has no wire answer to pipeline against.
-		if (target.vow === null) {
-			throw new PancakeError(
-				INVALID_ARGUMENT,
-				"cannot pipeline against a local-send promise; await it for a Ref",
-			);
-		}
+		const sourceVow = target.farVow();
 		checkHost(driverS.pancake_host_vow_send(
 			h.hostRaw,
-			target.vow,
+			sourceVow,
 			ab(verbBytes),
 			BigInt(verbBytes.length),
 			argsArg,
@@ -193,15 +189,15 @@ export function sendFar(
  * and — the point of promise pipelining (ADR-0007) — a target you can `send` to
  * before it resolves.
  *
- * It is a real `Promise`, so `await conn.send(...)`, `Promise.all(...)`, and
+ * It is a real `Promise`, so `await session.send(...)`, `Promise.all(...)`, and
  * `instanceof Promise` all work natively. Pass it *unawaited* as the `target`
  * of a later `send` to address the object the answer will resolve to: the
  * dependent call rides a `desc:answer` deliver and the partner queues it until
  * the answer settles, so a `create -> use` chain costs one round trip::
  *
- *     const task = conn.send(root, "create", ["x"]);       // not awaited
- *     conn.send(task, "assign", ["alice"]);                // pipelined
- *     const status = await conn.send(task, "status", []);  // settles the chain
+ *     const task = session.send(root, "create", ["x"]);       // not awaited
+ *     session.send(task, "assign", ["alice"]);                // pipelined
+ *     const status = await session.send(task, "status", []);  // settles the chain
  *
  * The send is queued when this is created, but its bytes leave the wire only
  * when this — or any send pipelined behind it — is first observed (`then` /
@@ -209,28 +205,33 @@ export function sendFar(
  * handle that is never observed is a fire-and-forget send; prefer
  * `Session.tell` for that. Because the settle is drain-routed and no rejection
  * is materialized until the handle is observed, an unawaited anchor whose far
- * answer *breaks* never raises an unhandled rejection. `vow` is the host vow
- * the answer settles.
+ * answer *breaks* never raises an unhandled rejection. State is a sum
+ * (`far` | `local`), not a nullable vow flag.
  *
- * The projection verbs `index`/`untag` (ADR-0050/ADR-0052) pipeline an
- * element or untag access *at the answer*, before it resolves: each returns a
- * new `RemotePromise` for the projected value, addressed at this answer, so
- * `task.untag("cell").index(0)` costs no extra round trip. */
+ * The projection verbs `index`/`untag`/`get` (ADR-0050/ADR-0052) pipeline an
+ * element, untag, or Struct-field access *at the answer*, before it resolves:
+ * each returns a new `RemotePromise` for the projected value, addressed at this
+ * answer, so `task.untag("cell").index(0)` or `task.get("name")` costs no
+ * extra round trip. */
+export type PromiseState =
+	| { readonly tag: "far"; readonly vow: bigint }
+	| { readonly tag: "local" };
+
 export class RemotePromise extends Promise<AppValue> {
+	readonly #state: PromiseState;
 	readonly #begin: () => Promise<AppValue>;
 	#started = false;
 	readonly #resolve: (value: AppValue | PromiseLike<AppValue>) => void;
 	readonly #reject: (reason?: unknown) => void;
-	// Issues a projection op (index/untag) at this vow and returns the new
-	// RemotePromise.
-	readonly #project: (op: "index" | "untag", key: string | bigint) => RemotePromise;
+	// Issues a projection op (index/untag/get) at this vow; set only for far.
+	readonly #project:
+		| ((op: "index" | "untag" | "get", key: string | bigint) => RemotePromise)
+		| undefined;
 
-	constructor(
-		/** The host vow this send's answer settles, or null for a local send
-		 * (not pipelinable). Binding-internal. */
-		readonly vow: bigint | null,
+	private constructor(
+		state: PromiseState,
 		begin: () => Promise<AppValue>,
-		project: (op: "index" | "untag", key: string | bigint) => RemotePromise,
+		project?: (op: "index" | "untag" | "get", key: string | bigint) => RemotePromise,
 	) {
 		// The executor only captures the settlement functions; it runs no flush,
 		// so construction is side-effect-free and the send stays lazy.
@@ -240,23 +241,70 @@ export class RemotePromise extends Promise<AppValue> {
 			resolve = res;
 			reject = rej;
 		});
+		this.#state = state;
 		this.#begin = begin;
 		this.#resolve = resolve;
 		this.#reject = reject;
 		this.#project = project;
 	}
 
+	/** A far answer that settles a host vow (pipelinable). */
+	static far(
+		vow: bigint,
+		begin: () => Promise<AppValue>,
+		project: (op: "index" | "untag" | "get", key: string | bigint) => RemotePromise,
+	): RemotePromise {
+		return new RemotePromise({ tag: "far", vow }, begin, project);
+	}
+
+	/** A local-send handle (not pipelinable). */
+	static local(begin: () => Promise<AppValue>): RemotePromise {
+		return new RemotePromise({ tag: "local" }, begin);
+	}
+
+	/** Host vow when far; `null` when local (convenience, not the discriminant). */
+	get vow(): bigint | null {
+		return this.#state.tag === "far" ? this.#state.vow : null;
+	}
+
+	/** The host vow for pipelining, or a typed refusal when this is local. */
+	farVow(): bigint {
+		if (this.#state.tag !== "far") {
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				"cannot pipeline against a local-send promise; await it for a Ref",
+			);
+		}
+		return this.#state.vow;
+	}
+
+	#projectOp(op: "index" | "untag" | "get", key: string | bigint): RemotePromise {
+		if (this.#state.tag !== "far" || this.#project === undefined) {
+			throw new PancakeError(
+				INVALID_ARGUMENT,
+				"cannot project a local-send promise; await it for a value",
+			);
+		}
+		return this.#project(op, key);
+	}
+
 	/** Pipeline an `op:index` for `i` at this answer (ADR-0050): a new
 	 * `RemotePromise` for the List element of whatever this resolves to. */
 	index(i: number | bigint): RemotePromise {
-		return this.#project("index", BigInt(i));
+		return this.#projectOp("index", BigInt(i));
 	}
 
 	/** Pipeline an `op:untag` for `tag` at this answer (ADR-0052): a new
 	 * `RemotePromise` for the payload of whatever this resolves to, which must
 	 * be a Tagged record whose tag equals `tag`. */
 	untag(tag: string): RemotePromise {
-		return this.#project("untag", tag);
+		return this.#projectOp("untag", tag);
+	}
+
+	/** Pipeline an `op:get` for `field` at this answer (ADR-0050): a new
+	 * `RemotePromise` for the Struct field of whatever this resolves to. */
+	get(field: string): RemotePromise {
+		return this.#projectOp("get", field);
 	}
 
 	// First observation issues the send's flush + reply wait, exactly once; the

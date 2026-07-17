@@ -1,9 +1,9 @@
-//! Owning C TCP session proof (ADR-0062) — the `pancake_tcp_session_*` family is
+//! Owning C TCP session test (ADR-0062): the `pancake_tcp_session_*` family is
 //! the C spelling of the native-Zig `driver.Session`: it dials, runs the keyed
 //! handshake, and offers a blocking `fetch`/`call` over the shared
 //! `PancakeReference`/`PancakeArgument` vocabulary, settling into the TCP
 //! archive's own `PancakeSettled` outcome. This pairs
-//! it against a real `driver.Server` host — the same hosting half the Zig
+//! it against a real `driver.Server` host, the same hosting half the Zig
 //! `Session` tests use — over a 127.0.0.1 socket with the keyed, verified
 //! handshake on both ends. The host publishes an `echo` actor; the C session
 //! fetches it and calls it, and the reply round-trips as a fulfilled settled

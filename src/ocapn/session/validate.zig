@@ -65,7 +65,7 @@ fn validateStartSession(
         .remote_received => self.handshake_remote_received,
     };
     if (already_observed) return Error.DuplicateStartSession;
-    if (ss.captp_version != self.wire_profile.captp_version) {
+    if (ss.captp_version != self.captp_version) {
         return Error.CaptpVersionMismatch;
     }
 }
@@ -474,28 +474,14 @@ fn validateInboundArgument(
 /// backstop that holds the same invariant for Cap'n Proto — whose pointer wire
 /// form cannot prove uniqueness for free — and for any future codec. It runs
 /// on the shared walk, so both the borrowed view path and the owned fallback
-/// enforce it identically. Turn-scratch in `recv_scratch` (borrowed elements
-/// materialized once for hashing, plus the hash rows), reclaimed by the
-/// recordRecv* reset; a hash group is confirmed with `argumentsEqual` before
-/// refusing, so a collision costs one compare, never a false refusal. The
-/// nesting depth of every element was already bounded by the surrounding walk.
+/// enforce it identically. Borrowed elements are hashed/compared as views
+/// (`viewArgumentHash` / `viewArgumentsEqualWithScratch`) — scratch holds only the view
+/// handles and hash rows, never a `toOwned` materialization. Owned fallback
+/// keeps the owned hash/equal path. A hash group is confirmed before refusing,
+/// so a collision costs one compare, never a false refusal. The nesting depth
+/// of every element was already bounded by the surrounding walk.
 fn checkInboundSetUniqueness(self: *Session, items: anytype) RecvViewError!void {
     const arena = self.recv_scratch.allocator();
-    var elements: []const model.Argument = undefined;
-    if (comptime @TypeOf(items) == model.view.Args) {
-        var count: usize = 0;
-        var counter = items.iterator();
-        while (try counter.next()) |_| count += 1;
-        if (count < 2) return;
-        const owned = try arena.alloc(model.Argument, count);
-        var it = items.iterator();
-        var i: usize = 0;
-        while (try it.next()) |element| : (i += 1) owned[i] = try element.toOwned(arena);
-        elements = owned;
-    } else {
-        if (items.len < 2) return;
-        elements = items;
-    }
     const Row = struct {
         hash: u64,
         index: usize,
@@ -503,21 +489,62 @@ fn checkInboundSetUniqueness(self: *Session, items: anytype) RecvViewError!void 
             return a.hash < b.hash;
         }
     };
+    if (comptime @TypeOf(items) == model.view.Args) {
+        // `len()` reads the list header (O(1)); no decode-walk just to count.
+        const count = try items.len();
+        if (count < 2) return;
+        // Small sets stay on the stack so the common deliver path never grows
+        // `recv_scratch` past its retain limit (a per-turn arena grow would
+        // break the flat scratch budget in deliver_set_scratch_budget_test).
+        const stack_cap = 8;
+        var stack_elements: [stack_cap]model.view.Argument = undefined;
+        var stack_rows: [stack_cap]Row = undefined;
+        const elements: []model.view.Argument = if (count <= stack_cap)
+            stack_elements[0..count]
+        else
+            try arena.alloc(model.view.Argument, count);
+        const rows: []Row = if (count <= stack_cap)
+            stack_rows[0..count]
+        else
+            try arena.alloc(Row, count);
+        var it = items.iterator();
+        var i: usize = 0;
+        while (try it.next()) |element| : (i += 1) {
+            elements[i] = element;
+            rows[i] = .{ .hash = try model.equality.viewArgumentHash(element), .index = i };
+        }
+        std.mem.sort(Row, rows, {}, Row.lessThan);
+        var run_start: usize = 0;
+        for (rows, 0..) |row, ri| {
+            if (row.hash != rows[run_start].hash) run_start = ri;
+            for (rows[run_start..ri]) |prior| {
+                if (try model.equality.viewArgumentsEqualWithScratch(
+                    elements[prior.index],
+                    elements[row.index],
+                    arena,
+                )) {
+                    return Error.DuplicateSetElement;
+                }
+            }
+        }
+        return;
+    }
+    if (items.len < 2) return;
+    const elements: []const model.Argument = items;
     const rows = try arena.alloc(Row, elements.len);
-    for (elements, 0..) |element, i| {
-        rows[i] = .{ .hash = model.equality.argumentHash(element), .index = i };
+    for (elements, 0..) |element, idx| {
+        rows[idx] = .{ .hash = model.equality.argumentHash(element), .index = idx };
     }
     std.mem.sort(Row, rows, {}, Row.lessThan);
     var run_start: usize = 0;
-    for (rows, 0..) |row, i| {
-        if (row.hash != rows[run_start].hash) run_start = i;
-        for (rows[run_start..i]) |prior| {
+    for (rows, 0..) |row, ri| {
+        if (row.hash != rows[run_start].hash) run_start = ri;
+        for (rows[run_start..ri]) |prior| {
             if (model.equality.argumentsEqual(elements[prior.index], elements[row.index])) {
                 return Error.DuplicateSetElement;
             }
         }
     }
-    return;
 }
 
 fn validateInboundStructEntries(

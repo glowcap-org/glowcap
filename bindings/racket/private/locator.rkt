@@ -21,11 +21,10 @@
 ;; `format-peer-uri` renders through the same grammar.
 
 ;; A parsed OCapN locator: `swissnum` is "" for a peer URI, the swiss bytes for a
-;; sturdyref; `hints` is a string→string hash. `host`/`port` carry the
-;; designator's host:port split when the core grammar
-;; (`pancake_locator_host_port`) accepts it, #f otherwise; a socket dialer
-;; consumes the split instead of re-deriving it.
-(struct locator (transport designator swissnum hints host port) #:transparent)
+;; sturdyref; `hints` is a string→string hash. Dial resolves host:port through
+;; `pancake_host_plan_dial`; apps that need a bare designator split use
+;; `designator-host-port`.
+(struct locator (transport designator swissnum hints) #:transparent)
 
 ;; Read a borrowed (pointer, length) view an accessor filled into a Racket string.
 (define (locator-field accessor loc)
@@ -55,26 +54,10 @@
   (dynamic-wind
    void
    (lambda ()
-     ;; The host:port split is the core grammar's verdict, read while the
-     ;; handle is alive: OK carries the split, ERR-INVALID-ARGUMENT means the
-     ;; designator is not host:port (an iroh node id, say), which is a fact,
-     ;; not a fault.
-     (define-values (hp-rc hptr hlen hport) (pancake_locator_host_port loc))
-     (define-values (host port)
-       (cond
-         [(= hp-rc OK)
-          (values (if (or (not hptr) (= hlen 0))
-                      ""
-                      (bytes->string/utf-8 (bytes<-c hptr hlen) #\uFFFD))
-                  hport)]
-         [(= hp-rc ERR-INVALID-ARGUMENT) (values #f #f)]
-         [else (check hp-rc) (values #f #f)]))
      (locator (locator-field pancake_locator_transport loc)
               (locator-field pancake_locator_designator loc)
               (locator-field pancake_locator_swissnum loc)
-              (read-locator-hints loc)
-              host
-              port))
+              (read-locator-hints loc)))
    (lambda () (pancake_locator_release loc))))
 
 ;; Format a peer locator as an `ocapn://<designator>.<transport>[?hints]` URI
@@ -136,19 +119,6 @@
            (not (and (string-prefix? host "[") (string-suffix? host "]"))))
       (format "[~a]:~a" host port)
       (format "~a:~a" host port)))
-
-;; Split a direct-addresses hint into host and port (first address when
-;; comma-separated) through the core locator grammar.
-(define (host-port-from-direct-hint hint [who 'connect])
-  (define first (string-trim (car (string-split hint ","))))
-  (when (= 0 (string-length first))
-    (raise-pancake who ERR-INVALID-ARGUMENT
-                   "keyed-tcp requires a non-empty direct-addresses hint"))
-  (with-handlers ([exn:fail:pancake?
-                   (lambda (_)
-                     (raise-pancake who ERR-INVALID-ARGUMENT
-                                    "direct-addresses hint is not host:port: ~a" first))])
-    (designator-host-port first)))
 
 ;; Split a bare designator as host:port through the core grammar
 ;; (`pancake_designator_host_port`). Prefer this over minting a peer URI

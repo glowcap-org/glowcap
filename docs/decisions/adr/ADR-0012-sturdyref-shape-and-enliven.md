@@ -3,7 +3,7 @@ id: ADR-0012
 status: accepted
 date: 2026-05-10
 tags: [model, session, engine, sturdyref, enliven, equality, goblins, interop]
-decision: A sturdyref is a `Reference.sturdy` arm carrying `SturdyRef { peer, swissnum }` with structural equality on `(peer, swissnum)`; a `sturdyref` feature gate makes a sturdyref-bearing payload on a non-negotiated session a loud refusal; and enlivenment rides the existing bootstrap-fetch behind a feature+open precondition, a per-session dedup cache (swissnum → `(import_id, kind)`) that short-circuits a repeat enliven with no wire traffic, and an in-flight marker that collapses a concurrent enliven onto the outstanding answer.
+decision: A sturdyref is a `Reference.sturdy` arm carrying `SturdyRef { peer, swissnum }` with structural equality on `(peer, swissnum)`; a `sturdyref` feature gate makes a sturdyref-bearing payload on a non-negotiated session a loud refusal; and enlivenment rides the existing bootstrap-fetch behind a feature+open precondition, a per-session dedup cache (swissnum to `(import_id, kind)`) that short-circuits a repeat enliven with no wire traffic, and an in-flight marker that collapses a concurrent enliven onto the outstanding answer.
 supersedes: []
 superseded_by: []
 ---
@@ -42,7 +42,7 @@ pub const SturdyRef = struct { peer: PeerLocator, swissnum: []const u8 };
 reusing the same `PeerLocator` that `op:start-session` and the handoff
 descriptors carry. Equality is structural:
 [`src/ocapn/model/equality.zig`](../../../src/ocapn/model/equality.zig)
-`referencesEqual` compares the `.sturdy` arm field-wise — `peerLocatorsEqual`
+`referencesEqual` compares the `.sturdy` arm field-wise. `peerLocatorsEqual`
 over `(transport, designator, hints)` and byte-equality on `swissnum`. Because
 it is structural on the codec-neutral value tree, two sturdyrefs naming the same
 target compare equal regardless of which codec or Syrup profile carried them
@@ -50,7 +50,7 @@ target compare equal regardless of which codec or Syrup profile carried them
 
 **Amendment (2026-06-10).** The locator axis above over-counted. OCapN
 `Locators.md` (§ Peer object) is explicit: "the designator and transport are the
-only pieces of information which need to match" — two peer locators with the
+only pieces of information which need to match": two peer locators with the
 same designator and transport but different hints are the same peer.
 `peerLocatorsEqual` therefore compares `(transport, designator)` only, and
 sturdyref equality is `(transport, designator, swissnum)`; hints are connection
@@ -62,7 +62,7 @@ advice, never identity.
 reference-validation paths in
 [`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig) refuse a
 `Reference.sturdy` with `Error.FeatureNotNegotiated` when the session did not
-negotiate the flag — on inbound decode and on outbound encode alike, so a peer
+negotiate the flag: on inbound decode and on outbound encode alike, so a peer
 cannot smuggle a sturdyref across a session that never agreed to speak them.
 `FeatureSet.full()` turns `sturdyref` on; the handshake `intersect` reduces the
 negotiated set to what both peers advertised.
@@ -76,11 +76,11 @@ concern, exactly as for the bootstrap-fetch it rides.
 - **Precondition.** `checkEnlivenPreconditions` requires the session to have
   negotiated `FeatureSet.sturdyref` (`Error.SturdyrefsNotNegotiated`) and to be
   `open` (`Error.SessionNotOpen`). Whether `sturdyref.peer` names this session's
-  remote is a dial/adapter concern — the core tracks no remote locator and never
+  remote is a dial/adapter concern: the core tracks no remote locator and never
   dials.
 - **Dedup.** `prepareEnliven` resolves to one of three starts. A cache hit
-  (`sturdyrefCacheHit`) rebuilds the cached `Reference.far` — kind preserved per
-  [ADR-0010](ADR-0010-payload-descriptor-discriminator.md) — with no wire
+  (`sturdyrefCacheHit`) rebuilds the cached `Reference.far`: kind preserved per
+  [ADR-0010](ADR-0010-payload-descriptor-discriminator.md): with no wire
   traffic. An in-flight match (`pendingEnlivenAnswer`) collapses a concurrent
   enliven for the same swiss-number onto the outstanding answer id. A miss
   issues a fresh bootstrap-fetch and records the in-flight marker
@@ -94,23 +94,35 @@ concern, exactly as for the bootstrap-fetch it rides.
 The dedup state lives on the session
 ([`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig)):
 `cacheSturdyrefEnlivenment` / `sturdyrefImportFor` / `sturdyrefKindFor` over a
-swissnum → `(import_id, kind)` cache, and `notePendingEnliven` /
+swissnum to `(import_id, kind)` cache, and `notePendingEnliven` /
 `finishPendingEnliven` over the in-flight markers. The cache is non-load-bearing
-— a miss costs one extra round-trip, never correctness — so it is bounded by
+a miss costs one extra round-trip, never correctness: so it is bounded by
 `SessionLimits.max_sturdyref_cache_entries` and evicts the oldest entry on
 overflow rather than erroring.
 
 ### Cross-session distributed equality
 
-This builds on the sturdyref dedup cache above. One session per peer pair is
-ADR-0012's Host / enrollment posture (not a CapTP `FeatureSet` bit): a
-caller-held registry keyed on `PeerId` should refuse a second open to a peer
-already held. That refuse is not yet wired at Host enrollment
-([boundaries.md](../../boundaries.md)); until it is, same-session structural
-`Reference` equality (`referencesEqual`) is the distributed-equality evidence
-for OCapN Pass Invariant Equality on `(import_id, kind)`. The sturdyref dedup
-cache above supplies the sturdyref-vs-handoff collapse onto one import row. No
-wire field carries equality.
+This builds on the sturdyref dedup cache above. Host CapTP enrollment posture
+(not a CapTP `FeatureSet` bit): after a partner's CapTP identity is known
+(`op:start-session` session public key), a Host admits at most one
+non-condemned CapTP session to that identity. Dial-time refuse covers only
+verified identity: dial↔dial by our own dialed designator, and keyed dials
+by partner session key (`HostError.SessionPairExists`). Partner-declared
+`acceptable_location.designator` on address transports is never a dial refuse
+key: the hello signature proves the claim, not ownership of a tcp
+`host:port`. An accepted tcp session therefore does not block
+`openDialedLocator` to that address; post-handshake
+`refuseDuplicatePartnerKey` is the chokepoint, and when two live sessions
+share a partner key the survivor follows the ADR-0068 crossed-hellos key
+order (both ends keep the session the higher-keyed peer opened) rather than
+local arrival order. Crossed-hellos window (ADR-0068): an accept beside an
+in-flight dial remains admitted until inbound start-session;
+`tiebreakInbound` condemns exactly one side so the pair collapses to one.
+Same-session structural `Reference` equality (`referencesEqual`) remains the
+distributed-equality evidence for OCapN Pass Invariant Equality on
+`(import_id, kind)`. The sturdyref dedup cache above supplies the
+sturdyref-vs-handoff collapse onto one import row. No wire field carries
+equality.
 
 ## Scope (what this does not decide)
 
@@ -118,9 +130,10 @@ wire field carries equality.
   `(peer, swissnum)` shape is unsigned and irrevocable. (Handoff-gift withdrawal
   is unrelated handoff state,
   [ADR-0009](ADR-0009-three-party-handoff-substrate.md).)
-- **Locator-URI parsing.** The `ocapn://…/s/<swiss-num>` URI form is not parsed;
-  the core consumes the in-band Syrup record, not a URI string. URI interchange
-  is an adapter concern.
+- **Locator-URI interchange at the session waist.** `model.uri` parses
+  `ocapn://…/s/<swiss-num>` (and peer URIs) for adapters and the C ABI. The
+  CapTP session / enliven core still consumes the in-band `SturdyRef`
+  (`peer` + `swissnum`), not a URI string at the waist.
 - **Dial-on-enliven.** Enliven requires an already-open session; opening one on
   miss is a dial/transport concern outside the no-I/O core.
 
@@ -130,10 +143,10 @@ wire field carries equality.
   should compare equal under Pass Invariant Equality would compare unequal once
   each codec chose its own byte layout, breaking codec-neutral semantics.
 - **A `Value`-level sturdyref arm.** Rejected: a sturdyref is authority-bearing
-  — it enlivens to a live reference — so it belongs on `Reference`, alongside
+  (it enlivens to a live reference) so it belongs on `Reference`, alongside
   near/far/promise.
 - **Per-adapter enliven orchestration.** Rejected: the enliven story
-  (precondition → dedup → fetch → settle) is identical everywhere; centralizing
+  (precondition, then dedup, then fetch, then settle) is identical everywhere; centralizing
   it in the core lets scenarios exercise it without a transport.
 
 ## Consequences
@@ -150,7 +163,7 @@ wire field carries equality.
 ## Forward compatibility
 
 A future signed sturdyref grows additively as a wrapped Syrup record on the
-`v1_0` profile, mirroring the handoff signature-envelope pattern; the `pre_spec`
+`v1_0` profile, mirroring the handoff signature-envelope pattern; the `next`
 profile refuses the extended form via the feature flag. The unsigned
 `(peer, swissnum)` shape and its structural equality are the substrate the
 Cross-session distributed equality section above binds its dedup sidecar to.

@@ -93,7 +93,7 @@
                 (macro "PANCAKE_VERSION_PATCH" 0))])]
     [else (hash-ref contract 'abi_version)]))
 
-;; All host aliases from tools/c-abi-host-aliases.json (meta_check per-port presence).
+;; All host aliases from tools/c-abi/c-abi-host-aliases.json (meta_check per-port presence).
 (define host-alias-corpus
   '("x86_64" "amd64" "x64"
     "aarch64" "arm64"
@@ -103,7 +103,7 @@
 
 (define (host-target-triple)
   ;; Normalize host aliases to zig build release-pack triples
-  ;; (`tools/c-abi-host-aliases.json`). Rust uses CARGO_CFG_* which
+  ;; (`tools/c-abi/c-abi-host-aliases.json`). Rust uses CARGO_CFG_* which
   ;; already emit those names. Corpus kept in host-alias-corpus.
   (define arch
     (case (system-type 'arch)

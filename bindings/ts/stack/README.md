@@ -1,10 +1,10 @@
 # @pancake/stack
 
 The core multi-runtime JavaScript/TypeScript consumer of the pancake C ABI archives: a full OCapN
-node over the byte-fed host archive `libpancake_driver` (ADR-0072) — values, capabilities, actors,
-locator URIs, the async `Session`/`Server` over the runtime's own networking — plus the two built-in
-transports (`tcp`, `inproc`). The optional encrypted-QUIC transport ships separately as
-[`@pancake/iroh`](../iroh/README.md).
+node over the byte-fed host archive `libpancake_driver` (ADR-0072). It covers values, capabilities,
+actors, and locator URIs. It exposes the async `Session` and `Server` over the runtime's own
+networking, plus the two built-in transports (`tcp`, `inproc`). The optional encrypted-QUIC
+transport ships separately as [`@pancake/iroh`](../iroh/README.md).
 
 One source, two runtimes: all runtime coupling (the FFI and the sockets) lives behind a thin seam in
 [`internal/ffi/runtime.ts`](internal/ffi/runtime.ts), which detects the host at load time and
@@ -17,10 +17,10 @@ transports you want, and each module opens only its own archive. See
 
 | Runtime                  | Tier          | FFI seam      | How it runs                         |
 | ------------------------ | ------------- | ------------- | ----------------------------------- |
-| [Deno](https://deno.com) | tested (gate) | `Deno.dlopen` | `deno run --allow-ffi --allow-read` |
-| [Bun](https://bun.sh)    | tested (gate) | `bun:ffi`     | `bun run`                           |
+| [Deno](https://deno.com) | tested (build check) | `Deno.dlopen` | `deno run --allow-ffi --allow-read` |
+| [Bun](https://bun.sh)    | tested (build check) | `bun:ffi`     | `bun run`                           |
 
-Deno and Bun each have a `zig build` dogfood gate; any other runtime is refused at load with a clear
+Deno and Bun each have a `zig build` binding check (`deno-dogfood`, `bun-dogfood`); any other runtime is refused at load with a clear
 error rather than half-working.
 
 ## The modules
@@ -43,9 +43,9 @@ lazily (`import("@pancake/iroh/internal")` on the first `iroh` locator), so the 
 hard-depends on it. Application code never imports that internal dial entry.
 
 The core is usable standalone. The transport modules build on it (they share the `Context` pointer
-and the frame/context type layout, and they are symbol-disjoint), but never on each other. Inside
-the core, sibling modules split by responsibility — `promise`, `gc`, `dial`, `listen`, `session`,
-`pump`, `action`, `host` — and `mod.ts` is only the barrel. The internal loaders live under
+and the frame/context type layout, and they are symbol-disjoint), but never on each other. Inside the core, sibling modules split by responsibility: `promise`, `gc`, `dial`, `listen`,
+`session`, `pump`, `action`, and `host`. `mod.ts` is only the barrel. The internal loaders live
+under
 [`internal/ffi/`](internal/ffi/) (one per archive), and the ABI constants and struct layouts are
 generated from the Zig source by `zig build gen-ts-abi` into [`internal/abi.ts`](internal/abi.ts)
 (re-exported through [`internal/constants.ts`](internal/constants.ts)); a consumer never imports
@@ -56,18 +56,28 @@ those.
 `mod.ts` is the idiomatic JavaScript/TypeScript API over the byte-fed host. An application holds a
 `Session`: `publish`/`fetch` name capabilities, `send` returns an awaitable (and pipelinable)
 `RemotePromise`, `spawn` hosts a plain callback as an actor, and `serve` runs the inbound loop. The
-library owns every CapTP decision — routing, three-party redemption, gift origination, far vows —
-and the binding moves bytes and honors the host's action queue. Integers are `bigint`, floats are
+library owns every CapTP decision: routing, three-party redemption, gift origination, and far vows.
+The binding moves bytes and honors the host's action queue. Integers are `bigint`, floats are
 `number`:
 
 ```ts
 import { connect, tcpLocator } from "@pancake/stack";
 
-const conn = await connect(tcpLocator("127.0.0.1", 9099));
-conn.serve().catch(() => {});
-const greeter = await conn.fetch("greeter");
-const reply = await conn.send(greeter, "greet", ["world"]);
-conn.close();
+// tcp: the peer is a place, a cleartext host and port.
+const partner = tcpLocator("127.0.0.1", 9099);
+
+const session = await connect(partner);
+session.serve().catch(() => {});
+
+const greeter = await session.fetch("greeter"); // a capability, by name
+try {
+  const reply = await session.send(greeter, "greet", ["world"]);
+  console.log(reply);
+} catch (reason) {
+  console.error("the greeter refused:", reason);
+}
+
+session.close();
 ```
 
 The high-level `connect`/`listen` ride the runtime's networking, so a program that dials a `tcp`
@@ -96,7 +106,7 @@ const got = server.readFrame();
 Each transport routes its own failures through its own `pancake_<t>_last_error` slot, so a transport
 call's diagnostic never scrapes the core's unrelated one.
 
-## Gating
+## Build checks
 
 [`../dogfood/zig_smoke.ts`](../dogfood/zig_smoke.ts) is the one consumer both
 `zig build deno-dogfood` and `zig build bun-dogfood` run, the same source on both runtimes: it

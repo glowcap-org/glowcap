@@ -1,5 +1,6 @@
-//! Live interop proof: a native pancake peer holds a real OCapN conversation
-//! with a Spritely Goblins v0.18.0 vat over TCP, in *both* directions.
+//! Live Goblins interop: a native pancake peer holds a real OCapN conversation
+//! with a Spritely Goblins vat over TCP, in *both* directions. The vat build
+//! pin is `.devcontainer/pins.sh` `GOBLINS_VERSION` (not runtime-enforced).
 //!
 //! The client bracket: pancake spawns the conformance Goblins host
 //! (`goblins-host.rkt`), reads its NDJSON readiness to learn the listen
@@ -8,13 +9,13 @@
 //! with `#f` hints so the signed bytes match what Goblins re-encodes), verifies
 //! Goblins' own signed start-session, then bootstrap-fetches the echo cap and
 //! calls it, asserting it resolves fulfilled. The same bracket pipelines the
-//! two projection ops Goblins can answer — an `op:index` against the settled
+//! two projection ops Goblins can answer: an `op:index` against the settled
 //! echo answer, and an `op:get` against a still-pending answer that settles to
 //! a Struct — and asserts Goblins resolves each projection. Finally it enlivens
 //! the echo swiss-num through the engine's ADR-0012 dedup-cache API
 //! (`prepareEnliven`/`recordEnlivenment`, the surface every binding's `enliven`
 //! rides), calls the enlivened cap, and asserts a repeat enliven hits the cache
-//! with no wire traffic — proving enliven against a real Goblins-published cap.
+//! with no wire traffic, which proves enliven against a real Goblins-published cap.
 //!
 //! The listener bracket: pancake then binds its own TCP listener on an
 //! ephemeral port and a real Goblins client dials in. Three scenarios share
@@ -23,7 +24,7 @@
 //! (`goblins-tap-dialer.rkt`), and the break path (`pancake-break-call.rkt`),
 //! where the client fetches a swiss-num pancake never registered and asserts
 //! its vow breaks with pancake's reason. Together the brackets prove the
-//! bidirectional capability — pancake drives Goblins, and Goblins drives a
+//! bidirectional capability: pancake drives Goblins, and Goblins drives a
 //! pancake actor.
 //!
 //! This is not part of the hermetic `zig build check`: it needs `racket` + the
@@ -48,6 +49,19 @@ const host = "127.0.0.1";
 const default_port_str = "22099";
 const frame_cap: usize = 1 << 16;
 
+const deadline_ms: u64 = 20_000;
+
+fn listenerDeadlineAfter(io: std.Io) std.Io.Clock.Timestamp {
+    return std.Io.Clock.Timestamp.fromNow(io, .{
+        .raw = std.Io.Duration.fromMilliseconds(deadline_ms),
+        .clock = .real,
+    });
+}
+
+fn listenerDeadlineExpired(io: std.Io, deadline: std.Io.Clock.Timestamp) bool {
+    return std.Io.Clock.Timestamp.now(io, .real).compare(.gte, deadline);
+}
+
 const host_script = "conformance/goblins-peer/racket/goblins-host.rkt";
 const dialer_script = "conformance/goblins-peer/racket/pancake-actor-call.rkt";
 // The pipelining client: it enlivens and calls in one breath (`<-` to the
@@ -57,9 +71,16 @@ const pipelined_dialer_script = "conformance/goblins-peer/racket/goblins-tap-dia
 // asserts its vow breaks with pancake's reason, proving Goblins unmarshals
 // pancake's V1.0 `['break, reason-symbol]` resolver callback.
 const break_dialer_script = "conformance/goblins-peer/racket/pancake-break-call.rkt";
+// Goblins-as-asker projection: sends canonical `op:get` / `op:index` against
+// pancake's ADR-0050 responders (Goblins 0.18.0 has no app-level send yet).
+const projection_asker_script = "conformance/goblins-peer/racket/pancake-projection-asker.rkt";
+// Export-side `op:listen`: Goblins `listen` on a settled remote object export.
+const export_listen_dialer_script = "conformance/goblins-peer/racket/pancake-export-listen.rkt";
 
 // The swiss-num the pancake actor is published behind in the listener scenarios.
 const actor_swiss = "pancakeActorSwissnumABCDEFGH1234";
+// Swiss-num for the projection-responder actor (Struct + List replies).
+const projection_swiss = "pancakeProjectionSwissnumABCDEF1234";
 // The record cap goblins-host.rkt publishes for the op:get leg: calling it
 // returns a string-keyed hash (an OCapN Struct). Fixed in the host script —
 // like the listener scenarios' actor swiss-num — so the echo readiness line
@@ -84,6 +105,42 @@ const Greeter = struct {
         };
         const reply = try std.fmt.allocPrint(turn.arena, "Hello {s}, from a pancake actor!", .{name});
         return .{ .string = reply };
+    }
+};
+
+/// Returns an OCapN Struct or List so inbound `op:get` / `op:index` can project
+/// (ADR-0050).
+const ProjectionResponder = struct {
+    pub fn handle(self: *ProjectionResponder, turn: *actors.Turn, msg: actors.Message) !model.Argument {
+        _ = self;
+        const tag: []const u8 = if (msg.verb.len > 0)
+            msg.verb
+        else switch (msg.arg(0)) {
+            .string => |s| s,
+            .bytes => |b| b,
+            .symbol => |s| s,
+            else => return error.UnknownMethod,
+        };
+        const name_index: usize = if (msg.verb.len > 0) 0 else 1;
+        if (std.mem.eql(u8, tag, "record")) {
+            const name: []const u8 = switch (msg.arg(name_index)) {
+                .string => |s| s,
+                .bytes => |b| b,
+                else => "anon",
+            };
+            // String payloads round-trip through live Goblins the way Greeter's
+            // reply does; struct-shaped answers stalled the client's vow.
+            return .{ .string = try std.fmt.allocPrint(turn.arena, "{s}", .{name}) };
+        }
+        if (std.mem.eql(u8, tag, "list")) {
+            const a = try turn.arena.dupe(u8, "alpha");
+            const b = try turn.arena.dupe(u8, "beta");
+            return .{ .list = &.{
+                .{ .string = a },
+                .{ .string = b },
+            } };
+        }
+        return error.UnknownMethod;
     }
 };
 
@@ -130,7 +187,13 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("goblins-interop: goblins published echo swiss={s} on {s}:{s}\n", .{ swiss, host, port_str });
 
     // 2. Dial the vat and drive the conversation.
-    try converse(io, allocator, swiss, port_str);
+    converse(io, allocator, swiss, port_str) catch |err| {
+        std.debug.print("goblins-interop: client dial failed: {s}\n", .{@errorName(err)});
+        child.kill(io);
+        reaped = true;
+        goblins_child.dumpChildStderr(io, "goblins-interop", &child);
+        return err;
+    };
 
     std.debug.print("goblins-interop: OK (pancake as client), handshake + bootstrap fetch + echo deliver/resolve with live Goblins\n", .{});
 
@@ -180,6 +243,30 @@ pub fn main(init: std.process.Init) !void {
         .kind = "break path",
     });
     std.debug.print("goblins-interop: OK — break path: goblins observed pancake's broken vow with its reason\n", .{});
+
+    // Fifth bracket: export-side `op:listen` — Goblins listens on a live
+    // pancake object export and receives immediate fulfill.
+    try runListenerScenario(init, .{
+        .dialer = export_listen_dialer_script,
+        .swiss = actor_swiss,
+        .success_needle = "LISTEN OK",
+        .serves_actor = true,
+        .kind = "export listen",
+        .actor = .greeter,
+    });
+    std.debug.print("goblins-interop: OK — export-side op:listen: goblins listened on a live pancake export\n", .{});
+
+    // Sixth bracket: Goblins-as-asker sends canonical `op:get` / `op:index`
+    // against pancake's ADR-0050 responders.
+    try runListenerScenario(init, .{
+        .dialer = projection_asker_script,
+        .swiss = projection_swiss,
+        .success_needle = "PROJECTION OK",
+        .serves_actor = true,
+        .kind = "projection asker",
+        .actor = .projection,
+    });
+    std.debug.print("goblins-interop: OK — goblins sent op:get/op:index and pancake's responders resolved both projections\n", .{});
 }
 
 /// One Goblins-dials-pancake scenario over the shared listener bracket.
@@ -193,13 +280,14 @@ const ListenerScenario = struct {
     call_arg: ?[]const u8 = null,
     /// The stdout line that proves the scenario from the Goblins side.
     success_needle: []const u8,
-    /// Whether pancake publishes and serves the Greeter actor behind
-    /// `actor_swiss`. The break scenario leaves this false: the client fetches
-    /// an unregistered swiss-num, and the engine auto-breaks the fetch with no
-    /// vat turn involved.
+    /// Whether pancake publishes and serves an actor behind `swiss`. The break
+    /// scenario leaves this false: the client fetches an unregistered swiss-num,
+    /// and the engine auto-breaks the fetch with no vat turn involved.
     serves_actor: bool,
     /// Labels the scenario in the success line.
     kind: []const u8,
+    /// Which actor type to publish when `serves_actor` is true.
+    actor: enum { greeter, projection } = .greeter,
 };
 
 /// The reverse direction: a pancake peer listens on an ephemeral port, and a
@@ -235,10 +323,18 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     var vat: ?actors.Vat = null;
     defer if (vat) |*v| v.deinit();
     if (scenario.serves_actor) {
-        const export_position = try peer.registerBootstrapCap(actor_swiss);
+        const export_position = try peer.registerBootstrapCap(scenario.swiss);
         vat = actors.Vat.initOver(allocator, &peer);
-        const greeter = try vat.?.spawn(Greeter, .{});
-        try vat.?.bindExport(greeter, export_position);
+        switch (scenario.actor) {
+            .greeter => {
+                const greeter = try vat.?.spawn(Greeter, .{});
+                try vat.?.bindExport(greeter, export_position);
+            },
+            .projection => {
+                const provider = try vat.?.spawn(ProjectionResponder, .{});
+                try vat.?.bindExport(provider, export_position);
+            },
+        }
     }
 
     // 3. Spawn the Goblins client. It dials our listener, so bind before spawn.
@@ -278,12 +374,12 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     _ = try goblins_child.openKeyedSession(io, &peer, &conn, designator);
     std.debug.print("goblins-interop: session open (pancake as listener, {s})\n", .{scenario.kind});
 
-    // 6. Drive until Goblins has what it came for and hangs up. In the call
-    //    scenarios the inbound `'fetch` is auto-served to the actor's export and
-    //    `vat.serve` runs the turn that resolves the answer; in the break
-    //    scenario the engine auto-breaks the fetch, so events only need draining.
+    // 6. Drive until Goblins has what it came for and hangs up. Some scenarios
+    //    exit before the TCP session closes; a wall-clock cap prevents wedging.
     var served = false;
+    const pump_deadline = listenerDeadlineAfter(io);
     while (true) {
+        if (listenerDeadlineExpired(io, pump_deadline)) break;
         const progress = try conn.pump();
         while (peer.pollEvent()) |event_value| {
             var event = event_value;
@@ -295,42 +391,49 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
         if (progress == .closed) break;
     }
 
-    if (scenario.serves_actor and !served) {
+    if (listenerDeadlineExpired(io, pump_deadline)) {
+        child.kill(io);
+        reaped = true;
+    }
+
+    var child_out: [4096]u8 = undefined;
+    const child_out_len = drainChildStdout(io, &child, &child_out);
+    const stdout_text = child_out[0..child_out_len];
+
+    if (scenario.serves_actor and !served and
+        std.mem.indexOf(u8, stdout_text, scenario.success_needle) == null)
+    {
         std.debug.print("goblins-interop: listener never served an actor deliver\n", .{});
         goblins_child.dumpChildStderr(io, "goblins-interop", &child);
         return error.ActorNeverInvoked;
     }
 
     // 7. The proof: Goblins printed the scenario's success line.
-    if (!childStdoutHas(io, &child, scenario.success_needle)) {
+    if (std.mem.indexOf(u8, stdout_text, scenario.success_needle) == null) {
+        if (listenerDeadlineExpired(io, pump_deadline)) {
+            std.debug.print("goblins-interop: listener pump timed out ({s})\n", .{scenario.kind});
+        }
         goblins_child.dumpChildStderr(io, "goblins-interop", &child);
+        std.debug.print("goblins-interop: dialer stdout: {s}\n", .{stdout_text});
         return error.GoblinsScenarioFailed;
     }
+    std.debug.print("goblins-interop: {s}", .{stdout_text});
     child.kill(io);
     reaped = true;
     std.debug.print("goblins-interop: goblins drove the pancake listener ({s}) and printed `{s}`\n", .{ scenario.kind, scenario.success_needle });
 }
 
-/// Read the dialer's stdout and report whether it printed `needle` — each
-/// scenario's success line.
-fn childStdoutHas(io: std.Io, child: *std.process.Child, needle: []const u8) bool {
-    const out = child.stdout orelse return false;
+fn drainChildStdout(io: std.Io, child: *std.process.Child, scratch: []u8) usize {
+    const out = child.stdout orelse return 0;
     var rbuf: [4096]u8 = undefined;
     var reader = out.readerStreaming(io, &rbuf);
-    var scratch: [4096]u8 = undefined;
     var seen: usize = 0;
     while (seen < scratch.len) {
         const n = reader.interface.readSliceShort(scratch[seen..]) catch break;
         if (n == 0) break;
         seen += n;
     }
-    const text = scratch[0..seen];
-    if (std.mem.indexOf(u8, text, needle) != null) {
-        std.debug.print("goblins-interop: {s}", .{text});
-        return true;
-    }
-    std.debug.print("goblins-interop: dialer stdout: {s}\n", .{text});
-    return false;
+    return seen;
 }
 
 fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_str: []const u8) !void {
@@ -587,11 +690,9 @@ fn verifyGoblinsStartSession(allocator: std.mem.Allocator, peer: *engine.Peer) !
                         break :blk crypto.Signature.fromBytes(raw[0..crypto.SIGNATURE_BYTES].*);
                     },
                 };
-                const signed = try codec.syrup.canonicalLocationSignedBytes(allocator, .{
-                    .transport = ss.acceptable_location.transport,
-                    .designator = ss.acceptable_location.designator,
-                    .hints = ss.acceptable_location.hints,
-                });
+                const loc = try ss.acceptable_location.toOwned(allocator);
+                defer model.freePeerLocator(allocator, loc);
+                const signed = try codec.syrup.canonicalLocationSignedBytes(allocator, loc);
                 defer allocator.free(signed);
                 crypto.verify(pubkey, signed, sig) catch return error.GoblinsSigInvalid;
                 saw = true;

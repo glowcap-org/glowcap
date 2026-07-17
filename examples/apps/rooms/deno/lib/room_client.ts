@@ -8,7 +8,7 @@
 // the web UI — reads like an app, not like a protocol.
 //
 //   const dir = await Directory.connect("127.0.0.1:9099");
-//   const room = await Room.subscribe(dir.conn, await dir.enter("general"), "alice");
+//   const room = await Room.subscribe(dir.session, await dir.enter("general"), "alice");
 //   room.say("hello");
 //   for await (const msg of room.messages) console.log(msg.from, msg.text);
 //   await room.leave();   // drop this room (keeps the connection)
@@ -78,38 +78,38 @@ function parseRooms(raw: AppValue): RoomInfo[] {
  * the rooms that have people in them, as a snapshot or a live feed. The
  * directory owns the connection; close it with `close` when the session ends. */
 export class Directory {
-	readonly conn: Session;
+	readonly session: Session;
 	#directory: Ref;
 
-	private constructor(conn: Session, directory: Ref) {
-		this.conn = conn;
+	private constructor(session: Session, directory: Ref) {
+		this.session = session;
 		this.#directory = directory;
 	}
 
 	/** Dial `locator`, start serving, and fetch the directory by name. */
 	static async connect(locator: string): Promise<Directory> {
-		const conn = await dial(locator);
+		const session = await dial(locator);
 		// Start the inbound loop before fetching, so the fetch's resolution arrives.
-		conn.serve().catch(() => {});
-		const directory = await conn.fetch(DIRECTORY);
-		return new Directory(conn, directory);
+		session.serve().catch(() => {});
+		const directory = await session.fetch(DIRECTORY);
+		return new Directory(session, directory);
 	}
 
 	/** Create a new room and return a reference to it. Rejects if the name is
 	 * taken. */
 	open(name: string): Promise<Ref> {
-		return this.conn.send(this.#directory, OPEN, [name]) as Promise<Ref>;
+		return this.session.send(this.#directory, OPEN, [name]) as Promise<Ref>;
 	}
 
 	/** Return a reference to an existing room. Rejects if there is no such room. */
 	enter(name: string): Promise<Ref> {
-		return this.conn.send(this.#directory, ENTER, [name]) as Promise<Ref>;
+		return this.session.send(this.#directory, ENTER, [name]) as Promise<Ref>;
 	}
 
 	/** The live rooms right now, the ones with people in them. */
 	async list(): Promise<RoomInfo[]> {
 		return parseRooms(
-			await this.conn.send(this.#directory, LIST, []) as AppValue,
+			await this.session.send(this.#directory, LIST, []) as AppValue,
 		);
 	}
 
@@ -117,7 +117,7 @@ export class Directory {
 	 * each change, register it, and return the current snapshot as a baseline.
 	 * `onEvent` then fires on every open/close/count change. */
 	async watch(onEvent: (event: RoomEvent) => void): Promise<RoomInfo[]> {
-		const observer = this.conn.spawn((verb, args) => {
+		const observer = this.session.spawn((verb, args) => {
 			if (verb !== NOTIFY) throw new Error(`watch inbox has no method ${verb}`);
 			onEvent({
 				kind: (typeof args[0] === "string" ? args[0] : "count") as RoomEvent[
@@ -129,7 +129,7 @@ export class Directory {
 			return null;
 		});
 		return parseRooms(
-			await this.conn.send(this.#directory, WATCH, [observer]) as AppValue,
+			await this.session.send(this.#directory, WATCH, [observer]) as AppValue,
 		);
 	}
 
@@ -142,11 +142,11 @@ export class Directory {
 	 * for it is how a caller avoids racing the dial-back. */
 	register(nick: string, locator: string): Promise<void> {
 		return new Promise((resolve) => {
-			const inbox = this.conn.spawn((verb, args) => {
+			const inbox = this.session.spawn((verb, args) => {
 				if (verb === NOTIFY && args[0] === "registered") resolve();
 				return null;
 			});
-			this.conn.send(this.#directory, REGISTER, [nick, locator, inbox]).catch(
+			this.session.send(this.#directory, REGISTER, [nick, locator, inbox]).catch(
 				() => {},
 			);
 		});
@@ -159,7 +159,7 @@ export class Directory {
 	 * own connection, not through the directory. Rejects if no member with that
 	 * nick is registered. */
 	async introduce(nick: string): Promise<Ref> {
-		const ref = await this.conn.send(this.#directory, INTRODUCE, [nick]);
+		const ref = await this.session.send(this.#directory, INTRODUCE, [nick]);
 		if (!(ref instanceof Ref)) {
 			throw new Error(`introduce("${nick}") did not return a capability`);
 		}
@@ -168,8 +168,8 @@ export class Directory {
 
 	/** Close the session, ending every room's `messages` stream. */
 	async close(): Promise<void> {
-		this.conn.close();
-		await this.conn.serve().catch(() => {});
+		this.session.close();
+		await this.session.serve().catch(() => {});
 	}
 }
 
@@ -179,24 +179,24 @@ export class Directory {
  * directory is not on the message path. It vouched for the introduction once, and
  * after that the two of you talk without it. */
 export class DirectMessage {
-	#conn: Session;
+	#session: Session;
 	#dm: Ref;
 	readonly peer: string;
 
-	private constructor(conn: Session, dm: Ref, peer: string) {
-		this.#conn = conn;
+	private constructor(session: Session, dm: Ref, peer: string) {
+		this.#session = session;
 		this.#dm = dm;
 		this.peer = peer;
 	}
 
 	/** Open a direct line to `peer` by asking `dir` to introduce you. */
 	static async open(dir: Directory, peer: string): Promise<DirectMessage> {
-		return new DirectMessage(dir.conn, await dir.introduce(peer), peer);
+		return new DirectMessage(dir.session, await dir.introduce(peer), peer);
 	}
 
 	/** Deliver one direct message to the peer, tagged with your own display nick. */
 	async say(from: string, text: string): Promise<void> {
-		await this.#conn.send(this.#dm, DM, [from, text]);
+		await this.#session.send(this.#dm, DM, [from, text]);
 	}
 }
 
@@ -233,7 +233,7 @@ export function readPresence(args: AppValue[]): Presence | undefined {
  * `joinRoom` in `enter_room.ts` is the friendly wrapper), read `messages`, call
  * `say`, and `leave` when you are done. */
 export class Room {
-	#conn: Session;
+	#session: Session;
 	#room: Ref;
 	// Captured synchronously by the ReadableStream `start` callback.
 	#lines!: ReadableStreamDefaultController<Message>;
@@ -243,8 +243,8 @@ export class Room {
 	 * when you `leave` or the room hangs up. */
 	readonly messages: ReadableStream<Message>;
 
-	private constructor(conn: Session, room: Ref) {
-		this.#conn = conn;
+	private constructor(session: Session, room: Ref) {
+		this.#session = session;
 		this.#room = room;
 		this.messages = new ReadableStream<Message>({
 			start: (controller) => {
@@ -258,16 +258,16 @@ export class Room {
 	 * room's callbacks on `messages`. `onTyping`, if given, fires with each
 	 * other member's ephemeral typing flag; those signals never reach `messages`. */
 	static async subscribe(
-		conn: Session,
+		session: Session,
 		roomRef: Ref,
 		nick: string,
 		onTyping?: (from: string, on: boolean) => void,
 	): Promise<Room> {
-		const self = new Room(conn, roomRef);
+		const self = new Room(session, roomRef);
 
 		// The room calls this back with every line; surface it on `messages`. A system
 		// line may carry a structured presence change after its text.
-		const inbox = conn.spawn((verb, args) => {
+		const inbox = session.spawn((verb, args) => {
 			if (verb !== NOTIFY) throw new Error(`inbox has no method ${verb}`);
 			// A typing flag is ephemeral presence, not a line: it carries no text and
 			// must never enter the message stream. Route it to `onTyping` and stop.
@@ -284,27 +284,27 @@ export class Room {
 		// End the message stream when the connection closes. A dropped connection
 		// rejects serve(), which is expected here, so catch it rather than leak an
 		// unhandled rejection.
-		conn.serve().finally(() => self.#endStream()).catch(() => {});
+		session.serve().finally(() => self.#endStream()).catch(() => {});
 
 		// Subscribe, handing the room a capability to our inbox. Success is the
 		// resolution — the room delivers the welcome and the roster as our first
 		// `notify`, not as a return value. A rejected claim (e.g. the nickname is taken)
 		// propagates; the connection stays open, the directory owns it, and the caller
 		// may try another room or close the session itself.
-		await conn.send(roomRef, SUBSCRIBE, [nick, inbox]);
+		await session.send(roomRef, SUBSCRIBE, [nick, inbox]);
 		return self;
 	}
 
 	/** Say a line to everyone in the room. */
 	async say(text: string): Promise<void> {
-		await this.#conn.send(this.#room, POST, [text]);
+		await this.#session.send(this.#room, POST, [text]);
 	}
 
 	/** Flag whether we are typing in this room. Fire-and-forget (`tell`, no reply):
 	 * a typing signal is ephemeral, so a lost one costs nothing and never blocks a
 	 * keystroke. The room drops it silently if we are no longer subscribed. */
 	setTyping(on: boolean): Promise<void> {
-		return this.#conn.tell(this.#room, TYPING, [on]).catch(() => {});
+		return this.#session.tell(this.#room, TYPING, [on]).catch(() => {});
 	}
 
 	/** Leave this room — drop the membership and end the `messages` stream —
@@ -312,7 +312,7 @@ export class Room {
 	 * room. Close the session itself with `Directory.close`. */
 	async leave(): Promise<void> {
 		this.#leaving = true;
-		await this.#conn.send(this.#room, LEAVE, []).catch(() => {});
+		await this.#session.send(this.#room, LEAVE, []).catch(() => {});
 		this.#endStream();
 	}
 

@@ -80,7 +80,7 @@ pub fn installListenerForOutboundProjection(peer: *Peer, projected_answer: model
     var frame = try codec.dispatch.encodeMessageForProfile(
         peer.session_state.codec,
         peer.allocator,
-        peer.session_state.wire_profile,
+        peer.session_state.captp_version,
         wire,
     );
     errdefer frame.deinit();
@@ -95,7 +95,7 @@ pub fn installListenerForOutboundProjection(peer: *Peer, projected_answer: model
 /// Symbol — the same payload shape the listener fire uses — because Goblins'
 /// unmarshal table has no `<error …>` record: an unknown record tag raises
 /// `captp-unknown-record-rag` on the partner and the break is lost (the
-/// `<error>` record stays PreSpec / `.error`-argument vocabulary, which never
+/// `<error>` record stays next / `.error`-argument vocabulary, which never
 /// reaches this path).
 pub fn encodeResolveAsCallback(peer: *Peer, resolve: model.Resolve) !void {
     const resolver_import = peer.session_state.resolverForInboundAnswer(resolve.answer) orelse
@@ -118,7 +118,7 @@ pub fn encodeResolveAsCallback(peer: *Peer, resolve: model.Resolve) !void {
     var frame = try codec.dispatch.encodeMessageForProfile(
         peer.session_state.codec,
         peer.allocator,
-        peer.session_state.wire_profile,
+        peer.session_state.captp_version,
         wire,
     );
     errdefer frame.deinit();

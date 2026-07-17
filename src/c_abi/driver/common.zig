@@ -140,6 +140,7 @@ pub fn errToCode(err: anyerror) i32 {
         error.NotAToken,
         error.DesignatorTooLong,
         error.MissingDirectAddressesHint,
+        error.SessionPairExists,
         error.UncallableTarget,
         error.NotPipelineable,
         error.NoSuchActor,

@@ -1,9 +1,9 @@
-//! Live iroh transport proof: two pancake peers hold a real keyed OCapN
+//! Live iroh transport: two pancake peers hold a real keyed OCapN
 //! conversation over real iroh endpoints (ADR-0055).
 //!
 //! The server binds an iroh endpoint, registers the `iroh` netlayer resident,
 //! and serves a Greeter actor behind the verified keyed handshake. The client
-//! binds its *own* iroh endpoint and dials by the server's endpoint id — the
+//! binds its *own* iroh endpoint and dials by the server's endpoint id, the
 //! locator's designator — with the server's direct socket addresses riding the
 //! locator's `direct-addresses` hint (relay-less, lookup-less: ADR-0055's
 //! slice 1). The bytes on the wire are QUIC: encrypted and authenticated to the
@@ -19,20 +19,20 @@
 //! Beyond the conversation, the gate pins the seam's edges: address defects
 //! refuse as typed `InvalidAddress` before the network is touched, closing the
 //! endpoint releases a parked accept, and a seeded endpoint's id is the same
-//! Ed25519 public key pancake's own crypto derives from the seed — the bridge
+//! Ed25519 public key pancake's own crypto derives from the seed. That bridge is
 //! the key-unification capstone stands on.
 //!
 //! Two capstones ride that bridge. Dial-by-id: two endpoints in the
 //! `local_discovery` posture reach each other by node id alone, no
-//! direct-address hints — the lookup half of the transport, proven
+//! direct-address hints. That is the lookup half of the transport, proven
 //! deterministically with no relay or public infrastructure. Key unification:
 //! each peer seeds its endpoint and signs its `op:start-session` with the secret
 //! half of that same seed, so over the live wire the partner's verified session
 //! pubkey equals the node id the transport authenticated equals the signed
-//! locator designator — one key is at once the transport identity, the OCapN
+//! locator designator. One key is at once the transport identity, the OCapN
 //! designator, and the session signing key. Durable identity: a vat tears its
-//! endpoint down and rebinds from the same seed — same key, same node id at a
-//! fresh address — and a client reaches the same published cap through the
+//! endpoint down and rebinds from the same seed: same key, same node id at a
+//! fresh address. A client reaches the same published cap through the
 //! locator recorded before the restart, so a sturdyref (node id + swiss-number)
 //! outlives the process that minted it.
 //!

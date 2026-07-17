@@ -31,10 +31,6 @@ export interface Locator {
 	/** Empty for a peer URI; the swiss bytes for a sturdyref. */
 	swissnum: string;
 	hints: Map<string, string>;
-	/** The designator's `host:port` split when the core grammar
-	 * (`pancake_locator_host_port`) accepts it, `null` otherwise; a socket
-	 * dialer consumes the split instead of re-deriving it. */
-	hostPort: { hostname: string; port: number } | null;
 }
 
 // Read a (pointer, length) view pair the locator accessors fill, decoding the
@@ -110,33 +106,11 @@ export function parseLocator(uri: string, sturdyref = false): Locator {
 			);
 			hints.set(readLocatorView(kPtr, kLen), readLocatorView(vPtr, vLen));
 		}
-		// The host:port split is the core grammar's verdict, read while the
-		// handle is alive: OK carries the split, INVALID_ARGUMENT means the
-		// designator is not host:port (an iroh node id, say), which is a fact,
-		// not a fault.
-		const hPtr = new Uint8Array(8), hLen = new Uint8Array(8);
-		const portBuf = new Uint8Array(2);
-		const hpRc = s.pancake_locator_host_port(
-			loc,
-			ab(hPtr),
-			ab(hLen),
-			ab(portBuf),
-		);
-		let hostPort: { hostname: string; port: number } | null = null;
-		if (hpRc === OK) {
-			hostPort = {
-				hostname: readLocatorView(hPtr, hLen),
-				port: new DataView(portBuf.buffer).getUint16(0, true),
-			};
-		} else if (hpRc !== INVALID_ARGUMENT) {
-			check(hpRc);
-		}
 		return {
 			transport: readLocatorField(s.pancake_locator_transport, loc),
 			designator: readLocatorField(s.pancake_locator_designator, loc),
 			swissnum: readLocatorField(s.pancake_locator_swissnum, loc),
 			hints,
-			hostPort,
 		};
 	} finally {
 		s.pancake_locator_release(loc);
@@ -217,26 +191,6 @@ export function socketAddrDesignator(hostname: string, port: number): string {
 		return `[${hostname}]:${port}`;
 	}
 	return `${hostname}:${port}`;
-}
-
-/** Split a `direct-addresses` hint into host and port (first address when
- * comma-separated). */
-export function hostPortFromDirectHint(hint: string): { hostname: string; port: number } {
-	const first = hint.split(",")[0]?.trim() ?? "";
-	if (first.length === 0) {
-		throw new PancakeError(
-			INVALID_ARGUMENT,
-			"keyed-tcp requires a non-empty direct-addresses hint",
-		);
-	}
-	try {
-		return designatorHostPort(first);
-	} catch {
-		throw new PancakeError(
-			INVALID_ARGUMENT,
-			`direct-addresses hint is not host:port: ${first}`,
-		);
-	}
 }
 
 /** Split a bare designator as `host:port` through the core grammar

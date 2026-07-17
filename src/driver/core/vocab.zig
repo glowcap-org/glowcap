@@ -73,7 +73,7 @@ pub const DesignatorScheme = enum { address, key };
 /// The designator scheme for a transport symbol (see `DesignatorScheme`).
 /// `keyed-tcp` and `iroh` both use a key designator: the dialed locator's
 /// designator *is* the partner's Ed25519 public key in canonical hex, and the
-/// byte-fed host pins the handshake to it (`Host.openDialedLocator` →
+/// byte-fed host pins the handshake to it (`Host.openDialedLocator` then
 /// `expectPartnerKey`). Binding-hosted iroh servers mint one seed for the
 /// endpoint and the `Node` so designator, session key, and netlayer identity
 /// stay one value (ADR-0075).

@@ -1,15 +1,14 @@
 """Live interop proof for the Python binding: a peer built on ``libpancake``'s C
 ABI holds a *keyed* OCapN conversation with a real Spritely Goblins vat over
-TCP, driven through the *same* ``connect``/``fetch``/``send`` application surface
-the
-cross-language demos use, so what is proven against a real Goblins vat is the
-application API itself, not a bespoke handshake script.
+TCP, driven through the *same* ``connect``/``enliven``/``send`` application
+surface the cross-language demos use, so what is proven against a real Goblins
+vat is the application API itself, not a bespoke handshake script.
 
 It spawns the conformance Goblins host, learns the echo cap's swiss-num from its
-NDJSON readiness line, then ``connect`` (which completes the keyed
-``op:start-session`` handshake), ``fetch`` the echo cap, and ``send`` it a
-positional call, asserting Goblins resolves it. Needs ``racket`` plus the
-``goblins`` collection on PATH; run via ``zig build python-goblins-interop``.
+NDJSON readiness line, then ``connect`` (keyed ``op:start-session``),
+``enliven`` the echo sturdyref (bootstrap fetch + ADR-0012 dedup), ``send`` a
+positional call, then a repeat ``enliven`` of the same swiss-num. Needs
+``racket`` plus ``goblins`` on PATH; ``zig build python-goblins-interop``.
 """
 
 from __future__ import annotations
@@ -45,12 +44,24 @@ async def converse() -> None:
         print("python-goblins-interop: session open, keyed start-session accepted by goblins")
         conn.serve()
 
-        echo = await conn.fetch(swiss)
-        print("python-goblins-interop: fetched goblins echo cap, calling it")
+        sturdyref = f"ocapn://goblins-echo.tcp/s/{swiss}"
+        echo = await conn.enliven(sturdyref)
+        print("python-goblins-interop: enlivened goblins echo cap, calling it")
         await conn.send(echo, "", [b"pancake-ping"])
 
+        again = await conn.enliven(sturdyref)
+        if echo.far is None or again.far is None or echo.far.id != again.far.id:
+            fail(
+                "python-goblins-interop",
+                "repeat enliven did not return the same far import (dedup miss)",
+            )
+        await conn.send(again, "", [b"pancake-ping-again"])
         print(
-            "python-goblins-interop OK: keyed handshake + bootstrap fetch + echo "
+            "python-goblins-interop: repeat enliven same import (dedup), second call resolved"
+        )
+
+        print(
+            "python-goblins-interop OK: keyed handshake + enliven/dedup + echo "
             "deliver/resolve with live Goblins"
         )
         await conn.close()

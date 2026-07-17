@@ -29,6 +29,7 @@
 (provide (except-out (all-defined-out)
                      pancake_host_new*
                      pancake_host_session_open_dialed_locator*
+                     pancake_host_pending_dial*
                      pancake_host_session_open_accepted*
                      pancake_host_session_feed_bytes*
                      pancake_host_session_publish*
@@ -39,6 +40,7 @@
                      pancake_host_vow_send*
                      pancake_host_vow_index*
                      pancake_host_vow_untag*
+                     pancake_host_vow_get*
                      pancake_host_turn_spawn*))
 
 (define driver-lib (open-pancake-archive "pancake_driver"))
@@ -65,8 +67,8 @@
              '(pointer fpointer fpointer fpointer fpointer fpointer))
 
 ;; PancakeDialPlan (pancake_driver.h): the resolved dial pancake_host_plan_dial
-;; hands back. `shape` selects the live fields (HOST-PORT fills host/port, IROH
-;; fills addresses/reach); host/addresses borrow the caller's input buffers.
+;; hands back. `shape` selects the live fields (HOST-PORT fills host/port,
+;; PEER-ID fills addresses/reach); host/addresses borrow the caller's input buffers.
 (define-cstruct _PancakeDialPlan
   ([shape _uint32] [host _pointer] [host-len _size] [port _uint16]
    [addresses _pointer] [addresses-len _size]
@@ -92,6 +94,40 @@
 ;; Resolve a dial to a _PancakeDialPlan (grammar + hint + iroh posture); free function.
 (define-driver pancake_host_plan_dial
   (_fun _pointer _size _pointer _size _pointer _size _uint32 _uint32 _PancakeDialPlan-pointer -> _int32))
+;; PancakeAcceptPlan: signing designator + hint from pancake_host_plan_accept.
+(define-cstruct _PancakeAcceptPlan
+  ([designator _pointer]
+   [designator-len _size]
+   [direct-addresses-hint _pointer]
+   [direct-addresses-hint-len _size]) #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeAcceptPlan _PancakeAcceptPlan PANCAKE-ACCEPT-PLAN-SIZE
+             '(pointer uint64 pointer uint64))
+(define-driver pancake_host_plan_accept
+  (_fun _pointer _size _pointer _size _pointer _size _PancakeAcceptPlan-pointer -> _int32))
+;; Borrowed pending dial view (transport/designator/hint).
+(define-cstruct _PancakePendingDial
+  ([transport _pointer]
+   [transport-len _size]
+   [designator _pointer]
+   [designator-len _size]
+   [hint _pointer]
+   [hint-len _size]) #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakePendingDial _PancakePendingDial PANCAKE-PENDING-DIAL-SIZE
+             '(pointer uint64 pointer uint64 pointer uint64))
+;; Borrow the pending dial for `ticket` (no URI re-parse).
+;; Returns `(values rc transport designator hint)` as fresh byte copies.
+(define-driver pancake_host_pending_dial*
+  (_fun _pointer _uint64 _PancakePendingDial-pointer -> _int32)
+  #:c-id pancake_host_pending_dial)
+(define (pancake_host_pending_dial host ticket)
+  (define view (make-PancakePendingDial #f 0 #f 0 #f 0))
+  (define rc (pancake_host_pending_dial* host ticket view))
+  (define (view-bytes ptr len)
+    (if (or (not ptr) (zero? len)) #"" (bytes<-c ptr len)))
+  (values rc
+          (view-bytes (PancakePendingDial-transport view) (PancakePendingDial-transport-len view))
+          (view-bytes (PancakePendingDial-designator view) (PancakePendingDial-designator-len view))
+          (view-bytes (PancakePendingDial-hint view) (PancakePendingDial-hint-len view))))
 (define-driver pancake_host_session_open_accepted*
   (_fun _pointer _pointer _size _pointer _size _pointer _size _pointer -> _int32)
   #:c-id pancake_host_session_open_accepted)
@@ -170,6 +206,11 @@
   #:c-id pancake_host_vow_untag)
 (define pancake_host_vow_untag
   (wrap-out1 pancake_host_vow_untag* _uint64 0))
+(define-driver pancake_host_vow_get*
+  (_fun _pointer _uint64 _pointer _size _pointer -> _int32)
+  #:c-id pancake_host_vow_get)
+(define pancake_host_vow_get
+  (wrap-out1 pancake_host_vow_get* _uint64 0))
 
 ;; ── Turn verbs (legal only inside a behavior callback) ──────────────────────
 (define-driver pancake_host_turn_forward

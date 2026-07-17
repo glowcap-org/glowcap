@@ -1,11 +1,11 @@
-//! Peer-less frame-transport tests over `Reader.fixed` and `std.testing.Reader`
-//! — no sockets. These prove `readFrameFrom` frames one whole owned frame per
+//! Peer-less frame-transport tests over `Reader.fixed` and `std.testing.Reader`,
+//! with no sockets. These prove `readFrameFrom` frames one whole owned frame per
 //! call across *both* codecs, that a frame larger than the read buffer
 //! assembles through the bounded spill (ADR-0041) and the spill frees when it
 //! drains, and in particular that a `word`-shaped Cap'n Proto frame is
 //! materialized with the 8-byte alignment its shape requires (a byte-aligned
 //! copy would fail frame validation and surface every well-formed capnp frame
-//! as malformed) — including when it assembled in the spill.
+//! as malformed), including when it assembled in the spill.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -19,7 +19,7 @@ const zero_sig = [_]u8{0} ** 64;
 const max_frame = 4096;
 
 fn startSessionFrame(allocator: std.mem.Allocator, codec_id: model.CodecId) !pancake.foundation.Frame {
-    return codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.WireProfile.v1_0, .{
+    return codec.dispatch.encodeMessageForProfile(codec_id, allocator, model.CaptpVersion.v1_0, .{
         .start_session = .{
             .captp_version = .v1_0,
             .session_pubkey = .{ .bytes = &zero_pubkey },

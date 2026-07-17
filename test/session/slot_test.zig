@@ -1,4 +1,4 @@
-//! ADR-0080: Slot → model.Reference projection is lossless against the real
+//! ADR-0080: Slot-to-`model.Reference` projection is lossless against the real
 //! syrup codec and the oracle corpus. No second Syrup encoder lives in `slot.zig`.
 
 const std = @import("std");
@@ -114,8 +114,6 @@ test "slot fulfill and break are one transition path preserving mint" {
 
     try std.testing.expectError(error.NotUnresolved, slot.fulfill(.{ .local_value = 3 }));
     try std.testing.expectError(error.NotUnresolved, slot.breakSlot(.{ .remote_value = 11 }));
-    try std.testing.expect(slot.isUnresolved(local));
-    try std.testing.expect(!slot.isUnresolved(.{ .local_value = 3 }));
     try std.testing.expectEqual(slot.Mint.local, slot.mintOf(local));
     try std.testing.expectEqual(slot.Mint.remote, slot.mintOf(remote));
 }

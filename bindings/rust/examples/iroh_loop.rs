@@ -54,11 +54,11 @@ async fn run() -> Result<(), Fail> {
 	let accept_server = Rc::clone(&server);
 	let accept_task = tokio::task::spawn_local(async move {
 		let mut served: Vec<Session> = Vec::new();
-		while let Ok(conn) = accept_server.accept().await {
-			if conn.publish("greeter", greeter).await.is_err() {
+		while let Ok(session) = accept_server.accept().await {
+			if session.publish("greeter", greeter).await.is_err() {
 				continue;
 			}
-			served.push(conn);
+			served.push(session);
 		}
 		served // hold the connections (and their drivers) until the loop ends
 	});
@@ -115,16 +115,16 @@ fn greeter(verb: &str, _args: &[Argument]) -> Result<Argument, String> {
 // `CALLS_PER_CONN` times, checking every reply.
 async fn client_once(server_id: String) -> Result<(), Fail> {
 	let locator = format_peer_uri(TRANSPORT_IROH, &server_id, &Default::default())?;
-	let conn = connect(&locator, Some(Reachability::LocalDiscovery), None).await?;
-	let greeter = conn.fetch("greeter").await?;
+	let session = connect(&locator, Some(Reachability::LocalDiscovery), None).await?;
+	let greeter = session.fetch("greeter").await?;
 	for _ in 0..CALLS_PER_CONN {
-		let reply = conn
+		let reply = session
 			.send(&greeter, "greet", &[Argument::String("world".into())])
 			.await?;
 		if reply.as_str() != Some(GREETING) {
 			return Err(format!("wrong reply: {reply:?}").into());
 		}
 	}
-	conn.close();
+	session.close();
 	Ok(())
 }

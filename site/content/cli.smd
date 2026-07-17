@@ -1,0 +1,50 @@
+---
+.title = "CapTP CLI",
+.date = @date("2026-07-16T00:00:00"),
+.author = "Jim Isaacs",
+.layout = "page.shtml",
+.draft = false,
+---
+
+Call a capability from your shell, host a short-lived peer, open a REPL, or
+wire CapTP into an agent via MCP. Same library as the Zig package, not a second
+stack. More recipes live in
+[docs/cli.md](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/cli.md).
+
+```sh
+zig build
+export PATH="$PWD/zig-out/bin:$PATH"
+pancake help
+```
+
+## Round-trip
+
+Demo greeter in the CLI adapter only (same shape as the README): verb `greet`
+plus one arg becomes `Hello, <arg>`. `--publish` accepts one partner, then
+exits. `Ctrl+C` / `SIGTERM` stops a waiting or serving `listen` (exit 0).
+Paste A's locator into `LOC`.
+
+```sh
+# terminal A
+export PANCAKE_STATE=/tmp/pancake-a
+pancake --json init
+pancake --json ocapn listen --publish greeter
+# {"ok":true,"locator":"ocapn://127.0.0.1%3A46659.tcp"}
+
+# terminal B
+export PANCAKE_STATE=/tmp/pancake-b
+pancake --json init
+LOC='ocapn://127.0.0.1%3A46659.tcp'   # paste A's locator
+pancake --json ocapn call "$LOC" greeter greet world
+#                         name──┘       │     └─ arg
+#                         verb──────────┘
+# {"ok":true,"value":"Hello, world"}
+```
+
+## Also
+
+```sh
+pancake mcp --tools default                # agent control plane
+eval "$(pancake completion bash)"          # tab completion
+# probe / REPL: see docs/cli.md (need a fresh or long-lived listen)
+```

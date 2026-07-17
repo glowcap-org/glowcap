@@ -78,14 +78,6 @@ pub struct PancakeHostAction {
 	/// DIAL: the report-back handle; SETTLE/FAIL: the vow that settled.
 	pub ticket: u64,
 	pub conn: *mut PancakeHostSession,
-	pub locator: *const c_uchar,
-	pub locator_len: usize,
-	pub transport: *const c_uchar,
-	pub transport_len: usize,
-	pub designator: *const c_uchar,
-	pub designator_len: usize,
-	pub direct_addresses_hint: *const c_uchar,
-	pub direct_addresses_hint_len: usize,
 	/// SETTLE: the fulfilled value; zeroed otherwise.
 	pub value: PancakeArgument,
 	/// FAIL: the break reason; NULL otherwise.
@@ -106,22 +98,6 @@ const _: () = {
 	assert!(offset_of!(PancakeHostAction, kind) == PANCAKE_HOST_ACTION_KIND_OFF);
 	assert!(offset_of!(PancakeHostAction, ticket) == PANCAKE_HOST_ACTION_TICKET_OFF);
 	assert!(offset_of!(PancakeHostAction, conn) == PANCAKE_HOST_ACTION_SESSION_OFF);
-	assert!(offset_of!(PancakeHostAction, locator) == PANCAKE_HOST_ACTION_LOCATOR_OFF);
-	assert!(offset_of!(PancakeHostAction, locator_len) == PANCAKE_HOST_ACTION_LOCATOR_LEN_OFF);
-	assert!(offset_of!(PancakeHostAction, transport) == PANCAKE_HOST_ACTION_TRANSPORT_OFF);
-	assert!(offset_of!(PancakeHostAction, transport_len) == PANCAKE_HOST_ACTION_TRANSPORT_LEN_OFF);
-	assert!(offset_of!(PancakeHostAction, designator) == PANCAKE_HOST_ACTION_DESIGNATOR_OFF);
-	assert!(
-		offset_of!(PancakeHostAction, designator_len) == PANCAKE_HOST_ACTION_DESIGNATOR_LEN_OFF
-	);
-	assert!(
-		offset_of!(PancakeHostAction, direct_addresses_hint)
-			== PANCAKE_HOST_ACTION_DIRECT_ADDRESSES_HINT_OFF
-	);
-	assert!(
-		offset_of!(PancakeHostAction, direct_addresses_hint_len)
-			== PANCAKE_HOST_ACTION_DIRECT_ADDRESSES_HINT_LEN_OFF
-	);
 	assert!(offset_of!(PancakeHostAction, value) == PANCAKE_HOST_ACTION_VALUE_OFF);
 	assert!(offset_of!(PancakeHostAction, message) == PANCAKE_HOST_ACTION_MESSAGE_OFF);
 	assert!(offset_of!(PancakeHostAction, message_len) == PANCAKE_HOST_ACTION_MESSAGE_LEN_OFF);
@@ -164,7 +140,7 @@ const _: () = {
 };
 
 /// The resolved dial `pancake_host_plan_dial` hands back: `shape` selects the
-/// live fields (HOST_PORT fills host/port, IROH fills addresses/reach). host and
+/// live fields (HOST_PORT fills host/port, PEER_ID fills addresses/reach). host and
 /// addresses borrow the caller's transport/designator/hint input buffers.
 #[repr(C)]
 pub struct PancakeDialPlan {
@@ -192,6 +168,58 @@ const _: () = {
 	assert!(offset_of!(PancakeDialPlan, addresses_len) == PANCAKE_DIAL_PLAN_ADDRESSES_LEN_OFF);
 	assert!(offset_of!(PancakeDialPlan, reach_kind) == PANCAKE_DIAL_PLAN_REACH_KIND_OFF);
 	assert!(offset_of!(PancakeDialPlan, reach_value) == PANCAKE_DIAL_PLAN_REACH_VALUE_OFF);
+};
+
+/// Resolved accept from `pancake_host_plan_accept` (signing designator + hint).
+#[repr(C)]
+pub struct PancakeAcceptPlan {
+	pub designator: *const c_uchar,
+	pub designator_len: usize,
+	pub direct_addresses_hint: *const c_uchar,
+	pub direct_addresses_hint_len: usize,
+}
+
+const _: () = {
+	use core::mem::{offset_of, size_of};
+	assert!(size_of::<PancakeAcceptPlan>() == PANCAKE_ACCEPT_PLAN_SIZE);
+	assert!(offset_of!(PancakeAcceptPlan, designator) == PANCAKE_ACCEPT_PLAN_DESIGNATOR_OFF);
+	assert!(
+		offset_of!(PancakeAcceptPlan, designator_len) == PANCAKE_ACCEPT_PLAN_DESIGNATOR_LEN_OFF
+	);
+	assert!(
+		offset_of!(PancakeAcceptPlan, direct_addresses_hint)
+			== PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF
+	);
+	assert!(
+		offset_of!(PancakeAcceptPlan, direct_addresses_hint_len)
+			== PANCAKE_ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF
+	);
+};
+
+/// Borrowed pending dial view from `pancake_host_pending_dial` (parts only).
+#[repr(C)]
+pub struct PancakePendingDial {
+	pub transport: *const c_uchar,
+	pub transport_len: usize,
+	pub designator: *const c_uchar,
+	pub designator_len: usize,
+	pub hint: *const c_uchar,
+	pub hint_len: usize,
+}
+
+const _: () = {
+	use core::mem::{offset_of, size_of};
+	assert!(size_of::<PancakePendingDial>() == PANCAKE_PENDING_DIAL_SIZE);
+	assert!(offset_of!(PancakePendingDial, transport) == PANCAKE_PENDING_DIAL_TRANSPORT_OFF);
+	assert!(
+		offset_of!(PancakePendingDial, transport_len) == PANCAKE_PENDING_DIAL_TRANSPORT_LEN_OFF
+	);
+	assert!(offset_of!(PancakePendingDial, designator) == PANCAKE_PENDING_DIAL_DESIGNATOR_OFF);
+	assert!(
+		offset_of!(PancakePendingDial, designator_len) == PANCAKE_PENDING_DIAL_DESIGNATOR_LEN_OFF
+	);
+	assert!(offset_of!(PancakePendingDial, hint) == PANCAKE_PENDING_DIAL_HINT_OFF);
+	assert!(offset_of!(PancakePendingDial, hint_len) == PANCAKE_PENDING_DIAL_HINT_LEN_OFF);
 };
 
 extern "C" {
@@ -253,6 +281,22 @@ extern "C" {
 		posture_policy: c_uint,
 		posture_value: c_uint,
 		out_plan: *mut PancakeDialPlan,
+	) -> c_int;
+	/// Resolve what an accepted session signs (`PancakeAcceptPlan`); free function.
+	pub fn pancake_host_plan_accept(
+		transport: *const c_uchar,
+		transport_len: usize,
+		server_designator: *const c_uchar,
+		server_designator_len: usize,
+		accepted_local_addr: *const c_uchar,
+		accepted_local_addr_len: usize,
+		out_plan: *mut PancakeAcceptPlan,
+	) -> c_int;
+	/// Borrow the pending dial view for `ticket` (locator + parts, no re-parse).
+	pub fn pancake_host_pending_dial(
+		host: *mut PancakeHost,
+		ticket: u64,
+		out: *mut PancakePendingDial,
 	) -> c_int;
 	pub fn pancake_host_session_open_accepted(
 		host: *mut PancakeHost,
@@ -381,6 +425,13 @@ extern "C" {
 		vow: u64,
 		tag: *const c_uchar,
 		tag_len: usize,
+		out_vow: *mut u64,
+	) -> c_int;
+	pub fn pancake_host_vow_get(
+		host: *mut PancakeHost,
+		vow: u64,
+		field: *const c_uchar,
+		field_len: usize,
 		out_vow: *mut u64,
 	) -> c_int;
 

@@ -36,11 +36,12 @@ const PANCAKE_ERR_WOULD_BLOCK = shared.PANCAKE_ERR_WOULD_BLOCK;
 // ── Connection lifecycle ─────────────────────────────────────────────────────
 
 /// Mint the dialing half from an already-parsed locator (`transport` +
-/// `designator`), the same pieces a DIAL action carries. The keyed
-/// `op:start-session` is signed under the host identity and encoded before
-/// this returns, so drain `take_outbound` (a FLUSH action is queued) and drive
-/// the handshake byte-fed. Every host-wide giftable is published on the new
-/// session before it is returned. A URI-holding caller parses first
+/// `designator`). A DIAL action carries only `ticket` — borrow the pending view
+/// with `pancake_host_pending_dial` and pass its transport/designator here.
+/// The keyed `op:start-session` is signed under the host identity and encoded
+/// before this returns, so drain `take_outbound` (a FLUSH action is queued) and
+/// drive the handshake byte-fed. Every host-wide giftable is published on the
+/// new session before it is returned. A URI-holding caller parses first
 /// (`pancake_uri_parse_peer`) and passes the pieces — there is no parallel
 /// URI-string mint entry. The dialed hello does not consume a direct-addresses
 /// hint (that hint is the connect-side dial executor's concern, and
@@ -376,6 +377,17 @@ pub export fn pancake_host_vow_untag(host: ?*PancakeHost, vow: u64, tag: ?[*]con
     const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
     const tag_bytes = shared.sliceFromC(tag, tag_len) catch |err| return shared.marshalErrorToCode(err);
     slot.* = inst.core.vowUntag(vow, tag_bytes) catch |err| return errToCode(err);
+    return PANCAKE_OK;
+}
+
+/// Pipeline an `op:get` projection against a far host vow, minting a new
+/// vow for the named Struct field. Same local-vow and unknown-vow refusals as
+/// `pancake_host_vow_send`; `field` is borrowed.
+pub export fn pancake_host_vow_get(host: ?*PancakeHost, vow: u64, field: ?[*]const u8, field_len: usize, out_vow: ?*u64) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out_vow orelse return PANCAKE_ERR_NULL_POINTER;
+    const field_bytes = shared.sliceFromC(field, field_len) catch |err| return shared.marshalErrorToCode(err);
+    slot.* = inst.core.vowGet(vow, field_bytes) catch |err| return errToCode(err);
     return PANCAKE_OK;
 }
 

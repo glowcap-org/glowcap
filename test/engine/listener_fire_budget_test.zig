@@ -2,7 +2,7 @@
 //!
 //! Locks the wire-path cost of firing `op:listen` listeners when an inbound
 //! answer resolves: the fires carry **zero** resolution-payload copies. Each
-//! fire queues a POD carrier (`engine.Outbound.listener_fire`) — queue-time
+//! fire queues a POD carrier (`engine.Outbound.listener_fire`). Queue-time
 //! session accounting runs on a borrowed stack message over the *stored*
 //! resolution, and `Peer.step` borrows the store back through `peekResolution`
 //! to encode. One stored resolution serves N listeners with no clone anywhere;
@@ -11,8 +11,8 @@
 //!
 //! The races the carrier accepts (and this file pins): an inbound
 //! `op:gc-answers` dropping the answer row between queue and encode leaves the
-//! fire moot — nothing emits, nothing dangles, the session stays open — the
-//! same semantics the `settled_answer` resolve carrier ships; a dropped
+//! fire moot: nothing emits, nothing dangles, and the session stays open. That
+//! matches the same semantics the `settled_answer` resolve carrier ships; a dropped
 //! fire's queue-time export retains stay stranded until session end (pinned
 //! below via the export refcount); and a released answer position *reused* by
 //! the partner before the fire encodes misses the carrier's row-identity
@@ -31,7 +31,7 @@ const session = pancake.ocapn.session;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
 const peer_fixture = @import("../support/peer_fixture.zig");
 
-/// A PreSpec peer, so the sent resolve encodes as a wire `op:resolve` (under
+/// A next peer, so the sent resolve encodes as a wire `op:resolve` (under
 /// V1.0 a resolve with no resolver import is dropped and only the fires ship,
 /// which would hide the resolve frame these contracts count).
 fn preSpecPeer(gpa: std.mem.Allocator) engine.Peer {
@@ -115,6 +115,37 @@ test "resolving an answer with three listeners copies the resolution payload zer
         frames += 1;
     }
     try std.testing.expectEqual(@as(usize, 4), frames);
+}
+
+test "live object export listen fires with zero payload copies" {
+    var counter = CountingAllocator{ .backing = std.testing.allocator };
+    const gpa = counter.allocator();
+    var peer = preSpecPeer(gpa);
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    // Install listener on live export 7; drain the surfaced listen event first.
+    try peer.recvBorrowed(.{
+        .bytes = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>>",
+        .shape = .byte,
+    });
+    while (peer.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
+    }
+
+    // Measured window: encode the queued POD fire carrier. No owned fulfill
+    // symbol dupe, no args spine — only the frame encode the wire requires.
+    counter.allocs = 0;
+    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
+    // 2: fire frame encode (1) plus one `outbound` growth (1). The POD
+    // carrier queued on recv paid its own `pending_send` growth outside this
+    // window.
+    try std.testing.expectEqual(@as(usize, 2), counter.allocs);
+
+    var frame = peer.takeOutbound().?;
+    defer frame.deinit();
+    try std.testing.expect(peer.takeOutbound() == null);
 }
 
 test "a fire whose answer row is GC'd between queue and encode emits nothing and the session lives on" {

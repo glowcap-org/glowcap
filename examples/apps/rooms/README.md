@@ -31,7 +31,7 @@ The demo needs only `deno`, which hosts the room and runs the orchestrator, plus
 `zig build` always builds. Python, Racket, and Rust each join only when their runtime (`python3`,
 `racket`, `cargo`) is on PATH; the demo builds the Rust client itself when `cargo` is present, and
 reports any skipped language rather than failing. It is a sibling of `zig build check`, not part of
-the hermetic gate.
+the self-contained build check.
 
 The demo binds an ephemeral port by default. To pin one, use `zig build
 demo-rooms -Dport=9099`. To
@@ -71,7 +71,7 @@ zig build demo-rooms-dm
 Each member is a full peer: it listens on its own endpoint, exports a small `dm` object, then
 `register`s its dialable locator with the directory. The directory dials the member back, holds its
 `dm`, and returns that reference when another member sends `introduce(nick)`. Because the reference
-lives on the directory↔member connection, the binding transparently turns it into a signed
+lives on the directory-to-member connection, the binding transparently turns it into a signed
 `desc:handoff-give`: the caller redeems it by dialing the member directly and sends its DMs over
 that fresh connection, never through the room. The demo asserts all three: the introduction yields a
 live capability, the target accepts a brand-new inbound connection distinct from the directory's
@@ -146,7 +146,7 @@ the same tab without reconnecting. Messages carry light markdown (`**bold**`, `*
 `` `code` ``), clickable links, `:emoji:` shortcodes with a picker, `@mentions` that highlight and
 can raise an opt-in desktop notification, and `/me` actions. On a keyboard, the composer sends on
 Enter and adds a line on Shift+Enter; on a touch screen there is no Shift, so Return inserts a
-newline and Send submits. The join form prefills your last nick and room so returning is one click —
+newline and Send submits. The join form prefills your last nick and room so returning is one click,
 it does not auto-rejoin. On a phone, use the menu (☰) or **Browse live rooms** before you join to
 see the directory's live list. Day and "new messages" dividers mark each stream, a light or "syrup"
 dark theme toggles and is remembered. The stream sticks to the newest message only while you are at
@@ -283,7 +283,7 @@ examples/apps/rooms/
 │   │   ├── room_client.ts the Room client (the OCapN layer) in Deno, strict directory open/enter/list/watch
 │   │   ├── enter_room.ts the CLI's friendly enter-or-open, composed from those strict verbs
 │   │   ├── errors.ts     the room failure taxonomy: typed codes carried at the front of a break reason
-│   │   ├── wire.ts       the browser ↔ bridge WebSocket protocol as zod schemas (incl. the room-line presence shape)
+│   │   ├── wire.ts       the browser-to-bridge WebSocket protocol as zod schemas (incl. the room-line presence shape)
 │   │   └── locator.ts    the transport-neutral rooms locator
 │   ├── ui/               the browser client: page.html + page.css + TypeScript modules (entered through main.ts, bundled to /page.js)
 │   └── deploy/           serve the browser UI behind a Cloudflare tunnel from a small container (compose + Dockerfile)
@@ -302,12 +302,12 @@ the room a capability to it, drive the vat), and a thin app on top of it. The ap
 every language because each `Room` exposes its own runtime's native async-sequence shape: the room's
 lines arrive as a stream you iterate, and a send is a value you await.
 
-| Language | Receive the room's lines                  | Send                   |
+| Language | Receive the room's lines | Send |
 | -------- | ----------------------------------------- | ---------------------- |
-| Deno     | `for await (const msg of room.messages)`  | `await room.say(line)` |
-| Python   | `async for msg in room`                   | `await room.say(line)` |
-| Rust     | `while let Some(msg) = room.recv().await` | `room.say(line).await` |
-| Racket   | `(for ([msg (in-room room)]) …)`          | `(room-say room line)` |
+| Deno | `for await (const msg of room.messages)` | `await room.say(line)` |
+| Python | `async for msg in room` | `await room.say(line)` |
+| Rust | `while let Some(msg) = room.recv().await` | `room.say(line).await` |
+| Racket | `(for ([msg (in-room room)]) …)` | `(room-say room line)` |
 
 ## The surface underneath
 
@@ -315,12 +315,12 @@ Each `Room` is built on the binding's application surface (`connect`, `fetch`, `
 `serve`), and that is the whole of the OCapN it touches:
 
 ```typescript
-const conn = await connect(tcpLocator(host, port));
-conn.serve().catch(() => {});
-const directory = await conn.fetch("directory");      // the directory, by name
-const room = await conn.send(directory, "enter", [name]); // a room capability back
-const inbox = conn.spawn((verb, args) => { … });      // our callback, a capability
-await conn.send(room, "subscribe", [nick, inbox]);    // hand it over
+const session = await connect(tcpLocator(host, port));
+session.serve().catch(() => {});
+const directory = await session.fetch("directory");      // the directory, by name
+const room = await session.send(directory, "enter", [name]); // a room capability back
+const inbox = session.spawn((verb, args) => { … });      // our callback, a capability
+await session.send(room, "subscribe", [nick, inbox]);    // hand it over
 ```
 
 No export-position numbers, no manual flush, no hand-rolled receive loop; the `Room` wrapper is a

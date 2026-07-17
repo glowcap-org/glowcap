@@ -106,7 +106,7 @@ def op_listen_promise_target() -> Record:
     emits ``desc:import-object`` for ``Reference::Near`` listener
     arguments via the standard payload-position perspective flip.
 
-    Same shape on PreSpec and V1_0, adding a new record is wire-
+    Same shape on next and V1_0, adding a new record is wire-
     additive (existing peers without ADR-0007 reject the unknown
     record up the negotiation chain). The Stage 2 V1_0 Goblins-
     canonical 3-operand ``wants-partial?`` extension lives in a
@@ -537,7 +537,7 @@ def op_deliver_withdraw_gift() -> Record:
     wire it is the spec-canonical envelope itself (no extra
     wrapper), so the field-position 4 ``resolve-me-desc`` slot
     stays ``#f`` in this fixture (the Exporter resolves through
-    the regular ``Message::Resolve`` path on PreSpec, or through
+    the regular ``Message::Resolve`` path on next, or through
     the resolver-callback ``op:deliver`` on V1\\_0; either way the
     fixture's wire bytes don't depend on which the runtime
     chooses).

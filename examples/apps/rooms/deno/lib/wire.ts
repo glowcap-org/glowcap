@@ -1,4 +1,4 @@
-// The browser ↔ bridge WebSocket protocol, as zod schemas.
+// The browser-to-bridge WebSocket protocol, as zod schemas.
 //
 // This is the one place the JSON contract between the browser and web.ts is written
 // down. Both ends validate against it and both ends take their types from it, so the
@@ -19,7 +19,7 @@ import { z } from "zod";
 export const Transport = z.enum(["tcp", "iroh"]);
 export type Transport = z.infer<typeof Transport>;
 
-/** Hard length caps for the browser↔bridge JSON. Owned here so the schema rejects
+/** Hard length caps for the browser-to-bridge JSON. Owned here so the schema rejects
  * oversize input instead of the bridge silently truncating (a lying path that
  * delivered half a line as if it were whole). */
 export const MAX_NICK = 32;
@@ -50,7 +50,7 @@ export const Presence = z.union([
 ]);
 export type Presence = z.infer<typeof Presence>;
 
-/** Browser → bridge. Join (or switch) a room, say a line in the current room, flag
+/** Messages from the browser to the bridge. Join (or switch) a room, say a line in the current room, flag
  * whether we are typing in it, open a direct-message thread with a member, or say a
  * line in one of those threads. */
 export const Inbound = z.union([
@@ -63,7 +63,7 @@ export const Inbound = z.union([
 ]);
 export type Inbound = z.infer<typeof Inbound>;
 
-/** Bridge → browser. The live room list and DM-able set, the tab's own DM identity,
+/** Messages from the bridge to the browser. The live room list and DM-able set, the tab's own DM identity,
  * a join outcome, direct-message lifecycle events, a plain notice, or a room line
  * (`from`/`text`, with an optional presence change). */
 export const Outbound = z.union([

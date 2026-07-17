@@ -79,6 +79,17 @@ gap explicitly.
 - `test/driver`: driver loopback — the owning `connect` / `listen` halves and
   the buffer-explicit `connectTcp` / `acceptTcp` halves, plus the application
   verbs over a real socket.
+- `test/cli`: hermetic CapTP CLI goldens (registry, fronts, exit codes, CapTP
+  deadline hang-proof, in-process listen/call adapter), run by
+  `zig build cli-test` (also part of `check`); not wired through `all_test`
+  because the product binary lives outside `src/`. CapTP dials in this tree
+  pass a finite `handshake_timeout_ms`; unbounded (`0`) is a hang, not a slow
+  test — see the [cli rule](cli.md). Product-adapter proofs use
+  `cli/test_api.zig` in-process; ad-hoc live CapTP in an agent session is the
+  product binary via the [pancake-cli skill](../skills/pancake-cli/SKILL.md).
+  Do not invent a parallel Zig dialer outside `cli/` / `test/cli/`. A shell
+  echo is not Goblins/suite wire evidence
+  ([community-review](../../docs/community-review.md)).
 - `test/c_abi`: C ABI layout and ownership vocabulary.
 - `test/oracle`: the protocol oracle, message-arm manifests, the checked-in
   Syrup byte corpus under `test/oracle/corpus/` with its generators, fixture

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "pancake": {
+      "command": "pancake",
+      "args": ["mcp", "--tools", "default"],
+      "env": {
+        "PANCAKE_STATE": "/tmp/pancake-mcp-state"
+      }
+    }
+  }
+}

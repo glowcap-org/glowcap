@@ -13,9 +13,9 @@ superseded_by: []
 ## Context
 
 The vision names a number: one node holds five hundred thousand live CapTP
-sessions. The repository measured the per-connection footprint — the
+sessions. The repository measured the per-connection footprint: the
 peer-scaling bench stands up thousands of `engine.Peer`s in-process and
-extrapolates to 500k — but nothing _gated_ it. A regression that doubled
+extrapolates to 500k: but nothing _gated_ it. A regression that doubled
 `@sizeOf(engine.Peer)` or grew the warmed session heap passed `zig build check`
 silently, because the bench only reported. This sits on the First Principle that
 performance is a public contract: a wire-path allocation or a per-session byte
@@ -31,8 +31,8 @@ The budget is two halves, each held by the strongest organ that fits.
 The inline half is held by the compiler. `engine.Peer` declares
 `peer_session_struct_budget_bytes = 1024` and a `comptime` block that fails the
 build with the measured size if `@sizeOf(Peer)` ever exceeds it. This is a
-ceiling, not an equality, so it holds on every target — wasm32's narrower
-pointers only make `Peer` smaller — and it cannot be skipped, because it fails
+ceiling, not an equality, so it holds on every target: wasm32's narrower
+pointers only make `Peer` smaller: and it cannot be skipped, because it fails
 when `engine` itself compiles. The core asserting its own size is the core
 holding its own contract, not adapter policy reaching down.
 
@@ -67,7 +67,7 @@ this ADR defends the core's part of the budget, not the whole-system number.
   defends drifts the first time someone adds a session field without weighing
   it, which is exactly the failure the budget exists to prevent.
 - **Gate only at runtime, in the test.** Rejected: the struct-size half is
-  `comptime`-knowable, and a compile-time ceiling is sharper than a test — it
+  `comptime`-knowable, and a compile-time ceiling is sharper than a test: it
   catches the regression at the point of the edit and on every target, including
   the wasm core build.
 - **Put the budget number in an adapter or the bench.** Rejected: the

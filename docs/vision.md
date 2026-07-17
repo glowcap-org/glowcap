@@ -20,14 +20,14 @@ When two right answers conflict, find the design that honors both.
 ## The number
 
 One node should hold five hundred thousand live CapTP sessions. Treat that as a
-budget, not a claim. No surface calls 500k an achievement until a gate proves it
+budget, not a claim. No surface calls 500k an achievement until a check proves it
 under real socket load.
 
 The portable core is synchronous and does no I/O, so it cannot deliver 500k by
 itself. It can make 500k impossible by letting per-session state bloat or by
 allocating on the wire path without naming it. The core's job is a small enough
 per-session footprint, and a strict enough allocation discipline, that the
-adapter never fights its own substrate. The [ladder](ladder.md) owns the gated
+adapter never fights its own substrate. The [ladder](ladder.md) owns the checked
 numbers. A field added to session state is a withdrawal from that budget.
 
 ## Two surfaces, both idiomatic
@@ -92,8 +92,9 @@ introduced peer reachable is the netlayer's. Both have to be real.
 
 The goal is full, bidirectional conversation:
 
-- a native Zig peer with a real Goblins peer,
-- a peer in any binding with a real Goblins peer,
+- a native Zig peer with a real Goblins peer (live `goblins-interop`),
+- a peer in any binding dialing a real Goblins peer (live `*-goblins-interop`;
+  bidirectional native proof is `goblins-interop` only),
 - any pancake or binding peer with any other.
 
 A semantic claim that no scenario or fixture proves is a wish, not part of the
@@ -114,8 +115,11 @@ sit above it as optional drivers the core does not know about.
 The actor layer is real in every binding and in native Zig, reached through the
 application surface above. Three cross-language demos prove the dial half
 (`demo-rooms`, `demo-tasks`, `demo-tools`). The accountability host and the
-driver loopback test prove the hosting half. Say where each piece stands; do not
-narrate unbuilt parts as if they already run.
+driver loopback test prove the hosting half. Live proof that a Goblins client
+calls a pancake-hosted actor is the `goblins-interop` listener brackets only;
+binding listen/hosting against Goblins is not proven by a live build check.
+State where each piece stands; do not narrate unbuilt parts as if they already
+run.
 
 ## What never gets traded
 

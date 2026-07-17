@@ -44,7 +44,7 @@ export const LEAVE = "leave";
  * dialable locator; the directory dials it back, fetches its `dm`, holds the
  * reference, and pushes `notify("registered", nick)` to the inbox once it is
  * introducible. `introduce(nick)` returns that member's `dm` reference, which,
- * living on the directory↔member connection, the binding transparently turns
+ * living on the directory-to-member connection, the binding transparently turns
  * into a `desc:handoff-give`: the caller redeems it by dialing the member
  * *directly* and never routes its DMs through the directory. */
 export const REGISTER = "register";

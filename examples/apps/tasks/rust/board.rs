@@ -46,26 +46,26 @@ fn parse_snapshot(arg: &Argument) -> Vec<Task> {
 
 /// A membership in a task board: the connection plus the board capability.
 pub struct Board {
-	conn: Rc<Session>,
+	session: Rc<Session>,
 	board: pancake::Ref,
 }
 
 impl Board {
 	/// Join the board at `locator`. Call inside a `LocalSet` (the peer is `!Send`).
 	pub async fn join(locator: &str) -> Result<Board, String> {
-		let conn = Rc::new(
+		let session = Rc::new(
 			connect(locator, None, None)
 				.await
 				.map_err(|e| format!("connect: {e:?}"))?,
 		);
-		let board = conn
+		let board = session
 			.fetch(BOARD)
 			.await
 			.map_err(|e| format!("fetch board: {e:?}"))?;
 
 		// Watch the board so changes are pushed to us (we ignore the updates in
 		// this one-shot client, but it exercises the capability callback).
-		let watcher = conn
+		let watcher = session
 			.spawn(|verb, _args| {
 				if verb != "update" {
 					return Err(format!("watcher has no method {verb}"));
@@ -74,15 +74,15 @@ impl Board {
 			})
 			.await
 			.map_err(|e| format!("spawn watcher: {e:?}"))?;
-		conn.send(&board, "watch", &[(&watcher).into()])
+		session.send(&board, "watch", &[(&watcher).into()])
 			.await
 			.map_err(|e| format!("watch: {e:?}"))?;
 
-		Ok(Board { conn, board })
+		Ok(Board { session, board })
 	}
 
 	pub async fn add(&self, text: &str) -> Result<i64, String> {
-		match self.conn.send(&self.board, "add", &[text.into()]).await {
+		match self.session.send(&self.board, "add", &[text.into()]).await {
 			Ok(reply) => reply
 				.as_i64()
 				.ok_or_else(|| "unexpected reply to add".to_string()),
@@ -91,7 +91,7 @@ impl Board {
 	}
 
 	pub async fn done(&self, id: i64) -> Result<(), String> {
-		self.conn
+		self.session
 			.send(&self.board, "done", &[id.into()])
 			.await
 			.map(|_| ())
@@ -100,7 +100,7 @@ impl Board {
 
 	pub async fn list(&self) -> Result<Vec<Task>, String> {
 		let result = self
-			.conn
+			.session
 			.send(&self.board, "list", &[])
 			.await
 			.map_err(|e| format!("list: {e:?}"))?;
@@ -108,6 +108,6 @@ impl Board {
 	}
 
 	pub async fn leave(self) {
-		self.conn.close();
+		self.session.close();
 	}
 }

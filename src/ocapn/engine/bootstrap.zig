@@ -311,9 +311,7 @@ pub const GiftRegistry = struct {
     }
 
     /// The gifted reference for `gift_id`, or null when the deposit recorded only
-    /// provenance. The withdraw path reads this on a still-live gift, before
-    /// `applyWithdraw` reclaims the row's payload, and clones it out — a consumed
-    /// gift holds no reference to return.
+    /// provenance. A consumed gift holds no row to read.
     pub fn giftedCap(self: *const GiftRegistry, gift_id: []const u8) ?model.Reference {
         const entry = self.gifts.get(gift_id) orelse return null;
         return switch (entry.payload) {
@@ -325,9 +323,7 @@ pub const GiftRegistry = struct {
 
     /// The deposit mode and payload for `gift_id`, or null if the gift is
     /// unknown. The returned slices and reference alias the registry-owned row,
-    /// valid until the row is removed (`applyWithdraw`, overwrite, or `deinit`);
-    /// the withdraw path reads it — and clones out any verbatim reference —
-    /// before it consumes the row.
+    /// valid until the row is removed (`applyWithdraw`, overwrite, or `deinit`).
     fn giftPayload(self: *const GiftRegistry, gift_id: []const u8) ?GiftPayload {
         const entry = self.gifts.get(gift_id) orelse return null;
         return entry.payload;
@@ -355,12 +351,16 @@ pub const GiftRegistry = struct {
         }
     }
 
+    /// Record the handoff count and remove the consumed gift row. Returns the
+    /// moved verbatim gifted reference when the deposit mode was `.verbatim_cap`;
+    /// otherwise frees the payload and returns null. Atomic: it records the
+    /// count, then removes the gift row, then transfers or frees the payload.
     pub fn applyWithdraw(
         self: *GiftRegistry,
         allocator: std.mem.Allocator,
         limits: session_mod.SessionLimits,
         receive: model.HandoffReceive,
-    ) !void {
+    ) !?model.Reference {
         // Record the count first (the only fallible step); removing the gift
         // afterwards cannot fail, so the apply stays atomic.
         try self.recordHandoffCount(allocator, limits, receive.receiving_session, receive.handoff_count);
@@ -373,8 +373,18 @@ pub const GiftRegistry = struct {
         if (self.gifts.fetchRemove(receive.signed_give.gift_id)) |kv| {
             allocator.free(kv.key);
             var entry = kv.value;
-            freeGiftEntry(allocator, &entry);
+            const moved = switch (entry.payload) {
+                .verbatim_cap => |reference| reference,
+                else => null,
+            };
+            if (moved == null) {
+                freeGiftEntry(allocator, &entry);
+            } else {
+                allocator.free(entry.gifter_key);
+            }
+            return moved;
         }
+        return null;
     }
 
     fn recordHandoffCount(
@@ -512,10 +522,9 @@ pub fn resolveForDeposit(
 pub const WithdrawOutcome = union(enum) {
     /// The withdraw settled: a fulfill carrying the gifted capability, or a
     /// typed break refusal. The message is borrowed except for one arm: a
-    /// verbatim gifted capability is cloned into the fulfill (the gift row is
-    /// reclaimed before the caller can send), so the caller sends with
-    /// `sendCopying` and then reclaims that one owned arm with
-    /// `freeSettledWithdrawOwned`.
+    /// verbatim gifted capability is moved out of the gift row into the fulfill,
+    /// so the caller sends with `sendCopying` and then reclaims that one owned
+    /// arm with `freeSettledWithdrawOwned`.
     settled: model.Message,
     /// The gift id names no *live* deposit — the gift is unknown, or its prior
     /// row is already consumed and awaits a re-deposit. `deposit-gift` and
@@ -535,8 +544,7 @@ pub fn resolveForWithdraw(
     request: WithdrawRequest,
 ) !WithdrawOutcome {
     const handoff_owned = try (model.view.Handoff{ .receive = request.receive }).toOwned(allocator);
-    // `receive` only borrows `handoff_owned` for this call, and a fulfilled
-    // resolution returns an independent `cloneReference`, so the owned copy is
+    // `receive` only borrows `handoff_owned` for this call; the owned copy is
     // freed on every path, not just on error.
     defer model.freeHandoff(allocator, handoff_owned);
     const receive = handoff_owned.receive;
@@ -589,22 +597,19 @@ pub fn resolveForWithdraw(
                     .resolution = .{ .@"break" = .{ .message = "gift object not hosted on this session" } },
                 } } };
             };
-            try registry.applyWithdraw(allocator, session.limits, receive);
+            _ = try registry.applyWithdraw(allocator, session.limits, receive);
             return .{ .settled = .{ .resolve = .{
                 .answer = request.answer,
                 .resolution = .{ .fulfill = .{ .reference = .{ .near = .{ .export_position = export_position } } } },
             } } };
         },
-        // A verbatim gifted cap: clone it out before `applyWithdraw` reclaims the
-        // row's payload, guarding the clone because `applyWithdraw` is still
-        // fallible (a handoff-count cap or OOM would otherwise leak the clone).
-        .verbatim_cap => |reference| {
-            const gifted_copy = try model.cloneReference(allocator, reference);
-            errdefer model.freeReference(allocator, gifted_copy);
-            try registry.applyWithdraw(allocator, session.limits, receive);
+        // A verbatim gifted cap: `applyWithdraw` moves it out of the row after
+        // the handoff count is recorded (fallible only before the move).
+        .verbatim_cap => {
+            const gifted = try registry.applyWithdraw(allocator, session.limits, receive) orelse unreachable;
             return .{ .settled = .{ .resolve = .{
                 .answer = request.answer,
-                .resolution = .{ .fulfill = .{ .reference = gifted_copy } },
+                .resolution = .{ .fulfill = .{ .reference = gifted } },
             } } };
         },
         // Provenance-only deposit with nothing to hand back here. Leave the gift
@@ -617,12 +622,12 @@ pub fn resolveForWithdraw(
 }
 
 /// Reclaim the one owned arm a `WithdrawOutcome.settled` message may carry.
-/// `resolveForWithdraw` clones a verbatim gifted capability into the fulfill
-/// arm because the gift row is freed before the caller can send it, so once the
-/// message has been copied onto the wire (`Peer.sendCopying`) that clone is
-/// freed here. The re-exported-near arm carries a POD reference and the break
-/// arms carry static reasons, so `freeArgument` on a non-owned fulfill is a
-/// no-op and this is safe to call for every settled withdraw outcome.
+/// `resolveForWithdraw` moves a verbatim gifted capability into the fulfill
+/// arm; once the message has been copied onto the wire (`Peer.sendCopying`)
+/// that owned reference is freed here. The re-exported-near arm carries a POD
+/// reference and the break arms carry static reasons, so `freeArgument` on a
+/// non-owned fulfill is a no-op and this is safe to call for every settled
+/// withdraw outcome.
 pub fn freeSettledWithdrawOwned(allocator: std.mem.Allocator, msg: model.Message) void {
     if (msg == .resolve and msg.resolve.resolution == .fulfill) {
         model.freeArgument(allocator, msg.resolve.resolution.fulfill);

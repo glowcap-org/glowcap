@@ -23,10 +23,10 @@ const session = @import("mod.zig");
 
 const Session = session.Session;
 
-/// Whether this session's negotiated wire profile is OCapN V1.0, which has no
+/// Whether this session's negotiated CapTP version is OCapN V1.0, which has no
 /// native `op:resolve` and therefore needs resolver-callback translation.
 pub fn needsV1_0Translation(self: *const Session) bool {
-    return self.wire_profile.captp_version == .v1_0;
+    return self.captp_version == .v1_0;
 }
 
 /// Record that our outbound `answer` is resolved via local resolver export

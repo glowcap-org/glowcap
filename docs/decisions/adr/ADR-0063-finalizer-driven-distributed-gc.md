@@ -44,8 +44,8 @@ send-validation refuses in a `gc-exports`), and redeemed-handoff tokens
 (synthetic far ids the machine router mints, never wire imports) are never
 registered.
 
-`fetch` is the one tracked site because it is the same seam in every binding —
-the connection mints the `Ref` itself, in one place, with full context — so the
+`fetch` is the one tracked site because it is the same seam in every binding,
+the connection mints the `Ref` itself, in one place, with full context: so the
 feature is identical across the four. The other ways a far import reaches an
 application (a reply lifted from a `send`, an argument lifted from an inbound
 deliver, an `enliven` result) are deliberately *not* tracked: see Scope.
@@ -62,9 +62,9 @@ is the one the session already counted.
 
 Finalization is best-effort by construction. A delta that never fires (the
 language never reclaims the handle, or the session closed first) costs a
-stranded table row reclaimed at teardown — never a correctness fault, never an
+stranded table row reclaimed at teardown, never a correctness fault, never an
 underflow, because the binding only registers references the session actually
-counted. The finalizer→serve-loop queue mirrors the one ADR-0012's enliven cache
+counted. The finalizer-to-serve-loop queue mirrors the one ADR-0012's enliven cache
 uses in the Rust driver: a finalizer cannot reach the `!Send` peer, so it parks
 the position on a shared queue the loop owns.
 
@@ -88,7 +88,7 @@ finalizer idiom; the contract above is the same in all four.
   finalization timing; only Rust's `Drop` is deterministic.
 - Only a `fetch` result is tracked. A capability lifted from a `send` reply, an
   inbound deliver argument (e.g. Rust's context-free `Ref::try_from`), or any
-  other path is outside this seam — released when the session tears down, as
+  other path is outside this seam: released when the session tears down, as
   before. Tracking those uniformly across the four bindings is a later lift; the
   asymmetry of doing it in some but not others is the worse outcome.
 - An `enliven` result is not tracked. The ADR-0012 dedup cache deliberately
@@ -98,7 +98,7 @@ finalizer idiom; the contract above is the same in all four.
 
 ## Alternatives Considered
 
-- **A shared position→proxy weak registry** (the Goblins shape: one proxy per
+- **A shared position-to-proxy weak registry** (the Goblins shape: one proxy per
   import, finalizer emits the position's whole accumulated delta). Rejected as
   the default: it couples GC to capability-identity dedup and a per-connection
   weak map in every binding, more machinery than the per-handle rule needs for
@@ -119,12 +119,12 @@ finalizer idiom; the contract above is the same in all four.
   once.
 - `test/engine/gc_churn_test.zig` gates the session invariant the finalizers
   drive: a session that imports and releases the same position many times holds
-  flat heap and returns `importRefcount` to zero — the proof the dropped-handle
+  flat heap and returns `importRefcount` to zero: the proof the dropped-handle
   path reclaims rows.
 - The binding dogfoods each prove a lifted import, once dropped, emits the
   `op:gc-exports` the partner needs to release its export.
 
 ## Notes
 
-Builds on ADR-0008 (wire-delta GC profile) and reuses the finalizer→loop queue
+Builds on ADR-0008 (wire-delta GC profile) and reuses the finalizer-to-loop queue
 shape introduced for ADR-0012's enliven dedup cache.

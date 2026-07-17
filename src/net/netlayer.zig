@@ -188,6 +188,12 @@ pub const Listener = struct {
         /// matches its netlayer's declaration.
         designator_scheme: DesignatorScheme = .address,
         accept: *const fn (ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) AcceptError!Connection,
+        /// Wait until `accept` would make progress, up to `timeout_ms`.
+        /// Returns false on timeout (caller may re-check a stop latch), true
+        /// when the next `accept` should proceed. The one poll-guard that lets
+        /// a blocking host exit without closing the listen FD from another
+        /// thread (Zig Threaded Io panics on that BADF).
+        waitAcceptable: *const fn (ctx: *anyopaque, timeout_ms: i32) AcceptError!bool,
         /// Write this listener's dialable designator (the address a partner can
         /// reconnect to — for a `key` scheme, the identity key's canonical hex)
         /// into `out` and return the written slice. Returns an
@@ -212,6 +218,9 @@ pub const Listener = struct {
     }
     pub fn accept(self: Listener, peer: *engine.Peer, bufs: Buffers) AcceptError!Connection {
         return self.vtable.accept(self.ctx, peer, bufs);
+    }
+    pub fn waitAcceptable(self: Listener, timeout_ms: i32) AcceptError!bool {
+        return self.vtable.waitAcceptable(self.ctx, timeout_ms);
     }
     pub fn localDesignator(self: Listener, out: []u8) []const u8 {
         return self.vtable.localDesignator(self.ctx, out);

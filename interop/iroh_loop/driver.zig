@@ -1,8 +1,8 @@
-//! Live iroh scale proof: many concurrent connections served from one thread
+//! Live iroh scale: many concurrent connections served from one thread
 //! through `iroh.Backend` + `driver.Bridge` + `driver.core.Host` (ADR-0057,
 //! ADR-0076).
 //!
-//! The blocking iroh resident serves one connection per OS thread — one
+//! The blocking iroh resident serves one connection per OS thread: one
 //! `accept`, one `conn_read`, one `conn_write` parked per partner. That is the
 //! shipped path (ADR-0053) and `iroh-interop` proves it correct, but it caps at
 //! as many connections as the host can hold threads for, not the ~500k the
@@ -14,7 +14,7 @@
 //! non-blocking accept/read/write, adoption, keyed handshake, and per-event
 //! serving on one thread. Many clients dial it at once, each over its own iroh
 //! endpoint, fetch the published greeter, and call it several times. Every
-//! call's reply must come back correct — so the one loop thread is provably
+//! call's reply must come back correct, so the one loop thread is provably
 //! multiplexing all the connections at once, not serving them one at a time.
 //!
 //! Not part of the hermetic `zig build check`: it links the Rust sidecar

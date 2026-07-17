@@ -53,55 +53,35 @@ single pass over a borrowed view, so it never pays that price.
 
 ### Cap'n Proto
 
-Cap'n Proto is the second codec: a layout of 8-byte words where every field sits at a known
-offset, reached by following struct and list pointers. pancake's is hand-rolled against the
-wire format with no schema compiler in the build, because it is a *pancake-to-pancake dialect*
-with no third-party reader to satisfy; a generated schema would buy nothing. Both peers
-settle on it at the handshake (`pairedWithCodec` in Zig, `pancake_peer_new_negotiated` over
-the C ABI, the matching idiom in every binding), and the whole conversation rides it from
-there. It never reaches a Goblins peer.
+Cap'n Proto is the second codec. It lays messages out as 8-byte words where every
+field sits at a known
+offset, reached by following struct and list pointers. pancake hand-rolled its
+encoder against the wire format with no schema compiler in the build. Cap'n Proto
+here is a pancake-to-pancake dialect on the `pancake-next` profile, not a wire shape
+any third-party reader must satisfy, so a generated schema would buy nothing. Two
+pancake peers settle on it at the handshake (`pairedWithCodec` in Zig,
+`pancake_peer_new_negotiated` over the C ABI, the matching idiom in every binding),
+and the whole conversation rides it from there. It never reaches a Goblins peer.
 
-Fixed offsets are the point. Reaching field *i* is arithmetic, not a scan, so random access
-is constant-time and the borrowed decode projection is cheap. That is the edge the
-benchmark's faster Cap'n Proto decode reflects. The cost is size: padding every value to a
-word and spending words on pointers makes frames larger, most visibly for the small messages
-that dominate control traffic. Cap'n Proto can also carry a typed value (an abort reason, for
-example) where Syrup projects a string.
+Fixed offsets are the point: field *i* is arithmetic, not a scan. The cost is
+size: word padding and pointers enlarge small control messages. Cap'n Proto can
+also carry a typed value (an abort reason) where Syrup projects a string.
+Numbers for one message shape: [Performance]($link.page('performance')).
 
 ## The tradeoffs, plainly
 
-Neither codec is "the fast one." They trade along four axes, and only the first is a hard
-constraint.
-
-- **Interop is decisive.** Syrup reaches every OCapN peer; Cap'n Proto reaches only another
-  pancake that negotiated it. If anything on the far side is not pancake, the choice is made
-  for you.
-- **Wire size favors Syrup.** Variable-length records pack a small message into far fewer
-  bytes than word-aligned padding plus pointers. At pancake's high-fan-out target, smaller
-  frames mean less bandwidth and less in-flight memory per connection. The gap narrows once
-  a payload's own bytes come to dominate the padding, as with a large blob or a
-  long string.
-- **Access pattern favors Cap'n Proto.** Fixed offsets give constant-time random access
-  where Syrup must scan its records in order. The engine's forward iteration means the
-  steady-state path does not lean on the difference, but a workload that seeks within
-  large, field-heavy messages is where Cap'n Proto earns its frames back.
-- **Signing is always Syrup.** Whichever codec carries the call, the handshake and handoff
-  signatures are over canonical Syrup. Choosing Cap'n Proto changes the traffic encoding, not
-  the security substrate.
-
-The same four axes, at a glance:
+Neither codec is "the fast one." Four axes matter, and only the first is a hard
+constraint:
 
 | Axis | Favors | In a phrase |
 | --- | --- | --- |
 | Interop | Syrup | the only codec a non-pancake peer speaks |
 | Wire size | Syrup | no word padding, no pointer words |
 | Random access | Cap'n Proto | field offsets are arithmetic, not a scan |
-| Signing | always Syrup | signatures are over canonical Syrup whichever codec carries the traffic |
+| Signing | always Syrup | handshake and handoff signatures stay canonical Syrup |
 
-Two things are *not* trades. Both codecs decode view-first, a borrowed projection over the
-frame with owned materialization only when the session retains a message, so zero-copy is
-not a reason to pick one. And both answer to the same model: a value the model does not
-admit is rejected with a typed error by either, never silently coerced.
+Both codecs decode view-first (borrowed projection; owned materialization only when
+the session retains a message). Neither silently coerces a value the model rejects.
 
 ## What the benchmark does and does not say
 

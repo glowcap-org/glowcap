@@ -77,25 +77,33 @@ fn applyRecvShared(self: *Session, message: anytype, introduced: *const validate
             try installIntroducedImports(self, introduced);
         },
         .start_session => |ss| {
-            // Learn the partner's session key and location designator (duped
-            // into `key_arena`: a borrowed view's wire bytes don't outlive this
+            // Learn the partner's session key and location (duped into
+            // `key_arena`: a borrowed view's wire bytes don't outlive this
             // call, and an owned message is freed by its caller). Recorded
             // before the state transition so a failure leaves the handshake
-            // unmarked.
+            // unmarked. When the decode path supplies verbatim location
+            // bytes, that buffer is the sole owner; the designator is a
+            // relocated view into it (Syrup/Cap'n Proto borrow designator
+            // from inside the location record). Owned-apply has no raw
+            // bytes and keeps a designator-only dupe.
             const pubkey = sessionPubkeyBytes(ss);
             if (pubkey.len > 0) {
                 self.partner_session_key = try self.key_arena.allocator().dupe(u8, pubkey);
             }
-            if (ss.acceptable_location.designator.len > 0) {
-                self.partner_designator = try self.key_arena.allocator().dupe(u8, ss.acceptable_location.designator);
-            }
-            // The verbatim location-record bytes a gifter embeds in a
-            // `desc:handoff-give` ride only on the borrowed decode view; the owned
-            // message shape drops them, so capture them when present.
             if (acceptableLocationRawBytes(ss)) |raw| {
                 if (raw.len > 0) {
-                    self.partner_acceptable_location_raw = try self.key_arena.allocator().dupe(u8, raw);
+                    const owned_raw = try self.key_arena.allocator().dupe(u8, raw);
+                    self.partner_acceptable_location_raw = owned_raw;
+                    if (ss.acceptable_location.designator.len > 0) {
+                        if (relocateSubslice(owned_raw, raw, ss.acceptable_location.designator)) |des| {
+                            self.partner_designator = des;
+                        } else {
+                            self.partner_designator = try self.key_arena.allocator().dupe(u8, ss.acceptable_location.designator);
+                        }
+                    }
                 }
+            } else if (ss.acceptable_location.designator.len > 0) {
+                self.partner_designator = try self.key_arena.allocator().dupe(u8, ss.acceptable_location.designator);
             }
             if (self.handshake_local_sent) try self.transitionToOpen();
             self.handshake_remote_received = true;
@@ -122,6 +130,19 @@ fn acceptableLocationRawBytes(ss: anytype) ?[]const u8 {
         ss.acceptable_location_raw
     else
         null;
+}
+
+/// When `child` is a subslice of `parent`, return the matching span inside
+/// `owned` (same length, same relative offset). Used to keep
+/// `partner_designator` as a view into the one owned location-record buffer.
+fn relocateSubslice(owned: []u8, parent: []const u8, child: []const u8) ?[]const u8 {
+    if (child.len == 0 or child.len > parent.len) return null;
+    const parent_start = @intFromPtr(parent.ptr);
+    const child_start = @intFromPtr(child.ptr);
+    if (child_start < parent_start) return null;
+    const off = child_start - parent_start;
+    if (off + child.len > parent.len) return null;
+    return owned[off..][0..child.len];
 }
 
 pub fn applySend(self: *Session, message: model.Message) !void {
@@ -222,7 +243,9 @@ pub fn applySentResolve(self: *Session, resolve: model.Resolve) !void {
 
 pub fn applyRecv(self: *Session, message: model.Message, introduced: *const validate.IntroducedImports) !void {
     switch (message) {
-        .gc_export => |gc_export| try session.applyGcExportDecrement(&self.exports, gc_export),
+        .gc_export => |gc_export| {
+            try session.applyGcExportDecrement(&self.exports, gc_export);
+        },
         // Inbound `op:gc-answers` releases an answer we created for the
         // partner, decrement our inbound answers and prune the inbound
         // resolver link we recorded for it.

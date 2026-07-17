@@ -23,7 +23,7 @@ Session state is authoritative
 ([First Principles](../../../AGENTS.md#first-principles)), so the resource
 budget belongs in the session, not deferred to an adapter that would have to
 re-implement the state machine to enforce it. The policy makes the correct path
-the easy path — a generous default the honest workload never sees — and fails
+the easy path (a generous default the honest workload never sees) and fails
 loud rather than absorb the overflow.
 
 ## Decision
@@ -34,13 +34,13 @@ a field on `SessionLimits`. A fresh insert past the cap returns a typed
 `*CapExceeded` error; refreshing an existing row never trips a cap. The five
 resource-exhaustion caps each project to one wire kind, `resource_exhausted`:
 
-| Cap                        |   Default | Typed error                |
+| Cap | Default | Typed error |
 | -------------------------- | --------: | -------------------------- |
-| `max_inbound_answers`      |    65 536 | `InboundAnswerCapExceeded` |
-| `max_listeners_per_target` |        64 | `ListenerCapExceeded`      |
-| `max_imports`              | 1 048 576 | `ImportCapExceeded`        |
-| `max_seen_handoff_counts`  |    16 384 | `HandoffCountCapExceeded`  |
-| `max_deposited_gifts`      |    65 536 | `DepositedGiftCapExceeded` |
+| `max_inbound_answers` | 65 536 | `InboundAnswerCapExceeded` |
+| `max_listeners_per_target` | 64 | `ListenerCapExceeded` |
+| `max_imports` | 1 048 576 | `ImportCapExceeded` |
+| `max_seen_handoff_counts` | 16 384 | `HandoffCountCapExceeded` |
+| `max_deposited_gifts` | 65 536 | `DepositedGiftCapExceeded` |
 
 `AbortKind.resource_exhausted` (`"ResourceExhausted"` on the wire) is a distinct
 kind in [`src/ocapn/model/mod.zig`](../../../src/ocapn/model/mod.zig): the
@@ -56,8 +56,8 @@ Two adjacent accumulators are bounded but do **not** project to
 
 - `max_sturdyref_cache_entries` (default 256) bounds the dedup cache for
   resolved sturdyref enlivenments. The cache is non-load-bearing per
-  [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md) — a miss costs one extra
-  bootstrap-fetch round-trip, not correctness — so an overflow evicts the oldest
+  [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md): a miss costs one extra
+  bootstrap-fetch round-trip, not correctness: so an overflow evicts the oldest
   entry instead of erroring (a cap of 0 disables caching).
 - `max_local_deliveries` (default 4096) is enforced by the engine's resolution
   drain, not a session table: it bounds the chain of local deliveries one
@@ -66,7 +66,7 @@ Two adjacent accumulators are bounded but do **not** project to
 
 `queue_cap` (default 1024, the per-answer pipelined-call queue from
 [ADR-0007](ADR-0007-promise-pipelining-substrate.md)) keeps its own
-`QueueCapExceeded` → `queue_cap_exceeded` projection and is not folded into
+`QueueCapExceeded` to `queue_cap_exceeded` projection and is not folded into
 `resource_exhausted`.
 
 ## Scope (what this does not decide)
@@ -106,7 +106,7 @@ Two adjacent accumulators are bounded but do **not** project to
   and `handoff_replay` ([ADR-0009](ADR-0009-three-party-handoff-substrate.md)).
 - Evidence: per-cap refusals in
   [`test/session/session_test.zig`](../../../test/session/session_test.zig), the
-  five-error → `resource_exhausted` projection in
+  five-error to `resource_exhausted` projection in
   [`test/engine/abort_projection_test.zig`](../../../test/engine/abort_projection_test.zig),
   and the Goblins-aligned `op_abort_resource_exhausted.bin` fixture asserted in
   [`test/codec/syrup_test.zig`](../../../test/codec/syrup_test.zig).

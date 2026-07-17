@@ -18,7 +18,7 @@
 ;; One task on the board.
 (struct task (id text completed?) #:transparent)
 
-(struct board (conn far) #:mutable)
+(struct board (session far) #:mutable)
 
 ;; Join the board: connect, fetch the board by name, publish a watcher the board
 ;; can call back (we ignore its updates in this one-shot client).
@@ -33,7 +33,7 @@
 ;; Send a request to the board and drive the connection until it settles,
 ;; returning the reply value, `session-send` aimed at the board.
 (define (board-call a-board verb . args)
-  (apply session-send (board-conn a-board) (board-far a-board) verb args))
+  (apply session-send (board-session a-board) (board-far a-board) verb args))
 
 ;; Add a task; returns its id.
 (define (board-add a-board text) (board-call a-board 'add text))
@@ -51,4 +51,4 @@
 
 ;; Leave the board and close the connection.
 (define (board-leave a-board)
-  (session-close! (board-conn a-board)))
+  (session-close! (board-session a-board)))

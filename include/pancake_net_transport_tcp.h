@@ -1,4 +1,4 @@
-/* Generated from src/c_abi/net_transport/tcp/mod.zig by tools/header_gen_net_tcp.zig.
+/* Generated from src/c_abi/net_transport/tcp/mod.zig by tools/gen/header/net_tcp.zig.
    Do not edit by hand: run `zig build gen-header-net-transport-tcp`.
    Function signatures are reflected from the Zig source, so this header
    cannot drift from the implementation.

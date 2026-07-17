@@ -23,11 +23,13 @@ import {
 async function acceptTcp(tcp: NetConn, host: Host): Promise<Session> {
 	const la = tcp.localAddr();
 	try {
+		// serverDesignator unused for address transports; acceptedLocalAddr signs.
 		return await Session.establishAccepted(
 			host,
 			TRANSPORT_TCP,
-			socketAddrDesignator(la.hostname, la.port),
+			"",
 			tcp,
+			socketAddrDesignator(la.hostname, la.port),
 		);
 	} catch (err) {
 		tcp.close();
@@ -36,7 +38,7 @@ async function acceptTcp(tcp: NetConn, host: Host): Promise<Session> {
 }
 
 /** A listening server. Iterate it for an accepted `Session` per partner —
- * `for await (const conn of listen(host, port)) { ... }`.
+ * `for await (const session of listen(host, port)) { ... }`.
  *
  * Binding the socket is asynchronous on some runtimes, so `await
  * server.ready()` for the bound port (the value you need when you pass port 0
@@ -87,7 +89,7 @@ export class Server {
 		this.#listener = listener;
 		// Closing the listener when iteration ends (a `break`, a `return`, or the
 		// listener itself closing) frees the bound socket, so a one-client server
-		// (`for await (const conn of server) { …; break; }`) leaves nothing
+		// (`for await (const session of server) { …; break; }`) leaves nothing
 		// holding the runtime's event loop open.
 		try {
 			while (true) {
@@ -101,13 +103,13 @@ export class Server {
 				// dialed and died, or a stray port probe. Skipping it keeps the
 				// listener accepting, so one rude caller cannot take the whole
 				// server down.
-				let conn: Session;
+				let session: Session;
 				try {
-					conn = await acceptTcp(tcp, this.#host);
+					session = await acceptTcp(tcp, this.#host);
 				} catch {
 					continue;
 				}
-				yield conn;
+				yield session;
 			}
 		} finally {
 			listener.close();
@@ -214,13 +216,12 @@ export class KeyedTcpServer {
 				}
 				try {
 					const la = tcp.localAddr();
-					const hint = socketAddrDesignator(la.hostname, la.port);
 					yield await Session.establishAccepted(
 						this.#host,
 						TRANSPORT_KEYED_TCP,
 						this.#designator,
 						tcp,
-						hint,
+						socketAddrDesignator(la.hostname, la.port),
 					);
 				} catch {
 					continue;

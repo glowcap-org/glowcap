@@ -29,50 +29,41 @@ pub const CodecId = enum(u16) {
     _,
 };
 
+/// CapTP version spoken on a session. Two jobs, one axis:
+/// - `v1_0` / `"1.0"` — frozen released interop (Goblins / cross-platform).
+/// - `next` / `"pancake-next"` — pancake-forward private track for pancake-to-pancake.
 pub const CaptpVersion = enum {
     v1_0,
-    pre_spec,
+    next,
 
     pub fn wireString(self: CaptpVersion) []const u8 {
         return switch (self) {
             .v1_0 => "1.0",
-            .pre_spec => "pancake-pre-spec",
+            .next => "pancake-next",
+        };
+    }
+
+    /// A diagnostic label for logs and error text, not a wire token: the
+    /// handshake puts `wireString()` on the wire, never this.
+    pub fn name(self: CaptpVersion) []const u8 {
+        return switch (self) {
+            .v1_0 => "ocapn-v1.0",
+            .next => "pancake-next",
         };
     }
 
     /// The inverse of `wireString`, derived from it: every version is matched by
     /// the exact string `wireString` emits, so the two directions cannot drift
-    /// and a new version is covered the moment it has a `wireString` arm. The
-    /// lenient `"ocapn-1.0"` alias stays an explicit branch: it is a plausible
-    /// spelling of the same version that `wireString` never emits (no conformance
-    /// fixture pins a peer that sends it), so refusing it would buy nothing.
+    /// and a new version is covered the moment it has a `wireString` arm.
+    /// Spellings `wireString` never emits (including the former lenient
+    /// `"ocapn-1.0"` alias) are refused — pinned by `test/model/model_test.zig`
+    /// and the Syrup decode negative in `test/codec/syrup_test.zig`.
     pub fn fromWireString(wire: []const u8) ?CaptpVersion {
         inline for (@typeInfo(CaptpVersion).@"enum".fields) |field| {
             const version: CaptpVersion = @enumFromInt(field.value);
             if (std.mem.eql(u8, version.wireString(), wire)) return version;
         }
-        if (std.mem.eql(u8, wire, "ocapn-1.0")) return .v1_0;
         return null;
-    }
-};
-
-pub const WireProfile = struct {
-    captp_version: CaptpVersion,
-
-    pub const v1_0 = WireProfile{
-        .captp_version = .v1_0,
-    };
-    pub const pre_spec = WireProfile{
-        .captp_version = .pre_spec,
-    };
-
-    /// A diagnostic label for logs and error text, not a wire token: the
-    /// handshake puts `CaptpVersion.wireString()` on the wire, never this.
-    pub fn name(self: WireProfile) []const u8 {
-        return switch (self.captp_version) {
-            .v1_0 => "ocapn-v1.0",
-            .pre_spec => "pancake-pre-spec",
-        };
     }
 };
 

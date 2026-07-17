@@ -9,8 +9,8 @@
 // The proof: Carol's message reaches Bob's inbox, and it travels on Carol's own
 // direct connection to Bob — the broker is never in the message path. This is
 // the exporter half of ADR-0009 the engine's swiss re-resolution makes possible:
-// the gift is deposited on the broker↔Bob connection and withdrawn on the
-// separate Carol↔Bob connection, against one host-wide object identity.
+// the gift is deposited on the broker-to-Bob connection and withdrawn on the
+// separate Carol-to-Bob connection, against one host-wide object identity.
 
 import process from "node:process";
 import { connect, listen, Ref, tcpLocator } from "@pancake/stack";
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
 		return null;
 	});
 	const bobAccept = (async () => {
-		for await (const conn of bob) conn.serve().catch(() => {});
+		for await (const session of bob) session.serve().catch(() => {});
 	})();
 	const bobPort = await bob.ready();
 
@@ -37,12 +37,12 @@ async function main(): Promise<void> {
 	const broker = listen("127.0.0.1", 0);
 	const brokerPort = await broker.ready();
 	const brokerAccept = (async () => {
-		for await (const conn of broker) conn.serve().catch(() => {});
+		for await (const session of broker) session.serve().catch(() => {});
 	})();
 
 	// The broker dials Bob as a member would — keyed with the broker node's own
 	// identity — and fetches Bob's giftable dm. The fetched ref's home is this
-	// broker↔Bob connection, which is what lets the broker re-gift it.
+	// broker-to-Bob connection, which is what lets the broker re-gift it.
 	const brokerToBob = await connect(
 		tcpLocator("127.0.0.1", bobPort),
 		undefined,

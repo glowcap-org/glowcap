@@ -2,8 +2,8 @@
 //! measured for the encrypted iroh transport and, on the same machine, the
 //! cleartext TCP transport as a baseline.
 //!
-//! Each sample is one synchronous `greet` round-trip — an `op:deliver` out and a
-//! resolve back — over a live connection between two residents in this process:
+//! Each sample is one synchronous `greet` round-trip: an `op:deliver` out and a
+//! resolve back over a live connection between two residents in this process:
 //! a server thread that accepts, publishes a greeter, and serves, and a client
 //! that fetches once and then calls in a loop. No pipelining; one call is in
 //! flight at a time, so the per-call number is the wire's serial latency and the

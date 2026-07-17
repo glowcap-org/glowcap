@@ -107,12 +107,15 @@ sequenceDiagram
 ## PP-7: op:listen on an already-settled target
 
 Listening on a target that is already settled fires the listener immediately
-with that resolution. Nothing waits. Two shapes:
+with that resolution. Nothing waits. Shapes:
 
 - an already-settled **answer** (suite `test_op_listen_already_has_answer`)
-- a live **object export** with no inbound answer row (fulfill of that export)
+- a live **object export** (fulfill of that export)
 
-An unresolved promise export without an answer row refuses loud (ADR-0007).
+A listen on a bare **promise export** is refused `InvalidReference`: pancake
+exports no free-standing resolvable promise, so a listener on one could never
+fire. A party that wants a resolution notification listens on the inbound
+answer it already holds.
 
 ```mermaid
 sequenceDiagram

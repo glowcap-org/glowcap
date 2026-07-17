@@ -3,7 +3,7 @@ id: ADR-0061
 status: accepted
 date: 2026-06-13
 tags: [actors, persistent, collections, layer, memory]
-decision: "A persistent immutable map lives in a sharp leaf module, `src/persistent/`, as a single `PersistentMap` (HAMT, non-atomic refcounted nodes, path-copy update). It imports nothing from the protocol layers, is not exported from the `pancake` root module, and is reached only by opt-in persistent actors and the time-travel benchmark — not a general collections package and not a headline public API."
+decision: "A persistent immutable map lives in a sharp leaf module, `src/persistent/`, as a single `PersistentMap` (HAMT, non-atomic refcounted nodes, path-copy update). It imports nothing from the protocol layers, is not exported from the `pancake` root module, and is reached only by opt-in persistent actors and the time-travel benchmark, not a general collections package and not a headline public API."
 supersedes: []
 superseded_by: []
 ---
@@ -17,8 +17,8 @@ without mutating in place, which is what makes its snapshots pure
 pointer-sharing. But if the actor rebuilds its whole state value every turn,
 `become` is O(size), losing the cheap _incremental_ mutation Goblins gets from
 Racket's persistent data structures. To make `become` O(log n) with structural
-sharing — and to back the map-shaped benchmark apps (registry, mint/purse, task
-board) — pancake needs a persistent immutable map.
+sharing: and to back the map-shaped benchmark apps (registry, mint/purse, task
+board): pancake needs a persistent immutable map.
 
 The risk this engages is scope: pancake is "a native Zig OCapN/CapTP substrate,"
 and a collections library is the part of the time-travel work that most

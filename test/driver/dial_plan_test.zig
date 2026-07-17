@@ -12,7 +12,6 @@ const transport = pancake.ocapn.model.transport;
 
 const planDial = driver.core.planDial;
 const planAccept = driver.core.planAccept;
-const Posture = driver.core.DialPosture;
 const Shape = driver.core.DialShape;
 
 // A canonical 64-hex Ed25519 key designator, the keyed-tcp / iroh designator.
@@ -20,16 +19,15 @@ const key_designator = "0123456789abcdef0123456789abcdef0123456789abcdef01234567
 
 test "planDial tcp: designator is the host:port" {
     const plan = try planDial(transport.tcp, "127.0.0.1:9000", "", .redeem);
-    try std.testing.expectEqual(Shape.host_port, plan.shape);
-    try std.testing.expectEqualStrings("127.0.0.1", plan.host);
-    try std.testing.expectEqual(@as(u16, 9000), plan.port);
-    try std.testing.expect(plan.reach == null);
+    try std.testing.expectEqual(Shape.host_port, std.meta.activeTag(plan));
+    try std.testing.expectEqualStrings("127.0.0.1", plan.host_port.host);
+    try std.testing.expectEqual(@as(u16, 9000), plan.host_port.port);
 }
 
 test "planDial tcp: bracketed IPv6 designator keeps its address" {
     const plan = try planDial(transport.tcp, "[::1]:9000", "", .redeem);
-    try std.testing.expectEqualStrings("::1", plan.host);
-    try std.testing.expectEqual(@as(u16, 9000), plan.port);
+    try std.testing.expectEqualStrings("::1", plan.host_port.host);
+    try std.testing.expectEqual(@as(u16, 9000), plan.host_port.port);
 }
 
 test "planDial tcp: a non-host:port designator is a typed refusal" {
@@ -39,18 +37,17 @@ test "planDial tcp: a non-host:port designator is a typed refusal" {
 test "planDial keyed-tcp: host:port rides the hint, the key stays the designator" {
     const hint = "10.0.0.5:8000";
     const plan = try planDial(transport.keyed_tcp, key_designator, hint, .redeem);
-    try std.testing.expectEqual(Shape.host_port, plan.shape);
-    try std.testing.expectEqualStrings("10.0.0.5", plan.host);
-    try std.testing.expectEqual(@as(u16, 8000), plan.port);
-    try std.testing.expectEqualStrings(key_designator, plan.designator);
+    try std.testing.expectEqual(Shape.host_port, std.meta.activeTag(plan));
+    try std.testing.expectEqualStrings("10.0.0.5", plan.host_port.host);
+    try std.testing.expectEqual(@as(u16, 8000), plan.host_port.port);
     // Borrow contract: the resolved host aliases the caller's hint buffer, no copy.
-    try std.testing.expect(plan.host.ptr == hint.ptr);
+    try std.testing.expect(plan.host_port.host.ptr == hint.ptr);
 }
 
 test "planDial keyed-tcp: a multi-address hint dials the first entry, trimmed" {
     const plan = try planDial(transport.keyed_tcp, key_designator, "10.0.0.1:1 , 10.0.0.2:2", .redeem);
-    try std.testing.expectEqualStrings("10.0.0.1", plan.host);
-    try std.testing.expectEqual(@as(u16, 1), plan.port);
+    try std.testing.expectEqualStrings("10.0.0.1", plan.host_port.host);
+    try std.testing.expectEqual(@as(u16, 1), plan.host_port.port);
 }
 
 test "planDial keyed-tcp: no hint is MissingDirectAddressesHint" {
@@ -65,30 +62,37 @@ test "planDial keyed-tcp: a first entry that is not host:port is DesignatorNotHo
     try std.testing.expectError(error.DesignatorNotHostPort, planDial(transport.keyed_tcp, key_designator, "notanaddress", .redeem));
 }
 
+test "planDial keyed-tcp: a non-key designator is DesignatorNotPeerKey before host:port" {
+    try std.testing.expectError(error.DesignatorNotPeerKey, planDial(transport.keyed_tcp, "127.0.0.1:9000", "10.0.0.5:8000", .redeem));
+}
+
+test "planDial iroh: a non-key designator is DesignatorNotPeerKey" {
+    try std.testing.expectError(error.DesignatorNotPeerKey, planDial(transport.iroh, "not-a-node-id", "", .{ .explicit = 1 }));
+}
+
 test "planDial iroh redeem: a hint takes the relay-less direct posture" {
     const hint = "1.2.3.4:5,6.7.8.9:10";
     const plan = try planDial(transport.iroh, key_designator, hint, .redeem);
-    try std.testing.expectEqual(Shape.iroh, plan.shape);
-    try std.testing.expectEqualStrings(key_designator, plan.designator);
-    try std.testing.expectEqualStrings(hint, plan.addresses);
-    try std.testing.expect(plan.addresses.ptr == hint.ptr); // verbatim, no copy
-    try std.testing.expect(plan.reach.? == .direct);
+    try std.testing.expectEqual(Shape.peer_id, std.meta.activeTag(plan));
+    try std.testing.expectEqualStrings(hint, plan.peer_id.addresses);
+    try std.testing.expect(plan.peer_id.addresses.ptr == hint.ptr); // verbatim, no copy
+    try std.testing.expect(plan.peer_id.reach == .direct);
 }
 
 test "planDial iroh redeem: no hint takes the node's configured posture" {
     const plan = try planDial(transport.iroh, key_designator, "", .redeem);
-    try std.testing.expectEqual(Shape.iroh, plan.shape);
-    try std.testing.expect(plan.reach.? == .configured);
+    try std.testing.expectEqual(Shape.peer_id, std.meta.activeTag(plan));
+    try std.testing.expect(plan.peer_id.reach == .configured);
 }
 
 test "planDial iroh connect: the caller's posture is used verbatim" {
     const plan = try planDial(transport.iroh, key_designator, "", .{ .explicit = 2 });
-    try std.testing.expect(plan.reach.? == .explicit);
-    try std.testing.expectEqual(@as(u32, 2), plan.reach.?.explicit);
+    try std.testing.expect(plan.peer_id.reach == .explicit);
+    try std.testing.expectEqual(@as(u32, 2), plan.peer_id.reach.explicit);
 }
 
 test "planDial iroh connect: no posture is ReachabilityRequired" {
-    try std.testing.expectError(error.ReachabilityRequired, planDial(transport.iroh, key_designator, "", .{ .explicit = null }));
+    try std.testing.expectError(error.ReachabilityRequired, planDial(transport.iroh, key_designator, "", .explicit_none));
 }
 
 test "planDial: an unknown transport is a typed refusal" {

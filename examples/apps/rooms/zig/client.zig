@@ -6,21 +6,21 @@
 //! `driver.connect`, `fetch` the directory by name, `call` it to enter or open
 //! the named room (which hands back a live reference to that room), `spawn` an
 //! inbox the room can call back, `send` the room a subscribe with that
-//! capability, `tell` it the post, and `step` the connection — one explicit pump
+//! capability, `tell` it the post, and `step` the connection with one explicit pump
 //! per step, with the loop still owned by the caller the Zig way.
 //!
 //!   pancake-rooms-client <locator> <room> <nick> <line> [roster]
 //!
 //! The locator is transport-neutral: a `host:port` reaches a TCP room, and an
 //! `ocapn://<nodeid>.iroh?direct-addresses=…` URI reaches an iroh room (when
-//! this client was built with the iroh transport — `zig build demo-rooms-iroh`;
+//! this client was built with the iroh transport (`zig build demo-rooms-iroh`).
 //! the default `demo-rooms` build is TCP-only and refuses a URI with a typed
 //! message rather than dragging the Rust sidecar into the hermetic build).
 //!
 //! The last argument is the roster: a comma-separated list of the member nicks
 //! to expect (default: just you). The client posts only once every roster member
-//! is present — it learns who is present from the structured presence the room
-//! attaches to each membership line (the roster on arrival and each join) — and
+//! is present. It learns who is present from the structured presence the room
+//! attaches to each membership line (the roster on arrival and each join), and
 //! exits 0 once it has seen a line from every roster member. Members outside the roster
 //! (people already chatting in an attached room, say) are printed but never
 //! counted, so a busy room cannot fake or break the assertion.
@@ -199,9 +199,9 @@ pub fn main(init: std.process.Init) !void {
             return fail("this Zig rooms client is TCP-only; build the iroh variant (`zig build demo-rooms-iroh`) to dial an ocapn:// URI");
         }
     } else {
-        var conn = try dialRoomsLocator(io, allocator, locator);
-        defer conn.deinit();
-        try runRoom(conn, allocator, &state, room_name, nick, line);
+        var session = try dialRoomsLocator(io, allocator, locator);
+        defer session.deinit();
+        try runRoom(session, allocator, &state, room_name, nick, line);
     }
 
     if (state.seenCount() < state.roster.len) {
@@ -234,9 +234,9 @@ fn dialIroh(io: std.Io, allocator: std.mem.Allocator, uri: []const u8, state: *S
     const iroh = @import("iroh");
     var resident = try iroh.Resident.init(io, null, .{ .reachability = reachability });
     defer resident.deinit();
-    var conn = try driver.connect(allocator, &.{resident.netlayer()}, loc, .ephemeral, .{ .frame_cap = frame_cap });
-    defer conn.deinit();
-    try runRoom(conn, allocator, state, room_name, nick, line);
+    var session = try driver.connect(allocator, &.{resident.netlayer()}, loc, .ephemeral, .{ .frame_cap = frame_cap });
+    defer session.deinit();
+    try runRoom(session, allocator, state, room_name, nick, line);
 }
 
 /// Lift a capability a `call` returned (a reference argument) into an
@@ -250,20 +250,20 @@ fn roomRefFromArg(arg: model.Argument) !actors.Ref {
 }
 
 /// Enter-or-open lives here because it materializes settled outcomes through the
-/// Zig driver's blocking `conn.call`; see `_demo/rooms_cli.{py,rkt,rs}` for the
+/// Zig driver's blocking `session.call`; see `_demo/rooms_cli.{py,rkt,rs}` for the
 /// same CLI leniency in other languages.
 /// Enter the named room, opening it if it does not exist. The wire stays strict
 /// — `enter` breaks if there is no such room, `open` breaks if the name is taken
 /// — so this tries `enter`, falls back to `open`, and on a creation race falls
 /// back to `enter` once more. The settled outcomes are materialized into a
 /// scratch arena that frees here; the returned far ref is POD and outlives it.
-fn enterOrOpen(conn: *driver.Session, allocator: std.mem.Allocator, directory: actors.Ref, room_name: []const u8) !actors.Ref {
+fn enterOrOpen(session: *driver.Session, allocator: std.mem.Allocator, directory: actors.Ref, room_name: []const u8) !actors.Ref {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
     const scratch = arena.allocator();
     const name_arg = model.Argument{ .string = room_name };
 
-    switch (try conn.call(directory, .{ .verb = "enter", .args = &.{name_arg} }, scratch)) {
+    switch (try session.call(directory, .{ .verb = "enter", .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.no_such_room)) {
             std.debug.print("rooms-client: enter \"{s}\" broke: {s}\n", .{ room_name, reason });
@@ -271,7 +271,7 @@ fn enterOrOpen(conn: *driver.Session, allocator: std.mem.Allocator, directory: a
         },
         .give => return error.EnterFailed,
     }
-    switch (try conn.call(directory, .{ .verb = "open", .args = &.{name_arg} }, scratch)) {
+    switch (try session.call(directory, .{ .verb = "open", .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => |reason| if (!std.mem.eql(u8, demo_rooms.errorCode(reason), demo_rooms.room_exists)) {
             std.debug.print("rooms-client: open \"{s}\" broke: {s}\n", .{ room_name, reason });
@@ -279,7 +279,7 @@ fn enterOrOpen(conn: *driver.Session, allocator: std.mem.Allocator, directory: a
         },
         .give => return error.UnexpectedIntroduction,
     }
-    switch (try conn.call(directory, .{ .verb = "enter", .args = &.{name_arg} }, scratch)) {
+    switch (try session.call(directory, .{ .verb = "enter", .args = &.{name_arg} }, scratch)) {
         .fulfilled => |arg| return roomRefFromArg(arg),
         .broken => return error.EnterFailed,
         .give => return error.UnexpectedIntroduction,
@@ -288,8 +288,8 @@ fn enterOrOpen(conn: *driver.Session, allocator: std.mem.Allocator, directory: a
 
 /// Enter the room, subscribe our inbox, and pump until every roster member's
 /// line has arrived, the transport-neutral body both dial paths share.
-fn runRoom(conn: *driver.Session, allocator: std.mem.Allocator, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
-    const directory = try conn.fetch("directory");
+fn runRoom(session: *driver.Session, allocator: std.mem.Allocator, state: *State, room_name: []const u8, nick: []const u8, line: []const u8) !void {
+    const directory = try session.fetch("directory");
 
     // Discovery: list the live rooms once, then watch the directory so the room
     // list's changes print as members come and go. The watcher actor outlives
@@ -298,38 +298,38 @@ fn runRoom(conn: *driver.Session, allocator: std.mem.Allocator, state: *State, r
         var arena = std.heap.ArenaAllocator.init(allocator);
         defer arena.deinit();
         const scratch = arena.allocator();
-        switch (try conn.call(directory, .{ .verb = "list", .args = &.{} }, scratch)) {
+        switch (try session.call(directory, .{ .verb = "list", .args = &.{} }, scratch)) {
             .fulfilled => |arg| printRooms(nick, arg),
             .broken => |reason| std.debug.print("[{s}] list broke: {s}\n", .{ nick, reason }),
             .give => {},
         }
-        const watcher = try conn.spawn(Watcher, .{ .nick = nick });
-        switch (try conn.call(directory, .{ .verb = "watch", .args = &.{watcher.arg()} }, scratch)) {
+        const watcher = try session.spawn(Watcher, .{ .nick = nick });
+        switch (try session.call(directory, .{ .verb = "watch", .args = &.{watcher.arg()} }, scratch)) {
             .fulfilled => {}, // the snapshot reply; we already listed, so ignore it
             .broken => |reason| std.debug.print("[{s}] watch broke: {s}\n", .{ nick, reason }),
             .give => {},
         }
     }
 
-    const room = try enterOrOpen(conn, allocator, directory, room_name);
-    const inbox = try conn.spawn(Inbox, .{ .state = state });
+    const room = try enterOrOpen(session, allocator, directory, room_name);
+    const inbox = try session.spawn(Inbox, .{ .state = state });
 
     // Subscribe, handing the room a capability to our inbox. Success is the
     // resolution; the room delivers the welcome and roster as our first `notify`
     // (the roster line), not as a return value.
-    _ = try conn.send(room, .{
+    _ = try session.send(room, .{
         .verb = "subscribe",
         .args = &.{ .{ .string = nick }, inbox.arg() },
     });
 
     var posted = false;
     while (state.seenCount() < state.roster.len) {
-        const progress = conn.step() catch |err| {
+        const progress = session.step() catch |err| {
             std.debug.print("rooms-client: step error: {s}\n", .{@errorName(err)});
             break;
         };
         if (!posted and state.allPresent()) {
-            try conn.tell(room, .{ .verb = "post", .args = &.{.{ .string = line }} });
+            try session.tell(room, .{ .verb = "post", .args = &.{.{ .string = line }} });
             posted = true;
         }
         if (progress == .closed) break;

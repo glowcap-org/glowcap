@@ -36,20 +36,20 @@ the **same** `Peer`/`Context`/`Node` API the other bindings present. The
 TypeScript binding is already layered for this: `bindings/ts/stack/mod.ts` sits
 on an FFI seam (`bindings/ts/stack/internal/ffi/runtime.ts`, today `Deno.dlopen`
 against `libpancake_ocapn`). A browser binding replaces that one seam with a
-WebAssembly instance — instantiate `pancake_ocapn.wasm`, call its exports, and
+WebAssembly instance: instantiate `pancake_ocapn.wasm`, call its exports, and
 marshal frames across the WASM/JS boundary as `ptr + len` the same way the C ABI
-already does — leaving the public API shape intact.
+already does: leaving the public API shape intact.
 
 What the browser still lacks is a transport, added in two milestones:
 
-- **Milestone 1 — WebSocket.** The browser holds a real peer and moves OCapN
+- **Milestone 1. WebSocket.** The browser holds a real peer and moves OCapN
   frames over a WebSocket to a peer that accepts WebSocket connections. This
   makes the browser a first-class OCapN peer and retires the per-tab bridge: the
   rooms `web.ts` becomes a static file server plus a WebSocket-accepting netlayer
   in front of the room server, not a protocol translator.
-- **Milestone 2 — WebRTC DataChannel.** Two browsers speak OCapN directly over a
+- **Milestone 2. WebRTC DataChannel.** Two browsers speak OCapN directly over a
   reliable, ordered WebRTC DataChannel. The room introduces them and relays the
-  WebRTC signaling (SDP/ICE) between them — which is precisely the OCapN
+  WebRTC signaling (SDP/ICE) between them: which is precisely the OCapN
   three-party handoff, over WebRTC instead of iroh. The DataChannel is the
   message stream framing needs; DTLS is the encryption; the room's introduction
   is the signaling relay.
@@ -64,7 +64,7 @@ direction and the seam it plugs into; the milestones are tracked in
 ## Alternatives Considered
 
 - **Keep the bridge.** Rejected: the browser stays a client of a peer rather than
-  a peer, so browser-to-browser introduction — the demo's whole point — can never
+  a peer, so browser-to-browser introduction (the demo's whole point) can never
   be direct.
 - **Reimplement the protocol in TypeScript.** Rejected: two codecs and two session
   engines drift, and it discards the one-core property that makes conformance a
@@ -80,7 +80,7 @@ direction and the seam it plugs into; the milestones are tracked in
 - A new binding target under `bindings/ts` (a `web`/wasm variant) that supplies a
   WebAssembly implementation of the FFI seam and reuses `mod.ts` above it.
 - The C ABI (`src/c_abi/ocapn`) must stay compilable to a freestanding `wasm32`
-  module with JS-callable exports and explicit linear-memory ownership — the same
+  module with JS-callable exports and explicit linear-memory ownership: the same
   `ptr + len` and explicit-release contract it exports for C today, now honored
   across the WASM/JS boundary.
 - A browser transport pair: a WebSocket netlayer the room server can accept on

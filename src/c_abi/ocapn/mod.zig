@@ -39,7 +39,7 @@ const engine = @import("engine");
 /// Shared C-ABI vocabulary factored into a leaf module with no `export fn`, so the
 /// iroh transport ABI can reuse it without inheriting libpancake_ocapn's exported
 /// surface (ADR-0055 companion split). Re-exported here so the handle-family files
-/// and `tools/header_gen.zig` see the full vocabulary from this root.
+/// and `tools/gen/header/ocapn.zig` see the full vocabulary from this root.
 const abi = @import("c_abi_shared");
 
 const context = @import("context.zig");
@@ -86,10 +86,9 @@ pub const PANCAKE_CODEC_CAPNP = abi.PANCAKE_CODEC_CAPNP;
 pub const codecFromC = abi.codecFromC;
 
 /// `captp_version` selector for `pancake_peer_new_negotiated`: the
-/// authenticated v1.0 profile, or PreSpec, the upstream OCapN prerelease
-/// profile.
+/// authenticated v1.0 interop profile, or next (pancake-forward private track).
 pub const PANCAKE_CAPTP_VERSION_V1_0: u32 = 0;
-pub const PANCAKE_CAPTP_VERSION_PRE_SPEC: u32 = 1;
+pub const PANCAKE_CAPTP_VERSION_NEXT: u32 = 1;
 
 pub const PANCAKE_FRAME_SHAPE_BYTE = abi.PANCAKE_FRAME_SHAPE_BYTE;
 pub const PANCAKE_FRAME_SHAPE_WORD = abi.PANCAKE_FRAME_SHAPE_WORD;
@@ -321,7 +320,7 @@ pub export fn pancake_clear_last_error() void {
 //
 // The `export fn`s below live in the handle-family files; the plain `@import`s
 // above already compile them into the library. These re-exports also surface them
-// as members of the `c_abi` namespace so `tools/header_gen.zig`, which reflects
+// as members of the `c_abi` namespace so `tools/gen/header/ocapn.zig`, which reflects
 // over `c_abi`, sees the full ABI from one root.
 
 pub const pancake_context_new = context.pancake_context_new;

@@ -30,7 +30,7 @@ fourth outcome, and no follow-up PR.
 
 Code answers to `zig build check`; the scaffolding answers to the same
 invocation. The gate verifies, mechanically, every claim it can reach.
-`tools/meta_check.zig` is the complete inventory, read it before assuming a
+`tools/check/meta_check.zig` is the complete inventory, read it before assuming a
 claim is unchecked. The shape of what it holds:
 
 - Both overlay schemes are complete and unbroken, the `.claude/rules` directory

@@ -1,18 +1,19 @@
 """Internal: the :class:`RemotePromise` a Session send returns — lazy
-observation, promise pipelining target, and ``index``/``untag`` projection
-(ADR-0007 / ADR-0050 / ADR-0052). Also the shared fetch/enliven
+observation, promise pipelining target, and ``index``/``untag``/``get``
+projection (ADR-0007 / ADR-0050 / ADR-0052). Also the shared fetch/enliven
 mint→await→classify path (``_await_minted`` / ``_fetch_like``), the far-send
 mint→``_promise_for`` path (``_send_far``), and RemotePromise construction.
 Session owns CapTP verb wrappers; trampoline owns near/far send·tell
-dispatch and local arms; this module owns the handle type and far-send /
-post-mint choreography. Binding spine Pass 3a / 4b / 4d / 4f.
+dispatch and local arms; this module owns the handle type, far-send /
+post-mint choreography, and the projection FFI.
 """
 
 from __future__ import annotations
 
 import asyncio
 import ctypes
-from typing import Optional
+from dataclasses import dataclass
+from typing import Optional, Union
 
 from . import _constants as _abi
 from ._codec import _args_to_c, _ref_to_c
@@ -75,16 +76,41 @@ def _promise_for(session, vow: int) -> RemotePromise:
                 session.host.raw, vow, int(key), ctypes.byref(out),
             ))
         else:
-            tag = str(key).encode()
-            tbuf, tptr = _byte_buf(tag)
-            _check_host(_host.pancake_host_vow_untag(
-                session.host.raw, vow, tptr, len(tag), ctypes.byref(out),
+            field = str(key).encode()
+            fbuf, fptr = _byte_buf(field)
+            fn = _host.pancake_host_vow_get if op == "get" else _host.pancake_host_vow_untag
+            _check_host(fn(
+                session.host.raw, vow, fptr, len(field), ctypes.byref(out),
             ))
         projected = out.value
         session.host.vow_minted(projected, session)
         return _promise_for(session, projected)
 
-    return RemotePromise(vow, begin, project)
+    return RemotePromise.far(vow, begin, project)
+
+
+class PromiseState:
+    """Sum state for :class:`RemotePromise`: ``Far`` (host vow) or ``Local``.
+    Discriminant is the arm type — not a nullable vow field."""
+
+    @dataclass(frozen=True, slots=True)
+    class Far:
+        vow: int
+        tag: str = "far"
+
+    @dataclass(frozen=True, slots=True)
+    class Local:
+        tag: str = "local"
+
+    Kind = Union["PromiseState.Far", "PromiseState.Local"]
+
+    @staticmethod
+    def far(vow: int) -> "PromiseState.Far":
+        return PromiseState.Far(vow)
+
+    @staticmethod
+    def local() -> "PromiseState.Local":
+        return PromiseState.Local()
 
 
 class RemotePromise(asyncio.Future):
@@ -113,34 +139,53 @@ class RemotePromise(asyncio.Future):
     settle is drain-routed and no exception is materialized until the handle is
     observed, an unobserved anchor whose far answer *breaks* stays silent. Like
     any ``asyncio.Future``, construct it within a running event loop (``send``
-    is always called from one). ``vow`` is the host vow the answer settles, or
-    ``None`` for a local send (not pipelinable).
+    is always called from one). State is a sum (``far`` | ``local``), not a
+    nullable vow flag.
 
-    The projection verbs :meth:`index` / :meth:`untag` (ADR-0050/ADR-0052)
-    pipeline an element or untag access *at the answer*, before it resolves:
-    each returns a new :class:`RemotePromise` for the projected value.
+    The projection verbs :meth:`index` / :meth:`untag` / :meth:`get`
+    (ADR-0050/ADR-0052) pipeline an element, untag, or Struct-field access *at
+    the answer*, before it resolves: each returns a new :class:`RemotePromise`
+    for the projected value.
     """
 
-    def __init__(self, vow: Optional[int], begin, project=None) -> None:
+    def __init__(self, kind: PromiseState.Kind, begin, project=None) -> None:
         # The future is created empty -- no flush runs here, so construction is
         # side-effect-free and the send stays lazy.
         super().__init__()
-        self._vow = vow
+        # Not `_state`: asyncio.Future owns that name for PENDING/FINISHED.
+        self._kind = kind
         self._begin = begin
-        # Issues a projection op (index/untag) at this vow and returns the new
-        # RemotePromise; None for a local-send handle (no answer to project).
+        # Issues a projection op (index/untag/get) at this vow; set only for far.
         self._project = project
         self._started = False
         # The begin task, retained: the event loop holds tasks only weakly, so
         # an unreferenced begin could be collected mid-flight.
         self._begin_task: "Optional[asyncio.Future]" = None
 
+    @classmethod
+    def far(cls, vow: int, begin, project) -> "RemotePromise":
+        return cls(PromiseState.far(vow), begin, project)
+
+    @classmethod
+    def local(cls, begin) -> "RemotePromise":
+        return cls(PromiseState.local(), begin, None)
+
     @property
     def vow(self) -> Optional[int]:
-        return self._vow
+        """Host vow when far; ``None`` when local (convenience, not the discriminant)."""
+        return self._kind.vow if isinstance(self._kind, PromiseState.Far) else None
+
+    def far_vow(self) -> int:
+        """The host vow for pipelining, or a typed refusal when this is local."""
+        if not isinstance(self._kind, PromiseState.Far):
+            raise PancakeError(
+                _ERR_UNSUPPORTED_VALUE,
+                "cannot pipeline against a local-send promise; await it for a Ref",
+            )
+        return self._kind.vow
 
     def _project_op(self, op: str, key) -> "RemotePromise":
-        if self._project is None:
+        if not isinstance(self._kind, PromiseState.Far) or self._project is None:
             raise PancakeError(_ERR_UNSUPPORTED_VALUE, "cannot project a local-send promise; await it for a value")
         return self._project(op, key)
 
@@ -155,6 +200,12 @@ class RemotePromise(asyncio.Future):
         :class:`RemotePromise` for the payload of whatever this resolves to,
         which must be a Tagged record whose tag equals ``tag``."""
         return self._project_op("untag", tag)
+
+    def get(self, field: str) -> "RemotePromise":
+        """Pipeline an ``op:get`` for ``field`` at this answer (ADR-0050): a new
+        :class:`RemotePromise` for the Struct field of whatever this resolves
+        to."""
+        return self._project_op("get", field)
 
     def _ensure_started(self) -> None:
         # First observation schedules the send's flush + reply wait, exactly
@@ -211,13 +262,9 @@ def _send_far(session, target, verb: str, args: list) -> RemotePromise:
     if isinstance(target, RemotePromise):
         # Promise pipelining: eventual-send to the unresolved answer. A
         # local send's promise has no wire answer to pipeline against.
-        if target.vow is None:
-            raise PancakeError(
-                _ERR_UNSUPPORTED_VALUE,
-                "cannot pipeline against a local-send promise; await it for a Ref",
-            )
+        source_vow = target.far_vow()
         _check_host(_host.pancake_host_vow_send(
-            session.host.raw, target.vow, vptr, len(verb_bytes), arr, count, ctypes.byref(out),
+            session.host.raw, source_vow, vptr, len(verb_bytes), arr, count, ctypes.byref(out),
         ))
     else:
         ref = _ref_to_c(target._wire())

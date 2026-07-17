@@ -19,17 +19,17 @@
 //! each back to the codec-neutral model (the production `decodeBody` path,
 //! complete for every argument kind), and assert the two decoded models are
 //! structurally equal. Both codecs apply the same wire-perspective flip on decode
-//! (ADR-0010), so a faithful codec lands on the same model — a single
+//! (ADR-0010), so a faithful codec lands on the same model, a single
 //! `messagesEqual` per message witnesses that Syrup and Cap'n Proto are
 //! interchangeable for it.
 //!
-//! The corpus is the *shared* passable set — what both codecs carry the same way,
+//! The corpus is the *shared* passable set, what both codecs carry the same way,
 //! including an `error` argument (Syrup encodes it via `writeError`, Cap'n Proto
 //! via its error arm). A few shapes are deliberately codec-dialect-specific and
 //! excluded: a `handoff` *argument* (Cap'n Proto carries it inline; Syrup carries
 //! handoffs through their own signed-envelope flow), a `sturdy` *deliver target*
 //! (you enliven a sturdyref, you don't deliver to one), and the promise/object
-//! *kind* of a `far` reference — OCapN's `desc:export` is kind-less by design (the
+//! *kind* of a `far` reference. OCapN's `desc:export` is kind-less by design (the
 //! receiver resolves the kind from its own export table), so Syrup drops it on the
 //! wire while Cap'n Proto carries it. Each is covered by its own per-codec
 //! round-trip test, not this shared-set equivalence.
@@ -41,7 +41,7 @@ const model = pancake.ocapn.model;
 const codec = pancake.ocapn.codec;
 const messagesEqual = @import("../support/message_equality.zig").messagesEqual;
 
-const profile = model.WireProfile.pre_spec;
+const profile = model.CaptpVersion.next;
 
 /// Encode `message` through `codec_id` and decode it back to the owned,
 /// codec-neutral model. Caller owns the result (`model.freeMessage`).
@@ -117,6 +117,26 @@ test "a sturdyref argument is codec-equivalent (the sturdy dialect boundary is t
         .args = &.{
             .{ .reference = .{ .sturdy = .{
                 .peer = .{ .transport = "tcp", .designator = "host:9000" },
+                .swissnum = &.{ 0xde, 0xad, 0xbe, 0xef },
+            } } },
+        },
+        .answer = .from(7),
+    } });
+}
+
+test "a sturdyref argument with locator hint entries is codec-equivalent" {
+    const entries = [_]model.HintEntry{
+        .{ .name = "host", .value = .{ .string = "127.0.0.1" } },
+    };
+    try expectCodecEquivalent(.{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(4) },
+        .args = &.{
+            .{ .reference = .{ .sturdy = .{
+                .peer = .{
+                    .transport = "tcp",
+                    .designator = "host:9000",
+                    .hints = .{ .entries = &entries },
+                },
                 .swissnum = &.{ 0xde, 0xad, 0xbe, 0xef },
             } } },
         },

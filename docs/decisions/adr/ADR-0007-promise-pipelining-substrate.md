@@ -12,8 +12,8 @@ superseded_by: []
 
 ## Context
 
-A caller can address an `op:deliver` at a promise — an answer the partner has
-not resolved yet — instead of a settled capability. OCapN's wire target for that
+A caller can address an `op:deliver` at a promise: an answer the partner has
+not resolved yet: instead of a settled capability. OCapN's wire target for that
 case is `<desc:answer answer-pos>`, a single positive integer (CapTP
 Specification.md § desc:answer): the descriptor carries no pipeline path, and
 chained pipelining is chained `op:deliver` messages, not a multi-step path
@@ -26,7 +26,7 @@ operand for it.
 Two questions follow. Where does a call queued against an unresolved answer
 live, and how does it drain when the answer settles? And how does a promise
 target carrying a non-empty path reach the wire when the only implemented codec
-— Syrup — has no path operand?
+Syrup: has no path operand?
 
 `op:listen` is the sibling operation: it installs a party to be told when an
 answer resolves. The spec shape is `<op:listen to-desc listen-desc>`; Spritely
@@ -35,8 +35,8 @@ Goblins always emits a third `wants-partial?` operand
 intermediate promise hops or only on the settled value.
 
 Engages the First Principles
-[_session state is authoritative_](../../../AGENTS.md#first-principles) — queued
-calls and listeners live in the session, not the engine — and _protocol
+[_session state is authoritative_](../../../AGENTS.md#first-principles): queued
+calls and listeners live in the session, not the engine: and _protocol
 correctness before convenience_: every resource bound is a loud error, never a
 silent drop.
 
@@ -55,7 +55,7 @@ decision at dispatch time.
 
 When a `Peer` sends `op:resolve` for that answer, `step` drains the queue
 ([`Peer.drainPipelinedCalls`](../../../src/ocapn/engine/mod.zig)) and then fires
-the listeners — calls first, since a drained call may settle further answers.
+the listeners: calls first, since a drained call may settle further answers.
 Each queued call dispatches against the resolution
 ([`Peer.dispatchDrainedCall`](../../../src/ocapn/engine/mod.zig)): a `far`
 resolution forwards the call on the wire (target rewritten via
@@ -68,7 +68,7 @@ cycle detection; every other shape drops the call.
 [`pipeline.classifyListenerDrain`](../../../src/ocapn/engine/pipeline.zig)
 decides each listener's fate against the resolution and its `wants_partial`
 flag. A `Fulfill(Promise(_))` resolution re-anchors the listener on the next
-answer — firing the partial first only when `wants_partial` — while every other
+answer (firing the partial first only when `wants_partial`) while every other
 resolution fires the listener once via
 [`pipeline.borrowedListenerFire`](../../../src/ocapn/engine/pipeline.zig),
 which builds the resolver-method `op:deliver` (`[Symbol("fulfill"), payload]` or
@@ -93,8 +93,8 @@ Each link is recorded and enqueued through the same send path, so every
 `desc:answer` that reaches the wire is flat and every queued inbound call
 carries an empty path.
 
-A `field` step has no `op:deliver` analog — OCapN is methodic, with no
-structural-navigation shape — so the decomposer rejects it loudly with
+A `field` step has no `op:deliver` analog. OCapN is methodic, with no
+structural-navigation shape: so the decomposer rejects it loudly with
 `UnsupportedPipelineOp` rather than dropping a step.
 
 ### Bounds
@@ -113,9 +113,12 @@ The model also carries top-level `Get { receiver, field, answer }` and
 wire shapes, and the Syrup codec encodes and decodes both on every profile. A
 `field` pipeline path-step is a Cap'n Proto-only operand that the Syrup
 decomposer and reference encoders reject loudly; Syrup does not translate it
-into `op:get`. Serving these ops against a local object model is not implemented
-in the engine — a received op surfaces an application event and records receipt,
-the boundary the actor layer later closes.
+into `op:get`. The engine answers these ops by projecting field/index once the
+receiver settles
+([ADR-0050](ADR-0050-get-index-responder.md)); `op:untag` rides the same
+substrate ([ADR-0052](ADR-0052-untag-responder.md)). A drained call whose target
+resolved to a local export is still surfaced for the application to dispatch,
+the engine runs no actor method itself.
 
 ## Scope (what this does not decide)
 
@@ -129,19 +132,27 @@ the boundary the actor layer later closes.
   surfaced as a synthesized `op:deliver` event
   ([`Peer.deliverDrainedCallLocally`](../../../src/ocapn/engine/mod.zig)) for
   the application to dispatch; the engine runs no method itself.
-- **Export listeners are not implemented.** An `op:listen` on one of our own
-  exports falls through to ordinary recv handling.
+- **Export-side listen: object exports fire, bare promise exports refuse.** A
+  listen on a live object export (held `local_value`, no inbound answer) fires
+  fulfill of that export immediately. A listen on a bare unresolved promise
+  export is refused loud (`InvalidReference`): pancake exports no free-standing
+  resolvable promise: the only promise exports it mints are resolver callbacks
+  the partner delivers to, never listens on: so a listener on one could never
+  fire, and accepting it would be a subscription silently owed forever. A
+  partner that wants resolution notification listens on the inbound answer it
+  already holds.
 - Listeners on third-party handoff-imported promises and their relayed
-  resolutions — [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
-- The `op:resolve` ↔ V1.0 resolver-callback translation the drain trigger rides
-  on — [ADR-0010](ADR-0010-payload-descriptor-discriminator.md).
+  resolutions, [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
+- The `op:resolve` to V1.0 resolver-callback translation the drain trigger rides
+  on, [ADR-0010](ADR-0010-payload-descriptor-discriminator.md).
 
 ## Alternatives Considered
 
-- **Decompose multi-hop on every codec for wire uniformity.** No competing codec
-  exists to unify, and `decomposeOutboundDeliver` already produces the
-  spec-canonical chained `op:deliver`. The reserved Cap'n Proto slot keeps
-  native single-frame pipelining available when it lands.
+- **Decompose multi-hop on every codec for wire uniformity.** Rejected at the
+  time: Syrup had no native path operand, and `decomposeOutboundDeliver`
+  already produces the spec-canonical chained `op:deliver`. Cap'n Proto later
+  landed with a native pipeline-path operand ([ADR-0026](ADR-0026-hand-rolled-capnp-codec.md));
+  Syrup still decomposes.
 - **Drop `PipelineOp.field` from the model.** Rejected: the gap is per-codec,
   not per-model. The model admits `field`; the Syrup path rejects it loudly so a
   structural step is never silently lost.
@@ -167,11 +178,14 @@ the boundary the actor layer later closes.
 
 ## Forward compatibility
 
-A pipeline path reaches the wire only by decomposition. The reserved Cap'n Proto
-slot would carry it natively, leaving the model surface and the drain semantics
-unchanged — only the sender's choice of decompose-versus-emit moves. Any claim
-of cross-codec pipelining parity stays unbacked until a second codec exists; the
-harness exercises one ([ADR-0003](ADR-0003-codec-interoperability-posture.md)).
+Syrup still reaches a multi-hop pipeline path only by decomposition. Cap'n Proto
+carries a native pipeline-path operand in one frame
+([ADR-0026](ADR-0026-hand-rolled-capnp-codec.md)), leaving the model surface and
+the drain semantics unchanged, only the sender's choice of
+decompose-versus-emit moves. Cross-codec pipelining parity means both codecs
+preserve semantics on the paths they can express; Syrup's multi-hop decompose
+versus Cap'n Proto's single-frame path is the residual, not a missing codec
+([ADR-0003](ADR-0003-codec-interoperability-posture.md)).
 
 ## Notes
 

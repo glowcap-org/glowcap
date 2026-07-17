@@ -1,14 +1,14 @@
 // Live interop proof for the Deno binding: a peer built on `libpancake`'s C ABI
 // holds a *keyed* OCapN conversation with a real Spritely Goblins vat over TCP —
-// driven through the *same* `connect`/`fetch`/`send` application surface the
+// driven through the *same* `connect`/`enliven`/`send` application surface the
 // cross-language demos use, so what is proven against a real Goblins vat is the
 // application API itself, not a bespoke handshake script.
 //
 // It spawns the conformance Goblins host, learns the echo cap's swiss-num from
-// its NDJSON readiness line, then: `connect` (which completes the keyed
-// `op:start-session` handshake), `fetch` the echo cap by swiss-num, and `send`
-// it a positional call — asserting Goblins resolves it. Needs `racket` plus the
-// `goblins` collection on PATH, so it runs as the sibling build step
+// its NDJSON readiness line, then: `connect` (keyed `op:start-session`),
+// `enliven` the echo sturdyref (bootstrap fetch + ADR-0012 dedup cache),
+// `send` a positional call, then a repeat `enliven` of the same swiss-num
+// (cache hit, no second bootstrap). Needs `racket` + `goblins` on PATH;
 // `zig build deno-goblins-interop`.
 
 import { connect, tcpLocator } from "@pancake/stack";
@@ -55,15 +55,33 @@ try {
 	);
 	conn.serve().catch(() => {}); // the partner hanging up ends the serve loop
 
-	const echo = await conn.fetch(swiss);
-	console.log("deno-goblins-interop: fetched goblins echo cap, calling it");
+	// Peer URI host is ignored once the session is open; enliven keys on swiss.
+	const sturdyref = `ocapn://goblins-echo.tcp/s/${swiss}`;
+	const echo = await conn.enliven(sturdyref);
+	console.log("deno-goblins-interop: enlivened goblins echo cap, calling it");
 
 	// Goblins invokes a cap positionally (no method symbol), so send with verb "".
 	await conn.send(echo, "", [new TextEncoder().encode("pancake-ping")]);
 
+	const again = await conn.enliven(sturdyref);
+	if (
+		echo.reference.kind !== "far" ||
+		again.reference.kind !== "far" ||
+		echo.reference.id !== again.reference.id
+	) {
+		fail(
+			"deno-goblins-interop",
+			"repeat enliven did not return the same far import (dedup miss)",
+		);
+	}
+	await conn.send(again, "", [new TextEncoder().encode("pancake-ping-again")]);
+	console.log(
+		"deno-goblins-interop: repeat enliven same import (dedup), second call resolved",
+	);
+
 	ok = true;
 	console.log(
-		"deno-goblins-interop OK: keyed handshake + bootstrap fetch + echo deliver/resolve with live Goblins",
+		"deno-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins",
 	);
 	conn.close();
 } finally {

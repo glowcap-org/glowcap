@@ -34,7 +34,7 @@ from ._errors import (
     PancakeException,
     _check_host,
 )
-from ._ffi_driver import _host
+from ._ffi_driver import _AcceptPlan, _host
 from ._ffi_ocapn import _byte_buf
 from ._host import Host
 from ._locator import parse_locator
@@ -60,11 +60,11 @@ class Session:
     """A live CapTP session with one OCapN partner, the one object an app holds,
     over one byte-fed ``PancakeHostSession`` the shared :class:`Host` minted.
 
-        conn = await connect(tcp_locator("127.0.0.1", 9099))
-        conn.serve()
-        board = await conn.fetch("board")
-        inbox = conn.spawn(lambda verb, args: None)
-        await conn.send(board, "watch", [inbox])
+        session = await connect(tcp_locator("127.0.0.1", 9099))
+        session.serve()
+        board = await session.fetch("board")
+        inbox = session.spawn(lambda verb, args: None)
+        await session.send(board, "watch", [inbox])
     """
 
     def __init__(self, ptr: ctypes.c_void_p, host: Host, transport):
@@ -109,10 +109,10 @@ class Session:
     def _open_dialed_locator(
         cls, host: Host, transport_name: str, designator: str, transport,
     ) -> "Session":
-        # Mint the dialing half from already-parsed locator pieces (a DIAL
-        # action's transport + designator) without driving the handshake —
-        # the signed op:start-session is encoded (its FLUSH queued) but
-        # nothing has moved.
+        # Mint the dialing half from already-parsed locator pieces without
+        # driving the handshake — the signed op:start-session is encoded (its
+        # FLUSH queued) but nothing has moved. A DIAL action's binding half
+        # borrows the pending URI before calling here.
         t = transport_name.encode()
         d = designator.encode()
         tbuf, tptr = _byte_buf(t)
@@ -127,8 +127,8 @@ class Session:
     async def establish_dialed_locator(
         cls, host: Host, transport_name: str, designator: str, transport,
     ) -> "Session":
-        """Mint the dialing half from already-parsed locator pieces (a DIAL
-        action's transport + designator). Binding-internal."""
+        """Mint the dialing half from already-parsed locator pieces. A DIAL
+        action's binding half borrows the pending URI first. Binding-internal."""
         return await cls._open_dialed_locator(
             host, transport_name, designator, transport,
         )._establish()
@@ -138,27 +138,34 @@ class Session:
         cls,
         host: Host,
         transport_name: str,
-        designator: str,
+        server_designator: str,
         transport,
-        direct_addresses_hint: str = "",
+        accepted_local_addr: str = "",
     ) -> "Session":
         """Mint the accepting half over a connection the caller's own listener
-        produced: the keyed op:start-session signs the listener's own
-        ``transport_name``/``designator`` — the address a partner can actually
-        dial, and the locator a give made on this host names as the exporter
-        location. On ``keyed-tcp`` pass the bound ``host:port`` as
-        ``direct_addresses_hint`` (TCP has no discovery). Every host-wide
-        giftable is published on the new session before the open returns,
-        so a dialer's pipelined fetch finds it. Binding-internal."""
+        produced. ``server_designator`` is the listener's signing designator
+        (key for keyed-tcp/iroh; unused for tcp); ``accepted_local_addr`` is
+        what accept reported. Signing designator/hint come from
+        ``pancake_host_plan_accept`` (ADR-0078). Binding-internal."""
         t = transport_name.encode()
-        d = designator.encode()
-        h = direct_addresses_hint.encode()
+        server = server_designator.encode()
+        local = accepted_local_addr.encode()
         tbuf, tptr = _byte_buf(t)
-        dbuf, dptr = _byte_buf(d)
-        hbuf, hptr = _byte_buf(h)
+        sbuf, sptr = _byte_buf(server)
+        lbuf, lptr = _byte_buf(local)
+        plan = _AcceptPlan()
+        _check_host(_host.pancake_host_plan_accept(
+            tptr, len(t), sptr, len(server), lptr, len(local), ctypes.byref(plan),
+        ))
+        # Plan views borrow the caller buffers (or the static unreachable
+        # placeholder); keep tbuf/sbuf/lbuf alive and pass those pointers
+        # through — no second materialize (ADR-0078 / Rust establish_accepted).
         out = ctypes.c_void_p()
         _check_host(_host.pancake_host_session_open_accepted(
-            host.raw, tptr, len(t), dptr, len(d), hptr, len(h), ctypes.byref(out),
+            host.raw, tptr, len(t),
+            plan.designator, plan.designator_len,
+            plan.direct_addresses_hint, plan.direct_addresses_hint_len,
+            ctypes.byref(out),
         ))
         return await cls(out, host, transport)._establish()
 

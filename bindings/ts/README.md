@@ -22,10 +22,10 @@ optional, externally-cadenced iroh transport versions on its own:
 
 | Runtime                  | Tier          | FFI seam      |
 | ------------------------ | ------------- | ------------- |
-| [Deno](https://deno.com) | tested (gate) | `Deno.dlopen` |
-| [Bun](https://bun.sh)    | tested (gate) | `bun:ffi`     |
+| [Deno](https://deno.com) | tested (build check) | `Deno.dlopen` |
+| [Bun](https://bun.sh)    | tested (build check) | `bun:ffi`     |
 
-## Gating
+## Build checks
 
 [`dogfood/zig_smoke.ts`](dogfood/zig_smoke.ts) is the one consumer both
 `zig build deno-dogfood` and `zig build bun-dogfood` run. The same source runs

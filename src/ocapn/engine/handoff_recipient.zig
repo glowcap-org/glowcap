@@ -102,40 +102,121 @@ pub fn signedReceiveFromGiveBytes(
     return result;
 }
 
-/// Project a give's exporter location into the dialable `ocapn://…` URI a
-/// recipient hands its dialer, through the one core URI grammar. A verbatim
-/// locator record re-parses with hints (an iroh exporter's direct addresses);
-/// a hint-less flat locator formats directly. Returns null for a `.raw` opaque
-/// location — the recipient cannot dial it — and `MalformedLocatorRecord` for
-/// a record that no longer parses. The caller owns the returned bytes.
+/// Rebuild a Syrup `<desc:sig-envelope <desc:handoff-give …> …>` from typed
+/// Cap'n Proto (or other non-Syrup) give fields so Host / C ABI redeem can
+/// relay the signing domain when the frame has no Syrup envelope span.
+/// Caller owns the returned bytes.
+fn reconstructSignedHandoffGive(
+    allocator: std.mem.Allocator,
+    give: model.view.HandoffGive,
+) ![]u8 {
+    const owned = try give.toOwned(allocator);
+    defer model.freeHandoffGive(allocator, owned);
+    const record = try codec.syrup.canonicalHandoffGiveSignedBytes(allocator, owned);
+    defer allocator.free(record);
+    return codec.syrup.wrapSignedHandoffGive(allocator, record, owned.signature);
+}
+
+/// Project a give's exporter peer into the dialable `ocapn://…` URI a
+/// recipient hands its dialer, through the one core URI grammar. Materialize
+/// hints only when the lazy arm requires it; transport/designator stay
+/// borrowed for `writePeer`. The caller owns the returned bytes.
 pub const LocatorUriError = error{ OutOfMemory, MalformedLocatorRecord };
 pub fn exporterLocatorUri(
     allocator: std.mem.Allocator,
-    location: model.view.ExporterLocation,
-) LocatorUriError!?[]u8 {
-    switch (location) {
-        .raw => return null,
-        .locator => |loc| {
-            if (loc.record.len > 0) {
-                var cursor: usize = 0;
-                const parsed = codec.syrup.readLocatorOwned(allocator, loc.record, &cursor) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    else => return error.MalformedLocatorRecord,
-                };
-                defer model.freePeerLocator(allocator, parsed);
-                return model.uri.writePeer(allocator, parsed) catch |err| switch (err) {
-                    error.OutOfMemory => return error.OutOfMemory,
-                    else => return error.MalformedLocatorRecord,
-                };
-            }
-            return model.uri.writePeer(allocator, .{
-                .transport = loc.transport,
-                .designator = loc.designator,
-                .hints = model.Hints.emptyFalse(),
-            }) catch |err| switch (err) {
-                error.OutOfMemory => return error.OutOfMemory,
-                else => return error.MalformedLocatorRecord,
-            };
-        },
+    location: model.view.PeerLocator,
+) LocatorUriError![]u8 {
+    var owned_hints: ?model.Hints = null;
+    defer if (owned_hints) |h| model.freeHints(allocator, h);
+
+    const hints: model.Hints = if (location.hints.stackUriHints()) |h| h else blk: {
+        owned_hints = location.hints.toOwned(allocator) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.MalformedView => return error.MalformedLocatorRecord,
+        };
+        break :blk owned_hints.?;
+    };
+    const peer: model.PeerLocator = .{
+        .transport = location.transport,
+        .designator = location.designator,
+        .hints = hints,
+    };
+
+    return model.uri.writePeer(allocator, peer) catch |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        else => return error.MalformedLocatorRecord,
+    };
+}
+
+/// Signed give + dial URI for a fulfill that carries a handoff give.
+/// Soft failures leave `give` as `.absent` or `locator` as `.absent` /
+/// `.malformed`; only OOM errors out. Caller frees via `deinit`.
+pub const ProjectedRedeemGive = struct {
+    give: union(enum) {
+        borrowed: []const u8,
+        owned: []u8,
+        absent,
+    } = .absent,
+    locator: union(enum) {
+        uri: []u8,
+        absent,
+        malformed,
+    } = .absent,
+
+    /// Give octets when present; `null` when reconstruct/span failed (`.absent`).
+    /// Callers must branch on this instead of treating an empty slice as absent.
+    pub fn bytes(self: ProjectedRedeemGive) ?[]const u8 {
+        return switch (self.give) {
+            .borrowed => |b| b,
+            .owned => |o| o,
+            .absent => null,
+        };
     }
+
+    /// Take ownership of reconstructed give bytes, or null when borrowed/absent.
+    pub fn takeOwned(self: *ProjectedRedeemGive) ?[]u8 {
+        return switch (self.give) {
+            .owned => |o| blk: {
+                self.give = .absent;
+                break :blk o;
+            },
+            .borrowed, .absent => null,
+        };
+    }
+
+    pub fn deinit(self: *ProjectedRedeemGive, allocator: std.mem.Allocator) void {
+        if (self.give == .owned) allocator.free(self.give.owned);
+        if (self.locator == .uri) allocator.free(self.locator.uri);
+        self.* = .{};
+    }
+};
+
+/// One redeem-projection spine for Host / Vat / C ABI: span or reconstruct the
+/// signed give, then project the exporter dial URI.
+pub fn projectGiveForRedeem(
+    allocator: std.mem.Allocator,
+    event_bytes: []const u8,
+    give: model.view.HandoffGive,
+) error{OutOfMemory}!ProjectedRedeemGive {
+    var result: ProjectedRedeemGive = .{};
+    errdefer result.deinit(allocator);
+
+    if (codec.syrup.spanSignedHandoffGive(event_bytes)) |span| {
+        result.give = .{ .borrowed = span };
+    } else {
+        result.give = if (reconstructSignedHandoffGive(allocator, give)) |owned|
+            .{ .owned = owned }
+        else |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => .absent,
+        };
+    }
+
+    result.locator = if (exporterLocatorUri(allocator, give.exporter)) |uri|
+        .{ .uri = uri }
+    else |err| switch (err) {
+        error.OutOfMemory => return error.OutOfMemory,
+        error.MalformedLocatorRecord => .malformed,
+    };
+    return result;
 }

@@ -138,21 +138,37 @@ fn feed_raw(shared: &SessionShared, bytes: &[u8]) -> (i32, usize) {
 /// delimiter: the session's codec splits each complete frame off the front —
 /// both codecs, both frame shapes, the frame cap enforced during the scan —
 /// and dispatches it (behavior trampolines fire and completions queue
-/// inside), then the actions the dispatch queued drain. Only the unconsumed
-/// tail stays in the inbox. The inbox is taken out for the synchronous feed
-/// so no `RefCell` borrow is held across an FFI call that can fire the
-/// trampoline.
+/// inside), then the actions the dispatch queued drain. Steady state (empty
+/// inbox) borrows `chunk` for one synchronous feed — zero-copy; only when a
+/// partial frame already straddles two reads is the burst coalesced into the
+/// inbox Vec. Only the unconsumed tail stays in the inbox. The inbox is taken
+/// out for the coalesce feed so no `RefCell` borrow is held across an FFI call
+/// that can fire the trampoline.
 pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()> {
-	{
-		let mut inbox = shared.inbox.borrow_mut();
-		inbox.extend_from_slice(chunk);
-	}
 	let mut refusal: Option<i32> = None;
-	{
+	if shared.inbox.borrow().is_empty() {
+		if chunk.is_empty() {
+			return Ok(());
+		}
+		if !shared.released.get() {
+			let (rc, consumed) = feed_raw(shared, chunk);
+			if rc != sys::OK {
+				refusal = Some(rc);
+			} else if consumed < chunk.len() {
+				shared
+					.inbox
+					.borrow_mut()
+					.extend_from_slice(&chunk[consumed..]);
+			}
+		}
+	} else {
+		{
+			let mut inbox = shared.inbox.borrow_mut();
+			inbox.extend_from_slice(chunk);
+		}
 		// One call: the core delimits and dispatches every complete frame in
 		// the buffer itself, stops at a partial tail, and during the
-		// handshake stops at the frame that opens the session — so this one
-		// body serves establish and steady state alike.
+		// handshake stops at the frame that opens the session.
 		let mut buf = std::mem::take(&mut *shared.inbox.borrow_mut());
 		if !shared.released.get() {
 			let (rc, consumed) = feed_raw(shared, &buf);
@@ -162,7 +178,6 @@ pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()>
 				buf.drain(..consumed);
 			}
 		}
-		// Put the unconsumed tail back before anything can await.
 		let mut inbox = shared.inbox.borrow_mut();
 		buf.extend_from_slice(&inbox);
 		*inbox = buf;

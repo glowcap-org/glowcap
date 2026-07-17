@@ -3,9 +3,9 @@
 This is the dependency-ordered route toward 1.0, and the record of where each
 step on the ladder stands. [`vision.md`](vision.md) says where pancake is going;
 this file says what has to be true, and in what order, before that destination
-is honest, and which steps the build check already proves. When a step's
+can be claimed, and which steps the build check already proves. When a step's
 standing changes, this file changes in the same diff. It is docs that must
-match today's code, under the [doc-drift rule](../.agents/rules/doc-drift.md).
+match today's code; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 The order is an argument, not a wish list: an application built before
 conformance would bake protocol bugs into its API, and a second netlayer
@@ -29,20 +29,26 @@ table.
 This step is held by verification, and its breadth is still growing.
 
 OCapN behavior, live Spritely Goblins conversation, the upstream OCapN suite,
-and Zig-local protocol scenarios are the conformance authority; pancake is the
-implementation, and no other implementation is the source of truth for its
-semantics. A semantic claim without a scenario or fixture is a wish. Today's
-proof is the pancake-authored Syrup corpus (`zig build oracle-check`, held
-against the upstream Syrup encoder by `fixture-gen-check`), the cross-codec
-parity traces, the live Goblins conversation in both directions
-(`goblins-interop`), three-party handoff against Goblins as recipient
-(`goblins-handoff`) and as gifter (`goblins-gift`, plus binding
-`*-goblins-gift`), and the upstream OCapN suite (`ocapn-conformance`). What
-keeps this step open is breadth, not machinery: a change that touches a spec
-edge no scenario pins yet adds the test. Promise pipelining, three-party
+and Zig-local protocol scenarios are the conformance authority. pancake is the
+implementation. No other implementation is the source of truth for its
+semantics. A semantic claim without a scenario or fixture is a wish.
+
+Live Goblins and the upstream suite are the strongest external Syrup check.
+The pancake-authored Syrup corpus (`zig build oracle-check`, held against the
+upstream encoder by `fixture-gen-check`) proves that pancake's record shapes
+match that encoder. It does not prove independent Goblins emission.
+
+Today's proof also includes pancake-to-pancake cross-codec traces, the live
+Goblins conversation both ways (`goblins-interop`), three-party handoff as
+recipient and as gifter (`goblins-handoff`, `goblins-gift`, and binding
+`*-goblins-gift`), inbound `op:gc-exports` from a Goblins vat (`goblins-gc`),
+and the upstream suite (`ocapn-conformance`). `goblins-gc` covers inbound
+export release only, not `op:gc-answers` or binding finalizer GC.
+
+What keeps this step open is breadth, not machinery. A change that touches a
+spec edge with no scenario yet adds the test. Promise pipelining, three-party
 handoffs, sturdyref enlivenment, and attenuated delegation carry the most
-conformance weight, and Goblins-canonical extensions get flagged wherever they
-appear.
+weight. Goblins-shaped extensions get flagged wherever they appear.
 
 ## Step 2: The Performance Contract, In Numbers
 
@@ -58,15 +64,15 @@ model requires, pinned by `test/engine/alloc_budget_test.zig`. `engine.Peer`
 carries a `comptime` ceiling on its own struct size, so staying under **1
 KiB** of inline session state is a compile error to break, and
 `test/engine/footprint_budget_test.zig` holds the warmed total (struct plus
-session heap) at or under **2 KiB** per session — 500,000 sessions at 2 KiB
+session heap) at or under **2 KiB** per session, 500,000 sessions at 2 KiB
 is under 1 GiB of protocol-core state. `zig build bench-peer-scaling` reports
 the live measured numbers and extrapolates to 500k; `zig build check` runs
 it in `--smoke` mode plus both budget checks.
 
 The completion loop wraps each `Peer` in one `Conn` slot, which carries a
-ceiling of its own. A `Conn`'s bookkeeping beyond the embedded `Peer` — slot
+ceiling of its own. A `Conn`'s bookkeeping beyond the embedded `Peer`: slot
 state, the outbound queue's two buffer headers, the spill header, the
-intrusive free/starved link, and the in-flight and app-context words —
+intrusive free/starved link, and the in-flight and app-context words,
 measures 112 bytes on every backend, and a `comptime` assertion in
 `net/completion/loop.zig` holds it at or under **128 bytes**
 (`conn_slot_overhead_bytes`, headroom for park-kill bookkeeping). Crossing it
@@ -92,14 +98,14 @@ of `bench/dispatch_scaling_bench.zig` and `bench/outbound_bench.zig`;
 raising one is a design event same as crossing one (ADR-0073).
 
 What stays open is pushing the opt-in live harness toward the full 500k
-target on a box with the ulimit headroom for it — the harness exists, and
+target on a box with the ulimit headroom for it: the harness exists, and
 this is machine work, not missing API. The completion loop's read buffers
 come from a shared backend-owned pool (ADR-0054), so an idle connection
 holds zero read-buffer bytes.
 
 ## Step 3: A Hosted Application
 
-This step is held.
+The proofs below already hold this step.
 
 An application riding pancake proves the ergonomics are real, not just
 asserted, and finds API edges no conformance suite reaches. The
@@ -112,18 +118,18 @@ a bug against the ergonomics contract, not feedback to file for later.
 
 ## Step 4: The C ABI Binding Check
 
-This step is held.
+The proofs below already hold this step.
 
 A library whose consumers reach it only through its public headers cannot
 lie about that surface. The Rust consumer (`zig build rust-dogfood`) and the
 per-language binding checks (`zig build bindings`) prove consumability; the
 four `*-goblins-interop` check steps prove each binding as a Goblins client
-holds a keyed v1.0 Syrup conversation (handshake, bootstrap fetch, deliver /
-resolve on echo) through the C ABI — not the Zig listener, actor-hosting,
-enliven-dedup, projection, or break legs (`goblins-interop` owns bidirectional
-native proof). Binding `*-goblins-handoff` / `*-goblins-gift` prove recipient
-and gifter handoff roles over that same C ABI. The header itself is generated
-from the Zig source and checked against drift.
+holds a keyed v1.0 Syrup conversation (handshake, `enliven` + dedup, deliver /
+resolve on echo) through the C ABI, not the Zig listener, actor-hosting,
+projection, or break legs (`goblins-interop` owns bidirectional native proof).
+Binding `*-goblins-handoff` / `*-goblins-gift` prove recipient and gifter
+handoff roles over that same C ABI. The header itself is generated from the Zig
+source and checked against drift.
 
 ## Step 5: The Netlayer Frontier
 

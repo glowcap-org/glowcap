@@ -1,4 +1,4 @@
-/* Generated from src/c_abi/net_transport/iroh/mod.zig by tools/header_gen_iroh.zig.
+/* Generated from src/c_abi/net_transport/iroh/mod.zig by tools/gen/header/iroh.zig.
    Do not edit by hand: run `zig build gen-header-net-transport-iroh`.
    Function signatures are reflected from the Zig source, so this header
    cannot drift from the implementation.

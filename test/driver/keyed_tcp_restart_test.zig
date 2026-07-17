@@ -1,4 +1,4 @@
-//! Restart-stable TCP listening identity — the `keyed-tcp` loopback proof
+//! Restart-stable TCP listening identity: the `keyed-tcp` loopback test
 //! (ADR-0075).
 //!
 //! Three scenes over real 127.0.0.1 sockets. First, the happy path: a listener
@@ -7,11 +7,11 @@
 //! sees the partner's signed designator equal the key and a call round-trip.
 //! Second, the load-bearing negative: a listener holding a *different* key at
 //! the same kind of address, dialed under the original designator, is refused
-//! at the handshake with `PartnerKeyMismatch` — the pin is what makes the
+//! at the handshake with `PartnerKeyMismatch`. The pin is what makes the
 //! designator trustworthy, so without this arm the whole feature is
 //! decorative. Third, the restart: the same seed rebound on a fresh port is
 //! reached through the recorded designator with only the hint updated, and the
-//! recorded and fresh locators are equal under `model.peerLocatorsEqual` — the
+//! recorded and fresh locators are equal under `model.peerLocatorsEqual`. The
 //! designator is the identity, not the address, and the port change is what
 //! proves it.
 

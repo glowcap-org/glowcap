@@ -3,7 +3,7 @@
 //! Locks the wire-path cost of *recording* an outbound `op:resolve`: the
 //! resolution is **moved** into the inbound answer's store, never copied. A
 //! resolve we send carries no resolution copy at all — `recordSend` consumes the
-//! caller's owned resolution (`applySentResolve` → `Session.storeResolution`) and
+//! caller's owned resolution (`applySentResolve` into `Session.storeResolution`) and
 //! the queued outbound carrier holds only the settled answer position, so
 //! `Peer.step` reads the resolution back from the store to encode. The single
 //! durable owner is the store; there is no second owner to copy for.

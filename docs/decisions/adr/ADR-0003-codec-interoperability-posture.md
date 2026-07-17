@@ -3,7 +3,7 @@ id: ADR-0003
 status: accepted
 date: 2026-04-30
 tags: [codec, syrup, capnp, wire-profile, goblins-interop, captp-version]
-decision: Codecs encode one codec-neutral model; codec functions are stateless across sessions and take a per-call `CaptpVersion`. Version, codec, and interop target are separate axes. Two CapTP version jobs: `v1_0` / `"1.0"` is frozen released interop (Goblins / cross-platform); `next` / `"pancake-next"` is pancake's forward private track for pancake-to-pancake (including Cap'n Proto sessions). Named offers (`Offer.goblins` / `Offer.native`) and `negotiate` settle the pair out of band — `op:start-session` carries only the chosen version string.
+decision: Codecs encode one codec-neutral model; codec functions are stateless across sessions and take a per-call `CaptpVersion`. Version, codec, and interop target are separate axes. Two CapTP version jobs: `v1_0` / `"1.0"` is frozen released interop (Goblins / cross-platform); `next` / `"pancake-next"` is pancake's forward private track for pancake-to-pancake (including Cap'n Proto sessions). Named offers (`Offer.goblins` / `Offer.native`) and `negotiate` settle the pair out of band. `op:start-session` carries only the chosen version string.
   supersedes: []
   superseded_by: []
 ---
@@ -22,7 +22,7 @@ shape legitimate:
   the frozen interop profile accepts. Goblins interop lives here as authenticated
   `v1_0` over Syrup.
 - **Pancake-forward (`next` / `"pancake-next"`).** pancake-to-pancake CapTP ahead of
-  a new frozen interop version number — pancake-namespaced on the wire, not an
+  a new frozen interop version number: pancake-namespaced on the wire, not an
   upstream OCapN maturity stage. Cap'n Proto sessions typically run here.
 - **Codec plurality.** Syrup and Cap'n Proto are serialization choices for the
   selected version. A codec can be unsupported for a version if it cannot carry
@@ -69,19 +69,19 @@ session state machine staying codec-neutral.
 **Offers and negotiation.**
 [`engine.negotiation`](../../../src/ocapn/engine/negotiation.zig) exposes
 `Offer.goblins()` / `Offer.native()` and a pure `negotiate(Offer, Offer)`.
-`op:start-session` carries only the chosen captp-version string — not codec or
-feature lists — so both peers must arrive at the same `(version, codec,
+`op:start-session` carries only the chosen captp-version string, not codec or
+feature lists: so both peers must arrive at the same `(version, codec,
 features)` out of band (shared config, in-process pairing, or a locator hint an
 adapter reads). In-process pairing runs `negotiate` on those offers; the C ABI
 entry `pancake_peer_new` stays pinned to Goblins `(v1_0, syrup)`.
 
 ## Scope (what this does not decide)
 
-- The Goblins-canonical GC and abort wire shapes —
+- The Goblins-canonical GC and abort wire shapes,
   [ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md).
-- Handoff crypto and three-party protocol —
+- Handoff crypto and three-party protocol,
   [ADR-0009](ADR-0009-three-party-handoff-substrate.md).
-- The `op:start-session` substrate and bootstrap-fetch shape —
+- The `op:start-session` substrate and bootstrap-fetch shape,
   [ADR-0006](ADR-0006-handshake-substrate-and-bootstrap-fetch.md).
 - Hint-/discovery-carried offers across the network (named present boundary).
 

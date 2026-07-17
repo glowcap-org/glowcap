@@ -54,19 +54,19 @@ fn peerFromOpaqueConst(peer: ?*const PancakePeer) ?*const engine.Peer {
 /// for `pancake_peer_session_is_open` before sending application traffic.
 pub export fn pancake_peer_new(out_peer: ?*?*PancakePeer) i32 {
     const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    return peerNewIn(ctx.library_allocator, slot, true, model.WireProfile.v1_0, .syrup);
+    return peerNewIn(ctx.library_allocator, slot, true, model.CaptpVersion.v1_0, .syrup);
 }
 
 /// Context-backed counterpart of `pancake_peer_new`.
 pub export fn pancake_peer_new_in(context: ?*PancakeContext, out_peer: ?*?*PancakePeer) i32 {
     const c_ctx = ctx.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    return peerNewIn(c_ctx.allocator(), slot, true, model.WireProfile.v1_0, .syrup);
+    return peerNewIn(c_ctx.allocator(), slot, true, model.CaptpVersion.v1_0, .syrup);
 }
 
 /// Create a negotiating peer carrying an out-of-band negotiated profile and
 /// codec: `captp_version` is a `PANCAKE_CAPTP_VERSION_*` value (`_V1_0`, or
-/// `_PRE_SPEC` for the upstream OCapN prerelease profile) and `codec` is a
+/// `_NEXT` for the pancake-forward private CapTP track) and `codec` is a
 /// `PANCAKE_CODEC_*` value. Both ends of a connection must construct with the
 /// same pair, `op:start-session` carries the profile but no codec operand, so
 /// codec agreement is the caller's, the same agreement the matching `codec`
@@ -97,28 +97,28 @@ pub export fn pancake_peer_new_negotiated_in(context: ?*PancakeContext, captp_ve
 /// `pancake_peer_new` and `pancake_peer_start_session` (ADR-0059).
 pub export fn pancake_peer_new_raw_open(out_peer: ?*?*PancakePeer) i32 {
     const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    return peerNewIn(ctx.library_allocator, slot, false, model.WireProfile.v1_0, .syrup);
+    return peerNewIn(ctx.library_allocator, slot, false, model.CaptpVersion.v1_0, .syrup);
 }
 
 /// Context-backed counterpart of `pancake_peer_new_raw_open`.
 pub export fn pancake_peer_new_raw_open_in(context: ?*PancakeContext, out_peer: ?*?*PancakePeer) i32 {
     const c_ctx = ctx.ctxFromOpaque(context) orelse return PANCAKE_ERR_NULL_POINTER;
     const slot = out_peer orelse return PANCAKE_ERR_NULL_POINTER;
-    return peerNewIn(c_ctx.allocator(), slot, false, model.WireProfile.v1_0, .syrup);
+    return peerNewIn(c_ctx.allocator(), slot, false, model.CaptpVersion.v1_0, .syrup);
 }
 
-fn profileFromCaptpVersion(captp_version: u32) ?model.WireProfile {
+fn profileFromCaptpVersion(captp_version: u32) ?model.CaptpVersion {
     return switch (captp_version) {
-        c.PANCAKE_CAPTP_VERSION_V1_0 => model.WireProfile.v1_0,
-        c.PANCAKE_CAPTP_VERSION_PRE_SPEC => model.WireProfile.pre_spec,
+        c.PANCAKE_CAPTP_VERSION_V1_0 => model.CaptpVersion.v1_0,
+        c.PANCAKE_CAPTP_VERSION_NEXT => model.CaptpVersion.next,
         else => null,
     };
 }
 
-fn peerNewIn(alloc: std.mem.Allocator, slot: *?*PancakePeer, negotiating: bool, wire_profile: model.WireProfile, codec: model.CodecId) i32 {
+fn peerNewIn(alloc: std.mem.Allocator, slot: *?*PancakePeer, negotiating: bool, captp_version: model.CaptpVersion, codec: model.CodecId) i32 {
     const peer = alloc.create(engine.Peer) catch return PANCAKE_ERR_INTERNAL;
     peer.* = if (negotiating)
-        engine.Peer.initNegotiatingWith(alloc, .{ .wire_profile = wire_profile, .codec = codec })
+        engine.Peer.initNegotiatingWith(alloc, .{ .captp_version = captp_version, .codec = codec })
     else
         engine.Peer.initRawOpenFixture(alloc);
     slot.* = @ptrCast(peer);
@@ -321,7 +321,7 @@ pub export fn pancake_peer_start_session(
     // The peer's session already carries the negotiated profile; signing the
     // handshake with anything else would be a mismatch foot-gun, so the version
     // is read here rather than taken as a parameter.
-    const version: model.CaptpVersion = ptr.wireProfile().captp_version;
+    const version: model.CaptpVersion = ptr.captpVersion();
 
     const hint_form: model.Hints = switch (hints) {
         c.PANCAKE_HINTS_EMPTY_MAP => model.Hints.emptyMap(),
@@ -904,7 +904,7 @@ pub export fn pancake_peer_partner_locator_raw(peer: ?*PancakePeer, out_ptr: ?*?
 /// must equal the deposit's provenance). `recipient_key` is the recipient's
 /// session public key; `exporter_locator_raw` the exporter's verbatim location
 /// bytes; `exporter_session_key` the exporter's session public key; `gift_id` the
-/// deposited gift's id. The gifter's side and the gifter↔exporter session name
+/// deposited gift's id. The gifter's side and the gifter-to-exporter session name
 /// are derived from the keys. All inputs are borrowed; `seed_len` must be 32.
 pub export fn pancake_build_handoff_give(
     seed: ?[*]const u8,
@@ -991,14 +991,12 @@ pub export fn pancake_encode_peer_locator(
     const transport_slice = sliceFromC(transport, transport_len) catch |err| return marshalErrorToCode(err);
     const designator_slice = sliceFromC(designator, designator_len) catch |err| return marshalErrorToCode(err);
 
+    const addrs = if (direct_addresses) |addrs_ptr|
+        addrs_ptr[0..direct_addresses_len]
+    else
+        &.{};
     var entries_buf: [1]model.HintEntry = undefined;
-    var hints: model.Hints = model.Hints.emptyFalse();
-    if (direct_addresses) |addrs_ptr| {
-        if (direct_addresses_len != 0) {
-            entries_buf[0] = .{ .name = model.transport.hint_direct_addresses, .value = .{ .string = addrs_ptr[0..direct_addresses_len] } };
-            hints = .{ .entries = entries_buf[0..1], .wire_form = .map };
-        }
-    }
+    const hints = model.Hints.forDirectAddresses(addrs, &entries_buf);
 
     const bytes = engine.encodePeerLocatorRecord(ctx.library_allocator, .{
         .transport = transport_slice,
@@ -1118,8 +1116,9 @@ fn projectResolve(ptr: *engine.Peer, slot: *PancakeResolve) i32 {
 
     // A handoff fulfilled as the resolution is projected straight from the
     // borrowed view: it carries a `desc:handoff-give` the binding redeems, not a
-    // value `argumentToC` can render, and `body.toOwned` would flatten the
-    // parsed exporter locator back to raw bytes the binding cannot dial.
+    // value `argumentToC` can render. Redeem goes through `projectGiveForRedeem`
+    // so the give span and dialable `ocapn://` URI come from the structural
+    // exporter locator rather than the ordinary value path.
     if (resolveHandoffGive(a, peeked, body)) |projection| {
         projected = true;
         var event = ptr.pollEvent().?;
@@ -1183,8 +1182,9 @@ const HandoffGiveProjection = struct {
 /// `PancakeHandoffGive`, copying the verbatim give span and the exporter's
 /// dialable `ocapn://…` locator into `a`. Returns `error.NotHandoff` (the caller
 /// then takes the ordinary value path) unless the resolution is exactly a
-/// fulfilled give. Reads from the borrowed `view`/`event` so the parsed exporter
-/// locator survives, `body.toOwned` would flatten it to raw bytes.
+/// fulfilled give. Reads the borrowed `view`/`event` through
+/// `projectGiveForRedeem` so the structural exporter locator and Syrup span
+/// (when present) survive into the C projection.
 fn resolveHandoffGive(
     a: std.mem.Allocator,
     event: *const engine.Event,
@@ -1197,22 +1197,35 @@ fn resolveHandoffGive(
     if (arg != .handoff or arg.handoff != .give) return error.NotHandoff;
     const give = arg.handoff.give;
 
-    // The verbatim signed envelope the recipient relays unaltered to the
-    // exporter; without it there is nothing to redeem, so treat its absence as
-    // "not a (redeemable) handoff" and fall back to the opaque event.
-    const span = engine.spanSignedHandoffGive(event.bytes()) orelse return error.NotHandoff;
-    const give_bytes = try a.dupe(u8, span);
+    var projected = engine.handoff_recipient.projectGiveForRedeem(a, event.bytes(), give) catch return error.OutOfMemory;
+    const give_span = projected.bytes() orelse {
+        projected.deinit(a);
+        return error.NotHandoff;
+    };
+    if (projected.locator == .malformed) {
+        projected.deinit(a);
+        return error.NotHandoff;
+    }
 
-    // The one core projection turns the give's exporter location into a
-    // dialable `ocapn://…` URI (hints recovered from the verbatim record, the
-    // same grammar `pancake_uri_*` parses back). A `.raw` location the binding
-    // cannot dial leaves the locator empty but still surfaces the give bytes
-    // and recipient key; a record that no longer parses is not a redeemable
-    // give — fall through to the opaque-frame arm so the queue still advances.
-    const locator: []const u8 = (engine.handoff_recipient.exporterLocatorUri(a, give.exporter_location) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.MalformedLocatorRecord => return error.NotHandoff,
-    }) orelse &.{};
+    // Adopt buffers into the projection arena; clear slots so `deinit` is a no-op.
+    // Named: one arena dupe when the Syrup span is borrowed (not takeOwned).
+    const give_bytes: []const u8 = if (projected.takeOwned()) |owned| owned else a.dupe(u8, give_span) catch |err| {
+        projected.deinit(a);
+        return err;
+    };
+    errdefer a.free(give_bytes);
+
+    const locator: []const u8 = switch (projected.locator) {
+        .uri => |uri| blk: {
+            projected.locator = .absent;
+            break :blk uri;
+        },
+        .absent => &.{},
+        .malformed => unreachable,
+    };
+    errdefer if (locator.len != 0) a.free(locator);
+    projected.deinit(a);
+
     const recipient_key = try a.dupe(u8, give.recipient_key);
 
     return .{

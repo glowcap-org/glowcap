@@ -39,30 +39,30 @@ async def main() -> None:
         except VowBroken:
             return True
 
-    conn = await connect(tcp_locator(host, port))
-    conn.serve()
-    tools = await conn.fetch(TOOLS)
+    session = await connect(tcp_locator(host, port))
+    session.serve()
+    tools = await session.fetch(TOOLS)
 
     # 1. Delegation: get a clock capability and call it.
-    clock = await conn.send(tools, GRANT, ["clock"])
-    now = await conn.send(clock, NOW)
+    clock = await session.send(tools, GRANT, ["clock"])
+    now = await session.send(clock, NOW)
     check("delegation: was handed a clock and called it", isinstance(now, int))
 
     # 2. Attenuation: a read-only file capability reads but refuses writes.
-    files = await conn.send(tools, GRANT, ["files-readonly"])
-    contents = await conn.send(files, READ, ["report.txt"])
+    files = await session.send(tools, GRANT, ["files-readonly"])
+    contents = await session.send(files, READ, ["report.txt"])
     check("attenuation: read through the read-only view", isinstance(contents, str))
-    check("attenuation: write is refused", await broke(conn.send(files, WRITE, ["report.txt", "tampered"])))
+    check("attenuation: write is refused", await broke(session.send(files, WRITE, ["report.txt", "tampered"])))
 
     # 3. Revocation: a revocable handle works, then breaks after revoke.
-    revocable_clock = await conn.send(tools, GRANT_REVOCABLE, ["clock"])
-    before = await conn.send(revocable_clock, NOW)
+    revocable_clock = await session.send(tools, GRANT_REVOCABLE, ["clock"])
+    before = await session.send(revocable_clock, NOW)
     check("revocation: the handle works before revoke", isinstance(before, int))
-    await conn.send(tools, REVOKE_LAST)
-    check("revocation: the handle breaks after revoke", await broke(conn.send(revocable_clock, NOW)))
+    await session.send(tools, REVOKE_LAST)
+    check("revocation: the handle breaks after revoke", await broke(session.send(revocable_clock, NOW)))
 
     print(f"{nick}: all capability properties held")
-    await conn.close()
+    await session.close()
 
 
 if __name__ == "__main__":

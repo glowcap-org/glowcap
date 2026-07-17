@@ -113,6 +113,7 @@ const listener_vtable: NetLayerListener.VTable = .{
     .transport_name = transport_name,
     .designator_scheme = .key,
     .accept = listenerAccept,
+    .waitAcceptable = listenerWaitAcceptable,
     .localDesignator = listenerLocalDesignator,
     .localHint = listenerLocalHint,
     .close = listenerClose,
@@ -121,6 +122,11 @@ const listener_vtable: NetLayerListener.VTable = .{
 fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
     return tcp.acceptOnListener(&box.listener, peer, bufs);
+}
+
+fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError!bool {
+    const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+    return tcp.waitAcceptableOnListener(&box.listener, timeout_ms);
 }
 
 /// The dialable designator is the identity key's canonical hex — durable

@@ -3,7 +3,7 @@ id: ADR-0056
 status: accepted
 date: 2026-06-11
 tags: [handoff, three-party, gift-registry, engine, session]
-decision: "The vat-scoped `engine.bootstrap.GiftRegistry` is the single gift and handoff-count authority. The session's gift tables and gift methods are deleted; every `Peer` owns a private registry and a host serving several direct sessions to one vat shares one across its peers. Re-depositing a gift id replaces the prior row (replay stays blocked by the monotonic handoff count). A `withdraw-gift` whose gift has no live deposit parks on the peer and settles once the deposit lands. The registry carries no lock — the engine is externally synchronized, and a host that shares a registry across threads owns the locking."
+decision: "The vat-scoped `engine.bootstrap.GiftRegistry` is the single gift and handoff-count authority. The session's gift tables and gift methods are deleted; every `Peer` owns a private registry and a host serving several direct sessions to one vat shares one across its peers. Re-depositing a gift id replaces the prior row (replay stays blocked by the monotonic handoff count). A `withdraw-gift` whose gift has no live deposit parks on the peer and settles once the deposit lands. The registry carries no lock: the engine is externally synchronized, and a host that shares a registry across threads owns the locking."
 supersedes: [ADR-0009]
 superseded_by: []
 ---
@@ -17,14 +17,14 @@ Three-party gift authority existed twice. The session carried per-session
 ([ADR-0009](ADR-0009-three-party-handoff-substrate.md) § Session-owned gift
 table), and `engine.bootstrap.GiftRegistry` carried the same tables vat-scoped,
 because a gifter deposits on its own session while the recipient withdraws on a
-_different_ session — the per-session table cannot serve the spec's
+_different_ session: the per-session table cannot serve the spec's
 cross-session flow. The engine dispatcher branched between the two at runtime,
 `bootstrap.zig` carried duplicate resolve/verify pairs, and the duplicates had
 drifted: the session rejected a duplicate gift id while the registry replaced
 it. One authority had to win.
 
 Engages the [First Principles](../../../AGENTS.md#first-principles): _session
-state is authoritative_ is clarified, not relaxed — the session spine still
+state is authoritative_ is clarified, not relaxed: the session spine still
 validates handoff well-formedness and the generic inbound path still moves no
 withdrawal authority; the registry is vat-scoped authority that only the
 verified callers consult. _Conformance is load-bearing_: the live
@@ -37,7 +37,7 @@ exercise exactly this seam.
 Every `Peer` owns a private registry (`Peer.own_gift_registry`, freed in
 `deinit`); a host serving several direct sessions to one vat points its peers at
 one shared registry through `Peer.shared_gift_registry`, and
-`Peer.giftRegistry()` selects whichever applies — the runtime dispatch branch is
+`Peer.giftRegistry()` selects whichever applies: the runtime dispatch branch is
 gone. The session's `gifts` / `handoff_counts` tables, `GiftEntry`, and every
 session gift method are deleted; `SessionLimits` keeps the `max_deposited_gifts`
 / `max_seen_handoff_counts` bounds the registry enforces
@@ -50,11 +50,11 @@ not by refusing a repeat deposit. The registry absorbed the session's
 recipient-match check: a deposit that names a recipient (the cross-peer give
 routing path) is withdrawable only by that recipient, while a bootstrap
 `deposit-gift` names none and the signed give's signature check binds the
-recipient at withdraw time. Rows live on the gpa with precise per-row frees — an
+recipient at withdraw time. Rows live on the gpa with precise per-row frees: an
 arena cannot reclaim a replaced row (memory rule § Vat-scoped gift registry).
 
-A `withdraw-gift` whose gift id names no live deposit — unknown, or already
-consumed and awaiting a re-deposit — is not refused. The deposit travels on a
+A `withdraw-gift` whose gift id names no live deposit: unknown, or already
+consumed and awaiting a re-deposit: is not refused. The deposit travels on a
 different session than the withdraw, so the withdraw can legitimately arrive
 first, and the upstream OCapN suite pins that the exporter answers once the
 deposit lands. The bootstrap responder returns
@@ -69,7 +69,7 @@ The registry carries no lock. The engine is externally synchronized everywhere;
 the prior spinlock made the registry the one self-locking corner. A host that
 shares one registry across OS threads owns the locking; a single-threaded host
 needs none. The OCapN conformance host
-(`conformance/ocapn-conformance/pancake_peer.zig`) is the latter — one
+(`conformance/ocapn-conformance/pancake_peer.zig`) is the latter: one
 `driver.core.Host` behind a `driver.Bridge` over a single completion loop, so
 every `deposit-gift` / `withdraw-gift` on a sharing peer dispatches on the one
 loop thread with no lock. A `deposit-gift` and its matching `withdraw-gift`

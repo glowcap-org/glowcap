@@ -28,7 +28,7 @@ fn makeReceive(
         .handoff_count = count,
         .signed_give = .{
             .recipient_key = recipient_key,
-            .exporter_location = "memory:exporter",
+            .exporter = .{ .transport = "memory", .designator = "exporter" },
             .gifter_exporter_session = "gifter-session",
             .gifter_side = "gifter-side",
             .gift_id = gift_id,
@@ -50,7 +50,7 @@ test "registry deposits a gift and accepts a matching withdrawal" {
 
     const receive = makeReceive("gift-1", "recipient-key", "session-a", 1);
     try registry.validateWithdraw(receive);
-    try registry.applyWithdraw(allocator, default_limits, receive);
+    _ = try registry.applyWithdraw(allocator, default_limits, receive);
     try std.testing.expect(!registry.giftLive("gift-1"));
 }
 
@@ -109,7 +109,7 @@ test "registry rejects a replayed or out-of-order handoff count" {
 
     const first = makeReceive("gift-1", "recipient-key", "session-a", 2);
     try registry.validateWithdraw(first);
-    try registry.applyWithdraw(allocator, default_limits, first);
+    _ = try registry.applyWithdraw(allocator, default_limits, first);
 
     try std.testing.expectError(
         session.Error.HandoffReplay,
@@ -126,7 +126,7 @@ test "a withdrawn gift cannot be withdrawn twice" {
     try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
     const first = makeReceive("gift-1", "recipient-key", "session-a", 1);
     try registry.validateWithdraw(first);
-    try registry.applyWithdraw(allocator, default_limits, first);
+    _ = try registry.applyWithdraw(allocator, default_limits, first);
 
     // A fresh signed receive with a higher handoff count is not a replay, so
     // the refusal here is the consumed gift's row being gone: a gift is spent
@@ -165,7 +165,7 @@ test "a re-deposit after withdrawal re-arms the gift" {
     try registry.deposit(allocator, default_limits, "gift-1", "recipient-key", "");
     const first = makeReceive("gift-1", "recipient-key", "session-a", 1);
     try registry.validateWithdraw(first);
-    try registry.applyWithdraw(allocator, default_limits, first);
+    _ = try registry.applyWithdraw(allocator, default_limits, first);
     try std.testing.expect(!registry.giftLive("gift-1"));
 
     // Re-authorizing the same gift id replaces the consumed row. Replay stays
@@ -180,7 +180,7 @@ test "a re-deposit after withdrawal re-arms the gift" {
     );
     const fresh = makeReceive("gift-1", "recipient-key", "session-a", 2);
     try registry.validateWithdraw(fresh);
-    try registry.applyWithdraw(allocator, default_limits, fresh);
+    _ = try registry.applyWithdraw(allocator, default_limits, fresh);
     try std.testing.expect(!registry.giftLive("gift-1"));
 }
 
@@ -216,7 +216,7 @@ test "consumed gifts do not count toward max_deposited_gifts" {
         try registry.deposit(allocator, limits, id, "recipient", "");
         const receive = makeReceive(id, "recipient", "session-a", i + 1);
         try registry.validateWithdraw(receive);
-        try registry.applyWithdraw(allocator, limits, receive);
+        _ = try registry.applyWithdraw(allocator, limits, receive);
     }
 }
 
@@ -233,7 +233,7 @@ test "re-arming a consumed gift still respects max_deposited_gifts" {
     try registry.deposit(allocator, limits, "gift-b", "recipient", "");
     const withdraw_a = makeReceive("gift-a", "recipient", "session-a", 1);
     try registry.validateWithdraw(withdraw_a);
-    try registry.applyWithdraw(allocator, limits, withdraw_a); // a consumed, one slot free
+    _ = try registry.applyWithdraw(allocator, limits, withdraw_a); // a consumed, one slot free
     try registry.deposit(allocator, limits, "gift-c", "recipient", ""); // fills the free slot
     // Re-depositing the consumed gift-a would push live gifts to three; the cap
     // refuses it just as it refuses any third live deposit.
@@ -291,7 +291,7 @@ test "seen-handoff-count rows are bounded by max_seen_handoff_counts (ADR-0025)"
     // drive it the way `resolveForWithdraw` and the test-support withdraw
     // harness (`test/support/cross_peer.zig`) do.
     // First receiving session records a row.
-    try registry.applyWithdraw(allocator, limits, makeReceive("gift-a", "recipient", "session-1", 1));
+    _ = try registry.applyWithdraw(allocator, limits, makeReceive("gift-a", "recipient", "session-1", 1));
     // A second distinct receiving session overflows the replay-tracking table.
     try std.testing.expectError(
         session.Error.HandoffCountCapExceeded,

@@ -7,7 +7,8 @@
 //! concurrent enlivens of the same swissnum onto one outstanding answer. The
 //! engine driver of this seam is `engine.sturdyref`; the cache row type
 //! (`SturdyrefCacheEntry`) and the storage fields it operates on
-//! (`sturdyref_cache`, `sturdyref_cache_index`, `pending_enlivens`) live on
+//! (`sturdyref_cache`, `sturdyref_cache_index`, `pending_enlivens`,
+//! `pending_enliven_by_answer`) live on
 //! `Session` in `mod.zig`. These functions are aliased back into the `Session`
 //! namespace there, so a caller still writes `sess.cacheSturdyrefEnlivenment(...)`.
 
@@ -49,20 +50,52 @@ pub fn cacheSturdyrefEnlivenment(
     }
     const owned = try self.allocator.dupe(u8, swissnum);
     errdefer self.allocator.free(owned);
-    const index = self.sturdyref_cache.items.len;
-    try self.sturdyref_cache.append(self.allocator, .{
-        .swissnum = owned,
-        .far = far,
-    });
-    errdefer _ = self.sturdyref_cache.pop();
-    // The map key is the same owned slice the ArrayList row holds — one owner.
-    try self.sturdyref_cache_index.put(self.allocator, owned, index);
+    try appendSturdyrefCacheRow(self, owned, far);
+}
+
+/// Settle a fulfilled enliven: move the pending row's owned swissnum into the
+/// resolved cache (no second dupe) and clear both in-flight indexes. When no
+/// pending row exists, falls back to `cacheSturdyrefEnlivenment`. The cache is
+/// non-load-bearing: insert failures keep the live reference and free the
+/// transferred swissnum.
+pub fn settlePendingEnlivenIntoCache(self: *Session, swissnum: []const u8, far: model.FarRef) void {
+    const removed = self.pending_enlivens.fetchRemove(swissnum) orelse {
+        cacheSturdyrefEnlivenment(self, swissnum, far) catch {};
+        return;
+    };
+    std.debug.assert(self.pending_enliven_by_answer.remove(removed.value));
+    // Pending map keys are owned `[]u8` stored as `[]const u8`; reclaim mutability
+    // for the cache row (sole remaining owner).
+    const owned: []u8 = @constCast(removed.key);
+
+    if (self.limits.max_sturdyref_cache_entries == 0) {
+        self.allocator.free(owned);
+        return;
+    }
+    if (findSturdyrefCache(self, owned)) |entry| {
+        entry.far = far;
+        self.allocator.free(owned);
+        return;
+    }
+    if (self.sturdyref_cache.items.len >= self.limits.max_sturdyref_cache_entries) {
+        evictOldest(self);
+    }
+    appendSturdyrefCacheRow(self, owned, far) catch {
+        self.allocator.free(owned);
+    };
 }
 
 /// The outstanding bootstrap-fetch answer for an in-flight enliven of
 /// `swissnum`, or null when none is pending (ADR-0012 in-flight dedup).
 pub fn pendingEnlivenAnswer(self: *Session, swissnum: []const u8) ?model.AnswerPosition {
     return self.pending_enlivens.get(swissnum);
+}
+
+/// The session-owned swissnum for an in-flight enliven on `answer_position`, or
+/// null when none is pending. The slice borrows the pending row; do not retain
+/// it past `finishPendingEnliven` / session teardown.
+pub fn pendingEnlivenSwissnum(self: *const Session, answer_position: model.AnswerPosition) ?[]const u8 {
+    return self.pending_enliven_by_answer.get(answer_position);
 }
 
 /// Record an in-flight enliven so a concurrent enliven for the same
@@ -73,19 +106,34 @@ pub fn notePendingEnliven(self: *Session, swissnum: []const u8, answer_position:
     if (gop.found_existing) return;
     // Rows are removed on completion, so the key is gpa-owned and freed then;
     // replace the borrowed key with an owned copy, undoing the slot on OOM.
-    gop.key_ptr.* = self.allocator.dupe(u8, swissnum) catch |err| {
+    gop.key_ptr.* = try self.allocator.dupe(u8, swissnum);
+    errdefer {
+        self.allocator.free(gop.key_ptr.*);
         std.debug.assert(self.pending_enlivens.remove(swissnum));
-        return err;
-    };
+    }
     gop.value_ptr.* = answer_position;
+    // The reverse index borrows the same owned slice; one owner, two lookups.
+    try self.pending_enliven_by_answer.put(self.allocator, answer_position, gop.key_ptr.*);
 }
 
 /// Clear the in-flight marker for `swissnum` once its enliven settles. A
 /// no-op when none is outstanding.
 pub fn finishPendingEnliven(self: *Session, swissnum: []const u8) void {
     if (self.pending_enlivens.fetchRemove(swissnum)) |kv| {
+        std.debug.assert(self.pending_enliven_by_answer.remove(kv.value));
         self.allocator.free(kv.key);
     }
+}
+
+fn appendSturdyrefCacheRow(self: *Session, owned: []u8, far: model.FarRef) !void {
+    const index = self.sturdyref_cache.items.len;
+    try self.sturdyref_cache.append(self.allocator, .{
+        .swissnum = owned,
+        .far = far,
+    });
+    errdefer _ = self.sturdyref_cache.pop();
+    // The map key is the same owned slice the ArrayList row holds — one owner.
+    try self.sturdyref_cache_index.put(self.allocator, owned, index);
 }
 
 fn findSturdyrefCache(self: *Session, swissnum: []const u8) ?*SturdyrefCacheEntry {
@@ -93,7 +141,7 @@ fn findSturdyrefCache(self: *Session, swissnum: []const u8) ?*SturdyrefCacheEntr
     return &self.sturdyref_cache.items[i];
 }
 
-/// O(1) swissnum → row index via the side map kept in sync with the FIFO list.
+/// O(1) swissnum to row index via the side map kept in sync with the FIFO list.
 fn findSturdyrefCacheIndex(self: *const Session, swissnum: []const u8) ?usize {
     return self.sturdyref_cache_index.get(swissnum);
 }

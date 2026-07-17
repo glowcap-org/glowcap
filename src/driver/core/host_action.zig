@@ -7,35 +7,20 @@ const std = @import("std");
 const model = @import("model");
 const engine = @import("engine");
 
-/// What the embedder must do next. `Host.nextAction` pops borrowed: the
-/// action's byte views (`dial`'s locator and its parsed pieces, a completion's
-/// value) are host-owned and stay valid until the next `Host.nextAction` call,
-/// which frees them — the same borrow contract `engine.Node.nextAction` carries
-/// for node-level actions. `Host.takeAction` pops owned instead: the caller
-/// adopts the payload and frees it with `Host.freeAction` (or moves it into a
-/// durable owner first).
+/// What the embedder must do next. `Host.nextAction` pops borrowed: a
+/// completion's value views are host-owned and stay valid until the next
+/// `Host.nextAction` call, which frees them — the same borrow contract
+/// `engine.Node.nextAction` carries for node-level actions. `Host.takeAction`
+/// pops owned instead: the caller adopts the payload and frees it with
+/// `Host.freeAction` (or moves it into a durable owner first).
+///
+/// `dial` carries only the pending ticket; the dial view lives on the node
+/// pending row (`Host.pendingDial` / C `pancake_host_pending_dial`).
 pub const HostAction = union(enum) {
-    /// A `dial` action's owned payload. The URI's parsed pieces ride
-    /// alongside the locator so the embedder never re-parses on the redeem
-    /// path: the transport tag, the designator, and the locator's
-    /// `direct-addresses` hint — each empty when the locator does not parse
-    /// as an ocapn URI (a verbatim exporter-location override may not) or
-    /// when the hint is absent.
-    pub const Dial = struct {
-        ticket: engine.Node.PendingId,
-        locator: []const u8,
-        transport: []const u8 = &.{},
-        designator: []const u8 = &.{},
-        direct_addresses_hint: []const u8 = &.{},
-    };
-
-    /// Dial the exporter named by this action with this host's identity:
-    /// `openDialedLocator` / `pancake_host_session_open_dialed_locator` with
-    /// `transport`+`designator` (already on the action when parseable). Drive
-    /// the keyed session open by moving its bytes, then report
-    /// `exporterDialed(ticket, conn)` — or `dialFailed(ticket, reason)` if
-    /// any step refuses.
-    dial: Dial,
+    /// Dial the exporter named by this ticket's pending dial view with this
+    /// host's identity, then report `exporterDialed(ticket, conn)` — or
+    /// `dialFailed(ticket, reason)` if any step refuses.
+    dial: struct { ticket: engine.Node.PendingId },
     /// Outbound frames may be ready on this session: drain
     /// `Conn.takeOutbound` until empty and write them.
     flush: engine.PeerId,
@@ -52,8 +37,7 @@ pub const HostAction = union(enum) {
     need_gift_id: struct { ticket: u64 },
     /// A host vow with no in-process listener settled fulfilled: `value` is a
     /// deep clone the host owns, valid until the next `nextAction` call,
-    /// which frees it — the dial payload's exact lifetime. Route it to
-    /// whatever awaits the vow.
+    /// which frees it. Route it to whatever awaits the vow.
     settled: struct { vow_id: u64, value: model.Argument },
     /// A host vow with no in-process listener settled broken: `message` is
     /// host-owned with the same until-next-`nextAction` lifetime (empty when
@@ -64,14 +48,8 @@ pub const HostAction = union(enum) {
 /// Free every owned byte view a `HostAction` may carry. POD arms are no-ops.
 pub fn freeAction(allocator: std.mem.Allocator, action: HostAction) void {
     switch (action) {
-        .dial => |d| {
-            allocator.free(d.locator);
-            if (d.transport.len != 0) allocator.free(d.transport);
-            if (d.designator.len != 0) allocator.free(d.designator);
-            if (d.direct_addresses_hint.len != 0) allocator.free(d.direct_addresses_hint);
-        },
         .settled => |s| model.freeArgument(allocator, s.value),
         .failed => |f| if (f.message.len != 0) allocator.free(f.message),
-        .flush, .close, .need_gift_id => {},
+        .dial, .flush, .close, .need_gift_id => {},
     }
 }

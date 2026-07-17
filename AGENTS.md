@@ -27,6 +27,8 @@ Match depth to the task: do not read the whole tree for a one-line fix.
 | Runtime seam — `actors`, `net`, or `driver` (`std.Io`, sockets, turn loop) | [architecture rule](.agents/rules/architecture.md) + [memory rule](.agents/rules/memory.md)     | `zig build test`                                        |
 | C ABI surface or a language binding                                        | [architecture rule](.agents/rules/architecture.md) + [`bindings/README.md`](bindings/README.md) | `zig build gen-header-ocapn` + `zig build gen-ts-abi` + `zig build rust-dogfood` |
 | Example or example app                                                     | [`examples/README.md`](examples/README.md) + [doc-voice](.agents/rules/doc-voice.md)            | `zig build examples`                                    |
+| Live CapTP from the shell (call/host/REPL)                                | [pancake-cli skill](.agents/skills/pancake-cli/SKILL.md) (+ [`docs/cli.md`](docs/cli.md) for humans) | `zig build cli-test`                              |
+| Live CapTP via project MCP tools                                          | [pancake-mcp skill](.agents/skills/pancake-mcp/SKILL.md) (+ `.cursor/mcp.json` / `.mcp.json`) | `zig build` then reload MCP                       |
 | Agent scaffolding (`.agents/`, overlays, hooks, skills)                    | [agent-scaffolding rule](.agents/rules/agent-scaffolding.md)                                    | `zig build meta-check`                                  |
 | Doc edit                                                                   | [doc-drift](.agents/rules/doc-drift.md) + [doc-voice](.agents/rules/doc-voice.md)               | same change updates claims                              |
 
@@ -60,6 +62,11 @@ Match depth to the task: do not read the whole tree for a one-line fix.
 - Session state is authoritative; codecs parse and render but do not own
   authority.
 - Conformance is load-bearing. A semantic claim needs a scenario or fixture.
+- Live CapTP while writing pancake: dogfood the product fronts — Cursor/Claude
+  MCP tools via [pancake-mcp](.agents/skills/pancake-mcp/SKILL.md); shell
+  argv/REPL/listen via [pancake-cli](.agents/skills/pancake-cli/SKILL.md); room
+  wake via [rooms-peer](.agents/skills/rooms-peer/SKILL.md). Do not invent a
+  throwaway Zig harness for a product-shaped CapTP act.
 - Names associated with external engineering taste references belong in prompts
   and plans, not in committed files. Encode that taste as explicit protocol
   vocabulary, honest allocation/lifetime surfaces, polished boundaries, and

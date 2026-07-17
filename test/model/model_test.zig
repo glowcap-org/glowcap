@@ -16,24 +16,17 @@ test "value-tree types stay within their documented size budget" {
 
 test "CapTP versions parse and render wire strings" {
     try std.testing.expectEqualStrings("1.0", model.CaptpVersion.v1_0.wireString());
-    try std.testing.expectEqualStrings("pancake-pre-spec", model.CaptpVersion.pre_spec.wireString());
+    try std.testing.expectEqualStrings("pancake-next", model.CaptpVersion.next.wireString());
 
     try std.testing.expectEqual(model.CaptpVersion.v1_0, model.CaptpVersion.fromWireString("1.0").?);
-    try std.testing.expectEqual(model.CaptpVersion.v1_0, model.CaptpVersion.fromWireString("ocapn-1.0").?);
-    try std.testing.expectEqual(model.CaptpVersion.pre_spec, model.CaptpVersion.fromWireString("pancake-pre-spec").?);
+    try std.testing.expectEqual(model.CaptpVersion.next, model.CaptpVersion.fromWireString("pancake-next").?);
+    try std.testing.expectEqual(@as(?model.CaptpVersion, null), model.CaptpVersion.fromWireString("ocapn-1.0"));
     try std.testing.expectEqual(@as(?model.CaptpVersion, null), model.CaptpVersion.fromWireString("2.0"));
 }
 
-test "wire profile constants carry only protocol profile semantics" {
-    try std.testing.expect(!@hasField(model.WireProfile, "flags"));
-
-    const v1_0 = model.WireProfile.v1_0;
-    try std.testing.expectEqual(model.CaptpVersion.v1_0, v1_0.captp_version);
-    try std.testing.expectEqualStrings("ocapn-v1.0", v1_0.name());
-
-    const pre_spec = model.WireProfile.pre_spec;
-    try std.testing.expectEqual(model.CaptpVersion.pre_spec, pre_spec.captp_version);
-    try std.testing.expectEqualStrings("pancake-pre-spec", pre_spec.name());
+test "CaptpVersion diagnostic names" {
+    try std.testing.expectEqualStrings("ocapn-v1.0", model.CaptpVersion.v1_0.name());
+    try std.testing.expectEqualStrings("pancake-next", model.CaptpVersion.next.name());
 }
 
 test "abort kinds round-trip every variant through their wire names" {

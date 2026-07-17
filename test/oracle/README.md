@@ -13,7 +13,7 @@ Spritely Goblins.
 - [`corpus/`](corpus/) — the canonical Syrup byte corpus. `@embedFile`d by
   [`protocol_oracle.zig`](protocol_oracle.zig) and asserted against the Zig
   encoder/decoder by [`fixture_parity_test.zig`](fixture_parity_test.zig).
-  `tools/meta_check.zig` holds the corpus and the registry to each other in both
+  `tools/check/meta_check.zig` holds the corpus and the registry to each other in both
   directions, so a `.bin` with no registry row, or a registry row with no
   `.bin`, fails the gate.
 - [`generate.rkt`](generate.rkt) — pancake's record shapes serialized via the

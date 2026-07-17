@@ -2,7 +2,7 @@
 //!
 //! Chapter 01 held one session. This chapter holds several: a directory you
 //! already trust *introduces* you to a service, and after the introduction you
-//! talk to the service directly — the directory drops out of the path. On the
+//! talk to the service directly, and the directory drops out of the path. On the
 //! wire this is OCapN's three-party handoff. The Zig multi-session CapTP spine is
 //! `driver.core.Host` + `driver.Bridge` + `net.TcpLoop` (ADR-0068, ADR-0076).
 //!
@@ -34,7 +34,7 @@ const Widget = struct {
         _ = self;
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "poke")) return error.NoSuchMethod;
-        return .{ .string = "poked — directly, the directory is out of the path" };
+        return .{ .string = "poked: directly, the directory is out of the path" };
     }
 };
 
@@ -88,7 +88,7 @@ fn pokeListener(io: std.Io, port: u16) void {
 const ExporterState = struct {
     host: *Host,
     bridge: *TcpBridge,
-    g_conn: ?*HostSession = null,
+    g_session: ?*HostSession = null,
 };
 
 fn publishTarget(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
@@ -96,24 +96,24 @@ fn publishTarget(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
     _ = try served.publish("widget", Widget, .{});
 }
 
-fn exporterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
+fn exporterOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, slot: *TcpBridge.Slot) anyerror!void {
     const state: *ExporterState = @ptrCast(@alignCast(ctx.?));
-    if (conn.leg != .app_dial or conn.session.role != .dialed) return;
-    if (state.g_conn != null) return;
-    state.g_conn = conn.session;
-    _ = try conn.session.served.publish("widget", Widget, .{});
-    const desk = try state.host.fetch(conn.session, "introducer");
+    if (slot.leg != .app_dial or slot.session.role != .dialed) return;
+    if (state.g_session != null) return;
+    state.g_session = slot.session;
+    _ = try slot.session.served.publish("widget", Widget, .{});
+    const desk = try state.host.fetch(slot.session, "introducer");
     try state.host.vowOn(desk, .{ .ctx = state, .func = onDesk });
     try bridge.drainActions();
 }
 
 fn onDesk(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     const state: *ExporterState = @ptrCast(@alignCast(ctx.?));
-    const conn = state.g_conn orelse return;
+    const session = state.g_session orelse return;
     switch (resolution) {
         .fulfilled => |value| {
             if (value != .reference) return;
-            _ = state.host.send(conn, value.reference, .{ .verb = "ready", .args = &.{} }) catch return;
+            _ = state.host.send(session, value.reference, .{ .verb = "ready", .args = &.{} }) catch return;
             state.bridge.drainActions() catch {};
         },
         else => {},
@@ -230,15 +230,15 @@ fn gifterServe(conn_ctx: ?*anyopaque, peer: *engine.Peer, event: *engine.Event) 
 const ClientState = struct {
     host: *Host,
     poked: *std.atomic.Value(bool),
-    g_conn: ?*HostSession = null,
+    g_session: ?*HostSession = null,
 
     fn onIntroducer(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *ClientState = @ptrCast(@alignCast(ctx.?));
-        const conn = self.g_conn orelse return;
+        const session = self.g_session orelse return;
         switch (resolution) {
             .fulfilled => |value| {
                 if (value != .reference) return;
-                const vow = self.host.send(conn, value.reference, .{ .verb = "introduce", .args = &.{} }) catch return;
+                const vow = self.host.send(session, value.reference, .{ .verb = "introduce", .args = &.{} }) catch return;
                 self.host.vowOn(vow, .{ .ctx = self, .func = onIntroduced }) catch return;
             },
             else => {},
@@ -247,7 +247,7 @@ const ClientState = struct {
 
     fn onIntroduced(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const self: *ClientState = @ptrCast(@alignCast(ctx.?));
-        const conn = self.g_conn orelse return;
+        const session = self.g_session orelse return;
         switch (resolution) {
             .fulfilled => |value| {
                 const widget = switch (value) {
@@ -255,7 +255,7 @@ const ClientState = struct {
                     else => return,
                 };
                 std.debug.print("02: introduced to a capability on another peer, redeemed inside the settle\n", .{});
-                const vow = self.host.send(conn, widget, .{ .verb = "poke", .args = &.{} }) catch return;
+                const vow = self.host.send(session, widget, .{ .verb = "poke", .args = &.{} }) catch return;
                 self.host.vowOn(vow, .{ .ctx = self, .func = onPoked }) catch return;
             },
             .broken => |reason| std.debug.print("02: introduce broke: {s}\n", .{reason}),
@@ -276,12 +276,12 @@ const ClientState = struct {
     }
 };
 
-fn clientOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, conn: *TcpBridge.Slot) anyerror!void {
+fn clientOnOpen(ctx: ?*anyopaque, bridge: *TcpBridge, slot: *TcpBridge.Slot) anyerror!void {
     const state: *ClientState = @ptrCast(@alignCast(ctx.?));
-    if (conn.leg != .app_dial or conn.session.role != .dialed) return;
-    if (state.g_conn != null) return;
-    state.g_conn = conn.session;
-    const vow = try state.host.fetch(conn.session, "introducer");
+    if (slot.leg != .app_dial or slot.session.role != .dialed) return;
+    if (state.g_session != null) return;
+    state.g_session = slot.session;
+    const vow = try state.host.fetch(slot.session, "introducer");
     try state.host.vowOn(vow, .{ .ctx = state, .func = ClientState.onIntroducer });
     try bridge.drainActions();
 }

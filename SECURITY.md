@@ -15,7 +15,7 @@ private security advisories also exists). Please include:
 
 1. What is at risk: which module / codec / netlayer / wire shape, and the
    invariant it threatens.
-2. Reproduction steps. A failing protocol/oracle scenario is ideal; a written
+2. Reproduction steps. A failing protocol reference scenario is ideal; a written
    trace or argument also works.
 3. The pancake property you believe is violated (below).
 4. Your assessment of impact and any suggested mitigation.

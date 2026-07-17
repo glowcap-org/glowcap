@@ -21,7 +21,7 @@ immutable and the runtime is garbage-collected.
 
 pancake's `Vat` (ADR-0036) took the opposite state choice: an actor's mutable
 `self` _is_ its state, copied by nothing. That choice is why pancake pays no
-per-turn immutability tax and runs no GC — but it also means a snapshot cannot
+per-turn immutability tax and runs no GC: but it also means a snapshot cannot
 simply share a live state pointer, because a later in-place mutation would
 corrupt the snapshot. This ADR settles how the vat gains Goblins-grade local
 time-travel without surrendering the "no hidden runtime, explicit ownership,
@@ -51,7 +51,7 @@ no collector.
   the snapshot's boxes (refcount up) before releasing the live boxes, so a
   failure leaves the live table intact, and the snapshot stays reusable across
   repeated restores. It sets `next_actor` from the snapshot and captures local
-  actor state only — never `peer`, `exports`, `far_listeners`, or the turn
+  actor state only, never `peer`, `exports`, `far_listeners`, or the turn
   arenas.
 - **Mutable actors (tier 2).** An actor that defines
   `pub fn clone(self, allocator)` is copied-on-write: `ensureUnshared` runs at
@@ -91,7 +91,7 @@ snapshots.
 ## Alternatives Considered
 
 - **Eager deep-copy snapshot.** Simple, but O(total mutable bytes) per snapshot
-  — the exact gap this ADR closes. Rejected as the steady-state design.
+  the exact gap this ADR closes. Rejected as the steady-state design.
 - **Immutable-everything plus GC, like Goblins.** Universal and free at snapshot
   time, but pays an allocation per become and needs a collector on every turn.
   Rejected: it violates "no hidden runtime" and taxes actors that never

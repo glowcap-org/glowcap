@@ -1,6 +1,6 @@
 /* The normative byte-fed host embedder pump (bindings/README.md "embedder
    contract", ADR-0072). Two PancakeHosts open a keyed session over plain memory
-   — feed_bytes, the one-loop action drain (FLUSH → take_outbound → write into
+   — feed_bytes, the one-loop action drain (FLUSH, then take_outbound, then write into
    the partner's inbox), feed-refusal with last_abort, and EOF via
    break_far_vows. This is the compiled checklist the four language bindings
    mirror. The drain rides pancake_host_pump_drain (ADR-0072 fifth amendment)
@@ -21,7 +21,7 @@ typedef struct {
 
 typedef struct {
 	BytePipe *pipe;
-	PancakeHostSession *conn;
+	PancakeHostSession *session;
 } FlushCtx;
 
 static int fail(const char *what) {
@@ -40,12 +40,12 @@ static int32_t on_flush(void *ctx, PancakeHost *host,
 	if (out_progressed) {
 		*out_progressed = 0;
 	}
-	if (action->kind != PANCAKE_HOST_ACTION_FLUSH || action->session != f->conn) {
+	if (action->kind != PANCAKE_HOST_ACTION_FLUSH || action->session != f->session) {
 		return PANCAKE_OK;
 	}
 	for (;;) {
 		PancakeManagedFrame frame;
-		int32_t rc = pancake_host_session_take_outbound(f->conn, &frame);
+		int32_t rc = pancake_host_session_take_outbound(f->session, &frame);
 		if (rc == PANCAKE_ERR_WOULD_BLOCK) {
 			break;
 		}
@@ -64,8 +64,8 @@ static int32_t on_flush(void *ctx, PancakeHost *host,
 	return PANCAKE_OK;
 }
 
-static int drain_actions(PancakeHost *host, BytePipe *pipe, PancakeHostSession *conn) {
-	FlushCtx ctx = { .pipe = pipe, .conn = conn };
+static int drain_actions(PancakeHost *host, BytePipe *pipe, PancakeHostSession *session) {
+	FlushCtx ctx = { .pipe = pipe, .session = session };
 	PancakeHostPumpHooks hooks = {
 		.ctx = &ctx,
 		.flush = on_flush,
@@ -125,7 +125,7 @@ static PancakeHost *new_host(uint8_t fill, size_t frame_cap) {
 }
 
 int main(void) {
-	/* ── 1. feed_bytes + action drain → open session ───────────────────────── */
+	/* ── 1. feed_bytes + action drain until the session opens ──────────────── */
 	PancakeHost *client = new_host(0xa1, PANCAKE_DEFAULT_FRAME_CAP);
 	PancakeHost *server = new_host(0xa2, PANCAKE_DEFAULT_FRAME_CAP);
 	if (!client || !server) {
@@ -165,7 +165,7 @@ int main(void) {
 	pancake_host_release(client);
 	pancake_host_release(server);
 
-	/* ── 2. feed refusal: over-cap frame → last_abort → drain abort → release ─ */
+	/* ── 2. feed refusal: over-cap frame, last_abort, drain abort, release ─── */
 	PancakeHost *tiny = new_host(0xb1, 64);
 	PancakeHost *peer = new_host(0xb2, PANCAKE_DEFAULT_FRAME_CAP);
 	if (!tiny || !peer) {

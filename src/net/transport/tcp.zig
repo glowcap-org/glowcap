@@ -152,9 +152,9 @@ pub const Error = error{
 /// `read_buf` / `write_buf`; `read_buf` sizes the steady per-connection memory,
 /// not the largest admissible frame (a larger frame spills, bounded by
 /// `max_frame_bytes`).
-/// Post-admission TCP connect: `address` must already be a `DialResolver.resolve`
-/// (or equivalent hostport parse) result. Production dials go through
-/// `DialResolver.resolve` → here; do not call this to skip OCapN admission.
+/// Post-admission TCP connect: `address` must already be a host:port admitted
+/// by `DialResolver.resolve` (or `model.uri.tcpConnectHostPort`). Do not call
+/// this to skip OCapN admission.
 pub fn connectAddress(
     io: std.Io,
     peer: *engine.Peer,
@@ -255,6 +255,17 @@ pub const Listener = struct {
     /// bound to port 0.
     pub fn localAddress(self: *const Listener) IpAddress {
         return self.server.socket.address;
+    }
+
+    /// Wait until `accept` would make progress, up to `timeout_ms`.
+    pub fn waitAcceptable(self: *Listener, timeout_ms: i32) error{ConnectionLost}!bool {
+        var fds = [_]std.posix.pollfd{.{
+            .fd = self.server.socket.handle,
+            .events = std.posix.POLL.IN,
+            .revents = 0,
+        }};
+        const ready = std.posix.poll(&fds, timeout_ms) catch return error.ConnectionLost;
+        return ready != 0;
     }
 
     /// Block until a client connects, welding the accepted stream to `peer`.
@@ -373,6 +384,7 @@ const ListenerBox = struct {
 const listener_vtable: NetLayerListener.VTable = .{
     .transport_name = transport_name,
     .accept = listenerAccept,
+    .waitAcceptable = listenerWaitAcceptable,
     .localDesignator = listenerLocalDesignator,
     .close = listenerClose,
 };
@@ -382,6 +394,7 @@ const listener_vtable: NetLayerListener.VTable = .{
 const borrowed_listener_vtable: NetLayerListener.VTable = .{
     .transport_name = transport_name,
     .accept = borrowedListenerAccept,
+    .waitAcceptable = borrowedListenerWaitAcceptable,
     .localDesignator = borrowedListenerLocalDesignator,
     .close = borrowedListenerClose,
 };
@@ -405,6 +418,10 @@ fn borrowedListenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) ne
     return acceptOnListener(@ptrCast(@alignCast(ctx)), peer, bufs);
 }
 
+fn borrowedListenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError!bool {
+    return waitAcceptableOnListener(@ptrCast(@alignCast(ctx)), timeout_ms);
+}
+
 fn borrowedListenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
     return designatorOnListener(@ptrCast(@alignCast(ctx)), out);
 }
@@ -416,9 +433,19 @@ fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.A
     return acceptOnListener(&box.listener, peer, bufs);
 }
 
+fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError!bool {
+    const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+    return waitAcceptableOnListener(&box.listener, timeout_ms);
+}
+
 fn listenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
     return designatorOnListener(&box.listener, out);
+}
+
+/// Shared wait arm for owned and borrowed tcp listener vtables (and keyed-tcp).
+pub fn waitAcceptableOnListener(listener: *Listener, timeout_ms: i32) netlayer.AcceptError!bool {
+    return listener.waitAcceptable(timeout_ms);
 }
 
 fn listenerClose(ctx: *anyopaque) void {
@@ -464,14 +491,13 @@ pub const DialResolver = struct {
         designator: []const u8,
         direct_addresses_hint: []const u8,
     ) Error!IpAddress {
-        const hostport = if (std.mem.eql(u8, transport, transport_name))
-            designator
-        else if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) blk: {
+        if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) {
             if (crypto.PeerKey.fromDesignator(designator) == null) return Error.InvalidAddress;
-            if (direct_addresses_hint.len == 0) return Error.InvalidAddress;
-            break :blk direct_addresses_hint;
-        } else return Error.UnknownTransport;
-        if (hostport.len == 0) return Error.InvalidAddress;
-        return parseDesignator(hostport);
+        } else if (!std.mem.eql(u8, transport, transport_name)) {
+            return Error.UnknownTransport;
+        }
+        // One host:port admission with planDial (`model.uri.tcpConnectHostPort`).
+        const hp = model.uri.tcpConnectHostPort(transport, designator, direct_addresses_hint) catch return Error.InvalidAddress;
+        return parseHostPort(hp.host, hp.port);
     }
 };

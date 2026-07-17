@@ -238,24 +238,24 @@
                                (list "iroh" AMBER (list (g "iroh" 'rps))))
                          (lambda (v) (~r v #:precision 0))))
   ;; iroh against itself: the single-stream serial reciprocal vs the aggregate
-  ;; throughput when one readiness loop multiplexes many connections — its design
-  ;; point. Not a TCP comparison (the loop is iroh's serving model; the bars are
+  ;; throughput when one readiness loop multiplexes many connections (its design
+  ;; point). Not a TCP comparison (the loop is iroh's serving model; the bars are
   ;; both iroh), so the serial number reads as latency-bound, not a ceiling.
   (define loop-fig
     (and loop-rps
          (figure
-          (format "iroh throughput — one stream vs ~a connections on one readiness loop, round-trips/s, higher is better." loop-conns)
+          (format "iroh throughput: one stream vs ~a connections on one readiness loop, round-trips/s, higher is better." loop-conns)
           (svg-bars (list "single stream" (format "~a conns · one loop" loop-conns))
                     (list (list "iroh" AMBER (list (g "iroh" 'rps) loop-rps)))
                     (lambda (v) (~r v #:precision 0))))))
   (string-append
    (legend (list "TCP (cleartext baseline)" TEAL) (list "iroh (encrypted QUIC)" AMBER))
    (charts
-    (figure "Round-trip latency — µs, lower is better." lat)
-    (figure "Throughput — round-trips/s, higher is better." tput))
+    (figure "Round-trip latency (µs, lower is better)." lat)
+    (figure "Throughput (round-trips/s, higher is better)." tput))
    (if loop-fig
        (string-append
-        "\n<p class=\"bench-note\">The chart below is iroh against itself, not the TCP baseline: the serial single stream above — one call in flight — beside iroh's own serving model, many connections multiplexed on one readiness loop. Both bars are iroh.</p>"
+        "\n<p class=\"bench-note\">The chart below is iroh against itself, not the TCP baseline: the serial single stream above (one call in flight) beside iroh's own serving model, many connections multiplexed on one readiness loop. Both bars are iroh.</p>"
         (charts loop-fig))
        "")
    (html-table '("transport" "p50 latency (µs)" "p99 latency (µs)" "round-trips / s")
@@ -290,8 +290,8 @@
                          (lambda (v) (~r v #:precision 0))))
   (string-append
    (legend (list "Goblins" TEAL) (list "pancake binding" AMBER) (list "pancake binding + time-travel" GREEN))
-   (charts (figure "Latency — p50 ms, lower is better." lat)
-           (figure "Throughput — req/s, higher is better." tput))
+   (charts (figure "Latency (p50 ms, lower is better)." lat)
+           (figure "Throughput (req/s, higher is better)." tput))
    (html-table '("suite" "Goblins p50 (ms)" "pancake p50 (ms)" "pancake +tt p50 (ms)"
                  "Goblins req/s" "pancake req/s" "pancake +tt req/s")
                (for/list ([s suites])
@@ -324,12 +324,12 @@
   (define big (last p-bytes))
   (string-append
    (legend (list "Goblins" TEAL) (list "pancake" AMBER))
-   (charts (figure "Snapshot — µs by actor count." snap-svg)
-           (figure "Restore — µs by actor count." restore-svg))
+   (charts (figure "Snapshot (µs by actor count)." snap-svg)
+           (figure "Restore (µs by actor count)." restore-svg))
    (html-table '("actors" "pancake snapshot µs" "Goblins snapshot µs" "pancake restore µs" "Goblins restore µs")
                (for/list ([pr (in-list p-obj)] [gr (in-list g-obj)])
                  (list (car pr) (r1 (us (cadr pr))) (r1 (us (cadr gr))) (r1 (us (caddr pr))) (r1 (us (caddr gr))))))
-   (format "\n<p class=\"bench-note\">Both runtimes snapshot in O(objects) and stay flat as each actor grows larger (~a µs for ~a-byte actors, ~a µs for ~a-byte actors) — they share each actor's state instead of copying it. These run natively (pancake in Zig, Goblins in Racket), so the absolute nanoseconds reflect the runtime, not a better algorithm; read the shape, not the race. On restore, pancake frees the rewound copies right away; Goblins leaves that cleanup to its garbage collector.</p>"
+   (format "\n<p class=\"bench-note\">Both runtimes snapshot in O(objects) and stay flat as each actor grows larger (~a µs for ~a-byte actors, ~a µs for ~a-byte actors). They share each actor's state instead of copying it. These run natively (pancake in Zig, Goblins in Racket), so the absolute nanoseconds reflect the runtime, not a better algorithm; read the shape, not the race. On restore, pancake frees the rewound copies right away; Goblins leaves that cleanup to its garbage collector.</p>"
            (r1 (us (cadr small))) (car small)
            (r1 (us (cadr big))) (car big))))
 
@@ -351,15 +351,15 @@
   (define cold-svg (svg-bars clients (series (lambda (r) (or (list-ref r 6) 0))) (lambda (v) (~r v #:precision 1)) #:bar-colors bar-colors))
   (string-append
    (legend (list "language client" AMBER) (list "Goblins reference (CapTP peer)" TEAL))
-   (charts (figure "Latency — p50 ms, lower is better." p50-svg)
-           (figure "Throughput — req/s, higher is better." rps-svg)
-           (figure "Cold start — ms from spawn to first settled call, lower is better." cold-svg))
+   (charts (figure "Latency (p50 ms, lower is better)." p50-svg)
+           (figure "Throughput (req/s, higher is better)." rps-svg)
+           (figure "Cold start (ms from spawn to first settled call, lower is better)." cold-svg))
    (html-table '("client" "runtime" "p50 (ms)" "req/s" "setup (ms/conn)" "mem (kB/conn)" "cold (ms)")
                (for/list ([r (in-list rows)])
                  (list (car r) (list-ref r 1)
                        (~r (or (list-ref r 2) 0) #:precision 2) (commas (or (list-ref r 3) 0))
                        (list-ref r 4) (list-ref r 5) (~r (or (list-ref r 6) 0) #:precision 1))))
-   "\n<p class=\"bench-note\">Each row is a whole consumer stack — runtime, binding, the app rewritten in that language, and its garbage collector — over one native Zig host. Read it as consumer cost, not a language race; the Goblins row is the reference CapTP implementation dialing in, not a pancake binding.</p>"))
+   "\n<p class=\"bench-note\">Each row is a whole consumer stack (runtime, binding, the app rewritten in that language, and its garbage collector) over one native Zig host. Read it as consumer cost, not a language race; the Goblins row is the reference CapTP implementation dialing in, not a pancake binding.</p>"))
 
 ;; ── Run + splice (effectful) ─────────────────────────────────────────────────
 ;; `system` returns #f on a non-zero exit without raising; check it so a failed

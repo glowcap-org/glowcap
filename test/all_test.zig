@@ -6,6 +6,7 @@ comptime {
     _ = @import("foundation/crypto_test.zig");
     _ = @import("codec/syrup_test.zig");
     _ = @import("codec/capnp_test.zig");
+    _ = @import("codec/capnp_golden_test.zig");
     _ = @import("codec/prefix_decode_test.zig");
     _ = @import("codec/registry_test.zig");
     _ = @import("codec/encode_budget_test.zig");
@@ -50,11 +51,14 @@ comptime {
     _ = @import("session/slot_test.zig");
     _ = @import("session/answers_slot_test.zig");
     _ = @import("session/bootstrap_test.zig");
+    _ = @import("session/inspect_test.zig");
     _ = @import("engine/peer_test.zig");
+    _ = @import("engine/relay_resolution_test.zig");
     _ = @import("engine/alloc_budget_test.zig");
     _ = @import("engine/cross_codec_budget_test.zig");
     _ = @import("engine/resolve_alloc_budget_test.zig");
     _ = @import("engine/listener_fire_budget_test.zig");
+    _ = @import("engine/deliver_set_scratch_budget_test.zig");
     _ = @import("engine/footprint_budget_test.zig");
     _ = @import("engine/gc_churn_test.zig");
     _ = @import("engine/completion_seam_test.zig");

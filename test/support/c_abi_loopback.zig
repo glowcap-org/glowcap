@@ -1,5 +1,5 @@
 //! Comptime C-ABI loopback harness: the shared pumpStep / serveOnce / fetchOnce
-//! spine for transport endpoint proofs. Consumers keep only transport-specific
+//! spine for transport endpoint tests. Consumers keep only transport-specific
 //! listen/connect setup and instantiate `Harness(Transport)`.
 
 const std = @import("std");

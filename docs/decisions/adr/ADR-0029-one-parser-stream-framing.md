@@ -16,7 +16,7 @@ A CapTP transport carries a stream of self-delimiting codec frames back to back.
 The classic way to read them is two parsers: a framing scanner that finds the
 boundary (a length prefix, or a delimiter scan), then the codec decoder that
 parses the bounded slice. Two parsers means two notions of "where does this
-frame end," which must agree on every byte — a permanent divergence surface, and
+frame end," which must agree on every byte: a permanent divergence surface, and
 exactly the seam where a hostile partner finds a frame the scanner accepts but
 the decoder rejects (or vice versa).
 
@@ -34,11 +34,11 @@ The codec decoder _is_ the framer. Each codec exposes
 stream prefix
 ([`src/ocapn/codec/framing.zig`](../../../src/ocapn/codec/framing.zig)):
 
-- `decoded{ body, consumed }` — a whole frame is present; `consumed` is its
+- `decoded{ body, consumed }`: a whole frame is present; `consumed` is its
   exact byte length (the boundary), `body` the borrowed view.
-- `incomplete` — a valid frame _prefix_; the caller must read more bytes.
-- `malformed` — the bytes cannot begin a valid frame; fail loud.
-- `too_large` — the in-flight frame's scanned length crosses `max_frame_bytes`
+- `incomplete`: a valid frame _prefix_; the caller must read more bytes.
+- `malformed`: the bytes cannot begin a valid frame; fail loud.
+- `too_large`: the in-flight frame's scanned length crosses `max_frame_bytes`
   _during_ decode, so a "never completes" stream is bounded without buffering it
   whole.
 
@@ -64,7 +64,7 @@ consumes exactly one verdict in `recvStreamPrefix` (`consumed` -> apply borrowed
 Because the decoder recurses lazily over nested containers, decode-time
 recursion is bounded by a fixed `max_decode_nesting` (512) in the Syrup decoder
 so a deeply nested untrusted prefix is rejected as `malformed` before it can
-overflow the native stack — the parse-stage analog of the session-level cap in
+overflow the native stack: the parse-stage analog of the session-level cap in
 [ADR-0025](ADR-0025-session-table-cap-policy.md).
 
 ## Scope (what this does not decide)

@@ -3,11 +3,8 @@
 //! Test support (not a production module): the Syrup codec tests and the
 //! fixture-parity oracle encode the same `desc:handoff-give` /
 //! `desc:handoff-receive` shape, so the byte constants and builders live
-//! here once. The free helpers release a handoff the owned decode path
-//! materialized; this copy choreography stays in test support per the
-//! memory rule.
+//! here once. Owned decode paths free through `model.freeHandoff`.
 
-const std = @import("std");
 const pancake = @import("pancake");
 
 const model = pancake.ocapn.model;
@@ -28,7 +25,7 @@ pub const receive_signature = repeatedByte(64, 0xbb);
 pub fn give() model.HandoffGive {
     return .{
         .recipient_key = recipient_key[0..],
-        .exporter_location = "memory:exporter",
+        .exporter = .{ .transport = "memory", .designator = "exporter" },
         .gifter_exporter_session = gifter_session[0..],
         .gifter_side = gifter_side[0..],
         .gift_id = gift_id[0..],
@@ -44,27 +41,4 @@ pub fn receive() model.HandoffReceive {
         .signed_give = give(),
         .signature = receive_signature[0..],
     };
-}
-
-/// Free a handoff whose fields the owned decode path duped onto `allocator`.
-pub fn freeHandoff(allocator: std.mem.Allocator, handoff: model.Handoff) void {
-    switch (handoff) {
-        .give => |g| freeGive(allocator, g),
-        .receive => |r| {
-            allocator.free(r.receiving_session);
-            allocator.free(r.receiving_side);
-            freeGive(allocator, r.signed_give);
-            allocator.free(r.signature);
-        },
-    }
-}
-
-pub fn freeGive(allocator: std.mem.Allocator, g: model.HandoffGive) void {
-    allocator.free(g.recipient_key);
-    allocator.free(g.exporter_location);
-    allocator.free(g.gifter_exporter_session);
-    allocator.free(g.gifter_side);
-    allocator.free(g.gift_id);
-    allocator.free(g.signature);
-    if (g.raw_signed) |raw| allocator.free(raw);
 }

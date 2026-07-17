@@ -36,38 +36,38 @@ async function broke(call: Promise<unknown>): Promise<boolean> {
 	}
 }
 
-const conn = await connect(tcpLocator(host, Number(portStr)));
-conn.serve().catch(() => {});
-const tools = await conn.fetch(TOOLS);
+const session = await connect(tcpLocator(host, Number(portStr)));
+session.serve().catch(() => {});
+const tools = await session.fetch(TOOLS);
 
 // 1. Delegation: get a clock capability and call it.
-const clock = await conn.send(tools, GRANT, ["clock"]) as Ref;
-const now = await conn.send(clock, NOW);
+const clock = await session.send(tools, GRANT, ["clock"]) as Ref;
+const now = await session.send(clock, NOW);
 check("delegation: was handed a clock and called it", typeof now === "bigint");
 
 // 2. Attenuation: a read-only file capability reads but refuses writes.
-const files = await conn.send(tools, GRANT, ["files-readonly"]) as Ref;
-const contents = await conn.send(files, READ, ["report.txt"]);
+const files = await session.send(tools, GRANT, ["files-readonly"]) as Ref;
+const contents = await session.send(files, READ, ["report.txt"]);
 check(
 	"attenuation: read through the read-only view",
 	typeof contents === "string",
 );
 check(
 	"attenuation: write is refused",
-	await broke(conn.send(files, WRITE, ["report.txt", "tampered"])),
+	await broke(session.send(files, WRITE, ["report.txt", "tampered"])),
 );
 
 // 3. Revocation: a revocable handle works, then breaks after revoke.
-const revocableClock = await conn.send(tools, GRANT_REVOCABLE, [
+const revocableClock = await session.send(tools, GRANT_REVOCABLE, [
 	"clock",
 ]) as Ref;
-const before = await conn.send(revocableClock, NOW);
+const before = await session.send(revocableClock, NOW);
 check("revocation: the handle works before revoke", typeof before === "bigint");
-await conn.send(tools, REVOKE_LAST);
+await session.send(tools, REVOKE_LAST);
 check(
 	"revocation: the handle breaks after revoke",
-	await broke(conn.send(revocableClock, NOW)),
+	await broke(session.send(revocableClock, NOW)),
 );
 
 console.log(`${nick}: all capability properties held`);
-conn.close();
+session.close();

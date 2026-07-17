@@ -8,6 +8,10 @@
         "claude-code",
         "--project-from-cwd"
       ]
+    },
+    "pancake": {
+      "command": "./pancake",
+      "args": ["mcp", "--tools", "default"]
     }
   }
 }

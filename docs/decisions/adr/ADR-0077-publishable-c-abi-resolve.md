@@ -3,7 +3,7 @@ id: ADR-0077
 status: accepted
 date: 2026-07-12
 tags: [bindings, c-abi, packaging, public-surface]
-decision: "Language bindings resolve the C ABI archives through a publishable cascade — configure env, abi-versioned download cache, optional in-tree zig-out, then OS search — whose machine contract is `c-abi-resolve.json` shipped inside each package. Download is language-native (no monorepo `tools/` dependency). The operator script `tools/fetch-c-abi.sh` remains for humans and CI only."
+decision: "Language bindings resolve the C ABI archives through a publishable cascade (configure env, abi-versioned download cache, optional in-tree zig-out, then OS search) whose machine contract is `c-abi-resolve.json` shipped inside each package. Download is language-native (no monorepo `tools/` dependency). The operator script `tools/c-abi/fetch-c-abi.sh` remains for humans and CI only."
 supersedes: []
 superseded_by: []
 ---
@@ -16,7 +16,7 @@ Bindings will ship to language package registries (crates.io, PyPI, npm/JSR,
 the Racket catalog) and may later live in separate source repos. A consumer of
 a published package has no Zig checkout, no `zig-out/lib`, and no
 `include/pancake_ocapn.h`. Collapsing download into a monorepo shell script
-(`tools/fetch-c-abi.sh`) that every binding shells out to is DRY for in-tree
+(`tools/c-abi/fetch-c-abi.sh`) that every binding shells out to is DRY for in-tree
 dogfoods and wrong for that publish surface: the script is not in the package
 tarball, `/bin/sh` is not a Windows contract, and Deno's permission model
 treats spawn as a distinct grant from network.
@@ -29,27 +29,27 @@ package-local metadata.
 
 1. **`bindings/c-abi-resolve.json` is the machine contract** for URL templates,
    cache layout, markers, and `abi_version`. Identical copies ship inside each
-   binding package path listed in `package_copies`; `tools/meta_check.zig` fails
+   binding package path listed in `package_copies`; `tools/check/meta_check.zig` fails
    if any copy drifts from the canonical file or from `PANCAKE_VERSION_*` in
    `include/pancake_ocapn.h`. Env truthy values are the fixed set `1` / `true` /
    `yes` in each loader (not a contract field). Env *names* live in
    `bindings/README.md`. Host target triples for release-pack are `{arch}-{os}`
-   with zig names; `tools/c-abi-host-aliases.json` lists host aliases and is
+   with zig names; `tools/c-abi/c-abi-host-aliases.json` lists host aliases and is
    wired into `meta_check` (every alias must appear in the non-cargo ports).
    Rust uses `CARGO_CFG_TARGET_ARCH` / `CARGO_CFG_TARGET_OS`, which already emit
-   those names; Python, TypeScript, Racket, and `tools/fetch-c-abi.sh` normalize
+   those names; Python, TypeScript, Racket, and `tools/c-abi/fetch-c-abi.sh` normalize
    aliases (`amd64`/`x64`, `arm64`, `darwin`/`macosx`). Release-pack OS list is
    linux + macos until a Windows matrix leg exists.
 
 2. **Cascade order** (configure first, never download on that path):
-   `PANCAKE_LIB_DIR` → abi-versioned cache → optional discovered pancake
-   checkout's `zig-out/lib` → bare library name / link-search fallthrough.
+   `PANCAKE_LIB_DIR`, then abi-versioned cache, then optional discovered pancake
+   checkout's `zig-out/lib`, then bare library name / link-search fallthrough.
 
 3. **Download is language-native** inside each binding (Rust `build.rs`, Python
    urllib+tarfile, TypeScript curl/tar with Deno permission degradation, Racket
    curl/tar). Soft-fail when no release exists yet (in-tree dogfoods use
-   `zig-out`); `PANCAKE_STRICT=1` fail-closes. `tools/fetch-c-abi.sh` is an
-   **operator** tool only — bindings must not require it.
+   `zig-out`); `PANCAKE_STRICT=1` fail-closes. `tools/c-abi/fetch-c-abi.sh` is an
+   **operator** tool only: bindings must not require it.
 
 4. **Version pin:** prefer `include/pancake_ocapn.h` when a pancake checkout is
    discoverable (in-tree dogfood); otherwise use the package-shipped
@@ -66,7 +66,7 @@ package-local metadata.
    - Cap transfer size (`max_tarball_bytes` in the contract).
    - Prefer absolute `dlopen`/`LoadLibrary` paths; refuse bare DLL names on
      Windows (search-order plant risk). Python, TypeScript, and Racket all
-     refuse; `tools/meta_check.zig` requires the refuse message in each
+     refuse; `tools/check/meta_check.zig` requires the refuse message in each
      shared-lib loader.
 
 ## Consequences
@@ -79,17 +79,17 @@ package-local metadata.
   formulas (tarball name, base URL, abi version, package copies, checksum and
   extract hygiene fields, per-loader cache-marker roles, symlink/traversal
   rejection before extract, Windows bare-DLL refusal on shared-lib ports,
-  host-target aliases wired from `tools/c-abi-host-aliases.json`,
-  `tools/c-abi-resolve-cases.json` URL/cache/`want_fetch` oracle,
+  host-target aliases wired from `tools/c-abi/c-abi-host-aliases.json`,
+  `tools/c-abi/c-abi-resolve-cases.json` URL/cache/`want_fetch` oracle,
   `user_agent` embedding `abi_version`, package-ship of the contract across
   Python/TS/Racket/Rust, and hard-fail `require_https`/`require_checksum` at
   load including Rust and the operator script) so the resolve cascade cannot silently
   diverge from `zig build release-pack`. Rust parses the contract with
   `serde_json` in `build.rs` (no hand-rolled scanner). Unifying the five
   language-native download *implementations* into one shared runtime remains
-  deferred — language constraints (Deno permissions, Python stdlib tar, Rust
+  deferred: language constraints (Deno permissions, Python stdlib tar, Rust
   build.rs, Racket FFI load time) make a shared library the wrong shape;
-  `tools/c-abi-resolve-cases.json` is the drift apex instead.
+  `tools/c-abi/c-abi-resolve-cases.json` is the drift apex instead.
 - Windows release-pack is blocked today: `release-pack` is a Unix `sh` script,
   `linkIrohSidecar` hardcodes `libpancake_iroh_sidecar.a`, TCP still uses
   posix paths that fail `x86_64-windows-gnu` cross-builds, and there is no
@@ -99,7 +99,7 @@ package-local metadata.
   workflows, and language-registry publish remain ops follow-ups after the
   first real `releases_published: true` cut.
 - `releases_published` in `c-abi-resolve.json` is the prerelease valve for
-  hosted C archives: when false, loaders and `tools/fetch-c-abi.sh` skip the
+  hosted C archives: when false, loaders and `tools/c-abi/fetch-c-abi.sh` skip the
   release download unless `PANCAKE_DOWNLOAD=1`, and the release workflow skips
   `gh release create`. Hygiene and security refusals (non-HTTPS without a typed
   escape, checksum miss, zip-slip / link members) always fail closed;

@@ -21,7 +21,7 @@ The demo needs only `deno`, which hosts the board and runs the orchestrator, and
 the Zig client, which `zig build` always builds. Python, Racket, and Rust each
 join when their runtime (`python3`, `racket`, `cargo`) is on PATH; the demo
 reports any language it skipped rather than failing. It is a sibling of
-`zig build check`, not part of the hermetic gate.
+`zig build check`, not part of the self-contained build check.
 
 By default the demo binds an ephemeral port; pin it with
 `zig build demo-tasks -Dport=9099`. To run the demo's clients against a board
@@ -94,9 +94,9 @@ With OCapN capabilities:
 - The capability _is_ the identity, the board knows who you are because it
   holds your capability
 
-No tokens. No middleware. No separate push layer. The board calls you back
-because you gave it a live reference to your watcher, the same way you call the
-board because the board gave you a reference to itself.
+There are no tokens, no middleware, and no separate push layer. The board calls
+you back because you gave it a live reference to your watcher, the same way you
+call the board because the board gave you a reference to itself.
 
 ## Layout
 

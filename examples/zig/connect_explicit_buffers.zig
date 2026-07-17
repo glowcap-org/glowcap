@@ -50,11 +50,11 @@ fn host(listener: *tcp.Listener, allocator: std.mem.Allocator) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var vat = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf);
-    defer vat.deinit();
+    var session = try driver.acceptTcp(allocator, &peer, listener, read_buf, write_buf);
+    defer session.deinit();
 
-    _ = try vat.publish("greeter", Greeter, .{});
-    try vat.serve();
+    _ = try session.publish("greeter", Greeter, .{});
+    try session.serve();
 }
 
 /// The reply listener fires once, during the settling step, with a
@@ -92,21 +92,21 @@ pub fn main(init: std.process.Init) !void {
     const write_buf = try allocator.alloc(u8, frame_cap);
     defer allocator.free(write_buf);
 
-    var conn = try driver.connectTcp(allocator, io, &peer, listener.localAddress(), read_buf, write_buf);
-    const greeter = try conn.fetch("greeter");
+    var session = try driver.connectTcp(allocator, io, &peer, listener.localAddress(), read_buf, write_buf);
+    const greeter = try session.fetch("greeter");
 
     var reply = Reply{};
-    const vow = try conn.send(greeter, .{
+    const vow = try session.send(greeter, .{
         .verb = "greet",
         .args = &.{.{ .string = "world" }},
     });
-    try conn.on(vow, .{ .ctx = &reply, .func = onReply });
+    try session.on(vow, .{ .ctx = &reply, .func = onReply });
     while (!reply.done) {
-        const progress = try conn.step();
+        const progress = try session.step();
         if (progress == .closed) break;
     }
 
-    conn.deinit();
+    session.deinit();
     try hosting.await(io);
 
     if (!reply.done or !reply.ok) return error.UnexpectedReply;

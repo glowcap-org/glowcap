@@ -25,9 +25,6 @@ HOST_ACTION_CLOSE = 5
 @dataclass(frozen=True)
 class Dial:
     ticket: int
-    transport: str
-    designator: str
-    direct_addresses_hint: str
 
 
 @dataclass(frozen=True)
@@ -75,12 +72,7 @@ def decode(a) -> HostAction:
 
     kind = a.kind
     if kind == HOST_ACTION_DIAL:
-        return Dial(
-            ticket=a.ticket,
-            transport=_view(a.transport, a.transport_len),
-            designator=_view(a.designator, a.designator_len),
-            direct_addresses_hint=_view(a.direct_addresses_hint, a.direct_addresses_hint_len),
-        )
+        return Dial(ticket=a.ticket)
     if kind == HOST_ACTION_FLUSH:
         return Flush(conn_ptr=a.conn or 0)
     if kind == HOST_ACTION_NEED_GIFT_ID:
@@ -92,3 +84,25 @@ def decode(a) -> HostAction:
     if kind == HOST_ACTION_CLOSE:
         return Close(conn_ptr=a.conn or 0)
     raise RuntimeError(f"unknown host action kind: {kind}")
+
+
+async def dispatch(action: HostAction, handlers) -> None:
+    """Exhaustive dispatch: handlers expose one coroutine/callable per arm
+    (`dial`, `flush`, `need_gift_id`, `settle`, `fail`, `close`). A seventh
+    kind fails here rather than silently missing in `_action.py`.
+    """
+    match action:
+        case Dial():
+            await handlers.dial(action)
+        case Flush():
+            await handlers.flush(action)
+        case NeedGiftId():
+            await handlers.need_gift_id(action)
+        case Settle():
+            await handlers.settle(action)
+        case Fail():
+            await handlers.fail(action)
+        case Close():
+            await handlers.close(action)
+        case _:
+            raise RuntimeError(f"unknown host action: {action!r}")

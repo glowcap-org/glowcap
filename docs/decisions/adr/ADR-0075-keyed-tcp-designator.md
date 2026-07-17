@@ -14,11 +14,11 @@ superseded_by: []
 
 A plain `tcp` locator's designator is a `host:port`: it names where to dial and
 dies with the process that bound it, so a partner holding yesterday's locator
-holds nothing after a restart. iroh already ships the durable alternative — the
+holds nothing after a restart. iroh already ships the durable alternative: the
 designator is the endpoint's Ed25519 public key, dial addresses ride the
 `direct-addresses` hint, and one key is at once transport identity, locator
 designator, and session signing key (ADR-0055). But the check that ties the
-knot — dialed designator equals the session key the partner proves — lived only
+knot (dialed designator equals the session key the partner proves) lived only
 in the `iroh-interop` harness, not in the library, and TCP had no key-designator
 posture at all. For cleartext TCP that check is the entire security story: the
 channel authenticates nothing, so only the `op:start-session` signature says who
@@ -44,13 +44,13 @@ shared verification seam:
   inbound `op:start-session` may carry; the check runs at the inbound dispatch
   chokepoint beside the signature verification, before the session opens,
   because a byte-fed `feed` can carry the start-session and later frames in one
-  chunk — a post-open check would be a time-of-check gap. A mismatch is the new
+  chunk: a post-open check would be a time-of-check gap. A mismatch is the new
   engine error `PartnerKeyMismatch`, projected into the same non-closing
   handshake abort domain as `InvalidStartSessionSignature`.
 - **Dial-side wiring.** `driver.connectVia` pins the peer to the dialed
-  designator whenever the resolved netlayer's scheme is `key` — which upgrades
+  designator whenever the resolved netlayer's scheme is `key`: which upgrades
   iroh's key unification from a harness assertion to a library invariant on the
-  native dial path — and the byte-fed `driver_core.Host.openDialedLocator`
+  native dial path: and the byte-fed `driver_core.Host.openDialedLocator`
   mirrors the same fact through `vocab.designatorSchemeForTransport`, a string
   table, because the sans-io core holds transport strings, never vtables. The
   netlayer vtable is authoritative on I/O paths; the string table is its
@@ -68,7 +68,7 @@ shared verification seam:
   hex, so designator and session key cannot disagree by construction), the
   listener's hint rides the signed location as one `direct-addresses` entry,
   and an `.ephemeral` identity is refused with the typed
-  `Error.EphemeralIdentityOnKeyedTransport` — a throwaway key cannot produce a
+  `Error.EphemeralIdentityOnKeyedTransport`: a throwaway key cannot produce a
   durable designator. The Syrup encoder's start-session locator path
   (`writePeerLocatorRecord`) now renders hint entries canonically, and the
   signing domain (`canonicalLocationSignedBytes`) embeds the identical bytes.
@@ -86,8 +86,8 @@ or alter ordinary session traffic. What the pin guarantees is narrower and
 still worth having: the advertisement is authentic (a squatter on the hinted
 address cannot claim the key, pinned by the negative arm in
 `test/driver/keyed_tcp_restart_test.zig`), and operations that demand a fresh
-signature under the session key — minting and redeeming three-party handoff
-certificates — cannot be performed by anyone but the key holder. Channel
+signature under the session key: minting and redeeming three-party handoff
+certificates: cannot be performed by anyone but the key holder. Channel
 confidentiality and integrity remain iroh's job; keyed TCP is the durable
 *identity* posture for deployments that accept a cleartext wire.
 
@@ -95,12 +95,12 @@ confidentiality and integrity remain iroh's job; keyed TCP is the durable
 
 - ~~The Cap'n Proto codec refuses non-empty locator hints on encode, so a
   hinted keyed location is a Syrup-session feature today.~~ Closed: Cap'n
-  Proto's `op:start-session` now encodes hint entries on `acceptable_location`
-  (`encodeHintedPeerLocator`), so a hinted keyed or iroh location opens a
-  Cap'n Proto session too. The sturdyref locator wire path still refuses
-  non-empty hints (no dedicated entry-carrying wire path in either codec), and
-  decode of `op:start-session`'s hints is not yet symmetric with encode — see
-  [boundaries.md § Netlayer](../../boundaries.md#netlayer).
+  Proto and Syrup both project non-empty locator hints on `op:start-session`
+  and sturdyrefs through `view.BorrowedHints` (and `toOwned`).
+  Syrup start-session also keeps `acceptable_location_raw` for the signing
+  domain. Session authority does not store partner structured hints for
+  dial-from-hello: see [boundaries.md § Netlayer](../../boundaries.md#netlayer)
+  and [community-review.md](../../community-review.md).
 - Binding-level `keyed-tcp` dial/host surfaces and per-binding restart gates
   are shipped (`listen_keyed_tcp` / `keyed_tcp_locator` / `connect` on a
   `keyed-tcp` URI; `zig build bindings-keyed-tcp-restart`). The C ABI
@@ -130,8 +130,8 @@ confidentiality and integrity remain iroh's job; keyed TCP is the durable
   struct budget) and the `PartnerKeyMismatch` arm in the abort taxonomy.
 - `net.netlayer` carries the scheme and hint vocabulary; every vtable keeps
   compiling through defaults.
-- Grammar units live in `test/net/keyed_tcp_test.zig`; the loopback proof —
-  happy path, key-squatter refusal, and the same-seed-fresh-port restart —
+- Grammar units live in `test/net/keyed_tcp_test.zig`; the loopback proof,
+  happy path, key-squatter refusal, and the same-seed-fresh-port restart,
   lives in `test/driver/keyed_tcp_restart_test.zig`; the engine pin's units sit
   beside the other handshake scenarios in `test/engine/pairing_test.zig`.
 - The iroh harnesses and rooms demo servers sign with their endpoint keys, so

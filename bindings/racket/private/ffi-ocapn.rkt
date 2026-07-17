@@ -33,7 +33,6 @@
                      pancake_uri_format_peer*
                      pancake_locator_transport*
                      pancake_locator_designator*
-                     pancake_locator_host_port*
                      pancake_designator_host_port*
                      pancake_locator_swissnum*
                      pancake_locator_hint_count*
@@ -99,12 +98,6 @@
 (define (pancake_locator_designator loc)
   (call/outs (list (cons _pointer #f) (cons _size 0))
              (lambda (p l) (pancake_locator_designator* loc p l))))
-(define-pancake pancake_locator_host_port*
-  (_fun _pointer _pointer _pointer _pointer -> _int32)
-  #:c-id pancake_locator_host_port)
-(define (pancake_locator_host_port loc)
-  (call/outs (list (cons _pointer #f) (cons _size 0) (cons _uint16 0))
-             (lambda (p l port) (pancake_locator_host_port* loc p l port))))
 (define-pancake pancake_designator_host_port*
   (_fun _pointer _size _pointer _pointer _pointer -> _int32)
   #:c-id pancake_designator_host_port)

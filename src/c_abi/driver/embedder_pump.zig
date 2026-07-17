@@ -1,13 +1,24 @@
 //! Shared C-ABI embedder pump helpers (ADR-0072 fifth amendment).
 //!
 //! Authority for the one-loop drain over `pancake_host_next_action`: Zig tests
-//! (and later an optional C convenience wrapper) call this instead of
-//! hand-rolling the switch. The pull-queue remains the normative C contract —
-//! these helpers *use* `pancake_host_next_action`; they do not replace it with
-//! a callback-vtable primary seam.
+//! and `pancake_host_pump_drain` call this instead of hand-rolling the switch.
+//! The pull-queue remains the normative C contract — these helpers *use*
+//! `pancake_host_next_action`; they do not replace it with a callback-vtable
+//! primary seam. The kind inventory is locked to `driver_core.HostAction` at
+//! comptime so a seventh Zig arm fails here the same way `action_drain` fails.
 //!
-//! No `export fn` here. A future C wrapper, if landed, lives beside the other
-//! `pancake_host_*` exports in `mod.zig` and calls into this module.
+//! No `export fn` here. The C wrapper lives in `pump.zig`.
+
+const std = @import("std");
+const driver_core = @import("driver_core");
+
+comptime {
+    // Keep the C drain arm count lockstep with Zig HostAction (six tags today).
+    const tags = @typeInfo(driver_core.HostAction).@"union".fields;
+    if (tags.len != 6) {
+        @compileError("embedder_pump: HostAction tag count changed — update drainHost switch");
+    }
+}
 
 /// Drain every queued action on `host` through `exec`.
 ///

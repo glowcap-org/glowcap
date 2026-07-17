@@ -88,9 +88,9 @@ async function main(): Promise<void> {
 		return null;
 	});
 	const bobAccept = (async () => {
-		for await (const conn of bob) {
+		for await (const session of bob) {
 			bobInbound += 1;
-			conn.serve().catch(() => {});
+			session.serve().catch(() => {});
 		}
 	})();
 	const bobLocator = idOnlyUri(bob);

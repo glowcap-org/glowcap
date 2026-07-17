@@ -1,8 +1,8 @@
-//! Vat local time-travel (snapshot / restore / divergence) — the S5 benchmark.
+//! Vat local time-travel (snapshot / restore / divergence): the S5 benchmark.
 //!
 //! The snapshot half of the pancake-vs-Goblins suite (`bench/goblins/`).
 //! snapshot/restore is a *local* `actors.Vat` API, not a wire conversation, and
-//! it is not projected over the C ABI the Racket binding drives — so the two
+//! it is not projected over the C ABI the Racket binding drives, so the two
 //! runtimes are measured natively, side by side: pancake here in Zig, Goblins in
 //! `bench/goblins/snapshot.rkt`. Because that pits native Zig against native
 //! Racket/Chez, compare the *shape* of each cost and the *algorithmic tradeoff*,
@@ -18,12 +18,12 @@
 //!      count and stays flat as the bytes-per-object grow.
 //!   2. **Restore** rebuilds the live heap from a snapshot after every actor has
 //!      diverged. pancake frees the rewound copies eagerly (no collector); the
-//!      Goblins analog leaves that cleanup to its GC — measured, with the
+//!      Goblins analog leaves that cleanup to its GC, measured with the
 //!      difference named rather than hidden.
 //!   3. **Divergence** — mutating structured state while a snapshot is
 //!      outstanding, the workload that actually motivates time-travel. A pancake
 //!      *mutable* actor pays a copy-on-write of its whole state, O(N); a pancake
-//!      *persistent* actor (`become` + `PersistentMap`) path-copies, O(log N) —
+//!      *persistent* actor (`become` + `PersistentMap`) path-copies, O(log N),
 //!      the same shape as Goblins' immutable `bcom`. For large structured state
 //!      the functional flavors win; pancake offers both, so an actor that never
 //!      snapshots pays nothing.

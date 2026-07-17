@@ -16,10 +16,10 @@ ADR-0041 bounded the inbound half of per-connection memory: read buffers size
 the steady state and a rare large frame rides a bounded spill, freed on drain.
 The outbound half had no such bound. The completion loop queues reply bytes in a
 per-connection `ArrayList` while a write is in flight, and a partner that sends
-requests without reading replies — a slow reader, deliberate or not — grew that
+requests without reading replies (a slow reader, deliberate or not) grew that
 queue without limit. Worse, the queue retained its burst capacity for the
 connection's lifetime (`clearRetainingCapacity`), so one slow-reader episode
-pinned its high-water bytes per connection forever — the exact per-connection
+pinned its high-water bytes per connection forever: the exact per-connection
 scaling ADR-0041 removed on the read side.
 
 The blocking pump has neither problem in memory terms (it writes synchronously
@@ -31,7 +31,7 @@ below.
 
 **Pending outbound past the high-water mark parks the read.** Replies are caused
 by reads: a frame that is never read generates no reply. So the loop applies
-backpressure at its cause — when a connection's pending outbound bytes cross the
+backpressure at its cause: when a connection's pending outbound bytes cross the
 mark, the loop stops arming reads on it instead of growing the queue. The
 kernel's receive buffer fills, the partner's sends stall, and the flood stops at
 the flooder. No protocol frame is dropped or reordered; the queue is bounded by
@@ -40,7 +40,7 @@ the mark plus the replies of frames already buffered when it crossed.
 **The read resumes when the partner drains.** A fully drained write completes
 the cycle: the loop re-arms the parked read, unless the drain itself queued past
 the mark again (then the next drain re-checks). Park-at-mark, resume-at-drain is
-deliberate hysteresis — a connection never thrashes between the two on a byte
+deliberate hysteresis: a connection never thrashes between the two on a byte
 boundary.
 
 **Burst capacity frees on drain.** A drained queue whose capacity outgrew the
@@ -50,7 +50,7 @@ peak for the connection's lifetime. Steady-sized capacity is retained so
 ordinary reply traffic never reallocates.
 
 **The mark defaults to the frame cap.** One largest-admissible frame of pending
-replies is the natural unit of slack — symmetric with the inbound bound, and it
+replies is the natural unit of slack: symmetric with the inbound bound, and it
 admits any single frame without parking on it. `Options.outbound_high_water`
 overrides it for hosts whose reply patterns want a different trade.
 
@@ -89,8 +89,8 @@ overrides it for hosts whose reply patterns want a different trade.
   bounded spill inbound (ADR-0041), steady queue plus high-water mark outbound
   (this ADR), both freeing burst storage on drain.
 - Evidence: a scripted fake backend journals every submit and the test asserts
-  the exact park/resume order — the send release strictly precedes the next
-  armed read, twice (accept-time and mid-conversation) — with no sockets and no
+  the exact park/resume order: the send release strictly precedes the next
+  armed read, twice (accept-time and mid-conversation): with no sockets and no
   timing, on every platform (`test/net/completion_loop_test.zig`).
 
 ## Notes

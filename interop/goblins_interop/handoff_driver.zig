@@ -7,12 +7,12 @@
 //! greeter over as a `desc:handoff-give` naming the exporter (Bob), and the
 //! host redeems it inside the settle: it claims the give, dials Bob under the
 //! host's own identity, presents the signed `desc:handoff-receive`, and
-//! withdraws the gift — so the call settles directly with the greeter as an
+//! withdraws the gift, so the call settles directly with the greeter as an
 //! ordinary routable reference. Calling that reference routes through the
 //! host to Bob's connection, and the greeter replies directly.
 //!
 //! Needs `racket` + the `goblins` collection on PATH; runs as the sibling step
-//! `zig build goblins-handoff`, not in the hermetic gate.
+//! `zig build goblins-handoff`, not in the in-tree check.
 
 const std = @import("std");
 const pancake = @import("pancake");

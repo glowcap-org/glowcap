@@ -26,7 +26,7 @@
 //      the room's register dial-back — Carol reached Bob directly, by the gift's
 //      direct-address hints, not through the room.
 //   3. The room never carries the DM: it only deposited the gift on its own
-//      connection to Bob; the DM text travels solely on Carol↔Bob.
+//      connection to Bob; the DM text travels solely on Carol-to-Bob.
 //
 // Three iroh endpoints (separate identities) in one process — a genuine
 // cross-endpoint handoff over real QUIC sockets, run in one process so the
@@ -84,9 +84,9 @@ async function main(): Promise<void> {
 		return null;
 	});
 	const bobAccept = (async () => {
-		for await (const conn of bob) {
+		for await (const session of bob) {
 			bobInbound += 1;
-			conn.serve().catch(() => {});
+			session.serve().catch(() => {});
 		}
 	})();
 	const bobLocator = await dialableUri(bob, "Bob");
@@ -128,9 +128,9 @@ async function main(): Promise<void> {
 	const carol = await dial(roomUri);
 	carol.serve().catch(() => {});
 	const carolDir = await carol.fetch(DIRECTORY);
-	// `introduce` returns Bob's dm (home = room↔Bob); the binding transparently
+	// `introduce` returns Bob's dm (home = room-to-Bob); the binding transparently
 	// turns that foreign-home reference into a redeemed cap on a fresh, direct
-	// Carol↔Bob iroh connection, the gifter half of the handoff, end to end, with
+	// Carol-to-Bob iroh connection, the gifter half of the handoff, end to end, with
 	// the exporter reached only by the gift's direct-address hints.
 	const introduced = await carol.send(carolDir, INTRODUCE, ["bob"]);
 	if (!(introduced instanceof Ref)) {

@@ -146,23 +146,23 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.publish("counter", counterBehavior(10n));
-			conn.serve().catch(() => {});
+		for await (const session of server) {
+			session.publish("counter", counterBehavior(10n));
+			session.serve().catch(() => {});
 			break; // one client is the proof; ending the loop closes the listener
 		}
 	}
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
-		const counter = await conn.fetch("counter");
-		const grown = await conn.send(counter, "add", [5n]);
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
+		const counter = await session.fetch("counter");
+		const grown = await session.send(counter, "add", [5n]);
 		assert(grown === 15n, `counter.add(5) returns 15, got ${String(grown)}`);
-		const read = await conn.send(counter, "get", []);
+		const read = await session.send(counter, "get", []);
 		assert(read === 15n, `counter.get() returns 15, got ${String(read)}`);
-		conn.close();
+		session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -181,8 +181,8 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.publish("svc", (verb, args) => {
+		for await (const session of server) {
+			session.publish("svc", (verb, args) => {
 				assert(verb === "probe", `capnp server expected probe, got ${verb}`);
 				assert(args[0] === 2n ** 80n, `big integer survives capnp: ${String(args[0])}`);
 				assert(
@@ -196,22 +196,22 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 				);
 				return new Kw("done");
 			});
-			conn.serve().catch(() => {});
+			session.serve().catch(() => {});
 			break;
 		}
 	}
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(
+		const session = await connect(
 			tcpLocator("127.0.0.1", port),
 			undefined,
 			undefined,
 			"capnp",
 		);
-		conn.serve().catch(() => {});
-		const svc = await conn.fetch("svc");
-		const reply = await conn.send(svc, "probe", [
+		session.serve().catch(() => {});
+		const svc = await session.fetch("svc");
+		const reply = await session.send(svc, "probe", [
 			2n ** 80n,
 			new Kw("prio"),
 			new TextEncoder().encode("hi"),
@@ -220,7 +220,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 			reply instanceof Kw && reply.value === "done",
 			"the capnp reply keyword survived",
 		);
-		conn.close();
+		session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -238,12 +238,12 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const closed = new Promise<void>((r) => (serverClosed = r));
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.publish("svc", () => null);
-			conn.serve().catch(() => {});
+		for await (const session of server) {
+			session.publish("svc", () => null);
+			session.serve().catch(() => {});
 			// Serve exactly one call, then hang up without warning.
 			await new Promise((r) => setTimeout(r, 50));
-			conn.close();
+			session.close();
 			serverClosed();
 			break;
 		}
@@ -251,19 +251,19 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {}); // a disconnect ends the serve loop; expected here
-		const svc = await conn.fetch("svc");
-		await conn.send(svc, "ping", []);
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {}); // a disconnect ends the serve loop; expected here
+		const svc = await session.fetch("svc");
+		await session.send(svc, "ping", []);
 		await closed;
 		let rejected = false;
 		try {
-			await conn.send(svc, "late", []);
+			await session.send(svc, "late", []);
 		} catch (_err) {
 			rejected = true;
 		}
 		assert(rejected, "an outstanding send rejects when the connection drops");
-		conn.close();
+		session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -278,8 +278,8 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.publish("svc", (verb, args) => {
+		for await (const session of server) {
+			session.publish("svc", (verb, args) => {
 				if (verb === "boom") throw new Error("kaboom");
 				assert(verb === "probe", `server expected probe, got ${verb}`);
 				const probeSet = args[0];
@@ -298,25 +298,25 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 					"a capability inside a Tagged lifts to a Ref",
 				);
 				// The nested capability is sendable: poke back through it.
-				conn.tell(nested as Ref, "poke", []).catch(() => {});
+				session.tell(nested as Ref, "poke", []).catch(() => {});
 				return new PSet([new Sym("ok"), 7n]);
 			});
-			conn.serve().catch(() => {});
+			session.serve().catch(() => {});
 			break;
 		}
 	}
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
 		let pokeArrived!: () => void;
 		const poked = new Promise<void>((resolve) => (pokeArrived = resolve));
-		const inbox = conn.spawn((verb, _args) => {
+		const inbox = session.spawn((verb, _args) => {
 			if (verb === "poke") pokeArrived();
 		});
-		const svc = await conn.fetch("svc");
-		const reply = await conn.send(svc, "probe", [
+		const svc = await session.fetch("svc");
+		const reply = await session.send(svc, "probe", [
 			new PSet<AppValue>([1n, inbox]),
 			new Tagged<AppValue>("note", [inbox]),
 		]);
@@ -335,7 +335,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 		// A partner break is the typed VowBroken, catchable by type.
 		let broke: VowBroken | null = null;
 		try {
-			await conn.send(svc, "boom", []);
+			await session.send(svc, "boom", []);
 		} catch (err) {
 			if (err instanceof VowBroken) broke = err;
 		}
@@ -344,7 +344,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 			broke!.reason.includes("kaboom"),
 			`the break carries the reason, got ${broke!.reason}`,
 		);
-		conn.close();
+		session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -363,37 +363,37 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.publish("greeter", (verb) => {
+		for await (const session of server) {
+			session.publish("greeter", (verb) => {
 				assert(verb === "hello", `enliven server expected hello, got ${verb}`);
 				return new Sym("alive");
 			});
-			conn.serve().catch(() => {});
+			session.serve().catch(() => {});
 			break;
 		}
 	}
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
 		// The connection is already open to the peer; enliven keys on the
 		// sturdyref's swissnum, which the URI carries as `/s/greeter`.
 		const sturdyref = "ocapn://greeter-host.tcp/s/greeter";
-		const cap = await conn.enliven(sturdyref);
-		const greeting = await conn.send(cap, "hello", []);
+		const cap = await session.enliven(sturdyref);
+		const greeting = await session.send(cap, "hello", []);
 		assert(
 			greeting instanceof Sym && (greeting as Sym).value === "alive",
 			"enlivened cap answers hello",
 		);
 		// A repeat enliven hits the dedup cache: the same live capability, sendable.
-		const again = await conn.enliven(sturdyref);
-		const greeting2 = await conn.send(again, "hello", []);
+		const again = await session.enliven(sturdyref);
+		const greeting2 = await session.send(again, "hello", []);
 		assert(
 			greeting2 instanceof Sym && (greeting2 as Sym).value === "alive",
 			"cached enliven answers hello",
 		);
-		conn.close();
+		session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -416,18 +416,18 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	});
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.publish("svc", () => null);
-			conn.serve().catch(() => {});
+		for await (const session of server) {
+			session.publish("svc", () => null);
+			session.serve().catch(() => {});
 			break;
 		}
 	}
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = (await connect(tcpLocator("127.0.0.1", relay.port))).withGc();
-		conn.serve().catch(() => {});
-		let cap: Ref | null = await conn.fetch("svc");
+		const session = (await connect(tcpLocator("127.0.0.1", relay.port))).withGc();
+		session.serve().catch(() => {});
+		let cap: Ref | null = await session.fetch("svc");
 		assert(cap.reference.kind === "far", "the fetched cap is a far token");
 		// Drop the only handle and force collection until the relay sees the
 		// release ride the wire.
@@ -442,7 +442,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 			force();
 			await new Promise((r) => setTimeout(r, 5));
 		}
-		conn.close();
+		session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -468,11 +468,11 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.publish("root", (verb) => {
+		for await (const session of server) {
+			session.publish("root", (verb) => {
 				if (verb !== "create") throw new Error(`no such method: ${verb}`);
 				let done = false;
-				return conn.spawn((taskVerb) => {
+				return session.spawn((taskVerb) => {
 					if (taskVerb === "assign") return "assigned";
 					if (taskVerb === "complete") {
 						done = true;
@@ -482,27 +482,27 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 					throw new Error(`no such method: ${taskVerb}`);
 				});
 			});
-			conn.serve().catch(() => {});
+			session.serve().catch(() => {});
 			break; // one client is the proof; ending the loop closes the listener
 		}
 	}
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
-		const root = await conn.fetch("root");
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
+		const root = await session.fetch("root");
 		// The four verbs leave together: none awaits `create`'s reply, and
 		// `assign` / `complete` / `status` target the `create` answer directly.
-		const task = conn.send(root, "create", ["benchmark"]);
-		conn.send(task, "assign", ["alice"]);
-		conn.send(task, "complete", []);
-		const status = await conn.send(task, "status", []);
+		const task = session.send(root, "create", ["benchmark"]);
+		session.send(task, "assign", ["alice"]);
+		session.send(task, "complete", []);
+		const status = await session.send(task, "status", []);
 		assert(
 			status === "done",
 			`pipelined status should be done, got ${String(status)}`,
 		);
-		conn.close();
+		session.close();
 	}
 
 	await Promise.race([client(), hosted]);
@@ -524,26 +524,26 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.publish("root", (verb, args) => {
+		for await (const session of server) {
+			session.publish("root", (verb, args) => {
 				if (verb !== "make") throw new Error(`no such method: ${verb}`);
 				const label = String(args[0] ?? "anon");
 				// A Tagged wrapping a single list value: untag unwraps to that row.
 				return tagged("task", [["assigned", label, 7n]]);
 			});
-			conn.serve().catch(() => {});
+			session.serve().catch(() => {});
 			break;
 		}
 	}
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
-		const root = await conn.fetch("root");
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
+		const root = await session.fetch("root");
 		// None of these await a prior reply: the projections ride the unresolved
 		// `make` answer and the whole chain leaves on one flush.
-		const made = conn.send(root, "make", ["alice"]);
+		const made = session.send(root, "make", ["alice"]);
 		const label = await made.untag("task").index(1);
 		assert(
 			label === "alice",
@@ -557,7 +557,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 			full instanceof Tagged && full.tag === "task",
 			`awaited source should be the tagged task, got ${String(full)}`,
 		);
-		conn.close();
+		session.close();
 	}
 
 	await client();
@@ -585,34 +585,34 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.publish("root", (verb) => {
+		for await (const session of server) {
+			session.publish("root", (verb) => {
 				if (verb === "ping") return "pong";
 				throw new Error(`boom: ${verb}`);
 			});
-			conn.serve().catch(() => {});
+			session.serve().catch(() => {});
 			break;
 		}
 	}
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
-		const root = await conn.fetch("root");
-		const anchor = conn.send(root, "explode", []);
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
+		const root = await session.fetch("root");
+		const anchor = session.send(root, "explode", []);
 		assert(anchor instanceof Promise, "a send handle must be a real Promise");
 		// `anchor` is never observed; awaiting `ping` flushes the queued batch,
 		// so `explode`'s deliver crosses the wire and the host breaks its answer.
 		// The break's FAIL completion is recorded with no waiter, no rejection.
-		const pong = await conn.send(root, "ping", []);
+		const pong = await session.send(root, "ping", []);
 		assert(pong === "pong", `expected pong, got ${String(pong)}`);
 		await new Promise((r) => setTimeout(r, 50)); // let the break land
 		assert(
 			unhandled === 0,
 			`unawaited break must not surface, saw ${unhandled}`,
 		);
-		conn.close();
+		session.close();
 	}
 
 	try {
@@ -662,33 +662,33 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const relay = await startRelay(targetPort, retarget);
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
+		for await (const session of server) {
 			// The doctored fetch deliver lands here with verb "fetch"; answer with
 			// a plain integer, which is exactly what a fetch must not resolve to.
-			const plain = conn.publish("plain", () => 42n);
+			const plain = session.publish("plain", () => 42n);
 			assert(
 				plain.reference.kind === "near" && plain.reference.id < 10n,
 				"the retarget needs a single-digit export position",
 			);
 			plainExport = plain.reference.kind === "near" ? plain.reference.id : -1n;
 			exportReady();
-			conn.serve().catch(() => {});
+			session.serve().catch(() => {});
 			break;
 		}
 	}
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", relay.port));
-		conn.serve().catch(() => {});
+		const session = await connect(tcpLocator("127.0.0.1", relay.port));
+		session.serve().catch(() => {});
 		await exportKnown;
 		// The granting fetch: its resolve marshals the "plain" reference, which
 		// is what makes the position addressable for the doctored deliver.
-		await conn.fetch("plain");
+		await session.fetch("plain");
 		armed = true;
 		let failed: FetchFailed | null = null;
 		try {
-			await conn.fetch("not-a-capability");
+			await session.fetch("not-a-capability");
 		} catch (err) {
 			if (err instanceof FetchFailed) failed = err;
 		}
@@ -697,7 +697,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 			failed!.capabilityName === "not-a-capability",
 			`FetchFailed names the capability, got ${failed!.capabilityName}`,
 		);
-		conn.close();
+		session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -714,9 +714,9 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const port = await server.ready();
 
 	async function serveOne(): Promise<void> {
-		for await (const conn of server) {
-			conn.publish("svc", () => new Sym("alive"));
-			conn.serve().catch(() => {});
+		for await (const session of server) {
+			session.publish("svc", () => new Sym("alive"));
+			session.serve().catch(() => {});
 			break; // one real client is the proof; ending the loop closes the listener
 		}
 	}
@@ -726,15 +726,15 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	probe.close();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
-		const svc = await conn.fetch("svc");
-		const reply = await conn.send(svc, "ping", []);
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
+		const svc = await session.fetch("svc");
+		const reply = await session.send(svc, "ping", []);
 		assert(
 			reply instanceof Sym && (reply as Sym).value === "alive",
 			"the listener survived the rude probe and served the next client",
 		);
-		conn.close();
+		session.close();
 	}
 	// Race the client against the serve loop: on a regression the loop rejects
 	// with the probe's handshake error instead of the client hanging silently.
@@ -799,13 +799,13 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const proxyPublished = new Promise<void>((r) => (proxyReady = r));
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.serve().catch(() => {});
+		for await (const session of server) {
+			session.serve().catch(() => {});
 			await toolPublished;
-			const tool = await conn.fetch("tool");
-			const care = conn.caretaker(tool);
-			const readonly = conn.attenuate(tool, ["get"]);
-			conn.publish("root", (verb) => {
+			const tool = await session.fetch("tool");
+			const care = session.caretaker(tool);
+			const readonly = session.attenuate(tool, ["get"]);
+			session.publish("root", (verb) => {
 				if (verb === "proxy") return care.proxy;
 				if (verb === "readonly") return readonly;
 				if (verb === "revoke") {
@@ -821,9 +821,9 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {}); // serve so the server's forwarded call arrives
-		conn.publish("tool", (verb, args) => {
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {}); // serve so the server's forwarded call arrives
+		session.publish("tool", (verb, args) => {
 			if (verb === "add") {
 				const n = typeof args[0] === "bigint" ? args[0] : 0n;
 				return n + 1n;
@@ -833,22 +833,22 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 		});
 		toolReady();
 		await proxyPublished;
-		const root = await conn.fetch("root");
+		const root = await session.fetch("root");
 
 		// Live caretaker: a call forwards across the server to the far tool.
-		const proxy = await conn.send(root, "proxy");
+		const proxy = await session.send(root, "proxy");
 		assert(proxy instanceof Ref, "the caretaker proxy lifts to a Ref");
-		const sum = await conn.send(proxy as Ref, "add", [41n]);
+		const sum = await session.send(proxy as Ref, "add", [41n]);
 		assert(sum === 42n, `caretaker forwards to the far tool, got ${sum}`);
 
 		// Attenuator: the allow-listed verb forwards; any other breaks.
-		const readonly = await conn.send(root, "readonly");
+		const readonly = await session.send(root, "readonly");
 		assert(readonly instanceof Ref, "the attenuator proxy lifts to a Ref");
-		const got = await conn.send(readonly as Ref, "get");
+		const got = await session.send(readonly as Ref, "get");
 		assert(got === 7n, `the attenuator forwards an allowed verb, got ${got}`);
 		let denied: VowBroken | null = null;
 		try {
-			await conn.send(readonly as Ref, "add", [1n]);
+			await session.send(readonly as Ref, "add", [1n]);
 		} catch (err) {
 			if (err instanceof VowBroken) denied = err;
 		}
@@ -858,10 +858,10 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 		);
 
 		// Revoke: every later call through the proxy breaks.
-		await conn.send(root, "revoke");
+		await session.send(root, "revoke");
 		let severed: VowBroken | null = null;
 		try {
-			await conn.send(proxy as Ref, "add", [1n]);
+			await session.send(proxy as Ref, "add", [1n]);
 		} catch (err) {
 			if (err instanceof VowBroken) severed = err;
 		}
@@ -870,7 +870,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 			"a revoked proxy breaks Revoked",
 		);
 
-		conn.close();
+		session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -888,45 +888,45 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.publish("tool", (verb) => {
+		for await (const session of server) {
+			session.publish("tool", (verb) => {
 				if (verb === "ping") return "pong";
 				throw new Error(`no such method: ${verb}`);
 			});
-			conn.serve().catch(() => {});
+			session.serve().catch(() => {});
 			break;
 		}
 	}
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
 
 		// A caretaker over a local tool, called locally by its own host.
-		const local = conn.spawn((verb, args) => {
+		const local = session.spawn((verb, args) => {
 			if (verb === "double") {
 				const n = typeof args[0] === "bigint" ? args[0] : 0n;
 				return n * 2n;
 			}
 			throw new Error(`no such method: ${verb}`);
 		});
-		const careLocal = conn.caretaker(local);
-		const doubled = await conn.send(careLocal.proxy, "double", [21n]);
+		const careLocal = session.caretaker(local);
+		const doubled = await session.send(careLocal.proxy, "double", [21n]);
 		assert(doubled === 42n, `a local proxy answers a local call, got ${doubled}`);
 
 		// A caretaker over a far tool, called locally: the proxy forwards across
 		// the wire and the local send still settles on the partner's reply.
-		const far = await conn.fetch("tool");
-		const careFar = conn.caretaker(far);
-		const pong = await conn.send(careFar.proxy, "ping");
+		const far = await session.fetch("tool");
+		const careFar = session.caretaker(far);
+		const pong = await session.send(careFar.proxy, "ping");
 		assert(pong === "pong", `a local call over a far tool settles, got ${pong}`);
 
 		// Revoke severs the local call exactly as it severs a partner's.
 		careLocal.revoke();
 		let severed: VowBroken | null = null;
 		try {
-			await conn.send(careLocal.proxy, "double", [1n]);
+			await session.send(careLocal.proxy, "double", [1n]);
 		} catch (err) {
 			if (err instanceof VowBroken) severed = err;
 		}
@@ -935,7 +935,7 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 			"revoke breaks a local call too",
 		);
 
-		conn.close();
+		session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -952,37 +952,37 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.publish("svc", (verb) => {
+		for await (const session of server) {
+			session.publish("svc", (verb) => {
 				if (verb === "reenter") {
 					// A driving verb inside the turn: the latch refuses it and the
 					// thrown PancakeError's words become the broken answer.
-					conn.publish("nested", () => null);
+					session.publish("nested", () => null);
 					return "unreachable";
 				}
 				return "pong";
 			});
-			conn.serve().catch(() => {});
+			session.serve().catch(() => {});
 			break;
 		}
 	}
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
-		const svc = await conn.fetch("svc");
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
+		const svc = await session.fetch("svc");
 		let broke: VowBroken | null = null;
 		try {
-			await conn.send(svc, "reenter");
+			await session.send(svc, "reenter");
 		} catch (err) {
 			if (err instanceof VowBroken) broke = err;
 		}
 		assert(broke !== null, "a mid-turn driving verb breaks the answer");
 		// The turn unwound cleanly: the same session still answers.
-		const pong = await conn.send(svc, "ping");
+		const pong = await session.send(svc, "ping");
 		assert(pong === "pong", `the connection survives the refused turn, got ${pong}`);
-		conn.close();
+		session.close();
 	}
 
 	await Promise.all([client(), hosted]);
@@ -998,32 +998,32 @@ function counterBehavior(start: bigint): (verb: string, args: AppValue[]) => App
 	const port = await server.ready();
 
 	async function host(): Promise<void> {
-		for await (const conn of server) {
-			conn.serve().catch(() => {});
+		for await (const session of server) {
+			session.serve().catch(() => {});
 			break;
 		}
 	}
 	const hosted = host();
 
 	async function client(): Promise<void> {
-		const conn = await connect(tcpLocator("127.0.0.1", port));
-		conn.serve().catch(() => {});
-		const me = conn.spawn((verb) => {
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
+		const me = session.spawn((verb) => {
 			if (verb === "die") {
-				conn.close();
+				session.close();
 				return "closing";
 			}
 			return null;
 		});
-		const reply = await conn.send(me, "die");
+		const reply = await session.send(me, "die");
 		assert(reply === "closing", `mid-turn close: reply settled, got ${reply}`);
 		assert(
-			conn.host.pendingReleaseCount() === 0,
+			session.host.pendingReleaseCount() === 0,
 			"mid-turn close: parked release drained after the turn",
 		);
 		let closed: PancakeError | null = null;
 		try {
-			await conn.send(me, "die");
+			await session.send(me, "die");
 		} catch (err) {
 			if (err instanceof PancakeError) closed = err;
 		}

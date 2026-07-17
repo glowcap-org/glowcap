@@ -9,6 +9,8 @@
 
 pub const syrup = @import("syrup");
 pub const capnp = @import("capnp");
+/// Codec-neutral set/struct sort + adjacent-dupe refusal (ADR-0003).
+pub const order = @import("codec_order");
 pub const dispatch = @import("dispatch.zig");
 /// The open set of codecs this build speaks. Declare `pub const pancake_codecs`
 /// in your root source file to add your own (see `registry.Spec`).

@@ -22,7 +22,10 @@ bind real loopback ports, so two concurrent runs — a second agent, an editor's
 build-on-save, a stale run a crashed session left behind — wedge each other's
 test binaries in silent socket waits that look like hangs. Before diagnosing a
 "hung" gate, sweep for orphaned `.zig-cache/o/*/test` processes from a dead
-session and run the gate alone.
+session and run the gate alone. When iterating on CapTP/socket CLI tests, wrap
+with `timeout N` (tens of seconds) instead of waiting forever — a silent hang
+is almost always an unbounded wait (`handshake_timeout_ms` / `settle_timeout_ms`
+defaulting to 0), not a slow test.
 
 `zig build check` runs the Zig-hermetic gate: architecture checks, meta
 scaffolding checks, Zig formatting (`zig fmt --check`), correctness tests,
@@ -41,6 +44,9 @@ zig build test
 zig build test -Dtest-filter=substring   # only tests whose names match
 zig build arch-check
 zig build meta-check
+zig build pancake            # run the CapTP CLI; pass `-- <command> …`
+zig build cli-test           # hermetic pancake CLI goldens (incl. CapTP deadline hang-proof)
+zig build cli                # alias of `zig build cli-test`
 zig build perf-check           # gate ReleaseFast wall-clock cost: warm dispatch + outbound send vs docs/ladder.md rung 2 ceilings, plus the gc-storm linearity ratio; part of check
 zig build fmt                # format Zig sources in place (zig fmt)
 zig build fmt-check          # check Zig formatting (zig fmt --check), part of check
@@ -60,22 +66,24 @@ zig build bindings          # all five dogfoods together
 zig build deno-gifter-handoff  # pancake-only 3-node three-party handoff: a broker introduces a recipient to an exporter, then the recipient messages it directly (needs deno)
 zig build goblins-interop   # live OCapN conversation vs a real Goblins vat, both directions (needs racket + goblins)
 zig build deno-goblins-interop   # live keyed conversation: Deno binding vs a real Goblins vat over the C ABI (needs deno + racket + goblins)
+zig build deno-goblins-listen    # live keyed listen: Deno binding Host/listen publishes and a real Goblins vat dials it (needs deno + racket + goblins)
 zig build python-goblins-interop # live keyed conversation: Python binding vs a real Goblins vat (needs python3 + racket + goblins)
 zig build rust-goblins-interop   # live keyed conversation: Rust binding vs a real Goblins vat (needs cargo + racket + goblins)
 zig build racket-goblins-interop # live keyed conversation: Racket binding vs a real Goblins vat (needs racket + goblins)
 zig build bindings-goblins-interop # per-binding live keyed conversation vs a real Goblins vat, every binding (needs racket + goblins + the runtimes)
 zig build goblins-handoff   # live three-party handoff vs Goblins, pancake as recipient (needs racket + goblins)
 zig build goblins-gift      # live three-party handoff vs Goblins, pancake as gifter (needs racket + goblins)
+zig build goblins-gc        # live Goblins GC evidence: inbound op:gc-exports after echo consumes a near export (needs racket + goblins)
 zig build deno-goblins-handoff # live three-party handoff: the Deno binding redeems a give from a real Goblins introducer and calls the exporter (needs deno + racket + goblins)
 zig build python-goblins-handoff # live three-party handoff: the Python binding redeems a give from a real Goblins introducer and calls the exporter (needs python3 + racket + goblins)
 zig build rust-goblins-handoff # live three-party handoff: the Rust binding redeems a give from a real Goblins introducer and calls the exporter (needs cargo + racket + goblins)
 zig build racket-goblins-handoff # live three-party handoff: the Racket binding redeems a give from a real Goblins introducer and calls the exporter (needs racket + goblins)
-zig build bindings-goblins-handoff # per-binding three-party handoff vs Goblins as recipient, every binding (needs racket + goblins + the runtimes)
+zig build bindings-goblins-handoff # per-binding three-party handoff: binding as recipient (redeems a Goblins give), every binding (needs racket + goblins + the runtimes)
 zig build deno-goblins-gift # live three-party handoff: the Deno binding mints a give a real Goblins recipient redeems, reaching the exporter (needs deno + racket + goblins)
 zig build python-goblins-gift # live three-party handoff: the Python binding mints a give a real Goblins recipient redeems, reaching the exporter (needs python3 + racket + goblins)
 zig build rust-goblins-gift # live three-party handoff: the Rust binding mints a give a real Goblins recipient redeems, reaching the exporter (needs cargo + racket + goblins)
 zig build racket-goblins-gift # live three-party handoff: the Racket binding mints a give a real Goblins recipient redeems, reaching the exporter (needs racket + goblins)
-zig build bindings-goblins-gift # per-binding three-party handoff vs Goblins as gifter, every binding (needs racket + goblins + the runtimes)
+zig build bindings-goblins-gift # per-binding three-party handoff: binding as gifter (Goblins recipient redeems), every binding (needs racket + goblins + the runtimes)
 zig build iroh-lib          # build the iroh netlayer sidecar staticlib in transports/iroh (needs cargo)
 zig build iroh-sidecar-test # run the iroh sidecar Rust unit tests, including the connect-timeout positive-fire proof against a bound-but-silent UDP black hole (needs cargo)
 zig build iroh-interop      # live encrypted OCapN conversation: two pancake peers over real iroh endpoints (needs cargo)
@@ -112,6 +120,7 @@ zig build racket-iroh-reachability # live dial-by-id over n0 relays + DNS/pkarr 
 zig build iroh-abi          # build libpancake_net_transport_iroh, the iroh transport's public C ABI companion (needs cargo)
 zig build release-pack      # stage the installed archives, headers, and licenses into one versioned, checksummed per-target tarball under zig-out/release/ (needs cargo; .github/workflows/release.yml runs it per platform on a version tag)
 zig build fixture-gen-check # regenerate the Syrup fixture corpus via the upstream Racket Syrup encoder and diff against the committed bytes (needs racket + syrup)
+zig build gen-capnp-fixtures # regenerate Cap'n Proto golden fixtures under test/codec/capnp_fixtures/
 zig build c-abi-extract-check # hermetic C-ABI extract hygiene: refuse zip-slip/symlink fixtures, accept clean lib/ (ADR-0077; part of check)
 zig build ocapn-conformance # run the upstream OCapN test suite against a pancake peer (needs uv + the ocapn-conformance submodule)
 zig build demo-rooms             # cross-language rooms chat: Zig/Rust/Python/Racket/Deno in one room (needs deno; joins python3/racket/cargo clients when present)
@@ -120,7 +129,7 @@ zig build demo-rooms-dm          # rooms direct-message-by-introduction over TCP
 zig build demo-rooms-dm-iroh     # rooms DM-by-introduction over iroh's encrypted QUIC: cross-endpoint three-party handoff where the gift names the exporter's direct addresses, redeemed by a direct dial (needs cargo + deno)
 zig build demo-rooms-dm-iroh-discovery # opt-in: the same rooms DM-by-introduction over iroh, but the gift names the exporter by node id ALONE and the recipient resolves it through n0 discovery (relays + DNS/pkarr), no direct-address hints (needs cargo + deno + internet)
 zig build rooms-client           # run the native Zig rooms chat client (one-shot) against a room you started; pass `-- <locator> <room> <nick> <line> [roster]`
-zig build rooms-bot              # run the persistent native Zig rooms bot — a CapTP peer that joins a room and runs the inbox/outbox/state file harness so an agent is present while it works (the native rewrite of the rooms-bot skill); pass `-- <verb> [flags]` (peer/reply/status/tick)
+zig build rooms-peer              # run rooms presence via `pancake app rooms-peer`; pass `-- <verb> [flags]`. Install also ships a thin `rooms-peer` shim → `pancake app rooms-peer`. Source: `cli/app/rooms_peer.zig`
 zig build rooms-web              # serve the rooms browser UI over TCP (public rooms + direct messages by introduction); open the printed URL (needs deno). `-Dport` pins the HTTP port (default 8000)
 zig build rooms-web-iroh         # serve the rooms browser UI over iroh's encrypted QUIC (public rooms + direct messages by introduction); open the printed URL (needs cargo + deno)
 zig build demo-tasks             # cross-language tasks board: Zig/Rust/Python/Racket/Deno on one board (needs deno; joins python3/racket/cargo clients when present)
@@ -213,3 +222,28 @@ A commit made when directed stages explicit paths, never `-a`/`-u`/`add .`:
 other sessions work this tree concurrently, and a sweep commit that picks up
 half of another session's in-flight edits ships a HEAD that does not compile.
 Read `git status` immediately before staging and claim only your own files.
+
+## Live CapTP (product CLI)
+
+When CapTP must happen live in the session — call/fetch/tell a peer, host a
+temporary listener, open a REPL, or script `--json` — load the
+[pancake-cli skill](../skills/pancake-cli/SKILL.md): `zig build`, put
+`zig-out/bin` on `PATH`, then use `pancake`. CapTP through the agent host's MCP
+tools uses the project server (`.cursor/mcp.json` / `.mcp.json` →
+`./pancake mcp`); load [pancake-mcp](../skills/pancake-mcp/SKILL.md).
+Do not invent a Zig harness or binding stub for a shell-shaped CapTP act.
+Room presence wake-loops stay in [rooms-peer](../skills/rooms-peer/SKILL.md).
+Human walkthrough: [`docs/cli.md`](../../docs/cli.md). Hermetic goldens:
+`zig build cli-test`.
+
+## Product CapTP waits (cli/)
+
+`SessionOptions` defaults handshake and settle budgets to `0` (unbounded). In
+`cli/` that is a hang: dial/listen against a silent peer parks the process and
+any goldens that dial without a budget. Product paths use
+`cli/ocapn.sessionOpts()` (finite ms). Tests that dial CapTP pass an explicit
+positive `handshake_timeout_ms`. `meta-check` refuses `handshake_timeout_ms: 0`,
+`settle_timeout_ms: 0`, and empty `SessionOptions` on `connectUriOwned` /
+`driver.listen` under `cli/`; `test/cli/session_cases.zig` pins the
+silent-partner timeout. Map `HandshakeTimedOut` / `WaitTimedOut` to exit code
+`timeout`.

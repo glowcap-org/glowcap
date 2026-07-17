@@ -9,13 +9,13 @@ const model = pancake.ocapn.model;
 const session = pancake.ocapn.session;
 
 pub const OpenOptions = struct {
-    wire_profile: model.WireProfile = model.WireProfile.pre_spec,
+    captp_version: model.CaptpVersion = model.CaptpVersion.next,
     features: model.FeatureSet = model.FeatureSet.full(),
 };
 
 pub fn openPeerWith(allocator: std.mem.Allocator, opts: OpenOptions) engine.Peer {
     return engine.Peer.initWithSession(allocator, session.Session.initWith(allocator, .{
-        .wire_profile = opts.wire_profile,
+        .captp_version = opts.captp_version,
         .features = opts.features,
     }));
 }

@@ -3,7 +3,7 @@ id: ADR-0050
 status: accepted
 date: 2026-06-11
 tags: [engine, session, pipelining, get, index, goblins-interop]
-decision: pancake answers `op:get` / `op:index` (CapTP § Receiving): the projected answer is exported the moment the op lands, a projection row anchors on the receiver's answer, and the resolve seam drains it — resolving the projected answer to the Struct field or List element, following promise-shaped resolutions, or breaking. The initiator half installs the outbound answer on send. The field name is a Syrup String on the wire, matching the spec and live Goblins.
+decision: pancake answers `op:get` / `op:index` (CapTP § Receiving): the projected answer is exported the moment the op lands, a projection row anchors on the receiver's answer, and the resolve seam drains it: resolving the projected answer to the Struct field or List element, following promise-shaped resolutions, or breaking. The initiator half installs the outbound answer on send. The field name is a Syrup String on the wire, matching the spec and live Goblins.
   supersedes: []
   superseded_by: []
 ---
@@ -14,7 +14,7 @@ decision: pancake answers `op:get` / `op:index` (CapTP § Receiving): the projec
 
 ADR-0007 carried `op:get` / `op:index` through the model and codecs but named
 the responder a boundary: a received op surfaced an application event and
-nothing more, so a peer could ask and pancake never answered — field and element
+nothing more, so a peer could ask and pancake never answered: field and element
 pipelining was half-built. The spec's receive contract (CapTP § op:get) is:
 export a promise at `new-answer-pos`, resolve it to the named field / element of
 the receiver's eventual Struct / List, break on a missing field, an
@@ -43,15 +43,15 @@ have been refused as unknown.
   answer, its projections drain beside the pipelined calls and listeners: each
   computes the field / element from the resolution
   (`engine.pipeline.projectResolution`, pure) and resolves its projected answer
-  through the full send seam — so chained projections, pipelined calls, and
+  through the full send seam: so chained projections, pipelined calls, and
   listeners on the _projected_ answer all settle in turn, and the V1.0
   translation applies unchanged (no resolver means the stored resolution feeds
   `op:listen`, which is how Goblins consumes it).
 - **No recursion, two bounds.** Encode deferral makes the drain iterative: a
   projected resolve is _queued_, never recursed, so projections-on-projections
   settle one step at a time and total work is bounded by what the caps admitted.
-  The one synchronous walk — following _stored_ resolutions that are themselves
-  promises, for a late op against a settled chain — is hop-bounded by
+  The one synchronous walk: following _stored_ resolutions that are themselves
+  promises, for a late op against a settled chain: is hop-bounded by
   `SessionLimits.max_projection_chain`, so a cyclic stored-resolution chain
   breaks the projected answer instead of spinning.
 - **The initiator half is symmetric.** Sending `op:get` / `op:index` validates
@@ -62,8 +62,9 @@ have been refused as unknown.
 
 ## Scope (what this does not decide)
 
-- `op:untag` remains unimplemented (its Tagged projection would slot into the
-  same substrate when it earns its place).
+- `op:untag` ships on this substrate
+  ([ADR-0052](ADR-0052-untag-responder.md)); Goblins still has no marshaller, so
+  live proof is Zig scenarios and the upstream-encoder fixture.
 - Goblins-side semantics of _what_ the application resolves with are the
   application's: the engine projects whatever value the resolve carries.
 
@@ -71,9 +72,10 @@ have been refused as unknown.
 
 - Field and element pipelining is real on both sides. Proven by the wire-driven
   engine scenarios (settle, late op, every break shape, the promise-following
-  re-anchor, the cyclic-chain bound, the cap), and live: the `goblins-interop`
-  gate pipelines an `op:index` against the settled echo answer and a real
-  Goblins vat resolves the projected element back through `op:listen`.
+  re-anchor, the cyclic-chain bound, the cap), and live as the asker: the
+  `goblins-interop` gate pipelines an `op:index` / `op:get` against a Goblins
+  vat and Goblins resolves the projection. That does not prove Goblins-as-asker
+  against pancake's in-tree responders (Zig scenarios and the suite cover those).
 - The get / index events still surface, so an application can observe the ops;
   the engine answers autonomously, and an application that races a manual
   resolve for a projected answer simply wins (the engine leaves a settled answer

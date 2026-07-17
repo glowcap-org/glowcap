@@ -1,4 +1,4 @@
-//! `libpancake_driver` loopback — the byte-fed host tier over the C ABI.
+//! `libpancake_driver` loopback: the byte-fed host tier over the C ABI.
 //!
 //! Multi-connection `PancakeHost`s are wired by shuttling frames between
 //! `pancake_host_session_take_outbound` and `pancake_host_session_feed`, with no
@@ -7,7 +7,7 @@
 //! three-party handoff driven entirely from C: a gifter's reply becomes a
 //! signed give, the recipient's host surfaces one DIAL action the test
 //! executes, and the settled vow carries a routable token that pokes the
-//! exporter's object — published host-wide, so the withdraw session's replay
+//! exporter's object. That object is published host-wide, so the withdraw session's replay
 //! is what resolves the gift.
 
 const std = @import("std");
@@ -17,6 +17,7 @@ const std = @import("std");
 // family is `libpancake_driver`.
 const c = @import("c_abi");
 const cd = @import("c_abi_driver");
+const model = @import("pancake").ocapn.model;
 
 const frame_cap: usize = 4096;
 
@@ -56,7 +57,6 @@ test "pancake_host_set_session_limits overrides queue_cap before mint (ADR-0082)
 // ── C argument/reference construction (shared across the c_abi suite) ────────
 
 const c_args = @import("../support/c_abi_args.zig");
-const zeroRef = c_args.zeroRef;
 const argBase = c_args.argBase;
 const argInt = c_args.argInt;
 const argStr = c_args.argStr;
@@ -74,13 +74,11 @@ const Pair = struct {
     b: ?*cd.PancakeHostSession,
 };
 
-/// One DIAL action parked for the test to execute, its locator and parsed
-/// pieces copied clear of the action queue's popped-view lifetime.
+/// One DIAL action parked for the test to execute, dial parts copied clear of
+/// the action queue's popped-view lifetime.
 const ParkedDial = struct {
     host: ?*cd.PancakeHost,
     ticket: u64,
-    locator: [256]u8,
-    locator_len: usize,
     transport: [32]u8 = undefined,
     transport_len: usize = 0,
     designator: [64]u8 = undefined,
@@ -212,15 +210,15 @@ fn drainActions(hosts: []const ?*cd.PancakeHost, dials: *Dials, watches: *Watche
             return true;
         }
         pub fn dial(self: @This(), host: ?*cd.PancakeHost, action: *const cd.PancakeHostAction) !bool {
-            var parked = ParkedDial{ .host = host, .ticket = action.ticket, .locator = undefined, .locator_len = action.locator_len };
-            @memcpy(parked.locator[0..action.locator_len], action.locator.?[0..action.locator_len]);
-            parked.transport_len = action.transport_len;
-            if (action.transport_len > 0)
-                @memcpy(parked.transport[0..action.transport_len], action.transport.?[0..action.transport_len]);
-            parked.designator_len = action.designator_len;
-            if (action.designator_len > 0)
-                @memcpy(parked.designator[0..action.designator_len], action.designator.?[0..action.designator_len]);
-            parked.hint_len = action.direct_addresses_hint_len;
+            // Ticket-only DIAL: one pending-dial view (transport/designator/hint).
+            var view: cd.PancakePendingDial = undefined;
+            try expectOk(cd.pancake_host_pending_dial(host, action.ticket, &view));
+            var parked = ParkedDial{ .host = host, .ticket = action.ticket };
+            parked.transport_len = view.transport_len;
+            if (view.transport_len != 0) @memcpy(parked.transport[0..view.transport_len], view.transport.?[0..view.transport_len]);
+            parked.designator_len = view.designator_len;
+            if (view.designator_len != 0) @memcpy(parked.designator[0..view.designator_len], view.designator.?[0..view.designator_len]);
+            parked.hint_len = view.hint_len;
             self.dials.items[self.dials.len] = parked;
             self.dials.len += 1;
             return true;
@@ -735,7 +733,7 @@ test "libpancake_driver: turn_spawn mints a capability mid-turn, and turn_break 
     try std.testing.expectEqualStrings("Attenuated", denied.msg[0..denied.msg_len]);
 }
 
-test "libpancake_driver: promise pipelining — vow_send, vow_index, vow_untag before the answers exist" {
+test "libpancake_driver: promise pipelining — vow_send, vow_index, vow_untag, vow_get before the answers exist" {
     const client = try newHost(0x41);
     defer cd.pancake_host_release(client);
     const server = try newHost(0x42);
@@ -782,6 +780,13 @@ test "libpancake_driver: promise pipelining — vow_send, vow_index, vow_untag b
     var unboxed = CapturedSettle{};
     watches.add(client, unboxed_vow, &unboxed);
 
+    // vow_get mints against the still-pending list answer: C ABI cannot build
+    // a Struct reply, so the projected vow breaks when the source settles.
+    var get_vow: u64 = 0;
+    try expectOk(cd.pancake_host_vow_get(client, pair_vow, "name", 4, &get_vow));
+    var gotten = CapturedSettle{};
+    watches.add(client, get_vow, &gotten);
+
     try pump(&hosts, &.{pair}, &dials, &watches);
     try std.testing.expect(poked.fired);
     try std.testing.expectEqualStrings("poked over the C surface", poked.text[0..poked.text_len]);
@@ -791,6 +796,8 @@ test "libpancake_driver: promise pipelining — vow_send, vow_index, vow_untag b
     try std.testing.expect(unboxed.fired);
     try std.testing.expectEqual(c.PANCAKE_ARG_INTEGER, unboxed.value.kind);
     try std.testing.expectEqual(@as(i64, 7), unboxed.value.integer);
+    try std.testing.expect(gotten.fired);
+    try std.testing.expectEqual(c.PANCAKE_RESOLUTION_BREAK, gotten.kind);
 
     // A NEAR send runs its turn inside the call, so its local vow settles
     // and retires before the caller can touch it: the projection reports the
@@ -855,11 +862,8 @@ test "libpancake_driver: the full three-party handoff through the C surface — 
     try std.testing.expectEqual(@as(usize, 1), dials.len);
     const parked = dials.items[0];
     try std.testing.expect(parked.host == recipient);
-    const locator = parked.locator[0..parked.locator_len];
-    try std.testing.expect(std.mem.indexOf(u8, locator, "127.0.0.1") != null);
 
-    // The DIAL action carries the locator's parsed pieces alongside the URI,
-    // so a dial executor never re-parses it; this tcp locator has no
+    // Pending-row dial parts (ticket-only DIAL): this tcp give has no
     // direct-addresses hint.
     try std.testing.expectEqualStrings("tcp", parked.transport[0..parked.transport_len]);
     try std.testing.expectEqualStrings("127.0.0.1:7001", parked.designator[0..parked.designator_len]);
@@ -1572,7 +1576,7 @@ test "plan_dial C: keyed-tcp resolves host:port off the hint, no hint is a typed
 test "plan_dial C: iroh redeem picks direct with a hint, configured without" {
     var plan: cd.PancakeDialPlan = undefined;
     try expectOk(planDialC("iroh", key64, "1.2.3.4:5", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));
-    try std.testing.expectEqual(cd.PANCAKE_DIAL_SHAPE_IROH, plan.shape);
+    try std.testing.expectEqual(cd.PANCAKE_DIAL_SHAPE_PEER_ID, plan.shape);
     try std.testing.expectEqual(cd.PANCAKE_DIAL_REACH_DIRECT, plan.reach_kind);
     try std.testing.expectEqualStrings("1.2.3.4:5", plan.addresses.?[0..plan.addresses_len]);
     try expectOk(planDialC("iroh", key64, "", cd.PANCAKE_DIAL_POSTURE_REDEEM, 0, &plan));

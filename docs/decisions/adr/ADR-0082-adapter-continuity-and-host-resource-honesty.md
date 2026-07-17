@@ -30,7 +30,7 @@ stay codec-neutral and Goblins-compatible. Inspiration from NATS (client
 reconnect, max_pending, write_deadline, JetStream *above* Core), Kafka (pull
 pacing, lag as health, durability as a named tradeoff), Cap'n Proto RPC
 (disconnect-aware rebuild, sturdyref level-2 survival), and SwingSet (turn
-budgets, durable registry above the vat) maps onto adapter/Host layers only —
+budgets, durable registry above the vat) maps onto adapter/Host layers only,
 never onto the sans-io CapTP core.
 
 ## Decision
@@ -97,7 +97,7 @@ never onto the sans-io CapTP core.
   `frame_cap` as the admission field mapped into limits, plus selective
   `pancake_host_set_session_limits` (`max_frame_bytes` / `queue_cap`).
 - `completion.Loop.Options` grows fan-in, park-kill, and `on_park` fields;
-  the N→1 fan-in behavioral test pins source park while a sink is held and
+  the N-to-1 fan-in behavioral test pins source park while a sink is held and
   source re-arm when the last sink drains. `ResilientClient.on_dial_outcome`
   surfaces dial metrics.
 - `Host.init` refuses `.durable_bootstrap` until an embedder store lands.
@@ -116,7 +116,7 @@ Extends [ADR-0081](ADR-0081-adapter-resilience-posture.md); builds on
 [ADR-0076](ADR-0076-loop-fed-host-bridge.md) and
 [ADR-0042](ADR-0042-outbound-high-water-backpressure.md).
 
-## Appendix: inspiration → layers
+## Appendix: inspiration to layers
 
 | Source | Lesson | Where it lands |
 |--------|--------|----------------|
@@ -125,4 +125,4 @@ Extends [ADR-0081](ADR-0081-adapter-resilience-posture.md); builds on
 | Kafka | Pull pacing; lag as health; durability as named tradeoff | Fan-in throttle; `on_park`; durable_bootstrap posture |
 | Cap'n Proto RPC | Disconnect-aware rebuild; sturdyref L2 ≈ Host durable registry | CapTP-honest session replacement; durable_bootstrap |
 | SwingSet | Turn budget (have); durable Host registry (want) | `local_turn_budget`; durable_bootstrap named |
-| Goblins | Wire ceiling — never change for inspiration | Hard fence |
+| Goblins | Wire ceiling, never change for inspiration | Hard fence |

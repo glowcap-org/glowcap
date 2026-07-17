@@ -16,7 +16,7 @@ draw the flows.
 
 The list is not hand-kept. A build check pins every entry here to the labels the
 Syrup codec reads and writes. If the protocol surface grows a label or drops one,
-this page moves with it or the gate goes red.
+this page moves with it or the build check fails.
 
 ## Operations
 
@@ -26,7 +26,7 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | Message | What it does |
 | --- | --- |
 | `op:start-session` | Opens a session. Each side announces its location and the keys that bind the connection. |
-| `op:deliver` | Calls a method on a reference and registers an answer, so the caller holds a promise the instant the call goes out. |
+| `op:deliver` | Calls a method on a reference and registers an answer, so the caller holds a promise as soon as the call goes out. |
 | `op:resolve` | Settles a promise to its final value, or to a break if the call failed. |
 | `op:listen` | Subscribes to a promise's resolution, so a waiter is told the answer the moment it lands. |
 | `op:abort` | Ends the session with a typed reason. The connection is finished. |

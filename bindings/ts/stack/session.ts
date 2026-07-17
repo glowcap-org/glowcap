@@ -41,9 +41,16 @@ import {
 } from "./pump.ts";
 import { driverS } from "./internal/ffi/driver.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
-import { ab } from "./internal/seam.ts";
+import { ab, readBytes } from "./internal/seam.ts";
 import { type AbortDetail, checkHost, PancakeError } from "./errors.ts";
-import { CLOSED } from "./internal/abi.ts";
+import {
+	ACCEPT_PLAN_DESIGNATOR_LEN_OFF,
+	ACCEPT_PLAN_DESIGNATOR_OFF,
+	ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF,
+	ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF,
+	ACCEPT_PLAN_SIZE,
+	CLOSED,
+} from "./internal/abi.ts";
 
 // Encoder for establish/fetch swiss bytes.
 const utf8Encoder = new TextEncoder();
@@ -242,8 +249,9 @@ export class Session {
 
 	// ── Construction: establish, dial, accept ──────────────────────────────────
 
-	/** Mint the dialing half from already-parsed locator pieces (a DIAL
-	 * action's transport + designator). Binding-internal. */
+	/** Mint the dialing half from already-parsed locator pieces (transport +
+	 * designator). A DIAL action's binding half borrows the pending URI first.
+	 * Binding-internal. */
 	static establishDialedLocator(
 		host: Host,
 		transportName: string,
@@ -270,29 +278,54 @@ export class Session {
 	}
 
 	/** Mint the accepting half over a connection the caller's own listener
-	 * produced: the keyed op:start-session signs the listener's own
-	 * `transportName`/`designator` — the address a partner can actually dial,
-	 * and the locator a give made on this host names as the exporter location.
-	 * Binding-internal. */
+	 * produced. `serverDesignator` is the listener's signing designator (key for
+	 * keyed-tcp/iroh; unused for tcp); `acceptedLocalAddr` is what accept
+	 * reported. Signing designator/hint come from `pancake_host_plan_accept`
+	 * (ADR-0078) — no binding-side accept policy. Binding-internal. */
 	static establishAccepted(
 		host: Host,
 		transportName: string,
-		designator: string,
+		serverDesignator: string,
 		transport: Channel,
-		directAddressesHint = "",
+		acceptedLocalAddr = "",
 	): Promise<Session> {
 		const t = utf8Encoder.encode(transportName);
-		const d = utf8Encoder.encode(designator);
-		const h = utf8Encoder.encode(directAddressesHint);
+		const server = utf8Encoder.encode(serverDesignator);
+		const local = utf8Encoder.encode(acceptedLocalAddr);
+		const planBuf = new Uint8Array(ACCEPT_PLAN_SIZE);
+		checkHost(driverS.pancake_host_plan_accept(
+			ab(t),
+			BigInt(t.length),
+			ab(server),
+			BigInt(server.length),
+			ab(local),
+			BigInt(local.length),
+			ab(planBuf),
+		));
+		// Plan views borrow t/server/local (or the static unreachable
+		// placeholder). Deno/Bun BufferSource FFI needs a JS TypedArray, so
+		// materialize those views once here — named session-mint FFI cost, not
+		// a second policy encoding (Rust/Python/Racket pass the C pointers).
+		const dv = new DataView(planBuf.buffer);
+		const view = (off: number, lenOff: number): Uint8Array => {
+			const len = Number(dv.getBigUint64(lenOff, true));
+			if (len === 0) return new Uint8Array(0);
+			return readBytes(dv.getBigUint64(off, true), BigInt(len));
+		};
+		const designator = view(ACCEPT_PLAN_DESIGNATOR_OFF, ACCEPT_PLAN_DESIGNATOR_LEN_OFF);
+		const hint = view(
+			ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF,
+			ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF,
+		);
 		const out = new Uint8Array(8);
 		checkHost(driverS.pancake_host_session_open_accepted(
 			host.raw,
 			ab(t),
 			BigInt(t.length),
-			ab(d),
-			BigInt(d.length),
-			ab(h),
-			BigInt(h.length),
+			ab(designator),
+			BigInt(designator.length),
+			ab(hint),
+			BigInt(hint.length),
 			ab(out),
 		));
 		const conn = new Session(

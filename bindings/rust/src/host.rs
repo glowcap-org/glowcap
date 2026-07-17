@@ -5,7 +5,7 @@
 //! owns every decision: the retained identity, the shared gift registry,
 //! routing, transparent three-party redemption, and the gifter half's
 //! origination. What lives here is only what the embedder contract leaves to
-//! the binding: the host handle, the conn-pointer → session registry the
+//! the binding: the host handle, the conn-pointer to session registry the
 //! action drain routes by, the vow table the drain's SETTLE/FAIL arms settle,
 //! the action-drain kick loop, gift-id entropy, and the iroh redeem posture
 //! the dial executor reads. Action decode + execute (`pop` / `run`) live in
@@ -22,7 +22,7 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 
 use tokio::sync::oneshot;
 
@@ -123,6 +123,9 @@ pub(crate) fn drain_pending_releases() {
 // recorded state instead of hanging — and no waiter exists until one is
 // registered, so an unobserved broken answer never strands a channel.
 struct VowRow {
+	/// Home CapTP session at mint (weak so the vow table cannot pin a session).
+	/// FAIL uses it to classify disconnect breaks as CLOSED.
+	session: Option<Weak<SessionShared>>,
 	state: Option<Result<Argument>>,
 	waiter: Option<oneshot::Sender<Result<Argument>>>,
 }
@@ -268,22 +271,34 @@ impl HostShared {
 
 	/// Record a freshly minted vow so the drain can route its completion. Must
 	/// run in the same synchronous block as the minting FFI call, so no drain
-	/// can pop the completion first.
-	pub(crate) fn vow_minted(&self, vow: u64) {
+	/// can pop the completion first. `session` is the home CapTP session (FAIL
+	/// classifies disconnect breaks as CLOSED when that session is closing).
+	pub(crate) fn vow_minted(&self, vow: u64, session: Option<&Rc<SessionShared>>) {
 		self.vows.borrow_mut().insert(
 			vow,
 			VowRow {
+				session: session.map(Rc::downgrade),
 				state: None,
 				waiter: None,
 			},
 		);
 	}
 
-	/// The vow's eventual outcome: the fulfilled wire value, or the typed break
-	/// (`ErrorKind::Broken` carrying the reason — a disconnect's own break
-	/// arrives as `Broken` with "session closed", the classification the old
-	/// surface promised, where the TS/Python siblings type it Closed). Settles
-	/// immediately from the recorded state when the outcome already landed.
+	/// Whether the vow's home session is closing — FAIL arms classify those
+	/// breaks as `ERR_CLOSED`.
+	pub(crate) fn vow_session_closing(&self, vow: u64) -> bool {
+		self.vows
+			.borrow()
+			.get(&vow)
+			.and_then(|row| row.session.as_ref())
+			.and_then(Weak::upgrade)
+			.is_some_and(|s| s.closing())
+	}
+
+	/// The vow's eventual outcome: the fulfilled wire value, or a typed
+	/// rejection — `ErrorKind::Broken` for a partner break, `ErrorKind::Closed`
+	/// when the settle was the disconnect's own break. Settles immediately
+	/// from the recorded state when the outcome already landed.
 	pub(crate) fn await_vow(
 		self: &Rc<HostShared>,
 		vow: u64,

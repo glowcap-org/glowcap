@@ -13,7 +13,7 @@ const completion = @import("loop.zig");
 const linux = std.os.linux;
 
 /// Which platform socket ABI the helpers drive. Call sites pass a comptime
-/// value matching the backend (`kqueue` → `.darwin`, `uring` → `.linux`).
+/// value matching the backend (`kqueue` as `.darwin`, `uring` as `.linux`).
 pub const Os = enum {
     darwin,
     linux,

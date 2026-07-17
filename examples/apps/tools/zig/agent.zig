@@ -1,13 +1,13 @@
 //! An agent, written on pancake actors in native Zig, on the connection driver.
 //! It connects to the tools coordinator (which may be written in any language)
-//! and proves the three capability properties — delegation, attenuation,
-//! revocation — over the wire.
+//! and proves the three capability properties (delegation, attenuation, and
+//! revocation) over the wire.
 //!
 //!   pancake-tools-agent <port> <nick>
 //!
 //! One owning `driver.connect` is the whole setup. Each request is one
-//! `conn.call`, which blocks until the reply settles and returns the outcome
-//! as a `driver.Settled` materialized into the agent's arena — allocation,
+//! `session.call`, which blocks until the reply settles and returns the outcome
+//! as a `driver.Settled` materialized into the agent's arena. Allocation,
 //! ownership, and I/O stay visible without a callback in sight.
 
 const std = @import("std");
@@ -35,8 +35,8 @@ fn fulfilledString(settled: driver.Settled) bool {
 
 /// Grant a tool and return a far reference to it, or fail if the grant did not
 /// return a capability.
-fn grant(conn: *driver.Session, tools: actors.Ref, verb: []const u8, which: []const u8, arena: std.mem.Allocator) !actors.Ref {
-    const settled = try conn.call(tools, .{ .verb = verb, .args = &.{.{ .string = which }} }, arena);
+fn grant(session: *driver.Session, tools: actors.Ref, verb: []const u8, which: []const u8, arena: std.mem.Allocator) !actors.Ref {
+    const settled = try session.call(tools, .{ .verb = verb, .args = &.{.{ .string = which }} }, arena);
     return switch (settled) {
         .fulfilled => |arg| switch (arg) {
             .reference => |reference| switch (reference) {
@@ -63,31 +63,31 @@ pub fn main(init: std.process.Init) !void {
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const address = try tcp.parseHostPort(host, port);
     const loc = tcp.locator(&designator_buf, address);
-    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, loc, .ephemeral, .{ .frame_cap = frame_cap });
-    defer conn.deinit();
+    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, loc, .ephemeral, .{ .frame_cap = frame_cap });
+    defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const tools = try conn.fetch("tools");
+    const tools = try session.fetch("tools");
     var ok = true;
 
-    const clock = try grant(conn, tools, "grant", "clock", arena);
-    const now = try conn.call(clock, .{ .verb = "now", .args = &.{} }, arena);
+    const clock = try grant(session, tools, "grant", "clock", arena);
+    const now = try session.call(clock, .{ .verb = "now", .args = &.{} }, arena);
     ok = demo_check.check(nick, "delegation: was handed a clock and called it", fulfilledInteger(now)) and ok;
 
-    const files = try grant(conn, tools, "grant", "files-readonly", arena);
-    const read = try conn.call(files, .{ .verb = "read", .args = &.{.{ .string = "report.txt" }} }, arena);
+    const files = try grant(session, tools, "grant", "files-readonly", arena);
+    const read = try session.call(files, .{ .verb = "read", .args = &.{.{ .string = "report.txt" }} }, arena);
     ok = demo_check.check(nick, "attenuation: read through the read-only view", fulfilledString(read)) and ok;
-    const write = try conn.call(files, .{ .verb = "write", .args = &.{ .{ .string = "report.txt" }, .{ .string = "tampered" } } }, arena);
+    const write = try session.call(files, .{ .verb = "write", .args = &.{ .{ .string = "report.txt" }, .{ .string = "tampered" } } }, arena);
     ok = demo_check.check(nick, "attenuation: write is refused", write == .broken) and ok;
 
-    const revocable = try grant(conn, tools, "grant-revocable", "clock", arena);
-    const before = try conn.call(revocable, .{ .verb = "now", .args = &.{} }, arena);
+    const revocable = try grant(session, tools, "grant-revocable", "clock", arena);
+    const before = try session.call(revocable, .{ .verb = "now", .args = &.{} }, arena);
     ok = demo_check.check(nick, "revocation: the handle works before revoke", fulfilledInteger(before)) and ok;
-    _ = try conn.call(tools, .{ .verb = "revoke-last", .args = &.{} }, arena);
-    const after = try conn.call(revocable, .{ .verb = "now", .args = &.{} }, arena);
+    _ = try session.call(tools, .{ .verb = "revoke-last", .args = &.{} }, arena);
+    const after = try session.call(revocable, .{ .verb = "now", .args = &.{} }, arena);
     ok = demo_check.check(nick, "revocation: the handle breaks after revoke", after == .broken) and ok;
 
     if (ok) {

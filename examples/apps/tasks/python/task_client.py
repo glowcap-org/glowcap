@@ -54,36 +54,36 @@ class TaskBoard:
     snapshots the board pushes, :meth:`add`/:meth:`done`/:meth:`list` to drive it,
     and :meth:`leave` when done."""
 
-    def __init__(self, conn: Session, board) -> None:
-        self._conn = conn
+    def __init__(self, session: Session, board) -> None:
+        self._session = session
         self._board = board
         self._snapshots: asyncio.Queue = asyncio.Queue()
         self._leaving = False
 
     @classmethod
     async def join(cls, host: str, port: int) -> "TaskBoard":
-        conn = await connect(tcp_locator(host, port))
-        conn.serve()
-        board = await conn.fetch(BOARD)
-        self = cls(conn, board)
-        watcher = conn.spawn(self._watcher)
+        session = await connect(tcp_locator(host, port))
+        session.serve()
+        board = await session.fetch(BOARD)
+        self = cls(session, board)
+        watcher = session.spawn(self._watcher)
         asyncio.ensure_future(self._until_closed())
-        await conn.send(board, WATCH, [watcher])
+        await session.send(board, WATCH, [watcher])
         return self
 
     async def add(self, text: str) -> int:
-        result = await self._conn.send(self._board, ADD, [text])
+        result = await self._session.send(self._board, ADD, [text])
         return int(result) if isinstance(result, int) else 0
 
     async def done(self, task_id: int) -> None:
-        await self._conn.send(self._board, DONE, [task_id])
+        await self._session.send(self._board, DONE, [task_id])
 
     async def list(self) -> List[Task]:
-        return _parse_snapshot(await self._conn.send(self._board, LIST, []))
+        return _parse_snapshot(await self._session.send(self._board, LIST, []))
 
     async def leave(self) -> None:
         self._leaving = True
-        await self._conn.close()
+        await self._session.close()
 
     def __aiter__(self):
         return self._updates()
@@ -103,7 +103,7 @@ class TaskBoard:
 
     async def _until_closed(self) -> None:
         try:
-            await self._conn.serve()
+            await self._session.serve()
         except Exception as err:  # noqa: BLE001
             if not self._leaving:
                 print(f"tasks: lost the connection, {err}", file=sys.stderr)

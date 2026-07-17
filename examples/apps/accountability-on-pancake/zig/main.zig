@@ -12,7 +12,7 @@
 //!   zig build accountability
 //!
 //! Two real `engine.Peer`s talk over a 127.0.0.1 socket pair on a
-//! `std.Io.Threaded` backend — the host accepts on a concurrent fiber, the caller
+//! `std.Io.Threaded` backend. The host accepts on a concurrent fiber, the caller
 //! drives this one. The host publishes the Affordance by name; the caller fetches
 //! it and eventual-sends an `invoke`. Attribution is not a trusted
 //! header: the caller signs the request with its KERI key, and the host refuses

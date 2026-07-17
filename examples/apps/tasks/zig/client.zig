@@ -5,7 +5,7 @@
 //! On the driver surface this reads like the other languages: one owning
 //! `driver.connect`, `fetch` the board by name, `spawn` a watcher, then add a
 //! task, list, mark it done, and list again to confirm, each a blocking
-//! `conn.call` that pumps the session until its reply settles. The script reads
+//! `session.call` that pumps the session until its reply settles. The script reads
 //! top to bottom, no phase machine: this is the same sequence every other
 //! language's one-shot client runs.
 //!
@@ -105,22 +105,22 @@ pub fn main(init: std.process.Init) !void {
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const address = try tcp.parseHostPort(host_addr, port);
     const loc = tcp.locator(&designator_buf, address);
-    var conn = try driver.connect(allocator, &.{tcp_resident.netlayer()}, loc, .ephemeral, .{ .frame_cap = frame_cap });
-    defer conn.deinit();
+    var session = try driver.connect(allocator, &.{tcp_resident.netlayer()}, loc, .ephemeral, .{ .frame_cap = frame_cap });
+    defer session.deinit();
 
     var arena_state = std.heap.ArenaAllocator.init(allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const board = try conn.fetch("board");
-    const watcher = try conn.spawn(Watcher, .{});
+    const board = try session.fetch("board");
+    const watcher = try session.spawn(Watcher, .{});
 
-    try conn.tell(board, .{ .verb = "watch", .args = &.{watcher.arg()} });
+    try session.tell(board, .{ .verb = "watch", .args = &.{watcher.arg()} });
 
     var text_buf: [256]u8 = undefined;
     const full_text = std.fmt.bufPrint(&text_buf, "[{s}] {s}", .{ nick, task_text }) catch task_text;
 
-    const added_id = switch (try conn.call(board, .{ .verb = "add", .args = &.{.{ .string = full_text }} }, arena)) {
+    const added_id = switch (try session.call(board, .{ .verb = "add", .args = &.{.{ .string = full_text }} }, arena)) {
         .fulfilled => |arg| switch (arg) {
             .integer => |id| id,
             else => die(nick, "add did not return a task id"),
@@ -130,7 +130,7 @@ pub fn main(init: std.process.Init) !void {
     };
     std.debug.print("[{s}] added task #{d}\n", .{ nick, added_id });
 
-    switch (try conn.call(board, .{ .verb = "list", .args = &.{} }, arena)) {
+    switch (try session.call(board, .{ .verb = "list", .args = &.{} }, arena)) {
         .fulfilled => |arg| switch (arg) {
             .list => |items| {
                 std.debug.print("[{s}] {d} task(s) on the board\n", .{ nick, items.len });
@@ -142,13 +142,13 @@ pub fn main(init: std.process.Init) !void {
         .give => return error.UnexpectedIntroduction,
     }
 
-    switch (try conn.call(board, .{ .verb = "done", .args = &.{.{ .integer = added_id }} }, arena)) {
+    switch (try session.call(board, .{ .verb = "done", .args = &.{.{ .integer = added_id }} }, arena)) {
         .fulfilled => std.debug.print("[{s}] completed task #{d}\n", .{ nick, added_id }),
         .broken => |reason| die(nick, reason),
         .give => return error.UnexpectedIntroduction,
     }
 
-    const confirmed = switch (try conn.call(board, .{ .verb = "list", .args = &.{} }, arena)) {
+    const confirmed = switch (try session.call(board, .{ .verb = "list", .args = &.{} }, arena)) {
         .fulfilled => |arg| switch (arg) {
             .list => |items| taskIsDone(items, added_id),
             else => die(nick, "list did not return a list"),

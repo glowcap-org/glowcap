@@ -3,7 +3,7 @@ id: ADR-0039
 status: accepted
 date: 2026-06-07
 tags: [actors, bindings, racket, goblins, seam]
-decision: "Each binding realizes the actor seam (local | far refs, near-call vs eventual-send, promises) in its own native idiom over the typed peer C ABI — no foreign actor callbacks, no wrapped C vat. The Racket binding is Goblins-faithful: `(define (^name bcom arg …) …)` constructors, `methods`, `spawn`, `$` (near), `<-`/`<-np` (eventual), `on` (with `#:catch`/`#:finally`/`#:promise?`), `bcom` as an injected become-token installed after the turn, and a `current-vat` parameter entered with `with-vat`. The other bindings follow the same seam in their own idiom."
+decision: "Each binding realizes the actor seam (local | far refs, near-call vs eventual-send, promises) in its own native idiom over the typed peer C ABI: no foreign actor callbacks, no wrapped C vat. The Racket binding is Goblins-faithful: `(define (^name bcom arg …) …)` constructors, `methods`, `spawn`, `$` (near), `<-`/`<-np` (eventual), `on` (with `#:catch`/`#:finally`/`#:promise?`), `bcom` as an injected become-token installed after the turn, and a `current-vat` parameter entered with `with-vat`. The other bindings follow the same seam in their own idiom."
 supersedes: []
 superseded_by: []
 ---
@@ -19,7 +19,7 @@ a wrapped C vat invoked through foreign callbacks. The pancake-Zig actor seam
 (ADR-0036: a unified `Ref` local|far, location-transparent `<-`, near-only `$`,
 promises spanning local and wire) is the model; each binding mirrors it
 in-language over the existing typed peer C ABI (`register_export`, the typed
-deliver poll, `send_resolve`) — exactly the way the async layers use native
+deliver poll, `send_resolve`): exactly the way the async layers use native
 sockets. No new C ABI is needed.
 
 The Racket binding is the closest target and the proof: it should feel like
@@ -39,11 +39,11 @@ Goblins-faithful:
   behavior cell), not a forgeable global. A behavior "becomes" by _returning_
   `(bcom
   new-behavior [result])`; the vat installs the new behavior **after**
-  the turn returns, so a mid-turn become cannot tear out the call in flight —
+  the turn returns, so a mid-turn become cannot tear out the call in flight,
   matching Goblins' return-your-successor semantics.
 - **`methods`** dispatches a behavior on a leading method symbol; **`spawn`**
   returns a local `actor-ref`; **`$`** is the synchronous near-call (local only
-  — a far ref errors, as Goblins forbids); **`<-`** / **`<-np`** are the
+  a far ref errors, as Goblins forbids); **`<-`** / **`<-np`** are the
   eventual sends returning a vow; **`on`** registers
   fulfilled/`#:catch`/`#:finally` handlers with `#:promise?` chaining;
   **`drive`** runs queued local turns.
@@ -55,8 +55,8 @@ Goblins-faithful:
   (entered via `with-vat`) makes `spawn`/`$`/`<-` work inside a turn, the way
   Goblins binds its current syscaller.
 
-The Rust, Python, and Deno bindings present the same seam — local|far refs,
-near-call vs eventual-send, promises — in their own idiom (a Rust closure/trait,
+The Rust, Python, and Deno bindings present the same seam: local|far refs,
+near-call vs eventual-send, promises: in their own idiom (a Rust closure/trait,
 a Python callable, a Deno callback). All four bindings realize it; the
 per-binding parity is detailed below.
 
@@ -69,7 +69,7 @@ far vow) is not yet wired.
 ## Alternatives Considered
 
 - **A C actor ABI with foreign-callback behaviors.** Rejected: it would make a
-  Racket actor a C trampoline, not a Racket procedure — the opposite of native
+  Racket actor a C trampoline, not a Racket procedure: the opposite of native
   feel, and the reentrant-callback FFI is gratuitous when the typed peer surface
   already suffices.
 - **One shared actor implementation behind the C ABI.** Rejected: the value is

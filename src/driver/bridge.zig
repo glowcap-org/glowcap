@@ -33,31 +33,26 @@ const engine = @import("engine");
 const driver_core = @import("driver_core");
 const net = @import("net");
 
-/// Which dial produced a `PendingDial`: an application dial (`dialOutbound`)
-/// carries no ticket, a redeem dial from the host's action queue carries the
-/// node's pending ticket. One sum, the same shape the file's `Leg` established
-/// over a bool-plus-optional-ticket — "app dial with a ticket" and "redeem with
-/// none" are unconstructible. `makeConnCtx` maps it straight onto the adopted
-/// session's `Leg`.
-const DialKind = union(enum) {
-    app_dial,
-    redeem: engine.Node.PendingId,
-};
-
 /// In-flight outbound connect: correlates a loop slot to its adoption
 /// payload until `makeConnCtx` adopts the peer or `onClose` reports refusal.
-const PendingDial = struct {
-    kind: DialKind,
-    transport: []u8,
-    designator: []u8,
+/// App dials own transport/designator (no Node pending row). Redeem dials
+/// store only the ticket — parts stay on the Node row until `exporterDialed`.
+const OutboundConnect = union(enum) {
+    app_dial: struct { transport: []u8, designator: []u8 },
+    redeem: engine.Node.PendingId,
 
-    fn deinit(self: PendingDial, allocator: std.mem.Allocator) void {
-        allocator.free(self.transport);
-        allocator.free(self.designator);
+    fn deinit(self: OutboundConnect, allocator: std.mem.Allocator) void {
+        switch (self) {
+            .app_dial => |a| {
+                allocator.free(a.transport);
+                allocator.free(a.designator);
+            },
+            .redeem => {},
+        }
     }
 };
 
-/// The completion-loop → `driver_core.Host` bridge, generic over the loop
+/// The completion-loop to `driver_core.Host` bridge, generic over the loop
 /// type so TCP (`net.TcpLoop`) and iroh (`completion.Loop(iroh.Backend, iroh.DialResolver)`) share
 /// one translator. Construct with `init` (the loop storage address is known
 /// before `Loop.init` fills it), fill the loop, then `attach` the listener
@@ -90,15 +85,16 @@ pub fn Bridge(comptime LoopT: type) type {
         /// `direct-addresses` hint. Empty for address-designator transports.
         hint_buf: [64]u8 = undefined,
         hint_len: usize = 0,
-        /// PeerId → loop slot, the map `drainActions` routes `flush` and `close`
+        /// PeerId to loop slot, the map `drainActions` routes `flush` and `close`
         /// actions through. Bounded by live CapTP sessions: a row is added at
         /// adoption and removed first thing in `freeConnCtx`, so a teardown drain
         /// can never arm a dead slot.
         slots: std.AutoHashMapUnmanaged(engine.PeerId, usize) = .{},
-        /// Slot → in-flight outbound dial. Inserted by `Exec.dial` / `dialOutbound`
-        /// after `dialLocator`; removed by `makeConnCtx` (connect ok) or
-        /// `onClose` (connect refused). Bounded by concurrent outbound connects.
-        pending_dials: std.AutoHashMapUnmanaged(usize, PendingDial) = .{},
+        /// Slot to in-flight outbound connect. Inserted by `Exec.dial` /
+        /// `dialOutbound` after `dialLocator`; removed by `makeConnCtx`
+        /// (connect ok) or `onClose` (connect refused). Bounded by concurrent
+        /// outbound connects.
+        pending_connects: std.AutoHashMapUnmanaged(usize, OutboundConnect) = .{},
         /// Per-session publish callback, run at *accepted* adoption — before
         /// any inbound frame is served on the session, so a partner's first
         /// fetch cannot race the registration (`driver_core.Publish`). Dialed
@@ -126,15 +122,20 @@ pub fn Bridge(comptime LoopT: type) type {
 
         /// How this session entered the host — one sum type, not a bool +
         /// optional ticket pair. A redeem leg carries its pending ticket until
-        /// `exporterDialed` (or `dialFailed`) clears it to `.redeem_open`.
+        /// `exporterDialed` clears it to `.redeem_open`, or `dialFailed` clears
+        /// it to `.redeem_done`.
         pub const Leg = union(enum) {
             accept,
             app_dial,
             /// Redeem dial awaiting `exporterDialed` once the session opens.
             redeem: engine.Node.PendingId,
-            /// Redeem dial whose ticket was reported; still distinct from
-            /// `app_dial` so `on_open` can tell the two dial shapes apart.
+            /// Redeem dial whose ticket was reported via `exporterDialed`; still
+            /// distinct from `app_dial` so `on_open` can tell the two dial
+            /// shapes apart.
             redeem_open,
+            /// Redeem dial whose ticket was already reported via `dialFailed`
+            /// (open failure or freeConnCtx). Never reuse `.app_dial` for this.
+            redeem_done,
         };
 
         /// One adopted connection's bridge shell: what the loop's serve hook gets
@@ -199,12 +200,12 @@ pub fn Bridge(comptime LoopT: type) type {
 
         /// Free the bridge's own state. The loop's `deinit` already released
         /// every adopted connection through `freeConnCtx`; run this after the
-        /// loop's teardown and before the host's. Any stranded pending dial
+        /// loop's teardown and before the host's. Any stranded app-dial connect
         /// (loop torn down mid-connect) frees its duped strings here.
         pub fn deinit(self: *Self) void {
-            var it = self.pending_dials.valueIterator();
+            var it = self.pending_connects.valueIterator();
             while (it.next()) |pending| pending.deinit(self.allocator);
-            self.pending_dials.deinit(self.allocator);
+            self.pending_connects.deinit(self.allocator);
             self.slots.deinit(self.allocator);
         }
 
@@ -235,28 +236,43 @@ pub fn Bridge(comptime LoopT: type) type {
             designator: []const u8,
             direct_addresses_hint: []const u8,
         ) !void {
-            try self.submitPendingDial(self.loop, .app_dial, transport, designator, direct_addresses_hint);
+            // Pack owned strings first so errdefers stop at the block boundary;
+            // connectOutbound owns the OutboundConnect on every exit path.
+            const connect: OutboundConnect = blk: {
+                const transport_owned = try self.allocator.dupe(u8, transport);
+                errdefer self.allocator.free(transport_owned);
+                const designator_owned = try self.allocator.dupe(u8, designator);
+                errdefer self.allocator.free(designator_owned);
+                break :blk .{
+                    .app_dial = .{
+                        .transport = transport_owned,
+                        .designator = designator_owned,
+                    },
+                };
+            };
+            try self.connectOutbound(
+                self.loop,
+                connect,
+                transport,
+                designator,
+                direct_addresses_hint,
+            );
         }
 
-        fn submitPendingDial(
+        /// Shared dialLocator + pending_connects.put spine for app and redeem.
+        /// Takes ownership of `connect` (map on success, deinit on refuse).
+        fn connectOutbound(
             self: *Self,
             loop: *LoopT,
-            kind: DialKind,
+            connect: OutboundConnect,
             transport: []const u8,
             designator: []const u8,
             hint: []const u8,
         ) !void {
-            const transport_owned = try self.allocator.dupe(u8, transport);
-            errdefer self.allocator.free(transport_owned);
-            const designator_owned = try self.allocator.dupe(u8, designator);
-            errdefer self.allocator.free(designator_owned);
+            errdefer connect.deinit(self.allocator);
             const slot = try loop.dialLocator(transport, designator, hint);
             errdefer loop.closeSlot(slot);
-            try self.pending_dials.put(self.allocator, slot, .{
-                .kind = kind,
-                .transport = transport_owned,
-                .designator = designator_owned,
-            });
+            try self.pending_connects.put(self.allocator, slot, connect);
         }
 
         // ── The loop hooks ───────────────────────────────────────────────────────
@@ -270,25 +286,32 @@ pub fn Bridge(comptime LoopT: type) type {
         }
 
         /// `completion.MakeConnCtx`: adopt the accepted or dialed peer into the
-        /// host. Origin is one lookup: a `pending_dials` row means dial
+        /// host. Origin is one lookup: a `pending_connects` row means dial
         /// (`openDialedOver`, redeem or application); absence means accept
         /// (`openAcceptedOver` + publish).
         pub fn makeConnCtx(ctx: ?*anyopaque, peer: *engine.Peer, slot: usize) anyerror!?*anyopaque {
             const self: *Self = @ptrCast(@alignCast(ctx.?));
             var leg: Leg = .accept;
-            const session = if (self.pending_dials.fetchRemove(slot)) |kv| blk: {
+            const session = if (self.pending_connects.fetchRemove(slot)) |kv| blk: {
                 const pending = kv.value;
                 defer pending.deinit(self.allocator);
-                leg = switch (pending.kind) {
-                    .app_dial => .app_dial,
-                    .redeem => |t| .{ .redeem = t },
-                };
-                break :blk self.host.openDialedOver(peer, pending.transport, pending.designator) catch |err| {
-                    switch (pending.kind) {
-                        .redeem => |t| self.host.dialFailed(t, @errorName(err)) catch {},
-                        .app_dial => {},
-                    }
-                    return err;
+                // One switch: pieces, Leg, and redeem refuse share one arm.
+                break :blk switch (pending) {
+                    .app_dial => |a| open: {
+                        leg = .app_dial;
+                        break :open try self.host.openDialedOver(peer, a.transport, a.designator);
+                    },
+                    .redeem => |t| open: {
+                        leg = .{ .redeem = t };
+                        const view = self.host.pendingDial(t) orelse {
+                            self.host.dialFailed(t, "pending dial missing") catch {};
+                            return error.MissingPendingDial;
+                        };
+                        break :open self.host.openDialedOver(peer, view.transport, view.designator) catch |err| {
+                            self.host.dialFailed(t, @errorName(err)) catch {};
+                            return err;
+                        };
+                    },
                 };
             } else try self.host.openAcceptedOver(peer, self.transportName(), self.selfDesignator(), self.selfHint());
             errdefer {
@@ -330,7 +353,7 @@ pub fn Bridge(comptime LoopT: type) type {
                     const ticket = shell.leg.redeem;
                     self.host.exporterDialed(ticket, shell.session) catch |err| {
                         self.host.dialFailed(ticket, @errorName(err)) catch {};
-                        shell.leg = .app_dial;
+                        shell.leg = .redeem_done;
                         self.drainBestEffort();
                         return err;
                     };
@@ -349,7 +372,7 @@ pub fn Bridge(comptime LoopT: type) type {
             const shell: *Slot = @ptrCast(@alignCast(conn_ctx orelse return));
             if (shell.leg == .redeem) {
                 self.host.dialFailed(shell.leg.redeem, "ConnectionClosed") catch {};
-                shell.leg = .app_dial;
+                shell.leg = .redeem_done;
             }
             // idempotent: closeAndDrain and a racing deinit may free twice.
             _ = self.slots.remove(shell.session.peer_id);
@@ -368,9 +391,9 @@ pub fn Bridge(comptime LoopT: type) type {
             const self: *Self = @ptrCast(@alignCast(ctx.?));
             if (conn_ctx != null) return;
             if (opened) return;
-            const pending = (self.pending_dials.fetchRemove(slot) orelse return).value;
+            const pending = (self.pending_connects.fetchRemove(slot) orelse return).value;
             defer pending.deinit(self.allocator);
-            switch (pending.kind) {
+            switch (pending) {
                 .redeem => |t| {
                     self.host.dialFailed(t, "ConnectionRefused") catch {};
                     self.drainBestEffort();
@@ -410,9 +433,21 @@ pub fn Bridge(comptime LoopT: type) type {
                     if (e.bridge.slots.get(peer_id)) |slot| e.loop.closeSlot(slot);
                 }
 
-                pub fn dial(e: @This(), d: driver_core.HostAction.Dial) !void {
+                pub fn dial(e: @This(), d: @FieldType(driver_core.HostAction, "dial")) !void {
                     const bridge = e.bridge;
-                    bridge.submitPendingDial(e.loop, .{ .redeem = d.ticket }, d.transport, d.designator, d.direct_addresses_hint) catch |err| {
+                    const view = bridge.host.pendingDial(d.ticket) orelse {
+                        try bridge.host.dialFailed(d.ticket, "pending dial missing");
+                        return;
+                    };
+                    // Live rows always have non-empty transport/designator
+                    // (acceptGive fails unparseable gives closed).
+                    bridge.connectOutbound(
+                        e.loop,
+                        .{ .redeem = d.ticket },
+                        view.transport,
+                        view.designator,
+                        view.direct_addresses_hint,
+                    ) catch |err| {
                         try bridge.host.dialFailed(d.ticket, @errorName(err));
                     };
                 }

@@ -21,8 +21,8 @@ reference, a partner that guessed the small, dense, monotonic integer could
 deliver to it. The same window covered published-but-unfetched bootstrap
 capabilities (`registerBootstrapCap`). Positions are not swiss numbers; they
 carry no entropy, so "the partner has not been told the number yet" was no
-boundary at all. This engages the capability-semantics First Principle — a
-reference is authority, and an integer a partner never received must not be —
+boundary at all. This engages the capability-semantics First Principle: a
+reference is authority, and an integer a partner never received must not be,
 and the resilience posture that every inbound frame is attacker-controlled
 until session validation says otherwise.
 
@@ -32,7 +32,7 @@ row at count 1, and `count == 1 + wire references` was pinned by
 `test/session/session_test.zig`), but inbound `op:gc-exports` validated its
 deltas against the raw `count`, and `SlotTable.decrement` removes a row at
 zero. A hostile partner releasing one more than it was ever sent passed
-validation, drove the count to zero, and deleted the row — after which our own
+validation, drove the count to zero, and deleted the row: after which our own
 next marshal of that capability failed `validateSend`. A partner could kill
 our live capability with one frame.
 
@@ -43,7 +43,7 @@ export row's refcount is one local baseline plus everything the partner was
 actually granted: each wire mention (`retainSentExports`, on every send path)
 and each explicit grant (`registerExport`). `ExportTable.wireHeld`
 (`src/ocapn/session/slot_table.zig`) names the partner-releasable,
-partner-addressable share — count minus baseline. The one reference validator
+partner-addressable share: count minus baseline. The one reference validator
 (`validateReference`, `src/ocapn/session/validate.zig`) takes a comptime
 perspective: on the `sent` side a near mention needs only a live row, so a
 reservation can marshal; on the `received` side the partner may name an export
@@ -55,7 +55,7 @@ exists.
 The verbs split along the same line. `allocateExport` and the positional
 `reserveExport` are the reservation; `spawnAt` and `registerBootstrapCap`
 route through them, so spawned and published-but-unfetched capabilities are
-unaddressable until their reference first crosses the wire — the fetch reply
+unaddressable until their reference first crosses the wire: the fetch reply
 or the spawning turn's own reply is the grant, and it lands under the ordered
 stream before the partner can act on it. `registerExport` (and `Peer.
 exportObject`, `pancake_peer_register_export`) is the explicit grant for
@@ -72,7 +72,7 @@ The GC floor rides the same arithmetic: `checkGcExportDecrement`
 deltas against `wireHeld`, never raw `count`, so a hostile over-release is the
 loud `GcUnderflow` it should always have been and inbound GC can never delete
 an export row. Releasing every wire reference returns the row to its reserved
-state — alive at baseline, unaddressable until re-granted.
+state: alive at baseline, unaddressable until re-granted.
 
 ## Scope (what this does not decide)
 
@@ -87,8 +87,8 @@ not add entropy to them, it removes the need for it at this layer.
 
 - **Lazy position minting at the marshal chokepoint** (no position exists
   until the reference first encodes). Rejected: the C ABI's identity model is
-  the eager position — `pancake_host_session_spawn` and its kin return the export
-  position at spawn time — so lazy minting forks near identity into a
+  the eager position. `pancake_host_session_spawn` and its kin return the export
+  position at spawn time: so lazy minting forks near identity into a
   token-plus-position pair across five bindings, while the session-table rule
   closes the same window for every producer, including a raw engine consumer
   that never touches the driver.

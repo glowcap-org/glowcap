@@ -1,9 +1,9 @@
-//! Driver loopback proof — the application surface, both halves.
+//! Driver loopback test: the application surface, both halves.
 //!
 //! `driver.connectTcp` dials and `driver.acceptTcp` hosts. This test runs
 //! the two against each other over a real 127.0.0.1 socket with the keyed,
 //! verified `op:start-session` handshake on both ends (fresh random session
-//! keys, signature verification on — the same exchange a live Goblins peer
+//! keys, signature verification on, the same exchange a live Goblins peer
 //! requires): the host accepts into a connected vat, publishes an actor by
 //! name, and `serve`s the connection until the client leaves; the client
 //! fetches the actor, calls it, and reads the reply off the far promise.
@@ -771,7 +771,7 @@ const zero_sig_fault = [_]u8{0} ** 64;
 /// A whole stub-key `op:start-session` frame, encoded so the caller can take a
 /// prefix of it to drive a mid-frame EOF (`TruncatedFrame`).
 fn faultStartSessionFrame(allocator: std.mem.Allocator) !pancake.foundation.Frame {
-    return syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
+    return syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, .{
         .start_session = .{
             .captp_version = .v1_0,
             .session_pubkey = .{ .bytes = &zero_pubkey_fault },
@@ -822,7 +822,7 @@ const FaultHarness = struct {
 
     fn init(allocator: std.mem.Allocator, io: std.Io, inbound: []const u8) !*FaultHarness {
         const self = try allocator.create(FaultHarness);
-        self.pair = try engine.pairing.paired(allocator);
+        self.pair = try engine.pairing.pairedGoblins(allocator);
         // A far import the questioner can address; the send mints a far vow.
         try self.pair.p1.importObject(7);
         self.reader = std.Io.Reader.fixed(inbound);

@@ -4,15 +4,15 @@ Anchors: CapTP Specification § Third-party handoffs (depositing the gift,
 desc:handoff-give, desc:handoff-receive, withdrawing the gift, validation). All
 certificates ride `desc:sig-envelope` (Ed25519 over the canonical bytes of the
 inner certificate). The `op:resolve` settlement arrows below draw pancake's
-PreSpec shape; on the v1.0 wire the same settlement is the resolver-callback
-deliver (see the vocabulary note and DR-4 in
+`pancake-next` profile shape; on the v1.0 wire the same settlement is the
+resolver-callback deliver (see the vocabulary note and DR-4 in
 [02-deliver-and-resolve.md](02-deliver-and-resolve.md)).
 
 ## HO-1: Roles and sessions
 
 Three peers hold three sessions between them. The Gifter already talks to both
-other parties; the Receiver↔Exporter session is established (if absent) to
-withdraw.
+other parties. The Receiver–Exporter session is established (if it is absent)
+in order to withdraw.
 
 ```mermaid
 flowchart LR
@@ -40,7 +40,7 @@ sequenceDiagram
 
 ## HO-3: Step 1: deposit-gift
 
-Step 1 is an ordinary bootstrap-object call on the Gifter↔Exporter session. The
+Step 1 is an ordinary bootstrap-object call on the Gifter–Exporter session. The
 Exporter stores the gift keyed by gift-id until a matching withdrawal.
 
 ```mermaid
@@ -53,9 +53,9 @@ sequenceDiagram
 
 ## HO-4: The desc:handoff-give certificate
 
-The give carries five fields, signed by the Gifter with its key from the **G↔X**
-session. Each field exists so a specific later check can hold, as HO-5 and HO-7
-show.
+The give carries five fields, signed by the Gifter with its key from the
+Gifter–Exporter (G-X) session. Each field exists so a specific later check can
+hold, as HO-5 and HO-7 show.
 
 ```mermaid
 flowchart TD
@@ -70,7 +70,7 @@ flowchart TD
 ## HO-5: Step 3: Receiver-side validation
 
 The Receiver cannot verify the Gifter's signature yet, because it has never seen
-the Gifter's G↔X pubkey; that check belongs to the Exporter. What the Receiver
+the Gifter's G-X pubkey. That check belongs to the Exporter. What the Receiver
 _can_ check is that the give was addressed to it.
 
 ```mermaid
@@ -87,8 +87,9 @@ flowchart TD
 ## HO-6: The desc:handoff-receive certificate
 
 The receive carries four fields wrapping the original signed give. The Receiver
-signs it with its key from the **G↔R** session, not the R↔X session, and that is
-what binds the new R↔X identity to the identity the Gifter addressed.
+signs it with its key from the Gifter–Receiver (G-R) session, not the
+Receiver–Exporter (R-X) session. That is what binds the new R-X identity to the
+identity the Gifter addressed.
 
 ```mermaid
 flowchart TD
@@ -101,8 +102,8 @@ flowchart TD
 
 ## HO-7: Step 5: Exporter-side validation
 
-The Exporter is the only party that can verify both signatures: it knows the
-Gifter's pubkey from the G↔X session, and the give itself carries the
+The Exporter is the only party that can verify both signatures. It knows the
+Gifter's pubkey from the G-X session, and the give itself carries the
 recipient-key that must have signed the receive. A repeated handoff-count is a
 replay and aborts the session.
 
@@ -118,7 +119,7 @@ flowchart TD
     TK --> RES["resolve the withdraw answer with the gifted reference"]
 ```
 
-The count guard is monotonic per receiving-session identity (the R↔X session the
+The count guard is monotonic per receiving-session identity (the R-X session the
 receive names). It lives in the vat-scoped gift registry rather than in any one
 CapTP session, so a host that keeps that registry across reconnects refuses a
 replayed count.

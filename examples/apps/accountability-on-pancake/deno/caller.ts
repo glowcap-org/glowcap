@@ -35,9 +35,9 @@ async function main(): Promise<void> {
 	console.log(`  connecting to 127.0.0.1:${port}…`);
 
 	// `connect` completes the keyed op:start-session handshake before returning.
-	const conn = await connect(tcpLocator("127.0.0.1", port));
+	const session = await connect(tcpLocator("127.0.0.1", port));
 	// `fetch`/`send` drive the inbound loop themselves, no separate serve() call.
-	const affordance = await conn.fetch("affordance");
+	const affordance = await session.fetch("affordance");
 
 	// Generate an Ed25519 identity (above pancake, just like the Zig side).
 	// `generateKey` is typed `CryptoKeyPair | CryptoKey`; an asymmetric algorithm
@@ -65,7 +65,7 @@ async function main(): Promise<void> {
 	console.log("  sending legitimate invoke…");
 	let result: AppValue;
 	try {
-		result = await conn.send(affordance, "invoke", [
+		result = await session.send(affordance, "invoke", [
 			subject,
 			verkey,
 			request,
@@ -91,7 +91,7 @@ async function main(): Promise<void> {
 	let refused = false;
 	let breakMsg = "";
 	try {
-		await conn.send(affordance, "invoke", [
+		await session.send(affordance, "invoke", [
 			subject,
 			verkey,
 			request,
@@ -105,7 +105,7 @@ async function main(): Promise<void> {
 	if (!refused) fail("tampered invoke was NOT refused");
 	console.log(`  correctly refused: ${breakMsg}`);
 
-	conn.close();
+	session.close();
 	console.log(
 		"\naccountability-on-pancake deno caller OK: same application, two languages.",
 	);

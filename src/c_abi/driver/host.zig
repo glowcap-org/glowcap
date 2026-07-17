@@ -30,6 +30,7 @@ const PancakeContext = c.PancakeContext;
 const PancakeHost = c.PancakeHost;
 const PancakeHostSession = c.PancakeHostSession;
 const PancakeHostAction = c.PancakeHostAction;
+const PancakePendingDial = c.PancakePendingDial;
 const PancakeDialPlan = c.PancakeDialPlan;
 const PancakeAcceptPlan = c.PancakeAcceptPlan;
 
@@ -208,25 +209,56 @@ pub export fn pancake_host_set_session_limits(
 
 // ── Dial / accept planning (driver_core.planDial / planAccept) ────────────────
 //
-// The transport dispatch, designator validation, host:port resolution, and iroh
-// reachability decision every language binding used to re-express in its own
-// connect / dial_exporter / Server.accept. A binding calls the planner, opens
-// the byte channel the plan names in its own runtime, then feeds it back through
-// pancake_host_session_open_dialed_locator / pancake_host_session_open_accepted. The
-// plan is pure: no socket, no allocation, every view borrowing the caller input.
+// The transport dispatch, designator validation, host:port resolution, and
+// peer-id reachability decision every language binding used to re-express in
+// its own connect / dial_exporter / Server.accept. A binding calls the planner,
+// opens the byte channel the plan names in its own runtime, then feeds it back
+// through pancake_host_session_open_dialed_locator /
+// pancake_host_session_open_accepted. The plan is pure: no socket, no
+// allocation, every view borrowing the caller input.
 
 fn setView(slice: []const u8, out_ptr: *?[*]const u8, out_len: *usize) void {
     out_ptr.* = if (slice.len == 0) null else slice.ptr;
     out_len.* = slice.len;
 }
 
+/// Borrow the in-flight pending dial for `ticket` into `*out`
+/// (transport/designator/hint). Staged once at acceptGive — no re-parse.
+/// A live ticket always has non-empty transport/designator; an empty hint means
+/// the give carried none (`hint` is NULL). Unknown ticket returns
+/// `PANCAKE_ERR_INVALID_ARGUMENT`. Host-owned views valid until
+/// `pancake_host_dialed` / `pancake_host_dial_failed` (or host teardown).
+pub export fn pancake_host_pending_dial(
+    host: ?*PancakeHost,
+    ticket: u64,
+    out: ?*PancakePendingDial,
+) i32 {
+    const inst = instanceFrom(host) orelse return PANCAKE_ERR_NULL_POINTER;
+    const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
+    const view = inst.core.pendingDial(ticket) orelse {
+        shared.setLastError("host: pending dial: unknown ticket {d}", .{ticket});
+        return PANCAKE_ERR_INVALID_ARGUMENT;
+    };
+    slot.* = .{
+        .transport = view.transport.ptr,
+        .transport_len = view.transport.len,
+        .designator = view.designator.ptr,
+        .designator_len = view.designator.len,
+        .hint = null,
+        .hint_len = 0,
+    };
+    setView(view.direct_addresses_hint, &slot.hint, &slot.hint_len);
+    return PANCAKE_OK;
+}
+
 /// Resolve a dial without opening a socket. transport/designator are the
-/// locator's pieces (a DIAL action carries them parsed); direct_addresses_hint
-/// is the locator's direct-addresses hint (NULL/0 = none); posture_policy is a
-/// PANCAKE_DIAL_POSTURE_* selecting the iroh reachability rule, with posture_value
-/// the caller's posture under PANCAKE_DIAL_POSTURE_EXPLICIT. On PANCAKE_OK
-/// *out_plan is filled with views borrowing the caller's buffers; on a bad
-/// locator it returns PANCAKE_ERR_INVALID_ARGUMENT (see pancake_host_last_error).
+/// locator's pieces (from `pancake_uri_parse_peer` on a pending dial locator);
+/// direct_addresses_hint is the locator's direct-addresses hint (NULL/0 = none);
+/// posture_policy is a PANCAKE_DIAL_POSTURE_* selecting the peer-id reachability
+/// rule, with posture_value the caller's posture under
+/// PANCAKE_DIAL_POSTURE_EXPLICIT. On PANCAKE_OK *out_plan is filled with views
+/// borrowing the caller's buffers; on a bad locator it returns
+/// PANCAKE_ERR_INVALID_ARGUMENT (see pancake_host_last_error).
 pub export fn pancake_host_plan_dial(
     transport: ?[*]const u8,
     transport_len: usize,
@@ -245,7 +277,7 @@ pub export fn pancake_host_plan_dial(
     const posture: driver_core.DialPosture = switch (posture_policy) {
         c.PANCAKE_DIAL_POSTURE_REDEEM => .redeem,
         c.PANCAKE_DIAL_POSTURE_EXPLICIT => .{ .explicit = posture_value },
-        c.PANCAKE_DIAL_POSTURE_EXPLICIT_NONE => .{ .explicit = null },
+        c.PANCAKE_DIAL_POSTURE_EXPLICIT_NONE => .explicit_none,
         else => {
             shared.setLastError("host: plan_dial: unknown posture policy {d}", .{posture_policy});
             return PANCAKE_ERR_INVALID_ARGUMENT;
@@ -255,27 +287,36 @@ pub export fn pancake_host_plan_dial(
         switch (err) {
             error.UnknownTransport => shared.setLastError("dial: unsupported transport \"{s}\"", .{t}),
             error.DesignatorNotHostPort => shared.setLastError("dial: designator \"{s}\" is not host:port", .{d}),
+            error.DesignatorNotPeerKey => shared.setLastError("dial: designator \"{s}\" is not a peer key", .{d}),
             error.MissingDirectAddressesHint => shared.setLastError("dial: a keyed-tcp locator requires a direct-addresses hint", .{}),
-            error.ReachabilityRequired => shared.setLastError("dial: an iroh locator requires a reachability posture", .{}),
+            error.ReachabilityRequired => shared.setLastError("dial: a peer-id open requires a reachability posture", .{}),
         }
         return PANCAKE_ERR_INVALID_ARGUMENT;
     };
-    slot.shape = switch (plan.shape) {
-        .host_port => c.PANCAKE_DIAL_SHAPE_HOST_PORT,
-        .iroh => c.PANCAKE_DIAL_SHAPE_IROH,
-    };
-    setView(plan.host, &slot.host, &slot.host_len);
-    slot.port = plan.port;
-    setView(plan.addresses, &slot.addresses, &slot.addresses_len);
     slot.reach_value = 0;
-    slot.reach_kind = if (plan.reach) |reach| switch (reach) {
-        .direct => c.PANCAKE_DIAL_REACH_DIRECT,
-        .configured => c.PANCAKE_DIAL_REACH_CONFIGURED,
-        .explicit => |v| blk: {
-            slot.reach_value = v;
-            break :blk c.PANCAKE_DIAL_REACH_EXPLICIT;
+    switch (plan) {
+        .host_port => |hp| {
+            slot.shape = c.PANCAKE_DIAL_SHAPE_HOST_PORT;
+            setView(hp.host, &slot.host, &slot.host_len);
+            slot.port = hp.port;
+            setView(&.{}, &slot.addresses, &slot.addresses_len);
+            slot.reach_kind = c.PANCAKE_DIAL_REACH_DIRECT; // unused on host_port
         },
-    } else c.PANCAKE_DIAL_REACH_DIRECT; // host_port shape: reach fields unused
+        .peer_id => |peer| {
+            slot.shape = c.PANCAKE_DIAL_SHAPE_PEER_ID;
+            setView(&.{}, &slot.host, &slot.host_len);
+            slot.port = 0;
+            setView(peer.addresses, &slot.addresses, &slot.addresses_len);
+            slot.reach_kind = switch (peer.reach) {
+                .direct => c.PANCAKE_DIAL_REACH_DIRECT,
+                .configured => c.PANCAKE_DIAL_REACH_CONFIGURED,
+                .explicit => |v| blk: {
+                    slot.reach_value = v;
+                    break :blk c.PANCAKE_DIAL_REACH_EXPLICIT;
+                },
+            };
+        },
+    }
     return PANCAKE_OK;
 }
 
@@ -312,14 +353,6 @@ const zero_action = PancakeHostAction{
     .kind = 0,
     .ticket = 0,
     .session = null,
-    .locator = null,
-    .locator_len = 0,
-    .transport = null,
-    .transport_len = 0,
-    .designator = null,
-    .designator_len = 0,
-    .direct_addresses_hint = null,
-    .direct_addresses_hint_len = 0,
     .value = shared.zero_argument,
     .message = null,
     .message_len = 0,
@@ -327,9 +360,10 @@ const zero_action = PancakeHostAction{
 
 /// Pop the next embedder action into `*out_action`, or return
 /// `PANCAKE_ERR_WOULD_BLOCK` when none is pending. A popped action's byte
-/// views — a DIAL's locator pieces, a SETTLE's `value` sub-structure, a
-/// FAIL's `message` — are host-owned and valid until the *next*
-/// `pancake_host_next_action` call, which frees them. After any top-level
+/// views — a SETTLE's `value` sub-structure, a FAIL's `message` — are
+/// host-owned and valid until the *next* `pancake_host_next_action` call,
+/// which frees them. A DIAL carries only `ticket`; borrow the pending view
+/// with `pancake_host_pending_dial`. After any top-level
 /// `pancake_host_*` call returns OK, drain this until WOULD_BLOCK, honoring
 /// each action — that one loop rule is the whole embedder contract, and
 /// nothing in the library enforces it: an ignored action strands the dial,
@@ -350,14 +384,6 @@ pub export fn pancake_host_next_action(host: ?*PancakeHost, out_action: ?*Pancak
                 slot.* = zero_action;
                 slot.kind = c.PANCAKE_HOST_ACTION_DIAL;
                 slot.ticket = d.ticket;
-                slot.locator = d.locator.ptr;
-                slot.locator_len = d.locator.len;
-                if (d.transport.len != 0) slot.transport = d.transport.ptr;
-                slot.transport_len = d.transport.len;
-                if (d.designator.len != 0) slot.designator = d.designator.ptr;
-                slot.designator_len = d.designator.len;
-                if (d.direct_addresses_hint.len != 0) slot.direct_addresses_hint = d.direct_addresses_hint.ptr;
-                slot.direct_addresses_hint_len = d.direct_addresses_hint.len;
                 return PANCAKE_OK;
             },
             .flush => |peer_id| {
@@ -414,7 +440,8 @@ pub export fn pancake_host_next_action(host: ?*PancakeHost, out_action: ?*Pancak
 }
 
 /// Report a DIAL action's success: `session` is an `open_dialed_locator` against
-/// that action's locator parts, driven to an open session. The node withdraws
+/// the pending dial for that ticket (`pancake_host_pending_dial`), driven to an
+/// open session. The node withdraws
 /// every give waiting on the ticket; the withdraws, their settles, and their
 /// flushes pump inside this call. A stale ticket is a no-op success.
 pub export fn pancake_host_dialed(host: ?*PancakeHost, ticket: u64, raw: ?*PancakeHostSession) i32 {

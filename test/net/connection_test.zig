@@ -1,5 +1,5 @@
 //! Connection framing-core tests, driven over `Reader.fixed` / `Writer.fixed`
-//! with a real `*engine.Peer` — no sockets. These prove the byte-stream half of
+//! with a real `*engine.Peer`, with no sockets. These prove the byte-stream half of
 //! the one-parser contract: bytes in, frames out, and every termination
 //! condition (graceful close, truncation, malformed, oversize) surfaced as the
 //! right typed outcome rather than swallowed.
@@ -26,7 +26,7 @@ fn stubNegotiatingPeer(allocator: std.mem.Allocator) engine.Peer {
 /// Encode the stub-key `op:start-session` a negotiating peer admits. The caller
 /// owns the returned frame (it backs the inbound byte stream).
 fn startSessionFrame(allocator: std.mem.Allocator, designator: []const u8) !pancake.foundation.Frame {
-    return syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, .{
+    return syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, .{
         .start_session = .{
             .captp_version = .v1_0,
             .session_pubkey = .{ .bytes = &zero_pubkey },

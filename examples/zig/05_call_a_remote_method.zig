@@ -1,17 +1,19 @@
 //! 05 — Call a remote method on the raw engine.
 //!
 //! A phone calls `speaker.queue("Hot Knife")` on the kitchen speaker. This is
-//! the basic CapTP move — invoke a method on a remote object and read the
-//! answer back — made one layer below everything chapters 01–04 ride: the bare
+//! the basic CapTP move: invoke a method on a remote object and read the
+//! answer back. This chapter sits one layer below everything chapters 01–04 ride:
 //! `engine.Peer`, with manual exports and imports, explicit `step`, and
 //! hand-shuttled frames.
 //!
-//! `pairing.paired` runs both `op:start-session` halves in-process and leaves both
-//! sessions open on the Goblins V1.0 wire profile. (Real peers do the same
-//! handshake, over a netlayer in production.) V1.0 has no wire `op:resolve`.
-//! When a deliver carries an `answer`, the runtime attaches a resolver, and the
-//! partner's reply comes back as an ordinary `op:deliver` to that resolver.
-//! `Event.view()` re-projects that callback as the semantic `Resolve`.
+//! `pairing.pairedGoblins` runs both `op:start-session` halves in-process and
+//! leaves both sessions open on authenticated CapTP v1.0 over Syrup. That is the
+//! Goblins interop profile. (Real peers do the same handshake over a netlayer.)
+//! V1.0 has no wire `op:resolve`. When a deliver carries an `answer`, the
+//! runtime attaches a resolver, and the partner's reply comes back as an
+//! ordinary `op:deliver` to that resolver. `Event.view()` re-projects that
+//! callback as the semantic `Resolve`. (`pairing.paired` is the pancake-forward
+//! job: `pancake-next` over Cap'n Proto.)
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
@@ -25,7 +27,7 @@ pub fn main() !void {
     defer if (gpa.deinit() == .leak) @panic("leaked memory");
     const allocator = gpa.allocator();
 
-    var pair = try engine.pairing.paired(allocator);
+    var pair = try engine.pairing.pairedGoblins(allocator);
     defer pair.deinit();
     // `pancake.Peer` is the front-door alias for `engine.Peer`, the type this
     // whole chapter drives by hand.

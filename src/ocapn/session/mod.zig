@@ -75,7 +75,7 @@ pub const Error = error{
     /// handshake (already sent locally, or already received from the partner).
     DuplicateStartSession,
     /// The partner's `op:start-session` declared a CapTP version that does not
-    /// match this session's negotiated `model.WireProfile` version.
+    /// match this session's negotiated `model.CaptpVersion` version.
     CaptpVersionMismatch,
     /// A pipelined-call queue for one answer exceeded `SessionLimits.queue_cap`
     /// (ADR-0007). A loud bound on a partner flooding calls against a promise it
@@ -228,10 +228,26 @@ const ListenerList = answers.ListenerList;
 pub const Projection = answers.Projection;
 pub const ProjectionKind = answers.ProjectionKind;
 pub const deinitProjection = answers.deinitProjection;
-const AnswerView = answers.AnswerView;
+pub const AnswerView = answers.AnswerView;
 pub const AnswerTable = answers.AnswerTable;
+
+pub const inspect = @import("inspect.zig");
+pub const ExportView = inspect.ExportView;
+pub const ImportView = inspect.ImportView;
+pub const AnswerRowView = inspect.AnswerRowView;
 const ensureAnswerPayload = answers.ensureAnswerPayload;
 pub const deinitAnswerCell = answers.deinitAnswerCell;
+
+/// Listen/settle cell shared by export-side unresolved promises (ADR-0007) and
+/// third-party imported promises (ADR-0009): listeners, one stored resolution
+/// for late `op:listen`, and a `row_id` for queued fire carriers. Keying and
+/// host provenance stay on the wrapper tables; this is only the cell.
+pub const PromiseListenCell = struct {
+    listeners: ListenerList = .empty,
+    resolution: ?model.Resolution = null,
+    /// Row identity for queued fire carriers. No default: registration stamps.
+    row_id: u64,
+};
 
 /// A promise imported from a *third party* via handoff (ADR-0009 § `op:listen`
 /// on `desc:import-promise`). The introducing partner gave us this import; its
@@ -241,30 +257,14 @@ pub const deinitAnswerCell = answers.deinitAnswerCell;
 ///
 /// The presence of a row marks `import_position` third-party-hosted, the distinction
 /// that lets an inbound `op:listen` on this import install a listener here rather
-/// than be rejected. Grouping the host, listeners, and resolution in one owned
-/// row gives the third-party promise a single lifecycle.
+/// than be rejected. Grouping the host and listen cell in one owned row gives
+/// the third-party promise a single lifecycle.
 pub const ImportedPromise = struct {
-    /// The third-party host this promise lives on (owned designator bytes). Held
+    /// The third-party host this promise lives on (`key_arena`-interned). Held
     /// so a re-root with a conflicting host is rejected (`Error.HostMismatch`).
-    host: []u8,
-    /// Parties listening (via `op:listen` on `desc:import-promise`) for the
-    /// relayed resolution. Entries are POD `FarRef` values.
-    listeners: ListenerList = .empty,
-    /// The relayed resolution once forwarded, stored so a late `op:listen` fires
-    /// immediately. Owned; released on removal or overwrite.
-    resolution: ?model.Resolution = null,
-    /// This row instance's identity, stamped from `Session.store_stamp_counter`
-    /// at registration (`installThirdPartyImport`). A queued fire carrier
-    /// compares it at encode: a mismatch means the row it was accounted
-    /// against was torn down (GC co-eviction) and a *different* third-party
-    /// promise now lives at the same import position, so the fire is moot —
-    /// emitting would deliver another promise's value to the stale
-    /// listener. No default: registration must stamp. (No per-payload stamp is
-    /// needed beside it: a live row's stored resolution is written exactly once
-    /// — `recordRelayedResolution` refuses a second relay — so a matching
-    /// `row_id` proves the stored value is the one the fire was accounted
-    /// against.)
-    row_id: u64,
+    host: []const u8,
+    /// Listeners + stored relayed resolution + row identity.
+    cell: PromiseListenCell,
 };
 
 /// One resolved sturdyref enlivenment (ADR-0012 dedup cache): the swiss-number
@@ -281,7 +281,7 @@ pub const SturdyrefCacheEntry = struct {
 pub const Session = struct {
     allocator: std.mem.Allocator,
     state: State,
-    wire_profile: model.WireProfile,
+    captp_version: model.CaptpVersion,
     /// The wire codec negotiated for this direct session. The
     /// authoritative record of the codec choice; the engine's codec-dispatch
     /// boundary (`codec.dispatch`) reads it to route each frame, and every event
@@ -302,41 +302,45 @@ pub const Session = struct {
     /// positions are partner-named, so a bare offset alone would not).
     next_virtual_inbound_answer: u64 = VIRTUAL_INBOUND_ANSWER_BASE,
     /// One per-session bump arena owning the byte keys/values of the *monotonic*
-    /// byte-keyed tables — `bootstrap` swissnums and the partner key/designator
-    /// bytes — none of which ever free an individual row. Teardown is one
-    /// `key_arena.deinit()` instead of per-row free loops. The evicting /
-    /// individually-removed tables (`sturdyref_cache`, `pending_enlivens`,
-    /// imported-promise hosts) deliberately stay on the gpa with precise per-row
-    /// frees: a bump arena cannot reclaim an evicted row and would leak under
-    /// churn.
+    /// byte-keyed tables — `bootstrap` swissnums, partner key/location bytes,
+    /// and interned third-party import host designators — none of which ever
+    /// free an individual string. Teardown is one `key_arena.deinit()` instead
+    /// of per-row free loops. The evicting / individually-removed tables
+    /// (`sturdyref_cache`, `pending_enlivens`, `pending_enliven_by_answer`) stay on the gpa with precise
+    /// per-row frees: a bump arena cannot reclaim an evicted row and would leak
+    /// under churn.
     key_arena: std.heap.ArenaAllocator,
     /// Per-turn scratch arena for the inbound record spine. It backs the
     /// introduced-import record every recv turn's validate walk fills and
     /// apply consumes (`validate.IntroducedImports` — allocation-free for the
     /// common no-reference message), the owned-fallback kinds' (`gc_*`,
-    /// `handoff`, `get`/`index`/`untag`) one transient owned `Message`, and
-    /// the inbound GC validators' duplicate-position fold
-    /// (`checkGcExportDecrement` / `checkGcAnswerDecrement` in
-    /// `validateRecv` — stack for small vectors, map spill above threshold).
-    /// All of it dies when the turn ends — exactly an
-    /// arena's lifetime: reset (retaining capacity) at the end of every
-    /// `recordRecvView`, `recordRecv`, and `recordResolverCallbackResolve`,
-    /// so the scratch never outlives one turn and the per-message
-    /// dupe-then-`freeMessage` choreography collapses to one bump-and-reset.
-    /// Apply dupes anything session-lived onto `allocator`, so resetting the
-    /// scratch can never dangle a table row.
+    /// `handoff`, `get`/`index`/`untag`) one transient owned `Message`, the
+    /// inbound GC validators' duplicate-position fold (`checkGcExportDecrement`
+    /// / `checkGcAnswerDecrement` in `validateRecv` — stack for small vectors,
+    /// map spill above threshold), and the inbound set-uniqueness fold
+    /// (`checkInboundSetUniqueness` — view handles + hash rows for Cap'n Proto
+    /// duplicate refusal; small sets stay on the stack). All of it dies when the turn ends: every
+    /// recv entry point (`recordRecv`, `recordRecvView`,
+    /// `recordInboundDeliverView`, `recordResolverCallbackResolve`) resets it,
+    /// so the per-message dupe-then-`freeMessage` choreography collapses to one
+    /// bump-and-reset, and apply dupes anything session-lived onto `allocator`,
+    /// so the reset can never dangle a table row. The reset retains at most
+    /// `steady_recv_scratch_bytes`, not the whole peak: one admissible frame
+    /// runs to `max_frame_bytes`, and its set / owned-fallback materialization
+    /// is several times that in owned `Argument`s, so retaining a burst's peak
+    /// would pin megabytes per session for the connection's life.
     recv_scratch: std.heap.ArenaAllocator,
     exports: ExportTable,
     imports: ImportTable,
     inbound_answers: AnswerTable,
     outbound_answers: AnswerTable,
     /// Promises imported from a third party via handoff (ADR-0009), keyed by
-    /// import position for O(1) lookup. Each row owns its host designator, listener
-    /// caps, and stored relayed resolution.
+    /// import position for O(1) lookup. Host designators are interned in
+    /// `key_arena`; each row owns its listen cell and stored relayed resolution.
     imported_promises: std.AutoHashMapUnmanaged(model.ImportPosition, ImportedPromise),
     /// Session-wide monotonic source for every store-row identity stamp a
     /// queued fire carrier checks at encode: `AnswerCell.row_id` and
-    /// `ImportedPromise.row_id`. One counter for both (not per-row seeds) so no
+    /// `PromiseListenCell.row_id`. One counter for all (not per-row seeds) so no
     /// two row instances ever share a value — a carrier stamped against a row
     /// since released and re-registered at the same position must miss, never
     /// false-match.
@@ -351,18 +355,18 @@ pub const Session = struct {
     /// gifter's `desc:handoff-give` when this is a gifter-to-exporter session
     /// (ADR-0009). Empty until the partner's handshake half arrives with a key.
     partner_session_key: []const u8 = &.{},
-    /// The partner's location designator, learned from its `op:start-session`
-    /// acceptable-location. Empty until the handshake half arrives. A host routing
-    /// across sessions — a gifter matching a sturdyref's exporter location to the
-    /// session it already holds with that exporter — reads it. Lives in `key_arena`.
+    /// The partner's location designator from its `op:start-session`. When
+    /// `partner_acceptable_location_raw` is set, this is a view into that
+    /// buffer; otherwise a designator-only arena dupe (owned-message apply).
+    /// Empty until the handshake half arrives.
     partner_designator: []const u8 = &.{},
     /// The partner's verbatim `<ocapn-peer ...>` location-record bytes, exactly as
-    /// they arrived on its `op:start-session`. A gifter embeds these in a
-    /// `desc:handoff-give`'s exporter-location so a peer comparing the give's
-    /// location to the session's matches byte-for-byte (ADR-0009) — the designator
-    /// alone is lossy for that match. Empty until the partner's handshake half
-    /// arrives with raw bytes (the decode path captures them; an owned-message
-    /// apply path does not). Lives in `key_arena`.
+    /// they arrived on its `op:start-session`. Sole owner of peer-location
+    /// content on the decode path (`partner_designator` views into it). A gifter
+    /// embeds these in a `desc:handoff-give`'s exporter-location so a peer
+    /// comparing the give's location to the session's matches byte-for-byte
+    /// (ADR-0009). Empty until the partner's handshake half arrives with raw
+    /// bytes (owned-message apply has none). Lives in `key_arena`.
     partner_acceptable_location_raw: []const u8 = &.{},
     /// V1.0 resolver-callback links for our *outbound* answers, mapping a
     /// V1.0 outbound resolver link (ADR-0010): a resolver-export position bound
@@ -383,7 +387,7 @@ pub const Session = struct {
     /// FIFO-evicting (cap `max_sturdyref_cache_entries`), so it keeps insertion
     /// order and owns each swissnum on the gpa — freed precisely on eviction.
     sturdyref_cache: std.ArrayList(SturdyrefCacheEntry),
-    /// Side index for `sturdyref_cache`: swissnum → FIFO row index, O(1) lookup.
+    /// Side index for `sturdyref_cache`: swissnum to FIFO row index, O(1) lookup.
     /// Keys are the same owned slices the ArrayList rows hold (one owner); kept
     /// in lockstep on insert and FIFO eviction (`sturdyref_cache.zig`).
     sturdyref_cache_index: std.StringHashMapUnmanaged(usize),
@@ -391,21 +395,34 @@ pub const Session = struct {
     /// (ADR-0012 dedup). O(1) lookup; rows are removed on completion, so swissnum
     /// keys are gpa-owned and freed on removal.
     pending_enlivens: std.StringHashMapUnmanaged(model.AnswerPosition),
+    /// Reverse index for `pending_enlivens`: answer to the same owned swissnum
+    /// slice (borrowed, not a second owner). Kept in lockstep on insert and
+    /// removal (`sturdyref_cache.zig`).
+    pending_enliven_by_answer: std.AutoHashMapUnmanaged(model.AnswerPosition, []const u8),
     /// The swissnum-to-export registry the inbound-`'fetch` responder consults
     /// (ADR-0006). Keys live in `key_arena`; O(1) lookup. Never removed.
     bootstrap: std.StringHashMapUnmanaged(model.ExportPosition),
+
+    /// The steady capacity `recv_scratch` retains across turns, trimming a
+    /// burst's peak on reset. Deliberately smaller than the vat and engine
+    /// arenas' 4096: the per-connection footprint budget is 2 KiB total
+    /// (`test/engine/footprint_budget_test.zig`, docs/ladder.md rung 2), so this
+    /// bound must leave room for the tables beside it.
+    /// `test/engine/deliver_set_scratch_budget_test.zig` pins a big-set frame's
+    /// scratch back under it after the frame drains.
+    const steady_recv_scratch_bytes: usize = 384;
 
     /// Construction knobs for `initWith`. Every field has a default, so a
     /// caller names only what it overrides: `Session.init(allocator)` is
     /// `initWith(allocator, .{})`. The knobs are orthogonal, `negotiating`
     /// selects the starting `State`, `limits` sets the resource bounds, and the
     /// rest set the negotiated profile / codec / features the handshake would
-    /// otherwise install. The already-open default is v1.0; PreSpec is explicit.
+    /// otherwise install. The already-open default is v1.0; next is explicit.
     pub const Options = struct {
         /// Start in `negotiating` (awaiting `op:start-session`) instead of `open`.
         negotiating: bool = false,
         codec: model.CodecId = .syrup,
-        wire_profile: model.WireProfile = model.WireProfile.v1_0,
+        captp_version: model.CaptpVersion = model.CaptpVersion.v1_0,
         features: model.FeatureSet = model.FeatureSet.full(),
         limits: SessionLimits = .{},
     };
@@ -428,7 +445,7 @@ pub const Session = struct {
         return .{
             .allocator = allocator,
             .state = if (options.negotiating) .negotiating else .open,
-            .wire_profile = options.wire_profile,
+            .captp_version = options.captp_version,
             .codec = options.codec,
             .features = options.features,
             .limits = options.limits,
@@ -455,6 +472,7 @@ pub const Session = struct {
             .sturdyref_cache = .empty,
             .sturdyref_cache_index = .empty,
             .pending_enlivens = .empty,
+            .pending_enliven_by_answer = .empty,
             .bootstrap = .empty,
         };
     }
@@ -478,6 +496,7 @@ pub const Session = struct {
         var enliven_it = self.pending_enlivens.keyIterator();
         while (enliven_it.next()) |key| self.allocator.free(key.*);
         self.pending_enlivens.deinit(self.allocator);
+        self.pending_enliven_by_answer.deinit(self.allocator);
         self.key_arena.deinit();
         self.recv_scratch.deinit();
     }
@@ -628,7 +647,7 @@ pub const Session = struct {
         // consumes (one argument traversal per message, see
         // `validate.IntroducedImports`). Turn-scratch in `recv_scratch`,
         // reclaimed by the reset below.
-        defer _ = self.recv_scratch.reset(.retain_capacity);
+        defer _ = self.recv_scratch.reset(.{ .retain_with_limit = steady_recv_scratch_bytes });
         var introduced: validate.IntroducedImports = .init(self.recv_scratch.allocator());
         try self.validateRecv(message, &introduced);
         try self.applyRecv(message, &introduced);
@@ -655,7 +674,7 @@ pub const Session = struct {
         // materialization below — so one reset reclaims the whole turn. Apply
         // dupes anything session-lived onto `self.allocator`, so the reset can
         // never dangle a table row.
-        defer _ = self.recv_scratch.reset(.retain_capacity);
+        defer _ = self.recv_scratch.reset(.{ .retain_with_limit = steady_recv_scratch_bytes });
         var introduced: validate.IntroducedImports = .init(self.recv_scratch.allocator());
         switch (body) {
             .deliver, .resolve, .listen, .start_session, .abort => {
@@ -684,9 +703,20 @@ pub const Session = struct {
     /// (`driver.core.gc.emitExportsForDeliver`) rather than re-walking the
     /// same argument tree a second time once the event is polled.
     /// `introduced`'s allocator and lifetime are the caller's.
+    ///
+    /// `recv_scratch` is still this call's own turn arena and is reset like the
+    /// other three recv entry points: the set-uniqueness fold
+    /// (`validate.checkInboundSetUniqueness`) materializes a set's elements
+    /// there to hash them for duplicate refusal, so without the reset that
+    /// scratch accumulates for the session's whole life under a stream of
+    /// set-carrying delivers. The reset is a different arena from the caller's
+    /// `introduced` record (backed by the caller's own allocator), so it leaves
+    /// that record intact; apply dupes anything session-lived onto
+    /// `self.allocator`, so it can never dangle a table row.
     pub fn recordInboundDeliverView(self: *Session, body: model.view.Body, introduced: *validate.IntroducedImports) !void {
         std.debug.assert(body == .deliver);
         try self.admitInState(body);
+        defer _ = self.recv_scratch.reset(.{ .retain_with_limit = steady_recv_scratch_bytes });
         try self.validateRecvView(body, introduced);
         try self.applyRecvView(body, introduced);
     }
@@ -710,7 +740,7 @@ pub const Session = struct {
         // Same turn-scratch introduced-import record as `recordRecvView`; the
         // fulfill payload is walked once in validation and apply consumes the
         // record.
-        defer _ = self.recv_scratch.reset(.retain_capacity);
+        defer _ = self.recv_scratch.reset(.{ .retain_with_limit = steady_recv_scratch_bytes });
         var introduced: validate.IntroducedImports = .init(self.recv_scratch.allocator());
         try validate.validateInboundResolve(self, resolve, &introduced);
         try self.applyRecvView(body, &introduced);
@@ -759,7 +789,7 @@ pub const Session = struct {
         return AnswerView.of(entry);
     }
 
-    /// Live inbound answer → Slot.
+    /// Live inbound answer to Slot.
     pub fn inboundAnswerSlot(self: *Session, id: model.AnswerPosition) ?slot.Slot {
         const cell = self.inbound_answers.getPtr(id) orelse return null;
         return cell.binding;
@@ -784,7 +814,7 @@ pub const Session = struct {
         return AnswerView.of(entry);
     }
 
-    /// Live outbound answer → Slot.
+    /// Live outbound answer to Slot.
     pub fn outboundAnswerSlot(self: *Session, id: model.AnswerPosition) ?slot.Slot {
         const cell = self.outbound_answers.getPtr(id) orelse return null;
         return cell.binding;
@@ -1107,8 +1137,10 @@ pub const Session = struct {
     pub const sturdyrefCacheLookup = sturdyref_cache.sturdyrefCacheLookup;
     pub const cacheSturdyrefEnlivenment = sturdyref_cache.cacheSturdyrefEnlivenment;
     pub const pendingEnlivenAnswer = sturdyref_cache.pendingEnlivenAnswer;
+    pub const pendingEnlivenSwissnum = sturdyref_cache.pendingEnlivenSwissnum;
     pub const notePendingEnliven = sturdyref_cache.notePendingEnliven;
     pub const finishPendingEnliven = sturdyref_cache.finishPendingEnliven;
+    pub const settlePendingEnlivenIntoCache = sturdyref_cache.settlePendingEnlivenIntoCache;
 };
 
 // Wire-delta GC accounting and structural well-formedness checks (ADR-0008):
@@ -1121,7 +1153,6 @@ pub const checkGcAnswerDecrement = gc.checkGcAnswerDecrement;
 pub const validateGcExport = gc.validateGcExport;
 pub const validateHandoffWellFormed = gc.validateHandoffWellFormed;
 
-/// Release the owned memory an `ImportedPromise` holds (host designator,
-/// listener-list backing, stored relayed resolution). Body in
-/// `imported_promise.zig`.
+/// Release the listen cell an `ImportedPromise` holds (host is `key_arena`-interned).
+/// Body in `imported_promise.zig`.
 pub const deinitImportedPromise = imported_promise.deinitImportedPromise;

@@ -8,7 +8,7 @@
 ;; Everything above it reads like an app:
 ;;
 ;;   (define d (room-connect "127.0.0.1:9099"))
-;;   (define room (room-subscribe (directory-conn d) (dir-enter d "general") "alice"))
+;;   (define room (room-subscribe (directory-session d) (dir-enter d "general") "alice"))
 ;;   (room-say room "hello")
 ;;   (for ([msg (in-room room)]) (printf "~a: ~a\n" (message-sender msg) (message-text msg)))
 ;;   (room-leave room)
@@ -23,7 +23,7 @@
 (require "../../_demo/bindings.rkt"
          "../../../../bindings/racket/pancake-iroh.rkt" ; IROH-REACH-* postures
          racket/string)
-(provide room-connect directory-conn dir-open dir-enter dir-list dir-watch
+(provide room-connect directory-session dir-open dir-enter dir-list dir-watch
          room-subscribe room-say room-leave in-room room-next
          (struct-out message) (struct-out presence))
 
@@ -110,13 +110,13 @@
 ;; `queue` is the mailbox the inbox actor (run inside the connection's serve
 ;; thread's feed) feeds and `room-next` reads; `serve` is that background
 ;; thread, so `room-leave` can be sure the pump winds down with the connection.
-(struct room (conn far queue [serve #:mutable]))
+(struct room (session far queue [serve #:mutable]))
 
 ;; The directory of rooms: the connection plus the directory's far reference.
 ;; `room-connect` dials and fetches it; `dir-open` / `dir-enter` send it the
 ;; strict verbs. `session-send` is synchronous: it returns the room reference or
 ;; raises a broken-vow exception whose message carries the reason.
-(struct directory (conn far))
+(struct directory (session far))
 
 (define (room-connect locator)
   (define c (dial locator))
@@ -124,23 +124,23 @@
 
 ;; Create a new room and return its reference. Raises if the name is taken.
 (define (dir-open d name)
-  (session-send (directory-conn d) (directory-far d) 'open name))
+  (session-send (directory-session d) (directory-far d) 'open name))
 
 ;; Return an existing room's reference. Raises if there is no such room.
 (define (dir-enter d name)
-  (session-send (directory-conn d) (directory-far d) 'enter name))
+  (session-send (directory-session d) (directory-far d) 'enter name))
 
 ;; The live rooms — the ones with people in them — as a list of `(name count)`
 ;; pairs. `list` and `watch` send the directory a list of `[name count]` pairs.
 (define (dir-list d)
-  (session-send (directory-conn d) (directory-far d) 'list))
+  (session-send (directory-session d) (directory-far d) 'list))
 
 ;; Follow the live room list: spawn an observer the directory calls back with
 ;; each change, register it, and return the current snapshot as a baseline.
 ;; `on-event` is called `(on-event kind name count)` on every open/close/count
 ;; change (`kind` is "opened", "closed", or "count").
 (define (dir-watch d on-event)
-  (define c (directory-conn d))
+  (define c (directory-session d))
   (define observer
     (session-spawn c
       (lambda (bcom)
@@ -185,13 +185,13 @@
 ;; Say a line to everyone in the room. The serve thread owns the reads; the
 ;; flush puts this thread's post on the wire now.
 (define (room-say a-room text)
-  (define c (room-conn a-room))
+  (define c (room-session a-room))
   (session-tell c (room-far a-room) 'post text)
   (session-flush! c))
 
 ;; Leave the room and close the connection; the serve thread ends with it.
 (define (room-leave a-room)
-  (session-close! (room-conn a-room))
+  (session-close! (room-session a-room))
   (define t (room-serve a-room))
   (when t (sync/timeout 1 (thread-dead-evt t))))
 

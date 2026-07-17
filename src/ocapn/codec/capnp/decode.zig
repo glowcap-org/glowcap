@@ -286,12 +286,91 @@ fn neutralReferenceView(reader: Reader, loc: StructLoc) Error!model.view.Referen
     };
 }
 
+fn hintEntryAt(reader: Reader, hl: model.view.HintList, index: usize) Error!model.HintEntry {
+    const data_words: u16 = @truncate(hl.w1 >> 16);
+    const ptr_words: u16 = @truncate(hl.w1);
+    const stride = @as(usize, data_words) + ptr_words;
+    const entry_loc = StructLoc{
+        .data_idx = @as(usize, @intCast(hl.w0)) + index * stride,
+        .data_words = data_words,
+        .ptr_words = ptr_words,
+    };
+    return decodeHintEntry(reader, entry_loc);
+}
+
+/// One frame-header parse, then every entry — the handshake / `toOwned` path.
+fn capnpMaterializeHintList(
+    allocator: std.mem.Allocator,
+    hl: model.view.HintList,
+    wire_form: model.Hints.WireForm,
+) model.view.Error!model.Hints {
+    const count: usize = @intCast(hl.w2);
+    if (count == 0) return .{ .wire_form = wire_form };
+    const reader = shared.readerFromFrame(hl.bytes) catch return error.MalformedView;
+    const entries = try allocator.alloc(model.HintEntry, count);
+    errdefer allocator.free(entries);
+    var initialized: usize = 0;
+    errdefer for (entries[0..initialized]) |entry| model.freeHintEntry(allocator, entry);
+    while (initialized < count) : (initialized += 1) {
+        const borrowed = hintEntryAt(reader, hl, initialized) catch return error.MalformedView;
+        const name = try allocator.dupe(u8, borrowed.name);
+        errdefer allocator.free(name);
+        entries[initialized] = .{
+            .name = name,
+            .value = try model.cloneHintValue(allocator, borrowed.value),
+        };
+    }
+    return .{ .entries = entries, .wire_form = wire_form };
+}
+
+fn decodeHintEntry(reader: Reader, loc: StructLoc) Error!model.HintEntry {
+    const data0 = try reader.dataWord(loc, 0);
+    const kind = try enumFromWire(shared.HintValueKind, data0);
+    const name = try borrowedData(reader, loc, 0);
+    const value: model.HintValue = switch (kind) {
+        .string => .{ .string = try borrowedData(reader, loc, 1) },
+        .bytes => .{ .bytes = try borrowedData(reader, loc, 1) },
+        .boolean => .{ .boolean = data0 & shared.data0_flag != 0 },
+        .integer => .{ .integer = @bitCast(try reader.dataWord(loc, 1)) },
+    };
+    return .{ .name = name, .value = value };
+}
+
 fn neutralPeerLocator(reader: Reader, loc: StructLoc) Error!model.view.PeerLocator {
     const empty_false = (try reader.dataWord(loc, 0)) & 1 != 0;
+    const wire_form: model.Hints.WireForm = if (empty_false) .boolean_false else .map;
+    const clist = (try compositeList(reader, loc, 2)) orelse {
+        return .{
+            .transport = try borrowedData(reader, loc, 0),
+            .designator = try borrowedData(reader, loc, 1),
+            .hints = .{ .empty = wire_form },
+        };
+    };
+    if (clist.element_count == 0) {
+        return .{
+            .transport = try borrowedData(reader, loc, 0),
+            .designator = try borrowedData(reader, loc, 1),
+            .hints = .{ .empty = wire_form },
+        };
+    }
+    // Cap'n Proto encodes hint entries on the PeerLocator; project them through
+    // a lazy list so borrowed decode stays allocation-free and `toOwned`
+    // materializes full fidelity (encode/decode symmetry for start-session).
     return .{
         .transport = try borrowedData(reader, loc, 0),
         .designator = try borrowedData(reader, loc, 1),
-        .hints = if (empty_false) model.Hints.emptyFalse() else model.Hints.emptyMap(),
+        .hints = .{
+            .lazy = .{
+                .wire_form = wire_form,
+                .list = .{
+                    .bytes = reader.bytes,
+                    .w0 = clist.tag_idx + 1,
+                    .w1 = (@as(u64, clist.data_words) << 16) | clist.ptr_words,
+                    .w2 = clist.element_count,
+                    .materialize = capnpMaterializeHintList,
+                },
+            },
+        },
     };
 }
 
@@ -333,7 +412,7 @@ fn neutralArgument(reader: Reader, loc: StructLoc) Error!model.view.Argument {
         // full inbound argument tree (every deliver arg and resolve-fulfill
         // value, nested through list/set/tagged/struct), so a duplicate-element
         // set is refused there. Order needs no check: a set is unordered, this
-        // codec re-canonicalizes on encode (`canonicalSetOrder`), and set
+        // codec re-canonicalizes on encode (`encodeArgumentSetList`), and set
         // equality is order-independent, so a non-canonically-ordered set is a
         // harmless spelling, not a distinct value.
         .set => .{ .set = try neutralArgsBacking(reader, loc, 0) },
@@ -418,11 +497,11 @@ fn neutralHandoffFromStruct(reader: Reader, loc: StructLoc) Error!model.view.Han
 }
 
 fn neutralHandoffGive(reader: Reader, loc: StructLoc) Error!model.view.HandoffGive {
+    const peer_loc = (try reader.followStruct(loc, 1)) orelse return Error.MalformedFrame;
+    const peer = try neutralPeerLocator(reader, peer_loc);
     return .{
         .recipient_key = try borrowedData(reader, loc, 0),
-        // Cap'n Proto carries the exporter location as opaque bytes and the
-        // signature contiguously (ADR-0026), so both are the `raw` arm.
-        .exporter_location = .{ .raw = try borrowedData(reader, loc, 1) },
+        .exporter = peer,
         .gifter_exporter_session = try borrowedData(reader, loc, 2),
         .gifter_side = try borrowedData(reader, loc, 3),
         .gift_id = try borrowedData(reader, loc, 4),

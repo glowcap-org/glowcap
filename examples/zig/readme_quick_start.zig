@@ -29,10 +29,10 @@ const Greeter = struct {
 /// The hosting half: accept one partner (the keyed handshake completes inside
 /// `accept`), publish the greeter by name, and serve until the partner leaves.
 fn host(server: *driver.Server) !void {
-    var conn = try server.accept();
-    defer conn.deinit();
-    _ = try conn.publish("greeter", Greeter, .{});
-    try conn.serve();
+    var session = try server.accept();
+    defer session.deinit();
+    _ = try session.publish("greeter", Greeter, .{});
+    try session.serve();
 }
 
 /// The client half, the README's Quick Start snippet, verbatim.
@@ -42,13 +42,19 @@ fn client(io: std.Io, allocator: std.mem.Allocator, designator: []const u8) !voi
     var tcp_resident = pancake.net.tcp.Resident{ .io = io };
     const partner = pancake.net.tcp.at(designator);
 
-    const conn = try pancake.driver.connect(allocator, &.{tcp_resident.netlayer()}, partner, .ephemeral, .{});
-    defer conn.deinit();
+    const session = try pancake.driver.connect(
+        allocator,
+        &.{tcp_resident.netlayer()},
+        partner,
+        .ephemeral,
+        .{},
+    );
+    defer session.deinit();
 
-    const greeter = try conn.fetch("greeter"); // a capability, by name
+    const greeter = try session.fetch("greeter"); // a capability, by name
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
-    const settled = try conn.call(greeter, .{
+    const settled = try session.call(greeter, .{
         .verb = "greet",
         .args = &.{.{ .string = "world" }},
     }, arena.allocator());

@@ -76,6 +76,13 @@ pub const HostError = error{
     /// (ADR-0075). `iroh` accepts may omit the hint (discovery can resolve by
     /// node id alone).
     MissingDirectAddressesHint,
+    /// A CapTP session for this partner identity is already enrolled (ADR-0012):
+    /// dial↔dial by our dialed designator, or a keyed dial whose designator is
+    /// a live verified partner session key. Crossed hellos may still open an
+    /// accepted session while a dial is in flight; after the partner key is
+    /// known the Host keeps at most one non-condemned session (ADR-0068 key
+    /// order collapses the race, including mismatched designator spellings).
+    SessionPairExists,
 };
 
 /// Map a served inbound resolve to the outcome `engine.Node.claimResolve`
@@ -95,14 +102,15 @@ fn redeemOutcome(resolve: model.view.Resolve) engine.Node.RedeemOutcome {
 }
 
 /// The served-reply interceptor body every host session shares: offer a
-/// fulfilled far capability to the node, which claims it when its recorded
-/// home is another session (the reply becomes a signed give; the node asks
-/// for gift-id entropy and originates it). A claimed reply returns `.claimed`
-/// — the vat resolves nothing — and anything else passes through unchanged for
-/// the vat to resolve as-is. Same-home token lowering is not this seam's job:
-/// the outbound chokepoint (`Peer.send`, ADR-0069) rewrites a node-local token
-/// to its wire reference. The actions the claim queued pump at the enclosing
-/// verb's unwind.
+/// fulfilled far capability to the node. A foreign **promise** token is
+/// rewritten to a third-party import-promise on this session (ADR-0009
+/// introducing-session proxy). A foreign **object** token whose home is
+/// another session becomes a signed give (`.claimed` — the vat resolves
+/// nothing; the node asks for gift-id entropy and originates it). Anything
+/// else passes through unchanged for the vat to resolve as-is. Same-home
+/// token lowering is not this seam's job: the outbound chokepoint
+/// (`Peer.send`, ADR-0069) rewrites a node-local token to its wire reference.
+/// The actions a claim queued pump at the enclosing verb's unwind.
 fn interceptFulfilled(
     node: *engine.Node,
     peer_id: engine.PeerId,
@@ -111,6 +119,11 @@ fn interceptFulfilled(
 ) !actors.InterceptOutcome {
     if (fulfilled != .reference or fulfilled.reference != .far) return .{ .resolve = fulfilled };
     const far_id = fulfilled.reference.far.import_position.int();
+    // Break reasons reach the wire via vat `@errorName`; Node uses snake_case
+    // (`session_not_open`) so the CapTP string is not Zig PascalCase.
+    if (try node.proxyForeignPromiseFulfill(peer_id, far_id)) |proxy| {
+        return .{ .resolve = .{ .reference = proxy } };
+    }
     if (try node.interceptFulfilledRef(peer_id, answer.int(), far_id)) return .claimed;
     return .{ .resolve = fulfilled };
 }
@@ -130,6 +143,10 @@ pub const HostSession = struct {
     /// Set when this session lost the crossed-hellos tiebreak: its typed
     /// abort is queued, and every verb refuses `ConnectionCondemned`.
     condemned: bool = false,
+    /// Partner session key this shell is indexed under in `Host.partner_by_key`,
+    /// set in `indexPartnerKey` (before apply writes `partnerSessionKey`).
+    /// Lets `unindexSession` stay O(1) without scanning the map.
+    indexed_partner_key: ?[crypto.PEER_KEY_BYTES]u8 = null,
 
     /// Which half of the handshake this session is, carrying the one datum
     /// only the dialing half has: the partner designator it dialed — the key
@@ -170,6 +187,17 @@ pub const Host = struct {
     /// the outbound before its hello moves; accepted CapTP sessions compare
     /// inbound start-sessions against it.
     hellos: CrossedHellos = .{},
+    /// CapTP partner session key → enrolled peer id (ADR-0012). O(1) lookup for
+    /// `refuseDuplicatePartnerKey` and keyed `refuseDuplicateDial`. GPA rows with
+    /// precise per-row frees on condemn / release — not a bump arena (rows leave
+    /// individually). Verified identity only: the handshake signature proves the
+    /// key; address-transport designators are never indexed here.
+    partner_by_key: std.AutoHashMapUnmanaged([crypto.PEER_KEY_BYTES]u8, engine.PeerId) = .{},
+    /// Our own dialed designator → peer id. Keys borrow `session.role.dialed`
+    /// (removed in `unindexSession` before those bytes free). O(1) dial↔dial
+    /// refuse; the dial target bytes are ones we chose, not partner-declared
+    /// location claims.
+    dialed_by_designator: std.StringHashMapUnmanaged(engine.PeerId) = .{},
     /// The host's own dialable designator, signed into every dial's
     /// start-session — what a partner's crossed-hellos table looks this host
     /// up by, and what its gives can name. Empty for a host that never
@@ -338,6 +366,8 @@ pub const Host = struct {
         }
         var free_it = self.sessions.valueIterator();
         while (free_it.next()) |session| {
+            // Drop index rows before freeing borrowed dialed-designator keys.
+            self.unindexSession(session.*);
             session.*.served.deinit();
             switch (session.*.role) {
                 .dialed => |designator| self.allocator.free(designator),
@@ -347,6 +377,8 @@ pub const Host = struct {
         }
         self.sessions.deinit(self.allocator);
         self.hellos.deinit(self.allocator);
+        self.partner_by_key.deinit(self.allocator);
+        self.dialed_by_designator.deinit(self.allocator);
         if (self.last_action) |last| host_action.freeAction(self.allocator, last);
         for (self.actions.unpopped()) |action| host_action.freeAction(self.allocator, action);
         self.actions.deinit(self.allocator);
@@ -418,6 +450,7 @@ pub const Host = struct {
         partner_designator: []const u8,
     ) !*HostSession {
         try self.refuseReentry();
+        try self.refuseDuplicateDial(partner_designator);
         // Register the outbound before any bytes move: a crossed inbound
         // start-session from the same partner must find this dial (ADR-0030).
         const our_pid = crypto.derivePublicIdentifier(self.node.secretKey().publicKey());
@@ -475,12 +508,119 @@ pub const Host = struct {
         return self.helloAndEnroll(try self.mintOver(peer, .accepted), transport, designator, direct_addresses_hint);
     }
 
+    /// The live, non-condemned session that already reaches `partner_designator`
+    /// (ADR-0012), or null. One authority two callers read: this host refuses a
+    /// duplicate app dial against a non-null result, and the node-action pump
+    /// reuses that session to redeem a give rather than dial a duplicate it would
+    /// then refuse. Match set: our dialed designator (bytes we chose), or — for
+    /// key-designator transports only — a live session whose verified partner
+    /// session key matches. A partner-declared `acceptable_location.designator`
+    /// on an address transport is never a match key: the hello signature proves
+    /// the claim, not ownership of a tcp `host:port`, so trusting it would let an
+    /// inbound peer squat dial availability. Dedup against an accepted tcp session
+    /// still runs after the newcomer's start-session via `refuseDuplicatePartnerKey`
+    /// (verified key); an accepted session racing an in-flight dial stays legal
+    /// for crossed hellos until start-session (ADR-0068).
+    pub fn liveSessionForDial(self: *const Host, partner_designator: []const u8) ?*HostSession {
+        if (self.liveIndexedSession(self.dialed_by_designator.get(partner_designator))) |s| return s;
+        if (crypto.PeerKey.fromDesignator(partner_designator)) |want| {
+            if (self.liveIndexedSession(self.partner_by_key.get(want.bytes))) |s| return s;
+        }
+        return null;
+    }
+
+    /// Refuse a new dial when a live session already reaches this partner.
+    fn refuseDuplicateDial(self: *const Host, partner_designator: []const u8) HostError!void {
+        if (self.liveSessionForDial(partner_designator) != null) return HostError.SessionPairExists;
+    }
+
+    /// After crossed-hellos tiebreak, keep at most one non-condemned session to
+    /// the same CapTP partner key (dual-accept settlement, or a dial that
+    /// slipped past pre-identity refuse). Survivor choice follows the ADR-0068
+    /// / crossed-hellos key order (`CrossedHellos.checkInbound`): both peers
+    /// independently keep the session the higher-keyed peer opened — dialed
+    /// when we are higher, accepted when we are lower — so a crossed pair that
+    /// missed designator-spelling tiebreak still collapses to the same session
+    /// on both ends rather than condemning by local arrival order. Same-role
+    /// duplicates (dual-accept) keep the already-indexed session and condemn
+    /// the newcomer.
+    fn refuseDuplicatePartnerKey(self: *Host, session: *HostSession, ss: model.view.StartSession) !void {
+        if (session.condemned) return;
+        const partner_key = crypto.PeerKey.fromSlice(ss.session_pubkey) catch return;
+        const existing_pid = self.partner_by_key.get(partner_key.bytes) orelse {
+            try self.indexPartnerKey(session, partner_key.bytes);
+            return;
+        };
+        const other = self.liveIndexedSession(existing_pid) orelse {
+            // Stale index row (session released without unindex); replace.
+            try self.indexPartnerKey(session, partner_key.bytes);
+            return;
+        };
+        if (other == session) return;
+
+        const our_pid = crypto.derivePublicIdentifier(self.node.secretKey().publicKey());
+        const partner_pid = crypto.derivePublicIdentifier(partner_key);
+        // Same rule as crossed hellos: not-lower aborts inbound / keeps dialed.
+        const we_are_lower = std.mem.order(u8, &our_pid.bytes, &partner_pid.bytes) == .lt;
+        const prefer_accepted = we_are_lower;
+
+        const loser: *HostSession = blk: {
+            const session_accepted = session.role == .accepted;
+            const other_accepted = other.role == .accepted;
+            if (session_accepted != other_accepted) {
+                const session_preferred = session_accepted == prefer_accepted;
+                break :blk if (session_preferred) other else session;
+            }
+            // Same role: keep the already-indexed session (stable under dual-accept).
+            break :blk session;
+        };
+        try host_pump.condemn(self, loser, .protocol_error, "session pair exists: duplicate CapTP partner identity");
+        if (loser == other) try self.indexPartnerKey(session, partner_key.bytes);
+    }
+
+    /// Index a live session under its verified partner session key. Replaces any
+    /// prior row for that key (caller condemned the previous holder). Reserves
+    /// its own slot: the partner key is unknown until the partner's
+    /// `op:start-session` arrives, so the reservation pairs 1:1 with this insert
+    /// rather than with the earlier mint (mints between start-sessions would
+    /// otherwise never grow the map, and a burst of un-indexed sessions would
+    /// overflow the mint reservation). Fails closed on OOM before apply.
+    fn indexPartnerKey(self: *Host, session: *HostSession, key: [crypto.PEER_KEY_BYTES]u8) !void {
+        try self.partner_by_key.ensureUnusedCapacity(self.allocator, 1);
+        self.partner_by_key.putAssumeCapacity(key, session.peer_id);
+        session.indexed_partner_key = key;
+    }
+
+    /// Drop this session from the partner-key and dialed-designator indexes.
+    /// Idempotent: safe when the session was never indexed.
+    pub fn unindexSession(self: *Host, session: *HostSession) void {
+        if (session.indexed_partner_key) |key| {
+            if (self.partner_by_key.get(key)) |pid| {
+                if (pid == session.peer_id) {
+                    std.debug.assert(self.partner_by_key.remove(key));
+                }
+            }
+            session.indexed_partner_key = null;
+        }
+        if (session.role == .dialed) {
+            // tolerant: condemn / a prior unindex may already have removed it.
+            _ = self.dialed_by_designator.remove(session.role.dialed);
+        }
+    }
+
+    fn liveIndexedSession(self: *const Host, peer_id: ?engine.PeerId) ?*HostSession {
+        const pid = peer_id orelse return null;
+        const session = self.sessions.get(pid) orelse return null;
+        if (session.condemned) return null;
+        return session;
+    }
+
     /// The shared open tail: sign the keyed hello under the host identity,
     /// enroll, queue the flush, pump. `errdefer failOpen` unwinds a failed hello.
     fn helloAndEnroll(self: *Host, session: *HostSession, transport: []const u8, designator: []const u8, direct_addresses_hint: []const u8) !*HostSession {
         errdefer self.failOpen(session);
         // A key-designator transport advertises its bound address as a hint
-        // (empty → `#f`, native `connectVia` dial; accept passes the bound
+        // (empty to `#f`, native `connectVia` dial; accept passes the bound
         // address and is refused earlier when it is missing). An address
         // transport signs no hints. `model.Hints.forDirectAddresses` owns the
         // `#f`-empty-vs-entry spelling every keyed hello shares.
@@ -511,6 +651,7 @@ pub const Host = struct {
         self.in_callback = false;
 
         if (session.role == .dialed) self.hellos.unregister(self.allocator, session.role.dialed);
+        self.unindexSession(session);
         std.debug.assert(self.sessions.remove(session.peer_id));
         const peer_id = session.peer_id;
         self.dropVowRows(peer_id);
@@ -530,6 +671,7 @@ pub const Host = struct {
     /// after this unwinds with `failOpen`.
     fn mint(self: *Host, role: HostSession.Role) !*HostSession {
         try self.sessions.ensureUnusedCapacity(self.allocator, 1);
+        if (role == .dialed) try self.dialed_by_designator.ensureUnusedCapacity(self.allocator, 1);
         const peer_id = try self.node.registerPeer(self.negotiatingOptions());
         errdefer self.node.removePeer(peer_id);
         return self.mintShell(self.node.peer(peer_id).?, peer_id, role);
@@ -543,6 +685,7 @@ pub const Host = struct {
     /// hold each peer inline, puts its sessions under one host.
     fn mintOver(self: *Host, peer: *engine.Peer, role: HostSession.Role) !*HostSession {
         try self.sessions.ensureUnusedCapacity(self.allocator, 1);
+        if (role == .dialed) try self.dialed_by_designator.ensureUnusedCapacity(self.allocator, 1);
         const peer_id = try self.node.registerPeerOver(peer);
         errdefer self.node.removePeer(peer_id);
         return self.mintShell(peer, peer_id, role);
@@ -580,17 +723,23 @@ pub const Host = struct {
     /// every inbound resolve to the node before the vat sees it (and
     /// auto-redeems gives), and the resolve interceptor turns a served reply
     /// that fulfills with a foreign-homed capability into a signed give.
-    /// Infallible: `mint` reserved the map slot.
+    /// Infallible: `mint` reserved the session map slot and, for dialed
+    /// sessions, the designator-index slot. Dialed sessions join the
+    /// designator index here (key borrows `role.dialed`).
     fn enroll(self: *Host, session: *HostSession) void {
         session.served.serve_options = .{ .hook_ctx = session, .before_serve = hostBeforeServe };
         session.served.vat.setResolveInterceptor(.{ .ctx = session, .func = hostResolveInterceptor });
         self.sessions.putAssumeCapacity(session.peer_id, session);
+        if (session.role == .dialed) {
+            self.dialed_by_designator.putAssumeCapacity(session.role.dialed, session.peer_id);
+        }
     }
 
     /// Unwind a failed open: retire the session id (running the node's
     /// fail-closed sweep) and free the shell. The dialed designator, when the
     /// caller already duped it, is the caller's own errdefer.
     fn failOpen(self: *Host, session: *HostSession) void {
+        self.unindexSession(session);
         // tolerant: enrolled only when the failure came after `enroll`.
         _ = self.sessions.remove(session.peer_id);
         const peer_id = session.peer_id;
@@ -672,8 +821,8 @@ pub const Host = struct {
     /// interceptor run, settle listeners fire under the callback latch, and
     /// the node pump runs at the unwind.
     ///
-    /// The batch subtlety: the unwind's pump (`drainWork` → `Served.driveFed`
-    /// → `drainEvents`) polls and serves every event *still queued* on this
+    /// The batch subtlety: the unwind's pump (`drainWork`, then `Served.driveFed`,
+    /// then `drainEvents`) polls and serves every event *still queued* on this
     /// session's peer, so a loop's per-event hook typically fires once per
     /// inbound batch — its own `pollEvent` loop then finds null. That is
     /// correct, not lossy: every event is served through the one
@@ -731,8 +880,14 @@ pub const Host = struct {
         return self.actions.pop();
     }
 
+    /// Borrow the in-flight pending dial for `ticket`, or null if settled.
+    /// Same contract as `Node.pendingDial`.
+    pub fn pendingDial(self: *const Host, ticket: engine.Node.PendingId) ?engine.Node.PendingDialView {
+        return self.node.pendingDial(ticket);
+    }
+
     /// Report a `dial` action's success: `session` is an `openDialedLocator`
-    /// against that action's locator parts, driven to an open session. The
+    /// against that ticket's pending locator, driven to an open session. The
     /// node withdraws every give waiting on the ticket; the withdraws and
     /// their flushes pump inside this call. A stale ticket is a no-op.
     pub fn exporterDialed(self: *Host, ticket: engine.Node.PendingId, session: *HostSession) !void {
@@ -832,7 +987,7 @@ pub const Host = struct {
             // answer, so a concurrent duplicate is refused `AlreadyListening`
             // rather than parked where it could never fire.
             .in_flight => |answer| {
-                const id = try self.mintEnlivenVow(session, swissnum, answer);
+                const id = try self.mintEnlivenVow(session, answer);
                 try host_pump.finishVerb(self);
                 return id;
             },
@@ -843,7 +998,7 @@ pub const Host = struct {
                     peer.finishPendingEnliven(swissnum);
                     return err;
                 };
-                const id = self.mintEnlivenVow(session, swissnum, prepared.answer_position) catch |err| {
+                const id = self.mintEnlivenVow(session, prepared.answer_position) catch |err| {
                     peer.finishPendingEnliven(swissnum);
                     return err;
                 };
@@ -912,6 +1067,12 @@ pub const Host = struct {
     /// vow for the unwrapped payload.
     pub fn vowUntag(self: *Host, vow_id: u64, tag: []const u8) !u64 {
         return self.vowProjection(vow_id, .{ .untag = tag });
+    }
+
+    /// Pipeline an `op:get` projection against a far host vow, minting a new
+    /// vow for the named Struct field (ADR-0050).
+    pub fn vowGet(self: *Host, vow_id: u64, field: []const u8) !u64 {
+        return self.vowProjection(vow_id, .{ .get = field });
     }
 
     /// Release `delta` references on the fetched capability `token` holds: the
@@ -1008,17 +1169,15 @@ pub const Host = struct {
     }
 
     /// Mint the host vow behind a wire-riding enliven: the row (whose vat
-    /// listener slot the bridge holds instead) plus the bridge that owns the
-    /// swissnum copy and does the session bookkeeping before it settles the
-    /// row.
-    fn mintEnlivenVow(self: *Host, session: *HostSession, swissnum: []const u8, answer: model.AnswerPosition) !u64 {
-        const owned = try self.allocator.dupe(u8, swissnum);
-        errdefer self.allocator.free(owned);
+    /// listener slot the bridge holds instead) plus the bridge that keys on the
+    /// wire answer and borrows the session-owned swissnum when the resolution
+    /// arrives.
+    fn mintEnlivenVow(self: *Host, session: *HostSession, answer: model.AnswerPosition) !u64 {
         const bridge = try self.allocator.create(EnlivenListener);
         errdefer self.allocator.destroy(bridge);
         const row = try self.createVowRow(session, .{ .far = answer }, .plain);
         errdefer self.allocator.destroy(row);
-        bridge.* = .{ .host = self, .peer_id = session.peer_id, .swissnum = owned, .vow_id = row.id };
+        bridge.* = .{ .host = self, .peer_id = session.peer_id, .answer = answer, .vow_id = row.id };
         try session.served.vat.on(.{ .far = answer }, .{ .ctx = bridge, .func = EnlivenListener.fire });
         self.vows.putAssumeCapacity(row.id, row);
         self.next_vow += 1;
@@ -1179,7 +1338,7 @@ pub const Host = struct {
         };
     }
 
-    const Projection = union(enum) { index: i64, untag: []const u8 };
+    const Projection = union(enum) { index: i64, untag: []const u8, get: []const u8 };
 
     fn vowProjection(self: *Host, vow_id: u64, projection: Projection) !u64 {
         self.assertOwner();
@@ -1197,6 +1356,7 @@ pub const Host = struct {
         switch (projection) {
             .index => |index| try peer.sendCopying(.{ .index = .{ .receiver = receiver, .index = index, .answer = answer } }),
             .untag => |tag| try peer.sendCopying(.{ .untag = .{ .receiver = receiver, .tag = tag, .answer = answer } }),
+            .get => |field| try peer.sendCopying(.{ .get = .{ .receiver = receiver, .field = field, .answer = answer } }),
         }
         const id = try self.mintVow(session, .{ .far = answer }, .plain);
         try host_pump.dirtyThenPump(self, session.peer_id);
@@ -1212,11 +1372,12 @@ pub const Host = struct {
 
     /// The before-serve hook on every host CapTP session. Three arms, in order:
     /// an inbound start-session on an accepted session runs the
-    /// crossed-hellos tiebreak (and never skips serve); a resolve fulfilling
-    /// with a signed handoff give is auto-redeemed — the node accepts it and
-    /// the vat never sees a raw give, so the vow later settles with the
-    /// routable token; any other resolve is offered to the node, which claims
-    /// it when it settles a pending withdraw.
+    /// crossed-hellos tiebreak and partner-key refuse (skipping serve when
+    /// this session is condemned); a resolve fulfilling with a signed handoff
+    /// give is auto-redeemed — the node accepts it and the vat never sees a
+    /// raw give, so the vow later settles with the routable token; any other
+    /// resolve is offered to the node, which claims it when it settles a
+    /// pending withdraw.
     fn hostBeforeServe(ctx: ?*anyopaque, served: *Served, event: *engine.Event) anyerror!bool {
         _ = served;
         const session: *HostSession = @ptrCast(@alignCast(ctx.?));
@@ -1224,31 +1385,38 @@ pub const Host = struct {
         const body = event.view() catch return false;
         if (body == .start_session) {
             if (session.role == .accepted) try host.tiebreakInbound(session, body.start_session);
-            return false;
+            // After tiebreak (or when there was no crossed dial), keep at most
+            // one non-condemned session per CapTP partner key (ADR-0012).
+            try host.refuseDuplicatePartnerKey(session, body.start_session);
+            // Condemnation must skip apply: a duplicate/tiebreak loser must not
+            // learn partner key / open the session on this same feed turn.
+            return session.condemned;
         }
+        // Introducing-session proxy: a home-session listen fire for a
+        // re-exported foreign promise is Node choreography, not a vat deliver.
+        if (try claimProxyListenerFire(host, session.peer_id, body)) return true;
         if (body != .resolve) return false;
         const resolve = body.resolve;
         if (resolve.resolution == .fulfill) {
             const value = resolve.resolution.fulfill;
             if (value == .handoff and value.handoff == .give) {
-                var give_bytes: []const u8 = "";
-                var locator_uri: ?[]u8 = null;
-                if (engine.spanSignedHandoffGive(event.bytes())) |span| {
-                    give_bytes = span;
-                    locator_uri = engine.handoff_recipient.exporterLocatorUri(
-                        host.allocator,
-                        value.handoff.give.exporter_location,
-                    ) catch |err| switch (err) {
-                        error.OutOfMemory => return error.OutOfMemory,
-                        error.MalformedLocatorRecord => null,
-                    };
-                }
-                defer if (locator_uri) |uri| host.allocator.free(uri);
-                // An unprojectable give (no verbatim span, no dialable
-                // locator) is still claimed: `acceptGive` fails the answer
-                // closed on the empty locator, so the vow breaks instead of
-                // surfacing a raw give no settle listener has an arm for.
-                try host.node.acceptGive(session.peer_id, resolve.answer.int(), give_bytes, locator_uri orelse "");
+                var projected = try engine.handoff_recipient.projectGiveForRedeem(
+                    host.allocator,
+                    event.bytes(),
+                    value.handoff.give,
+                );
+                defer projected.deinit(host.allocator);
+                // A give whose locator no longer projects still claims:
+                // `acceptGive` fails the answer closed on the empty locator, so
+                // the vow breaks instead of surfacing a raw give no settle
+                // listener has an arm for.
+                const locator = switch (projected.locator) {
+                    .uri => |uri| uri,
+                    .absent, .malformed => "",
+                };
+                // Empty give octets when projection failed: `acceptGive` fails
+                // the answer closed instead of surfacing a raw give.
+                try host.node.acceptGive(session.peer_id, resolve.answer.int(), projected.bytes() orelse "", locator);
                 return true;
             }
         }
@@ -1260,6 +1428,23 @@ pub const Host = struct {
         // A claim's `need_gift_id` and flush actions pump at the enclosing
         // feed's unwind; nothing blocks here.
         return interceptFulfilled(&session.host.node, session.peer_id, answer, fulfilled);
+    }
+
+    /// Claim an inbound deliver that fires a Node proxy home-listener export
+    /// (ADR-0009). True when the node relayed; false leaves the event for the vat.
+    /// Peeks before materializing so ordinary listen fires pay no deep clone on
+    /// the miss path. Once the export is a proxy listener, malformed resolver
+    /// args fail closed (never fall through to the vat).
+    fn claimProxyListenerFire(host: *Host, peer_id: engine.PeerId, body: model.view.Body) !bool {
+        if (body != .deliver) return false;
+        const deliver = body.deliver;
+        const export_pos = switch (deliver.target) {
+            .near => |near| near.export_position.int(),
+            else => return false,
+        };
+        if (!host.node.isProxyHomeListener(peer_id, export_pos)) return false;
+        const view_res = try engine.events.resolutionFromResolverCallback(deliver.args);
+        return try host.node.claimProxyListenerFire(host.allocator, peer_id, export_pos, view_res);
     }
 
     /// Run the crossed-hellos tiebreak for an inbound start-session on an
@@ -1279,51 +1464,45 @@ pub const Host = struct {
             return;
         }
         // Strictly lower: our own dial to this partner is the loser; the pair
-        // keeps this accepted session.
-        var it = self.sessions.valueIterator();
-        while (it.next()) |candidate| {
-            if (candidate.*.role == .dialed and !candidate.*.condemned and
-                std.mem.eql(u8, candidate.*.role.dialed, designator))
-            {
-                try host_pump.condemn(self, candidate.*, .crossed_hellos, "crossed hellos: lower-keyed side aborting its outbound session");
-            }
+        // keeps this accepted session. `dialed_by_designator` is the O(1)
+        // index (populated at enroll); do not rescan every live session.
+        if (self.liveIndexedSession(self.dialed_by_designator.get(designator))) |candidate| {
+            try host_pump.condemn(self, candidate, .crossed_hellos, "crossed hellos: lower-keyed side aborting its outbound session");
         }
     }
 };
 
 /// The host-owned one-shot behind a wire-riding `Host.enliven`: record the
 /// enlivenment in the session's dedup cache (or clear the in-flight marker on
-/// a break) before the outcome reaches the vow, then free itself and its
-/// owned swissnum copy. It holds the answer's one vat listener slot; the vow
-/// row it settles routes the outcome to `vowOn`'s listener or the action
-/// queue like any other settlement.
+/// a break) before the outcome reaches the vow, then free itself. It holds the
+/// answer's one vat listener slot; the vow row it settles routes the outcome
+/// to `vowOn`'s listener or the action queue like any other settlement.
 const EnlivenListener = struct {
     host: *Host,
     peer_id: engine.PeerId,
-    swissnum: []const u8,
+    answer: model.AnswerPosition,
     vow_id: u64,
 
     fn fire(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         const bridge: *EnlivenListener = @ptrCast(@alignCast(ctx.?));
         const host = bridge.host;
         const vow_id = bridge.vow_id;
-        defer {
-            host.allocator.free(bridge.swissnum);
-            host.allocator.destroy(bridge);
-        }
+        defer host.allocator.destroy(bridge);
         // A session already released (this fire is its teardown break)
         // has no session to bookkeep; the vow still settles.
         if (host.sessions.get(bridge.peer_id)) |session| {
             const peer = session.served.peer;
-            if (resolution == .fulfilled and resolution.fulfilled == .reference and resolution.fulfilled.reference == .far) {
-                // The far is POD; `recordEnlivenment` caches it and clears
-                // the in-flight marker. It only errors on a non-far/broken
-                // outcome, which a `.far` fulfillment never is.
-                _ = engine.sturdyref.recordEnlivenment(peer.allocator, &peer.session_state, bridge.swissnum, .{
-                    .fulfilled = .{ .far = resolution.fulfilled.reference.far },
-                }) catch {};
-            } else {
-                peer.finishPendingEnliven(bridge.swissnum);
+            if (peer.session_state.pendingEnlivenSwissnum(bridge.answer)) |swissnum| {
+                if (resolution == .fulfilled and resolution.fulfilled == .reference and resolution.fulfilled.reference == .far) {
+                    // The far is POD; `recordEnlivenment` caches it and clears
+                    // the in-flight marker. It only errors on a non-far/broken
+                    // outcome, which a `.far` fulfillment never is.
+                    _ = engine.sturdyref.recordEnlivenment(peer.allocator, &peer.session_state, swissnum, .{
+                        .fulfilled = .{ .far = resolution.fulfilled.reference.far },
+                    }) catch unreachable;
+                } else {
+                    peer.finishPendingEnliven(swissnum);
+                }
             }
         }
         host.fireVow(vow_id, resolution);

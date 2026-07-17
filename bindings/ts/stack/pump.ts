@@ -121,15 +121,32 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
  * delimiter: the session's codec splits each complete frame off the front —
  * both codecs, both frame shapes, the frame cap enforced during the scan —
  * and dispatches it (behavior trampolines fire and completions queue
- * inside), then the actions the dispatch queued drain. Only the unconsumed
- * tail stays in the inbox. The input buffer is borrowed for exactly one
- * call; the tail is JS-owned storage. */
+ * inside), then the actions the dispatch queued drain. Steady state (empty
+ * inbox) borrows the chunk for one synchronous feed — zero-copy; only when a
+ * partial frame already straddles two reads is the burst coalesced into the
+ * inbox. Only the unconsumed tail stays in the inbox (copied out of the read
+ * buffer so the next read can reuse it). */
 export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
+	if (h.released) return;
+	if (h.inbox.length === 0) {
+		if (chunk.length === 0) return;
+		const out = new Uint8Array(8);
+		const rc = driverS.pancake_host_session_feed_bytes(
+			h.ptr,
+			ab(chunk),
+			BigInt(chunk.length),
+			ab(out),
+		);
+		if (rc !== OK) await raiseFeedRefusal(h, rc);
+		const consumed = Number(new DataView(out.buffer).getBigUint64(0, true));
+		if (consumed < chunk.length) {
+			h.inbox = chunk.subarray(consumed).slice();
+		}
+		h.drainParkedReleases();
+		await h.kickActions();
+		return;
+	}
 	appendInbox(h, chunk);
-	// One call: the core delimits and dispatches every complete frame in
-	// the buffer itself, stops at a partial tail, and during the handshake
-	// stops at the frame that opens the session.
-	if (h.inbox.length === 0 || h.released) return;
 	const out = new Uint8Array(8);
 	const rc = driverS.pancake_host_session_feed_bytes(
 		h.ptr,
@@ -144,13 +161,9 @@ export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 	await h.kickActions();
 }
 
-/** Grow or replace the inbox with freshly read bytes. */
+/** Coalesce freshly read bytes into a non-empty inbox (the one copy on the
+ * inbound path, paid only while a partial frame is pending). */
 export function appendInbox(h: PumpHandle, bytes: Uint8Array): void {
-	if (h.inbox.length === 0) {
-		// Copy out of the read buffer so the next read can reuse it.
-		h.inbox = bytes.slice();
-		return;
-	}
 	const grown = new Uint8Array(h.inbox.length + bytes.length);
 	grown.set(h.inbox, 0);
 	grown.set(bytes, h.inbox.length);

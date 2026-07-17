@@ -41,7 +41,7 @@ export async function runClient(
 	timeoutMs = 10000,
 ): Promise<string[]> {
 	const dir = await Directory.connect(locator);
-	const conn = dir.conn;
+	const session = dir.session;
 	// Discovery: show the rooms that already have people in them before we enter.
 	const live = await dir.list();
 	console.log(
@@ -63,13 +63,13 @@ export async function runClient(
 	function maybePost(): void {
 		if (!posted && roster.every((n) => present.has(n))) {
 			posted = true;
-			conn.send(room, POST, [line]).catch(() => {});
+			session.send(room, POST, [line]).catch(() => {});
 		}
 	}
 
 	// The inbox the room calls back on. A system line may carry a structured
 	// presence change after its text; an ordinary chat line does not.
-	const inbox = conn.spawn((verb, args) => {
+	const inbox = session.spawn((verb, args) => {
 		if (verb !== NOTIFY) throw new Error(`inbox has no method ${verb}`);
 		const from = typeof args[0] === "string" ? args[0] : "?";
 		const text = typeof args[1] === "string" ? args[1] : "";
@@ -95,7 +95,7 @@ export async function runClient(
 	// Subscribe, handing the room a capability to our inbox. Success is the
 	// resolution; the room delivers the welcome and roster as our first `notify`
 	// (the roster line), not as a return value.
-	await conn.send(room, SUBSCRIBE, [nick, inbox]);
+	await session.send(room, SUBSCRIBE, [nick, inbox]);
 	maybePost();
 
 	let timer: ReturnType<typeof setTimeout> | undefined;
@@ -106,7 +106,7 @@ export async function runClient(
 		await Promise.race([done, timeout]);
 	} finally {
 		if (timer !== undefined) clearTimeout(timer);
-		conn.close();
+		session.close();
 	}
 
 	if (seen.size < roster.length) {

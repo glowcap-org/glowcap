@@ -40,13 +40,13 @@ actor from `grant`:
 
 ```typescript
 // coordinator
-if (verb === GRANT) return conn.spawn(toolFor(name));
+if (verb === GRANT) return session.spawn(toolFor(name));
 ```
 
 ```typescript
 // agent
-const clock = await conn.send(tools, "grant", ["clock"]);
-const now = await conn.send(clock, "now"); // an ordinary call; clock is a capability
+const clock = await session.send(tools, "grant", ["clock"]);
+const now = await session.send(clock, "now"); // an ordinary call; clock is a capability
 ```
 
 The agent received a reference it can call. It did not receive a URL, a token,
@@ -93,8 +93,8 @@ registry of who-can-do-what.
 The point above is that attenuation and revocation need _no special API_. They
 are ordinary closures over a capability. Because the pattern is so load-bearing,
 pancake also ships it as a forwarding proxy so you do not have to write the
-closure (ADR-0064): `conn.attenuate(tool, ["read"])` returns a read-only proxy,
-and `conn.caretaker(tool)` returns a proxy plus a `revoke` lever. They wrap _any_
+closure (ADR-0064): `session.attenuate(tool, ["read"])` returns a read-only proxy,
+and `session.caretaker(tool)` returns a proxy plus a `revoke` lever. They wrap _any_
 reference, including one imported over the wire, so a coordinator can hand out an
 attenuated or revocable view of authority it does not even own locally. This demo
 keeps the hand-rolled version on purpose, to show the mechanism is just code,

@@ -1,6 +1,6 @@
 ---
 description: "Documentation voice for Zig pancake: first-read docs, doc comments, and example narration read as speech, not notation."
-globs: **/*.md, src/**/*.zig, examples/**
+globs: **/*.md, src/**/*.zig, examples/**, test/**/*.zig, interop/**/*.zig, bench/**/*.zig, conformance/**/*.zig
 ---
 
 # pancake — Documentation Voice
@@ -12,7 +12,7 @@ executor. Do not mix the two voices.
 
 | Audience | Surfaces |
 | -------- | -------- |
-| Humans | `README.md`, top-level `docs/*.md`, `docs/protocol-diagrams/**`, `site/content/**`, binding and example READMEs, Zig `//!` / `///` on public APIs, example narration |
+| Humans | `README.md`, top-level `docs/*.md`, `docs/protocol-diagrams/**`, **all** authored `site/content/**`, binding and example READMEs, **all** of `examples/**` (chapters, apps, demos), interop and bench driver narration, test module `//!` headers, Zig `//!` / `///` on public APIs and `cli/`, `.devcontainer/README.md` |
 | Agents | `.agents/**`, plus root `AGENTS.md` / `CLAUDE.md` as agent entry points |
 
 CapTP vocabulary cheat-sheets (symbol maps, “sticky note” dumps) live in the
@@ -23,7 +23,18 @@ a decision needs a record. `zig build meta-check` bans the literal
 
 ADRs under `docs/decisions/adr/**` stay precise memos. Planning docs under
 `docs/planning/**` declare their own role. Ordinary inline comments inside
-function bodies are not bound by this rule.
+function bodies are not bound by this rule. Module `//!` headers on examples,
+apps, interop drivers, benches, and tests are bound: they are how a human finds
+the scenario. Keep them speech-readable.
+
+**Completion bar.** Every human surface above must meet this rule (or better).
+Unfinished voice on a touched surface is unfinished work, not taste.
+`zig build meta-check` (`checkHumanDocVoice`) bans high-signal regressions on
+those paths: the `CapTP sticky note` label, agent-scaffold needles (`Meta
+scaffolding`, `next audit`), self-praise (`deliberately boring` / `boring on
+purpose`), connective `→`/`⇒` outside fenced code, and `.agents/` links on
+product first-read pages (`CONTRIBUTING.md` and `.devcontainer/README.md` may
+still route contributors to executor rules).
 
 ## What This Rule Governs
 
@@ -103,9 +114,21 @@ These are the tells that prose has drifted into a private notation:
   the form in owned Markdown and Zig comments (rustdoc resolves it, so
   `bindings/rust` keeps it).
 
-## When You Touch A Doc
+## Insider Words
 
-Read the surrounding lines first, and match a voice that already reads like
-speech. If the file you are editing is itself written in the shorthand above,
-fix the lines you touch instead of matching the drift, and leave the file a
-little more readable than you found it.
+Do not write as if every reader already works in this repository. Prefer plain
+words in human prose; keep build-step and path names as identifiers and gloss
+them once.
+
+| Insider word | Prefer in prose |
+| ------------ | --------------- |
+| gate / gates | build check, check step, verification; verb: checks, covers, holds |
+| hermetic | in-tree, self-contained, no network or external services |
+| oracle (metaphor) | reference, source of truth, reference corpus / fixtures |
+| dogfood | binding check; “exercises the C ABI as a real consumer” |
+| living-state | docs that must match today's code |
+| rung | step on the ladder (introduce the ladder metaphor first) |
+
+Keep identifiers unchanged when they are real names: `zig build oracle-check`,
+`test/oracle/`, `*-dogfood`, `tools/check/`. Gloss them: “`zig build oracle-check`
+(protocol reference fixtures)” rather than “the oracle gate.”

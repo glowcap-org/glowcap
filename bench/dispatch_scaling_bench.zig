@@ -1,4 +1,4 @@
-//! Inbound dispatch cost across N live peers — the cold-cache regime.
+//! Inbound dispatch cost across N live peers in the cold-cache regime.
 //!
 //! `bench-codec`'s dispatch figure drives one peer whose session struct and
 //! tables stay resident in L1, so it measures the warm per-turn CPU floor. A
@@ -6,7 +6,7 @@
 //! turn lands on a peer whose session state was evicted while the other
 //! connections took their turns, so the realistic per-turn cost includes the
 //! cache misses of touching that state cold. This benchmark measures exactly
-//! that: it stands up N warmed peers (cheap, sans-io — the same construction
+//! that: it stands up N warmed peers (cheap, sans-io, the same construction
 //! `bench-peer-scaling` weighs), round-robins one inbound `op:deliver` through
 //! each, and reports ns/turn as N grows from one L1-resident peer to a
 //! hundred thousand.

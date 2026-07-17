@@ -21,6 +21,7 @@ const std = @import("std");
 
 const foundation = @import("foundation");
 const model = @import("model");
+const codec_order = @import("codec_order");
 
 const shared = @import("shared.zig");
 
@@ -122,12 +123,12 @@ pub fn renderRecordExact(
 }
 
 pub fn encodeMessage(allocator: std.mem.Allocator, message: model.Message) EncodeError!foundation.Frame {
-    return encodeMessageForProfile(allocator, model.WireProfile.v1_0, message);
+    return encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, message);
 }
 
 pub fn encodeMessageForProfile(
     allocator: std.mem.Allocator,
-    profile: model.WireProfile,
+    profile: model.CaptpVersion,
     message: model.Message,
 ) EncodeError!foundation.Frame {
     const storage = try renderRecordExact(allocator, writeMessage, .{ allocator, profile, message });
@@ -139,7 +140,7 @@ pub fn encodeMessageForProfile(
 fn writeMessage(
     sink: anytype,
     allocator: std.mem.Allocator,
-    profile: model.WireProfile,
+    profile: model.CaptpVersion,
     message: model.Message,
 ) WalkError!void {
     switch (message) {
@@ -155,15 +156,15 @@ fn writeMessage(
             // one-way record on the wire.
             try beginRecord(sink);
             try writeSymbol(sink, shared.messageOp(.deliver));
-            try writeTargetReference(sink, deliver.target);
+            try writeTargetReference(allocator, sink, deliver.target);
             try writeArgumentList(allocator, sink, deliver.args);
             if (deliver.answer) |answer| {
                 try writePositiveInt(sink, answer.int());
             } else {
                 try writeBool(sink, false);
             }
-            if (profile.captp_version == .v1_0 and deliver.resolve_me_desc != null) {
-                try writePayloadReference(sink, deliver.resolve_me_desc.?);
+            if (profile == .v1_0 and deliver.resolve_me_desc != null) {
+                try writePayloadReference(allocator, sink, deliver.resolve_me_desc.?);
             } else {
                 try writeBool(sink, false);
             }
@@ -205,7 +206,7 @@ fn writeMessage(
         .get => |get| {
             try beginRecord(sink);
             try writeSymbol(sink, shared.messageOp(.get));
-            try writeTargetReference(sink, get.receiver);
+            try writeTargetReference(allocator, sink, get.receiver);
             // The field name is a String on the wire (CapTP § op:get; Goblins
             // guards `string?` on receipt), not a Symbol.
             try writeString(sink, get.field);
@@ -215,7 +216,7 @@ fn writeMessage(
         .index => |index| {
             try beginRecord(sink);
             try writeSymbol(sink, shared.messageOp(.index));
-            try writeTargetReference(sink, index.receiver);
+            try writeTargetReference(allocator, sink, index.receiver);
             try writeInteger(sink, index.index);
             try writePositiveInt(sink, index.answer.int());
             try endRecord(sink);
@@ -223,7 +224,7 @@ fn writeMessage(
         .untag => |untag| {
             try beginRecord(sink);
             try writeSymbol(sink, shared.messageOp(.untag));
-            try writeTargetReference(sink, untag.receiver);
+            try writeTargetReference(allocator, sink, untag.receiver);
             // The expected tag is a String on the wire (CapTP § op:untag),
             // matching op:get's field-name choice.
             try writeString(sink, untag.tag);
@@ -233,9 +234,9 @@ fn writeMessage(
         .listen => |listen| {
             try beginRecord(sink);
             try writeSymbol(sink, shared.messageOp(.listen));
-            try writePayloadReference(sink, listen.target);
-            try writePayloadReference(sink, listen.listener);
-            if (profile.captp_version == .v1_0) {
+            try writePayloadReference(allocator, sink, listen.target);
+            try writePayloadReference(allocator, sink, listen.listener);
+            if (profile == .v1_0) {
                 try writeBool(sink, listen.wants_partial);
             }
             try endRecord(sink);
@@ -253,7 +254,7 @@ fn writeMessage(
             try writeSignature(sink, start_session.acceptable_location_sig.bytes);
             try endRecord(sink);
         },
-        .handoff => |handoff| try writeHandoff(sink, handoff),
+        .handoff => |handoff| try writeHandoff(allocator, sink, handoff),
     }
 }
 
@@ -353,9 +354,9 @@ fn writeArgument(allocator: std.mem.Allocator, sink: anytype, arg: model.Argumen
     switch (arg) {
         .bytes => |bytes| try writeBytes(sink, bytes),
         .symbol => |symbol| try writeSymbol(sink, symbol),
-        .reference => |reference| try writePayloadReference(sink, reference),
+        .reference => |reference| try writePayloadReference(allocator, sink, reference),
         .string => |string| try writeString(sink, string),
-        .handoff => |handoff| try writeHandoff(sink, handoff.*),
+        .handoff => |handoff| try writeHandoff(allocator, sink, handoff.*),
         .integer => |integer| try writeInteger(sink, integer),
         .float64 => |value| try writeFloat64(sink, value),
         .boolean => |value| try writeBool(sink, value),
@@ -448,16 +449,14 @@ fn writeCanonicalCollection(
         built += 1;
     }
 
-    std.mem.sort([]u8, encoded, {}, lessByteSlice);
+    std.mem.sort([]u8, encoded, {}, codec_order.lessByteSliceMut);
     if (comptime refuse_adjacent_dupes) {
         // The decoder rejects a set whose elements are not strictly ascending,
         // which a duplicate violates, so an encoder that emitted one would ship a
         // frame pancake's own decoder rejects. A set element is its whole value,
         // so two equal elements encode to equal bytes and land adjacent after the
         // sort — one linear pass finds a duplicate.
-        for (encoded[1..], 1..) |element, i| {
-            if (std.mem.eql(u8, encoded[i - 1], element)) return Error.UnsupportedArgument;
-        }
+        try codec_order.refuseAdjacentEqualKeysMut(WalkError, encoded);
     }
     for (encoded) |element| try sink.appendSlice(element);
 }
@@ -470,14 +469,6 @@ fn writeCanonicalSet(allocator: std.mem.Allocator, sink: anytype, items: []const
     try writeCanonicalCollection(model.Argument, allocator, sink, items, true, writeArgument);
 }
 
-fn lessByteSlice(_: void, a: []u8, b: []u8) bool {
-    return std.mem.lessThan(u8, a, b);
-}
-
-fn lessConstByteSlice(_: void, a: []const u8, b: []const u8) bool {
-    return std.mem.lessThan(u8, a, b);
-}
-
 /// Refuse a struct carrying two entries with the same key. Sorts a shallow copy
 /// of the keys so a repeat is an adjacent pair, an O(n log n) pass over the
 /// borrowed key slices with no value encoding.
@@ -486,11 +477,8 @@ fn refuseDuplicateStructKeys(allocator: std.mem.Allocator, entries: []const mode
     const keys = try allocator.alloc([]const u8, entries.len);
     defer allocator.free(keys);
     for (entries, 0..) |entry, i| keys[i] = entry.key;
-    std.mem.sort([]const u8, keys, {}, lessConstByteSlice);
-    var i: usize = 1;
-    while (i < keys.len) : (i += 1) {
-        if (std.mem.eql(u8, keys[i - 1], keys[i])) return Error.UnsupportedArgument;
-    }
+    std.mem.sort([]const u8, keys, {}, codec_order.lessByteSlice);
+    try codec_order.refuseAdjacentEqualKeys(WalkError, keys);
 }
 
 /// The per-entry writer for a struct: its String key followed by its value.
@@ -520,14 +508,14 @@ fn writeCanonicalStruct(allocator: std.mem.Allocator, sink: anytype, entries: []
     try writeCanonicalCollection(model.StructEntry, allocator, sink, entries, false, writeStructEntry);
 }
 
-fn writeHandoff(sink: anytype, handoff: model.Handoff) !void {
+fn writeHandoff(allocator: std.mem.Allocator, sink: anytype, handoff: model.Handoff) WalkError!void {
     switch (handoff) {
-        .give => |give| try writeSignedGive(sink, give),
-        .receive => |receive| try writeSignedReceive(sink, receive),
+        .give => |give| try writeSignedGive(allocator, sink, give),
+        .receive => |receive| try writeSignedReceive(allocator, sink, receive),
     }
 }
 
-fn writeSignedGive(sink: anytype, give: model.HandoffGive) !void {
+fn writeSignedGive(allocator: std.mem.Allocator, sink: anytype, give: model.HandoffGive) WalkError!void {
     // A forwarded give carries the gifter's exact signed bytes; emit them verbatim
     // so the exporter re-verifies the gifter's signature over the same bytes the
     // gifter signed (re-encoding could differ, e.g. `#f` vs `{}` location hints).
@@ -537,15 +525,15 @@ fn writeSignedGive(sink: anytype, give: model.HandoffGive) !void {
     }
     try beginRecord(sink);
     try writeSymbol(sink, "desc:sig-envelope");
-    try writeHandoffGiveRecord(sink, give);
+    try writeHandoffGiveRecord(sink, allocator, give);
     try writeSignature(sink, give.signature);
     try endRecord(sink);
 }
 
-fn writeSignedReceive(sink: anytype, receive: model.HandoffReceive) !void {
+fn writeSignedReceive(allocator: std.mem.Allocator, sink: anytype, receive: model.HandoffReceive) WalkError!void {
     try beginRecord(sink);
     try writeSymbol(sink, "desc:sig-envelope");
-    try writeHandoffReceiveRecord(sink, receive);
+    try writeHandoffReceiveRecord(sink, allocator, receive);
     try writeSignature(sink, receive.signature);
     try endRecord(sink);
 }
@@ -579,11 +567,11 @@ pub fn writeMyLocationRecordRaw(sink: anytype, location_record_bytes: []const u8
     try endRecord(sink);
 }
 
-pub fn writeHandoffGiveRecord(sink: anytype, give: model.HandoffGive) !void {
+pub fn writeHandoffGiveRecord(sink: anytype, allocator: std.mem.Allocator, give: model.HandoffGive) WalkError!void {
     try beginRecord(sink);
     try writeSymbol(sink, "desc:handoff-give");
     try writePeerKey(sink, give.recipient_key);
-    try writeLocatorString(sink, give.exporter_location);
+    try writePeerLocatorRecord(sink, allocator, give.exporter);
     try writeBytes(sink, give.gifter_exporter_session);
     try writeBytes(sink, give.gifter_side);
     try writeBytes(sink, give.gift_id);
@@ -614,14 +602,15 @@ pub fn writeHandoffGiveRecordRawLocation(
 
 pub fn writeHandoffReceiveRecord(
     sink: anytype,
+    allocator: std.mem.Allocator,
     receive: model.HandoffReceive,
-) !void {
+) WalkError!void {
     try beginRecord(sink);
     try writeSymbol(sink, "desc:handoff-receive");
     try writeBytes(sink, receive.receiving_session);
     try writeBytes(sink, receive.receiving_side);
     try writePositiveInt(sink, receive.handoff_count);
-    try writeSignedGive(sink, receive.signed_give);
+    try writeSignedGive(allocator, sink, receive.signed_give);
     try endRecord(sink);
 }
 
@@ -750,20 +739,6 @@ fn writeHintValue(sink: anytype, value: model.HintValue) !void {
     }
 }
 
-fn writeLocatorString(sink: anytype, location: []const u8) !void {
-    // The flattened `transport:designator` form splits on the first ':'. A
-    // location with no ':' has no transport/designator boundary at all, so it
-    // is refused before the split. The producer side
-    // (`model.view.ExporterLocation.toOwned`) refuses a transport containing
-    // ':', which is what keeps the first ':' unambiguous here.
-    const split = std.mem.indexOfScalar(u8, location, ':') orelse return Error.UnsupportedArgument;
-    return writeLocator(sink, .{
-        .transport = location[0..split],
-        .designator = location[split + 1 ..],
-        .hints = .{},
-    });
-}
-
 fn writeError(sink: anytype, err: model.BreakReason) !void {
     try beginRecord(sink);
     try writeSymbol(sink, "error");
@@ -803,16 +778,16 @@ fn writeSignedMagnitude(sink: anytype, value: i64) !void {
     try writeUnsigned(sink, magnitude);
 }
 
-fn writeTargetReference(sink: anytype, reference: model.Reference) !void {
+fn writeTargetReference(allocator: std.mem.Allocator, sink: anytype, reference: model.Reference) !void {
     // A target is the partner's export or an answer, never one of our own nears,
     // and never a sturdyref: you enliven a sturdyref (a bootstrap fetch), you do
     // not deliver to one. Cap'n Proto carries a sturdy target; Syrup deliberately
     // refuses it (the ADR-0003 dialect boundary the codec-equivalence test names).
     if (reference == .near or reference == .sturdy) return Error.UnsupportedReference;
-    return writePayloadReference(sink, reference);
+    return writePayloadReference(allocator, sink, reference);
 }
 
-fn writePayloadReference(sink: anytype, reference: model.Reference) !void {
+fn writePayloadReference(allocator: std.mem.Allocator, sink: anytype, reference: model.Reference) !void {
     switch (reference) {
         .near => |near| {
             try beginRecord(sink);
@@ -843,14 +818,13 @@ fn writePayloadReference(sink: anytype, reference: model.Reference) !void {
         // A sturdyref rides argument / fulfill position as `<ocapn-sturdyref
         // <ocapn-peer …> swissnum>`, the exact grammar the decoder reads back
         // (`readNeutralArgument`), so a Syrup-decoded sturdyref argument
-        // re-encodes and round-trips like its Cap'n Proto twin. A hint-carrying
-        // locator is refused loudly by `writeLocator`, the standing Syrup posture
-        // for payload locators. A sturdyref *deliver target* never reaches here:
-        // `writeTargetReference` refuses it first.
+        // re-encodes and round-trips like its Cap'n Proto twin — including
+        // hint entries via `writePeerLocatorRecord`. A sturdyref *deliver
+        // target* never reaches here: `writeTargetReference` refuses it first.
         .sturdy => |sturdy| {
             try beginRecord(sink);
             try writeSymbol(sink, "ocapn-sturdyref");
-            try writeLocator(sink, sturdy.peer);
+            try writePeerLocatorRecord(sink, allocator, sturdy.peer);
             try writeBytes(sink, sturdy.swissnum);
             try endRecord(sink);
         },

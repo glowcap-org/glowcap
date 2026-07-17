@@ -268,11 +268,12 @@ here.
   a fixed stack for typical small vectors, spilling to a map only above the
   threshold — bumps the same arena on spill and dies in the same reset; only
   the send-side GC validation keeps its gpa scratch with a precise deinit,
-  because no recv turn brackets it. The inbound set-uniqueness fold
-  (`checkInboundSetUniqueness` in the same walk) rides the same arena: an
-  inbound set's elements are materialized once on the borrowed path and hashed
-  (`model.equality.argumentHash`) to group candidates, an Equal pair is
-  refused `DuplicateSetElement`, and the rows die in the same reset. It is the
+  because no recv turn brackets it.   The inbound set-uniqueness fold
+  (`checkInboundSetUniqueness` in the same walk) rides the same arena: borrowed
+  set elements are hashed/compared as views (`viewArgumentHash` /
+  `viewArgumentsEqualWithScratch`) with scratch holding only view handles and
+  hash rows — no `toOwned` materialization. An Equal pair is refused
+  `DuplicateSetElement`, and the rows die in the same reset. It is the
   codec-neutral backstop for the byte-level ascending-element refusal the
   Syrup decoder gets for free; Cap'n Proto's pointer wire form cannot prove
   set uniqueness without it, and a set-free frame pays nothing.
@@ -301,7 +302,8 @@ here.
 - **Unobserved host-vow completion: one deep clone per settle with no
   in-process listener (`driver_core` host `queueCompletion`), moved — never
   re-cloned — into whoever drains it.** The settle fires inside `feed` while
-  the resolution is turn-borrowed, and an embedder that only drains the
+  the resolution is turn-borrowed (the vat arenas reset before the embedder can
+  drain), and an embedder that only drains the
   action queue reads it after `feed` returns, so the owning completion is the
   one durable holder (a wait registered through the core's `vowOn` hears the
   settle borrowed and pays nothing here; a failed clone degrades to an empty
@@ -315,8 +317,11 @@ here.
   is a transient carrier, and the parked table is the durable owner that can
   simply adopt it. Freed once — at the next borrowed pop, by the adopter
   (`Parked.deinit` when the wait collects it, materializing once into that
-  wait's caller arena), or with the undrained queue at teardown. Bounded by
-  the application's own unsettled sends.
+  wait's caller arena), or with the undrained queue at teardown. The one-loop
+  rule drains after every top-level call, so steady state is one feed's settles,
+  and the fire cannot strand: every vow mint and fallible enqueue reserves one
+  queue slot per live vow, so the fire's infallible append never fails. Bounded
+  by the application's own unsettled sends.
 - **Crypto fixed-width materialization: `crypto.PeerKey.fromSlice`,
   `crypto.Signature.fromParts`.** `std.crypto` Ed25519 operates on fixed-size
   arrays (`[32]u8` / `[64]u8`) while the wire exposes `[]const u8`.
@@ -333,11 +338,13 @@ here.
   registry is an O(1) `StringHashMap` whose swissnum key bytes live in one
   per-session **`key_arena`** (alongside the partner key/designator bytes),
   freed wholesale at teardown. The _monotonic_ tables never remove a row, so a
-  bump arena is the right owner. Deliberately excluded from the arena: the
-  FIFO-evicting `sturdyref_cache` (plus its side swissnum→index map) and the
-  individually-removed `pending_enlivens` / imported-promise hosts keep their
-  swissnum / host bytes on the gpa with precise per-row frees, because a bump
-  arena cannot reclaim an evicted or removed row and would leak under churn.
+  bump arena is the right owner.   Deliberately excluded from the arena: the FIFO-evicting `sturdyref_cache`
+  (plus its side swissnum→index map) and individually-removed
+  `pending_enlivens` keep their swissnum bytes on the gpa with precise
+  per-row frees, because a bump arena cannot reclaim an evicted or removed
+  row and would leak under churn. Third-party import **host designators**
+  are interned in `key_arena` (session-lifetime; shared across rows that
+  name the same introducing host) — only the listen cell is freed per row.
 - **Vat-scoped gift registry: gpa rows with per-row frees
   (`engine.bootstrap.GiftRegistry`, ADR-0056).** The single gift / handoff-count
   authority. Every `Peer` owns a private registry (`own_gift_registry`, freed in
@@ -351,26 +358,16 @@ here.
   deposit dupes the gift id, recipient key, and gifter key and adopts the gifted
   reference; each first-seen recipient session dupes its session id (bounded by
   `max_seen_handoff_counts`); every row is freed precisely, on overwrite or
-  registry deinit. A consumed gift's whole row is removed at withdraw (id key,
-  all three keys, and the gifted reference freed), so a process-lifetime registry
-  pins neither a capability nor a row per handoff it ever served; replay stays
-  blocked by the monotonic `handoff_counts`, not a retained marker. Because a
-  consumed row is gone, the row count _is_ the live-gift count, so
-  `max_deposited_gifts` bounds `gifts.count()` directly — no parallel counter to
-  drift — and a node that has served many completed handoffs keeps accepting new
-  deposits.
-- **Withdraw verbatim-cap clone: one `model.cloneReference` per `withdraw-gift`
-  that hands back a non-`near` gifted capability
-  (`engine.bootstrap.resolveForWithdraw`).** `applyWithdraw` reclaims the gift
-  row's payload before the settled resolve can be encoded, so a verbatim gifted
-  cap (`sturdy` / `broken` / `promise`) is cloned clear of the row first and the
-  clone rides in the settled message. `Peer.sendWithdrawSettled` copies it onto
-  the wire with `sendCopying` and then frees it through
-  `bootstrap.freeSettledWithdrawOwned`, so the withdraw responder is the single
-  owner and neither inbound call site guesses. A re-exported `near` gifted cap
-  and the static-break refusal arms are POD, so that free is a no-op for them —
-  only a verbatim cap allocates. Deleting the clone would dangle the settled
-  message on the row `applyWithdraw` just freed.
+  registry deinit. A consumed gift's whole row is removed at withdraw after the
+  handoff count is recorded: id/recipient/gifter keys are freed; a
+  `.verbatim_cap` payload is **moved** out to the settle message (not
+  `cloneReference`), then freed after `sendCopying` via
+  `freeSettledWithdrawOwned`. A process-lifetime registry pins neither a
+  capability nor a row per handoff it ever served; replay stays blocked by the
+  monotonic `handoff_counts`, not a retained marker. Because a consumed row is
+  gone, the row count _is_ the live-gift count, so `max_deposited_gifts` bounds
+  `gifts.count()` directly — no parallel counter to drift — and a node that has
+  served many completed handoffs keeps accepting new deposits.
 - **Parked withdraw: one owned handoff-receive per early `withdraw-gift`
   (`Peer.pending_withdraws`, ADR-0056).** A `withdraw-gift` whose gift has no
   live deposit must outlive the borrowed frame that carried it, so the receive
@@ -380,20 +377,22 @@ here.
   `max_pending_withdraws` (loud `PendingWithdrawCapExceeded` on overflow).
   Refusing the early withdraw instead would break the protocol's
   deposit-may-arrive-second contract, which the upstream OCapN suite pins.
-- **Listener fan-out: POD fire carriers over the stored resolution; zero
-  payload copies.** When a promise with N listeners resolves, each fire is
-  queued as one POD carrier (`engine.Outbound.listener_fire`, whose `target`
-  names the store holding the resolution — an inbound answer or a relayed
-  third-party import) and `Peer.step` borrows that resolution back at encode
-  through the one keyed lookup (`Peer.resolveFireStore`, over `peekResolution`
-  or the imported-promise row) to build the wire deliver on the stack
-  (`engine.pipeline.borrowedListenerFire`). Queue-time session accounting runs
-  on that same borrowed stack message in the sent-resolve order
+- **Listener fan-out: POD fire carriers over the stored resolution or a live
+  object export; zero payload copies.** When a promise with N listeners
+  resolves, each fire is queued as one POD carrier (`engine.Outbound.listener_fire`,
+  whose `target` names the store holding the resolution — an inbound answer or a
+  relayed third-party import — or a live object export's `fulfill(near)` via
+  `FireTarget.near_object`, which needs no store row). `Peer.step` borrows a
+  stored resolution back at encode through the one keyed lookup
+  (`Peer.resolveFireStore`, over `peekResolution` or the imported-promise row),
+  or rebuilds the near fulfill from the export position when the export row is
+  still live. Queue-time session accounting runs on a borrowed stack message
+  (`engine.pipeline.borrowedListenerFire`) in the sent-resolve order
   (reserve-then-record-then-push), so the wire-delta retains commit before the
   infallible enqueue — and those early retains are load-bearing, not just
   bookkeeping: they pin the payload's `near` exports across the queue→encode
   window against a legal partner `op:gc-exports`, which is why fire accounting
-  cannot move to encode time. Every carrier is stamped with its store row's
+  cannot move to encode time. Store-backed carriers are stamped with their row's
   identity (`Session.store_stamp_counter`, one session-wide source so no two
   row instances share a stamp): a row gone at encode, or one whose identity
   changed (the position was released and reused — partner-named
@@ -406,7 +405,8 @@ here.
   an answer resolves once and a relayed resolution records once
   (`recordRelayedResolution` refuses a second relay) — so a matching identity
   stamp proves the payload the carrier was accounted against is the one that
-  ships. Pinned by
+  ships. `near_object` fires drop when the export row is gone at encode
+  (export positions are never reused, so no row-id stamp is needed). Pinned by
   `test/engine/listener_fire_budget_test.zig` (budget, gc drop, stranded
   retain, answer reuse) and the second-relay-refusal / re-registration
   scenarios in `test/engine/peer_test.zig`: three listeners fire with zero
@@ -473,52 +473,100 @@ here.
   once per row: a promise resolves once, so a second relay for a settled
   import is refused (`Error.UnexpectedMessage`, the answer-side
   `validateInboundResolve` rule mirrored) with the refused resolution freed.
-  There is no clone of the resolution anywhere on the relayed path. A late
-  `op:listen` fires the same way, from the store; the stored resolution is
-  freed once (on import GC co-eviction or session teardown).
-- **Sturdyref enliven dedup: one swissnum dupe per cache or in-flight row
-  (ADR-0012).** `Session.cacheSturdyrefEnlivenment` and `notePendingEnliven`
-  each `dupe` the swiss-number into a session-owned row; the resolved cache
-  stores only the `(import_position, kind)` POD alongside it, never a clone of
-  the enlivened reference. A side `StringHashMap` (swissnum → FIFO index) keeps
-  lookup O(1) and stays in lockstep on insert and eviction. `engine.sturdyref.recordEnlivenment`
+  There is no clone of the resolution anywhere on the single-store relayed
+  path. The introducing-session proxy (`Node.proxyForeignPromiseFulfill`)
+  keeps **one** home `op:listen` per home wire (shared across recipient
+  introduces). Host peek then one `toOwned` makes the Node the fire owner;
+  N=1 **moves** into `applyRelayedResolution`, N>1 each recipient store
+  materializes via `materializeResolutionForStore` — never a public
+  `cloneResolution` spine and never N home listens. A late `op:listen` fires
+  the same way, from the store; the stored resolution is freed once (on
+  import GC co-eviction or session teardown).
+- **Sturdyref enliven dedup: one swissnum dupe per in-flight row (ADR-0012).**
+  `Session.notePendingEnliven` `dupe`s the swiss-number into a session-owned
+  pending row; on fulfillment the pending row's swissnum _moves_ into the
+  resolved cache (no second dupe). `cacheSturdyrefEnlivenment` still `dupe`s
+  when no pending row exists. The resolved cache stores only the
+  `(import_position, kind)` POD alongside it, never a clone of the enlivened
+  reference. A side `StringHashMap` (swissnum → FIFO index) keeps
+  lookup O(1) and stays in lockstep on insert and eviction; a reverse answer →
+  swissnum index borrows the same owned slice for settle-side lookup (the
+  `driver_core` enliven bridge keys on answer position only). `engine.sturdyref.recordEnlivenment`
   _moves_ the fulfilled `Reference.far` out to the caller (POD `FarRef`, no heap)
   and copies just its `import_position` + `kind` into the cache. The cache is
   non-load-bearing: an overflow evicts the oldest row and frees its swissnum. A
   failed insert is swallowed because a miss costs one extra bootstrap-fetch
   round-trip, not correctness. Each owned swissnum is freed once on
   overwrite-evict, `finishPendingEnliven`, or `Session.deinit`.
-- **Byte-fed host completions: one deep clone per unlistened vow settle
-  (`driver_core.Host.queueCompletion`).** A vow with no in-process listener
-  settles as an owned `settled`/`failed` action on the embedder queue: the
-  settle fires inside `feed` while the resolution is turn-borrowed (the vat
-  arenas reset before the embedder can drain), and the drain happens after
-  `feed` returns, so an owning completion is the only correct holder. Bounded
-  one per vow, freed at the next `nextAction` (the DIAL locator's exact
-  lifetime contract) or at host teardown; the one-loop rule drains after every
-  top-level call, so steady state is one feed's settles. In-process listeners
-  (`vowOn`) stay borrowed zero-copy, so the clone is paid only at the byte
-  boundary. Fire cannot strand: every vow mint and fallible enqueue reserves
-  one queue slot per live vow, so the fire's append is infallible, and a clone
-  failure degrades to a `failed` completion with an empty message
-  (zero-allocation) rather than a stranded vow.
-- **Canonical set ordering: one standalone encode per set element on outbound
-  encode, in both codecs.** A set is unordered, so its wire form must not depend
-  on the order the model held it in; canonical order is defined over _encoded
-  bytes_, which means each element is encoded once just to obtain its sort key
-  (`syrup.writeCanonicalSet`, `capnp.canonicalSetOrder` / `encodeArgumentKey`),
-  plus the per-set sort scratch. Syrup struct encode pays the same per-entry
-  encode-then-sort (`writeCanonicalStruct`), and a hinted locator's hint dict —
-  once per keyed start-session, never per turn — pays it too (`writeHintDict`);
-  capnp struct ordering is cheaper,
-  a shallow entry copy sorted by raw key bytes. All of it is turn-scratch
-  bounded by the caller's own message and freed before encode returns. Deleting
-  the key encode means sorting on model values, which two encoders can disagree
-  on; the bytes are the only order both sides reproduce.
+- **Host session-pair indexes: gpa maps with precise per-row frees
+  (`driver_core.Host.partner_by_key`, `dialed_by_designator`, ADR-0012).**
+  O(1) dial and post-handshake partner-key refuse at the 500k-connection Host
+  tier (ADR-0076). `partner_by_key` stores fixed `[32]u8` keys by value and
+  updates when the verified partner key is learned in `hostBeforeServe` (before
+  apply; `HostSession.indexed_partner_key` keeps unindex O(1)).
+  `dialed_by_designator` borrows each dialed session's `role.dialed` bytes,
+  reserved at mint and inserted at enroll. Both clear on unindex / condemn /
+  release — never a bump arena, because rows leave individually. Bounded by
+  live non-condemned sessions.
+- **Canonical set ordering: encode-once per set element on outbound encode.**
+  A set is unordered, so its wire form must not depend on the order the model
+  held it in; canonical order is defined over _encoded bytes_. Syrup encodes
+  each element once, sorts the encodings, and appends them
+  (`writeCanonicalSet`). Cap'n Proto matches that shape: encode each element
+  into a scratch builder, sort by the finished message bytes, then graft the
+  encoded subgraph into the list (`encodeArgumentSetList`) — no second model
+  walk. Syrup struct encode pays the same per-entry encode-then-sort
+  (`writeCanonicalStruct`); a hinted locator's hint dict — once per keyed
+  start-session, never per turn — pays it too (`writeHintDict`); capnp struct
+  ordering is cheaper (shallow entry copy sorted by raw key bytes). All of it
+  is turn-scratch bounded by the caller's own message and freed before encode
+  returns. Deleting the key encode means sorting on model values, which two
+  encoders can disagree on; the bytes are the only order both sides reproduce.
+- **Inbound Cap'n Proto set uniqueness: view hash/equal, no `toOwned`.**
+  `checkInboundSetUniqueness` folds borrowed set elements with
+  `viewArgumentHash` / `viewArgumentsEqualWithScratch`; small sets stay on
+  the stack so the common deliver path never grows `recv_scratch` past its
+  retain limit. Syrup still refuses duplicates at decode.
+- **Redeem dial parts: pending row sole owner; ticket-only HostAction.**
+  `Node.acceptGive` parses the exporter URI once (`stagePendingDial`:
+  identity + transport/designator/hint) and never keeps a verbatim URI copy —
+  join / exporter-cache hits free the stage without opening a pending row.
+  Unparseable locators fail closed at `acceptGive` via
+  `error.UnparseableExporterLocator` with no staged heap — they never become
+  a pending dial. Indexed by
+  `pending_dial_by_identity` for O(1) join on identity, not raw spelling.
+  Both `Node.Action.dial` and `HostAction.dial` carry only the ticket;
+  Zig borrows via `pendingDial` / `PendingDialView` until `exporterDialed` /
+  `dialFailed`. C exposes one `pancake_host_pending_dial` filling
+  `PancakePendingDial` (transport/designator/hint) over that same view.
+  Bridge redeem parks only the ticket (`OutboundConnect.redeem`); connect
+  re-borrows the view at adoption. An empty hint is an unowned sentinel (not
+  a heap `""` dupe); all free paths go through `freeDialPart` /
+  `freeDialParts` / `freePendingDialShell`. No re-parse on the redeem dial
+  path.
 
 ### Named Deferred Costs
 
-- _(empty.)_
+- **Bridge app-dial transport/designator dupes.** `OutboundConnect.app_dial`
+  owns copies for the connect window: `openDialedOver` needs CapTP partner
+  transport/designator at adoption, and `Loop`/`Backend` retain only the
+  resolved connect target (no OCapN parts to re-borrow). Redeem stays
+  ticket-only and re-borrows `pendingDial` — it must not take this cost.
+  Relocating the same dupes to the caller, Host, or Loop does not forbid
+  them; keep the name here.
+- **Binding dial OS-connect string.** After `pancake_host_plan_dial`, each
+  binding decodes `host` / `addresses` once from a subslice of the input UTF-8
+  buffers the plan aliases (the OS connect API needs a language string). That
+  one decode is named; a second rematerialize via opaque FFI `readMemory` /
+  `string_at` / `bytes<-c` of the same view is forbidden.
+- **Binding outbound flush frame copy (TS / Python / Racket).** Those bindings
+  copy managed-frame bytes then release before the async write; Rust holds the
+  managed frame across the write (zero-copy). The copy is language/lifetime-
+  forced for async FFI — do not "optimize" without a hold-across-await proof.
+- **Racket inbound `pin-immobile`.** Every `feed_bytes` path pins the feed
+  buffer into collector-immobile memory before the FFI call. Steady state still
+  avoids coalescing into the inbox when empty; the pin copy is the Racket FFI
+  cost, not a second inbox materialize.
 
 ## Per-session footprint budget
 
@@ -544,10 +592,23 @@ and `steady_settle_arena_bytes` (each 4096) bound the three vat arenas via
 `test/actors/vat_footprint_budget_test.zig` holds a burst-then-quiescent vat
 back under these bounds.
 
+The session's inbound scratch arena holds the same posture with a deliberately
+smaller bound. `Session.recv_scratch` materializes one turn's set-uniqueness
+fold, owned-fallback message, and GC dedup, so a single admissible inbound frame
+(up to `max_frame_bytes`) can grow it to several times that in owned
+`Argument`s. `steady_recv_scratch_bytes = 384` (`src/ocapn/session/mod.zig`,
+beside the field) bounds what each recv entry point's `reset(.retain_with_limit)`
+keeps, returning a burst's peak instead of pinning megabytes per session for the
+connection's life. It is smaller than the 4096 above because the session answers
+to the 2 KiB core-state budget, not the vat's one-per-connection tier, so the
+arena must leave room for the tables beside it.
+`test/engine/deliver_set_scratch_budget_test.zig` holds a big-set frame's scratch
+back under the bound.
+
 The completion loop wraps each `Peer` in one `Conn` slot — the unit it allocates
 `max_conns` of — so that wrapper carries a ceiling of its own: a `comptime`
 assertion in `src/net/completion/loop.zig` holds `@sizeOf(Conn) -
-@sizeOf(engine.Peer)` at or under `conn_slot_overhead_bytes` (120), isolating the
+@sizeOf(engine.Peer)` at or under `conn_slot_overhead_bytes` (128), isolating the
 wrapper's bookkeeping from the `Peer` the one-kilobyte ceiling already guards.
 The number moves in the constant and in `docs/ladder.md` rung 2 together, like
 every other footprint gate.

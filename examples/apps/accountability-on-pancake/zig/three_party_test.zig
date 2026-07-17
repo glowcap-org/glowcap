@@ -6,8 +6,8 @@
 //! A's, so "who called" is answered by the reference itself.
 //!
 //! This is the in-memory protocol-level proof. The host application owns the
-//! handoff routing itself (ADR-0009) — the engine keeps the
-//! `cross_peer.SignatureVerifier` seam and the gift registry — and wires the
+//! handoff routing itself (ADR-0009). The engine keeps the
+//! `cross_peer.SignatureVerifier` seam and the gift registry, and wires the
 //! accountability Episode + Identity layers through `actors.Vat` on each peer.
 
 const std = @import("std");
@@ -102,7 +102,7 @@ fn drainEvents(peer: *engine.Peer) void {
 // Sibling copy: `test/support/cross_peer.zig`. This fork verifies with a real
 // Ed25519 RoutingVerifier and passes an explicit gifter key at deposit; the
 // support module learns the key from the handshake when null and uses
-// acceptingVerifier() for trusted tests.
+// testOnlyAcceptingVerifier() for trusted tests.
 //
 // A `Peer` owns one direct session, so routing the give and withdraw legs
 // across the gifter, recipient, and exporter sessions is the host's job,
@@ -169,7 +169,7 @@ fn withdrawGift(
 
     const registry = exporter_peer.giftRegistry();
     try registry.validateWithdraw(receive);
-    try registry.applyWithdraw(exporter_peer.allocator, exporter_peer.limits(), receive);
+    _ = try registry.applyWithdraw(exporter_peer.allocator, exporter_peer.limits(), receive);
 
     try recipient.sendCopying(.{ .handoff = .{ .receive = receive } });
     try pumpFrame(recipient, exporter_peer);
@@ -209,10 +209,10 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     const allocator = std.testing.allocator;
 
     // The standard four-peer topology (ADR-0009):
-    //   gifter (A)        → gifter-to-recipient (A→B)
-    //   recipient-from-A  → B's view of A's session
-    //   recipient-to-C    → B's view of C's session
-    //   exporter (C)      → single peer, receives deposit AND withdrawal
+    //   gifter (A)        is gifter-to-recipient (A to B)
+    //   recipient-from-A  is B's view of A's session
+    //   recipient-to-C    is B's view of C's session
+    //   exporter (C)      is the single peer, receives deposit AND withdrawal
     //
     // A introduces B to C. After the handoff, B reaches C's Affordance
     // through a direct session. C's Episode must attribute B, not A.
@@ -267,7 +267,7 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     const gift_id = [_]u8{0x42} ** 32;
     var give: model.HandoffGive = .{
         .recipient_key = recipient_pub.asBytes(),
-        .exporter_location = "memory:C",
+        .exporter = .{ .transport = "memory", .designator = "C" },
         .gifter_exporter_session = &([_]u8{0} ** 32),
         .gifter_side = &([_]u8{0} ** 32),
         .gift_id = &gift_id,
@@ -324,7 +324,7 @@ test "three-party handoff: C attributes B (the true caller), not A (the introduc
     verkey_b64[0] = 'D';
     _ = std.base64.url_safe_no_pad.Encoder.encode(verkey_b64[1..], &b_id.current.verkey());
 
-    // B sends via its Vat over the B↔C (recipient_to_exporter) session.
+    // B sends via its Vat over the B-to-C (recipient_to_exporter) session.
     var b_vat = actors.Vat.initOver(allocator, &recipient_to_exporter);
     defer b_vat.deinit();
     const ref: actors.Ref = .{ .far = model.FarRef.object(AFFORDANCE_EXPORT) };

@@ -22,7 +22,6 @@ from ._errors import PancakeError, _check
 from ._ffi_ocapn import _lib
 
 _OK = _abi.OK
-_ERR_INVALID_ARGUMENT = _abi.ERR_INVALID_ARGUMENT
 _ERR_BUFFER_TOO_SMALL = _abi.ERR_BUFFER_TOO_SMALL
 
 # A redeemed-handoff token is a far id from a reserved high range, disjoint from
@@ -62,16 +61,13 @@ def encode_peer_locator(transport: str, designator: str, direct_addresses: str =
 class Locator(NamedTuple):
     """A parsed OCapN locator: the fields a ``pancake_uri_parse_*`` yields.
     ``swissnum`` is empty for a peer URI, the swiss bytes for a sturdyref.
-    ``host``/``port`` carry the designator's ``host:port`` split when the core
-    grammar (``pancake_locator_host_port``) accepts it, ``None`` otherwise; a
-    socket dialer consumes the split instead of re-deriving it."""
+    Dial resolves host:port through ``pancake_host_plan_dial``; apps that need
+    a bare designator split use :func:`designator_host_port`."""
 
     transport: str
     designator: str
     swissnum: str
     hints: "dict[str, str]"
-    host: "Optional[str]" = None
-    port: "Optional[int]" = None
 
 
 def _read_view(ptr: ctypes.c_void_p, length: ctypes.c_size_t) -> str:
@@ -108,28 +104,11 @@ def parse_locator(uri: str, *, sturdyref: bool = False) -> Locator:
             vn = ctypes.c_size_t()
             _check(_lib.pancake_locator_hint_at(out, i, ctypes.byref(kp), ctypes.byref(kn), ctypes.byref(vp), ctypes.byref(vn)))
             hints[_read_view(kp, kn)] = _read_view(vp, vn)
-        # The host:port split is the core grammar's verdict, computed while the
-        # handle is alive: OK carries the split, INVALID_ARGUMENT means the
-        # designator is not host:port (an iroh node id, say), which is a fact,
-        # not a fault.
-        hp = ctypes.c_void_p()
-        hn = ctypes.c_size_t()
-        hport = ctypes.c_uint16()
-        rc = _lib.pancake_locator_host_port(out, ctypes.byref(hp), ctypes.byref(hn), ctypes.byref(hport))
-        host: "Optional[str]" = None
-        port: "Optional[int]" = None
-        if rc == _OK:
-            host = _read_view(hp, hn)
-            port = hport.value
-        elif rc != _ERR_INVALID_ARGUMENT:
-            _check(rc)
         return Locator(
             field(_lib.pancake_locator_transport),
             field(_lib.pancake_locator_designator),
             field(_lib.pancake_locator_swissnum),
             hints,
-            host,
-            port,
         )
     finally:
         _lib.pancake_locator_release(out)
@@ -186,18 +165,6 @@ def socket_addr_designator(host_or_peer, port: int | None = None) -> str:
     if ":" in host and not (host.startswith("[") and host.endswith("]")):
         return f"[{host}]:{port}"
     return f"{host}:{port}"
-
-
-def host_port_from_direct_hint(hint: str) -> "tuple[str, int]":
-    """Split a ``direct-addresses`` hint into host and port (first address when
-    comma-separated)."""
-    first = hint.split(",", 1)[0].strip()
-    if not first:
-        raise PancakeError(_ERR_INVALID_ARGUMENT, "keyed-tcp requires a non-empty direct-addresses hint")
-    try:
-        return designator_host_port(first)
-    except PancakeError:
-        raise PancakeError(_ERR_INVALID_ARGUMENT, f"direct-addresses hint is not host:port: {first}")
 
 
 def designator_host_port(designator: str) -> "tuple[str, int]":

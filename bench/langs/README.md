@@ -2,7 +2,7 @@
 
 What does a consumer written in language X pay to run the same application over
 the same pancake host and wire? This bench answers that, and only that. One
-fixed reference host — the native Zig taskboard server — is held constant while
+fixed reference host (the native Zig taskboard server) is held constant while
 the client language is swapped: Deno, Python, Rust, the Racket binding, native
 Zig, and Spritely Goblins as the reference CapTP peer.
 
@@ -24,8 +24,8 @@ table, and standalone SVG bar charts for latency, throughput, and cold start.
 
 ## This is not a language leaderboard
 
-Each row measures a whole consumer stack — the runtime, that language's binding,
-the application rewritten in it, and its garbage collector — sitting on one
+Each row measures a whole consumer stack: the runtime, that language's binding,
+the application rewritten in it, and its garbage collector: sitting on one
 pancake host. A faster row does not mean pancake's wire is faster in that
 language. It means that whole stack was faster on this one machine on this one
 day. Measure your own.
@@ -53,31 +53,31 @@ received.
 
 ## The metrics
 
-- **Latency** — one unit's round trips; p50, p99, p999, and mean in
+- **Latency**: one unit's round trips; p50, p99, p999, and mean in
   milliseconds. JIT or GC pauses inside the window stay in the number, because
   they are a real cost of that stack.
-- **Throughput** — units back-to-back, in requests per second. Pipelined
+- **Throughput**: units back-to-back, in requests per second. Pipelined
   (ADR-0007): the four verbs ride one round trip, so this measures the consumer
   stack's steady-state rate when calls are addressed at answers, not awaited one
   at a time.
-- **Session setup** — open many sessions and fetch the root on each; total
+- **Session setup**: open many sessions and fetch the root on each; total
   and per-connection milliseconds.
-- **Per-connection memory** — the client process's resident set with the
+- **Per-connection memory**: the client process's resident set with the
   connections held open, minus a baseline, divided by the connection count. It
   is OS-level resident set, not a binding-heap figure, so read it as an order of
   magnitude: a few kilobytes per connection sit inside a runtime heap many times
   larger. It is reproducible run-to-run, but it is **not comparable across
   runtime classes**: a garbage-collected runtime carrying a large pre-grown heap
   absorbs a few dozen connections' buffers without the resident set moving, so
-  its figure understates the true per-connection cost — which is why the GC rows
+  its figure understates the true per-connection cost: which is why the GC rows
   can report _fewer_ kilobytes per connection than the ahead-of-time Zig row
   that actually faults its buffers in. Compare a row to itself across changes,
   not to a row in a different runtime class.
-- **Local turn** — the "push local actors into Zig?" cost question. Every
+- **Local turn**: the "push local actors into Zig?" cost question. Every
   binding dispatches a locally spawned actor in its own runtime today; if that
   dispatch were routed through the C host into a Zig vat instead, what would a
   local turn cost per binding? Each client spawns a counter actor two ways and
-  runs sequential send→settle units against both: `in_lang` is the binding's
+  runs sequential send-then-settle units against both: `in_lang` is the binding's
   own in-process dispatch (today's path), and `via_host` is the same behavior
   forced through the C host machinery across a loopback pair inside the
   client's own process. Both are reported in nanoseconds per turn (mean and
@@ -87,13 +87,13 @@ received.
   upper bound, not a prediction. The Goblins reference row reports only its
   in-vat figure (there is no C host under Goblins), so its via-host cells
   render as `-`.
-- **Cold start** — from process spawn to the first settled call. This is where
+- **Cold start**: from process spawn to the first settled call. This is where
   ahead-of-time and interpreted or JIT runtimes genuinely diverge, so it is
   reported on its own and never folded into the steady-state numbers. The
   orchestrator precompiles each Racket client to bytecode first (Spritely
   Goblins already ships its collection precompiled), so the Racket rows measure
   real startup rather than Racket recompiling the binding from source on every
-  spawn — without it the thin binding spuriously cold-started slower than all of
+  spawn: without it the thin binding spuriously cold-started slower than all of
   Goblins.
 
 ## Caveats
@@ -113,14 +113,14 @@ label it apart from the language rows.
 
 ## Layout
 
-| File                                   | Role                                                                            |
+| File | Role |
 | -------------------------------------- | ------------------------------------------------------------------------------- |
-| [`host.zig`](host.zig)                 | the fixed native Zig taskboard host                                             |
+| [`host.zig`](host.zig) | the fixed native Zig taskboard host |
 | [`orchestrator.zig`](orchestrator.zig) | native driver: spawn host, drive each client, sample `/proc`, render the report |
-| [`contract.md`](contract.md)           | the NDJSON schema every client implements                                       |
-| [`clients/`](clients/)                 | one bench client per language                                                   |
+| [`contract.md`](contract.md) | the NDJSON schema every client implements |
+| [`clients/`](clients/) | one bench client per language |
 
 The orchestrator is native Zig, so the driving and reporting path needs no
 Racket: the Zig host and Zig client run with only the Zig toolchain installed.
-Racket joins only as two of the client rows — the binding row and the Goblins
-reference — each skipped with a note when its runtime is absent.
+Racket joins only as two of the client rows: the binding row and the Goblins
+reference: each skipped with a note when its runtime is absent.

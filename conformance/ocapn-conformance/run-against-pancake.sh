@@ -9,7 +9,8 @@
 # Usage:
 #   bash conformance/ocapn-conformance/run-against-pancake.sh [all|test-module] [--port=N]
 # Default is `all`: every upstream module pancake currently targets, each with a
-# 5s cap. Pass one module (e.g. `tests.op_deliver`) to probe one surface.
+# 5s cap, plus the handshake-abort probe (2s cap). Pass one module (e.g.
+# `tests.op_deliver`) to probe one surface.
 # --port=N (threaded from `zig build ocapn-conformance -Dport=N`) moves the
 # peer off its default 22055 when that port is taken.
 set -uo pipefail
@@ -34,6 +35,7 @@ for arg in "$@"; do
     *) MODULE="$arg" ;;
   esac
 done
+export PANCAKE_OCAPN_CONFORMANCE_PORT="$PORT"
 URL="ocapn://JadQ0++RzsD4M+40uLxTWVaVqM10DcBJ.tcp-testing-only?host=127.0.0.1&port=$PORT"
 LOG="$(mktemp)"
 FILTER='Download|Built|Installed|Building|Audited|Resolved|Prepared|Updating'
@@ -53,7 +55,10 @@ for _ in $(seq 1 100); do
   sleep 0.1
 done
 
-echo "ocapn-conformance: running upstream suite module '$MODULE' against the pancake peer"
+run_handshake_abort_probe() {
+  echo "ocapn-conformance: handshake-abort probe (invalid signature + invalid version)"
+  timeout 2 uv run python conformance/ocapn-conformance/handshake_abort_probe.py --port="$PORT"
+}
 
 run_module() {
   module="$1"
@@ -72,6 +77,7 @@ run_module() {
 }
 
 if [ "$MODULE" = "all" ]; then
+  run_handshake_abort_probe || exit $?
   for module in \
     tests.op_start_session \
     tests.op_abort \

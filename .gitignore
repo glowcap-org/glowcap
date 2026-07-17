@@ -41,7 +41,7 @@ examples/apps/accountability-on-pancake/.data/
 # Generated, never committed.
 examples/apps/rooms/deno/ui/page.js
 
-# local scratch: reference clones, throwaway experiments (never committed)
+# local scratch: reference clones, throwaway experiments, MCP CapTP state (never committed)
 .local/
 
 # Cold-cache fallback when HOME is unset (see bindings/c-abi-resolve.json

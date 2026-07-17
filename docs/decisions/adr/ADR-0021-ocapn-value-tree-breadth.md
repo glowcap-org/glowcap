@@ -3,7 +3,7 @@ id: ADR-0021
 status: accepted
 date: 2026-05-17
 tags: [model, codec, syrup-wire, goblins-interop, value-tree]
-decision: The codec-neutral `Argument` union admits the OCapN passable value tree Goblins's marshaller emits, so a partner's value cannot crash pancake's decoder. The Syrup codec renders every modeled positional passable — `float64` included, as the canonical `'D'` + big-endian binary64 — and a value *outside* the model (`Null`, `Dict`, `Float32` fidelity, arbitrary-precision integers) has no model home and is refused loudly with `UnsupportedArgument` rather than dropped or coerced.
+decision: The codec-neutral `Argument` union admits the OCapN passable value tree Goblins's marshaller emits, so a partner's value cannot crash pancake's decoder. The Syrup codec renders every modeled positional passable (`float64` included, as the canonical `'D'` + big-endian binary64) and Integer is arbitrary-precision (ADR-0049). Struct ships as the keyed-dictionary passable (ADR-0046). A value *outside* the model (`Null`, `Float32` fidelity) has no model home; inventing Null would not interop until upstream encoding settles.
 supersedes: []
 superseded_by: []
 ---
@@ -39,7 +39,7 @@ renders and lifts every modeled positional passable:
 - `writeArgument` encodes `bytes`, `symbol`, `reference`, `string`, `handoff`,
   `integer`, `float64` (`'D'` + 8 bytes IEEE-754 big-endian), `boolean`, `list`,
   `void` (`<void>`), `set` (`#…$`), `tagged` (`<user-record …>`), and `keyword`
-  (`<kw …>`). The `error` variant has no positional-argument arm — it rides
+  (`<kw …>`). The `error` variant has no positional-argument arm: it rides
   resolutions through the dedicated `resolve:break` path, so a positional
   `.error` reaches the fall-through and refuses loudly.
 - The neutral decoder (`readNeutralArgument`) lifts the same variants on the way
@@ -57,11 +57,14 @@ not fork on representability.
 
 ## Scope (what this does not decide)
 
-- **Variants outside the model.** `Null` (distinct from `void`), `Dict`,
-  `Float32` round-trip fidelity, and arbitrary-precision `integer` (the model
-  caps at `i64`) are not modeled. A value carrying one is refused at the decode
-  boundary, not silently coerced. These are the live `UnsupportedArgument`
-  boundary now that `float64` renders.
+- **Variants outside the model.** `Null` (distinct from `void`) has no model
+  arm; inventing one waits on upstream encoding and Goblins marshalling
+  ([ADR-0046](ADR-0046-struct-passable.md) Scope). `Float32` round-trip fidelity
+  is not modeled. Struct (the keyed dictionary) and arbitrary-precision Integer
+  ship ([ADR-0046](ADR-0046-struct-passable.md),
+  [ADR-0049](ADR-0049-arbitrary-precision-integer.md)). Unknown Syrup records
+  project as `Tagged` (Goblins break/exception leniency); that is not a
+  dedicated Null refuse.
 
 ## Alternatives Considered
 
@@ -78,14 +81,14 @@ not fork on representability.
 - The `Argument` union is the single codec-neutral value vocabulary; a new codec
   grows arms against the same union.
 - The Syrup encode and neutral-decode breadths both match the modeled positional
-  passables; the only refusal boundary left is a wire value with no model home
-  (`Null`/`Dict`/`Float32`/bignum), refused loudly on decode — a named boundary,
-  not an invisible one.
+  passables. Residuals outside the model are `Null` (not modeled) and `Float32`
+  fidelity: named boundaries, not invisible ones. Struct and Integer/bignum
+  are in-model per ADR-0046 and ADR-0049.
 - Conformance evidence lives in
   [`test/codec/syrup_test.zig`](../../../test/codec/syrup_test.zig): the
-  rendered variants assert against Goblins byte fixtures (`op_deliver_arg_*`);
-  `float64` pins the canonical `'D'` + big-endian binary64 bytes and round-trips
-  NaN and signed zero bit-for-bit.
+  rendered variants assert against the pancake-authored Syrup corpus
+  (`op_deliver_arg_*`); `float64` pins the canonical `'D'` + big-endian binary64
+  bytes and round-trips NaN and signed zero bit-for-bit.
 
 ## Float64 equality
 

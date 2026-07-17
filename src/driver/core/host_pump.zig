@@ -9,7 +9,6 @@ const engine = @import("engine");
 
 const host_mod = @import("host.zig");
 const host_action = @import("host_action.zig");
-const vocab = @import("vocab.zig");
 const Host = host_mod.Host;
 const HostSession = host_mod.HostSession;
 const HostAction = host_action.HostAction;
@@ -155,13 +154,19 @@ fn noteParkedWithdraws(self: *Host, session: *HostSession) !void {
 fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
     switch (action) {
         .dial => |d| {
-            // The node frees its action's bytes at its next `nextAction`;
-            // the embedder-facing action owns host dupes.
-            const dial = try dialActionFields(self, d.pending, d.locator);
-            queueHostAction(self, .{ .dial = dial }) catch |err| {
-                host_action.freeAction(self.allocator, .{ .dial = dial });
-                return err;
-            };
+            // Ticket-only action: pending row owns URI + parsed parts.
+            // Unparseable gives never reach a dial action (acceptGive fails
+            // them). Pre-flight reuses an already-open Host session the Node
+            // identity cache may have missed (earlier app dial, accepted
+            // inbound hello). ADR-0012 session-pair uniqueness would refuse a
+            // duplicate dial and break the redeem.
+            const view = self.node.pendingDial(d.pending) orelse return;
+            if (self.liveSessionForDial(view.designator)) |existing| {
+                if (existing.sessionOpen()) {
+                    return self.node.exporterDialed(d.pending, existing.peer_id);
+                }
+            }
+            try queueHostAction(self, .{ .dial = .{ .ticket = d.pending } });
         },
         .flush => |peer_id| try markDirty(self, peer_id),
         .settle => |s| {
@@ -177,38 +182,6 @@ fn execNodeAction(self: *Host, action: engine.Node.Action) !void {
         },
         .need_gift_id => |n| try queueHostAction(self, .{ .need_gift_id = .{ .ticket = n.ticket } }),
     }
-}
-
-/// Build a `dial` action's owned payload: the locator dupe plus its
-/// parsed transport, designator, and `direct-addresses` hint, each duped
-/// onto the host so all four views carry the popped action's
-/// valid-until-next-`nextAction` lifetime. An unparseable locator leaves
-/// the parsed pieces empty and the URI intact for the embedder to
-/// interpret.
-fn dialActionFields(self: *Host, ticket: engine.Node.PendingId, locator_uri: []const u8) !HostAction.Dial {
-    const locator = try self.allocator.dupe(u8, locator_uri);
-    errdefer self.allocator.free(locator);
-    var dial = HostAction.Dial{ .ticket = ticket, .locator = locator };
-    const parsed = model.uri.parsePeer(self.allocator, locator_uri) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        else => return dial,
-    };
-    defer model.freePeerLocator(self.allocator, parsed);
-    dial.transport = try self.allocator.dupe(u8, parsed.transport);
-    errdefer self.allocator.free(dial.transport);
-    dial.designator = try self.allocator.dupe(u8, parsed.designator);
-    errdefer self.allocator.free(dial.designator);
-    for (parsed.hints.entries) |entry| {
-        if (!std.mem.eql(u8, entry.name, vocab.hint_direct_addresses)) continue;
-        switch (entry.value) {
-            .string, .bytes => |bytes| {
-                dial.direct_addresses_hint = try self.allocator.dupe(u8, bytes);
-                return dial;
-            },
-            else => {},
-        }
-    }
-    return dial;
 }
 
 pub fn queueHostAction(self: *Host, action: HostAction) !void {
@@ -308,6 +281,9 @@ pub fn finishDispatch(self: *Host, session: *HostSession) !void {
 pub fn condemn(self: *Host, session: *HostSession, kind: model.AbortKind, message: []const u8) !void {
     if (session.condemned) return;
     session.condemned = true;
+    // Drop uniqueness-index rows immediately so a condemned session cannot
+    // squat dial / partner-key slots while its abort drains (ADR-0012).
+    self.unindexSession(session);
     try session.served.peer.sendCopying(.{ .abort = .{ .kind = kind, .message = message } });
     try markDirty(self, session.peer_id);
 }

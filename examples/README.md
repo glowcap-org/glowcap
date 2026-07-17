@@ -1,22 +1,30 @@
 # pancake by example (Zig)
 
-Runnable CapTP/OCapN walkthroughs. Each program carries its narrative in a `//!`
-header and runs under `zig build examples` (and `zig build check`), so the prose
-and the API calls can't drift from each other.
+Runnable CapTP and OCapN walkthroughs. Each program carries its narrative in a
+`//!` header and runs under `zig build examples` (and `zig build check`), so the
+prose and the API calls cannot drift from each other.
 
-The chapters read top-down. Chapter 01 is the surface an application rides, and
-chapter 02 widens it to the multi-session `Host` tier. Chapters 03–05 then
-descend one layer at a time to the raw engine, and chapter 06 returns to the
-actor layer for the two moves that make capabilities compose.
+For CapTP from a shell: call a published name, host a temporary echo listener,
+open a REPL, or script with `--json`: install `pancake` on your `PATH` and
+follow [`docs/cli.md`](../docs/cli.md). These chapters teach the Zig API; the
+CLI is the product adapter over the same stack.
 
-| #  | Program                                                              | What it does                                                                                                                                                                                                                                 |
+The chapters read top-down. Chapter 01 is the surface an application rides.
+Chapter 02 widens it to the multi-session `Host` tier. Chapters 03–06 then
+descend to the raw engine and actor composition over in-process
+`pairing.pairedGoblins` (authenticated CapTP `"1.0"` / Syrup, the Goblins
+interop profile). `pairing.paired` is the pancake-forward Cap'n Proto path.
+These chapters stay on Goblins so deliver and resolve pedagogy matches the live
+interop wire.
+
+| # | Program | What it does |
 | -- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 01 | [`zig/01_connect_and_serve.zig`](zig/01_connect_and_serve.zig)       | The application surface over a real TCP socket: the host `listen`s, accepts, publishes by name, and `serve`s; the client `connect`s, fetches by name, `call`s, and switches on the settled outcome. One owning `driver.Session` per side. |
-| 02 | [`zig/02_introduce_and_redeem.zig`](zig/02_introduce_and_redeem.zig) | The capability pattern pancake exists for: a directory introduces the client to a service, the host redeems the gift inside the call so the answer settles as the service itself, and the direct call leaves the directory out of the path. Three `Host` + `Bridge` + `TcpLoop` parties in one process.  |
-| 03 | [`zig/03_actor_far_send.zig`](zig/03_actor_far_send.zig)             | Bind an actor to an export, far-send to it across a paired session, and settle the vow. The `actors.Vat` pattern beneath chapter 01's `call`, and the one every networked application builds on.                                             |
-| 04 | [`zig/04_look_up_by_name.zig`](zig/04_look_up_by_name.zig)           | Fetch a capability through the bootstrap object using a swiss number: the machinery beneath fetch-by-name. The server side is one `registerBootstrapCap` call; the engine answers the `'fetch`.                                            |
-| 05 | [`zig/05_call_a_remote_method.zig`](zig/05_call_a_remote_method.zig) | The raw engine: pair two peers, export and import by hand, and shuttle the deliver and resolve frames one explicit `step` at a time.                                                                                                         |
-| 06 | [`zig/06_pipeline_and_attenuate.zig`](zig/06_pipeline_and_attenuate.zig) | Promise pipelining and attenuation together: `sendToAnswer` aims dependent calls at an unresolved answer (one batch, no round trips), and the reply is an attenuated proxy that forwards `play` but breaks `eject`. Refused authority is unrepresentable, not permission-checked.  |
+| 01 | [`zig/01_connect_and_serve.zig`](zig/01_connect_and_serve.zig) | The application surface over a real TCP socket: the host `listen`s, accepts, publishes by name, and `serve`s; the client `connect`s, fetches by name, `call`s, and switches on the settled outcome. One owning `driver.Session` per side. |
+| 02 | [`zig/02_introduce_and_redeem.zig`](zig/02_introduce_and_redeem.zig) | The capability pattern pancake exists for: a directory introduces the client to a service, the host redeems the gift inside the call so the answer settles as the service itself, and the direct call leaves the directory out of the path. Three `Host` + `Bridge` + `TcpLoop` parties in one process. |
+| 03 | [`zig/03_actor_far_send.zig`](zig/03_actor_far_send.zig) | Bind an actor to an export, far-send to it across a paired session, and settle the vow. The `actors.Vat` pattern beneath chapter 01's `call`, and the one every networked application builds on. |
+| 04 | [`zig/04_look_up_by_name.zig`](zig/04_look_up_by_name.zig) | Fetch a capability through the bootstrap object using a swiss number: the machinery beneath fetch-by-name. The server side is one `registerBootstrapCap` call; the engine answers the `'fetch`. |
+| 05 | [`zig/05_call_a_remote_method.zig`](zig/05_call_a_remote_method.zig) | The raw engine: pair two peers, export and import by hand, and shuttle the deliver and resolve frames one explicit `step` at a time. |
+| 06 | [`zig/06_pipeline_and_attenuate.zig`](zig/06_pipeline_and_attenuate.zig) | Promise pipelining and attenuation together: `sendToAnswer` aims dependent calls at an unresolved answer (one batch, no round trips), and the reply is an attenuated proxy that forwards `play` but breaks `eject`. Refused authority is unrepresentable, not permission-checked. |
 
 Full applications run in every binding, each built on the same small surface
 (`connect`, `listen`, `fetch`, `publish`, `spawn`, `send`, `tell`, `serve`,
@@ -29,7 +37,7 @@ Full applications run in every binding, each built on the same small surface
   TCP and checks every member sees every message. It needs only `deno` and the
   always-built Zig client; the Python, Racket, and Rust clients join when their
   runtimes are present and are skipped with a note otherwise. It runs as a
-  sibling of `check`, not as part of the hermetic gate.
+  sibling of `check`, not part of the self-contained `zig build check`.
 - [`apps/tasks/`](apps/tasks/): a capability-secure shared task board (CRUD +
   live state). A Deno server and one client per language (Zig, Rust, Python,
   Racket, Deno). `zig build demo-tasks` runs each client against one board: add
@@ -93,6 +101,6 @@ Lower-level library mechanics:
   ABI archives together: `libpancake_ocapn` with the tcp and inproc transport
   archives composed and resolved in one consumer (ADR-0059).
 - [`c/host_embedder_pump.c`](c/host_embedder_pump.c): the normative byte-fed
-  `pancake_host_*` embedder choreography — `feed_bytes` + FLUSH/`take_outbound`
+  `pancake_host_*` embedder choreography. `feed_bytes` + FLUSH/`take_outbound`
   drain to open a session, feed-refusal/`last_abort`, and EOF/`break_far_vows`.
   The compiled checklist the language bindings' `pump` modules mirror.

@@ -47,7 +47,7 @@ async def run_client(locator: str, room_name: str, nick: str, line: str, roster:
     print(f"[{nick}] rooms: {_fmt_rooms(live)}", flush=True)
     await directory.watch(lambda kind, name, count: print(f"[{nick}] directory: {kind} {name} ({count})", flush=True))
     room_ref = await enter_or_open(directory, room_name)
-    room = await Room.subscribe(directory.conn, room_ref, nick)
+    room = await Room.subscribe(directory.session, room_ref, nick)
     want = set(roster)
     present: set[str] = set()
     seen: set[str] = set()

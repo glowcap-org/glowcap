@@ -60,9 +60,17 @@ wrapper runs:
 | `tests.op_gc`                | Answer and export garbage-collection messages.                                           |
 | `tests.third_party_handoffs` | Handoff-give and handoff-receive flows, including wait-before-deposit.                   |
 
-`handshake_abort_probe.py` remains a focused diagnostic for malformed handshake
-cases if a suite regression needs isolating. It is not part of the default
-`zig build ocapn-conformance` path.
+Crossed-hellos cases in `op_start_session` can use most of a module's time
+budget. `handshake_abort_probe.py` covers the invalid-signature and
+invalid-version aborts on their own. The default
+`zig build ocapn-conformance` wrapper runs that probe (2s cap) before the suite
+modules. Pass `--port=N` or set `PANCAKE_OCAPN_CONFORMANCE_PORT` to match the
+peer. To run one module or the probe alone:
+
+```sh
+bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_start_session
+uv run python conformance/ocapn-conformance/handshake_abort_probe.py --port=22055
+```
 
 Two details keep the suite's verdict honest. The Syrup codec consumes a
 non-empty hints map, because the suite's `tcp-testing-only` netlayer carries the

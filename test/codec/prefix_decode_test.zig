@@ -47,11 +47,11 @@ fn sweepSyrupExact(bytes: []const u8) !void {
 }
 
 fn encodeSyrup(allocator: std.mem.Allocator, message: model.Message) !pancake.foundation.Frame {
-    return syrup.encodeMessageForProfile(allocator, model.WireProfile.v1_0, message);
+    return syrup.encodeMessageForProfile(allocator, model.CaptpVersion.v1_0, message);
 }
 
-fn encodeSyrupPreSpec(allocator: std.mem.Allocator, message: model.Message) !pancake.foundation.Frame {
-    return syrup.encodeMessageForProfile(allocator, model.WireProfile.pre_spec, message);
+fn encodeSyrupNext(allocator: std.mem.Allocator, message: model.Message) !pancake.foundation.Frame {
+    return syrup.encodeMessageForProfile(allocator, model.CaptpVersion.next, message);
 }
 
 test "syrup decodePrefix: every byte split of a valid frame is incomplete until complete" {
@@ -85,7 +85,7 @@ test "syrup decodePrefix: every byte split of a valid frame is incomplete until 
         .args = &.{},
         .answer = null,
     } }));
-    try frames.append(allocator, try encodeSyrupPreSpec(allocator, .{
+    try frames.append(allocator, try encodeSyrupNext(allocator, .{
         .resolve = .{ .answer = .from(3), .resolution = .{ .fulfill = .{ .bytes = "ok" } } },
     }));
     try frames.append(allocator, try encodeSyrup(allocator, .{

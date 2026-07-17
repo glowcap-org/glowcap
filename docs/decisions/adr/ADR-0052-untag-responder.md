@@ -3,7 +3,7 @@ id: ADR-0052
 status: accepted
 date: 2026-06-11
 tags: [engine, session, pipelining, untag, tagged]
-decision: pancake answers `op:untag` (CapTP § Receiving) through the ADR-0050 projection substrate. A matching tag unwraps the Tagged payload — the single value when the payload has one, the value List otherwise — and a mismatched tag or a non-Tagged fulfillment breaks the projected answer. The tag is a Syrup String on the wire, matching op:get's field-name choice. Goblins has no op:untag marshaller, so the conformance authority is the spec text plus the Zig wire-driven scenarios and the Racket-generated fixture.
+decision: pancake answers `op:untag` (CapTP § Receiving) through the ADR-0050 projection substrate. A matching tag unwraps the Tagged payload (the single value when the payload has one, the value List otherwise) and a mismatched tag or a non-Tagged fulfillment breaks the projected answer. The tag is a Syrup String on the wire, matching op:get's field-name choice. Goblins has no op:untag marshaller, so the conformance authority is the spec text plus the Zig wire-driven scenarios and the Racket-generated fixture.
 supersedes: []
 superseded_by: []
 ---
@@ -12,8 +12,8 @@ superseded_by: []
 
 ## Context
 
-ADR-0050 built the projection substrate — session-owned `Projection` rows
-anchored on the receiver answer, drained by the resolve seam — and shipped
+ADR-0050 built the projection substrate: session-owned `Projection` rows
+anchored on the receiver answer, drained by the resolve seam: and shipped
 `op:get` / `op:index` on it, naming `op:untag` as the one projection still
 outside. The spec settles untag's wire shape and receive contract (CapTP §
 op:untag): `<op:untag receiver-desc tag new-answer-pos>` exports a promise at

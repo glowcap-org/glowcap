@@ -1,4 +1,4 @@
-//! `Served.drivePostBatch` — the loop drivers' amplification cap, pinned
+//! `Served.drivePostBatch`: the loop drivers' amplification cap, pinned
 //! sans-io. A high-fan-out loop drives each connection's queued local turns
 //! within a caller-supplied budget and closes the connection on
 //! `error.LocalTurnLimitExceeded`; this holds the verdict mapping and the

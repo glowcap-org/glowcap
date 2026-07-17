@@ -477,7 +477,7 @@ const connect_target = struct {
 };
 pub const ConnectTarget = connect_target;
 
-/// OCapN locator → iroh `ConnectTarget` for `completion.Loop`.
+/// OCapN locator mapped to an iroh `ConnectTarget` for `completion.Loop`.
 /// Canonical node-id shape is refused here so `dialLocator` / blocking dial
 /// fail before the network (or a connect worker) is touched.
 pub const DialResolver = struct {
@@ -494,10 +494,12 @@ pub const DialResolver = struct {
 
 /// A heap-pinned accept seat over the resident's one endpoint, freed by the
 /// contract listener's `close`. Closing the listener does not close the
-/// endpoint, the resident owns that.
+/// endpoint, the resident owns that. `stashed` holds a conn claimed by
+/// `waitAcceptable` via try_accept so the next `accept` does not block.
 const ListenerBox = struct {
     resident: *Resident,
     allocator: std.mem.Allocator,
+    stashed: ?*CConn = null,
 };
 
 const listener_vtable: Listener.VTable = .{
@@ -508,13 +510,30 @@ const listener_vtable: Listener.VTable = .{
     // application's own locator record carries dial addresses).
     .designator_scheme = .key,
     .accept = listenerAccept,
+    .waitAcceptable = listenerWaitAcceptable,
     .localDesignator = listenerLocalDesignator,
     .close = listenerClose,
 };
 
+fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) net.netlayer.AcceptError!bool {
+    const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+    if (box.stashed != null) return true;
+    _ = pancake_iroh_sidecar_endpoint_set_nonblocking_accept(box.resident.endpoint);
+    const fd = pancake_iroh_sidecar_endpoint_readiness_fd(box.resident.endpoint);
+    if (fd < 0) return error.ConnectionLost;
+    var fds = [_]std.posix.pollfd{.{ .fd = fd, .events = std.posix.POLL.IN, .revents = 0 }};
+    const ready = std.posix.poll(&fds, timeout_ms) catch return error.ConnectionLost;
+    if (ready == 0) return false;
+    // Claim without blocking; a readiness wake for a non-accept event leaves
+    // stashed null and the poll loop continues (stop latch can fire).
+    box.stashed = pancake_iroh_sidecar_endpoint_try_accept(box.resident.endpoint);
+    return box.stashed != null;
+}
+
 fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) net.netlayer.AcceptError!Connection {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
-    const conn = pancake_iroh_sidecar_accept(box.resident.endpoint) orelse return error.ConnectionLost;
+    const conn = box.stashed orelse pancake_iroh_sidecar_accept(box.resident.endpoint) orelse return error.ConnectionLost;
+    box.stashed = null;
     errdefer pancake_iroh_sidecar_conn_free(conn);
     const stream = try irohStreamCreate(peer.allocator, conn, bufs);
     return stream.intoConnection(box.resident.io, peer);
@@ -531,6 +550,7 @@ fn listenerLocalDesignator(ctx: *anyopaque, out: []u8) []const u8 {
 
 fn listenerClose(ctx: *anyopaque) void {
     const box: *ListenerBox = @ptrCast(@alignCast(ctx));
+    if (box.stashed) |conn| pancake_iroh_sidecar_conn_free(conn);
     box.allocator.destroy(box);
 }
 
@@ -596,9 +616,9 @@ pub const Backend = struct {
     /// triggered accept can queue several before the loop re-arms.
     accept_stash: std.ArrayList(*CConn) = .empty,
     accept_ud: ?u64 = null,
-    /// Synthetic fd → sidecar connection. Fd 0 is the listen sentinel.
+    /// Synthetic fd to sidecar connection. Fd 0 is the listen sentinel.
     conns: std.AutoHashMap(Fd, ConnEntry),
-    /// Sidecar `*CConn` identity → synthetic fd, for readiness records.
+    /// Sidecar `*CConn` identity to synthetic fd, for readiness records.
     by_ptr: std.AutoHashMap(usize, Fd),
     next_fd: Fd = 1,
     scratch_pool: ScratchPool,
@@ -946,7 +966,7 @@ pub const Backend = struct {
 
     /// Non-blocking harvest of dial wakeups and sidecar readiness. Must run
     /// even when `ready` already has send/recv completions — otherwise an
-    /// accept that arrived during a busy G↔E exchange stays invisible until
+    /// accept that arrived during a busy G-to-E exchange stays invisible until
     /// the queue drains, and a redeem dialer's CapTP hello is never answered.
     fn harvestReadiness(self: *Backend) !void {
         try self.drainConnectDone();

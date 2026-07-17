@@ -65,3 +65,46 @@ test "steady-state deliver to a live export holds its allocation budget" {
     const budget = 1;
     try std.testing.expectEqual(@as(usize, budget), per_turn);
 }
+
+/// The same fire-and-forget deliver, but the single argument is a far reference
+/// (`desc:import-object 99`) the partner introduces. After the first turn
+/// registers import 99, every later turn finds it already held, so the measured
+/// window sees only the steady per-turn cost of a capability-carrying deliver.
+const deliver_introducing_far_ref = "<10'op:deliver<11'desc:export7+>[<18'desc:import-object99+>]ff>";
+
+fn driveOneCapTurn(peer: *engine.Peer) !void {
+    try peer.recvBorrowed(.{ .bytes = deliver_introducing_far_ref, .shape = .byte });
+    while (peer.pollEvent()) |event_in| {
+        var event = event_in;
+        event.deinit();
+    }
+}
+
+test "steady-state capability-carrying deliver holds its allocation budget" {
+    var counter = CountingAllocator{ .backing = std.testing.allocator };
+    var peer = engine.Peer.init(counter.allocator());
+    defer peer.deinit();
+    try peer.session_state.registerExport(.from(7));
+
+    // Warm up so the first turn's import registration and backing growth land
+    // outside the measured window; import 99 is held for every measured turn.
+    const warmup = 8;
+    for (0..warmup) |_| try driveOneCapTurn(&peer);
+
+    const turns = 16;
+    counter.allocs = 0;
+    for (0..turns) |_| try driveOneCapTurn(&peer);
+
+    try std.testing.expectEqual(@as(usize, 0), counter.allocs % turns);
+    const per_turn = counter.allocs / turns;
+
+    // Three allocations for a capability-carrying deliver, above the one-arg
+    // floor: the owned frame the retained event requires, the gpa-backed
+    // introduced-mention list that rides the event for post-dispatch stateless
+    // GC (`inbound.zig`, on `self.allocator` so it outlives the turn), and the
+    // owned handoff of that list onto the event. Import 99 is already held, so
+    // there is no per-turn registration. This is an exact contract, not an
+    // upper bound; a fourth allocation here is a regression.
+    const budget = 3;
+    try std.testing.expectEqual(@as(usize, budget), per_turn);
+}

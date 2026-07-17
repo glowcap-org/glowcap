@@ -81,16 +81,12 @@
    [items _pointer] [items-len _size]) #:malloc-mode 'atomic-interior)
 ;; Mirrors `PancakeHostAction` in pancake_driver.h: one embedder effect popped
 ;; from `pancake_host_next_action`. `kind` selects the live fields; a DIAL
-;; action's byte views — the full locator URI plus its parsed transport,
-;; designator, and direct-addresses hint — a SETTLE's `value` sub-structure,
-;; and a FAIL's `message` are host-owned and valid until the next
+;; action carries only `ticket` (locator bytes come from
+;; `pancake_host_pending_dial`); a SETTLE's `value` sub-structure and a
+;; FAIL's `message` are host-owned and valid until the next
 ;; `pancake_host_next_action`, so the binding copies them out immediately.
 (define-cstruct _PancakeHostAction
   ([kind _uint32] [ticket _uint64] [conn _pointer]
-   [locator _pointer] [locator-len _size]
-   [transport _pointer] [transport-len _size]
-   [designator _pointer] [designator-len _size]
-   [direct-addresses-hint _pointer] [direct-addresses-hint-len _size]
    [value _PancakeArgument] [message _pointer] [message-len _size]) #:malloc-mode 'atomic-interior)
 ;; Mirrors `PancakeLastAbort` in pancake_ocapn.h: two leading u32s, then three
 ;; (pointer, length) views of process-static strings the library owns.
@@ -126,8 +122,6 @@
 (pin-layout! '_PancakeReference _PancakeReference PANCAKE-REFERENCE-SIZE reference-layout)
 (pin-layout! '_PancakeArgument _PancakeArgument PANCAKE-ARGUMENT-SIZE argument-layout)
 (pin-layout! '_PancakeHostAction _PancakeHostAction PANCAKE-HOST-ACTION-SIZE
-             `(uint32 uint64 pointer
-               pointer uint64 pointer uint64 pointer uint64 pointer uint64
-               ,argument-layout pointer uint64))
+             `(uint32 uint64 pointer ,argument-layout pointer uint64))
 (pin-layout! '_PancakeLastAbort _PancakeLastAbort PANCAKE-LAST-ABORT-SIZE
              '(uint32 uint32 pointer uint64 pointer uint64 pointer uint64))

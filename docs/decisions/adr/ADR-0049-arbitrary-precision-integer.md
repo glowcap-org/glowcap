@@ -14,7 +14,7 @@ superseded_by: []
 
 The OCapN Integer is arbitrary-precision (Model.md § Integer), and Goblins
 marshals Racket bignums. pancake modelled `integer` as `i64` and refused a
-magnitude outside that range at decode — a pinned fail-closed boundary, and the
+magnitude outside that range at decode: a pinned fail-closed boundary, and the
 last missing atom of the passable set. Completing it has one design question:
 what bytes represent the magnitude in the codec-neutral model? Syrup carries
 decimal digits on the wire; a binary (limb) representation would force a
@@ -27,8 +27,8 @@ zero-copy borrowed-view path and drags bignum arithmetic into the tree.
   `model.BigInteger` is `negative: bool` + `digits: []const u8`. Canonical means
   non-empty ASCII `0-9`, no leading zero, magnitude outside `i64`
   (`BigInteger.isCanonical`, the type's own invariant). Both wire codecs carry
-  exactly these bytes — Syrup as the integer's digit run, Cap'n Proto as a data
-  field with the sign on the discriminant word — so the borrowed view _borrows_
+  exactly these bytes. Syrup as the integer's digit run, Cap'n Proto as a data
+  field with the sign on the discriminant word: so the borrowed view _borrows_
   the digits from the frame on both codecs and no conversion or bignum
   arithmetic exists anywhere in the tree.
 - **The arm split is canonical, so equality is bytewise.** Decode produces
@@ -36,8 +36,8 @@ zero-copy borrowed-view path and drags bignum arithmetic into the tree.
   `minInt`'s magnitude is the one asymmetry) and `big_integer` only outside it.
   Two arms never spell one arithmetic value, so Pass Invariant Equality over big
   integers is sign + digit bytes, with no cross-arm case.
-- **Refusal is symmetric (ADR-0003).** A non-canonical big integer — leading
-  zeros, non-digits, or a magnitude that belongs to the `integer` arm — is a
+- **Refusal is symmetric (ADR-0003).** A non-canonical big integer: leading
+  zeros, non-digits, or a magnitude that belongs to the `integer` arm: is a
   malformed frame on decode and an unsupported argument on encode, in both
   codecs and at the C ABI boundary (`PANCAKE_ARG_BIG_INTEGER`, which reuses
   `bytes`/`bytes_len` for digits and `boolean` for the sign). Only canonical

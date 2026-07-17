@@ -87,7 +87,7 @@ pub const connectUri = blocking_session.connectUri;
 pub const acceptVia = blocking_session.acceptVia;
 
 const bridge = @import("bridge.zig");
-/// The completion-loop → byte-fed `driver.core.Host` bridge, generic over
+/// The completion-loop to byte-fed `driver.core.Host` bridge, generic over
 /// the loop type (see `bridge.zig`). One completion-loop thread serving a
 /// full multi-session CapTP host — cross-session flushes armed through
 /// `Loop.armOutbound`, the budgeted drive, and the host's action queue

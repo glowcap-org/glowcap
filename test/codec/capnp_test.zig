@@ -363,40 +363,34 @@ test "Cap'n Proto encodes op:start-session locator hint entries" {
     });
     defer frame.deinit();
 
-    // Decode still projects only the two empty hint spellings — the same
-    // asymmetry Syrup's own borrowed decode has for `op:start-session`
-    // (Syrup instead recovers the signing domain via the raw-bytes capture
-    // `acceptable_location_raw`; Cap'n Proto has no analogous capture yet, a
-    // named gap, not this task's target). Transport/designator still
-    // round-trip untouched.
+    // Decode materializes the same hint entries encode wrote (Cap'n Proto
+    // has no Syrup-style `acceptable_location_raw` capture; the composite
+    // list is the recoverable form).
     const decoded = try capnp.decodeOwned(allocator, frame.view());
     defer model.freeMessage(allocator, decoded);
     try std.testing.expectEqualStrings("tcp", decoded.start_session.acceptable_location.transport);
     try std.testing.expectEqualStrings("127.0.0.1:9001", decoded.start_session.acceptable_location.designator);
-    try std.testing.expectEqual(@as(usize, 0), decoded.start_session.acceptable_location.hints.entries.len);
+    try std.testing.expectEqual(@as(usize, 1), decoded.start_session.acceptable_location.hints.entries.len);
+    try std.testing.expectEqualStrings("host", decoded.start_session.acceptable_location.hints.entries[0].name);
+    try std.testing.expectEqualStrings("127.0.0.1", decoded.start_session.acceptable_location.hints.entries[0].value.string);
 }
 
-test "Cap'n Proto refuses to encode a sturdyref locator carrying hint entries instead of dropping them" {
-    // The sturdyref wire path carries only the two empty hint spellings.
-    // Dropping entries silently would put a different locator on the wire
-    // than the caller named, so a hint-carrying locator must fail loud.
+test "Cap'n Proto round-trips a sturdyref locator carrying hint entries" {
     const entries = [_]model.HintEntry{
         .{ .name = "host", .value = .{ .string = "127.0.0.1" } },
     };
 
-    try std.testing.expectError(capnp.Error.UnsupportedArgument, capnp.encodeMessage(std.testing.allocator, .{
-        .deliver = .{
-            .target = .{ .sturdy = .{
-                .peer = .{
-                    .transport = "tcp",
-                    .designator = "127.0.0.1:9001",
-                    .hints = .{ .entries = &entries },
-                },
-                .swissnum = &.{0xde},
-            } },
-            .args = &.{},
-        },
-    }));
+    try expectRoundTrip(.{ .deliver = .{
+        .target = .{ .sturdy = .{
+            .peer = .{
+                .transport = "tcp",
+                .designator = "127.0.0.1:9001",
+                .hints = .{ .entries = &entries },
+            },
+            .swissnum = &.{0xde},
+        } },
+        .args = &.{},
+    } });
 }
 
 test "gc-export round-trips parallel position/delta lists" {
@@ -458,7 +452,7 @@ test "start-session round-trips the four-operand handshake" {
 test "handoff give and receive round-trip" {
     const give = model.HandoffGive{
         .recipient_key = &([_]u8{0x01} ** 32),
-        .exporter_location = "tcp:host",
+        .exporter = .{ .transport = "tcp", .designator = "host" },
         .gifter_exporter_session = &([_]u8{0x02} ** 32),
         .gifter_side = &([_]u8{0x03} ** 32),
         .gift_id = &([_]u8{0x04} ** 32),
@@ -513,7 +507,7 @@ test "corrupting any byte of a frame stays total: typed error or message, never 
     const path_ops = [_]model.PipelineOp{ .{ .field = "field" }, .{ .call = &call_args } };
     const give = model.HandoffGive{
         .recipient_key = &([_]u8{0x01} ** 32),
-        .exporter_location = "tcp:host",
+        .exporter = .{ .transport = "tcp", .designator = "host" },
         .gifter_exporter_session = &([_]u8{0x02} ** 32),
         .gifter_side = &([_]u8{0x03} ** 32),
         .gift_id = &([_]u8{0x04} ** 32),
@@ -645,6 +639,47 @@ test "Cap'n Proto encodes a Set in canonical order, not model order" {
     try std.testing.expectEqual(@as(usize, 3), owned.deliver.args[0].set.len);
 }
 
+test "Cap'n Proto set of scalars keeps each element's pointer word null (canonical bytes)" {
+    const allocator = std.testing.allocator;
+    const target = model.Reference{ .far = model.FarRef.object(7) };
+
+    // A set of scalar integers: every element is an `Argument` struct (2 data
+    // words, 1 pointer word) whose lone pointer word is null — a scalar arm names
+    // no sub-object. The set-graft encode path copies each standalone-encoded
+    // element into the composite-list slot and relocates its pointer words; a null
+    // pointer must stay null. Grafting it as a struct pointer offset by the graft
+    // delta would ship a spurious non-null pointer, non-canonical bytes the
+    // model round-trip cannot see because the decoder never reads a scalar's
+    // pointer word.
+    const set = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } };
+    const args = [_]model.Argument{.{ .set = set[0..] }};
+    var frame = try capnp.encodeMessage(allocator, .{ .deliver = .{ .target = target, .args = args[0..] } });
+    defer frame.deinit();
+
+    const data_words: u16 = 2;
+    const ptr_words: u16 = 1;
+    const stride: usize = data_words + ptr_words;
+    const tag = wire.Builder.compositeTag(@intCast(set.len), data_words, ptr_words);
+
+    // Scan the frame's little-endian words for the set's composite-list tag, then
+    // assert each element's pointer word (data_words past the element start) is 0.
+    const bytes = frame.bytes();
+    const word_count = bytes.len / 8;
+    var tag_idx: ?usize = null;
+    for (0..word_count) |w| {
+        if (std.mem.readInt(u64, bytes[w * 8 ..][0..8], .little) == tag) {
+            tag_idx = w;
+            break;
+        }
+    }
+    try std.testing.expect(tag_idx != null);
+    for (0..set.len) |i| {
+        const ptr_idx = tag_idx.? + 1 + i * stride + data_words;
+        const ptr_word = std.mem.readInt(u64, bytes[ptr_idx * 8 ..][0..8], .little);
+        try std.testing.expectEqual(@as(u64, 0), ptr_word);
+    }
+}
+
 test "decodeOwned bounds nesting depth: an over-deep frame fails loud, never overflows the stack" {
     const allocator = std.testing.allocator;
     var arena_state = std.heap.ArenaAllocator.init(allocator);
@@ -670,7 +705,7 @@ test "decodeOwned bounds nesting depth: an over-deep frame fails loud, never ove
         .args = &args,
     } };
 
-    const frame = try capnp.encodeMessageForProfile(arena, .pre_spec, message);
+    const frame = try capnp.encodeMessageForProfile(arena, .next, message);
     // The bound fires with a typed error; the testing allocator also proves the
     // rejection path freed every partial allocation (no leak on the error path).
     try std.testing.expectError(error.MalformedView, capnp.decodeOwned(allocator, frame.view()));

@@ -195,7 +195,7 @@ fn macro_u32(text: &str, name: &str) -> Option<u32> {
 fn host_target_triple() -> String {
 	// CARGO_CFG_TARGET_ARCH/OS already match zig build release-pack names
 	// (x86_64, aarch64, macos, linux, windows). Other ports normalize host
-	// aliases — see tools/c-abi-host-aliases.json.
+	// aliases — see tools/c-abi/c-abi-host-aliases.json.
 	let arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_else(|_| "unknown".into());
 	let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_else(|_| "unknown".into());
 	format!("{arch}-{os}")

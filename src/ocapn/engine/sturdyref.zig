@@ -105,8 +105,8 @@ pub fn prepareEnliven(
 /// Settle a fresh enliven from its bootstrap-fetch `fetch.FetchOutcome`, taking
 /// ownership of `outcome`. Clears the in-flight marker for `swissnum`, then:
 ///
-/// - `fulfilled(Reference.far)`: caches the `FarRef` (ADR-0012) and returns
-///   the reference (moved out, the caller owns it).
+/// - `fulfilled(Reference.far)`: moves the pending swissnum into the cache
+///   (ADR-0012) and returns the reference (moved out, the caller owns it).
 /// - `fulfilled(non-far)` / `broken` / `malformed`: releases any owned payload and
 ///   returns `Error.EnlivenmentBroke`.
 ///
@@ -119,25 +119,26 @@ pub fn recordEnlivenment(
     swissnum: []const u8,
     outcome: fetch.FetchOutcome,
 ) Error!model.Reference {
-    session.finishPendingEnliven(swissnum);
     switch (outcome) {
         .fulfilled => |reference| switch (reference) {
             .far => |far| {
-                session.cacheSturdyrefEnlivenment(swissnum, far) catch {
-                    // The cache is non-load-bearing; a failed insert costs a future
-                    // round-trip, not correctness. Keep the live reference.
-                };
+                session.settlePendingEnlivenIntoCache(swissnum, far);
                 return reference;
             },
             else => {
+                session.finishPendingEnliven(swissnum);
                 model.freeReference(allocator, reference);
                 return Error.EnlivenmentBroke;
             },
         },
         .broken => |reason| {
+            session.finishPendingEnliven(swissnum);
             allocator.free(reason);
             return Error.EnlivenmentBroke;
         },
-        .malformed => return Error.EnlivenmentBroke,
+        .malformed => {
+            session.finishPendingEnliven(swissnum);
+            return Error.EnlivenmentBroke;
+        },
     }
 }

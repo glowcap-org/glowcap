@@ -1,8 +1,8 @@
 //! Stub keyed-handshake vocabulary shared by the loopback tests.
 //!
 //! Test support (not a production module): the net and C ABI
-//! loopback proofs all open their sessions with the same unsigned
-//! `op:start-session` — zero key, zero signature, partner verification off —
+//! loopback tests all open their sessions with the same unsigned
+//! `op:start-session`: zero key, zero signature, and partner verification off,
 //! because they prove transport and framing seams, not the handshake. The
 //! stub message lives here once; tests that prove the real signed handshake
 //! build their own.

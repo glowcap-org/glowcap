@@ -81,8 +81,8 @@ machine work on that step too ([ladder](ladder.md)).
   - **Flip condition:** a Windows host is available, and an IOCP backend lands
     behind the existing OS-neutral completion loop (io_uring and kqueue already
     ship; kqueue is compile-gated by `cross-check`).
-  - **Depends on:** the publishable C ABI cascade staying honest on platforms
-    that already pack
+  - **Depends on:** the publishable C ABI cascade matching the published archives
+    on platforms that already pack
     ([ADR-0077](decisions/adr/ADR-0077-publishable-c-abi-resolve.md)). Do not
     claim portable 500k across OS before live-scale evidence exists on Linux.
 - **macOS runtime CI.**
@@ -136,13 +136,30 @@ remains:
   - **When flipped:** keep Cap'n Proto out of the Goblins story; the proof is
     Syrup CapTP over the iroh netlayer the same way TCP is today.
   - **Depends on:** the pancake iroh substrate already shipped.
-- **Export-side listen on an unresolved promise export.**
-  - **Status:** named boundary (ADR-0007). Live object-export listen fires
-    fulfill immediately; unresolved promise export without an answer row
-    refuses loud.
-  - **Flip condition:** a Goblins or suite app pattern needs listen-until-settle
-    on a promise that is only an export (no answer row); then install against
-    export-side promise resolution instead of refusing.
-  - **Depends on:** answer-side and imported-promise listen already shipping.
 - **A native Zig QUIC** stays rejected until iroh's protocols stabilize and a
   production Zig QUIC stack exists (ADR-0055's flip condition).
+- **Protocol-timeline observability: griddle and ocapnviz.** The message-flight
+  plane of the observability family
+  ([plan](planning/observability-family.md),
+  [ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md)).
+  - **griddle** is a deterministic simulator and TCP tap that emits a CapTP
+    protocol timeline as NDJSON: the topology and the message flight a
+    conversation produced. Today only the brand is reserved.
+    `pancake griddle status|help` is a placeholder subtree under the product
+    CLI, and the sim runtime is not built.
+  - **ocapnviz** is the browser topology visualizer (Deno and Pixi) that draws
+    that timeline. pancake is a timeline producer, not ocapnviz's server: a
+    render-bridge relays the NDJSON to the browser over a websocket, so ocapnviz
+    lives beside pancake rather than inside it.
+  - **Status:** deferred. Neither the griddle runtime nor ocapnviz is shipped.
+  - **Flip condition:** a dedicated plan lands the sim runtime and the shared
+    timeline schema on the existing installable CLI, with an optional
+    `pancake ocapn trace --ws` as a second producer of that schema for live
+    CapTP. It stays one control plane, never a second CapTP stack.
+  - **Until then:** agents read live session state through `pancake` argv/REPL
+    and the project MCP front; timeline visualization waits.
+- **A2A-on-CapTP facade.** An agent-to-agent surface layered on the shipped Host
+  and session verbs, deferred to its own plan
+  ([design](planning/pancake-a2a-on-captp-design.md)). It composes the existing
+  CapTP substrate and adds no wire semantics the engine lacks; `host` and
+  `listen` stay argv-only and oracle evidence stays in Zig gates until it lands.

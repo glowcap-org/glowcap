@@ -70,20 +70,23 @@ test "in-flight enliven dedup tracks and clears the outstanding answer" {
     try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.pendingEnlivenAnswer("a"));
     try s.notePendingEnliven("a", .from(5));
     try std.testing.expectEqual(@as(?model.AnswerPosition, .from(5)), s.pendingEnlivenAnswer("a"));
+    try std.testing.expectEqualStrings("a", s.pendingEnlivenSwissnum(.from(5)).?);
 
     // Idempotent: a second note for the same swissnum keeps the first answer.
     try s.notePendingEnliven("a", .from(99));
     try std.testing.expectEqual(@as(?model.AnswerPosition, .from(5)), s.pendingEnlivenAnswer("a"));
+    try std.testing.expectEqualStrings("a", s.pendingEnlivenSwissnum(.from(5)).?);
 
     s.finishPendingEnliven("a");
     try std.testing.expectEqual(@as(?model.AnswerPosition, null), s.pendingEnlivenAnswer("a"));
+    try std.testing.expectEqual(@as(?[]const u8, null), s.pendingEnlivenSwissnum(.from(5)));
 }
 
 test "checkEnlivenPreconditions rejects non-negotiated and non-open sessions" {
     const allocator = std.testing.allocator;
 
     var not_negotiated = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
+        .captp_version = model.CaptpVersion.next,
         .features = model.FeatureSet{},
     });
     defer not_negotiated.deinit();

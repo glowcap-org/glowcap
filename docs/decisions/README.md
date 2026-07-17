@@ -11,7 +11,7 @@ ADR is history.
 
 The set is pruned, not only grown. When the records get numerous, flatten them:
 retire a record a later decision superseded, and fold a cluster of related
-decisions into the single record that now carries them — moving any still-live
+decisions into the single record that now carries them: moving any still-live
 context into the keeper or into [`docs/architecture.md`](../architecture.md)
 first, and fixing every referrer in the same change. The directory listing is
 the index; numbering has gaps because retired and consolidated records are not

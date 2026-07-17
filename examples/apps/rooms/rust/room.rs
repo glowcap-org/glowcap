@@ -8,7 +8,7 @@
 //! only `recv`/`say`/`leave`.
 //!
 //!   let dir = Directory::connect(addr).await?;
-//!   let mut room = Room::subscribe(dir.conn(), dir.enter("general").await?, "alice").await?;
+//!   let mut room = Room::subscribe(dir.session(), dir.enter("general").await?, "alice").await?;
 //!   room.say("hello").await;
 //!   while let Some(msg) = room.recv().await { println!("{}: {}", msg.from, msg.text); }
 //!   room.leave().await;
@@ -49,7 +49,7 @@ fn reason(err: pancake::Error) -> String {
 /// string carries the wire reason so a caller can classify it. The friendly
 /// enter-or-open is a CLI convenience and lives in `client.rs`.
 pub struct Directory {
-	conn: Rc<Session>,
+	session: Rc<Session>,
 	directory: pancake::Ref,
 }
 
@@ -59,23 +59,23 @@ impl Directory {
 		// `dial` spawns the connection's driver task, so inbound events are
 		// already being served, `fetch`, `send`, and inbox callbacks all work
 		// without a separate serve loop.
-		let conn = Rc::new(dial(locator).await?);
-		let directory = conn
+		let session = Rc::new(dial(locator).await?);
+		let directory = session
 			.fetch(DIRECTORY)
 			.await
 			.map_err(|e| format!("fetch directory: {e:?}"))?;
-		Ok(Directory { conn, directory })
+		Ok(Directory { session, directory })
 	}
 
 	/// The open connection, for subscribing to a room the directory returns.
-	pub fn conn(&self) -> Rc<Session> {
-		self.conn.clone()
+	pub fn session(&self) -> Rc<Session> {
+		self.session.clone()
 	}
 
 	/// Create a new room and return its reference. Errs if the name is taken.
 	pub async fn open(&self, name: &str) -> Result<pancake::Ref, String> {
 		let arg = self
-			.conn
+			.session
 			.send(&self.directory, "open", &[name.into()])
 			.await
 			.map_err(reason)?;
@@ -85,7 +85,7 @@ impl Directory {
 	/// Return an existing room's reference. Errs if there is no such room.
 	pub async fn enter(&self, name: &str) -> Result<pancake::Ref, String> {
 		let arg = self
-			.conn
+			.session
 			.send(&self.directory, "enter", &[name.into()])
 			.await
 			.map_err(reason)?;
@@ -95,7 +95,7 @@ impl Directory {
 	/// The live rooms — the ones with people in them — as `(name, count)`.
 	pub async fn list(&self) -> Result<Vec<(String, i64)>, String> {
 		let arg = self
-			.conn
+			.session
 			.send(&self.directory, "list", &[])
 			.await
 			.map_err(reason)?;
@@ -111,7 +111,7 @@ impl Directory {
 		F: Fn(String, String, i64) + 'static,
 	{
 		let observer = self
-			.conn
+			.session
 			.spawn(move |verb, args| {
 				if verb != "notify" {
 					return Err(format!("watch inbox has no method {verb}"));
@@ -125,7 +125,7 @@ impl Directory {
 			.await
 			.map_err(|e| format!("spawn watch inbox: {e:?}"))?;
 		let arg = self
-			.conn
+			.session
 			.send(&self.directory, "watch", &[(&observer).into()])
 			.await
 			.map_err(reason)?;
@@ -232,7 +232,7 @@ fn read_presence(args: &[Argument]) -> Option<Presence> {
 /// A membership in a chat room: the connection plus a stream of the lines the
 /// room pushes. `recv` for the next line, `say` to talk, `leave` when done.
 pub struct Room {
-	conn: Rc<Session>,
+	session: Rc<Session>,
 	room: pancake::Ref,
 	msg_rx: mpsc::UnboundedReceiver<Message>,
 }
@@ -248,14 +248,14 @@ impl Room {
 	/// open connection, as `nick`. Call inside a `LocalSet` (the peer is
 	/// `!Send`).
 	pub async fn subscribe(
-		conn: Rc<Session>,
+		session: Rc<Session>,
 		room: pancake::Ref,
 		nick: &str,
 	) -> Result<Room, String> {
 		// The room calls our inbox back with each line; forward it onto a channel.
 		// A system line may carry a structured presence change after its text.
 		let (msg_tx, msg_rx) = mpsc::unbounded_channel::<Message>();
-		let inbox = conn
+		let inbox = session
 			.spawn(move |verb, args| {
 				if verb != "notify" {
 					return Err(format!("inbox has no method {verb}"));
@@ -277,16 +277,16 @@ impl Room {
 		// Subscribe, handing the room a capability to our inbox. Success is the
 		// resolution; the room delivers the welcome and roster as our first
 		// `notify`, not as a return value.
-		conn.send(&room, "subscribe", &[nick.into(), (&inbox).into()])
+		session.send(&room, "subscribe", &[nick.into(), (&inbox).into()])
 			.await
 			.map_err(|e| format!("subscribe: {e:?}"))?;
 
-		Ok(Room { conn, room, msg_rx })
+		Ok(Room { session, room, msg_rx })
 	}
 
 	/// Say a line to everyone in the room.
 	pub async fn say(&self, text: &str) {
-		let _ = self.conn.send(&self.room, "post", &[text.into()]).await;
+		let _ = self.session.send(&self.room, "post", &[text.into()]).await;
 	}
 
 	/// The next line the room pushes, or `None` once it has ended.
@@ -296,6 +296,6 @@ impl Room {
 
 	/// Leave the room: close the connection and let the driver wind down.
 	pub async fn leave(self) {
-		self.conn.close();
+		self.session.close();
 	}
 }

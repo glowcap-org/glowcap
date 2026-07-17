@@ -35,11 +35,11 @@ One bench unit is the taskboard four-verb script:
 The `latency` and `throughput` modes run the same four verbs two ways:
 
 - `latency` runs them **sequentially**: each send is settled before the next is
-  issued, so the figure is four serial round trips — the cost of a dependent
+  issued, so the figure is four serial round trips: the cost of a dependent
   chain when the consumer awaits each step.
 - `throughput` runs them **pipelined** (ADR-0007, the questioner half): `assign`,
   `complete`, and `status` are addressed at the *answer* `create` will resolve to
-  — sent without awaiting it — so the whole unit costs one round trip and only the
+  (sent without awaiting it) so the whole unit costs one round trip and only the
   final `status` is settled. Each binding expresses this with its own questioner
   surface (a vow/promise returned by a send is itself a send target); the
   Goblins-reference row uses Goblins' native promise pipelining, so the workload
@@ -96,11 +96,11 @@ names the concrete runtime and version where the client can determine it.
   runs `n` such units **sequentially** (each settled before the next) on two
   paths and reports both in nanoseconds per turn (mean and p99):
 
-  - `in_lang` — the counter is spawned the binding's idiomatic way
+  - `in_lang`: the counter is spawned the binding's idiomatic way
     (`conn.spawn`; the native Zig vat near path for the Zig client; a Goblins
     actor in one vat for the reference row), so a send dispatches in process.
     This is what local actor dispatch costs each consumer stack today.
-  - `via_host` — the same behavior forced through the C host machinery: the
+  - `via_host`: the same behavior forced through the C host machinery: the
     client builds a loopback pair inside its own process (listen on
     `127.0.0.1:0` and connect to itself), publishes the counter on the
     accepting side, fetches it from the dialing side, and runs the units
@@ -129,7 +129,7 @@ names the concrete runtime and version where the client can determine it.
 Latency, throughput, and local windows reflect steady state. A runtime with a
 JIT or a garbage collector (Deno, Python, the Racket binding, Goblins) runs
 `min(n, 500)` warmup units and forces a collection before opening the measured
-window — in `local` mode, on each of the two paths separately — the same
+window (in `local` mode, on each of the two paths separately) the same
 hygiene `bench/goblins/client.rkt` applies. Ahead-of-time runtimes (Zig, Rust)
 need no warmup and report `warmup_n` of 0. Per-operation GC inside the
 window is left in the number: it is a real cost of that consumer stack.

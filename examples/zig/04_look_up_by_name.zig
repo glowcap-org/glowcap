@@ -11,7 +11,7 @@
 //! deliver, plus, on V1.0, the resolver the answer comes back to. Then
 //! `tryMatchFetchOutcome` takes the partner's reply (on V1.0 that's a
 //! resolver-callback `op:deliver`) and turns it back into a plain fulfilled or
-//! broken outcome.
+//! broken outcome. Sessions open via `pairing.pairedGoblins`.
 //!
 //! Run: `zig build examples` (it also runs under `zig build check`).
 
@@ -25,7 +25,7 @@ pub fn main() !void {
     defer if (gpa.deinit() == .leak) @panic("leaked memory");
     const allocator = gpa.allocator();
 
-    var pair = try engine.pairing.paired(allocator);
+    var pair = try engine.pairing.pairedGoblins(allocator);
     defer pair.deinit();
     const client = &pair.p1;
     const server = &pair.p2;

@@ -87,7 +87,7 @@ pub fn frameShape(codec: model.CodecId) ?foundation.FrameShape {
 pub fn encodeMessageForProfile(
     codec: model.CodecId,
     allocator: std.mem.Allocator,
-    profile: model.WireProfile,
+    profile: model.CaptpVersion,
     message: model.Message,
 ) !foundation.Frame {
     inline for (registry.active) |spec| {

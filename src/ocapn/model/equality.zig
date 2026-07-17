@@ -9,12 +9,12 @@
 //!
 //! The case that really earns its keep is `Reference.far`. ADR-0012's
 //! session-pair-uniqueness posture means same-session equality is on
-//! `(import_position, kind)`; Host enrollment refuse for a second session to
-//! the same peer is not yet the gate that makes cross-session far-ref
-//! comparison collapse the same way. The other arms compare field by field,
-//! and promise paths and arguments recurse, so the check is total over the
-//! whole tree. (The finer question of what equality *means* for container
-//! shapes is a separate conformance concern; the structural groundwork is here.)
+//! `(import_position, kind)`. Cross-session uniqueness is Host enrollment
+//! (`SessionPairExists` / partner-key index), not a collapse of far-ref
+//! comparison across sessions. The other arms compare field by field, and
+//! promise paths and arguments recurse, so the check is total over the whole
+//! tree. (The finer question of what equality *means* for container shapes is
+//! a separate conformance concern; the structural groundwork is here.)
 
 const std = @import("std");
 const model = @import("mod.zig");
@@ -181,6 +181,265 @@ fn argumentHashDepth(arg: model.Argument, depth: usize) u64 {
     return h.final();
 }
 
+/// Structural hash on a borrowed `view.Argument`, consistent with
+/// `viewArgumentsEqual`. A caller grouping by hash must still confirm with
+/// `viewArgumentsEqualWithScratch` on collision.
+pub fn viewArgumentHash(arg: model.view.Argument) model.view.ProjectError!u64 {
+    return viewArgumentHashDepth(arg, 0);
+}
+
+fn viewArgumentHashDepth(arg: model.view.Argument, depth: usize) model.view.ProjectError!u64 {
+    if (depth > model.max_value_depth) return 0;
+    var h = std.hash.Wyhash.init(@intFromEnum(arg));
+    switch (arg) {
+        .bytes => |x| h.update(x),
+        .symbol => |x| h.update(x),
+        .string => |x| h.update(x),
+        .keyword => |x| h.update(x),
+        .integer => |x| h.update(std.mem.asBytes(&x)),
+        .big_integer => |x| {
+            h.update(std.mem.asBytes(&x.negative));
+            h.update(x.digits);
+        },
+        .boolean => |x| h.update(std.mem.asBytes(&x)),
+        .void, .float64, .reference, .@"error", .handoff => {},
+        .list => |items| {
+            var it = items.iterator();
+            while (try it.next()) |item| {
+                const child = try viewArgumentHashDepth(item, depth + 1);
+                h.update(std.mem.asBytes(&child));
+            }
+        },
+        .tagged => |tagged| {
+            h.update(tagged.tag);
+            var it = tagged.value.iterator();
+            while (try it.next()) |item| {
+                const child = try viewArgumentHashDepth(item, depth + 1);
+                h.update(std.mem.asBytes(&child));
+            }
+        },
+        .set => |items| {
+            var sum: u64 = 0;
+            var it = items.iterator();
+            while (try it.next()) |item| sum +%= try viewArgumentHashDepth(item, depth + 1);
+            h.update(std.mem.asBytes(&sum));
+        },
+        .@"struct" => |entries| {
+            var sum: u64 = 0;
+            var it = entries.iterator();
+            while (try it.next()) |entry| {
+                var eh = std.hash.Wyhash.init(0);
+                eh.update(entry.key);
+                const value_hash = try viewArgumentHashDepth(entry.value, depth + 1);
+                eh.update(std.mem.asBytes(&value_hash));
+                sum +%= eh.final();
+            }
+            h.update(std.mem.asBytes(&sum));
+        },
+    }
+    return h.final();
+}
+
+/// Structural equality on two borrowed `view.Argument` trees. `scratch` materializes
+/// lazy hint lists for handoff comparison; turn-scratch is the intended owner.
+pub fn viewArgumentsEqualWithScratch(
+    a: model.view.Argument,
+    b: model.view.Argument,
+    scratch: std.mem.Allocator,
+) model.view.Error!bool {
+    return viewArgumentsEqualDepth(a, b, 0, scratch);
+}
+
+fn viewArgumentsEqualDepth(
+    a: model.view.Argument,
+    b: model.view.Argument,
+    depth: usize,
+    scratch: std.mem.Allocator,
+) model.view.Error!bool {
+    if (depth > model.max_value_depth) return false;
+    return switch (a) {
+        .bytes => |x| b == .bytes and std.mem.eql(u8, x, b.bytes),
+        .symbol => |x| b == .symbol and std.mem.eql(u8, x, b.symbol),
+        .string => |x| b == .string and std.mem.eql(u8, x, b.string),
+        .keyword => |x| b == .keyword and std.mem.eql(u8, x, b.keyword),
+        .reference => |x| b == .reference and try viewReferencesEqualDepth(x, b.reference, depth, scratch),
+        .@"error" => |x| b == .@"error" and std.mem.eql(u8, x.message, b.@"error".message),
+        .handoff => |x| b == .handoff and try viewHandoffsEqual(x, b.handoff, scratch),
+        .integer => |x| b == .integer and x == b.integer,
+        .boolean => |x| b == .boolean and x == b.boolean,
+        .float64 => |x| b == .float64 and float64Equal(x, b.float64),
+        .void => b == .void,
+        .list => |x| b == .list and try viewArgsEqualDepth(x, b.list, depth + 1, scratch),
+        .set => |x| b == .set and try viewSetsEqualDepth(x, b.set, depth + 1, scratch),
+        .tagged => |x| b == .tagged and std.mem.eql(u8, x.tag, b.tagged.tag) and
+            try viewArgsEqualDepth(x.value, b.tagged.value, depth + 1, scratch),
+        .@"struct" => |x| b == .@"struct" and try viewStructsEqualDepth(x, b.@"struct", depth + 1, scratch),
+        .big_integer => |x| b == .big_integer and x.negative == b.big_integer.negative and
+            std.mem.eql(u8, x.digits, b.big_integer.digits),
+    };
+}
+
+fn viewReferencesEqualDepth(
+    a: model.view.Reference,
+    b: model.view.Reference,
+    depth: usize,
+    scratch: std.mem.Allocator,
+) model.view.Error!bool {
+    if (depth > model.max_value_depth) return false;
+    return switch (a) {
+        .near => |x| b == .near and x.export_position == b.near.export_position and x.kind == b.near.kind,
+        .far => |x| b == .far and x.import_position == b.far.import_position and x.kind == b.far.kind,
+        .promise => |x| blk: {
+            if (b != .promise or x.answer_position != b.promise.answer_position) break :blk false;
+            break :blk try viewPipelinePathsEqualDepth(x.path, b.promise.path, depth, scratch);
+        },
+        .sturdy => |x| b == .sturdy and
+            std.mem.eql(u8, x.peer.transport, b.sturdy.peer.transport) and
+            std.mem.eql(u8, x.peer.designator, b.sturdy.peer.designator) and
+            std.mem.eql(u8, x.swissnum, b.sturdy.swissnum),
+        .broken => |x| b == .broken and std.mem.eql(u8, x.message, b.broken.message),
+    };
+}
+
+fn viewPipelinePathsEqualDepth(
+    a: model.view.PipelinePath,
+    b: model.view.PipelinePath,
+    depth: usize,
+    scratch: std.mem.Allocator,
+) model.view.Error!bool {
+    if (depth > model.max_value_depth) return false;
+    const a_len = try a.len();
+    const b_len = try b.len();
+    if (a_len != b_len) return false;
+    var a_it = a.iterator();
+    var b_it = b.iterator();
+    while (try a_it.next()) |x| {
+        const y = (try b_it.next()) orelse return false;
+        switch (x) {
+            .field => |name| if (!(y == .field and std.mem.eql(u8, name, y.field))) return false,
+            .call => |args| if (!(y == .call and try viewArgsEqualDepth(args, y.call, depth + 1, scratch))) return false,
+        }
+    }
+    return (try b_it.next()) == null;
+}
+
+fn viewArgsEqualDepth(
+    a: model.view.Args,
+    b: model.view.Args,
+    depth: usize,
+    scratch: std.mem.Allocator,
+) model.view.Error!bool {
+    if (depth > model.max_value_depth) return false;
+    const a_len = try a.len();
+    const b_len = try b.len();
+    if (a_len != b_len) return false;
+    var a_it = a.iterator();
+    var b_it = b.iterator();
+    while (try a_it.next()) |x| {
+        const y = (try b_it.next()) orelse return false;
+        if (!try viewArgumentsEqualDepth(x, y, depth, scratch)) return false;
+    }
+    return (try b_it.next()) == null;
+}
+
+fn viewSetsEqualDepth(
+    a: model.view.Args,
+    b: model.view.Args,
+    depth: usize,
+    scratch: std.mem.Allocator,
+) model.view.Error!bool {
+    if (depth > model.max_value_depth) return false;
+    const a_len = try a.len();
+    const b_len = try b.len();
+    if (a_len != b_len) return false;
+    var a_it = a.iterator();
+    while (try a_it.next()) |elem| {
+        var count_a: usize = 0;
+        var a_scan = a.iterator();
+        while (try a_scan.next()) |x| {
+            if (try viewArgumentsEqualDepth(elem, x, depth, scratch)) count_a += 1;
+        }
+        var count_b: usize = 0;
+        var b_scan = b.iterator();
+        while (try b_scan.next()) |y| {
+            if (try viewArgumentsEqualDepth(elem, y, depth, scratch)) count_b += 1;
+        }
+        if (count_a != count_b) return false;
+    }
+    return true;
+}
+
+fn viewStructsEqualDepth(
+    a: model.view.StructEntries,
+    b: model.view.StructEntries,
+    depth: usize,
+    scratch: std.mem.Allocator,
+) model.view.Error!bool {
+    if (depth > model.max_value_depth) return false;
+    const a_len = try a.len();
+    const b_len = try b.len();
+    if (a_len != b_len) return false;
+    var a_it = a.iterator();
+    while (try a_it.next()) |entry| {
+        const other = try findViewEntry(b, entry.key) orelse return false;
+        if (!try viewArgumentsEqualDepth(entry.value, other, depth, scratch)) return false;
+    }
+    return true;
+}
+
+fn findViewEntry(entries: model.view.StructEntries, key: []const u8) model.view.ProjectError!?model.view.Argument {
+    var it = entries.iterator();
+    while (try it.next()) |entry| {
+        if (std.mem.eql(u8, entry.key, key)) return entry.value;
+    }
+    return null;
+}
+
+fn viewHandoffsEqual(a: model.view.Handoff, b: model.view.Handoff, scratch: std.mem.Allocator) model.view.Error!bool {
+    return switch (a) {
+        .give => |x| b == .give and try viewGiveEqual(x, b.give, scratch),
+        .receive => |x| b == .receive and
+            std.mem.eql(u8, x.receiving_session, b.receive.receiving_session) and
+            std.mem.eql(u8, x.receiving_side, b.receive.receiving_side) and
+            x.handoff_count == b.receive.handoff_count and
+            try viewGiveEqual(x.signed_give, b.receive.signed_give, scratch) and
+            std.mem.eql(u8, x.signature.raw, b.receive.signature.raw),
+    };
+}
+
+fn viewGiveEqual(a: model.view.HandoffGive, b: model.view.HandoffGive, scratch: std.mem.Allocator) model.view.Error!bool {
+    return std.mem.eql(u8, a.recipient_key, b.recipient_key) and
+        std.mem.eql(u8, a.exporter.transport, b.exporter.transport) and
+        std.mem.eql(u8, a.exporter.designator, b.exporter.designator) and
+        try viewHintsEqual(a.exporter.hints, b.exporter.hints, scratch) and
+        std.mem.eql(u8, a.gifter_exporter_session, b.gifter_exporter_session) and
+        std.mem.eql(u8, a.gifter_side, b.gifter_side) and
+        std.mem.eql(u8, a.gift_id, b.gift_id) and
+        std.mem.eql(u8, a.signature.raw, b.signature.raw);
+}
+
+fn materializeBorrowedHints(
+    hints: model.view.BorrowedHints,
+    scratch: std.mem.Allocator,
+) model.view.Error!model.Hints {
+    return switch (hints) {
+        .empty => |wf| .{ .wire_form = wf },
+        .projected => |h| h,
+        .lazy => |l| try l.list.materialize(scratch, l.list, l.wire_form),
+    };
+}
+
+fn viewHintsEqual(
+    a: model.view.BorrowedHints,
+    b: model.view.BorrowedHints,
+    scratch: std.mem.Allocator,
+) model.view.Error!bool {
+    if (a.wireForm() != b.wireForm()) return false;
+    const ah = try materializeBorrowedHints(a, scratch);
+    const bh = try materializeBorrowedHints(b, scratch);
+    return hintsEqual(ah, bh);
+}
+
 /// Element-wise structural equality on two argument slices (order-sensitive).
 pub fn argumentSlicesEqual(a: []const model.Argument, b: []const model.Argument) bool {
     return argumentSlicesEqualDepth(a, b, 0);
@@ -250,7 +509,7 @@ fn pipelinePathsEqualDepth(a: model.PipelinePath, b: model.PipelinePath, depth: 
     return true;
 }
 
-fn handoffsEqual(a: model.Handoff, b: model.Handoff) bool {
+pub fn handoffsEqual(a: model.Handoff, b: model.Handoff) bool {
     return switch (a) {
         .give => |x| b == .give and giveEqual(x, b.give),
         .receive => |x| b == .receive and
@@ -264,12 +523,34 @@ fn handoffsEqual(a: model.Handoff, b: model.Handoff) bool {
 
 /// `raw_signed` is deliberately not compared: it caches the wire encoding the
 /// signature was produced over, so it is an encoding artifact, not part of the
-/// give's semantic identity.
+/// give's semantic identity. Exporter hints compare deeply (name + value),
+/// including empty-hint `wire_form`, because a give that differs only in dial
+/// advice is still a different gift payload.
 fn giveEqual(a: model.HandoffGive, b: model.HandoffGive) bool {
     return std.mem.eql(u8, a.recipient_key, b.recipient_key) and
-        std.mem.eql(u8, a.exporter_location, b.exporter_location) and
+        std.mem.eql(u8, a.exporter.transport, b.exporter.transport) and
+        std.mem.eql(u8, a.exporter.designator, b.exporter.designator) and
+        hintsEqual(a.exporter.hints, b.exporter.hints) and
         std.mem.eql(u8, a.gifter_exporter_session, b.gifter_exporter_session) and
         std.mem.eql(u8, a.gifter_side, b.gifter_side) and
         std.mem.eql(u8, a.gift_id, b.gift_id) and
         std.mem.eql(u8, a.signature, b.signature);
+}
+
+fn hintsEqual(a: model.Hints, b: model.Hints) bool {
+    if (a.wire_form != b.wire_form or a.entries.len != b.entries.len) return false;
+    for (a.entries, b.entries) |ae, be| {
+        if (!std.mem.eql(u8, ae.name, be.name)) return false;
+        if (!hintValuesEqual(ae.value, be.value)) return false;
+    }
+    return true;
+}
+
+fn hintValuesEqual(a: model.HintValue, b: model.HintValue) bool {
+    return switch (a) {
+        .string => |x| b == .string and std.mem.eql(u8, x, b.string),
+        .bytes => |x| b == .bytes and std.mem.eql(u8, x, b.bytes),
+        .boolean => |x| b == .boolean and x == b.boolean,
+        .integer => |x| b == .integer and x == b.integer,
+    };
 }

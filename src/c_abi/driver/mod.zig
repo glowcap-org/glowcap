@@ -31,7 +31,7 @@
 //! `actors` layers it bridges, so it exports only the `pancake_host_*` family
 //! and shares no core symbol with the ocapn archive. The family reads for its
 //! entry type `Host` while the archive is named for its Zig module, the same
-//! divergence `libpancake_net_transport_tcp` → `pancake_tcp_*` carries. A
+//! divergence `libpancake_net_transport_tcp` carries toward `pancake_tcp_*`. A
 //! consumer links this alongside `libpancake_ocapn` and reuses the shared
 //! value types by layout. The archive carries its own last-error slot, read
 //! through `pancake_host_last_error`.
@@ -89,8 +89,9 @@ pub const PancakeHostTurn = opaque {};
 
 // ── Action queue vocabulary ──────────────────────────────────────────────────
 
-/// `PancakeHostAction.kind`: dial the exporter at `locator` and report back
-/// through `pancake_host_dialed` / `pancake_host_dial_failed`.
+/// `PancakeHostAction.kind`: dial the exporter named by `ticket` (borrow the
+/// pending view with `pancake_host_pending_dial`) and report back through
+/// `pancake_host_dialed` / `pancake_host_dial_failed`.
 pub const PANCAKE_HOST_ACTION_DIAL: u32 = 0;
 /// `PancakeHostAction.kind`: outbound frames may be ready on `session`; drain
 /// `pancake_host_session_take_outbound` until WOULD_BLOCK and write them.
@@ -129,29 +130,17 @@ pub const PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS: u32 = 24;
 pub const PANCAKE_MAX_LOCAL_FORWARD_HOPS: usize = 256;
 
 /// One embedder effect popped from `pancake_host_next_action`. `kind` selects
-/// the live fields: DIAL carries `ticket` (its report-back handle), the full
-/// `ocapn://…` exporter locator in `locator`/`locator_len`, and the locator's
-/// parsed pieces — `transport`, `designator`, and its direct-addresses hint
-/// hint, each empty when the locator does not parse as an ocapn URI or when
-/// the hint is absent — so the dial executor never re-parses the URI. FLUSH
-/// and CLOSE carry `session`; NEED_GIFT_ID carries `ticket`. SETTLE carries the settled
-/// vow id in `ticket` and the fulfilled value in `value`; FAIL carries the
-/// vow id in `ticket` and the break reason in `message`/`message_len`. Every
-/// popped byte view and `value`'s sub-structure are host-owned and valid
-/// until the next `pancake_host_next_action` call, which frees them. Unused
-/// fields are zeroed.
+/// the live fields: DIAL carries only `ticket` (borrow the pending view with
+/// `pancake_host_pending_dial`). FLUSH and CLOSE carry `session`;
+/// NEED_GIFT_ID carries `ticket`. SETTLE carries the settled vow id in
+/// `ticket` and the fulfilled value in `value`; FAIL carries the vow id in
+/// `ticket` and the break reason in `message`/`message_len`. Every popped byte
+/// view and `value`'s sub-structure are host-owned and valid until the next
+/// `pancake_host_next_action` call, which frees them. Unused fields are zeroed.
 pub const PancakeHostAction = extern struct {
     kind: u32,
     ticket: u64,
     session: ?*PancakeHostSession,
-    locator: ?[*]const u8,
-    locator_len: usize,
-    transport: ?[*]const u8,
-    transport_len: usize,
-    designator: ?[*]const u8,
-    designator_len: usize,
-    direct_addresses_hint: ?[*]const u8,
-    direct_addresses_hint_len: usize,
     value: shared.PancakeArgument,
     message: ?[*]const u8,
     message_len: usize,
@@ -213,14 +202,16 @@ pub const PancakeHostCtxFree = *const fn (ctx: ?*anyopaque) callconv(.c) void;
 
 /// PancakeDialPlan.shape: open a TCP socket to host:port (tcp, keyed-tcp).
 pub const PANCAKE_DIAL_SHAPE_HOST_PORT: u32 = 0;
-/// PancakeDialPlan.shape: dial an iroh endpoint by node id (the designator).
-pub const PANCAKE_DIAL_SHAPE_IROH: u32 = 1;
+/// PancakeDialPlan.shape: peer-id open (node-id designator + addresses + reach).
+/// Today produced only by the `iroh` locator scheme; the tag names the open
+/// shape, not the netlayer archive.
+pub const PANCAKE_DIAL_SHAPE_PEER_ID: u32 = 1;
 
-/// PancakeDialPlan.reach_kind (iroh shape): the relay-less direct posture.
+/// PancakeDialPlan.reach_kind (peer-id shape): the relay-less direct posture.
 pub const PANCAKE_DIAL_REACH_DIRECT: u32 = 0;
-/// PancakeDialPlan.reach_kind (iroh shape): the node's own configured redeem posture.
+/// PancakeDialPlan.reach_kind (peer-id shape): the node's own configured redeem posture.
 pub const PANCAKE_DIAL_REACH_CONFIGURED: u32 = 1;
-/// PancakeDialPlan.reach_kind (iroh shape): the caller posture in reach_value.
+/// PancakeDialPlan.reach_kind (peer-id shape): the caller posture in reach_value.
 pub const PANCAKE_DIAL_REACH_EXPLICIT: u32 = 2;
 
 /// pancake_host_plan_dial posture_policy: a redeem (a DIAL action) — direct when
@@ -228,9 +219,23 @@ pub const PANCAKE_DIAL_REACH_EXPLICIT: u32 = 2;
 pub const PANCAKE_DIAL_POSTURE_REDEEM: u32 = 0;
 /// pancake_host_plan_dial posture_policy: a connect with a posture in posture_value.
 pub const PANCAKE_DIAL_POSTURE_EXPLICIT: u32 = 1;
-/// pancake_host_plan_dial posture_policy: a connect that named no posture; an
-/// iroh dial refuses PANCAKE_ERR_INVALID_ARGUMENT (a posture is required).
+/// pancake_host_plan_dial posture_policy: a connect that named no posture; a
+/// peer-id dial refuses PANCAKE_ERR_INVALID_ARGUMENT (a posture is required).
 pub const PANCAKE_DIAL_POSTURE_EXPLICIT_NONE: u32 = 2;
+
+/// Borrowed in-flight pending dial for one ticket (parsed dial parts).
+/// Host-owned views valid until `pancake_host_dialed` / `pancake_host_dial_failed`
+/// consumes the row (or host teardown). Empty hint means the give carried none
+/// (`hint` is NULL, `hint_len` is 0). Dial authority is transport/designator/hint
+/// — no verbatim URI field.
+pub const PancakePendingDial = extern struct {
+    transport: ?[*]const u8,
+    transport_len: usize,
+    designator: ?[*]const u8,
+    designator_len: usize,
+    hint: ?[*]const u8,
+    hint_len: usize,
+};
 
 /// A resolved dial: what byte channel to open and how. shape selects the live
 /// fields. Every view borrows the caller's transport/designator/hint input, so
@@ -261,7 +266,7 @@ pub const PancakeAcceptPlan = extern struct {
 //
 // The `export fn`s below live in the handle-family leaves; the plain `@import`s
 // above already compile them into the library. These re-exports also surface
-// them as members of the `c_abi_driver` namespace so `tools/header_gen_driver.zig`
+// them as members of the `c_abi_driver` namespace so `tools/gen/header/driver.zig`
 // (which reflects over the module root) and the binding mirrors see the full ABI
 // from one place.
 
@@ -272,6 +277,7 @@ pub const pancake_host_designator_from_seed = host.pancake_host_designator_from_
 pub const pancake_host_set_self_designator = host.pancake_host_set_self_designator;
 pub const pancake_host_set_session_limits = host.pancake_host_set_session_limits;
 pub const pancake_host_plan_dial = host.pancake_host_plan_dial;
+pub const pancake_host_pending_dial = host.pancake_host_pending_dial;
 pub const pancake_host_plan_accept = host.pancake_host_plan_accept;
 pub const pancake_host_next_action = host.pancake_host_next_action;
 pub const pancake_host_dialed = host.pancake_host_dialed;
@@ -298,6 +304,7 @@ pub const pancake_host_session_tell = session.pancake_host_session_tell;
 pub const pancake_host_vow_send = session.pancake_host_vow_send;
 pub const pancake_host_vow_index = session.pancake_host_vow_index;
 pub const pancake_host_vow_untag = session.pancake_host_vow_untag;
+pub const pancake_host_vow_get = session.pancake_host_vow_get;
 pub const pancake_host_session_break_far_vows = session.pancake_host_session_break_far_vows;
 pub const pancake_host_session_set_exporter_location = session.pancake_host_session_set_exporter_location;
 pub const pancake_host_session_last_abort = session.pancake_host_session_last_abort;

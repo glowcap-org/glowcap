@@ -122,7 +122,7 @@ def _apply_contract_template(tmpl: str, *, version: str, target: str, cache_base
     )
 
 
-# All host aliases from tools/c-abi-host-aliases.json (meta_check per-port presence).
+# All host aliases from tools/c-abi/c-abi-host-aliases.json (meta_check per-port presence).
 _HOST_ALIAS_CORPUS = (
     "x86_64",
     "amd64",
@@ -141,7 +141,7 @@ _HOST_ALIAS_CORPUS = (
 
 
 def _host_target_triple() -> str:
-    """Host → zig build release-pack target (`tools/c-abi-host-aliases.json`)."""
+    """Host → zig build release-pack target (`tools/c-abi/c-abi-host-aliases.json`)."""
     machine = platform.machine().lower()
     arch = {
         "x86_64": "x86_64",

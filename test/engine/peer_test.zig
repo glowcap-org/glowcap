@@ -89,13 +89,13 @@ const CountingAllocator = struct {
     }
 };
 
-test "raw-open fixture peer is already open on v1.0, not PreSpec" {
+test "raw-open fixture peer is already open on v1.0, not next" {
     const allocator = std.testing.allocator;
     var peer = engine.Peer.initRawOpenFixture(allocator);
     defer peer.deinit();
 
     try std.testing.expect(peer.sessionIsOpen());
-    try std.testing.expectEqual(model.CaptpVersion.v1_0, peer.session_state.wire_profile.captp_version);
+    try std.testing.expectEqual(model.CaptpVersion.v1_0, peer.session_state.captp_version);
 }
 
 test "raw-open fixture records v1.0 resolver callback imports" {
@@ -214,11 +214,11 @@ test "peer step encodes pending outbound message" {
     );
 }
 
-test "peer step uses session wire profile for outbound encoding" {
+test "peer step uses session CapTP version for outbound encoding" {
     const allocator = std.testing.allocator;
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
-    peer.session_state.wire_profile = model.WireProfile.v1_0;
+    peer.session_state.captp_version = model.CaptpVersion.v1_0;
     try peer.session_state.registerImport(.from(7));
     try peer.session_state.registerExport(.from(99));
 
@@ -247,7 +247,7 @@ test "V1_0 runtime translation synthesizes resolve-me-desc for answered deliver"
     const allocator = std.testing.allocator;
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
-    peer.session_state.wire_profile = model.WireProfile.v1_0;
+    peer.session_state.captp_version = model.CaptpVersion.v1_0;
     try peer.session_state.registerImport(.from(7));
 
     try peer.sendCopying(.{
@@ -279,7 +279,7 @@ test "V1_0 resolver-callback resolving to a container registers the introduced i
     const allocator = std.testing.allocator;
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
-    peer.session_state.wire_profile = model.WireProfile.v1_0;
+    peer.session_state.captp_version = model.CaptpVersion.v1_0;
     try peer.session_state.registerImport(.from(7));
 
     // An answered deliver installs outbound answer 42 and our resolver export 1
@@ -585,6 +585,15 @@ test "recvBorrowed surfaces inbound get index listen and resolve events" {
         // `<desc:import-object 9>` listener decodes to `.far` post-flip.
         try std.testing.expectEqual(@as(u64, 9), (try event.view()).listen.listener.far.import_position.int());
     }
+    // Live object export 7 has no inbound answer row: CapTP already-settled
+    // target fires fulfill(near 7) to the listener immediately.
+    while ((try peer.step()) != .idle) {}
+    {
+        const out = try peer_fixture.drainOutbound(&peer, allocator);
+        defer allocator.free(out);
+        try std.testing.expect(std.mem.indexOf(u8, out, "fulfill") != null);
+        try std.testing.expect(std.mem.indexOf(u8, out, "desc:import-object") != null or std.mem.indexOf(u8, out, "desc:export") != null);
+    }
 
     try peer.session_state.recordSend(.{
         .deliver = .{
@@ -714,364 +723,6 @@ test "a second inbound op:resolve for an already-settled outbound answer is refu
         session.AnswerStatus.fulfilled,
         p1.session_state.outboundAnswer(.from(42)).?.status,
     );
-}
-
-test "op:listen fires the registered listener when the answer resolves" {
-    const allocator = std.testing.allocator;
-    var p1 = engine.Peer.init(allocator);
-    defer p1.deinit();
-    var p2 = engine.Peer.init(allocator);
-    defer p2.deinit();
-
-    try p1.session_state.registerImport(.from(7));
-    try p2.session_state.registerExport(.from(7));
-    // p1's listener object is its own export 9; p2 reaches it when it fires.
-    try p1.session_state.registerExport(.from(9));
-
-    // p1 delivers to p2's export, allocating answer 42 (p2 owes its resolution).
-    try p1.sendCopying(.{ .deliver = .{
-        .target = .{ .far = .{ .import_position = .from(7) } },
-        .args = &.{},
-        .answer = .from(42),
-    } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    try p2.feedOwned(p1.takeOutbound().?);
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    {
-        var event = p2.pollEvent().?;
-        event.deinit();
-    }
-    try std.testing.expect(p2.session_state.inboundAnswer(.from(42)) != null);
-
-    // p1 listens on the promise (answer 42), nominating its export 9 as listener.
-    try p1.sendCopying(.{ .listen = .{
-        .target = .{ .promise = .{ .answer_position = .from(42) } },
-        .listener = .{ .near = .{ .export_position = .from(9) } },
-        .wants_partial = false,
-    } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    try p2.feedOwned(p1.takeOutbound().?);
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    {
-        var event = p2.pollEvent().?;
-        event.deinit();
-    }
-
-    // p2 resolves answer 42; step 1 encodes the resolve and queues the
-    // synthesized listener-fire, step 2 encodes the fire deliver.
-    try p2.sendCopying(.{ .resolve = .{
-        .answer = .from(42),
-        .resolution = .{ .fulfill = .{ .bytes = "ok" } },
-    } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    try p1.feedOwned(p2.takeOutbound().?);
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    try p1.feedOwned(p2.takeOutbound().?);
-
-    // p1 processes the inbound resolve, then the listener-fire deliver.
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    {
-        var event = p1.pollEvent().?;
-        event.deinit();
-    }
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    var fire_event = p1.pollEvent().?;
-    defer fire_event.deinit();
-
-    try std.testing.expectEqual(engine.EventKind.deliver, fire_event.kind());
-    const view = try fire_event.view();
-    try std.testing.expect(view == .deliver);
-    // The fire targets our own export 9, so it arrives as `.near` post-flip.
-    try std.testing.expect(view.deliver.target == .near);
-    try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
-    try std.testing.expectEqualStrings("fulfill", (try view.deliver.args.at(0)).symbol);
-    try std.testing.expectEqualStrings("ok", (try view.deliver.args.at(1)).bytes);
-}
-
-test "cross-peer relayed resolution fires a handoff-imported promise listener" {
-    const allocator = std.testing.allocator;
-    var p1 = engine.Peer.init(allocator);
-    defer p1.deinit();
-    var p2 = engine.Peer.init(allocator);
-    defer p2.deinit();
-
-    // p2 holds a promise imported from a third party (import 5). p1 reaches its
-    // listener (p1's export 9) when the relayed resolution fires.
-    try p2.session_state.installThirdPartyImport(.from(5), "exporter");
-    try p1.session_state.registerExport(.from(5));
-    try p1.session_state.registerExport(.from(9));
-
-    // p1 listens on the imported promise (desc:import-promise 5), nominating its
-    // export 9 as the listener.
-    try p1.sendCopying(.{ .listen = .{
-        .target = .{ .near = .{ .export_position = .from(5), .kind = .promise } },
-        .listener = .{ .near = .{ .export_position = .from(9) } },
-        .wants_partial = false,
-    } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    try p2.feedOwned(p1.takeOutbound().?);
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    {
-        var event = p2.pollEvent().?;
-        event.deinit();
-    }
-
-    // The introducing session forwards the third party's resolution; the
-    // cross-peer drain fires the installed listener.
-    try p2.relayResolution(5, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "done") } });
-    try std.testing.expect(try engine.cross_peer.drainRelayedResolutions(&p2));
-
-    // The synthesized fire deliver encodes and reaches p1's export 9.
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    try p1.feedOwned(p2.takeOutbound().?);
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-
-    var fire_event = p1.pollEvent().?;
-    defer fire_event.deinit();
-    try std.testing.expectEqual(engine.EventKind.deliver, fire_event.kind());
-    const view = try fire_event.view();
-    // The fire targets our own export 9, so it arrives as `.near` post-flip.
-    try std.testing.expect(view.deliver.target == .near);
-    try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
-    try std.testing.expectEqualStrings("fulfill", (try view.deliver.args.at(0)).symbol);
-    try std.testing.expectEqualStrings("done", (try view.deliver.args.at(1)).bytes);
-}
-
-test "a listen on an already-resolved handoff-imported promise fires immediately" {
-    const allocator = std.testing.allocator;
-    var p1 = engine.Peer.init(allocator);
-    defer p1.deinit();
-    var p2 = engine.Peer.init(allocator);
-    defer p2.deinit();
-
-    try p2.session_state.installThirdPartyImport(.from(5), "exporter");
-    try p1.session_state.registerExport(.from(5));
-    try p1.session_state.registerExport(.from(9));
-
-    // Relay the resolution before any listener exists: it is stored, nothing fires.
-    try p2.relayResolution(5, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "early") } });
-    try std.testing.expect(try engine.cross_peer.drainRelayedResolutions(&p2));
-    try std.testing.expect(p2.takeOutbound() == null);
-
-    // p1 listens; p2 installs the listener and fires it immediately from the
-    // stored resolution.
-    try p1.sendCopying(.{ .listen = .{
-        .target = .{ .near = .{ .export_position = .from(5), .kind = .promise } },
-        .listener = .{ .near = .{ .export_position = .from(9) } },
-        .wants_partial = false,
-    } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    try p2.feedOwned(p1.takeOutbound().?);
-    // Step 1 processes the listen and enqueues the immediate fire; step 2 encodes it.
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    {
-        var event = p2.pollEvent().?;
-        event.deinit();
-    }
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-
-    try p1.feedOwned(p2.takeOutbound().?);
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    var fire_event = p1.pollEvent().?;
-    defer fire_event.deinit();
-    const view = try fire_event.view();
-    // The fire targets our own export 9, so it arrives as `.near` post-flip.
-    try std.testing.expect(view.deliver.target == .near);
-    try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
-    try std.testing.expectEqualStrings("early", (try view.deliver.args.at(1)).bytes);
-}
-
-test "a second relayed resolution is refused — a handoff-imported promise resolves once" {
-    const allocator = std.testing.allocator;
-    var peer = engine.Peer.init(allocator);
-    defer peer.deinit();
-
-    try peer.session_state.installThirdPartyImport(.from(5), "exporter");
-    try peer.session_state.registerImport(.from(9));
-    try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
-
-    // First relay fires the listener (far 9) and stores the resolution.
-    try peer.relayResolution(5, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "first") } });
-    try std.testing.expect(try engine.cross_peer.drainRelayedResolutions(&peer));
-    try std.testing.expectEqual(engine.StepOutcome.progress, try peer.step());
-    {
-        var frame = peer.takeOutbound().?;
-        defer frame.deinit();
-        // Decoding our own outbound frame applies the receiver-perspective flip:
-        // the fire's `far` import 9 was encoded `<desc:export 9>`, which decodes
-        // to `.near{export_position=9}` (the partner's view of its own export).
-        const view = try codec.syrup.decodeBody(frame.view());
-        try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
-        try std.testing.expectEqualStrings("first", (try view.deliver.args.at(1)).bytes);
-    }
-
-    // A second relay for the already-settled promise is refused (a promise
-    // resolves once, mirroring the answer-side rule), the refused resolution
-    // is freed (the testing allocator holds the no-leak contract), and the
-    // stored value is untouched. A listener installed after the settlement
-    // never fires from the refused relay.
-    try peer.session_state.registerImport(.from(10));
-    try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(10) }, .wants_partial = false });
-    try peer.relayResolution(5, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "second") } });
-    try std.testing.expectError(error.UnexpectedMessage, engine.cross_peer.drainRelayedResolutions(&peer));
-    try std.testing.expectEqual(engine.StepOutcome.idle, try peer.step());
-    try std.testing.expect(peer.takeOutbound() == null);
-    try std.testing.expectEqualStrings("first", peer.session_state.importedPromiseResolution(.from(5)).?.fulfill.bytes);
-}
-
-test "a second relay before the first fire encodes is refused and every listener hears the one settled value" {
-    const allocator = std.testing.allocator;
-    var p1 = engine.Peer.init(allocator);
-    defer p1.deinit();
-    var p2 = engine.Peer.init(allocator);
-    defer p2.deinit();
-
-    try p2.session_state.installThirdPartyImport(.from(5), "exporter");
-    try p2.session_state.registerImport(.from(9));
-    try p2.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
-    try p1.session_state.registerExport(.from(5));
-    try p1.session_state.registerExport(.from(9));
-
-    // First relay queues listener 9's fire carrier — nothing steps yet, so
-    // the fire has not encoded.
-    try p2.relayResolution(5, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "first") } });
-    try std.testing.expect(try engine.cross_peer.drainRelayedResolutions(&p2));
-
-    // A second relay in the queue→encode window is refused before anything
-    // fires: the store still holds "first", the queued carrier's accounting
-    // still matches the payload that will ship.
-    try p2.relayResolution(5, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "second") } });
-    try std.testing.expectError(error.UnexpectedMessage, engine.cross_peer.drainRelayedResolutions(&p2));
-
-    // The queued fire encodes the stored "first".
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    {
-        var frame = p2.takeOutbound().?;
-        defer frame.deinit();
-        const view = try codec.syrup.decodeBody(frame.view());
-        try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
-        try std.testing.expectEqualStrings("first", (try view.deliver.args.at(1)).bytes);
-    }
-
-    // A late wire `op:listen` (installed after both relays) converges on the
-    // same settled value: it fires immediately from the store with "first".
-    try p1.sendCopying(.{ .listen = .{
-        .target = .{ .near = .{ .export_position = .from(5), .kind = .promise } },
-        .listener = .{ .near = .{ .export_position = .from(9) } },
-        .wants_partial = false,
-    } });
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p1.step());
-    try p2.feedOwned(p1.takeOutbound().?);
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    {
-        var event = p2.pollEvent().?;
-        event.deinit();
-    }
-    try std.testing.expectEqual(engine.StepOutcome.progress, try p2.step());
-    {
-        var frame = p2.takeOutbound().?;
-        defer frame.deinit();
-        const view = try codec.syrup.decodeBody(frame.view());
-        try std.testing.expectEqual(@as(u64, 9), view.deliver.target.near.export_position.int());
-        try std.testing.expectEqualStrings("first", (try view.deliver.args.at(1)).bytes);
-    }
-    try std.testing.expect(p2.takeOutbound() == null);
-    try std.testing.expectEqualStrings("first", p2.session_state.importedPromiseResolution(.from(5)).?.fulfill.bytes);
-}
-
-test "a fire staled by row teardown and re-registration at the same import position drops instead of leaking the new promise's value" {
-    const allocator = std.testing.allocator;
-    var peer = engine.Peer.init(allocator);
-    defer peer.deinit();
-
-    try peer.session_state.installThirdPartyImport(.from(5), "exporter");
-    try peer.session_state.registerImport(.from(9));
-    try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
-
-    // The relay queues listener 9's fire, stamped with this row instance's
-    // identity; nothing steps yet.
-    try peer.relayResolution(5, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "old-promise") } });
-    try std.testing.expect(try engine.cross_peer.drainRelayedResolutions(&peer));
-
-    // Sending `op:gc-exports` for import 5 releases it fully; the imported-
-    // promise row (and its stored payload) is co-evicted at record time,
-    // while listener 9's carrier still sits in the send queue.
-    try peer.sendCopying(.{ .gc_export = .{ .positions = &.{5}, .deltas = &.{1} } });
-
-    // A *different* third-party promise is then registered at the reused
-    // position and relays its own value before the stale carrier encodes.
-    try peer.session_state.installThirdPartyImport(.from(5), "other-exporter");
-    try peer.relayResolution(5, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "new-promise") } });
-    try std.testing.expect(try engine.cross_peer.drainRelayedResolutions(&peer));
-
-    // Draining emits only the gc frame: the stale fire's row-identity stamp
-    // misses the re-registered row, so listener 9 — a listener on the dead
-    // promise, not this one — never receives "new-promise".
-    while ((try peer.step()) != .idle) {}
-    var frames: usize = 0;
-    while (peer.takeOutbound()) |frame_in| {
-        var frame = frame_in;
-        defer frame.deinit();
-        const view = try codec.syrup.decodeBody(frame.view());
-        try std.testing.expect(view == .gc_export);
-        frames += 1;
-    }
-    try std.testing.expectEqual(@as(usize, 1), frames);
-    try std.testing.expectEqualStrings("new-promise", peer.session_state.importedPromiseResolution(.from(5)).?.fulfill.bytes);
-}
-
-// F-A apex: the RECORD side of the same hazard the test above pins for the FIRE
-// side. A relayed resolution queued against a third-party import row, then
-// drained after that row is torn down and a *different* third-party promise
-// re-registers at the position, must be dropped as moot — never written to the
-// new promise's row nor fired to its listeners. The `PendingRelayedResolution`
-// carries the row id it was queued against, and `recordRelayedResolution`
-// checks it, exactly as `settled_answer` / `listener_fire` do at encode. The
-// test itself opens the queue→drain window a production host would.
-test "a relayed resolution staled by row teardown and re-registration at the same import position is dropped, not written to the new promise" {
-    const allocator = std.testing.allocator;
-    var peer = engine.Peer.init(allocator);
-    defer peer.deinit();
-
-    // Import 5 is a third-party promise (row R1) with a listener.
-    try peer.session_state.installThirdPartyImport(.from(5), "exporter");
-    try peer.session_state.registerImport(.from(9));
-    try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(9) }, .wants_partial = false });
-
-    // Relay a resolution for R1 but DO NOT drain it: the carrier is stamped with
-    // R1's row id and parked. This is the window a production host opens by
-    // processing inbound between the relay's queue and the drain.
-    try peer.relayResolution(5, .{ .fulfill = .{ .bytes = try allocator.dupe(u8, "stale-promise") } });
-
-    // Tear R1 down (op:gc-exports releases import 5 fully; the imported-promise
-    // row and its listener co-evict), then re-register a DIFFERENT third-party
-    // promise (row R2, a fresh row id) at the reused position, with its own
-    // listener.
-    try peer.sendCopying(.{ .gc_export = .{ .positions = &.{5}, .deltas = &.{1} } });
-    try peer.session_state.installThirdPartyImport(.from(5), "other-exporter");
-    try peer.session_state.registerImport(.from(11));
-    try peer.session_state.installImportedPromiseListener(.from(5), .{ .listener = .{ .import_position = .from(11) }, .wants_partial = false });
-
-    // Draining the stale relay against R2: its R1 stamp misses R2's row id, so
-    // the record is moot — neither stored on R2 nor fired to R2's listener.
-    try std.testing.expect(try engine.cross_peer.drainRelayedResolutions(&peer));
-
-    // R2 was never resolved by the stale relay: no wrong payload written.
-    try std.testing.expect(peer.session_state.importedPromiseResolution(.from(5)) == null);
-
-    // Nothing fired to R2's listener 11 — draining emits only the gc frame, and
-    // the stale payload never touches the wire.
-    while ((try peer.step()) != .idle) {}
-    var frames: usize = 0;
-    while (peer.takeOutbound()) |frame_in| {
-        var frame = frame_in;
-        defer frame.deinit();
-        const view = try codec.syrup.decodeBody(frame.view());
-        try std.testing.expect(view == .gc_export);
-        try std.testing.expect(std.mem.indexOf(u8, frame.bytes(), "stale-promise") == null);
-        frames += 1;
-    }
-    try std.testing.expectEqual(@as(usize, 1), frames);
 }
 
 test "a pipelined call queues until its answer resolves, then delivers locally" {
@@ -1252,7 +903,7 @@ test "a pipelined call re-queues when its answer resolves to another promise" {
 
 test "an inbound protocol violation emits a typed op:abort and closes the session" {
     const allocator = std.testing.allocator;
-    var pair = try engine.pairing.paired(allocator);
+    var pair = try engine.pairing.pairedGoblins(allocator);
     defer pair.deinit();
 
     // An inbound `op:deliver` to `<desc:export 7>` — an export this open peer
@@ -1281,7 +932,7 @@ test "an inbound protocol violation emits a typed op:abort and closes the sessio
 
 test "an app-queued op:abort commits outbound then closes the CapTP session" {
     const allocator = std.testing.allocator;
-    var pair = try engine.pairing.paired(allocator);
+    var pair = try engine.pairing.pairedGoblins(allocator);
     defer pair.deinit();
 
     try std.testing.expectEqual(session.State.open, pair.p1.session_state.state);
@@ -1339,7 +990,7 @@ test "a closing projected abort still closes when the abort frame cannot allocat
 
 test "a malformed inbound frame emits a malformed-frame abort and closes" {
     const allocator = std.testing.allocator;
-    var pair = try engine.pairing.paired(allocator);
+    var pair = try engine.pairing.pairedGoblins(allocator);
     defer pair.deinit();
 
     // Garbage that is not a decodable Syrup frame.
@@ -1840,50 +1491,116 @@ test "a V1.0 break carrying a tagged record resolves to the tag name" {
     try std.testing.expectEqualStrings("remote promise broken", fallback.@"break".message);
 }
 
-test "an inbound listen without negotiated pipelining is refused before any install" {
+test "inbound op:listen export matrix: refuse, fire live object, refuse bare promise" {
+    // One table for the export-side listen chokepoint (validate → installExportListener).
     const allocator = std.testing.allocator;
-    var features = model.FeatureSet.full();
-    features.pipelining = false;
-    var peer = peer_fixture.openPeerWith(allocator, .{ .features = features });
-    defer peer.deinit();
-    try peer.session_state.registerExport(.from(7));
-    try peer.session_state.installInboundAnswer(.from(7));
+    const wire = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>>";
 
-    try std.testing.expectError(
-        session.Error.FeatureNotNegotiated,
-        peer.recvBorrowed(.{ .bytes = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>>", .shape = .byte }),
-    );
-    // The refusal ran before the engine's listener install mutated anything:
-    // no listener row on the answer, no import of the nominated listener, and
-    // nothing surfaced.
-    try std.testing.expectEqual(@as(usize, 0), peer.session_state.inboundAnswer(.from(7)).?.listeners);
-    try std.testing.expect(!peer.session_state.hasImport(.from(9)));
-    try std.testing.expect(peer.pollEvent() == null);
+    {
+        var features = model.FeatureSet.full();
+        features.pipelining = false;
+        var peer = peer_fixture.openPeerWith(allocator, .{ .features = features });
+        defer peer.deinit();
+        try peer.session_state.registerExport(.from(7));
+        try peer.session_state.installInboundAnswer(.from(7));
+        try std.testing.expectError(
+            session.Error.FeatureNotNegotiated,
+            peer.recvBorrowed(.{ .bytes = wire, .shape = .byte }),
+        );
+        try std.testing.expectEqual(@as(usize, 0), peer.session_state.inboundAnswer(.from(7)).?.listeners);
+        try std.testing.expect(!peer.session_state.hasImport(.from(9)));
+        try std.testing.expect(peer.pollEvent() == null);
+    }
+    {
+        var peer = peer_fixture.openPeer(allocator);
+        defer peer.deinit();
+        try peer.session_state.installInboundAnswer(.from(7));
+        try std.testing.expectError(
+            session.Error.InvalidReference,
+            peer.recvBorrowed(.{ .bytes = wire, .shape = .byte }),
+        );
+        try std.testing.expectEqual(@as(usize, 0), peer.session_state.inboundAnswer(.from(7)).?.listeners);
+        try std.testing.expect(!peer.session_state.hasImport(.from(9)));
+        try std.testing.expect(peer.pollEvent() == null);
+    }
+    {
+        var peer = peer_fixture.openPeer(allocator);
+        defer peer.deinit();
+        try peer.session_state.registerExport(.from(7));
+        try peer.recvBorrowed(.{ .bytes = wire, .shape = .byte });
+        {
+            var event = peer.pollEvent().?;
+            defer event.deinit();
+            try std.testing.expectEqual(engine.EventKind.listen, event.kind());
+        }
+        try std.testing.expect(peer.session_state.hasImport(.from(9)));
+        try std.testing.expect(peer.session_state.inboundAnswer(.from(7)) == null);
+        while ((try peer.step()) != .idle) {}
+        const out = try peer_fixture.drainOutbound(&peer, allocator);
+        defer allocator.free(out);
+        try std.testing.expect(std.mem.indexOf(u8, out, "op:deliver") != null);
+        try std.testing.expect(std.mem.indexOf(u8, out, "fulfill") != null);
+        try std.testing.expect(std.mem.indexOf(u8, out, "desc:import-object") != null);
+    }
+    {
+        var peer = peer_fixture.openPeer(allocator);
+        defer peer.deinit();
+        const promise_export = try peer.session_state.allocatePromiseExport();
+        try peer.session_state.registerExport(promise_export);
+        const listen_bytes = try std.fmt.allocPrint(
+            allocator,
+            "<9'op:listen<11'desc:export{d}+><18'desc:import-object9+>>",
+            .{promise_export.int()},
+        );
+        defer allocator.free(listen_bytes);
+        try std.testing.expectError(
+            session.Error.InvalidReference,
+            peer.recvBorrowed(.{ .bytes = listen_bytes, .shape = .byte }),
+        );
+        try std.testing.expect(!peer.session_state.hasImport(.from(9)));
+        try std.testing.expect(peer.pollEvent() == null);
+    }
 }
 
-test "an inbound listen naming an unheld export is refused before any install" {
-    const allocator = std.testing.allocator;
-    var peer = peer_fixture.openPeer(allocator);
-    defer peer.deinit();
-    // Answer 7 exists — so an install-before-validate engine would have hung a
-    // listener on it — but export 7 was never registered, so the listen names
-    // an unheld target and session validation refuses it.
-    try peer.session_state.installInboundAnswer(.from(7));
-
-    try std.testing.expectError(
-        session.Error.InvalidReference,
-        peer.recvBorrowed(.{ .bytes = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>>", .shape = .byte }),
-    );
-    try std.testing.expectEqual(@as(usize, 0), peer.session_state.inboundAnswer(.from(7)).?.listeners);
-    try std.testing.expect(!peer.session_state.hasImport(.from(9)));
-    try std.testing.expect(peer.pollEvent() == null);
+test "live object export listen: OOM during enqueue does not leak" {
+    var fail_index: usize = 0;
+    var saw_oom = false;
+    while (fail_index < 32) : (fail_index += 1) {
+        var failing = std.testing.FailingAllocator.init(std.testing.allocator, .{ .fail_index = fail_index });
+        var peer = peer_fixture.openPeer(failing.allocator());
+        defer peer.deinit();
+        peer.session_state.registerExport(.from(7)) catch {
+            saw_oom = true;
+            continue;
+        };
+        const listen = peer.recvBorrowed(.{
+            .bytes = "<9'op:listen<11'desc:export7+><18'desc:import-object9+>>",
+            .shape = .byte,
+        });
+        if (listen) |_| {
+            while (peer.pollEvent()) |event_value| {
+                var event = event_value;
+                event.deinit();
+            }
+            while (true) {
+                const step = peer.step() catch {
+                    saw_oom = true;
+                    break;
+                };
+                if (step == .idle) break;
+            }
+        } else |_| {
+            saw_oom = true;
+        }
+    }
+    try std.testing.expect(saw_oom);
 }
 
 test "view and decodeOwned agree on a V1.0 resolver-callback deliver" {
     const allocator = std.testing.allocator;
     var peer = engine.Peer.init(allocator);
     defer peer.deinit();
-    peer.session_state.wire_profile = model.WireProfile.v1_0;
+    peer.session_state.captp_version = model.CaptpVersion.v1_0;
     try peer.session_state.registerImport(.from(7));
 
     // An answered deliver mints resolver export 1 at encode time.

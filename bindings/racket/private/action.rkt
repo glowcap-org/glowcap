@@ -56,43 +56,53 @@
 ;; ── Execute ───────────────────────────────────────────────────────────────────
 ;; Honor one parked action under the host lock: FLUSH/NEED_GIFT_ID run here;
 ;; dial / close / settle / fail park as post-lock fires. Returns updated
-;; `(values touched fires)`.
+;; `(values touched fires)`. Kind inventory is generated
+;; `host-dispatch-action!` — a seventh kind fails loud there. Each handler
+;; returns `(values touched fires)` so the fold stays values-shaped (no box).
 (define (apply-parked-action! m a touched fires)
-  (case (car a)
-    [(flush)
-     (define c (host-session-for-ptr m (cadr a)))
-     (cond
-       [c
-        (with-handlers ([converts-to-broken? void]) (drain-outbound! c))
-        (values (if (memq c touched) touched (cons c touched)) fires)]
-       [else (values touched fires)])]
-    [(close)
-     ;; The host condemned the connection mid-pump (local turn budget
-     ;; exceeded): drain its queued resource_exhausted abort so the
-     ;; post-lock write carries it, then close the transport and release
-     ;; the shell — deferred to the fires, which run after the touched
-     ;; writes, once the host lock is released.
-     (define c (host-session-for-ptr m (cadr a)))
-     (cond
-       [c
-        (with-handlers ([converts-to-broken? void]) (drain-outbound! c))
-        (values (if (memq c touched) touched (cons c touched))
-                (cons (lambda () (session-close! c)) fires))]
-       [else (values touched fires)])]
-    [(dial)
-     ;; A dial is a connect syscall plus a whole keyed handshake:
-     ;; post-lock, like every write and fire, or one slow exporter
-     ;; parks every thread sharing the host.
-     (values touched (cons (lambda () (apply run-dial! m (cdr a))) fires))]
-    [(need-gift-id)
-     (host-provide-gift-id! m (cadr a))
-     (values touched fires)]
-    [(settle)
-     (values touched (append (reverse (settle-vow! m (cadr a) (cons 'ok (caddr a)))) fires))]
-    [(fail)
-     (define outcome (cons (if (current-breaking) 'closed 'broken) (caddr a)))
-     (values touched (append (reverse (settle-vow! m (cadr a) outcome)) fires))]
-    [else (error 'pancake "unknown host action: ~a" a)]))
+  (host-dispatch-action!
+   a
+   (hash
+    'flush
+    (lambda (act)
+      (define c (host-session-for-ptr m (cadr act)))
+      (cond
+        [c
+         (with-handlers ([converts-to-broken? void]) (drain-outbound! c))
+         (values (if (memq c touched) touched (cons c touched)) fires)]
+        [else (values touched fires)]))
+    'close
+    (lambda (act)
+      ;; The host condemned the connection mid-pump (local turn budget
+      ;; exceeded): drain its queued resource_exhausted abort so the
+      ;; post-lock write carries it, then close the transport and release
+      ;; the shell — deferred to the fires, which run after the touched
+      ;; writes, once the host lock is released.
+      (define c (host-session-for-ptr m (cadr act)))
+      (cond
+        [c
+         (with-handlers ([converts-to-broken? void]) (drain-outbound! c))
+         (values (if (memq c touched) touched (cons c touched))
+                 (cons (lambda () (session-close! c)) fires))]
+        [else (values touched fires)]))
+    'dial
+    (lambda (act)
+      ;; A dial is a connect syscall plus a whole keyed handshake:
+      ;; post-lock, like every write and fire, or one slow exporter
+      ;; parks every thread sharing the host. Ticket-only: run-dial!
+      ;; borrows the pending URI.
+      (values touched (cons (lambda () (run-dial! m (cadr act))) fires)))
+    'need-gift-id
+    (lambda (act)
+      (host-provide-gift-id! m (cadr act))
+      (values touched fires))
+    'settle
+    (lambda (act)
+      (values touched (append (reverse (settle-vow! m (cadr act) (cons 'ok (caddr act)))) fires)))
+    'fail
+    (lambda (act)
+      (define outcome (cons (if (current-breaking) 'closed 'broken) (caddr act)))
+      (values touched (append (reverse (settle-vow! m (cadr act) outcome)) fires))))))
 
 ;; The one loop rule's drain: park via the shared C wrapper until dry, honoring
 ;; each arm, and return the `drain-effects` — parked writes and listener fires

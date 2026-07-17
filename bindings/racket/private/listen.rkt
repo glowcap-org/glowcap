@@ -96,7 +96,7 @@
                                    TRANSPORT-KEYED-TCP
                                    (keyed-tcp-server-designator s)
                                    (port-transport in out)
-                                   #:direct-addresses-hint (socket-addr-designator local-host local-port)
+                                   #:accepted-local-addr (socket-addr-designator local-host local-port)
                                    #:time-travel? time-travel?)))
 
 (define (keyed-tcp-server-close! s) (tcp-close (keyed-tcp-server-listener s)))
@@ -109,8 +109,9 @@
   (define-values (in out) (tcp-accept (server-listener s)))
   (define m (server-host s))
   (define-values (local-host local-port _rh _rp) (tcp-addresses in #t))
-  (establish-accepted-session m TRANSPORT-TCP (socket-addr-designator local-host local-port)
+  (establish-accepted-session m TRANSPORT-TCP ""
                                  (port-transport in out)
+                                 #:accepted-local-addr (socket-addr-designator local-host local-port)
                                  #:time-travel? time-travel?))
 
 ;; Stop accepting new partners. Connections already accepted are unaffected.

@@ -3,7 +3,7 @@ id: ADR-0057
 status: accepted
 date: 2026-06-12
 tags: [net, netlayer, iroh, transport, driver, completion-loop, performance]
-decision: "iroh stays a sidecar (ADR-0055), and reaching pancake-scale concurrency over it is the netlayer's one I/O model: one tokio runtime per endpoint exposes a single readiness fd plus non-blocking try-read/try-write, adapted by `iroh.Backend` to `completion.Loop` so CapTP fan-out rides `driver.Bridge` + Host (ADR-0076) — N iroh connections multiplex through one loop thread instead of N blocking threads. Shipped: the sidecar exposes the readiness fd + drain, `iroh.Backend` is the completion consumer, the public iroh netlayer C ABI (`pancake_iroh_netlayer_*`) is loop-only — `readiness_fd` + `drain_ready`, armed at construction, with no blocking frame surface — and `zig build iroh-loop` proves many concurrent connections served from one thread through Bridge + Host. Every binding parks on the readiness fd natively in its own idiom; `zig build bindings-iroh-loop` gates Deno, Python, Rust, and Racket together."
+decision: "iroh stays a sidecar (ADR-0055), and reaching pancake-scale concurrency over it is the netlayer's one I/O model: one tokio runtime per endpoint exposes a single readiness fd plus non-blocking try-read/try-write, adapted by `iroh.Backend` to `completion.Loop` so CapTP fan-out rides `driver.Bridge` + Host (ADR-0076) (N iroh connections multiplex through one loop thread instead of N blocking threads. Shipped: the sidecar exposes the readiness fd + drain, `iroh.Backend` is the completion consumer, the public iroh netlayer C ABI (`pancake_iroh_netlayer_*`) is loop-only) `readiness_fd` + `drain_ready`, armed at construction, with no blocking frame surface: and `zig build iroh-loop` proves many concurrent connections served from one thread through Bridge + Host. Every binding parks on the readiness fd natively in its own idiom; `zig build bindings-iroh-loop` gates Deno, Python, Rust, and Racket together."
 supersedes: []
 superseded_by: []
 ---
@@ -12,8 +12,8 @@ superseded_by: []
 
 ## Context
 
-ADR-0055 ships iroh as a Rust sidecar. iroh's QUIC streams are **userspace** —
-they live inside the sidecar's tokio runtime, on top of one UDP socket — so a
+ADR-0055 ships iroh as a Rust sidecar. iroh's QUIC streams are **userspace**,
+they live inside the sidecar's tokio runtime, on top of one UDP socket: so a
 host has no per-stream kernel fd to wait on. The question this ADR settles is
 how a pancake host serves pancake-scale concurrency over that sidecar.
 
@@ -40,7 +40,7 @@ Peer discovery and hole-punching are sidecar-internal: iroh performs
 relay-assisted hole-punching and pkarr/DNS discovery, and pancake exposes the
 posture choice as the no-default `Reachability` (ADR-0055). What scaling iroh
 signs pancake up for is _serving the hundreds of thousands of connections those
-mechanisms produce from pancake's own loop_ — and that is what this ADR scopes.
+mechanisms produce from pancake's own loop_: and that is what this ADR scopes.
 
 ## Decision
 
@@ -105,7 +105,7 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
   (it borrows each QUIC segment zero-copy via `read_chunk`), the writer takes
   each outbound batch by move and drops its storage once flushed, and the
   inbound buffer frees burst capacity down to a 16 KiB steady bound
-  (`NB_STEADY_BYTES`) when the loop drains it empty — the same
+  (`NB_STEADY_BYTES`) when the loop drains it empty: the same
   burst-frees-on-drain posture as the Zig loop (ADR-0042/0054). Steady state
   per non-blocking connection is therefore at most 16 KiB of retained inbound
   capacity plus the two tokio tasks and their `NbConn` state (order 1 KiB), so
@@ -120,17 +120,17 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
 
 - **Thread-per-connection**: correct, proven, and simple, but it caps at
   thousands of connections, not the ~500k the footprint bench targets, so it is
-  not the scale path. The netlayer keeps one I/O model — the loop — so there is
+  not the scale path. The netlayer keeps one I/O model (the loop) so there is
   no second blocking path to maintain.
 - **Register QUIC's UDP socket fd in the loop and run QUIC in Zig**: that is
-  native Zig QUIC by another name. Rejected — ADR-0055.
-- **Busy-poll the sidecar from the loop**: rejected — it burns a core and
+  native Zig QUIC by another name. Rejected. ADR-0055.
+- **Busy-poll the sidecar from the loop**: rejected: it burns a core and
   defeats the point of a completion loop.
 
 ## Consequences
 
 - New surfaces, shipped: an event-driven superset of the
-  `pancake_iroh_sidecar_*` seam (held to one shape by the `tools/meta_check.zig`
+  `pancake_iroh_sidecar_*` seam (held to one shape by the `tools/check/meta_check.zig`
   parity check, like the rest of the seam) and a non-blocking variant of the
   resident's stream wrappers driven by `iroh.Backend` + Bridge.
 - **The loop consumer lives in the resident (`src/net/transport/iroh.zig`), not
@@ -146,7 +146,7 @@ surface is in `transports/iroh/` (see Consequences for the placement rationale).
   connection, ~1.1 GiB at 500k. The sidecar adds its bounded inbound/outbound
   buffers per connection in the Rust heap, allocated on first traffic. The
   blocking thread-per-connection path adds the same core state _plus_ an OS
-  thread (or two) per connection — the cost this bridge removes.
+  thread (or two) per connection: the cost this bridge removes.
 - **Teardown is flake-free by construction.** The loop never parks a blocking
   read on a connection, so releasing one cannot race a parked worker. The
   sidecar's per-connection state is `Arc`-refcounted and its tasks own their
@@ -172,14 +172,14 @@ Each binding parks on that fd natively, with no dedicated polling thread and no
 busy-poll, and each is proven by a many-connection gate the way `iroh-loop`
 proves the Zig resident:
 
-- **Deno** — `IrohLoop` parks a `node:net` socket on a dup of the readiness fd
+- **Deno**. `IrohLoop` parks a `node:net` socket on a dup of the readiness fd
   and drains on its `data` event. Gate: `zig build deno-iroh-loop`.
-- **Python** — `_IrohLoop` registers the fd with the asyncio event loop
-  (`add_reader`) and drains in the callback — no thread, no
+- **Python**. `_IrohLoop` registers the fd with the asyncio event loop
+  (`add_reader`) and drains in the callback: no thread, no
   `call_soon_threadsafe`. Gate: `zig build python-iroh-loop`.
-- **Rust** — `IrohLoop` registers the fd with tokio (`AsyncFd`) and drains when
+- **Rust**. `IrohLoop` registers the fd with tokio (`AsyncFd`) and drains when
   it signals, waking per-connection tasks. Gate: `zig build rust-iroh-loop`.
-- **Racket** — the loop thread parks on the fd natively via
+- **Racket**: the loop thread parks on the fd natively via
   `unsafe-file-descriptor->semaphore`, so the place's poller wakes it without
   freezing the cooperative scheduler. Gate: `zig build racket-iroh-loop`.
 

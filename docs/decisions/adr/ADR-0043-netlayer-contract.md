@@ -13,8 +13,8 @@ superseded_by: [ADR-0062]
 > Superseded by [ADR-0062](ADR-0062-one-connect-over-a-netlayer-slice.md): the
 > runtime-vtable transport type is renamed `Contract` -> `Netlayer` and the
 > `Registry` struct is replaced by a bare `[]const Netlayer` slice. The boundary
-> this ADR drew — a transport is a runtime vtable the driver dispatches by
-> symbol, never a privileged built-in — is retained.
+> this ADR drew: a transport is a runtime vtable the driver dispatches by
+> symbol, never a privileged built-in: is retained.
 
 ## Context
 
@@ -22,7 +22,7 @@ Before this decision tcp was the only transport, and it was privileged in two
 ways the vision's "Pluggable By Contract" principle forbids. First,
 `net.Connection` welded `std.Io.net.Stream.Reader`/`Writer` into its fields and
 reached into `reader.stream.socket.handle` and `reader.stream.close`, so only a
-real TCP socket could drive the engine seam — even though the framing core
+real TCP socket could drive the engine seam: even though the framing core
 `pumpOver` was already generic over `*std.Io.Reader`/`*std.Io.Writer`. Second,
 the driver named the literal `"tcp"` at its dial/host constructors, so a locator
 carrying any other transport had nowhere to go. The OCapN locator carries its
@@ -45,14 +45,14 @@ type-erased `TransportHandle` that closes the underlying stream and reports an
 optional socket descriptor, so any transport that yields the std.Io interfaces
 drives the one framing core unchanged. Because `Connection` borrows the
 interface pointers and is moved by value, the producing transport must keep its
-concrete reader/writer at a stable address for the connection's life —
+concrete reader/writer at a stable address for the connection's life,
 `std.Io.Reader`'s vtable recovers the concrete reader from `&interface` by field
-offset — so tcp pins a small per-connection stream wrapper on the peer's
+offset: so tcp pins a small per-connection stream wrapper on the peer's
 allocator and frees it through the handle. tcp is the contract's first resident
 (`tcp.Resident`, `tcp.netlayer`), reached only through the vtable under the
 symbol `tcp`. The tcp-named conveniences (`connectTcp`, `acceptTcp`, `dial`)
 stay as they are: they pick tcp explicitly and honestly, which is
-not the privilege the vision forbids — that privilege lived in the _generic_
+not the privilege the vision forbids: that privilege lived in the _generic_
 path, which now dispatches. Owned by `src/net/netlayer.zig`,
 `src/net/connection.zig`, `src/net/transport/tcp.zig`, and `src/driver/mod.zig`.
 
@@ -81,7 +81,7 @@ error sets are coarse on purpose (`InvalidAddress` / `ConnectionLost` /
   the core.
 - **Keep the stream inline in a type-erased buffer**: avoids the per-connection
   wrapper allocation. Rejected because a moved `Connection` would leave the
-  interface pointers (recovered by field offset) dangling — the wrapper must be
+  interface pointers (recovered by field offset) dangling: the wrapper must be
   pinned outside the movable connection.
 
 ## Consequences
@@ -89,12 +89,12 @@ error sets are coarse on purpose (`InvalidAddress` / `ConnectionLost` /
 - Adding a transport is new files plus one registration call: no edit to the
   core (foundation/model/codec/session/engine), to `src/driver`, or to
   `connection.zig` / `completion/loop.zig` / `transport/tcp.zig`.
-  `test/driver/pluggability_test.zig` proves this now — a transport defined in
+  `test/driver/pluggability_test.zig` proves this now: a transport defined in
   test code under the symbol `x-loopback` dials and hosts through `connectVia` /
   `acceptVia` with the verified handshake, with no core or driver change.
 - One named per-connection allocation on the blocking path: tcp pins its stream
   wrapper on the peer's allocator (recorded in the memory rule's load-bearing
-  list). The completion `Loop` path is untouched — peer-scaling memory is
+  list). The completion `Loop` path is untouched: peer-scaling memory is
   unchanged (0.65 GiB warmed at 500k).
 - `Connection.socketHandle()` now returns `?Handle`; `driver.stepReadable` polls
   only when a pollable fd exists and otherwise falls through to a blocking step.
@@ -105,7 +105,7 @@ error sets are coarse on purpose (`InvalidAddress` / `ConnectionLost` /
 ## Forward compatibility
 
 A QUIC/iroh resident slots in as `src/net/quic.zig` implementing
-`Netlayer.VTable` — `dial` opens a QUIC stream and builds a `Connection` over
+`Netlayer.VTable`. `dial` opens a QUIC stream and builds a `Connection` over
 its reader/writer with a `TransportHandle` whose `socketHandle` returns null;
 `transport_name = "quic"`; the node id is the dialable designator. The host
 registers it; the driver already dispatches `quic` by symbol. The

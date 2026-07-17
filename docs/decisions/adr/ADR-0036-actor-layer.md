@@ -16,14 +16,14 @@ The vision asks for actors like Goblins so applications are built on pancake the
 way they are built on Goblins, with the rest of the vision (Goblins interop, all
 bindings) true for them too. The engine already carries the _wire_ half of a vat
 (deliver/resolve, promises, exports/imports, listener fan-out), but ADR-0007
-explicitly left "actor-model synthesis — running a method and
-materializing a value — not implemented; the engine surfaces a deliver event for
+explicitly left "actor-model synthesis: running a method and
+materializing a value, not implemented; the engine surfaces a deliver event for
 the application to dispatch." That gap is an actor layer's job.
 
 Goblins' turn is already a pure function
-`(heap, message) → (heap', value,
+`(heap, message)` to `(heap', value,
 outbound)` driven by a per-turn syscaller, not
-an ambient runtime — so an actor layer fits pancake's "sync, no-I/O core, no
+an ambient runtime: so an actor layer fits pancake's "sync, no-I/O core, no
 hidden runtime" posture without strain.
 
 ## Decision
@@ -35,7 +35,7 @@ actors.
 - **Actor.** Any type with
   `pub fn handle(self: *@This(), turn: *Turn, msg:
   Message) !model.Argument`
-  (and optional `deinit`). Its mutable `self` _is_ its state — Goblins returns a
+  (and optional `deinit`). Its mutable `self` _is_ its state. Goblins returns a
   fresh behavior via `bcom`; a Zig actor assigns its own fields. Same "become",
   expressed the way Zig already gives you mutable state.
 - **`spawn`** is comptime-typed (type-safe construction) and stores actors
@@ -44,14 +44,14 @@ actors.
 - **`near`** is the synchronous near-call (`$`): run the handler now, return its
   value. **`send`** is the eventual send (`<-`): queue the message, return a
   `Vow`; **`drive`** runs queued turns to quiescence (FIFO, so a send chain
-  bottoms out before it returns) and settles each vow — fulfilled with the
-  handler's value, or broken on a handler error — firing any one-shot listener
+  bottoms out before it returns) and settles each vow: fulfilled with the
+  handler's value, or broken on a handler error: firing any one-shot listener
   registered with **`on`**.
 - **`Turn`** is the per-turn context (spawn/near/send + the actor's own `Ref`).
-  It is an explicit argument, never global — the Zig answer to Goblins's
+  It is an explicit argument, never global: the Zig answer to Goblins's
   `current-syscaller`.
 
-The layer is sync and owns no I/O; `tools/arch_check.zig` lists `actors` among
+The layer is sync and owns no I/O; `tools/check/arch_check.zig` lists `actors` among
 the no-`std.Io` core layers and permits it to import `engine` (for the wire
 binding), never the reverse.
 
@@ -78,10 +78,10 @@ and the per-turn reply lifetime are decided in the section below.
 ## Consequences
 
 New `src/actors/{mod,vat}.zig`, exported from `src/root.zig`; a new arch rule
-and core-layer entry in `tools/arch_check.zig`. `test/actors/vat_test.zig`
+and core-layer entry in `tools/check/arch_check.zig`. `test/actors/vat_test.zig`
 proves near-call dispatch + become, eventual-send promise resolution +
 listeners, broken resolution on handler error, and intra-turn spawn/call. No
-engine, codec, or session code changed — the layer is purely additive.
+engine, codec, or session code changed: the layer is purely additive.
 
 ## Actor wire hosting, the OCapN seam, and the turn arena
 
@@ -92,8 +92,8 @@ the actor's reply, or breaks it on a handler error. A delivered argument list
 led by a symbol reads as a method call (a verb plus its args). The engine and
 the actor architecture meet at one seam: a unified `Ref` (a local actor or a far
 import) and a `Vow` (local or a wire-answer), routed by the peer-bound vat.
-Eventual-send (`<-`) is location-transparent — a local target queues a turn, a
-far target leaves as an `op:deliver` over the peer — while near-call (`$`) stays
+Eventual-send (`<-`) is location-transparent: a local target queues a turn, a
+far target leaves as an `op:deliver` over the peer: while near-call (`$`) stays
 local-only. The vat rides the engine (it publishes an actor as an export,
 allocates an answer for a far send, and fires far promises from inbound
 resolutions) and owns no I/O. This closes the "actor-model synthesis not

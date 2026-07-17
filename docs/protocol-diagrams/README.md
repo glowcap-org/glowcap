@@ -4,7 +4,7 @@ Each page breaks OCapN / CapTP into small Mermaid diagrams, one transaction
 shape or state flow to a diagram. The authority for every diagram is the
 [OCapN draft specifications](https://github.com/ocapn/ocapn/tree/main/draft-specifications)
 (CapTP, Model, Locators) and, where flagged, Spritely Goblins's wire behavior.
-Nothing here cites another implementation's internals as the oracle.
+Nothing here cites another implementation's internals as the source of truth.
 
 ## Conventions
 
@@ -18,7 +18,7 @@ Nothing here cites another implementation's internals as the oracle.
 - **Mermaid kinds:** `sequenceDiagram` for transactions, `stateDiagram-v2` for
   lifecycles, `flowchart` for structure and validation decisions. No styling
   directives.
-- **Living-state surface.** When an op's semantics change in the upstream spec
+- **Docs that must match today's code.** When an op's semantics change in the upstream spec
   or in Zig, update the matching diagram in the same change. A diagram that
   claims behavior the session does not enforce is drift.
 

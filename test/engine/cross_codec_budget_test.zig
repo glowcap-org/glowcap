@@ -3,8 +3,8 @@
 //! Locks the steady-state per-turn allocation count to the *same* value across
 //! both codecs. A codec-neutral engine means the same logical `op:deliver`
 //! through Syrup and through Cap'n Proto produces exactly one turning-point
-//! heap allocation — the owned-frame copy `ownedFrameFromView` that the
-//! frame-based event model requires — whether the wire bytes are Syrup-encoded
+//! heap allocation: the owned-frame copy `ownedFrameFromView` that the
+//! frame-based event model requires, whether the wire bytes are Syrup-encoded
 //! or Cap'n-Proto-encoded.
 //!
 //! If the counts diverge, one of the two codecs is not zero-copy on the
@@ -65,7 +65,7 @@ test "steady-state deliver holds the same allocation budget through both codecs"
     var frame_capnp = try codec.dispatch.encodeMessageForProfile(
         .capnp,
         allocator,
-        model.WireProfile.v1_0,
+        model.CaptpVersion.v1_0,
         deliver_model,
     );
     defer frame_capnp.deinit();

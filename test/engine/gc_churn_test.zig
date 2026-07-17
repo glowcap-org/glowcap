@@ -1,11 +1,11 @@
-//! Distributed-GC reclamation gate — the session invariant the binding
+//! Distributed-GC reclamation gate: the session invariant the binding
 //! finalizers drive (ADR-0063).
 //!
 //! Finalizer-driven GC rests on one session promise: an import row counted up by
 //! a wire-lifted `far` reference is *fully reclaimed* when the matching
 //! `op:gc-exports` delta brings it to zero (ADR-0008, `05-gc.md` GC-1). If a
 //! released row were not reclaimed, a long session that lifts and drops many
-//! imports — exactly what a binding's dropped-handle finalizer produces — would
+//! imports, exactly what a binding's dropped-handle finalizer produces, would
 //! grow the import table without bound, and the opt-in GC would trade a partner's
 //! leak for a local one.
 //!

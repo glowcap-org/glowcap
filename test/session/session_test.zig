@@ -531,7 +531,7 @@ test "start-session handshake transitions to open and installs bootstrap export"
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
         .negotiating = true,
-        .wire_profile = model.WireProfile.v1_0,
+        .captp_version = model.CaptpVersion.v1_0,
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();
@@ -563,7 +563,7 @@ test "negotiating session refuses non-handshake traffic" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
         .negotiating = true,
-        .wire_profile = model.WireProfile.v1_0,
+        .captp_version = model.CaptpVersion.v1_0,
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();
@@ -582,7 +582,7 @@ test "duplicate start-session halves are rejected" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
         .negotiating = true,
-        .wire_profile = model.WireProfile.v1_0,
+        .captp_version = model.CaptpVersion.v1_0,
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();
@@ -605,7 +605,7 @@ test "a second inbound start-session half is rejected while negotiating" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
         .negotiating = true,
-        .wire_profile = model.WireProfile.v1_0,
+        .captp_version = model.CaptpVersion.v1_0,
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();
@@ -622,13 +622,13 @@ test "start-session with a mismatched captp version is rejected" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
         .negotiating = true,
-        .wire_profile = model.WireProfile.v1_0,
+        .captp_version = model.CaptpVersion.v1_0,
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();
     try std.testing.expectError(
         session.Error.CaptpVersionMismatch,
-        s.recordRecv(startSessionMessage(.pre_spec)),
+        s.recordRecv(startSessionMessage(.next)),
     );
 }
 
@@ -636,19 +636,19 @@ test "outbound start-session with a mismatched captp version is rejected" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
         .negotiating = true,
-        .wire_profile = model.WireProfile.v1_0,
+        .captp_version = model.CaptpVersion.v1_0,
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();
     try std.testing.expectError(
         session.Error.CaptpVersionMismatch,
-        s.recordSend(startSessionMessage(.pre_spec)),
+        s.recordSend(startSessionMessage(.next)),
     );
     try std.testing.expect(!s.handshake_local_sent);
     try std.testing.expectEqual(session.State.negotiating, s.state);
 }
 
-test "session stores selected wire profile and negotiated features" {
+test "session stores selected CapTP version and negotiated features" {
     const features = model.FeatureSet{
         .pipelining = true,
         .handoff = false,
@@ -656,12 +656,12 @@ test "session stores selected wire profile and negotiated features" {
         .sturdyref = false,
     };
     var s = session.Session.initWith(std.testing.allocator, .{
-        .wire_profile = model.WireProfile.v1_0,
+        .captp_version = model.CaptpVersion.v1_0,
         .features = features,
     });
     defer s.deinit();
 
-    try std.testing.expectEqual(model.CaptpVersion.v1_0, s.wire_profile.captp_version);
+    try std.testing.expectEqual(model.CaptpVersion.v1_0, s.captp_version);
     try std.testing.expect(s.needsV1_0Translation());
     try std.testing.expect(s.features.pipelining);
     try std.testing.expect(s.features.wire_delta);
@@ -943,7 +943,7 @@ test "session rejects a malformed handoff give" {
         .handoff = .{
             .give = .{
                 .recipient_key = &.{},
-                .exporter_location = "memory:exporter",
+                .exporter = .{ .transport = "memory", .designator = "exporter" },
                 .gifter_exporter_session = &.{},
                 .gifter_side = &.{},
                 .gift_id = &.{},
@@ -956,7 +956,7 @@ test "session rejects a malformed handoff give" {
 test "session feature gates listen and sturdyref-bearing payloads" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
+        .captp_version = model.CaptpVersion.next,
         .features = model.FeatureSet.minimum(),
     });
     defer s.deinit();
@@ -993,7 +993,7 @@ test "session feature gates listen and sturdyref-bearing payloads" {
         .handoff = .{
             .give = .{
                 .recipient_key = &.{},
-                .exporter_location = "memory:exporter",
+                .exporter = .{ .transport = "memory", .designator = "exporter" },
                 .gifter_exporter_session = &.{},
                 .gifter_side = &.{},
                 .gift_id = &.{},
@@ -1006,7 +1006,7 @@ test "session feature gates listen and sturdyref-bearing payloads" {
 test "v1.0 session records and queries resolver-callback links" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.v1_0,
+        .captp_version = model.CaptpVersion.v1_0,
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();
@@ -1029,7 +1029,7 @@ test "v1.0 session records and queries resolver-callback links" {
 test "v1.0 gc-answers drops both directions of the inbound resolver link" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.v1_0,
+        .captp_version = model.CaptpVersion.v1_0,
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();
@@ -1056,7 +1056,7 @@ test "v1.0 gc-answers drops both directions of the inbound resolver link" {
 test "v1.0 borrowed inbound raw resolve is rejected" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.v1_0,
+        .captp_version = model.CaptpVersion.v1_0,
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();
@@ -1274,10 +1274,10 @@ test "requeue moves a pipelined call to a new target and detects cycles" {
     }
 }
 
-test "pre-spec session needs no v1.0 resolver translation" {
+test "next session needs no v1.0 resolver translation" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
+        .captp_version = model.CaptpVersion.next,
     });
     defer s.deinit();
     try std.testing.expect(!s.needsV1_0Translation());
@@ -1286,7 +1286,7 @@ test "pre-spec session needs no v1.0 resolver translation" {
 test "gc-answers prunes the outbound resolver link when the answer is released" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.v1_0,
+        .captp_version = model.CaptpVersion.v1_0,
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();
@@ -1330,7 +1330,7 @@ test "import registration is bounded by max_imports (ADR-0025)" {
 test "inbound resolve whose fulfill names an unheld near export is rejected like a deliver arg" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
+        .captp_version = model.CaptpVersion.next,
     });
     defer s.deinit();
     try s.registerImport(.from(5));
@@ -1367,7 +1367,7 @@ test "inbound resolve whose fulfill names an unheld near export is rejected like
 test "send-side deliver nested past max_nesting_depth is refused before any export retain" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
+        .captp_version = model.CaptpVersion.next,
         .limits = .{ .max_nesting_depth = 1 },
     });
     defer s.deinit();
@@ -1393,7 +1393,7 @@ test "send-side deliver nested past max_nesting_depth is refused before any expo
 test "send-side resolve fulfill nested past max_nesting_depth is refused before any export retain" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
+        .captp_version = model.CaptpVersion.next,
         .limits = .{ .max_nesting_depth = 1 },
     });
     defer s.deinit();
@@ -1728,7 +1728,7 @@ test "the import cap is decided in validate, so a refused deliver commits nothin
 test "the import cap on a resolve fulfill payload is decided in validate" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
+        .captp_version = model.CaptpVersion.next,
         .limits = .{ .max_imports = 1 },
     });
     defer s.deinit();

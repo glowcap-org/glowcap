@@ -12,7 +12,7 @@
 //! traffic the caller should buffer as unrelated.
 //!
 //! The matcher accepts both forms the spec allows: an `op:resolve` keyed on the
-//! answer (PreSpec), and an `op:deliver` to the resolver export carrying
+//! answer (next), and an `op:deliver` to the resolver export carrying
 //! `[fulfill|break, <Reference|Error>]` (the V1.0 / Goblins style).
 
 const std = @import("std");
@@ -138,12 +138,19 @@ pub fn tryMatchFetchOutcome(
     }
 }
 
+/// A fulfilled fetch settles to exactly one reference; any other fulfill
+/// argument shape is malformed. Both settlement decoders below reach the same
+/// verdict from their own break handling, so the fulfill arm lives here once.
+fn fulfilledReferenceOutcome(allocator: std.mem.Allocator, arg: model.Argument) !FetchOutcome {
+    return switch (arg) {
+        .reference => |reference| .{ .fulfilled = try model.cloneReference(allocator, reference) },
+        else => .malformed,
+    };
+}
+
 fn resolutionToOutcome(allocator: std.mem.Allocator, resolution: model.Resolution) !FetchOutcome {
     return switch (resolution) {
-        .fulfill => |arg| switch (arg) {
-            .reference => |reference| .{ .fulfilled = try model.cloneReference(allocator, reference) },
-            else => .malformed,
-        },
+        .fulfill => |arg| try fulfilledReferenceOutcome(allocator, arg),
         .@"break" => |err| .{ .broken = try allocator.dupe(u8, err.message) },
     };
 }
@@ -152,10 +159,7 @@ fn decodeResolverCallback(allocator: std.mem.Allocator, args: []const model.Argu
     if (args.len != 2 or args[0] != .symbol) return .malformed;
     const tag = args[0].symbol;
     if (std.mem.eql(u8, tag, "fulfill")) {
-        return switch (args[1]) {
-            .reference => |reference| .{ .fulfilled = try model.cloneReference(allocator, reference) },
-            else => .malformed,
-        };
+        return fulfilledReferenceOutcome(allocator, args[1]);
     }
     if (std.mem.eql(u8, tag, "break")) {
         // The accepted break-reason shapes live in one table

@@ -1,35 +1,35 @@
-//! Live real-internet iroh reachability proof (Milestone 1): two pancake peers
+//! Live real-internet iroh reachability (Milestone 1): two pancake peers
 //! reach each other by node id ALONE over n0's public relay and DNS/pkarr
-//! discovery — no direct-address hints, no in-process address book.
+//! discovery with no direct-address hints and no in-process address book.
 //!
 //! Both endpoints bind with the `.discovery` posture (`presets::N0`: the
 //! number-0 relays plus DNS/pkarr discovery). The server publishes its node
 //! info to pkarr on bind; the client dials the server by its 64-hex node id with
 //! an empty hint set, so a session that opens proves the dial was resolved over
 //! real discovery infrastructure and carried over a real relay / hole-punched
-//! path — not hinted, not loopback-booked. It is the live counterpart of the
-//! deterministic `local_discovery` dial-by-id proof in `iroh-interop`.
+//! path, not hinted and not loopback-booked. It is the live counterpart of the
+//! deterministic `local_discovery` dial-by-id run in `iroh-interop`.
 //!
 //! Scoped to the `.discovery` posture deliberately: `.discovery_no_relay`
 //! (DNS/pkarr with no relay fallback) needs the node to own a publishable,
-//! reachable direct address — which a NAT'd host or container does not have, so
-//! its dial-by-id is unreachable there and cannot be a portable gate. The
+//! reachable direct address, which a NAT'd host or container does not have, so
+//! its dial-by-id is unreachable there and cannot be a portable build check. The
 //! `connect(locator)` dialers still settle/retry under `.discovery_no_relay` on the
-//! same propagation principle (it resolves by id); only a *live gate* for it is
-//! infeasible without a publicly-addressable host.
+//! same propagation principle (it resolves by id); only a *live build check* for
+//! it is infeasible without a publicly-addressable host.
 //!
-//! Not a hermetic gate. This step touches public n0 infrastructure
-//! (`*.relay.iroh.network`, `dns.iroh.link`), and discovery-propagation timing
-//! makes it unsuitable for `zig build check` or even the deterministic
-//! `zig build iroh-interop`. It runs only as the opt-in sibling
+//! Not part of the in-tree check (needs network). This step touches public n0
+//! infrastructure (`*.relay.iroh.network`, `dns.iroh.link`), and discovery-
+//! propagation timing makes it unsuitable for `zig build check` or even the
+//! deterministic `zig build iroh-interop`. It runs only as the opt-in sibling
 //! `zig build iroh-reachability`, the same cargo-linking posture as
 //! `iroh-interop`, so it can never make `check` flaky.
 //!
-//! Scope honesty. Two endpoints in one process prove the discoverability claim
-//! end to end: resolve a peer by id over real DNS/pkarr, then reach it. True
-//! cross-NAT hole-punching between two *distinct* NATs needs two hosts on two
-//! networks; run this driver's two halves on separate machines to exercise that
-//! seam. The single-process form proves everything reachable from one host.
+//! What this proves. Two endpoints in one process prove the discoverability
+//! claim end to end: resolve a peer by id over real DNS/pkarr, then reach it.
+//! True cross-NAT hole-punching between two *distinct* NATs needs two hosts on
+//! two networks; run this driver's two halves on separate machines to exercise
+//! that seam. The single-process form proves everything reachable from one host.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -83,7 +83,7 @@ fn hostOnce(
 /// How long to let the server's pkarr record propagate to the n0 DNS resolver
 /// before the first dial, and the bounded retry budget afterward. Publish
 /// visibility over real discovery infrastructure is seconds-scale and variable,
-/// which is exactly why this step is opt-in and never a hermetic gate.
+/// which is exactly why this step is opt-in and never part of the in-tree check.
 const publish_settle_ms: u64 = 8_000;
 // Discovery dial budget: lockstep with `driver.ResilientClient` / ADR-0082
 // (`PANCAKE_DISCOVERY_DIAL_*`). Was 5s×12; unified to the binding budget.

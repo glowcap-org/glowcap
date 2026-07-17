@@ -3,7 +3,7 @@ id: ADR-0054
 status: accepted
 date: 2026-06-11
 tags: [net, runtime, memory, performance, resilience]
-decision: "Completion-loop connections hold no per-connection read buffer. The backend owns one shared pool of `Options.read_buffers` buffers (io_uring: a kernel provided-buffer ring; kqueue: a poll-time scratch pool), a recv completion lends the loop a borrowed view of the selected buffer, and the loop recycles it exactly once after consuming — whole frames apply zero-copy from the view, a partial tail absorbs into the bounded spill (ADR-0041). A recv that finds the pool empty parks the connection buffer-starved and resumes on recycle; it is never dropped. Idle read-buffer memory no longer scales with connection count."
+decision: "Completion-loop connections hold no per-connection read buffer. The backend owns one shared pool of `Options.read_buffers` buffers (io_uring: a kernel provided-buffer ring; kqueue: a poll-time scratch pool), a recv completion lends the loop a borrowed view of the selected buffer, and the loop recycles it exactly once after consuming: whole frames apply zero-copy from the view, a partial tail absorbs into the bounded spill (ADR-0041). A recv that finds the pool empty parks the connection buffer-starved and resumes on recycle; it is never dropped. Idle read-buffer memory no longer scales with connection count."
 supersedes: []
 superseded_by: []
 ---
@@ -15,8 +15,8 @@ superseded_by: []
 ADR-0041 made the per-connection read buffer small and fixed (16 KiB), and
 ADR-0042 bounded the outbound queue, but every live connection still _owned_ its
 buffer for its whole life. At the 500k-connection destination the buffers alone
-are ~7.63 GiB — roughly twelve times the ~0.65 GiB of warmed core state the
-peer-scaling bench reports — and almost all of them sit idle at any given
+are ~7.63 GiB: roughly twelve times the ~0.65 GiB of warmed core state the
+peer-scaling bench reports: and almost all of them sit idle at any given
 moment, because a buffer is only doing work during the instant between data
 arriving and the loop consuming it. Both ADRs named a shared buffer ring as the
 completion loop's follow-up; this ADR closes it. It engages the same first
@@ -39,7 +39,7 @@ grown scratch pool the `poll` read borrows from.
 
 **Whole frames stay zero-copy; the split tail rides the spill.** The loop
 applies every complete frame directly from the borrowed view, advancing by
-offset — the old per-connection compaction memcpy died with the owned buffer. A
+offset: the old per-connection compaction memcpy died with the owned buffer. A
 partial frame tail cannot stay in a buffer that is about to be recycled, so it
 absorbs into the connection's bounded spill (ADR-0041's machinery, freed on
 drain) and the next completion's bytes extend it. The defensive
@@ -50,7 +50,7 @@ finds the pool empty completes as `recv_no_buffer` (io_uring reports `ENOBUFS`;
 kqueue synthesizes the same shape when its scratch pool is spent). The loop
 parks that connection buffer-starved on an intrusive list and re-arms it when a
 buffer recycles, plus an end-of-batch sweep that re-arms every remaining starved
-connection — a starved completion can be dispatched after the recycle that
+connection: a starved completion can be dispatched after the recycle that
 should have resumed it, and the sweep closes that ordering gap. Starvation is
 transient pool contention, not a failure, and it is distinct from the deliberate
 high-water park (ADR-0042), which still wins: a starved connection whose

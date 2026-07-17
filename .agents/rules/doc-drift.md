@@ -29,8 +29,10 @@ change as the state they describe:
 - `docs/roadmap.md`
 - `docs/capabilities.md`
 - `docs/consuming-from-c.md`
+- `docs/cli.md`
 - `docs/shipped.md`
 - `docs/boundaries.md`
+- `docs/community-review.md`
 - `docs/decisions/README.md`
 - `docs/protocol-diagrams/**`
 - `site/content/**`
@@ -40,6 +42,8 @@ change as the state they describe:
 - `bindings/python/README.md`
 - `bindings/racket/README.md`
 - `examples/README.md`
+- `apps/README.md`
+- `tools/README.md`
 - `bench/goblins/README.md`
 - `.devcontainer/README.md`
 - `AGENTS.md`
@@ -85,4 +89,4 @@ surface; do not let old plan language masquerade as current architecture.
 - When an API name changes, sweep docs, tests, examples, and agent rules in the
   same change.
 - When scaffolding topology changes, update `.agents/README.md`,
-  `tools/meta_check.zig`, and the affected tool overlay docs together.
+  `tools/check/meta_check.zig`, and the affected tool overlay docs together.

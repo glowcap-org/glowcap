@@ -1,7 +1,7 @@
 //! `Host.openAcceptedOver` and `Host.serveEvent`: the adoption seam a
 //! peer-owning loop rides. The embedder pins an `engine.Peer` at a stable
-//! address (here: the test frame), the host adopts it — node routing, keyed
-//! hello, enrollment, everything `openAccepted` wires — and serves it per
+//! address (here: the test frame), the host adopts it: node routing, keyed
+//! hello, enrollment, everything `openAccepted` wires, and serves it per
 //! polled event, while ownership never moves: `releaseSession` unregisters the
 //! adopted peer without freeing it, and the embedder deinits it afterward
 //! (the testing allocator makes a double free or a leak fail loud). This is

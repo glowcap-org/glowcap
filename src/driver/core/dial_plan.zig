@@ -4,12 +4,17 @@
 //! and `Server.accept`. It is sans-io — it decides *what* to dial or sign, and
 //! the caller opens the byte channel — so it lives in `driver_core` under the
 //! I/O ban and reuses the one policy table `vocab` already owns
-//! (`designatorSchemeForTransport`, `requiresDirectAddressesHint`) and the one
-//! host:port grammar `model.uri.splitHostPort` already defines. Nothing here
-//! parses a URI or re-encodes those rules; it composes them. The native
-//! `driver.connect` dials the same three transports through a netlayer vtable
-//! instead, so this is that path's byte-fed twin, not a second copy of its
+//! (`designatorSchemeForTransport`, `requiresDirectAddressesHint`), the one
+//! TCP host:port admission `model.uri.tcpConnectHostPort`, and the one key
+//! designator predicate `foundation.crypto.PeerKey.fromDesignator`. Nothing
+//! here parses a URI or re-encodes those rules; it composes them. The native
+//! `tcp.DialResolver` / `iroh.DialResolver` call the same hostport / key
+//! helpers, so this is that path's byte-fed twin, not a second copy of its
 //! rules.
+//!
+//! Open shapes are `host_port` (tcp / keyed-tcp) and `peer_id` (today produced
+//! only by the `iroh` locator scheme). The product string stays in the policy
+//! table; the plan tag names what to open, not which netlayer archive opens it.
 //!
 //! Every returned view borrows the caller's `transport` / `designator` / hint
 //! buffers (or, for a missing accept address, a static placeholder). The plan
@@ -17,8 +22,11 @@
 
 const std = @import("std");
 
+const foundation = @import("foundation");
 const model = @import("model");
 const vocab = @import("vocab.zig");
+
+const crypto = foundation.crypto;
 
 pub const Error = error{
     /// The locator names a transport this planner does not dial (only `tcp`,
@@ -27,113 +35,95 @@ pub const Error = error{
     /// A `tcp` designator, or the first entry of a `keyed-tcp` direct-addresses
     /// hint, is not the `host:port` grammar.
     DesignatorNotHostPort,
+    /// A `keyed-tcp` or `iroh` designator is not a canonical Ed25519 key
+    /// (lowercase hex of the fixed designator length).
+    DesignatorNotPeerKey,
     /// A `keyed-tcp` dial has no direct-addresses hint to dial: the key
     /// designator says who to trust, and the hint says where to reach them, so
     /// a keyed-tcp dial cannot proceed without it.
     MissingDirectAddressesHint,
-    /// An `iroh` `connect` named no reachability posture. There is no default:
-    /// a caller dialing an iroh locator must choose how the endpoint becomes
+    /// A peer-id open (`iroh` locator) `connect` named no reachability posture.
+    /// There is no default: a caller must choose how the endpoint becomes
     /// reachable.
     ReachabilityRequired,
 };
 
-/// Which byte channel the caller opens for a resolved dial. `host_port` covers
-/// `tcp` and `keyed-tcp` (a TCP socket to `host:port`); `iroh` covers an iroh
-/// endpoint dialed by node id.
-pub const Shape = enum { host_port, iroh };
-
-/// The iroh reachability posture a resolved dial uses. The planner makes the
-/// decision every binding used to duplicate; the caller maps each arm onto its
-/// own reachability value. `direct` is the relay-less posture a hinted redeem
-/// takes; `configured` is the node's own redeem posture, which is caller state
-/// the planner cannot see; `explicit` is the posture a `connect` caller named.
+/// Reachability posture for a peer-id open. The planner makes the decision every
+/// binding used to duplicate; the caller maps each arm onto its own reachability
+/// value. `direct` is the relay-less posture a hinted redeem takes; `configured`
+/// is the node's own redeem posture, which is caller state the planner cannot
+/// see; `explicit` is the posture a `connect` caller named.
 pub const Reach = union(enum) {
     direct,
     configured,
     explicit: u32,
 };
 
-/// A resolved dial: what to open and what to sign. Views borrow the planner's
-/// inputs. `reach` is set only on the `iroh` shape.
-pub const DialPlan = struct {
-    transport: []const u8,
-    designator: []const u8,
-    shape: Shape,
-    host: []const u8 = &.{},
-    port: u16 = 0,
-    addresses: []const u8 = &.{},
-    reach: ?Reach = null,
+/// A resolved dial: what to open and how. A true sum — `host_port` and
+/// `peer_id` are not told apart by a shape flag plus nullable reach. Views
+/// borrow the planner's inputs. Transport/designator stay with the caller.
+pub const DialPlan = union(enum) {
+    host_port: struct {
+        host: []const u8,
+        port: u16,
+    },
+    peer_id: struct {
+        addresses: []const u8,
+        reach: Reach,
+    },
 };
+
+/// Tag of `DialPlan` — the C ABI's `PANCAKE_DIAL_SHAPE_*` mirror.
+pub const Shape = std.meta.Tag(DialPlan);
 
 /// The reachability policy the two dial spines differ on. A redeem (a DIAL
 /// action) takes the relay-less `direct` posture when it has a hint and the
 /// node's configured posture otherwise; a `connect` takes the caller's posture
-/// and refuses when none was named.
+/// (`explicit`) or refuses when none was named (`explicit_none`).
 pub const Posture = union(enum) {
     redeem,
-    explicit: ?u32,
+    explicit: u32,
+    explicit_none,
 };
 
-/// The first entry of a comma-separated direct-addresses hint, trimmed. A
-/// `keyed-tcp` hint carries the one address to dial; an implementation that
-/// published several picks the first. Returns a sub-slice of `hint`.
-fn firstAddress(hint: []const u8) []const u8 {
-    const comma = std.mem.indexOfScalar(u8, hint, ',') orelse hint.len;
-    return std.mem.trim(u8, hint[0..comma], " \t");
-}
-
 /// Resolve a dial. `transport` and `designator` are the locator's pieces (a
-/// DIAL action already carries them parsed); `direct_addresses_hint` is the
-/// locator's `direct-addresses` hint, empty when there is none; `posture`
-/// selects the iroh reachability policy.
+/// DIAL action's binding half borrows the pending URI and parses first);
+/// `direct_addresses_hint` is the locator's `direct-addresses` hint, empty when
+/// there is none; `posture` selects the peer-id reachability policy.
 pub fn planDial(
     transport: []const u8,
     designator: []const u8,
     direct_addresses_hint: []const u8,
     posture: Posture,
 ) Error!DialPlan {
-    if (std.mem.eql(u8, transport, model.transport.tcp)) {
-        // The address designator is itself the host:port to dial.
-        const hp = model.uri.splitHostPort(designator) catch return Error.DesignatorNotHostPort;
-        return .{
-            .transport = transport,
-            .designator = designator,
-            .shape = .host_port,
-            .host = hp.host,
-            .port = hp.port,
+    if (std.mem.eql(u8, transport, model.transport.tcp) or
+        std.mem.eql(u8, transport, model.transport.keyed_tcp))
+    {
+        if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) {
+            if (crypto.PeerKey.fromDesignator(designator) == null)
+                return Error.DesignatorNotPeerKey;
+        }
+        const hp = model.uri.tcpConnectHostPort(transport, designator, direct_addresses_hint) catch |err| switch (err) {
+            error.UnknownTransport => return Error.UnknownTransport,
+            error.MissingDirectAddressesHint => return Error.MissingDirectAddressesHint,
+            error.InvalidHostPort => return Error.DesignatorNotHostPort,
+            else => unreachable, // helper only returns the three above
         };
-    }
-
-    if (std.mem.eql(u8, transport, model.transport.keyed_tcp)) {
-        // The key designator pins the partner's identity; the socket address
-        // rides the hint (keyed TCP has no discovery).
-        if (direct_addresses_hint.len == 0) return Error.MissingDirectAddressesHint;
-        const first = firstAddress(direct_addresses_hint);
-        if (first.len == 0) return Error.MissingDirectAddressesHint;
-        const hp = model.uri.splitHostPort(first) catch return Error.DesignatorNotHostPort;
-        return .{
-            .transport = transport,
-            .designator = designator,
-            .shape = .host_port,
-            .host = hp.host,
-            .port = hp.port,
-        };
+        return .{ .host_port = .{ .host = hp.host, .port = hp.port } };
     }
 
     if (std.mem.eql(u8, transport, model.transport.iroh)) {
-        // The key designator is the node id; the direct addresses ride the hint
-        // verbatim, and the reachability posture follows the caller's policy.
+        if (crypto.PeerKey.fromDesignator(designator) == null)
+            return Error.DesignatorNotPeerKey;
+        // The key designator is the node id (caller retains it); the direct
+        // addresses ride the hint verbatim, and the reachability posture
+        // follows the caller's policy.
         const reach: Reach = switch (posture) {
             .redeem => if (direct_addresses_hint.len != 0) .direct else .configured,
-            .explicit => |p| .{ .explicit = p orelse return Error.ReachabilityRequired },
+            .explicit => |v| .{ .explicit = v },
+            .explicit_none => return Error.ReachabilityRequired,
         };
-        return .{
-            .transport = transport,
-            .designator = designator,
-            .shape = .iroh,
-            .addresses = direct_addresses_hint,
-            .reach = reach,
-        };
+        return .{ .peer_id = .{ .addresses = direct_addresses_hint, .reach = reach } };
     }
 
     return Error.UnknownTransport;

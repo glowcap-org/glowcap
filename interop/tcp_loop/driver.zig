@@ -1,13 +1,13 @@
-//! Live TCP scale proof: many concurrent connections served from one loop
+//! Live TCP scale: many concurrent connections served from one loop
 //! thread through `driver.Bridge` over `net.TcpLoop` (ADR-0076).
 //!
 //! One completion loop (`net.TcpLoop`) runs a full byte-fed multi-session
 //! CapTP host (`driver.core.Host`) through `driver.Bridge`: adoption, the keyed
 //! handshake, per-event serving, the budgeted drive, and the host's action
-//! queue all on a single thread. Many clients dial it at once — each an
-//! ordinary blocking `driver.BlockingSession` — fetch the published greeter, and
+//! queue all on a single thread. Many clients dial it at once. Each client is an
+//! ordinary blocking `driver.BlockingSession`. Each one fetches the published greeter, and
 //! call it several times, every reply asserted. The run then repeats a second
-//! wave over recycled slots, so the proof covers connection churn as well as
+//! wave over recycled slots, so the run covers connection churn as well as
 //! concurrency.
 //!
 //! While the first wave's connections are all open and quiescent, the driver

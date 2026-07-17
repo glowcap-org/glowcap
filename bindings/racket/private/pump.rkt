@@ -146,42 +146,69 @@
 ;; a refused stream the peer has already projected a typed op:abort; write it
 ;; so the partner hears why, then raise the typed failure carrying the
 ;; connection's `abort-info`.
+;; Locked feed of one immobile buffer into the host session. Shared by
+;; `feed-inbox!` (inbox bytes) and the empty-inbox arm of `feed-bytes!`
+;; (fresh `got`). `after-ok` runs under the lock after a successful feed
+;; (consume / stash unconsumed tail).
+(define (feed-locked! c buf-bytes after-ok)
+  (guard-open 'session-serve c)
+  (define m (session-host c))
+  ;; Two values ride out of the locked drain: the consumed byte count and
+  ;; the refusal captured under the lock. Refusal parks the abort on the
+  ;; FIFO and marks `c` touched so `run-drain-effects!` writes it — under
+  ;; the reader that runs after the gate clears; outside the reader it
+  ;; runs before this returns. Then raise.
+  (define-values (consumed refusal)
+    (with-host-drain m
+      (lambda ()
+        (define buf (pin-immobile buf-bytes))
+        (define-values (rc n)
+          (pancake_host_session_feed_bytes (session-ptr c) buf (bytes-length buf-bytes)))
+        (cond
+          [(= rc OK)
+           (after-ok n)
+           (host-drain-parked-releases! m)
+           (values (drain-host-actions! m) n #f)]
+          [else
+           ;; Park the abort on the FIFO and mark `c` touched so the shared
+           ;; drain spine writes it — refusal is a flush, not a private exit.
+           (values (drain-effects (list c) '()) 0 (capture-feed-refusal c rc))]))))
+  (when refusal (raise-feed-refusal refusal))
+  consumed)
+
 (define (feed-inbox! c)
   (define ac (session-async c))
   (define bs (async-connection-inbox ac))
   (cond
     [(zero? (bytes-length bs)) 0]
     [else
-     (guard-open 'session-serve c)
-     (define m (session-host c))
-     ;; Two values ride out of the locked drain: the consumed byte count and
-     ;; the refusal captured under the lock. Refusal parks the abort on the
-     ;; FIFO and marks `c` touched so `run-drain-effects!` writes it — under
-     ;; the reader that runs after the gate clears; outside the reader it
-     ;; runs before this returns. Then raise.
-     (define-values (consumed refusal)
-       (with-host-drain m
-         (lambda ()
-           (define buf (pin-immobile bs))
-           (define-values (rc n)
-             (pancake_host_session_feed_bytes (session-ptr c) buf (bytes-length bs)))
-           (cond
-             [(= rc OK)
-              (async-consume! ac n)
-              (host-drain-parked-releases! m)
-              (values (drain-host-actions! m) n #f)]
-             [else
-              ;; Park the abort on the FIFO and mark `c` touched so the shared
-              ;; drain spine writes it — refusal is a flush, not a private exit.
-              (values (drain-effects (list c) '()) 0 (capture-feed-refusal c rc))]))))
-     (when refusal (raise-feed-refusal refusal))
-     consumed]))
+     (feed-locked!
+      c bs
+      (lambda (n)
+        (async-consume! ac n)))]))
 
 ;; Append freshly read bytes onto the inbox and feed it — the pump's
 ;; fill-then-feed step, and the scripted smoke's byte-injection seam.
+;; Steady state (empty inbox) feeds `got` directly so the inbox is not a
+;; coalesce copy; only an unconsumed tail is materialised into the inbox
+;; (`subbytes`). A non-empty inbox still coalesces via `async-fill!` (the
+;; delimiter needs contiguous bytes). The FFI pin (`pin-immobile`) is a named
+;; Racket collector cost on every feed.
 (define (feed-bytes! c got)
-  (async-fill! (session-async c) got)
-  (feed-inbox! c))
+  (define ac (session-async c))
+  (cond
+    [(zero? (bytes-length (async-connection-inbox ac)))
+     (cond
+       [(zero? (bytes-length got)) 0]
+       [else
+        (feed-locked!
+         c got
+         (lambda (n)
+           (when (< n (bytes-length got))
+             (set-async-connection-inbox! ac (subbytes got n)))))])]
+    [else
+     (async-fill! ac got)
+     (feed-inbox! c)]))
 
 ;; The feed refusal choreography, split around the host lock. Under the lock
 ;; (`capture-feed-refusal`): read the typed cause before another verb can

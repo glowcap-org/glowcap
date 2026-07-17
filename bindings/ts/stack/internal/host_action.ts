@@ -10,11 +10,7 @@
 
 import {
 	HOST_ACTION_CLOSE,
-	HOST_ACTION_DESIGNATOR_LEN_OFF,
-	HOST_ACTION_DESIGNATOR_OFF,
 	HOST_ACTION_DIAL,
-	HOST_ACTION_DIRECT_ADDRESSES_HINT_LEN_OFF,
-	HOST_ACTION_DIRECT_ADDRESSES_HINT_OFF,
 	HOST_ACTION_FAIL,
 	HOST_ACTION_FLUSH,
 	HOST_ACTION_KIND_OFF,
@@ -24,8 +20,6 @@ import {
 	HOST_ACTION_SESSION_OFF,
 	HOST_ACTION_SETTLE,
 	HOST_ACTION_TICKET_OFF,
-	HOST_ACTION_TRANSPORT_LEN_OFF,
-	HOST_ACTION_TRANSPORT_OFF,
 	HOST_ACTION_VALUE_OFF,
 	INVALID_ARGUMENT,
 } from "./abi.ts";
@@ -42,13 +36,7 @@ const utf8Decoder = new TextDecoder();
  * it. Every borrowed view is copied out (and a SETTLE's value lifted)
  * before the next `pancake_host_next_action` call can free them. */
 export type HostAction =
-	| {
-		kind: typeof HOST_ACTION_DIAL;
-		ticket: bigint;
-		transport: string;
-		designator: string;
-		directAddressesHint: string;
-	}
+	| { kind: typeof HOST_ACTION_DIAL; ticket: bigint }
 	| { kind: typeof HOST_ACTION_FLUSH; conn: Ptr }
 	| { kind: typeof HOST_ACTION_NEED_GIFT_ID; ticket: bigint }
 	| { kind: typeof HOST_ACTION_SETTLE; ticket: bigint; value: Argument }
@@ -65,16 +53,7 @@ export function decodeHostAction(dv: DataView): HostAction {
 		);
 	switch (kind) {
 		case HOST_ACTION_DIAL:
-			return {
-				kind,
-				ticket,
-				transport: view(HOST_ACTION_TRANSPORT_OFF, HOST_ACTION_TRANSPORT_LEN_OFF),
-				designator: view(HOST_ACTION_DESIGNATOR_OFF, HOST_ACTION_DESIGNATOR_LEN_OFF),
-				directAddressesHint: view(
-					HOST_ACTION_DIRECT_ADDRESSES_HINT_OFF,
-					HOST_ACTION_DIRECT_ADDRESSES_HINT_LEN_OFF,
-				),
-			};
+			return { kind, ticket };
 		case HOST_ACTION_NEED_GIFT_ID:
 			return { kind, ticket };
 		case HOST_ACTION_SETTLE:
@@ -93,5 +72,47 @@ export function decodeHostAction(dv: DataView): HostAction {
 				INVALID_ARGUMENT,
 				`unknown host action kind ${kind}`,
 			);
+	}
+}
+
+/** Exhaustive dispatch over `HostAction`: a seventh kind fails compile.
+ * Bindings supply the per-arm I/O; this switch is the generated inventory. */
+export type HostActionHandlers = {
+	dial: (action: Extract<HostAction, { kind: typeof HOST_ACTION_DIAL }>) => void | Promise<void>;
+	flush: (action: Extract<HostAction, { kind: typeof HOST_ACTION_FLUSH }>) => void | Promise<void>;
+	needGiftId: (action: Extract<HostAction, { kind: typeof HOST_ACTION_NEED_GIFT_ID }>) => void | Promise<void>;
+	settle: (action: Extract<HostAction, { kind: typeof HOST_ACTION_SETTLE }>) => void | Promise<void>;
+	fail: (action: Extract<HostAction, { kind: typeof HOST_ACTION_FAIL }>) => void | Promise<void>;
+	close: (action: Extract<HostAction, { kind: typeof HOST_ACTION_CLOSE }>) => void | Promise<void>;
+};
+
+export async function dispatchHostAction(
+	action: HostAction,
+	handlers: HostActionHandlers,
+): Promise<void> {
+	switch (action.kind) {
+		case HOST_ACTION_DIAL:
+			await handlers.dial(action);
+			return;
+		case HOST_ACTION_FLUSH:
+			await handlers.flush(action);
+			return;
+		case HOST_ACTION_NEED_GIFT_ID:
+			await handlers.needGiftId(action);
+			return;
+		case HOST_ACTION_SETTLE:
+			await handlers.settle(action);
+			return;
+		case HOST_ACTION_FAIL:
+			await handlers.fail(action);
+			return;
+		case HOST_ACTION_CLOSE:
+			await handlers.close(action);
+			return;
+		default: {
+			const _exhaustive: never = action;
+			void _exhaustive;
+			throw new PancakeError(INVALID_ARGUMENT, "unknown host action");
+		}
 	}
 }

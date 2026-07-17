@@ -65,7 +65,7 @@ await dir.close();
 // leaving the old one, so a rejected claim (the nickname is taken there) leaves
 // the current room untouched.
 async function showRoom(roomRef: Ref, name: string): Promise<void> {
-	const next = await Room.subscribe(dir.conn, roomRef, nick);
+	const next = await Room.subscribe(dir.session, roomRef, nick);
 	await session.room?.leave();
 	session.room = next;
 	console.log(`(in "${name}" as "${nick}")`);

@@ -48,7 +48,7 @@ fall out:
 2. **Attribution is attested at the call, not trusted from a header.** The app
    does not let C believe a "caller" field. The caller signs the request with
    its KERI key; C verifies that signature against the presented verkey before
-   it writes an Episode, and **refuses** — a clean broken promise, no Episode —
+   it writes an Episode, and **refuses**: a clean broken promise, no Episode,
    for anything it cannot attest (step 6 of the run). The proof of "who" rides
    _inside_ the invocation and is checked by the party that accounts for it.
 
@@ -67,8 +67,8 @@ survives delegation is a direct consequence of that, not a feature layered on
 top.
 
 That is the bite OCapN can take out of HTTP: not raw speed, not a nicer RPC, but
-a class of guarantees — unforgeable attribution, per-recipient authority,
-delegation that is visible in the call — that HTTP's bearer-token shape cannot
+a class of guarantees: unforgeable attribution, per-recipient authority,
+delegation that is visible in the call: that HTTP's bearer-token shape cannot
 express, only approximate. This app demonstrates it running on pancake.
 
 ## Scope of this run

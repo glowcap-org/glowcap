@@ -1,7 +1,7 @@
 //! The netlayer contract, proven through its first resident.
 //!
-//! These run the same loopback as `tcp_test.zig` — handshake to open, bootstrap
-//! fetch round-trip over a real 127.0.0.1 socket — but route every step through
+//! These run the same loopback as `tcp_test.zig`: handshake to open, bootstrap
+//! fetch round-trip over a real 127.0.0.1 socket, but route every step through
 //! the runtime contract instead of tcp's concrete functions: the server binds
 //! with `Netlayer.listen` and accepts with the contract `Listener`, the client
 //! dials with `Netlayer.dial`. If the resident is a faithful transport behind

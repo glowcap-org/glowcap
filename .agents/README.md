@@ -28,7 +28,7 @@ guidance:
 `zig build meta-check` verifies this topology and every scaffolding claim it can
 reach mechanically, symlink shape, the rule and skill indexes, Markdown links,
 documented build steps, the living-state registry, and more.
-[`tools/meta_check.zig`](../tools/meta_check.zig) is the authoritative
+[`tools/check/meta_check.zig`](../tools/check/meta_check.zig) is the authoritative
 inventory; update it in the same change as any intentional scaffolding move.
 
 ## Rules
@@ -37,7 +37,7 @@ inventory; update it in the same change as any intentional scaffolding move.
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | [agent-scaffolding](rules/agent-scaffolding.md)     | The scaffolding is a public API for agents: living-state discipline, the gate, the ratchet, the budget |
 | [architecture](rules/architecture.md)               | Layer ownership, sync no-I/O core, codec/session/engine boundaries                                     |
-| [cli](rules/cli.md)                                 | Zig gates, generated state, and git posture                                                            |
+| [cli](rules/cli.md)                                 | Zig gates, generated state, git posture, live CapTP via pancake-cli, product CapTP wait budgets        |
 | [doc-drift](rules/doc-drift.md)                     | Living-state docs must match current code or drop the state claim                                      |
 | [doc-voice](rules/doc-voice.md)                     | Human-readable prose for first-read docs and public examples                                           |
 | [memory](rules/memory.md)                           | Frame ownership, bounded borrows, copy budget, allocator discipline                                    |
@@ -52,8 +52,12 @@ inventory; update it in the same change as any intentional scaffolding move.
 
 | Skill                            | Purpose                                                                              |
 | -------------------------------- | ------------------------------------------------------------------------------------ |
-| [rooms-bot](skills/rooms-bot/SKILL.md) | Background CapTP rooms bot (room chat) as one native `rooms-bot` binary; a background `tick` wakes the agent on each room message (no filter — full participant); start/tick/reply/dismiss/stop |
+| [community-review](skills/community-review/SKILL.md) | Preflight for an OCapN wire/suite or Spritely Goblins interop read: dual lenses, cite evidence, never name people |
+| [pancake-cli](skills/pancake-cli/SKILL.md) | CapTP from the shell: argv/REPL/listen/`--json` via `pancake` on PATH; session model, exit codes; rooms wake-loop stays in rooms-peer |
+| [pancake-mcp](skills/pancake-mcp/SKILL.md) | CapTP via project MCP (`.cursor/mcp.json` / `.mcp.json` → `./pancake mcp`); dogfood live CapTP while writing pancake; catalogs, identity, `tools/list` |
+| [rooms-peer](skills/rooms-peer/SKILL.md) | Background CapTP rooms presence via `pancake app rooms-peer` (`rooms-peer` thin install shim); background `tick` wakes the agent; start/tick/reply/dismiss/stop |
 | [serena](skills/serena/SKILL.md) | Operating notes for Serena MCP tools in the Zig repo                                 |
+| [smell-annihilation](skills/smell-annihilation/SKILL.md) | Architectural smell pass: dual XDG/project personas, root fixes, memory/perf, kaizen (incl. dead code), turn lessons into gates |
 | [work](skills/work/SKILL.md)     | Substantial work: assess, act or prove inaction, verify, compound for the next agent |
 
 ## Hooks

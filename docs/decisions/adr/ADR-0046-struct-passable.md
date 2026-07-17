@@ -3,7 +3,7 @@ id: ADR-0046
 status: accepted
 date: 2026-06-11
 tags: [model, codec, syrup, capnp, conformance, data-model]
-decision: "The OCapN Struct passable is modeled as an ordered-on-the-wire, equality-unordered sequence of (String key, Value) entries (model.StructEntry), carried by both codecs — Syrup as a dict {} and Cap'n Proto as a composite list of entry structs — with String-only keys, duplicate keys refused at decode, canonical key order on encode, and order-independent structural equality. Undefined is already the existing .void arm (Goblins marshals the unspecified value as the <void> record); Null stays unmodeled because Goblins has no Null marshalling and the upstream encoding is unsettled."
+decision: "The OCapN Struct passable is modeled as an ordered-on-the-wire, equality-unordered sequence of (String key, Value) entries (model.StructEntry), carried by both codecs (Syrup as a dict {} and Cap'n Proto as a composite list of entry structs) with String-only keys, duplicate keys refused at decode, canonical key order on encode, and order-independent structural equality. Undefined is already the existing .void arm (Goblins marshals the unspecified value as the <void> record); Null stays unmodeled because Goblins has no Null marshalling and the upstream encoding is unsettled."
 supersedes: []
 superseded_by: []
 ---
@@ -12,7 +12,7 @@ superseded_by: []
 
 ## Context
 
-The OCapN passable data model has a Struct type — an unordered collection of
+The OCapN passable data model has a Struct type: an unordered collection of
 (key, value) pairs where each key is a String (Model.md § Struct). pancake
 modeled every other passable but refused Struct fail-closed, and a test pinned
 that refusal. A complete, canonical OCapN data model needs Struct, and it is the
@@ -25,7 +25,7 @@ answered it. Goblins is the wire authority. Its CapTP marshalling
 (`conformance/spritely-goblins/upstream/goblins/ocapn/captp.rkt`) marshals a
 hash straight to a Syrup dictionary, marshals the unspecified value `(void)` as
 the `<void>` record, and has **no** Null case at all. So Undefined is already
-pancake's existing `.void` arm — the `<void>` record both peers already speak —
+pancake's existing `.void` arm: the `<void>` record both peers already speak,
 and Null has no settled wire encoding to implement. Inventing one would be
 folklore that cannot interop, which is the opposite of canonical.
 Arbitrary-precision Integer is a real, settled gap (Goblins uses Racket
@@ -45,13 +45,13 @@ and the arm `Argument.@"struct": []const StructEntry`. The key is an OCapN
 String. The borrowed view gains `view.StructEntry` and `view.StructEntries`, a
 `LazySequence(model.StructEntry, view.StructEntry)`, so a struct stays a
 borrowed, single-cursor walk over the wire region until `toOwned` materializes
-it — the same zero-allocation projection list and set already use. Modeling
+it: the same zero-allocation projection list and set already use. Modeling
 entries as a sequence (rather than two parallel key/value lists) is what makes
 the single-cursor lazy view fit both codecs.
 
 Both codecs carry it. Syrup encodes a struct as a dictionary `{ key value … }`
 and decodes `{` back to the arm; keys are written as Syrup strings, and entries
-are emitted in canonical order — sorted by the fully-encoded key, matching the
+are emitted in canonical order: sorted by the fully-encoded key, matching the
 upstream Syrup encoder (`conformance/syrup/upstream/impls/python/syrup.py`).
 Cap'n Proto adds `ArgKind.@"struct"` and carries it as a composite list of entry
 structs, each a two-pointer struct holding the key text and the value Argument,

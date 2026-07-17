@@ -28,7 +28,7 @@ const FixtureCodec = struct {
 
     pub fn encodeMessageForProfile(
         allocator: std.mem.Allocator,
-        profile: model.WireProfile,
+        profile: model.CaptpVersion,
         message: model.Message,
     ) Error!foundation.Frame {
         _ = allocator;

@@ -1,6 +1,6 @@
 const std = @import("std");
-const arch_check = @import("tools/arch_check.zig");
-const meta_check = @import("tools/meta_check.zig");
+const arch_check = @import("tools/check/arch_check.zig");
+const meta_check = @import("tools/check/meta_check.zig");
 
 /// C ABI version (keep in lockstep with `PANCAKE_VERSION_*` in
 /// `include/pancake_ocapn.h` and `src/c_abi/ocapn/mod.zig`, and with `.version`
@@ -10,7 +10,7 @@ const abi_version = std.SemanticVersion{ .major = 0, .minor = 1, .patch = 0 };
 
 /// The layer DAG, the one authoritative statement of the architecture
 /// (ADR-0040; ADR-0048 for the sibling-codec modules below the codec layer).
-/// Every build graph is generated from this table, and `tools/arch_check.zig`
+/// Every build graph is generated from this table, and `tools/check/arch_check.zig`
 /// verifies it against the source tree: a granted edge no file imports fails
 /// the gate, so the table carries the edges the code uses, never a wider
 /// silent allowance. Rows are in dependency order; the sans-io core graph is
@@ -20,9 +20,10 @@ const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "foundation", .prefix = "foundation/", .imports = &.{}, .core = true },
     .{ .name = "model", .prefix = "ocapn/model/", .imports = &.{}, .core = true },
     .{ .name = "framing", .prefix = "ocapn/codec/framing.zig", .imports = &.{"model"}, .core = true },
-    .{ .name = "syrup", .prefix = "ocapn/codec/syrup/", .imports = &.{ "foundation", "model", "framing" }, .core = true },
-    .{ .name = "capnp", .prefix = "ocapn/codec/capnp/", .imports = &.{ "foundation", "model", "framing" }, .core = true },
-    .{ .name = "codec", .prefix = "ocapn/codec/", .imports = &.{ "foundation", "model", "framing", "syrup", "capnp" }, .core = true },
+    .{ .name = "codec_order", .prefix = "ocapn/codec/order.zig", .imports = &.{}, .core = true },
+    .{ .name = "syrup", .prefix = "ocapn/codec/syrup/", .imports = &.{ "foundation", "model", "framing", "codec_order" }, .core = true },
+    .{ .name = "capnp", .prefix = "ocapn/codec/capnp/", .imports = &.{ "foundation", "model", "framing", "codec_order" }, .core = true },
+    .{ .name = "codec", .prefix = "ocapn/codec/", .imports = &.{ "foundation", "model", "framing", "codec_order", "syrup", "capnp" }, .core = true },
     .{ .name = "session", .prefix = "ocapn/session/", .imports = &.{"model"}, .core = true },
     .{ .name = "engine", .prefix = "ocapn/engine/", .imports = &.{ "foundation", "model", "codec", "session" }, .core = true },
     .{ .name = "persistent", .prefix = "persistent/", .imports = &.{}, .core = true },
@@ -544,10 +545,10 @@ pub fn build(b: *std.Build) void {
     const meta_check_step_inner = meta_check.create(b);
 
     // Unit tests for the meta gate's own parsers (link/command/Mermaid logic)
-    // live in `tools/meta_check.zig`. The file is a build-time import, so its
+    // live in `tools/check/meta_check.zig`. The file is a build-time import, so its
     // `test` blocks only run when compiled as a dedicated test artifact.
     const meta_check_tests_mod = b.createModule(.{
-        .root_source_file = b.path("tools/meta_check.zig"),
+        .root_source_file = b.path("tools/check/meta_check.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -580,7 +581,7 @@ pub fn build(b: *std.Build) void {
     cross_check_step.dependOn(&cross_wasm.step);
     check_step.dependOn(cross_check_step);
 
-    // ── Generated headers (per archive; ADR-0059) ────────────────────────────
+    // ── Generated headers / binding mirrors (per archive; ADR-0059) ──────────
     // Each archive's header is generated from its C ABI module (reflected
     // layouts, constant values, and function signatures): the Zig source is the
     // single source of truth. `include/pancake_ocapn.h` carries the shared
@@ -589,20 +590,24 @@ pub fn build(b: *std.Build) void {
     // `include/pancake_net_transport_tcp.h` and `include/pancake_net_transport_inproc.h`
     // `#include` the ocapn header and add their transport family. The `*-check`
     // steps ride `check` and fail when a committed header is stale; the bare
-    // steps are the fixers that rewrite in place.
+    // steps are the fixers that rewrite in place. Every row drives the shared
+    // `tools/gen/verify.zig` / `tools/gen/emit.zig` harness with the concrete
+    // generator as `@import("generator")`.
     const HeaderGen = struct {
         check_step_name: []const u8,
         check_desc: []const u8,
         write_step_name: []const u8,
         write_desc: []const u8,
-        check_tool: []const u8,
-        write_tool: []const u8,
+        generator: []const u8,
         import_name: []const u8,
         import_module: *std.Build.Module,
         /// A second reflected module, for a generator that mirrors more than
         /// one archive (the TS mirror covers ocapn and driver).
         extra_import_name: ?[]const u8 = null,
         extra_import_module: ?*std.Build.Module = null,
+        /// A third reflected module (FFI layouts also mirror the iroh archive).
+        extra2_import_name: ?[]const u8 = null,
+        extra2_import_module: ?*std.Build.Module = null,
     };
     const header_gens = [_]HeaderGen{
         .{
@@ -610,8 +615,7 @@ pub fn build(b: *std.Build) void {
             .check_desc = "Verify include/pancake_ocapn.h matches src/c_abi/ocapn (fails if stale)",
             .write_step_name = "gen-header-ocapn",
             .write_desc = "Regenerate include/pancake_ocapn.h from src/c_abi/ocapn",
-            .check_tool = "tools/gen_header_check.zig",
-            .write_tool = "tools/gen_header_write.zig",
+            .generator = "tools/gen/header/ocapn.zig",
             .import_name = "c_abi",
             .import_module = host_mods[layerIndex("c_abi")],
         },
@@ -620,8 +624,7 @@ pub fn build(b: *std.Build) void {
             .check_desc = "Verify include/pancake_driver.h matches src/c_abi/driver (fails if stale)",
             .write_step_name = "gen-header-driver",
             .write_desc = "Regenerate include/pancake_driver.h from src/c_abi/driver",
-            .check_tool = "tools/gen_header_driver_check.zig",
-            .write_tool = "tools/gen_header_driver_write.zig",
+            .generator = "tools/gen/header/driver.zig",
             .import_name = "c_abi_driver",
             .import_module = driver_abi_mod,
         },
@@ -630,8 +633,7 @@ pub fn build(b: *std.Build) void {
             .check_desc = "Verify include/pancake_net_transport_tcp.h matches src/c_abi/net_transport/tcp (fails if stale)",
             .write_step_name = "gen-header-net-transport-tcp",
             .write_desc = "Regenerate include/pancake_net_transport_tcp.h from src/c_abi/net_transport/tcp",
-            .check_tool = "tools/gen_header_net_tcp_check.zig",
-            .write_tool = "tools/gen_header_net_tcp_write.zig",
+            .generator = "tools/gen/header/net_tcp.zig",
             .import_name = "c_abi_net_transport_tcp",
             .import_module = transportAbiModule(b, target, optimize, "src/c_abi/net_transport/tcp/mod.zig", &.{
                 .{ .name = "model", .module = host_mods[layerIndex("model")] },
@@ -645,89 +647,94 @@ pub fn build(b: *std.Build) void {
             .check_desc = "Verify include/pancake_net_transport_inproc.h matches src/c_abi/net_transport/inproc (fails if stale)",
             .write_step_name = "gen-header-net-transport-inproc",
             .write_desc = "Regenerate include/pancake_net_transport_inproc.h from src/c_abi/net_transport/inproc",
-            .check_tool = "tools/gen_header_net_inproc_check.zig",
-            .write_tool = "tools/gen_header_net_inproc_write.zig",
+            .generator = "tools/gen/header/net_inproc.zig",
             .import_name = "c_abi_net_transport_inproc",
             .import_module = transportAbiModule(b, target, optimize, "src/c_abi/net_transport/inproc/mod.zig", &.{
                 .{ .name = "net", .module = host_mods[layerIndex("net")] },
                 .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
             }),
         },
-    };
-    // The TypeScript ABI mirror rides the same generator loop: JS FFI has no
-    // struct types, so the TS binding reads C structs through byte offsets, and
-    // this is the one binding mirror that must be generated rather than
-    // declared symbolically. Same check-or-regenerate discipline as the headers.
-    const ts_abi_gen = HeaderGen{
-        .check_step_name = "gen-ts-abi-check",
-        .check_desc = "Verify bindings/ts/stack/internal/abi.ts matches src/c_abi (fails if stale)",
-        .write_step_name = "gen-ts-abi",
-        .write_desc = "Regenerate bindings/ts/stack/internal/abi.ts from src/c_abi (the ocapn and driver archives)",
-        .check_tool = "tools/gen_ts_abi_check.zig",
-        .write_tool = "tools/gen_ts_abi_write.zig",
-        .import_name = "c_abi",
-        .import_module = host_mods[layerIndex("c_abi")],
-        .extra_import_name = "c_abi_driver",
-        .extra_import_module = driver_abi_mod,
-    };
-    // HostAction kind constants + typed decode for every language binding
-    // (binding spine Pass 2). Authority is src/c_abi/driver; executor arms stay
-    // hand-written in each binding's action module.
-    const binding_host_action_gen = HeaderGen{
-        .check_step_name = "gen-binding-host-action-check",
-        .check_desc = "Verify binding HostAction decode/types match src/c_abi/driver (fails if stale)",
-        .write_step_name = "gen-binding-host-action",
-        .write_desc = "Regenerate binding HostAction decode/types from src/c_abi/driver",
-        .check_tool = "tools/gen_binding_host_action_check.zig",
-        .write_tool = "tools/gen_binding_host_action_write.zig",
-        .import_name = "c_abi_driver",
-        .import_module = driver_abi_mod,
-    };
-    // The reflected integer ABI constants (return codes, reference/argument
-    // kinds, codec/abort/dial families, caps) for every language binding, from
-    // one table so a value is mirrored once and cannot drift. Rides the same
-    // generator loop; the transport string symbols stay hand-kept.
-    const binding_constants_gen = HeaderGen{
-        .check_step_name = "gen-binding-constants-check",
-        .check_desc = "Verify binding ABI constants match src/c_abi (fails if stale)",
-        .write_step_name = "gen-binding-constants",
-        .write_desc = "Regenerate binding ABI constants from src/c_abi (the ocapn and driver archives)",
-        .check_tool = "tools/gen_binding_constants_check.zig",
-        .write_tool = "tools/gen_binding_constants_write.zig",
-        .import_name = "c_abi",
-        .import_module = host_mods[layerIndex("c_abi")],
-        .extra_import_name = "c_abi_driver",
-        .extra_import_module = driver_abi_mod,
+        .{
+            .check_step_name = "gen-ts-abi-check",
+            .check_desc = "Verify bindings/ts/stack/internal/abi.ts matches src/c_abi (fails if stale)",
+            .write_step_name = "gen-ts-abi",
+            .write_desc = "Regenerate bindings/ts/stack/internal/abi.ts from src/c_abi (the ocapn and driver archives)",
+            .generator = "tools/gen/binding/ts_abi.zig",
+            .import_name = "c_abi",
+            .import_module = host_mods[layerIndex("c_abi")],
+            .extra_import_name = "c_abi_driver",
+            .extra_import_module = driver_abi_mod,
+        },
+        .{
+            .check_step_name = "gen-binding-host-action-check",
+            .check_desc = "Verify binding HostAction decode/types match src/c_abi/driver (fails if stale)",
+            .write_step_name = "gen-binding-host-action",
+            .write_desc = "Regenerate binding HostAction decode/types from src/c_abi/driver",
+            .generator = "tools/gen/binding/host_action.zig",
+            .import_name = "c_abi_driver",
+            .import_module = driver_abi_mod,
+        },
+        .{
+            .check_step_name = "gen-binding-constants-check",
+            .check_desc = "Verify binding ABI constants match src/c_abi (fails if stale)",
+            .write_step_name = "gen-binding-constants",
+            .write_desc = "Regenerate binding ABI constants from src/c_abi (the ocapn and driver archives)",
+            .generator = "tools/gen/binding/constants.zig",
+            .import_name = "c_abi",
+            .import_module = host_mods[layerIndex("c_abi")],
+            .extra_import_name = "c_abi_driver",
+            .extra_import_module = driver_abi_mod,
+        },
     };
 
-    for (header_gens ++ [_]HeaderGen{ ts_abi_gen, binding_host_action_gen, binding_constants_gen }) |hg| {
-        const check_mod = b.createModule(.{
-            .root_source_file = b.path(hg.check_tool),
-            .target = target,
-            .optimize = optimize,
-        });
-        check_mod.addImport(hg.import_name, hg.import_module);
-        if (hg.extra_import_name) |extra| check_mod.addImport(extra, hg.extra_import_module.?);
-        const check_exe = b.addExecutable(.{ .name = hg.check_step_name, .root_module = check_mod });
-        const check_run = b.addRunArtifact(check_exe);
-        check_run.setCwd(b.path("."));
-        const check_step_h = b.step(hg.check_step_name, hg.check_desc);
-        check_step_h.dependOn(&check_run.step);
-        check_step.dependOn(check_step_h);
+    const addHeaderGen = struct {
+        fn add(bb: *std.Build, check_agg: *std.Build.Step, tgt: std.Build.ResolvedTarget, opt: std.builtin.OptimizeMode, hg: HeaderGen) void {
+            const gen_mod = bb.createModule(.{
+                .root_source_file = bb.path(hg.generator),
+                .target = tgt,
+                .optimize = opt,
+            });
+            gen_mod.addImport(hg.import_name, hg.import_module);
+            if (hg.extra_import_name) |extra| gen_mod.addImport(extra, hg.extra_import_module.?);
+            if (hg.extra2_import_name) |extra2| gen_mod.addImport(extra2, hg.extra2_import_module.?);
+            // Available to every generator; iroh header + FFI layouts force-link it
+            // so reflection stays cargo-free.
+            gen_mod.addImport("iroh_sidecar_stub", bb.createModule(.{
+                .root_source_file = bb.path("tools/gen/stub/iroh_sidecar.zig"),
+                .target = tgt,
+                .optimize = opt,
+            }));
 
-        const write_mod = b.createModule(.{
-            .root_source_file = b.path(hg.write_tool),
-            .target = target,
-            .optimize = optimize,
-        });
-        write_mod.addImport(hg.import_name, hg.import_module);
-        if (hg.extra_import_name) |extra| write_mod.addImport(extra, hg.extra_import_module.?);
-        const write_exe = b.addExecutable(.{ .name = hg.write_step_name, .root_module = write_mod });
-        const write_run = b.addRunArtifact(write_exe);
-        write_run.setCwd(b.path("."));
-        write_run.has_side_effects = true;
-        const write_step_h = b.step(hg.write_step_name, hg.write_desc);
-        write_step_h.dependOn(&write_run.step);
+            const check_mod = bb.createModule(.{
+                .root_source_file = bb.path("tools/gen/verify.zig"),
+                .target = tgt,
+                .optimize = opt,
+            });
+            check_mod.addImport("generator", gen_mod);
+            const check_exe = bb.addExecutable(.{ .name = hg.check_step_name, .root_module = check_mod });
+            const check_run = bb.addRunArtifact(check_exe);
+            check_run.setCwd(bb.path("."));
+            const check_step_h = bb.step(hg.check_step_name, hg.check_desc);
+            check_step_h.dependOn(&check_run.step);
+            check_agg.dependOn(check_step_h);
+
+            const write_mod = bb.createModule(.{
+                .root_source_file = bb.path("tools/gen/emit.zig"),
+                .target = tgt,
+                .optimize = opt,
+            });
+            write_mod.addImport("generator", gen_mod);
+            const write_exe = bb.addExecutable(.{ .name = hg.write_step_name, .root_module = write_mod });
+            const write_run = bb.addRunArtifact(write_exe);
+            write_run.setCwd(bb.path("."));
+            write_run.has_side_effects = true;
+            const write_step_h = bb.step(hg.write_step_name, hg.write_desc);
+            write_step_h.dependOn(&write_run.step);
+        }
+    }.add;
+
+    for (header_gens) |hg| {
+        addHeaderGen(b, check_step, target, optimize, hg);
     }
 
     // ── Examples ─────────────────────────────────────────────────────────────
@@ -847,6 +854,27 @@ pub fn build(b: *std.Build) void {
         }
     }
 
+    {
+        const gen_mod = b.createModule(.{
+            .root_source_file = b.path("tools/gen/fixture/capnp.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        gen_mod.addImport("pancake", lib_mod);
+        const handoff_fixtures_mod = b.createModule(.{
+            .root_source_file = b.path("test/support/handoff_fixtures.zig"),
+            .target = target,
+            .optimize = optimize,
+        });
+        handoff_fixtures_mod.addImport("pancake", lib_mod);
+        gen_mod.addImport("handoff_fixtures", handoff_fixtures_mod);
+        const gen_exe = b.addExecutable(.{ .name = "capnp-fixture-gen", .root_module = gen_mod });
+        const gen_run = b.addRunArtifact(gen_exe);
+        gen_run.setCwd(b.path("."));
+        gen_run.has_side_effects = true;
+        b.step("gen-capnp-fixtures", "Regenerate Cap'n Proto golden fixtures under test/codec/capnp_fixtures/").dependOn(&gen_run.step);
+    }
+
     // ── C ABI dogfoods (siblings of `check`) ─────────────────────────────────
     // Per-language dogfood of the Zig C ABI archives. Each consumer loads the
     // installed archives and drives an OCapN round-trip through its idiomatic
@@ -940,6 +968,14 @@ pub fn build(b: *std.Build) void {
     // model API change cannot silently rot a driver nothing ran.
     check_step.dependOn(&goblins_interop_exe.step);
 
+    // Deno binding Host/listen: publish an actor and let a real Goblins vat dial.
+    const deno_goblins_listen = addInstalledSystemRun(b, &.{
+        "deno",                                          "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "interop/goblins_interop/deno_listen_client.ts",
+    });
+    const deno_goblins_listen_step = b.step("deno-goblins-listen", "Live keyed OCapN listen: Deno binding Host/listen publishes and a real Goblins vat dials it (needs deno + racket + goblins)");
+    deno_goblins_listen_step.dependOn(&deno_goblins_listen.step);
+
     // Live TCP scale over the loop-fed host bridge (ADR-0076): one completion
     // loop thread serves a full byte-fed node through `driver.Bridge`,
     // many concurrent BlockingSession clients across two waves. Binds real
@@ -976,6 +1012,16 @@ pub fn build(b: *std.Build) void {
     const goblins_gift_step = b.step("goblins-gift", "Live three-party handoff vs Goblins, pancake as gifter (needs racket + goblins)");
     goblins_gift_step.dependOn(&run_goblins_gift.step);
 
+    // Live distributed-GC evidence vs Goblins: introduce a near export into the
+    // suite echo and observe inbound op:gc-exports (needs racket + goblins).
+    const goblins_gc_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-goblins-gc", "interop/goblins_interop/gc_driver.zig");
+    const run_goblins_gc = b.addRunArtifact(goblins_gc_exe);
+    run_goblins_gc.setCwd(b.path("."));
+    run_goblins_gc.has_side_effects = true;
+    check_step.dependOn(&goblins_gc_exe.step);
+    if (pin_port) |p| run_goblins_gc.addArg(b.fmt("--port={d}", .{p}));
+    const goblins_gc_step = b.step("goblins-gc", "Live Goblins GC evidence: inbound op:gc-exports after echo consumes a near export (needs racket + goblins)");
+    goblins_gc_step.dependOn(&run_goblins_gc.step);
 
     // Per-binding Goblins clients (interop / handoff / gift) register with the
     // shared `binding_families` table after `iroh-abi` below — same emitter as
@@ -1204,20 +1250,22 @@ pub fn build(b: *std.Build) void {
             \\# Dereference soname symlinks so the tarball has only regular files
             \\# (ADR-0077 extract hygiene refuses symlink members).
             \\cp -aL zig-out/lib zig-out/include zig-out/release/stage/
+            \\if [ -d zig-out/bin ]; then cp -aL zig-out/bin zig-out/release/stage/; fi
             \\if find zig-out/release/stage/lib \( -type l -o -type b -o -type c \) 2>/dev/null | grep -q .; then
             \\  echo 'release-pack: lib/ must contain only regular files and directories (no symlinks/special files)' >&2
             \\  exit 1
             \\fi
             \\cp LICENSE-APACHE zig-out/release/stage/
-            \\tar -czf 'zig-out/release/{s}' -C zig-out/release/stage lib include LICENSE-APACHE
+            \\tar -czf 'zig-out/release/{s}' -C zig-out/release/stage lib include bin LICENSE-APACHE 2>/dev/null || tar -czf 'zig-out/release/{s}' -C zig-out/release/stage lib include LICENSE-APACHE
             \\rm -rf zig-out/release/stage
             \\cd zig-out/release
             \\(sha256sum '{s}' || shasum -a 256 '{s}') > SHA256SUMS
             \\echo 'release-pack: zig-out/release/{s}'
-        , .{ release_tarball, release_tarball, release_tarball, release_tarball }),
+        , .{ release_tarball, release_tarball, release_tarball, release_tarball, release_tarball }),
     });
+    release_pack_run.step.dependOn(b.getInstallStep());
     release_pack_run.step.dependOn(iroh_abi_step);
-    const release_pack_step = b.step("release-pack", "Stage the installed archives + headers into a versioned, checksummed per-target tarball under zig-out/release/ (needs cargo for the iroh companion)");
+    const release_pack_step = b.step("release-pack", "Stage the installed archives + headers (+ bin/pancake and rooms-peer shim) into a versioned, checksummed per-target tarball under zig-out/release/ (needs cargo for the iroh companion)");
     release_pack_step.dependOn(&release_pack_run.step);
 
     // ── Per-binding client families ──────────────────────────────────────────
@@ -1449,13 +1497,13 @@ pub fn build(b: *std.Build) void {
         },
         .{
             .aggregate_name = "bindings-goblins-handoff",
-            .aggregate_desc = "Per-binding three-party handoff vs Goblins as recipient, every binding (needs racket + goblins + the runtimes)",
+            .aggregate_desc = "Per-binding three-party handoff: binding as recipient (redeems a Goblins give), every binding (needs racket + goblins + the runtimes)",
             .needs_iroh_abi = false,
             .rows = &goblins_handoff_clients,
         },
         .{
             .aggregate_name = "bindings-goblins-gift",
-            .aggregate_desc = "Per-binding three-party handoff vs Goblins as gifter, every binding (needs racket + goblins + the runtimes)",
+            .aggregate_desc = "Per-binding three-party handoff: binding as gifter (Goblins recipient redeems), every binding (needs racket + goblins + the runtimes)",
             .needs_iroh_abi = false,
             .rows = &goblins_gift_clients,
         },
@@ -1504,75 +1552,31 @@ pub fn build(b: *std.Build) void {
     });
     check_step.dependOn(&iroh_abi_check.step);
 
-    // `include/pancake_net_transport_iroh.h` is generated from
-    // `src/c_abi/net_transport/iroh/mod.zig` (reflected signatures): the Zig source is the
-    // single source of truth, as for pancake_ocapn.h. Both gen steps reflect
-    // types only and link the sidecar stubs, so they run cargo-free;
-    // `gen-header-net-transport-iroh-check` rides `check`.
-    const iroh_abi_for_gen = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod);
-    const iroh_gen_check_mod = b.createModule(.{
-        .root_source_file = b.path("tools/gen_header_iroh_check.zig"),
-        .target = target,
-        .optimize = optimize,
+    // `include/pancake_net_transport_iroh.h` and the binding FFI layout facts
+    // need the iroh resident module (defined above), so they join the shared
+    // gen harness here rather than in the early header_gens table.
+    addHeaderGen(b, check_step, target, optimize, .{
+        .check_step_name = "gen-header-net-transport-iroh-check",
+        .check_desc = "Verify include/pancake_net_transport_iroh.h matches src/c_abi/net_transport/iroh/mod.zig (fails if stale)",
+        .write_step_name = "gen-header-net-transport-iroh",
+        .write_desc = "Regenerate include/pancake_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig",
+        .generator = "tools/gen/header/iroh.zig",
+        .import_name = "c_abi_net_transport_iroh",
+        .import_module = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod),
     });
-    iroh_gen_check_mod.addImport("c_abi_net_transport_iroh", iroh_abi_for_gen);
-    const iroh_gen_check_exe = b.addExecutable(.{ .name = "gen-header-net-transport-iroh-check", .root_module = iroh_gen_check_mod });
-    const iroh_header_check = b.addRunArtifact(iroh_gen_check_exe);
-    iroh_header_check.setCwd(b.path("."));
-    const gen_header_iroh_check_step = b.step("gen-header-net-transport-iroh-check", "Verify include/pancake_net_transport_iroh.h matches src/c_abi/net_transport/iroh/mod.zig (fails if stale)");
-    gen_header_iroh_check_step.dependOn(&iroh_header_check.step);
-    check_step.dependOn(gen_header_iroh_check_step);
-
-    const iroh_abi_for_gen_write = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod);
-    const iroh_gen_write_mod = b.createModule(.{
-        .root_source_file = b.path("tools/gen_header_iroh_write.zig"),
-        .target = target,
-        .optimize = optimize,
+    addHeaderGen(b, check_step, target, optimize, .{
+        .check_step_name = "gen-binding-ffi-layouts-check",
+        .check_desc = "Verify binding FFI layout facts match src/c_abi (fails if stale)",
+        .write_step_name = "gen-binding-ffi-layouts",
+        .write_desc = "Regenerate binding FFI layout facts from src/c_abi (the ocapn, driver, and iroh transport archives)",
+        .generator = "tools/gen/binding/ffi_layouts.zig",
+        .import_name = "c_abi",
+        .import_module = host_mods[layerIndex("c_abi")],
+        .extra_import_name = "c_abi_driver",
+        .extra_import_module = driver_abi_mod,
+        .extra2_import_name = "c_abi_net_transport_iroh",
+        .extra2_import_module = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod),
     });
-    iroh_gen_write_mod.addImport("c_abi_net_transport_iroh", iroh_abi_for_gen_write);
-    const iroh_gen_write_exe = b.addExecutable(.{ .name = "gen-header-net-transport-iroh-write", .root_module = iroh_gen_write_mod });
-    const iroh_gen_write_run = b.addRunArtifact(iroh_gen_write_exe);
-    iroh_gen_write_run.setCwd(b.path("."));
-    iroh_gen_write_run.has_side_effects = true;
-    const gen_header_iroh_step = b.step("gen-header-net-transport-iroh", "Regenerate include/pancake_net_transport_iroh.h from src/c_abi/net_transport/iroh/mod.zig");
-    gen_header_iroh_step.dependOn(&iroh_gen_write_run.step);
-
-    // The FFI layout facts every binding's hand-mirrored struct pins against
-    // (Rust's `const` assert blocks, Python's `_pin_layout()`, Racket's
-    // `pin-layout!` want-size): reflected from `c_abi` + `c_abi_driver` +
-    // `c_abi_net_transport_iroh` the same way the headers and the TS mirror
-    // are, so the three languages cannot silently disagree with the Zig
-    // struct or with each other. Cargo-free like the iroh header gen above:
-    // reflects types only and links the sidecar stubs.
-    const ffi_layouts_check_mod = b.createModule(.{
-        .root_source_file = b.path("tools/gen_binding_ffi_layouts_check.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    ffi_layouts_check_mod.addImport("c_abi", host_mods[layerIndex("c_abi")]);
-    ffi_layouts_check_mod.addImport("c_abi_driver", driver_abi_mod);
-    ffi_layouts_check_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
-    const ffi_layouts_check_exe = b.addExecutable(.{ .name = "gen-binding-ffi-layouts-check", .root_module = ffi_layouts_check_mod });
-    const ffi_layouts_check_run = b.addRunArtifact(ffi_layouts_check_exe);
-    ffi_layouts_check_run.setCwd(b.path("."));
-    const gen_binding_ffi_layouts_check_step = b.step("gen-binding-ffi-layouts-check", "Verify binding FFI layout facts match src/c_abi (fails if stale)");
-    gen_binding_ffi_layouts_check_step.dependOn(&ffi_layouts_check_run.step);
-    check_step.dependOn(gen_binding_ffi_layouts_check_step);
-
-    const ffi_layouts_write_mod = b.createModule(.{
-        .root_source_file = b.path("tools/gen_binding_ffi_layouts_write.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    ffi_layouts_write_mod.addImport("c_abi", host_mods[layerIndex("c_abi")]);
-    ffi_layouts_write_mod.addImport("c_abi_driver", driver_abi_mod);
-    ffi_layouts_write_mod.addImport("c_abi_net_transport_iroh", irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod));
-    const ffi_layouts_write_exe = b.addExecutable(.{ .name = "gen-binding-ffi-layouts-write", .root_module = ffi_layouts_write_mod });
-    const ffi_layouts_write_run = b.addRunArtifact(ffi_layouts_write_exe);
-    ffi_layouts_write_run.setCwd(b.path("."));
-    ffi_layouts_write_run.has_side_effects = true;
-    const gen_binding_ffi_layouts_step = b.step("gen-binding-ffi-layouts", "Regenerate binding FFI layout facts (sizes/offsets) from src/c_abi (the ocapn, driver, and iroh transport archives)");
-    gen_binding_ffi_layouts_step.dependOn(&ffi_layouts_write_run.step);
 
     // ── External conformance pressure (siblings of `check`) ──────────────────
     // A pancake peer the upstream OCapN test suite can dial: it serves the
@@ -1613,7 +1617,7 @@ pub fn build(b: *std.Build) void {
     // fixtures against each resolve port's hard-fail hygiene. Sibling of the
     // Zig-hermetic gate only in that it needs host tools (python3/deno/tar);
     // it is still part of `check` because soft-green extract is a footgun.
-    const c_abi_extract = b.addSystemCommand(&.{ "bash", "tools/c-abi-extract-matrix.sh" });
+    const c_abi_extract = b.addSystemCommand(&.{ "bash", "tools/c-abi/c-abi-extract-matrix.sh" });
     c_abi_extract.setCwd(b.path("."));
     const c_abi_extract_check_step = b.step("c-abi-extract-check", "Hermetic C-ABI extract hygiene matrix: refuse zip-slip/symlink, accept clean lib/ (ADR-0077)");
     c_abi_extract_check_step.dependOn(&c_abi_extract.step);
@@ -1715,32 +1719,99 @@ pub fn build(b: *std.Build) void {
     // that rides `check` (above) compiles it out. Ride a second, cargo-free
     // compile guard on `check` with the flag on — externs stay unresolved — so a
     // core-API change through the iroh resident cannot break this consumer unseen,
-    // the same split as `rooms-bot-check`.
+    // the same split as `rooms-peer-shim-check`.
     const rooms_client_iroh_check_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "examples/apps/rooms/zig/client.zig");
     rooms_client_iroh_check_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
     rooms_client_iroh_check_mod.addImport("demo_rooms_cli", demo_rooms_cli_mod);
     rooms_client_iroh_check_mod.addImport("demo_usage", demo_usage_mod);
     check_step.dependOn(&b.addObject(.{ .name = "rooms-client-iroh-check", .root_module = rooms_client_iroh_check_mod }).step);
 
-    // The persistent Zig rooms bot: a CapTP peer that joins a room and runs the
-    // inbox/outbox/state harness so an agent can be present while it works
-    // (the native rewrite of .agents/skills/rooms-bot). It always speaks iroh, so
-    // the runnable artifact links the sidecar; a second, unlinked object rides
-    // `check` as the cargo-free compile guard (externs stay unresolved), the same
-    // split the iroh interop drivers use.
-    const rooms_bot_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "examples/apps/rooms/zig/bot.zig");
-    linkIrohSidecar(b, rooms_bot_mod);
-    const rooms_bot_exe = b.addExecutable(.{ .name = "rooms-bot", .root_module = rooms_bot_mod });
-    rooms_bot_exe.step.dependOn(&iroh_lib.step);
-    b.installArtifact(rooms_bot_exe);
-    const rooms_bot_run = b.addRunArtifact(rooms_bot_exe);
-    rooms_bot_run.setCwd(b.path("."));
-    rooms_bot_run.has_side_effects = true;
-    if (b.args) |args| rooms_bot_run.addArgs(args);
-    b.step("rooms-bot", "Run the persistent native Zig rooms bot; pass `-- <verb> [flags]` (peer/reply/status/tick)")
-        .dependOn(&rooms_bot_run.step);
-    const rooms_bot_check_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "examples/apps/rooms/zig/bot.zig");
-    check_step.dependOn(&b.addObject(.{ .name = "rooms-bot-check", .root_module = rooms_bot_check_mod }).step);
+    // Product CLI (ADR-0084): one CapTP registry behind ocapn / repl / mcp / app rooms-peer.
+    // Links the iroh sidecar (rooms presence). Cargo-free object on check.
+    const pancake_cli_opts = b.addOptions();
+    pancake_cli_opts.addOption(u32, "version_major", @as(u32, @intCast(abi_version.major)));
+    pancake_cli_opts.addOption(u32, "version_minor", @as(u32, @intCast(abi_version.minor)));
+    pancake_cli_opts.addOption(u32, "version_patch", @as(u32, @intCast(abi_version.patch)));
+    pancake_cli_opts.addOption([]const u8, "captp_profile", "ocapn-captp");
+    // CapTP lab REPL (libvaxis): TUI only on the product CLI, never libpancake_*.
+    const vaxis_dep = b.dependency("vaxis", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const vaxis_mod = vaxis_dep.module("vaxis");
+
+    const pancake_cli_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "cli/main.zig");
+    pancake_cli_mod.addOptions("build_options", pancake_cli_opts);
+    pancake_cli_mod.addImport("vaxis", vaxis_mod);
+    linkIrohSidecar(b, pancake_cli_mod);
+    const pancake_cli_exe = b.addExecutable(.{ .name = "pancake", .root_module = pancake_cli_mod });
+    pancake_cli_exe.step.dependOn(&iroh_lib.step);
+    b.installArtifact(pancake_cli_exe);
+    const pancake_cli_run = b.addRunArtifact(pancake_cli_exe);
+    pancake_cli_run.setCwd(b.path("."));
+    pancake_cli_run.has_side_effects = true;
+    if (b.args) |args| pancake_cli_run.addArgs(args);
+    b.step("pancake", "Run the pancake CapTP CLI; pass `-- <command> …` (ocapn|repl|mcp|app rooms-peer|…)")
+        .dependOn(&pancake_cli_run.step);
+    const pancake_cli_check_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "cli/main.zig");
+    pancake_cli_check_mod.addOptions("build_options", pancake_cli_opts);
+    pancake_cli_check_mod.addImport("vaxis", vaxis_mod);
+    check_step.dependOn(&b.addObject(.{ .name = "pancake-cli-check", .root_module = pancake_cli_check_mod }).step);
+
+    // Install alias: thin shim → `pancake app rooms-peer` (no CapTP/iroh link).
+    // `zig build rooms-peer` runs the product binary directly so the cache path
+    // need not sit beside an installed `pancake`.
+    const rooms_peer_shim_mod = b.createModule(.{
+        .root_source_file = b.path("cli/rooms_peer_shim.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    const rooms_peer_exe = b.addExecutable(.{ .name = "rooms-peer", .root_module = rooms_peer_shim_mod });
+    b.installArtifact(rooms_peer_exe);
+    check_step.dependOn(&b.addObject(.{ .name = "rooms-peer-shim-check", .root_module = rooms_peer_shim_mod }).step);
+    const rooms_peer_run = b.addRunArtifact(pancake_cli_exe);
+    rooms_peer_run.setCwd(b.path("."));
+    rooms_peer_run.has_side_effects = true;
+    rooms_peer_run.addArgs(&.{ "app", "rooms-peer" });
+    if (b.args) |args| rooms_peer_run.addArgs(args);
+    b.step("rooms-peer", "Run rooms presence via `pancake app rooms-peer`; pass `-- <verb> [flags]`")
+        .dependOn(&rooms_peer_run.step);
+
+    // Hermetic CLI tests: registry meta plus loopback session/capture goldens.
+    // Same imports as the product CLI (build_options + iroh resident for
+    // tree/rooms-peer). Link the sidecar so iroh resident externs resolve; tests that
+    // dial live iroh stay out of this suite.
+    const cli_api_mod = b.createModule(.{
+        .root_source_file = b.path("cli/test_api.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    cli_api_mod.addImport("pancake", lib_mod);
+    cli_api_mod.addImport("vaxis", vaxis_mod);
+    cli_api_mod.addImport("iroh", iroh_resident_mod);
+    cli_api_mod.addOptions("build_options", pancake_cli_opts);
+    linkIrohSidecar(b, cli_api_mod);
+    const cli_tests_mod = b.createModule(.{
+        .root_source_file = b.path("test/cli/all.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+    cli_tests_mod.addImport("cli", cli_api_mod);
+    cli_tests_mod.addImport("pancake", lib_mod);
+    cli_tests_mod.addImport("vaxis", vaxis_mod);
+    const cli_tests = b.addTest(.{
+        .root_module = cli_tests_mod,
+        .name = "cli-registry-test",
+        .filters = if (test_filter) |f| b.dupeStrings(&.{f}) else &.{},
+    });
+    cli_tests.step.dependOn(&iroh_lib.step);
+    const cli_tests_run = b.addRunArtifact(cli_tests);
+    check_step.dependOn(&cli_tests_run.step);
+    b.step("cli-test", "Run hermetic pancake CLI registry + session/capture tests")
+        .dependOn(&cli_tests_run.step);
+    // Discoverable alias: `zig build cli` (same as cli-test).
+    b.step("cli", "Alias for cli-test — hermetic pancake CLI goldens")
+        .dependOn(&cli_tests_run.step);
 
     const rooms_demo_iroh = addInstalledSystemRun(b, &.{
         "deno",                        "run", "-A", "--unstable-ffi",

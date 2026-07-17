@@ -367,7 +367,7 @@ pub fn lastErrorClear() void {
 // family and the transport archives' owning sessions
 // (`pancake_tcp_session_*`, ADR-0062) speak them by layout without either
 // pulling the other's exported surface (ADR-0055 / ADR-0059). The ocapn root
-// (`src/c_abi/ocapn/mod.zig`) re-exports the names so `tools/header_gen.zig`'s
+// (`src/c_abi/ocapn/mod.zig`) re-exports the names so `tools/gen/header/ocapn.zig`'s
 // reflection emits them into `pancake_ocapn.h`; the transport archives include
 // that one header on the C side.
 

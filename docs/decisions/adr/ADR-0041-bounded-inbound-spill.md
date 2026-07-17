@@ -3,7 +3,7 @@ id: ADR-0041
 status: accepted
 date: 2026-06-10
 tags: [net, runtime, c_abi, resilience, memory, performance]
-decision: "Per-connection read buffers are small and fixed; an admissible inbound frame larger than the read buffer accumulates once in a bounded owned spill (`net.Spill`) and decodes from there, freed the moment it drains. All three inbound consumers — `pumpOver`, `readFrameFrom`/`FrameStream`, and the completion loop — share the one spill type, so steady per-connection memory is the read buffer, not `SessionLimits.max_frame_bytes`. Boundedness is the codec's cap-during-scan verdict (ADR-0029) plus a defensive incomplete-at-cap mirror in each consumer."
+decision: "Per-connection read buffers are small and fixed; an admissible inbound frame larger than the read buffer accumulates once in a bounded owned spill (`net.Spill`) and decodes from there, freed the moment it drains. All three inbound consumers (`pumpOver`, `readFrameFrom`/`FrameStream`, and the completion loop) share the one spill type, so steady per-connection memory is the read buffer, not `SessionLimits.max_frame_bytes`. Boundedness is the codec's cap-during-scan verdict (ADR-0029) plus a defensive incomplete-at-cap mirror in each consumer."
 supersedes: []
 superseded_by: []
 ---
@@ -15,7 +15,7 @@ superseded_by: []
 ADR-0030 shipped the netlayer with a named slice-1 simplification: the read
 buffer was sized to `max_frame_bytes` so any admissible frame framed whole from
 the buffer. That couples steady per-connection memory to the largest frame a
-session may ever accept — a 64 KiB cap costs 64 KiB per idle connection, which
+session may ever accept: a 64 KiB cap costs 64 KiB per idle connection, which
 the peer-scaling bench shows dominating the protocol core's per-connection state
 by an order of magnitude. A many-connection server needs the read buffer to size
 steady-state traffic, with the rare large frame paying its own way.
@@ -30,7 +30,7 @@ frame.** `net.Spill` is a bounded owned accumulation that is inactive (zero
 allocation) while frames fit the read buffer. When one frame outgrows the
 buffer, the buffered prefix moves into the spill and the buffer keeps reading;
 the frame decodes from the spill's contiguous bytes through the same one parser
-(ADR-0029), and leftover bytes — the start of the next frame — compact forward.
+(ADR-0029), and leftover bytes (the start of the next frame) compact forward.
 The spill frees its storage the moment it drains, so a burst of large frames
 shares one allocation and a quiet connection holds none.
 
@@ -46,9 +46,9 @@ active is a mid-frame truncation, not a graceful close.
 **Boundedness is the codec's verdict, mirrored defensively.** ADR-0029's
 cap-during-scan contract means an `incomplete` verdict implies the scanned
 prefix is under `max_frame_bytes`, so the spill never grows past the cap plus
-one read buffer of unscanned tail. Each consumer keeps a defensive mirror — an
+one read buffer of unscanned tail. Each consumer keeps a defensive mirror: an
 `incomplete` verdict over a prefix at or past the cap fails closed as
-`FrameTooLarge` — so a codec regression cannot turn the spill into unbounded
+`FrameTooLarge`: so a codec regression cannot turn the spill into unbounded
 buffering.
 
 **The named costs.** The spill path costs one extra bounded copy per oversize

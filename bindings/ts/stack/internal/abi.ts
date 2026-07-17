@@ -32,7 +32,7 @@ export const MAX_LOCAL_FORWARD_HOPS = 256;
 export const DISCOVERY_DIAL_RETRY_MS = 3000;
 export const DISCOVERY_DIAL_MAX_ATTEMPTS = 24;
 export const DIAL_SHAPE_HOST_PORT = 0;
-export const DIAL_SHAPE_IROH = 1;
+export const DIAL_SHAPE_PEER_ID = 1;
 export const DIAL_REACH_DIRECT = 0;
 export const DIAL_REACH_CONFIGURED = 1;
 export const DIAL_REACH_EXPLICIT = 2;
@@ -61,6 +61,8 @@ export const ARG_KEYWORD = 11;
 export const ARG_BIG_INTEGER = 12;
 export const CODEC_SYRUP = 0;
 export const CODEC_CAPNP = 1;
+export const CAPTP_VERSION_V1_0 = 0;
+export const CAPTP_VERSION_NEXT = 1;
 export const ABORT_DOMAIN_CODEC = 0;
 export const ABORT_DOMAIN_SESSION = 1;
 export const ABORT_DOMAIN_FOREIGN = 2;
@@ -118,21 +120,22 @@ export const ALLOCATOR_FREE_OFF = 8;
 export const ALLOCATOR_USER_DATA_OFF = 16;
 
 // PancakeHostAction (libpancake_driver, pancake_host_next_action)
-export const HOST_ACTION_SIZE = 176;
+export const HOST_ACTION_SIZE = 112;
 export const HOST_ACTION_KIND_OFF = 0;
 export const HOST_ACTION_TICKET_OFF = 8;
 export const HOST_ACTION_SESSION_OFF = 16;
-export const HOST_ACTION_LOCATOR_OFF = 24;
-export const HOST_ACTION_LOCATOR_LEN_OFF = 32;
-export const HOST_ACTION_TRANSPORT_OFF = 40;
-export const HOST_ACTION_TRANSPORT_LEN_OFF = 48;
-export const HOST_ACTION_DESIGNATOR_OFF = 56;
-export const HOST_ACTION_DESIGNATOR_LEN_OFF = 64;
-export const HOST_ACTION_DIRECT_ADDRESSES_HINT_OFF = 72;
-export const HOST_ACTION_DIRECT_ADDRESSES_HINT_LEN_OFF = 80;
-export const HOST_ACTION_VALUE_OFF = 88;
-export const HOST_ACTION_MESSAGE_OFF = 160;
-export const HOST_ACTION_MESSAGE_LEN_OFF = 168;
+export const HOST_ACTION_VALUE_OFF = 24;
+export const HOST_ACTION_MESSAGE_OFF = 96;
+export const HOST_ACTION_MESSAGE_LEN_OFF = 104;
+
+// PancakeHostPumpHooks (libpancake_driver, pancake_host_pump_drain)
+export const HOST_PUMP_HOOKS_SIZE = 48;
+export const HOST_PUMP_HOOKS_CTX_OFF = 0;
+export const HOST_PUMP_HOOKS_FLUSH_OFF = 8;
+export const HOST_PUMP_HOOKS_CLOSE_OFF = 16;
+export const HOST_PUMP_HOOKS_NEED_GIFT_ID_OFF = 24;
+export const HOST_PUMP_HOOKS_COMPLETE_OFF = 32;
+export const HOST_PUMP_HOOKS_DIAL_OFF = 40;
 
 // PancakeDialPlan (libpancake_driver, pancake_host_plan_dial)
 export const DIAL_PLAN_SIZE = 56;
@@ -144,4 +147,20 @@ export const DIAL_PLAN_ADDRESSES_OFF = 32;
 export const DIAL_PLAN_ADDRESSES_LEN_OFF = 40;
 export const DIAL_PLAN_REACH_KIND_OFF = 48;
 export const DIAL_PLAN_REACH_VALUE_OFF = 52;
+
+// PancakeAcceptPlan (libpancake_driver, pancake_host_plan_accept)
+export const ACCEPT_PLAN_SIZE = 32;
+export const ACCEPT_PLAN_DESIGNATOR_OFF = 0;
+export const ACCEPT_PLAN_DESIGNATOR_LEN_OFF = 8;
+export const ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF = 16;
+export const ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF = 24;
+
+// PancakePendingDial (libpancake_driver, pancake_host_pending_dial)
+export const PENDING_DIAL_SIZE = 48;
+export const PENDING_DIAL_TRANSPORT_OFF = 0;
+export const PENDING_DIAL_TRANSPORT_LEN_OFF = 8;
+export const PENDING_DIAL_DESIGNATOR_OFF = 16;
+export const PENDING_DIAL_DESIGNATOR_LEN_OFF = 24;
+export const PENDING_DIAL_HINT_OFF = 32;
+export const PENDING_DIAL_HINT_LEN_OFF = 40;
 

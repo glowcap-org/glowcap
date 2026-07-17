@@ -14,7 +14,7 @@ superseded_by: []
 
 <What forced the decision? Which boundary, codec, vocabulary term, or principle
 does it sit on? Keep terse. Name which
-[First Principles](../../../AGENTS.md#first-principles) the decision engages —
+[First Principles](../../../AGENTS.md#first-principles) the decision engages,
 settles, relaxes, or clarifies. Cite OCapN behavior, Goblins fixtures, or Zig
 scenarios as evidence; do not cite Rust implementation as the oracle.>
 

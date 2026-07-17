@@ -1,9 +1,9 @@
-//! Per-session memory footprint budget — the runtime half of rung 2.
+//! Per-session memory footprint budget: the runtime half of rung 2.
 //!
 //! The 500k-connection destination is a budget every struct on the session path
 //! answers to. Its inline half is held by the compiler: `engine.Peer` carries a
-//! `comptime` ceiling on `@sizeOf(Peer)`. This test holds the other half — the
-//! heap a session grows once it has actually carried traffic — because that cost
+//! `comptime` ceiling on `@sizeOf(Peer)`. This test holds the other half, the
+//! heap a session grows once it has actually carried traffic, because that cost
 //! is runtime, not `comptime`.
 //!
 //! A warmed session is one that has registered an export and driven one inbound
@@ -17,8 +17,8 @@
 //! The arithmetic that makes 2 KiB the number: 2048 bytes times 500_000 sessions
 //! is 1.024 GB, under 1 GiB of protocol-core state for half a million warmed
 //! sessions. That is the core's obligation. It is not the whole per-connection
-//! cost — the completion loop's fixed read buffer dominates it, and the live
-//! socket measurement is rung 5 — but the core must never be what makes 500k
+//! cost. The completion loop's fixed read buffer dominates it, and the live
+//! socket measurement is rung 5, but the core must never be what makes 500k
 //! impossible, and this gate is what proves it does not drift there silently.
 //!
 //! `zig build bench-peer-scaling` reports the live measured numbers and the 500k

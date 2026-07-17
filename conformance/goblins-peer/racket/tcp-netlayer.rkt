@@ -35,6 +35,10 @@
 
 (provide ^tcp-netlayer)
 
+;; Latest CapTP write proc for the active session (interop-only). Updated when
+;; a connection hands `write-message` to mycapn.
+(define interop-captp-writer (box #f))
+
 ;; Constructor for a TCP netlayer.
 ;;
 ;;   listen-host  — string passed to `tcp-listen`. Use "127.0.0.1" for
@@ -83,6 +87,9 @@
          (async-channel-put new-conn-ch (vector in out))
          (loop)))))
 
+  (define (register-captp-writer write-message)
+    (set-box! interop-captp-writer write-message))
+
   (define (start-listening conn-establisher)
     (let listen-loop ()
       (on (sync/pr new-conn-ch)
@@ -90,6 +97,7 @@
             [(list (vector ip op))
              (define-values (read-message write-message)
                (read-write-procs ip op))
+             (register-captp-writer write-message)
              (<- conn-establisher read-message write-message #f)])
           #:finally listen-loop)))
 
@@ -128,7 +136,14 @@
            (define-values (in out) (tcp-connect host port))
            (define-values (read-message write-message)
              (read-write-procs in out))
-           (<- conn-establisher read-message write-message remote-node)])]))
+           (register-captp-writer write-message)
+           (<- conn-establisher read-message write-message remote-node)])]
+       ;; Interop-only: write a CapTP record on the active session. Used when
+       ;; Goblins lacks an outbound projection API but the wire op is canonical.
+       [(interop-send msg marshallers)
+        (match (unbox interop-captp-writer)
+          [#f (error '^tcp-netlayer "no active CapTP writer for interop-send")]
+          [write-message (write-message msg marshallers)])]))
 
     pre-setup-beh)
 

@@ -26,9 +26,6 @@ pub const HOST_ACTION_CLOSE: c_uint = 5;
 pub enum HostAction {
 	Dial {
 		ticket: u64,
-		transport: String,
-		designator: String,
-		direct_addresses_hint: String,
 	},
 	Flush {
 		conn: usize,
@@ -61,12 +58,7 @@ pub fn decode(raw: &ffi::PancakeHostAction) -> HostAction {
 		}
 	};
 	match raw.kind {
-		HOST_ACTION_DIAL => HostAction::Dial {
-			ticket: raw.ticket,
-			transport: view(raw.transport, raw.transport_len),
-			designator: view(raw.designator, raw.designator_len),
-			direct_addresses_hint: view(raw.direct_addresses_hint, raw.direct_addresses_hint_len),
-		},
+		HOST_ACTION_DIAL => HostAction::Dial { ticket: raw.ticket },
 		HOST_ACTION_FLUSH => HostAction::Flush {
 			conn: raw.conn as usize,
 		},
@@ -84,4 +76,30 @@ pub fn decode(raw: &ffi::PancakeHostAction) -> HostAction {
 		},
 		kind => unreachable!("unknown host action kind {kind}"),
 	}
+}
+
+/// Exhaustive dispatch over `HostAction`. Handlers expose one async fn
+/// per arm; a seventh kind fails to compile here.
+pub async fn dispatch<H>(action: HostAction, handlers: &H) -> crate::Result<()>
+where
+    H: HostActionHandlers,
+{
+    match action {
+        HostAction::Dial { .. } => handlers.dial(action).await,
+        HostAction::Flush { .. } => handlers.flush(action).await,
+        HostAction::NeedGiftId { .. } => handlers.need_gift_id(action).await,
+        HostAction::Settle { .. } => handlers.settle(action).await,
+        HostAction::Fail { .. } => handlers.fail(action).await,
+        HostAction::Close { .. } => handlers.close(action).await,
+    }
+}
+
+/// Per-arm I/O the binding supplies to [`dispatch`].
+pub trait HostActionHandlers {
+    fn dial(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn flush(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn need_gift_id(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn settle(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn fail(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
+    fn close(&self, action: HostAction) -> impl std::future::Future<Output = crate::Result<()>> + '_;
 }

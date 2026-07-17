@@ -57,7 +57,7 @@ flip it to `accepted` _before_ code is built against it.
 
 This is a one-person project ([@jimisaacs](https://codeberg.org/jimisaacs)), so
 reviews and issue-tracker replies are both best-effort. The fastest path to
-merge is a green gate and a change scoped to a single layer. Questions go through
+merge is a green `zig build check` and a change scoped to a single layer. Questions go through
 the [Codeberg issue tracker](https://codeberg.org/jimisaacs/pancake/issues).
 
 ## Dev environment
@@ -74,10 +74,23 @@ Toolchain pins live in [`.devcontainer/pins.sh`](.devcontainer/pins.sh);
 boundaries and environment notes in
 [`.devcontainer/README.md`](.devcontainer/README.md).
 
+## Try CapTP from the shell
+
+```sh
+zig build
+export PATH="$PWD/zig-out/bin:$PATH"
+pancake help
+```
+
+For a two-terminal echo round-trip, REPL, or stdio MCP over CapTP, follow
+[`docs/cli.md`](docs/cli.md). That binary is the product adapter over the same
+library, not a second protocol stack. Room presence uses `pancake app rooms-peer`
+(see the rooms app README).
+
 ## Verifying changes
 
 ```sh
-zig build check        # arch + meta gates, tests, oracle, examples, benchmark smokes
+zig build check        # arch + meta checks, tests, reference fixtures, examples, benchmark smokes
 ```
 
 Focused steps while iterating:
@@ -85,17 +98,18 @@ Focused steps while iterating:
 ```sh
 zig build test           # unit + integration tests
 zig build test -Dtest-filter=session   # only tests whose names contain "session"
-zig build meta-check     # agent scaffolding + documented build-step parity
-zig build oracle-check   # protocol manifest + Syrup fixture parity
-zig build arch-check     # layer dependency DAG + no-std.Io-in-core gate
+zig build meta-check     # documented build steps, overlays, and doc registry
+zig build oracle-check   # protocol reference fixtures + Syrup fixture parity
+zig build arch-check     # layer dependency DAG + no std.Io in the core
 zig build examples       # build and run the public examples
-zig build rust-dogfood   # Rust consumes the C ABI
+zig build cli-test       # hermetic CapTP CLI goldens
+zig build rust-dogfood   # Rust consumes the C ABI (binding smoke)
 zig build bindings       # rust + deno + bun + python + racket C ABI smokes
 zig build bench-codec    # codec / dispatch throughput
 ```
 
 `zig build check` must be green before a change is complete. The architecture
-gate ([tools/arch_check.zig](tools/arch_check.zig)) blocks layering violations.
+check ([tools/check/arch_check.zig](tools/check/arch_check.zig)) blocks layering violations.
 
 ## License
 

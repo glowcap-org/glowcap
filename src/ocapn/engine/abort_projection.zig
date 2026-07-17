@@ -64,7 +64,7 @@ pub const Classification = struct {
 /// protocol violation closes after a successful outbound abort push.
 pub fn classify(err: anyerror) Classification {
     return switch (err) {
-        // ── codec decode / projection failures → malformed_frame ─────
+        // ── codec decode / projection failures to malformed_frame ─────
         // `Incomplete` never escapes `decodeBody` (it is folded to
         // `MalformedFrame`); classified here defensively as malformed. The
         // Cap'n Proto structural failures (`Truncated` short/over-claimed
@@ -123,7 +123,7 @@ pub fn classify(err: anyerror) Classification {
             .message = "handoff-receive replayed or out-of-order handoff-count",
             .disposition = .close,
         } },
-        // ── resource bounds → resource_exhausted (ADR-0025) ──────────
+        // ── resource bounds to resource_exhausted (ADR-0025) ──────────
         // The session table caps plus the parse-stage nesting and stream
         // frame-size bounds, and the engine's drain-time local-delivery bound
         // (ADR-0007): a partner cannot push any of them past its cap.
@@ -142,7 +142,7 @@ pub fn classify(err: anyerror) Classification {
             .message = "inbound message would push a session resource past its cap",
             .disposition = .close,
         } },
-        // ── generic partner protocol violations → protocol_error ─────
+        // ── generic partner protocol violations to protocol_error ─────
         error.DuplicateSetElement,
         error.MalformedMessage,
         error.InvalidReference,

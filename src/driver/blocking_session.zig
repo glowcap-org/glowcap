@@ -73,6 +73,11 @@ pub const BlockingSession = struct {
         self.conn.deinit();
     }
 
+    /// The partner's retained abort, or null (see `Served.partnerAbort`).
+    pub fn partnerAbort(self: *const BlockingSession) ?Served.PartnerAbortView {
+        return self.served.partnerAbort();
+    }
+
     /// The partner's retained abort diagnostic, or null (see `Served.abortReason`).
     pub fn abortReason(self: *const BlockingSession) ?[]const u8 {
         return self.served.abortReason();
@@ -220,6 +225,21 @@ pub const BlockingSession = struct {
         return self.settleVow(vow, arena);
     }
 
+    /// Start a bootstrap fetch without driving the socket. The caller registers
+    /// a listener (`on`) and pumps (`step` / `stepReadable`) until the vow
+    /// settles — the non-blocking twin of `fetch` / `fetchSettled` for a
+    /// multiplexed event loop (CapTP lab TUI).
+    pub fn beginFetch(self: *BlockingSession, name: []const u8) !actors.Vow {
+        return self.served.sendBootstrapFetch(name);
+    }
+
+    /// Break every far vow still awaiting a partner answer (cancel / timeout /
+    /// teardown). Stable `message` bytes are what listeners observe as the
+    /// broken reason; pass a string literal.
+    pub fn breakFarVows(self: *BlockingSession, message: []const u8) void {
+        self.served.vat.breakFarVows(message);
+    }
+
     /// Fetch a partner's published capability by `name`, returning a far `Ref`.
     /// A fulfilled fetch yields a far ref; an unpublished name returns
     /// `Error.FetchBroken`, and any other fulfill returns
@@ -227,7 +247,7 @@ pub const BlockingSession = struct {
     /// `fetchSettled` is the reason-bearing form.
     pub fn fetch(self: *BlockingSession, name: []const u8) !actors.Ref {
         var state = driver.FetchCapture{};
-        const vow = try self.served.sendBootstrapFetch(name);
+        const vow = try self.beginFetch(name);
         try self.settle(vow, .{ .ctx = &state, .func = driver.FetchCapture.record });
         return switch (state.outcome orelse return Error.ConnectionClosed) {
             .capability => |far_ref| .{ .far = far_ref },
@@ -493,20 +513,15 @@ pub fn acceptVia(
     var vat = BlockingSession.over(allocator, peer, conn);
     vat.handshake_timeout_ms = handshake_timeout_ms;
     errdefer vat.deinit();
-    switch (listener.designatorScheme()) {
-        .address => {
-            var designator_buf: [64]u8 = undefined;
-            const self_locator: model.PeerLocator = .{
-                .transport = listener.transportName(),
-                .designator = listener.localDesignator(&designator_buf),
-                .hints = model.Hints.emptyFalse(),
-            };
-            switch (identity) {
-                .ephemeral => try vat.startKeyedSession(self_locator),
-                .keyed => |secret| try vat.startKeyedSessionWithSecret(self_locator, secret),
-            }
-        },
-        .key => {
+
+    // Signing designator/hint come from the one accept resolver (ADR-0078),
+    // same table the bindings call through `pancake_host_plan_accept`.
+    var local_buf: [net.tcp.designator_buf_len]u8 = undefined;
+    var key_designator: [crypto.PeerKey.designator_len]u8 = undefined;
+    const transport = listener.transportName();
+    const server_designator: []const u8, const accepted_local_addr: []const u8 = switch (listener.designatorScheme()) {
+        .address => .{ "", listener.localDesignator(&local_buf) },
+        .key => blk: {
             const secret = switch (identity) {
                 .keyed => |secret| secret,
                 .ephemeral => return Error.EphemeralIdentityOnKeyedTransport,
@@ -514,20 +529,20 @@ pub fn acceptVia(
             // Derived from the signing secret, not read back from the
             // listener, so designator ≡ session key by construction — the
             // responder half of the invariant the dial-side pin verifies.
-            const designator = secret.publicKey().toDesignator();
-            var hint_buf: [net.tcp.designator_buf_len]u8 = undefined;
-            const hint = listener.localHint(&hint_buf);
-            // The `#f`-empty-vs-entry spelling lives in one place; a hint-less
-            // key listener (iroh) keeps the `#f` empty-hints its signed locator
-            // has always carried, the byte-fed `Host` signs the identical bytes.
-            var entry_buf: [1]model.HintEntry = undefined;
-            const self_locator: model.PeerLocator = .{
-                .transport = listener.transportName(),
-                .designator = designator[0..],
-                .hints = model.Hints.forDirectAddresses(hint, &entry_buf),
-            };
-            try vat.startKeyedSessionWithSecret(self_locator, secret);
+            key_designator = secret.publicKey().toDesignator();
+            break :blk .{ key_designator[0..], listener.localHint(&local_buf) };
         },
+    };
+    const plan = driver.core.planAccept(transport, server_designator, accepted_local_addr);
+    var entry_buf: [1]model.HintEntry = undefined;
+    const self_locator: model.PeerLocator = .{
+        .transport = transport,
+        .designator = plan.designator,
+        .hints = model.Hints.forDirectAddresses(plan.direct_addresses_hint, &entry_buf),
+    };
+    switch (identity) {
+        .ephemeral => try vat.startKeyedSession(self_locator),
+        .keyed => |secret| try vat.startKeyedSessionWithSecret(self_locator, secret),
     }
     return vat;
 }

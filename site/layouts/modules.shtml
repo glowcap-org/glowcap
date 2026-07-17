@@ -13,7 +13,7 @@
 		<div class="stack" aria-hidden="true">
 			<div class="layer is-adapter"><strong>Bindings</strong> <span class="tag tag-adapter">consumers</span><small>Rust, TypeScript, Python, Racket, the same library in four idioms</small></div>
 			<div class="layer is-adapter"><strong>c_abi</strong> <span class="tag tag-adapter">surface</span><small>the C ABI every binding wraps</small></div>
-			<div class="layer is-adapter"><strong>driver</strong> <span class="tag tag-adapter">application</span><small>the owning Session and the shared application verbs</small></div>
+			<div class="layer is-adapter"><strong>driver</strong> <span class="tag tag-adapter">application</span><small>one-session Session, or Host + Bridge for many peers and handoffs</small></div>
 			<div class="layer is-adapter"><strong>net</strong> <span class="tag tag-adapter">netlayers</span><small>where std.Io enters: TCP, in-memory, and iroh</small></div>
 			<div class="layer is-local"><strong>actors</strong> <span class="tag tag-local">above the core</span><small>the Goblins-shaped Vat: spawn, near-call, eventual-send</small></div>
 			<div class="layer is-core"><strong>engine</strong> <span class="tag tag-core">core</span><small>the caller-owned Peer: step, dispatch, outbound drain</small></div>

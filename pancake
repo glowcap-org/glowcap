@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Repo-root shim → zig-out/bin/pancake (ADR-0084). Requires `zig build` first.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN="${PANCAKE_BIN:-$ROOT/zig-out/bin/pancake}"
+if [[ ! -x "$BIN" ]]; then
+	zig build
+	if [[ ! -x "$BIN" ]]; then
+		echo "pancake: missing executable at ${BIN} — run \`zig build\` from the repo root" >&2
+		exit 1
+	fi
+fi
+exec "$BIN" "$@"

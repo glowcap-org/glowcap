@@ -4,20 +4,22 @@
 ;; handoff-redeem alike.
 ;;
 ;; Every dial decision — the host:port grammar, the direct-addresses hint rule,
-;; the iroh reachability posture, the scheme dispatch, and the typed errors —
+;; the peer-id reachability posture, the scheme dispatch, and the typed errors —
 ;; is resolved once in the core by `pancake_host_plan_dial`, which hands back a
 ;; `PancakeDialPlan`. This module holds no dial business logic: it marshals the
-;; posture, reads the plan, and performs the one thing the core cannot — the
-;; byte-channel open (`tcp-connect`, or the iroh companion). Adding a transport
-;; is a core change, not an edit here. Session owns mint/handshake
-;; (`establish-dialed-locator-session` / `establish-accepted-session`); this
-;; module owns plan + channel open + the public `connect` dialer.
+;; posture, reads the plan into a language sum, and performs the one thing the
+;; core cannot — the byte-channel open (`tcp-connect`, or the iroh companion).
+;; Adding a transport is a core change, not an edit here. Session owns
+;; mint/handshake (`establish-dialed-locator-session` /
+;; `establish-accepted-session`); this module owns plan + channel open + the
+;; public `connect` dialer.
 ;;
 ;; Lazy-require breaks the session ↔ dial cycle: dial lazy-requires session
 ;; for establish / serve / drain choreography; the public barrel
 ;; (`pancake.rkt`) requires dial directly.
 
-(require racket/tcp
+(require ffi/unsafe
+         racket/tcp
          racket/lazy-require
          racket/runtime-path
          "constants.rkt"
@@ -38,7 +40,8 @@
    with-host-drain)])
 
 (provide iroh-dial-mod
-         (struct-out resolved-dial)
+         (struct-out host-port-dial)
+         (struct-out peer-id-dial)
          plan-dial
          dial-parsed-locator
          dial-exporter
@@ -46,22 +49,38 @@
          connect)
 
 ;; ── The dial executor (a DIAL action's binding half) ─────────────────────────
-;; The host asks for a dial with the exporter's full `ocapn://` locator URI and
-;; its parsed pieces (transport, designator, direct-addresses hint) already on
-;; the action, so the executor re-parses nothing; which netlayer answers — and
-;; under which reachability posture — is the binding's decision, never the
-;; ABI's. A `tcp` locator dials its host:port; an `iroh` locator with a
-;; direct-address hint dials it relay-less (Direct), and a bare node id
-;; resolves under the host's configured redeem posture (default Discovery;
+;; The host asks for a dial with a ticket only; the executor borrows the
+;; pending dial view via `pancake_host_pending_dial` (no URI re-parse), then dials.
+;; Which netlayer answers — and under which reachability posture — is the
+;; binding's decision, never the ABI's. A `tcp` locator dials its host:port; an
+;; `iroh` locator with a direct-address hint dials it relay-less (Direct), and a
+;; bare node id resolves under the host's configured redeem posture (default Discovery;
 ;; `set-host-redeem-reachability!` lowers it), so one give shape covers an
 ;; offline direct dial and an internet dial-by-id alike. The iroh companion
 ;; loads lazily, only for an iroh give.
 (define-runtime-path iroh-companion-path "../pancake-iroh.rkt")
 (define (iroh-dial-mod) `(submod ,iroh-companion-path dial))
 
-;; A resolved dial from `pancake_host_plan_dial`: what channel to open and how.
-;; The (ptr,len) views are read into strings here, before the input buffers die.
-(struct resolved-dial (shape host port addresses reach-kind reach-value))
+;; A resolved dial from `pancake_host_plan_dial`: language sum over the C
+;; shape flag (mirrors Zig DialPlan). Plan views alias the input UTF-8
+;; buffers; decode those subslices only — a non-alias is a contract break.
+(struct host-port-dial (host port) #:transparent)
+(struct peer-id-dial (addresses reach-kind reach-value) #:transparent)
+
+(define (decode-plan-view sources ptr len)
+  (cond
+    [(or (not ptr) (= len 0)) ""]
+    [else
+     (define vp (cast ptr _pointer _uintptr))
+     (or (for/or ([src (in-list sources)])
+           (define base (cast src _bytes _uintptr))
+           (and (<= base vp)
+                (<= (+ vp len) (+ base (bytes-length src)))
+                (bytes->string/utf-8
+                 (subbytes src (- vp base) (+ (- vp base) len))
+                 #\uFFFD)))
+         (raise-pancake 'plan-dial ERR-INVALID-ARGUMENT
+                        "dial plan view does not alias input buffers"))]))
 
 (define (plan-dial transport designator addrs policy value)
   (define tb (string->bytes/utf-8 transport))
@@ -70,15 +89,20 @@
   (define plan (make-PancakeDialPlan 0 #f 0 0 #f 0 0 0))
   (check/host (pancake_host_plan_dial tb (bytes-length tb) db (bytes-length db)
                                       hb (bytes-length hb) policy value plan))
-  (define (view ptr len)
-    (if (and ptr (> len 0)) (bytes->string/utf-8 (bytes<-c ptr len) #\uFFFD) ""))
-  (resolved-dial
-   (PancakeDialPlan-shape plan)
-   (view (PancakeDialPlan-host plan) (PancakeDialPlan-host-len plan))
-   (PancakeDialPlan-port plan)
-   (view (PancakeDialPlan-addresses plan) (PancakeDialPlan-addresses-len plan))
-   (PancakeDialPlan-reach-kind plan)
-   (PancakeDialPlan-reach-value plan)))
+  (define sources (list db hb))
+  (define shape (PancakeDialPlan-shape plan))
+  (cond
+    [(= shape DIAL-SHAPE-PEER-ID)
+     (peer-id-dial
+      (decode-plan-view sources (PancakeDialPlan-addresses plan) (PancakeDialPlan-addresses-len plan))
+      (PancakeDialPlan-reach-kind plan)
+      (PancakeDialPlan-reach-value plan))]
+    [(= shape DIAL-SHAPE-HOST-PORT)
+     (host-port-dial
+      (decode-plan-view sources (PancakeDialPlan-host plan) (PancakeDialPlan-host-len plan))
+      (PancakeDialPlan-port plan))]
+    [else (raise-pancake 'plan-dial ERR-INVALID-ARGUMENT
+                         "unknown dial shape ~a" shape)]))
 
 ;; The one dial path for `connect` and handoff redeem alike: no dispatch, no
 ;; grammar, no posture — the core resolves all of that in `pancake_host_plan_dial`,
@@ -92,23 +116,24 @@
           [else (values DIAL-POSTURE-EXPLICIT-NONE 0)]))
   (define plan (plan-dial transport designator addrs policy value))
   (cond
-    [(= (resolved-dial-shape plan) DIAL-SHAPE-IROH)
-     (define reach-kind (resolved-dial-reach-kind plan))
+    [(peer-id-dial? plan)
+     (define reach-kind (peer-id-dial-reach-kind plan))
      (define reach*
        (cond [(= reach-kind DIAL-REACH-DIRECT) (dynamic-require iroh-companion-path 'IROH-REACH-DIRECT)]
              [(= reach-kind DIAL-REACH-CONFIGURED) (host-redeem-reachability-value m)]
-             [else (resolved-dial-reach-value plan)]))
+             [else (peer-id-dial-reach-value plan)]))
      ((dynamic-require (iroh-dial-mod) 'connect-iroh/node)
-      designator (resolved-dial-addresses plan) reach* m)]
-    [else
-     (define-values (in out) (tcp-connect (resolved-dial-host plan) (resolved-dial-port plan)))
+      designator (peer-id-dial-addresses plan) reach* m)]
+    [(host-port-dial? plan)
+     (define-values (in out) (tcp-connect (host-port-dial-host plan) (host-port-dial-port plan)))
      (with-handlers ([(lambda (_) #t)
                       (lambda (e)
                         (with-handlers ([(lambda (_) #t) void])
                           (close-output-port out)
                           (close-input-port in))
                         (raise e))])
-       (establish-dialed-locator-session m transport designator (port-transport in out)))]))
+       (establish-dialed-locator-session m transport designator (port-transport in out)))]
+    [else (raise-pancake 'connect ERR-INVALID-ARGUMENT "unknown dial plan")]))
 
 (define (dial-exporter m transport designator addrs)
   (dial-parsed-locator m transport designator addrs #:redeem? #t))
@@ -123,13 +148,20 @@
 ;; dial breaks every waiting redeem with the reason. The exporter connection
 ;; is kept pumped by a background serve so the withdraw's resolution — and
 ;; any later routed traffic — is read.
-(define (run-dial! m ticket transport designator addrs)
+(define (run-dial! m ticket)
+  ;; Ticket-only DIAL: borrow parsed parts (no URI re-parse), then dial.
   (with-handlers ([converts-to-broken?
                    (lambda (e)
                      (with-host-drain m
                        (lambda ()
                          (host-dial-failed! m ticket (exn->message e))
                          (drain-host-actions! m))))])
+    (define-values (rc transport-bs designator-bs hint-bs)
+      (pancake_host_pending_dial (host-ptr m) ticket))
+    (check/host rc)
+    (define transport (bytes->string/utf-8 transport-bs #\uFFFD))
+    (define designator (bytes->string/utf-8 designator-bs #\uFFFD))
+    (define addrs (bytes->string/utf-8 hint-bs #\uFFFD))
     (define c (dial-exporter m transport designator addrs))
     (with-host-drain m
       (lambda ()
@@ -138,15 +170,13 @@
     (thread (lambda () (with-handlers ([converts-to-broken? void]) (session-serve c))))
     (void)))
 
-;; Dial a partner from its `ocapn://` locator — the one dialer, dispatching on the
-;; locator's transport: `iroh` dials the endpoint id with its `direct-addresses`
-;; hints, `tcp` dials the `host:port` designator. There is no other dial: a
-;; literal address is a `tcp` locator, built with `tcp-locator`. Parse once
-;; through the core grammar, which picks the netlayer. `reachability` (an
-;; IROH-REACH-* posture) governs the iroh branch and is required only when the
-;; locator's transport is `iroh`; a `tcp` locator ignores it, so a plain TCP dial
-;; needs nothing but the locator. An iroh locator with no posture fails closed
-;; rather than guessing one.
+;; Dial a partner from its `ocapn://` locator: parse once, call
+;; `pancake_host_plan_dial`, and open the byte channel the plan names. There is
+;; no other dial: a literal address is a `tcp` locator, built with `tcp-locator`.
+;; The core owns transport dispatch and grammar. `reachability` (an
+;; IROH-REACH-* posture) is required only when the locator's transport is
+;; `iroh`; a `tcp` locator ignores it, so a plain TCP dial needs nothing but the
+;; locator. An iroh locator with no posture fails closed rather than guessing one.
 ;; `#:host` shares one CapTP host identity and gift registry across several
 ;; sessions — the gifter side of a three-party handoff, where the same host
 ;; both serves recipients (via `listen`/`accept`) and dials the exporter it

@@ -39,6 +39,17 @@ test "Locator.resolve: tcp uses the designator; keyed-tcp uses the hint" {
     try std.testing.expectEqual(@as(u16, 9000), keyed.getPort());
 }
 
+test "Locator.resolve: keyed-tcp multi-address hint dials the first entry, trimmed" {
+    const key = crypto.SecretKey.fromSeed([_]u8{0x5e} ** crypto.SEED_BYTES).publicKey();
+    const designator = key.toDesignator();
+    const keyed = try tcp.DialResolver.resolve(
+        "keyed-tcp",
+        &designator,
+        " 127.0.0.1:9001 , 10.0.0.1:9002 ",
+    );
+    try std.testing.expectEqual(@as(u16, 9001), keyed.getPort());
+}
+
 test "Locator.resolve refuses unknown transports, empty hostports, and non-key keyed designators" {
     try std.testing.expectError(
         error.UnknownTransport,

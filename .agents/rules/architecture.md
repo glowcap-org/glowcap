@@ -117,7 +117,7 @@ not a second CapTP stack. CapTP never names a transport.
     `*_close` is a shutdown lever and never frees (`zig build meta-check` holds
     this in the generated headers). Header signatures and constant values are
     reflected from `src/c_abi/ocapn`, but their comment prose lives in
-    `tools/header_gen.zig` — a C-contract change edits both the Zig doc comment
+    `tools/gen/header/ocapn.zig` — a C-contract change edits both the Zig doc comment
     and the generator's string, then `zig build gen-header-ocapn` (writes
     `pancake_ocapn.h`);
     `zig build gen-ts-abi` reflects the same constants and struct layouts into
@@ -160,7 +160,7 @@ not a second CapTP stack. CapTP never names a transport.
       resident, neither expressible as a DAG edge; `irohAbiModule` mints it and
       `arch-check` still claims the directory for file coverage and the I/O
       bans. Header reflected from `src/c_abi/net_transport/iroh`, prose in
-      `tools/header_gen_iroh.zig`.
+      `tools/gen/header/iroh.zig`.
   - The transport archives sit outside the layer DAG too (`.graph = false`); the
     `archive_table` in `build.zig` declares the archive set and its dependency
     edges (`net_transport_{tcp,inproc,iroh}` → `net` → `ocapn`).

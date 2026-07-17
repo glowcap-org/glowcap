@@ -11,7 +11,7 @@ tags: [
   cross-peer,
   goblins-parity,
 ]
-decision: Three-party handoff works end to end — Ed25519 signatures over OCapN-canonical `desc:*` records, a session-owned gift table with deposit / withdraw, recipient-match and monotonic handoff-count replay rejection, and cross-peer routing in caller-orchestrated free functions outside the per-peer dispatcher. Signature verification is an injected hook; signatures cover decoded fields, so a re-encode does not invalidate them.
+decision: Three-party handoff works end to end. Ed25519 signatures over OCapN-canonical `desc:*` records, a session-owned gift table with deposit / withdraw, recipient-match and monotonic handoff-count replay rejection, and cross-peer routing in caller-orchestrated free functions outside the per-peer dispatcher. Signature verification is an injected hook; signatures cover decoded fields, so a re-encode does not invalidate them.
 supersedes: []
 superseded_by: [ADR-0056]
 ---
@@ -42,8 +42,8 @@ and the core pulls in no crypto dependency), and _conformance is load-bearing_.
 
 The Syrup codec
 ([`src/ocapn/codec/syrup/mod.zig`](../../../src/ocapn/codec/syrup/mod.zig))
-renders and parses three nested records. `desc:sig-envelope` is two fields — the
-signed payload object and its signature — with no embedded pubkey; the verifier
+renders and parses three nested records. `desc:sig-envelope` is two fields: the
+signed payload object and its signature: with no embedded pubkey; the verifier
 knows the signing key out of band. `desc:handoff-give` carries `recipient-key`,
 `exporter-location`, `gifter-exporter-session`, `gifter-side`, `gift-id`.
 `desc:handoff-receive` carries `receiving-session`, `receiving-side`,
@@ -62,7 +62,7 @@ treats a signature as opaque bytes: verification is an **injected hook**
 [`src/ocapn/engine/cross_peer.zig`](../../../src/ocapn/engine/cross_peer.zig))
 supplied by the caller, so the no-I/O core depends on no crypto. Signatures
 cover the **decoded fields** of the signed object, not its encoded bytes, so
-re-rendering the same record produces a signature-preserving frame — the
+re-rendering the same record produces a signature-preserving frame: the
 cross-codec re-encode contract
 ([ADR-0003](ADR-0003-codec-interoperability-posture.md)). Entropy is not in the
 core: a key seed and the `gift-id` come from the adapter boundary.
@@ -75,7 +75,7 @@ The exporter session is the authority for whether a withdrawal is allowed
 rejects duplicate ids. `validateInboundWithdraw` checks gift existence, that the
 gift is not already withdrawn, that the asserted `recipient_key` matches the
 deposited one, and that the `handoff_count` is strictly greater than the last
-accepted count for that receiving session — a replay or out-of-order withdrawal
+accepted count for that receiving session: a replay or out-of-order withdrawal
 fails loud with `HandoffReplay`. `applyInboundWithdraw` records the count (the
 one fallible step) then marks the gift withdrawn, so the apply stays atomic.
 `SessionLimits` caps the deposited-gift and seen-handoff-count tables against a
@@ -84,10 +84,10 @@ hostile peer ([ADR-0025](ADR-0025-session-table-cap-policy.md)).
 ### Cross-peer routing is caller-orchestrated
 
 A `Peer` owns exactly one direct session, so a three-vat handoff spans several
-peers: the gifter↔recipient session, the recipient↔exporter session, and the
+peers: the gifter-to-recipient session, the recipient-to-exporter session, and the
 exporter session that authorizes the withdrawal. Routing lives in free functions
 in [`src/ocapn/engine/cross_peer.zig`](../../../src/ocapn/engine/cross_peer.zig)
-— `deliverGive` (the exporter records the gift, then the gifter sends the signed
+`deliverGive` (the exporter records the gift, then the gifter sends the signed
 give to the recipient) and `withdrawGift` (the injected verifier checks the
 recipient's signature, then the recipient sends the receive to the exporter,
 whose session authorizes it). Each takes a `*Peer` per participating session;
@@ -99,27 +99,57 @@ discipline.
 
 A handoff can import a promise hosted by a third party. An `op:listen` on that
 import installs a listener against the third-party-hosted import
-(`imported_promises` in the session). When the introducing session forwards the
-host's resolution, `drainRelayedResolutions` fires the installed listeners with
-the forwarded resolution and stores it on the import, so a late `op:listen`
-fires immediately rather than waiting for a resolution that already arrived.
-A relayed resolution is the promise's one settled value: a second relay for an
-already-settled import is refused (`Error.UnexpectedMessage`), mirroring the
-answer-side resolve-once rule, so every listener — installed before or after
-the relay — observes the same value.
+(`imported_promises` in the session). CapTP-normal listen uses
+`<desc:export N>` (receiver `.near`); `<desc:import-promise N>` (receiver
+`.far`) is the same row. When the introducing session forwards the host's
+resolution, `Peer.applyRelayedResolution` stores it and fires installed
+listeners, so a late `op:listen` fires immediately rather than waiting for a
+resolution that already arrived. A relayed resolution is the promise's one
+settled value: a second relay for an already-settled import is refused
+(`Error.UnexpectedMessage`), mirroring the answer-side resolve-once rule, so
+every listener (installed before or after the relay) observes the same value.
+
+The engine exposes that seam (`installThirdPartyImport`,
+`Peer.applyRelayedResolution`). `engine.Node` owns the introducing-session
+promise proxy; `driver_core.Host` drives it when an answer would fulfill with a
+foreign **promise** token (`proxyForeignPromiseFulfill` /
+`claimProxyListenerFire`). Foreign **object** fulfills stay on
+`interceptFulfilledRef` gift redeem. Stamp/GC races (enroll-stamped `row_id`
+applied after session mutation) live in
+`test/engine/relay_resolution_test.zig`; Node end-to-end proxy scenarios live in
+`test/engine/node_test.zig`.
+
+Implemented choreography:
+
+1. **Preserve promise identity across enrollment.** `Node.enrollForeign`
+   returns a token whose `RefKind` matches the enrolled wire ref.
+2. **Re-export without forcing a gift redeem.** `proxyForeignPromiseFulfill`
+   mints an import-promise via `allocatePromiseExport` +
+   `installThirdPartyImport` and returns a near-promise rewrite for the vat.
+3. **Subscribe on the home session.** One `op:listen` per home wire import
+   (shared across recipient introduces of that wire); refused with
+   `session_not_open` when the home peer is not yet open (CapTP break reason
+   via `@errorName`).
+4. **Forward once.** `consumeProxyListenerFire` takes the Host-owned
+   resolution as fire owner, settles every recipient store (N=1 **moves**;
+   N>1 each store materializes via `materializeResolutionForStore`), and
+   tears the proxy down after settle. Matches memory.md: one home listen,
+   named materialize into N session stores, not N listens and not a public
+   `cloneResolution` spine.
 
 ### Signature verification and gifter-key provenance
 
-Handoff signature verification is an embedder-boundary concern, the same as
-`op:start-session`. pancake surfaces the signed certificates and ships the
-canonical signable-bytes encoders, and the embedder verifies them with
-`crypto.verify`. [`codec.syrup`](../../../src/ocapn/codec/syrup/encode.zig)
-provides `canonicalHandoffGiveSignedBytes` and
-`canonicalHandoffReceiveSignedBytes`, single-sourced against the wire encoders
-so the signing domain can never drift from what goes on the wire.
-`cross_peer.withdrawGift` verifies each certificate over its full canonical
-envelope through the injected `SignatureVerifier`, not over the gift-id field
-alone, because a single field is forgeable by replay across envelopes.
+Handoff signature verification runs in the engine on an injected
+`SignatureVerifier` seam (same pattern as `op:start-session`). pancake ships
+the canonical signable-bytes encoders;
+[`codec.syrup`](../../../src/ocapn/codec/syrup/encode.zig) provides
+`canonicalHandoffGiveSignedBytes` and `canonicalHandoffReceiveSignedBytes`,
+single-sourced against the wire encoders so the signing domain can never drift
+from what goes on the wire. `cross_peer.withdrawGift` verifies each certificate
+over its full canonical envelope through that injected verifier, not over the
+gift-id field alone, because a single field is forgeable by replay across
+envelopes. Production paths wire `foundation.crypto`;
+`testOnlyAcceptingVerifier` is for in-process tests and trusted substrates only.
 
 The exporter's gift record carries the depositing gifter's session public key as
 opaque provenance. `Session.depositGift` records a `gifter_key` beside the
@@ -131,10 +161,10 @@ records its partner's session public key when it applies the partner's
 `op:start-session` and exposes it as `Session.partnerSessionKey`, and
 `cross_peer.deliverGive` falls back to that learned key when none is threaded
 explicitly. The session stores the key as opaque bytes and runs no crypto;
-verification stays the embedder's. `test/engine/cross_peer_test.zig` proves an
-end-to-end real-Ed25519 withdrawal authorized against the key the exporter
-learned from the handshake, and refuses a give signed by any other key with
-`SignatureRejected`.
+verification is the injected hook's job. `test/engine/cross_peer_test.zig`
+proves an end-to-end real-Ed25519 withdrawal authorized against the key the
+exporter learned from the handshake, and refuses a give signed by any other key
+with `SignatureRejected`.
 
 The live boundary now includes a three-party handoff against Goblins with
 pancake as the recipient: `zig build goblins-handoff` enlivens a Goblins
@@ -145,21 +175,22 @@ the bootstrap handoff registry used by the OCapN conformance peer.
 
 ## Scope (what this does not decide)
 
-- Cross-codec handoff re-encode still needs dedicated scenario coverage across
-  the live codec-dispatch seam
-  ([ADR-0003](ADR-0003-codec-interoperability-posture.md)). The decoded-field
-  signing contract is what makes that path signature-preserving.
+- Cross-codec handoff re-encode and re-verify ship
+  (`test/engine/cross_peer_test.zig`; see also `docs/boundaries.md`), including
+  Cap'n Proto structural exporter locators (`#f` / `direct-addresses`). That
+  Cap'n Proto path is pancake-to-pancake completeness, not a Goblins parity
+  claim.
 - Real cryptographic verification: the injected `SignatureVerifier` is the seam;
-  the bundled accept-everything verifier is for in-process tests and trusted
-  substrates only.
+  production defaults to `foundation.crypto`; the bundled accept-everything
+  verifier is for in-process tests and trusted substrates only.
 - The handshake substrate, bootstrap-fetch, and the `op:start-session` Ed25519
-  signing the deposit / withdraw `op:deliver`s reuse —
+  signing the deposit / withdraw `op:deliver`s reuse,
   [ADR-0006](ADR-0006-handshake-substrate-and-bootstrap-fetch.md).
 - Promise pipelining and the `op:listen` core semantics relayed resolution
-  builds on — [ADR-0007](ADR-0007-promise-pipelining-substrate.md).
-- GC / abort wire shapes and the `handoff_replay` abort kind —
+  builds on, [ADR-0007](ADR-0007-promise-pipelining-substrate.md).
+- GC / abort wire shapes and the `handoff_replay` abort kind,
   [ADR-0008](ADR-0008-goblins-canonical-syrup-wire-profile.md).
-- Sturdyref enliven dedup, a sibling cross-peer concern that is not handoff —
+- Sturdyref enliven dedup, a sibling cross-peer concern that is not handoff,
   [ADR-0012](ADR-0012-sturdyref-shape-and-enliven.md).
 
 ## Alternatives Considered
@@ -186,8 +217,7 @@ the bootstrap handoff registry used by the OCapN conformance peer.
   sign / verify, `PeerKey` / `Signature`, and the SHA256² identifier derivation;
   it allocates nothing and compiles to `wasm32`.
 - [`src/ocapn/engine/cross_peer.zig`](../../../src/ocapn/engine/cross_peer.zig)
-  owns `deliverGive` / `withdrawGift` / `drainRelayedResolutions` and the
-  `SignatureVerifier` injection seam.
+  owns the `SignatureVerifier` injection seam for host-driven handoff routing.
 - [`src/ocapn/session/mod.zig`](../../../src/ocapn/session/mod.zig) owns the
   gift table, `validateInboundWithdraw` / `applyInboundWithdraw`
   (validate-then-apply, atomic), monotonic handoff-count replay rejection, and
@@ -195,10 +225,13 @@ the bootstrap handoff registry used by the OCapN conformance peer.
 - [`src/ocapn/codec/syrup/mod.zig`](../../../src/ocapn/codec/syrup/mod.zig)
   renders and parses the three `desc:*` records; the signature rides as the
   gcrypt `sig-val`.
-- Conformance covers give / withdraw end to end, replay rejection, recipient
-  mismatch, and relayed resolution with a late listener, against Zig scenarios,
-  pancake-authored oracle fixtures, the upstream OCapN suite, and live Goblins
-  handoff.
+- Conformance for give / withdraw end to end, replay rejection, and recipient
+  mismatch covers Zig scenarios, the upstream OCapN suite's
+  `third_party_handoffs`, and live Goblins object handoff/gift. Relayed
+  resolution / introducing-session promise proxy is proven by Zig scenarios
+  (`test/engine/relay_resolution_test.zig`, `test/engine/node_test.zig`) and
+  Host intercept; it is not covered by live `goblins-handoff` /
+  `goblins-gift` (those prove object redeem/mint) nor by oracle fixtures.
 
 ## Forward compatibility
 

@@ -1,27 +1,27 @@
 //! Thin conformance host: canonical swiss-nums over `tcp-testing-only`, served
-//! by one `driver.core.Host` behind a `driver.Bridge` over a completion loop —
+//! by one `driver.core.Host` behind a `driver.Bridge` over a completion loop,
 //! the single-thread, many-session host tier (ADR-0076), not a thread per
 //! connection.
 //!
 //! The Host owns every protocol-policy seam the suite exercises through the
 //! library rather than this file: crossed-hellos tiebreak (`Host.CrossedHellos`,
 //! ADR-0030), one node identity reused as every session's signing key, and a
-//! shared gift registry. What stays here is what the Host cannot know — the
+//! shared gift registry. What stays here is what the Host cannot know: the
 //! conformance actors, and the three suite-specific interceptors the harness
 //! requires on the serve path:
 //!
 //!   * the promise-resolver bootstrap object (a `fulfill`/`break` to a minted
 //!     resolver export becomes an `op:resolve` on its paired answer);
-//!   * a `desc:handoff-give` delivered to the greeter — the recipient half:
+//!   * a `desc:handoff-give` delivered to the greeter (the recipient half):
 //!     the Host redeems it (`Node.acceptGive`) by dialing the named exporter
 //!     and withdrawing the gift;
-//!   * a sturdyref enliven to the enlivener — the gifter half: fetch the object
+//!   * a sturdyref enliven to the enlivener (the gifter half): fetch the object
 //!     on the exporter session, then claim the reply
 //!     (`Node.interceptFulfilledRef`) so the Host deposits it and signs the give.
 //!
 //! The `tcp-testing-only` transport carries the exporter's address in locator
 //! hints (`host`/`port`), not in its designator (a bare uuid), so the loop's
-//! dialer resolves it through a conformance `Locator` backed by a uuid→address
+//! dialer resolves it through a conformance `Locator` backed by a uuid-to-address
 //! table this file fills as it sees each locator. That is the one transport
 //! seam the standard `tcp.DialResolver` does not cover.
 

@@ -31,7 +31,7 @@ async def _accept(reader, writer, host: Host) -> "Session":
     transport = _StreamTransport(reader, writer)
     try:
         return await Session.establish_accepted(
-            host, _abi.TRANSPORT_TCP, socket_addr_designator(sock), transport,
+            host, _abi.TRANSPORT_TCP, "", transport, socket_addr_designator(sock),
         )
     except BaseException:
         transport.close()

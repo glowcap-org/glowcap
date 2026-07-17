@@ -439,6 +439,7 @@ fn listen(
 const listener_vtable = Listener.VTable{
     .transport_name = transport_name,
     .accept = listenerAccept,
+    .waitAcceptable = listenerWaitAcceptable,
     .localDesignator = listenerLocalDesignator,
     .close = listenerClose,
 };
@@ -560,6 +561,30 @@ fn acceptEndpoint(allocator: std.mem.Allocator, duplex: *Duplex, bufs: Buffers) 
         duplex.release();
         return error.OutOfMemory;
     };
+}
+
+fn listenerWaitAcceptable(ctx: *anyopaque, timeout_ms: i32) netlayer.AcceptError!bool {
+    const self: *InprocListener = @ptrCast(@alignCast(ctx));
+    const io = self.network.io;
+    self.mutex.lockUncancelable(io);
+    if (self.closed) {
+        self.mutex.unlock(io);
+        return error.ConnectionLost;
+    }
+    if (self.pending.items.len != 0) {
+        self.mutex.unlock(io);
+        return true;
+    }
+    self.mutex.unlock(io);
+    // No pollable fd: sleep the budget and re-check. A dial that races the
+    // unlock still wakes the next accept; a stop latch between polls exits.
+    if (timeout_ms > 0) {
+        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(timeout_ms), .real) catch {};
+    }
+    self.mutex.lockUncancelable(io);
+    defer self.mutex.unlock(io);
+    if (self.closed and self.pending.items.len == 0) return error.ConnectionLost;
+    return self.pending.items.len != 0;
 }
 
 fn listenerAccept(ctx: *anyopaque, peer: *engine.Peer, bufs: Buffers) netlayer.AcceptError!Connection {

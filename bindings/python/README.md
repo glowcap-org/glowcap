@@ -29,9 +29,9 @@ then the abi-versioned cache, then `zig-out`, then find. The ABI constants in
 [`_constants`](pancake/_constants.py) are `_`-private and never imported by a
 consumer. Each companion archive reuses the core's `ctypes` `Structure` types by
 layout, the same way the C headers share `pancake_ocapn.h`, and routes its own
-errors through its own `pancake_<family>_last_error` slot. The struct mirrors
-are hand-declared — the same standing gap the Racket binding names — so a
-C-side layout change is swept into the `_ffi_*` modules by hand. The package
+errors through its own `pancake_<family>_last_error` slot. The struct mirrors are hand-declared. That is the same standing gap the Racket
+binding names. A C-side layout change is swept into the `_ffi_*` modules by
+hand. The package
 ships a `py.typed` marker, so type checkers read its inline annotations
 (PEP 561).
 
@@ -55,23 +55,32 @@ submodule layout is internal and may change.
 
 What you hold is a `Session` over the byte-fed host. The library owns framing,
 routing, three-party redemption, and gift origination. The binding moves bytes
-and honors the host's action queue. Values are native Python — `int`, `float`,
+and honors the host's action queue. Values are native Python: `int`, `float`,
 `bool`, `bytes`, `str`, `list`, plus `Symbol` / `Keyword` / `Set` / `Tagged`
 and the capability `Ref`:
 
 ```python
 from pancake import connect, tcp_locator
 
-conn = await connect(tcp_locator("127.0.0.1", 9099))
-conn.serve()
-greeter = await conn.fetch("greeter")            # a capability, by name
-reply = await conn.send(greeter, "greet", ["world"])
-await conn.close()
+# tcp: the peer is a place, a cleartext host and port.
+partner = tcp_locator("127.0.0.1", 9099)
+
+session = await connect(partner)
+session.serve()
+
+greeter = await session.fetch("greeter")  # a capability, by name
+try:
+    reply = await session.send(greeter, "greet", ["world"])
+    print(reply)
+except Exception as reason:
+    print(f"the greeter refused: {reason}")
+
+await session.close()
 ```
 
 Hosting is the same surface from the other side. `await listen(bind_host, 0)`
 returns a `Server` whose iterator yields a ready `Session` per partner.
-`conn.publish(name, behavior)` and `conn.spawn(behavior)` host plain callables
+`session.publish(name, behavior)` and `session.spawn(behavior)` host plain callables
 as actors. A `send` returns a `RemotePromise` (a real `asyncio.Future`) that is
 itself a valid `send` target, so a dependent chain pipelines in one round trip.
 A host's identity and gift registry are shared through `server.host` /
@@ -85,7 +94,7 @@ from pancake.tcp import TcpNetlayer        # or pancake.inproc / pancake.iroh
 
 with TcpNetlayer() as nl:
     listener = nl.listen("127.0.0.1", 0)
-    conn = nl.connect("127.0.0.1", listener.port())
+    endpoint = nl.connect("127.0.0.1", listener.port())
 ```
 
 `connect` reaches `pancake.iroh` lazily on the first `iroh` locator, so a

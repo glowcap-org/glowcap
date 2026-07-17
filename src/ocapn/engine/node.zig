@@ -75,6 +75,40 @@ const Route = struct {
     reference: model.Reference,
 };
 
+/// One recipient for an introducing-session foreign-promise proxy (ADR-0009).
+/// `row_id` is stamped at enroll so a GC/re-register between enroll and fire
+/// cannot satisfy a stale relay (same contract as `recordRelayedResolution`).
+const ProxyRecipient = struct {
+    peer: PeerId,
+    import_pos: u64,
+    row_id: u64,
+};
+
+/// Composite identity for a home-session wire import that is being proxied.
+const ProxyHomeKey = struct {
+    home: PeerId,
+    wire_pos: u64,
+};
+
+/// Home-session listener export that receives the home `op:listen` fire.
+const ProxyListenerKey = struct {
+    home: PeerId,
+    listener_export: u64,
+};
+
+/// Armed introducing-session proxy: **one** home `op:listen`, one or more
+/// recipient third-party import rows. On fire the Node owns the settlement
+/// briefly, then each recipient store materializes via
+/// `materializeResolutionForStore` (N=1 moves). Never N home listens.
+const PromiseProxy = struct {
+    listener_export: u64,
+    recipients: std.ArrayListUnmanaged(ProxyRecipient) = .empty,
+
+    fn deinit(self: *PromiseProxy, allocator: std.mem.Allocator) void {
+        self.recipients.deinit(allocator);
+    }
+};
+
 /// One registered connection: the peer plus who frees it. `registerPeer` mints
 /// a node-owned peer (`owned = true`, freed on removal and at `deinit`);
 /// `registerPeerOver` adopts a peer the embedder pins and frees itself
@@ -141,12 +175,17 @@ pub const Node = struct {
     foreign_active: bool = false,
     /// The next synthetic token a redeemed capability is enrolled under.
     next_token: u64 = REDEEMED_TOKEN_BASE,
-    /// The serve step's exporter cache: a give's exporter locator (`ocapn://…`
-    /// bytes, node-owned keys) to the live CapTP session already dialed for it, so
-    /// a second redeem to one exporter reuses the session.
+    /// The serve step's exporter cache: canonical peer-identity URI → live
+    /// CapTP session already dialed for that exporter (`uri.canonicalPeerIdentityUri`),
+    /// so a second redeem reuses the session even when the give's spelling or
+    /// hints differ.
     exporters: std.StringHashMapUnmanaged(PeerId) = .empty,
     /// Dials in flight, keyed by the `PendingId` the `dial` action carried.
     pending_dials: std.AutoHashMapUnmanaged(PendingId, PendingDial) = .empty,
+    /// Side index for `pending_dials`: canonical identity URI → ticket (keys
+    /// alias the pending row's owned `identity`). O(1) join of a second redeem
+    /// onto an in-flight dial — not a second locator owner.
+    pending_dial_by_identity: std.StringHashMapUnmanaged(PendingId) = .empty,
     /// Withdraws awaiting resolution, keyed by (exporter conn, withdraw answer).
     pending_withdraws: std.AutoHashMapUnmanaged(WithdrawKey, PendingWithdraw) = .empty,
     /// Claimed gifter originations awaiting their host-drawn gift id, keyed by
@@ -162,6 +201,11 @@ pub const Node = struct {
     last_action: ?Action = null,
     /// The next pending-dial ticket.
     next_pending: PendingId = 0,
+    /// Introducing-session foreign-promise proxies keyed by home wire import
+    /// (ADR-0009). Rows are only inserted once the home `op:listen` is armed.
+    promise_proxies: std.AutoHashMapUnmanaged(ProxyHomeKey, PromiseProxy) = .empty,
+    /// Home listener export → home-wire key, for O(1) fire dispatch.
+    proxy_by_listener: std.AutoHashMapUnmanaged(ProxyListenerKey, ProxyHomeKey) = .empty,
 
     /// A node bound to a caller-supplied identity `seed`, with empty tables. The
     /// seed is the node's stable session identity; draw it at the embedder's I/O
@@ -202,11 +246,13 @@ pub const Node = struct {
 
         var dial_it = self.pending_dials.valueIterator();
         while (dial_it.next()) |pending| {
-            self.allocator.free(pending.locator);
+            self.freePendingDialBytes(pending);
             for (pending.waiters.items) |waiter| self.allocator.free(waiter.give);
             pending.waiters.deinit(self.allocator);
         }
         self.pending_dials.deinit(self.allocator);
+        // Keys alias pending identity URIs freed above.
+        self.pending_dial_by_identity.deinit(self.allocator);
         self.pending_withdraws.deinit(self.allocator);
         self.pending_gifts.deinit(self.allocator);
 
@@ -217,6 +263,11 @@ pub const Node = struct {
         if (self.last_action) |last| self.freeAction(last);
         for (self.actions.unpopped()) |action| self.freeAction(action);
         self.actions.deinit(self.allocator);
+
+        var proxy_it = self.promise_proxies.valueIterator();
+        while (proxy_it.next()) |proxy| proxy.deinit(self.allocator);
+        self.promise_proxies.deinit(self.allocator);
+        self.proxy_by_listener.deinit(self.allocator);
     }
 
     /// Register a fresh negotiating peer bound to this node's shared gift
@@ -348,6 +399,10 @@ pub const Node = struct {
                 }
             }
         }
+
+        // Drop promise proxies whose home or recipient peer died
+        // recipient peer so a later home fire cannot relay onto a gone session.
+        self.sweepPromiseProxiesForPeer(peer_id);
     }
 
     /// The node-owned peer for `peer_id`, or null when the id names no live
@@ -413,7 +468,11 @@ pub const Node = struct {
         self.foreign_imports.putAssumeCapacity(token, .{ .peer_id = home, .reference = wire });
         self.next_token += 1;
         self.foreign_active = true;
-        return .{ .far = model.FarRef.object(token) };
+        const kind = switch (wire) {
+            .far => |far| far.kind,
+            else => .object,
+        };
+        return .{ .far = .{ .import_position = .from(token), .kind = kind } };
     }
 
     /// The connection a fetched capability's `far_id` lives on, or null when the
@@ -572,12 +631,67 @@ pub const Node = struct {
     };
 
     /// One in-flight exporter dial, possibly carrying several redeems for the
-    /// same exporter (a second give for one locator joins the waiters instead
-    /// of dialing twice). The node owns `locator`.
+    /// same exporter (a second give for one identity joins the waiters instead
+    /// of dialing twice). The node owns every heap string; an empty hint is an
+    /// unowned sentinel (len 0, not freed). Unparseable gives never reach a
+    /// pending row (`acceptGive` fails them closed). Dial authority is
+    /// transport/designator/hint — no verbatim URI copy.
     const PendingDial = struct {
-        locator: []u8,
+        /// Canonical peer-identity URI (hints stripped); indexes
+        /// `pending_dial_by_identity` / feeds `exporters` on dial success.
+        identity: []u8,
+        /// Parsed once at `acceptGive` — dial / reuse borrow these (no re-parse).
+        transport: []const u8,
+        designator: []const u8,
+        /// Empty when the give had no direct-addresses hint (unowned sentinel).
+        direct_addresses_hint: []const u8,
         waiters: std.ArrayListUnmanaged(Waiter) = .empty,
     };
+
+    /// Empty slices are unowned sentinels (no heap); non-empty parts are owned.
+    fn freeDialPart(self: *Node, part: []const u8) void {
+        if (part.len == 0) return;
+        self.allocator.free(part);
+    }
+
+    fn freeDialParts(self: *Node, transport: []const u8, designator: []const u8, hint: []const u8) void {
+        self.freeDialPart(transport);
+        self.freeDialPart(designator);
+        self.freeDialPart(hint);
+    }
+
+    /// Dial parts (not identity). `exporterDialed` uses this before the exporters
+    /// cache adopts identity; `dialFailed`/`deinit` free identity too.
+    fn freePendingDialShell(self: *Node, pending: *const PendingDial) void {
+        self.freeDialParts(pending.transport, pending.designator, pending.direct_addresses_hint);
+    }
+
+    fn freePendingDialBytes(self: *Node, pending: *const PendingDial) void {
+        self.freePendingDialShell(pending);
+        self.allocator.free(pending.identity);
+    }
+
+    /// Borrowed pending-dial row for one ticket (views into the pending row).
+    /// Valid until `exporterDialed` / `dialFailed` / teardown.
+    pub const PendingDialView = struct {
+        transport: []const u8,
+        designator: []const u8,
+        direct_addresses_hint: []const u8,
+    };
+
+    /// Parse identity + dial parts. Join / exporter-cache hits free this and
+    /// never open a pending row.
+    const StagedDial = struct {
+        identity: []u8,
+        transport: []const u8,
+        designator: []const u8,
+        direct_addresses_hint: []const u8,
+    };
+
+    fn freeStagedDial(self: *Node, staged: *const StagedDial) void {
+        self.allocator.free(staged.identity);
+        self.freeDialParts(staged.transport, staged.designator, staged.direct_addresses_hint);
+    }
 
     /// One withdraw awaiting its resolution on an exporter connection, keyed
     /// by `(exporter conn, withdraw answer)`.
@@ -601,13 +715,15 @@ pub const Node = struct {
 
     /// What the embedder must do next. Byte views are node-owned and valid
     /// until the next `nextAction` call (or node teardown); copy what outlives
-    /// that.
+    /// that. `dial` carries only the pending ticket — URI and dial pieces live
+    /// on the pending row (`pendingDial`) so acceptGive owns them once.
     pub const Action = union(enum) {
-        /// Dial the exporter at `locator` (an `ocapn://…` URI) with the node's
-        /// retained identity, register the CapTP session, open the keyed session,
-        /// then feed `exporterDialed(pending, peer_id)` — or
-        /// `dialFailed(pending, reason)` if any step refuses.
-        dial: struct { pending: PendingId, locator: []const u8 },
+        /// Dial the exporter named by `pending`'s dial view with the node's
+        /// retained identity, register the CapTP session, open the keyed
+        /// session, then feed `exporterDialed(pending, peer_id)` — or
+        /// `dialFailed(pending, reason)` if any step refuses. Borrow via
+        /// `pendingDial` until those reports consume the row.
+        dial: struct { pending: PendingId },
         /// Pump this CapTP session's outbound queue to the wire.
         flush: PeerId,
         /// Settle the application answer `answer` on `peer_id`: the redeemed
@@ -624,11 +740,75 @@ pub const Node = struct {
         need_gift_id: struct { ticket: u64 },
     };
 
+    /// Borrow the in-flight pending dial for `pending`, or null if the ticket
+    /// already settled. `transport`/`designator` are always non-empty on a
+    /// live row: `acceptGive` fails an unparseable give closed before a pending
+    /// row exists. `direct_addresses_hint` is empty when the give carried no
+    /// hint. Valid until `exporterDialed` / `dialFailed` / teardown.
+    pub fn pendingDial(self: *const Node, pending: PendingId) ?PendingDialView {
+        const entry = self.pending_dials.get(pending) orelse return null;
+        return .{
+            .transport = entry.transport,
+            .designator = entry.designator,
+            .direct_addresses_hint = entry.direct_addresses_hint,
+        };
+    }
+
+    /// Parse once into identity + dial parts. Never owns a verbatim URI copy —
+    /// dial authority is the staged parts. Unparseable locators return
+    /// `error.UnparseableExporterLocator` with no heap (refuse path must not
+    /// allocate staging bytes that are immediately freed).
+    fn stagePendingDial(self: *Node, exporter_locator: []const u8) error{ OutOfMemory, UnparseableExporterLocator }!StagedDial {
+        const parsed = model.uri.parsePeer(self.allocator, exporter_locator) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return error.UnparseableExporterLocator,
+        };
+        // Steal transport/designator from the parse; free hints after copying
+        // the direct-addresses value (empty hint stays an unowned sentinel).
+        const transport = parsed.transport;
+        const designator = parsed.designator;
+        const hints = parsed.hints;
+        errdefer self.freeDialPart(transport);
+        errdefer self.freeDialPart(designator);
+        errdefer model.freeHints(self.allocator, hints);
+        var hint_src: []const u8 = "";
+        for (hints.entries) |entry| {
+            if (!std.mem.eql(u8, entry.name, model.transport.hint_direct_addresses)) continue;
+            switch (entry.value) {
+                .string, .bytes => |bytes| hint_src = bytes,
+                else => {},
+            }
+            break;
+        }
+        const hint_owned: []const u8 = if (hint_src.len == 0)
+            ""
+        else
+            try self.allocator.dupe(u8, hint_src);
+        errdefer self.freeDialPart(hint_owned);
+        // writePeer on a just-parsed peer should only fail OOM; fold any other
+        // encode refuse into the same unparseable path as parsePeer.
+        const identity = model.uri.writePeer(self.allocator, .{
+            .transport = transport,
+            .designator = designator,
+            .hints = model.Hints.emptyFalse(),
+        }) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            else => return error.UnparseableExporterLocator,
+        };
+        errdefer self.allocator.free(identity);
+        model.freeHints(self.allocator, hints);
+        return .{
+            .identity = identity,
+            .transport = transport,
+            .designator = designator,
+            .direct_addresses_hint = hint_owned,
+        };
+    }
+
     fn freeAction(self: *Node, action: Action) void {
         switch (action) {
-            .dial => |d| self.allocator.free(d.locator),
             .fail => |f| self.allocator.free(f.reason),
-            .flush, .settle, .need_gift_id => {},
+            .dial, .flush, .settle, .need_gift_id => {},
         }
     }
 
@@ -675,7 +855,22 @@ pub const Node = struct {
         if (exporter_locator.len == 0) {
             return self.queueFail(recipient_peer, answer, "handoff give names no dialable exporter locator");
         }
-        if (self.exporters.get(exporter_locator)) |exporter_peer| {
+        // One parse yields identity + dial parts (ADR-0012 join on
+        // transport+designator, not raw URI spelling / hints). No verbatim
+        // URI copy — dial authority is the staged parts alone.
+        // Unparseable locator: fail closed — never queue a dial the embedder
+        // cannot open (and never allocate a staged row for the refuse path).
+        var staged = self.stagePendingDial(exporter_locator) catch |err| switch (err) {
+            error.OutOfMemory => return error.OutOfMemory,
+            error.UnparseableExporterLocator => return self.queueFail(
+                recipient_peer,
+                answer,
+                "handoff give names unparseable exporter locator",
+            ),
+        };
+        var staged_owned = true;
+        defer if (staged_owned) self.freeStagedDial(&staged);
+        if (self.exporters.get(staged.identity)) |exporter_peer| {
             return self.beginWithdraw(exporter_peer, recipient_peer, answer, give);
         }
 
@@ -685,34 +880,39 @@ pub const Node = struct {
 
         // A dial already in flight for this exporter adopts the redeem instead
         // of opening a second connection.
-        var it = self.pending_dials.iterator();
-        while (it.next()) |entry| {
-            if (std.mem.eql(u8, entry.value_ptr.locator, exporter_locator)) {
-                try entry.value_ptr.waiters.append(self.allocator, waiter);
-                return;
-            }
+        if (self.pending_dial_by_identity.get(staged.identity)) |pending_id| {
+            const entry = self.pending_dials.getPtr(pending_id).?;
+            try entry.waiters.append(self.allocator, waiter);
+            return;
         }
 
         // Every fallible step happens before any ownership transfer, so an
         // allocation failure can never leave the pending table owning bytes an
         // armed errdefer also frees (the memory rule: exactly one free on
-        // every path).
+        // every path). The pending row owns identity + dial parts; the dial
+        // action carries only the ticket (no verbatim URI dupe).
         try self.pending_dials.ensureUnusedCapacity(self.allocator, 1);
+        try self.pending_dial_by_identity.ensureUnusedCapacity(self.allocator, 1);
         try self.actions.reserve(self.allocator, 1);
-        const locator_owned = try self.allocator.dupe(u8, exporter_locator);
-        errdefer self.allocator.free(locator_owned);
-        // The action carries its own copy so the embedder's view survives the
-        // pending entry being consumed by `exporterDialed` mid-drain.
-        const action_locator = try self.allocator.dupe(u8, exporter_locator);
-        errdefer self.allocator.free(action_locator);
-        var pending: PendingDial = .{ .locator = locator_owned };
-        errdefer pending.waiters.deinit(self.allocator);
+        var pending: PendingDial = .{
+            .identity = staged.identity,
+            .transport = staged.transport,
+            .designator = staged.designator,
+            .direct_addresses_hint = staged.direct_addresses_hint,
+        };
+        staged_owned = false;
+        var pending_owned = true;
+        errdefer if (pending_owned) self.freePendingDialBytes(&pending);
         try pending.waiters.append(self.allocator, waiter);
 
         const pending_id = self.next_pending;
+        const identity = pending.identity;
         self.pending_dials.putAssumeCapacity(pending_id, pending);
+        pending_owned = false;
+        // Index key aliases the pending row's identity (one owner).
+        self.pending_dial_by_identity.putAssumeCapacity(identity, pending_id);
         self.next_pending += 1;
-        self.actions.pushReserved(.{ .dial = .{ .pending = pending_id, .locator = action_locator } });
+        self.actions.pushReserved(.{ .dial = .{ .pending = pending_id } });
     }
 
     /// Send one withdraw on a live exporter connection and record it pending.
@@ -743,24 +943,28 @@ pub const Node = struct {
         self.actions.pushReserved(.{ .flush = exporter_peer });
     }
 
-    /// Report a dial's success: the exporter at `pending`'s locator is
-    /// registered as `exporter_peer` with an open keyed session. The node
-    /// caches the exporter and withdraws every waiting give on it. An unknown
-    /// `pending` is a no-op (the ticket already settled).
+    /// Report a dial's success: the exporter for `pending` is registered as
+    /// `exporter_peer` with an open keyed session. The node caches the exporter
+    /// and withdraws every waiting give on it. An unknown `pending` is a no-op
+    /// (the ticket already settled).
     pub fn exporterDialed(self: *Node, pending: PendingId, exporter_peer: PeerId) !void {
         var entry = (self.pending_dials.fetchRemove(pending) orelse return).value;
         defer {
             for (entry.waiters.items) |waiter| self.allocator.free(waiter.give);
             entry.waiters.deinit(self.allocator);
         }
-        // The cache adopts the locator bytes; an already-cached locator (a
+        std.debug.assert(self.pending_dial_by_identity.remove(entry.identity));
+        // Dial parts are no longer needed; the cache keys on identity.
+        // Must use freeDialPart (via the shell) — empty hint is an unowned sentinel.
+        self.freePendingDialShell(&entry);
+        // The cache adopts the identity bytes; an already-cached identity (a
         // duplicate dial the embedder raced) keeps the first row.
-        const cached = self.exporters.getOrPut(self.allocator, entry.locator) catch |err| {
-            self.allocator.free(entry.locator);
+        const cached = self.exporters.getOrPut(self.allocator, entry.identity) catch |err| {
+            self.allocator.free(entry.identity);
             return err;
         };
         if (cached.found_existing) {
-            self.allocator.free(entry.locator);
+            self.allocator.free(entry.identity);
         } else {
             cached.value_ptr.* = exporter_peer;
         }
@@ -782,10 +986,11 @@ pub const Node = struct {
     pub fn dialFailed(self: *Node, pending: PendingId, reason: []const u8) !void {
         var entry = (self.pending_dials.fetchRemove(pending) orelse return).value;
         defer {
-            self.allocator.free(entry.locator);
+            self.freePendingDialBytes(&entry);
             for (entry.waiters.items) |waiter| self.allocator.free(waiter.give);
             entry.waiters.deinit(self.allocator);
         }
+        std.debug.assert(self.pending_dial_by_identity.remove(entry.identity));
         var buf: [256]u8 = undefined;
         const message = std.fmt.bufPrint(&buf, "handoff redeem failed: {s}", .{reason}) catch "handoff redeem failed";
         for (entry.waiters.items) |waiter| {
@@ -853,17 +1058,193 @@ pub const Node = struct {
     pub fn setExporterLocation(self: *Node, peer_id: PeerId, location: ?model.PeerLocator) !void {
         if (self.exporter_locations.fetchRemove(peer_id)) |prev| self.allocator.free(prev.value);
         const loc = location orelse return;
+        // Reserve before encode so map growth cannot strand a paid encode.
+        try self.exporter_locations.ensureUnusedCapacity(self.allocator, 1);
         // Canonical Syrup locator-record bytes — the give embeds these, so a URI
         // (or any other non-record spelling) can never reach the wire from here.
         const owned = try engine.encodePeerLocatorRecord(self.allocator, loc);
-        errdefer self.allocator.free(owned);
-        try self.exporter_locations.put(self.allocator, peer_id, owned);
+        self.exporter_locations.putAssumeCapacity(peer_id, owned);
     }
 
     /// The recorded give-location override for `peer_id`, or empty (use the
     /// exporter session's own signed record).
     fn exporterLocation(self: *const Node, peer_id: PeerId) []const u8 {
         return self.exporter_locations.get(peer_id) orelse "";
+    }
+
+    /// When `far_id` is a foreign **promise** token whose home is not
+    /// `recipient_peer`, mint a third-party import-promise on the recipient
+    /// session, ensure a home-session `op:listen`, and return the near promise
+    /// the vat should resolve with (ADR-0009 introducing-session proxy).
+    /// Null means this fulfill is not a promise-proxy case (same-home, object
+    /// foreign → gift path, or unknown token). Fails `error.session_not_open`
+    /// when the home peer exists but cannot yet receive an `op:listen`.
+    /// Multi-introduce of the same home wire shares **one** home listen; on
+    /// fire the Node owns the settlement and each recipient store materializes
+    /// from that owner (`materializeResolutionForStore`; N=1 moves).
+    pub fn proxyForeignPromiseFulfill(self: *Node, recipient_peer: PeerId, far_id: u64) !?model.Reference {
+        const home = self.homeOf(far_id) orelse return null;
+        if (home == recipient_peer) return null;
+        const enrolled = self.foreign_imports.get(far_id) orelse return null;
+        const wire_far = switch (enrolled.reference) {
+            .far => |f| f,
+            else => return null,
+        };
+        if (wire_far.kind != .promise) return null;
+
+        const home_key: ProxyHomeKey = .{
+            .home = home,
+            .wire_pos = wire_far.import_position.int(),
+        };
+        const armed_here = self.promise_proxies.getPtr(home_key) == null;
+        if (armed_here) {
+            try self.armHomeProxy(home_key, wire_far);
+        }
+        errdefer if (armed_here) self.removePromiseProxy(home_key);
+
+        const rp = self.peer(recipient_peer) orelse return error.PeerGone;
+        const hp = self.peer(home) orelse return error.PeerGone;
+        const host_bytes = hp.session_state.partnerDesignator() orelse return error.MissingPartnerDesignator;
+        const export_pos = try rp.session_state.allocatePromiseExport();
+        errdefer rp.session_state.releaseUnsharedExport(export_pos);
+        try rp.session_state.installThirdPartyImport(.from(export_pos.int()), host_bytes);
+        const row_id = rp.session_state.importedPromiseRowId(.from(export_pos.int())).?;
+
+        const proxy = self.promise_proxies.getPtr(home_key).?;
+        try proxy.recipients.append(self.allocator, .{
+            .peer = recipient_peer,
+            .import_pos = export_pos.int(),
+            .row_id = row_id,
+        });
+
+        return .{ .near = model.NearRef.promise(export_pos.int()) };
+    }
+
+    /// Whether `(home_peer, listener_export)` is an armed proxy home-listener.
+    /// Host peeks this before materializing a deliver's resolution so ordinary
+    /// listen fires pay no clone on the miss path.
+    pub fn isProxyHomeListener(self: *const Node, home_peer: PeerId, listener_export: u64) bool {
+        return self.proxy_by_listener.contains(.{ .home = home_peer, .listener_export = listener_export });
+    }
+
+    /// Peek → materialize → consume a proxy home-listener fire. Miss path never
+    /// allocates. Hit path takes ownership of the materialized resolution and
+    /// never returns false after `toOwned`.
+    pub fn claimProxyListenerFire(
+        self: *Node,
+        allocator: std.mem.Allocator,
+        home_peer: PeerId,
+        listener_export: u64,
+        view_res: model.view.Resolution,
+    ) !bool {
+        if (!self.isProxyHomeListener(home_peer, listener_export)) return false;
+        const owned = try view_res.toOwned(allocator);
+        std.debug.assert(try self.consumeProxyListenerFire(home_peer, listener_export, owned));
+        return true;
+    }
+
+    /// If `listener_export` on `home_peer` is a proxy home-listener, take
+    /// ownership of `resolution` as the fire owner, settle every recipient
+    /// store (move for N=1; `materializeResolutionForStore` for the rest),
+    /// tear the proxy down, and return true. False leaves `resolution` with the caller.
+    pub fn consumeProxyListenerFire(
+        self: *Node,
+        home_peer: PeerId,
+        listener_export: u64,
+        resolution: model.Resolution,
+    ) !bool {
+        const home_key = self.proxy_by_listener.get(.{ .home = home_peer, .listener_export = listener_export }) orelse return false;
+        const row = self.promise_proxies.getPtr(home_key) orelse return false;
+        std.debug.assert(row.recipients.items.len > 0);
+
+        if (row.recipients.items.len == 1) {
+            const r = row.recipients.items[0];
+            const recip = self.peer(r.peer) orelse {
+                model.freeResolution(self.allocator, resolution);
+                self.removePromiseProxy(home_key);
+                return true;
+            };
+            try recip.applyRelayedResolution(model.ImportPosition.from(r.import_pos), r.row_id, resolution);
+            self.removePromiseProxy(home_key);
+            return true;
+        }
+
+        // Fire owner: materialize into each live recipient store, then free.
+        defer model.freeResolution(self.allocator, resolution);
+        for (row.recipients.items) |r| {
+            const recip = self.peer(r.peer) orelse continue;
+            const owned = try model.materializeResolutionForStore(self.allocator, resolution);
+            try recip.applyRelayedResolution(model.ImportPosition.from(r.import_pos), r.row_id, owned);
+        }
+        self.removePromiseProxy(home_key);
+        return true;
+    }
+
+    /// Install home `op:listen` and insert an armed `PromiseProxy` row.
+    fn armHomeProxy(self: *Node, home_key: ProxyHomeKey, wire_far: model.FarRef) !void {
+        const hp = self.peer(home_key.home) orelse return error.PeerGone;
+        if (!hp.sessionIsOpen()) return error.session_not_open;
+        // Far listen target must already be a held import (enrollment).
+
+        const listener = try hp.session_state.allocateExport();
+        hp.send(.{ .listen = .{
+            .target = .{ .far = wire_far },
+            .listener = .{ .near = model.NearRef.object(listener.int()) },
+            .wants_partial = false,
+        } }) catch |err| {
+            hp.session_state.releaseUnsharedExport(listener);
+            return err;
+        };
+
+        const listener_key: ProxyListenerKey = .{
+            .home = home_key.home,
+            .listener_export = listener.int(),
+        };
+        try self.proxy_by_listener.put(self.allocator, listener_key, home_key);
+        errdefer std.debug.assert(self.proxy_by_listener.remove(listener_key));
+
+        try self.promise_proxies.put(self.allocator, home_key, .{
+            .listener_export = listener.int(),
+        });
+    }
+
+    fn removePromiseProxy(self: *Node, key: ProxyHomeKey) void {
+        if (self.promise_proxies.fetchRemove(key)) |kv| {
+            var proxy = kv.value;
+            const listener_key: ProxyListenerKey = .{
+                .home = key.home,
+                .listener_export = proxy.listener_export,
+            };
+            std.debug.assert(self.proxy_by_listener.remove(listener_key));
+            proxy.deinit(self.allocator);
+        }
+    }
+
+    fn sweepPromiseProxiesForPeer(self: *Node, peer_id: PeerId) void {
+        var remove_keys: std.ArrayListUnmanaged(ProxyHomeKey) = .empty;
+        defer remove_keys.deinit(self.allocator);
+
+        var it = self.promise_proxies.iterator();
+        while (it.next()) |entry| {
+            if (entry.key_ptr.home == peer_id) {
+                remove_keys.append(self.allocator, entry.key_ptr.*) catch continue;
+                continue;
+            }
+            var i: usize = 0;
+            while (i < entry.value_ptr.recipients.items.len) {
+                if (entry.value_ptr.recipients.items[i].peer == peer_id) {
+                    entry.value_ptr.recipients.items[i] = entry.value_ptr.recipients.items[entry.value_ptr.recipients.items.len - 1];
+                    entry.value_ptr.recipients.items.len -= 1;
+                } else {
+                    i += 1;
+                }
+            }
+            if (entry.value_ptr.recipients.items.len == 0) {
+                remove_keys.append(self.allocator, entry.key_ptr.*) catch continue;
+            }
+        }
+
+        for (remove_keys.items) |key| self.removePromiseProxy(key);
     }
 
     /// Gifter intercept: the application answer `answer` on `peer_id`
@@ -873,10 +1254,14 @@ pub const Node = struct {
     /// only now that the reply is actually becoming a gift — and returns true
     /// (the embedder must not also send a plain resolve; it draws 32 bytes and
     /// feeds `provideGiftId`). False means the reply is ordinary and the
-    /// embedder resolves it itself.
+    /// embedder resolves it itself. Foreign **promise** tokens are not gifted
+    /// here — Host rewrites those through `proxyForeignPromiseFulfill`.
     pub fn interceptFulfilledRef(self: *Node, peer_id: PeerId, answer: u64, far_id: u64) !bool {
         const home = self.homeOf(far_id) orelse return false;
         if (home == peer_id) return false;
+        if (self.foreign_imports.get(far_id)) |enrolled| {
+            if (enrolled.reference == .far and enrolled.reference.far.kind == .promise) return false;
+        }
         // Reserve the ticket table and the action queue before either commits,
         // so the row install and the `need_gift_id` queue are one all-or-nothing
         // step: an OOM fires before anything commits and never orphans a ticket
@@ -948,7 +1333,7 @@ pub const Node = struct {
     /// The embedder flushes both connections, exporter first: the deposit must be
     /// on the wire before the recipient dials in to withdraw. Both sessions must
     /// be open keyed sessions (the recipient key addresses the give; the exporter
-    /// key names the gifter↔exporter session the give is signed under).
+    /// key names the gifter-to-exporter session the give is signed under).
     fn originateGive(
         self: *Node,
         recipient_peer: PeerId,

@@ -13,11 +13,11 @@
 export const TOOLS = "tools";
 
 /** Coordinator methods the agent sends. */
-export const GRANT = "grant"; // grant(toolName) → a capability to the tool
-export const GRANT_REVOCABLE = "grant-revocable"; // → a revocable capability
+export const GRANT = "grant"; // grant(toolName) returns a capability to the tool
+export const GRANT_REVOCABLE = "grant-revocable"; // returns a revocable capability
 export const REVOKE_LAST = "revoke-last"; // revoke the last revocable grant
 
 /** Tool method verbs. */
-export const NOW = "now"; // clock.now() → integer timestamp
-export const READ = "read"; // files.read(path) → contents
-export const WRITE = "write"; // files.write(path, data) → "ok"
+export const NOW = "now"; // clock.now() returns integer timestamp
+export const READ = "read"; // files.read(path) returns contents
+export const WRITE = "write"; // files.write(path, data) returns "ok"

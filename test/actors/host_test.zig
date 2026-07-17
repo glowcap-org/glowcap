@@ -193,7 +193,7 @@ const GiveCapture = struct {
 test "a resolve carrying a handoff give fires the listener typed: verbatim envelope, dialable locator, recipient key" {
     const crypto = pancake.foundation.crypto;
     const allocator = std.testing.allocator;
-    var pair = try engine.pairing.paired(allocator);
+    var pair = try engine.pairing.pairedGoblins(allocator);
     defer pair.deinit();
 
     // The client vat asks a far object a question; the partner will answer it

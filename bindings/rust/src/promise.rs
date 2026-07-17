@@ -1,10 +1,10 @@
 //! The [`RemotePromise`] a [`Session`](crate::Session) send returns: lazy
-//! observation, promise pipelining target, and `index`/`untag` projection
-//! (ADR-0007 / ADR-0050 / ADR-0052). Also the shared fetch/enliven
+//! observation, promise pipelining target, and `index`/`untag`/`get`
+//! projection (ADR-0007 / ADR-0050 / ADR-0052). Also the shared fetch/enliven
 //! mint→await→classify path (`await_minted` / `fetch_like`) and the far-send
 //! mint→`RemotePromise` factory (`send_promise`). Session owns CapTP verb
-//! wrappers; this module owns the handle type, post-mint wait/classify, and
-//! send→promise construction. Binding spine Pass 3a / 4b / 4d.
+//! wrappers; this module owns the handle type, post-mint wait/classify,
+//! send→promise construction, and the projection FFI.
 
 use std::future::{Future, IntoFuture};
 use std::pin::Pin;
@@ -18,7 +18,7 @@ use crate::{sys, Argument, Error, Reference, Result, SendArena};
 /// Shared fetch/enliven wait: the mint already registered the vow; kick the
 /// drain so the deliver leaves now, and await the drain-routed outcome.
 pub(crate) async fn await_minted(shared: &Rc<SessionShared>, vow: u64) -> Result<Argument> {
-	shared.host.vow_minted(vow);
+	shared.host.vow_minted(vow, Some(shared));
 	let settled = shared.host.await_vow(vow);
 	shared.host.kick_actions().await;
 	settled.await
@@ -126,7 +126,7 @@ pub(crate) fn send_promise(
 	if let Err(error) = check_host(rc) {
 		return failed(error, shared);
 	}
-	shared.host.vow_minted(vow);
+	shared.host.vow_minted(vow, Some(shared));
 	// The deliver is queued; the kick (scheduled, so a synchronous batch of
 	// pipelined sends travels together) flushes it whether or not the
 	// handle is ever awaited.
@@ -205,9 +205,10 @@ pub(crate) enum PromiseState {
 /// breaks never faults anything.
 ///
 /// The projection verbs [`index`](RemotePromise::index) /
-/// [`untag`](RemotePromise::untag) (ADR-0050/ADR-0052) pipeline an element or
-/// untag access *at the answer*, before it resolves: each returns a new
-/// `RemotePromise` for the projected value, so `task.untag("cell").index(0)`
+/// [`untag`](RemotePromise::untag) / [`get`](RemotePromise::get)
+/// (ADR-0050/ADR-0052) pipeline an element, untag, or Struct-field access *at
+/// the answer*, before it resolves: each returns a new `RemotePromise` for the
+/// projected value, so `task.untag("cell").index(0)` or `task.get("name")`
 /// costs no extra round trip.
 pub struct RemotePromise {
 	pub(crate) state: PromiseState,
@@ -257,7 +258,7 @@ impl RemotePromise {
 	// Issue a projection at this promise's answer and return a new pipelinable
 	// promise for the projected value. By `&self`, so a handle can be projected
 	// *and* still awaited later for its own value (the late-source-await case).
-	fn project(&self, op: ProjectOp) -> RemotePromise {
+	fn project(&self, op: ProjectOp<'_>) -> RemotePromise {
 		let PromiseState::Far(source) = self.state else {
 			// A local-send promise has no wire answer to project against; the
 			// refusal surfaces when the projected handle is awaited, the same
@@ -284,10 +285,19 @@ impl RemotePromise {
 					&mut vow,
 				)
 			},
+			ProjectOp::Get(field) => unsafe {
+				ffi::pancake_host_vow_get(
+					self.conn.host.raw(),
+					source,
+					field.as_ptr(),
+					field.len(),
+					&mut vow,
+				)
+			},
 		};
 		match check_host(rc) {
 			Ok(()) => {
-				self.conn.host.vow_minted(vow);
+				self.conn.host.vow_minted(vow, Some(&self.conn));
 				RemotePromise::far(vow, Rc::clone(&self.conn))
 			}
 			Err(error) => RemotePromise::failed(error, Rc::clone(&self.conn)),
@@ -304,14 +314,21 @@ impl RemotePromise {
 	/// [`RemotePromise`] for the payload of whatever this resolves to, which must
 	/// be a Tagged record whose tag equals `tag`.
 	pub fn untag(&self, tag: &str) -> RemotePromise {
-		self.project(ProjectOp::Untag(tag.to_string()))
+		self.project(ProjectOp::Untag(tag))
+	}
+
+	/// Pipeline an `op:get` for `field` at this answer (ADR-0050): a new
+	/// [`RemotePromise`] for the Struct field of whatever this resolves to.
+	pub fn get(&self, field: &str) -> RemotePromise {
+		self.project(ProjectOp::Get(field))
 	}
 }
 
 // Which projection a `RemotePromise` issues against its answer.
-enum ProjectOp {
+enum ProjectOp<'a> {
 	Index(i64),
-	Untag(String),
+	Untag(&'a str),
+	Get(&'a str),
 }
 
 impl IntoFuture for RemotePromise {

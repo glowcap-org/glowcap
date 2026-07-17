@@ -7,8 +7,8 @@
 //! in-process pipes. The driver dials and hosts it through the same transport-
 //! neutral `connectVia` / `acceptVia` with the same verified keyed handshake it
 //! uses for tcp, and neither the driver nor the core was edited to add it. A full
-//! OCapN conversation — keyed `op:start-session`, bootstrap fetch, deliver, and
-//! the fulfilled reply — round-trips entirely in process.
+//! OCapN conversation: keyed `op:start-session`, bootstrap fetch, deliver, and
+//! the fulfilled reply round-trip entirely in process.
 
 const std = @import("std");
 const pancake = @import("pancake");

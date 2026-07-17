@@ -7,10 +7,10 @@ const session = pancake.ocapn.session;
 
 const fetch = engine.fetch;
 
-test "prepareFetchSwissnum builds the canonical bootstrap-fetch deliver (PreSpec)" {
+test "prepareFetchSwissnum builds the canonical bootstrap-fetch deliver (next)" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.pre_spec,
+        .captp_version = model.CaptpVersion.next,
     });
     defer s.deinit();
 
@@ -32,7 +32,7 @@ test "prepareFetchSwissnum builds the canonical bootstrap-fetch deliver (PreSpec
 test "prepareFetchSwissnum carries a promise resolver desc on V1.0" {
     const allocator = std.testing.allocator;
     var s = session.Session.initWith(allocator, .{
-        .wire_profile = model.WireProfile.v1_0,
+        .captp_version = model.CaptpVersion.v1_0,
         .features = model.FeatureSet.full(),
     });
     defer s.deinit();

@@ -89,8 +89,8 @@ async fn run() -> Result<(), Fail> {
 fn accept_loop(server: Rc<pancake_rust_dogfood::IrohServer>) {
 	tokio::task::spawn_local(async move {
 		let mut held: Vec<Session> = Vec::new();
-		while let Ok(conn) = server.accept().await {
-			held.push(conn);
+		while let Ok(session) = server.accept().await {
+			held.push(session);
 		}
 	});
 }

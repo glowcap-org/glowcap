@@ -20,7 +20,7 @@
 import { driverS } from "./internal/ffi/driver.ts";
 import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, readBytes } from "./internal/seam.ts";
-import { INVALID_ARGUMENT, MAX_LOCAL_FORWARD_HOPS, OK } from "./internal/abi.ts";
+import { MAX_LOCAL_FORWARD_HOPS, OK } from "./internal/abi.ts";
 import { FORWARD_CYCLE_MESSAGE } from "./internal/constants.ts";
 import { checkHost, hostLastError, PancakeError, VowBroken } from "./errors.ts";
 import { type AppValue, type Behavior, Forward, liftArg, lowerArg, near, Ref } from "./value.ts";
@@ -165,12 +165,7 @@ export function sendLocal(
 			throw new VowBroken(err instanceof Error ? err.message : String(err));
 		}
 	};
-	return new RemotePromise(null, begin, () => {
-		throw new PancakeError(
-			INVALID_ARGUMENT,
-			"cannot project a local-send promise; await it for a value",
-		);
-	});
+	return RemotePromise.local(begin);
 }
 
 /** The local arm of `tell`: run hosted, discard the result; a surviving

@@ -65,15 +65,15 @@ The container is named `pancake-rooms` and serves:
 
 - **HTTP/WebSocket** on port **8000** (browser UI via the tunnel; also
   `GET /locator` for CapTP bootstrap)
-- **iroh CapTP** with `ROOMS_REACHABILITY=discovery` — announces a bare
+- **iroh CapTP** with `ROOMS_REACHABILITY=discovery`: announces a bare
   `ocapn://<nodeid>.iroh` URI resolved through n0 relays + DNS/pkarr
 
 It attaches to two Docker networks:
 
-- **`rooms-net`** — shared with the pancake devcontainer, so a rooms-bot there
+- **`rooms-net`**: shared with the pancake devcontainer, so a rooms-peer there
   reaches this container's internal CapTP by name. Fixed name, committed in both
   compose files; create it once with `docker network create rooms-net`.
-- **your tunnel's network** — so a cloudflared container on it reaches the web UI
+- **your tunnel's network**: so a cloudflared container on it reaches the web UI
   (`:8000`) by name. Name it per host in the gitignored `.env` via `EGRESS_NET`:
 
 ```sh
@@ -88,7 +88,7 @@ committed. The pancake devcontainer joins `rooms-net` at create time via
 [`.devcontainer/.env`](../../../../../.devcontainer/.env.example) +
 [`docker-compose.yml`](../../../../../.devcontainer/docker-compose.yml). It sets
 its own `EGRESS_NET` (the LLM backend) in its own `.env`, so the two `EGRESS_NET`
-values differ — the shared network is `rooms-net`.
+values differ: the shared network is `rooms-net`.
 
 ## Point cloudflared at it
 
@@ -112,22 +112,24 @@ cloudflared tunnel route dns <your-tunnel-name> rooms.example.com
 Iroh CapTP (directory + DM members) uses Discovery: peers resolve the node id
 through n0 infrastructure. Cloudflared only ever sees port 8000.
 
-## CapTP peers (rooms-bot)
+## CapTP peers (`pancake app rooms-peer`)
 
 From the pancake devcontainer on the shared `rooms-net`:
 
 ```sh
-# needs zig-out/lib with libpancake_ocapn.so + libpancake_net_transport_iroh.so
-python3 .agents/skills/rooms-bot/scripts/init.py \
-  --nick Alice --dir /tmp/rooms-bot-alice --room general
+zig build
+export PATH="$PWD/zig-out/bin:$PATH"
+pancake app rooms-peer start \
+  --nick Alice --dir /tmp/rooms-peer-alice --room general
 # default locator is http://pancake-rooms:8000/locator
 # peer fetches the ocapn:// URI, then dials over iroh Discovery
+# install alias: rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room general
 ```
 
 `GET http://pancake-rooms:8000/locator` (service alias `rooms` also resolves)
 returns the live bare `ocapn://<nodeid>.iroh` line. That HTTP hop is only
-bootstrap — CapTP itself rides iroh. See
-[`.agents/skills/rooms-bot/SKILL.md`](../../../../../.agents/skills/rooms-bot/SKILL.md).
+bootstrap. CapTP itself rides iroh. Use `pancake app rooms-peer --help` (or the
+`rooms-peer` shim) for the wake-loop verbs.
 
 ## Lifting it into a shared host compose
 
@@ -153,7 +155,7 @@ instead of the live `zig-out/lib`.
   `GLIBC_2.36`, so any modern glibc loads them. The image copies the official Deno
   binary (the `bin` image variant) onto the same `debian:trixie-slim` base as the
   dev image, which gives glibc headroom. Alpine is musl and cannot load the `.so`.
-- **Direct reachability** is still available for hermetic same-host demos: set
+- **Direct reachability** is still available for self-contained same-host demos: set
   `ROOMS_REACHABILITY=direct` (or omit it). Deploy defaults to `discovery` so
   CapTP peers on other containers resolve the room by node id.
 - **A TCP room** works by dropping `--transport=iroh` and binding CapTP with

@@ -11,8 +11,12 @@ crossed-hellos timeouts.
 
 Run under the same `uv` environment as `run.sh`; it adds the suite's `upstream/`
 to `sys.path` itself, so it works from any cwd.
+
+Port: `--port=N` or env `PANCAKE_OCAPN_CONFORMANCE_PORT` (default 22055), matching
+`run-against-pancake.sh`.
 """
 
+import argparse
 import os
 import sys
 
@@ -25,8 +29,14 @@ from utils.captp_types import OpStartSession, OpAbort, CapTPPublicKey  # noqa: E
 from netlayers.testing_only_tcp import TestingOnlyTCPNetlayer  # noqa: E402
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey  # noqa: E402
 
-URL = "ocapn://JadQ0++RzsD4M+40uLxTWVaVqM10DcBJ.tcp-testing-only?host=127.0.0.1&port=22055"
 CAPTP_VERSION = "1.0"
+
+
+def peer_url(port: int) -> str:
+    return (
+        "ocapn://JadQ0++RzsD4M+40uLxTWVaVqM10DcBJ.tcp-testing-only"
+        f"?host=127.0.0.1&port={port}"
+    )
 
 
 def case_invalid_signature(netlayer, uri):
@@ -58,7 +68,15 @@ def case_invalid_version(netlayer, uri):
 
 
 def main():
-    uri = OCapNPeer.from_uri(URL)
+    parser = argparse.ArgumentParser(description="Handshake abort probe against pancake peer")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=int(os.environ.get("PANCAKE_OCAPN_CONFORMANCE_PORT", "22055")),
+        help="TCP port of the running pancake-ocapn-peer (default: 22055 or env)",
+    )
+    args = parser.parse_args()
+    uri = OCapNPeer.from_uri(peer_url(args.port))
     netlayer = TestingOnlyTCPNetlayer(uri.hints.get("host"))
     ok = True
     for name, fn in (

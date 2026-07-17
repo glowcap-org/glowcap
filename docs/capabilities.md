@@ -51,7 +51,10 @@ keeps distributed garbage-collection accounts so unused exports are reclaimed.
 When three parties are involved (Alice holds a capability to Carol's object and
 wants to give it to Bob), CapTP defines the handoff: a signed introduction that
 lets Bob present his grant to Carol directly, without Alice proxying every later
-call.
+call. In pancake's application surface that introduction usually settles as the
+live capability itself (a Host redeems the give inside the wait). Human
+teaching plus runnable chapters: the site Concepts page
+(`zig build docs-serve`) and `examples/zig/02_introduce_and_redeem.zig`.
 
 ## What OCapN is, and where Goblins fits
 
@@ -66,10 +69,11 @@ repository; this repository vendors a copy under
 [Spritely Goblins](https://spritely.institute/goblins/) is the reference
 implementation in practice. Its wire behavior defines what interoperating means
 today. pancake treats Goblins as its conformance authority:
-`zig build goblins-interop` holds a live conversation with a real Goblins vat in
-both directions. The [protocol diagrams](protocol-diagrams/README.md) flag the
-few places where pancake speaks a Goblins convention the draft spec does not yet
-pin down.
+Native `zig build goblins-interop` holds a live Syrup/TCP conversation with a
+real Goblins vat in both directions; binding `*-goblins-interop` steps prove
+client direction only (see [`community-review.md`](community-review.md)). The
+[protocol diagrams](protocol-diagrams/README.md) flag the few places where
+pancake speaks a Goblins convention the draft spec does not yet pin down.
 
 pancake is the systems-language entry to that ecosystem: the protocol core in
 Zig, a C ABI above it, and bindings so the same capability discipline is

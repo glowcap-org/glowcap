@@ -262,6 +262,8 @@ fn pipelinePathToOwned(path: PipelinePath, allocator: std.mem.Allocator, depth: 
 
 pub const BreakReason = records.BreakReason;
 pub const PeerLocator = records.PeerLocator;
+pub const HintList = records.HintList;
+pub const BorrowedHints = records.BorrowedHints;
 
 /// Borrowed mirror of `model.SturdyRef`.
 pub const SturdyRef = struct {
@@ -448,10 +450,6 @@ pub const PipelineOp = union(enum) {
         };
     }
 
-    pub fn toOwned(self: PipelineOp, allocator: std.mem.Allocator) Error!model.PipelineOp {
-        return self.toOwnedDepth(allocator, 0);
-    }
-
     fn toOwnedDepth(self: PipelineOp, allocator: std.mem.Allocator, depth: usize) Error!model.PipelineOp {
         return switch (self) {
             .field => |field| .{ .field = try allocator.dupe(u8, field) },
@@ -484,8 +482,6 @@ pub const Resolution = union(enum) {
     }
 };
 
-pub const ExporterLocation = records.ExporterLocation;
-pub const Signature = records.Signature;
 pub const HandoffGive = records.HandoffGive;
 pub const HandoffReceive = records.HandoffReceive;
 pub const Handoff = records.Handoff;
@@ -670,11 +666,6 @@ pub const Body = union(enum) {
                 break :blk .{ .untag = .{ .receiver = receiver, .tag = tag, .answer = untag.answer } };
             },
         };
-    }
-
-    /// Discriminant tag, mirroring `model.Message`'s union tags.
-    pub fn kind(self: Body) std.meta.Tag(Body) {
-        return std.meta.activeTag(self);
     }
 };
 

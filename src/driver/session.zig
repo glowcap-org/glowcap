@@ -74,6 +74,15 @@ pub const Session = struct {
         self.freeShell();
     }
 
+    /// Start a bootstrap fetch without driving I/O (see `BlockingSession.beginFetch`).
+    pub fn beginFetch(self: *Session, name: []const u8) !actors.Vow {
+        return self.cv.beginFetch(name);
+    }
+    /// Break every far vow still awaiting a partner answer (see
+    /// `BlockingSession.breakFarVows`).
+    pub fn breakFarVows(self: *Session, message: []const u8) void {
+        self.cv.breakFarVows(message);
+    }
     /// Fetch a partner's published capability by `name` (see `BlockingSession.fetch`).
     pub fn fetch(self: *Session, name: []const u8) !actors.Ref {
         return self.cv.fetch(name);
@@ -195,6 +204,12 @@ pub const Session = struct {
     pub fn serve(self: *Session) !void {
         return self.cv.serve();
     }
+    /// The partner's retained abort, if an `op:abort` arrived (see
+    /// `BlockingSession.partnerAbort`).
+    pub fn partnerAbort(self: *const Session) ?driver.Served.PartnerAbortView {
+        return self.cv.partnerAbort();
+    }
+
     /// The partner's retained abort diagnostic, if an `op:abort` arrived (see
     /// `BlockingSession.abortReason`).
     pub fn abortReason(self: *const Session) ?[]const u8 {
@@ -310,6 +325,13 @@ pub const Server = struct {
         conn.cv = try acceptVia(self.allocator, self.listener, &conn.peer, self.identity, conn.read_buf, conn.write_buf, self.opts.handshake_timeout_ms);
         conn.cv.settle_timeout_ms = self.opts.settle_timeout_ms;
         return conn;
+    }
+
+    /// Wait until `accept` would make progress, up to `timeout_ms` (see
+    /// `net.netlayer.Listener.waitAcceptable`). The stop-friendly twin of
+    /// blocking accept: poll, check a latch, then `accept`.
+    pub fn waitAcceptable(self: *Server, timeout_ms: i32) !bool {
+        return self.listener.waitAcceptable(timeout_ms);
     }
 
     /// Stop listening. Connections already accepted live on; each one is torn

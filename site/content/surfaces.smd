@@ -6,67 +6,50 @@
 .draft = false,
 ---
 
-pancake is one library you can hold three ways. It is a [Zig](https://ziglang.org/)
-package you import directly, a plain C ABI you can call from any FFI host, and four
-language bindings that wrap that C ABI in a native idiom. Same core underneath, so
-you choose whichever matches the language you are writing in.
+One library, several ways to hold it. Same CapTP conversation on the wire;
+choose the surface that matches how you work.
 
 [One core under all three surfaces, so the one you hold never changes what a session puts on the wire.]($image.siteAsset('diagram-surfaces.svg'))
 
 | Surface | You write | Reach for it when |
 | --- | --- | --- |
-| [Zig package]($link.page('start')) | Zig | you are in Zig, or want the full engine and its types |
-| [C ABI](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md) | C, or any FFI host | you are embedding in C, or wrapping from a runtime with no binding yet |
-| [Bindings]($link.page('bindings')) | Rust, TypeScript, Python, Racket | you are in one of those four languages |
+| [Zig package]($link.page('start')) | Zig | you want the full engine and types |
+| [C ABI](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md) | C / any FFI | embedding, or wrapping a language with no binding yet |
+| [Bindings]($link.page('bindings')) | Rust, TypeScript, Python, Racket | you are already in one of those four |
+| [CapTP CLI]($link.page('cli')) | shell / MCP | call, host, REPL, or agent MCP (`zig build pancake`) |
 
-## The Zig package
+## Zig
 
 `zig fetch --save git+https://codeberg.org/jimisaacs/pancake`, import `pancake`,
-and you have the application surface: the owning `Session` and its small verb
-vocabulary, plus everything beneath it, down to the raw engine. The
-[Start building]($link.page('start')) page walks a first round-trip line by line,
-and the [examples](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/README.md)
-read top-down from that surface to the engine, one `step` at a time. The exact
-declarations you import, with their ownership and lifetime notes, are the generated
-[Zig API reference]($link.page('reference/api')).
+use owning `Session`. Line-by-line first round-trip: [Start]($link.page('start')).
+Chapters: [examples](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/README.md).
+Declarations: [Zig API]($link.page('reference/api')).
 
-## The C ABI
+## C ABI
 
-The same code compiles to a set of composable archives, linked à la carte, each in
-static and shared form (`.a` plus the platform's shared library). The base
-`libpancake_ocapn` carries the sans-io peer, and each transport is its own archive
-and header beside it. Every header is generated from the same Zig declarations its
-archive compiles, so a header can never silently disagree with the binary. The
-surface is deliberately boring: opaque handles, fixed-width return codes,
-`ptr + len` views, callbacks, and explicit release functions, so a consumer can
-wrap it well without knowing any Zig. The full archive-and-header inventory lives
-on the [API reference]($link.page('reference')) page. The consuming-from-C guide
-linked in the table above walks the build, the ownership rules, and a first complete
-program.
+Composable archives (`.a` and the platform shared library), each with a
+generated header. Opaque handles, fixed-width codes, `ptr + len`, callbacks,
+explicit release. Inventory: [API reference]($link.page('reference')). First
+program: [consuming-from-c](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/consuming-from-c.md).
 
-## The bindings
+## Bindings
 
-A binding already did the C wrapping and presents an idiomatic API. See
-[Bindings]($link.page('bindings')) for the shared shape, per-language tours, and how
-each one dogfoods the archives through its own `*-dogfood` step.
+Each binding wraps the same archives in that language's idioms. Shared shape and
+binding-check steps: [Bindings]($link.page('bindings')).
 
-## One library, one build, one engine
+## CapTP CLI
 
-There is no separate "C build" or "Zig build" of the protocol. A Zig peer, a C
-consumer, and a peer written against any binding hold the same OCapN conversation,
-byte for byte. A session does negotiate its codec and CapTP version, and it settles
-that with whoever answers, not by which surface you built on. One instance can
-therefore run many sessions speaking different codecs at once; the
-[Concepts]($link.page('concepts')) page walks that handshake.
+The product binary lives under repo-root `cli/`: progressive `ocapn` commands, a
+REPL, curated stdio MCP, and `app rooms-peer`. It is not a second protocol
+stack. Happy path: [CapTP CLI]($link.page('cli')). Recipes:
+[docs/cli.md](https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/cli.md).
 
-Every artifact above is produced by `zig build`. `zig build check` runs the
-in-tree build check: tests, protocol reference fixtures, examples, and the
-structure checks. The upstream OCapN suite (`zig build ocapn-conformance`),
-cross-language binding checks, and live interop run as sibling steps, since
-they need non-Zig runtimes on PATH. The build steps in the
-[README](https://codeberg.org/jimisaacs/pancake/src/branch/main/README.md#build)
-cover the common focused check steps; the full inventory lives in
-[CONTRIBUTING](https://codeberg.org/jimisaacs/pancake/src/branch/main/CONTRIBUTING.md#verifying-changes).
+## One engine
 
-The one place the surfaces diverge is encryption. iroh rides a separate optional
-artifact, which the [Transports]($link.page('transports')) page covers.
+A Zig peer, a C consumer, and any binding hold the same OCapN conversation byte
+for byte. Codec and CapTP version settle with whoever answers, not with which
+surface you built on. See [Concepts]($link.page('concepts')). Every artifact
+comes from `zig build`; `zig build check` is the in-tree verification. Common
+steps:
+[README](https://codeberg.org/jimisaacs/pancake/src/branch/main/README.md#build).
+Encryption is optional iroh: [Transports]($link.page('transports')).

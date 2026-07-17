@@ -1,15 +1,15 @@
 # pancake devcontainer
 
 Ready-to-build environment for Cursor / VS Code: Zig, conformance tooling,
-dogfood runtimes, and debug utilities. **`zig build check`** is the project
-gate; everything here only prepares the host.
+binding-check runtimes, and debug utilities. **`zig build check`** is the project
+build check; everything here only prepares the host.
 
 ## Lifecycle
 
 | Phase                 | What runs                                                               |
 | --------------------- | ----------------------------------------------------------------------- |
 | **Host (pre-create)** | `initialize.sh` — bind-mount source dirs, create shared `rooms-net`     |
-| **Image build**       | `Dockerfile` → `install-*.sh` → `verify-toolchains.sh`                  |
+| **Image build**       | `Dockerfile`, then `install-*.sh`, then `verify-toolchains.sh` |
 | **First open**        | `post-create.sh` — cache ownership, config sync, ptrace, toolchain pins |
 | **You**               | `zig build check`                                                       |
 
@@ -24,7 +24,7 @@ zig build check
 | ----------- | -------------------------------------------- | --------------------------------------------- |
 | Zig         | `zig`, `zls` (versions must match)           | `install-zig.sh`, `install-zls.sh`            |
 | Conformance | Racket, Goblins                              | `install-racket-goblins.sh`                   |
-| Dogfood     | Rust, Deno, Node, npm, Bun                   | `install-rust.sh`, `install-js-toolchains.sh` |
+| Binding checks | Rust, Deno, Node, npm, Bun                   | `install-rust.sh`, `install-js-toolchains.sh` |
 | Agents      | `uv`, Serena, Claude Code (`claude` on PATH), opencode (`opencode` on PATH) | `install-uv.sh`, `install-serena.sh`, `install-claude-code.sh`, `install-opencode.sh` |
 | Debug       | gdb, lldb, strace, valgrind, perf, hyperfine | apt in `Dockerfile`                           |
 
@@ -62,7 +62,7 @@ The devcontainer attaches to two networks at container-create time:
 
 - **`rooms-net`** — the fabric it shares with the rooms app
   ([`examples/apps/rooms/deno/deploy`](../examples/apps/rooms/deno/deploy/)). It
-  has a fixed name and is committed in both compose files, so a rooms-bot in the
+  has a fixed name and is committed in both compose files, so a rooms-peer in the
   devcontainer reaches the deployed room's internal CapTP by Docker DNS.
   `initializeCommand` runs `docker network create rooms-net` for you.
 - **`egress-net`** — the container's one side network, named per host in the
@@ -75,12 +75,12 @@ docker network create llm-backend-net   # once, if it does not exist
 ```
 
 Then **Rebuild and Reopen** the container. Compose reads `.devcontainer/.env`
-when creating the service (`docker-compose.yml` → `networks.egress-net`). `.env`
+when creating the service (`docker-compose.yml` under `networks.egress-net`). `.env`
 is gitignored; `.env.example` has an empty value on purpose so no network name
 is committed. The rooms app sets its *own* `EGRESS_NET` (`cloudflare-tunnel-net`)
 in its own `.env` — the two stacks share only `rooms-net`, not the side network.
 
-CapTP for rooms-bot bootstraps from `http://pancake-rooms:8000/locator` over
+CapTP for rooms-peer bootstraps from `http://pancake-rooms:8000/locator` over
 `rooms-net` (Docker DNS; service alias `rooms` also works), then dials the
 returned `ocapn://<nodeid>.iroh` URI over iroh Discovery. The browser UI stays
 on `:8000` through the tunnel — CapTP itself is not that HTTP port.
@@ -102,10 +102,10 @@ What the editor does not share is bind-mounted from the host in
 
 | Tool        | Bind mount                                                       | Why it is not automatic      |
 | ----------- | --------------------------------------------------------------- | ---------------------------- |
-| Claude Code | `~/.claude` → `/home/vscode/.claude`                             | skills, memory, login        |
-| GitHub CLI  | `~/.config/gh` → `/home/vscode/.config/gh`                       | `gh`'s own auth store        |
-| opencode    | `~/.local/share/opencode` → `/home/vscode/.local/share/opencode` | login (`auth.json`)          |
-| opencode    | `~/.config/opencode` → `/home/vscode/.config/opencode`           | config (providers, model)    |
+| Claude Code | `~/.claude` mounted at `/home/vscode/.claude`                    | skills, memory, login        |
+| GitHub CLI  | `~/.config/gh` mounted at `/home/vscode/.config/gh`              | `gh`'s own auth store        |
+| opencode    | `~/.local/share/opencode` mounted at `/home/vscode/.local/share/opencode` | login (`auth.json`) |
+| opencode    | `~/.config/opencode` mounted at `/home/vscode/.config/opencode`  | config (providers, model)    |
 
 Claude's login is the `.credentials.json` inside `~/.claude`, and opencode's is
 the `auth.json` inside `~/.local/share/opencode`, so both survive a rebuild and
@@ -141,7 +141,7 @@ touching this repo.
 | [`Dockerfile`](Dockerfile)                     | Image build                        |
 | [`devcontainer.json`](devcontainer.json)       | Editor, volumes, compose service   |
 | [`docker-compose.yml`](docker-compose.yml)     | Compose service: networks + ptrace caps |
-| [`.env.example`](.env.example)                 | `EGRESS_NET` (copy → `.env`)       |
+| [`.env.example`](.env.example)                 | `EGRESS_NET` (copy to `.env`)      |
 | [`initialize.sh`](initialize.sh)               | Host pre-create: bind dirs + `rooms-net` |
 | [`post-create.sh`](post-create.sh)             | Caches + verification after create |
 | [`verify-toolchains.sh`](verify-toolchains.sh) | Installed versions vs pins         |

@@ -68,7 +68,7 @@
          designator-from-seed
          session-vat session-async session-host session-spawn session-publish
          session-fetch session-enliven session-send session-send-promise session-await
-         session-index session-untag session-serve session-tell session-close!
+         session-index session-untag session-get session-serve session-tell session-close!
          session-with-gc! session-caretaker session-attenuate session-revoke!
          TRANSPORT-TCP TRANSPORT-KEYED-TCP TRANSPORT-INPROC TRANSPORT-IROH
          HINT-DIRECT-ADDRESSES)

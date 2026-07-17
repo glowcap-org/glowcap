@@ -7,7 +7,7 @@ capability, and surface the room's callbacks as a stream. Everything above it
 reads like an app.
 
     directory = await Directory.connect("127.0.0.1:9099")
-    room = await Room.subscribe(directory.conn, await directory.enter("general"), "alice")
+    room = await Room.subscribe(directory.session, await directory.enter("general"), "alice")
     await room.say("hello")
     async for msg in room:
         print(msg.sender, msg.text)
@@ -77,28 +77,28 @@ class Directory:
     reference to that room. Both mirror the wire: ``open`` raises if the name is
     taken, ``enter`` raises if there is no such room."""
 
-    def __init__(self, conn: Session, directory) -> None:
-        self.conn = conn
+    def __init__(self, session: Session, directory) -> None:
+        self.session = session
         self._directory = directory
 
     @classmethod
     async def connect(cls, locator: str) -> "Directory":
-        conn = await _dial(locator)
-        conn.serve()  # start the inbound loop before fetching
-        directory = await conn.fetch(DIRECTORY)
-        return cls(conn, directory)
+        session = await _dial(locator)
+        session.serve()  # start the inbound loop before fetching
+        directory = await session.fetch(DIRECTORY)
+        return cls(session, directory)
 
     async def open(self, name: str):
         """Create a new room and return a reference to it. Raises if taken."""
-        return await self.conn.send(self._directory, OPEN, [name])
+        return await self.session.send(self._directory, OPEN, [name])
 
     async def enter(self, name: str):
         """Return a reference to an existing room. Raises if there is none."""
-        return await self.conn.send(self._directory, ENTER, [name])
+        return await self.session.send(self._directory, ENTER, [name])
 
     async def list(self) -> "list[tuple[str, int]]":
         """The live rooms — the ones with people in them — as (name, count)."""
-        return _rooms(await self.conn.send(self._directory, LIST, []))
+        return _rooms(await self.session.send(self._directory, LIST, []))
 
     async def watch(self, on_event) -> "list[tuple[str, int]]":
         """Follow the live room list: hand the directory an inbox it calls back
@@ -114,8 +114,8 @@ class Directory:
             on_event(kind, name, count)
             return None
 
-        inbox = self.conn.spawn(observer)
-        return _rooms(await self.conn.send(self._directory, WATCH, [inbox]))
+        inbox = self.session.spawn(observer)
+        return _rooms(await self.session.send(self._directory, WATCH, [inbox]))
 
     async def register(self, nick: str, locator: str) -> None:
         """Announce a dialable DM member. Resolves once the directory has dialed
@@ -127,21 +127,21 @@ class Directory:
                 done.set_result(None)
             return None
 
-        observer = self.conn.spawn(inbox)
-        await self.conn.send(self._directory, REGISTER, [nick, locator, observer])
+        observer = self.session.spawn(inbox)
+        await self.session.send(self._directory, REGISTER, [nick, locator, observer])
         await done
 
     async def introduce(self, nick: str):
         """Ask the directory to introduce us to a registered member; returns a
         live capability to that member's ``dm`` object (redeemed by direct dial)."""
-        ref = await self.conn.send(self._directory, INTRODUCE, [nick])
+        ref = await self.session.send(self._directory, INTRODUCE, [nick])
         if ref is None:
             raise ValueError(f'introduce("{nick}") did not return a capability')
         return ref
 
     async def close(self) -> None:
         """Close the session, ending every room's message stream."""
-        await self.conn.close()
+        await self.session.close()
 
 
 @dataclass
@@ -181,53 +181,53 @@ class Message:
 class DirectMessage:
     """A live direct line to one member, obtained by introduction."""
 
-    def __init__(self, conn: Session, dm, peer: str) -> None:
-        self._conn = conn
+    def __init__(self, session: Session, dm, peer: str) -> None:
+        self._session = session
         self._dm = dm
         self.peer = peer
 
     @classmethod
     async def open(cls, directory: Directory, peer: str) -> "DirectMessage":
-        return cls(directory.conn, await directory.introduce(peer), peer)
+        return cls(directory.session, await directory.introduce(peer), peer)
 
     async def say(self, from_nick: str, text: str) -> None:
         """Deliver one direct message, tagged with the sender's display nick."""
-        await self._conn.send(self._dm, DM, [from_nick, text])
+        await self._session.send(self._dm, DM, [from_nick, text])
 
 
 class Room:
     """A membership in a chat room. Get one with :meth:`join`, iterate it for the
     lines the room sends, :meth:`say` to talk, and :meth:`leave` when done."""
 
-    def __init__(self, conn: Session, room) -> None:
-        self._conn = conn
+    def __init__(self, session: Session, room) -> None:
+        self._session = session
         self._room = room
         self._lines: asyncio.Queue = asyncio.Queue()
         self._leaving = False
 
     @classmethod
-    async def subscribe(cls, conn: Session, room_ref, nick: str) -> "Room":
-        self = cls(conn, room_ref)
+    async def subscribe(cls, session: Session, room_ref, nick: str) -> "Room":
+        self = cls(session, room_ref)
 
         # The room calls this back with every line; surface it on the stream.
-        inbox = conn.spawn(self._inbox)
+        inbox = session.spawn(self._inbox)
 
         # End the stream when the connection closes.
         asyncio.ensure_future(self._until_closed())
 
         # Subscribe, handing the room a capability to our inbox. Success is the
         # resolution; the room delivers the welcome and the roster as our first notify.
-        await conn.send(room_ref, SUBSCRIBE, [nick, inbox])
+        await session.send(room_ref, SUBSCRIBE, [nick, inbox])
         return self
 
     async def say(self, text: str) -> None:
         """Say a line to everyone in the room."""
-        await self._conn.send(self._room, POST, [text])
+        await self._session.send(self._room, POST, [text])
 
     async def leave(self) -> None:
         """Leave the room and release the connection."""
         self._leaving = True
-        await self._conn.close()
+        await self._session.close()
 
     def __aiter__(self):
         """The lines the room sends, in order, until you leave or it hangs up:
@@ -254,7 +254,7 @@ class Room:
 
     async def _until_closed(self) -> None:
         try:
-            await self._conn.serve()
+            await self._session.serve()
             if not self._leaving:
                 print("rooms: the room closed the connection", file=sys.stderr)
         except Exception as err:  # noqa: BLE001

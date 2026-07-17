@@ -91,6 +91,42 @@ test "sturdy references differing only in peer hints are equal" {
     try std.testing.expect(model.referencesEqual(hinted, bare));
 }
 
+test "handoff gives differing only in a hint entry value are unequal" {
+    // Locator identity ignores hints; give payload equality deep-compares them.
+    const entries_a = [_]model.HintEntry{
+        .{ .name = "direct-addresses", .value = .{ .string = "127.0.0.1:1" } },
+    };
+    const entries_b = [_]model.HintEntry{
+        .{ .name = "direct-addresses", .value = .{ .string = "127.0.0.1:2" } },
+    };
+    var give_a = model.Handoff{ .give = .{
+        .recipient_key = &([_]u8{0x11} ** 32),
+        .exporter = .{
+            .transport = "tcp",
+            .designator = "exporter",
+            .hints = .{ .entries = &entries_a },
+        },
+        .gifter_exporter_session = &([_]u8{0x22} ** 32),
+        .gifter_side = &([_]u8{0x33} ** 32),
+        .gift_id = &([_]u8{0x44} ** 32),
+        .signature = &([_]u8{0xaa} ** 64),
+    } };
+    var give_b = model.Handoff{ .give = .{
+        .recipient_key = &([_]u8{0x11} ** 32),
+        .exporter = .{
+            .transport = "tcp",
+            .designator = "exporter",
+            .hints = .{ .entries = &entries_b },
+        },
+        .gifter_exporter_session = &([_]u8{0x22} ** 32),
+        .gifter_side = &([_]u8{0x33} ** 32),
+        .gift_id = &([_]u8{0x44} ** 32),
+        .signature = &([_]u8{0xaa} ** 64),
+    } };
+    try std.testing.expect(!model.argumentsEqual(.{ .handoff = &give_a }, .{ .handoff = &give_b }));
+    try std.testing.expect(model.peerLocatorsEqual(give_a.give.exporter, give_b.give.exporter));
+}
+
 test "promise references compare on answer id and pipeline path" {
     const ops = [_]model.PipelineOp{.{ .field = "method" }};
     const a: model.Reference = .{ .promise = .{ .answer_position = .from(5), .path = .{ .ops = &ops } } };
@@ -266,4 +302,98 @@ test "equality bails at the depth cap on a promise/call tower instead of overflo
     const deep = try buildTower(allocator, 100_000);
     try std.testing.expect(!model.referencesEqual(deep, deep));
     try std.testing.expect(!model.argumentsEqual(.{ .reference = deep }, .{ .reference = deep }));
+}
+
+// The borrowed-view equality and hash spine (`viewArgument*`) mirrors the owned
+// spine (`argument*`) arm for arm, because a view iterator is fallible where an
+// owned slice is not, so the two cannot be merged without forcing error handling
+// onto every owned caller. Two mirrored spines can silently drift. This gate
+// closes that: `model.view.Body.fromOwned` projects a borrowed view over the
+// exact owned values, so any disagreement in an arm's tag set, recursion, or
+// order-independence surfaces here rather than in a live conversation.
+test "view equality and hash agree with the owned spine across every argument arm" {
+    const allocator = std.testing.allocator;
+
+    const call_args = [_]model.Argument{ .{ .integer = 1 }, .{ .integer = 2 } };
+    const reordered_call_args = [_]model.Argument{ .{ .integer = 2 }, .{ .integer = 1 } };
+
+    // The shared passable breadth, plus deliberately crafted twins: an
+    // order-independent set and struct (equal to their reordered mates), an
+    // order-sensitive list (unequal to its reordered mate), and a second
+    // float64 that hashes tag-only-equal to the first while comparing distinct.
+    const args = [_]model.Argument{
+        .{ .integer = -99 },
+        .{ .big_integer = .{ .negative = true, .digits = "340282366920938463463374607431768211456" } },
+        .{ .float64 = 1.5 },
+        .{ .float64 = 2.5 },
+        .{ .boolean = true },
+        .{ .bytes = &.{ 1, 2, 3 } },
+        .{ .string = "hello" },
+        .{ .symbol = "run" },
+        .{ .keyword = "color" },
+        .{ .void = {} },
+        .{ .reference = .{ .far = model.FarRef.object(2) } },
+        .{ .@"error" = .{ .message = "boom" } },
+        .{ .tagged = .{ .tag = "point", .value = &call_args } },
+        .{ .list = &call_args },
+        .{ .list = &reordered_call_args },
+        .{ .set = &.{ .{ .integer = 3 }, .{ .integer = 1 }, .{ .integer = 2 } } },
+        .{ .set = &.{ .{ .integer = 1 }, .{ .integer = 2 }, .{ .integer = 3 } } },
+        .{ .@"struct" = &.{
+            .{ .key = "name", .value = .{ .string = "tabby" } },
+            .{ .key = "age", .value = .{ .integer = 12 } },
+        } },
+        .{ .@"struct" = &.{
+            .{ .key = "age", .value = .{ .integer = 12 } },
+            .{ .key = "name", .value = .{ .string = "tabby" } },
+        } },
+    };
+
+    const message: model.Message = .{ .deliver = .{
+        .target = .{ .far = model.FarRef.object(4) },
+        .args = &args,
+        .answer = .from(7),
+    } };
+
+    const body = model.view.Body.fromOwned(&message);
+    const view_args = body.deliver.args;
+    try std.testing.expectEqual(args.len, try view_args.len());
+
+    var arena_state = std.heap.ArenaAllocator.init(allocator);
+    defer arena_state.deinit();
+    const scratch = arena_state.allocator();
+
+    // Per element: every arm is reflexively equal on both spines, which also
+    // runs both hashers on every arm. The two hashers seed on their own union's
+    // tag order, so their numeric values are not comparable across
+    // representations; only agreement within a representation is a contract.
+    for (args, 0..) |owned_arg, i| {
+        const view_arg = try view_args.at(i);
+        try std.testing.expect(model.equality.argumentsEqual(owned_arg, owned_arg));
+        try std.testing.expect(try model.equality.viewArgumentsEqualWithScratch(view_arg, view_arg, scratch));
+    }
+
+    // Per pair: the two equality predicates agree, and an equal pair hashes
+    // equal within each spine (so an order-independent arm cannot hash-drift).
+    for (args, 0..) |owned_a, i| {
+        for (args, 0..) |owned_b, j| {
+            const owned_eq = model.equality.argumentsEqual(owned_a, owned_b);
+            const view_eq = try model.equality.viewArgumentsEqualWithScratch(
+                try view_args.at(i),
+                try view_args.at(j),
+                scratch,
+            );
+            try std.testing.expectEqual(owned_eq, view_eq);
+            if (owned_eq) {
+                try std.testing.expectEqual(
+                    model.equality.argumentHash(owned_a),
+                    model.equality.argumentHash(owned_b),
+                );
+                try std.testing.expectEqual(
+                    try model.equality.viewArgumentHash(try view_args.at(i)),
+                    try model.equality.viewArgumentHash(try view_args.at(j)),
+                );
+            }
+        }
+    }
 }
