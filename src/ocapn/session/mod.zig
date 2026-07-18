@@ -120,11 +120,23 @@ pub const Error = error{
     /// is bounded so a malicious deeply-nested frame fails loud instead of
     /// overflowing the native stack. Projects to `resource_exhausted`.
     NestingTooDeep,
-    /// An inbound set argument carried two Equal elements. A set admits each
-    /// member once, so a duplicate is a second wire spelling of one value and
-    /// is refused rather than admitted — the codec-neutral twin of the Syrup
-    /// decoder's ascending-element byte refusal. Projects to `protocol_error`.
+    /// A set argument carried two Equal elements. A set admits each member
+    /// once, so a duplicate is a second wire spelling of one value and is
+    /// refused rather than admitted: inbound as the codec-neutral twin of the
+    /// Syrup decoder's ascending-element byte refusal (projects to
+    /// `protocol_error`), and on send pre-commit, before `retainSentExports`
+    /// records wire deltas. The send fold is at least as strict as the
+    /// encoders' byte-level refusal (ADR-0003): Equal-but-byte-distinct
+    /// spellings refuse only in validation, matching the inbound rule. The
+    /// relayed-resolution store holds the same rule pre-commit
+    /// (`validateStoredResolution`).
     DuplicateSetElement,
+    /// A send-side struct argument carried two entries with the same key.
+    /// Same contract as `DuplicateSetElement`'s send arm: the canonical-order
+    /// encoders refuse the duplicate anyway, so validation refuses it before
+    /// any authority commits. Inbound duplicates never reach the session:
+    /// both codecs refuse non-ascending keys at decode.
+    DuplicateStructKey,
 };
 
 /// The fixed bootstrap export position installed when a session reaches `open`
@@ -767,6 +779,10 @@ pub const Session = struct {
     /// Validate an inbound `op:listen` before the engine installs its
     /// listener. Engine caller: `engine.pipeline.maybeInstallInboundListener`.
     pub const validateInboundListen = validate.validateInboundListen;
+    /// Pre-commit rule for a locally supplied resolution bound for a store
+    /// (the relayed-resolution seam). Engine caller:
+    /// `engine.Peer.applyRelayedResolution`.
+    pub const validateStoredResolution = validate.validateStoredResolution;
     /// Retain the wire mention of a sent export reference that bypasses
     /// `recordSend`. Engine caller: `engine.v1_0.installResolverForOutboundDeliver`.
     pub const retainSentExportRef = apply.retainSentExportRef;
@@ -777,9 +793,8 @@ pub const Session = struct {
     /// returns 0, so a zero-initialized stamp can never false-match one.
     pub fn nextStoreStamp(self: *Session) u64 {
         self.store_stamp_counter += 1;
-        // Load-bearing: a 0 stamp would false-match a zero-initialized carrier
-        // (`settled_answer` / `listener_fire`) and ship the wrong payload. The
-        // pre-increment guarantees it; this pins the guarantee against a wrap.
+        // A wrapped counter could hand two row instances one stamp, which is
+        // exactly the false-match the stamp exists to prevent; pin it.
         std.debug.assert(self.store_stamp_counter != 0);
         return self.store_stamp_counter;
     }
@@ -885,6 +900,14 @@ pub const Session = struct {
         self.exports.decrement(id, 1) catch unreachable;
     }
 
+    /// Unwind one `registerImport` retain that never became observable (a
+    /// failed prepare), the import-table mirror of `releaseUnsharedExport`.
+    /// Infallible for the same reason: the caller just took the retain, so
+    /// the row exists and cannot underflow.
+    pub fn releaseImportRetain(self: *Session, id: model.ImportPosition) void {
+        self.imports.decrement(id, 1) catch unreachable;
+    }
+
     /// Expose a local capability behind `swissnum` for inbound bootstrap-fetch
     /// (ADR-0006 responder half): allocate a fresh export and map the swissnum to
     /// it. Returns the export position. Re-registering a swissnum replaces its mapping.
@@ -910,6 +933,22 @@ pub const Session = struct {
     /// The local export serving `swissnum`, or null if none is registered.
     pub fn bootstrapLookup(self: *const Session, swissnum: []const u8) ?model.ExportPosition {
         return self.bootstrap.get(swissnum);
+    }
+
+    /// Unwind a `registerBootstrapCap` grant that never became observable: put
+    /// the mapping back to `prior` (or remove it when there was none). The
+    /// publish verbs pair this with `releaseUnsharedExport` so a failed
+    /// publish leaves neither a dangling name nor a phantom export row. The
+    /// bootstrap registry is otherwise monotonic; a removed row's key bytes
+    /// stay in `key_arena`, which is the arena posture, and this runs only on
+    /// a failed publish. Infallible: restoring overwrites a live slot, and a
+    /// remove of the just-inserted key always finds it.
+    pub fn restoreBootstrapMapping(self: *Session, swissnum: []const u8, prior: ?model.ExportPosition) void {
+        if (prior) |position| {
+            self.bootstrap.getPtr(swissnum).?.* = position;
+        } else {
+            std.debug.assert(self.bootstrap.remove(swissnum));
+        }
     }
 
     /// The swissnum a local export serves, or null if `export_position` is not a

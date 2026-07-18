@@ -2,71 +2,12 @@
 // driver archives) — do not edit.
 // `zig build gen-ts-abi-check` (part of `check`) fails when this is stale.
 //
-// The TypeScript mirror of the libpancake_ocapn and libpancake_driver
-// ABIs: constant values from
-// the Zig declarations, struct sizes and field offsets from
-// @sizeOf/@offsetOf. JavaScript FFI has no struct types, so the binding
-// reads C structs through these offsets; generating them is what makes the
-// one offset-based mirror as trustworthy as a symbolic one.
-
-// ── Constants (values mirror src/c_abi declarations) ─────────────────────
-
-export const OK = 0;
-export const INVALID_ARGUMENT = -3;
-export const WOULD_BLOCK = -7;
-export const CLOSED = -8;
-export const IO = -9;
-export const BUFFER_TOO_SMALL = -16;
-export const UNSUPPORTED_VALUE = -13;
-export const BROKEN = -14;
-export const FRAME_SHAPE_BYTE = 0;
-export const FRAME_SHAPE_WORD = 1;
-export const HOST_ACTION_DIAL = 0;
-export const HOST_ACTION_FLUSH = 1;
-export const HOST_ACTION_NEED_GIFT_ID = 2;
-export const HOST_ACTION_SETTLE = 3;
-export const HOST_ACTION_FAIL = 4;
-export const HOST_ACTION_CLOSE = 5;
-export const DEFAULT_FRAME_CAP = 1048576;
-export const MAX_LOCAL_FORWARD_HOPS = 256;
-export const DISCOVERY_DIAL_RETRY_MS = 3000;
-export const DISCOVERY_DIAL_MAX_ATTEMPTS = 24;
-export const DIAL_SHAPE_HOST_PORT = 0;
-export const DIAL_SHAPE_PEER_ID = 1;
-export const DIAL_REACH_DIRECT = 0;
-export const DIAL_REACH_CONFIGURED = 1;
-export const DIAL_REACH_EXPLICIT = 2;
-export const DIAL_POSTURE_REDEEM = 0;
-export const DIAL_POSTURE_EXPLICIT = 1;
-export const DIAL_POSTURE_EXPLICIT_NONE = 2;
-export const REF_NEAR = 0;
-export const REF_FAR = 1;
-export const REF_PROMISE = 2;
-export const REF_STURDY = 3;
-export const REF_BROKEN = 4;
-export const REF_SUB_OBJECT = 0;
-export const REF_SUB_PROMISE = 1;
-export const ARG_INTEGER = 0;
-export const ARG_FLOAT64 = 1;
-export const ARG_BOOLEAN = 2;
-export const ARG_BYTES = 3;
-export const ARG_STRING = 4;
-export const ARG_SYMBOL = 5;
-export const ARG_VOID = 6;
-export const ARG_REFERENCE = 7;
-export const ARG_LIST = 8;
-export const ARG_SET = 9;
-export const ARG_TAGGED = 10;
-export const ARG_KEYWORD = 11;
-export const ARG_BIG_INTEGER = 12;
-export const CODEC_SYRUP = 0;
-export const CODEC_CAPNP = 1;
-export const CAPTP_VERSION_V1_0 = 0;
-export const CAPTP_VERSION_NEXT = 1;
-export const ABORT_DOMAIN_CODEC = 0;
-export const ABORT_DOMAIN_SESSION = 1;
-export const ABORT_DOMAIN_FOREIGN = 2;
-export const REDEEMED_TOKEN_BASE = 1152921504606846976n;
+// The target-specific half of the TypeScript ABI mirror: struct sizes and
+// field offsets from @sizeOf/@offsetOf on the 64-bit host target. JavaScript
+// FFI has no struct types, so the native stack binding reads C structs
+// through these offsets. The target-independent constant values live in the
+// @pancake/abi package (bindings/ts/abi/constants.ts); the wasm32 browser
+// surface reports its own offsets, which differ by pointer width.
 
 // ── Struct layouts (@sizeOf/@offsetOf on the extern structs) ─────────────
 

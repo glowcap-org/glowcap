@@ -34,14 +34,22 @@
   (define echo (session-enliven conn sturdyref))
   (printf "racket-goblins-interop: enlivened goblins echo cap, calling it\n")
 
-  (session-send conn echo (string->symbol "") #"pancake-ping")
+  ;; The echo actor is `(lambda args args)`: it returns its argument list, so
+  ;; assert the content survived the round-trip (the native driver's bar).
+  (define (assert-echoed reply expected)
+    (unless (equal? reply (list expected))
+      (error 'racket-goblins-interop
+             "echo returned ~v, expected ~v" reply (list expected))))
+  (assert-echoed (session-send conn echo (string->symbol "") #"pancake-ping")
+                 #"pancake-ping")
 
   (define again (session-enliven conn sturdyref))
   (unless (and (far-ref? echo) (far-ref? again)
                (= (far-ref-id echo) (far-ref-id again)))
     (error 'racket-goblins-interop
            "repeat enliven did not return the same far import (dedup miss)"))
-  (session-send conn again (string->symbol "") #"pancake-ping-again")
+  (assert-echoed (session-send conn again (string->symbol "") #"pancake-ping-again")
+                 #"pancake-ping-again")
   (printf "racket-goblins-interop: repeat enliven same import (dedup), second call resolved\n")
 
   (printf "racket-goblins-interop OK: keyed handshake + enliven/dedup + echo deliver/resolve with live Goblins\n")

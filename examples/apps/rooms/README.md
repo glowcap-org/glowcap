@@ -68,14 +68,14 @@ A room can introduce two members who then talk directly:
 zig build demo-rooms-dm
 ```
 
-Each member is a full peer: it listens on its own endpoint, exports a small `dm` object, then
-`register`s its dialable locator with the directory. The directory dials the member back, holds its
-`dm`, and returns that reference when another member sends `introduce(nick)`. Because the reference
-lives on the directory-to-member connection, the binding transparently turns it into a signed
-`desc:handoff-give`: the caller redeems it by dialing the member directly and sends its DMs over
-that fresh connection, never through the room. The demo asserts all three: the introduction yields a
-live capability, the target accepts a brand-new inbound connection distinct from the directory's
-dial-back, and the room never carries the message. It runs over loopback TCP and needs only `deno`.
+Each member is a full peer: it listens on its own endpoint, publishes a small `dm` object on the
+same CapTP session it uses to join, then `register`s its dialable locator with the directory. The
+directory `fetch`es that `dm`, stamps the locator as the gift exporter location, and returns the
+reference when another member sends `introduce(nick)`. The binding turns it into a signed
+`desc:handoff-give`: the caller redeems by dialing the member directly and sends DMs over that
+fresh connection, never through the room. The demo asserts all three: the introduction yields a
+live capability, the target accepts a brand-new inbound connection (register does not dial the
+member), and the room never carries the message. It runs over loopback TCP and needs only `deno`.
 
 The same introduction runs over iroh's encrypted QUIC, cross-endpoint:
 

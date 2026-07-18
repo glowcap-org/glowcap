@@ -21,6 +21,7 @@
 //! including both headers does.
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 const foundation = @import("foundation");
 const model = @import("model");
@@ -249,7 +250,16 @@ pub const PancakeContext = opaque {};
 /// A caller that needs allocation policy creates a `PancakeContext` and uses the
 /// `*_in` constructors instead; this default is the library-owned policy for the
 /// callers that do not.
-pub const library_allocator = std.heap.smp_allocator;
+///
+/// On freestanding `wasm32` (the browser binding target, ADR-0070) there are no
+/// threads and no `smp_allocator`; the library-owned default is the single-
+/// threaded wasm allocator, the same one the JS host reaches through
+/// `pancake_wasm_alloc` / `pancake_wasm_free`, so a handle the library allocates
+/// and a buffer JS allocates come from one heap.
+pub const library_allocator = if (builtin.target.cpu.arch.isWasm() and builtin.target.os.tag == .freestanding)
+    std.heap.wasm_allocator
+else
+    std.heap.smp_allocator;
 
 /// Adapts the C host allocation callbacks to a `std.mem.Allocator`. Heap-pinned
 /// inside its `Context`, so the vtable's `ptr` (`&context.embedder`) stays valid for

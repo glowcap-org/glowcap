@@ -61,7 +61,19 @@ try {
 	console.log("deno-goblins-interop: enlivened goblins echo cap, calling it");
 
 	// Goblins invokes a cap positionally (no method symbol), so send with verb "".
-	await conn.send(echo, "", [new TextEncoder().encode("pancake-ping")]);
+	// The echo actor is `(lambda args args)`: it returns its argument list, so
+	// assert the content survived the round-trip (the native driver's bar),
+	// not merely that something resolved.
+	const assertEchoed = (reply: unknown, expected: string): void => {
+		if (!Array.isArray(reply) || reply.length !== 1 || !(reply[0] instanceof Uint8Array)) {
+			fail("deno-goblins-interop", `echo reply is not a one-bytes list: ${JSON.stringify(reply)}`);
+		}
+		const text = new TextDecoder().decode(reply[0] as Uint8Array);
+		if (text !== expected) {
+			fail("deno-goblins-interop", `echo returned ${JSON.stringify(text)}, expected ${expected}`);
+		}
+	};
+	assertEchoed(await conn.send(echo, "", [new TextEncoder().encode("pancake-ping")]), "pancake-ping");
 
 	const again = await conn.enliven(sturdyref);
 	if (
@@ -74,7 +86,10 @@ try {
 			"repeat enliven did not return the same far import (dedup miss)",
 		);
 	}
-	await conn.send(again, "", [new TextEncoder().encode("pancake-ping-again")]);
+	assertEchoed(
+		await conn.send(again, "", [new TextEncoder().encode("pancake-ping-again")]),
+		"pancake-ping-again",
+	);
 	console.log(
 		"deno-goblins-interop: repeat enliven same import (dedup), second call resolved",
 	);

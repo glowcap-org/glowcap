@@ -133,6 +133,51 @@ test "an inbound set carrying two Equal elements is refused on both walk shapes"
     } });
 }
 
+test "a sent duplicate set element or struct key is refused pre-commit, not at encode" {
+    const allocator = std.testing.allocator;
+    var s = session.Session.init(allocator);
+    defer s.deinit();
+    try s.registerImport(.from(7));
+
+    // The encoders refuse both duplicates too (ADR-0003), but an encode-time
+    // refusal fires in `step`, after `retainSentExports` committed wire-delta
+    // retains for a frame that never ships. `validateSend` refuses first, so
+    // nothing commits: no outbound answer row is minted for the refused sends.
+    var dup_elements = [_]model.Argument{ .{ .integer = 4 }, .{ .string = "mid" }, .{ .integer = 4 } };
+    var dup_args = [_]model.Argument{.{ .set = &dup_elements }};
+    try std.testing.expectError(session.Error.DuplicateSetElement, s.recordSend(.{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(7) } },
+        .args = &dup_args,
+        .answer = .from(41),
+    } }));
+    try std.testing.expect(s.outboundAnswer(.from(41)) == null);
+
+    var dup_entries = [_]model.StructEntry{
+        .{ .key = "alpha", .value = .{ .integer = 1 } },
+        .{ .key = "alpha", .value = .{ .integer = 2 } },
+    };
+    var struct_args = [_]model.Argument{.{ .@"struct" = &dup_entries }};
+    try std.testing.expectError(session.Error.DuplicateStructKey, s.recordSend(.{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(7) } },
+        .args = &struct_args,
+        .answer = .from(42),
+    } }));
+    try std.testing.expect(s.outboundAnswer(.from(42)) == null);
+
+    // Distinct keys and elements still send.
+    var ok_entries = [_]model.StructEntry{
+        .{ .key = "alpha", .value = .{ .integer = 1 } },
+        .{ .key = "beta", .value = .{ .integer = 2 } },
+    };
+    var ok_args = [_]model.Argument{.{ .@"struct" = &ok_entries }};
+    try s.recordSend(.{ .deliver = .{
+        .target = .{ .far = .{ .import_position = .from(7) } },
+        .args = &ok_args,
+        .answer = .from(43),
+    } });
+    try std.testing.expect(s.outboundAnswer(.from(43)) != null);
+}
+
 test "inbound deliver with a pathed promise target is refused, an empty path is not" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);

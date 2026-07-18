@@ -4,25 +4,22 @@
 // this is stale.
 //
 // Typed HostAction + decode for the TypeScript binding. Kind constant
-// values and struct offsets stay in `abi.ts` (`gen-ts-abi`); this file
-// owns the discriminant union and the layout walk that copies borrowed
-// views out before the next `pancake_host_next_action` frees them.
+// values live in `@pancake/abi`; struct offsets come from the active
+// layout `L` (the 64-bit mirror, or the wasm32 descriptor under the
+// browser adapter). This file owns the discriminant union and the
+// layout walk that copies borrowed views out before the next
+// `pancake_host_next_action` frees them.
 
+import { L } from "./layout.ts";
 import {
 	HOST_ACTION_CLOSE,
 	HOST_ACTION_DIAL,
 	HOST_ACTION_FAIL,
 	HOST_ACTION_FLUSH,
-	HOST_ACTION_KIND_OFF,
-	HOST_ACTION_MESSAGE_LEN_OFF,
-	HOST_ACTION_MESSAGE_OFF,
 	HOST_ACTION_NEED_GIFT_ID,
-	HOST_ACTION_SESSION_OFF,
 	HOST_ACTION_SETTLE,
-	HOST_ACTION_TICKET_OFF,
-	HOST_ACTION_VALUE_OFF,
 	INVALID_ARGUMENT,
-} from "./abi.ts";
+} from "@pancake/abi";
 import { type Ptr } from "./ffi/runtime.ts";
 import { readBytes } from "./seam.ts";
 import { readArg } from "../codec.ts";
@@ -45,11 +42,11 @@ export type HostAction =
 
 /** Decode a filled `PancakeHostAction` buffer into an owned HostAction. */
 export function decodeHostAction(dv: DataView): HostAction {
-	const kind = dv.getUint32(HOST_ACTION_KIND_OFF, true);
-	const ticket = dv.getBigUint64(HOST_ACTION_TICKET_OFF, true);
+	const kind = dv.getUint32(L.HOST_ACTION_KIND_OFF, true);
+	const ticket = dv.getBigUint64(L.HOST_ACTION_TICKET_OFF, true);
 	const view = (off: number, lenOff: number): string =>
 		utf8Decoder.decode(
-			readBytes(dv.getBigUint64(off, true), dv.getBigUint64(lenOff, true)),
+			readBytes(L.getPtr(dv, off), L.getUsize(dv, lenOff)),
 		);
 	switch (kind) {
 		case HOST_ACTION_DIAL:
@@ -57,16 +54,16 @@ export function decodeHostAction(dv: DataView): HostAction {
 		case HOST_ACTION_NEED_GIFT_ID:
 			return { kind, ticket };
 		case HOST_ACTION_SETTLE:
-			return { kind, ticket, value: readArg(dv, HOST_ACTION_VALUE_OFF) };
+			return { kind, ticket, value: readArg(dv, L.HOST_ACTION_VALUE_OFF) };
 		case HOST_ACTION_FAIL:
 			return {
 				kind,
 				ticket,
-				message: view(HOST_ACTION_MESSAGE_OFF, HOST_ACTION_MESSAGE_LEN_OFF),
+				message: view(L.HOST_ACTION_MESSAGE_OFF, L.HOST_ACTION_MESSAGE_LEN_OFF),
 			};
 		case HOST_ACTION_FLUSH:
 		case HOST_ACTION_CLOSE:
-			return { kind, conn: dv.getBigUint64(HOST_ACTION_SESSION_OFF, true) };
+			return { kind, conn: L.getPtr(dv, L.HOST_ACTION_SESSION_OFF) };
 		default:
 			throw new PancakeError(
 				INVALID_ARGUMENT,
@@ -79,11 +76,19 @@ export function decodeHostAction(dv: DataView): HostAction {
  * Bindings supply the per-arm I/O; this switch is the generated inventory. */
 export type HostActionHandlers = {
 	dial: (action: Extract<HostAction, { kind: typeof HOST_ACTION_DIAL }>) => void | Promise<void>;
-	flush: (action: Extract<HostAction, { kind: typeof HOST_ACTION_FLUSH }>) => void | Promise<void>;
-	needGiftId: (action: Extract<HostAction, { kind: typeof HOST_ACTION_NEED_GIFT_ID }>) => void | Promise<void>;
-	settle: (action: Extract<HostAction, { kind: typeof HOST_ACTION_SETTLE }>) => void | Promise<void>;
+	flush: (
+		action: Extract<HostAction, { kind: typeof HOST_ACTION_FLUSH }>,
+	) => void | Promise<void>;
+	needGiftId: (
+		action: Extract<HostAction, { kind: typeof HOST_ACTION_NEED_GIFT_ID }>,
+	) => void | Promise<void>;
+	settle: (
+		action: Extract<HostAction, { kind: typeof HOST_ACTION_SETTLE }>,
+	) => void | Promise<void>;
 	fail: (action: Extract<HostAction, { kind: typeof HOST_ACTION_FAIL }>) => void | Promise<void>;
-	close: (action: Extract<HostAction, { kind: typeof HOST_ACTION_CLOSE }>) => void | Promise<void>;
+	close: (
+		action: Extract<HostAction, { kind: typeof HOST_ACTION_CLOSE }>,
+	) => void | Promise<void>;
 };
 
 export async function dispatchHostAction(

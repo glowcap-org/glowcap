@@ -20,16 +20,8 @@ import { ab, readBytes } from "./internal/seam.ts";
 import { checkHost, PancakeError } from "./errors.ts";
 import { type Codec, Reachability } from "./value.ts";
 import { HINT_DIRECT_ADDRESSES, parseLocator } from "./locator.ts";
+import { L } from "./internal/layout.ts";
 import {
-	DIAL_PLAN_ADDRESSES_LEN_OFF,
-	DIAL_PLAN_ADDRESSES_OFF,
-	DIAL_PLAN_HOST_LEN_OFF,
-	DIAL_PLAN_HOST_OFF,
-	DIAL_PLAN_PORT_OFF,
-	DIAL_PLAN_REACH_KIND_OFF,
-	DIAL_PLAN_REACH_VALUE_OFF,
-	DIAL_PLAN_SHAPE_OFF,
-	DIAL_PLAN_SIZE,
 	DIAL_POSTURE_EXPLICIT,
 	DIAL_POSTURE_EXPLICIT_NONE,
 	DIAL_POSTURE_REDEEM,
@@ -38,14 +30,7 @@ import {
 	DIAL_SHAPE_HOST_PORT,
 	DIAL_SHAPE_PEER_ID,
 	INVALID_ARGUMENT,
-	PENDING_DIAL_DESIGNATOR_LEN_OFF,
-	PENDING_DIAL_DESIGNATOR_OFF,
-	PENDING_DIAL_HINT_LEN_OFF,
-	PENDING_DIAL_HINT_OFF,
-	PENDING_DIAL_SIZE,
-	PENDING_DIAL_TRANSPORT_LEN_OFF,
-	PENDING_DIAL_TRANSPORT_OFF,
-} from "./internal/abi.ts";
+} from "@pancake/abi";
 
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
@@ -106,7 +91,7 @@ function planDial(
 	const t = utf8Encoder.encode(transport);
 	const d = utf8Encoder.encode(designator);
 	const h = utf8Encoder.encode(directAddresses);
-	const out = new Uint8Array(DIAL_PLAN_SIZE);
+	const out = new Uint8Array(L.DIAL_PLAN_SIZE);
 	checkHost(driverS.pancake_host_plan_dial(
 		ab(t),
 		BigInt(t.length),
@@ -123,23 +108,23 @@ function planDial(
 	const str = (off: number, lenOff: number): string =>
 		decodePlanView(
 			sources,
-			dv.getBigUint64(off, true),
-			dv.getBigUint64(lenOff, true),
+			L.getPtr(dv, off),
+			L.getUsize(dv, lenOff),
 		);
-	const shape = dv.getUint32(DIAL_PLAN_SHAPE_OFF, true);
+	const shape = dv.getUint32(L.DIAL_PLAN_SHAPE_OFF, true);
 	if (shape === DIAL_SHAPE_PEER_ID) {
 		return {
 			tag: "peer_id",
-			addresses: str(DIAL_PLAN_ADDRESSES_OFF, DIAL_PLAN_ADDRESSES_LEN_OFF),
-			reachKind: dv.getUint32(DIAL_PLAN_REACH_KIND_OFF, true),
-			reachValue: dv.getUint32(DIAL_PLAN_REACH_VALUE_OFF, true),
+			addresses: str(L.DIAL_PLAN_ADDRESSES_OFF, L.DIAL_PLAN_ADDRESSES_LEN_OFF),
+			reachKind: dv.getUint32(L.DIAL_PLAN_REACH_KIND_OFF, true),
+			reachValue: dv.getUint32(L.DIAL_PLAN_REACH_VALUE_OFF, true),
 		};
 	}
 	if (shape === DIAL_SHAPE_HOST_PORT) {
 		return {
 			tag: "host_port",
-			hostname: str(DIAL_PLAN_HOST_OFF, DIAL_PLAN_HOST_LEN_OFF),
-			port: dv.getUint16(DIAL_PLAN_PORT_OFF, true),
+			hostname: str(L.DIAL_PLAN_HOST_OFF, L.DIAL_PLAN_HOST_LEN_OFF),
+			port: dv.getUint16(L.DIAL_PLAN_PORT_OFF, true),
 		};
 	}
 	throw new PancakeError(INVALID_ARGUMENT, `unknown dial shape ${shape}`);
@@ -183,7 +168,12 @@ export async function dialResolved(host: Host, req: DialRequest): Promise<Sessio
 		case "host_port": {
 			const tcp = await net.connect(plan.hostname, plan.port);
 			try {
-				return await Session.establishDialedLocator(host, req.transport, req.designator, tcp);
+				return await Session.establishDialedLocator(
+					host,
+					req.transport,
+					req.designator,
+					tcp,
+				);
 			} catch (err) {
 				tcp.close();
 				throw err;
@@ -250,17 +240,17 @@ export async function dialExporter(
 /** Ticket-only DIAL arm: borrow parsed parts (no URI re-parse), dial, report.
  * Binding-internal: the action drain calls this. */
 export async function runDialTicket(host: Host, ticket: bigint): Promise<void> {
-	const out = new Uint8Array(PENDING_DIAL_SIZE);
+	const out = new Uint8Array(L.PENDING_DIAL_SIZE);
 	try {
 		checkHost(driverS.pancake_host_pending_dial(host.raw, ticket, ab(out)));
 		const dv = new DataView(out.buffer);
 		const str = (off: number, lenOff: number): string => {
-			const len = dv.getBigUint64(lenOff, true);
-			return len === 0n ? "" : utf8Decoder.decode(readBytes(dv.getBigUint64(off, true), len));
+			const len = L.getUsize(dv, lenOff);
+			return len === 0n ? "" : utf8Decoder.decode(readBytes(L.getPtr(dv, off), len));
 		};
-		const transport = str(PENDING_DIAL_TRANSPORT_OFF, PENDING_DIAL_TRANSPORT_LEN_OFF);
-		const designator = str(PENDING_DIAL_DESIGNATOR_OFF, PENDING_DIAL_DESIGNATOR_LEN_OFF);
-		const hint = str(PENDING_DIAL_HINT_OFF, PENDING_DIAL_HINT_LEN_OFF);
+		const transport = str(L.PENDING_DIAL_TRANSPORT_OFF, L.PENDING_DIAL_TRANSPORT_LEN_OFF);
+		const designator = str(L.PENDING_DIAL_DESIGNATOR_OFF, L.PENDING_DIAL_DESIGNATOR_LEN_OFF);
+		const hint = str(L.PENDING_DIAL_HINT_OFF, L.PENDING_DIAL_HINT_LEN_OFF);
 		const session = await dialExporter(transport, designator, hint, host);
 		session.hostDialed = true;
 		session.serve().catch(() => {});

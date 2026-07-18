@@ -7,8 +7,20 @@
 //! session negotiated, so the engine above never has to name a codec itself.
 //! Either way, a codec only reads and writes bytes. It never decides what's valid.
 
+const std = @import("std");
+const model = @import("model");
+
 pub const syrup = @import("syrup");
 pub const capnp = @import("capnp");
+
+comptime {
+    // The two codecs' decode-depth caps are one bound: a frame one codec
+    // refuses for depth must refuse under the other too, and both sit above
+    // the owned materializer's `model.max_value_depth` so decode never rejects
+    // a frame the model walk would still admit.
+    std.debug.assert(syrup.decode.max_decode_nesting == capnp.decode.max_charge_depth);
+    std.debug.assert(syrup.decode.max_decode_nesting > model.max_value_depth);
+}
 /// Codec-neutral set/struct sort + adjacent-dupe refusal (ADR-0003).
 pub const order = @import("codec_order");
 pub const dispatch = @import("dispatch.zig");

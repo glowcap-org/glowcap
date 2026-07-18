@@ -61,7 +61,7 @@ import {
 	type Symbols,
 	WOULD_BLOCK,
 } from "@pancake/stack/ffi";
-import { DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS } from "../stack/internal/abi.ts";
+import { DISCOVERY_DIAL_MAX_ATTEMPTS, DISCOVERY_DIAL_RETRY_MS } from "@pancake/abi";
 import { irohS } from "./ffi.ts";
 
 // The calling thread's last error from the iroh transport, or null when there

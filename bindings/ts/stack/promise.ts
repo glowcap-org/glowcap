@@ -9,8 +9,8 @@
 
 import { driverS } from "./internal/ffi/driver.ts";
 import type { Ptr } from "./internal/ffi/runtime.ts";
-import { ab } from "./internal/seam.ts";
-import { INVALID_ARGUMENT } from "./internal/abi.ts";
+import { ab, outU64 } from "./internal/seam.ts";
+import { INVALID_ARGUMENT } from "@pancake/abi";
 import { checkHost, FetchFailed, PancakeError } from "./errors.ts";
 import { encodeArgs, refStruct } from "./codec.ts";
 import { type AppValue, type Argument, isReference, liftArg, lowerArg, Ref } from "./value.ts";
@@ -65,7 +65,7 @@ function projectVow(
 			ab(out),
 		));
 	}
-	return new DataView(out.buffer).getBigUint64(0, true);
+	return outU64(out);
 }
 
 /** Shared fetch/enliven wait: register the vow, keep the inbound loop running
@@ -113,7 +113,7 @@ export async function fetchLike(
 	h.drainGc();
 	const out = new Uint8Array(8);
 	checkHost(mint(h.ptr, ab(swiss), BigInt(swiss.length), ab(out)));
-	const vow = new DataView(out.buffer).getBigUint64(0, true);
+	const vow = outU64(out);
 	const result = await awaitMinted(h, vow);
 	return asLiveRef(result, label);
 }
@@ -180,7 +180,7 @@ export function sendFar(
 			ab(out),
 		));
 	}
-	const vow = new DataView(out.buffer).getBigUint64(0, true);
+	const vow = outU64(out);
 	h.vowMinted(vow);
 	return promiseFor(h, vow);
 }

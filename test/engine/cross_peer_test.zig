@@ -496,6 +496,58 @@ test "a withdraw that arrives before its deposit parks and settles once the gift
     try std.testing.expect(!exporter.giftRegistry().giftLive(gift_id_a[0..]));
 }
 
+test "a second early withdraw past max_pending_withdraws refuses loud and projects resource_exhausted" {
+    const allocator = std.testing.allocator;
+
+    const recipient_secret = crypto.SecretKey.fromSeed(repeated(32, 0x62));
+
+    // The park table is attacker-fed (a partner can flood `withdraw-gift`s whose
+    // deposits never arrive), so the cap must refuse, not silently drop.
+    var exporter = peer_fixture.openPeer(allocator);
+    defer exporter.deinit();
+    exporter.session_state.limits.max_pending_withdraws = 1;
+    try exporter.session_state.transitionToOpen();
+
+    // Two withdraws for gifts with no deposit. Signatures are never checked on
+    // the park path (verification happens at settle, once the deposit lands),
+    // but sign the receives the production way regardless.
+    for ([_][]const u8{ gift_id_a[0..], gift_id_b[0..] }, 0..) |gift_id, i| {
+        var receive = receiveWith(gift_id, 1, "");
+        const receive_signed = try syrup.canonicalHandoffReceiveSignedBytes(allocator, receive);
+        defer allocator.free(receive_signed);
+        const receive_sig = crypto.sign(&recipient_secret, receive_signed);
+        receive.signature = receive_sig.asBytes();
+
+        var handoff_arg = model.Handoff{ .receive = receive };
+        const frame = try syrup.encodeMessage(allocator, .{ .deliver = .{
+            .target = .{ .far = model.FarRef.object(0) },
+            .args = &.{ .{ .symbol = "withdraw-gift" }, .{ .handoff = &handoff_arg } },
+            .answer = .from(@intCast(i + 1)),
+        } });
+        try exporter.feedOwned(frame);
+        if (i == 0) {
+            while ((try exporter.step()) != .idle) {}
+            try std.testing.expectEqual(@as(usize, 1), exporter.pending_withdraws.items.len);
+        }
+    }
+
+    // The second early withdraw trips the cap: the dispatch fails loud with the
+    // typed refusal, nothing is parked past the bound, and the projected abort
+    // closes the session as resource_exhausted.
+    try std.testing.expectError(session.Error.PendingWithdrawCapExceeded, exporter.step());
+    try std.testing.expectEqual(@as(usize, 1), exporter.pending_withdraws.items.len);
+    const classified = engine.abort_projection.classify(session.Error.PendingWithdrawCapExceeded);
+    try std.testing.expectEqual(model.AbortKind.resource_exhausted, classified.abort.?.kind);
+    try std.testing.expectEqual(session.State.closed, exporter.session_state.state);
+    // The projected op:abort frame itself is queued for the wire.
+    var abort_frame = exporter.takeOutbound() orelse return error.TestNoAbortFrame;
+    abort_frame.deinit();
+    while (exporter.pollEvent()) |event_value| {
+        var event = event_value;
+        event.deinit();
+    }
+}
+
 test "third-party handoff rejects a give signed by a key other than the recorded gifter" {
     const allocator = std.testing.allocator;
 

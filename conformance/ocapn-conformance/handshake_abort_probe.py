@@ -1,13 +1,15 @@
 """Assert the pancake peer aborts a malformed `op:start-session` handshake.
 
-The upstream suite's `tests.op_start_session` module is the authority, but its
-two `crossed_hellos` cases sort alphabetically before the invalid-signature /
-invalid-version cases and block on the suite's per-receive timeout (crossed-hellos
-mitigation is a separate, unimplemented gap). This probe drives the same two
-checks the suite's `test_start_session_with_invalid_signature` and
-`test_start_session_with_invalid_version` make — using the suite's own netlayer
-and message types — so the orchestrator can gate on them without waiting out the
-crossed-hellos timeouts.
+The upstream suite's `tests.op_start_session` module is the authority and
+passes in full (crossed-hellos resolution included; the peer routes it through
+the host's tiebreak). But its two `crossed_hellos` cases sort alphabetically
+before the invalid-signature / invalid-version cases and each drives a real
+enliven dial plus the suite's per-receive waits, consuming most of the
+wrapper's 5s module cap. This probe drives the same two abort checks the
+suite's `test_start_session_with_invalid_signature` and
+`test_start_session_with_invalid_version` make, using the suite's own netlayer
+and message types, so the orchestrator gates on them on a tight budget without
+waiting out the crossed-hellos legs first.
 
 Run under the same `uv` environment as `run.sh`; it adds the suite's `upstream/`
 to `sys.path` itself, so it works from any cwd.

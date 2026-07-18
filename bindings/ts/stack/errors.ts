@@ -7,7 +7,7 @@
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 import { driverS } from "./internal/ffi/driver.ts";
 import { readErrorSlot } from "./internal/seam.ts";
-import { ABORT_DOMAIN_CODEC, ABORT_DOMAIN_SESSION, BROKEN, OK } from "./internal/abi.ts";
+import { ABORT_DOMAIN_CODEC, ABORT_DOMAIN_SESSION, BROKEN, OK } from "@pancake/abi";
 
 /** The calling thread's last core-archive (`pancake_*`) error message, or null
  * when there is none. */

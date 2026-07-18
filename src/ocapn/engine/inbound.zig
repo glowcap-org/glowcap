@@ -29,10 +29,14 @@ const codec = @import("codec");
 
 /// Dispatch an owned inbound frame, taking ownership.
 ///
-/// On success the frame moves into the surfaced event (zero copy). On any
-/// error the frame is released and session state is left unchanged: the event
-/// is enqueued before `recordRecv`, with rollback if authority rejects it, so
-/// session state never advances without a matching event and vice versa.
+/// On success the frame moves into the surfaced event (zero copy). Before
+/// authority applies, any error releases the frame and leaves session state
+/// unchanged: the event is enqueued before `recordRecv`, with rollback if
+/// authority rejects it, so session state never advances without a matching
+/// event. Once apply has committed, a responder or projection failure (a
+/// projection anchor refusal, a bootstrap responder cap or send refusal)
+/// keeps the surfaced event and the recorded state, which match what was
+/// admitted, and projects the abort like any other dispatch failure.
 ///
 /// A rejection that names a protocol violation (codec-malformed frame or a
 /// session state-machine refusal) projects to a typed outbound `op:abort`

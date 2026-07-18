@@ -138,6 +138,14 @@ not a second CapTP stack. CapTP never names a transport.
     vocabulary by layout — the family reads for the `Host` entry type though
     the archive is named for its module, as `libpancake_net_transport_tcp` →
     `pancake_tcp_*` does.
+  - `c_abi/wasm` (module `c_abi_wasm`): the browser binding's freestanding
+    `wasm32` entry root (ADR-0070). It imports `c_abi_shared`, `c_abi`, and
+    `c_abi_driver` to force the `pancake_*` (ocapn) and `pancake_host_*` export
+    families into one loadable wasm module, and adds the two JS<->wasm linear-
+    memory primitives `pancake_wasm_alloc` / `pancake_wasm_free`. It adds no
+    CapTP surface of its own; a browser instantiates the module and drives the
+    byte-fed Host with bytes exactly as a C embedder does. Built by
+    `zig build wasm-driver`; sits outside the layer DAG (`.graph = false`).
   - `c_abi/net_transport` is the grouping directory for the transport archives:
     it holds no source of its own, only one subdirectory per transport,
     mirroring the `libpancake_net_transport_{tcp,inproc,iroh}` archive family.

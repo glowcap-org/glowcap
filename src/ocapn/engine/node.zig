@@ -321,14 +321,17 @@ pub const Node = struct {
     /// high id. The dead rows are reclaimed at `deinit`.
     pub fn removePeer(self: *Node, peer_id: PeerId) void {
         if (peer_id.int() >= self.peers.items.len) return;
-        const slot = self.peers.items[peer_id.int()] orelse return;
+        // Guarded < len (a usize), so the id fits the index type; the cast keeps
+        // the slice access valid on a 32-bit target (wasm32, ADR-0070).
+        const idx: usize = @intCast(peer_id.int());
+        const slot = self.peers.items[idx] orelse return;
         // Only a node-owned peer is freed here; an adopted (`registerPeerOver`)
         // peer is the embedder's to free, so the node only unregisters the slot.
         if (slot.owned) {
             slot.peer.deinit();
             self.allocator.destroy(slot.peer);
         }
-        self.peers.items[peer_id.int()] = null;
+        self.peers.items[idx] = null;
         if (self.exporter_locations.fetchRemove(peer_id)) |prev| self.allocator.free(prev.value);
 
         // Evict the exporter-cache rows naming this CapTP session, so a later
@@ -414,7 +417,9 @@ pub const Node = struct {
 
     fn peerAt(self: *Node, peer_id: PeerId) ?*engine.Peer {
         if (peer_id.int() >= self.peers.items.len) return null;
-        const slot = self.peers.items[peer_id.int()] orelse return null;
+        // Guarded < len (a usize): safe to narrow for indexing on wasm32.
+        const idx: usize = @intCast(peer_id.int());
+        const slot = self.peers.items[idx] orelse return null;
         return slot.peer;
     }
 

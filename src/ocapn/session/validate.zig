@@ -482,13 +482,6 @@ fn validateInboundArgument(
 /// of every element was already bounded by the surrounding walk.
 fn checkInboundSetUniqueness(self: *Session, items: anytype) RecvViewError!void {
     const arena = self.recv_scratch.allocator();
-    const Row = struct {
-        hash: u64,
-        index: usize,
-        fn lessThan(_: void, a: @This(), b: @This()) bool {
-            return a.hash < b.hash;
-        }
-    };
     if (comptime @TypeOf(items) == model.view.Args) {
         // `len()` reads the list header (O(1)); no decode-walk just to count.
         const count = try items.len();
@@ -498,22 +491,22 @@ fn checkInboundSetUniqueness(self: *Session, items: anytype) RecvViewError!void 
         // break the flat scratch budget in deliver_set_scratch_budget_test).
         const stack_cap = 8;
         var stack_elements: [stack_cap]model.view.Argument = undefined;
-        var stack_rows: [stack_cap]Row = undefined;
+        var stack_rows: [stack_cap]SetHashRow = undefined;
         const elements: []model.view.Argument = if (count <= stack_cap)
             stack_elements[0..count]
         else
             try arena.alloc(model.view.Argument, count);
-        const rows: []Row = if (count <= stack_cap)
+        const rows: []SetHashRow = if (count <= stack_cap)
             stack_rows[0..count]
         else
-            try arena.alloc(Row, count);
+            try arena.alloc(SetHashRow, count);
         var it = items.iterator();
         var i: usize = 0;
         while (try it.next()) |element| : (i += 1) {
             elements[i] = element;
             rows[i] = .{ .hash = try model.equality.viewArgumentHash(element), .index = i };
         }
-        std.mem.sort(Row, rows, {}, Row.lessThan);
+        std.mem.sort(SetHashRow, rows, {}, SetHashRow.lessThan);
         var run_start: usize = 0;
         for (rows, 0..) |row, ri| {
             if (row.hash != rows[run_start].hash) run_start = ri;
@@ -529,21 +522,77 @@ fn checkInboundSetUniqueness(self: *Session, items: anytype) RecvViewError!void 
         }
         return;
     }
-    if (items.len < 2) return;
-    const elements: []const model.Argument = items;
-    const rows = try arena.alloc(Row, elements.len);
+    try checkOwnedSetUniqueness(arena, items);
+}
+
+/// One hash row of the set-uniqueness fold: sort by hash so Equal elements
+/// land adjacent, confirm with a real compare before refusing.
+const SetHashRow = struct {
+    hash: u64,
+    index: usize,
+    fn lessThan(_: void, a: @This(), b: @This()) bool {
+        return a.hash < b.hash;
+    }
+};
+
+/// The owned-slice arm of the set-uniqueness fold, shared by the inbound
+/// owned fallback above and the send-side walk (`validateArgument`). The
+/// inbound path hands the recv arena (rows die in the turn reset); the send
+/// path hands the session gpa (no recv turn brackets a send), so small sets
+/// stay on the stack and a spilled row slice is freed here precisely.
+fn checkOwnedSetUniqueness(
+    scratch: std.mem.Allocator,
+    elements: []const model.Argument,
+) error{ OutOfMemory, DuplicateSetElement }!void {
+    if (elements.len < 2) return;
+    const stack_cap = 8;
+    var stack_rows: [stack_cap]SetHashRow = undefined;
+    const spilled = elements.len > stack_cap;
+    const rows: []SetHashRow = if (spilled)
+        try scratch.alloc(SetHashRow, elements.len)
+    else
+        stack_rows[0..elements.len];
+    defer if (spilled) scratch.free(rows);
     for (elements, 0..) |element, idx| {
         rows[idx] = .{ .hash = model.equality.argumentHash(element), .index = idx };
     }
-    std.mem.sort(Row, rows, {}, Row.lessThan);
+    std.mem.sort(SetHashRow, rows, {}, SetHashRow.lessThan);
     var run_start: usize = 0;
     for (rows, 0..) |row, ri| {
         if (row.hash != rows[run_start].hash) run_start = ri;
         for (rows[run_start..ri]) |prior| {
             if (model.equality.argumentsEqual(elements[prior.index], elements[row.index])) {
-                return Error.DuplicateSetElement;
+                return error.DuplicateSetElement;
             }
         }
+    }
+}
+
+/// Refuse a send-side struct carrying two entries with the same key, the
+/// validate-time twin of the codecs' canonical-order refusals (ADR-0003).
+/// Sorts a shallow copy of the borrowed key slices so a repeat is an adjacent
+/// pair; small structs stay on the stack, a spill is freed here precisely.
+fn checkSentStructKeyUniqueness(
+    scratch: std.mem.Allocator,
+    entries: []const model.StructEntry,
+) error{ OutOfMemory, DuplicateStructKey }!void {
+    if (entries.len < 2) return;
+    const stack_cap = 8;
+    var stack_keys: [stack_cap][]const u8 = undefined;
+    const spilled = entries.len > stack_cap;
+    const keys: [][]const u8 = if (spilled)
+        try scratch.alloc([]const u8, entries.len)
+    else
+        stack_keys[0..entries.len];
+    defer if (spilled) scratch.free(keys);
+    for (entries, 0..) |entry, i| keys[i] = entry.key;
+    std.mem.sort([]const u8, keys, {}, struct {
+        fn lessThan(_: void, a: []const u8, b: []const u8) bool {
+            return std.mem.order(u8, a, b) == .lt;
+        }
+    }.lessThan);
+    for (keys[1..], 0..) |key, i| {
+        if (std.mem.eql(u8, keys[i], key)) return error.DuplicateStructKey;
     }
 }
 
@@ -579,25 +628,57 @@ const SendRefCheck = enum { held_import, skip };
 /// breaching apply's all-or-nothing contract. One walk, one depth threshold,
 /// so the cap cannot drift between the deliver and resolve paths. `ref_check`
 /// is comptime, so the reference branch folds away per call site.
-fn validateArguments(self: *Session, args: []const model.Argument, depth: usize, comptime ref_check: SendRefCheck) Error!void {
+/// Send-side argument validation allocates bounded scratch for the set /
+/// struct-key uniqueness folds (gpa, stack-first), so the walk carries the
+/// allocator errors the pure reference checks do not.
+const SendArgError = Error || std.mem.Allocator.Error;
+
+/// The pre-commit rule for a locally supplied resolution bound for a store
+/// (the relayed-resolution seam, `Peer.applyRelayedResolution`): the same
+/// depth bound and set / struct-key uniqueness `validateSend` holds for a
+/// resolve's fulfill payload, applied to the one entry point that stores an
+/// application value without a send. References are only depth-bounded
+/// (`.skip`), matching the resolve arm's export-on-resolve asymmetry.
+pub fn validateStoredResolution(self: *Session, resolution: model.Resolution) SendArgError!void {
+    switch (resolution) {
+        .fulfill => |arg| try validateArgument(self, arg, 0, .skip),
+        .@"break" => {},
+    }
+}
+
+fn validateArguments(self: *Session, args: []const model.Argument, depth: usize, comptime ref_check: SendRefCheck) SendArgError!void {
     if (depth > self.limits.max_nesting_depth) return Error.NestingTooDeep;
     for (args) |arg| {
         try validateArgument(self, arg, depth, ref_check);
     }
 }
 
-fn validateArgument(self: *Session, arg: model.Argument, depth: usize, comptime ref_check: SendRefCheck) Error!void {
+fn validateArgument(self: *Session, arg: model.Argument, depth: usize, comptime ref_check: SendRefCheck) SendArgError!void {
     switch (arg) {
         .reference => |reference| switch (ref_check) {
             .held_import => try validateReference(self, reference, .sent, .held_import),
             .skip => {},
         },
         .list => |items| try validateArguments(self, items, depth + 1, ref_check),
-        .set => |items| try validateArguments(self, items, depth + 1, ref_check),
+        .set => |items| {
+            try validateArguments(self, items, depth + 1, ref_check);
+            // A duplicate set element refuses here, pre-commit, symmetric with
+            // the inbound fold. The encoders refuse byte-equal duplicates too
+            // (ADR-0003), but only at encode time in `step`, after
+            // `retainSentExports` committed wire-delta retains for a frame
+            // that never ships, the same all-or-nothing breach the depth
+            // bound above closes. This fold is at least as strict as encode:
+            // model-Equal-but-byte-distinct spellings (two NaN bit patterns)
+            // refuse only here, exactly as they would inbound.
+            try checkOwnedSetUniqueness(self.allocator, items);
+        },
         .tagged => |tagged| try validateArguments(self, tagged.value, depth + 1, ref_check),
         .@"struct" => |entries| {
             if (depth + 1 > self.limits.max_nesting_depth) return Error.NestingTooDeep;
             for (entries) |entry| try validateArgument(self, entry.value, depth + 1, ref_check);
+            // Duplicate struct keys share the set arm's contract: refuse
+            // pre-commit, not at encode.
+            try checkSentStructKeyUniqueness(self.allocator, entries);
         },
         // Exhaustive on purpose, see `validateInboundArgument`.
         .bytes, .symbol, .string, .keyword, .integer, .big_integer, .boolean, .float64, .void, .@"error", .handoff => {},

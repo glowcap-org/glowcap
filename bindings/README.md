@@ -68,9 +68,8 @@ Promise pipelining is on the application surface itself. The handle a `send`
 returns is a valid target for the next `send`. A call addressed at an answer that
 has not resolved yet costs one round trip instead of one per dependent link.
 That is the serving side in ADR-0007 and the questioner side in ADR-0065. Pass
-the vow back as the target. Rust uses `RemotePromise`; Python and TypeScript use
-`RemotePromise`; Racket uses the `session-send-promise` result. Settle only the
-tail.
+the vow back as the target. Rust, Python, and TypeScript use `RemotePromise`;
+Racket uses the `session-send-promise` result. Settle only the tail.
 
 All four bindings ship the session tier alone over the byte-fed host archive
 (`pancake_host_*`, ADR-0072). Their raw `pancake_peer_*` wrappers are gone. The
@@ -171,7 +170,8 @@ Together the archives expose these groups:
   it answers the host's own near-call exactly as it answers a partner's
   delivery. Each binding owns this in its serve loop. The C ABI stays the same
   low-level deliver and resolve surface.
-- **Typed event pump (waist).** `pancake_peer_next_event` is the one call a
+- **Typed event pump (the waist: the narrow event surface every binding
+  shares).** `pancake_peer_next_event` is the one call a
   consumer's event loop needs. It drives the engine to idle. A settlement
   cascade surfaces in full, so there is no "step, then re-poll" rule to learn.
   It then hands back the next event fully projected. A deliver or resolve
@@ -244,11 +244,11 @@ language-native async layer.
 | Binding | Core module | Per-transport modules | Binding check consumer |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- | --------------------------------------- |
 | [`rust/`](rust/) | crate root (the `Session`/`Host` surface over the byte-fed host, `Reference`/`Argument` enums) | `tcp`, `inproc`, `iroh` modules behind Cargo features | `cargo test` |
-| [`ts/`](ts/) | `mod.ts` / `@pancake/stack` (the `Session`/`Host` surface over the byte-fed host; one source for Deno + Bun) | `@pancake/stack/transport/{tcp,inproc}` plus the optional `@pancake/iroh` package | `dogfood/zig_smoke.ts` (Deno + Bun checks) |
+| [`ts/`](ts/) | `mod.ts` / `@pancake/stack` (the `Session`/`Host` surface over the byte-fed host; one source for Deno + Bun, and for the browser through [`@pancake/web`](ts/web/README.md)'s wasm adapter) | `@pancake/stack/transport/{tcp,inproc}` plus the optional `@pancake/iroh` package; the browser channel is WebSocket | `dogfood/zig_smoke.ts` (Deno + Bun checks), `web-peer-test` (browser peer) |
 | [`python/`](python/) | the `pancake` package (the `Session`/`Host` surface over the byte-fed host, native Python values) | `pancake.tcp`, `pancake.inproc`, `pancake.iroh` | `zig_smoke.py` |
 | [`racket/`](racket/) | `pancake.rkt` (the `session` surface, native Racket values, event structs) | `pancake-tcp.rkt`, `pancake-inproc.rkt`, `pancake-iroh.rkt` | `zig-smoke.rkt` |
 
-Picking transports à la carte reads the same way in every binding, import or
+Picking transports à la carte reads the same way in every binding. Import or
 enable the core, then add only the transports you want:
 
 ```ts
@@ -609,8 +609,8 @@ relay-less `Direct` posture (`zig build bindings-iroh-handoff`:
 exporter by node id alone is redeemed under the recipient's configured redeem
 posture. `Discovery` is the default. Each binding can lower it to
 `DiscoveryNoRelay` through its own knob (`setRedeemReachability` in TS,
-`redeem_reachability` in Python, `set-host-redeem-reachability!` in Racket). A
-hinted give always dials `Direct` and ignores the knob. Self-contained posture proof:
+`redeem_reachability` in Python, `set-host-redeem-reachability!` in Racket).
+Self-contained posture proof:
 `bindings-iroh-redeem-posture`. Offline dial-by-id uses `*-iroh-loop`. Live
 dial-by-id over n0 uses `bindings-iroh-reachability` (opt-in, out of `check`).
 The full shipped story is in [`docs/shipped.md`](../docs/shipped.md).
@@ -681,7 +681,6 @@ Bindings do not shell out to it.
    Windows release matrix leg exists. That leg is blocked on portable
    `release-pack`, the iroh `.a` link path, and Windows TCP with `std.Io` (see
    ADR-0077). Formula pins for URL, cache, and `want_fetch` live in
-   pins for URL / cache / `want_fetch` live in
    [`../tools/c-abi/c-abi-resolve-cases.json`](../tools/c-abi/c-abi-resolve-cases.json) and are checked
    by `meta_check`.
 3. **`zig-out/lib` (dev fallback).** Otherwise, when a pancake checkout is

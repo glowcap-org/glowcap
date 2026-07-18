@@ -6,15 +6,17 @@ Canonical home for agent-facing guidance in this Zig repository.
 
 ```text
 .agents/
-├── README.md   # this file; the Rules, Skills, and Hooks tables below are canonical
+├── README.md   # this file; the Rules, Skills, Personas, and Hooks tables below are canonical
 ├── rules/      # one .md per rule — see the Rules table
 ├── skills/     # one directory per skill, each with a SKILL.md — see the Skills table
+├── personas/   # anonymous taste lenses (slug.md) — see the Personas table
 └── hooks/      # shared hook scripts, see the Hooks table
 ```
 
 The tables below enumerate the contents and `zig build meta-check` holds them to
 the directories in both directions, so the tree shows shape only and cannot
-drift behind a file the tables already gate.
+drift behind a file the tables already gate. Named people and person-named
+slugs live only in user XDG (`$XDG_CONFIG_HOME/agents/personas/`), never here.
 
 Tool overlays must point back to canonical rules here rather than duplicating
 guidance:
@@ -52,13 +54,25 @@ inventory; update it in the same change as any intentional scaffolding move.
 
 | Skill                            | Purpose                                                                              |
 | -------------------------------- | ------------------------------------------------------------------------------------ |
-| [community-review](skills/community-review/SKILL.md) | Preflight for an OCapN wire/suite or Spritely Goblins interop read: dual lenses, cite evidence, never name people |
-| [pancake-cli](skills/pancake-cli/SKILL.md) | CapTP from the shell: argv/REPL/listen/`--json` via `pancake` on PATH; session model, exit codes; rooms wake-loop stays in rooms-peer |
-| [pancake-mcp](skills/pancake-mcp/SKILL.md) | CapTP via project MCP (`.cursor/mcp.json` / `.mcp.json` → `./pancake mcp`); dogfood live CapTP while writing pancake; catalogs, identity, `tools/list` |
-| [rooms-peer](skills/rooms-peer/SKILL.md) | Background CapTP rooms presence via `pancake app rooms-peer` (`rooms-peer` thin install shim); background `tick` wakes the agent; start/tick/reply/dismiss/stop |
-| [serena](skills/serena/SKILL.md) | Operating notes for Serena MCP tools in the Zig repo                                 |
-| [smell-annihilation](skills/smell-annihilation/SKILL.md) | Architectural smell pass: dual XDG/project personas, root fixes, memory/perf, kaizen (incl. dead code), turn lessons into gates |
-| [work](skills/work/SKILL.md)     | Substantial work: assess, act or prove inaction, verify, compound for the next agent |
+| [community-review](skills/community-review/SKILL.md) | OCapN / Goblins community-review preflight |
+| [pancake-cli](skills/pancake-cli/SKILL.md) | Shell CapTP (argv / REPL / listen / `--json`) |
+| [pancake-mcp](skills/pancake-mcp/SKILL.md) | In-host CapTP via project MCP |
+| [rooms-peer](skills/rooms-peer/SKILL.md) | Single-agent durable room presence and wake loop |
+| [rooms-team](skills/rooms-team/SKILL.md) | Multi-persona durable team in a pancake room |
+| [serena](skills/serena/SKILL.md) | Serena MCP operator notes for Zig |
+| [smell-annihilation](skills/smell-annihilation/SKILL.md) | Structural smell pass (architecture + cost) |
+| [work](skills/work/SKILL.md) | Substantial work: assess, act or prove inaction |
+
+## Personas
+
+Anonymous project lenses only (`slug` = filename stem). Lookup order, XDG, and
+file shape: [`personas/README.md`](personas/README.md).
+
+| Persona | Purpose |
+| ------- | ------- |
+| [agentic-lead](personas/agentic-lead.md) | Multi-agent orchestration lead (default rooms-team lead) |
+| [scaffold-rigor](personas/scaffold-rigor.md) | Agent scaffolding sharpness — short skills, gates over folklore |
+| [wire-clarity](personas/wire-clarity.md) | Protocol evidence over folklore — CapTP/OCapN seams |
 
 ## Hooks
 

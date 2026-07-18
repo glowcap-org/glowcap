@@ -1,0 +1,131 @@
+// The ADR-0070 Milestone 1 proof, run by `zig build web-peer-test`: a browser-
+// shaped pancake peer holds a real keyed OCapN session over WebSocket.
+//
+// Two processes so the two runtime adapters never share a module graph: the
+// child (`serve_ws_host.ts`) is a native dlopen host accepting WebSocket; this
+// process loads the stack through `@pancake/web` — the wasm module, the
+// linear-memory FFI adapter, the WebSocket channel — with no `Deno.dlopen`
+// anywhere in its path. The proof: the keyed handshake terminates inside the
+// wasm peer, a fetch and a call settle, and the host calls back into an object
+// the wasm peer itself hosts (the behavior trampoline crossing the wasm
+// boundary inbound).
+//
+// Everything here is browser-shaped API (WebAssembly, WebSocket, fetch-style
+// bytes); Deno supplies the same globals, which is what makes the check
+// in-tree and socket-real at once.
+
+import { init } from "@pancake/web";
+
+function fail(message: string): never {
+	console.error(`FAIL: ${message}`);
+	Deno.exit(1);
+}
+
+// A hang is a bug, never a slow test (the cli rule's posture): bound the whole
+// scenario.
+const deadline = setTimeout(() => fail("web peer scenario timed out after 30s"), 30_000);
+
+// 1. Start the accepting host and wait for its READY line.
+const child = new Deno.Command(Deno.execPath(), {
+	args: [
+		"run",
+		"--allow-ffi",
+		"--allow-read",
+		"--allow-net",
+		"--allow-env",
+		import.meta.dirname + "/serve_ws_host.ts",
+	],
+	stdout: "piped",
+	stderr: "inherit",
+}).spawn();
+
+const readyLine = await (async () => {
+	const reader = child.stdout.getReader();
+	const decoder = new TextDecoder();
+	let buffered = "";
+	while (true) {
+		const { value, done } = await reader.read();
+		if (done) fail("host exited before READY");
+		buffered += decoder.decode(value);
+		const newline = buffered.indexOf("\n");
+		if (newline !== -1) {
+			reader.releaseLock();
+			return buffered.slice(0, newline);
+		}
+	}
+})();
+const ready = JSON.parse(readyLine) as {
+	port: number;
+	designator: string;
+	capnpPort: number;
+	capnpDesignator: string;
+};
+
+try {
+	// 2. Load the stack over the wasm peer. The wsUrl map says how a dialed
+	//    host:port reaches its bytes; here the host accepts WebSocket on the
+	//    dialed port itself.
+	const wasmBytes = await Deno.readFile(
+		new URL("../../../../zig-out/wasm/pancake_driver.wasm", import.meta.url),
+	);
+	const stack = await init({
+		wasm: wasmBytes,
+		wsUrl: (host, port) => `ws://${host}:${port}/`,
+	});
+
+	// 3. Dial the keyed locator. The handshake verifies the host's key inside
+	//    the wasm session; a squatter would refuse here.
+	const session = await stack.connect(
+		stack.keyedTcpLocator(ready.designator, "127.0.0.1", ready.port),
+	);
+	session.serve().catch(() => {});
+
+	// 4. Fetch and call, and host an object of our own for the callback leg.
+	let resolveNotify!: (value: string) => void;
+	const notifiedValue = new Promise<string>((r) => {
+		resolveNotify = r;
+	});
+	const collector = session.spawn((verb, args) => {
+		if (verb === "notify") resolveNotify(args[0] as string);
+		return null;
+	});
+
+	const greeter = await session.fetch("greeter");
+	const reply = await session.send(greeter, "greet", ["web", collector]);
+	if (reply !== "hello web") fail(`unexpected greet reply: ${JSON.stringify(reply)}`);
+
+	const seen = await notifiedValue;
+	if (seen !== "saw web") fail(`unexpected callback payload: ${JSON.stringify(seen)}`);
+
+	session.close();
+
+	// 5. The second grammar: a fresh dial negotiates Cap'n Proto against the
+	//    capnp host, so both codecs run inside the wasm peer on this proof.
+	const capnpSession = await stack.connect(
+		stack.keyedTcpLocator(ready.capnpDesignator, "127.0.0.1", ready.capnpPort),
+		undefined,
+		undefined,
+		"capnp",
+	);
+	capnpSession.serve().catch(() => {});
+	const capnpGreeter = await capnpSession.fetch("greeter");
+	const capnpReply = await capnpSession.send(capnpGreeter, "greet", ["capnp web"]);
+	if (capnpReply !== "hello capnp web") {
+		fail(`unexpected capnp greet reply: ${JSON.stringify(capnpReply)}`);
+	}
+	capnpSession.close();
+
+	console.log(
+		"PASS: a wasm browser peer held keyed OCapN sessions over WebSocket " +
+			"(fetch, call, a host call back into a wasm-hosted object, both codecs)",
+	);
+} finally {
+	clearTimeout(deadline);
+	try {
+		child.kill();
+	} catch {
+		// already gone
+	}
+	await child.status;
+}
+Deno.exit(0);

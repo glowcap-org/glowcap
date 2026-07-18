@@ -6,7 +6,7 @@
 import { driverS } from "./internal/ffi/driver.ts";
 import { type Ptr } from "./internal/ffi/runtime.ts";
 import { checkHost } from "./errors.ts";
-import { REDEEMED_TOKEN_BASE } from "./internal/abi.ts";
+import { REDEEMED_TOKEN_BASE } from "@pancake/abi";
 import type { Ref } from "./value.ts";
 
 /** Session callbacks ConnGc needs without importing Session. */

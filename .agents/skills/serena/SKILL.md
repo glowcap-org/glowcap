@@ -8,6 +8,14 @@ description: "Use when calling Serena MCP tools for Zig symbols, diagnosing Sere
 Use this after the [`serena-mcp`](../../rules/serena-mcp.md) rule says Serena is
 the right tool.
 
+## When not to use
+
+- Non-Zig symbol work, or host file/search tools already suffice → skip Serena
+- The [`serena-mcp`](../../rules/serena-mcp.md) rule says not to use Serena for
+  this task → obey the rule
+- CapTP / rooms presence → [pancake-mcp](../pancake-mcp/SKILL.md) /
+  [pancake-cli](../pancake-cli/SKILL.md) / [rooms-peer](../rooms-peer/SKILL.md)
+
 ## Project State
 
 - Config: [`.serena/project.yml`](../../../.serena/project.yml)

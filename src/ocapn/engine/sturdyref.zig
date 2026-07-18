@@ -66,17 +66,21 @@ pub fn checkEnlivenPreconditions(session: *session_mod.Session) Error!void {
     if (session.state != .open) return Error.SessionNotOpen;
 }
 
-/// ADR-0012 cache short-circuit: if `sturdyref.swissnum` was already enlivened on
+/// ADR-0012 cache short-circuit: if `swissnum` was already enlivened on
 /// `session`, rebuild the cached `Reference.far` (kind preserved, ADR-0010
 /// § The far-kind is preserved across enliven) without wire traffic. Returns
 /// null on a cache miss; callers fall
 /// through to a fresh enliven. The returned reference is POD (no allocation).
-pub fn sturdyrefCacheHit(session: *session_mod.Session, sturdyref: model.SturdyRef) ?model.Reference {
-    const entry = session.sturdyrefCacheLookup(sturdyref.swissnum) orelse return null;
+///
+/// The swiss-number is the whole enliven key: a sturdyref's peer locator
+/// carries no authority here (whether it names this session's remote is the
+/// adapter's dial concern), so the core never takes one.
+pub fn sturdyrefCacheHit(session: *session_mod.Session, swissnum: []const u8) ?model.Reference {
+    const entry = session.sturdyrefCacheLookup(swissnum) orelse return null;
     return .{ .far = entry.far };
 }
 
-/// Begin an enliven for `sturdyref`. Checks preconditions, then resolves to a
+/// Begin an enliven for `swissnum`. Checks preconditions, then resolves to a
 /// cache hit, an in-flight collapse, or a fresh bootstrap-fetch (ADR-0012). On
 /// the fresh path the in-flight marker is recorded so a concurrent enliven for
 /// the same swiss-number collapses; on any allocation failure every allocation
@@ -84,21 +88,24 @@ pub fn sturdyrefCacheHit(session: *session_mod.Session, sturdyref: model.SturdyR
 pub fn prepareEnliven(
     allocator: std.mem.Allocator,
     session: *session_mod.Session,
-    sturdyref: model.SturdyRef,
+    swissnum: []const u8,
 ) !EnlivenStart {
     try checkEnlivenPreconditions(session);
 
-    if (sturdyrefCacheHit(session, sturdyref)) |reference| {
+    if (sturdyrefCacheHit(session, swissnum)) |reference| {
         return .{ .cached = reference };
     }
-    if (session.pendingEnlivenAnswer(sturdyref.swissnum)) |answer| {
+    if (session.pendingEnlivenAnswer(swissnum)) |answer| {
         return .{ .in_flight = answer };
     }
 
-    const prepared = try fetch.prepareFetchSwissnum(allocator, session, sturdyref.swissnum);
+    const prepared = try fetch.prepareFetchSwissnum(allocator, session, swissnum);
     errdefer model.freeMessage(allocator, prepared.message);
     errdefer session.releaseUnsharedExport(prepared.resolver_export);
-    try session.notePendingEnliven(sturdyref.swissnum, prepared.answer_position);
+    // The prepare also retained the well-known bootstrap import; a failed
+    // enliven unwinds that too, so nothing this call took survives it.
+    errdefer session.releaseImportRetain(.from(session_mod.BOOTSTRAP_POSITION));
+    try session.notePendingEnliven(swissnum, prepared.answer_position);
     return .{ .fresh = prepared };
 }
 

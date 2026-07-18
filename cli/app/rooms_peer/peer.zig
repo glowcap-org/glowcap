@@ -23,7 +23,6 @@ const frame_cap = common.frame_cap;
 const timer_ms = common.timer_ms;
 const redial_cooldown_wakes = common.redial_cooldown_wakes;
 const dial_timeout_ms = common.dial_timeout_ms;
-const default_locator = common.default_locator;
 const emitStdout = common.emitStdout;
 const emitStdoutFmt = common.emitStdoutFmt;
 
@@ -37,6 +36,10 @@ const scanInbox = harness.scanInbox;
 const markReplied = harness.markReplied;
 const parseOutboxLine = harness.parseOutboxLine;
 const OutboxLine = harness.OutboxLine;
+const saveOutboxOffset = harness.saveOutboxOffset;
+const loadOutboxOffset = harness.loadOutboxOffset;
+const clampOutboxOffset = harness.clampOutboxOffset;
+const advanceInboxWatermark = harness.advanceInboxWatermark;
 
 // These outlive an iroh-stack rebuild: the supervisor tears the per-attempt
 // stack (and its PeerState) down on a fatal loop error and builds a fresh one, so
@@ -76,12 +79,15 @@ const PeerState = struct {
     registered: bool = false,
     dialing: bool = false,
     redial_cooldown: u32 = 0,
+    /// Backoff between register retries while joined but not yet introducible.
+    register_cooldown: u32 = 0,
 
     /// Cached DM caps from `directory.introduce(nick)` (owned refs + keys).
     dm_caps: std.StringHashMapUnmanaged(model.Reference) = .{},
     /// Nicks with an introduce in flight (owned keys).
     pending_introduces: std.StringHashMapUnmanaged(void) = .{},
-    /// Nicks whose introduce broke; skip further outbox lines until reconnect.
+    /// Nicks whose introduce broke. Outbox drain stops at their DM lines
+    /// without advancing the offset so reconnect can retry; cleared on reconnect.
     failed_introduces: std.StringHashMapUnmanaged(void) = .{},
 
     fn stopRequested() bool {
@@ -89,7 +95,7 @@ const PeerState = struct {
     }
 
     fn writeStateNow(self: *PeerState, status: []const u8) void {
-        writeState(self.io, self.gpa, self.dir, status, self.nick, self.room_name, self.locator_str);
+        writeState(self.io, self.gpa, self.dir, status, self.nick, self.room_name, self.locator_str, self.registered);
     }
 
     fn clearDmTables(self: *PeerState) void {
@@ -114,6 +120,7 @@ const PeerState = struct {
         self.joined = false;
         self.registered = false;
         self.dialing = false;
+        self.register_cooldown = 0;
         self.clearDmTables();
     }
 
@@ -168,7 +175,10 @@ const RegInbox = struct {
         _ = turn;
         if (!std.mem.eql(u8, msg.verb, "notify")) return error.NoSuchMethod;
         const kind = if (msg.args.len > 0 and msg.args[0] == .string) msg.args[0].string else "";
-        if (std.mem.eql(u8, kind, "registered")) self.state.registered = true;
+        if (std.mem.eql(u8, kind, "registered")) {
+            self.state.registered = true;
+            self.state.writeStateNow("joined");
+        }
         return .{ .void = {} };
     }
 };
@@ -251,7 +261,7 @@ fn sendDirectoryVerb(state: *PeerState, verb: []const u8, cb: *const fn (?*anyop
         log.err(state.io, "{s} vowOn failed: {s}", .{ verb, @errorName(err) });
         return;
     };
-    state.bridge.drainActions() catch {};
+    _ = flushBridge(state, .host);
 }
 
 /// Spawn our room inbox, hand it to the room in `subscribe`, register for
@@ -270,15 +280,23 @@ fn subscribeRoom(state: *PeerState, room: model.Reference) void {
         log.err(state.io, "subscribe failed: {s}", .{@errorName(err)});
         return;
     };
-    state.bridge.drainActions() catch {};
+    _ = flushBridge(state, .host);
     state.joined = true;
     g_ever_joined = true;
     state.writeStateNow("joined");
+    // Publish `dm` on this dialed room session so the directory can fetch it
+    // during register. The Bridge still auto-publishes on accepted desks for
+    // inbound redeem.
+    _ = session.served.publish("dm", DmInbox, .{ .state = state }) catch |err| {
+        log.err(state.io, "publish dm on room session failed: {s}", .{@errorName(err)});
+    };
+    _ = flushBridge(state, .host);
     registerWithDirectory(state);
+    state.register_cooldown = redial_cooldown_wakes;
 }
 
-/// Offer this peer for introduce: directory dials `member_locator` back, fetches
-/// the giftable `dm`, then `notify("registered", …)` on our register inbox.
+/// Offer this peer for introduce: directory fetches `dm` on this session, then
+/// `notify("registered", …)` on our register inbox.
 fn registerWithDirectory(state: *PeerState) void {
     if (state.registered or state.member_locator.len == 0) return;
     const session = state.session orelse return;
@@ -298,12 +316,12 @@ fn registerWithDirectory(state: *PeerState) void {
         log.err(state.io, "register failed: {s}", .{@errorName(err)});
         return;
     };
-    state.bridge.drainActions() catch {};
+    _ = flushBridge(state, .host);
 }
 
 /// Loop `on_close`: bridge refuse handling, then clear room wire state only when
-/// the room session itself drops (accepted DM / register dial-backs must not
-/// tear presence down).
+/// the room session itself drops (accepted DM redeem sessions must not tear
+/// presence down).
 fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, reason: net.completion.CloseReason) void {
     IrohBridge.onClose(ctx, slot, conn_ctx, opened, reason);
     const bridge: *IrohBridge = @ptrCast(@alignCast(ctx.?));
@@ -407,7 +425,7 @@ fn startIntroduce(state: *PeerState, peer: []const u8) void {
         state.gpa.destroy(ic);
         return;
     };
-    state.bridge.drainActions() catch {};
+    _ = flushBridge(state, .host);
 }
 
 fn evictDmCap(state: *PeerState, peer: []const u8) void {
@@ -419,14 +437,16 @@ fn evictDmCap(state: *PeerState, peer: []const u8) void {
 
 /// Drain outbox lines past `g_offset`. Room posts go immediately; DM lines wait
 /// on introduce (offset stops at the first blocked DM so a later wake retries).
+/// Fail closed: advance/persist the offset only after tell + drainActions both
+/// succeed. A failed post must not record "sent" or skip the line on restart.
 fn drainOutbox(state: *PeerState) void {
     const room = state.room orelse return;
     const session = state.session orelse return;
     const contents = readFile(state.io, state.gpa, state.dir, "outbox.jsonl") catch return;
     defer state.gpa.free(contents);
+    g_offset = clampOutboxOffset(g_offset, contents.len);
     if (contents.len <= g_offset) return;
 
-    var posted = false;
     var pos: usize = g_offset;
     while (pos < contents.len) {
         const nl = std.mem.indexOfScalar(u8, contents[pos..], '\n');
@@ -436,6 +456,7 @@ fn drainOutbox(state: *PeerState) void {
         const line = std.mem.trim(u8, raw, " \t\r");
         if (line.len == 0) {
             pos = next;
+            commitOutboxOffset(state, pos);
             continue;
         }
 
@@ -445,11 +466,14 @@ fn drainOutbox(state: *PeerState) void {
                 if (parsed.peer.len == 0) {
                     log.err(state.io, "dm outbox line missing peer", .{});
                     pos = next;
+                    commitOutboxOffset(state, pos);
                     continue;
                 }
                 if (state.failed_introduces.contains(parsed.peer)) {
-                    pos = next;
-                    continue;
+                    // Do not advance: dropping the line made DMs vanish across
+                    // reconnect (failed_introduces clears on clearDmTables).
+                    log.err(state.io, "dm outbox blocked: introduce failed for {s} (retry after reconnect)", .{parsed.peer});
+                    break;
                 }
                 if (state.dm_caps.get(parsed.peer)) |dm| {
                     state.host.tell(session, dm, .{
@@ -460,9 +484,10 @@ fn drainOutbox(state: *PeerState) void {
                         evictDmCap(state, parsed.peer);
                         break;
                     };
+                    if (!flushBridge(state, .dm)) break;
                     recordInbox(state.io, state.gpa, state.dir, "sent", "dm", state.nick, parsed.text, parsed.peer) catch {};
-                    posted = true;
                     pos = next;
+                    commitOutboxOffset(state, pos);
                     continue;
                 }
                 startIntroduce(state, parsed.peer);
@@ -470,23 +495,68 @@ fn drainOutbox(state: *PeerState) void {
             }
             state.host.tell(session, room, .{ .verb = "post", .args = &.{.{ .string = parsed.text }} }) catch |err| {
                 log.err(state.io, "post failed: {s}", .{@errorName(err)});
+                break;
             };
+            if (!flushBridge(state, .post)) break;
             recordInbox(state.io, state.gpa, state.dir, "sent", "room", state.nick, parsed.text, "") catch {};
-            posted = true;
             pos = next;
+            commitOutboxOffset(state, pos);
             continue;
         }
 
-        // Legacy bare-text line → room post.
-        state.host.tell(session, room, .{ .verb = "post", .args = &.{.{ .string = line }} }) catch |err| {
-            log.err(state.io, "post failed: {s}", .{@errorName(err)});
-        };
-        recordInbox(state.io, state.gpa, state.dir, "sent", "room", state.nick, line, "") catch {};
-        posted = true;
+        log.err(state.io, "skipping non-JSON outbox line", .{});
         pos = next;
+        commitOutboxOffset(state, pos);
     }
+}
+
+fn commitOutboxOffset(state: *PeerState, pos: usize) void {
     g_offset = pos;
-    if (posted) state.bridge.drainActions() catch {};
+    saveOutboxOffset(state.io, state.dir, pos);
+}
+
+/// Why `flushBridge` was called — outbox paths fail closed on `ReenteredHost`.
+const FlushKind = enum {
+    post,
+    dm,
+    host,
+    maintain,
+
+    fn label(self: FlushKind) []const u8 {
+        return switch (self) {
+            .post => "post",
+            .dm => "dm",
+            .host => "host",
+            .maintain => "maintain",
+        };
+    }
+
+    fn isOutbox(self: FlushKind) bool {
+        return self == .post or self == .dm;
+    }
+};
+
+/// Arm bridge outbound for queued HostActions (flush/close/dial).
+///
+/// `ReenteredHost` means we are inside a host callback latch: actions stay
+/// queued. That is NOT success for outbox posts — `dirtyThenPump` only queues
+/// a flush; without a later `drainActions` the bridge never `armOutbound`s and
+/// the room never sees the line (the "Bueller" silence). Outbox callers must
+/// get `false` and retry; join-path callers may continue and rely on `maintain`
+/// always flushing outside the latch.
+fn flushBridge(state: *PeerState, kind: FlushKind) bool {
+    state.bridge.drainActions() catch |err| {
+        if (err == error.ReenteredHost) {
+            if (kind.isOutbox()) {
+                log.err(state.io, "{s} drainActions deferred: ReenteredHost (will retry)", .{kind.label()});
+                return false;
+            }
+            return true;
+        }
+        log.err(state.io, "{s} drainActions failed: {s}", .{ kind.label(), @errorName(err) });
+        return false;
+    };
+    return true;
 }
 
 // --- loop maintenance -------------------------------------------------------
@@ -510,8 +580,22 @@ fn maintain(state: *PeerState) void {
         }
         return;
     }
-    if (!state.joined) return;
+    // Always flush outside the callback latch so join-path ReenteredHost
+    // deferrals (subscribe/register) still armOutbound.
+    if (!state.joined) {
+        _ = flushBridge(state, .maintain);
+        return;
+    }
+    if (!state.registered) {
+        if (state.register_cooldown > 0) {
+            state.register_cooldown -= 1;
+        } else {
+            registerWithDirectory(state);
+            state.register_cooldown = redial_cooldown_wakes;
+        }
+    }
     drainOutbox(state);
+    _ = flushBridge(state, .maintain);
 }
 
 fn wakePacer(io: Io) void {
@@ -536,15 +620,11 @@ fn sleepUntilStop(io: Io, total_ms: i64) void {
 
 // --- peer daemon entry ------------------------------------------------------
 
+/// Treat current inbox scrollback as already answered without stuffing
+/// replied.json (which caps and can resurface ancient ids after restart).
 fn seedRepliedBacklog(io: Io, gpa: Allocator, dir: []const u8, nick: []const u8) void {
-    var arena_state = std.heap.ArenaAllocator.init(gpa);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-    const items = scanInbox(arena, io, dir, nick);
-    if (items.items.len == 0) return;
-    var ids: std.ArrayList([]const u8) = .empty;
-    for (items.items) |item| ids.append(arena, item.id) catch {};
-    _ = markReplied(io, gpa, dir, ids.items);
+    _ = nick;
+    advanceInboxWatermark(io, gpa, dir);
 }
 
 pub fn runPeer(init: std.process.Init, flags: Flags) !void {
@@ -568,17 +648,11 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
     // lines from before we joined.
     seedRepliedBacklog(io, gpa, flags.dir, flags.nick);
 
-    const loc = try model.uri.parsePeer(gpa, flags.locator);
-    defer model.freePeerLocator(gpa, loc);
-    if (!std.mem.eql(u8, loc.transport, model.transport.iroh)) return error.NotIroh;
-    const hint = net.netlayer.directAddrHint(loc.hints) orelse "";
-    const reachability: iroh.Reachability = if (hint.len > 0) .direct else .discovery;
-
-    // Seed the outbox drain offset to the file's end so a restart never re-posts
-    // an already-drained queue.
-    const seed_outbox = readFile(io, gpa, flags.dir, "outbox.jsonl") catch try gpa.dupe(u8, "");
-    g_offset = seed_outbox.len;
-    gpa.free(seed_outbox);
+    // Resume the outbox drain cursor from disk. Never seed to EOF: that skipped
+    // undrained lines written while the peer was down or wedged before tell.
+    const outbox_bytes = readFile(io, gpa, flags.dir, "outbox.jsonl") catch try gpa.dupe(u8, "");
+    defer gpa.free(outbox_bytes);
+    g_offset = clampOutboxOffset(loadOutboxOffset(io, gpa, flags.dir), outbox_bytes.len);
 
     // The wake pacer runs for the whole daemon life, flipping g_wake so each
     // stack's loop hands control back on its own cadence.
@@ -591,22 +665,46 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
     // Supervisor. Keep a functional iroh stack up until a stop signal. A
     // connection drop is recovered inside runStack (maintain redials in place); a
     // fatal loop error — the endpoint or backend itself failing — returns out of
-    // runStack, and we build a fresh stack and reconnect. Back off when the
-    // environment stays broken, and snap back to a fast retry once a stack has
-    // actually joined. Only a stop signal ends the daemon.
+    // runStack, and we build a fresh stack and reconnect. Each rebuild re-resolves
+    // an `http(s)://…/locator` bootstrap so a reminted room node id is followed
+    // instead of hammering a dead `ocapn://`. Back off when the environment stays
+    // broken, and snap back to a fast retry once a stack has actually joined.
+    // Only a stop signal ends the daemon.
     var backoff_ms: i64 = 500;
     while (!PeerState.stopRequested()) {
         g_ever_joined = false;
-        runStack(io, gpa, flags, loc, hint, reachability) catch |err| {
+        const dial_target = common.resolveLocator(io, gpa, flags.locator) catch |err| {
+            log.err(io, "locator resolve failed: {s}; retrying", .{@errorName(err)});
+            writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, flags.locator, false);
+            sleepUntilStop(io, backoff_ms);
+            backoff_ms = @min(backoff_ms * 2, 30_000);
+            continue;
+        };
+        defer gpa.free(dial_target);
+        const loc = model.uri.parsePeer(gpa, dial_target) catch |err| {
+            log.err(io, "locator parse failed: {s}; retrying", .{@errorName(err)});
+            writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, flags.locator, false);
+            sleepUntilStop(io, backoff_ms);
+            backoff_ms = @min(backoff_ms * 2, 30_000);
+            continue;
+        };
+        defer model.freePeerLocator(gpa, loc);
+        if (!std.mem.eql(u8, loc.transport, model.transport.iroh)) {
+            log.err(io, "locator is not iroh; refusing", .{});
+            return error.NotIroh;
+        }
+        const hint = net.netlayer.directAddrHint(loc.hints) orelse "";
+        const reachability: iroh.Reachability = if (hint.len > 0) .direct else .discovery;
+        runStack(io, gpa, flags, loc, hint, reachability, dial_target) catch |err| {
             log.err(io, "iroh stack failed: {s}; rebuilding", .{@errorName(err)});
         };
         if (PeerState.stopRequested()) break;
-        writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, flags.locator);
+        writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, dial_target, false);
         sleepUntilStop(io, backoff_ms);
         backoff_ms = if (g_ever_joined) 500 else @min(backoff_ms * 2, 30_000);
     }
 
-    writeState(io, gpa, flags.dir, "closed", flags.nick, flags.room, flags.locator);
+    writeState(io, gpa, flags.dir, "closed", flags.nick, flags.room, flags.locator, false);
     removeFile(io, flags.dir, "peer.pid");
 }
 
@@ -650,9 +748,10 @@ fn runStack(
     loc: model.PeerLocator,
     hint: []const u8,
     reachability: iroh.Reachability,
+    dial_target: []const u8,
 ) !void {
     // Key unification: the CapTP Host and the iroh endpoint share one seed so
-    // accepted hellos (register dial-back, redeem) sign the dialed node id.
+    // accepted hellos (redeem dials) sign the dialed node id.
     const seed = try hostSeed(io, flags.dir, flags.identity);
     var resident = try iroh.Resident.init(io, &seed, .{
         .reachability = reachability,
@@ -667,11 +766,16 @@ fn runStack(
         return error.NoNodeId;
     }
 
+    // Direct demos stamp address hints on the registered locator so a redeem
+    // dial reaches the member without Discovery. Discovery peers advertise a
+    // bare node id — the same shape `web.ts` uses for browser DM members — so
+    // redeem uses Discovery rather than private container/LAN binds the public
+    // recipient cannot reach.
     var addrs_buf: [512]u8 = undefined;
     const addrs: []const u8 = if (reachability == .direct)
         waitDirectAddrs(io, &resident, &addrs_buf, 5_000)
     else
-        resident.directAddrs(&addrs_buf) catch "";
+        "";
     if (reachability == .direct and addrs.len == 0) {
         log.err(io, "iroh endpoint has no direct addresses (needed for DM register)", .{});
         return error.NoDirectAddrs;
@@ -701,7 +805,7 @@ fn runStack(
         .dir = flags.dir,
         .nick = flags.nick,
         .room_name = flags.room,
-        .locator_str = flags.locator,
+        .locator_str = dial_target,
         .member_locator = member_locator,
         .transport = loc.transport,
         .designator = loc.designator,
@@ -730,9 +834,9 @@ fn runStack(
     });
     defer loop.deinit();
 
-    // Identity for accepted hellos (register dial-back + redeem). Gift exporter
-    // location still comes from the directory's `setExporterLocator` on the
-    // registered URI — attach keeps the hint empty (bridge buffer is short).
+    // Identity for accepted hellos (redeem). Gift exporter location still comes
+    // from the directory's `setExporterLocator` on the registered URI — attach
+    // keeps the hint empty (bridge buffer is short).
     try bridge.attach(iroh.transport_name, node_id, &.{});
 
     state.dialing = true;

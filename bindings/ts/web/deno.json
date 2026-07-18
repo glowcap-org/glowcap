@@ -1,0 +1,10 @@
+{
+	"name": "@pancake/web",
+	"version": "0.1.0",
+	"exports": {
+		".": "./mod.ts"
+	},
+	"tasks": {
+		"check": "deno check mod.ts adapter.ts test/web_peer_test.ts test/serve_ws_host.ts wasm_handshake_smoke.ts"
+	}
+}

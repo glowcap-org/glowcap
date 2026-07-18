@@ -230,41 +230,40 @@ Destination: [vision](vision.md).
 
 ## C ABI
 
-- **C ABI and adapters.** Fixed-width, release-explicit frame vocabulary:
+- **C ABI frame and event vocabulary.** Fixed-width and release-explicit:
   borrowed frames dispatch synchronously, managed frames transfer ownership
   without copying, and events return the originating frame with explicit
-  release. Bindings resolve à-la-carte archives through a publishable cascade
-  ([ADR-0077](decisions/adr/ADR-0077-publishable-c-abi-resolve.md)); hygiene
-  refusals hard-fail (`zig build c-abi-extract-check`).
-  `pancake_peer_next_event` drives the engine to idle and returns the next
-  fully projected event. CapTP `PANCAKE_EVENT_*` kinds pair with peer send
-  constructors except `PANCAKE_EVENT_LISTEN` (engine-synthesized; held by
-  `zig build meta-check`). `std.Io` appears at the adapter boundary, never the
-  core. Allocation policy is a `PancakeContext`
-  ([ADR-0031](decisions/adr/ADR-0031-c-abi-allocation-context.md)).
-  `pancake_peer_new` opens a negotiating authenticated v1.0 peer;
-  `pancake_peer_start_session` signs from a caller-supplied seed. Archives
-  link à la carte: `libpancake_ocapn`, `libpancake_net`, one per transport, and
+  release. `pancake_peer_next_event` drives the engine to idle and returns the
+  next fully projected event. CapTP `PANCAKE_EVENT_*` kinds pair with peer
+  send constructors except `PANCAKE_EVENT_LISTEN` (engine-synthesized; held by
+  `zig build meta-check`). Allocation policy is a `PancakeContext`
+  ([ADR-0031](decisions/adr/ADR-0031-c-abi-allocation-context.md)). `std.Io`
+  appears at the adapter boundary, never the core.
+- **Composable archives and constructors.** Archives link à la carte:
+  `libpancake_ocapn`, `libpancake_net`, one per transport, and
   `libpancake_driver` over `driver_core.Host`
   ([ADR-0059](decisions/adr/ADR-0059-composable-c-abi-archives.md), ADR-0072).
-  `pancake_host_new` / `_new_in` take a `local_turn_budget` (ADR-0076). Every
-  binding rides this one shared archive (ADR-0072) with a named `pump` module
-  (conn bytes), named `action` (host-action decode/execute), named `promise`
+  Bindings resolve the archives through a publishable cascade
+  ([ADR-0077](decisions/adr/ADR-0077-publishable-c-abi-resolve.md)); hygiene
+  refusals hard-fail (`zig build c-abi-extract-check`). `pancake_peer_new`
+  opens a negotiating authenticated v1.0 peer; `pancake_peer_start_session`
+  signs from a caller-supplied seed; `pancake_host_new` / `_new_in` take a
+  `local_turn_budget` (ADR-0076). `libpancake_net_transport_tcp` also ships
+  the owning `PancakeTcpSession` (`test/c_abi/tcp_session_test.zig`).
+- **One embedder contract, every binding.** Every binding rides the shared
+  driver archive (ADR-0072) with a named `pump` module (conn bytes),
+  named `action` (host-action decode/execute), named `promise`
   (`RemotePromise` / session-vow, projections, fetch/enliven, far-send
   factories `promiseFor` / `sendFar`), named `gc` (ADR-0063), named `dial`,
-  named `listen` (`Server` / keyed-tcp host). The embedder-spine module split is complete,
-  including a named trampoline per binding (wire callback, Forward chase,
-  send/tell, ADR-0064 caretaker/attenuate, spawn/publish,
-  `registerActor` / `_register_actor` / `register-hosted-actor!`; Rust keeps
-  spawn/publish on `SessionShared`) plus Rust's named `session_shared`
-  (`Ref` / `Caretaker` / `SessionShared`). Zig `embedder_pump` and opt-in
-  `pancake_host_pump_drain` drain the action queue through
-  `pancake_host_next_action`; `PANCAKE_MAX_LOCAL_FORWARD_HOPS` pins the
-  trampoline Forward-chase bound. Handshake completes before `connect` /
+  named `listen` (`Server` / keyed-tcp host), a named trampoline per binding,
+  and Rust's named `session_shared`. The embedder-spine module split is complete; the
+  per-binding roll-call detail lives in the
+  [bindings README](../bindings/README.md)'s embedder contract. Zig
+  `embedder_pump` and opt-in `pancake_host_pump_drain` drain the action queue
+  through `pancake_host_next_action`; `PANCAKE_MAX_LOCAL_FORWARD_HOPS` pins
+  the trampoline Forward-chase bound. Handshake completes before `connect` /
   `listen` return. `examples/c/host_embedder_pump.c` is the choreography
-  checklist. `libpancake_net_transport_tcp` also ships owning
-  `PancakeTcpSession` (`test/c_abi/tcp_session_test.zig`). Consumer route:
-  [consuming-from-c](consuming-from-c.md).
+  checklist. Consumer route: [consuming-from-c](consuming-from-c.md).
 - **One application surface, every binding.** Each binding exposes the same
   small surface in its own idiom
   ([bindings contract](../bindings/README.md)). Every binding hosts as well as
@@ -275,20 +274,34 @@ Destination: [vision](vision.md).
   `Session`s break pending sends the same way when their serve loop ends.
 - **Rust C ABI binding check.** A Rust crate links the pancake archives through
   the C ABI and drives a peer smoke test through the public host boundary.
+- **Browser peer (ADR-0070 Milestone 1).** `zig build wasm-driver` compiles
+  the byte-fed Host and the ocapn vocabulary to one freestanding `wasm32`
+  module, and `@pancake/web` (`bindings/ts/web`) runs the full
+  `@pancake/stack` surface over it: FFI over linear memory, struct layout
+  from the module's own descriptor (held against the generated manifest by
+  `zig build wasm-abi-layout-check`), the single behavior-trampoline import
+  (`zig build wasm-import-check`), and a WebSocket byte channel.
+  `zig build web-peer-test` proves a browser-shaped peer completing the keyed
+  handshake inside wasm against a native WebSocket-accepting host, with calls
+  in both directions; `zig build wasm-driver-test` proves the raw exports
+  below it. The rooms web demo still rides its per-tab bridge
+  ([roadmap](roadmap.md)); WebRTC (Milestone 2) is not built.
 
 ## Apps/CLI
 
 - **Cross-language applications.** The
-  [example applications](../examples/README.md): rooms, tasks, and tools,
+  [example applications](../examples/README.md) (rooms, tasks, and tools)
   each run a server and one client per language over one OCapN wire and assert
   the result (pancake-to-pancake; need only `deno`; other languages join when
-  present). Live Goblins proof for the binding surface is separate and
-  client-direction only: `zig build deno-goblins-interop`,
-  `python-goblins-interop`, `rust-goblins-interop`, and
-  `racket-goblins-interop` (keyed handshake, `enliven` + dedup, echo
-  deliver/resolve, not demo apps, not binding listen/hosting, and not the
-  native projection / break legs that `goblins-interop` owns). All run as
-  siblings of in-tree `check`.
+  present). Live Goblins proof for the binding surface is separate:
+  `zig build deno-goblins-interop`, `python-goblins-interop`,
+  `rust-goblins-interop`, and `racket-goblins-interop` prove the client
+  direction (keyed handshake, `enliven` + dedup, echo deliver/resolve; not
+  demo apps, and not the native projection / break legs that `goblins-interop`
+  owns), and `zig build deno-goblins-listen` proves the listener direction for
+  one binding: the Deno binding publishes a greeter and a real Goblins vat
+  dials it. The other bindings' listener direction has no live step. All run
+  as siblings of in-tree `check`.
 - **Accountability.** `zig build accountability` runs KERI-anchored identity,
   a signed Episode per capability invocation, a Merkle transparency log, and a
   host that refuses an unverified caller, over real loopback TCP. Deno and
@@ -311,10 +324,14 @@ Destination: [vision](vision.md).
   keyed `op:start-session`, bootstrap-fetch echo, pipelined `op:index` /
   `op:get`, and enliven with ADR-0012 dedup (repeat hits cache, no second
   wire). As listener: swiss-hosted vat actor, settled call,
-  reverse-pipelined enliven-and-call, and unknown-swiss break. In-tree, live
-  object-export `op:listen` fires fulfill immediately; unresolved
-  promise-export listen installs on the export-keyed store and fires on settle
-  ([ADR-0007](decisions/adr/ADR-0007-promise-pipelining-substrate.md)).
+  reverse-pipelined enliven-and-call, unknown-swiss break, and Goblins' own
+  `listen` marshalled against a live pancake object export, settling fulfill.
+  In-tree, a live object-export `op:listen` fires fulfill immediately; a
+  third-party-backed promise-export listen installs on the import store's
+  listen cell and fires on settle
+  ([ADR-0007](decisions/adr/ADR-0007-promise-pipelining-substrate.md)); a
+  listen on a bare unresolved promise export is refused (`InvalidReference`:
+  pancake exports no free-standing resolvable promise).
   `zig build goblins-gc` proves inbound `op:gc-exports` after echo consumes a
   near export. Binding `*-goblins-interop` steps prove the client direction
   only over the C ABI.

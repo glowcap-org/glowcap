@@ -15,7 +15,7 @@
 import { driverS } from "./internal/ffi/driver.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outPointer } from "./internal/seam.ts";
-import { CLOSED, DEFAULT_FRAME_CAP } from "./internal/abi.ts";
+import { CLOSED, DEFAULT_FRAME_CAP } from "@pancake/abi";
 import { checkHost, PancakeError } from "./errors.ts";
 import { type Argument, type Behavior, type Codec, codecId, Reachability } from "./value.ts";
 import { insideTurn, registerBehavior, trampolinePointer } from "./trampoline.ts";
@@ -353,18 +353,19 @@ export class Host {
 		return this.#parkedReleases.length;
 	}
 
-	/** Run the shared C action drain, then honor each parked arm. Reentrant on
-	 * purpose, the async spelling of the Racket binding's reentrant host lock:
-	 * the DIAL arm's dial executor establishes a whole new session *inside* an
-	 * action, and that establish must itself drain (its start-session FLUSH) —
-	 * a single-flighted drain would await its own completion there. Arms are
-	 * parked under `pancake_host_pump_drain` (sync hooks only) and awaited
-	 * after the C loop returns, so overlapping kickers never await inside the
-	 * C callback. Re-parks until empty: a NEED_GIFT_ID's `provide_gift_id` can
-	 * queue FLUSH legs after the C drain returns (same as Racket's
-	 * `drain-host-actions!`). A no-op inside a hosted turn: the host refuses
-	 * the driving verbs there, and everything the turn enqueued pumps when the
-	 * enclosing feed unwinds into this same drain. Binding-internal. */
+	/** Pop and honor every pending embedder action. Reentrant on purpose, the
+	 * async spelling of the Racket binding's reentrant host lock: the DIAL
+	 * arm's dial executor establishes a whole new session *inside* an action,
+	 * and that establish must itself drain (its start-session FLUSH), so a
+	 * single-flighted drain would await its own completion there. Actions are
+	 * popped and decoded first (`parkActions` over `pancake_host_next_action`,
+	 * each copied out before the next pop frees its views) and awaited after
+	 * the pops, so async I/O never runs while a borrowed view is live.
+	 * Re-parks until empty: a NEED_GIFT_ID's `provide_gift_id` can queue FLUSH
+	 * legs after a full pop round (same as Racket's `drain-host-actions!`). A
+	 * no-op inside a hosted turn: the host refuses the driving verbs there,
+	 * and everything the turn enqueued pumps when the enclosing feed unwinds
+	 * into this same drain. Binding-internal. */
 	async kickActions(): Promise<void> {
 		if (insideTurn()) return;
 		// Parked releases run first — before the raw-handle check, because a

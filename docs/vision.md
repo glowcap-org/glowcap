@@ -116,8 +116,10 @@ The actor layer is real in every binding and in native Zig, reached through the
 application surface above. Three cross-language demos prove the dial half
 (`demo-rooms`, `demo-tasks`, `demo-tools`). The accountability host and the
 driver loopback test prove the hosting half. Live proof that a Goblins client
-calls a pancake-hosted actor is the `goblins-interop` listener brackets only;
-binding listen/hosting against Goblins is not proven by a live build check.
+calls a pancake-hosted actor is the `goblins-interop` listener brackets plus
+one binding: `zig build deno-goblins-listen` has a real Goblins vat dial a
+greeter the Deno binding publishes. The other bindings' listener direction is
+not proven by a live build check.
 State where each piece stands; do not narrate unbuilt parts as if they already
 run.
 

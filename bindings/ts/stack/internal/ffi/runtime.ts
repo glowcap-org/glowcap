@@ -18,6 +18,8 @@
 // `PointerValue` and Bun's numeric pointers are converted to and from `bigint`
 // inside their adapters, so the layers above hold one pointer representation.
 
+import { type AbiLayout, layout64, setActiveLayout } from "../layout.ts";
+
 /** A native pointer as a `bigint` address. `0n` is the null pointer. */
 export type Ptr = bigint;
 
@@ -43,11 +45,18 @@ export type NativeType =
 
 /** A C function signature: the parameter types and the result type. `nonblocking`
  * asks the runtime to run the call off the event-loop thread and return a
- * promise (honored by Deno; the Bun adapter runs it synchronously). */
+ * promise (honored by Deno; the Bun adapter runs it synchronously).
+ * `outBuffers` names the `buffer` parameter indexes the callee writes into:
+ * the dlopen adapters ignore it (calls borrow the JS memory directly), and
+ * the wasm adapter copies only those buffers back out of linear memory after
+ * the call, so an input-only buffer (a fed frame chunk) never pays a
+ * copy-back. Undefined means every buffer is copied back, the safe default
+ * for an unannotated table. */
 export interface SymbolDef {
 	parameters: readonly NativeType[];
 	result: NativeType;
 	nonblocking?: boolean;
+	outBuffers?: readonly number[];
 }
 
 /** A loaded archive's callable symbols. A `pointer` parameter takes a `Ptr`
@@ -78,7 +87,10 @@ export interface RuntimeFfi {
 	// deno-lint-ignore no-explicit-any
 	makeCallback(def: SymbolDef, fn: (...args: any[]) => any): NativeCallback;
 	/** The address of `buf`'s backing memory, stable only for the synchronous
-	 * window in which it is used. `0n` for an empty buffer. */
+	 * window in which it is used. Concretely: valid across at most one
+	 * subsequent outermost symbol call (the wasm adapter stages a copy and
+	 * frees stale stagings at call entry; a caller that retries a call must
+	 * re-take its pointers). `0n` for an empty buffer. */
 	pointerOf(buf: Uint8Array): Ptr;
 	/** A freshly-owned copy of `len` bytes at `ptr`. Empty for a null pointer or
 	 * zero length. */
@@ -118,10 +130,13 @@ export interface RuntimeNet {
 	listen(host: string, port: number): Promise<NetListener>;
 }
 
-/** The adapter a runtime provides: its FFI seam and its socket seam. */
+/** The adapter a runtime provides: its FFI seam and its socket seam, plus an
+ * optional ABI layout when the target's struct offsets differ from the
+ * generated 64-bit mirror (the browser adapter reports wasm32 offsets). */
 export interface RuntimeAdapter {
 	ffi: RuntimeFfi;
 	net: RuntimeNet;
+	layout?: AbiLayout;
 }
 
 // The two runtime globals this binding probes for. Bun and Deno each expose a
@@ -139,7 +154,17 @@ function detectRuntime(): RuntimeName {
 	throw new Error("unsupported runtime (Deno and Bun are supported)");
 }
 
+/** The global key an out-of-package adapter installs itself under, before it
+ * imports the stack. The browser package (`bindings/ts/web`) instantiates the
+ * wasm module, builds its adapter (FFI over linear memory, sockets over
+ * WebSocket, layout from the module's own descriptor), sets this global, and
+ * only then imports `@pancake/stack`, so this seam resolves it here instead
+ * of probing for a runtime the browser does not have. */
+export const injected_adapter_key = Symbol.for("pancake.stack.adapter");
+
 async function loadAdapter(): Promise<RuntimeAdapter> {
+	const injected = (globalThis as Record<symbol, unknown>)[injected_adapter_key];
+	if (injected !== undefined) return injected as RuntimeAdapter;
 	// A computed specifier keeps a static analyzer (Deno's `deno check`, a
 	// bundler) from following into a runtime it cannot resolve: `bun.ts` imports
 	// `bun:ffi`, which does not exist under Deno. The matching adapter is the
@@ -149,6 +174,7 @@ async function loadAdapter(): Promise<RuntimeAdapter> {
 }
 
 const selected = await loadAdapter();
+setActiveLayout(selected.layout ?? layout64);
 
 /** The host runtime's FFI seam. */
 export const ffi: RuntimeFfi = selected.ffi;

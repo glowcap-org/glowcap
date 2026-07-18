@@ -74,7 +74,8 @@ impl Board {
 			})
 			.await
 			.map_err(|e| format!("spawn watcher: {e:?}"))?;
-		session.send(&board, "watch", &[(&watcher).into()])
+		session
+			.send(&board, "watch", &[(&watcher).into()])
 			.await
 			.map_err(|e| format!("watch: {e:?}"))?;
 

@@ -30,6 +30,7 @@ Match depth to the task: do not read the whole tree for a one-line fix.
 | Live CapTP from the shell (call/host/REPL)                                | [pancake-cli skill](.agents/skills/pancake-cli/SKILL.md) (+ [`docs/cli.md`](docs/cli.md) for humans) | `zig build cli-test`                              |
 | Live CapTP via project MCP tools                                          | [pancake-mcp skill](.agents/skills/pancake-mcp/SKILL.md) (+ `.cursor/mcp.json` / `.mcp.json`) | `zig build` then reload MCP                       |
 | Agent scaffolding (`.agents/`, overlays, hooks, skills)                    | [agent-scaffolding rule](.agents/rules/agent-scaffolding.md)                                    | `zig build meta-check`                                  |
+| Persona lenses for review / rooms-team members                             | [`.agents/README.md` Personas](.agents/README.md#personas) + [lookup](.agents/personas/README.md) | `zig build meta-check`                              |
 | Doc edit                                                                   | [doc-drift](.agents/rules/doc-drift.md) + [doc-voice](.agents/rules/doc-voice.md)               | same change updates claims                              |
 
 **Context map** (when you need authority, not a tour):

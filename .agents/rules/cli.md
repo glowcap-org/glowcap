@@ -56,7 +56,12 @@ zig build docs              # generate the Zig API reference (autodoc) under zig
 zig build site              # build the documentation site (Zine + autodoc) under zig-out/site/
 zig build docs-serve        # serve the documentation site locally at http://127.0.0.1:1990/pancake/
 zig build oracle-check
-zig build cross-check        # compile-only: full library for macOS (kqueue) + sans-io core for wasm32, part of check
+zig build cross-check        # compile-only: full library for macOS (kqueue) + sans-io core for wasm32 + the browser-binding wasm Host, part of check
+zig build wasm-driver        # build the browser binding's freestanding wasm32 Host module (ADR-0070) into zig-out/wasm/ (also folded into cross-check)
+zig build wasm-driver-test   # prove the wasm32 Host holds a real keyed CapTP handshake from JS over an in-memory pipe (needs deno)
+zig build wasm-abi-layout-check # prove the wasm32 Host's layout descriptor (pancake_wasm_abi_layout) decodes cleanly and agrees with the abi.ts field counts (needs deno)
+zig build wasm-import-check   # prove the wasm32 Host's import set is exactly {env.pancake_behavior_trampoline}, the sole behavior-dispatch seam (needs deno)
+zig build web-peer-test       # prove the @pancake/web browser peer holds a keyed OCapN session over WebSocket against a native host (needs deno; ADR-0070 Milestone 1)
 zig build rust-dogfood      # Rust C ABI dogfood against the pancake archives (needs cargo)
 zig build deno-dogfood      # Deno C ABI dogfood against the pancake archives (needs deno)
 zig build bun-dogfood       # Bun C ABI dogfood against the pancake archives, same multi-runtime JS binding as Deno (needs bun)
@@ -142,8 +147,8 @@ zig build gen-header-ocapn          # regenerate include/pancake_ocapn.h from sr
 zig build gen-header-ocapn-check    # verify that header matches src/c_abi/ocapn (fails if stale), part of check
 zig build gen-header-driver         # regenerate include/pancake_driver.h from src/c_abi/driver
 zig build gen-header-driver-check   # verify include/pancake_driver.h matches src/c_abi/driver (fails if stale), part of check
-zig build gen-ts-abi                # regenerate bindings/ts/stack/internal/abi.ts (constants + struct layouts) from src/c_abi (the ocapn and driver archives)
-zig build gen-ts-abi-check          # verify bindings/ts/stack/internal/abi.ts matches src/c_abi (fails if stale), part of check
+zig build gen-ts-abi                # regenerate the two-file TypeScript ABI mirror from src/c_abi (the ocapn and driver archives): target-independent constants into bindings/ts/abi/constants.ts (@pancake/abi) and 64-bit struct layouts into bindings/ts/stack/internal/abi.ts
+zig build gen-ts-abi-check          # verify both bindings/ts/abi/constants.ts and bindings/ts/stack/internal/abi.ts match src/c_abi (fails if stale), part of check
 zig build gen-binding-host-action   # regenerate binding HostAction decode/types from src/c_abi/driver
 zig build gen-binding-host-action-check # verify binding HostAction decode/types match src/c_abi/driver (fails if stale), part of check
 zig build gen-binding-constants     # regenerate binding ABI constants from src/c_abi (the ocapn and driver archives)

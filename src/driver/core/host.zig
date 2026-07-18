@@ -964,14 +964,9 @@ pub const Host = struct {
         try self.refuseReentry();
         try checkLive(session);
         const peer = session.served.peer;
-        try peer.importObject(engine.BOOTSTRAP_POSITION);
         // The core tracks no remote locator and never dials; the swissnum
         // alone identifies the cache row.
-        const sturdy = model.SturdyRef{
-            .peer = .{ .transport = "", .designator = "" },
-            .swissnum = swissnum,
-        };
-        const start = try engine.sturdyref.prepareEnliven(peer.allocator, &peer.session_state, sturdy);
+        const start = try engine.sturdyref.prepareEnliven(peer.allocator, &peer.session_state, swissnum);
         switch (start) {
             .cached => |reference| {
                 // Already settled: queue the completion for a fresh id and

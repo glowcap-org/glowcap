@@ -40,11 +40,10 @@ export function announceToLocator(token: string): string {
 
 /** Dial a rooms peer from a locator: an `ocapn://…iroh?…` URI over iroh,
  * otherwise `hostname:port` over TCP. A `host` keys the dial with the host's
- * retained OCapN identity and shared gift registry, what a directory's
- * member dial-back needs so the gift it later mints (signed with that identity)
- * matches the deposit's provenance. Omitted, the dial gets a fresh identity,
- * which is all an ordinary client needs. Every dial goes through the one
- * CapTP dialer `connect(locator[, reachability][, host])`. */
+ * retained OCapN identity and shared gift registry (member listen + room dial
+ * share one Host so register can `fetch("dm")` on the room session). Omitted,
+ * the dial gets a fresh identity, which is all an ordinary client needs. Every
+ * dial goes through the one CapTP dialer `connect(locator[, reachability][, host])`. */
 export function dial(locator: string, host?: Host): Promise<Session> {
 	if (isUriLocator(locator)) {
 		const loc = parseLocator(locator);

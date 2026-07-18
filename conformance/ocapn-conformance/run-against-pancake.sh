@@ -8,9 +8,10 @@
 #
 # Usage:
 #   bash conformance/ocapn-conformance/run-against-pancake.sh [all|test-module] [--port=N]
-# Default is `all`: every upstream module pancake currently targets, each with a
-# 5s cap, plus the handshake-abort probe (2s cap). Pass one module (e.g.
-# `tests.op_deliver`) to probe one surface.
+# Default is `all`: every module in the upstream tree (derived from
+# upstream/tests/*.py, so a submodule bump cannot silently shrink coverage),
+# each with a 5s cap, plus the handshake-abort probe (10s cap). Pass one
+# module (e.g. `tests.op_deliver`) to probe one surface.
 # --port=N (threaded from `zig build ocapn-conformance -Dport=N`) moves the
 # peer off its default 22055 when that port is taken.
 set -uo pipefail
@@ -57,7 +58,10 @@ done
 
 run_handshake_abort_probe() {
   echo "ocapn-conformance: handshake-abort probe (invalid signature + invalid version)"
-  timeout 2 uv run python conformance/ocapn-conformance/handshake_abort_probe.py --port="$PORT"
+  # Same dependency pins as run.sh: the probe imports the suite's own message
+  # types, which need cryptography on the uv-provided interpreter.
+  timeout 10 uv run --python 3.12 --with 'cryptography>=42' --with 'stem>=1.8' \
+    python conformance/ocapn-conformance/handshake_abort_probe.py --port="$PORT"
 }
 
 run_module() {
@@ -71,6 +75,11 @@ run_module() {
     echo "ocapn-conformance: $module TIMED OUT after 5s" >&2
   elif ! grep -q "^OK" "$suite_out"; then
     code=1
+  elif grep -q "skipped=" "$suite_out"; then
+    # unittest prints `OK (skipped=n)` for a green run with skips; a skipped
+    # upstream case is not a pancake pass, so refuse it rather than report one.
+    echo "ocapn-conformance: $module reported skipped tests; not counting as a pass" >&2
+    code=1
   fi
   rm -f "$suite_out"
   return "$code"
@@ -78,17 +87,18 @@ run_module() {
 
 if [ "$MODULE" = "all" ]; then
   run_handshake_abort_probe || exit $?
-  for module in \
-    tests.op_start_session \
-    tests.op_abort \
-    tests.op_deliver \
-    tests.op_listen \
-    tests.op_gc \
-    tests.third_party_handoffs
-  do
+  # Derive the module list from the upstream tree itself, so a submodule bump
+  # that adds a module fails loud here (untargeted = failure) instead of
+  # silently shrinking what "all targeted modules" means.
+  modules="$(cd conformance/ocapn-conformance/upstream/tests && ls -- *.py | sed 's/\.py$//' | grep -v '^__init__$' | sort | sed 's/^/tests./')"
+  if [ -z "$modules" ]; then
+    echo "ocapn-conformance: no upstream test modules found (submodule missing?)" >&2
+    exit 1
+  fi
+  for module in $modules; do
     run_module "$module" || exit $?
   done
-  echo "ocapn-conformance: pancake PASSES all targeted upstream OCapN modules"
+  echo "ocapn-conformance: pancake PASSES all upstream OCapN test modules"
   exit 0
 fi
 

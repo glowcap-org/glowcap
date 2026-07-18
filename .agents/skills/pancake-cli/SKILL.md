@@ -1,14 +1,9 @@
 ---
 name: pancake-cli
 description: >-
-  Use when CapTP needs to happen live from the shell: an ocapn:// locator
-  appears, a capability must be called/fetched/told, a temporary peer or echo
-  listener must stand up, a session needs interactive exploration (REPL), CapTP
-  must be scripted with --json, dial or handshake fails (timeout, busy,
-  identity, protocol abort), identity/state dirs need minting or separating, or
-  the user wants CapTP from the terminal. For CapTP tools inside Cursor/Claude
-  MCP (dogfood while writing pancake), use pancake-mcp. For room presence
-  wake-loops, use rooms-peer.
+  Use when CapTP needs to happen live from the shell (locator, call/fetch/tell,
+  listen, REPL, --json, dial/handshake failures, identity dirs). In-host MCP →
+  pancake-mcp. Room wake → rooms-peer.
 ---
 
 # pancake CLI
@@ -25,6 +20,13 @@ Zig file, binding stub, or throwaway harness first.
 | Human recipes | [`docs/cli.md`](../../../docs/cli.md) |
 | CapTP via agent-host MCP | [pancake-mcp](../pancake-mcp/SKILL.md) |
 | Room wake loop | [rooms-peer](../rooms-peer/SKILL.md) |
+
+## When not to use
+
+- CapTP MCP tool calls in-host → [pancake-mcp](../pancake-mcp/SKILL.md)
+- Room message wake loop → [rooms-peer](../rooms-peer/SKILL.md)
+- Multi-persona durable team → [rooms-team](../rooms-team/SKILL.md)
+- Protocol / oracle semantics → Zig tests, `oracle-check`
 
 ## Install (once per shell)
 
@@ -47,13 +49,6 @@ Same binary via the build graph: `zig build pancake -- <command> …`. No
 | Durable room presence / wake | **rooms-peer** | [rooms-peer](../rooms-peer/SKILL.md) |
 | Something else to dial *you* | **argv listen** | background `ocapn listen …` |
 | Sim / timeline (not built) | **griddle** | `griddle status` placeholder only |
-
-| Not this skill | Use instead |
-| --- | --- |
-| Protocol / oracle semantics | Zig tests, `oracle-check` |
-| C ABI / binding contract | dogfood steps + headers |
-| CapTP MCP tool calls in-host | [pancake-mcp](../pancake-mcp/SKILL.md) |
-| Room message wake loop | [rooms-peer](../rooms-peer/SKILL.md) |
 
 ## Session model (load-bearing)
 

@@ -19,8 +19,8 @@
 
 import { driverS } from "./internal/ffi/driver.ts";
 import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
-import { ab, readBytes } from "./internal/seam.ts";
-import { MAX_LOCAL_FORWARD_HOPS, OK } from "./internal/abi.ts";
+import { ab, outU64, readBytes } from "./internal/seam.ts";
+import { MAX_LOCAL_FORWARD_HOPS, OK } from "@pancake/abi";
 import { FORWARD_CYCLE_MESSAGE } from "./internal/constants.ts";
 import { checkHost, hostLastError, PancakeError, VowBroken } from "./errors.ts";
 import { type AppValue, type Behavior, Forward, liftArg, lowerArg, near, Ref } from "./value.ts";
@@ -453,7 +453,7 @@ export function spawnHosted(h: HostingHandle, behavior: Behavior): Ref {
 			NULL,
 			ab(out),
 		));
-		position = new DataView(out.buffer).getBigUint64(0, true);
+		position = outU64(out);
 	}
 	h.hosted.set(position, ctx);
 	return new Ref(near(position));
@@ -478,7 +478,7 @@ export function publishHosted(
 		NULL,
 		ab(out),
 	));
-	const position = new DataView(out.buffer).getBigUint64(0, true);
+	const position = outU64(out);
 	h.hosted.set(position, ctx);
 	return new Ref(near(position));
 }
@@ -489,5 +489,5 @@ export function publishHosted(
 export function turnSpawn(turn: Ptr, ctxId: bigint): bigint {
 	const out = new Uint8Array(8);
 	checkHost(driverS.pancake_host_turn_spawn(turn, trampolinePointer(), ctxId, NULL, ab(out)));
-	return new DataView(out.buffer).getBigUint64(0, true);
+	return outU64(out);
 }

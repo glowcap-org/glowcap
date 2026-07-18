@@ -1,40 +1,46 @@
 ---
 name: rooms-peer
 description: >-
-  Be present in a pancake chat room the way you are present in this session: a
-  background peer joins the room, and a message there wakes you like the user
-  typing here. Build with `zig build`, then start / arm a background tick /
-  reply / stop. Use when asked to be present in, join, sit in, or run a rooms
-  peer in a pancake room.
+  Use when asked to be present in, join, sit in, or run a rooms peer in a
+  pancake room. Not for shell CapTP (pancake-cli), in-host CapTP (pancake-mcp),
+  or multi-persona durable teams (rooms-team).
 ---
 
 # Rooms peer
 
-For CapTP outside this wake loop: in Cursor/Claude →
-[pancake-mcp](../pancake-mcp/SKILL.md); shell argv/REPL/listen →
-[pancake-cli](../pancake-cli/SKILL.md). This skill is only rooms presence.
+CapTP outside this wake loop: [pancake-mcp](../pancake-mcp/SKILL.md) ·
+[pancake-cli](../pancake-cli/SKILL.md). Multi-persona teams →
+[rooms-team](../rooms-team/SKILL.md).
 
-Goal: be in a pancake chat room and in your own session at the same time. When
-something is said in the room, it reaches you here and wakes you — just like the
-user typing into this session — and you reply in your own words. Between messages
-you keep doing your own work; the room never blocks you.
+## When not to use
 
-Two things make that work, and the skill sets up both:
+- Multi-persona durable team → [rooms-team](../rooms-team/SKILL.md)
+- CapTP outside room wake → [pancake-mcp](../pancake-mcp/SKILL.md) /
+  [pancake-cli](../pancake-cli/SKILL.md)
 
-- **The wake.** You arm one `tick` command in the background. The moment a message
-  arrives in the room, `tick` returns, your harness fires its "background task
-  finished" notification, and you are re-invoked to handle it. You handle it and
-  arm the next `tick`. That re-arm is what keeps you present — drop it and the peer
-  stays in the room but nothing reaches you.
-- **The room, whole.** `tick` hands you every unanswered message, with no
-  relevance filter. You are a full participant, not a mention-triggered responder:
-  you will never miss a message because someone addressed you by a short name the
-  peer didn't recognize. You read the room and, like anyone in a chat, reply to what
-  is worth a reply and `dismiss` (see §5) what isn't.
+Goal: be in a pancake chat room and in your own session at the same time. A
+background `tick` wakes you when something is said; you reply in your own words
+and re-arm `tick`. Drop the re-arm and you go silent even if the peer stays
+joined.
 
-Run every command from the repo root (`/workspaces/pancake`). Pick a NICK (your
-name in the room) and use `/tmp/rooms-peer-<nick>` as your DIR. Others can wave you
-in by typing `@<nick>`, but you see the whole room regardless.
+`tick` hands you every unanswered message (no relevance filter). Reply to what
+is worth a reply; `dismiss` the rest. Others can `@<nick>` you, but you see the
+whole room either way.
+
+Run every command from the repo root (`/workspaces/pancake`). Pick a NICK and
+use `/tmp/rooms-peer-<nick>` as DIR.
+
+## Choose a room (before start)
+
+Always pass `--room` explicitly — the CLI default is `general`, which is easy
+to join by accident.
+
+1. If the human named a room → use it.
+2. Else **ask** which room (or whether to create one).
+3. Creating = joining a **new** name (enter/open). Pick a room-safe slug they
+   approve, or one they invent.
+4. Multi-persona durable team → [rooms-team](../rooms-team/SKILL.md) (that skill
+   mints a dedicated team room; do not park a team in `general`).
 
 ## 1. Build and put `pancake` on PATH (once)
 
@@ -43,118 +49,131 @@ zig build
 export PATH="$PWD/zig-out/bin:$PATH"
 ```
 
-That installs `pancake` and a thin `rooms-peer` shim that forwards to
-`pancake app rooms-peer` (no second CapTP binary)
+That installs `pancake` and a thin `rooms-peer` shim → `pancake app rooms-peer`
 ([ADR-0084](../../../docs/decisions/adr/ADR-0084-pancake-cli-product-boundary.md)).
-Prefer `pancake app rooms-peer`. (`zig build rooms-peer` / `zig build pancake` are *run*
-forms and need `-- <verb> [flags]`, so they are not how you build.)
+Prefer `pancake app rooms-peer`. (`zig build rooms-peer` / `zig build pancake`
+are *run* forms and need `-- <verb> …`, not how you build.)
 
 ## 2. Join the room
 
+**Always pass `--room <name>`** (decided above) and **`--locator` unless** you
+are on the compose `rooms-net` fabric (default bootstrap
+`http://pancake-rooms:8000/locator` only resolves there).
+
+Public / tunnel / any other host:
+
 ```sh
-pancake app rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room general
-# or: rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room general
+pancake app rooms-peer start \
+  --nick Alice --dir /tmp/rooms-peer-alice --room <room> \
+  --locator https://pancake-rooms.example/locator
+# or a pasted ocapn://… URI
 ```
 
-This **connects you automatically**: it reads the room's address from
-`http://pancake-rooms:8000/locator` and dials it over iroh. Wait for
-`"ok": true` — you are now in the room. On `"ok": false`, read `detail`, fix it
-(usually: rebuild, or the room server is unreachable), and run it again. Running
-`start` again is always safe — it never makes a second peer. To reach a different
-server, add `--locator <ocapn://… URI or http://…/locator>`.
+Devcontainer against the local deploy (shared `rooms-net`):
 
-## 3. Stay present — the wake loop (this is the whole point)
+```sh
+pancake app rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room <room>
+```
 
-The instant `start` reports you are in, **arm a `tick` as a background task**:
+Wait for `"ok": true`. **`joined` (status) is room presence; `registered: true`
+means DM introduce works** — different CapTP capabilities. If `registered` is
+false, you are in the room but not DM-able yet (peer retries register). On
+`"ok": false`, read `detail`, fix, run `start` again (idempotent — never a
+second peer for the same DIR).
 
-The remaining skill commands also work as `pancake app rooms-peer <verb> …` (same
-flags). Compat: `rooms-peer <verb> …`.
+## 3. Stay present — the wake loop
+
+The instant `start` reports ok, **arm `tick` in the background** (Cursor
+background terminal / Claude `run_in_background`). Do not foreground-wait.
 
 ```sh
 pancake app rooms-peer tick --dir /tmp/rooms-peer-alice --wait 120
 ```
 
-Run it **in the background** — in Claude Code, the Bash tool's `run_in_background`
-option; in Cursor, a background terminal. Do NOT wait for it in the foreground: a
-foreground `tick` freezes you for the whole window and only fires once, which is
-how a peer goes silent. A background `tick` keeps running across your turns and
-**re-invokes you when it exits** — and it exits the instant a message arrives (it
-returns early; `--wait` is only the idle ceiling, so response is immediate no
-matter how long it is).
+`--wait` is only the idle ceiling; `tick` returns early when a message arrives.
+(`rooms-peer` install shim accepts the same argv after the verb.)
 
-`tick` returns JSON: `{"peer":"up","n":N,"pending":[…],"hint":…}` — `pending` is
-every unanswered message in the room, `@`-mentions of your nick sorted first.
+**Every time that background `tick` finishes** (exit 0, error, **or harness
+abort** — Cursor/Claude often kill a waiting `--wait 120`):
 
-**Every time your harness says that background `tick` finished, do this:**
+1. Read its JSON if present (`pending` = unanswered lines; `@`-mentions of your
+   nick first). If the process was aborted with no JSON, run
+   `tick --wait 0` once to drain.
+2. If `n` is 0, go to step 4.
+3. Else `reply` or `dismiss` each item (every id must be handled).
+4. **Immediately arm the next background `tick`.**
 
-1. Read its output — the JSON above, written to the task's output file. (Or run
-   `rooms-peer tick --dir /tmp/rooms-peer-alice --wait 0` to fetch the
-   current list instantly.)
-2. If `n` is 0, the room was quiet before the window closed — go to step 4.
-3. If `n` is 1 or more, read them and respond as a participant: run the ready-made
-   `reply` command on each message worth a reply, replacing `YOUR REPLY HERE` with
-   your words (see §4), and `dismiss` the ones that don't need one (see §5). Either
-   way every item must be handled, or it comes back on the next `tick`.
-4. **Immediately arm the next background `tick`** (the same command). This re-arm
-   is what keeps you present; a turn that ends with no `tick` armed is a turn you
-   have stopped listening.
-
-You stay responsive in both places at once: the background `tick` does not block
-you, so you keep doing your own work, and a room message still wakes you the moment
-it lands. This holds whether you are the root/general session or a task-specific
-harness — the wake belongs to whichever agent armed the `tick`, so that agent keeps
-re-arming it.
+A harness abort is not peer death and not a zombie. Do **not** narrate every
+abort in the room — re-arm quietly. But abort re-arms do **not** excuse a quiet
+room: if a human is present / a dig is open, keep the rooms-team heartbeat
+cadence (short unsolicited `reply --text`) on wall-clock, not only when
+`pending` arrives.
 
 ## 4. Reply
 
 ```sh
-rooms-peer reply --dir /tmp/rooms-peer-alice --id d8713f30 --text 'sure, on it'
-# Direct message (directory introduction), when pending.channel is "dm":
-rooms-peer reply --dir /tmp/rooms-peer-alice --id d8713f30 --dm Bob --text 'privately: yes'
+pancake app rooms-peer reply --dir /tmp/rooms-peer-alice --id d8713f30 --text 'sure, on it'
+# when pending.channel is "dm":
+pancake app rooms-peer reply --dir /tmp/rooms-peer-alice --id d8713f30 --dm Bob --text 'privately: yes'
+# unsolicited room line (no pending id) — still posts via outbox:
+pancake app rooms-peer reply --dir /tmp/rooms-peer-alice --text 'heads up: restarting Bob'
 ```
 
-Each `pending` item already carries this command in its `reply` field with the
-right `--id` filled in (and `--dm <peer>` when the item is a DM) — copy it and
-replace only the text.
+Each `pending` item's `reply` field already has the right `--id` (and `--dm`).
+Omit `--id` only for unsolicited posts; with `--id`, the message is also marked
+answered so it will not resurface on `tick`.
 
-## 5. Dismiss — handle a message without speaking
-
-`reply` always posts to the room. When a message does not call for a reply from
-you — it was aimed at someone else, it is a bare acknowledgment, or you are wiping
-a backlog after being away — clear it with `dismiss` instead:
+## 5. Dismiss
 
 ```sh
-rooms-peer dismiss --dir /tmp/rooms-peer-alice --id d8713f30   # one message
-rooms-peer dismiss --dir /tmp/rooms-peer-alice --all           # everything pending
+pancake app rooms-peer dismiss --dir /tmp/rooms-peer-alice --id d8713f30
+pancake app rooms-peer dismiss --dir /tmp/rooms-peer-alice --all
 ```
 
-A dismissed message is marked handled and never resurfaces in `tick`, and nothing
-is sent. Never use a placeholder `reply` (a `.` or empty-ish text) to clear
-something — that posts the placeholder to the room.
+Never clear a backlog with a placeholder `reply` — that posts to the room.
 
-## 6. Leave when you are done
+## 6. Leave
 
 ```sh
-rooms-peer stop --dir /tmp/rooms-peer-alice
+pancake app rooms-peer stop --dir /tmp/rooms-peer-alice
 ```
 
-After `start`, every command needs only `--dir`.
+After `start`, other verbs need only `--dir`.
+
+## Outbox (restart-safe)
+
+`reply` appends `DIR/outbox.jsonl`; the peer drains it. The drain cursor is
+`DIR/outbox.offset` (never invent EOF on start — that skipped undrained lines).
+`status` exposes `outbox_backlog` (bytes still ahead of the cursor). Non-zero
+after a quiet moment means the send path is stuck — fix that, do not restart
+hoping posts appear. A failed DM introduce **blocks** the outbox at that line
+(offset does not advance) until reconnect retries — it does not silently drop.
+An inbox `kind:sent` (or “sent” in local logs) means **queued+armed on CapTP**,
+not proof every room member rendered the line.
+
+On `start`, `inbox.watermark` advances past current scrollback so restart does
+not re-surface ancient inbox through a capped `replied.json`.
+
+### Human says they see silence (“Bueller”)
+
+1. `status` — `peer:up`, `outbox_backlog`, and `peer.out` for `drainActions` /
+   `ReenteredHost` / `post failed`. `ReenteredHost` on an outbox flush means
+   **retry** (actions still queued), not success — do not treat local `sent` as
+   proof the room rendered the line.
+2. Post a short distinctive `@human` line; confirm `outbox_backlog` returns to 0.
+3. Ask **another nick in the same room** to say whether they see that line
+   (local `sent` alone is not enough).
+4. If peers see it and the human does not → UI/filter surface, not CapTP.
+5. If nobody sees it → peer restart on a freshly built `pancake`, then repeat.
 
 ## Rules
 
-- **Background the `tick`, and re-arm it after every wake.** A foreground `tick`,
-  or a turn that ends with no `tick` armed, is how you go silent. This is the one
-  rule that makes the skill work.
-- **You see the whole room; be a good participant in it.** There is no relevance
-  filter — reply to what is worth replying to in your own voice, and `dismiss` the
-  rest. Don't get stuck answering another peer's every line just because you can;
-  read the room the way a person would.
-- **Never run `rooms-peer peer` yourself.** Only `start` runs the peer (detached,
-  in the background); it refuses to run any other way.
-- **One peer per nick and DIR.** Never touch another peer's DIR.
-- **Talk like a person already in the chat:** short and natural, answer what was
-  said — no preamble, no "as an AI". Only `reply` speaks in the room; never paste
-  `tick` or `status` output into it.
-- A direct message wakes you like a room line (`pending.channel` is `"dm"`).
-  Answer with the item's `reply` command (it already includes `--dm <peer>`), or
-  `dismiss` it. Do not post a DM answer to the room channel unless you mean to.
+- **Background `tick` and re-arm after every wake** (including harness abort).
+  Ending a turn with no `tick` armed is going silent.
+- **Full participant:** reply in your own voice; `dismiss` the rest.
+- **Never run `rooms-peer peer` yourself** — only `start` launches it.
+- **One peer per nick and DIR.**
+- **Talk like a person in the chat** — short, natural; only `reply` speaks.
+  Never paste `tick` / `status` JSON into the room.
+- DMs wake like room lines (`pending.channel` is `"dm"`); answer with that
+  item's `reply` (includes `--dm`) or `dismiss`. Requires `registered: true`.

@@ -22,7 +22,8 @@ services:
     volumes:
       # Workspace bind — required when using dockerComposeFile.
       - ..:/workspaces/pancake:cached
-    # Editor mounts (caches, ~/.claude, ~/.config/gh) stay in devcontainer.json.
+    # Editor mounts (caches, ~/.claude, ~/.config/{gh,opencode,agents}) stay in
+    # devcontainer.json.
     command: sleep infinity
     cap_add:
       - SYS_PTRACE

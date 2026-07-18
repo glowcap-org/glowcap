@@ -55,7 +55,10 @@
     // ~/.config would nest under the .config/gh mount above and drag in every
     // unrelated host config.
     "source=${localEnv:HOME}/.local/share/opencode,target=/home/vscode/.local/share/opencode,type=bind",
-    "source=${localEnv:HOME}/.config/opencode,target=/home/vscode/.config/opencode,type=bind"
+    "source=${localEnv:HOME}/.config/opencode,target=/home/vscode/.config/opencode,type=bind",
+    // User resources for `.agents/` (personas, etc.). Scoped subdir only —
+    // same nesting reason as the opencode binds above.
+    "source=${localEnv:HOME}/.config/agents,target=/home/vscode/.config/agents,type=bind"
   ],
   "initializeCommand": "bash .devcontainer/initialize.sh",
   "postCreateCommand": "bash .devcontainer/post-create.sh",

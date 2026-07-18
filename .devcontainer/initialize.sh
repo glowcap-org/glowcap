@@ -8,7 +8,8 @@ set -euo pipefail
 # root-owned directory (or a directory where a file bind was intended). These
 # carry tool logins/state that should survive a rebuild — see devcontainer.json.
 mkdir -p "${HOME}/.claude" "${HOME}/.config/gh" \
-  "${HOME}/.local/share/opencode" "${HOME}/.config/opencode"
+  "${HOME}/.local/share/opencode" "${HOME}/.config/opencode" \
+  "${HOME}/.config/agents"
 
 # rooms-net is the fixed-name network this container shares with the rooms app
 # (examples/apps/rooms/deno/deploy) so a bot here reaches the room's internal

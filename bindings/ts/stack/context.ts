@@ -10,8 +10,8 @@ import {
 	ALLOCATOR_FREE_OFF,
 	ALLOCATOR_SIZE,
 	ALLOCATOR_USER_DATA_OFF,
-	OK,
 } from "./internal/abi.ts";
+import { OK } from "@pancake/abi";
 import { PancakeError } from "./errors.ts";
 
 /** A host allocation backend for `Context.withAllocator`. Methods may be called

@@ -41,16 +41,10 @@ import {
 } from "./pump.ts";
 import { driverS } from "./internal/ffi/driver.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
-import { ab, readBytes } from "./internal/seam.ts";
+import { ab, outPointer, readBytes } from "./internal/seam.ts";
 import { type AbortDetail, checkHost, PancakeError } from "./errors.ts";
-import {
-	ACCEPT_PLAN_DESIGNATOR_LEN_OFF,
-	ACCEPT_PLAN_DESIGNATOR_OFF,
-	ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF,
-	ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF,
-	ACCEPT_PLAN_SIZE,
-	CLOSED,
-} from "./internal/abi.ts";
+import { L } from "./internal/layout.ts";
+import { CLOSED } from "@pancake/abi";
 
 // Encoder for establish/fetch swiss bytes.
 const utf8Encoder = new TextEncoder();
@@ -270,7 +264,7 @@ export class Session {
 			ab(out),
 		));
 		const conn = new Session(
-			new DataView(out.buffer).getBigUint64(0, true),
+			outPointer(out),
 			host,
 			transport,
 		);
@@ -292,7 +286,7 @@ export class Session {
 		const t = utf8Encoder.encode(transportName);
 		const server = utf8Encoder.encode(serverDesignator);
 		const local = utf8Encoder.encode(acceptedLocalAddr);
-		const planBuf = new Uint8Array(ACCEPT_PLAN_SIZE);
+		const planBuf = new Uint8Array(L.ACCEPT_PLAN_SIZE);
 		checkHost(driverS.pancake_host_plan_accept(
 			ab(t),
 			BigInt(t.length),
@@ -308,14 +302,14 @@ export class Session {
 		// a second policy encoding (Rust/Python/Racket pass the C pointers).
 		const dv = new DataView(planBuf.buffer);
 		const view = (off: number, lenOff: number): Uint8Array => {
-			const len = Number(dv.getBigUint64(lenOff, true));
+			const len = Number(L.getUsize(dv, lenOff));
 			if (len === 0) return new Uint8Array(0);
-			return readBytes(dv.getBigUint64(off, true), BigInt(len));
+			return readBytes(L.getPtr(dv, off), BigInt(len));
 		};
-		const designator = view(ACCEPT_PLAN_DESIGNATOR_OFF, ACCEPT_PLAN_DESIGNATOR_LEN_OFF);
+		const designator = view(L.ACCEPT_PLAN_DESIGNATOR_OFF, L.ACCEPT_PLAN_DESIGNATOR_LEN_OFF);
 		const hint = view(
-			ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF,
-			ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF,
+			L.ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_OFF,
+			L.ACCEPT_PLAN_DIRECT_ADDRESSES_HINT_LEN_OFF,
 		);
 		const out = new Uint8Array(8);
 		checkHost(driverS.pancake_host_session_open_accepted(
@@ -329,7 +323,7 @@ export class Session {
 			ab(out),
 		));
 		const conn = new Session(
-			new DataView(out.buffer).getBigUint64(0, true),
+			outPointer(out),
 			host,
 			transport,
 		);

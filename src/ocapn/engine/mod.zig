@@ -816,6 +816,15 @@ pub const Peer = struct {
                 return err;
             };
         }
+        // The one entry point that stores an application-supplied value
+        // without a `send`: hold it to the same pre-commit rule (depth bound,
+        // set / struct-key uniqueness) `validateSend` holds for messages, so
+        // a refusable value never commits to the store and then aborts the
+        // session from a queued fire's own accounting.
+        self.session_state.validateStoredResolution(resolution) catch |err| {
+            freeResolution(self.allocator, resolution);
+            return err;
+        };
         // A `row_id` mismatch means the row this relay was queued against was
         // torn down and a different third-party promise re-registered at this
         // position; the stale relay is moot, so fire nothing — exactly as a

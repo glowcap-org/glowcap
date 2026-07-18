@@ -1,32 +1,26 @@
 // Argument marshalling: encode a native `Argument` into the C ABI's flat
 // `PancakeArgument` structs and decode them back. The one place the wire struct
-// layout is spelled. All of this is package-internal — the peer/vat/connection
+// layout is spelled: every size and field offset comes from the active layout
+// `L`, and pointer-width fields go through its width-aware accessors, so the
+// same body marshals the 64-bit dlopen targets and the wasm32 browser module.
+// All of this is package-internal — the peer/vat/connection
 // modules import what they need (`encodeArgs`, `readArg`, `readArgArray`,
 // `refStruct`, `readReference`); the barrel exposes none of it. `encodeArg` and
 // `writeReference` are module-private, used only by their exported wrappers.
 
 import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
+import { L } from "./internal/layout.ts";
 import { readBytes } from "./internal/seam.ts";
 import {
 	ARG_BIG_INTEGER,
 	ARG_BOOLEAN,
-	ARG_BOOLEAN_OFF,
 	ARG_BYTES,
-	ARG_BYTES_LEN_OFF,
-	ARG_BYTES_OFF,
 	ARG_FLOAT64,
-	ARG_FLOAT64_OFF,
 	ARG_INTEGER,
-	ARG_INTEGER_OFF,
-	ARG_ITEMS_LEN_OFF,
-	ARG_ITEMS_OFF,
 	ARG_KEYWORD,
-	ARG_KIND_OFF,
 	ARG_LIST,
 	ARG_REFERENCE,
-	ARG_REFERENCE_OFF,
 	ARG_SET,
-	ARG_SIZE,
 	ARG_STRING,
 	ARG_SYMBOL,
 	ARG_TAGGED,
@@ -34,17 +28,13 @@ import {
 	INVALID_ARGUMENT,
 	REF_BROKEN,
 	REF_FAR,
-	REF_ID_OFF,
-	REF_KIND_OFF,
 	REF_NEAR,
 	REF_PROMISE,
-	REF_SIZE,
 	REF_STURDY,
-	REF_SUB_KIND_OFF,
 	REF_SUB_OBJECT,
 	REF_SUB_PROMISE,
 	UNSUPPORTED_VALUE,
-} from "./internal/abi.ts";
+} from "@pancake/abi";
 import { PancakeError } from "./errors.ts";
 import { type Argument, isReference, Kw, PSet, type Reference, Sym, Tagged } from "./value.ts";
 
@@ -71,13 +61,13 @@ function writeReference(dv: DataView, off: number, ref: Reference): void {
 				"sturdy/broken ref not carried on send",
 			);
 	}
-	dv.setUint32(off + REF_KIND_OFF, kind, true);
-	dv.setUint32(off + REF_SUB_KIND_OFF, sub, true);
-	dv.setBigUint64(off + REF_ID_OFF, id, true);
+	dv.setUint32(off + L.REF_KIND_OFF, kind, true);
+	dv.setUint32(off + L.REF_SUB_KIND_OFF, sub, true);
+	dv.setBigUint64(off + L.REF_ID_OFF, id, true);
 }
 
 export function refStruct(ref: Reference): Uint8Array {
-	const buf = new Uint8Array(REF_SIZE);
+	const buf = new Uint8Array(L.REF_SIZE);
 	writeReference(new DataView(buf.buffer), 0, ref);
 	return buf;
 }
@@ -85,9 +75,9 @@ export function refStruct(ref: Reference): Uint8Array {
 // Encodes args into one contiguous Uint8Array of ARG_SIZE structs, pushing any
 // backing byte/child buffers onto `keep` so they outlive the FFI call.
 export function encodeArgs(args: Argument[], keep: Uint8Array[]): Uint8Array {
-	const buf = new Uint8Array(ARG_SIZE * args.length);
+	const buf = new Uint8Array(L.ARG_SIZE * args.length);
 	const dv = new DataView(buf.buffer);
-	args.forEach((arg, i) => encodeArg(dv, i * ARG_SIZE, arg, keep));
+	args.forEach((arg, i) => encodeArg(dv, i * L.ARG_SIZE, arg, keep));
 	keep.push(buf);
 	return buf;
 }
@@ -100,9 +90,9 @@ function encodeArg(
 ): void {
 	const setBytes = (kind: number, bytes: Uint8Array) => {
 		keep.push(bytes);
-		dv.setUint32(off + ARG_KIND_OFF, kind, true);
-		dv.setBigUint64(off + ARG_BYTES_OFF, ffi.pointerOf(bytes), true);
-		dv.setBigUint64(off + ARG_BYTES_LEN_OFF, BigInt(bytes.length), true);
+		dv.setUint32(off + L.ARG_KIND_OFF, kind, true);
+		L.setPtr(dv, off + L.ARG_BYTES_OFF, ffi.pointerOf(bytes));
+		L.setUsize(dv, off + L.ARG_BYTES_LEN_OFF, bytes.length);
 	};
 	if (typeof arg === "bigint") {
 		if (arg < -(2n ** 63n) || arg >= 2n ** 63n) {
@@ -113,17 +103,17 @@ function encodeArg(
 				ARG_BIG_INTEGER,
 				new TextEncoder().encode((negative ? -arg : arg).toString()),
 			);
-			dv.setUint32(off + ARG_BOOLEAN_OFF, negative ? 1 : 0, true);
+			dv.setUint32(off + L.ARG_BOOLEAN_OFF, negative ? 1 : 0, true);
 		} else {
-			dv.setUint32(off + ARG_KIND_OFF, ARG_INTEGER, true);
-			dv.setBigInt64(off + ARG_INTEGER_OFF, arg, true);
+			dv.setUint32(off + L.ARG_KIND_OFF, ARG_INTEGER, true);
+			dv.setBigInt64(off + L.ARG_INTEGER_OFF, arg, true);
 		}
 	} else if (typeof arg === "number") {
-		dv.setUint32(off + ARG_KIND_OFF, ARG_FLOAT64, true);
-		dv.setFloat64(off + ARG_FLOAT64_OFF, arg, true);
+		dv.setUint32(off + L.ARG_KIND_OFF, ARG_FLOAT64, true);
+		dv.setFloat64(off + L.ARG_FLOAT64_OFF, arg, true);
 	} else if (typeof arg === "boolean") {
-		dv.setUint32(off + ARG_KIND_OFF, ARG_BOOLEAN, true);
-		dv.setUint32(off + ARG_BOOLEAN_OFF, arg ? 1 : 0, true);
+		dv.setUint32(off + L.ARG_KIND_OFF, ARG_BOOLEAN, true);
+		dv.setUint32(off + L.ARG_BOOLEAN_OFF, arg ? 1 : 0, true);
 	} else if (arg instanceof Uint8Array) {
 		setBytes(ARG_BYTES, arg);
 	} else if (arg instanceof Sym) {
@@ -133,10 +123,10 @@ function encodeArg(
 	} else if (typeof arg === "string") {
 		setBytes(ARG_STRING, new TextEncoder().encode(arg));
 	} else if (arg === null) {
-		dv.setUint32(off + ARG_KIND_OFF, ARG_VOID, true);
+		dv.setUint32(off + L.ARG_KIND_OFF, ARG_VOID, true);
 	} else if (isReference(arg)) {
-		dv.setUint32(off + ARG_KIND_OFF, ARG_REFERENCE, true);
-		writeReference(dv, off + ARG_REFERENCE_OFF, arg);
+		dv.setUint32(off + L.ARG_KIND_OFF, ARG_REFERENCE, true);
+		writeReference(dv, off + L.ARG_REFERENCE_OFF, arg);
 	} else if (Array.isArray(arg)) {
 		writeItems(ARG_LIST, arg);
 	} else if (arg instanceof PSet) {
@@ -149,17 +139,17 @@ function encodeArg(
 	}
 
 	function writeItems(kind: number, items: Argument[]): void {
-		dv.setUint32(off + ARG_KIND_OFF, kind, true);
+		dv.setUint32(off + L.ARG_KIND_OFF, kind, true);
 		const child = encodeArgs(items, keep);
-		dv.setBigUint64(off + ARG_ITEMS_OFF, ffi.pointerOf(child), true);
-		dv.setBigUint64(off + ARG_ITEMS_LEN_OFF, BigInt(items.length), true);
+		L.setPtr(dv, off + L.ARG_ITEMS_OFF, ffi.pointerOf(child));
+		L.setUsize(dv, off + L.ARG_ITEMS_LEN_OFF, items.length);
 	}
 }
 
 export function readReference(view: DataView, off: number): Reference {
-	const kind = view.getUint32(off + REF_KIND_OFF, true);
-	const sub = view.getUint32(off + REF_SUB_KIND_OFF, true);
-	const id = view.getBigUint64(off + REF_ID_OFF, true);
+	const kind = view.getUint32(off + L.REF_KIND_OFF, true);
+	const sub = view.getUint32(off + L.REF_SUB_KIND_OFF, true);
+	const id = view.getBigUint64(off + L.REF_ID_OFF, true);
 	const promise = sub === REF_SUB_PROMISE;
 	switch (kind) {
 		case REF_NEAR:
@@ -180,23 +170,23 @@ export function readArg(view: DataView, off: number): Argument {
 	// them through one spelling so the ARG struct layout lives in one place.
 	const argBytes = () =>
 		readBytes(
-			view.getBigUint64(off + ARG_BYTES_OFF, true),
-			view.getBigUint64(off + ARG_BYTES_LEN_OFF, true),
+			L.getPtr(view, off + L.ARG_BYTES_OFF),
+			L.getUsize(view, off + L.ARG_BYTES_LEN_OFF),
 		);
 	const argString = () => new TextDecoder().decode(argBytes());
 	const argItems = () =>
 		readArgArray(
-			view.getBigUint64(off + ARG_ITEMS_OFF, true),
-			view.getBigUint64(off + ARG_ITEMS_LEN_OFF, true),
+			L.getPtr(view, off + L.ARG_ITEMS_OFF),
+			L.getUsize(view, off + L.ARG_ITEMS_LEN_OFF),
 		);
-	const kind = view.getUint32(off + ARG_KIND_OFF, true);
+	const kind = view.getUint32(off + L.ARG_KIND_OFF, true);
 	switch (kind) {
 		case ARG_INTEGER:
-			return view.getBigInt64(off + ARG_INTEGER_OFF, true);
+			return view.getBigInt64(off + L.ARG_INTEGER_OFF, true);
 		case ARG_FLOAT64:
-			return view.getFloat64(off + ARG_FLOAT64_OFF, true);
+			return view.getFloat64(off + L.ARG_FLOAT64_OFF, true);
 		case ARG_BOOLEAN:
-			return view.getUint32(off + ARG_BOOLEAN_OFF, true) !== 0;
+			return view.getUint32(off + L.ARG_BOOLEAN_OFF, true) !== 0;
 		case ARG_BYTES:
 			return argBytes();
 		case ARG_STRING:
@@ -204,7 +194,7 @@ export function readArg(view: DataView, off: number): Argument {
 		case ARG_SYMBOL:
 			return new Sym(argString());
 		case ARG_REFERENCE:
-			return readReference(view, off + ARG_REFERENCE_OFF);
+			return readReference(view, off + L.ARG_REFERENCE_OFF);
 		case ARG_LIST:
 			return argItems();
 		case ARG_SET:
@@ -218,7 +208,7 @@ export function readArg(view: DataView, off: number): Argument {
 		case ARG_BIG_INTEGER: {
 			// Canonical decimal digits + sign flag back to a native bigint (ADR-0049).
 			const magnitude = BigInt(argString());
-			return view.getUint32(off + ARG_BOOLEAN_OFF, true) !== 0 ? -magnitude : magnitude;
+			return view.getUint32(off + L.ARG_BOOLEAN_OFF, true) !== 0 ? -magnitude : magnitude;
 		}
 		default:
 			throw new PancakeError(
@@ -230,8 +220,8 @@ export function readArg(view: DataView, off: number): Argument {
 
 export function readArgArray(ptrValue: Ptr, len: bigint): Argument[] {
 	if (ptrValue === NULL || len === 0n) return [];
-	const view = new DataView(ffi.readMemory(ptrValue, Number(len) * ARG_SIZE));
+	const view = new DataView(ffi.readMemory(ptrValue, Number(len) * L.ARG_SIZE));
 	const out: Argument[] = [];
-	for (let i = 0; i < Number(len); i++) out.push(readArg(view, i * ARG_SIZE));
+	for (let i = 0; i < Number(len); i++) out.push(readArg(view, i * L.ARG_SIZE));
 	return out;
 }

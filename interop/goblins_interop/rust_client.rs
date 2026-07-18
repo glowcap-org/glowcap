@@ -10,7 +10,7 @@
 //! positional call, then a repeat `enliven` of the same swiss-num. Needs
 //! `racket` plus `goblins` on PATH; `zig build rust-goblins-interop`.
 
-use pancake_rust_dogfood::{connect, tcp_locator, Reference};
+use pancake_rust_dogfood::{connect, tcp_locator, Argument, Reference};
 use tokio::process::Command;
 
 #[path = "../_common/rust/helpers.rs"]
@@ -60,8 +60,21 @@ async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 	println!("rust-goblins-interop: enlivened goblins echo cap, calling it");
 
 	// Goblins invokes a cap positionally (no method symbol), so send with verb "".
-	conn.send(&echo, "", &[b"pancake-ping".as_slice().into()])
+	// The echo actor is `(lambda args args)`: it returns its argument list, so
+	// assert the content survived the round-trip (the native driver's bar).
+	fn assert_echoed(reply: &Argument, expected: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+		match reply {
+			Argument::List(items) if items.len() == 1 => match &items[0] {
+				Argument::Bytes(bytes) if bytes == expected => Ok(()),
+				other => Err(format!("echo returned {other:?}, expected {expected:?}").into()),
+			},
+			other => Err(format!("echo reply is not a one-bytes list: {other:?}").into()),
+		}
+	}
+	let reply = conn
+		.send(&echo, "", &[b"pancake-ping".as_slice().into()])
 		.await?;
+	assert_echoed(&reply, b"pancake-ping")?;
 
 	let again = conn.enliven(&sturdyref).await?;
 	match (echo.reference(), again.reference()) {
@@ -70,8 +83,10 @@ async fn converse(swiss: String, port: u16) -> Result<(), Fail> {
 			return Err("repeat enliven did not return the same far import (dedup miss)".into());
 		}
 	}
-	conn.send(&again, "", &[b"pancake-ping-again".as_slice().into()])
+	let reply_again = conn
+		.send(&again, "", &[b"pancake-ping-again".as_slice().into()])
 		.await?;
+	assert_echoed(&reply_again, b"pancake-ping-again")?;
 	println!("rust-goblins-interop: repeat enliven same import (dedup), second call resolved");
 
 	println!(

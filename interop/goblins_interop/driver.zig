@@ -18,12 +18,14 @@
 //! with no wire traffic, which proves enliven against a real Goblins-published cap.
 //!
 //! The listener bracket: pancake then binds its own TCP listener on an
-//! ephemeral port and a real Goblins client dials in. Three scenarios share
+//! ephemeral port and a real Goblins client dials in. Four scenarios share
 //! that bracket: a settled call to a published Greeter actor
 //! (`pancake-actor-call.rkt`), a pipelined enliven-and-call in one breath
-//! (`goblins-tap-dialer.rkt`), and the break path (`pancake-break-call.rkt`),
+//! (`goblins-tap-dialer.rkt`), the break path (`pancake-break-call.rkt`),
 //! where the client fetches a swiss-num pancake never registered and asserts
-//! its vow breaks with pancake's reason. Together the brackets prove the
+//! its vow breaks with pancake's reason, and an export-side `op:listen`
+//! (`pancake-export-listen.rkt`), where Goblins subscribes on a live pancake
+//! object export and hears the settlement. Together the brackets prove the
 //! bidirectional capability: pancake drives Goblins, and Goblins drives a
 //! pancake actor.
 //!
@@ -129,7 +131,8 @@ const ProjectionResponder = struct {
                 else => "anon",
             };
             // String payloads round-trip through live Goblins the way Greeter's
-            // reply does; struct-shaped answers stalled the client's vow.
+            // reply does; struct-shaped answers stalled the client's vow, the
+            // pancake-to-Goblins Struct-reply edge docs/boundaries.md records.
             return .{ .string = try std.fmt.allocPrint(turn.arena, "{s}", .{name}) };
         }
         if (std.mem.eql(u8, tag, "list")) {
@@ -257,7 +260,12 @@ pub fn main(init: std.process.Init) !void {
     std.debug.print("goblins-interop: OK — export-side op:listen: goblins listened on a live pancake export\n", .{});
 
     // Sixth bracket: Goblins-as-asker sends canonical `op:get` / `op:index`
-    // against pancake's ADR-0050 responders.
+    // frames through its own netlayer against pancake's ADR-0050 responders.
+    // The Racket asker writes the frames and returns without observing the
+    // projection settlements (its raw send path bypasses Goblins' answer
+    // table), so this bracket proves acceptance of Goblins-written projection
+    // ops, not settlement; the settlement matrix stays pinned by the in-tree
+    // Zig scenarios (docs/boundaries.md names the edge).
     try runListenerScenario(init, .{
         .dialer = projection_asker_script,
         .swiss = projection_swiss,
@@ -266,7 +274,7 @@ pub fn main(init: std.process.Init) !void {
         .kind = "projection asker",
         .actor = .projection,
     });
-    std.debug.print("goblins-interop: OK — goblins sent op:get/op:index and pancake's responders resolved both projections\n", .{});
+    std.debug.print("goblins-interop: OK, pancake accepted canonical op:get/op:index frames a Goblins netlayer wrote\n", .{});
 }
 
 /// One Goblins-dials-pancake scenario over the shared listener bracket.
@@ -313,12 +321,9 @@ fn runListenerScenario(init: std.process.Init, scenario: ListenerScenario) !void
     var peer = engine.Peer.initNegotiating(allocator);
     defer peer.deinit();
     peer.session_state.limits.max_frame_bytes = frame_cap;
-    // Keep app exports clear of the bootstrap export (0): if the Greeter landed on
-    // export 0, an inbound `'fetch` to the bootstrap would be both auto-answered
-    // *and* served to the Greeter, whose string reply would clobber the fetch
-    // answer's stored reference, breaking a pipelined call that redirects through
-    // it. App exports start at 1, exactly as the conformance peer arranges.
-    peer.session_state.next_export_position = 1;
+    // Session init already reserves export 0 for the bootstrap; app exports
+    // mint from 1 through the session's one allocator, so the Greeter can
+    // never land on the bootstrap position.
 
     var vat: ?actors.Vat = null;
     defer if (vat) |*v| v.deinit();
@@ -657,10 +662,7 @@ fn converse(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, port_st
     if (!enliven_echoed) return error.EnlivenNeverResolved;
 
     // The repeat enliven must hit the cache: same import position, no wire traffic.
-    const repeat = try engine.sturdyref.prepareEnliven(allocator, &peer.session_state, .{
-        .peer = .{ .transport = tcp.transport_name, .designator = dial.designator, .hints = model.Hints.emptyFalse() },
-        .swissnum = swiss,
-    });
+    const repeat = try engine.sturdyref.prepareEnliven(allocator, &peer.session_state, swiss);
     switch (repeat) {
         .cached => |reference| {
             if (reference != .far or enlivened != .far or

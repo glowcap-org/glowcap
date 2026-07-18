@@ -1,12 +1,10 @@
 ---
 name: smell-annihilation
 description: >-
-  Architectural smell pass with ambition and discipline: dual independent
-  persona review via XDG/project lookup, root fixes over workarounds, memory
-  and performance as correctness pressure, leave every touched surface sharper
-  (including dead-code deletion), turn lessons into gates. Use for structural
-  cleanup, layer moves, duplication collapse, wire-path cost hunts, or when a
-  timid first fix smells like deferred migration cost.
+  Use for structural cleanup, layer moves, duplication collapse, wire-path cost
+  hunts, or when a timid first fix smells like deferred migration cost. Not for
+  one-line fixes, pure questions, or OCapN/Goblins community-review preflight
+  (community-review).
 ---
 
 # Smell annihilation — ambition + discipline
@@ -41,29 +39,18 @@ Persona **titles and proper names** may appear in subagent prompts and session
 plans. They must never appear in committed code or comments; taste lands as
 structure ([agent-scaffolding](../../rules/agent-scaffolding.md)).
 
+## When not to use
+
+- One-line fixes or pure questions with a focused rule already naming the path
+- OCapN / Goblins community-review preflight → [community-review](../community-review/SKILL.md)
+- Multi-persona room team ops → [rooms-team](../rooms-team/SKILL.md)
+
 ## Persona lookup
 
-Resolve each slug in order (project shadows user):
-
-1. `.agents/personas/<slug>.md` when present
-2. else `${XDG_CONFIG_HOME:-$HOME/.config}/agent-personas/<slug>.md`
-
-**File shape:** YAML frontmatter with `slug:` matching the filename stem; optional
-`title` / `summary`; then a markdown taste body the subagent channels.
-
-**Hard rule for project personas:** committed files under `.agents/personas/` are
-anonymous lenses only (slug + taste). Real-person names live only in user XDG (or
-untracked local files). `zig build meta-check` refuses proper-name needles and
-person-channeling phrasing in tracked project personas and in this skill.
-
-**Default pair** when the user does not name slugs: `andrew-kelley` +
-`fabrice-bellard`. If either fails to resolve, stop and tell the operator to
-install user personas:
-
-```sh
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/agent-personas"
-# write <slug>.md files with frontmatter + taste body
-```
+Resolve slugs per [`.agents/personas/README.md`](../../personas/README.md)
+(project then XDG). Operator names the two slugs; this skill does not hardcode
+defaults. Missing slug → stop. For scaffolding-only scopes, a useful pair is
+`scaffold-rigor` + a domain lens — still operator-chosen.
 
 ## Memory, performance, optimums
 
@@ -188,11 +175,9 @@ the next agent inherits a higher floor.
 - **Gate:** `zig build check` (includes alloc/footprint budgets and
   `perf-check`). Focused: `zig build test`, `arch-check`, `meta-check`,
   `fmt-check`.
-- **Live CapTP (dogfood the product):** in Cursor/Claude with project MCP →
-  [pancake-mcp](../pancake-mcp/SKILL.md); shell host/listen/REPL/`--json` →
-  [pancake-cli](../pancake-cli/SKILL.md); room wake →
-  [rooms-peer](../rooms-peer/SKILL.md). Prefer these over a throwaway Zig
-  dialer when proving CapTP while editing pancake.
+- **Live CapTP while editing:** [pancake-mcp](../pancake-mcp/SKILL.md) ·
+  [pancake-cli](../pancake-cli/SKILL.md) · [rooms-peer](../rooms-peer/SKILL.md)
+  — do not invent a Zig dialer.
 - **Layer bans:** `build.zig` `layer_table` + `arch-check` (`core = true` bans
   `std.Io`).
 - **Cost authority:** [memory](../../rules/memory.md), ladder Step 2,

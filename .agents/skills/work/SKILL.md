@@ -15,6 +15,12 @@ Substantial work on pancake should leave the repository closer to
 continue. Assess first, then act or prove inaction, do not stop at a report
 when the right move is to fix what you found.
 
+## When not to use
+
+- One-line fixes or pure questions where a focused rule already specifies the path
+- Structural smell / layer / cost hunts → [smell-annihilation](../smell-annihilation/SKILL.md)
+- OCapN / Goblins community-review preflight → [community-review](../community-review/SKILL.md)
+
 ## 1. Load context (strategic, not exhaustive)
 
 Read only what the task needs:

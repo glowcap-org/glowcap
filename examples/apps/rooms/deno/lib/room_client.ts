@@ -133,13 +133,9 @@ export class Directory {
 		);
 	}
 
-	/** Announce a dialable member to the directory so others can be introduced to
-	 * it for direct messages. `locator` is where this member listens, a TCP
-	 * `host:port` or an iroh `ocapn://` URI, and it hosts a giftable `dm` object.
-	 * The directory dials that locator back, fetches the `dm`, and holds the
-	 * reference. The returned promise resolves once the directory sends its
-	 * `registered` ack, which is the moment the nick becomes introducible. Waiting
-	 * for it is how a caller avoids racing the dial-back. */
+	/** Announce a member for DM introduce. Publish `dm` on this session first;
+	 * `locator` is the listen address redeem should dial. Resolves on
+	 * `notify("registered", …)`. */
 	register(nick: string, locator: string): Promise<void> {
 		return new Promise((resolve) => {
 			const inbox = this.session.spawn((verb, args) => {

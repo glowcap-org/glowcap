@@ -1,25 +1,20 @@
 // Host-action park + execute — the embedder-contract switch the CapTP host
 // drain runs. `Host` owns park/kick/vows and the Session registry; decode/types
 // come from the generated `internal/host_action.ts`
-// (`zig build gen-binding-host-action`); this module owns the shared C drain
-// (`pancake_host_pump_drain`) with sync park-only hooks, then runs each parked
-// arm (dial, flush, close, gift-id entropy, settle, fail) after the C loop
-// returns — so async I/O never runs inside the C callback.
+// (`zig build gen-binding-host-action`); this module owns the canonical
+// pop-until-WOULD_BLOCK drain (`pancake_host_next_action`, the one-loop rule),
+// then runs each parked arm (dial, flush, close, gift-id entropy, settle,
+// fail) after the pops, so async I/O never runs while a borrowed action view
+// is live and no native callback is minted per drain. The pop-based drain is
+// also the only shape every FFI target has: the wasm32 browser adapter carries
+// exactly one callback seam (the behavior trampoline), so a hooks-buffer drain
+// could never run there.
 
 import { driverS } from "./internal/ffi/driver.ts";
-import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
+import { type Ptr } from "./internal/ffi/runtime.ts";
 import { ab } from "./internal/seam.ts";
-import {
-	CLOSED,
-	HOST_ACTION_SIZE,
-	HOST_PUMP_HOOKS_CLOSE_OFF,
-	HOST_PUMP_HOOKS_COMPLETE_OFF,
-	HOST_PUMP_HOOKS_DIAL_OFF,
-	HOST_PUMP_HOOKS_FLUSH_OFF,
-	HOST_PUMP_HOOKS_NEED_GIFT_ID_OFF,
-	HOST_PUMP_HOOKS_SIZE,
-	OK,
-} from "./internal/abi.ts";
+import { L } from "./internal/layout.ts";
+import { CLOSED, WOULD_BLOCK } from "@pancake/abi";
 import { decodeHostAction, dispatchHostAction, type HostAction } from "./internal/host_action.ts";
 import { checkHost, PancakeError, VowBroken } from "./errors.ts";
 import type { Host } from "./host.ts";
@@ -38,41 +33,18 @@ export interface ActionHost {
 	vowSessionClosing(vow: bigint): boolean;
 }
 
-/** Run `pancake_host_pump_drain` with park-only arms; return decoded actions
- * in queue order. Views are copied inside `decodeHostAction` before the next
- * pop frees them. The arm callback and hooks buffer stay alive for the C call. */
+/** Pop every pending embedder action (`pancake_host_next_action` until
+ * WOULD_BLOCK); return them decoded, in queue order. A popped action's byte
+ * views are host-owned and valid only until the next pop frees them, so
+ * `decodeHostAction` copies each out before the loop continues. */
 export function parkActions(host: ActionHost): HostAction[] {
 	const parked: HostAction[] = [];
-	const parkCb = ffi.makeCallback(
-		{
-			parameters: ["pointer", "pointer", "pointer", "pointer"],
-			result: "i32",
-		},
-		(_ctx: Ptr, _hostPtr: Ptr, actionPtr: Ptr, outProgressed: Ptr): number => {
-			const bytes = ffi.readMemory(actionPtr, HOST_ACTION_SIZE);
-			parked.push(decodeHostAction(new DataView(bytes)));
-			if (outProgressed !== NULL) {
-				const flag = new Uint8Array(4);
-				new DataView(flag.buffer).setUint32(0, 1, true);
-				ffi.writeMemory(outProgressed, flag);
-			}
-			return OK;
-		},
-	);
-	try {
-		const hooks = new Uint8Array(HOST_PUMP_HOOKS_SIZE);
-		const dv = new DataView(hooks.buffer);
-		const arm = parkCb.pointer;
-		dv.setBigUint64(HOST_PUMP_HOOKS_FLUSH_OFF, arm, true);
-		dv.setBigUint64(HOST_PUMP_HOOKS_CLOSE_OFF, arm, true);
-		dv.setBigUint64(HOST_PUMP_HOOKS_NEED_GIFT_ID_OFF, arm, true);
-		dv.setBigUint64(HOST_PUMP_HOOKS_COMPLETE_OFF, arm, true);
-		dv.setBigUint64(HOST_PUMP_HOOKS_DIAL_OFF, arm, true);
-		const acted = new Uint8Array(4);
-		checkHost(driverS.pancake_host_pump_drain(host.raw, ab(hooks), ab(acted)));
-		return parked;
-	} finally {
-		parkCb.close();
+	const out = new Uint8Array(L.HOST_ACTION_SIZE);
+	while (true) {
+		const rc = driverS.pancake_host_next_action(host.raw, ab(out));
+		if (rc === WOULD_BLOCK) return parked;
+		checkHost(rc);
+		parked.push(decodeHostAction(new DataView(out.buffer)));
 	}
 }
 

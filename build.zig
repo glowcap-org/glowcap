@@ -38,6 +38,7 @@ const layer_table = [_]arch_check.LayerSpec{
     .{ .name = "c_abi_net_transport_tcp", .prefix = "c_abi/net_transport/tcp/", .imports = &.{ "net", "driver", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_net_transport_inproc", .prefix = "c_abi/net_transport/inproc/", .imports = &.{ "net", "c_abi_shared" }, .core = false, .graph = false },
     .{ .name = "c_abi_driver", .prefix = "c_abi/driver/", .imports = &.{ "foundation", "model", "engine", "actors", "driver_core", "c_abi_shared" }, .core = false, .graph = false },
+    .{ .name = "c_abi_wasm", .prefix = "c_abi/wasm/", .imports = &.{ "c_abi_shared", "c_abi", "c_abi_driver" }, .core = false, .graph = false },
     .{ .name = "pancake", .prefix = "root.zig", .imports = &.{ "foundation", "model", "codec", "session", "engine", "actors", "net", "driver", "c_abi" }, .core = false },
 };
 
@@ -240,6 +241,88 @@ fn crossLibModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.Opt
 fn crossCoreModule(b: *std.Build, t: std.Build.ResolvedTarget, o: std.builtin.OptimizeMode) *std.Build.Module {
     const mods = graphFromTable(b, t, o, layer_table[0 .. layerIndex("actors") + 1], false);
     return mods[layerIndex("actors")];
+}
+
+/// The browser binding's freestanding `wasm32` artifact (ADR-0070): the byte-fed
+/// CapTP Host (`libpancake_driver`) and the shared `libpancake_ocapn` vocabulary
+/// compiled to one loadable wasm module. It roots on `src/c_abi/wasm/mod.zig`,
+/// which forces both export families in and adds the JS<->wasm linear-memory
+/// primitives. The module graph is the sans-io core (the `core = true` prefix)
+/// plus the two ocapn C ABI vocabulary rows; the I/O layers (`net`, `driver`,
+/// `oracle`) wasm lacks are excluded. ReleaseSmall keeps the download small and
+/// drops the runtime-safety-only `std.Thread.getCurrentId` owner assert.
+/// The `layer_table` rows the wasm driver's base module graph transitively
+/// needs, as a keep-mask over `layer_table`.
+///
+/// It is the import-closure of the `c_abi_wasm` root's forced families — its own
+/// declared imports, `{c_abi_shared, c_abi, c_abi_driver}` — followed over
+/// `layer_table` edges, then restricted to the `graph = true` rows
+/// `graphFromTable` actually builds. The two `graph = false` reached rows
+/// (`c_abi_driver` and the wasm root itself) are minted at the use site below,
+/// so they stay out of the base graph. Deriving the set from the edges is what
+/// lets a new dependency of the wasm surface pull itself in, instead of a
+/// hand-kept name list that silently over- or under-includes as edges change.
+fn wasmGraphMask() [layer_table.len]bool {
+    @setEvalBranchQuota(20000);
+    var reached = [_]bool{false} ** layer_table.len;
+    for (layer_table[layerIndex("c_abi_wasm")].imports) |name| reached[layerIndex(name)] = true;
+    // Fixpoint: pull in every import of an already-reached row. Edges only point
+    // at earlier rows, so `layer_table.len` forward passes reach the fixpoint.
+    var pass: usize = 0;
+    while (pass < layer_table.len) : (pass += 1) {
+        for (layer_table, 0..) |spec, i| {
+            if (!reached[i]) continue;
+            for (spec.imports) |name| reached[layerIndex(name)] = true;
+        }
+    }
+    var mask = [_]bool{false} ** layer_table.len;
+    for (layer_table, 0..) |spec, i| mask[i] = reached[i] and spec.graph;
+    return mask;
+}
+
+fn wasmDriverExe(b: *std.Build, o: std.builtin.OptimizeMode) *std.Build.Step.Compile {
+    const t = b.resolveTargetQuery(.{ .cpu_arch = .wasm32, .os_tag = .freestanding });
+    const mask = comptime wasmGraphMask();
+    var buf: [layer_table.len]arch_check.LayerSpec = undefined;
+    var n: usize = 0;
+    inline for (layer_table, 0..) |spec, i| {
+        if (mask[i]) {
+            buf[n] = spec;
+            n += 1;
+        }
+    }
+    const sub = buf[0..n];
+    const mods = graphFromTable(b, t, o, sub, false);
+    const pick = struct {
+        fn get(table: []const arch_check.LayerSpec, ms: []*std.Build.Module, name: []const u8) *std.Build.Module {
+            for (table, 0..) |spec, i| {
+                if (std.mem.eql(u8, spec.name, name)) return ms[i];
+            }
+            @panic("wasm layer subset missing a required row");
+        }
+    }.get;
+    // `c_abi_driver` and the `c_abi_wasm` root are graph=false; mint them at this
+    // use site the way the transport archives are, wiring the wasm modules above.
+    const driver_mod = transportAbiModule(b, t, o, "src/c_abi/driver/mod.zig", &.{
+        .{ .name = "foundation", .module = pick(sub, mods, "foundation") },
+        .{ .name = "model", .module = pick(sub, mods, "model") },
+        .{ .name = "engine", .module = pick(sub, mods, "engine") },
+        .{ .name = "actors", .module = pick(sub, mods, "actors") },
+        .{ .name = "driver_core", .module = pick(sub, mods, "driver_core") },
+        .{ .name = "c_abi_shared", .module = pick(sub, mods, "c_abi_shared") },
+    });
+    const wasm_root = transportAbiModule(b, t, o, "src/c_abi/wasm/mod.zig", &.{
+        .{ .name = "c_abi_shared", .module = pick(sub, mods, "c_abi_shared") },
+        .{ .name = "c_abi", .module = pick(sub, mods, "c_abi") },
+        .{ .name = "c_abi_driver", .module = driver_mod },
+    });
+    const exe = b.addExecutable(.{ .name = "pancake_driver", .root_module = wasm_root });
+    // A loadable module, not a command: no `_start`, exports discovered from the
+    // `export fn`s (`entry = .disabled`, `rdynamic`). The linker exports linear
+    // memory so JS can read/write `ptr + len` across the boundary.
+    exe.entry = .disabled;
+    exe.rdynamic = true;
+    return exe;
 }
 
 /// One named import edge for a transport C ABI module.
@@ -580,6 +663,72 @@ pub fn build(b: *std.Build) void {
     cross_check_step.dependOn(&cross_macos.step);
     cross_check_step.dependOn(&cross_wasm.step);
     check_step.dependOn(cross_check_step);
+
+    // The browser binding's freestanding wasm32 Host module (ADR-0070): the
+    // byte-fed driver tier plus the shared ocapn vocabulary, one loadable
+    // `pancake_driver.wasm` under zig-out/wasm/ that a browser instantiates and
+    // drives with bytes. Building it also folds the whole browser-binding graph
+    // (`c_abi_driver`, `c_abi_wasm`) into `cross-check`, so a wasm regression
+    // fails the gate.
+    const wasm_driver = wasmDriverExe(b, .ReleaseSmall);
+    const wasm_driver_install = b.addInstallArtifact(wasm_driver, .{
+        .dest_dir = .{ .override = .{ .custom = "wasm" } },
+    });
+    const wasm_driver_step = b.step("wasm-driver", "Build the browser binding's freestanding wasm32 Host module (ADR-0070) into zig-out/wasm/");
+    wasm_driver_step.dependOn(&wasm_driver_install.step);
+    cross_check_step.dependOn(&wasm_driver.step);
+
+    // Behavioral proof that the wasm32 Host runs real CapTP from JavaScript: two
+    // Hosts with distinct identities complete a keyed handshake over an in-memory
+    // byte pipe, driven through the wasm exports. A sibling step (needs deno on
+    // PATH), not folded into the Zig-hermetic `check`.
+    const wasm_driver_test = b.addSystemCommand(&.{ "deno", "run", "--allow-read", "bindings/ts/web/wasm_handshake_smoke.ts" });
+    wasm_driver_test.setCwd(b.path("."));
+    wasm_driver_test.has_side_effects = true;
+    wasm_driver_test.step.dependOn(&wasm_driver_install.step);
+    const wasm_driver_test_step = b.step("wasm-driver-test", "Prove the wasm32 Host holds a real keyed CapTP handshake from JS over an in-memory pipe (needs deno; ADR-0070)");
+    wasm_driver_test_step.dependOn(&wasm_driver_test.step);
+
+    // The wasm32 layout descriptor (`pancake_wasm_abi_layout`) decodes cleanly:
+    // instantiate the module, read the blob, prove it is well formed, and
+    // cross-check each struct's field count against the `abi.ts` host mirror. A
+    // sibling step (needs deno), not folded into the Zig-hermetic `check`.
+    const wasm_abi_layout_check = b.addSystemCommand(&.{ "deno", "run", "--allow-read", "tools/wasm/abi_layout_check.ts" });
+    wasm_abi_layout_check.setCwd(b.path("."));
+    wasm_abi_layout_check.has_side_effects = true;
+    wasm_abi_layout_check.step.dependOn(&wasm_driver_install.step);
+    const wasm_abi_layout_check_step = b.step("wasm-abi-layout-check", "Prove the wasm32 Host's layout descriptor (pancake_wasm_abi_layout) decodes cleanly and agrees with the abi.ts field counts (needs deno; ADR-0070)");
+    wasm_abi_layout_check_step.dependOn(&wasm_abi_layout_check.step);
+
+    // The ADR-0070 Milestone 1 proof: a browser-shaped peer (the @pancake/web
+    // binding: wasm module, linear-memory FFI adapter, WebSocket channel, no
+    // dlopen) holds a real keyed OCapN session against a native host that
+    // accepts WebSocket, including a host call back into a wasm-hosted object.
+    // Needs the wasm module and the native archives (the accepting child is a
+    // dlopen host), so it depends on both installs. A sibling step (needs
+    // deno), not folded into the Zig-hermetic `check`.
+    const web_peer_test = b.addSystemCommand(&.{
+        "deno",                                  "run", "--allow-read", "--allow-net", "--allow-run", "--allow-ffi", "--allow-env",
+        "bindings/ts/web/test/web_peer_test.ts",
+    });
+    web_peer_test.setCwd(b.path("."));
+    web_peer_test.has_side_effects = true;
+    web_peer_test.step.dependOn(&wasm_driver_install.step);
+    web_peer_test.step.dependOn(b.getInstallStep());
+    const web_peer_test_step = b.step("web-peer-test", "Prove the @pancake/web browser peer holds a keyed OCapN session over WebSocket against a native host (needs deno; ADR-0070 Milestone 1)");
+    web_peer_test_step.dependOn(&web_peer_test.step);
+
+    // The wasm32 Host declares exactly one import — the behavior-dispatch seam
+    // `env.pancake_behavior_trampoline` (ADR-0070). Parse the module statically
+    // and assert the import set is exactly that one, so an accidental extra
+    // import or a rename fails the build. A sibling step (needs deno), not folded
+    // into the Zig-hermetic `check`.
+    const wasm_import_check = b.addSystemCommand(&.{ "deno", "run", "--allow-read", "tools/wasm/import_check.ts" });
+    wasm_import_check.setCwd(b.path("."));
+    wasm_import_check.has_side_effects = true;
+    wasm_import_check.step.dependOn(&wasm_driver_install.step);
+    const wasm_import_check_step = b.step("wasm-import-check", "Prove the wasm32 Host's import set is exactly {env.pancake_behavior_trampoline}, the sole behavior-dispatch seam (needs deno; ADR-0070)");
+    wasm_import_check_step.dependOn(&wasm_import_check.step);
 
     // ── Generated headers / binding mirrors (per archive; ADR-0059) ──────────
     // Each archive's header is generated from its C ABI module (reflected
@@ -2106,17 +2255,20 @@ pub fn build(b: *std.Build) void {
     deno_lint.setCwd(b.path("bindings/ts"));
     bindings_fmt_check_step.dependOn(&deno_lint.step);
 
-    // Type-check the TypeScript binding. `deno-dogfood` runs the smoke with
-    // `--no-check`, so a type error in the binding would otherwise ship silently;
-    // check the public entry points and the dogfood here. The graph is the Deno
-    // one: the experimental Node adapter imports `node:ffi`, which Deno cannot
-    // resolve, so it stays out (it is `@ts-nocheck` and only loaded under Node).
+    // Type-check the TypeScript binding. `deno-dogfood` and `wasm-driver-test`
+    // both run their entry without type-checking (modern `deno run` does not
+    // type-check by default), so a type error would otherwise ship silently;
+    // check the public entry points, the dogfood, and the wasm browser-binding
+    // proof here. The graph is the Deno one: the experimental
+    // Node adapter imports `node:ffi`, which Deno cannot resolve, so it stays out
+    // (it is `@ts-nocheck` and only loaded under Node).
     const deno_check = b.addSystemCommand(&.{
-        "deno",                      "check",
-        "stack/mod.ts",              "stack/transport/tcp.ts",
-        "stack/transport/inproc.ts", "stack/ffi.ts",
-        "iroh/mod.ts",               "iroh/internal.ts",
-        "dogfood/zig_smoke.ts",      "dogfood/gifter_handoff.ts",
+        "deno",                        "check",
+        "stack/mod.ts",                "stack/transport/tcp.ts",
+        "stack/transport/inproc.ts",   "stack/ffi.ts",
+        "iroh/mod.ts",                 "iroh/internal.ts",
+        "dogfood/zig_smoke.ts",        "dogfood/gifter_handoff.ts",
+        "web/wasm_handshake_smoke.ts",
     });
     deno_check.setCwd(b.path("bindings/ts"));
     bindings_fmt_check_step.dependOn(&deno_check.step);

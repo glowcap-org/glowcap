@@ -1,6 +1,6 @@
 ---
 id: ADR-0070
-status: proposed
+status: accepted
 date: 2026-07-08
 tags: [bindings, transport, wasm, browser]
 decision: "A browser peer is the sans-io core compiled to WebAssembly behind the existing binding API, with a browser transport added in two steps: WebSocket, then WebRTC DataChannel."
@@ -56,10 +56,21 @@ What the browser still lacks is a transport, added in two milestones:
 
 ## Scope (what this does not decide)
 
-Nothing here is implemented. There is no WASM build of the C ABI, no browser
-binding under `bindings/`, and no browser transport. This ADR records the
-direction and the seam it plugs into; the milestones are tracked in
-[`docs/roadmap.md`](../../roadmap.md) §3.
+Milestone 1 has landed. `zig build wasm-driver` compiles the byte-fed Host
+(`libpancake_driver`, ADR-0072) and the shared `libpancake_ocapn` vocabulary to
+one freestanding `wasm32` module, `pancake_driver.wasm`;
+`zig build wasm-driver-test` drives a keyed handshake between two Hosts over an
+in-memory byte pipe; and `@pancake/web` (`bindings/ts/web`) runs the full
+`@pancake/stack` surface over the module with a WebSocket byte channel,
+proved end to end by `zig build web-peer-test`. What remains is the rooms web
+demo's move off its per-tab bridge and the WebRTC DataChannel transport
+(Milestone 2); both are tracked in [`docs/roadmap.md`](../../roadmap.md).
+
+The Decision above predates the byte-fed Host consolidation (ADR-0072,
+ADR-0079): the wasm target is now `libpancake_driver` rather than the
+`pancake_ocapn.wasm` it names, and a browser drives the `Host` / `Session`
+binding surface, not the retired `Peer` / `Node` shape. The seam it plugs into
+is unchanged — one FFI boundary swapped for a WebAssembly instance.
 
 ## Alternatives Considered
 

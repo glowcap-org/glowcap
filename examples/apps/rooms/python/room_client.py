@@ -118,8 +118,8 @@ class Directory:
         return _rooms(await self.session.send(self._directory, WATCH, [inbox]))
 
     async def register(self, nick: str, locator: str) -> None:
-        """Announce a dialable DM member. Resolves once the directory has dialed
-        back and the nick is introducible."""
+        """Announce a dialable DM member (publish ``dm`` on this session first).
+        Resolves once the directory acks ``registered``."""
         done = asyncio.get_running_loop().create_future()
 
         def inbox(verb: str, args: list):

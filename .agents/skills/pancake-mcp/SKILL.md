@@ -2,20 +2,23 @@
 name: pancake-mcp
 description: >-
   Use when CapTP must run through the project's pancake MCP server (Cursor /
-  Claude mcp.json): dial/probe/call/tell/fetch/publish/info/close over MCP
-  tools, dogfood live CapTP while writing pancake, choose
-  default|full|readonly catalogs via --tools, fix missing zig-out/bin/pancake,
-  or diagnose MCP identity/busy/timeout. For argv/REPL CapTP from a shell, use
-  pancake-cli. For room wake-loops, use rooms-peer.
+  Claude mcp.json): dogfood live CapTP while editing, choose catalogs via
+  --tools, fix missing binary/state, or diagnose identity/busy/timeout. Shell
+  CapTP → pancake-cli. Room wake → rooms-peer.
 ---
 
 # pancake MCP — CapTP tools in the agent host
 
-**Use pancake to write pancake.** When this session needs a live CapTP act
-while you edit the library (probe a listen you started, call greeter/echo,
-exercise a demo peer, keep a dial across turns), prefer these MCP tools over a
-throwaway Zig dialer or shelling out. Same product binary as argv/REPL
+**Use pancake to write pancake.** When this session needs a live CapTP act while
+you edit the library, prefer these MCP tools over a throwaway Zig dialer or
+shelling out. Same product binary as argv/REPL
 ([ADR-0084](../../../docs/decisions/adr/ADR-0084-pancake-cli-product-boundary.md)).
+
+## When not to use
+
+- Shell listen / REPL / `--json` scripting → [pancake-cli](../pancake-cli/SKILL.md)
+- Room message wake loop → [rooms-peer](../rooms-peer/SKILL.md)
+- Conformance / oracle evidence → Zig gates (MCP success ≠ suite proof)
 
 | Surface | Path |
 | --- | --- |
@@ -79,19 +82,17 @@ Demo actors on an open session: **greeter** (`greet`, `cowsay`, `pancakesay`, `g
 4. `info` for front, identity path, partner abort when retained.
 5. `close` when done with the peer (or let the MCP process exit / idle).
 
-## Footguns
+## Footguns (MCP-only)
+
+Shared CapTP footguns (`listen` never MCP, `--publish` one-partner,
+probe-then-call): [pancake-cli](../pancake-cli/SKILL.md) § Session model.
 
 | Mistake | Reality |
 | --- | --- |
 | MCP server fails to start | Run `zig build`; confirm `./pancake version` works |
 | Yellow “Loading tools”, then green with none | Stdio is NDJSON (`JSON` + newline); rebuild + reload MCP |
-| Expect `listen` in `tools/list` | Argv-only by design — start a listener in a terminal |
-| `probe` then `call` the same `--publish` listen | `--publish` exits after one partner — fresh listen + new locator |
-| `call`/`fetch` a name the peer did not publish | `peer has no capability published under that name` (not a local `publish`) |
 | Blank `isError` tool text | Should be failure JSON; rebuild + reload MCP if empty |
 | Share state with a human REPL | Default `.local/pancake-mcp-state` is separate; do not point both at one dir |
-| Hang forever | Product CapTP budgets are finite; timeout ≈ exit `6` |
-| Treat MCP success as Goblins oracle | Product adapter only — suite/oracle stay in Zig tests |
 | PATH `pancake mcp` without state | Set `PANCAKE_STATE` explicitly (no repo shim) — see portable stub |
 | Invent a Zig harness for an in-host CapTP act | Use these tools (or pancake-cli in a shell) |
 

@@ -211,7 +211,12 @@ fn last_abort(shared: &SessionShared) -> Option<AbortInfo> {
 	}
 	let mut raw: sys::PancakeLastAbort = unsafe { core::mem::zeroed() };
 	let rc = unsafe { ffi::pancake_host_session_last_abort(shared.ptr.get(), &mut raw) };
+	if rc == sys::WOULD_BLOCK {
+		return None; // no abort recorded
+	}
 	if rc != sys::OK {
+		// Best-effort diagnostic on an already-refused feed: the primary
+		// refusal error stands, and a failed read only loses the detail.
 		return None;
 	}
 	// The C views are process-static; copy them into owned strings so the

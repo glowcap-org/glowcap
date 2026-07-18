@@ -39,14 +39,13 @@ export const LEAVE = "leave";
 
 /** Directory introduction methods (three-party handoff, gifter side).
  *
- * A member is a full peer: it listens on its own endpoint and exports a `dm`
- * object. `register(nick, locator, inboxCap)` tells the directory the member's
- * dialable locator; the directory dials it back, fetches its `dm`, holds the
- * reference, and pushes `notify("registered", nick)` to the inbox once it is
- * introducible. `introduce(nick)` returns that member's `dm` reference, which,
- * living on the directory-to-member connection, the binding transparently turns
- * into a `desc:handoff-give`: the caller redeems it by dialing the member
- * *directly* and never routes its DMs through the directory. */
+ * A member publishes a giftable `dm` on the registering session and listens for
+ * redeem on that Host. `register(nick, locator, inboxCap)` tells the directory
+ * to `fetch("dm")` on that session, stamp `locator` as the gift exporter
+ * location, and `notify("registered", nick)` once ready. A second `register`
+ * for the same nick replaces the prior intro. `introduce(nick)` returns that
+ * `dm` reference as a `desc:handoff-give`: the caller redeems by dialing the
+ * member *directly*. */
 export const REGISTER = "register";
 export const INTRODUCE = "introduce";
 
@@ -64,8 +63,8 @@ export const DM = "dm";
  * a room `"opened"` / `"closed"` / `"count"` (where `name` is the room and
  * `count` its members), and a member becoming `"registered"` / `"unregistered"`
  * for direct messages (where `name` is the member's nick and `count` is 1 or 0).
- * A member's own register inbox also hears `notify("registered", nick)` once its
- * dial-back completes, the signal that its nick is introducible.
+ * A member's own register inbox also hears `notify("registered", nick)` once
+ * register has fetched `dm`, the signal that its nick is introducible.
  *
  * A room also pushes an ephemeral typing signal on this same inbox as
  * `notify("room", "", "typing", nick, on)`: `nick` is the member who started or

@@ -28,10 +28,14 @@ const Error = shared.Error;
 /// one-frame stack overflow during decode, *before* the session's
 /// authority-level `SessionLimits.max_nesting_depth` (default 64) can reject
 /// it. This cap fails such a frame loud as `MalformedFrame` instead. It sits
-/// well above the session cap so it never rejects a frame authority would
-/// admit; a frame deeper than the session cap but shallower than this still
-/// decodes and is rejected by validation as `resource_exhausted`.
-const max_decode_nesting: usize = 512;
+/// well above the session cap's default (64), so under default limits it never
+/// rejects a frame authority would admit: a frame deeper than the session cap
+/// but shallower than this still decodes and is rejected by validation as
+/// `resource_exhausted`. An embedder raising `SessionLimits.max_nesting_depth`
+/// to or past this bound trades that taxonomy: deeper frames refuse here
+/// first. The capnp charge pass holds the same bound; `codec/mod.zig` pins the
+/// two equal and above `model.max_value_depth` at compile time.
+pub const max_decode_nesting: usize = 512;
 
 /// Decode-time width bound for a single `list` / `set` / `struct` collection —
 /// the width sibling of `max_decode_nesting`. Collection width is

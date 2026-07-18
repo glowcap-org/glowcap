@@ -36,6 +36,16 @@ bash .devcontainer/post-create.sh
 gate zig build check
 gate zig build bindings-fmt-check
 gate zig build bindings
+# The browser binding's behavioral proof: two wasm32 Hosts complete a keyed
+# handshake driven from JavaScript. The wasm *build* is in `check` (via
+# cross-check), but the runtime convergence only runs here (needs deno).
+gate zig build wasm-driver-test
+# The browser binding's layout descriptor is well formed and agrees with the
+# host `abi.ts` mirror on struct shape (needs deno).
+gate zig build wasm-abi-layout-check
+# The browser binding imports exactly the one behavior-dispatch seam
+# env.pancake_behavior_trampoline, nothing else (needs deno).
+gate zig build wasm-import-check
 gate zig build goblins-interop
 gate zig build goblins-handoff
 gate zig build fixture-gen-check

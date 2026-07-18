@@ -425,9 +425,9 @@ pub export fn pancake_peer_send_bootstrap_fetch(
     const slot = out_answer orelse return PANCAKE_ERR_NULL_POINTER;
     const name_bytes = sliceFromC(name, name_len) catch |err| return marshalErrorToCode(err);
 
-    ptr.importObject(engine.BOOTSTRAP_POSITION) catch |err| return feedErrorToCode(err);
     // The one definition of the bootstrap-fetch deliver shape lives in the
-    // engine; this surface only routes it.
+    // engine (including the bootstrap-import registration); this surface only
+    // routes it.
     const prepared = engine.fetch.prepareFetchSwissnum(ptr.allocator, &ptr.session_state, name_bytes) catch |err|
         return feedErrorToCode(err);
     ptr.sendPreparedFetch(prepared) catch |err| return feedErrorToCode(err);
@@ -456,16 +456,10 @@ pub export fn pancake_peer_prepare_enliven(
     const slot = out orelse return PANCAKE_ERR_NULL_POINTER;
     const swiss = sliceFromC(swissnum, swissnum_len) catch |err| return marshalErrorToCode(err);
 
-    // Enliven addresses the partner's bootstrap object; track the well-known
-    // import exactly as the bootstrap-fetch surface does before a fresh fetch.
-    ptr.importObject(engine.BOOTSTRAP_POSITION) catch |err| return feedErrorToCode(err);
-    // The core tracks no remote locator and never dials; the peer fields carry
-    // no authority for enliven, so the swissnum alone identifies the cache row.
-    const sturdy = model.SturdyRef{
-        .peer = .{ .transport = "", .designator = "" },
-        .swissnum = swiss,
-    };
-    const start = engine.sturdyref.prepareEnliven(ptr.allocator, &ptr.session_state, sturdy) catch |err|
+    // The core tracks no remote locator and never dials; the swissnum alone
+    // identifies the cache row, and a fresh enliven's bootstrap-fetch prepare
+    // registers the well-known bootstrap import itself.
+    const start = engine.sturdyref.prepareEnliven(ptr.allocator, &ptr.session_state, swiss) catch |err|
         return feedErrorToCode(err);
     switch (start) {
         .cached => |reference| slot.* = .{

@@ -388,9 +388,11 @@ int32_t pancake_host_session_spawn(PancakeHostSession *session, PancakeHostBehav
    and every future one, so a gift naming that swissnum resolves against
    whichever session a recipient withdraws on — this is what makes a three-party
    withdraw find the object. The giftable row owns ctx: free, if non-NULL, runs
-   exactly once, at pancake_host_release (the per-session bridges never free
-   it). A failure after the row is recorded keeps the row and that ownership; a
-   null-pointer or reentry refusal leaves ctx yours. */
+   exactly once, at pancake_host_release on success or before this returns on
+   any non-OK outcome (the null-pointer and reentry refusals touch nothing and
+   leave ctx yours). All-or-nothing over this call's own work: a mid-publish failure
+   restores every session this call had already published, removes the giftable
+   row, and frees ctx, so a retry starts from the pre-call state. */
 int32_t pancake_host_publish(PancakeHost *host, const uint8_t *name, size_t name_len, PancakeHostBehavior behavior, void *ctx, PancakeHostCtxFree free);
 /* Fetch the partner capability published as name, minting a host vow whose id
    lands in *out_vow; the outcome arrives as that vow's SETTLE or FAIL action.

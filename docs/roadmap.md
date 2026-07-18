@@ -92,13 +92,29 @@ machine work on that step too ([ladder](ladder.md)).
     wired.
   - **Flip condition:** the kqueue compile path already covered by `cross-check`.
 - **Browser binding via WebAssembly (ADR-0070).**
-  - **Blocker:** no WASM toolchain and browser milestone entry yet, and no WASM
-    build of the C ABI.
-  - **Flip condition:** a WASM toolchain and browser; then enter ADR-0070
-    Milestone 1 (WebSocket transport), then Milestone 2 (WebRTC DataChannel with
-    room-relayed signaling).
-  - **Depends on:** the sans-io core already compiling to `wasm32`
-    (`cross-check`). Prefer a published C ABI before browser packaging pressure.
+  - **Landed:** Milestone 1. The byte-fed Host compiles to one freestanding
+    `wasm32` module (`zig build wasm-driver`), and `@pancake/web`
+    (`bindings/ts/web`) runs the whole `@pancake/stack` surface over it: the
+    wasm FFI adapter, the module-reported struct layout, and a WebSocket byte
+    channel. `zig build web-peer-test` proves a browser-shaped peer holding a
+    keyed session against a native WebSocket-accepting host, with calls in
+    both directions; `wasm-driver-test`, `wasm-abi-layout-check`, and
+    `wasm-import-check` hold the layers under it.
+  - **Next:** retire the rooms web demo's per-tab JSON bridge onto the real
+    browser peer (the Milestone 1 consumer), then Milestone 2 (WebRTC
+    DataChannel with room-relayed signaling, the browser-to-browser handoff).
+    The retirement is its own execution plan, not an opportunistic PR; scoping
+    found three constraints that shape it. The room server grows a
+    WebSocket-accepting path (its host, `Session.establishAccepted`, ws as the
+    byte bearer) and `web.ts` shrinks to a static file server, supervisor, and
+    one dumb byte relay: DM by introduction has the recipient dial *members*
+    directly, and a browser reaches a terminal member's tcp locator only
+    through that relay. Browser-to-browser DM waits on Milestone 2. The iroh
+    web variant (`rooms-web-iroh`) keeps a relay in any design, since no
+    browser speaks QUIC. The browser UI's data layer moves from the JSON
+    control protocol onto stack sessions, and the page ships the bundled
+    `@pancake/web` graph plus `pancake_driver.wasm`.
+  - **Depends on:** nothing upstream; the remaining work is in-tree.
     See [ADR-0070](decisions/adr/ADR-0070-browser-binding-via-wasm.md).
 
 ## 3. Scale, packaging, and external blocks

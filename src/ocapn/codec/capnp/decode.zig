@@ -553,7 +553,10 @@ pub fn decodeBody(frame: foundation.FrameView) Error!model.view.Body {
 /// (256) so it never refuses a frame the owned materializer would still admit:
 /// a frame deeper than 256 but under this bound charges fine and is refused by
 /// `toOwnedSliceDepth` as `MalformedView`, exactly as before this pass existed.
-const max_charge_depth: usize = 512;
+/// `codec/mod.zig` pins it equal to the Syrup bound and above
+/// `model.max_value_depth` at compile time, so the two codecs' refusal depth
+/// cannot drift apart.
+pub const max_charge_depth: usize = 512;
 
 // ── Eager traversal-budget charge pass (the remote-DoS bound) ────────────────
 //

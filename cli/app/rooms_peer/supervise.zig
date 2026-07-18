@@ -11,6 +11,7 @@ const Allocator = common.Allocator;
 const emitStdout = common.emitStdout;
 const emitStdoutFmt = common.emitStdoutFmt;
 const default_locator = common.default_locator;
+const resolveLocator = common.resolveLocator;
 
 const pathIn = harness.pathIn;
 const readFile = harness.readFile;
@@ -66,28 +67,6 @@ pub fn readPid(io: Io, gpa: Allocator, dir: []const u8) ?i32 {
     return std.fmt.parseInt(i32, trimmed, 10) catch null;
 }
 
-/// Resolve a CapTP dial target. An `http(s)://…/locator` bootstrap is fetched
-/// and its first line taken as the `ocapn://` URI (the rooms web UI serves it);
-/// an `ocapn://` URI or bare designator passes through. Returns an owned string.
-fn resolveLocator(io: Io, gpa: Allocator, locator: []const u8) ![]u8 {
-    const is_http = std.mem.startsWith(u8, locator, "http://") or std.mem.startsWith(u8, locator, "https://");
-    if (!is_http) return gpa.dupe(u8, locator);
-
-    var client = std.http.Client{ .allocator = gpa, .io = io };
-    defer client.deinit();
-    var body = std.Io.Writer.Allocating.init(gpa);
-    defer body.deinit();
-    const result = client.fetch(.{ .location = .{ .url = locator }, .response_writer = &body.writer }) catch {
-        return error.BootstrapFailed;
-    };
-    if (result.status != .ok) return error.BootstrapFailed;
-    const text = body.writer.buffered();
-    var lines = std.mem.splitScalar(u8, text, '\n');
-    const first = std.mem.trim(u8, lines.next() orelse "", " \t\r\n");
-    if (first.len == 0) return error.BootstrapEmpty;
-    return gpa.dupe(u8, first);
-}
-
 fn absDir(io: Io, gpa: Allocator, dir: []const u8) []u8 {
     if (dir.len > 0 and dir[0] == '/') return gpa.dupe(u8, dir) catch @constCast(dir);
     var buf: [4096]u8 = undefined;
@@ -104,12 +83,17 @@ pub fn runStart(init: std.process.Init, flags: Flags) !void {
     }
     const dir = absDir(io, gpa, flags.dir);
     defer gpa.free(dir);
+    // Keep the bootstrap URL (often `http(s)://…/locator`) for the daemon so each
+    // reconnect re-fetches a fresh `ocapn://` after the room CapTP child remints.
+    // Resolve once here only to fail fast when the bootstrap is already unreachable.
     const bootstrap = if (flags.locator.len > 0) flags.locator else default_locator;
-    const locator = resolveLocator(io, gpa, bootstrap) catch |err| {
-        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"locator\",\"detail\":\"could not resolve {s}: {s}\"}}\n", .{ bootstrap, @errorName(err) });
-        return error.PeerFailed;
-    };
-    defer gpa.free(locator);
+    {
+        const probe = resolveLocator(io, gpa, bootstrap) catch |err| {
+            emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"locator\",\"detail\":\"could not resolve {s}: {s}\"}}\n", .{ bootstrap, @errorName(err) });
+            return error.PeerFailed;
+        };
+        gpa.free(probe);
+    }
     Io.Dir.cwd().createDirPath(io, dir) catch {};
 
     var exe_buf: [4096]u8 = undefined;
@@ -163,7 +147,7 @@ pub fn runStart(init: std.process.Init, flags: Flags) !void {
     n += 1;
     argv_buf[n] = "--locator";
     n += 1;
-    argv_buf[n] = locator;
+    argv_buf[n] = bootstrap;
     n += 1;
     if (flags.identity.len > 0) {
         argv_buf[n] = "--identity";
@@ -193,15 +177,29 @@ pub fn runStart(init: std.process.Init, flags: Flags) !void {
 
 fn waitJoinedAndReport(io: Io, gpa: Allocator, exe: []const u8, dir: []const u8, nick: []const u8, room: []const u8, pid: i32, started: bool) !void {
     var waited: u64 = 0;
-    const deadline_ms: u64 = 45_000;
-    while (waited < deadline_ms) {
+    const join_deadline_ms: u64 = 45_000;
+    // Presence (subscribe) and DM introducibility (register) are different
+    // capabilities; wait for join first, then briefly for register.
+    const register_grace_ms: u64 = 15_000;
+    var joined_at: ?u64 = null;
+    while (waited < join_deadline_ms + register_grace_ms) {
         const status = stateField(io, gpa, dir, "status");
         defer gpa.free(status);
         if (std.mem.eql(u8, status, "joined")) {
-            const locator = stateField(io, gpa, dir, "locator");
-            defer gpa.free(locator);
-            reportStarted(io, gpa, exe, dir, nick, room, pid, started, locator);
-            return;
+            if (joined_at == null) joined_at = waited;
+            const registered = stateField(io, gpa, dir, "registered");
+            defer gpa.free(registered);
+            const is_reg = std.mem.eql(u8, registered, "true");
+            const grace_done = waited - joined_at.? >= register_grace_ms;
+            if (is_reg or grace_done) {
+                const locator = stateField(io, gpa, dir, "locator");
+                defer gpa.free(locator);
+                reportStarted(io, gpa, exe, dir, nick, room, pid, started, locator, is_reg);
+                return;
+            }
+        } else if (waited >= join_deadline_ms) {
+            emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"join-timeout\",\"detail\":\"peer did not report joined in time; check the locator and that the room is reachable\"}}\n", .{});
+            return error.PeerFailed;
         }
         if (!pidAlive(io, gpa, pid)) {
             const tail = readFile(io, gpa, dir, "peer.out") catch gpa.dupe(u8, "") catch "";
@@ -229,7 +227,18 @@ pub fn peerCliPrefix(exe: []const u8) []const u8 {
     return if (std.mem.eql(u8, std.fs.path.basename(exe), "pancake")) "app rooms-peer " else "";
 }
 
-fn reportStarted(io: Io, gpa: Allocator, exe: []const u8, dir: []const u8, nick: []const u8, room: []const u8, pid: i32, started: bool, locator: []const u8) void {
+fn reportStarted(
+    io: Io,
+    gpa: Allocator,
+    exe: []const u8,
+    dir: []const u8,
+    nick: []const u8,
+    room: []const u8,
+    pid: i32,
+    started: bool,
+    locator: []const u8,
+    registered: bool,
+) void {
     const prefix = peerCliPrefix(exe);
     var out: std.ArrayList(u8) = .empty;
     defer out.deinit(gpa);
@@ -244,17 +253,19 @@ fn reportStarted(io: Io, gpa: Allocator, exe: []const u8, dir: []const u8, nick:
     writeJsonString(&out, gpa, room) catch {};
     out.appendSlice(gpa, ",\"locator\":") catch {};
     writeJsonString(&out, gpa, locator) catch {};
+    out.appendSlice(gpa, ",\"registered\":") catch {};
+    out.appendSlice(gpa, if (registered) "true" else "false") catch {};
     out.appendSlice(gpa, ",\"dir\":") catch {};
     writeJsonString(&out, gpa, dir) catch {};
     var cb: [4608]u8 = undefined;
     out.appendSlice(gpa, ",\"loop_cmd\":") catch {};
-    writeJsonString(&out, gpa, std.fmt.bufPrint(&cb, "{s} {s}tick --dir {s} --wait 20", .{ exe, prefix, dir }) catch "") catch {};
+    writeJsonString(&out, gpa, std.fmt.bufPrint(&cb, "{s} {s}tick --dir {s} --wait 120", .{ exe, prefix, dir }) catch "") catch {};
     out.appendSlice(gpa, ",\"reply_cmd\":") catch {};
     writeJsonString(&out, gpa, std.fmt.bufPrint(&cb, "{s} {s}reply --dir {s} --id <ID> --text '…'", .{ exe, prefix, dir }) catch "") catch {};
     out.appendSlice(gpa, ",\"stop_cmd\":") catch {};
     writeJsonString(&out, gpa, std.fmt.bufPrint(&cb, "{s} {s}stop --dir {s}", .{ exe, prefix, dir }) catch "") catch {};
     out.appendSlice(gpa, ",\"next\":") catch {};
-    writeJsonString(&out, gpa, "Run loop_cmd repeatedly: it returns pending messages (waits up to 20s); reply to each with its prefilled reply command, then loop. Do your own work between ticks. Run stop_cmd when done.") catch {};
+    writeJsonString(&out, gpa, "Run loop_cmd repeatedly: it returns pending messages (waits up to 120s); reply to each with its prefilled reply command, then loop. Do your own work between ticks. Run stop_cmd when done. registered=true means DM introduce works.") catch {};
     out.append(gpa, '}') catch {};
     emitStdoutFmt(io, "{s}\n", .{out.items});
 }

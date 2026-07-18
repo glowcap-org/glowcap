@@ -36,6 +36,14 @@ and shuttling a frame through both built-in transports.
 where a broker's introduction is redeemed transparently and the recipient
 messages the exporter directly.
 
+[`web/wasm_handshake_smoke.ts`](web/wasm_handshake_smoke.ts) is the seed of the
+browser binding ([ADR-0070](../../docs/decisions/adr/ADR-0070-browser-binding-via-wasm.md)).
+`zig build wasm-driver` compiles the byte-fed host to WebAssembly, and
+`zig build wasm-driver-test` proves two Hosts complete a keyed OCapN handshake
+driven entirely from JavaScript over an in-memory byte pipe. It is a proof, not
+yet a published package: the browser joins `@pancake/stack` as a third runtime
+once the WebAssembly adapter behind `mod.ts` lands.
+
 ```sh
 zig build bindings        # builds the pancake archives, runs every binding consumer
 ```

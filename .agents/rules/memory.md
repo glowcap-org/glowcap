@@ -267,8 +267,10 @@ here.
   (`checkGcExportDecrement` / `checkGcAnswerDecrement` in `validateRecv`) —
   a fixed stack for typical small vectors, spilling to a map only above the
   threshold — bumps the same arena on spill and dies in the same reset; only
-  the send-side GC validation keeps its gpa scratch with a precise deinit,
-  because no recv turn brackets it.   The inbound set-uniqueness fold
+  the send-side validation scratch (the GC dedup, and the set / struct-key
+  uniqueness folds in `validateArgument`) stays on the gpa, stack-first with
+  spills freed precisely, because no recv turn brackets a send. The inbound
+  set-uniqueness fold
   (`checkInboundSetUniqueness` in the same walk) rides the same arena: borrowed
   set elements are hashed/compared as views (`viewArgumentHash` /
   `viewArgumentsEqualWithScratch`) with scratch holding only view handles and
@@ -276,7 +278,10 @@ here.
   `DuplicateSetElement`, and the rows die in the same reset. It is the
   codec-neutral backstop for the byte-level ascending-element refusal the
   Syrup decoder gets for free; Cap'n Proto's pointer wire form cannot prove
-  set uniqueness without it, and a set-free frame pays nothing.
+  set uniqueness without it, and a set-free frame pays nothing. On a Syrup
+  frame the fold therefore re-verifies what decode already refused: one named
+  redundant walk per inbound set, kept so the invariant is codec-neutral
+  instead of a per-codec trust.
   The per-message dupe-then-`freeMessage` choreography collapses to a
   bump-and-reset, and capacity amortizes across turns. Apply dupes anything
   session-lived onto the gpa, so resetting the scratch can never dangle a table
@@ -333,11 +338,16 @@ here.
   byte key arena.** Session tables are the source of truth and outlive any
   borrowed frame, so an owned `op:start-session` locator is duped into
   session-owned storage. The byte-keyed tables are position/key-keyed hash maps
-  (no linear `std.mem.eql` scans): exports / imports / answers are O(1)
+  (no linear `std.mem.eql` scans on any per-turn path): exports / imports /
+  answers are O(1)
   position-keyed `SlotTable` / `AnswerTable`; the _Session's_ `bootstrap`
   registry is an O(1) `StringHashMap` whose swissnum key bytes live in one
   per-session **`key_arena`** (alongside the partner key/designator bytes),
-  freed wholesale at teardown. The _monotonic_ tables never remove a row, so a
+  freed wholesale at teardown. The one reverse read
+  (`bootstrapSwissForExport`, the gifted-near withdraw resolving an export back
+  to its swissnum) walks that registry linearly. That cost is named: it runs
+  only on a cross-session withdrawal and is bounded by the names the
+  application itself registered, so it earns no second index. The _monotonic_ tables never remove a row, so a
   bump arena is the right owner.   Deliberately excluded from the arena: the FIFO-evicting `sturdyref_cache`
   (plus its side swissnum→index map) and individually-removed
   `pending_enlivens` keep their swissnum bytes on the gpa with precise
@@ -567,6 +577,18 @@ here.
   buffer into collector-immobile memory before the FFI call. Steady state still
   avoids coalescing into the inbox when empty; the pin copy is the Racket FFI
   cost, not a second inbox materialize.
+- **Wasm linear-memory boundary (`bindings/ts/web/adapter.ts`, ADR-0070).**
+  JavaScript cannot lend wasm a view of its buffers, so every buffer argument
+  and `pointerOf` target pays one copy into linear memory, and each
+  `SymbolDef.outBuffers`-marked out-parameter pays one copy back (an
+  unannotated table copies every buffer back, the safe default; the fed frame
+  chunk is annotated input-only, so a feed stays at one copy-in). A memoized
+  re-stage re-syncs the copy so it always reflects the JS buffer's current
+  bytes; do not delete that resync as an "optimization." Staged copies retire
+  through a generational arena, freed two outermost-call windows later,
+  because a call's returned views alias its staged inputs and a pre-call
+  `pointerOf` result is the next call's input. At most two windows of
+  stagings are live.
 
 ## Per-session footprint budget
 

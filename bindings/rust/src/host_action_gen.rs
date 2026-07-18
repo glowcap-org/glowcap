@@ -6,6 +6,10 @@
 //! Kind constants, `HostAction`, and decode for the Rust binding.
 //! Executor arms stay in `action.rs`.
 
+// The generator owns these bytes; a formatter version bump must not
+// drift them out from under `gen-binding-host-action-check`.
+#![cfg_attr(rustfmt, rustfmt::skip)]
+
 use core::ffi::c_uint;
 
 use crate::sys::driver as ffi;

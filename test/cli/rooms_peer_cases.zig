@@ -88,3 +88,82 @@ test "parseOutboxLine room and dm shapes" {
     try std.testing.expect(bare.is_dm);
     try std.testing.expectEqualStrings("", bare.peer);
 }
+
+test "rooms-peer outbox offset clamps and never invents EOF" {
+    const h = cli.rooms_peer_harness;
+    try std.testing.expectEqual(@as(usize, 0), h.clampOutboxOffset(0, 0));
+    try std.testing.expectEqual(@as(usize, 0), h.clampOutboxOffset(10, 0));
+    try std.testing.expectEqual(@as(usize, 5), h.clampOutboxOffset(5, 10));
+    try std.testing.expectEqual(@as(usize, 10), h.clampOutboxOffset(99, 10));
+}
+
+test "rooms-peer outbox.offset persists and missing means zero not EOF" {
+    const gpa = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const dir = "/tmp/rooms-peer-outbox-offset-test";
+    std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    try std.Io.Dir.cwd().createDirPath(io, dir);
+
+    // Missing offset must not invent EOF, or undrained lines vanish on restart.
+    try std.testing.expectEqual(@as(usize, 0), cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir));
+    try std.testing.expectEqual(@as(usize, 0), cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
+    cli.rooms_peer_harness.saveOutboxOffset(io, dir, 42);
+    try std.testing.expectEqual(@as(usize, 42), cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir));
+    try std.testing.expectEqual(@as(usize, 40), cli.rooms_peer_harness.clampOutboxOffset(42, 40));
+}
+
+test "rooms-peer inbox.watermark hides scrollback from scanInbox" {
+    const gpa = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const dir = "/tmp/rooms-peer-inbox-watermark-test";
+    std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    try std.Io.Dir.cwd().createDirPath(io, dir);
+
+    const line1 = "{\"kind\":\"msg\",\"channel\":\"room\",\"author\":\"Jim\",\"text\":\"old\"}\n";
+    const line2 = "{\"kind\":\"msg\",\"channel\":\"room\",\"author\":\"Jim\",\"text\":\"new\"}\n";
+    try cli.rooms_peer_harness.overwriteFile(io, dir, "inbox.jsonl", line1 ++ line2);
+
+    var arena_state = std.heap.ArenaAllocator.init(gpa);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+    // No watermark: both lines visible.
+    const all = cli.rooms_peer_harness.scanInbox(arena, io, dir, "alice");
+    try std.testing.expectEqual(@as(usize, 2), all.items.len);
+
+    cli.rooms_peer_harness.saveInboxWatermark(io, dir, line1.len);
+    const after = cli.rooms_peer_harness.scanInbox(arena, io, dir, "alice");
+    try std.testing.expectEqual(@as(usize, 1), after.items.len);
+    try std.testing.expectEqualStrings("new", after.items[0].text);
+
+    cli.rooms_peer_harness.advanceInboxWatermark(io, gpa, dir);
+    const none = cli.rooms_peer_harness.scanInbox(arena, io, dir, "alice");
+    try std.testing.expectEqual(@as(usize, 0), none.items.len);
+}
+
+test "rooms-peer outbox backlog reflects undrained bytes after offset persist" {
+    const gpa = std.testing.allocator;
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+    const dir = "/tmp/rooms-peer-outbox-backlog-test";
+    std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    defer std.Io.Dir.cwd().deleteTree(io, dir) catch {};
+    try std.Io.Dir.cwd().createDirPath(io, dir);
+
+    const body = "{\"channel\":\"room\",\"text\":\"a\"}\n{\"channel\":\"room\",\"text\":\"b\"}\n";
+    try cli.rooms_peer_harness.overwriteFile(io, dir, "outbox.jsonl", body);
+    try std.testing.expectEqual(body.len, cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
+    cli.rooms_peer_harness.saveOutboxOffset(io, dir, body.len);
+    try std.testing.expectEqual(@as(usize, 0), cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
+    // Restart posture: load offset then clamp — undrained prefix remains if offset mid-file.
+    cli.rooms_peer_harness.saveOutboxOffset(io, dir, 10);
+    const loaded = cli.rooms_peer_harness.clampOutboxOffset(cli.rooms_peer_harness.loadOutboxOffset(io, gpa, dir), body.len);
+    try std.testing.expectEqual(@as(usize, 10), loaded);
+    try std.testing.expectEqual(body.len - 10, cli.rooms_peer_harness.outboxBacklogBytes(io, gpa, dir));
+}

@@ -25,7 +25,10 @@ use crate::{sys, Error, Result};
 /// shape flag (mirrors Zig `DialPlan`). Views are decoded into owned strings
 /// before the input buffers die.
 enum DialPlan {
-	HostPort { host: String, port: u16 },
+	HostPort {
+		host: String,
+		port: u16,
+	},
 	PeerId {
 		addresses: String,
 		reach_kind: u32,

@@ -19,13 +19,12 @@
 // you are in.
 //
 // It also carries direct messages by introduction, which is where OCapN earns its
-// keep. The bridge gives each tab a member of its own: a small listening peer that
-// exports a giftable `dm` inbox, registered with the directory. When you direct-
-// message someone, the browser asks the directory to introduce you. The directory
-// answers with a three-party handoff give, and the binding redeems it by dialing
-// that member directly. Your messages then travel straight to the other person,
-// and the room server is no longer on the path they take. The page shows that this
-// is so, because it is true of the bytes on the wire.
+// keep. The bridge listens on the same Host as the directory session, publishes a
+// giftable `dm` there for register/`fetch`, and when you direct-message someone
+// asks the directory to introduce you. The directory answers with a three-party
+// handoff give, and the binding redeems it by dialing that member directly. Your
+// messages then travel straight to the other person, and the room server is no
+// longer on the path they take.
 //
 // It is built to survive interruption. It supervises the room server and respawns
 // it if it dies; if it attached to a server another web.ts already owned and that
@@ -38,7 +37,7 @@
 // Open the printed URL. It also prints the room's locator, so you can join from
 // a terminal (`chat.ts <locator> <room> <nick>`) at the same time.
 
-import { type Behavior, formatPeerUri, Host, listen, TRANSPORT_IROH } from "@pancake/stack";
+import { type Behavior, formatPeerUri, type Host, listen, TRANSPORT_IROH } from "@pancake/stack";
 import { listenIroh, Reachability } from "@pancake/iroh";
 import { DirectMessage, Directory, Room } from "./lib/room_client.ts";
 import { enterOrOpen } from "./lib/enter_room.ts";
@@ -388,14 +387,11 @@ function oversizeInboundNotice(
 	return null;
 }
 
-// Give a browser tab a dialable OCapN member of its own: a small listening peer
-// that exports a giftable `dm` inbox. This is the exporter half of the three-party
-// handoff. Once the directory has fetched this inbox, it can introduce other
-// members to it; each of them then dials this peer directly and calls `dm`, so a
-// message arrives here without ever passing through the room. Each such message is
-// handed to `onDm`. The returned locator is where the peer listens, and `close`
-// shuts it down when the tab goes away.
+// Dialable DM member on the same Host as the directory session: publish `dm`
+// for register/`fetch`, listen for inbound redeem. Messages arrive via `onDm`.
 async function startDmMember(
+	host: Host,
+	session: { publish(name: string, behavior: Behavior): unknown },
 	onDm: (from: string, text: string) => void,
 	onRefuse: (notice: string) => void,
 ): Promise<{ locator: string; close: () => void }> {
@@ -411,14 +407,12 @@ async function startDmMember(
 		onDm(from, text);
 		return null;
 	};
-	// Serve inbound dials until the listener closes. Closing it ends the accept
-	// iterator by rejecting, so swallow that here: shutting a tab down or respawning
-	// the room server must never surface as an uncaught rejection that takes the
-	// whole bridge process with it.
+	host.publishGiftable("dm", relay);
+	session.publish("dm", relay);
 	const accept = (server: AsyncIterable<{ serve(): Promise<unknown> }>) =>
 		void (async () => {
 			try {
-				for await (const session of server) session.serve().catch(() => {});
+				for await (const s of server) s.serve().catch(() => {});
 			} catch { /* the listener closed */ }
 		})();
 	const closer = (server: { close: () => void }) => () => {
@@ -427,22 +421,14 @@ async function startDmMember(
 		} catch { /* already gone */ }
 	};
 	if (TRANSPORT === "iroh") {
-		// One seed for the host identity and the endpoint (key unification),
-		// so a dialer that pins the session identity to the dialed node id
-		// opens cleanly. Discovery announces node id alone; Direct keeps
-		// direct-address hints for hermetic same-host demos.
-		const seed = crypto.getRandomValues(new Uint8Array(32));
-		const host = new Host(seed);
-		host.publishGiftable("dm", relay);
-		const server = listenIroh(IROH_REACH, seed, host);
+		const server = listenIroh(IROH_REACH, host.seed, host);
 		accept(server);
 		const locator = IROH_REACH === Reachability.Discovery
 			? formatPeerUri(TRANSPORT_IROH, server.nodeId)
 			: server.uri;
 		return { locator, close: closer(server) };
 	}
-	const server = listen("127.0.0.1", 0);
-	server.host.publishGiftable("dm", relay);
+	const server = listen("127.0.0.1", 0, host);
 	accept(server);
 	const port = await server.ready();
 	return { locator: loopbackTcpDesignator(port), close: closer(server) };
@@ -571,15 +557,14 @@ async function bridge(ws: WebSocket): Promise<void> {
 
 	let current: Room | null = null;
 
-	// Make this tab a DM member the first time we learn its nick: start its exporter
-	// peer and register that peer's locator with the directory. Registering is what
-	// lets other members be introduced to us. It runs once; later room switches
-	// reuse the same nick and the same registration. The registration ack arrives as
-	// our own nick joining the DM-able set, so nothing here waits on it.
+	// Make this tab a DM member on the directory session's Host: publish `dm`,
+	// listen for redeem, register. Runs once; later room switches reuse it.
 	async function ensureDmMember(nick: string): Promise<void> {
 		if (dmMember) return;
 		myNick = nick;
 		dmMember = await startDmMember(
+			dir!.session.host,
+			dir!.session,
 			(from, text) => safeSend(ws, { dmFrom: { peer: from, text } }),
 			(notice) => safeSend(ws, { notice }),
 		);

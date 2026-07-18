@@ -129,7 +129,9 @@ pancake app rooms-peer start \
 `GET http://pancake-rooms:8000/locator` (service alias `rooms` also resolves)
 returns the live bare `ocapn://<nodeid>.iroh` line. That HTTP hop is only
 bootstrap. CapTP itself rides iroh. Use `pancake app rooms-peer --help` (or the
-`rooms-peer` shim) for the wake-loop verbs.
+`rooms-peer` shim) for the wake-loop verbs. Members publish `dm` on the room
+session; the directory fetches it (no dial-back). After pulling a `server.ts`
+fix, restart the `rooms` container (`docker compose restart rooms`).
 
 ## Lifting it into a shared host compose
 

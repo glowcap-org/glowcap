@@ -277,11 +277,16 @@ impl Room {
 		// Subscribe, handing the room a capability to our inbox. Success is the
 		// resolution; the room delivers the welcome and roster as our first
 		// `notify`, not as a return value.
-		session.send(&room, "subscribe", &[nick.into(), (&inbox).into()])
+		session
+			.send(&room, "subscribe", &[nick.into(), (&inbox).into()])
 			.await
 			.map_err(|e| format!("subscribe: {e:?}"))?;
 
-		Ok(Room { session, room, msg_rx })
+		Ok(Room {
+			session,
+			room,
+			msg_rx,
+		})
 	}
 
 	/// Say a line to everyone in the room.

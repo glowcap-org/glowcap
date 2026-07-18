@@ -107,13 +107,9 @@ pub fn enlivenCap(
     conn: anytype,
     swiss: []const u8,
 ) !model.Reference {
-    const sturdyref: model.SturdyRef = .{
-        // The core ignores the peer locator on enliven (dialing is the adapter's
-        // job); only the swiss-num keys the bootstrap fetch.
-        .peer = .{ .transport = "tcp", .designator = "", .hints = model.Hints.emptyFalse() },
-        .swissnum = swiss,
-    };
-    const start = try engine.sturdyref.prepareEnliven(allocator, &peer.session_state, sturdyref);
+    // The swiss-num alone keys the enliven; dialing is the adapter's job, so
+    // the core takes no peer locator here.
+    const start = try engine.sturdyref.prepareEnliven(allocator, &peer.session_state, swiss);
     const prepared = switch (start) {
         // A first enliven on a fresh session can never be cached or in flight.
         .cached, .in_flight => return error.EnlivenUnexpectedlyDeduped,

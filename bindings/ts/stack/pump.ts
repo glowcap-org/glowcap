@@ -7,7 +7,7 @@
 
 import { driverS } from "./internal/ffi/driver.ts";
 import { type Ptr } from "./internal/ffi/runtime.ts";
-import { ab, readBytes, releaseManagedFrame } from "./internal/seam.ts";
+import { ab, outUsize, readBytes, releaseManagedFrame } from "./internal/seam.ts";
 import {
 	type AbortDetail,
 	abortDomainLabel,
@@ -15,20 +15,8 @@ import {
 	hostError,
 	PancakeError,
 } from "./errors.ts";
-import {
-	CLOSED,
-	LAST_ABORT_DOMAIN_OFF,
-	LAST_ABORT_ERROR_NAME_OFF,
-	LAST_ABORT_HAS_KIND_OFF,
-	LAST_ABORT_KIND_NAME_OFF,
-	LAST_ABORT_MESSAGE_OFF,
-	LAST_ABORT_SIZE,
-	MANAGED_FRAME_BYTES_OFF,
-	MANAGED_FRAME_LEN_OFF,
-	MANAGED_FRAME_SIZE,
-	OK,
-	WOULD_BLOCK,
-} from "./internal/abi.ts";
+import { L } from "./internal/layout.ts";
+import { CLOSED, OK, WOULD_BLOCK } from "@pancake/abi";
 
 const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
@@ -137,12 +125,15 @@ export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 			BigInt(chunk.length),
 			ab(out),
 		);
+		// Parked releases drain before the refusal check, matching the Python
+		// and Rust pumps, so a mid-feed close's C release never waits behind a
+		// refused feed's raise.
+		h.drainParkedReleases();
 		if (rc !== OK) await raiseFeedRefusal(h, rc);
-		const consumed = Number(new DataView(out.buffer).getBigUint64(0, true));
+		const consumed = Number(outUsize(out));
 		if (consumed < chunk.length) {
 			h.inbox = chunk.subarray(consumed).slice();
 		}
-		h.drainParkedReleases();
 		await h.kickActions();
 		return;
 	}
@@ -154,10 +145,10 @@ export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 		BigInt(h.inbox.length),
 		ab(out),
 	);
-	if (rc !== OK) await raiseFeedRefusal(h, rc);
-	const consumed = Number(new DataView(out.buffer).getBigUint64(0, true));
-	h.inbox = h.inbox.subarray(consumed);
 	h.drainParkedReleases();
+	if (rc !== OK) await raiseFeedRefusal(h, rc);
+	const consumed = Number(outUsize(out));
+	h.inbox = h.inbox.subarray(consumed);
 	await h.kickActions();
 }
 
@@ -175,23 +166,23 @@ export function appendInbox(h: PumpHandle, bytes: Uint8Array): void {
  * the failure family; this names the member. */
 export function lastAbort(h: PumpHandle): AbortDetail | null {
 	if (h.released) return null;
-	const buf = new Uint8Array(LAST_ABORT_SIZE);
+	const buf = new Uint8Array(L.LAST_ABORT_SIZE);
 	const rc = driverS.pancake_host_session_last_abort(h.ptr, ab(buf));
 	if (rc === WOULD_BLOCK) return null;
 	checkHost(rc);
 	const dv = new DataView(buf.buffer);
-	const text = (off: number): string =>
+	const text = (off: number, lenOff: number): string =>
 		utf8Decoder.decode(
-			readBytes(dv.getBigUint64(off, true), dv.getBigUint64(off + 8, true)),
+			readBytes(L.getPtr(dv, off), L.getUsize(dv, lenOff)),
 		);
-	const domainNum = dv.getUint32(LAST_ABORT_DOMAIN_OFF, true);
+	const domainNum = dv.getUint32(L.LAST_ABORT_DOMAIN_OFF, true);
 	return {
 		domain: abortDomainLabel(domainNum),
-		kind: dv.getUint32(LAST_ABORT_HAS_KIND_OFF, true) !== 0
-			? text(LAST_ABORT_KIND_NAME_OFF)
+		kind: dv.getUint32(L.LAST_ABORT_HAS_KIND_OFF, true) !== 0
+			? text(L.LAST_ABORT_KIND_NAME_OFF, L.LAST_ABORT_KIND_NAME_LEN_OFF)
 			: null,
-		message: text(LAST_ABORT_MESSAGE_OFF),
-		errorName: text(LAST_ABORT_ERROR_NAME_OFF),
+		message: text(L.LAST_ABORT_MESSAGE_OFF, L.LAST_ABORT_MESSAGE_LEN_OFF),
+		errorName: text(L.LAST_ABORT_ERROR_NAME_OFF, L.LAST_ABORT_ERROR_NAME_LEN_OFF),
 	};
 }
 
@@ -224,14 +215,14 @@ export async function flushOutbound(h: PumpHandle): Promise<void> {
 		await prior;
 		while (true) {
 			if (h.released) return;
-			const mf = new Uint8Array(MANAGED_FRAME_SIZE);
+			const mf = new Uint8Array(L.MANAGED_FRAME_SIZE);
 			const rc = driverS.pancake_host_session_take_outbound(h.ptr, ab(mf));
 			if (rc === WOULD_BLOCK) return;
 			checkHost(rc);
 			const dv = new DataView(mf.buffer);
 			const frame = readBytes(
-				dv.getBigUint64(MANAGED_FRAME_BYTES_OFF, true),
-				dv.getBigUint64(MANAGED_FRAME_LEN_OFF, true),
+				L.getPtr(dv, L.MANAGED_FRAME_BYTES_OFF),
+				L.getUsize(dv, L.MANAGED_FRAME_LEN_OFF),
 			);
 			releaseManagedFrame(mf);
 			await h.write(frame);

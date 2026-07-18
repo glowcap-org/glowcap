@@ -24,6 +24,28 @@ pub const default_locator = "http://pancake-rooms:8000/locator";
 pub const reply_placeholder = "YOUR REPLY HERE";
 pub const replied_cap: usize = 1200;
 
+/// Resolve a CapTP dial target. An `http(s)://…/locator` bootstrap is fetched
+/// and its first line taken as the `ocapn://` URI (the rooms web UI serves it);
+/// an `ocapn://` URI or bare designator passes through. Returns an owned string.
+pub fn resolveLocator(io: Io, gpa: Allocator, locator: []const u8) ![]u8 {
+    const is_http = std.mem.startsWith(u8, locator, "http://") or std.mem.startsWith(u8, locator, "https://");
+    if (!is_http) return gpa.dupe(u8, locator);
+
+    var client = std.http.Client{ .allocator = gpa, .io = io };
+    defer client.deinit();
+    var body = std.Io.Writer.Allocating.init(gpa);
+    defer body.deinit();
+    const result = client.fetch(.{ .location = .{ .url = locator }, .response_writer = &body.writer }) catch {
+        return error.BootstrapFailed;
+    };
+    if (result.status != .ok) return error.BootstrapFailed;
+    const text = body.writer.buffered();
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    const first = std.mem.trim(u8, lines.next() orelse "", " \t\r\n");
+    if (first.len == 0) return error.BootstrapEmpty;
+    return gpa.dupe(u8, first);
+}
+
 /// Agent-facing JSON and usage text go to stdout; diagnostics use `log` (stderr).
 pub fn emitStdout(io: Io, bytes: []const u8) void {
     Io.File.stdout().writeStreamingAll(io, bytes) catch {};

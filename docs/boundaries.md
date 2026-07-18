@@ -55,9 +55,10 @@ What ships: [shipped](shipped.md). Edges:
   promise export is refused; third-party promise listen is the ADR-0009
   proxy path (`Node.proxyForeignPromiseFulfill`,
   `test/engine/node_test.zig`; settlement relay
-  `Peer.applyRelayedResolution`. `test/engine/relay_resolution_test.zig`).
-- **Open under `check`:** `discovery_no_relay`, two-NAT hole-punch, live
-  socket 500k RSS, not claimed by `iroh-loop`.
+  `Peer.applyRelayedResolution`, `test/engine/relay_resolution_test.zig`).
+- **Open under `check`:** the netlayer edges above (`discovery_no_relay`,
+  two-NAT hole-punch, live-socket 500k RSS) stay open; `iroh-loop` does not
+  claim them.
 
 ## The passable model and OCapN Null
 
@@ -66,18 +67,31 @@ What the model covers: [shipped](shipped.md). Edges:
 - **No OCapN Null arm.** Goblins has no Null marshalling yet; inventing one
   would not interop. Unknown Syrup records project as `Tagged`.
 - **Goblins-as-asker against pancake's `op:get` / `op:index` / `op:untag`
-  responders** is not the live `goblins-interop` proof (Zig scenarios +
-  suite cover responders; Goblins has no `op:untag` marshaller yet).
+  responders** is not the live `goblins-interop` proof. In-tree Zig scenarios
+  and the reference fixtures cover the responders; the upstream suite carries
+  no projection ops, and Goblins has no `op:untag` marshaller yet. The
+  driver's asker bracket proves only that pancake accepts canonical `op:get` /
+  `op:index` frames a Goblins netlayer wrote, not that Goblins observed the
+  settlements.
 - **No `op:deliver-only` in released v1.0.** One-way send is no-answer
   `op:deliver` (`tell`).
+- **Struct as a pancake-to-Goblins deliver reply is unproven live.** The
+  `goblins-interop` projection responder replies with strings and lists
+  because a Struct-shaped reply stalled the Goblins client's vow in the live
+  bracket. The reverse direction is proven (a Goblins `^record` hash arrives
+  as a pancake Struct in the client bracket), so the stall is either a
+  pancake canonical-struct encode gap or a Goblins-side unmarshal asymmetry;
+  until a live repro pins which, do not claim live Struct replies toward
+  Goblins.
 
 ## Scalable I/O and Host durability
 
 How Bridge + loop work: [architecture](architecture.md#application-surface-driver).
 Proofs: [shipped](shipped.md) (`tcp-loop`, `iroh-bridge-redeem`). Edges:
 
-- **`durable_bootstrap` refuses at `Host.init`** until an embedder store lands
-  (ADR-0082). Default is ephemeral: sturdyrefs die with the process.
+- **`durable_bootstrap` panics at `Host.init`** (a loud unsupported-posture
+  stop, not a typed error) until an embedder store lands (ADR-0082). Default is
+  ephemeral: sturdyrefs die with the process.
 - **Named residual:** double-OOM dropping a second `ConnectDone` append
   (ADR-0081 / ADR-0082).
 - **Two action-queue lifetimes** (node pop vs embedder drain) stay split on
@@ -89,9 +103,10 @@ Proofs: [shipped](shipped.md) (`tcp-loop`, `iroh-bridge-redeem`). Edges:
 
 ## C ABI archive resolve
 
-([ADR-0077](decisions/adr/ADR-0077-publishable-c-abi-resolve.md),
-[`bindings/c-abi-resolve.json`](../bindings/c-abi-resolve.json)). Hygiene
-refusals fail closed. Windows release-pack is not a published leg yet,
+The archive resolve cascade is
+[ADR-0077](decisions/adr/ADR-0077-publishable-c-abi-resolve.md)'s contract,
+pinned by [`bindings/c-abi-resolve.json`](../bindings/c-abi-resolve.json).
+Hygiene refusals fail closed. Windows release-pack is not a published leg yet,
 consumers need `PANCAKE_LIB_DIR` or in-tree `zig-out`.
 
 ## Codecs
@@ -113,7 +128,7 @@ Edges:
 - **Forwarding proxies are binding-layer composition**, not a new wire op
   (ADR-0064). The C ABI stays deliver-and-resolve.
 
-## Access and responsibility held as present boundaries
+## Host-private modules
 
 `host_pump.zig` is an intentional Host-private size boundary: pump mechanics
 (drain, dirty, action queue helpers) live beside `host.zig`, and only

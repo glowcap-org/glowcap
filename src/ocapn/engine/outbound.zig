@@ -27,10 +27,13 @@ const freeMessage = model.freeMessage;
 /// the export position in the carrier is the payload). Answer and import share
 /// the promise cell shape — `{ row_id, resolution, listeners }` — keyed on
 /// distinct wire position spaces, so one carrier and one `resolveFireStore`
-/// lookup serve both; `near_object` encodes from the position alone.
+/// lookup serve both. The store-backed arms carry the row's identity stamp
+/// *inside* the arm: only the targets that have a store row can carry one, so
+/// no flat sentinel field rides beside `near_object`, which encodes from the
+/// position alone (export positions are never reused).
 pub const FireTarget = union(enum) {
-    answer: model.AnswerPosition,
-    import: model.ImportPosition,
+    answer: struct { position: model.AnswerPosition, row_id: u64 },
+    import: struct { position: model.ImportPosition, row_id: u64 },
     near_object: model.ExportPosition,
 };
 
@@ -78,17 +81,17 @@ pub const Outbound = union(enum) {
     /// encode: an inbound answer (`peekResolution`), a handoff-imported
     /// third-party promise (ADR-0009), or a live object export's POD
     /// `fulfill(near)` (`FireTarget.near_object`). Store-backed targets carry
-    /// the store row's identity stamp at queue time; `near_object` encodes from
-    /// the export position when the row is still live. Queue-time accounting
-    /// already ran (`pipeline.enqueueFire` / `enqueueNearObjectFire`). At
-    /// encode `step` drops the fire when the row is gone or its `row_id`
-    /// changed (answer positions are partner-named; imported rows can be torn
-    /// down and re-registered). Emitting the reused row's payload under this
-    /// fire's accounting would drift the wire-delta retains.
+    /// the store row's identity stamp inside their arm, stamped at queue time;
+    /// `near_object` encodes from the export position when the row is still
+    /// live. Queue-time accounting already ran (`pipeline.enqueueFire` /
+    /// `enqueueNearObjectFire`). At encode `step` drops the fire when the row
+    /// is gone or its `row_id` changed (answer positions are partner-named;
+    /// imported rows can be torn down and re-registered). Emitting the reused
+    /// row's payload under this fire's accounting would drift the wire-delta
+    /// retains.
     listener_fire: struct {
         listener_position: u64,
         target: FireTarget,
-        row_id: u64,
     },
 
     pub fn deinit(self: Outbound, allocator: std.mem.Allocator) void {
@@ -176,7 +179,7 @@ pub fn stepPending(self: *Peer, item: Outbound) !void {
             // the position was reused by a fresh answer whose `row_id` no
             // longer matches: `resolveStoreChecked` guards both, so the
             // reused row's payload is never resolved under this carrier.
-            const stored = resolveStoreChecked(self, .{ .answer = sa.position }, sa.row_id) orelse return;
+            const stored = resolveStoreChecked(self, .{ .answer = .{ .position = sa.position, .row_id = sa.row_id } }) orelse return;
             const resolve: model.Resolve = .{ .answer = sa.position, .resolution = stored.* };
             try emitOutboundMessage(self, .{ .resolve = resolve });
             // A sent `op:resolve` also settles one of our inbound answers locally.
@@ -210,7 +213,7 @@ pub fn stepPending(self: *Peer, item: Outbound) !void {
                 // recorded until session end, the same stranded-retain posture a
                 // GC'd `settled_answer` ships.)
                 .answer, .import => blk: {
-                    const stored = resolveStoreChecked(self, fire.target, fire.row_id) orelse return;
+                    const stored = resolveStoreChecked(self, fire.target) orelse return;
                     break :blk pipeline.borrowedListenerFire(fire.listener_position, stored.*, &args);
                 },
             };
@@ -231,12 +234,12 @@ pub fn resolveFireStore(self: *Peer, target: FireTarget) ?struct {
 } {
     switch (target) {
         .answer => |answer| {
-            const row_id = self.session_state.inboundAnswerRowId(answer) orelse return null;
-            const resolution = self.session_state.peekResolution(answer) orelse return null;
+            const row_id = self.session_state.inboundAnswerRowId(answer.position) orelse return null;
+            const resolution = self.session_state.peekResolution(answer.position) orelse return null;
             return .{ .row_id = row_id, .resolution = resolution };
         },
-        .import => |import_position| {
-            const row = self.session_state.findImportedPromise(import_position) orelse return null;
+        .import => |import| {
+            const row = self.session_state.findImportedPromise(import.position) orelse return null;
             if (row.cell.resolution) |*resolution| return .{ .row_id = row.cell.row_id, .resolution = resolution };
             return null;
         },
@@ -245,15 +248,21 @@ pub fn resolveFireStore(self: *Peer, target: FireTarget) ?struct {
 }
 
 /// The borrowed stored resolution behind `target`, but only when the store
-/// row still carries `row_id` — the one guard both queued store-borrow
-/// carriers apply at encode. A row that is gone, has no resolution yet, or
-/// whose identity changed (a partner reused an answer position, or an
-/// imported promise row was torn down and re-registered) fails to match, so
-/// the stale carrier emits nothing rather than the reused row's payload.
-/// `settled_answer` and `listener_fire` read the store through this one seam.
-pub fn resolveStoreChecked(self: *Peer, target: FireTarget, row_id: u64) ?*const model.Resolution {
+/// row still carries the stamp the target's arm was queued with. It is the one
+/// guard both queued store-borrow carriers apply at encode. A row that is
+/// gone, has no resolution yet, or whose identity changed (a partner reused
+/// an answer position, or an imported promise row was torn down and
+/// re-registered) fails to match, so the stale carrier emits nothing rather
+/// than the reused row's payload. `settled_answer` and `listener_fire` read
+/// the store through this one seam.
+pub fn resolveStoreChecked(self: *Peer, target: FireTarget) ?*const model.Resolution {
     const found = resolveFireStore(self, target) orelse return null;
-    if (found.row_id != row_id) return null;
+    const stamped = switch (target) {
+        .answer => |answer| answer.row_id,
+        .import => |import| import.row_id,
+        .near_object => return null,
+    };
+    if (found.row_id != stamped) return null;
     return found.resolution;
 }
 

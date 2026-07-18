@@ -1,10 +1,9 @@
 ---
 name: community-review
 description: >-
-  Preflight pancake for a careful OCapN wire/suite or Spritely Goblins interop
-  read: dual independent lenses, concrete citations, synthesize, gate, defer.
   Use before a real community review invite, or when asked to review pancake
-  from OCapN or Goblins concerns. Never name or channel real people.
+  from OCapN or Goblins concerns. Never name real people. Not for general
+  refactoring (smell-annihilation) or implementation without a review ask.
 ---
 
 # Community review preflight
@@ -36,8 +35,7 @@ respect ([doc-voice](../../rules/doc-voice.md)).
    [`docs/roadmap.md`](../../../docs/roadmap.md) or
    [`docs/boundaries.md`](../../../docs/boundaries.md).
 
-Live CapTP demonstration (call/host/probe a peer while reviewing):
-in-host MCP → [pancake-mcp](../pancake-mcp/SKILL.md); shell listen/REPL →
+Live CapTP while reviewing: [pancake-mcp](../pancake-mcp/SKILL.md) ·
 [pancake-cli](../pancake-cli/SKILL.md) — not a throwaway Zig dialer.
 
 ## Lenses

@@ -684,11 +684,10 @@ fn checkSkillCatalog(
     }
 }
 
-/// Project personas under `.agents/personas/` are anonymous lenses only: real
-/// person names and person-channeling phrasing belong in user XDG
-/// (`$XDG_CONFIG_HOME/agent-personas/`), never in committed scaffolding. The
-/// smell-annihilation skill is gated the same way so default slug keys stay
-/// filesystem names, not proper-name impersonation prompts.
+/// Project personas under `.agents/personas/` are anonymous lenses only.
+/// Named taste references and person-channeling phrasing belong in user XDG
+/// under `$XDG_CONFIG_HOME/agents/`, never in committed scaffolding. The
+/// smell-annihilation skill is gated the same way for channeling language.
 fn checkAgentPersonas(
     io: std.Io,
     gpa: std.mem.Allocator,
@@ -696,12 +695,17 @@ fn checkAgentPersonas(
     violations: *std.ArrayList([]const u8),
 ) !void {
     const banned = [_][]const u8{
-        "Andrew Kelley",
-        "Fabrice Bellard",
         "channel ",
     };
 
     try refuseBannedSubstrings(io, gpa, root, violations, ".agents/skills/smell-annihilation/SKILL.md", &banned);
+    try refuseBannedSubstrings(io, gpa, root, violations, ".agents/skills/rooms-team/SKILL.md", &banned);
+
+    const agents_readme = root.readFileAlloc(io, ".agents/README.md", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, ".agents/README.md: failed to read for persona catalog with {s}", .{@errorName(err)});
+        return;
+    };
+    defer gpa.free(agents_readme);
 
     var personas = root.openDir(io, ".agents/personas", .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return,
@@ -717,6 +721,9 @@ fn checkAgentPersonas(
     while (try walker.next(io)) |entry| {
         if (entry.kind != .file) continue;
         if (!std.mem.endsWith(u8, entry.path, ".md")) continue;
+        // README.md owns lookup prose; lenses are slug.md only.
+        if (std.mem.eql(u8, entry.path, "README.md")) continue;
+        if (std.mem.indexOfScalar(u8, entry.path, '/') != null) continue;
 
         var path_buf: [256]u8 = undefined;
         const rel = std.fmt.bufPrint(&path_buf, ".agents/personas/{s}", .{entry.path}) catch {
@@ -745,8 +752,14 @@ fn checkAgentPersonas(
 
         for (banned) |needle| {
             if (std.mem.indexOf(u8, contents, needle) != null) {
-                try appendViolation(gpa, violations, "{s}: contains banned `{s}` — named people and channeling language belong in user XDG personas, not committed project lenses", .{ rel, needle });
+                try appendViolation(gpa, violations, "{s}: contains banned `{s}` — channeling language belongs in user XDG, not committed project lenses", .{ rel, needle });
             }
+        }
+
+        var catalog_buf: [128]u8 = undefined;
+        const catalog_needle = std.fmt.bufPrint(&catalog_buf, "personas/{s}.md", .{stem}) catch continue;
+        if (std.mem.indexOf(u8, agents_readme, catalog_needle) == null) {
+            try appendViolation(gpa, violations, ".agents/README.md: missing Personas table entry for `{s}`", .{stem});
         }
     }
 }
@@ -766,7 +779,7 @@ fn refuseBannedSubstrings(
     defer gpa.free(contents);
     for (banned) |needle| {
         if (std.mem.indexOf(u8, contents, needle) != null) {
-            try appendViolation(gpa, violations, "{s}: contains banned `{s}` — use persona slugs and user XDG files for named taste references", .{ path, needle });
+            try appendViolation(gpa, violations, "{s}: contains banned `{s}` — channeling language belongs in user XDG, not committed scaffolding", .{ path, needle });
         }
     }
 }
@@ -2851,7 +2864,7 @@ fn checkCaptpIoSpine(
             const shape_peer = [_]struct { path: []const u8, required: []const u8, banned: []const u8 }{
                 .{ .path = "src/c_abi/driver/mod.zig", .required = "PANCAKE_DIAL_SHAPE_PEER_ID", .banned = "PANCAKE_DIAL_SHAPE_IROH" },
                 .{ .path = "include/pancake_driver.h", .required = "PANCAKE_DIAL_SHAPE_PEER_ID", .banned = "PANCAKE_DIAL_SHAPE_IROH" },
-                .{ .path = "bindings/ts/stack/internal/abi.ts", .required = "DIAL_SHAPE_PEER_ID", .banned = "DIAL_SHAPE_IROH" },
+                .{ .path = "bindings/ts/abi/constants.ts", .required = "DIAL_SHAPE_PEER_ID", .banned = "DIAL_SHAPE_IROH" },
                 .{ .path = "bindings/python/pancake/_constants_gen.py", .required = "DIAL_SHAPE_PEER_ID", .banned = "DIAL_SHAPE_IROH" },
                 .{ .path = "bindings/rust/src/abi_constants_gen.rs", .required = "DIAL_SHAPE_PEER_ID", .banned = "DIAL_SHAPE_IROH" },
                 .{ .path = "bindings/racket/private/constants-gen.rkt", .required = "DIAL-SHAPE-PEER-ID", .banned = "DIAL-SHAPE-IROH" },
@@ -7023,11 +7036,11 @@ fn checkBindingEmbedderPump(
         }
     }
 
-    // Binding action modules drain via pancake_host_pump_drain (ADR-0072 sixth).
-    // Ban hand-rolled pancake_host_next_action pop loops in those modules — the
-    // C symbol may still appear in FFI loaders and comments outside action/.
+    // The dlopen binding action modules drain via pancake_host_pump_drain
+    // (ADR-0072 sixth). Ban hand-rolled pancake_host_next_action pop loops in
+    // those modules — the C symbol may still appear in FFI loaders and
+    // comments outside action/.
     const action_mods = [_][]const u8{
-        "bindings/ts/stack/action.ts",
         "bindings/python/pancake/_action.py",
         "bindings/rust/src/action.rs",
         "bindings/racket/private/action.rkt",
@@ -7043,6 +7056,29 @@ fn checkBindingEmbedderPump(
         }
         if (std.mem.indexOf(u8, contents, "pancake_host_next_action") != null) {
             try appendViolation(gpa, violations, "{s}: pancake_host_next_action in action module — use pancake_host_pump_drain (no hand-rolled pop loop)", .{path});
+        }
+    }
+
+    // The TypeScript action module is the exception, by contract: it also runs
+    // under the wasm adapter (ADR-0070), whose single callback seam is the
+    // behavior trampoline, so a hooks-buffer drain cannot exist there. It
+    // drains through the canonical pancake_host_next_action pop instead (one
+    // spine for dlopen and wasm) and must not mint a per-drain callback.
+    {
+        const path = "bindings/ts/stack/action.ts";
+        const contents = root.readFileAlloc(io, path, gpa, .limited(2 << 20)) catch |err| {
+            try appendViolation(gpa, violations, "{s}: failed to read for next_action drain check with {s}", .{ path, @errorName(err) });
+            return;
+        };
+        defer gpa.free(contents);
+        if (std.mem.indexOf(u8, contents, "pancake_host_next_action") == null) {
+            try appendViolation(gpa, violations, "{s}: missing pancake_host_next_action; the TS action module drains by pop (wasm has no hooks seam)", .{path});
+        }
+        if (std.mem.indexOf(u8, contents, "pancake_host_pump_drain") != null) {
+            try appendViolation(gpa, violations, "{s}: pancake_host_pump_drain in the TS action module; hooks buffers cannot run under the wasm adapter", .{path});
+        }
+        if (std.mem.indexOf(u8, contents, "makeCallback") != null) {
+            try appendViolation(gpa, violations, "{s}: makeCallback in the TS action module; the drain must not mint per-drain native callbacks", .{path});
         }
     }
 }
@@ -7182,7 +7218,7 @@ fn checkBindingEmbedderTrampoline(
         .{ .path = "bindings/python/pancake/_constants_gen.py", .needle = "MAX_LOCAL_FORWARD_HOPS" },
         .{ .path = "bindings/rust/src/abi_constants_gen.rs", .needle = "MAX_LOCAL_FORWARD_HOPS" },
         .{ .path = "bindings/racket/private/constants-gen.rkt", .needle = "MAX-LOCAL-FORWARD-HOPS" },
-        .{ .path = "bindings/ts/stack/internal/abi.ts", .needle = "MAX_LOCAL_FORWARD_HOPS" },
+        .{ .path = "bindings/ts/abi/constants.ts", .needle = "MAX_LOCAL_FORWARD_HOPS" },
     };
     for (const_homes) |home| {
         const contents = root.readFileAlloc(io, home.path, gpa, .limited(1 << 20)) catch |err| {
@@ -7824,9 +7860,10 @@ fn checkPancakeMcpSkillAuthority(
     if (std.mem.indexOf(u8, skill, "PANCAKE_MCP_TOOLS") != null) {
         try appendViolation(gpa, violations, "{s}: forbids unimplemented `PANCAKE_MCP_TOOLS` — catalog is `--tools` only", .{skill_path});
     }
-    // Hand-maintained default inventory (second catalog).
+    // Hand-maintained default inventory (second catalog) — body or description.
     if (std.mem.indexOf(u8, skill, "everyday CapTP (dial, probe") != null or
-        std.mem.indexOf(u8, skill, "dial, probe, call, tell, fetch, publish, info") != null)
+        std.mem.indexOf(u8, skill, "dial, probe, call, tell, fetch, publish, info") != null or
+        std.mem.indexOf(u8, skill, "dial/probe/call/tell/fetch/publish/info/close") != null)
     {
         try appendViolation(gpa, violations, "{s}: do not enumerate default MCP tools — discover via `tools/list` / registry", .{skill_path});
     }
@@ -7843,6 +7880,8 @@ fn checkCaptpAgentDogfoodRouting(
         ".agents/skills/work/SKILL.md",
         ".agents/skills/smell-annihilation/SKILL.md",
         ".agents/skills/rooms-peer/SKILL.md",
+        ".agents/skills/rooms-team/SKILL.md",
+        ".agents/skills/community-review/SKILL.md",
     };
     for (must_name_mcp) |path| {
         const text = root.readFileAlloc(io, path, gpa, .limited(1 << 20)) catch |err| {
@@ -7868,6 +7907,22 @@ fn checkCaptpAgentDogfoodRouting(
         if (std.mem.indexOf(u8, text, "argv, REPL, MCP") != null) {
             try appendViolation(gpa, violations, "{s}: pancake-cli blurb must not claim MCP — MCP lives on pancake-mcp", .{path});
         }
+    }
+
+    const rooms_team_script = ".agents/skills/rooms-team/scripts/team.sh";
+    root.access(io, rooms_team_script, .{}) catch |err| {
+        try appendViolation(gpa, violations, "{s}: rooms-team skill requires companion script ({s})", .{ rooms_team_script, @errorName(err) });
+    };
+    const rooms_team_skill = root.readFileAlloc(io, ".agents/skills/rooms-team/SKILL.md", gpa, .limited(1 << 20)) catch |err| {
+        try appendViolation(gpa, violations, ".agents/skills/rooms-team/SKILL.md: failed to read for companion refs with {s}", .{@errorName(err)});
+        return;
+    };
+    defer gpa.free(rooms_team_skill);
+    if (std.mem.indexOf(u8, rooms_team_skill, "ops.md") == null or
+        std.mem.indexOf(u8, rooms_team_skill, "gotchas.md") == null or
+        std.mem.indexOf(u8, rooms_team_skill, "strategies.md") == null)
+    {
+        try appendViolation(gpa, violations, ".agents/skills/rooms-team/SKILL.md: must link ops.md, gotchas.md, and strategies.md", .{});
     }
 }
 

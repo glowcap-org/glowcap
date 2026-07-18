@@ -260,6 +260,10 @@ fn runStatus(io: Io, gpa: Allocator, flags: Flags) !void {
     out.appendSlice(gpa, ",\"pending\":") catch {};
     var nb: [16]u8 = undefined;
     out.appendSlice(gpa, std.fmt.bufPrint(&nb, "{d}", .{pending.items.len}) catch "0") catch {};
+    out.appendSlice(gpa, ",\"outbox_backlog\":") catch {};
+    var ob: [16]u8 = undefined;
+    const backlog = harness.outboxBacklogBytes(io, gpa, flags.dir);
+    out.appendSlice(gpa, std.fmt.bufPrint(&ob, "{d}", .{backlog}) catch "0") catch {};
     out.appendSlice(gpa, ",\"state\":") catch {};
     if (state.len > 0) out.appendSlice(gpa, state) catch {} else out.appendSlice(gpa, "null") catch {};
     out.append(gpa, '}') catch {};

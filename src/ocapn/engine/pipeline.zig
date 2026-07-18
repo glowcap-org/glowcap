@@ -135,8 +135,7 @@ fn installThirdPartyImportListener(peer: *Peer, import_position: model.ImportPos
         try enqueueFire(
             peer,
             listener_entry.listener.import_position.int(),
-            .{ .import = import_position },
-            row.cell.row_id,
+            .{ .import = .{ .position = import_position, .row_id = row.cell.row_id } },
             resolution.*,
         );
     } else {
@@ -151,7 +150,10 @@ fn installAnswerListener(peer: *Peer, answer: model.AnswerPosition, listen: mode
     // record time). Peek present → fire this entry; absent → install for
     // `fireListenersOnResolve`.
     if (peer.session_state.peekResolution(answer)) |resolution| {
-        try applyListenerDrain(peer, .{ .answer = answer }, 0, resolution.*, classifyListenerDrain(listener_entry, resolution.*));
+        // The peek proved the row live, so its stamp is present; the drain
+        // re-stamps answer fires anyway, guarding a mid-drain GC.
+        const row_id = peer.session_state.inboundAnswerRowId(answer).?;
+        try applyListenerDrain(peer, .{ .answer = .{ .position = answer, .row_id = row_id } }, resolution.*, classifyListenerDrain(listener_entry, resolution.*));
     } else {
         try peer.session_state.installListener(answer, listener_entry);
     }
@@ -201,7 +203,6 @@ fn enqueueNearObjectFire(
     peer.pending_send.pushAssumeCapacity(.{ .listener_fire = .{
         .listener_position = listener_position,
         .target = .{ .near_object = export_position },
-        .row_id = 0,
     } });
 }
 
@@ -531,14 +532,18 @@ fn deliverDrainedCallLocally(peer: *Peer, queued: model.Message, near: model.Nea
 /// `resolve.resolution` borrows the answer store (the caller peeked it), so
 /// nothing here owns heap: the drained entries are POD `.far` values.
 fn fireListenersOnResolve(peer: *Peer, resolve: model.Resolve) !void {
+    // The row the resolve just settled; loop-invariant, and the whole drain
+    // is moot without it. The per-fire freshness guard stays in
+    // `enqueueDrainFire`, which re-stamps answer fires from the live row so a
+    // GC'd answer mid-drain skips the fire while reinstall arms still run.
+    const row_id = peer.session_state.inboundAnswerRowId(resolve.answer) orelse return;
     const listeners = try peer.session_state.takePipelinedListeners(resolve.answer);
     defer peer.allocator.free(listeners);
 
     for (listeners) |entry| {
         try applyListenerDrain(
             peer,
-            .{ .answer = resolve.answer },
-            0,
+            .{ .answer = .{ .position = resolve.answer, .row_id = row_id } },
             resolve.resolution,
             classifyListenerDrain(entry, resolve.resolution),
         );
@@ -563,7 +568,7 @@ pub fn fireImportedPromiseListeners(peer: *Peer, import_position: model.ImportPo
     defer peer.allocator.free(listeners);
     // Relayed resolutions are final (record-once); fire every listener, no
     // wants_partial re-anchor.
-    try fireTakenListeners(peer, .{ .import = import_position }, row.cell.row_id, resolution, listeners, .always_fire);
+    try fireTakenListeners(peer, .{ .import = .{ .position = import_position, .row_id = row.cell.row_id } }, resolution, listeners, .always_fire);
 }
 
 const FireTakenPolicy = enum { always_fire, classify };
@@ -571,7 +576,6 @@ const FireTakenPolicy = enum { always_fire, classify };
 fn fireTakenListeners(
     peer: *Peer,
     target: engine.FireTarget,
-    row_id: u64,
     resolution: model.Resolution,
     listeners: []const session.ListenerEntry,
     policy: FireTakenPolicy,
@@ -582,13 +586,11 @@ fn fireTakenListeners(
                 peer,
                 entry.listener.import_position.int(),
                 target,
-                row_id,
                 resolution,
             ),
             .classify => try applyListenerDrain(
                 peer,
                 target,
-                row_id,
                 resolution,
                 classifyListenerDrain(entry, resolution),
             ),
@@ -599,20 +601,19 @@ fn fireTakenListeners(
 /// Queue one listener fire against a stored resolution: session accounting on
 /// the borrowed stack message (the wire mentions the payload once more, so its
 /// `near` export mentions take the same wire-delta retain an owned fire took),
-/// then the POD carrier, stamped with the store row's identity so a released-
-/// and-reused position can never satisfy it at encode. Reserve-then-record-then-
-/// push, the sent-resolve order (`Peer.enqueueRecorded`'s resolve arm): the
-/// accounting is committed by an infallible push, never an undo. `resolution`
-/// borrows the store `target` names — the inbound answer store or the third-
-/// party imported-promise store (ADR-0009) — which owns the payload the
-/// carrier's encode reads back; that value cannot change while the carrier is
-/// queued (each store records its resolution once). The caller supplies the
-/// `row_id` it stamped the target with.
+/// then the POD carrier, whose store-backed target arm carries the row's
+/// identity stamp so a released-and-reused position can never satisfy it at
+/// encode. Reserve-then-record-then-push, the sent-resolve order
+/// (`Peer.enqueueRecorded`'s resolve arm): the accounting is committed by an
+/// infallible push, never an undo. `resolution` borrows the store `target`
+/// names (the inbound answer store, or the third-party imported-promise store
+/// of ADR-0009), which owns the payload the carrier's encode reads back; that
+/// value cannot change while the carrier is queued (each store records its
+/// resolution once).
 fn enqueueFire(
     peer: *Peer,
     listener_position: u64,
     target: engine.FireTarget,
-    row_id: u64,
     resolution: model.Resolution,
 ) !void {
     var args: [2]model.Argument = undefined;
@@ -624,25 +625,23 @@ fn enqueueFire(
     peer.pending_send.pushAssumeCapacity(.{ .listener_fire = .{
         .listener_position = listener_position,
         .target = target,
-        .row_id = row_id,
     } });
 }
 
 /// Apply one `ListenerDrainAction` against a stored resolution: fire queues a
 /// POD carrier; re-anchor moves the entry onto the next inbound answer.
-/// `row_id` stamps import/export carriers; answer fires re-lookup the row id
-/// so a GC'd answer mid-drain skips the fire but still reinstalls.
+/// Answer fires re-stamp from the live row so a GC'd answer mid-drain skips
+/// the fire but still reinstalls.
 fn applyListenerDrain(
     peer: *Peer,
     target: engine.FireTarget,
-    row_id: u64,
     resolution: model.Resolution,
     action: ListenerDrainAction,
 ) !void {
     switch (action) {
-        .fire => |position| try enqueueDrainFire(peer, position, target, row_id, resolution),
+        .fire => |position| try enqueueDrainFire(peer, position, target, resolution),
         .fire_and_reinstall => |fr| {
-            try enqueueDrainFire(peer, fr.fire, target, row_id, resolution);
+            try enqueueDrainFire(peer, fr.fire, target, resolution);
             try peer.session_state.installListener(fr.next_answer, fr.entry);
         },
         .reinstall => |ri| try peer.session_state.installListener(ri.next_answer, ri.entry),
@@ -653,13 +652,17 @@ fn enqueueDrainFire(
     peer: *Peer,
     listener_position: u64,
     target: engine.FireTarget,
-    row_id: u64,
     resolution: model.Resolution,
 ) !void {
-    const stamp = switch (target) {
-        .answer => |answer| peer.session_state.inboundAnswerRowId(answer) orelse return,
-        .import => row_id,
-        .near_object => unreachable, // live-object export listens fire immediately
+    const stamped: engine.FireTarget = switch (target) {
+        // Re-stamp from the live row: a GC'd answer mid-drain skips the fire
+        // (the reinstall arms above still run).
+        .answer => |answer| .{ .answer = .{
+            .position = answer.position,
+            .row_id = peer.session_state.inboundAnswerRowId(answer.position) orelse return,
+        } },
+        .import => target,
+        .near_object => unreachable, // live-object export listens fire immediately, never through a drain
     };
-    try enqueueFire(peer, listener_position, target, stamp, resolution);
+    try enqueueFire(peer, listener_position, stamped, resolution);
 }

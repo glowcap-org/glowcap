@@ -106,13 +106,15 @@ What the editor does not share is bind-mounted from the host in
 | GitHub CLI  | `~/.config/gh` mounted at `/home/vscode/.config/gh`              | `gh`'s own auth store        |
 | opencode    | `~/.local/share/opencode` mounted at `/home/vscode/.local/share/opencode` | login (`auth.json`) |
 | opencode    | `~/.config/opencode` mounted at `/home/vscode/.config/opencode`  | config (providers, model)    |
+| Agent resources | `~/.config/agents` mounted at `/home/vscode/.config/agents` | user XDG resources for `.agents/` |
 
 Claude's login is the `.credentials.json` inside `~/.claude`, and opencode's is
 the `auth.json` inside `~/.local/share/opencode`, so both survive a rebuild and
 are shared with a host install of either tool. opencode's provider and default
 model config lives in `~/.config/opencode`, bound for the same reason. Both
-opencode binds are scoped to its own subdirs, not the whole `~/.config`, which
-would nest under the `~/.config/gh` bind and drag in unrelated host config.
+opencode and `~/.config/agents` binds are scoped to their own subdirs, not the
+whole `~/.config`, which would nest under the `~/.config/gh` bind and drag in
+unrelated host config.
 
 `initializeCommand` creates each host path first, so a fresh machine binds an
 empty directory rather than the root-owned one Docker would otherwise make. Each

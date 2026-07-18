@@ -63,7 +63,7 @@ pub const OutboxLine = struct {
 };
 
 /// Parse one outbox JSON object. Returns null when the line is not JSON with a
-/// string `text` (legacy bare-text lines stay the peer's fallback path).
+/// string `text` — the peer skips those lines (reply always writes JSON).
 pub fn parseOutboxLine(gpa: Allocator, line: []const u8) ?OutboxLine {
     const parsed = std.json.parseFromSlice(std.json.Value, gpa, line, .{}) catch return null;
     defer parsed.deinit();
@@ -133,7 +133,75 @@ pub fn recordInbox(io: Io, gpa: Allocator, dir: []const u8, kind: []const u8, ch
     try appendLine(io, gpa, dir, "inbox.jsonl", list.items);
 }
 
-pub fn writeState(io: Io, gpa: Allocator, dir: []const u8, status: []const u8, nick: []const u8, room: []const u8, locator: []const u8) void {
+/// Persist the outbox drain cursor. Only call after tell + drainActions both
+/// succeeded for every line up to `offset`.
+pub fn saveOutboxOffset(io: Io, dir: []const u8, offset: usize) void {
+    var buf: [24]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, "{d}\n", .{offset}) catch return;
+    overwriteFile(io, dir, "outbox.offset", text) catch {};
+}
+
+/// Load a persisted outbox offset (unclamped). Missing or corrupt → 0 so a
+/// restart resumes from the start of undrained history. Never invent EOF.
+pub fn loadOutboxOffset(io: Io, gpa: Allocator, dir: []const u8) usize {
+    const raw = readFile(io, gpa, dir, "outbox.offset") catch return 0;
+    defer gpa.free(raw);
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    if (trimmed.len == 0) return 0;
+    return std.fmt.parseInt(usize, trimmed, 10) catch 0;
+}
+
+/// Clamp an in-memory outbox cursor to the current file length.
+pub fn clampOutboxOffset(offset: usize, outbox_len: usize) usize {
+    return @min(offset, outbox_len);
+}
+
+/// Bytes still waiting in outbox.jsonl past the persisted drain offset.
+pub fn outboxBacklogBytes(io: Io, gpa: Allocator, dir: []const u8) usize {
+    const contents = readFile(io, gpa, dir, "outbox.jsonl") catch return 0;
+    defer gpa.free(contents);
+    const offset = clampOutboxOffset(loadOutboxOffset(io, gpa, dir), contents.len);
+    return contents.len - offset;
+}
+
+/// Byte offset into inbox.jsonl: lines before this are already considered
+/// answered for tick (peer-start scrollback). Avoids stuffing replied.json past
+/// replied_cap and resurfacing ancient ids after a restart.
+pub fn saveInboxWatermark(io: Io, dir: []const u8, offset: usize) void {
+    var buf: [24]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, "{d}\n", .{offset}) catch return;
+    overwriteFile(io, dir, "inbox.watermark", text) catch {};
+}
+
+pub fn loadInboxWatermark(io: Io, gpa: Allocator, dir: []const u8) usize {
+    const raw = readFile(io, gpa, dir, "inbox.watermark") catch return 0;
+    defer gpa.free(raw);
+    const trimmed = std.mem.trim(u8, raw, " \t\r\n");
+    if (trimmed.len == 0) return 0;
+    return std.fmt.parseInt(usize, trimmed, 10) catch 0;
+}
+
+/// Advance the inbox watermark to `file_len` (peer start: treat current
+/// scrollback as answered without bloating replied.json).
+pub fn advanceInboxWatermark(io: Io, gpa: Allocator, dir: []const u8) void {
+    const contents = readFile(io, gpa, dir, "inbox.jsonl") catch {
+        saveInboxWatermark(io, dir, 0);
+        return;
+    };
+    defer gpa.free(contents);
+    saveInboxWatermark(io, dir, contents.len);
+}
+
+pub fn writeState(
+    io: Io,
+    gpa: Allocator,
+    dir: []const u8,
+    status: []const u8,
+    nick: []const u8,
+    room: []const u8,
+    locator: []const u8,
+    registered: bool,
+) void {
     var list: std.ArrayList(u8) = .empty;
     defer list.deinit(gpa);
     list.appendSlice(gpa, "{\"status\":") catch return;
@@ -144,11 +212,15 @@ pub fn writeState(io: Io, gpa: Allocator, dir: []const u8, status: []const u8, n
     writeJsonString(&list, gpa, room) catch return;
     list.appendSlice(gpa, ",\"locator\":") catch return;
     writeJsonString(&list, gpa, locator) catch return;
+    list.appendSlice(gpa, ",\"registered\":") catch return;
+    list.appendSlice(gpa, if (registered) "true" else "false") catch return;
     list.append(gpa, '}') catch return;
     overwriteFile(io, dir, "state.json", list.items) catch return;
 }
 
 /// One string field out of state.json, owned; empty when absent.
+/// Booleans stringify as `"true"` / `"false"` so callers can compare without a
+/// second helper (`registered` is written as a JSON bool).
 pub fn stateField(io: Io, gpa: Allocator, dir: []const u8, key: []const u8) []u8 {
     const raw = readFile(io, gpa, dir, "state.json") catch return gpa.dupe(u8, "") catch unreachable;
     defer gpa.free(raw);
@@ -157,6 +229,7 @@ pub fn stateField(io: Io, gpa: Allocator, dir: []const u8, key: []const u8) []u8
     if (parsed.value == .object) {
         if (parsed.value.object.get(key)) |v| {
             if (v == .string) return gpa.dupe(u8, v.string) catch "";
+            if (v == .bool) return gpa.dupe(u8, if (v.bool) "true" else "false") catch "";
         }
     }
     return gpa.dupe(u8, "") catch "";
@@ -197,12 +270,14 @@ pub const Pending = struct {
 pub fn scanInbox(arena: Allocator, io: Io, dir: []const u8, nick: []const u8) std.ArrayList(Pending) {
     var items: std.ArrayList(Pending) = .empty;
     const contents = readFile(io, arena, dir, "inbox.jsonl") catch return items;
+    const watermark = loadInboxWatermark(io, arena, dir);
     const self_lower = std.ascii.allocLowerString(arena, nick) catch nick;
     var offset: usize = 0;
     var it = std.mem.splitScalar(u8, contents, '\n');
     while (it.next()) |raw| {
         const line_offset = offset;
         offset += raw.len + 1;
+        if (line_offset < watermark) continue;
         const line = std.mem.trim(u8, raw, " \t\r");
         if (line.len == 0) continue;
         const parsed = std.json.parseFromSlice(std.json.Value, arena, line, .{}) catch continue;

@@ -24,24 +24,42 @@ const P = "pointer",
 	V = "void";
 
 export const ocapnS = ffi.dlopen(libPath("pancake_ocapn"), {
-	pancake_abi_version: { parameters: [B, B, B], result: V },
-	pancake_last_error: { parameters: [B, U], result: U },
-	pancake_context_new_with_allocator: { parameters: [B, B], result: I },
+	// `outBuffers` marks the buffer params the callee writes, so the wasm
+	// adapter copies back only true outputs (dlopen ignores it).
+	pancake_abi_version: { parameters: [B, B, B], result: V, outBuffers: [0, 1, 2] },
+	pancake_last_error: { parameters: [B, U], result: U, outBuffers: [0] },
+	pancake_context_new_with_allocator: { parameters: [B, B], result: I, outBuffers: [1] },
 	pancake_context_release: { parameters: [P], result: V },
-	pancake_managed_frame_release: { parameters: [B], result: V },
-	pancake_encode_peer_locator: { parameters: [B, U, B, U, B, U, B, B], result: I },
+	pancake_managed_frame_release: { parameters: [B], result: V, outBuffers: [] },
+	pancake_encode_peer_locator: {
+		parameters: [B, U, B, U, B, U, B, B],
+		result: I,
+		outBuffers: [6, 7],
+	},
 	pancake_peer_locator_bytes_release: { parameters: [P, U], result: V },
 	// OCapN locator URIs — core vocabulary in libpancake_ocapn, so a consumer
 	// reaches them without any transport archive. The one grammar every binding
 	// shares.
-	pancake_uri_parse_peer: { parameters: [B, U, B], result: I },
-	pancake_uri_parse_sturdyref: { parameters: [B, U, B], result: I },
-	pancake_uri_format_peer: { parameters: [B, U, B, U, B, B, B, B, U, B, U, B], result: I },
-	pancake_locator_transport: { parameters: [P, B, B], result: I },
-	pancake_locator_designator: { parameters: [P, B, B], result: I },
-	pancake_designator_host_port: { parameters: [B, U, B, B, B], result: I },
-	pancake_locator_swissnum: { parameters: [P, B, B], result: I },
-	pancake_locator_hint_count: { parameters: [P, B], result: I },
-	pancake_locator_hint_at: { parameters: [P, U, B, B, B, B], result: I },
+	pancake_uri_parse_peer: { parameters: [B, U, B], result: I, outBuffers: [2] },
+	pancake_uri_parse_sturdyref: { parameters: [B, U, B], result: I, outBuffers: [2] },
+	pancake_uri_format_peer: {
+		parameters: [B, U, B, U, B, B, B, B, U, B, U, B],
+		result: I,
+		outBuffers: [9, 11],
+	},
+	pancake_locator_transport: { parameters: [P, B, B], result: I, outBuffers: [1, 2] },
+	pancake_locator_designator: { parameters: [P, B, B], result: I, outBuffers: [1, 2] },
+	pancake_designator_host_port: {
+		parameters: [B, U, B, B, B],
+		result: I,
+		outBuffers: [2, 3, 4],
+	},
+	pancake_locator_swissnum: { parameters: [P, B, B], result: I, outBuffers: [1, 2] },
+	pancake_locator_hint_count: { parameters: [P, B], result: I, outBuffers: [1] },
+	pancake_locator_hint_at: {
+		parameters: [P, U, B, B, B, B],
+		result: I,
+		outBuffers: [2, 3, 4, 5],
+	},
 	pancake_locator_release: { parameters: [P], result: V },
 });

@@ -43,13 +43,15 @@ The suite can be pointed at a _pancake_ peer, not only Goblins.
 suite against it:
 
 ```sh
-zig build ocapn-conformance              # default: all targeted modules
+zig build ocapn-conformance              # default: every upstream test module
 zig build ocapn-conformance -Dport=23055 # move the peer off 22055 when that port is taken
 bash conformance/ocapn-conformance/run-against-pancake.sh tests.op_deliver  # one module
 ```
 
-Against the external authority, pancake passes the targeted upstream modules the
-wrapper runs:
+The wrapper derives its module list from the upstream tree itself
+(`upstream/tests/*.py`), so a submodule bump that adds a module fails the run
+until pancake targets it. Against the external authority, pancake passes every
+upstream module, today:
 
 | Module                       | What it exercises                                                                        |
 | ---------------------------- | ---------------------------------------------------------------------------------------- |

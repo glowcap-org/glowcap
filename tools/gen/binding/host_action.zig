@@ -80,19 +80,16 @@ fn tline(out: *std.ArrayList(u8), gpa: std.mem.Allocator, indent: usize, text: [
 fn generateTs(gpa: std.mem.Allocator) ![]u8 {
     var out: std.ArrayList(u8) = .empty;
     errdefer out.deinit(gpa);
-    const imports = [_][]const u8{
+    // Struct offsets come from the active layout `L` (64-bit mirror or the
+    // wasm32 descriptor); the kind constants and INVALID_ARGUMENT are
+    // target-independent and live in the @pancake/abi package.
+    const const_imports = [_][]const u8{
         "HOST_ACTION_CLOSE",
         "HOST_ACTION_DIAL",
         "HOST_ACTION_FAIL",
         "HOST_ACTION_FLUSH",
-        "HOST_ACTION_KIND_OFF",
-        "HOST_ACTION_MESSAGE_LEN_OFF",
-        "HOST_ACTION_MESSAGE_OFF",
         "HOST_ACTION_NEED_GIFT_ID",
-        "HOST_ACTION_SESSION_OFF",
         "HOST_ACTION_SETTLE",
-        "HOST_ACTION_TICKET_OFF",
-        "HOST_ACTION_VALUE_OFF",
         "INVALID_ARGUMENT",
     };
     try out.appendSlice(gpa,
@@ -102,20 +99,23 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
         \\// this is stale.
         \\//
         \\// Typed HostAction + decode for the TypeScript binding. Kind constant
-        \\// values and struct offsets stay in `abi.ts` (`gen-ts-abi`); this file
-        \\// owns the discriminant union and the layout walk that copies borrowed
-        \\// views out before the next `pancake_host_next_action` frees them.
+        \\// values live in `@pancake/abi`; struct offsets come from the active
+        \\// layout `L` (the 64-bit mirror, or the wasm32 descriptor under the
+        \\// browser adapter). This file owns the discriminant union and the
+        \\// layout walk that copies borrowed views out before the next
+        \\// `pancake_host_next_action` frees them.
         \\
+        \\import { L } from "./layout.ts";
         \\import {
         \\
     );
-    for (imports) |name| {
+    for (const_imports) |name| {
         try out.append(gpa, '\t');
         try out.appendSlice(gpa, name);
         try out.appendSlice(gpa, ",\n");
     }
     try out.appendSlice(gpa,
-        \\} from "./abi.ts";
+        \\} from "@pancake/abi";
         \\import { type Ptr } from "./ffi/runtime.ts";
         \\import { readBytes } from "./seam.ts";
         \\import { readArg } from "../codec.ts";
@@ -141,11 +141,11 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
         \\export function decodeHostAction(dv: DataView): HostAction {
         \\
     );
-    try tline(&out, gpa, 1, "const kind = dv.getUint32(HOST_ACTION_KIND_OFF, true);");
-    try tline(&out, gpa, 1, "const ticket = dv.getBigUint64(HOST_ACTION_TICKET_OFF, true);");
+    try tline(&out, gpa, 1, "const kind = dv.getUint32(L.HOST_ACTION_KIND_OFF, true);");
+    try tline(&out, gpa, 1, "const ticket = dv.getBigUint64(L.HOST_ACTION_TICKET_OFF, true);");
     try tline(&out, gpa, 1, "const view = (off: number, lenOff: number): string =>");
     try tline(&out, gpa, 2, "utf8Decoder.decode(");
-    try tline(&out, gpa, 3, "readBytes(dv.getBigUint64(off, true), dv.getBigUint64(lenOff, true)),");
+    try tline(&out, gpa, 3, "readBytes(L.getPtr(dv, off), L.getUsize(dv, lenOff)),");
     try tline(&out, gpa, 2, ");");
     try tline(&out, gpa, 1, "switch (kind) {");
     // FLUSH and CLOSE share a case — emit ticket/settle/fail individually,
@@ -156,7 +156,7 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
     }
     try tline(&out, gpa, 2, "case HOST_ACTION_FLUSH:");
     try tline(&out, gpa, 2, "case HOST_ACTION_CLOSE:");
-    try tline(&out, gpa, 3, "return { kind, conn: dv.getBigUint64(HOST_ACTION_SESSION_OFF, true) };");
+    try tline(&out, gpa, 3, "return { kind, conn: L.getPtr(dv, L.HOST_ACTION_SESSION_OFF) };");
     try tline(&out, gpa, 2, "default:");
     try tline(&out, gpa, 3, "throw new PancakeError(");
     try tline(&out, gpa, 4, "INVALID_ARGUMENT,");
@@ -171,10 +171,9 @@ fn generateTs(gpa: std.mem.Allocator) ![]u8 {
         \\
     );
     inline for (arms) |arm| {
-        try out.append(gpa, '\t');
         const method = try tsHandlerName(gpa, arm);
         defer gpa.free(method);
-        try out.print(gpa, "{s}: (action: Extract<HostAction, {{ kind: typeof HOST_ACTION_{s} }}>) => void | Promise<void>;\n", .{ method, arm.name });
+        try emitTsHandlerSignature(&out, gpa, method, arm.name);
     }
     try out.appendSlice(gpa, "};\n\nexport async function dispatchHostAction(\n");
     try tline(&out, gpa, 1, "action: HostAction,");
@@ -225,6 +224,30 @@ fn tsHandlerName(gpa: std.mem.Allocator, arm: Arm) ![]u8 {
     return out.toOwnedSlice(gpa);
 }
 
+/// Emit one `HostActionHandlers` member. `deno fmt` wraps a member whose
+/// single-line form is wider than its 100-column print width, where the one
+/// leading tab renders as the four-column indent width. The generator wraps at
+/// the same boundary so its raw output is already `deno fmt`-clean — the check
+/// compares bytes, and there is no formatter pass between generate and commit.
+fn emitTsHandlerSignature(out: *std.ArrayList(u8), gpa: std.mem.Allocator, method: []const u8, name: []const u8) !void {
+    const single = try std.fmt.allocPrint(
+        gpa,
+        "\t{s}: (action: Extract<HostAction, {{ kind: typeof HOST_ACTION_{s} }}>) => void | Promise<void>;",
+        .{ method, name },
+    );
+    defer gpa.free(single);
+    // The leading '\t' renders as four columns; the rest is one column each.
+    const print_width = single.len - 1 + 4;
+    if (print_width <= 100) {
+        try out.appendSlice(gpa, single);
+        try out.append(gpa, '\n');
+        return;
+    }
+    try out.print(gpa, "\t{s}: (\n", .{method});
+    try out.print(gpa, "\t\taction: Extract<HostAction, {{ kind: typeof HOST_ACTION_{s} }}>,\n", .{name});
+    try out.appendSlice(gpa, "\t) => void | Promise<void>;\n");
+}
+
 fn emitTsUnionMember(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm, last: bool) !void {
     switch (arm.shape) {
         .conn => {
@@ -256,12 +279,12 @@ fn emitTsDecodeCase(out: *std.ArrayList(u8), gpa: std.mem.Allocator, arm: Arm) !
     try out.print(gpa, "case HOST_ACTION_{s}:\n", .{arm.name});
     switch (arm.shape) {
         .ticket => try tline(out, gpa, 3, "return { kind, ticket };"),
-        .settle => try tline(out, gpa, 3, "return { kind, ticket, value: readArg(dv, HOST_ACTION_VALUE_OFF) };"),
+        .settle => try tline(out, gpa, 3, "return { kind, ticket, value: readArg(dv, L.HOST_ACTION_VALUE_OFF) };"),
         .fail => {
             try tline(out, gpa, 3, "return {");
             try tline(out, gpa, 4, "kind,");
             try tline(out, gpa, 4, "ticket,");
-            try tline(out, gpa, 4, "message: view(HOST_ACTION_MESSAGE_OFF, HOST_ACTION_MESSAGE_LEN_OFF),");
+            try tline(out, gpa, 4, "message: view(L.HOST_ACTION_MESSAGE_OFF, L.HOST_ACTION_MESSAGE_LEN_OFF),");
             try tline(out, gpa, 3, "};");
         },
         .conn => unreachable,
@@ -424,6 +447,10 @@ fn generateRust(gpa: std.mem.Allocator) ![]u8 {
         \\//!
         \\//! Kind constants, `HostAction`, and decode for the Rust binding.
         \\//! Executor arms stay in `action.rs`.
+        \\
+        \\// The generator owns these bytes; a formatter version bump must not
+        \\// drift them out from under `gen-binding-host-action-check`.
+        \\#![cfg_attr(rustfmt, rustfmt::skip)]
         \\
         \\use core::ffi::c_uint;
         \\

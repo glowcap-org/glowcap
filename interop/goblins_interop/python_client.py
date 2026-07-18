@@ -47,7 +47,17 @@ async def converse() -> None:
         sturdyref = f"ocapn://goblins-echo.tcp/s/{swiss}"
         echo = await conn.enliven(sturdyref)
         print("python-goblins-interop: enlivened goblins echo cap, calling it")
-        await conn.send(echo, "", [b"pancake-ping"])
+        # The echo actor is `(lambda args args)`: it returns its argument
+        # list, so assert the content survived the round-trip (the native
+        # driver's bar), not merely that something resolved.
+        def assert_echoed(reply, expected):
+            if reply != [expected]:
+                fail(
+                    "python-goblins-interop",
+                    f"echo returned {reply!r}, expected [{expected!r}]",
+                )
+
+        assert_echoed(await conn.send(echo, "", [b"pancake-ping"]), b"pancake-ping")
 
         again = await conn.enliven(sturdyref)
         if echo.far is None or again.far is None or echo.far.id != again.far.id:
@@ -55,7 +65,9 @@ async def converse() -> None:
                 "python-goblins-interop",
                 "repeat enliven did not return the same far import (dedup miss)",
             )
-        await conn.send(again, "", [b"pancake-ping-again"])
+        assert_echoed(
+            await conn.send(again, "", [b"pancake-ping-again"]), b"pancake-ping-again"
+        )
         print(
             "python-goblins-interop: repeat enliven same import (dedup), second call resolved"
         )

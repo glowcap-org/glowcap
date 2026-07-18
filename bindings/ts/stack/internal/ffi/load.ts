@@ -16,22 +16,76 @@
 // Deno without `--allow-env` / `--allow-read` / `--allow-net` / `--allow-write`
 // / `--allow-run` degrades to the next rung instead of failing.
 
-import process from "node:process";
-import {
-	existsSync,
-	mkdirSync,
-	readFileSync,
-	renameSync,
-	rmdirSync,
-	rmSync,
-	statSync,
-} from "node:fs";
-import { createHash } from "node:crypto";
-import { homedir, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 import { ffi } from "./runtime.ts";
+
+// The host built-ins the cascade rides, loaded dynamically with computed
+// specifiers so a browser bundle neither resolves nor ships them: under the
+// wasm adapter (ADR-0070) `dlopen` ignores paths entirely, so `libPath`
+// returns the bare stem before any of these are touched, and a browser
+// where the imports reject simply has no cascade to run. Deno and Bun load
+// them once here, and every rung below keeps its synchronous shape.
+type HostModules = {
+	process: typeof import("node:process");
+	fs: typeof import("node:fs");
+	crypto: typeof import("node:crypto");
+	os: typeof import("node:os");
+	path: typeof import("node:path");
+	url: typeof import("node:url");
+	childProcess: typeof import("node:child_process");
+};
+
+const host: HostModules | null = await (async () => {
+	const dyn = (specifier: string) => import(specifier);
+	try {
+		const [nodeProcess, fs, crypto, os, path, url, childProcess] = await Promise.all([
+			dyn("node:process"),
+			dyn("node:fs"),
+			dyn("node:crypto"),
+			dyn("node:os"),
+			dyn("node:path"),
+			dyn("node:url"),
+			dyn("node:child_process"),
+		]);
+		return {
+			process: (nodeProcess as { default: typeof import("node:process") }).default,
+			fs: fs as typeof import("node:fs"),
+			crypto: crypto as typeof import("node:crypto"),
+			os: os as typeof import("node:os"),
+			path: path as typeof import("node:path"),
+			url: url as typeof import("node:url"),
+			childProcess: childProcess as typeof import("node:child_process"),
+		};
+	} catch {
+		return null; // a browser: no host built-ins, no archive cascade
+	}
+})();
+
+// Call-syntax aliases for the cascade's rungs. Every use sits beneath
+// `libPath`'s browser early-return, so a null host can never reach one.
+function hostOnly(): never {
+	throw new Error("pancake archive resolution needs a host runtime (Deno/Bun)");
+}
+const process = host?.process ??
+	({
+		env: {} as Record<string, string | undefined>,
+		arch: "",
+		platform: "",
+		pid: 0,
+	} as unknown as typeof import("node:process"));
+const existsSync = host?.fs.existsSync ?? hostOnly;
+const mkdirSync = host?.fs.mkdirSync ?? hostOnly;
+const readFileSync = host?.fs.readFileSync ?? hostOnly;
+const renameSync = host?.fs.renameSync ?? hostOnly;
+const rmdirSync = host?.fs.rmdirSync ?? hostOnly;
+const rmSync = host?.fs.rmSync ?? hostOnly;
+const statSync = host?.fs.statSync ?? hostOnly;
+const createHash = host?.crypto.createHash ?? hostOnly;
+const homedir = host?.os.homedir ?? hostOnly;
+const tmpdir = host?.os.tmpdir ?? hostOnly;
+const dirname = host?.path.dirname ?? hostOnly;
+const join = host?.path.join ?? hostOnly;
+const fileURLToPath = host?.url.fileURLToPath ?? hostOnly;
+const spawnSync = host?.childProcess.spawnSync ?? hostOnly;
 
 export function libFile(stem: string): string {
 	const suffix = ffi.libSuffix();
@@ -545,6 +599,10 @@ function libDir(): string | null {
 }
 
 export function libPath(stem: string): string {
+	// No host built-ins means no filesystem and no dlopen: the active adapter
+	// is the wasm one (ADR-0070), whose `dlopen` ignores the path. Hand back
+	// the stem before any cascade rung runs.
+	if (host === null) return stem;
 	const file = libFile(stem);
 	const dir = libDir();
 	if (dir !== null) return `${dir.replace(/\/$/, "")}/${file}`;

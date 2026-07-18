@@ -144,6 +144,7 @@ pub fn classify(err: anyerror) Classification {
         } },
         // ── generic partner protocol violations to protocol_error ─────
         error.DuplicateSetElement,
+        error.DuplicateStructKey,
         error.MalformedMessage,
         error.InvalidReference,
         error.FeatureNotNegotiated,

@@ -250,6 +250,12 @@ pub fn spawnBridge(
 /// passes, the vat owns the bridge — a later failure leaves the object
 /// spawned unbound and its `free` runs at teardown, so `free` still runs
 /// exactly once on every outcome.
+///
+/// Atomic on the session's observable state: a failure past the grant restores
+/// the name's prior mapping and releases the never-shared export, so a failed
+/// publish (and a caller's retry after one) leaves no dangling name and mints
+/// no phantom export row. The spawned-but-unbound bridge arm on the vat is the
+/// one slot the unwind cannot reclaim; it dies with the session.
 pub fn publishHosted(
     session: *HostSession,
     alloc: std.mem.Allocator,
@@ -259,10 +265,15 @@ pub fn publishHosted(
     free: ?PancakeHostCtxFree,
 ) !u64 {
     const peer = session.served.peer;
+    const prior = if (name) |n| peer.session_state.bootstrapLookup(n) else null;
     const position = (if (name) |n| peer.registerBootstrapCap(n) else peer.exportNextObject()) catch |err| {
         if (free) |f| f(ctx);
         return err;
     };
+    errdefer {
+        if (name) |n| peer.session_state.restoreBootstrapMapping(n, prior);
+        peer.session_state.releaseUnsharedExport(.from(position));
+    }
     const ref = try spawnBridge(&session.served, alloc, behavior, ctx, free);
     try session.served.bindExport(ref, position);
     return position;

@@ -9,6 +9,7 @@
 const std = @import("std");
 
 const foundation = @import("foundation");
+const model = @import("model");
 const driver_core = @import("driver_core");
 
 const shared = @import("c_abi_shared");
@@ -476,10 +477,14 @@ pub export fn pancake_host_provide_gift_id(host: ?*PancakeHost, ticket: u64, gif
 /// Publish a hosted object host-wide: under `name` on every session now
 /// open and every future one, so a gift naming that swissnum resolves against
 /// whichever session a recipient withdraws on. The giftable row owns `ctx` —
-/// `free`, if non-null, runs exactly once, at `pancake_host_release` (the
-/// per-session bridges never free it). A failure after the row is
-/// recorded keeps the row (and that ownership); a null-pointer or reentry
-/// refusal leaves ctx the caller's.
+/// `free`, if non-null, runs exactly once: at `pancake_host_release` on
+/// success, or before this returns on any non-OK outcome (except the
+/// null-pointer and reentry refusals, which touch nothing and leave ctx the
+/// caller's). All-or-nothing over this
+/// call's own work: a mid-publish failure restores every session this call
+/// had already published (prior name mapping and export row), removes the
+/// giftable row, and frees `ctx`, so a retry starts from the pre-call state
+/// instead of double-minting exports on the sessions that had succeeded.
 pub export fn pancake_host_publish(
     host: ?*PancakeHost,
     name: ?[*]const u8,
@@ -501,9 +506,36 @@ pub export fn pancake_host_publish(
         if (free) |f| f(ctx);
         return errToCode(err);
     };
+    // One undo row per session published by THIS call. `publishHosted` unwinds
+    // its own failing session; these rows unwind the ones that had already
+    // succeeded. The spawned bridge arms stay on their vats (freed at session
+    // teardown), the same slot `publishHosted`'s own unwind concedes.
+    const Undo = struct { session: *common.HostSession, prior: ?model.ExportPosition, granted: u64 };
+    var undo: std.ArrayList(Undo) = .empty;
+    defer undo.deinit(inst.allocator);
+    const unwindAll = struct {
+        fn run(instance: *Instance, rows: []const Undo, published_name: []const u8, f: ?c.PancakeHostCtxFree, context: ?*anyopaque) void {
+            for (rows) |u| {
+                u.session.served.peer.session_state.restoreBootstrapMapping(published_name, u.prior);
+                u.session.served.peer.session_state.releaseUnsharedExport(.from(u.granted));
+            }
+            const row = instance.giftables.pop().?;
+            instance.allocator.free(row.name);
+            if (f) |func| func(context);
+        }
+    }.run;
+    undo.ensureTotalCapacity(inst.allocator, inst.core.sessions.count()) catch |err| {
+        unwindAll(inst, undo.items, name_bytes, free, ctx);
+        return errToCode(err);
+    };
     var it = inst.core.sessions.valueIterator();
     while (it.next()) |session| {
-        _ = publishHosted(session.*, inst.allocator, name_bytes, b, ctx, null) catch |err| return errToCode(err);
+        const prior = session.*.served.peer.session_state.bootstrapLookup(name_bytes);
+        const granted = publishHosted(session.*, inst.allocator, name_bytes, b, ctx, null) catch |err| {
+            unwindAll(inst, undo.items, name_bytes, free, ctx);
+            return errToCode(err);
+        };
+        undo.appendAssumeCapacity(.{ .session = session.*, .prior = prior, .granted = granted });
     }
     return PANCAKE_OK;
 }

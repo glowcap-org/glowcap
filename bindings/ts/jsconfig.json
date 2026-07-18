@@ -1,0 +1,19 @@
+{
+	// Bun resolves bare specifiers through the nearest tsconfig/jsconfig
+	// `paths`; Deno uses the deno.json workspace and ignores this file (a
+	// tsconfig.json here would perturb `deno check`, so it is a jsconfig on
+	// purpose). The two maps name the same packages, so `@pancake/*` resolves
+	// identically on both runtimes (`deno-dogfood` / `bun-dogfood` hold it).
+	"compilerOptions": {
+		"paths": {
+			"@pancake/abi": ["./abi/constants.ts"],
+			"@pancake/stack": ["./stack/mod.ts"],
+			"@pancake/stack/transport/tcp": ["./stack/transport/tcp.ts"],
+			"@pancake/stack/transport/inproc": ["./stack/transport/inproc.ts"],
+			"@pancake/stack/ffi": ["./stack/ffi.ts"],
+			"@pancake/iroh": ["./iroh/mod.ts"],
+			"@pancake/iroh/internal": ["./iroh/internal.ts"],
+			"@pancake/web": ["./web/mod.ts"]
+		}
+	}
+}

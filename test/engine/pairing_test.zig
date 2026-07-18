@@ -487,6 +487,70 @@ test "a verifying peer aborts an op:start-session whose signature does not match
     try std.testing.expectEqual(model.AbortKind.invalid_start_session_signature, view.abort.kind);
 }
 
+test "after a refused op:start-session the byte stream may retry: a valid hello is admitted" {
+    const allocator = std.testing.allocator;
+
+    // Pins the ADR-0083 keep-negotiating exception end to end: a handshake
+    // refusal aborts without closing the negotiating session, so the same byte
+    // stream may carry a corrected hello (the spec draft's abort text says
+    // sever; pancake leaves severing to the adapter, and the retry grants
+    // nothing a first valid hello would not, since every hello verifies in
+    // full).
+    // docs/community-review.md names the divergence.
+    var verifier = engine.Peer.initNegotiating(allocator);
+    defer verifier.deinit();
+    verifier.verify_partner_handshake = true;
+
+    const loc: model.PeerLocator = .{ .transport = "tcp", .designator = "127.0.0.1:9", .hints = model.Hints.emptyFalse() };
+    const honest = crypto.SecretKey.fromSeed([_]u8{0x33} ** crypto.SEED_BYTES);
+    const imposter = crypto.SecretKey.fromSeed([_]u8{0x44} ** crypto.SEED_BYTES);
+    const signed = try codec.syrup.canonicalLocationSignedBytes(allocator, loc);
+    defer allocator.free(signed);
+
+    // First hello: valid signature, but not by the advertised key. Refused,
+    // abort queued, state stays negotiating.
+    {
+        var sender = engine.Peer.initNegotiating(allocator);
+        defer sender.deinit();
+        const sig = crypto.sign(&honest, signed);
+        try sender.sendCopying(.{ .start_session = .{
+            .captp_version = .v1_0,
+            .session_pubkey = .{ .bytes = imposter.publicKey().asBytes() },
+            .acceptable_location = loc,
+            .acceptable_location_sig = .{ .bytes = sig.asBytes() },
+        } });
+        _ = try sender.step();
+        try verifier.feedOwned(sender.takeOutbound().?);
+        try std.testing.expectError(error.InvalidStartSessionSignature, verifier.step());
+        try std.testing.expectEqual(session.State.negotiating, verifier.session_state.state);
+        var abort_frame = verifier.takeOutbound().?;
+        abort_frame.deinit();
+    }
+
+    // Second hello on the same session: honestly signed by the advertised key,
+    // admitted in full, exactly as a first valid hello would have been.
+    {
+        var sender = engine.Peer.initNegotiating(allocator);
+        defer sender.deinit();
+        const sig = crypto.sign(&honest, signed);
+        try sender.sendCopying(.{ .start_session = .{
+            .captp_version = .v1_0,
+            .session_pubkey = .{ .bytes = honest.publicKey().asBytes() },
+            .acceptable_location = loc,
+            .acceptable_location_sig = .{ .bytes = sig.asBytes() },
+        } });
+        _ = try sender.step();
+        try verifier.feedOwned(sender.takeOutbound().?);
+        try std.testing.expectEqual(engine.StepOutcome.progress, try verifier.step());
+        try std.testing.expect(verifier.session_state.handshake_remote_received);
+        try std.testing.expectEqual(session.State.negotiating, verifier.session_state.state);
+        while (verifier.pollEvent()) |event_value| {
+            var event = event_value;
+            event.deinit();
+        }
+    }
+}
+
 test "a pinned peer refuses an op:start-session from any key but the expected one, and the session never opens" {
     const allocator = std.testing.allocator;
 

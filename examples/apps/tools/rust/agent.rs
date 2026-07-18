@@ -60,7 +60,8 @@ async fn run(locator: &str, nick: &str) -> Result<(), String> {
 		"revocation: the handle works before revoke",
 		session.send(&revocable, "now", &[]).await.is_ok(),
 	);
-	session.send(&tools, "revoke-last", &[])
+	session
+		.send(&tools, "revoke-last", &[])
 		.await
 		.map_err(|e| format!("revoke-last: {e:?}"))?;
 	ok &= tools_check::check(

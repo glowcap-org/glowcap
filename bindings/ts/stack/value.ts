@@ -7,7 +7,7 @@
 // public members; `isReference` and the `near` constructor stay
 // package-internal.
 
-import { CODEC_CAPNP, CODEC_SYRUP } from "./internal/abi.ts";
+import { CODEC_CAPNP, CODEC_SYRUP } from "@pancake/abi";
 
 export type Reference =
 	| { kind: "near"; id: bigint; promise?: boolean }

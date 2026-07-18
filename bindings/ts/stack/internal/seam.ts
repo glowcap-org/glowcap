@@ -9,6 +9,7 @@
 
 import { ocapnS as s } from "./ffi/ocapn.ts";
 import { ffi, net, type NetConn, type NetListener, NULL, type Ptr } from "./ffi/runtime.ts";
+import { L } from "./layout.ts";
 
 // Our buffers are always ArrayBuffer-backed; this bridges Deno's FFI/pointer
 // BufferSource typing, which rejects the `Uint8Array<ArrayBufferLike>` generic.
@@ -26,8 +27,23 @@ export function readBytes(ptrValue: Ptr, len: bigint): Uint8Array {
 	return new Uint8Array(ffi.readMemory(ptrValue, Number(len)));
 }
 
-/** Read the pointer an out-parameter buffer received from an FFI call. */
+/** Read the pointer an out-parameter buffer received from an FFI call. The
+ * cell is always a freshly zeroed 8-byte buffer; the callee writes pointer
+ * width (4 on wasm32), so the read goes through the active layout rather
+ * than assuming 8. `outUsize` / `outU64` are the size and 64-bit siblings —
+ * every out-cell read lives in this trio so no call site hand-picks a width. */
 export function outPointer(buf: Uint8Array): Ptr {
+	return L.getPtr(new DataView(buf.buffer), 0);
+}
+
+/** Read a `usize` out-cell (a consumed-byte count, a length, a hint count). */
+export function outUsize(buf: Uint8Array): bigint {
+	return L.getUsize(new DataView(buf.buffer), 0);
+}
+
+/** Read a true 64-bit out-cell (a vow id, an export position): u64 on every
+ * target, so this one reads 8 bytes unconditionally. */
+export function outU64(buf: Uint8Array): bigint {
 	return new DataView(buf.buffer).getBigUint64(0, true);
 }
 

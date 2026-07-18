@@ -1,10 +1,13 @@
 // Private ABI constants for the pancake binding.
 //
-// Everything the libpancake_ocapn ABI defines — constant values, struct sizes,
-// field offsets — is generated into `abi.ts` by `zig build gen-ts-abi` and
-// re-exported here; nothing in that family is hand-mirrored. The block below
-// carries only the iroh transport archive's loop-surface constants, which live
-// in `pancake_net_transport_iroh.h` (a separate archive with its own header).
+// The libpancake_ocapn / libpancake_driver ABI splits by target-dependence.
+// The target-independent constant values live in the `@pancake/abi` package and
+// are re-exported here. The target-specific struct sizes and field offsets are
+// generated into `abi.ts` by `zig build gen-ts-abi` and re-exported here too.
+// Nothing in either family is hand-mirrored. The block below carries only the
+// iroh transport archive's loop-surface constants, which live in
+// `pancake_net_transport_iroh.h` (a separate archive with its own header).
+export * from "@pancake/abi";
 export * from "./abi.ts";
 
 // iroh event-driven loop surface (ADR-0057): readiness event bits and the

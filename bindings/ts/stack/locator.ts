@@ -5,8 +5,9 @@
 
 import { ocapnS as s } from "./internal/ffi/ocapn.ts";
 import { ffi, NULL, type Ptr } from "./internal/ffi/runtime.ts";
-import { ab, readBytes } from "./internal/seam.ts";
-import { BUFFER_TOO_SMALL, INVALID_ARGUMENT, OK } from "./internal/abi.ts";
+import { L } from "./internal/layout.ts";
+import { ab, outPointer, outUsize, readBytes } from "./internal/seam.ts";
+import { BUFFER_TOO_SMALL, INVALID_ARGUMENT, OK } from "@pancake/abi";
 import { check, PancakeError } from "./errors.ts";
 
 export const HINT_DIRECT_ADDRESSES = "direct-addresses";
@@ -39,9 +40,9 @@ function readLocatorView(
 	ptrBuf: Uint8Array<ArrayBuffer>,
 	lenBuf: Uint8Array<ArrayBuffer>,
 ): string {
-	const len = Number(new DataView(lenBuf.buffer).getBigUint64(0, true));
+	const len = Number(outUsize(lenBuf));
 	if (len === 0) return "";
-	const ptr = new DataView(ptrBuf.buffer).getBigUint64(0, true);
+	const ptr = outPointer(ptrBuf);
 	if (ptr === NULL) return "";
 	return new TextDecoder().decode(new Uint8Array(ffi.readMemory(ptr, len)));
 }
@@ -77,7 +78,7 @@ export function parseLocator(uri: string, sturdyref = false): Locator {
 			ab(outLoc),
 		);
 	check(rc);
-	const loc = new DataView(outLoc.buffer).getBigUint64(0, true);
+	const loc = outPointer(outLoc);
 	if (loc === NULL) {
 		throw new PancakeError(
 			INVALID_ARGUMENT,
@@ -88,7 +89,7 @@ export function parseLocator(uri: string, sturdyref = false): Locator {
 		const hints = new Map<string, string>();
 		const countBuf = new Uint8Array(8);
 		check(s.pancake_locator_hint_count(loc, ab(countBuf)));
-		const count = Number(new DataView(countBuf.buffer).getBigUint64(0, true));
+		const count = Number(outUsize(countBuf));
 		for (let i = 0; i < count; i++) {
 			const kPtr = new Uint8Array(8),
 				kLen = new Uint8Array(8),
@@ -132,13 +133,16 @@ export function formatPeerUri(
 		keys.push(enc.encode(k));
 		vals.push(enc.encode(v));
 	}
-	const keyPtrs = pointerArray(keys), keyLens = lengthArray(keys);
-	const valPtrs = pointerArray(vals), valLens = lengthArray(vals);
-
 	// Size with a generous buffer; the call reports the exact length, so a
-	// too-small buffer is retried at the reported size.
+	// too-small buffer is retried at the reported size. The pointer/length
+	// arrays are rebuilt per attempt: a `pointerOf` address is only promised
+	// across the next outermost call, so a retry must re-stage rather than
+	// carry addresses across two calls (the wasm adapter frees stale stagings
+	// at call entry).
 	let cap = 256;
 	for (let attempt = 0; attempt < 2; attempt++) {
+		const keyPtrs = pointerArray(keys), keyLens = lengthArray(keys);
+		const valPtrs = pointerArray(vals), valLens = lengthArray(vals);
 		const out = new Uint8Array(cap), outLen = new Uint8Array(8);
 		const rc = s.pancake_uri_format_peer(
 			ab(t),
@@ -154,7 +158,7 @@ export function formatPeerUri(
 			BigInt(cap),
 			ab(outLen),
 		);
-		const need = Number(new DataView(outLen.buffer).getBigUint64(0, true));
+		const need = Number(outUsize(outLen));
 		if (rc === OK) return new TextDecoder().decode(out.subarray(0, need));
 		if (rc === BUFFER_TOO_SMALL && need > cap) {
 			cap = need;
@@ -170,19 +174,23 @@ export function formatPeerUri(
 
 // Build a `const uint8_t **` array of pointers into the given byte buffers, and
 // the parallel `const size_t *` length array, for the format FFI. The buffers
-// must outlive the call (they do; they are locals of the caller above).
+// must outlive the call (they do; they are locals of the caller above). Entry
+// width is the target's pointer width, so the arrays go through the active
+// layout's accessors like every other pointer-carrying structure.
 function pointerArray(
 	bufs: Uint8Array<ArrayBuffer>[],
 ): Uint8Array<ArrayBuffer> {
-	const arr = new BigUint64Array(bufs.length);
-	for (let i = 0; i < bufs.length; i++) arr[i] = ffi.pointerOf(bufs[i]);
-	return new Uint8Array(arr.buffer) as Uint8Array<ArrayBuffer>;
+	const arr = new Uint8Array(L.ptrSize * bufs.length);
+	const dv = new DataView(arr.buffer);
+	for (let i = 0; i < bufs.length; i++) L.setPtr(dv, i * L.ptrSize, ffi.pointerOf(bufs[i]));
+	return arr as Uint8Array<ArrayBuffer>;
 }
 
 function lengthArray(bufs: Uint8Array<ArrayBuffer>[]): Uint8Array<ArrayBuffer> {
-	const arr = new BigUint64Array(bufs.length);
-	for (let i = 0; i < bufs.length; i++) arr[i] = BigInt(bufs[i].length);
-	return new Uint8Array(arr.buffer) as Uint8Array<ArrayBuffer>;
+	const arr = new Uint8Array(L.ptrSize * bufs.length);
+	const dv = new DataView(arr.buffer);
+	for (let i = 0; i < bufs.length; i++) L.setUsize(dv, i * L.ptrSize, bufs[i].length);
+	return arr as Uint8Array<ArrayBuffer>;
 }
 
 /** Render host:port as a tcp designator; bracket IPv6 for the core grammar. */
@@ -263,8 +271,8 @@ export function encodePeerLocator(opts: {
 		ab(outLoc),
 		ab(outLen),
 	));
-	const ptr = new DataView(outLoc.buffer).getBigUint64(0, true);
-	const len = new DataView(outLen.buffer).getBigUint64(0, true);
+	const ptr = outPointer(outLoc);
+	const len = outUsize(outLen);
 	try {
 		return readBytes(ptr, len);
 	} finally {

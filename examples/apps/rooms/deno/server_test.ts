@@ -7,6 +7,7 @@ import {
 	NOTIFY,
 	OPEN,
 	POST,
+	REGISTER,
 	SUBSCRIBE,
 	WATCH,
 } from "./lib/protocol.ts";
@@ -704,6 +705,92 @@ Deno.test("racket one-shot client exits by its deadline while unrelated traffic 
 // the server's announced ocapn:// URI through the iroh ABI companion library, so they
 // skip cleanly when that optional library is not built (no cargo). The room's
 // wire and behavior are identical, only the transport differs.
+
+Deno.test("rooms directory survives a failed register when dm is unpublished", async () => {
+	// Register fetch("dm") fails when the member did not publish; CapTP must stay up.
+	await withServer(async (port) => {
+		const session = await connect(tcpLocator("127.0.0.1", port));
+		session.serve().catch(() => {});
+		const directory = await session.fetch(DIRECTORY);
+		const inbox = session.spawn(() => null);
+		await session.send(directory, REGISTER, [
+			"ghost",
+			"127.0.0.1:1",
+			inbox,
+		]);
+		await delay(1_500);
+		const listed = await session.send(directory, LIST, []);
+		assert(Array.isArray(listed), "directory list should still answer after a failed register");
+		session.close();
+		await session.serve().catch(() => {});
+	});
+});
+
+Deno.test("rooms directory registers a member that publishes dm on the registrar session", async () => {
+	await withServer(async (port) => {
+		const exporter = await connect(tcpLocator("127.0.0.1", port));
+		exporter.serve().catch(() => {});
+		exporter.publish("dm", () => null);
+		const exporterDir = await exporter.fetch(DIRECTORY);
+		let registered = false;
+		const regInbox = exporter.spawn((verb, args) => {
+			if (verb === NOTIFY && args[0] === "registered") registered = true;
+			return null;
+		});
+		await exporter.send(exporterDir, REGISTER, [
+			"bot",
+			loopbackTcpDesignator(port),
+			regInbox,
+		]);
+		const deadline = Date.now() + 3_000;
+		while (!registered && Date.now() < deadline) await delay(25);
+		assert(registered, "member should receive notify(registered)");
+
+		exporter.close();
+		await exporter.serve().catch(() => {});
+	});
+});
+
+Deno.test("rooms directory replace-on-re-register notifies the new registrar", async () => {
+	await withServer(async (port) => {
+		const designator = loopbackTcpDesignator(port);
+
+		const first = await connect(tcpLocator("127.0.0.1", port));
+		first.serve().catch(() => {});
+		first.publish("dm", () => "first");
+		const firstDir = await first.fetch(DIRECTORY);
+		let firstAck = false;
+		const firstInbox = first.spawn((verb, args) => {
+			if (verb === NOTIFY && args[0] === "registered") firstAck = true;
+			return null;
+		});
+		await first.send(firstDir, REGISTER, ["bot", designator, firstInbox]);
+		const firstDeadline = Date.now() + 3_000;
+		while (!firstAck && Date.now() < firstDeadline) await delay(25);
+		assert(firstAck, "first registrar should receive notify(registered)");
+
+		const second = await connect(tcpLocator("127.0.0.1", port));
+		second.serve().catch(() => {});
+		second.publish("dm", () => "second");
+		const secondDir = await second.fetch(DIRECTORY);
+		let secondAck = false;
+		const secondInbox = second.spawn((verb, args) => {
+			if (verb === NOTIFY && args[0] === "registered") secondAck = true;
+			return null;
+		});
+		await second.send(secondDir, REGISTER, ["bot", designator, secondInbox]);
+		const secondDeadline = Date.now() + 3_000;
+		while (!secondAck && Date.now() < secondDeadline) await delay(25);
+		assert(secondAck, "second registrar should receive notify(registered) after replace");
+
+		first.close();
+		second.close();
+		await Promise.all([
+			first.serve().catch(() => {}),
+			second.serve().catch(() => {}),
+		]);
+	});
+});
 
 Deno.test("rooms server over iroh welcomes a subscriber by its ocapn:// URI", async () => {
 	if (!irohLibPresent()) return; // needs `zig build iroh-abi` (cargo)

@@ -8,7 +8,7 @@ import { Session } from "./session.ts";
 import { Host } from "./host.ts";
 import { net } from "./internal/ffi/runtime.ts";
 import { type NetConn, type NetListener } from "./internal/seam.ts";
-import { INVALID_ARGUMENT } from "./internal/abi.ts";
+import { INVALID_ARGUMENT } from "@pancake/abi";
 import { PancakeError } from "./errors.ts";
 import { type Codec } from "./value.ts";
 import {

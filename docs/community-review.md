@@ -86,6 +86,14 @@ They are summarized here so they are not surprises:
   **object** export (`pancake-export-listen.rkt`). Draft CapTP sketches a
   2-operand listen; Goblins and the suite use 3-operand (`wants_partial`).
   pancake follows the suite.
+- **Handshake-refusal abort does not sever.** The spec draft's `op:abort` text
+  says the connection should be severed. pancake's three handshake refusals
+  (invalid signature, pinned-key mismatch, version mismatch) emit the typed
+  abort and keep the session negotiating (ADR-0083's named exception), so the
+  same byte stream may carry a corrected hello. An engine scenario in
+  `pairing_test` pins it. Every hello verifies in full, so the retry grants
+  nothing a first valid hello would not; severing the transport after an abort
+  is the adapter's call.
 - **Settlement shape.** Draft CapTP discussion sometimes names a separate
   `op:break`; pancake CapTP v1.0 speaks Goblins resolver-callback fulfill/break.
   `pancake-next` folds fulfill/break under `op:resolve`.

@@ -56,11 +56,12 @@ pub const FetchMatch = union(enum) {
 /// notification form spec-strict partners prefer); earlier profiles omit it (the
 /// field has no pre-V1.0 wire encoding).
 ///
-/// Atomic on failure: the heap allocations run first (unwound by errdefer), and
-/// the session-state allocations run last — `allocateExport` (the only fallible
-/// one) after every heap allocation, then the infallible `allocateOutboundAnswer`
-/// — so an `error` leaves the session's export table and answer counter exactly
-/// as they were. A failed prepare never burns an export slot or an answer position.
+/// Atomic on failure: the heap allocations run first (unwound by errdefer), the
+/// fallible session-state steps next (`allocateExport` unwound by errdefer, then
+/// the bootstrap-import retain), and the infallible `allocateOutboundAnswer`
+/// last, so an `error` leaves the session's export table, import table, and
+/// answer counter exactly as they were. A failed prepare never burns an export
+/// slot or an answer position.
 pub fn prepareFetchSwissnum(
     allocator: std.mem.Allocator,
     session: *session_mod.Session,
@@ -84,6 +85,11 @@ pub fn prepareFetchSwissnum(
         try session.allocatePromiseExport()
     else
         try session.allocateExport();
+    errdefer session.releaseUnsharedExport(resolver_export);
+    // The deliver targets the partner's bootstrap export, our well-known
+    // import 0. Track it here, where the fetch shape lives, so no caller
+    // carries a pre-fetch registration ritual of its own.
+    try session.registerImport(model.ImportPosition.from(session_mod.BOOTSTRAP_POSITION));
     const answer_position = session.allocateOutboundAnswer();
 
     // Project the mention from the authoritative slot rather than hand-typing

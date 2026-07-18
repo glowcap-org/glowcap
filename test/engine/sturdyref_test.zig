@@ -8,13 +8,6 @@ const session = pancake.ocapn.session;
 const sturdyref = engine.sturdyref;
 const fetch = engine.fetch;
 
-fn sampleSturdyref(swissnum: []const u8) model.SturdyRef {
-    return .{
-        .peer = .{ .transport = "memory", .designator = "remote-host" },
-        .swissnum = swissnum,
-    };
-}
-
 test "sturdyref cache stores, reconstructs, and overwrites by swissnum" {
     const allocator = std.testing.allocator;
     var s = session.Session.init(allocator);
@@ -112,10 +105,10 @@ test "sturdyrefCacheHit reconstructs the far reference with kind preserved" {
     var s = session.Session.init(allocator);
     defer s.deinit();
 
-    try std.testing.expect(sturdyref.sturdyrefCacheHit(&s, sampleSturdyref("alpha")) == null);
+    try std.testing.expect(sturdyref.sturdyrefCacheHit(&s, "alpha") == null);
 
     try s.cacheSturdyrefEnlivenment("alpha", .{ .import_position = .from(12), .kind = .promise });
-    const hit = sturdyref.sturdyrefCacheHit(&s, sampleSturdyref("alpha")) orelse
+    const hit = sturdyref.sturdyrefCacheHit(&s, "alpha") orelse
         return error.TestUnexpectedResult;
     try std.testing.expect(hit == .far);
     try std.testing.expectEqual(@as(u64, 12), hit.far.import_position.int());
@@ -127,7 +120,7 @@ test "prepareEnliven issues a fresh bootstrap-fetch on a cache miss and marks it
     var s = session.Session.init(allocator);
     defer s.deinit();
 
-    const start = try sturdyref.prepareEnliven(allocator, &s, sampleSturdyref("swiss"));
+    const start = try sturdyref.prepareEnliven(allocator, &s, "swiss");
     try std.testing.expect(start == .fresh);
     defer model.freeMessage(allocator, start.fresh.message);
 
@@ -145,7 +138,7 @@ test "prepareEnliven short-circuits a cached enlivenment without wire traffic" {
     defer s.deinit();
 
     try s.cacheSturdyrefEnlivenment("swiss", .{ .import_position = .from(4), .kind = .object });
-    const start = try sturdyref.prepareEnliven(allocator, &s, sampleSturdyref("swiss"));
+    const start = try sturdyref.prepareEnliven(allocator, &s, "swiss");
     try std.testing.expect(start == .cached);
     try std.testing.expectEqual(@as(u64, 4), start.cached.far.import_position.int());
     // No fetch was issued, so nothing is marked in-flight.
@@ -157,11 +150,11 @@ test "prepareEnliven collapses a concurrent enliven onto the in-flight answer" {
     var s = session.Session.init(allocator);
     defer s.deinit();
 
-    const first = try sturdyref.prepareEnliven(allocator, &s, sampleSturdyref("swiss"));
+    const first = try sturdyref.prepareEnliven(allocator, &s, "swiss");
     try std.testing.expect(first == .fresh);
     defer model.freeMessage(allocator, first.fresh.message);
 
-    const second = try sturdyref.prepareEnliven(allocator, &s, sampleSturdyref("swiss"));
+    const second = try sturdyref.prepareEnliven(allocator, &s, "swiss");
     try std.testing.expect(second == .in_flight);
     try std.testing.expectEqual(first.fresh.answer_position, second.in_flight);
 }
@@ -214,7 +207,7 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
     // the inbound bootstrap-fetch. p2 exports it; p1 imports it at the same id.
     const cap_export = try p2.registerBootstrapCap("swiss");
 
-    const ref = sampleSturdyref("swiss");
+    const ref = "swiss";
     const start = try sturdyref.prepareEnliven(allocator, &p1.session_state, ref);
     try std.testing.expect(start == .fresh);
     const answer_position = start.fresh.answer_position;
@@ -244,7 +237,7 @@ test "enliven round-trips over the wire, then a repeat enliven hits the cache" {
     // The auto-serve fulfills with the cap p2 registered for "swiss" (its
     // export); the codec's perspective flip lands it on p1 as a far import of
     // that export, which `recordEnlivenment` caches.
-    const enlivened = try sturdyref.recordEnlivenment(allocator, &p1.session_state, ref.swissnum, match.settled);
+    const enlivened = try sturdyref.recordEnlivenment(allocator, &p1.session_state, ref, match.settled);
     model.freeReference(allocator, enlivened);
     try std.testing.expectEqual(cap_export, enlivened.far.import_position.int());
     try std.testing.expectEqual(@as(?model.AnswerPosition, null), p1.session_state.pendingEnlivenAnswer("swiss"));
