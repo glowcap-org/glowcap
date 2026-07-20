@@ -14,7 +14,7 @@
 //! only here.
 #![allow(dead_code)]
 
-use core::ffi::{c_int, c_uchar, c_uint, c_void};
+use core::ffi::{c_uchar, c_uint, c_void};
 
 use super::layouts_gen::*;
 
@@ -152,109 +152,8 @@ const _: () = {
 	assert!(offset_of!(PancakeLastAbort, error_name_len) == PANCAKE_LAST_ABORT_ERROR_NAME_LEN_OFF);
 };
 
-extern "C" {
-	pub fn pancake_abi_version(major: *mut c_uint, minor: *mut c_uint, patch: *mut c_uint);
-	pub fn pancake_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn pancake_clear_last_error();
-
-	pub fn pancake_context_new(out: *mut *mut PancakeContext) -> c_int;
-	pub fn pancake_context_new_with_allocator(
-		allocator: *const PancakeAllocator,
-		out: *mut *mut PancakeContext,
-	) -> c_int;
-	pub fn pancake_context_release(context: *mut PancakeContext);
-
-	pub fn pancake_managed_frame_release(frame: *mut PancakeManagedFrame);
-
-	// Build the verbatim exporter location-record bytes a give names, writing
-	// owned bytes into `out`/`out_len` (release with
-	// `pancake_peer_locator_bytes_release`). `transport`/`designator` name the
-	// exporter; a non-empty `direct_addresses` adds the exporter's comma-separated
-	// socket addresses as a `direct-addresses` hint (an iroh exporter reachable
-	// only by address). All inputs are borrowed.
-	pub fn pancake_encode_peer_locator(
-		transport: *const c_uchar,
-		transport_len: usize,
-		designator: *const c_uchar,
-		designator_len: usize,
-		direct_addresses: *const c_uchar,
-		direct_addresses_len: usize,
-		out: *mut *mut c_uchar,
-		out_len: *mut usize,
-	) -> c_int;
-	// Release the owned locator bytes `pancake_encode_peer_locator` returned.
-	pub fn pancake_peer_locator_bytes_release(locator: *mut c_uchar, locator_len: usize);
-
-	// OCapN locator URIs, core `libpancake_ocapn` vocabulary, so a TCP-only or
-	// even transport-free consumer reaches the grammar. One grammar, no
-	// hand-rolled percent codec.
-	pub fn pancake_uri_parse_peer(
-		uri: *const c_uchar,
-		uri_len: usize,
-		out_locator: *mut *mut PancakeLocator,
-	) -> c_int;
-	pub fn pancake_uri_parse_sturdyref(
-		uri: *const c_uchar,
-		uri_len: usize,
-		out_locator: *mut *mut PancakeLocator,
-	) -> c_int;
-	pub fn pancake_uri_format_peer(
-		transport: *const c_uchar,
-		transport_len: usize,
-		designator: *const c_uchar,
-		designator_len: usize,
-		hint_keys: *const *const c_uchar,
-		hint_key_lens: *const usize,
-		hint_vals: *const *const c_uchar,
-		hint_val_lens: *const usize,
-		hint_count: usize,
-		out: *mut c_uchar,
-		cap: usize,
-		out_len: *mut usize,
-	) -> c_int;
-	pub fn pancake_locator_transport(
-		loc: *mut PancakeLocator,
-		out_ptr: *mut *const c_uchar,
-		out_len: *mut usize,
-	) -> c_int;
-	pub fn pancake_locator_designator(
-		loc: *mut PancakeLocator,
-		out_ptr: *mut *const c_uchar,
-		out_len: *mut usize,
-	) -> c_int;
-	pub fn pancake_locator_host_port(
-		loc: *mut PancakeLocator,
-		out_host: *mut *const c_uchar,
-		out_host_len: *mut usize,
-		out_port: *mut u16,
-	) -> c_int;
-	pub fn pancake_designator_host_port(
-		designator: *const c_uchar,
-		designator_len: usize,
-		out_host: *mut *const c_uchar,
-		out_host_len: *mut usize,
-		out_port: *mut u16,
-	) -> c_int;
-	pub fn pancake_locator_swissnum(
-		loc: *mut PancakeLocator,
-		out_ptr: *mut *const c_uchar,
-		out_len: *mut usize,
-	) -> c_int;
-	pub fn pancake_locator_hint(
-		loc: *mut PancakeLocator,
-		key: *const c_uchar,
-		key_len: usize,
-		out_ptr: *mut *const c_uchar,
-		out_len: *mut usize,
-	) -> c_int;
-	pub fn pancake_locator_hint_count(loc: *mut PancakeLocator, out_count: *mut usize) -> c_int;
-	pub fn pancake_locator_hint_at(
-		loc: *mut PancakeLocator,
-		idx: usize,
-		out_key: *mut *const c_uchar,
-		out_key_len: *mut usize,
-		out_val: *mut *const c_uchar,
-		out_val_len: *mut usize,
-	) -> c_int;
-	pub fn pancake_locator_release(loc: *mut PancakeLocator);
-}
+// The raw extern block is generated (`ocapn_fns_gen.rs`, `zig build
+// gen-binding-rust-ffi`): types reflected from the Zig exports, parameter
+// names from the generated C header. Re-exported here so consumers keep
+// their `sys::pancake_*` paths.
+pub use super::ocapn_fns_gen::*;

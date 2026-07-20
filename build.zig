@@ -224,6 +224,118 @@ fn addBindingFamily(
     }
 }
 
+/// One relay harness kind: which parameterized proof drives the relay under test.
+const RelayHarness = enum { tcp, backpressure, idle, iroh };
+
+/// The harness script, its Deno permissions, and the archives it needs, derived
+/// from the harness kind so a row states only its runtime, not its plumbing.
+const RelayHarnessSpec = struct {
+    script: []const u8,
+    perms: []const []const u8,
+    needs_wasm: bool,
+    needs_iroh_abi: bool,
+};
+
+fn relayHarnessSpec(kind: RelayHarness) RelayHarnessSpec {
+    return switch (kind) {
+        // The browser peer runs the wasm module in-process and dials through the
+        // relay over `?to=`.
+        .tcp => .{
+            .script = "bindings/ts/web/test/relay_tcp_harness.ts",
+            .perms = &.{ "--allow-read", "--allow-net", "--allow-run", "--allow-ffi", "--allow-env" },
+            .needs_wasm = true,
+            .needs_iroh_abi = false,
+        },
+        // Raw byte flood and a stalled WebSocket client; no wasm peer.
+        .backpressure => .{
+            .script = "bindings/ts/web/test/relay_backpressure_harness.ts",
+            .perms = &.{ "--allow-read", "--allow-net", "--allow-run", "--allow-env" },
+            .needs_wasm = false,
+            .needs_iroh_abi = false,
+        },
+        // A silent pair whose idle timer must fire; no wasm peer.
+        .idle => .{
+            .script = "bindings/ts/web/test/relay_idle_harness.ts",
+            .perms = &.{ "--allow-read", "--allow-net", "--allow-run", "--allow-env" },
+            .needs_wasm = false,
+            .needs_iroh_abi = false,
+        },
+        // The probe is bundled to a temp file (`--allow-write`) and run against a
+        // native iroh host, so the relay's iroh leg needs the iroh ABI companion.
+        .iroh => .{
+            .script = "bindings/ts/web/test/relay_iroh_harness.ts",
+            .perms = &.{ "--allow-read", "--allow-write", "--allow-net", "--allow-run", "--allow-env" },
+            .needs_wasm = true,
+            .needs_iroh_abi = true,
+        },
+    };
+}
+
+/// One row of the cross-runtime relay matrix: a single (runtime, harness) proof.
+/// `step_name` is a literal so `meta-check`'s build-step census sees it.
+const RelayRow = struct {
+    step_name: []const u8,
+    description: []const u8,
+    harness: RelayHarness,
+    /// Names the greet argument and the scenario messages.
+    label: []const u8,
+    /// The line the relay prints when listening (`<MARKER> <port>`).
+    marker: []const u8,
+    /// The relay program and its args, spawned by the harness from the repository
+    /// root; the trailing "0" asks for an ephemeral port.
+    relay_argv: []const []const u8,
+    /// Environment `{key, value}` pairs the harness merges into the relay
+    /// subprocess (the idle proof sets a low `PANCAKE_RELAY_IDLE_MS`).
+    relay_env: []const [2][]const u8 = &.{},
+    /// A build step that must produce the relay program first (Rust's cargo build;
+    /// Deno and Python relays are scripts and need none).
+    build_dep: ?*std.Build.Step = null,
+    /// Point the relay's dynamic loader at `zig-out/lib`, where the iroh transport
+    /// archive lives (Rust's iroh relay links it at load time).
+    needs_iroh_lib_path: bool = false,
+};
+
+/// One relay matrix family: an aggregate step over its (runtime, harness) rows.
+const RelayFamily = struct {
+    aggregate_name: []const u8,
+    aggregate_desc: []const u8,
+    rows: []const RelayRow,
+};
+
+/// Register a relay matrix family: one aggregate plus every per-row proof. The
+/// harness, its permissions, and its build dependencies come from the row's
+/// harness kind, so proving a new runtime's relay is a row, never a forked test.
+fn addRelayFamily(
+    b: *std.Build,
+    family: RelayFamily,
+    wasm_install: *std.Build.Step,
+    iroh_abi_step: *std.Build.Step,
+) void {
+    const aggregate = b.step(family.aggregate_name, family.aggregate_desc);
+    for (family.rows) |row| {
+        const spec = relayHarnessSpec(row.harness);
+        const run = addInstalledSystemRun(b, &.{ "deno", "run" });
+        run.addArgs(spec.perms);
+        run.addArg(spec.script);
+        run.addArgs(&.{ "--marker", row.marker, "--label", row.label });
+        for (row.relay_env) |pair| {
+            run.addArgs(&.{ "--env", b.fmt("{s}={s}", .{ pair[0], pair[1] }) });
+        }
+        if (row.needs_iroh_lib_path) {
+            run.addArgs(&.{ "--env", b.fmt("LD_LIBRARY_PATH={s}", .{b.pathFromRoot("zig-out/lib")}) });
+        }
+        run.addArg("--");
+        run.addArgs(row.relay_argv);
+
+        if (spec.needs_wasm) run.step.dependOn(wasm_install);
+        if (spec.needs_iroh_abi) run.step.dependOn(iroh_abi_step);
+        if (row.build_dep) |dep| run.step.dependOn(dep);
+
+        b.step(row.step_name, row.description).dependOn(&run.step);
+        aggregate.dependOn(&run.step);
+    }
+}
+
 /// The full `src/root.zig` module graph for an arbitrary target, used by the
 /// cross-compile gate to type-check the platform backends (notably the
 /// macOS/BSD `kqueue` path, which the host io_uring build never compiles)
@@ -433,6 +545,32 @@ fn irohDriverModule(
     return mod;
 }
 
+/// The shared Zig interop-driver harness (`interop/_common/zig/harness.zig`),
+/// imported as `interop_harness` by every Zig interop executable. Scaffolding
+/// like `test/support`, so it sits outside the `src/` layer DAG. The wait
+/// vocabulary is `test/support/wait.zig` itself, handed in as `support_wait`
+/// so the two scaffolding trees share one owner instead of hand-synced copies.
+fn interopHarnessModule(
+    b: *std.Build,
+    t: std.Build.ResolvedTarget,
+    o: std.builtin.OptimizeMode,
+    lib_mod: *std.Build.Module,
+) *std.Build.Module {
+    const wait_mod = b.createModule(.{
+        .root_source_file = b.path("test/support/wait.zig"),
+        .target = t,
+        .optimize = o,
+    });
+    const mod = b.createModule(.{
+        .root_source_file = b.path("interop/_common/zig/harness.zig"),
+        .target = t,
+        .optimize = o,
+    });
+    mod.addImport("pancake", lib_mod);
+    mod.addImport("support_wait", wait_mod);
+    return mod;
+}
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -557,11 +695,12 @@ pub fn build(b: *std.Build) void {
     // (`zig build rust-dogfood`, and the wider `zig build bindings`) needs
     // cargo/deno/python/racket on PATH, so it is a sibling step run alongside
     // `check`, not a dependency of it — a contributor with only a Zig
-    // toolchain can run the gate. CI runs `check` and the sibling gates inside
-    // the committed devcontainer image via ci/gates.sh; .forgejo/workflows/
-    // (Codeberg, the origin) and .github/workflows/ (the mirror) are thin
-    // wrappers around that script. Each section below wires its gated runs
-    // into `check` where the artifacts are built.
+    // toolchain can run the gate. CI: the GitHub mirror (.github/workflows/)
+    // runs `check` and the sibling gates inside the committed devcontainer
+    // image via ci/gates.sh; the Codeberg origin's hosted runners cannot
+    // build that image, so .forgejo/workflows/ runs the Zig-only checks
+    // directly. Each section below wires its gated runs into `check` where
+    // the artifacts are built.
     const check_step = b.step("check", "Run the Zig-hermetic correctness and meta-scaffolding gate");
 
     // ── Tests ────────────────────────────────────────────────────────────────
@@ -718,6 +857,9 @@ pub fn build(b: *std.Build) void {
     const web_peer_test_step = b.step("web-peer-test", "Prove the @pancake/web browser peer holds a keyed OCapN session over WebSocket against a native host (needs deno; ADR-0070 Milestone 1)");
     web_peer_test_step.dependOn(&web_peer_test.step);
 
+    // The cross-runtime relay matrix (`bindings-relay`, `bindings-relay-iroh`) is
+    // wired below, after the iroh ABI companion it depends on is defined.
+
     // The wasm32 Host declares exactly one import — the behavior-dispatch seam
     // `env.pancake_behavior_trampoline` (ADR-0070). Parse the module statically
     // and assert the import set is exactly that one, so an accidental extra
@@ -757,6 +899,12 @@ pub fn build(b: *std.Build) void {
         /// A third reflected module (FFI layouts also mirror the iroh archive).
         extra2_import_name: ?[]const u8 = null,
         extra2_import_module: ?*std.Build.Module = null,
+        /// Fourth and fifth reflected modules (the TS mirror also covers the
+        /// tcp and inproc transport archives).
+        extra3_import_name: ?[]const u8 = null,
+        extra3_import_module: ?*std.Build.Module = null,
+        extra4_import_name: ?[]const u8 = null,
+        extra4_import_module: ?*std.Build.Module = null,
     };
     const header_gens = [_]HeaderGen{
         .{
@@ -804,17 +952,6 @@ pub fn build(b: *std.Build) void {
             }),
         },
         .{
-            .check_step_name = "gen-ts-abi-check",
-            .check_desc = "Verify bindings/ts/stack/internal/abi.ts matches src/c_abi (fails if stale)",
-            .write_step_name = "gen-ts-abi",
-            .write_desc = "Regenerate bindings/ts/stack/internal/abi.ts from src/c_abi (the ocapn and driver archives)",
-            .generator = "tools/gen/binding/ts_abi.zig",
-            .import_name = "c_abi",
-            .import_module = host_mods[layerIndex("c_abi")],
-            .extra_import_name = "c_abi_driver",
-            .extra_import_module = driver_abi_mod,
-        },
-        .{
             .check_step_name = "gen-binding-host-action-check",
             .check_desc = "Verify binding HostAction decode/types match src/c_abi/driver (fails if stale)",
             .write_step_name = "gen-binding-host-action",
@@ -822,17 +959,6 @@ pub fn build(b: *std.Build) void {
             .generator = "tools/gen/binding/host_action.zig",
             .import_name = "c_abi_driver",
             .import_module = driver_abi_mod,
-        },
-        .{
-            .check_step_name = "gen-binding-constants-check",
-            .check_desc = "Verify binding ABI constants match src/c_abi (fails if stale)",
-            .write_step_name = "gen-binding-constants",
-            .write_desc = "Regenerate binding ABI constants from src/c_abi (the ocapn and driver archives)",
-            .generator = "tools/gen/binding/constants.zig",
-            .import_name = "c_abi",
-            .import_module = host_mods[layerIndex("c_abi")],
-            .extra_import_name = "c_abi_driver",
-            .extra_import_module = driver_abi_mod,
         },
     };
 
@@ -846,6 +972,8 @@ pub fn build(b: *std.Build) void {
             gen_mod.addImport(hg.import_name, hg.import_module);
             if (hg.extra_import_name) |extra| gen_mod.addImport(extra, hg.extra_import_module.?);
             if (hg.extra2_import_name) |extra2| gen_mod.addImport(extra2, hg.extra2_import_module.?);
+            if (hg.extra3_import_name) |extra3| gen_mod.addImport(extra3, hg.extra3_import_module.?);
+            if (hg.extra4_import_name) |extra4| gen_mod.addImport(extra4, hg.extra4_import_module.?);
             // Available to every generator; iroh header + FFI layouts force-link it
             // so reflection stays cargo-free.
             gen_mod.addImport("iroh_sidecar_stub", bb.createModule(.{
@@ -1063,7 +1191,7 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "racket-dogfood",
             .description = "Run the Racket C ABI dogfood against the pancake C ABI archives (needs racket)",
-            .argv = &.{ "racket", "bindings/racket/zig-smoke.rkt" },
+            .argv = &.{ "racket", "-y", "bindings/racket/zig-smoke.rkt" },
         },
     };
     var dogfood_runs: [dogfoods.len]*std.Build.Step.Run = undefined;
@@ -1098,6 +1226,10 @@ pub fn build(b: *std.Build) void {
     b.step("deno-gifter-handoff", "Pancake-only 3-node three-party handoff: a broker introduces a recipient to an exporter, who is then messaged directly (needs deno)")
         .dependOn(&run_gifter_handoff.step);
 
+    // Shared Zig interop-driver harness, one instance for every interop
+    // executable below (the goblins/tcp-loop exes here and the iroh drivers).
+    const interop_harness_mod = interopHarnessModule(b, target, optimize, lib_mod);
+
     // ── Live Goblins interop (siblings of `check`) ───────────────────────────
     // Live interop proof against a real Spritely Goblins vat: a pancake peer
     // dials the conformance Goblins host, completes the keyed op:start-session
@@ -1106,6 +1238,7 @@ pub fn build(b: *std.Build) void {
     // sibling of `check`, not part of the hermetic gate. The driver spawns and
     // tears down the Goblins vat itself.
     const goblins_interop_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-goblins-interop", "interop/goblins_interop/driver.zig");
+    goblins_interop_exe.root_module.addImport("interop_harness", interop_harness_mod);
     const run_goblins_interop = b.addRunArtifact(goblins_interop_exe);
     run_goblins_interop.setCwd(b.path("."));
     run_goblins_interop.has_side_effects = true;
@@ -1132,6 +1265,7 @@ pub fn build(b: *std.Build) void {
     // like every live step; `check` still compiles it so an API change cannot
     // silently rot it.
     const tcp_loop_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-tcp-loop", "interop/tcp_loop/driver.zig");
+    tcp_loop_exe.root_module.addImport("interop_harness", interop_harness_mod);
     const run_tcp_loop = b.addRunArtifact(tcp_loop_exe);
     run_tcp_loop.setCwd(b.path("."));
     run_tcp_loop.has_side_effects = true;
@@ -1142,6 +1276,7 @@ pub fn build(b: *std.Build) void {
     // Live three-party handoff, pancake as recipient (needs racket + goblins).
     // It runs two Goblins listeners (alice, bob), so `-Dport=N` pins N and N+1.
     const goblins_handoff_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-goblins-handoff", "interop/goblins_interop/handoff_driver.zig");
+    goblins_handoff_exe.root_module.addImport("interop_harness", interop_harness_mod);
     const run_goblins_handoff = b.addRunArtifact(goblins_handoff_exe);
     run_goblins_handoff.setCwd(b.path("."));
     run_goblins_handoff.has_side_effects = true;
@@ -1153,6 +1288,7 @@ pub fn build(b: *std.Build) void {
     // Live three-party handoff, pancake as gifter (needs racket + goblins).
     // Bob listens on N; Carol binds N+1. `-Dport=N` pins the pair.
     const goblins_gift_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-goblins-gift", "interop/goblins_interop/gift_driver.zig");
+    goblins_gift_exe.root_module.addImport("interop_harness", interop_harness_mod);
     const run_goblins_gift = b.addRunArtifact(goblins_gift_exe);
     run_goblins_gift.setCwd(b.path("."));
     run_goblins_gift.has_side_effects = true;
@@ -1164,6 +1300,7 @@ pub fn build(b: *std.Build) void {
     // Live distributed-GC evidence vs Goblins: introduce a near export into the
     // suite echo and observe inbound op:gc-exports (needs racket + goblins).
     const goblins_gc_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-goblins-gc", "interop/goblins_interop/gc_driver.zig");
+    goblins_gc_exe.root_module.addImport("interop_harness", interop_harness_mod);
     const run_goblins_gc = b.addRunArtifact(goblins_gc_exe);
     run_goblins_gc.setCwd(b.path("."));
     run_goblins_gc.has_side_effects = true;
@@ -1327,11 +1464,13 @@ pub fn build(b: *std.Build) void {
     for (iroh_drivers) |drv| {
         // Hermetic compile-only object (no sidecar), rides `check`.
         const compile_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, drv.root_source);
+        compile_mod.addImport("interop_harness", interop_harness_mod);
         const compile_obj = b.addObject(.{ .name = b.fmt("{s}-compile", .{drv.exe_name}), .root_module = compile_mod });
         check_step.dependOn(&compile_obj.step);
 
         // Runnable sibling of `check`: links the sidecar and runs from the root.
         const run_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, drv.root_source);
+        run_mod.addImport("interop_harness", interop_harness_mod);
         linkIrohSidecar(b, run_mod);
         const exe = b.addExecutable(.{ .name = drv.exe_name, .root_module = run_mod });
         exe.step.dependOn(&iroh_lib.step);
@@ -1376,6 +1515,62 @@ pub fn build(b: *std.Build) void {
     const iroh_abi_step = b.step("iroh-abi", "Build libpancake_net_transport_iroh, the iroh transport's public C ABI companion (needs cargo)");
     iroh_abi_step.dependOn(&iroh_abi_install.step);
     iroh_abi_step.dependOn(&iroh_abi_header_install.step);
+
+    // The cross-runtime relay matrix (ADR-0086). One shared harness per proof —
+    // TCP forwarding, the non-optional backpressure clause, and the iroh leg —
+    // runs against every runtime's relay: the Deno reference relay
+    // (`bindings/ts/relay/serve.ts`), the Python relay (`bindings/python/relay.py`,
+    // WebSocket server via `uv run --with websockets`), and the Rust relay
+    // (`bindings/rust/relay`, tokio-tungstenite). A runtime is a row, never a fork,
+    // so no binding can silently lack a proof.
+    //
+    // The Rust relay builds twice: archive-free for the TCP and backpressure legs,
+    // and with `--features iroh` (linking the iroh binding) for the iroh leg. Deno
+    // and Python relays are single scripts that serve every leg.
+    const rust_relay_build = b.addSystemCommand(&.{
+        "cargo", "build", "--release", "--manifest-path", "bindings/rust/relay/Cargo.toml",
+    });
+    const rust_relay_iroh_build = b.addSystemCommand(&.{
+        "cargo", "build", "--release", "--features", "iroh", "--manifest-path", "bindings/rust/relay/Cargo.toml",
+    });
+    rust_relay_iroh_build.step.dependOn(iroh_abi_step);
+    rust_relay_iroh_build.step.dependOn(b.getInstallStep());
+
+    const deno_relay_tcp = [_][]const u8{ "deno", "run", "--allow-net", "--allow-read", "--allow-env", "bindings/ts/relay/serve.ts", "0" };
+    const deno_relay_iroh = [_][]const u8{ "deno", "run", "--allow-net", "--allow-read", "--allow-ffi", "--unstable-ffi", "--allow-env", "bindings/ts/relay/serve.ts", "0" };
+    const python_relay = [_][]const u8{ "uv", "run", "--with", "websockets", "python3", "bindings/python/relay.py", "0" };
+    const rust_relay = [_][]const u8{ "bindings/rust/relay/target/release/pancake-relay", "0" };
+
+    // The core contract: byte-transparent TCP forwarding and the backpressure
+    // clause, across every runtime's relay.
+    addRelayFamily(b, .{
+        .aggregate_name = "bindings-relay",
+        .aggregate_desc = "Prove the byte-transparent relay contract (TCP forwarding + backpressure + the idle-timeout bounded-resources clause) across every runtime's relay: Deno, Python, Rust (needs deno + uv + cargo)",
+        .rows = &.{
+            .{ .step_name = "deno-relay-test", .description = "Prove a browser peer holds a keyed session through the Deno reference relay (needs deno)", .harness = .tcp, .label = "Deno", .marker = "DENO-RELAY-READY", .relay_argv = &deno_relay_tcp },
+            .{ .step_name = "python-relay-test", .description = "Prove a browser peer holds a keyed session through the Python relay (needs deno + uv)", .harness = .tcp, .label = "Python", .marker = "PYTHON-RELAY-READY", .relay_argv = &python_relay },
+            .{ .step_name = "rust-relay-test", .description = "Prove a browser peer holds a keyed session through the Rust relay (needs deno + cargo)", .harness = .tcp, .label = "Rust", .marker = "RUST-RELAY-READY", .relay_argv = &rust_relay, .build_dep = &rust_relay_build.step },
+            .{ .step_name = "deno-relay-backpressure-test", .description = "Prove a stalled reader backpressures the far sender through the Deno relay (needs deno)", .harness = .backpressure, .label = "Deno", .marker = "DENO-RELAY-READY", .relay_argv = &deno_relay_tcp },
+            .{ .step_name = "python-relay-backpressure-test", .description = "Prove a stalled reader backpressures the far sender through the Python relay (needs deno + uv)", .harness = .backpressure, .label = "Python", .marker = "PYTHON-RELAY-READY", .relay_argv = &python_relay },
+            .{ .step_name = "rust-relay-backpressure-test", .description = "Prove a stalled reader backpressures the far sender through the Rust relay (needs deno + cargo)", .harness = .backpressure, .label = "Rust", .marker = "RUST-RELAY-READY", .relay_argv = &rust_relay, .build_dep = &rust_relay_build.step },
+            .{ .step_name = "deno-relay-idle-test", .description = "Prove the Deno relay reclaims an idle session (the bounded-resources clause) (needs deno)", .harness = .idle, .label = "Deno", .marker = "DENO-RELAY-READY", .relay_argv = &deno_relay_tcp, .relay_env = &.{.{ "PANCAKE_RELAY_IDLE_MS", "500" }} },
+            .{ .step_name = "python-relay-idle-test", .description = "Prove the Python relay reclaims an idle session (the bounded-resources clause) (needs deno + uv)", .harness = .idle, .label = "Python", .marker = "PYTHON-RELAY-READY", .relay_argv = &python_relay, .relay_env = &.{.{ "PANCAKE_RELAY_IDLE_MS", "500" }} },
+            .{ .step_name = "rust-relay-idle-test", .description = "Prove the Rust relay reclaims an idle session (the bounded-resources clause) (needs deno + cargo)", .harness = .idle, .label = "Rust", .marker = "RUST-RELAY-READY", .relay_argv = &rust_relay, .build_dep = &rust_relay_build.step, .relay_env = &.{.{ "PANCAKE_RELAY_IDLE_MS", "500" }} },
+        },
+    }, &wasm_driver_install.step, iroh_abi_step);
+
+    // The iroh leg: each runtime's relay dials a real iroh endpoint over QUIC and
+    // carries the browser peer's live session through it. The browser probe is
+    // bundled with the browser mapping so @pancake/iroh resolves to its browser arm.
+    addRelayFamily(b, .{
+        .aggregate_name = "bindings-relay-iroh",
+        .aggregate_desc = "Prove the relay's iroh leg across every runtime's relay: a browser peer holds a live iroh session through Deno, Python, Rust relays (needs deno + uv + cargo)",
+        .rows = &.{
+            .{ .step_name = "deno-relay-iroh-test", .description = "Prove a browser peer holds a live iroh session through the Deno reference relay (needs deno + cargo)", .harness = .iroh, .label = "Deno", .marker = "DENO-RELAY-READY", .relay_argv = &deno_relay_iroh },
+            .{ .step_name = "python-relay-iroh-test", .description = "Prove a browser peer holds a live iroh session through the Python relay (needs deno + uv + cargo)", .harness = .iroh, .label = "Python", .marker = "PYTHON-RELAY-READY", .relay_argv = &python_relay },
+            .{ .step_name = "rust-relay-iroh-test", .description = "Prove a browser peer holds a live iroh session through the Rust relay (needs deno + cargo)", .harness = .iroh, .label = "Rust", .marker = "RUST-RELAY-READY", .relay_argv = &rust_relay, .build_dep = &rust_relay_iroh_build.step, .needs_iroh_lib_path = true },
+        },
+    }, &wasm_driver_install.step, iroh_abi_step);
 
     // ── release packaging ────────────────────────────────────────────────────
     // Stage the complete installed archive set — the pure-Zig archives plus the
@@ -1449,7 +1644,7 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "racket-goblins-interop",
             .description = "Live keyed OCapN conversation: Racket binding vs a real Goblins vat (needs racket + goblins)",
-            .argv = &.{ "racket", "interop/goblins_interop/racket_client.rkt" },
+            .argv = &.{ "racket", "-y", "interop/goblins_interop/racket_client.rkt" },
         },
     };
 
@@ -1476,7 +1671,7 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "racket-goblins-handoff",
             .description = "Live three-party handoff: the Racket binding redeems a give from a real Goblins introducer and calls the exporter (needs racket + goblins)",
-            .argv = &.{ "racket", "interop/goblins_interop/racket_handoff_client.rkt" },
+            .argv = &.{ "racket", "-y", "interop/goblins_interop/racket_handoff_client.rkt" },
         },
     };
 
@@ -1503,7 +1698,7 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "racket-goblins-gift",
             .description = "Live three-party handoff: the Racket binding mints a give a real Goblins recipient redeems, reaching the exporter (needs racket + goblins)",
-            .argv = &.{ "racket", "interop/goblins_interop/racket_gift_client.rkt" },
+            .argv = &.{ "racket", "-y", "interop/goblins_interop/racket_gift_client.rkt" },
         },
     };
 
@@ -1529,7 +1724,7 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "racket-iroh-loop",
             .description = "Live iroh scale: the Racket binding serves many connections from one readiness loop (ADR-0057; needs cargo + racket)",
-            .argv = &.{ "racket", "interop/iroh_loop/racket_client.rkt" },
+            .argv = &.{ "racket", "-y", "interop/iroh_loop/racket_client.rkt" },
         },
     };
 
@@ -1555,7 +1750,7 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "racket-iroh-handoff",
             .description = "Three-party handoff over iroh: the Racket binding mints and redeems an iroh handoff give in one process (needs cargo + racket)",
-            .argv = &.{ "racket", "interop/iroh_handoff/racket_client.rkt" },
+            .argv = &.{ "racket", "-y", "interop/iroh_handoff/racket_client.rkt" },
         },
     };
 
@@ -1581,7 +1776,7 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "racket-iroh-redeem-posture",
             .description = "Hermetic configured-redeem-posture proof for a hint-less iroh give: the Racket binding (needs cargo + racket)",
-            .argv = &.{ "racket", "interop/iroh_redeem_posture/racket_client.rkt" },
+            .argv = &.{ "racket", "-y", "interop/iroh_redeem_posture/racket_client.rkt" },
         },
     };
 
@@ -1607,7 +1802,7 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "racket-keyed-tcp-restart",
             .description = "Keyed-tcp restart proof: the Racket binding (happy, squatter, restart; needs racket)",
-            .argv = &.{ "racket", "interop/keyed_tcp_restart/racket_client.rkt" },
+            .argv = &.{ "racket", "-y", "interop/keyed_tcp_restart/racket_client.rkt" },
         },
     };
 
@@ -1633,7 +1828,7 @@ pub fn build(b: *std.Build) void {
         .{
             .step_name = "racket-iroh-reachability",
             .description = "Live dial-by-id over n0 relays + DNS/pkarr discovery: the Racket binding (opt-in; needs cargo + racket + internet)",
-            .argv = &.{ "racket", "interop/iroh_reachability/racket_client.rkt" },
+            .argv = &.{ "racket", "-y", "interop/iroh_reachability/racket_client.rkt" },
         },
     };
 
@@ -1714,11 +1909,124 @@ pub fn build(b: *std.Build) void {
         .import_module = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod),
     });
     addHeaderGen(b, check_step, target, optimize, .{
+        .check_step_name = "gen-binding-rust-ffi-check",
+        .check_desc = "Verify the generated Rust extern blocks match src/c_abi (fails if stale)",
+        .write_step_name = "gen-binding-rust-ffi",
+        .write_desc = "Regenerate the Rust binding's extern blocks from src/c_abi (types reflected, names from the generated headers)",
+        .generator = "tools/gen/binding/rust_ffi.zig",
+        .import_name = "c_abi_net_transport_iroh",
+        .import_module = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod),
+        .extra_import_name = "c_abi",
+        .extra_import_module = host_mods[layerIndex("c_abi")],
+        .extra2_import_name = "c_abi_driver",
+        .extra2_import_module = driver_abi_mod,
+        .extra3_import_name = "c_abi_net_transport_tcp",
+        .extra3_import_module = transportAbiModule(b, target, optimize, "src/c_abi/net_transport/tcp/mod.zig", &.{
+            .{ .name = "model", .module = host_mods[layerIndex("model")] },
+            .{ .name = "net", .module = host_mods[layerIndex("net")] },
+            .{ .name = "driver", .module = host_mods[layerIndex("driver")] },
+            .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
+        }),
+        .extra4_import_name = "c_abi_net_transport_inproc",
+        .extra4_import_module = transportAbiModule(b, target, optimize, "src/c_abi/net_transport/inproc/mod.zig", &.{
+            .{ .name = "net", .module = host_mods[layerIndex("net")] },
+            .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
+        }),
+    });
+    addHeaderGen(b, check_step, target, optimize, .{
+        .check_step_name = "gen-binding-racket-ffi-check",
+        .check_desc = "Verify the generated Racket FFI tables match src/c_abi (fails if stale)",
+        .write_step_name = "gen-binding-racket-ffi",
+        .write_desc = "Regenerate the Racket binding's FFI tables from src/c_abi (types reflected, wrapper argument names from the generated headers)",
+        .generator = "tools/gen/binding/racket_ffi.zig",
+        .import_name = "c_abi_net_transport_iroh",
+        .import_module = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod),
+        .extra_import_name = "c_abi",
+        .extra_import_module = host_mods[layerIndex("c_abi")],
+        .extra2_import_name = "c_abi_driver",
+        .extra2_import_module = driver_abi_mod,
+        .extra3_import_name = "c_abi_net_transport_tcp",
+        .extra3_import_module = transportAbiModule(b, target, optimize, "src/c_abi/net_transport/tcp/mod.zig", &.{
+            .{ .name = "model", .module = host_mods[layerIndex("model")] },
+            .{ .name = "net", .module = host_mods[layerIndex("net")] },
+            .{ .name = "driver", .module = host_mods[layerIndex("driver")] },
+            .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
+        }),
+        .extra4_import_name = "c_abi_net_transport_inproc",
+        .extra4_import_module = transportAbiModule(b, target, optimize, "src/c_abi/net_transport/inproc/mod.zig", &.{
+            .{ .name = "net", .module = host_mods[layerIndex("net")] },
+            .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
+        }),
+    });
+    addHeaderGen(b, check_step, target, optimize, .{
+        .check_step_name = "gen-binding-python-ffi-check",
+        .check_desc = "Verify the generated Python ctypes signature tables match src/c_abi (fails if stale)",
+        .write_step_name = "gen-binding-python-ffi",
+        .write_desc = "Regenerate the Python binding's ctypes signature tables from src/c_abi (types reflected; the sigs dicts are positional)",
+        .generator = "tools/gen/binding/python_ffi.zig",
+        .import_name = "c_abi_net_transport_iroh",
+        .import_module = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod),
+        .extra_import_name = "c_abi",
+        .extra_import_module = host_mods[layerIndex("c_abi")],
+        .extra2_import_name = "c_abi_driver",
+        .extra2_import_module = driver_abi_mod,
+        .extra3_import_name = "c_abi_net_transport_tcp",
+        .extra3_import_module = transportAbiModule(b, target, optimize, "src/c_abi/net_transport/tcp/mod.zig", &.{
+            .{ .name = "model", .module = host_mods[layerIndex("model")] },
+            .{ .name = "net", .module = host_mods[layerIndex("net")] },
+            .{ .name = "driver", .module = host_mods[layerIndex("driver")] },
+            .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
+        }),
+        .extra4_import_name = "c_abi_net_transport_inproc",
+        .extra4_import_module = transportAbiModule(b, target, optimize, "src/c_abi/net_transport/inproc/mod.zig", &.{
+            .{ .name = "net", .module = host_mods[layerIndex("net")] },
+            .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
+        }),
+    });
+    addHeaderGen(b, check_step, target, optimize, .{
         .check_step_name = "gen-binding-ffi-layouts-check",
         .check_desc = "Verify binding FFI layout facts match src/c_abi (fails if stale)",
         .write_step_name = "gen-binding-ffi-layouts",
         .write_desc = "Regenerate binding FFI layout facts from src/c_abi (the ocapn, driver, and iroh transport archives)",
         .generator = "tools/gen/binding/ffi_layouts.zig",
+        .import_name = "c_abi",
+        .import_module = host_mods[layerIndex("c_abi")],
+        .extra_import_name = "c_abi_driver",
+        .extra_import_module = driver_abi_mod,
+        .extra2_import_name = "c_abi_net_transport_iroh",
+        .extra2_import_module = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod),
+    });
+    addHeaderGen(b, check_step, target, optimize, .{
+        .check_step_name = "gen-ts-abi-check",
+        .check_desc = "Verify the generated TypeScript ABI mirror files match src/c_abi (fails if stale)",
+        .write_step_name = "gen-ts-abi",
+        .write_desc = "Regenerate the TypeScript ABI mirror from src/c_abi (the ocapn, driver, and iroh transport archives)",
+        .generator = "tools/gen/binding/ts_abi.zig",
+        .import_name = "c_abi",
+        .import_module = host_mods[layerIndex("c_abi")],
+        .extra_import_name = "c_abi_driver",
+        .extra_import_module = driver_abi_mod,
+        .extra2_import_name = "c_abi_net_transport_iroh",
+        .extra2_import_module = irohAbiModule(b, target, optimize, host_mods, iroh_resident_mod),
+        .extra3_import_name = "c_abi_net_transport_tcp",
+        .extra3_import_module = transportAbiModule(b, target, optimize, "src/c_abi/net_transport/tcp/mod.zig", &.{
+            .{ .name = "model", .module = host_mods[layerIndex("model")] },
+            .{ .name = "net", .module = host_mods[layerIndex("net")] },
+            .{ .name = "driver", .module = host_mods[layerIndex("driver")] },
+            .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
+        }),
+        .extra4_import_name = "c_abi_net_transport_inproc",
+        .extra4_import_module = transportAbiModule(b, target, optimize, "src/c_abi/net_transport/inproc/mod.zig", &.{
+            .{ .name = "net", .module = host_mods[layerIndex("net")] },
+            .{ .name = "c_abi_shared", .module = host_mods[layerIndex("c_abi_shared")] },
+        }),
+    });
+    addHeaderGen(b, check_step, target, optimize, .{
+        .check_step_name = "gen-binding-constants-check",
+        .check_desc = "Verify binding ABI constants match src/c_abi (fails if stale)",
+        .write_step_name = "gen-binding-constants",
+        .write_desc = "Regenerate binding ABI constants from src/c_abi (the ocapn, driver, and iroh transport archives)",
+        .generator = "tools/gen/binding/constants.zig",
         .import_name = "c_abi",
         .import_module = host_mods[layerIndex("c_abi")],
         .extra_import_name = "c_abi_driver",
@@ -1781,18 +2089,18 @@ pub fn build(b: *std.Build) void {
     // builds the Rust client itself when `cargo` is present and reports any
     // language it skipped rather than failing. So it is a sibling step, not part of
     // the hermetic gate. The Deno server regression test covers attached-room
-    // cleanup, then the orchestrator (`examples/apps/rooms/demo.ts`) starts the
+    // cleanup, then the orchestrator (`apps/rooms/demo.ts`) starts the
     // server, runs whichever clients are available, and asserts the all-to-all
     // broadcast among them.
     // The Zig demo clients' shared helper modules under
-    // `examples/apps/_demo/zig/`: the typed room-error vocabulary, the
+    // `apps/_demo/zig/`: the typed room-error vocabulary, the
     // one-shot usage printer, and the tools capability checklist. Each std-only
     // leaf is minted once and imported by the clients that name it.
-    const demo_rooms_cli_mod = b.createModule(.{ .root_source_file = b.path("examples/apps/_demo/zig/rooms_cli.zig"), .target = target, .optimize = optimize });
-    const demo_usage_mod = b.createModule(.{ .root_source_file = b.path("examples/apps/_demo/zig/usage.zig"), .target = target, .optimize = optimize });
-    const demo_tools_check_mod = b.createModule(.{ .root_source_file = b.path("examples/apps/_demo/zig/tools_check.zig"), .target = target, .optimize = optimize });
+    const demo_rooms_cli_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/rooms_cli.zig"), .target = target, .optimize = optimize });
+    const demo_usage_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/usage.zig"), .target = target, .optimize = optimize });
+    const demo_tools_check_mod = b.createModule(.{ .root_source_file = b.path("apps/_demo/zig/tools_check.zig"), .target = target, .optimize = optimize });
 
-    const rooms_client_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-rooms-client", "examples/apps/rooms/zig/client.zig");
+    const rooms_client_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-rooms-client", "apps/rooms/zig/client.zig");
     rooms_client_exe.root_module.addImport("demo_rooms_cli", demo_rooms_cli_mod);
     rooms_client_exe.root_module.addImport("demo_usage", demo_usage_mod);
     // The default rooms client is TCP-only: a build option flips the iroh dial
@@ -1822,13 +2130,13 @@ pub fn build(b: *std.Build) void {
     // sidecar's nonblocking FFI; they skip when the iroh ABI lib is absent, so
     // the flag is harmless for the TCP suite and a cargo-free run stays green.
     const rooms_server_test = addInstalledSystemRun(b, &.{
-        "deno",                                    "test",                                 "--allow-ffi", "--unstable-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
-        "examples/apps/rooms/deno/server_test.ts", "examples/apps/rooms/deno/web_test.ts",
+        "deno",                           "test",                        "--allow-ffi", "--unstable-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
+        "apps/rooms/deno/server_test.ts", "apps/rooms/deno/web_test.ts",
     });
 
     const rooms_demo = addInstalledSystemRun(b, &.{
-        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
-        "examples/apps/rooms/demo.ts",
+        "deno",               "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
+        "apps/rooms/demo.ts",
     });
     rooms_demo.addArtifactArg(rooms_client_exe); // the Zig client's built path
     if (pin_port) |p| rooms_demo.addArg(b.fmt("--port={d}", .{p}));
@@ -1843,8 +2151,8 @@ pub fn build(b: *std.Build) void {
     // a member's exported `dm` object, the three proofs (live cap, brand-new
     // inbound, no relay) asserted. Its iroh sibling is `demo-rooms-dm-iroh`.
     const run_rooms_dm = b.addSystemCommand(&.{
-        "deno",                           "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
-        "examples/apps/rooms/dm_demo.ts",
+        "deno",                  "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-env",
+        "apps/rooms/dm_demo.ts",
     });
     run_rooms_dm.step.dependOn(b.getInstallStep());
     b.step("demo-rooms-dm", "Rooms direct-message-by-introduction over TCP: a room introduces two members who then DM directly, room out of the path (needs deno)")
@@ -1855,7 +2163,7 @@ pub fn build(b: *std.Build) void {
     // an ocapn:// URI), and the cross-language clients reach the room through the
     // iroh C ABI companion library. Needs cargo (sidecar + iroh ABI) and deno, so
     // it is a sibling of `check`, like `iroh-interop`.
-    const rooms_client_iroh_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "examples/apps/rooms/zig/client.zig");
+    const rooms_client_iroh_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "apps/rooms/zig/client.zig");
     const rooms_iroh_opts = b.addOptions();
     rooms_iroh_opts.addOption(bool, "iroh_enabled", true);
     rooms_client_iroh_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
@@ -1869,7 +2177,7 @@ pub fn build(b: *std.Build) void {
     // compile guard on `check` with the flag on — externs stay unresolved — so a
     // core-API change through the iroh resident cannot break this consumer unseen,
     // the same split as `rooms-peer-shim-check`.
-    const rooms_client_iroh_check_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "examples/apps/rooms/zig/client.zig");
+    const rooms_client_iroh_check_mod = irohDriverModule(b, target, optimize, lib_mod, iroh_resident_mod, "apps/rooms/zig/client.zig");
     rooms_client_iroh_check_mod.addOptions("rooms_client_build_options", rooms_iroh_opts);
     rooms_client_iroh_check_mod.addImport("demo_rooms_cli", demo_rooms_cli_mod);
     rooms_client_iroh_check_mod.addImport("demo_usage", demo_usage_mod);
@@ -1963,8 +2271,8 @@ pub fn build(b: *std.Build) void {
         .dependOn(&cli_tests_run.step);
 
     const rooms_demo_iroh = addInstalledSystemRun(b, &.{
-        "deno",                        "run", "-A", "--unstable-ffi",
-        "examples/apps/rooms/demo.ts",
+        "deno",               "run", "-A", "--unstable-ffi",
+        "apps/rooms/demo.ts",
     });
     rooms_demo_iroh.addArtifactArg(rooms_client_iroh_exe); // the iroh-enabled Zig client
     rooms_demo_iroh.addArg("--transport=iroh");
@@ -1983,8 +2291,8 @@ pub fn build(b: *std.Build) void {
     // one process for precise, flake-free assertions. Needs cargo (the sidecar +
     // iroh ABI companion) and deno, so it is a sibling of `check`.
     const rooms_dm_iroh = addInstalledSystemRun(b, &.{
-        "deno",                                "run", "-A", "--unstable-ffi",
-        "examples/apps/rooms/dm_demo_iroh.ts",
+        "deno",                       "run", "-A", "--unstable-ffi",
+        "apps/rooms/dm_demo_iroh.ts",
     });
     rooms_dm_iroh.step.dependOn(iroh_abi_step);
     b.step("demo-rooms-dm-iroh", "Rooms DM-by-introduction over iroh: a room introduces two members who then DM directly over encrypted QUIC, room out of the path (needs cargo + deno)")
@@ -1998,8 +2306,8 @@ pub fn build(b: *std.Build) void {
     // timing, so it is opt-in and never part of `check`; the offline, deterministic
     // proof of the same handoff is `demo-rooms-dm-iroh` (the Direct posture).
     const rooms_dm_iroh_discovery = addInstalledSystemRun(b, &.{
-        "deno",                                          "run", "-A", "--unstable-ffi",
-        "examples/apps/rooms/dm_demo_iroh_discovery.ts",
+        "deno",                                 "run", "-A", "--unstable-ffi",
+        "apps/rooms/dm_demo_iroh_discovery.ts",
     });
     rooms_dm_iroh_discovery.step.dependOn(iroh_abi_step);
     b.step("demo-rooms-dm-iroh-discovery", "Opt-in: rooms DM-by-introduction over iroh by node id ALONE through n0 discovery (relays + DNS/pkarr), no direct-address hints (needs cargo + deno + internet)")
@@ -2012,19 +2320,83 @@ pub fn build(b: *std.Build) void {
     // runs like `docs-serve`: start it, then open the URL it prints. `-Dport` pins
     // the HTTP port (default 8000). Needs `deno`.
     const rooms_web = addInstalledSystemRun(b, &.{
-        "deno",                            "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
-        "examples/apps/rooms/deno/web.ts",
+        "deno",                   "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run",
+        "apps/rooms/deno/web.ts",
     });
     if (pin_port) |p| rooms_web.addArg(b.fmt("{d}", .{p}));
     const rooms_web_step = b.step("rooms-web", "Serve the rooms browser UI over TCP (public rooms + direct messages by introduction); open the printed URL (needs deno)");
     rooms_web_step.dependOn(&rooms_web.step);
 
+    // The rooms-web browser-peer proof: a wasm browser peer drives the real
+    // room directory through
+    // web.ts's `/relay` byte pipe, no dlopen and no JSON bridge in its process.
+    // Needs the wasm module and the native archives (web.ts and the room server
+    // are native children). A sibling step (needs deno), not folded into the
+    // Zig-hermetic `check`.
+    const rooms_web_relay_peer = b.addSystemCommand(&.{
+        "deno",                                   "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
+        "apps/rooms/deno/web_relay_peer_test.ts",
+    });
+    rooms_web_relay_peer.setCwd(b.path("."));
+    rooms_web_relay_peer.has_side_effects = true;
+    rooms_web_relay_peer.step.dependOn(&wasm_driver_install.step);
+    rooms_web_relay_peer.step.dependOn(b.getInstallStep());
+    const rooms_web_relay_peer_step = b.step("rooms-web-relay-peer", "Prove a wasm browser peer drives the room directory through web.ts's /relay byte pipe (needs deno)");
+    rooms_web_relay_peer_step.dependOn(&rooms_web_relay_peer.step);
+
+    // The same proof in a REAL headless browser: a Playwright Chromium loads a
+    // page that bundles @pancake/web and drives the room directory through
+    // /relay — the full shipped path (browser wasm Host, WebSocket channel, a
+    // capability call, no dlopen). Needs deno, the wasm module, the native
+    // archives (web.ts's children), and a Playwright Chromium
+    // (`npx playwright install chromium && sudo npx playwright install-deps`).
+    // A sibling step, not folded into `check` (it needs a browser binary).
+    const rooms_web_browser_peer = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "apps/rooms/deno/browser_peer_test.ts",
+    });
+    rooms_web_browser_peer.setCwd(b.path("."));
+    rooms_web_browser_peer.has_side_effects = true;
+    rooms_web_browser_peer.step.dependOn(&wasm_driver_install.step);
+    rooms_web_browser_peer.step.dependOn(b.getInstallStep());
+    const rooms_web_browser_peer_step = b.step("rooms-web-browser-peer", "Prove a real headless Chromium runs the @pancake/web peer through web.ts's /relay (needs deno + a Playwright Chromium)");
+    rooms_web_browser_peer_step.dependOn(&rooms_web_browser_peer.step);
+
+    // The whole rooms page as a browser peer: a real headless Chromium loads
+    // the page web.ts serves (bundled @pancake/web graph, the wasm module, the
+    // UI), joins a room through /relay, and round-trips a chat line over the
+    // room capability — no JSON bridge on the page's path. Same needs as
+    // rooms-web-browser-peer. A sibling step, not folded into `check`.
+    const rooms_web_page = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "apps/rooms/deno/web_page_test.ts",
+    });
+    rooms_web_page.setCwd(b.path("."));
+    rooms_web_page.has_side_effects = true;
+    rooms_web_page.step.dependOn(&wasm_driver_install.step);
+    rooms_web_page.step.dependOn(b.getInstallStep());
+    const rooms_web_page_step = b.step("rooms-web-page", "Prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line over the room capability (needs deno + a Playwright Chromium)");
+    rooms_web_page_step.dependOn(&rooms_web_page.step);
+
+    // The browser sends a direct message end to end: a real headless Chromium
+    // redeems a room introduction and dials the member's iroh endpoint through
+    // the relay, delivering off-room. Runs the room + relay over iroh, so it needs
+    // the iroh C ABI companion (cargo) as well as the wasm module and a Chromium.
+    const rooms_web_dm = b.addSystemCommand(&.{
+        "deno", "run", "--allow-all", "apps/rooms/deno/web_dm_test.ts",
+    });
+    rooms_web_dm.setCwd(b.path("."));
+    rooms_web_dm.has_side_effects = true;
+    rooms_web_dm.step.dependOn(&wasm_driver_install.step);
+    rooms_web_dm.step.dependOn(iroh_abi_step);
+    rooms_web_dm.step.dependOn(b.getInstallStep());
+    const rooms_web_dm_step = b.step("rooms-web-dm", "Prove the rooms page sends a direct message from a real browser: redeem a room introduction and dial the member's iroh endpoint through /relay, delivered off-room (needs cargo + deno + a Playwright Chromium)");
+    rooms_web_dm_step.dependOn(&rooms_web_dm.step);
+
     // The same browser UI with its rooms and its direct-message members over iroh's
     // encrypted QUIC instead of TCP. The bridge announces and dials ocapn:// URIs,
     // so it needs the iroh C ABI companion built first, and thus `cargo`.
     const rooms_web_iroh = addInstalledSystemRun(b, &.{
-        "deno",                            "run",              "-A", "--unstable-ffi",
-        "examples/apps/rooms/deno/web.ts", "--transport=iroh",
+        "deno",                   "run",              "-A", "--unstable-ffi",
+        "apps/rooms/deno/web.ts", "--transport=iroh",
     });
     if (pin_port) |p| rooms_web_iroh.addArg(b.fmt("{d}", .{p}));
     rooms_web_iroh.step.dependOn(iroh_abi_step);
@@ -2038,13 +2410,13 @@ pub fn build(b: *std.Build) void {
     // rooms, it needs `deno` (which hosts the board and runs the orchestrator)
     // and the Zig client, always built here. Python, Racket, and Rust join when their
     // runtimes are on PATH. It is a sibling step, not part of the hermetic gate.
-    const tasks_client_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-tasks-client", "examples/apps/tasks/zig/client.zig");
+    const tasks_client_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-tasks-client", "apps/tasks/zig/client.zig");
     tasks_client_exe.root_module.addImport("demo_usage", demo_usage_mod);
     check_step.dependOn(&tasks_client_exe.step);
 
     const tasks_demo = addInstalledSystemRun(b, &.{
-        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
-        "examples/apps/tasks/demo.ts",
+        "deno",               "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
+        "apps/tasks/demo.ts",
     });
     tasks_demo.addArtifactArg(tasks_client_exe);
     if (pin_port) |p| tasks_demo.addArg(b.fmt("--port={d}", .{p}));
@@ -2060,14 +2432,14 @@ pub fn build(b: *std.Build) void {
     // (which hosts the coordinator and runs the orchestrator); Python, Racket,
     // and Rust agents join when their runtimes are on PATH. A sibling step, not
     // part of the hermetic gate.
-    const tools_agent_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-tools-agent", "examples/apps/tools/zig/agent.zig");
+    const tools_agent_exe = pancakeExecutable(b, lib_mod, target, optimize, "pancake-tools-agent", "apps/tools/zig/agent.zig");
     tools_agent_exe.root_module.addImport("demo_tools_check", demo_tools_check_mod);
     tools_agent_exe.root_module.addImport("demo_usage", demo_usage_mod);
     check_step.dependOn(&tools_agent_exe.step);
 
     const tools_demo = addInstalledSystemRun(b, &.{
-        "deno",                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
-        "examples/apps/tools/demo.ts",
+        "deno",               "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
+        "apps/tools/demo.ts",
     });
     tools_demo.addArtifactArg(tools_agent_exe); // the Zig agent's built path
     if (pin_port) |p| tools_demo.addArg(b.fmt("--port={d}", .{p}));
@@ -2084,9 +2456,9 @@ pub fn build(b: *std.Build) void {
     // (KERI), Episodes, and the transparency log all live above pancake, the app
     // imports the `pancake` module and never reaches into the core. It needs no
     // extra runtime, so it rides the gate as an application contract (below). The
-    // app source lives under `examples/apps/accountability-on-pancake/`, beside
+    // app source lives under `apps/accountability-on-pancake/`, beside
     // the other worked applications.
-    const run_accountability = addPancakeRun(b, lib_mod, target, optimize, "accountability-on-pancake", "examples/apps/accountability-on-pancake/zig/main.zig");
+    const run_accountability = addPancakeRun(b, lib_mod, target, optimize, "accountability-on-pancake", "apps/accountability-on-pancake/zig/main.zig");
     const accountability_step = b.step("accountability", "Run the accountability application on pancake's own runtime over real TCP");
     accountability_step.dependOn(&run_accountability.step);
     // The accountability application and its three-party attribution test are
@@ -2100,11 +2472,11 @@ pub fn build(b: *std.Build) void {
     // installed C ABI. The orchestrator receives the host binary's built path
     // as its argument; the host installs only for this step, not on every
     // default build.
-    const host_exe = pancakeExecutable(b, lib_mod, target, optimize, "accountability-host", "examples/apps/accountability-on-pancake/zig/host.zig");
+    const host_exe = pancakeExecutable(b, lib_mod, target, optimize, "accountability-host", "apps/accountability-on-pancake/zig/host.zig");
     const host_install = b.addInstallArtifact(host_exe, .{});
     const accountability_demo = addInstalledSystemRun(b, &.{
-        "deno",                                                 "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
-        "examples/apps/accountability-on-pancake/deno/demo.ts",
+        "deno",                                        "run", "--allow-ffi", "--allow-read", "--allow-net", "--allow-run", "--allow-env",
+        "apps/accountability-on-pancake/deno/demo.ts",
     });
     accountability_demo.addArtifactArg(host_exe); // the Zig host's built path
     if (pin_port) |p| accountability_demo.addArg(b.fmt("--port={d}", .{p}));
@@ -2117,7 +2489,7 @@ pub fn build(b: *std.Build) void {
     // Episode attributes the true caller, not the introducer. In-memory, protocol-
     // level, the same test the Zig-native and cross-seam demos make over TCP.
     const three_party_mod = b.createModule(.{
-        .root_source_file = b.path("examples/apps/accountability-on-pancake/zig/three_party_test.zig"),
+        .root_source_file = b.path("apps/accountability-on-pancake/zig/three_party_test.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -2221,9 +2593,9 @@ pub fn build(b: *std.Build) void {
     const rust_manifests = [_][]const u8{
         "bindings/rust/Cargo.toml",
         "bench/langs/clients/rust_bench/Cargo.toml",
-        "examples/apps/tools/rust/Cargo.toml",
-        "examples/apps/tasks/rust/Cargo.toml",
-        "examples/apps/rooms/rust/Cargo.toml",
+        "apps/tools/rust/Cargo.toml",
+        "apps/tasks/rust/Cargo.toml",
+        "apps/rooms/rust/Cargo.toml",
         "transports/iroh/Cargo.toml",
     };
     const bindings_fmt_step = b.step("bindings-fmt", "Format the Rust crates and TypeScript bindings in place (needs cargo + deno)");

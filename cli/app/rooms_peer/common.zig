@@ -18,6 +18,12 @@ pub const IrohBridge = driver.Bridge(IrohLoop);
 pub const frame_cap: usize = 1 << 16;
 pub const timer_ms: u64 = 150;
 pub const redial_cooldown_wakes: u32 = 13;
+/// Join-window deadline in maintain wakes: about 15 s at `timer_ms` = 150.
+/// A healthy join is roughly five round-trips (fetch directory, enter/open
+/// fallback, subscribe), so this is order-of-magnitude headroom over it, and
+/// two full abandon-and-redial recovery cycles still fit inside the
+/// supervisor's 45 s start window.
+pub const join_deadline_wakes: u32 = 100;
 pub const dial_timeout_ms: u64 = 4000;
 pub const file_cap = Io.Limit.limited(1 << 24);
 pub const default_locator = "http://pancake-rooms:8000/locator";

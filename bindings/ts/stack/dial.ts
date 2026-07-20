@@ -15,7 +15,7 @@
 import { Session } from "./session.ts";
 import { Host } from "./host.ts";
 import { driverS } from "./internal/ffi/driver.ts";
-import { ffi, net } from "./internal/ffi/runtime.ts";
+import { ensureRuntimeReady, ffi, net } from "./internal/ffi/runtime.ts";
 import { ab, readBytes } from "./internal/seam.ts";
 import { checkHost, PancakeError } from "./errors.ts";
 import { type Codec, Reachability } from "./value.ts";
@@ -275,6 +275,7 @@ export async function connect(
 	host?: Host,
 	codec?: Codec,
 ): Promise<Session> {
+	await ensureRuntimeReady();
 	const loc = parseLocator(uri);
 	if (host !== undefined && codec !== undefined && codec !== host.codec) {
 		throw new PancakeError(

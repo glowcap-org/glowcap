@@ -11,103 +11,9 @@ const driver = pancake.driver;
 const model = pancake.ocapn.model;
 const actors = pancake.actors;
 
-/// Built-in actors for `--publish` / `ocapn publish`. Names match the Zig
-/// examples (`greeter`) and the identity-echo helper (`echo`).
-const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        if (msg.args.len != 1 or msg.args[0] != .string) return error.BadInvocation;
-        const who = msg.args[0].string;
-        if (std.mem.eql(u8, msg.verb, "greet")) {
-            return .{ .string = try std.fmt.allocPrint(turn.arena, "Hello, {s}", .{who}) };
-        }
-        if (std.mem.eql(u8, msg.verb, "cowsay")) {
-            return .{ .string = try formatCowsay(turn.arena, who) };
-        }
-        if (std.mem.eql(u8, msg.verb, "pancakesay")) {
-            return .{ .string = try formatPancakesay(turn.arena, who) };
-        }
-        if (std.mem.eql(u8, msg.verb, "goblinsay")) {
-            return .{ .string = try formatGoblinsay(turn.arena, who) };
-        }
-        return error.NoSuchMethod;
-    }
-};
-
-/// Classic one-line cowsay balloon (CLI demo only — not a system cowsay).
-fn formatCowsay(arena: std.mem.Allocator, msg: []const u8) ![]const u8 {
-    return try formatSay(arena, msg,
-        \\
-        \\        \   ^__^
-        \\         \  (oo)\_______
-        \\            (__)\       )\/\
-        \\                ||----w |
-        \\                ||     ||
-    );
-}
-
-/// Stack-of-pancakes speech balloon (CLI demo — the product's own joke).
-/// Middle cake wears a little face.
-fn formatPancakesay(arena: std.mem.Allocator, msg: []const u8) ![]const u8 {
-    return try formatSay(arena, msg,
-        \\
-        \\       \
-        \\        \    .------.
-        \\         \  (_|___|__)
-        \\            (_|^_^|__)
-        \\            (_____|__)
-        \\             ~~syrup~~
-    );
-}
-
-/// Friendly goblin speech balloon (CLI demo doodle — not Spritely's mascot art).
-/// Trailing spaces after `\` keep Zig from treating `\` as a line continue.
-fn formatGoblinsay(arena: std.mem.Allocator, msg: []const u8) ![]const u8 {
-    return try formatSay(arena, msg,
-        \\
-        \\       \
-        \\        \      ,^,
-        \\         \   ( o.o )
-        \\             \  =  /
-        \\            /|     |\ 
-        \\             U     U
-    );
-}
-
-fn formatSay(arena: std.mem.Allocator, msg: []const u8, figure: []const u8) ![]const u8 {
-    const w = msg.len;
-    var out: std.ArrayList(u8) = .empty;
-    errdefer out.deinit(arena);
-    try out.append(arena, ' ');
-    try out.appendNTimes(arena, '_', w + 2);
-    try out.append(arena, '\n');
-    try out.print(arena, "< {s} >\n", .{msg});
-    try out.append(arena, ' ');
-    try out.appendNTimes(arena, '-', w + 2);
-    try out.appendSlice(arena, figure);
-    return try out.toOwnedSlice(arena);
-}
-
-const Echo = struct {
-    pub fn handle(self: *Echo, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "echo")) return error.NoSuchMethod;
-        if (msg.args.len != 1) return error.BadInvocation;
-        return msg.args[0];
-    }
-};
-
-/// Publish a named built-in on `session` (`greeter` or `echo`).
-pub fn publishBuiltin(session: anytype, name: []const u8) !void {
-    if (std.mem.eql(u8, name, "greeter")) {
-        _ = try session.publish(name, Greeter, .{});
-    } else if (std.mem.eql(u8, name, "echo")) {
-        _ = try session.publish(name, Echo, .{});
-    } else {
-        return error.UnknownBuiltin;
-    }
-}
+/// Built-in demo actors (`greeter`, `echo`) live in `builtins.zig`; the public
+/// entry point stays on this flat `ocapn` surface.
+pub const publishBuiltin = @import("builtins.zig").publishBuiltin;
 
 const SessionRef = union(enum) {
     borrow: *driver.Session,
@@ -134,6 +40,7 @@ pub fn mapDialErr(err: anyerror) u8 {
         error.Usage => exit_codes.usage,
         error.HandshakeTimedOut, error.WaitTimedOut => exit_codes.timeout,
         error.Busy => exit_codes.busy,
+        error.OutOfMemory => exit_codes.internal,
         else => exit_codes.dial,
     };
 }
@@ -142,6 +49,7 @@ pub fn mapDialErr(err: anyerror) u8 {
 pub fn mapActErr(err: anyerror) u8 {
     return switch (err) {
         error.HandshakeTimedOut, error.WaitTimedOut => exit_codes.timeout,
+        error.OutOfMemory => exit_codes.internal,
         else => exit_codes.protocol_abort,
     };
 }
@@ -358,14 +266,16 @@ pub fn cmdListen(ctx: *Ctx, parsed: *Parsed) !u8 {
     }
 
     while (!signals.stopRequested()) {
-        const ready = server.waitAcceptable(signals.poll_ms) catch {
+        const ready = server.waitAcceptable(signals.poll_ms) catch |err| {
             if (signals.stopRequested()) return exit_codes.ok;
+            ctx.logErr("listen wait: {s}", .{@errorName(err)});
             return exit_codes.internal;
         };
         if (!ready) continue;
         if (signals.stopRequested()) return exit_codes.ok;
-        var conn = server.accept() catch {
+        var conn = server.accept() catch |err| {
             if (signals.stopRequested()) return exit_codes.ok;
+            ctx.logErr("listen accept: {s}", .{@errorName(err)});
             return exit_codes.internal;
         };
         defer conn.deinit();
@@ -512,6 +422,11 @@ pub fn cmdTell(ctx: *Ctx, parsed: *Parsed) !u8 {
     return exit_codes.ok;
 }
 
+/// Fetch-success UX, shared by the blocking front here and the REPL's
+/// cooperative queue, so two renderers keep one spelling.
+pub const fetched_fmt = "fetched {s} → import {d}";
+pub const fetch_next_fmt = "next: call {s} <verb> [args…]   or   call #{d} <verb> [args…]";
+
 pub fn cmdFetch(ctx: *Ctx, parsed: *Parsed) !u8 {
     const pos = parsed.positionals;
     const resolved = resolveSession(ctx, pos, 1) catch |err| switch (err) {
@@ -542,8 +457,8 @@ pub fn cmdFetch(ctx: *Ctx, parsed: *Parsed) !u8 {
         try out.print(ctx.gpa, ",\"import\":{d}}}\n", .{import_pos});
         try ctx.writeResult(out.items);
     } else {
-        try printOut(ctx, "fetched {s} → import {d}\n", .{ name, import_pos });
-        try printOut(ctx, "next: call {s} <verb> [args…]   or   call #{d} <verb> [args…]\n", .{ name, import_pos });
+        try printOut(ctx, fetched_fmt ++ "\n", .{ name, import_pos });
+        try printOut(ctx, fetch_next_fmt ++ "\n", .{ name, import_pos });
     }
     return exit_codes.ok;
 }

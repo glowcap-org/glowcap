@@ -77,6 +77,10 @@ const PANCAKE_ERR_INTERNAL = c.PANCAKE_ERR_INTERNAL;
 const PANCAKE_ERR_CLOSED = c.PANCAKE_ERR_CLOSED;
 const PANCAKE_ERR_IO = c.PANCAKE_ERR_IO;
 
+/// The annotated symbol inventory (crossing semantics per export) the
+/// binding FFI-table generators reflect from — see `symbols.zig`.
+pub const symbols = @import("symbols.zig");
+
 /// Copy the calling thread's last iroh-transport error message into `out_buf`,
 /// the iroh sibling of `pancake_last_error`. `libpancake_net_transport_iroh` carries its own
 /// per-thread slot (a separate compiled copy of the shared leaf's slot), so a
@@ -136,12 +140,28 @@ const PANCAKE_ERR_WOULD_BLOCK = c.PANCAKE_ERR_WOULD_BLOCK;
 
 /// Readiness event bits, mirroring the header's `PANCAKE_IROH_EV_*`. Defined
 /// from the resident's `loop_ev_*` values so the compiler holds this mirror and
-/// the resident/sidecar values in lockstep; the header's `#define`s carry the
-/// same numbers. A drained record may carry several at once.
-const PANCAKE_IROH_EV_READABLE: u32 = iroh.loop_ev_readable;
-const PANCAKE_IROH_EV_WRITABLE: u32 = iroh.loop_ev_writable;
-const PANCAKE_IROH_EV_CLOSED: u32 = iroh.loop_ev_closed;
-const PANCAKE_IROH_EV_ACCEPT: u32 = iroh.loop_ev_accept;
+/// the resident/sidecar values in lockstep; the generated header renders these
+/// values. A drained record may carry several at once.
+pub const PANCAKE_IROH_EV_READABLE: u32 = iroh.loop_ev_readable;
+pub const PANCAKE_IROH_EV_WRITABLE: u32 = iroh.loop_ev_writable;
+pub const PANCAKE_IROH_EV_CLOSED: u32 = iroh.loop_ev_closed;
+pub const PANCAKE_IROH_EV_ACCEPT: u32 = iroh.loop_ev_accept;
+
+/// Reachability postures, mirroring the header's `PANCAKE_IROH_REACH_*`.
+/// Defined from the resident's `Reachability` enum so the compiler holds the
+/// mirror in lockstep; the generated header and the binding constant modules
+/// (`gen-binding-constants`, `gen-ts-abi`) render these values rather than
+/// hand-typing them.
+pub const PANCAKE_IROH_REACH_DIRECT: u32 = @intFromEnum(iroh.Reachability.direct);
+pub const PANCAKE_IROH_REACH_DISCOVERY: u32 = @intFromEnum(iroh.Reachability.discovery);
+pub const PANCAKE_IROH_REACH_DISCOVERY_NO_RELAY: u32 = @intFromEnum(iroh.Reachability.discovery_no_relay);
+pub const PANCAKE_IROH_REACH_LOCAL_DISCOVERY: u32 = @intFromEnum(iroh.Reachability.local_discovery);
+
+/// The posture a Host redeems a hint-less handoff give under until the embedder
+/// sets one: discovery, the maximal-reach choice. The netlayer constructor
+/// still takes no default — this names the redeem knob's one starting value so
+/// every binding initializes from the same fact instead of hand-typing it.
+pub const PANCAKE_IROH_REACH_REDEEM_DEFAULT: u32 = PANCAKE_IROH_REACH_DISCOVERY;
 
 /// One readiness record handed to the host by `pancake_iroh_netlayer_drain_ready`:
 /// the connection that became ready and the `PANCAKE_IROH_EV_*` bitset. `conn`

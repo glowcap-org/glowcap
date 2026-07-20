@@ -31,6 +31,7 @@ import type {
 	Symbols,
 } from "../stack/internal/ffi/runtime.ts";
 import { type AbiLayout, layoutFromWasmDescriptor } from "../stack/internal/layout.ts";
+import { webSocketChannel } from "./ws_channel.ts";
 import { INVALID_ARGUMENT } from "@pancake/abi";
 
 /** The wasm exports the adapter itself drives; every `pancake_*` symbol the
@@ -325,67 +326,13 @@ function connectWebSocket(url: string): Promise<{
 }> {
 	return new Promise((resolve, reject) => {
 		const ws = new WebSocket(url);
-		ws.binaryType = "arraybuffer";
-
-		const chunks: Uint8Array[] = [];
-		let waiter: ((chunk: Uint8Array | null) => void) | null = null;
-		let closed = false;
-
-		ws.onmessage = (event: MessageEvent) => {
-			const chunk = new Uint8Array(event.data as ArrayBuffer);
-			if (waiter !== null) {
-				const w = waiter;
-				waiter = null;
-				w(chunk);
-			} else {
-				chunks.push(chunk);
-			}
-		};
-		const settleClosed = () => {
-			closed = true;
-			if (waiter !== null) {
-				const w = waiter;
-				waiter = null;
-				w(null);
-			}
-		};
-		ws.onclose = settleClosed;
-		ws.onerror = () => {
-			// A pre-open error rejects the connect; a post-open error surfaces
-			// as end-of-stream and the session's teardown classifies it.
-			settleClosed();
-			reject(new Error(`WebSocket connect failed: ${url}`));
-		};
+		// A pre-open error rejects the connect. Once open, `webSocketChannel`
+		// re-wires the handlers for the byte lifecycle (a later error is then
+		// an end-of-stream the session's teardown classifies).
+		ws.onerror = () => reject(new Error(`WebSocket connect failed: ${url}`));
 		ws.onopen = () => {
 			resolve({
-				read(): Promise<Uint8Array | null> {
-					const buffered = chunks.shift();
-					if (buffered !== undefined) return Promise.resolve(buffered);
-					if (closed) return Promise.resolve(null);
-					return new Promise((r) => {
-						waiter = r;
-					});
-				},
-				write(data: Uint8Array): Promise<void> {
-					if (closed) return Promise.reject(new Error("WebSocket closed"));
-					// WebSocket.send buffers internally; frames stay whole and
-					// ordered. There is no outbound bound here: `write` resolves
-					// once the socket has accepted the bytes into its own buffer
-					// (`bufferedAmount`), so a peer sending faster than its
-					// partner reads grows tab memory. The inbound queue below is
-					// unbounded the same way. Both are named costs of this
-					// adapter, not contracts; a bound is future work.
-					ws.send(data as Uint8Array<ArrayBuffer>);
-					return Promise.resolve();
-				},
-				close(): void {
-					closed = true;
-					try {
-						ws.close();
-					} catch {
-						// already closed
-					}
-				},
+				...webSocketChannel(ws),
 				localAddr(): { hostname: string; port: number } {
 					// A browser socket has no kernel-visible local address; only
 					// the accepting side (a dlopen runtime) ever signs one.

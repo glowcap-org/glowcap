@@ -67,7 +67,7 @@ sequenceDiagram
     participant R as Answerer
     Q->>R: op:deliver (to-desc, args, answer-pos N, resolve-me-desc desc:import-object P)
     Note over R: imports resolver at position P
-    R->>Q: op:deliver (to desc:import-object P, args ['fulfill, value], answer-pos false)
+    R->>Q: op:deliver (to desc:export P, args ['fulfill, value], answer-pos false)
 ```
 
 ## DR-5: Bootstrap fetch

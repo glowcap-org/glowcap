@@ -11,6 +11,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const support_actors = @import("../support/actors.zig");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -26,14 +27,7 @@ const ip = std.Io.net;
 const frame_cap = 4096;
 
 /// The published actor: answers `greet(name)` with a static greeting.
-const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
-        return .{ .string = "hello from the hosting vat" };
-    }
-};
+const Greeter = support_actors.StaticReplyActor("greet", "hello from the hosting vat");
 
 /// The taskboard shapes the pipelining test drives: a board whose `create`
 /// mints a fresh task capability, and a task that answers `assign`/`complete`/
@@ -983,4 +977,100 @@ test "driver loopback: a partner that opens then stalls breaks settle with WaitT
     defer host_thread.join();
 
     try silentPartnerSettleTimesOut(io, address, allocator);
+}
+
+test "byte-fed compose: beginSendNamed chains fetch then send, and the fetch break keeps its stage" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.paired(allocator);
+    defer pair.deinit();
+
+    var server = driver.Served.over(allocator, &pair.p2);
+    defer server.deinit();
+    _ = try server.publish("greeter", Greeter, .{});
+
+    var client = driver.Served.over(allocator, &pair.p1);
+    defer client.deinit();
+
+    // Happy path: one begin, then pump — no shadow continuation in the caller.
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    var capture = driver.SettleCapture{ .arena = arena.allocator() };
+    var flag = driver.SettleFlag{ .inner = .{ .ctx = &capture, .func = driver.SettleCapture.fire } };
+    var pending: driver.PendingSend = undefined;
+    try client.beginSendNamed(&pending, "greeter", .{ .verb = "greet", .args = &.{.{ .string = "carol" }} }, .{ .ctx = &flag, .func = driver.SettleFlag.fire });
+    defer pending.deinit();
+
+    var i: usize = 0;
+    while (i < 8 and !flag.done) : (i += 1) {
+        try shuttleFed(&client, &server);
+        try shuttleFed(&server, &client);
+    }
+    try std.testing.expect(flag.done);
+    try std.testing.expectEqual(driver.PendingSend.Stage.delivering, pending.stage);
+    const settled = try capture.finish();
+    try std.testing.expectEqualStrings("hello from the hosting vat", settled.fulfilled.string);
+
+    // An unpublished name breaks at the fetch leg: the terminal fires the
+    // fetch's own refusal and `stage` still reads `.fetching`.
+    var broken_arena = std.heap.ArenaAllocator.init(allocator);
+    defer broken_arena.deinit();
+    var broken_capture = driver.SettleCapture{ .arena = broken_arena.allocator() };
+    var broken_flag = driver.SettleFlag{ .inner = .{ .ctx = &broken_capture, .func = driver.SettleCapture.fire } };
+    var broken_pending: driver.PendingSend = undefined;
+    try client.beginSendNamed(&broken_pending, "nobody", .{ .verb = "greet", .args = &.{} }, .{ .ctx = &broken_flag, .func = driver.SettleFlag.fire });
+    defer broken_pending.deinit();
+    i = 0;
+    while (i < 8 and !broken_flag.done) : (i += 1) {
+        try shuttleFed(&client, &server);
+        try shuttleFed(&server, &client);
+    }
+    try std.testing.expect(broken_flag.done);
+    try std.testing.expectEqual(driver.PendingSend.Stage.fetching, broken_pending.stage);
+    try std.testing.expectEqual(driver.Settled.broken, std.meta.activeTag(try broken_capture.finish()));
+}
+
+test "byte-fed compose: beginTellNamed fires void after the tell, and a cancel breaks the fetch leg" {
+    const allocator = std.testing.allocator;
+    var pair = try engine.pairing.paired(allocator);
+    defer pair.deinit();
+
+    var server = driver.Served.over(allocator, &pair.p2);
+    defer server.deinit();
+    _ = try server.publish("greeter", Greeter, .{});
+
+    var client = driver.Served.over(allocator, &pair.p1);
+    defer client.deinit();
+
+    var arena = std.heap.ArenaAllocator.init(allocator);
+    defer arena.deinit();
+    var capture = driver.SettleCapture{ .arena = arena.allocator() };
+    var flag = driver.SettleFlag{ .inner = .{ .ctx = &capture, .func = driver.SettleCapture.fire } };
+    var pending: driver.PendingSend = undefined;
+    try client.beginTellNamed(&pending, "greeter", .{ .verb = "greet", .args = &.{} }, .{ .ctx = &flag, .func = driver.SettleFlag.fire });
+    defer pending.deinit();
+    var i: usize = 0;
+    while (i < 8 and !flag.done) : (i += 1) {
+        try shuttleFed(&client, &server);
+        try shuttleFed(&server, &client);
+    }
+    try std.testing.expect(flag.done);
+    try std.testing.expectEqual(driver.PendingSend.Stage.delivering, pending.stage);
+    const settled = try capture.finish();
+    try std.testing.expectEqual(driver.Settled.fulfilled, std.meta.activeTag(settled));
+    try std.testing.expectEqual(model.Argument.void, std.meta.activeTag(settled.fulfilled));
+
+    // A cancel while the fetch is still in flight breaks the chain once, at
+    // the fetch leg, with the cancel's own reason.
+    var cancel_arena = std.heap.ArenaAllocator.init(allocator);
+    defer cancel_arena.deinit();
+    var cancel_capture = driver.SettleCapture{ .arena = cancel_arena.allocator() };
+    var cancel_flag = driver.SettleFlag{ .inner = .{ .ctx = &cancel_capture, .func = driver.SettleCapture.fire } };
+    var cancel_pending: driver.PendingSend = undefined;
+    try client.beginSendNamed(&cancel_pending, "greeter", .{ .verb = "greet", .args = &.{} }, .{ .ctx = &cancel_flag, .func = driver.SettleFlag.fire });
+    defer cancel_pending.deinit();
+    client.vat.breakFarVows("cancelled");
+    try std.testing.expect(cancel_flag.done);
+    try std.testing.expectEqual(driver.PendingSend.Stage.fetching, cancel_pending.stage);
+    const cancelled = try cancel_capture.finish();
+    try std.testing.expectEqualStrings("cancelled", cancelled.broken);
 }

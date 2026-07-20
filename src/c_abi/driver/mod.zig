@@ -318,6 +318,10 @@ pub const pancake_host_turn_break = turn.pancake_host_turn_break;
 
 pub const pancake_host_pump_drain = pump.pancake_host_pump_drain;
 
+/// The annotated symbol inventory (crossing semantics per export) the
+/// binding FFI-table generators reflect from — see `symbols.zig`.
+pub const symbols = @import("symbols.zig");
+
 /// Zig-facing one-loop drain helpers over `pancake_host_next_action`
 /// (ADR-0072 fifth amendment). Not a C export — the pull-queue stays
 /// normative; bindings and tests thin onto this instead of hand-rolling

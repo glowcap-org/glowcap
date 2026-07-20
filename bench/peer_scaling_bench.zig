@@ -364,15 +364,11 @@ fn runLivePhase(parent_io: std.Io, allocator: std.mem.Allocator, smoke: bool, li
         var bridge = TcpBridge.init(allocator, &host, step_io, &loop, .{ .publish = livePublishGreeter });
         defer bridge.deinit();
 
-        loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
+        loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
             .frame_cap = live_frame_cap,
             .max_conns = n + 8,
             .listen = 0,
-            .make_conn_ctx = TcpBridge.makeConnCtx,
-            .serve = TcpBridge.serve,
-            .free_conn_ctx = TcpBridge.freeConnCtx,
-            .on_close = TcpBridge.onClose,
-        });
+        }));
         defer loop.deinit();
         const port = loop.port.?;
         var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;

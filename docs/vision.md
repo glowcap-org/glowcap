@@ -120,8 +120,6 @@ calls a pancake-hosted actor is the `goblins-interop` listener brackets plus
 one binding: `zig build deno-goblins-listen` has a real Goblins vat dial a
 greeter the Deno binding publishes. The other bindings' listener direction is
 not proven by a live build check.
-State where each piece stands; do not narrate unbuilt parts as if they already
-run.
 
 ## What never gets traded
 

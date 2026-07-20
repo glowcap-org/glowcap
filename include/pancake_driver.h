@@ -328,20 +328,20 @@ int32_t pancake_host_session_session_open(PancakeHostSession *session);
    pancake_host_session_last_abort for the typed cause. */
 int32_t pancake_host_session_feed(PancakeHostSession *session, const PancakeFrame *frame_in);
 /* Feed a byte-stream chunk you read from your own transport (borrowed for the
-   call). The library owns framing: the session's codec delimits each complete
-   frame at the front of bytes — both codecs, both frame shapes — and
-   dispatches it exactly as pancake_host_session_feed, so you just move bytes and
-   keep the tail. *out_consumed receives the count of leading bytes consumed;
-   drop them and extend the remainder with your next read (a partial frame is
-   not an error — OK with a smaller count, possibly zero). Consumption also
-   stops at the frame that completes the keyed handshake: bytes coalesced
-   behind the hello stay in the tail while you act on the fresh session
-   (publish, fetch), and your next call feeds them. A frame exceeding
-   the session's frame cap is refused PANCAKE_ERR_FRAME_TOO_LARGE; any other
-   failure classifies as pancake_host_session_feed's do. After any failure
-   *out_consumed is zero and the session is closing: drain take_outbound (a
-   typed op:abort is queued for the partner) and release the session. */
-int32_t pancake_host_session_feed_bytes(PancakeHostSession *session, const uint8_t *bytes, size_t len, size_t *out_consumed);
+   call). The library owns framing and the tail: the session's codec delimits
+   each complete frame at the front of bytes — both codecs, both frame shapes
+   — and dispatches it exactly as pancake_host_session_feed, while a partial
+   frame straddling two reads stays buffered in the session, so on success
+   every byte was consumed and you just read and feed. Dispatch also pauses at
+   the frame that completes the keyed handshake: frames coalesced behind the
+   hello wait in the session's tail while you act on the fresh session
+   (publish, fetch), and your next call — an empty chunk (len 0, bytes may be
+   NULL) works — feeds them. A frame exceeding the session's frame cap is
+   refused PANCAKE_ERR_FRAME_TOO_LARGE; any other failure classifies as
+   pancake_host_session_feed's do. After any failure the session is closing:
+   drain take_outbound (a typed op:abort is queued for the partner) and
+   release the session. */
+int32_t pancake_host_session_feed_bytes(PancakeHostSession *session, const uint8_t *bytes, size_t len);
 /* Drain one encoded outbound frame as an *owned* managed frame you write to
    your transport and free through pancake_managed_frame_release. Returns
    PANCAKE_OK with *out_frame set, or PANCAKE_ERR_WOULD_BLOCK (with *out_frame
@@ -496,7 +496,7 @@ int32_t pancake_host_session_set_exporter_location(PancakeHostSession *session, 
 int32_t pancake_host_session_last_abort(PancakeHostSession *session, PancakeLastAbort *out);
 /* Read the PARTNER'S retained op:abort: the abort kind's wire name (a
    process-static view, e.g. "ProtocolError") into
-   *out_kind_name/*out_kind_name_len, and up to cap bytes of its bounded
+   *out_kind_name / *out_kind_name_len, and up to cap bytes of its bounded
    diagnostic into out_msg, with the retained length in *out_len. Returns
    PANCAKE_ERR_WOULD_BLOCK when no partner abort has arrived. Any out-pointer
    may be NULL to skip that piece. */

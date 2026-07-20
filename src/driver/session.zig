@@ -78,6 +78,14 @@ pub const Session = struct {
     pub fn beginFetch(self: *Session, name: []const u8) !actors.Vow {
         return self.cv.beginFetch(name);
     }
+    /// Begin a cooperative fetch-then-send (see `BlockingSession.beginSendNamed`).
+    pub fn beginSendNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
+        return self.cv.beginSendNamed(pending, name, msg, terminal);
+    }
+    /// The fire-and-forget arm of `beginSendNamed` (see `BlockingSession.beginTellNamed`).
+    pub fn beginTellNamed(self: *Session, pending: *driver.PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
+        return self.cv.beginTellNamed(pending, name, msg, terminal);
+    }
     /// Break every far vow still awaiting a partner answer (see
     /// `BlockingSession.breakFarVows`).
     pub fn breakFarVows(self: *Session, message: []const u8) void {

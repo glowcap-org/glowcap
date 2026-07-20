@@ -42,6 +42,7 @@ from typing import Optional, Union
 # transport a `Session`'s serve loop reads. The raw iroh FFI loader behind
 # ``_iroh()`` lives in the internal :mod:`pancake._ffi_iroh`.
 from ._session import Session
+from . import _constants as _c
 from ._constants import ERR_CLOSED as _ERR_CLOSED, ERR_INVALID_ARGUMENT as _ERR_INVALID_ARGUMENT, OK as _OK, TRANSPORT_IROH, WOULD_BLOCK as _WOULD_BLOCK
 from ._errors import PancakeError
 from ._host import Host
@@ -63,6 +64,7 @@ __all__ = [
     "IrohNetlayer",
     "IrohConn",
     "listen_iroh",
+    "dial_locator_for_relay",
 ]
 
 
@@ -88,22 +90,22 @@ class Reachability(enum.IntEnum):
     relayed, discovery vs none) and a hidden one would silently route — or refuse
     to route — a partner's traffic.
 
-    ``DIRECT`` (0)
+    ``DIRECT``
         Dial by endpoint id plus direct-address hints; relay-less, no discovery.
         A URI must carry ``direct-addresses``. This is the rooms demo's posture.
-    ``DISCOVERY`` (1)
+    ``DISCOVERY``
         Use the n0 relays and DNS discovery, so a partner is dialable by
         endpoint id alone.
-    ``DISCOVERY_NO_RELAY`` (2)
+    ``DISCOVERY_NO_RELAY``
         Use DNS discovery, but no relays.
-    ``LOCAL_DISCOVERY`` (3)
+    ``LOCAL_DISCOVERY``
         Use an in-process address book, for tests and same-process peers.
     """
 
-    DIRECT = 0
-    DISCOVERY = 1
-    DISCOVERY_NO_RELAY = 2
-    LOCAL_DISCOVERY = 3
+    DIRECT = _c.IROH_REACH_DIRECT
+    DISCOVERY = _c.IROH_REACH_DISCOVERY
+    DISCOVERY_NO_RELAY = _c.IROH_REACH_DISCOVERY_NO_RELAY
+    LOCAL_DISCOVERY = _c.IROH_REACH_LOCAL_DISCOVERY
 
 
 class IrohConn:
@@ -620,6 +622,44 @@ async def _connect_iroh_with_host(
         with contextlib.suppress(Exception):
             transport.close()
         raise
+
+
+async def dial_locator_for_relay(locator: str, reachability: "Union[int, Reachability]") -> "_IrohTransport":
+    """Dial an iroh ``ocapn://`` locator to a raw byte channel for a
+    byte-transparent relay: no CapTP handshake, since the relay only pipes bytes
+    and the two ends key the session end to end. This is the Python parallel to
+    the TypeScript ``dialLocatorForRelay``; the iroh readiness compose lives in
+    each binding, over the same C-ABI conn and readiness primitives, exactly as
+    the iroh serve loop does.
+
+    Returns an ``_IrohTransport`` (``async read() -> bytes | None``,
+    ``async write(bytes)``, ``close()``). ``close`` unregisters the connection,
+    stops the readiness loop, and releases the ephemeral netlayer it minted."""
+    from ._locator import parse_locator
+    from ._constants import HINT_DIRECT_ADDRESSES
+
+    parsed = parse_locator(locator)
+    if parsed.transport != TRANSPORT_IROH:
+        raise ValueError(f"expected an iroh locator, got transport {parsed.transport!r}")
+    node_id = parsed.designator
+    direct_addresses = parsed.hints.get(HINT_DIRECT_ADDRESSES, "")
+
+    netlayer = IrohNetlayer(reachability)
+    loop = _IrohLoop(netlayer)
+    try:
+        conn = await _dial_resolving(
+            netlayer,
+            node_id,
+            direct_addresses,
+            int(reachability) in (int(Reachability.DISCOVERY), int(Reachability.DISCOVERY_NO_RELAY)),
+        )
+    except BaseException:
+        loop.close()
+        netlayer.release()
+        raise
+    loop.register(conn)
+    loop.start()
+    return _IrohTransport(conn, loop, netlayer, owns_loop=True)
 
 
 async def _accept_iroh(conn: IrohConn, local_node_id: str, loop: _IrohLoop, host: Host) -> Session:

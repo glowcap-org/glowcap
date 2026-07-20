@@ -29,6 +29,11 @@ const engine = @import("engine");
 
 // ── Return codes ─────────────────────────────────────────────────────────────
 
+/// The annotated-symbol vocabulary the per-archive inventories share
+/// (`symbols.zig`): crossing semantics per export, for the binding FFI-table
+/// generators.
+pub const symbols = @import("symbols.zig");
+
 pub const PANCAKE_OK: i32 = 0;
 pub const PANCAKE_ERR_NULL_POINTER: i32 = -1;
 // -2 is retired (an unimplemented stale-handle check); the value is never

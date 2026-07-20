@@ -7,7 +7,7 @@ spec submodules kept for citation, the Goblins reference implementation of the
 accountability application, and the KERI and episode reference verifiers that arbitrate it.
 The worked accountability application *on pancake* is not an arbiter — it lives
 beside the other worked applications under
-[`../examples/apps/`](../examples/apps/accountability-on-pancake/). The live
+[`../apps/`](../apps/accountability-on-pancake/). The live
 cross-implementation drivers — pancake talking to Goblins or to another pancake
 over iroh — are **not** external authority either; they live in
 [`../interop/`](../interop/README.md).

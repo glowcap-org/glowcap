@@ -18,11 +18,15 @@ sidecar, the binding runtimes) come from [`../.devcontainer/`](../.devcontainer/
 None of these steps is part of the self-contained `zig build check`; each is a sibling
 that runs only when its runtime is on PATH.
 
+Helpers the per-language interop clients share live in [`_common/`](_common/),
+one directory per language; the Zig drivers' shared harness is
+[`_common/zig/harness.zig`](_common/zig/harness.zig).
+
 ## Layout
 
 | Directory                                      | What it is                                                                                                                    | Run                                                                 |
 | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| [`goblins_interop/`](goblins_interop/)         | Live OCapN against a real Goblins vat: bidirectional conversation (`goblins-interop`); recipient handoff (`goblins-handoff`); gifter handoff (`goblins-gift`); inbound export GC (`goblins-gc`); binding siblings for both handoff roles. | `zig build goblins-interop` / `goblins-handoff` / `goblins-gift` / `goblins-gc` (+ `*-goblins-handoff` / `*-goblins-gift`) |
+| [`goblins_interop/`](goblins_interop/)         | Live OCapN against a real Goblins vat: bidirectional conversation (`goblins-interop`); recipient handoff (`goblins-handoff`); gifter handoff (`goblins-gift`); inbound export GC (`goblins-gc`); binding client-direction siblings (`*-goblins-interop`), the Deno listener step (`deno-goblins-listen`), and binding siblings for both handoff roles. | `zig build goblins-interop` / `goblins-handoff` / `goblins-gift` / `goblins-gc` (+ `*-goblins-interop` / `deno-goblins-listen` / `*-goblins-handoff` / `*-goblins-gift`) |
 | [`iroh_interop/`](iroh_interop/)               | Live pancake-to-pancake OCapN over real iroh endpoints: direct dial, dial-by-id discovery, key unification, durable identity. | `zig build iroh-interop`                                            |
 | [`iroh_reachability/`](iroh_reachability/)     | Opt-in dial-by-id over n0 relays and DNS/pkarr — real public discovery, not the in-process book; Zig driver plus per-binding siblings. | `zig build iroh-reachability` / `bindings-iroh-reachability` (`rust-iroh-reachability`, etc.) |
 | [`iroh_loop/`](iroh_loop/)                     | Live iroh scale: many concurrent connections from one readiness loop (ADR-0057).                                        | `zig build iroh-loop` / binding siblings (`python-iroh-loop`, etc.) |

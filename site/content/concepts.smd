@@ -43,8 +43,9 @@ bootstrap object. That fetch returns a live capability. After that, authority
 moves by passing references.
 
 A **sturdyref** is locator plus a **swiss number** (unguessable token naming one
-object). It survives restart. Redeeming it is the same two moves; what returns is
-an ordinary reference.
+object). The token survives restart; redeeming it again needs the host to have
+re-registered that name under the same identity. Redeeming is the same two
+moves; what returns is an ordinary reference.
 
 | Word | What it is |
 | --- | --- |
@@ -134,9 +135,10 @@ roughly half a million sessions on one node, not a live-socket RSS measurement.
 
 ## Distributed GC
 
-Export and answer table slots carry reference counts. Drop a fetched far
-reference (with GC enabled on the binding) and the engine tells the peer
-(`op:gc-exports` / `op:gc-answers`) so unused slots leave. Off by default; scope
+Export table slots carry reference counts; answer slots are single-reference
+and released outright. Drop a fetched far reference (with GC enabled on the
+binding) and the engine tells the peer (`op:gc-exports` / `op:gc-answers`) so
+unused slots leave. Off by default; scope
 is `fetch` results, not every remote name. Without GC, imports keep their rows
 until teardown.
 Diagrams:

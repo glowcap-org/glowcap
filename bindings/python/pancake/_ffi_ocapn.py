@@ -25,6 +25,11 @@ import ctypes
 # lives in ``_lib_resolve`` so every ``_ffi_*`` loader shares one cascade.
 from ._lib_resolve import _lib_path
 
+# The signature table is generated from the archive's annotated symbol
+# inventory (``zig build gen-binding-python-ffi``); this module hands it the
+# ``Structure`` types it declares below.
+from ._sigs_gen import ocapn_sigs
+
 # Expected sizes for the hand-mirrored ctypes.Structure types below, reflected
 # off the real Zig C ABI types (``zig build gen-binding-ffi-layouts``), so
 # this pin cannot drift from them.
@@ -183,52 +188,9 @@ def _byte_buf(data: bytes):
 
 
 def _load():
-    P = ctypes.c_void_p
-    size_p = ctypes.POINTER(ctypes.c_size_t)
-    ocapn_sigs = {
-        "pancake_abi_version": (
-            [ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32)],
-            None,
-        ),
-        "pancake_last_error": ([ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t], ctypes.c_size_t),
-        "pancake_context_new": ([ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_context_new_with_allocator": ([ctypes.POINTER(_Allocator), ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_context_release": ([P], None),
-        "pancake_managed_frame_release": ([ctypes.POINTER(_ManagedFrame)], None),
-        "pancake_encode_peer_locator": (
-            [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
-             ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p), size_p],
-            ctypes.c_int32,
-        ),
-        "pancake_peer_locator_bytes_release": ([ctypes.c_void_p, ctypes.c_size_t], None),
-        # OCapN locator URIs — core libpancake_ocapn vocabulary, so a TCP-only consumer
-        # reaches them without the iroh companion library. One grammar, no hand-rolled
-        # percent codec. Verbs mint an opaque PancakeLocator; nouns read it.
-        "pancake_uri_parse_peer": ([ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_uri_parse_sturdyref": ([ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_uri_format_peer": (
-            [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t,
-             ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_size_t,
-             ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)],
-            ctypes.c_int32,
-        ),
-        "pancake_locator_transport": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
-        "pancake_locator_designator": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
-        "pancake_designator_host_port": (
-            [ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p), size_p, ctypes.POINTER(ctypes.c_uint16)],
-            ctypes.c_int32,
-        ),
-        "pancake_locator_swissnum": ([P, ctypes.POINTER(ctypes.c_void_p), size_p], ctypes.c_int32),
-        "pancake_locator_hint_count": ([P, size_p], ctypes.c_int32),
-        "pancake_locator_hint_at": (
-            [P, ctypes.c_size_t, ctypes.POINTER(ctypes.c_void_p), size_p, ctypes.POINTER(ctypes.c_void_p), size_p],
-            ctypes.c_int32,
-        ),
-        "pancake_locator_release": ([P], None),
-    }
     ocapn = ctypes.CDLL(str(_lib_path("pancake_ocapn")))
     facade = _Lib(ocapn)
-    _bind(facade, ocapn, ocapn_sigs)
+    _bind(facade, ocapn, ocapn_sigs(_Allocator, _ManagedFrame))
     return facade
 
 

@@ -38,7 +38,6 @@ New to capabilities, CapTP, or OCapN? Start with
 Fetch the Zig package, then connect / fetch / call. The human walkthrough
 (tcp + iroh, C, bindings) is
 [`site/content/start.smd`](site/content/start.smd) (`zig build docs-serve`).
-This snippet is the machine-checked contract only:
 
 ```sh
 zig fetch --save git+https://codeberg.org/jimisaacs/pancake
@@ -83,20 +82,20 @@ switch (settled) {
 }
 ```
 
-Held identical to
-[`examples/zig/readme_quick_start.zig`](examples/zig/readme_quick_start.zig)
-(`zig build examples` + `meta-check`). Both halves:
-[`01_connect_and_serve.zig`](examples/zig/01_connect_and_serve.zig). C/FFI:
-[`docs/consuming-from-c.md`](docs/consuming-from-c.md). Language bindings:
-[`bindings/`](bindings/README.md). Chapters and demos:
+`zig build examples` and `meta-check` hold this snippet identical to
+[`examples/zig/readme_quick_start.zig`](examples/zig/readme_quick_start.zig).
+Both halves live in
+[`01_connect_and_serve.zig`](examples/zig/01_connect_and_serve.zig). For C,
+read [`docs/consuming-from-c.md`](docs/consuming-from-c.md); for the language
+bindings, [`bindings/`](bindings/README.md); for chapters and demos,
 [`examples/README.md`](examples/README.md).
 
 ## Design posture
 
-Sans-io core; adapters own I/O. Session state is authoritative. Wire-path
-cost is forbidden, named, or measured. Evidence:
+The core does no I/O; adapters own it. Session state is authoritative, and
+every wire-path cost is forbidden, named, or measured. The evidence lives in
 [`docs/architecture.md`](docs/architecture.md),
-[`docs/vision.md`](docs/vision.md),
+[`docs/vision.md`](docs/vision.md), and
 [`docs/community-review.md`](docs/community-review.md).
 
 ## Status

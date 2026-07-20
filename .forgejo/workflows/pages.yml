@@ -1,5 +1,10 @@
-# Build the documentation site on Codeberg and publish the exact
-# `zig build site` artifact to the pages branch.
+# Build the documentation site on a Codeberg-hosted runner and publish the
+# exact `zig build site` artifact to the pages branch. Codeberg Pages serves
+# that branch at https://jimisaacs.codeberg.page/pancake/ (the zine.ziggy
+# host_url) once the repository is public and a Forgejo webhook targeting that
+# URL, filtered to the pages branch, is registered in the repository settings.
+# The site build needs only the pinned Zig (the site sub-build fetches Zine
+# itself). Topology: CONTRIBUTING.md "Continuous integration".
 name: pages
 
 on:
@@ -9,42 +14,36 @@ on:
 
 jobs:
   pages:
-    runs-on: docker
+    runs-on: codeberg-medium
     steps:
       - uses: https://github.com/actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0
 
-      - name: Build the site in the devcontainer
-        uses: https://github.com/devcontainers/ci@v0.3
-        with:
-          push: never
-          runCmd: zig build site
+      - name: Install the pinned Zig
+        run: bash .devcontainer/install-zig.sh
 
+      - name: Build the site
+        run: zig build site
+
+      # The pages branch is generated state, not history: each publish is one
+      # orphan commit force-pushed from a clean directory, so the branch never
+      # grows and never picks up working-tree debris. The automatic Actions
+      # token has write access to this repository; the credential helper keeps
+      # it out of process argv.
       - name: Publish to the pages branch
         env:
-          GIT_AUTHOR_NAME: pancake pages
-          GIT_AUTHOR_EMAIL: pages@codeberg.org
-          GIT_COMMITTER_NAME: pancake pages
-          GIT_COMMITTER_EMAIL: pages@codeberg.org
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
-          worktree="$(mktemp -d)"
-          cp -R zig-out/site/. "$worktree/"
-          git fetch origin pages || true
-          if git show-ref --verify --quiet refs/remotes/origin/pages; then
-            git switch --force-create pages origin/pages
-          else
-            git switch --orphan pages
-          fi
-          git rm -rf .
-          cp -R "$worktree"/. .
-          touch .nojekyll
+          publish="$(mktemp -d)"
+          cp -R zig-out/site/. "$publish/"
+          cd "$publish"
+          git init -b pages
+          git config user.name "pancake pages"
+          git config user.email "pancake-pages@noreply.codeberg.org"
           git add .
-          if git diff --cached --quiet; then
-            echo "pages branch already matches zig-out/site"
-            exit 0
-          fi
-          git commit -m "Publish documentation site"
-          git push origin pages
+          git commit -m "Publish documentation site from ${GITHUB_SHA}"
+          remote="${GITHUB_SERVER_URL#https://}/${GITHUB_REPOSITORY}.git"
+          git -c credential.helper='!f() { echo "username=${GITHUB_ACTOR}"; echo "password=${TOKEN}"; }; f' \
+            push --force "https://${remote}" pages

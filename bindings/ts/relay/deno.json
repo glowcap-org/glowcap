@@ -1,0 +1,10 @@
+{
+	"name": "@pancake/relay",
+	"version": "0.1.0",
+	"exports": {
+		".": "./mod.ts"
+	},
+	"tasks": {
+		"check": "deno check mod.ts"
+	}
+}

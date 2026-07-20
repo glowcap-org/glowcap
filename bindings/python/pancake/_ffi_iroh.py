@@ -24,15 +24,24 @@ from ._layouts_gen import (
 )
 from ._lib_resolve import _lib_file, _lib_path
 
+# The signature table is generated from the archive's annotated symbol
+# inventory (``zig build gen-binding-python-ffi``). The iroh archive keeps its
+# own thread-local last-error slot: an iroh call that returns PANCAKE_ERR_IO
+# records its concrete cause there, read through ``pancake_iroh_last_error``
+# rather than the core ``pancake_last_error``.
+from ._sigs_gen import iroh_sigs
+
 _IROH_LIB_PATH = _lib_path("pancake_net_transport_iroh")
 _IROH_LIB_FILE = _lib_file("pancake_net_transport_iroh")
 
 # Readiness event bits (the header's PANCAKE_IROH_EV_*), carried by a
 # `drain_ready` record. A record may carry several at once.
-_IROH_EV_READABLE = 1
-_IROH_EV_WRITABLE = 2
-_IROH_EV_CLOSED = 4
-_IROH_EV_ACCEPT = 8
+from ._constants_gen import (
+    IROH_EV_ACCEPT as _IROH_EV_ACCEPT,
+    IROH_EV_CLOSED as _IROH_EV_CLOSED,
+    IROH_EV_READABLE as _IROH_EV_READABLE,
+    IROH_EV_WRITABLE as _IROH_EV_WRITABLE,
+)
 
 
 class _IrohReadyEvent(ctypes.Structure):
@@ -97,35 +106,7 @@ _pin_layout()
 
 def _load_iroh():
     lib = ctypes.CDLL(str(_IROH_LIB_PATH))
-    P = ctypes.c_void_p
-    u8p = ctypes.POINTER(ctypes.c_uint8)
-    size_p = ctypes.POINTER(ctypes.c_size_t)
-    ev_p = ctypes.POINTER(_IrohReadyEvent)
-    sigs = {
-        "pancake_iroh_netlayer_new": ([ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(_IrohConfig), ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_iroh_netlayer_close": ([P], None),
-        "pancake_iroh_netlayer_release": ([P], None),
-        "pancake_iroh_netlayer_node_id": ([P, u8p, ctypes.c_size_t, size_p], ctypes.c_int32),
-        "pancake_iroh_netlayer_direct_addrs": ([P, u8p, ctypes.c_size_t, size_p], ctypes.c_int32),
-        # The event-driven loop surface (ADR-0057): the netlayer's one I/O model.
-        # Park on the readiness fd, drain records when it signals, and drive
-        # non-blocking byte I/O, one thread serves many connections.
-        "pancake_iroh_netlayer_readiness_fd": ([P], ctypes.c_int32),
-        "pancake_iroh_netlayer_drain_ready": ([P, ev_p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)], ctypes.c_int32),
-        "pancake_iroh_netlayer_try_accept": ([P, ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_iroh_netlayer_try_connect": (
-            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(P)],
-            ctypes.c_int32,
-        ),
-        "pancake_iroh_conn_try_read": ([P, u8p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)], ctypes.c_int32),
-        "pancake_iroh_conn_try_write": ([P, u8p, ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)], ctypes.c_int32),
-        "pancake_iroh_conn_release": ([P], None),
-        # The iroh archive's own thread-local last-error slot: an iroh call that
-        # returns PANCAKE_ERR_IO records its concrete cause here, read through
-        # `pancake_iroh_last_error` rather than the core `pancake_last_error`.
-        "pancake_iroh_last_error": ([u8p, ctypes.c_size_t], ctypes.c_size_t),
-    }
-    for name, (argtypes, restype) in sigs.items():
+    for name, (argtypes, restype) in iroh_sigs(_IrohReadyEvent, _IrohConfig).items():
         fn = getattr(lib, name)
         fn.argtypes = argtypes
         fn.restype = restype

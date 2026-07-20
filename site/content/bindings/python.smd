@@ -84,5 +84,5 @@ zig build python-dogfood    # the Python consumer against the pancake archives
 The full surface lives in the
 [Python binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/python/README.md),
 and the
-[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/python/room_client.py)
+[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/python/room_client.py)
 builds a small capability-secure room on this surface.

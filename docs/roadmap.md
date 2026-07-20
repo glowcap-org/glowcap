@@ -20,14 +20,6 @@ Linux-plus-bindings 1.0 audit may omit until that flip. When a flip condition
 trips, promote the rock into a dedicated execution plan. Do not treat it as the
 next opportunistic PR.
 
-The blocking pump stays a single fiber by contract (ADR-0053): cooperative
-request/response on one fiber; duplex backpressure on a completion loop
-(`net.TcpLoop`, or `completion.Loop(iroh.Backend, iroh.DialResolver)`).
-
-Wall-clock tripwires already run under `zig build check` via `perf-check`
-(ADR-0073 / ladder step 2). Tighter hardware-stable ceilings remain a
-measurement concern, not a missing check step.
-
 ## 1. Watch items (upstream)
 
 Status: backlogged. These wait on upstream OCapN or Goblins. They are not a
@@ -90,7 +82,7 @@ machine work on that step too ([ladder](ladder.md)).
     `check` but never executed.
   - **Flip condition:** a macOS runner is available and a runtime proof step is
     wired.
-  - **Flip condition:** the kqueue compile path already covered by `cross-check`.
+  - **Until then:** the kqueue compile path stays covered by `cross-check`.
 - **Browser binding via WebAssembly (ADR-0070).**
   - **Landed:** Milestone 1. The byte-fed Host compiles to one freestanding
     `wasm32` module (`zig build wasm-driver`), and `@pancake/web`
@@ -100,20 +92,12 @@ machine work on that step too ([ladder](ladder.md)).
     keyed session against a native WebSocket-accepting host, with calls in
     both directions; `wasm-driver-test`, `wasm-abi-layout-check`, and
     `wasm-import-check` hold the layers under it.
-  - **Next:** retire the rooms web demo's per-tab JSON bridge onto the real
-    browser peer (the Milestone 1 consumer), then Milestone 2 (WebRTC
-    DataChannel with room-relayed signaling, the browser-to-browser handoff).
-    The retirement is its own execution plan, not an opportunistic PR; scoping
-    found three constraints that shape it. The room server grows a
-    WebSocket-accepting path (its host, `Session.establishAccepted`, ws as the
-    byte bearer) and `web.ts` shrinks to a static file server, supervisor, and
-    one dumb byte relay: DM by introduction has the recipient dial *members*
-    directly, and a browser reaches a terminal member's tcp locator only
-    through that relay. Browser-to-browser DM waits on Milestone 2. The iroh
-    web variant (`rooms-web-iroh`) keeps a relay in any design, since no
-    browser speaks QUIC. The browser UI's data layer moves from the JSON
-    control protocol onto stack sessions, and the page ships the bundled
-    `@pancake/web` graph plus `pancake_driver.wasm`.
+  - **Also landed:** the rooms web demo runs the browser peer over the
+    byte-transparent relay ([shipped.md](shipped.md)); the plan is
+    [rooms-web-browser-peer](planning/rooms-web-browser-peer.md).
+  - **Next:** browser DMs through the relay (the relay item in section 3
+    below), then Milestone 2 (WebRTC DataChannel with
+    room-relayed signaling, the browser-to-browser handoff).
   - **Depends on:** nothing upstream; the remaining work is in-tree.
     See [ADR-0070](decisions/adr/ADR-0070-browser-binding-via-wasm.md).
 
@@ -143,6 +127,41 @@ remains:
   `releases_published` in the same change that the release assets go live, then
   cold-cache smoke (checklist in `bindings/README.md`). Do not flip the valve
   before the GitHub assets exist.
+- **Byte-transparent relay: the open legs.** The relay is a first-class
+  capability, `@pancake/relay`, governed by
+  [ADR-0086](decisions/adr/ADR-0086-byte-transparent-relay.md)'s contract, and
+  proven across three runtimes ([shipped.md](shipped.md)). The cross-runtime
+  matrix `zig build bindings-relay` holds TCP forwarding and the backpressure
+  clause for the Deno reference relay, the Python relay
+  (`bindings/python/relay.py`), and the Rust relay (`bindings/rust/relay`);
+  `zig build bindings-relay-iroh` holds the iroh leg for all three, each dialing
+  a real iroh endpoint over QUIC. The `rooms-web-*` steps drive the Deno relay
+  through a real Chromium. What remains:
+  - **A Racket relay row.** ADR-0086 makes the relay a per-runtime pump over a
+    shared contract, added to the matrix as a row. Racket needs two pieces first:
+    a WebSocket server (the pinned toolchain ships none, so the row needs the
+    `rfc6455` package added to the devcontainer or a hand-rolled RFC 6455 server),
+    and a bare iroh relay-channel dial in the binding (it drives the iroh
+    readiness loop for sessions but exposes no raw-channel dial like the other
+    three bindings). The contract-level pieces already exist. Zig has no
+    WebSocket server yet either, so a Zig relay needs one built first.
+  - **Dispatch through the shared classifier.** Each relay classifies its target
+    locator locally today. Routing that dispatch through the shared
+    `pancake_host_plan_dial` (the same classifier the handoff redeem-dial uses),
+    so every runtime's relay sorts a locator identically, is the remaining
+    consistency step ADR-0086 names.
+  - **A named `PancakeRelayChannel` C-ABI shape.** iroh's raw conn plus readiness
+    already satisfy the byte-channel contract; naming them as one documented
+    channel (readiness fd, pump, `try_read`/`try_write` with `WOULD_BLOCK`,
+    close, release) and adding the same for `inproc` makes in-tree relay
+    conformance transport-uniform.
+  - **Browser-to-member DMs through the relay.** The relay allow-list admits
+    only the room server's own port, so the browser DM path is a stub that
+    says the feature is coming later. Opening it needs a source for member
+    ports (for example, the room server exposing live-introduction locators
+    over a session) plus a live proof.
+  - **A live Goblins-through-relay proof.** Byte transparency against a real
+    Goblins peer through the relay has no build step yet.
 - **Goblins interop over iroh.**
   - **Status:** backlogged (upstream).
   - **Blocker:** upstream Goblins ships no iroh netlayer.
@@ -174,6 +193,75 @@ remains:
     CapTP. It stays one control plane, never a second CapTP stack.
   - **Until then:** agents read live session state through `pancake` argv/REPL
     and the project MCP front; timeline visualization waits.
+- **The binding FFI and pump spine moves onto the generated tier.** The four
+  bindings hand-mirror one production spine: the C symbol signature tables
+  (about 1,200 lines across `bindings/rust/src/sys/`,
+  `bindings/python/pancake/_ffi_*.py`, `bindings/ts/stack/internal/ffi/`, and
+  `bindings/racket/private/ffi-*.rkt` for the driver archive alone, with
+  ocapn and transport siblings beside them) and the readiness-pump
+  choreography above them, held to the same shape today by the needle checks
+  in `tools/check/meta_check/binding_spine.zig`. The generated-constants tier
+  (`gen-binding-constants`, `gen-ts-abi`, `gen-binding-ffi-layouts`,
+  `gen-binding-host-action`) is the proven recipe: reflect one Zig source,
+  emit per language, gate on staleness. What the signature tables need that
+  plain reflection cannot supply is direction semantics: which parameters are
+  out-buffers. The wasm adapter's `SymbolDef.outBuffers` annotation, Racket's
+  `wrap-out1` picks, and Python's out-pointer picks are each hand-judged per
+  function today. So the source of truth is an annotated symbol table beside
+  the C ABI, from which each language's FFI spelling generates and each
+  `binding_spine` needle family retires as its slice lands. The first slice is
+  landed: every archive with a stack dlopen loader (ocapn, driver, tcp,
+  inproc) carries an annotated inventory (`symbols.zig` beside its exports:
+  out-param indexes, pointer-crossing overrides, per-language omissions and
+  omitted families with reasons), and `gen-ts-abi` generates all four TS
+  tables from them under one staleness check, with a two-way compile-time
+  walk between inventory and export set. The `@pancake/iroh` lazy loader
+  generates too (its inventory added the `nonblocking` crossing semantic), so
+  the whole TypeScript FFI tier — five loaders across five archives — comes
+  from the inventories, and the iroh readiness event bits plus the
+  ready-event layout ride the generated constant and layout families in every
+  binding. Next slices are the other languages, with two design facts scouted:
+  Zig reflection strips parameter *names*, so the Rust extern blocks (which
+  humans read) need a name source — extend the inventories with per-parameter
+  names, or parse the generated C headers — and the `sys/` files interleave
+  hand-authored struct mirrors and layout pins with the extern blocks, so the
+  generated half lands as a sibling module the hand file re-exports, not a
+  whole-file replacement. Both facts are now proven code: the iroh extern
+  block generates (`gen-binding-rust-ffi` — types reflected, names parsed
+  from the gate-held header, `rust_omit` rows for the symbols the binding
+  does not declare) and every `sys/` hand file re-exports its generated
+  sibling: all five Rust extern blocks now come from the inventories, with
+  the named callback aliases riding a per-archive `special` table. The
+  ctypes tier generates too (`gen-binding-python-ffi`): the sigs dicts are
+  positional so no name source is needed, the struct-pointer mirrors map
+  mechanically (`PancakeDialPlan` to `_DialPlan`), and — because each
+  `_ffi_*.py` builds its dict inside `_load()` with the struct types in
+  scope — the generated `_sigs_gen.py` exports one function per archive
+  taking those types as parameters, so no import cycle forms. The
+  byte-pointer spelling normalized to `c_void_p` across all five dicts (it
+  accepts every call style the binding uses — buffers, casts, None — so the
+  hand files' `POINTER(c_uint8)` outliers retired with no caller sweep),
+  and the inventories grew the `python_omit` column, since Python's
+  declared set matches neither TS's (it declares `pump_drain` and
+  `context_new`) nor Rust's (it declares `next_action` and `feed_bytes`).
+  The Racket tables generate too (`gen-binding-racket-ffi`), which
+  completes the language tiers: raw `_fun` signatures reflect from the Zig
+  exports, the out-cell wrapper tier (`wrap-out1` / `call/outs`) derives
+  from `out_params` plus each parameter's slot shape, `call/outs` argument
+  names come from the generated headers, and the inventories grew
+  `racket_omit` and the thread-level `blocking` column (`#:blocking?`, the
+  fact under TS's narrower `nonblocking` dispatch policy). The one
+  non-mechanical wrapper (the pending-dial view materializer) stays
+  hand-written over its provided starred raw, and the driver cstructs moved
+  into `ffi-shared.rkt` so the generated modules sit below every hand
+  module. The pump choreography hoist closed the rock: the byte-path tail
+  the four pumps each kept by hand moved behind the one C verb —
+  `pancake_host_session_feed_bytes` owns framing *and* the unconsumed tail
+  (`HostSession.feed_tail`), consuming every fed byte on success, with an
+  empty feed resuming the frames held behind the handshake hello — so the
+  binding pumps shrank to read, feed, and drain, and the four hand-copied
+  inbox/coalesce choreographies deleted. The generated FFI tiers made the
+  signature change one regeneration per language.
 - **A2A-on-CapTP facade.** An agent-to-agent surface layered on the shipped Host
   and session verbs, deferred to its own plan
   ([design](planning/pancake-a2a-on-captp-design.md)). It composes the existing

@@ -48,7 +48,7 @@ frames, but the semantics stay this chain.
 sequenceDiagram
     participant Q as Questioner
     participant R as Answerer
-    Q->>R: op:deliver (to desc:import-object 1, ['lookup, x], answer-pos 3)
+    Q->>R: op:deliver (to desc:export 1, ['lookup, x], answer-pos 3)
     Q->>R: op:deliver (to desc:answer 3, ['getCalendar], answer-pos 4)
     Q->>R: op:deliver (to desc:answer 4, ['eventsToday], answer-pos 5)
     Note over R: each hop queues against the previous answer
@@ -83,7 +83,7 @@ sequenceDiagram
     Q->>R: op:listen (desc:answer 7, desc:import-object 9, wants-partial false)
     Note over R: listener installed on answer 7
     Note over R: answer 7 settles
-    R->>Q: op:deliver (to desc:import-object 9, ['fulfill, value], answer-pos false)
+    R->>Q: op:deliver (to desc:export 9, ['fulfill, value], answer-pos false)
 ```
 
 ## PP-6: op:listen with wants-partial `[goblins-canonical]`
@@ -98,10 +98,10 @@ sequenceDiagram
     participant R as Answerer
     Q->>R: op:listen (desc:answer 7, desc:import-object 9, wants-partial true)
     Note over R: answer 7 fulfills with another promise
-    R->>Q: op:deliver (to desc:import-object 9, ['fulfill, partial-promise], answer-pos false)
+    R->>Q: op:deliver (to desc:export 9, ['fulfill, partial-promise], answer-pos false)
     Note over R: listener re-installs on the new promise
     Note over R: chain bottoms out in a settled value
-    R->>Q: op:deliver (to desc:import-object 9, ['fulfill, value], answer-pos false)
+    R->>Q: op:deliver (to desc:export 9, ['fulfill, value], answer-pos false)
 ```
 
 ## PP-7: op:listen on an already-settled target
@@ -123,5 +123,5 @@ sequenceDiagram
     participant R as Answerer
     Q->>R: op:listen (desc:export 5, desc:import-object 9, wants-partial false)
     Note over R: export 5 is a live object, nothing pending
-    R->>Q: op:deliver (to desc:import-object 9, ['fulfill, desc:import-object 5], answer-pos false)
+    R->>Q: op:deliver (to desc:export 9, ['fulfill, desc:import-object 5], answer-pos false)
 ```

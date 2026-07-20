@@ -23,9 +23,9 @@
 const std = @import("std");
 const pancake = @import("pancake");
 const iroh = @import("iroh");
+const harness = @import("interop_harness");
 
 const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
 const actors = pancake.actors;
 const driver = pancake.driver;
 const net = pancake.net;
@@ -41,28 +41,12 @@ const calls_per_conn: usize = 4;
 
 const IrohLoop = net.completion.Loop(iroh.Backend, iroh.DialResolver);
 const IrohBridge = driver.Bridge(IrohLoop);
+const runLoop = harness.LoopRunner(IrohLoop).runAfterClosed;
 
 /// The published actor: answers `greet` with a static greeting. A fresh instance
 /// is published per connection by `publishGreeter`.
-const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
-        return .{ .string = greeting };
-    }
-};
-
-fn publishGreeter(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
-    _ = ctx;
-    _ = try served.publish("greeter", Greeter, .{});
-}
-
-fn runLoop(loop: *IrohLoop, until_closed: usize, out_err: *?anyerror) void {
-    loop.run(.{ .after_closed = until_closed }) catch |err| {
-        out_err.* = err;
-    };
-}
+const Greeter = harness.StaticReplyActor("greet", greeting);
+const publishGreeter = harness.publisher("greeter", Greeter);
 
 /// One client: bind its own iroh endpoint, dial the server by id alone (the
 /// `local_discovery` book resolves it), fetch the greeter, and call it
@@ -73,34 +57,21 @@ fn clientOnce(io: std.Io, allocator: std.mem.Allocator, server_id: []const u8) a
 
     const entries = [_]net.netlayer.Netlayer{client.netlayer()};
 
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
+    defer scaffold.deinit();
 
     const locator: model.PeerLocator = .{
         .transport = iroh.transport_name,
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, &entries, &peer, locator, .ephemeral, read_buf, write_buf, 0);
+    var cv = try driver.connectVia(allocator, &entries, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, 0);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
     var i: usize = 0;
     while (i < calls_per_conn) : (i += 1) {
-        var arena_state = std.heap.ArenaAllocator.init(allocator);
-        defer arena_state.deinit();
-        const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena_state.allocator());
-        const ok = switch (settled) {
-            .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
-            .broken, .give => false,
-        };
-        if (!ok) return error.WrongReply;
+        try harness.expectStringReply(&cv, allocator, greeter, "greet", &.{.{ .string = "world" }}, greeting);
     }
 }
 
@@ -137,15 +108,11 @@ pub fn main(init: std.process.Init) !void {
 
     const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
     const backend = try iroh.Backend.initBound(allocator, &server, 256, 256, read_buffer_bytes);
-    loop = try IrohLoop.initWithBackend(allocator, backend, IrohBridge.makePeer, @ptrCast(&bridge), .{
+    loop = try IrohLoop.initWithBackend(allocator, backend, IrohBridge.makePeer, @ptrCast(&bridge), IrohBridge.hookOptions(.{
         .frame_cap = frame_cap,
         .max_conns = 64,
         .listen = 0,
-        .make_conn_ctx = IrohBridge.makeConnCtx,
-        .serve = IrohBridge.serve,
-        .free_conn_ctx = IrohBridge.freeConnCtx,
-        .on_close = IrohBridge.onClose,
-    });
+    }));
     defer loop.deinit();
     try bridge.attach(iroh.transport_name, server_id, &.{});
 

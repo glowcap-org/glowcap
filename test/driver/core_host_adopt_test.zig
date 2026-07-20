@@ -10,6 +10,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const promise_capture = @import("../support/capture.zig");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -31,49 +32,17 @@ const Counter = struct {
     }
 };
 
-const CapturedRef = struct {
-    ref: ?model.Reference = null,
-    fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *CapturedRef = @ptrCast(@alignCast(ctx.?));
-        if (resolution == .fulfilled and resolution.fulfilled == .reference)
-            self.ref = resolution.fulfilled.reference;
-    }
-};
-
-const CapturedInt = struct {
-    value: ?i64 = null,
-    fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *CapturedInt = @ptrCast(@alignCast(ctx.?));
-        if (resolution == .fulfilled and resolution.fulfilled == .integer)
-            self.value = resolution.fulfilled.integer;
-    }
-};
+const CapturedRef = promise_capture.CapturedRef;
+const CapturedInt = promise_capture.CapturedInt;
 
 /// Move frames client → adopted conn (through `feed`) and back (client is an
 /// ordinary host-owned connection).
-fn shuttle(client_host: *Host, client: *HostSession, server_host: *Host, adopted: *HostSession) !bool {
-    var moved = false;
-    while (try client.takeOutbound()) |frame_value| {
-        var frame = frame_value;
-        defer frame.deinit();
-        try server_host.feed(adopted, frame.view());
-        moved = true;
-    }
-    while (try adopted.takeOutbound()) |frame_value| {
-        var frame = frame_value;
-        defer frame.deinit();
-        try client_host.feed(client, frame.view());
-        moved = true;
-    }
-    return moved;
-}
+const host_pair = @import("../support/host_pair.zig");
 
+/// The adopted conn is an ordinary `Pair` leg: client host/session on one
+/// side, the adopting host and its adopted session on the other.
 fn pumpToQuiescence(client_host: *Host, client: *HostSession, server_host: *Host, adopted: *HostSession) !void {
-    var rounds: usize = 0;
-    while (rounds < 64) : (rounds += 1) {
-        if (!try shuttle(client_host, client, server_host, adopted)) return;
-    }
-    return error.PumpDidNotQuiesce;
+    try host_pair.pumpToQuiescence(&.{.{ .ah = client_host, .a = client, .bh = server_host, .b = adopted }});
 }
 
 test "openAcceptedOver adopts an embedder-pinned peer: handshake, fetch, per-event serve, release without freeing" {

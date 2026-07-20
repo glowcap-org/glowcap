@@ -58,95 +58,38 @@ eventual-send.
 
 ## The internal FFI split
 
-The raw `ffi/unsafe` layer is never required by a consumer. It follows Racket's
-`private/` convention and mirrors the C ABI's own module split:
-
-- [`private/ffi-shared.rkt`](private/ffi-shared.rkt): the shared frame,
-  allocator, reference, argument, and event cstructs the archives agree on by
-  layout. It opens no library; the Racket mirror of the C ABI's `c_abi/shared`
-  leaf.
-- [`private/lib-resolve.rkt`](private/lib-resolve.rkt): publishable archive
-  resolve and open (`open-pancake-archive`), the ADR-0077 cascade for every
-  per-archive loader.
-- [`private/ffi-ocapn.rkt`](private/ffi-ocapn.rkt): opens `libpancake_ocapn` and
-  binds the library-level `pancake_*` family the binding consumes: version,
-  last error, the managed-frame release, the locator URI grammar, and the
-  exporter location-record encoder.
-- [`private/ffi-driver.rkt`](private/ffi-driver.rkt): opens `libpancake_driver`
-  and binds the byte-fed host's `pancake_host_*` family.
-- [`private/ffi-tcp.rkt`](private/ffi-tcp.rkt): opens
-  `libpancake_net_transport_tcp` and binds `pancake_tcp_*`.
-- [`private/ffi-inproc.rkt`](private/ffi-inproc.rkt): opens
-  `libpancake_net_transport_inproc` and binds `pancake_inproc_*`.
-- [`private/ffi-iroh.rkt`](private/ffi-iroh.rkt): loads
-  `libpancake_net_transport_iroh` lazily on first use, naming the build step
-  (`zig build iroh-abi`, needs cargo) when it is absent.
-- [`private/constants.rkt`](private/constants.rkt): the ABI constants,
-  hand-mirrored from `pancake_ocapn.h` and `pancake_driver.h` and held to them
-  by `zig build meta-check`.
-- [`private/seam.rkt`](private/seam.rkt): the shared seam: the core machinery
-  (`check-with`, `pin-immobile`, the frame cstructs, the connection construction
-  verbs, and the argument codec) the transport companions and the actors
-  companion build on. It re-provides `pancake.rkt`'s `seam` submodule, so none of
-  it rides the public provide.
-
-Each transport archive keeps its own thread-local last-error, read through that
+The raw `ffi/unsafe` layer is never required by a consumer. It follows
+Racket's `private/` convention and mirrors the C ABI's own module split: one
+shared types leaf (`ffi-shared`), one archive resolve/open module
+(`lib-resolve`, the ADR-0077 cascade), one loader per archive (`ffi-ocapn`,
+`ffi-driver`, `ffi-tcp`, `ffi-inproc`, and a lazy `ffi-iroh` that names
+`zig build iroh-abi` when the archive is absent), the hand-mirrored constants
+(`constants.rkt`, held to the headers by `zig build meta-check`), and the
+shared seam the transport and actors companions build on (`seam.rkt`). Each
+loader's bound functions and out-cell wrappers are generated from the Zig
+exports (the `ffi-*-gen.rkt` siblings, `zig build gen-binding-racket-ffi`,
+held fresh by the check build); the hand loader owns the prose, the cstruct
+declarations, and any wrapper too bespoke to derive. Each
+transport archive keeps its own thread-local last-error, read through that
 archive's own reader (`tcp-last-error`, `inproc-last-error`), never the ocapn
 family's `last-error`.
 
 ## The public surface, split by responsibility
 
-`pancake.rkt` is a thin barrel: it requires the responsibility modules below and
-re-provides their public surface unchanged, so `(require "pancake.rkt")` is one
-import for a consumer. It also carries the `seam` submodule that re-provides the
-binding-internal transport seam (`private/seam.rkt` re-provides it in turn).
+`pancake.rkt` is a thin barrel: it requires one `private/` module per
+responsibility (errors, values, the argument codec, the vat, the wire
+trampoline, locators, the transport layer, the host, host actions, far vows,
+GC, dial, listen, the byte pump, and the session verbs) and re-provides their
+public surface unchanged, so `(require "pancake.rkt")` is one import for a
+consumer. It also carries the `seam` submodule that re-provides the
+binding-internal transport seam.
 
-- [`private/errors.rkt`](private/errors.rkt): the typed `exn:fail:pancake`, the
-  per-thread last-error readers, and `check` / `check-with` / `raise-pancake`.
-- [`private/value.rkt`](private/value.rkt): the reference, resolution, and event
-  structs the surfaces exchange as native Racket values.
-- [`private/codec.rkt`](private/codec.rkt): the native-value argument codec
-  (`arg->c` / `args->c` / `arg<-c` / `args<-c` / `ref->c` / `bytes<-c`).
-- [`private/vat.rkt`](private/vat.rkt): the Goblins-shaped vat's local half
-  only. It covers actor state, the queued turn loop, local vows, `bcom`, and
-  time-travel (`spawn`, `$`, `<-`, `on`, `methods`). Everything wire-shaped is
-  the host's. A connection installs the far half, so `<-` to a far reference
-  stays location-transparent. The smoke's actor section and the `bench-goblins`
-  app parity pin the semantics this half mirrors: a raising handler's staged
-  `bcom` never installs, a listener fires once, and local `<-` turns run FIFO
-  at `drive`. One boundary is narrower than Goblins and deliberate: there is no
-  cross-actor turn transactionality. An outer turn erroring after an inner `$`'s
-  `bcom` leaves the inner swap installed, where Goblins would roll it back.
-  Time-travel is accept-side (server) only today: `accept` takes
-  `#:time-travel?`; `connect` and the iroh surface do not.
-- [`private/trampoline.rkt`](private/trampoline.rkt): the bridge between vat
-  actors and the host's wire hosting. The `PancakeHostBehavior` trampoline reads
-  an actor's current closure per call (so `bcom` and `vat-restore!` retarget
-  wire delivers), plus the turn verbs and reply marshalling.
-- [`private/locator.rkt`](private/locator.rkt): the OCapN locator URI grammar
-  (`parse-locator`, `format-peer-uri`, `tcp-locator`).
-- [`private/async.rkt`](private/async.rkt): the transport layer: the
-  `async-transport` closures (Racket TCP ports here, iroh injected by its
-  companion) and the per-session inbox. Framing is the core's: the pump
-  hands the inbox to `pancake_host_session_feed_bytes` and keeps only the
-  unconsumed tail.
-- [`private/host.rkt`](private/host.rkt): the CapTP `host` over the byte-fed
-  host handle (owns `engine.Node`): the reentrant host lock, the session
-  registry, host-wide giftables, gift-id entropy, and the iroh redeem posture.
-- [`private/action.rkt`](private/action.rkt): host-action decode and execute
-  (`drain-host-actions!` via `pancake_host_pump_drain`).
-- [`private/promise.rkt`](private/promise.rkt): far vows (`session-vow` /
-  `session-index` / `session-untag` / `session-get` / settle).
-- [`private/gc.rkt`](private/gc.rkt): ADR-0063 opt-in distributed GC.
-- [`private/dial.rkt`](private/dial.rkt): unified dial executor (`plan_dial` +
-  `connect` + redeem).
-- [`private/listen.rkt`](private/listen.rkt): `server` / `listen` / keyed-tcp
-  hosting.
-- [`private/pump.rkt`](private/pump.rkt): connection byte path (feed / flush /
-  EOF / `break_far_vows`).
-- [`private/session.rkt`](private/session.rkt): the partner surface: the
-  `session` struct, mint and handshake (`establish-*`), and the `session-*`
-  application verbs.
+Two vat boundaries are consumer-visible and deliberate, pinned by the smoke
+and the `bench-goblins` app parity. There is no cross-actor turn
+transactionality: an outer turn erroring after an inner `$`'s `bcom` leaves
+the inner swap installed, where Goblins would roll it back. And time-travel
+is accept-side (server) only today: `accept` takes `#:time-travel?`;
+`connect` and the iroh surface do not.
 
 [`zig-smoke.rkt`](zig-smoke.rkt) is the consumer `zig build bindings` runs. It
 drives real OCapN conversations through the session surface: keyed handshakes,

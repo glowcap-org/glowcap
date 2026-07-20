@@ -1,6 +1,6 @@
 # References and tables
 
-Anchors: CapTP Specification § Descriptors, § Export and import tables.
+Anchors: CapTP Specification § Descriptors.
 
 ## RT-1: Descriptor taxonomy
 

@@ -1,0 +1,20 @@
+{
+	"//": "The deno config for bundling @pancake/web (and the @pancake/stack graph it drives) for a browser. Maps the same package specifiers the root deno.json does, plus the two non-browser FFI host imports (node:net, bun:ffi) to browser stubs, so the stack's node/bun adapters — bundled but never selected once the web adapter is injected — resolve without pulling a runtime the browser lacks. Use with `deno bundle --platform browser --config bindings/ts/web/browser-bundle.json <entry>`.",
+	"imports": {
+		"@pancake/web": "./mod.ts",
+		"@pancake/stack": "../stack/mod.ts",
+		"@pancake/stack/ffi": "../stack/ffi.ts",
+		"@pancake/iroh": "./browser_iroh_stub.ts",
+		"@pancake/iroh/internal": "./browser_iroh_stub.ts",
+		"zod": "npm:zod@4.4.3",
+		"node:net": "./browser_ffi_stubs.ts",
+		"bun:ffi": "./browser_ffi_stubs.ts",
+		"node:process": "./browser_ffi_stubs.ts",
+		"node:fs": "./browser_ffi_stubs.ts",
+		"node:crypto": "./browser_ffi_stubs.ts",
+		"node:os": "./browser_ffi_stubs.ts",
+		"node:path": "./browser_ffi_stubs.ts",
+		"node:url": "./browser_ffi_stubs.ts",
+		"node:child_process": "./browser_ffi_stubs.ts"
+	}
+}

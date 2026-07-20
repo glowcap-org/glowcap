@@ -1,7 +1,7 @@
 //! Shared helpers for the Goblins interop drivers: the spawned Racket child's
-//! NDJSON readiness protocol (field extraction, the published-swiss wait, the
-//! best-effort stderr dump), the keyed `op:start-session` bracket, and the
-//! bootstrap-fetch pump loop.
+//! NDJSON readiness protocol (the spawn-and-await bracket, field extraction,
+//! the published-swiss wait, the stdout drain, the best-effort stderr dump),
+//! the keyed `op:start-session` bracket, and the bootstrap-fetch pump loop.
 
 const std = @import("std");
 const pancake = @import("pancake");
@@ -168,16 +168,78 @@ pub fn readPublishedSwiss(io: std.Io, allocator: std.mem.Allocator, child: *std.
     }
 }
 
+/// A spawned Racket host and the swiss-num its readiness line published.
+pub const SpawnedHost = struct {
+    child: std.process.Child,
+    /// Caller owns the bytes.
+    swiss: []u8,
+};
+
+/// Spawn a Racket host script (`argv_tail` follows the `racket` executable)
+/// and wait for its NDJSON readiness line. On failure this prints the missed
+/// `ready_what` readiness under `prefix`, dumps the child's stderr, and kills
+/// the child; on success the caller owns the child (kill it when done) and
+/// the swiss bytes.
+pub fn spawnHostAwaitSwiss(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    environ_map: *std.process.Environ.Map,
+    prefix: []const u8,
+    ready_what: []const u8,
+    argv_tail: []const []const u8,
+) !SpawnedHost {
+    var argv_buf: [8][]const u8 = undefined;
+    argv_buf[0] = racket_path;
+    for (argv_tail, 0..) |arg, i| argv_buf[i + 1] = arg;
+    var child = try std.process.spawn(io, .{
+        .argv = argv_buf[0 .. argv_tail.len + 1],
+        .environ_map = environ_map,
+        .stdout = .pipe,
+        .stderr = .pipe,
+    });
+    const swiss = readPublishedSwiss(io, allocator, &child) catch |err| {
+        std.debug.print("{s}: never saw the {s} readiness line: {s}\n", .{ prefix, ready_what, @errorName(err) });
+        dumpChildStderr(io, prefix, &child);
+        child.kill(io); // kill terminates and reaps
+        return err;
+    };
+    return .{ .child = child, .swiss = swiss };
+}
+
+/// Read whatever the child has written to stdout into `scratch`, returning the
+/// byte count. Best-effort: a read failure just ends the drain.
+pub fn drainChildStdout(io: std.Io, child: *std.process.Child, scratch: []u8) usize {
+    const out = child.stdout orelse return 0;
+    var rbuf: [4096]u8 = undefined;
+    var reader = out.readerStreaming(io, &rbuf);
+    var seen: usize = 0;
+    while (seen < scratch.len) {
+        const n = reader.interface.readSliceShort(scratch[seen..]) catch break;
+        if (n == 0) break;
+        seen += n;
+    }
+    return seen;
+}
+
 /// Best-effort dump of the child's stderr under `prefix`, to surface why
-/// Goblins died.
+/// Goblins died. The read end is flipped non-blocking first: a dead child
+/// EOFs immediately, while a live, silent child (a hung dialer, a bind race)
+/// yields whatever is buffered and then would-block — the dump path exists to
+/// explain a failure and must never park the driver itself. Call this before
+/// `child.kill` (the reap closes and nulls the pipes).
 pub fn dumpChildStderr(io: std.Io, prefix: []const u8, child: *std.process.Child) void {
+    _ = io;
     const err_file = child.stderr orelse return;
-    var buf: [4096]u8 = undefined;
-    var reader = err_file.readerStreaming(io, &buf);
+    const fd = err_file.handle;
+    const fl = std.posix.system.fcntl(fd, std.posix.F.GETFL, @as(usize, 0));
+    if (std.posix.errno(fl) == .SUCCESS) {
+        const nonblock = @as(usize, @intCast(fl)) | @as(usize, 1 << @bitOffsetOf(std.posix.O, "NONBLOCK"));
+        _ = std.posix.system.fcntl(fd, std.posix.F.SETFL, nonblock);
+    }
     std.debug.print("{s}: --- goblins stderr ---\n", .{prefix});
-    var scratch: [1024]u8 = undefined;
+    var scratch: [4096]u8 = undefined;
     while (true) {
-        const n = reader.interface.readSliceShort(&scratch) catch break;
+        const n = std.posix.read(fd, &scratch) catch break;
         if (n == 0) break;
         std.debug.print("{s}", .{scratch[0..n]});
     }

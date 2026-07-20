@@ -222,6 +222,7 @@ pub fn Emit(comptime Spec: type) type {
             comptime doc: []const u8,
         ) !void {
             comptime {
+                @setEvalBranchQuota(1_000_000);
                 var listed = false;
                 for (emitted_fns) |name| {
                     if (std.mem.eql(u8, name, fn_name)) listed = true;
@@ -230,6 +231,13 @@ pub fn Emit(comptime Spec: type) type {
                 // The header is the C consumer's only surface, so a bare prototype
                 // is an undocumented function no matter what the Zig source says.
                 if (doc.len == 0) @compileError("prototype '" ++ fn_name ++ "' has no header doc; write the contract here");
+                // The doc lands inside a block comment: prose that itself spells
+                // `/*` or `*/` (an out-pointer pair like `*out_a/*out_b`) breaks
+                // or nests the comment, a warning -Werror consumers fail on —
+                // possibly much later, when a header change first invalidates
+                // their compile cache. Space the slash: `*out_a / *out_b`.
+                if (std.mem.indexOf(u8, doc, "/*") != null or std.mem.indexOf(u8, doc, "*/") != null)
+                    @compileError("prototype '" ++ fn_name ++ "' doc contains /* or */, which breaks the emitted block comment");
             }
             const info = @typeInfo(@TypeOf(@field(c, fn_name))).@"fn";
             if (info.params.len != param_names.len) @compileError("param name count mismatch for " ++ fn_name);

@@ -9,6 +9,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const promise_capture = @import("../support/capture.zig");
 
 const model = pancake.ocapn.model;
 const actors = pancake.actors;
@@ -55,7 +56,10 @@ const Introducer = struct {
 };
 
 /// A wired pair: one host's connection whose outbound is the other's inbound.
-const Pair = struct { ah: *Host, a: *HostSession, bh: *Host, b: *HostSession };
+const host_pair = @import("../support/host_pair.zig");
+const Pair = host_pair.Pair;
+const shuttleAll = host_pair.shuttleAll;
+const tcpLocator = host_pair.tcpLocator;
 
 /// One dial request parked for the test to execute, designator duped clear of
 /// the action queue's popped-view lifetime.
@@ -102,27 +106,6 @@ fn drainActions(allocator: std.mem.Allocator, hosts: []const *Host, dials: *std.
     return did_work;
 }
 
-/// Move every queued frame across every wired pair, both directions. Returns
-/// whether anything moved.
-fn shuttleAll(pairs: []const Pair) !bool {
-    var moved = false;
-    for (pairs) |pair| {
-        while (try pair.a.takeOutbound()) |frame_value| {
-            var frame = frame_value;
-            defer frame.deinit();
-            try pair.bh.feed(pair.b, frame.view());
-            moved = true;
-        }
-        while (try pair.b.takeOutbound()) |frame_value| {
-            var frame = frame_value;
-            defer frame.deinit();
-            try pair.ah.feed(pair.a, frame.view());
-            moved = true;
-        }
-    }
-    return moved;
-}
-
 /// Pump shuttles and action drains until the whole network is quiescent.
 fn pumpToQuiescence(
     allocator: std.mem.Allocator,
@@ -139,60 +122,8 @@ fn pumpToQuiescence(
     return error.PumpDidNotQuiesce;
 }
 
-const CapturedRef = struct {
-    ref: ?model.Reference = null,
-    broken: bool = false,
-    reason_buf: [128]u8 = undefined,
-    reason_len: usize = 0,
-
-    fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *CapturedRef = @ptrCast(@alignCast(ctx.?));
-        switch (resolution) {
-            .fulfilled => |value| switch (value) {
-                .reference => |reference| self.ref = reference,
-                else => {},
-            },
-            .broken => |reason| {
-                self.broken = true;
-                self.reason_len = @min(reason.len, self.reason_buf.len);
-                @memcpy(self.reason_buf[0..self.reason_len], reason[0..self.reason_len]);
-            },
-            .give => self.broken = true,
-        }
-    }
-
-    fn require(self: *const CapturedRef) !model.Reference {
-        if (self.broken) {
-            std.debug.print("vow broke: {s}\n", .{self.reason_buf[0..self.reason_len]});
-            return error.VowBroke;
-        }
-        return self.ref orelse error.VowDidNotSettle;
-    }
-};
-
-const CapturedString = struct {
-    buf: [64]u8 = undefined,
-    len: usize = 0,
-    broken: bool = false,
-
-    fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *CapturedString = @ptrCast(@alignCast(ctx.?));
-        switch (resolution) {
-            .fulfilled => |value| switch (value) {
-                .string => |text| {
-                    self.len = @min(text.len, self.buf.len);
-                    @memcpy(self.buf[0..self.len], text[0..self.len]);
-                },
-                else => {},
-            },
-            .broken, .give => self.broken = true,
-        }
-    }
-};
-
-fn tcpLocator(designator: []const u8) model.PeerLocator {
-    return .{ .transport = "tcp", .designator = designator, .hints = model.Hints.emptyFalse() };
-}
+const CapturedRef = promise_capture.CapturedRef;
+const CapturedString = promise_capture.CapturedString;
 
 /// Open a dialed/accepted pair between two hosts and drive the keyed
 /// handshake open over fed bytes.

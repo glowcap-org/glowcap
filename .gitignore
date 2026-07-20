@@ -10,8 +10,10 @@ zig-pkg/
 site/public/
 bindings/rust/Cargo.lock
 bindings/rust/target/
-examples/apps/*/rust/Cargo.lock
-examples/apps/*/rust/target/
+bindings/rust/relay/Cargo.lock
+bindings/rust/relay/target/
+apps/*/rust/Cargo.lock
+apps/*/rust/target/
 bench/langs/clients/rust_bench/Cargo.lock
 bench/langs/clients/rust_bench/target/
 # transports/iroh/Cargo.lock is deliberately committed (see its Cargo.toml):
@@ -34,12 +36,12 @@ deno.lock
 
 # accountability-on-pancake writes its durable Episode log + transparency root
 # here at run time; generated state, never committed.
-examples/apps/accountability-on-pancake/.data/
+apps/accountability-on-pancake/.data/
 
 # The rooms browser UI is authored as ui/page.ts and bundled to ui/page.js (on the
 # fly by web.ts in dev, or pre-built with `deno bundle` for the network-free deploy).
 # Generated, never committed.
-examples/apps/rooms/deno/ui/page.js
+apps/rooms/deno/ui/page.js
 
 # local scratch: reference clones, throwaway experiments, MCP CapTP state (never committed)
 .local/

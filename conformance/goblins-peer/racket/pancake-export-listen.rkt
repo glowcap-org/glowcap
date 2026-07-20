@@ -16,6 +16,8 @@
          goblins/vat
          goblins/ocapn
          goblins/ocapn/structs-urls
+         goblins/actor-lib/methods
+         (submod goblins/core listen)
          "tcp-netlayer.rkt"
          racket/async-channel)
 
@@ -52,7 +54,7 @@
          (define listener (spawn ^listen-capture))
          (listen provider listener))
        #:catch
-       (lambda (err) (async-channel-put response-ch `(err enliven ,err)))))
+       (lambda (err) (async-channel-put response-ch `(err enliven ,err))))))
 
 (define reply (sync/timeout 10.0 response-ch))
 (case (and (pair? reply) (car reply))

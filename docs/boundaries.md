@@ -1,12 +1,13 @@
 # Boundaries
 
-Edges of [what ships today](shipped.md). Most are pinned by a test or an ADR.
-Moving them: [ladder](ladder.md) and [roadmap](roadmap.md).
+This page lists the edges of [what ships today](shipped.md). Most are pinned
+by a test or an ADR; the [ladder](ladder.md) and [roadmap](roadmap.md) say how
+each one moves.
 
 ## Netlayer
 
-How transports and framing fit: [architecture](architecture.md#netlayer-net).
-What ships: [shipped](shipped.md). Edges that remain open:
+[architecture](architecture.md#netlayer-net) explains how transports and
+framing fit; [shipped](shipped.md) lists what ships. These edges remain open:
 
 - **Cleartext TCP / keyed-tcp.** Anyone on the path can read frames.
   Keyed-tcp pins the handshake key; it is not encryption. Confidentiality
@@ -32,8 +33,8 @@ What ships: [shipped](shipped.md). Edges that remain open:
 
 ## Sessions above I/O
 
-How Host / Session / handoff fit: [architecture](architecture.md#application-surface-driver).
-What ships: [shipped](shipped.md). Edges:
+[architecture](architecture.md#application-surface-driver) explains how Host,
+Session, and handoff fit; [shipped](shipped.md) lists what ships. The edges:
 
 - **App surface is the whole contract.** With a Host, ordinary
   `connect` / `fetch` / `send` never sees the give bytes or the second
@@ -50,6 +51,14 @@ What ships: [shipped](shipped.md). Edges:
   race an in-flight dial (ADR-0030).
 - **`127.0.0.1` vs `[::1]` can open two sessions** until the partner-key
   index wins. Keyed-tcp and iroh pin by key.
+- **One owning C session family.** The one-call blocking C session verbs
+  (`pancake_tcp_session_*`,
+  [ADR-0062](decisions/adr/ADR-0062-one-connect-over-a-netlayer-slice.md)) are
+  spelled on the tcp archive alone. A second transport does not copy that
+  family: before an owning inproc or iroh session surface lands, the session
+  choreography moves to one transport-neutral home and the transports keep
+  only their connect constructors. `zig build meta-check` refuses the copied
+  spelling until that move happens.
 - **Foreign promise as `send`/`tell` arg is refused** (`ForeignArgument`).
   Object foreign fulfills stay on gift-redeem. Listen on a bare unresolved
   promise export is refused; third-party promise listen is the ADR-0009
@@ -66,6 +75,10 @@ What the model covers: [shipped](shipped.md). Edges:
 
 - **No OCapN Null arm.** Goblins has no Null marshalling yet; inventing one
   would not interop. Unknown Syrup records project as `Tagged`.
+- **Set and Keyword go beyond the draft Model.** The pinned Model.md lists no
+  Set container and no Keyword atom; Goblins marshals both over Syrup, and
+  pancake follows that wire (canonical set order with duplicate refusal, the
+  Goblins `<kw …>` keyword record) rather than the narrower draft list.
 - **Goblins-as-asker against pancake's `op:get` / `op:index` / `op:untag`
   responders** is not the live `goblins-interop` proof. In-tree Zig scenarios
   and the reference fixtures cover the responders; the upstream suite carries
@@ -75,19 +88,12 @@ What the model covers: [shipped](shipped.md). Edges:
   settlements.
 - **No `op:deliver-only` in released v1.0.** One-way send is no-answer
   `op:deliver` (`tell`).
-- **Struct as a pancake-to-Goblins deliver reply is unproven live.** The
-  `goblins-interop` projection responder replies with strings and lists
-  because a Struct-shaped reply stalled the Goblins client's vow in the live
-  bracket. The reverse direction is proven (a Goblins `^record` hash arrives
-  as a pancake Struct in the client bracket), so the stall is either a
-  pancake canonical-struct encode gap or a Goblins-side unmarshal asymmetry;
-  until a live repro pins which, do not claim live Struct replies toward
-  Goblins.
 
 ## Scalable I/O and Host durability
 
-How Bridge + loop work: [architecture](architecture.md#application-surface-driver).
-Proofs: [shipped](shipped.md) (`tcp-loop`, `iroh-bridge-redeem`). Edges:
+[architecture](architecture.md#application-surface-driver) explains how the
+Bridge and the completion loop work; [shipped](shipped.md) names the proofs
+(`tcp-loop`, `iroh-bridge-redeem`). The edges:
 
 - **`durable_bootstrap` panics at `Host.init`** (a loud unsupported-posture
   stop, not a typed error) until an embedder store lands (ADR-0082). Default is
@@ -111,8 +117,8 @@ consumers need `PANCAKE_LIB_DIR` or in-tree `zig-out`.
 
 ## Codecs
 
-Tradeoffs and teaching: the site Codecs page (`zig build docs-serve`) and
-[shipped](shipped.md). Edges:
+The site Codecs page (`zig build docs-serve`) teaches the tradeoffs;
+[shipped](shipped.md) lists what ships. The edges:
 
 - **Handoff signing domain is always Syrup**, even on a Cap'n Proto session
   ([ADR-0009](decisions/adr/ADR-0009-three-party-handoff-substrate.md)).
@@ -120,8 +126,8 @@ Tradeoffs and teaching: the site Codecs page (`zig build docs-serve`) and
 
 ## Reference lifecycle
 
-What ships (GC opt-in, enliven dedup, caretaker/attenuate): [shipped](shipped.md).
-Edges:
+[shipped](shipped.md) lists what ships here (opt-in GC, enliven dedup,
+caretaker and attenuate). The edges:
 
 - **GC scope is `fetch` results only** (ADR-0063); near refs, promises,
   sturdyrefs, bootstrap, redeemed handoffs stay out.
@@ -143,8 +149,9 @@ simulator and fuzzer, is not implemented. The CLI exposes a brand placeholder
 is not. The [vision](vision.md) names what it will be. Start the runtime only
 when fuzz or simulation is the cheapest way to prove a net or driver claim that
 the live Goblins and `ocapn-conformance` check steps cannot reach, and never
-inside the sans-io core. Topology viz (ocapnviz / Flecs world) consumes griddle
-feeds later; CapTP lab (`pancake repl`) stays a separate ECS-lite UI.
+inside the sans-io core. Topology visualization (ocapnviz) is not
+implemented; it would consume griddle's timeline feeds. The CapTP lab
+(`pancake repl`) stays a separate UI.
 
 Adapter continuity (`driver.ResilientClient`, ADR-0082) is shipped. Further
 binding or demo polish lands only from a named demo or accountability failure,

@@ -12,6 +12,31 @@ test "await_queue classifies CapTP session verbs" {
     try std.testing.expect(!cli.repl_await_queue.isSessionVerb("help"));
 }
 
+test "every repl meta command has an exec arm" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+
+    for (cli.repl_meta.entries) |entry| {
+        var ctx = cli.ctx.Ctx{ .io = threaded.io(), .gpa = gpa, .environ = &environ, .front = .repl };
+        defer ctx.deinit();
+        var store = cli.repl_blocks.Store.init(gpa);
+        defer store.deinit();
+        var progress = cli.repl_teach.Progress{};
+        var complete_state = cli.repl_complete.State.init(gpa);
+        defer complete_state.deinit();
+        _ = try cli.repl_exec.handleLine(&ctx, entry.name, &store, &progress, &complete_state, null);
+        // A meta token without its own exec arm falls through to registry
+        // dispatch and lands an error block; the single `repl_meta` owner
+        // means Tab, the help footer, and dispatch must agree.
+        for (store.items.items) |item| {
+            try std.testing.expect(item.kind != .error_line);
+        }
+    }
+}
+
 test "blocks setLine rewrites pending" {
     var store = cli.repl_blocks.Store.init(std.testing.allocator);
     defer store.deinit();
@@ -28,13 +53,20 @@ test "complete suggests verbs for empty line" {
     const n = cli.repl_complete.candidates(&state, "", &out);
     try std.testing.expect(n >= 4);
     var saw_call = false;
-    var saw_quit = false;
     for (out[0..n]) |c| {
         if (std.mem.eql(u8, c.token, "call")) saw_call = true;
-        if (std.mem.eql(u8, c.token, "quit")) saw_quit = true;
     }
     try std.testing.expect(saw_call);
-    try std.testing.expect(saw_quit);
+    // Every REPL-only meta command Tab-completes, and the derived help footer
+    // names each one — the single `meta.entries` owner cannot drift from either.
+    for (cli.repl_meta.entries) |entry| {
+        var saw = false;
+        for (out[0..n]) |c| {
+            if (std.mem.eql(u8, c.token, entry.name)) saw = true;
+        }
+        try std.testing.expect(saw);
+        try std.testing.expect(std.mem.indexOf(u8, cli.repl_meta.footer, entry.name) != null);
+    }
 }
 
 test "complete filters by prefix" {

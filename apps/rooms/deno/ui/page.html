@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport"
+			content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content" />
+		<title>pancake rooms</title>
+		<link rel="stylesheet" href="page.css" />
+	</head>
+	<body>
+		<div class="app">
+			<nav class="sidebar" aria-label="Rooms">
+				<div class="workspace">pancake <small>rooms</small></div>
+				<div class="section">
+					<div class="section-head">
+						<span>Rooms</span>
+						<button id="newRoomBtn" title="Create or open a room"
+							aria-label="Create or open a room"
+							aria-controls="newRoom"
+							aria-expanded="false">+</button>
+					</div>
+					<div id="newRoom" class="newroom">
+						<input id="newRoomInput" placeholder="new-room-name"
+							aria-label="New room name" maxlength="32" />
+					</div>
+					<ul id="roomList"></ul>
+				</div>
+				<div class="section dms">
+					<div class="section-head">
+						<span>Direct messages</span>
+						<button id="newDmBtn" title="Message a member directly"
+							aria-label="Start a direct message"
+							aria-controls="newDm"
+							aria-expanded="false" hidden>+</button>
+					</div>
+					<div id="newDm" class="newroom">
+						<input id="newDmInput" placeholder="member name"
+							aria-label="Member to message" maxlength="32" />
+					</div>
+					<ul id="dmList"></ul>
+				</div>
+				<div
+					class="sidebar-foot"><span id="dot" class="dot"></span><span id="status">connecting…</span></div>
+			</nav>
+
+			<div class="workarea">
+				<header class="topbar">
+					<button id="backBtn" class="icon"
+						title="Rooms and direct messages"
+						aria-label="Open the list of rooms and direct messages">☰</button>
+					<h1
+						id="roomTitle"><span class="hash" id="roomSigil">#</span><span id="roomName">rooms</span></h1>
+					<span class="meta" id="roomMeta"></span>
+					<span class="provenance" id="provenance"
+						role="note"><span class="lock">🔒</span><span id="provenanceText"></span></span>
+					<span class="spacer"></span>
+					<button id="notifyToggle" class="icon"
+						title="Notify me when I'm mentioned"
+						aria-label="Toggle mention notifications"
+						aria-pressed="false"
+						hidden>🔕</button>
+					<button id="themeToggle" class="icon"
+						title="Toggle light / syrup"
+						aria-label="Toggle light or dark theme">🌙</button>
+					<button id="membersToggle" class="ghost" aria-pressed="true"
+						hidden>Members</button>
+				</header>
+
+				<div class="content" id="content">
+					<div class="stream">
+						<div id="banner" class="banner" role="status"
+							aria-live="polite"></div>
+						<section id="log" aria-live="polite"
+							aria-label="Messages">
+							<div class="join-wrap" id="joinScreen">
+								<form id="joinForm" class="join">
+									<h2>Join a room</h2>
+									<p
+										class="lead">Pick a room and a name — capability-secure chat, no account. Entering a room that does not exist yet opens it.</p>
+									<label for="room">Room</label>
+									<input id="room" placeholder="general"
+										value="general"
+										aria-label="Room name" maxlength="32" />
+									<label for="nick">Display name</label>
+									<input id="nick" placeholder="your name"
+										aria-describedby="nickError"
+										maxlength="32" autofocus />
+									<p id="nickError" class="error" role="alert"
+										aria-live="polite"></p>
+									<button id="joinBtn">Join room</button>
+									<button type="button" id="browseRoomsBtn"
+										class="ghost-link">Browse live rooms</button>
+								</form>
+							</div>
+						</section>
+						<button id="jump" class="jump"
+							aria-label="Jump to latest messages">↓ Latest messages</button>
+					</div>
+					<aside class="members" id="memberPane" aria-label="Members">
+						<h2>Members</h2>
+						<p id="presenceSummary">Join to see who is here.</p>
+						<ul id="members"></ul>
+					</aside>
+				</div>
+
+				<div class="composer">
+					<div id="emojiPop" class="emoji-pop" role="menu"
+						aria-label="Emoji"></div>
+					<div id="typing" class="typing" aria-live="polite"></div>
+					<form id="composer" hidden>
+						<textarea id="line" rows="1" placeholder="Message"
+							autocomplete="off"
+							aria-label="Message"></textarea>
+						<button type="button" id="emojiBtn" class="emoji-btn"
+							title="Emoji"
+							aria-label="Insert emoji">🙂</button>
+						<button id="sendBtn" type="submit">Send</button>
+					</form>
+					<div id="hint"
+						class="hint"><b>Enter</b> to send · <b>Shift+Enter</b> for a new line · <b>**bold**</b> · <b>*italic*</b> · <b>`code`</b> · <b>@name</b> · <b>:smile:</b> · <b>/me</b></div>
+				</div>
+			</div>
+			<div id="sheetScrim" aria-hidden="true"></div>
+		</div>
+		<script type="module" src="page.js"></script>
+	</body>
+</html>

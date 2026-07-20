@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
-# The full gate sequence, forge-neutral. CI wrappers (.forgejo/workflows/,
-# .github/workflows/) run this inside the committed devcontainer image, the
-# same commands a contributor runs. The project gate itself stays
-# `zig build check`; this script only sequences it with the cross-language
-# sibling gates that need the non-Zig runtimes the image carries.
+# The CI gate sequence, forge-neutral: the same commands a contributor runs.
+# The GitHub mirror (.github/workflows/check.yml) runs this inside the
+# committed devcontainer image; Codeberg's hosted runners cannot build that
+# image, so .forgejo/workflows/check.yml runs a Zig-only subset directly.
+# The project gate itself stays `zig build check`; this script sequences it
+# with cross-language sibling gates that need the non-Zig runtimes the image
+# carries (the wider sibling list in .agents/rules/cli.md stays excluded
+# until its CI minutes are weighed).
 
 set -euo pipefail
 
@@ -31,7 +34,7 @@ gate() {
   fi
 }
 
-bash .devcontainer/post-create.sh
+gate bash .devcontainer/post-create.sh
 
 gate zig build check
 gate zig build bindings-fmt-check
@@ -48,6 +51,22 @@ gate zig build wasm-abi-layout-check
 gate zig build wasm-import-check
 gate zig build goblins-interop
 gate zig build goblins-handoff
+# The gifter direction: pancake mints the signed desc:handoff-give and a live
+# Goblins recipient must parse and redeem it. This is the only automated step
+# that catches a pancake-side change to the signed give bytes (goblins-handoff
+# forwards a Goblins-minted give verbatim, so it cannot).
+gate zig build goblins-gift
 gate zig build fixture-gen-check
 gate zig build ocapn-conformance
 gate zig build iroh-interop
+# The cross-runtime relay matrix (ADR-0086): one shared harness proves TCP
+# forwarding and the non-optional backpressure clause against every runtime's
+# relay — the Deno reference relay, the Python relay, and the Rust relay. A
+# runtime is a row, never a fork, so no binding can silently lack a proof
+# (needs deno + uv + cargo; all three are already on PATH above).
+gate zig build bindings-relay
+# The matrix's iroh leg: each runtime's relay dials a real iroh endpoint over
+# QUIC and carries the browser peer's live session through it. iroh-interop
+# above already pays the cargo-iroh build, so the marginal cost is the wasm
+# build and the deno-driven runs (needs deno + uv + cargo).
+gate zig build bindings-relay-iroh

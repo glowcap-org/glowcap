@@ -34,10 +34,9 @@
 const std = @import("std");
 const pancake = @import("pancake");
 const iroh = @import("iroh");
+const harness = @import("interop_harness");
 
 const model = pancake.ocapn.model;
-const engine = pancake.ocapn.engine;
-const actors = pancake.actors;
 const driver = pancake.driver;
 const net = pancake.net;
 
@@ -45,40 +44,18 @@ const frame_cap: usize = 4096;
 const greeting = "hello over the public internet";
 
 /// The published actor: answers `greet` with a static greeting.
-const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
-        return .{ .string = greeting };
-    }
-};
+const Greeter = harness.StaticReplyActor("greet", greeting);
 
 /// Server half: accept one partner discovered over the public network signing
 /// with `secret` — the endpoint's own key, so the dialing client's identity pin
 /// verifies the node id it dialed — publish the greeter, serve until the
 /// client hangs up.
-fn hostOnce(
-    listener: net.netlayer.Listener,
-    allocator: std.mem.Allocator,
-    secret: pancake.foundation.crypto.SecretKey,
-) anyerror!void {
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
-
-    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf, 0);
-    defer cv.deinit();
-    std.debug.print("iroh-reachability: server accepted a discovered partner and opened the keyed session\n", .{});
-
-    _ = try cv.publish("greeter", Greeter, .{});
-    try cv.serve();
-}
+const hostOnce = harness.AcceptServeOne(
+    Greeter,
+    "greeter",
+    frame_cap,
+    "iroh-reachability: server accepted a discovered partner and opened the keyed session",
+).run;
 
 /// How long to let the server's pkarr record propagate to the n0 DNS resolver
 /// before the first dial, and the bounded retry budget afterward. Publish
@@ -135,33 +112,20 @@ fn callByIdOnly(
     server_id: []const u8,
     allocator: std.mem.Allocator,
 ) !void {
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
+    defer scaffold.deinit();
 
     const locator: model.PeerLocator = .{
         .transport = iroh.transport_name,
         .designator = server_id,
         .hints = model.Hints.emptyFalse(),
     };
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .ephemeral, read_buf, write_buf, 0);
+    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .ephemeral, scaffold.read_buf, scaffold.write_buf, 0);
     defer cv.deinit();
     std.debug.print("iroh-reachability: client dialed by node id alone and opened the keyed session\n", .{});
 
     const greeter = try cv.fetch("greeter");
-    var arena_state = std.heap.ArenaAllocator.init(allocator);
-    defer arena_state.deinit();
-    const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{.{ .string = "world" }} }, arena_state.allocator());
-    const ok = switch (settled) {
-        .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
-        .broken, .give => false,
-    };
-    if (!ok) return error.WrongReply;
+    try harness.expectStringReply(&cv, allocator, greeter, "greet", &.{.{ .string = "world" }}, greeting);
     std.debug.print("iroh-reachability: client called greet over the discovered session and the reply matched\n", .{});
 }
 

@@ -16,14 +16,27 @@
 // Deno without `--allow-env` / `--allow-read` / `--allow-net` / `--allow-write`
 // / `--allow-run` degrades to the next rung instead of failing.
 
-import { ffi } from "./runtime.ts";
+import { ffi, injected_adapter_key } from "./runtime.ts";
 
-// The host built-ins the cascade rides, loaded dynamically with computed
-// specifiers so a browser bundle neither resolves nor ships them: under the
-// wasm adapter (ADR-0070) `dlopen` ignores paths entirely, so `libPath`
-// returns the bare stem before any of these are touched, and a browser
-// where the imports reject simply has no cascade to run. Deno and Bun load
-// them once here, and every rung below keeps its synchronous shape.
+// The host built-ins the cascade rides. Static imports (not top-level await)
+// so this module ships no top-level await — a browser bundle flattens every
+// module's top-level await into one file and the stack's import graph
+// deadlocks around one. A browser build maps these `node:*` specifiers to
+// empty stubs (`bindings/ts/web/browser-bundle.json`); the injected-adapter
+// guard below sets `host` to null there, so the stubs are imported but never
+// used. Under Deno and Bun they resolve to the real built-ins.
+import nodeProcess from "node:process";
+import * as nodeFs from "node:fs";
+import * as nodeCrypto from "node:crypto";
+import * as nodeOs from "node:os";
+import * as nodePath from "node:path";
+import * as nodeUrl from "node:url";
+import * as nodeChildProcess from "node:child_process";
+
+// The shape of the host built-ins the cascade rides. Under the wasm adapter
+// (ADR-0070) `dlopen` ignores paths entirely, so `libPath` returns the bare
+// stem and none of these are touched; Deno and Bun use the real built-ins,
+// and every rung below keeps its synchronous shape.
 type HostModules = {
 	process: typeof import("node:process");
 	fs: typeof import("node:fs");
@@ -34,31 +47,20 @@ type HostModules = {
 	childProcess: typeof import("node:child_process");
 };
 
-const host: HostModules | null = await (async () => {
-	const dyn = (specifier: string) => import(specifier);
-	try {
-		const [nodeProcess, fs, crypto, os, path, url, childProcess] = await Promise.all([
-			dyn("node:process"),
-			dyn("node:fs"),
-			dyn("node:crypto"),
-			dyn("node:os"),
-			dyn("node:path"),
-			dyn("node:url"),
-			dyn("node:child_process"),
-		]);
-		return {
-			process: (nodeProcess as { default: typeof import("node:process") }).default,
-			fs: fs as typeof import("node:fs"),
-			crypto: crypto as typeof import("node:crypto"),
-			os: os as typeof import("node:os"),
-			path: path as typeof import("node:path"),
-			url: url as typeof import("node:url"),
-			childProcess: childProcess as typeof import("node:child_process"),
-		};
-	} catch {
-		return null; // a browser: no host built-ins, no archive cascade
-	}
-})();
+// An injected adapter (the wasm browser binding, ADR-0070) means `dlopen`
+// ignores paths and there is no archive cascade to run, so `host` is null and
+// the stubbed `node:*` imports above are never touched. Deno and Bun get the
+// real built-ins. No top-level await — see the import note above.
+const host: HostModules | null =
+	(globalThis as Record<symbol, unknown>)[injected_adapter_key] !== undefined ? null : {
+		process: nodeProcess,
+		fs: nodeFs,
+		crypto: nodeCrypto,
+		os: nodeOs,
+		path: nodePath,
+		url: nodeUrl,
+		childProcess: nodeChildProcess,
+	};
 
 // Call-syntax aliases for the cascade's rungs. Every use sits beneath
 // `libPath`'s browser early-return, so a null host can never reach one.
@@ -601,8 +603,16 @@ function libDir(): string | null {
 export function libPath(stem: string): string {
 	// No host built-ins means no filesystem and no dlopen: the active adapter
 	// is the wasm one (ADR-0070), whose `dlopen` ignores the path. Hand back
-	// the stem before any cascade rung runs.
-	if (host === null) return stem;
+	// the stem before any cascade rung runs. The injected check is re-read
+	// here, not just via `host`: a static import chain can evaluate this
+	// module before the browser binding injects its adapter, so `host` may
+	// have been built from the (stubbed) node imports; an injected adapter at
+	// call time still means no cascade.
+	if (
+		host === null || (globalThis as Record<symbol, unknown>)[injected_adapter_key] !== undefined
+	) {
+		return stem;
+	}
 	const file = libFile(stem);
 	const dir = libDir();
 	if (dir !== null) return `${dir.replace(/\/$/, "")}/${file}`;

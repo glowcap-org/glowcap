@@ -77,10 +77,6 @@ export class Session {
 	#ptr: Ptr;
 	readonly #host: Host;
 	readonly #transport: Channel;
-	// Inbound bytes read from the wire but not yet consumed by the core's
-	// stream delimiter (the unconsumed tail of the last feed). Owned by the
-	// pump via `#pump`.
-	#inbox: Uint8Array = new Uint8Array(0);
 	#serving: Promise<void> | null = null;
 	// Set the moment teardown begins (an application close, or the transport
 	// reporting EOF), so the FAIL completions the break queues classify as the
@@ -153,12 +149,6 @@ export class Session {
 			},
 			get closing() {
 				return s.closing;
-			},
-			get inbox() {
-				return s.#inbox;
-			},
-			set inbox(v: Uint8Array) {
-				s.#inbox = v;
 			},
 			get writing() {
 				return s.#writing;

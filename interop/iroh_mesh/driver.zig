@@ -30,6 +30,7 @@
 const std = @import("std");
 const pancake = @import("pancake");
 const iroh = @import("iroh");
+const harness = @import("interop_harness");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -49,14 +50,7 @@ const b_seed = [_]u8{0xB2} ** 32;
 const c_seed = [_]u8{0xC3} ** 32;
 
 /// The exported, gifted capability: answers `greet` with a static greeting.
-const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
-        return .{ .string = greeting };
-    }
-};
+const Greeter = harness.StaticReplyActor("greet", greeting);
 
 /// A's introducer: on `get-greeter` it returns a signed `desc:handoff-give` that
 /// names the recipient (B's session key, read from the live session) and the
@@ -97,17 +91,11 @@ const Introducer = struct {
 /// A's key as the gifter provenance, and serve. The engine answers the inbound
 /// `withdraw-gift` once both handoff certificates verify.
 fn hostExporter(listener: net.netlayer.Listener, allocator: std.mem.Allocator, gifter_key: []const u8) anyerror!void {
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
+    defer scaffold.deinit();
 
     const secret = crypto.SecretKey.fromSeed(c_seed);
-    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf, 0);
+    var cv = try driver.acceptVia(allocator, listener, &scaffold.peer, .{ .keyed = secret }, scaffold.read_buf, scaffold.write_buf, 0);
     defer cv.deinit();
 
     const greeter = try cv.publish("greeter", Greeter, .{});
@@ -124,17 +112,11 @@ fn hostExporter(listener: net.netlayer.Listener, allocator: std.mem.Allocator, g
 
 /// A: accept B's session and host the introducer that hands back the give.
 fn hostIntroducer(listener: net.netlayer.Listener, allocator: std.mem.Allocator, exporter_designator: []const u8) anyerror!void {
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
+    defer scaffold.deinit();
 
     const secret = crypto.SecretKey.fromSeed(a_seed);
-    var cv = try driver.acceptVia(allocator, listener, &peer, .{ .keyed = secret }, read_buf, write_buf, 0);
+    var cv = try driver.acceptVia(allocator, listener, &scaffold.peer, .{ .keyed = secret }, scaffold.read_buf, scaffold.write_buf, 0);
     defer cv.deinit();
 
     _ = try cv.publish("introducer", Introducer, .{
@@ -155,18 +137,12 @@ fn fetchGive(
     exporter_id_out: *[]u8,
     give_bytes_out: *[]u8,
 ) !void {
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
+    defer scaffold.deinit();
 
     const secret = crypto.SecretKey.fromSeed(b_seed);
     const locator: model.PeerLocator = .{ .transport = iroh.transport_name, .designator = a_id, .hints = model.Hints.emptyFalse() };
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = a_id } }, read_buf, write_buf, 0);
+    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .{ .keyed = .{ .secret = secret, .designator = a_id } }, scaffold.read_buf, scaffold.write_buf, 0);
     defer cv.deinit();
 
     const introducer = try cv.fetch("introducer");
@@ -220,18 +196,12 @@ fn withdrawAndCall(
     b_id: []const u8,
     give_bytes: []const u8,
 ) !void {
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
+    defer scaffold.deinit();
 
     const secret = crypto.SecretKey.fromSeed(b_seed);
     const locator: model.PeerLocator = .{ .transport = iroh.transport_name, .designator = exporter_id, .hints = model.Hints.emptyFalse() };
-    var cv = try driver.connectVia(allocator, netlayers, &peer, locator, .{ .keyed = .{ .secret = secret, .designator = b_id } }, read_buf, write_buf, 0);
+    var cv = try driver.connectVia(allocator, netlayers, &scaffold.peer, locator, .{ .keyed = .{ .secret = secret, .designator = b_id } }, scaffold.read_buf, scaffold.write_buf, 0);
     defer cv.deinit();
     std.debug.print("iroh-mesh: B dialed the introduced exporter C over iroh, by the gifted node id\n", .{});
 

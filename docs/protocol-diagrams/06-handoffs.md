@@ -1,7 +1,8 @@
 # Three-party handoffs
 
-Anchors: CapTP Specification § Third-party handoffs (depositing the gift,
-desc:handoff-give, desc:handoff-receive, withdrawing the gift, validation). All
+Anchors: CapTP Specification § Third Party Handoffs (depositing the gift,
+desc:handoff-give, desc:handoff-receive, validation) and § The bootstrap Object
+(the `withdraw-gift` method). All
 certificates ride `desc:sig-envelope` (Ed25519 over the canonical bytes of the
 inner certificate). The `op:resolve` settlement arrows below draw pancake's
 `pancake-next` profile shape; on the v1.0 wire the same settlement is the
@@ -32,7 +33,7 @@ sequenceDiagram
     participant R as Receiver
     G->>X: 1. deposit-gift (gift-id, gifted-ref) on G-X
     G->>R: 2. signed desc:handoff-give on G-R
-    Note over R: 3. validate recipient-key, dial Exporter
+    Note over R: 3. parse exporter-location, dial Exporter
     R->>X: 4. withdraw-gift (signed desc:handoff-receive) on R-X
     Note over X: 5. verify both signatures, check handoff-count
     X->>R: op:resolve (resolve:fulfill gifted-ref)
@@ -60,7 +61,7 @@ hold, as HO-5 and HO-7 show.
 ```mermaid
 flowchart TD
     SIG["desc:sig-envelope - Gifter signs with its G-X session key"] --> HG["desc:handoff-give"]
-    HG --> RK["recipient-key: Receiver's pubkey in the G-R session"]
+    HG --> RK["receiver-key: Receiver's pubkey in the G-R session"]
     HG --> EL["exporter-location: how the Receiver reaches the Exporter"]
     HG --> GXS["session: the G-X session id the gift was deposited through"]
     HG --> GS["gifter-side: Gifter's identity in the G-X session"]
@@ -70,15 +71,19 @@ flowchart TD
 ## HO-5: Step 3: Receiver-side validation
 
 The Receiver cannot verify the Gifter's signature yet, because it has never seen
-the Gifter's G-X pubkey. That check belongs to the Exporter. What the Receiver
-_can_ check is that the give was addressed to it.
+the Gifter's G-X pubkey. That check belongs to the Exporter. The spec also
+suggests the Receiver check that the give's receiver-key names it; pancake
+leaves that to the Exporter too, where the receive must be signed by exactly
+that key (HO-7), so a mis-addressed give fails at withdraw rather than locally.
+What the Receiver does check locally is the exporter-location: an unparseable
+locator fails closed with no dial.
 
 ```mermaid
 flowchart TD
-    IN["inbound signed desc:handoff-give"] --> CK{"recipient-key equals my G-R pubkey?"}
-    CK -->|no| REJ["reject the handoff"]
-    CK -->|yes| PR["create local promise for the gift"]
-    PR --> CONN["connect to exporter-location if no session exists"]
+    IN["inbound signed desc:handoff-give"] --> LOC{"exporter-location parseable?"}
+    LOC -->|no| REJ["fail closed - no dial"]
+    LOC -->|yes| PR["create local promise for the gift"]
+    PR --> CONN["connect to the Exporter if no session exists"]
     CONN --> CNT["allocate next handoff-count for the R-X session"]
     CNT --> HR["build desc:handoff-receive, sign with my G-R key"]
     HR --> WD["send withdraw-gift to the Exporter's bootstrap object"]
@@ -104,17 +109,17 @@ flowchart TD
 
 The Exporter is the only party that can verify both signatures. It knows the
 Gifter's pubkey from the G-X session, and the give itself carries the
-recipient-key that must have signed the receive. A repeated handoff-count is a
-replay and aborts the session.
+receiver-key that must have signed the receive. A failed check refuses the
+withdrawal by breaking its answer with a typed reason; the session stays open.
 
 ```mermaid
 flowchart TD
     IN["inbound withdraw-gift"] --> S1{"give signature valid against Gifter's G-X pubkey?"}
-    S1 -->|no| AB["abort"]
-    S1 -->|yes| S2{"receive signature valid against recipient-key from the give?"}
-    S2 -->|no| AB
+    S1 -->|no| BK["break the withdraw answer"]
+    S1 -->|yes| S2{"receive signature valid against receiver-key from the give?"}
+    S2 -->|no| BK
     S2 -->|yes| S3{"handoff-count above the last accepted for this receiving session?"}
-    S3 -->|no| AB2["abort - replay"]
+    S3 -->|no| BK2["break - replay"]
     S3 -->|yes| TK["take deposited gift by gift-id"]
     TK --> RES["resolve the withdraw answer with the gifted reference"]
 ```
@@ -127,8 +132,10 @@ replayed count.
 ## HO-8: Withdraw before deposit
 
 The two inbound legs race: the Receiver's withdrawal can reach the Exporter
-before the Gifter's deposit does. The Exporter parks a validated withdrawal
-until the matching gift-id lands, then dispatches.
+before the Gifter's deposit does. The Exporter parks the withdrawal unverified,
+because the Gifter's key it must verify the give against arrives with the
+deposit; when the matching gift-id lands, the parked withdrawal is validated
+whole, then dispatched.
 
 ```mermaid
 sequenceDiagram
@@ -136,9 +143,9 @@ sequenceDiagram
     participant X as Exporter
     participant G as Gifter
     R->>X: withdraw-gift (gift-id 7), arrives first
-    Note over X: signatures valid, but gift-id 7 not yet deposited
-    Note over X: withdrawal parked
+    Note over X: gift-id 7 not yet deposited; verification must wait
+    Note over X: withdrawal parked unverified
     G->>X: deposit-gift (gift-id 7, gifted-ref)
-    Note over X: matching deposit lands
+    Note over X: deposit lands; parked withdrawal validated whole
     X->>R: op:resolve (resolve:fulfill gifted-ref)
 ```

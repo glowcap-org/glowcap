@@ -26,8 +26,9 @@ claims:
 
 ## What the benchmarks report
 
-These print numbers; they do not check them. No test asserts a wall-clock bound, because a
-defensible one needs a stable, release-pinned harness that does not exist yet. Every chart
+These print numbers; they do not check them. The one wall-clock assertion is
+`zig build perf-check` (ADR-0073, part of `check`): a coarse ReleaseFast tripwire on
+the ladder's ceilings, held loose enough that machine noise cannot trip it. Every chart
 and table below is regenerated from live runs by `zig build bench-site-report`, a dated
 snapshot, not a standing claim.
 
@@ -84,7 +85,7 @@ Measure your own: `zig build bench-codec -Doptimize=ReleaseFast`.
 
 `bench-peer-scaling` measures protocol-core bytes per connection (inline state
 plus heap) in four states: idle, after a first message warms the read path
-(the checked ~2 KiB floor), with sixteen calls in flight, and as a loop-hosted
+(the checked ~2 KiB budget), with sixteen calls in flight, and as a loop-hosted
 connection that also carries a vat. It then extrapolates each to half a million
 sessions. That arithmetic is in-process core memory, not a node holding that
 many live sockets. Measure: `zig build bench-peer-scaling -Doptimize=ReleaseFast`.

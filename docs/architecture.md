@@ -22,8 +22,7 @@ OCapN suite, and `test/oracle/` (see
 The canonical core owns protocol semantics and nothing else: no sockets, no
 `std.Io`, no background tasks, no hidden scheduler, and no process-level
 runtime object. Dispatch runs in a layer called `engine`, not `runtime`,
-because it is caller-driven rather than an ambient executor, dispatching a
-session synchronously with no scheduler or tasks of its own.
+because it is caller-driven rather than an ambient executor.
 
 The layering is compiler-enforced: each `src/` layer is a build.zig module
 with a one-way import table, so a cross-layer reach is a compile error
@@ -104,7 +103,7 @@ are deliberately not merged into one mega-struct:
 | `SessionOptions.frame_cap` | One owned session's admission | maps to `max_frame_bytes` |
 | `completion.Loop.Options.frame_cap` | Read-buffer pool sizing | not peer admission |
 | `Loop.Options.outbound_high_water` / `fan_in_throttle` / `park_kill_ms` | Backpressure and reclaim | loop I/O only |
-| `Host.Options.bootstrap_durability` | Registry posture (`ephemeral` live; `durable_bootstrap` refused at init until an embedder store) | Host only |
+| `Host.Options.bootstrap_durability` | Registry posture (`ephemeral` live; `durable_bootstrap` panics at init until an embedder store) | Host only |
 
 Default Host admission is 1 MiB; the loop's `frame_cap` defaults to 64 KiB.
 Raise either for larger frames or bigger steady-state chunks.
@@ -194,11 +193,7 @@ default way a frame moves.
 - `test/support/frame.zig` is the one place allowed to copy caller bytes
   into frame-owned allocations, for tests and fixtures; production `Frame`
   has no copy constructor.
-
-Put together: inbound C ABI frames dispatch and transfer without copying,
-engine-owned frames move by transfer, events return their originating frame
-with no re-encoding, and outbound C ABI calls return a managed frame with a
-release callback.
+- An outbound C ABI call returns a managed frame with a release callback.
 
 ## C ABI Contract
 
@@ -209,6 +204,14 @@ umbrella library: `libpancake_ocapn`, `libpancake_net`,
 `libpancake_net_transport_iroh`, `libpancake_driver`. Allocation rides a
 `PancakeContext` (ADR-0031). Archive table, link recipe, and first program:
 [consuming-from-c](consuming-from-c.md).
+
+Each language binding (Rust, TypeScript, Python, and Racket) drives the pump
+cycle directly against the C ABI entry points: it feeds inbound bytes with
+`pancake_host_session_feed_bytes`, answers host actions from
+`pancake_host_next_action`, and drains outbound frames with
+`pancake_host_session_take_outbound`. There is no callback orchestration layer
+between a binding and those calls, because each binding's own async runtime
+schedules the cycle, and callback indirection composes poorly with async/await.
 
 ## Examples As Contract
 
@@ -234,7 +237,7 @@ surface: walkthrough in [`docs/cli.md`](cli.md). Present edges:
 First-party product apps that ship as their own binaries live under
 [`apps/`](../apps/), not under maintainer tooling
 ([ADR-0085](decisions/adr/ADR-0085-repository-product-and-devtool-layout.md)).
-Demos stay in [`examples/apps/`](../examples/apps/). The usual dev-tool verbs
+Demos stay in [`apps/`](../apps/). The usual dev-tool verbs
 are top-level [`test/`](../test/), [`tools/check/`](../tools/check/) (build
 checks), and [`tools/gen/`](../tools/gen/) (codegen), with
 [`tools/c-abi/`](../tools/c-abi/) for the C-ABI operator toolkit.

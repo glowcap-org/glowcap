@@ -65,7 +65,7 @@ upstream module, today:
 Crossed-hellos cases in `op_start_session` can use most of a module's time
 budget. `handshake_abort_probe.py` covers the invalid-signature and
 invalid-version aborts on their own. The default
-`zig build ocapn-conformance` wrapper runs that probe (2s cap) before the suite
+`zig build ocapn-conformance` wrapper runs that probe (10s cap) before the suite
 modules. Pass `--port=N` or set `PANCAKE_OCAPN_CONFORMANCE_PORT` to match the
 peer. To run one module or the probe alone:
 

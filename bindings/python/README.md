@@ -29,27 +29,22 @@ then the abi-versioned cache, then `zig-out`, then find. The ABI constants in
 [`_constants`](pancake/_constants.py) are `_`-private and never imported by a
 consumer. Each companion archive reuses the core's `ctypes` `Structure` types by
 layout, the same way the C headers share `pancake_ocapn.h`, and routes its own
-errors through its own `pancake_<family>_last_error` slot. The struct mirrors are hand-declared. That is the same standing gap the Racket
-binding names. A C-side layout change is swept into the `_ffi_*` modules by
-hand. The package
-ships a `py.typed` marker, so type checkers read its inline annotations
-(PEP 561).
+errors through its own `pancake_<family>_last_error` slot. The signature tables
+the loaders bind are generated from the Zig exports
+([`_sigs_gen`](pancake/_sigs_gen.py), `zig build gen-binding-python-ffi`, held
+fresh by the check build), so a C-side signature change regenerates them. The
+struct mirrors themselves stay hand-declared — pinned at import time against
+the generated layout facts in [`_layouts_gen`](pancake/_layouts_gen.py) — so a
+C-side layout change is swept into the `_ffi_*` modules by hand, the same
+standing gap the Racket binding names. The package ships a `py.typed` marker,
+so type checkers read its inline annotations (PEP 561).
 
 The core public surface is split by responsibility across `_`-private
-submodules that the package `__init__` re-exports as a barrel: typed errors in
-[`_errors`](pancake/_errors.py), values and references in
-[`_value`](pancake/_value.py), the `ctypes` argument codec in
-[`_codec`](pancake/_codec.py), allocation `Context` in
-[`_context`](pancake/_context.py), locator URIs in
-[`_locator`](pancake/_locator.py), the behavior trampoline in
-[`_trampoline`](pancake/_trampoline.py), `Host` in [`_host`](pancake/_host.py),
-host-action decode in [`_action`](pancake/_action.py), `RemotePromise` in
-[`_promise`](pancake/_promise.py), distributed GC in [`_gc`](pancake/_gc.py),
-`connect` in [`_dial`](pancake/_dial.py), `Server` / `listen` in
-[`_listen`](pancake/_listen.py), the byte-fed pump in
-[`_pump`](pancake/_pump.py), and `Session` verbs in
-[`_session`](pancake/_session.py). Import every name from `pancake`. The
-submodule layout is internal and may change.
+submodules that the package `__init__` re-exports as a barrel: errors, values,
+the argument codec, locators, the behavior trampoline, `Host`, host actions,
+promises, GC, dial and listen, the byte-fed pump, and the `Session` verbs.
+Import every name from `pancake`; the submodule layout is internal and may
+change.
 
 ## The API
 

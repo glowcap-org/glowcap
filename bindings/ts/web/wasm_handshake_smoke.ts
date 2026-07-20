@@ -67,7 +67,6 @@ type Exports = {
 		session: number,
 		bytes: number,
 		len: number,
-		outConsumed: number,
 	) => number;
 	pancake_host_session_take_outbound: (session: number, outFrame: number) => number;
 	pancake_managed_frame_release: (frame: number) => void;
@@ -245,32 +244,16 @@ function drainOutbound(session: number): Uint8Array[] {
 	}
 }
 
-// Feed an inbound buffer one call at a time. feed_bytes consumes whole frames at
-// the front and stops at the frame completing the handshake, so it may consume
-// less than the whole buffer; return the total leading bytes consumed and let
-// the caller keep the tail.
-function feedBytes(session: number, buf: Uint8Array): number {
-	if (buf.length === 0) return 0;
-	const bufPtr = writeBytes(buf);
-	const outConsumed = ex.pancake_wasm_alloc(4);
-	let off = 0;
+// Feed an inbound buffer. The library owns framing and the tail, so one call
+// moves the whole buffer; an empty buffer resumes frames the session held
+// behind its handshake open.
+function feedBytes(session: number, buf: Uint8Array): void {
+	const bufPtr = buf.length === 0 ? 0 : writeBytes(buf);
 	try {
-		for (;;) {
-			const rc = ex.pancake_host_session_feed_bytes(
-				session,
-				bufPtr + off,
-				buf.length - off,
-				outConsumed,
-			);
-			if (rc !== OK) throw new Error(`feed_bytes failed: rc=${rc}`);
-			const consumed = readU32(outConsumed);
-			off += consumed;
-			if (consumed === 0 || off >= buf.length) break;
-		}
-		return off;
+		const rc = ex.pancake_host_session_feed_bytes(session, bufPtr, buf.length);
+		if (rc !== OK) throw new Error(`feed_bytes failed: rc=${rc}`);
 	} finally {
-		free(bufPtr, buf.length);
-		free(outConsumed, 4);
+		if (buf.length > 0) free(bufPtr, buf.length);
 	}
 }
 
@@ -309,14 +292,14 @@ for (let round = 0; round < 64; round++) {
 		moved = true;
 	}
 
-	const consumedByAlice = feedBytes(aliceSession, aliceInbox);
-	if (consumedByAlice > 0) {
-		aliceInbox = aliceInbox.slice(consumedByAlice);
+	if (aliceInbox.length > 0) {
+		feedBytes(aliceSession, aliceInbox);
+		aliceInbox = new Uint8Array(0);
 		moved = true;
 	}
-	const consumedByBob = feedBytes(bobSession, bobInbox);
-	if (consumedByBob > 0) {
-		bobInbox = bobInbox.slice(consumedByBob);
+	if (bobInbox.length > 0) {
+		feedBytes(bobSession, bobInbox);
+		bobInbox = new Uint8Array(0);
 		moved = true;
 	}
 

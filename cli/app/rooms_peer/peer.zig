@@ -7,6 +7,7 @@ const identity_mod = @import("../../operability/identity.zig");
 const log = @import("../../operability/log.zig");
 const common = @import("common.zig");
 const harness = @import("harness.zig");
+const phase_mod = @import("phase.zig");
 const Flags = @import("flags.zig").Flags;
 
 const Io = common.Io;
@@ -72,15 +73,14 @@ const PeerState = struct {
     designator: []const u8,
     hint: []const u8,
 
-    session: ?*HostSession = null,
-    directory: ?model.Reference = null,
-    room: ?model.Reference = null,
-    joined: bool = false,
-    registered: bool = false,
-    dialing: bool = false,
-    redial_cooldown: u32 = 0,
-    /// Backoff between register retries while joined but not yet introducible.
-    register_cooldown: u32 = 0,
+    /// Room-session lifecycle (`phase.zig`): exactly one arm live at a time,
+    /// carrying that arm's payload (session, directory/room refs, countdowns).
+    /// The DM tables below stay orthogonal, cleared on wire teardown.
+    phase: phase_mod.Phase = .{ .down = .{ .cooldown = 0 } },
+    /// Abandoned joins since the last successful subscribe (or stack start):
+    /// incremented when `maintain` executes an abandon, reset in
+    /// `subscribeRoom`, and written into state.json for the supervisor.
+    join_attempts: u32 = 0,
 
     /// Cached DM caps from `directory.introduce(nick)` (owned refs + keys).
     dm_caps: std.StringHashMapUnmanaged(model.Reference) = .{},
@@ -95,7 +95,16 @@ const PeerState = struct {
     }
 
     fn writeStateNow(self: *PeerState, status: []const u8) void {
-        writeState(self.io, self.gpa, self.dir, status, self.nick, self.room_name, self.locator_str, self.registered);
+        writeState(self.io, self.gpa, self.dir, status, self.nick, self.room_name, self.locator_str, self.isRegistered(), self.join_attempts);
+    }
+
+    /// The live room session, across every phase arm that holds one.
+    fn phaseSession(self: *const PeerState) ?*HostSession {
+        return self.phase.session();
+    }
+
+    fn isRegistered(self: *const PeerState) bool {
+        return self.phase.isRegistered();
     }
 
     fn clearDmTables(self: *PeerState) void {
@@ -114,14 +123,16 @@ const PeerState = struct {
     }
 
     fn clearRoomWire(self: *PeerState) void {
-        self.session = null;
-        self.directory = null;
-        self.room = null;
-        self.joined = false;
-        self.registered = false;
-        self.dialing = false;
-        self.register_cooldown = 0;
+        self.phase = .{ .down = .{ .cooldown = 0 } };
         self.clearDmTables();
+    }
+
+    /// Schedule a join-path recovery. Vow callbacks may run under the host latch,
+    /// so we only move to `.abandoning` here; `maintain` closes the slot and
+    /// redials outside it. No-op in any phase but `.joining`, so a stale
+    /// callback after teardown or after a successful join cannot clobber.
+    fn requestAbandonJoin(self: *PeerState) void {
+        if (phase_mod.requestAbandon(&self.phase)) self.writeStateNow("reconnecting");
     }
 
     fn deinitTables(self: *PeerState) void {
@@ -176,8 +187,11 @@ const RegInbox = struct {
         if (!std.mem.eql(u8, msg.verb, "notify")) return error.NoSuchMethod;
         const kind = if (msg.args.len > 0 and msg.args[0] == .string) msg.args[0].string else "";
         if (std.mem.eql(u8, kind, "registered")) {
-            self.state.registered = true;
-            self.state.writeStateNow("joined");
+            // Outside `.joined` this no-ops: a late notify after teardown must
+            // not write status "joined" with the wire down.
+            if (phase_mod.noteRegistered(&self.state.phase)) {
+                self.state.writeStateNow("joined");
+            }
         }
         return .{ .void = {} };
     }
@@ -195,24 +209,38 @@ fn refOf(resolution: actors.Resolution) ?model.Reference {
     };
 }
 
-/// Bridge `on_open`: the dialed room session opened. Fetch the directory; the
-/// enter/open/subscribe chain runs from the settle callbacks.
+/// Bridge `on_open`: a session opened. Only the app-dial leg while we are
+/// `.dialing` is the room session — accepted DM partners and redeem legs open
+/// through here too and must not fetch "directory" or touch the phase. Fetch
+/// the directory; the enter/open/subscribe chain runs from the settle
+/// callbacks.
 fn onOpen(ctx: ?*anyopaque, bridge: *IrohBridge, slot: *IrohBridge.Slot) anyerror!void {
     _ = bridge;
     const state: *PeerState = @ptrCast(@alignCast(ctx.?));
-    state.session = slot.session;
-    state.dialing = false;
-    const vow = try state.host.fetch(slot.session, "directory");
-    try state.host.vowOn(vow, .{ .ctx = state, .func = onDirectory });
+    if (state.phase != .dialing or slot.leg != .app_dial) return;
+    state.phase = .{ .joining = .{ .session = slot.session } };
+    state.writeStateNow("joining");
+    const vow = state.host.fetch(slot.session, "directory") catch |err| {
+        log.err(state.io, "directory fetch failed: {s}", .{@errorName(err)});
+        state.requestAbandonJoin();
+        return;
+    };
+    state.host.vowOn(vow, .{ .ctx = state, .func = onDirectory }) catch |err| {
+        log.err(state.io, "directory vowOn failed: {s}", .{@errorName(err)});
+        state.requestAbandonJoin();
+        return;
+    };
 }
 
 fn onDirectory(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     const state: *PeerState = @ptrCast(@alignCast(ctx.?));
+    if (state.phase != .joining) return;
     const directory = refOf(resolution) orelse {
         log.err(state.io, "directory fetch did not fulfill", .{});
+        state.requestAbandonJoin();
         return;
     };
-    state.directory = directory;
+    state.phase.joining.directory = directory;
     // The wire stays strict: `enter` breaks if the room is absent, `open` breaks
     // if the name is taken. Try enter, fall back to open, then enter once more on
     // a creation race — the same leniency the blocking client applies.
@@ -221,6 +249,7 @@ fn onDirectory(ctx: ?*anyopaque, resolution: actors.Resolution) void {
 
 fn onEntered(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     const state: *PeerState = @ptrCast(@alignCast(ctx.?));
+    if (state.phase != .joining) return;
     if (refOf(resolution)) |room| {
         subscribeRoom(state, room);
     } else {
@@ -230,6 +259,7 @@ fn onEntered(ctx: ?*anyopaque, resolution: actors.Resolution) void {
 
 fn onOpened(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     const state: *PeerState = @ptrCast(@alignCast(ctx.?));
+    if (state.phase != .joining) return;
     if (refOf(resolution)) |room| {
         subscribeRoom(state, room);
     } else {
@@ -239,26 +269,32 @@ fn onOpened(ctx: ?*anyopaque, resolution: actors.Resolution) void {
 
 fn onEnteredAgain(ctx: ?*anyopaque, resolution: actors.Resolution) void {
     const state: *PeerState = @ptrCast(@alignCast(ctx.?));
+    if (state.phase != .joining) return;
     if (refOf(resolution)) |room| {
         subscribeRoom(state, room);
     } else {
         log.err(state.io, "could not enter or open room \"{s}\"", .{state.room_name});
+        state.requestAbandonJoin();
     }
 }
 
 /// Eventual-send a directory verb naming the room, and wait on its answer.
 fn sendDirectoryVerb(state: *PeerState, verb: []const u8, cb: *const fn (?*anyopaque, actors.Resolution) void) void {
-    const directory = state.directory orelse return;
-    const session = state.session orelse return;
+    if (state.phase != .joining) return;
+    const joining = state.phase.joining;
+    const directory = joining.directory orelse return;
+    const session = joining.session;
     const vow = state.host.send(session, directory, .{
         .verb = verb,
         .args = &.{.{ .string = state.room_name }},
     }) catch |err| {
         log.err(state.io, "{s} send failed: {s}", .{ verb, @errorName(err) });
+        state.requestAbandonJoin();
         return;
     };
     state.host.vowOn(vow, .{ .ctx = state, .func = cb }) catch |err| {
         log.err(state.io, "{s} vowOn failed: {s}", .{ verb, @errorName(err) });
+        state.requestAbandonJoin();
         return;
     };
     _ = flushBridge(state, .host);
@@ -267,21 +303,36 @@ fn sendDirectoryVerb(state: *PeerState, verb: []const u8, cb: *const fn (?*anyop
 /// Spawn our room inbox, hand it to the room in `subscribe`, register for
 /// introductions, and mark joined.
 fn subscribeRoom(state: *PeerState, room: model.Reference) void {
-    const session = state.session orelse return;
-    const inbox = session.served.spawn(RoomInbox, .{ .state = state }) catch |err| {
-        log.err(state.io, "inbox spawn failed: {s}", .{@errorName(err)});
+    if (state.phase != .joining) return;
+    const joining = state.phase.joining;
+    const session = joining.session;
+    // The chain guarantees a directory (onDirectory set it before any verb
+    // could settle); fail toward a redial rather than crash if that breaks.
+    const directory = joining.directory orelse {
+        state.requestAbandonJoin();
         return;
     };
-    state.room = room;
+    const inbox = session.served.spawn(RoomInbox, .{ .state = state }) catch |err| {
+        log.err(state.io, "inbox spawn failed: {s}", .{@errorName(err)});
+        state.requestAbandonJoin();
+        return;
+    };
     _ = state.host.send(session, room, .{
         .verb = "subscribe",
         .args = &.{ .{ .string = state.nick }, inbox.arg() },
     }) catch |err| {
         log.err(state.io, "subscribe failed: {s}", .{@errorName(err)});
+        state.requestAbandonJoin();
         return;
     };
     _ = flushBridge(state, .host);
-    state.joined = true;
+    state.phase = .{ .joined = .{
+        .session = session,
+        .directory = directory,
+        .room = room,
+        .reg = .{ .pending = redial_cooldown_wakes },
+    } };
+    state.join_attempts = 0;
     g_ever_joined = true;
     state.writeStateNow("joined");
     // Publish `dm` on this dialed room session so the directory can fetch it
@@ -292,15 +343,16 @@ fn subscribeRoom(state: *PeerState, room: model.Reference) void {
     };
     _ = flushBridge(state, .host);
     registerWithDirectory(state);
-    state.register_cooldown = redial_cooldown_wakes;
 }
 
 /// Offer this peer for introduce: directory fetches `dm` on this session, then
 /// `notify("registered", …)` on our register inbox.
 fn registerWithDirectory(state: *PeerState) void {
-    if (state.registered or state.member_locator.len == 0) return;
-    const session = state.session orelse return;
-    const directory = state.directory orelse return;
+    if (state.phase != .joined) return;
+    const joined = state.phase.joined;
+    if (joined.reg != .pending or state.member_locator.len == 0) return;
+    const session = joined.session;
+    const directory = joined.directory;
     const inbox = session.served.spawn(RegInbox, .{ .state = state }) catch |err| {
         log.err(state.io, "register inbox spawn failed: {s}", .{@errorName(err)});
         return;
@@ -328,12 +380,21 @@ fn onClose(ctx: ?*anyopaque, slot: usize, conn_ctx: ?*anyopaque, opened: bool, r
     const state: *PeerState = @ptrCast(@alignCast(bridge.on_open_ctx.?));
     if (conn_ctx) |raw| {
         const shell: *IrohBridge.Slot = @ptrCast(@alignCast(raw));
-        if (state.session) |room_session| {
+        if (state.phaseSession()) |room_session| {
+            // `.abandoning` is covered too: a remote close racing the abandon
+            // tick lands `.down` cleanly instead of stranding the phase.
             if (shell.session == room_session) state.clearRoomWire();
+            return;
         }
+        // App-dial leg torn down before session open (handshake never
+        // completed): the dial is dead, so carry the countdown into `.down`
+        // exactly like a refused connect.
+        if (shell.leg == .app_dial) phase_mod.connectRefused(&state.phase);
         return;
     }
-    if (!opened and state.dialing) state.dialing = false;
+    // Refused connect (no shell was ever built): resume redial pacing with the
+    // countdown carried, `.dialing{cd}` becoming `.down{cd}`.
+    if (!opened) phase_mod.connectRefused(&state.phase);
 }
 
 // --- outbox -----------------------------------------------------------------
@@ -352,7 +413,7 @@ fn onIntroduced(ctx: ?*anyopaque, resolution: actors.Resolution) void {
         state.gpa.destroy(ic);
     }
     // Room wire may have been cleared while introduce was in flight.
-    if (state.session == null) return;
+    if (state.phase != .joined) return;
     if (state.pending_introduces.fetchRemove(peer)) |kv| state.gpa.free(kv.key);
     if (refOf(resolution)) |dm| {
         const cloned = model.cloneReference(state.gpa, dm) catch {
@@ -387,9 +448,10 @@ fn rememberFailedIntroduce(state: *PeerState, peer: []const u8) void {
 }
 
 fn startIntroduce(state: *PeerState, peer: []const u8) void {
+    if (state.phase != .joined) return;
     if (state.pending_introduces.contains(peer) or state.failed_introduces.contains(peer)) return;
-    const directory = state.directory orelse return;
-    const session = state.session orelse return;
+    const directory = state.phase.joined.directory;
+    const session = state.phase.joined.session;
     // Map key and IntroCtx peer are separate owned copies so clearRoomWire can
     // free the map without racing the settle callback's free of ic.peer.
     const map_key = state.gpa.dupe(u8, peer) catch return;
@@ -440,8 +502,9 @@ fn evictDmCap(state: *PeerState, peer: []const u8) void {
 /// Fail closed: advance/persist the offset only after tell + drainActions both
 /// succeed. A failed post must not record "sent" or skip the line on restart.
 fn drainOutbox(state: *PeerState) void {
-    const room = state.room orelse return;
-    const session = state.session orelse return;
+    if (state.phase != .joined) return;
+    const room = state.phase.joined.room;
+    const session = state.phase.joined.session;
     const contents = readFile(state.io, state.gpa, state.dir, "outbox.jsonl") catch return;
     defer state.gpa.free(contents);
     g_offset = clampOutboxOffset(g_offset, contents.len);
@@ -562,40 +625,67 @@ fn flushBridge(state: *PeerState, kind: FlushKind) bool {
 // --- loop maintenance -------------------------------------------------------
 
 fn maintain(state: *PeerState) void {
-    if (state.session == null) {
+    switch (state.phase) {
+        // Join failed under a live session: close the slot so we are not stuck
+        // open-but-unjoined with no redial. This arm clears PeerState before
+        // any deferred onClose lands, so a late close finds `.down` and no-ops
+        // instead of racing a half-cleared state. The redial then waits out
+        // the ordinary cooldown: a room that keeps refusing the join backs off
+        // like a down room, it does not become a per-tick dial storm.
+        .abandoning => |session| {
+            state.bridge.closeConn(session.peer_id);
+            state.clearRoomWire();
+            state.phase = .{ .down = .{ .cooldown = redial_cooldown_wakes } };
+            state.join_attempts += 1;
+        },
         // Back off between redials so a down room is retried steadily, not
         // thrashed every wake tick.
-        if (state.redial_cooldown > 0) {
-            state.redial_cooldown -= 1;
-            return;
-        }
-        if (!state.dialing and !PeerState.stopRequested()) {
-            state.dialing = true;
+        .down => |*down| {
+            if (!phase_mod.tickCooldown(&down.cooldown)) return;
+            if (PeerState.stopRequested()) return;
             state.bridge.dialOutbound(state.transport, state.designator, state.hint) catch |err| {
-                state.dialing = false;
                 log.err(state.io, "redial failed: {s}", .{@errorName(err)});
+                state.writeStateNow("reconnecting");
+                state.phase = .{ .down = .{ .cooldown = redial_cooldown_wakes } };
+                return;
             };
             state.writeStateNow("reconnecting");
-            state.redial_cooldown = redial_cooldown_wakes;
-        }
-        return;
+            state.phase = .{ .dialing = .{ .cooldown = redial_cooldown_wakes } };
+        },
+        // Connect in flight: keep the countdown running so a refused connect
+        // resumes pacing in `.down` (onClose carries it over).
+        .dialing => |*dialing| {
+            _ = phase_mod.tickCooldown(&dialing.cooldown);
+        },
+        .joining => |*joining| {
+            if (phase_mod.joinDeadlineFires(joining, common.join_deadline_wakes)) {
+                log.err(state.io, "join did not complete within the deadline; abandoning", .{});
+                state.requestAbandonJoin();
+                return;
+            }
+            // Always flush outside the callback latch so join-path
+            // ReenteredHost deferrals (subscribe/register) still armOutbound.
+            _ = flushBridge(state, .maintain);
+        },
+        .joined => |*joined| {
+            switch (joined.reg) {
+                .pending => |*cooldown| {
+                    if (phase_mod.tickCooldown(cooldown)) {
+                        registerWithDirectory(state);
+                        // Re-arm the retry countdown; the phase cannot have
+                        // left `.joined` inside registerWithDirectory, but
+                        // re-check rather than write through a stale capture.
+                        if (state.phase == .joined and state.phase.joined.reg == .pending) {
+                            state.phase.joined.reg = .{ .pending = redial_cooldown_wakes };
+                        }
+                    }
+                },
+                .registered => {},
+            }
+            drainOutbox(state);
+            _ = flushBridge(state, .maintain);
+        },
     }
-    // Always flush outside the callback latch so join-path ReenteredHost
-    // deferrals (subscribe/register) still armOutbound.
-    if (!state.joined) {
-        _ = flushBridge(state, .maintain);
-        return;
-    }
-    if (!state.registered) {
-        if (state.register_cooldown > 0) {
-            state.register_cooldown -= 1;
-        } else {
-            registerWithDirectory(state);
-            state.register_cooldown = redial_cooldown_wakes;
-        }
-    }
-    drainOutbox(state);
-    _ = flushBridge(state, .maintain);
 }
 
 fn wakePacer(io: Io) void {
@@ -675,7 +765,7 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
         g_ever_joined = false;
         const dial_target = common.resolveLocator(io, gpa, flags.locator) catch |err| {
             log.err(io, "locator resolve failed: {s}; retrying", .{@errorName(err)});
-            writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, flags.locator, false);
+            writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, flags.locator, false, 0);
             sleepUntilStop(io, backoff_ms);
             backoff_ms = @min(backoff_ms * 2, 30_000);
             continue;
@@ -683,7 +773,7 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
         defer gpa.free(dial_target);
         const loc = model.uri.parsePeer(gpa, dial_target) catch |err| {
             log.err(io, "locator parse failed: {s}; retrying", .{@errorName(err)});
-            writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, flags.locator, false);
+            writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, flags.locator, false, 0);
             sleepUntilStop(io, backoff_ms);
             backoff_ms = @min(backoff_ms * 2, 30_000);
             continue;
@@ -699,12 +789,12 @@ pub fn runPeer(init: std.process.Init, flags: Flags) !void {
             log.err(io, "iroh stack failed: {s}; rebuilding", .{@errorName(err)});
         };
         if (PeerState.stopRequested()) break;
-        writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, dial_target, false);
+        writeState(io, gpa, flags.dir, "reconnecting", flags.nick, flags.room, dial_target, false, 0);
         sleepUntilStop(io, backoff_ms);
         backoff_ms = if (g_ever_joined) 500 else @min(backoff_ms * 2, 30_000);
     }
 
-    writeState(io, gpa, flags.dir, "closed", flags.nick, flags.room, flags.locator, false);
+    writeState(io, gpa, flags.dir, "closed", flags.nick, flags.room, flags.locator, false, 0);
     removeFile(io, flags.dir, "peer.pid");
 }
 
@@ -823,15 +913,15 @@ fn runStack(
 
     const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
     const backend = try iroh.Backend.initBound(gpa, &resident, 256, 256, read_buffer_bytes);
-    loop = try IrohLoop.initWithBackend(gpa, backend, IrohBridge.makePeer, @ptrCast(&bridge), .{
+    // This peer interposes its own close hook (DM lifecycle bookkeeping), so
+    // it overrides the bridge's spliced `on_close` after `hookOptions`.
+    var loop_options = IrohBridge.hookOptions(.{
         .frame_cap = frame_cap,
         .max_conns = 32,
         .listen = 0,
-        .make_conn_ctx = IrohBridge.makeConnCtx,
-        .serve = IrohBridge.serve,
-        .free_conn_ctx = IrohBridge.freeConnCtx,
-        .on_close = onClose,
     });
+    loop_options.on_close = onClose;
+    loop = try IrohLoop.initWithBackend(gpa, backend, IrohBridge.makePeer, @ptrCast(&bridge), loop_options);
     defer loop.deinit();
 
     // Identity for accepted hellos (redeem). Gift exporter location still comes
@@ -839,10 +929,10 @@ fn runStack(
     // keeps the hint empty (bridge buffer is short).
     try bridge.attach(iroh.transport_name, node_id, &.{});
 
-    state.dialing = true;
+    state.phase = .{ .dialing = .{ .cooldown = 0 } };
     bridge.dialOutbound(loc.transport, loc.designator, hint) catch |err| {
         log.err(io, "dial failed: {s}", .{@errorName(err)});
-        state.dialing = false;
+        state.phase = .{ .down = .{ .cooldown = 0 } };
     };
 
     while (!PeerState.stopRequested()) {

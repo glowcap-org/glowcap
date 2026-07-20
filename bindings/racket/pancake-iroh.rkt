@@ -16,6 +16,7 @@
 ;; `iroh-server-*` surface) is reached through this module directly.
 
 (require ffi/unsafe
+         ffi/unsafe/os-thread
          ffi/unsafe/port
          racket/random
          "private/constants.rkt"
@@ -30,11 +31,10 @@
 
 ;; Reachability posture, REQUIRED on every public iroh constructor, with NO
 ;; default: a peer states how it is reachable, the binding never guesses. The
-;; lazy iroh ABI loader behind `iroh-fn` lives in `private/ffi-iroh.rkt`.
-(define IROH-REACH-DIRECT 0)             ; dial by id + direct-address hints; relay-less, no discovery
-(define IROH-REACH-DISCOVERY 1)          ; n0 relays + DNS discovery; dial by id alone
-(define IROH-REACH-DISCOVERY-NO-RELAY 2) ; DNS discovery, no relays
-(define IROH-REACH-LOCAL-DISCOVERY 3)    ; in-process address book; tests/same-process
+;; IROH-REACH-* values come from the generated constants module
+;; (`private/constants-gen.rkt`, re-provided by `private/constants.rkt`), so
+;; they cannot drift from the C ABI. The lazy iroh ABI loader behind `iroh-fn`
+;; lives in `private/ffi-iroh.rkt`.
 
 ;; ── netlayer FFI wrappers ─────────────────────────────────────────────────────
 ;; (iroh-last-error) -> the calling thread's last error message from the iroh
@@ -71,7 +71,7 @@
 
 (define (iroh-netlayer-node-id nl)
   (define buf (make-bytes 64)) ; an endpoint id is 64 lowercase-hex bytes
-  (define-values (rc len) ((iroh-fn 'node-id) (iroh-netlayer-handle nl) buf 64))
+  (define-values (rc len) ((iroh-fn 'netlayer-node-id) (iroh-netlayer-handle nl) buf 64))
   (check/iroh rc)
   (bytes->string/utf-8 (subbytes buf 0 len)))
 
@@ -80,21 +80,83 @@
   ;; hint string fits (loopback hints are short, but be safe).
   (let loop ([cap 256])
     (define buf (make-bytes cap))
-    (define-values (rc len) ((iroh-fn 'direct-addrs) (iroh-netlayer-handle nl) buf cap))
+    (define-values (rc len) ((iroh-fn 'netlayer-direct-addrs) (iroh-netlayer-handle nl) buf cap))
     (cond
       [(and (= rc ERR-BUFFER-TOO-SMALL) (< cap (* 64 1024))) (loop (* cap 4))]
       [else (check/iroh rc) (bytes->string/utf-8 (subbytes buf 0 len))])))
 
-;; Dial a partner non-blockingly: the dial itself parks (it is #:blocking?), but
-;; the returned connection is driven by the netlayer's readiness loop, so its
-;; reads and writes never park a thread. Pin the borrowed inputs in immobile
-;; memory, the call may run while the GC moves Racket-managed blocks.
+;; The dial's completion signal. The C dial parks its calling thread for the
+;; whole QUIC connect, and a callout made from a Racket green thread freezes
+;; every other green thread in the place for the duration — concurrent dials
+;; would starve the very readiness loop and pumps that must answer them. The
+;; dial therefore runs on a plain OS thread (`call-in-os-thread`), whose
+;; one-byte pipe write is both the wake-up the dialing green thread syncs on
+;; and the memory barrier that publishes the result cells. The raw row keeps
+;; its `#:blocking?` mark for a second, independent reason: the mark
+;; deactivates the calling thread during the callout, so the collector never
+;; stops the world waiting on a parked dial — without it, one thirty-second
+;; dial on any thread wedges every allocation in the place until it returns.
+(define libc-for-dial (ffi-lib #f))
+(define c-pipe (get-ffi-obj 'pipe libc-for-dial (_fun _pointer -> _int)))
+(define c-write (get-ffi-obj 'write libc-for-dial (_fun _int _pointer _size -> _intptr)))
+(define c-close (get-ffi-obj 'close libc-for-dial (_fun _int -> _int)))
+
+;; Dial a partner: the dial parks an OS thread (never the place), and the
+;; returned connection is driven by the netlayer's readiness loop, so its reads
+;; and writes never park a thread. Pin the borrowed inputs in immobile memory,
+;; the call runs while the GC moves Racket-managed blocks. The raw table row is
+;; unwrapped, so the out cell is allocated here — before the OS thread starts,
+;; because nothing may allocate on that thread.
 (define (iroh-netlayer-try-connect nl node-id hints)
   (define nb (string->bytes/utf-8 node-id))
   (define hb (string->bytes/utf-8 hints))
   (define nbuf (pin-immobile nb))
   (define hbuf (pin-immobile hb))
-  (define-values (rc conn) ((iroh-fn 'try-connect) (iroh-netlayer-handle nl) nbuf (bytes-length nb) hbuf (bytes-length hb)))
+  (define handle (iroh-netlayer-handle nl))
+  (define raw (iroh-fn 'netlayer-try-connect))
+  (define conn-cell (malloc _pointer 'atomic-interior))
+  (ptr-set! conn-cell _pointer #f)
+  (define-values (rc conn)
+    (cond
+      [(os-thread-enabled?)
+       (define rc-cell (malloc _int32 'atomic-interior))
+       (define sig (malloc 1 'atomic-interior))
+       (define fds (malloc (* 2 (ctype-sizeof _int)) 'atomic-interior))
+       ;; The last-error slot is per OS thread, so a failing dial's diagnostic
+       ;; lives on the dial thread alone — read it there, into this
+       ;; preallocated buffer, before signalling completion.
+       (define msg-cap 512)
+       (define msg-buf (malloc msg-cap 'atomic-interior))
+       (define msg-len-cell (malloc _size 'atomic-interior))
+       (ptr-set! msg-len-cell _size 0)
+       (define last-error-fn (iroh-fn 'last-error))
+       (unless (zero? (c-pipe fds))
+         (error 'iroh "could not create the dial signal pipe"))
+       (define rfd (ptr-ref fds _int 0))
+       (define wfd (ptr-ref fds _int 1))
+       (call-in-os-thread
+        (lambda ()
+          (define rc (raw handle nbuf (bytes-length nb) hbuf (bytes-length hb) conn-cell))
+          (ptr-set! rc-cell _int32 rc)
+          (unless (= rc OK)
+            (ptr-set! msg-len-cell _size (last-error-fn msg-buf msg-cap)))
+          (c-write wfd sig 1)))
+       (sync (unsafe-file-descriptor->semaphore rfd 'read))
+       (unsafe-file-descriptor->semaphore rfd 'remove)
+       (c-close rfd)
+       (c-close wfd)
+       (define rc (ptr-ref rc-cell _int32))
+       (unless (= rc OK)
+         (define n (min (ptr-ref msg-len-cell _size) msg-cap))
+         (raise-pancake 'iroh rc
+                        (if (zero? n)
+                            (format "iroh dial failed (code ~a)" rc)
+                            (bytes->string/utf-8 (bytes<-c msg-buf n) #\?))))
+       (values rc (ptr-ref conn-cell _pointer))]
+      [else
+       ;; No OS threads (BC): the dial parks the place, the pre-offload shape.
+       (values (raw handle nbuf (bytes-length nb) hbuf (bytes-length hb) conn-cell)
+               (ptr-ref conn-cell _pointer))]))
   (check/iroh rc)
   conn)
 
@@ -209,7 +271,7 @@
 (define (loop-drain! lp)
   (define buf (iroh-loop-buf lp))
   (let drain ()
-    (define-values (rc n) ((iroh-fn 'drain-ready) (iroh-netlayer-handle (iroh-loop-netlayer lp)) buf DRAIN-READY-CAP))
+    (define-values (rc n) ((iroh-fn 'netlayer-drain-ready) (iroh-netlayer-handle (iroh-loop-netlayer lp)) buf DRAIN-READY-CAP))
     (cond
       [(not (= rc OK)) #f]
       [(= n 0) #t]
@@ -225,7 +287,7 @@
 ;; place's poller and posts the semaphore when it is readable — so the thread
 ;; truly sleeps without freezing the place.
 (define (loop-run lp)
-  (define fd ((iroh-fn 'readiness-fd) (iroh-netlayer-handle (iroh-loop-netlayer lp))))
+  (define fd ((iroh-fn 'netlayer-readiness-fd) (iroh-netlayer-handle (iroh-loop-netlayer lp))))
   ;; The netlayer arms the loop at construction, so the readiness fd is always a
   ;; live, pollable handle (a non-blocking socketpair end). A negative fd or an fd
   ;; rktio cannot register is a broken invariant, not a transient state — so it is
@@ -290,7 +352,7 @@
               (begin (semaphore-wait (conn-waiters-writable w)) (loop)))]
          [else (check/iroh rc)])))
    void ; each frame is its own try-write; nothing buffered here to flush
-   ;; fill-inbox!: drain whatever bytes are buffered, then park on this
+   ;; read-some!: drain whatever bytes are buffered, then park on this
    ;; connection's readability together with the pump's wake event — never a
    ;; wire read. `closed?` (or an ERR-CLOSED return) is a clean end of stream;
    ;; 'woke means the pump should re-check its predicate first.
@@ -459,7 +521,7 @@
 (define (iroh-server-accept s)
   (define lp (iroh-server-loop s))
   (let loop ()
-    (define-values (rc conn) ((iroh-fn 'try-accept) (iroh-netlayer-handle (iroh-server-netlayer s))))
+    (define-values (rc conn) ((iroh-fn 'netlayer-try-accept) (iroh-netlayer-handle (iroh-server-netlayer s))))
     (cond
       [(= rc OK)
        (define m (iroh-server-host s))

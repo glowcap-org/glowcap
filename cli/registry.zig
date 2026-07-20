@@ -14,6 +14,12 @@ pub const Parsed = types.Parsed;
 pub const Flag = types.Flag;
 pub const Positional = types.Positional;
 
+/// The commands the REPL routes through its cooperative CapTP queue (`exec`
+/// also remembers their name argument for Tab). The queue dispatches with an
+/// exhaustive switch on this enum, so adding a member is a compile error
+/// there, never a runtime usage failure.
+pub const SessionVerb = enum { call, tell, fetch, publish };
+
 pub const Command = struct {
     name: []const u8,
     help: []const u8,
@@ -25,6 +31,8 @@ pub const Command = struct {
     mcp_default: bool = false,
     /// Included in `pancake mcp --tools readonly`.
     mcp_readonly: bool = false,
+    /// Non-null routes the command through the REPL's cooperative CapTP queue.
+    session_verb: ?SessionVerb = null,
     flags: []const Flag = &.{},
     positionals: []const Positional = &.{},
     run: *const fn (*Ctx, *Parsed) anyerror!u8,
@@ -66,6 +74,7 @@ pub const commands = [_]Command{
     },
     .{
         .name = "call",
+        .session_verb = .call,
         .help = "Call a published name or #<import>",
         .mcp_default = true,
         .positionals = &[_]Positional{
@@ -78,6 +87,7 @@ pub const commands = [_]Command{
     },
     .{
         .name = "tell",
+        .session_verb = .tell,
         .help = "Fire-and-forget to a published name or #<import>",
         .mcp_default = true,
         .positionals = &[_]Positional{
@@ -90,6 +100,7 @@ pub const commands = [_]Command{
     },
     .{
         .name = "fetch",
+        .session_verb = .fetch,
         .help = "Fetch a published capability by name",
         .mcp_default = true,
         .positionals = &[_]Positional{
@@ -100,6 +111,7 @@ pub const commands = [_]Command{
     },
     .{
         .name = "publish",
+        .session_verb = .publish,
         .help = "Publish a built-in actor on the open session (greeter|echo)",
         .mcp_default = true,
         .positionals = &[_]Positional{.{ .name = "name", .help = "greeter (default) or echo", .required = false }},

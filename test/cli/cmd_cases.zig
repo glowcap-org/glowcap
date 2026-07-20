@@ -175,6 +175,50 @@ test "completion emit lists ocapn dial app rooms-peer and --json" {
     try std.testing.expect(std.mem.indexOf(u8, fish, "--json") != null or std.mem.indexOf(u8, fish, "-l json") != null);
 }
 
+fn lineContaining(hay: []const u8, marker: []const u8) ?[]const u8 {
+    var it = std.mem.splitScalar(u8, hay, '\n');
+    while (it.next()) |l| {
+        if (std.mem.indexOf(u8, l, marker) != null) return l;
+    }
+    return null;
+}
+
+test "every persistent root flag completes on child nodes in bash zsh fish" {
+    const gpa = std.testing.allocator;
+    const bash = try cli.cmd_completion.emitAlloc(gpa, &fixture_root, .bash);
+    defer gpa.free(bash);
+    const zsh = try cli.cmd_completion.emitAlloc(gpa, &fixture_root, .zsh);
+    defer gpa.free(zsh);
+    const fish = try cli.cmd_completion.emitAlloc(gpa, &fixture_root, .fish);
+    defer gpa.free(fish);
+
+    // A nested leaf node in each shell's output; the flags are derived from
+    // the root's `.persistent` set, so a new persistent flag lands here too.
+    const bash_dial = lineContaining(bash, "\"ocapn dial\") echo \"") orelse return error.MissingDialCase;
+    const zsh_dial = lineContaining(zsh, "\"ocapn dial\") echo \"") orelse return error.MissingDialCase;
+    const fish_dial = lineContaining(fish, "__fish_seen_subcommand_from dial") orelse return error.MissingDialCase;
+
+    for (fixture_root_flags) |f| {
+        if (!f.persistent) continue;
+        var buf: [64]u8 = undefined;
+        const long = try std.fmt.bufPrint(&buf, "--{s}", .{f.long});
+        try std.testing.expect(std.mem.indexOf(u8, bash_dial, long) != null);
+        try std.testing.expect(std.mem.indexOf(u8, zsh_dial, long) != null);
+        // Fish carries persistent flags as one unguarded global line each
+        // (offered in every context); per-node lines stay own-flags only.
+        var fbuf: [80]u8 = undefined;
+        const fish_global = try std.fmt.bufPrint(&fbuf, "complete -c pancake -l {s} ", .{f.long});
+        try std.testing.expect(std.mem.indexOf(u8, fish, fish_global) != null);
+        var nbuf: [64]u8 = undefined;
+        const fish_node_flag = try std.fmt.bufPrint(&nbuf, "-l {s}", .{f.long});
+        try std.testing.expect(std.mem.indexOf(u8, fish_dial, fish_node_flag) == null);
+    }
+
+    // A flagless leaf needs no per-node fish line at all: its name completes
+    // from the parent's `-a` list and the persistent flags are global.
+    try std.testing.expect(lineContaining(fish, "__fish_seen_subcommand_from completion") == null);
+}
+
 test "missing dial locator is usage" {
     const gpa = std.testing.allocator;
     var environ = std.process.Environ.Map.init(gpa);

@@ -235,24 +235,10 @@ pub fn dispatchUnderLatch(self: *Host, session: *HostSession, body: anytype) !vo
     try finishDispatch(self, session);
 }
 
-/// Byte-stream inbound spine: same latch / fail / finish as
-/// `dispatchUnderLatch`, but the body returns how many leading bytes were
-/// consumed (`feedBytes`). One concept for the inbound latch — not a second
-/// hand-rolled enter/leave/fail/finish in the Host verb.
-pub fn dispatchStreamUnderLatch(self: *Host, session: *HostSession, body: anytype) !usize {
-    try enterCallback(self, session);
-    const n = blk: {
-        defer leaveCallback(self);
-        break :blk body.call() catch |err| return failDispatch(self, session.peer_id, err);
-    };
-    try finishDispatch(self, session);
-    return n;
-}
-
 /// Shared inbound-dispatch latch: refuse reentry, refuse a condemned
 /// session, then arm the callback latch. Pair with `leaveCallback`
-/// (defer) and `finishDispatch` (on success). Own callers:
-/// `dispatchUnderLatch` and `dispatchStreamUnderLatch`.
+/// (defer) and `finishDispatch` (on success). Own caller:
+/// `dispatchUnderLatch`.
 fn enterCallback(self: *Host, session: *HostSession) !void {
     try self.refuseReentry();
     try Host.checkLive(session);

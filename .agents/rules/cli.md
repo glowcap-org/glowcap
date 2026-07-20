@@ -22,7 +22,16 @@ bind real loopback ports, so two concurrent runs — a second agent, an editor's
 build-on-save, a stale run a crashed session left behind — wedge each other's
 test binaries in silent socket waits that look like hangs. Before diagnosing a
 "hung" gate, sweep for orphaned `.zig-cache/o/*/test` processes from a dead
-session and run the gate alone. When iterating on CapTP/socket CLI tests, wrap
+session and run the gate alone. A `check` that fails compiling executables
+which build fine alone is the same contention wearing a different face — a
+live rival builder (another agent session, a `--watch` runner) racing the
+cache; find it with `ps aux | grep 'zig build'` before touching code. The
+test-step variant: a step fails with no printed assertion while its binary
+passes standalone and the failing binary's cache hash changes on every retry.
+Only an *actively compiling* rival collides — a parked `--watch` runner at 0%
+CPU is innocent — so check for live compiles and link stragglers, wait them
+out, and re-run before suspecting the change. When
+iterating on CapTP/socket CLI tests, wrap
 with `timeout N` (tens of seconds) instead of waiting forever — a silent hang
 is almost always an unbounded wait (`handshake_timeout_ms` / `settle_timeout_ms`
 defaulting to 0), not a slow test.
@@ -51,7 +60,7 @@ zig build perf-check           # gate ReleaseFast wall-clock cost: warm dispatch
 zig build fmt                # format Zig sources in place (zig fmt)
 zig build fmt-check          # check Zig formatting (zig fmt --check), part of check
 zig build bindings-fmt       # format the Rust crates + TypeScript bindings in place (needs cargo + deno)
-zig build bindings-fmt-check # check Rust + TypeScript formatting, the TypeScript lint rules, and the TypeScript type-check (needs cargo + deno)
+zig build bindings-fmt-check # check Rust + TypeScript formatting, the TypeScript lint rules, and the TypeScript type-check for the bindings and the rooms showcase app (needs cargo + deno)
 zig build docs              # generate the Zig API reference (autodoc) under zig-out/docs/
 zig build site              # build the documentation site (Zine + autodoc) under zig-out/site/
 zig build docs-serve        # serve the documentation site locally at http://127.0.0.1:1990/pancake/
@@ -62,6 +71,20 @@ zig build wasm-driver-test   # prove the wasm32 Host holds a real keyed CapTP ha
 zig build wasm-abi-layout-check # prove the wasm32 Host's layout descriptor (pancake_wasm_abi_layout) decodes cleanly and agrees with the abi.ts field counts (needs deno)
 zig build wasm-import-check   # prove the wasm32 Host's import set is exactly {env.pancake_behavior_trampoline}, the sole behavior-dispatch seam (needs deno)
 zig build web-peer-test       # prove the @pancake/web browser peer holds a keyed OCapN session over WebSocket against a native host (needs deno; ADR-0070 Milestone 1)
+zig build bindings-relay # the cross-runtime relay matrix (ADR-0086): TCP forwarding + the non-optional backpressure clause + the idle-timeout bounded-resources clause, run against every runtime's relay through one shared harness — Deno reference relay, Python relay, Rust relay (needs deno + uv + cargo)
+zig build bindings-relay-iroh # the relay matrix's iroh leg: a browser peer holds a live iroh session through each runtime's relay, dialing a real iroh endpoint over QUIC (needs deno + uv + cargo)
+zig build deno-relay-test # one row: a browser peer holds a keyed session through the Deno reference relay bindings/ts/relay/serve.ts (needs deno)
+zig build python-relay-test # one row: a browser peer holds a keyed session through the Python relay (needs deno + uv)
+zig build rust-relay-test # one row: a browser peer holds a keyed session through the Rust relay (tokio-tungstenite; needs deno + cargo)
+zig build deno-relay-backpressure-test # one row: a stalled reader backpressures the far sender through the Deno relay (needs deno)
+zig build python-relay-backpressure-test # one row: a stalled reader backpressures the far sender through the Python relay (needs deno + uv)
+zig build rust-relay-backpressure-test # one row: a stalled reader backpressures the far sender through the Rust relay (needs deno + cargo)
+zig build deno-relay-idle-test # one row: the Deno relay reclaims a silent idle session, ADR-0086's bounded-resources clause (needs deno)
+zig build python-relay-idle-test # one row: the Python relay reclaims a silent idle session (needs deno + uv)
+zig build rust-relay-idle-test # one row: the Rust relay reclaims a silent idle session (needs deno + cargo)
+zig build deno-relay-iroh-test # one row: a browser peer holds a live iroh session through the Deno relay's iroh leg (needs deno + cargo)
+zig build python-relay-iroh-test # one row: a browser peer holds a live iroh session through the Python relay, dialing iroh via the Python binding's dial_locator_for_relay (needs deno + uv + cargo)
+zig build rust-relay-iroh-test # one row: a browser peer holds a live iroh session through the Rust relay, dialing iroh via the binding's IrohNetlayer::connect_owned behind an opt-in iroh feature (needs deno + cargo)
 zig build rust-dogfood      # Rust C ABI dogfood against the pancake archives (needs cargo)
 zig build deno-dogfood      # Deno C ABI dogfood against the pancake archives (needs deno)
 zig build bun-dogfood       # Bun C ABI dogfood against the pancake archives, same multi-runtime JS binding as Deno (needs bun)
@@ -136,6 +159,10 @@ zig build demo-rooms-dm-iroh-discovery # opt-in: the same rooms DM-by-introducti
 zig build rooms-client           # run the native Zig rooms chat client (one-shot) against a room you started; pass `-- <locator> <room> <nick> <line> [roster]`
 zig build rooms-peer              # run rooms presence via `pancake app rooms-peer`; pass `-- <verb> [flags]`. Install also ships a thin `rooms-peer` shim → `pancake app rooms-peer`. Source: `cli/app/rooms_peer.zig`
 zig build rooms-web              # serve the rooms browser UI over TCP (public rooms + direct messages by introduction); open the printed URL (needs deno). `-Dport` pins the HTTP port (default 8000)
+zig build rooms-web-relay-peer   # prove a wasm browser peer drives the room directory through web.ts's /relay byte pipe (needs deno)
+zig build rooms-web-browser-peer # prove a real headless Chromium runs the @pancake/web peer through web.ts's /relay (needs deno + a Playwright Chromium)
+zig build rooms-web-page      # prove the whole rooms page runs as a browser peer: join a room through /relay and round-trip a line (needs deno + a Playwright Chromium)
+zig build rooms-web-dm        # prove the rooms page sends a direct message from a real browser: redeem a room introduction and dial the member's iroh endpoint through /relay, delivered off-room (needs cargo + deno + a Playwright Chromium)
 zig build rooms-web-iroh         # serve the rooms browser UI over iroh's encrypted QUIC (public rooms + direct messages by introduction); open the printed URL (needs cargo + deno)
 zig build demo-tasks             # cross-language tasks board: Zig/Rust/Python/Racket/Deno on one board (needs deno; joins python3/racket/cargo clients when present)
 zig build demo-tools        # cross-language capability showcase: delegation/attenuation/revocation for AI agent harnesses (needs deno; joins python3/racket/cargo agents when present)
@@ -147,12 +174,18 @@ zig build gen-header-ocapn          # regenerate include/pancake_ocapn.h from sr
 zig build gen-header-ocapn-check    # verify that header matches src/c_abi/ocapn (fails if stale), part of check
 zig build gen-header-driver         # regenerate include/pancake_driver.h from src/c_abi/driver
 zig build gen-header-driver-check   # verify include/pancake_driver.h matches src/c_abi/driver (fails if stale), part of check
-zig build gen-ts-abi                # regenerate the two-file TypeScript ABI mirror from src/c_abi (the ocapn and driver archives): target-independent constants into bindings/ts/abi/constants.ts (@pancake/abi) and 64-bit struct layouts into bindings/ts/stack/internal/abi.ts
-zig build gen-ts-abi-check          # verify both bindings/ts/abi/constants.ts and bindings/ts/stack/internal/abi.ts match src/c_abi (fails if stale), part of check
+zig build gen-ts-abi                # regenerate the TypeScript ABI mirror from src/c_abi (the ocapn, driver, and iroh transport archives): target-independent constants into bindings/ts/abi/constants.ts (@pancake/abi), 64-bit struct layouts into bindings/ts/stack/internal/abi.ts, and the driver dlopen table into bindings/ts/stack/internal/ffi/driver.ts (from the annotated symbol inventory in src/c_abi/driver/symbols.zig)
+zig build gen-ts-abi-check          # verify the generated TypeScript ABI mirror files match src/c_abi (fails if stale), part of check
 zig build gen-binding-host-action   # regenerate binding HostAction decode/types from src/c_abi/driver
 zig build gen-binding-host-action-check # verify binding HostAction decode/types match src/c_abi/driver (fails if stale), part of check
-zig build gen-binding-constants     # regenerate binding ABI constants from src/c_abi (the ocapn and driver archives)
+zig build gen-binding-constants     # regenerate binding ABI constants from src/c_abi (the ocapn, driver, and iroh transport archives)
 zig build gen-binding-constants-check # verify binding ABI constants match src/c_abi (fails if stale), part of check
+zig build gen-binding-rust-ffi      # regenerate the Rust binding's extern blocks from src/c_abi (types reflected, names from the generated headers)
+zig build gen-binding-rust-ffi-check # verify the generated Rust extern blocks match src/c_abi (fails if stale), part of check
+zig build gen-binding-python-ffi    # regenerate the Python binding's ctypes signature tables from src/c_abi (types reflected; the sigs dicts are positional)
+zig build gen-binding-python-ffi-check # verify the generated Python ctypes signature tables match src/c_abi (fails if stale), part of check
+zig build gen-binding-racket-ffi    # regenerate the Racket binding's FFI tables from src/c_abi (types reflected, wrapper argument names from the generated headers)
+zig build gen-binding-racket-ffi-check # verify the generated Racket FFI tables match src/c_abi (fails if stale), part of check
 zig build gen-binding-ffi-layouts    # regenerate binding FFI layout facts (sizes/offsets) from src/c_abi (the ocapn, driver, and iroh transport archives)
 zig build gen-binding-ffi-layouts-check # verify binding FFI layout facts match src/c_abi (fails if stale), part of check
 zig build gen-header-net-transport-tcp        # regenerate include/pancake_net_transport_tcp.h from src/c_abi/net_transport/tcp

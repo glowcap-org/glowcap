@@ -136,9 +136,6 @@ pub(crate) struct SessionShared {
 	pub(crate) ptr: Cell<*mut ffi::PancakeHostSession>,
 	key: usize,
 	pub(crate) host: Rc<HostShared>,
-	// Inbound bytes read from the wire but not yet consumed by the core's
-	// stream delimiter (the unconsumed tail of the last feed).
-	pub(crate) inbox: RefCell<Vec<u8>>,
 	// The transport halves: the serve task takes the read half for its life;
 	// FLUSH drains serialize on the write half's async lock so frames stay
 	// whole and in submission order.
@@ -184,7 +181,6 @@ impl SessionShared {
 			ptr: Cell::new(ptr),
 			key: ptr as usize,
 			host: Rc::clone(&host),
-			inbox: RefCell::new(Vec::new()),
 			reader: RefCell::new(Some(Box::new(reader))),
 			writer: Rc::new(tokio::sync::Mutex::new(Some(Box::new(writer)))),
 			closing: Cell::new(false),
@@ -225,7 +221,7 @@ impl SessionShared {
 		if self.released.get() {
 			Err(Error::with_detail(
 				sys::ERR_CLOSED,
-				"session closed".to_string(),
+				"connection closed".to_string(),
 			))
 		} else {
 			Ok(())

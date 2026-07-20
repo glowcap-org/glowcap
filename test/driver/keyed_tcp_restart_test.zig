@@ -17,6 +17,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const support_actors = @import("../support/actors.zig");
 
 const crypto = pancake.foundation.crypto;
 const model = pancake.ocapn.model;
@@ -28,14 +29,7 @@ const net = pancake.net;
 const frame_cap = 4096;
 
 /// The published actor: answers `greet` with a static greeting.
-const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
-        return .{ .string = "hello from the keyed listener" };
-    }
-};
+const Greeter = support_actors.StaticReplyActor("greet", "hello from the keyed listener");
 
 /// Accept one partner on the keyed listener, signing with `secret` (the key
 /// whose hex is the listener's designator), publish the greeter, serve until

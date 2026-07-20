@@ -50,7 +50,7 @@ pub fn testOnlyAcceptingVerifier() SignatureVerifier {
 /// so a handshaked exporter records the right key with no argument. It is empty
 /// only when neither is known.
 ///
-/// Sibling copy: `examples/apps/accountability-on-pancake/zig/three_party_test.zig`.
+/// Sibling copy: `apps/accountability-on-pancake/zig/three_party_test.zig`.
 /// That fork uses a real Ed25519 RoutingVerifier and threads an explicit gifter
 /// key at deposit; here `deliverGive` accepts a null key (learn from handshake)
 /// and tests use `testOnlyAcceptingVerifier()` for a key-agnostic seam.
@@ -123,7 +123,7 @@ pub fn withdrawGift(
 }
 
 /// Encode exactly one pending message from `from` and dispatch it on `to`.
-/// Sibling pump copy: `examples/apps/accountability-on-pancake/zig/three_party_test.zig`.
+/// Sibling pump copy: `apps/accountability-on-pancake/zig/three_party_test.zig`.
 pub fn pumpOne(from: *Peer, to: *Peer) !void {
     _ = try from.step();
     const frame = from.takeOutbound() orelse return Error.NoOutboundFrame;

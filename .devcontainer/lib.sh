@@ -32,7 +32,12 @@ verify_download_sha256() {
         echo "missing SHA-256 for ${file}" >&2
         return 1
     fi
-    echo "${expected}  ${file}" | sha256sum --check -
+    # macOS runners carry shasum, not sha256sum.
+    if command -v sha256sum >/dev/null 2>&1; then
+        echo "${expected}  ${file}" | sha256sum --check -
+    else
+        echo "${expected}  ${file}" | shasum -a 256 --check -
+    fi
 }
 
 require_arch() {

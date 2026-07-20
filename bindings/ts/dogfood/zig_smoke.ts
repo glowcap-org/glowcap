@@ -16,6 +16,7 @@ import {
 	connect,
 	Context,
 	type ContextAllocator,
+	ensureRuntimeReady,
 	FetchFailed,
 	Host,
 	Kw,
@@ -103,6 +104,10 @@ async function startRelay(
 		},
 	};
 }
+
+// Bun resolves its FFI adapter asynchronously; make it ready before the first
+// synchronous FFI call below. A no-op on Deno (resolved at import).
+await ensureRuntimeReady();
 
 // The linked library reports a real ABI version.
 const [major, minor, patch] = abiVersion();

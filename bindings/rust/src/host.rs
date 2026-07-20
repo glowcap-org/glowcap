@@ -197,7 +197,7 @@ impl HostShared {
 			sessions: RefCell::new(HashMap::new()),
 			vows: RefCell::new(HashMap::new()),
 			unobserved: RefCell::new(VecDeque::new()),
-			redeem_reachability: Cell::new(Reachability::Discovery),
+			redeem_reachability: Cell::new(Reachability::REDEEM_DEFAULT),
 			seed,
 		}))
 	}

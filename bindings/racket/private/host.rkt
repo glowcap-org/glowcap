@@ -39,9 +39,10 @@
 ;; `session-vow` awaiting it, filled at mint under the host lock and settled by
 ;; the drain's SETTLE/FAIL arms (`private/promise.rkt`), so no callback
 ;; ever crosses the C boundary for a settlement; `redeem-reachability` is the
-;; iroh posture a hint-less handoff give is redeemed under (default Discovery,
-;; 1; `set-host-redeem-reachability!` lowers it for a relay-policy
-;; deployment); `released?` guards the handle against use after release.
+;; iroh posture a hint-less handoff give is redeemed under (starting at the
+;; generated `IROH-REACH-REDEEM-DEFAULT`, Discovery;
+;; `set-host-redeem-reachability!` lowers it for a relay-policy deployment);
+;; `released?` guards the handle against use after release.
 (struct host (ptr lock lock-owner sessions progress keep vows redeem-reachability released? codec))
 
 ;; `#:codec` is the wire grammar every session this host mints negotiates
@@ -53,7 +54,7 @@
   (define-values (rc ptr) (pancake_host_new sbuf 32 HOST-FRAME-CAP 1 (codec-id codec) local-turn-budget))
   (check/host rc)
   (define m (host ptr (make-semaphore 1) (box #f) (make-hash) (box (make-semaphore 0))
-                  (make-hasheq) (make-hash) (box 1) (box #f) codec))
+                  (make-hasheq) (make-hash) (box IROH-REACH-REDEEM-DEFAULT) (box #f) codec))
   (register-finalizer m (lambda (q) (host-release! q)))
   m)
 

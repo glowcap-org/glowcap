@@ -1,7 +1,12 @@
-# The project gates on the GitHub mirror, run in the canonical devcontainer
-# image via ci/gates.sh, the same script the Codeberg (.forgejo/workflows/)
-# wrapper runs. Origin is Codeberg; this exists because the mirror's hosted
-# runners are docker-capable and free.
+# The full gate sequence, run in the canonical devcontainer image via
+# ci/gates.sh. Origin is Codeberg, whose hosted runners cannot build the
+# image (no docker-in-docker), so its docker-capable mirror carries the full
+# sequence while .forgejo/workflows/check.yml runs the Zig-only checks.
+# Topology: CONTRIBUTING.md "Continuous integration".
+#
+# The devcontainer image is rebuilt from scratch on every run (push: never,
+# no registry cache) — a named recurring cost, accepted until image caching
+# earns its registry surface.
 name: check
 
 on:
@@ -12,6 +17,7 @@ on:
 jobs:
   gates:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:

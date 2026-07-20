@@ -7,7 +7,7 @@ read raw bytes off the transport, hand them to the core's stream delimiter
 action queue, and write what ``take_outbound`` drains — plus the keyed
 handshake, the feed-refusal path (``last_abort``), and the EOF teardown that
 ``break_far_vows`` classifies as closure. Session methods wrap these through
-binding-internal seams (``raw`` / ``host`` / ``inbox`` / …); CapTP verbs stay
+binding-internal seams (``raw`` / ``host`` / …); CapTP verbs stay
 in :mod:`pancake._session`.
 """
 
@@ -51,10 +51,9 @@ async def _run_handshake(session) -> None:
 
 async def _serve_loop(session) -> None:
     try:
-        # Frames that arrived behind the handshake's tail are still
-        # buffered; dispatch them before parking on the wire.
-        if session.inbox:
-            await _feed(session, b"")
+        # Frames that rode behind the handshake's tail wait in the session's
+        # own tail; an empty feed dispatches them before parking on the wire.
+        await _feed(session, b"")
         while True:
             if session.released:
                 return
@@ -86,53 +85,25 @@ async def _serve_loop(session) -> None:
             session.close_transport()
 
 
-def _feed_raw(session, ptr, length: int) -> "tuple[int, int]":
-    # One synchronous feed of `length` bytes at `ptr`: behavior trampolines
-    # fire and completions queue inside. Returns (rc, consumed).
-    consumed = ctypes.c_size_t(0)
-    rc = _host.pancake_host_session_feed_bytes(session.raw, ptr, length, ctypes.byref(consumed))
-    return rc, consumed.value
-
-
 async def _feed(session, chunk: bytes) -> None:
     # Feed inbound bytes to the core's stream delimiter: the session's
     # codec splits each complete frame off the front — both codecs, both
     # frame shapes, the frame cap enforced during the scan — and dispatches
-    # it, then the actions the dispatch queued drain. Steady state (no
-    # pending tail) borrows the fresh chunk's own buffer for the one
-    # synchronous feed, zero-copy; only when a partial frame already
-    # straddles two reads is the burst coalesced into the inbox — the one
-    # copy on the inbound path, paid only while a tail is pending, because
-    # the delimiter needs the tail and the new bytes contiguous. Only the
-    # unconsumed tail stays in the inbox. A mid-feed close parks its C
-    # release; it drains the moment the feed returns.
+    # it, then the actions the dispatch queued drain. The library owns the
+    # unconsumed tail — a partial frame straddling two reads stays buffered
+    # in the session — so one borrowed call moves the whole chunk (c_char_p
+    # points at `chunk`'s own bytes, which the synchronous feed only reads);
+    # an empty chunk resumes frames the session held behind its handshake
+    # open. A mid-feed close parks its C release; it drains the moment the
+    # feed returns.
     if session.released:
         return
-    if not session.inbox:
-        n = len(chunk)
-        if not n:
-            return
-        # Borrowed, not copied: c_char_p points at `chunk`'s own bytes,
-        # which the synchronous feed only reads.
-        ptr = ctypes.cast(ctypes.c_char_p(chunk), ctypes.c_void_p)
-        rc, consumed = _feed_raw(session, ptr, n)
-        session.host.drain_parked_releases()
-        if rc != _OK:
-            await _raise_feed_refusal(session, rc)
-        if consumed < n:
-            session.inbox.extend(chunk[consumed:])
-        await session.host.kick_actions()
-        return
-    session.inbox.extend(chunk)
-    n = len(session.inbox)
-    # The coalesce copy: one ctypes buffer over the pending tail plus the
-    # fresh chunk, so the core sees contiguous bytes.
-    buf = (ctypes.c_uint8 * n).from_buffer_copy(session.inbox)
-    rc, consumed = _feed_raw(session, ctypes.c_void_p(ctypes.addressof(buf)), n)
+    n = len(chunk)
+    ptr = ctypes.cast(ctypes.c_char_p(chunk), ctypes.c_void_p) if n else None
+    rc = _host.pancake_host_session_feed_bytes(session.raw, ptr, n)
     session.host.drain_parked_releases()
     if rc != _OK:
         await _raise_feed_refusal(session, rc)
-    del session.inbox[:consumed]
     await session.host.kick_actions()
 
 

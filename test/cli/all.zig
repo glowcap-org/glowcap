@@ -6,5 +6,6 @@ comptime {
     _ = @import("cmd_cases.zig");
     _ = @import("ergonomics_cases.zig");
     _ = @import("rooms_peer_cases.zig");
+    _ = @import("rooms_peer_phase_cases.zig");
     _ = @import("repl_cases.zig");
 }

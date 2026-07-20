@@ -55,9 +55,11 @@
 
    (on (<- mycapn 'enliven target)
        (lambda (provider)
+         (eprintf "asker: enlivened provider~n")
          (define record-vow (<- provider 'record "pancake-get"))
          (on record-vow
              (lambda (record)
+               (eprintf "asker: record vow resolved: ~v~n" record)
                (define got-name
                  (cond
                    [(string? record) record]
@@ -71,6 +73,7 @@
                (define list-vow (<- provider 'list))
                (on list-vow
                    (lambda (lst)
+                     (eprintf "asker: list vow resolved~n")
                      (define first
                        (cond
                          [(pair? lst) (car lst)]
@@ -79,17 +82,29 @@
                      (unless (equal? first "alpha")
                        (put-err 'index-element first)
                        (void))
-                     (<-np netlayer 'interop-send
-                           (make-op:get (make-desc:answer record-answer-pos)
-                                        "name"
-                                        get-answer-pos)
-                           interop-marshallers)
-                     (<-np netlayer 'interop-send
-                           (make-op:index (make-desc:answer list-answer-pos)
-                                          0
-                                          index-answer-pos)
-                           interop-marshallers)
-                     (async-channel-put response-ch '(ok)))
+                     ;; Sequence the sends before the exit: `interop-send`
+                     ;; writes inside the netlayer's turn, so chaining on its
+                     ;; vows guarantees both frames reached the port before
+                     ;; `(ok)` lets the process exit. A fire-and-forget `<-np`
+                     ;; here would race process teardown and could drop the
+                     ;; frames this scenario exists to put on the wire.
+                     (on (<- netlayer 'interop-send
+                             (make-op:get (make-desc:answer record-answer-pos)
+                                          "name"
+                                          get-answer-pos)
+                             interop-marshallers)
+                         (lambda (_get-sent)
+                           (on (<- netlayer 'interop-send
+                                   (make-op:index (make-desc:answer list-answer-pos)
+                                                  0
+                                                  index-answer-pos)
+                                   interop-marshallers)
+                               (lambda (_index-sent)
+                                 (async-channel-put response-ch '(ok)))
+                               #:catch
+                               (lambda (err) (put-err 'index-send err))))
+                         #:catch
+                         (lambda (err) (put-err 'get-send err))))
                    #:catch
                    (lambda (err) (put-err 'list err))))
              #:catch

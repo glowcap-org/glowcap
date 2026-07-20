@@ -72,9 +72,6 @@ class Session:
         self._key = ptr.value or 0
         self._host = host
         self._transport = transport
-        # Inbound bytes read from the wire but not yet consumed by the core's
-        # stream delimiter (the unconsumed tail of the last feed).
-        self._inbox = bytearray()
         self._serve_task: Optional[asyncio.Task] = None
         # Set the moment teardown begins (an application close, or the
         # transport reporting EOF), so the FAIL completions the break queues
@@ -183,7 +180,7 @@ class Session:
 
     # ── State: the consumer reads only `host`; the rest is a binding-internal
     # seam ──────────────────────────────────────────────────────────────────────
-    # The underscore fields (`_ptr`, `_inbox`, `_transport`, `_write_lock`,
+    # The underscore fields (`_ptr`, `_transport`, `_write_lock`,
     # `_hosted`, `_gc`, `_closing`, `_released`) are the private backing store.
     # The non-underscore accessors below are the binding-internal seam the pump,
     # trampoline, and GC reach through: a named tier between the public verbs and
@@ -233,11 +230,6 @@ class Session:
         """Whether the keyed handshake has completed and the session is open.
         Binding-internal seam for the pump."""
         return not self._released and _host.pancake_host_session_session_open(self._ptr) == 1
-
-    @property
-    def inbox(self) -> bytearray:
-        """Unconsumed inbound tail. Binding-internal seam for the pump."""
-        return self._inbox
 
     @property
     def write_lock(self) -> asyncio.Lock:

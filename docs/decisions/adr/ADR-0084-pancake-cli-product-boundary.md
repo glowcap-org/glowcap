@@ -13,7 +13,7 @@ superseded_by: []
 ## Context
 
 pancake shipped as libraries (Zig API, composable C ABI archives, language
-bindings) plus demo and operator binaries under `examples/apps/` (notably
+bindings) plus demo and operator binaries under `apps/` (notably
 `rooms-peer`). There was no unified product CLI. Ambition for CapTP scripting,
 agent control (MCP), durable presence, A2A interop, and observability risked a
 kitchen-sink that hid authority, duplicated Host/loop stacks, or mirrored

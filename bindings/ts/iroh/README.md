@@ -35,3 +35,15 @@ for await (const session of server) session.serve();
 `Reachability` is required at every entry point. The caller owns the reach and privacy posture;
 there is no default. See [`mod.ts`](mod.ts) for `listenIroh`, `IrohServer`, and the `Reachability`
 postures; dial via `@pancake/stack`'s `connect(locator, reachability)`.
+
+## Byte-transparent relay
+
+`dialLocatorForRelay(locator, reachability)` is a low-level dial entry point for relay
+implementations that forward bytes from another transport (a WebSocket, an HTTP stream) to an iroh
+locator without parsing CapTP frames. It returns a byte `Channel`: an object with `read()`,
+`write()`, and `close()` methods, where `close()` also releases the loop and netlayer the dial
+opened. A byte-transparent relay leaves the keyed handshake and session authority to the two ends.
+`zig build bindings-relay-iroh` proves a wasm browser peer holds a live OCapN session with a real
+iroh endpoint through each runtime's relay (fetch and call round-trip). The relay pump and WebSocket
+adapter live in [`@pancake/relay`](../relay/); the rooms endpoint that adds policy is
+[`apps/rooms/deno/relay_server.ts`](../../../apps/rooms/deno/relay_server.ts).

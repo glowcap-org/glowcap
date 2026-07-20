@@ -118,11 +118,12 @@ class Host:
         self._parked_releases: "list[Callable[[], None]]" = []
         # The iroh reachability posture this host uses to redeem a *hint-less*
         # handoff give — one whose exporter location names the exporter by node
-        # id alone. Defaults to Discovery (n0 relays + DNS/pkarr), the
-        # maximal-reach choice; a relay-policy deployment lowers it. A hinted
-        # give always dials Direct and ignores it. Stored as the numeric value
-        # so the core stays free of the optional iroh module.
-        self._redeem_reachability = 1  # Reachability.DISCOVERY
+        # id alone. Starts at the generated ABI default (Discovery, n0 relays +
+        # DNS/pkarr, the maximal-reach choice); a relay-policy deployment
+        # lowers it. A hinted give always dials Direct and ignores it. Stored
+        # as the numeric value so the core stays free of the optional iroh
+        # module.
+        self._redeem_reachability = _abi.IROH_REACH_REDEEM_DEFAULT
 
     @property
     def raw(self) -> ctypes.c_void_p:

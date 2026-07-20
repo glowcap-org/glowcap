@@ -19,6 +19,12 @@
 // inside their adapters, so the layers above hold one pointer representation.
 
 import { type AbiLayout, layout64, setActiveLayout } from "../layout.ts";
+// Deno's adapter constructs synchronously (it touches only `Deno.*` globals,
+// and only inside its methods), so it can be static-imported and selected
+// without a top-level await. Bun's adapter imports `bun:ffi` and is loaded
+// lazily instead, keeping that runtime-only specifier off Deno's and the
+// browser bundle's static graph.
+import { adapter as denoAdapter } from "./adapters/deno.ts";
 
 /** A native pointer as a `bigint` address. `0n` is the null pointer. */
 export type Ptr = bigint;
@@ -162,22 +168,96 @@ function detectRuntime(): RuntimeName {
  * of probing for a runtime the browser does not have. */
 export const injected_adapter_key = Symbol.for("pancake.stack.adapter");
 
-async function loadAdapter(): Promise<RuntimeAdapter> {
+/** The active adapter, resolved without a top-level await. An injected
+ * adapter (the wasm browser binding) and Deno resolve here synchronously; Bun
+ * is undefined until `ensureRuntimeReady` loads it. Keeping this module free
+ * of top-level await is what lets a browser bundle it into one file: esbuild
+ * flattens every module's top-level await, and the stack's import graph
+ * deadlocks around one. */
+function resolveSync(): RuntimeAdapter | undefined {
 	const injected = (globalThis as Record<symbol, unknown>)[injected_adapter_key];
 	if (injected !== undefined) return injected as RuntimeAdapter;
-	// A computed specifier keeps a static analyzer (Deno's `deno check`, a
-	// bundler) from following into a runtime it cannot resolve: `bun.ts` imports
-	// `bun:ffi`, which does not exist under Deno. The matching adapter is the
-	// only one ever loaded at runtime.
-	const file = `./adapters/${detectRuntime()}.ts`;
-	return (await import(file)).adapter;
+	if (typeof g.Bun === "undefined" && typeof g.Deno?.dlopen === "function") {
+		return denoAdapter;
+	}
+	return undefined;
 }
 
-const selected = await loadAdapter();
-setActiveLayout(selected.layout ?? layout64);
+let selected: RuntimeAdapter | undefined = resolveSync();
+if (selected) setActiveLayout(selected.layout ?? layout64);
 
-/** The host runtime's FFI seam. */
-export const ffi: RuntimeFfi = selected.ffi;
+let readying: Promise<RuntimeAdapter> | undefined;
 
-/** The host runtime's socket seam. */
-export const net: RuntimeNet = selected.net;
+/** Ensure the FFI runtime is resolved. Deno and the injected browser adapter
+ * are ready synchronously at import; Bun loads its adapter here (its `bun:ffi`
+ * import is off the static graph). Await this before the first FFI or socket
+ * use on Bun; the async public entry points (`connect`, `listen`, a `Server`'s
+ * accept) already do. Idempotent. */
+export function ensureRuntimeReady(): Promise<RuntimeAdapter> {
+	if (selected) return Promise.resolve(selected);
+	readying ??= (async () => {
+		const file = `./adapters/${detectRuntime()}.ts`;
+		const adapter = (await import(file)).adapter as RuntimeAdapter;
+		selected = adapter;
+		setActiveLayout(adapter.layout ?? layout64);
+		return adapter;
+	})();
+	return readying;
+}
+
+function active(): RuntimeAdapter {
+	// An adapter injected after this module loaded — the browser binding sets
+	// its global, then imports the stack, but a static import chain may have
+	// evaluated this module first — is picked up on first real use. Deno's
+	// adapter was already resolved synchronously; Bun's arrives through
+	// `ensureRuntimeReady`.
+	if (!selected) {
+		const injected = (globalThis as Record<symbol, unknown>)[injected_adapter_key];
+		if (injected !== undefined) {
+			selected = injected as RuntimeAdapter;
+			setActiveLayout(selected.layout ?? layout64);
+		}
+	}
+	if (!selected) {
+		throw new Error(
+			"pancake: FFI runtime not ready — await ensureRuntimeReady() before " +
+				"the first FFI/socket use (Bun); Deno and the browser resolve synchronously",
+		);
+	}
+	return selected;
+}
+
+/** The host runtime's FFI seam. Delegates to the active adapter so this module
+ * needs no top-level await; the adapter is resolved by the time any real call
+ * lands (synchronously on Deno and the browser, after `ensureRuntimeReady` on
+ * Bun). */
+export const ffi: RuntimeFfi = {
+	dlopen: (path, defs) => active().ffi.dlopen(path, defs),
+	makeCallback: (def, fn) => active().ffi.makeCallback(def, fn),
+	pointerOf: (buf) => active().ffi.pointerOf(buf),
+	readMemory: (ptr, len) => active().ffi.readMemory(ptr, len),
+	writeMemory: (ptr, bytes) => active().ffi.writeMemory(ptr, bytes),
+	libSuffix: () => active().ffi.libSuffix(),
+};
+
+/** The host runtime's socket seam. Delegates to the active adapter for the
+ * same reason as `ffi`. */
+export const net: RuntimeNet = {
+	connect: (host, port) => active().net.connect(host, port),
+	listen: (host, port) => active().net.listen(host, port),
+};
+
+/** A lazily-opened archive: the library is `dlopen`ed on first symbol access,
+ * not at module load, so a symbol table can be declared before the runtime is
+ * ready (Bun) and a browser bundle carries no eager `dlopen` at import time.
+ * `pathFn` is resolved on first open too (it reads `ffi.libSuffix()`, which
+ * needs the runtime ready). Deno and the browser open on the first real call,
+ * which is already past import. */
+export function lazySymbols(pathFn: () => string, defs: Record<string, SymbolDef>): Symbols {
+	let opened: Symbols | undefined;
+	const open = (): Symbols => (opened ??= active().ffi.dlopen(pathFn(), defs));
+	return new Proxy({} as Symbols, {
+		get: (_t, prop) => open()[prop as string],
+		has: (_t, prop) => prop in open(),
+	});
+}

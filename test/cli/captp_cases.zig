@@ -295,6 +295,72 @@ test "listen exits promptly on requestStop while serving" {
     try std.testing.expectEqual(cli.exit_codes.ok, host_code);
 }
 
+test "await queue detaches its vat listener when the partner vanishes mid-wait" {
+    const gpa = std.testing.allocator;
+    var environ = std.process.Environ.Map.init(gpa);
+    defer environ.deinit();
+    var threaded = std.Io.Threaded.init(gpa, .{});
+    defer threaded.deinit();
+    const io = threaded.io();
+
+    cli.signals.resetForTest();
+    defer cli.signals.resetForTest();
+
+    var host = makeCtx(io, gpa, &environ, 71);
+    defer host.deinit();
+    var host_capture: std.ArrayList(u8) = .empty;
+    defer host_capture.deinit(gpa);
+    host.sink = .{ .buffer = &host_capture };
+
+    var listen_parsed = cli.cmd_types.Parsed{ .gpa = gpa };
+    defer listen_parsed.deinit();
+    try listen_parsed.bools.put(gpa, "once", true);
+    try listen_parsed.strings.put(gpa, "publish", "greeter");
+    try listen_parsed.strings.put(gpa, "bind", "127.0.0.1:0");
+
+    var listen_args = ListenArgs{ .ctx = &host, .parsed = &listen_parsed };
+    var host_future = try io.concurrent(runListen, .{&listen_args});
+    const uri = try waitListenLocator(&host, &host_future, io);
+
+    var client = makeCtx(io, gpa, &environ, 72);
+    defer client.deinit();
+    client.front = .repl;
+    var client_capture: std.ArrayList(u8) = .empty;
+    defer client_capture.deinit(gpa);
+    client.sink = .{ .buffer = &client_capture };
+
+    client.session = try cli.ocapn.dialUriWithOpts(&client, uri, .{
+        .handshake_timeout_ms = 2_000,
+        .settle_timeout_ms = 2_000,
+    });
+
+    // The partner leaves for good before the wait is registered: stop the host
+    // and join it, so the queue's fetch listener can only settle through the
+    // dead-transport paths (clean-close vow break or the fault arm's own break).
+    cli.signals.requestStop();
+    try std.testing.expectEqual(cli.exit_codes.ok, try host_future.await(io));
+
+    var store = cli.repl_blocks.Store.init(gpa);
+    defer store.deinit();
+    var progress = cli.repl_teach.Progress{ .has_session = true };
+    var complete_state = cli.repl_complete.State.init(gpa);
+    defer complete_state.deinit();
+    var queue = cli.repl_await_queue.Queue.init(gpa);
+    defer queue.deinit();
+
+    try queue.enqueue(&client, "call greeter greet boom", &store);
+    var spins: usize = 0;
+    while (queue.busy() and spins < 1_000) : (spins += 1) {
+        _ = queue.tick(&client, &store, &progress, &complete_state) catch {};
+    }
+    try std.testing.expect(!queue.busy());
+
+    // Closing the session fires every listener still on the vat; a wait that
+    // died above must have taken its listener with it, not left one aimed at
+    // the freed Active.
+    client.closeSession();
+}
+
 test "publishBuiltin rejects unknown names" {
     const Stub = struct {
         called: bool = false,

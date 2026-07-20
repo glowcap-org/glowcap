@@ -50,6 +50,12 @@ export { RemotePromise } from "./promise.ts";
 export { type Channel, Session } from "./session.ts";
 export { connect } from "./dial.ts";
 export { KeyedTcpServer, listen, listenKeyedTcp, Server } from "./listen.ts";
+// Bun loads its FFI adapter asynchronously (its `bun:ffi` import stays off the
+// static graph), so a Bun program awaits this once before the first
+// synchronous FFI use (`new Host()`, `abiVersion()`). Deno and the browser
+// resolve synchronously and never need it; `connect` and the async transport
+// helpers already await it.
+export { ensureRuntimeReady } from "./internal/ffi/runtime.ts";
 export {
 	designatorHostPort,
 	encodePeerLocator,

@@ -33,6 +33,7 @@ import {
 	HINT_DIRECT_ADDRESSES,
 	Host,
 	PancakeError,
+	parseLocator,
 	Reachability,
 	Session,
 	TRANSPORT_IROH,
@@ -711,6 +712,49 @@ export async function _connectIroh(
 		nodeId,
 		transport,
 	);
+}
+
+/** Dial an iroh locator and return a byte channel for relay/bridge use.
+ * Unlike `_connectIroh`, this returns just the channel, not a Session.
+ * The channel owns the loop and netlayer; calling `close()` cleans up
+ * both and terminates the connection. For transparent relay endpoints
+ * (e.g., browser peer → relay → native iroh). */
+export async function dialLocatorForRelay(
+	locator: string,
+	reachability: Reachability = Reachability.Discovery,
+): Promise<Channel> {
+	const parsed = parseLocator(locator);
+	if (parsed.transport !== TRANSPORT_IROH) {
+		throw new PancakeError(
+			INVALID_ARGUMENT,
+			`expected iroh locator, got transport: ${parsed.transport}`,
+		);
+	}
+
+	const nodeId = parsed.designator;
+	const directAddresses = parsed.hints.get(HINT_DIRECT_ADDRESSES) ?? "";
+
+	const netlayer = new IrohNetlayer(reachability);
+	const loop = new IrohLoop(netlayer);
+	let conn: IrohConn;
+	try {
+		conn = await dialResolving(netlayer, nodeId, directAddresses, reachability);
+	} catch (e) {
+		loop.close();
+		netlayer.release();
+		throw e;
+	}
+	loop.register(conn);
+	loop.start();
+
+	// Return a channel that owns the connection, loop, and netlayer.
+	// Calling close() terminates the connection and cleans up the loop/netlayer.
+	const irohChannel = new IrohChannel(conn, loop, netlayer, true);
+	return {
+		read: () => irohChannel.read(),
+		write: (data: Uint8Array) => irohChannel.write(data),
+		close: () => irohChannel.close(),
+	};
 }
 
 /** Complete the responder handshake over an accepted iroh connection, signing

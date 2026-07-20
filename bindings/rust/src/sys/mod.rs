@@ -27,11 +27,21 @@ mod layouts_gen;
 mod ocapn;
 pub use ocapn::*;
 
+#[cfg(feature = "async")]
+mod driver_fns_gen;
+mod ocapn_fns_gen;
+
 pub use crate::abi_constants::*;
 
 #[cfg(feature = "inproc")]
 pub mod inproc;
+#[cfg(feature = "inproc")]
+mod inproc_fns_gen;
 #[cfg(feature = "iroh")]
 pub mod iroh;
+#[cfg(feature = "iroh")]
+mod iroh_fns_gen;
 #[cfg(feature = "tcp")]
 pub mod tcp;
+#[cfg(feature = "tcp")]
+mod tcp_fns_gen;

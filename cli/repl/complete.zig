@@ -1,7 +1,9 @@
 //! CapTP lab completion candidates (pure; hermetic tests).
 const std = @import("std");
 const registry = @import("../registry.zig");
+const builtins = @import("../ocapn/builtins.zig");
 const copy = @import("copy.zig");
+const meta = @import("meta.zig");
 
 pub const Candidate = struct {
     token: []const u8,
@@ -32,8 +34,6 @@ pub const State = struct {
     }
 };
 
-const repl_only = [_][]const u8{ "help", "quit", "exit", "guide", "tour", "?" };
-
 /// Fill `out` with candidates for `line` (cursor at end). Returns count written.
 pub fn candidates(state: *const State, line: []const u8, out: []Candidate) usize {
     const trimmed = std.mem.trim(u8, line, " \t");
@@ -55,8 +55,8 @@ pub fn candidates(state: *const State, line: []const u8, out: []Candidate) usize
             if (!registry.leafVisible(&cmd, .repl)) continue;
             written = pushIfPrefix(out, written, prefix, cmd.name, copy.gloss(cmd.name));
         }
-        for (repl_only) |name| {
-            written = pushIfPrefix(out, written, prefix, name, copy.gloss(name));
+        for (meta.entries) |e| {
+            written = pushIfPrefix(out, written, prefix, e.name, e.gloss);
         }
         return written;
     }
@@ -73,11 +73,10 @@ pub fn candidates(state: *const State, line: []const u8, out: []Candidate) usize
         if (slot == 1) {
             written = pushNames(state, out, written, prefix);
         } else if (slot == 2) {
-            written = pushIfPrefix(out, written, prefix, "greet", "Greeter greet verb");
-            written = pushIfPrefix(out, written, prefix, "cowsay", "Greeter cowsay verb");
-            written = pushIfPrefix(out, written, prefix, "pancakesay", "Greeter pancakesay verb");
-            written = pushIfPrefix(out, written, prefix, "goblinsay", "Greeter goblinsay verb");
-            written = pushIfPrefix(out, written, prefix, "echo", "Echo verb");
+            // One owner for the demo verb set: the actors' own table.
+            for (builtins.demo_verbs) |v| {
+                written = pushIfPrefix(out, written, prefix, v.name, v.blurb);
+            }
         }
     } else if (std.mem.eql(u8, verb, "tour")) {
         if (slot == 1) {
@@ -95,8 +94,7 @@ pub fn candidates(state: *const State, line: []const u8, out: []Candidate) usize
 
 fn pushNames(state: *const State, out: []Candidate, written0: usize, prefix: []const u8) usize {
     var written = written0;
-    const builtins = [_][]const u8{ "greeter", "echo" };
-    for (builtins) |b| {
+    for (builtins.names) |b| {
         written = pushIfPrefix(out, written, prefix, b, "CLI demo actor name");
     }
     for (state.known_names.items) |n| {

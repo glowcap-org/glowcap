@@ -65,15 +65,13 @@ Destination: [vision](vision.md).
   [ADR-0052](decisions/adr/ADR-0052-untag-responder.md)). Evidence:
   `test/engine/projection_test.zig`, `abort_projection_test.zig`. Bindings
   expose `index` / `untag` / `get` over `pancake_host_vow_*`.
-- **Relayed-resolution forwarding.** When a Host answer fulfills with a foreign
-  promise token, `Node.proxyForeignPromiseFulfill` (from
-  `Host.interceptFulfilled`) preserves `RefKind`, arms home `op:listen`, mints
-  a third-party import-promise, and relays settlement once via
-  `Peer.applyRelayedResolution`
-  ([ADR-0009](decisions/adr/ADR-0009-three-party-handoff-substrate.md)).
-  Hermetic evidence: `test/engine/node_test.zig`,
+- **Relayed-resolution forwarding.** A Host answer that fulfills with a
+  foreign promise token relays its settlement once to every recipient session;
+  the mechanism lives in
+  [ADR-0009](decisions/adr/ADR-0009-three-party-handoff-substrate.md), the
+  in-tree evidence in `test/engine/node_test.zig` and
   `test/engine/relay_resolution_test.zig`. Object foreign fulfills remain
-  gift-redeem (`goblins-handoff` / `goblins-gift`). Foreign promise as
+  gift-redeem (`goblins-handoff` / `goblins-gift`); a foreign promise as
   send/tell args is a permanent refuse (`ForeignArgument`;
   [boundaries](boundaries.md)).
 - **Bootstrap fetch.** `engine.fetch` builds the canonical bootstrap-fetch
@@ -182,6 +180,29 @@ Destination: [vision](vision.md).
   ([ADR-0075](decisions/adr/ADR-0075-keyed-tcp-designator.md)), `net.inproc`
   ([ADR-0047](decisions/adr/ADR-0047-in-memory-netlayer.md)), and the `iroh`
   sidecar ([ADR-0055](decisions/adr/ADR-0055-iroh-netlayer-sidecar.md)).
+- **Byte-transparent relay (browser peer).** Browser peers cannot dial native
+  sockets directly, so the rooms app serves a `/relay` endpoint that accepts a
+  WebSocket and forwards bytes to a TCP target without parsing CapTP frames;
+  the keyed handshake and session authority run end to end unchanged
+  ([ADR-0086](decisions/adr/ADR-0086-byte-transparent-relay.md)). The relay is a
+  first-class capability, `@pancake/relay` (`bindings/ts/relay/`): `relayBytes`
+  is the pump and `webSocketRelay` adapts an upgraded WebSocket to it, over a
+  `RelayChannel` interface. The rooms endpoint that adds policy lives in
+  `apps/rooms/deno/relay_server.ts`. Each forwarded chunk is copied between
+  the two legs (the relay is not zero-copy), and either leg ending tears both
+  down. The endpoint allow-lists exactly the room server's own port for TCP
+  targets (iroh targets are `ocapn://` locators), checks
+  the `Origin` header on the upgrade, caps live sessions, times out idle
+  pairs, and bounds the bytes a session may forward.
+  The cross-runtime matrix `zig build bindings-relay` proves a browser peer
+  holding a keyed OCapN session and the backpressure clause through the Deno,
+  Python (`bindings/python/relay.py`), and Rust (`bindings/rust/relay`) relays;
+  `zig build bindings-relay-iroh` proves the iroh leg for all three against a
+  real iroh endpoint (`@pancake/iroh` exposes `dialLocatorForRelay` for relay
+  implementations). The `rooms-web-relay-peer` / `rooms-web-browser-peer` /
+  `rooms-web-page` steps drive the rooms directory through the Deno relay, real
+  Chromium included. Direct messages from the browser to a room member through
+  the relay are not built; the browser DM path shows a coming-later notice.
 - **iroh.** `zig build iroh-interop` proves configurable `Reachability`
   (`direct` / `discovery` / `discovery_no_relay` / `local_discovery`) that
   dials by node id alone; opt-in `iroh-reachability` and
@@ -284,8 +305,15 @@ Destination: [vision](vision.md).
   `zig build web-peer-test` proves a browser-shaped peer completing the keyed
   handshake inside wasm against a native WebSocket-accepting host, with calls
   in both directions; `zig build wasm-driver-test` proves the raw exports
-  below it. The rooms web demo still rides its per-tab bridge
-  ([roadmap](roadmap.md)); WebRTC (Milestone 2) is not built.
+  below it.
+
+  **Rooms web browser peer (ADR-0070).** The rooms web demo runs the real
+  `@pancake/web` peer over the byte-transparent relay: the browser drives
+  `lib/room_client.ts` directly, holds the room capability, and sends messages
+  over CapTP. Public chat is proven end to end with real Chromium
+  (`zig build rooms-web-browser-peer`, `zig build rooms-web-page`). Browser
+  DMs are not built: the browser DM path shows a coming-later notice, and
+  messaging from a member to a browser waits on WebRTC (Milestone 2).
 
 ## Apps/CLI
 
@@ -309,7 +337,7 @@ Destination: [vision](vision.md).
   (`zig build demo-accountability`). `zig build accountability-three-party`
   proves that after A introduces B to C, C attributes B, not A. Application
   code stays entirely above pancake:
-  [`examples/apps/accountability-on-pancake/`](../examples/apps/accountability-on-pancake/).
+  [`apps/accountability-on-pancake/`](../apps/accountability-on-pancake/).
 - **Installable CapTP CLI.** `zig build` installs `pancake` from `cli/`
   ([ADR-0084](decisions/adr/ADR-0084-pancake-cli-product-boundary.md)).
   Recipes: [cli](cli.md). Everyday `ocapn`, CapTP lab `repl`, curated stdio
@@ -322,19 +350,14 @@ Destination: [vision](vision.md).
   a real Spritely Goblins conversation each way
   ([ADR-0035](decisions/adr/ADR-0035-live-goblins-interop.md)). As client:
   keyed `op:start-session`, bootstrap-fetch echo, pipelined `op:index` /
-  `op:get`, and enliven with ADR-0012 dedup (repeat hits cache, no second
-  wire). As listener: swiss-hosted vat actor, settled call,
-  reverse-pipelined enliven-and-call, unknown-swiss break, and Goblins' own
-  `listen` marshalled against a live pancake object export, settling fulfill.
-  In-tree, a live object-export `op:listen` fires fulfill immediately; a
-  third-party-backed promise-export listen installs on the import store's
-  listen cell and fires on settle
-  ([ADR-0007](decisions/adr/ADR-0007-promise-pipelining-substrate.md)); a
-  listen on a bare unresolved promise export is refused (`InvalidReference`:
-  pancake exports no free-standing resolvable promise).
-  `zig build goblins-gc` proves inbound `op:gc-exports` after echo consumes a
-  near export. Binding `*-goblins-interop` steps prove the client direction
-  only over the C ABI.
+  `op:get`, and enliven with ADR-0012 dedup. As listener: swiss-hosted vat
+  actor, settled call, reverse-pipelined enliven-and-call, unknown-swiss
+  break, and Goblins' own `listen` settling fulfill against a live pancake
+  object export (listen semantics:
+  [ADR-0007](decisions/adr/ADR-0007-promise-pipelining-substrate.md) and
+  [boundaries](boundaries.md)). `zig build goblins-gc` proves inbound
+  `op:gc-exports` after echo consumes a near export. Binding
+  `*-goblins-interop` steps prove the client direction only over the C ABI.
 - **Protocol reference bridge.** `zig build oracle-check` enumerates shipped
   message arms, checks pancake-authored Syrup fixture parity against upstream
   Syrup encoders, and runs engine scenarios including multi-peer third-party

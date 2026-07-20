@@ -201,6 +201,7 @@ pub fn writeState(
     room: []const u8,
     locator: []const u8,
     registered: bool,
+    join_attempts: u32,
 ) void {
     var list: std.ArrayList(u8) = .empty;
     defer list.deinit(gpa);
@@ -214,13 +215,18 @@ pub fn writeState(
     writeJsonString(&list, gpa, locator) catch return;
     list.appendSlice(gpa, ",\"registered\":") catch return;
     list.appendSlice(gpa, if (registered) "true" else "false") catch return;
+    list.appendSlice(gpa, ",\"join_attempts\":") catch return;
+    var jb: [12]u8 = undefined;
+    list.appendSlice(gpa, std.fmt.bufPrint(&jb, "{d}", .{join_attempts}) catch "0") catch return;
     list.append(gpa, '}') catch return;
     overwriteFile(io, dir, "state.json", list.items) catch return;
 }
 
 /// One string field out of state.json, owned; empty when absent.
 /// Booleans stringify as `"true"` / `"false"` so callers can compare without a
-/// second helper (`registered` is written as a JSON bool).
+/// second helper (`registered` is written as a JSON bool). Extracts strings
+/// and bools only: numeric fields (`join_attempts`) surface through the raw
+/// state.json splice in `status`, or a caller's own JSON parse.
 pub fn stateField(io: Io, gpa: Allocator, dir: []const u8, key: []const u8) []u8 {
     const raw = readFile(io, gpa, dir, "state.json") catch return gpa.dupe(u8, "") catch unreachable;
     defer gpa.free(raw);

@@ -1,12 +1,12 @@
 // The accepting half of the web-peer proof: a keyed OCapN host (dlopen stack,
-// native archives) that accepts WebSocket connections directly, the ADR-0070
-// Milestone 1 server shape. Each accepted socket is one byte channel; the
-// stack's `Session.establishAccepted` drives the keyed handshake over it
-// exactly as over an accepted TCP socket, so the WebSocket is a bearer, not a
-// protocol translator.
+// native archives) that accepts connections, either WebSocket (default, ADR-0070
+// Milestone 1) or TCP (for relay tests). Each accepted socket is one byte
+// channel; the stack's `Session.establishAccepted` drives the keyed handshake
+// over it, so the transport is a bearer, not a protocol translator.
 //
-// Started by `web_peer_test.ts`; prints one READY line of JSON (port and key
-// designator) once the HTTP server is listening.
+// Flags:
+//   --tcp-only: Listen on TCP instead of WebSocket (for relay tests)
+//   address: TCP bind address (host:port, e.g. 127.0.0.1:0); ignored for WebSocket
 
 import {
 	type Channel,
@@ -16,58 +16,36 @@ import {
 	socketAddrDesignator,
 	TRANSPORT_KEYED_TCP,
 } from "@pancake/stack";
+import { webSocketChannel } from "../ws_channel.ts";
 
-const seed = new Uint8Array(32).fill(0x5a);
-const host = new Host(seed);
-const designator = host.designator();
+const tcpOnly = Deno.args.includes("--tcp-only");
+const addressArg = Deno.args.find((a) => !a.startsWith("-"));
 
-/** Adapt one accepted WebSocket to the stack's byte-channel seam. */
-function channelOf(ws: WebSocket): Channel {
-	const chunks: Uint8Array[] = [];
-	let waiter: ((chunk: Uint8Array | null) => void) | null = null;
-	let closed = false;
-	ws.binaryType = "arraybuffer";
-	ws.onmessage = (event: MessageEvent) => {
-		const chunk = new Uint8Array(event.data as ArrayBuffer);
-		if (waiter !== null) {
-			const w = waiter;
-			waiter = null;
-			w(chunk);
-		} else {
-			chunks.push(chunk);
-		}
-	};
-	ws.onclose = ws.onerror = () => {
-		closed = true;
-		if (waiter !== null) {
-			const w = waiter;
-			waiter = null;
-			w(null);
-		}
-	};
+/** Wrap Deno.Conn to match the Channel interface. */
+function wrapTcpConn(conn: Deno.Conn): Channel {
 	return {
-		read(): Promise<Uint8Array | null> {
-			const buffered = chunks.shift();
-			if (buffered !== undefined) return Promise.resolve(buffered);
-			if (closed) return Promise.resolve(null);
-			return new Promise((r) => {
-				waiter = r;
-			});
+		async read(): Promise<Uint8Array | null> {
+			const buf = new Uint8Array(64 * 1024);
+			const n = await conn.read(buf);
+			return n === null ? null : buf.subarray(0, n);
 		},
-		write(data: Uint8Array): Promise<void> {
-			ws.send(data as Uint8Array<ArrayBuffer>);
-			return Promise.resolve();
+		async write(data: Uint8Array): Promise<void> {
+			let off = 0;
+			while (off < data.length) off += await conn.write(data.subarray(off));
 		},
 		close(): void {
-			closed = true;
 			try {
-				ws.close();
+				conn.close();
 			} catch {
 				// already closed
 			}
 		},
 	};
 }
+
+const seed = new Uint8Array(32).fill(0x5a);
+const host = new Host(seed);
+const designator = host.designator();
 
 /** Serve one WebSocket-accepting host: each upgraded socket becomes a keyed
  * accepted session on `acceptingHost`, publishing the greeter. */
@@ -85,7 +63,7 @@ function serveHost(acceptingHost: Host, hostDesignator: string): Deno.HttpServer
 						acceptingHost,
 						TRANSPORT_KEYED_TCP,
 						hostDesignator,
-						channelOf(socket),
+						webSocketChannel(socket),
 						socketAddrDesignator("127.0.0.1", server.addr.port),
 					);
 					// The browser peer fetches this by name, and its `greet`
@@ -113,19 +91,78 @@ function serveHost(acceptingHost: Host, hostDesignator: string): Deno.HttpServer
 	return server;
 }
 
-const server = serveHost(host, designator);
+/** Serve one TCP-accepting host: each accepted connection becomes a keyed
+ * session over a raw byte channel. */
+async function serveTcpHost(
+	acceptingHost: Host,
+	hostDesignator: string,
+	address: string,
+): Promise<Deno.Listener> {
+	const [host, portStr] = address.split(":");
+	const port = portStr === "0" ? 0 : Number(portStr);
+	const listener = await Deno.listen({ hostname: host, port });
 
-// A second host on the Cap'n Proto grammar, so the proof covers the wasm
-// peer negotiating and running the second codec too.
-const capnpSeed = new Uint8Array(32).fill(0x6b);
-const capnpHost = new Host(capnpSeed, { codec: "capnp" });
-const capnpDesignator = capnpHost.designator();
-const capnpServer = serveHost(capnpHost, capnpDesignator);
+	(async () => {
+		for await (const conn of listener) {
+			void (async () => {
+				try {
+					const session = await Session.establishAccepted(
+						acceptingHost,
+						TRANSPORT_KEYED_TCP,
+						hostDesignator,
+						wrapTcpConn(conn),
+						socketAddrDesignator(host, (listener.addr as Deno.NetAddr).port),
+					);
+					session.publish("greeter", (verb, args) => {
+						if (verb !== "greet") throw new Error(`unknown verb ${verb}`);
+						const name = args[0] as string;
+						const callback = args[1] as Ref | undefined;
+						if (
+							callback instanceof Object && callback !== null &&
+							"reference" in callback
+						) {
+							void session.tell(callback as Ref, "notify", [`saw ${name}`]);
+						}
+						return `hello ${name}`;
+					});
+					session.serve().catch(() => {});
+				} catch (err) {
+					console.error(`session error: ${err}`);
+				}
+			})();
+		}
+	})().catch(() => {});
 
-console.log(JSON.stringify({
-	ready: true,
-	port: server.addr.port,
-	designator,
-	capnpPort: capnpServer.addr.port,
-	capnpDesignator,
-}));
+	return listener;
+}
+
+if (tcpOnly) {
+	// TCP-only mode (for relay tests): one listener, no Cap'n Proto variant.
+	const listener = await serveTcpHost(host, designator, addressArg || "127.0.0.1:0");
+	const addr = listener.addr as Deno.NetAddr;
+	console.log(JSON.stringify({
+		ready: true,
+		port: addr.port,
+		designator,
+		capnpPort: 0,
+		capnpDesignator: "",
+	}));
+} else {
+	// WebSocket mode (default): HTTP servers for both Syrup and Cap'n Proto.
+	const server = serveHost(host, designator);
+
+	// A second host on the Cap'n Proto grammar, so the proof covers the wasm
+	// peer negotiating and running the second codec too.
+	const capnpSeed = new Uint8Array(32).fill(0x6b);
+	const capnpHost = new Host(capnpSeed, { codec: "capnp" });
+	const capnpDesignator = capnpHost.designator();
+	const capnpServer = serveHost(capnpHost, capnpDesignator);
+
+	console.log(JSON.stringify({
+		ready: true,
+		port: server.addr.port,
+		designator,
+		capnpPort: capnpServer.addr.port,
+		capnpDesignator,
+	}));
+}

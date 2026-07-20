@@ -86,6 +86,12 @@ typedef struct PancakeIrohConn PancakeIrohConn;
 #define PANCAKE_IROH_REACH_DISCOVERY_NO_RELAY 2u
 #define PANCAKE_IROH_REACH_LOCAL_DISCOVERY 3u
 
+/* The posture a Host redeems a hint-less handoff give under until the
+   embedder sets one: DISCOVERY, the maximal-reach choice. The netlayer
+   constructor still takes no default; this names the redeem knob's one
+   starting value so every consumer initializes from the same fact. */
+#define PANCAKE_IROH_REACH_REDEEM_DEFAULT 1u
+
 /* Readiness event bits (ADR-0057). The netlayer's loop serves many
    connections from one host thread: park on the readiness fd from
    pancake_iroh_netlayer_readiness_fd, and when it signals, drain records

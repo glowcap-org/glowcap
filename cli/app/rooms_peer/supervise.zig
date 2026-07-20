@@ -18,6 +18,7 @@ const readFile = harness.readFile;
 const removeFile = harness.removeFile;
 const stateField = harness.stateField;
 const writeJsonString = harness.writeJsonString;
+const writeState = harness.writeState;
 
 // --- start ------------------------------------------------------------------
 
@@ -106,6 +107,12 @@ pub fn runStart(init: std.process.Init, flags: Flags) !void {
             return;
         }
     }
+
+    // Spawn path only (an adopted live pid keeps its own state): reset
+    // state.json before the spawn so the join wait below observes only this
+    // daemon's progress — a dead-pid restart must not report ok off the
+    // previous run's stale "joined" bytes.
+    writeState(io, gpa, dir, "starting", flags.nick, flags.room, bootstrap, false, 0);
 
     // Raw daemon stdout/stderr (a startup crash before state.json) land here.
     var out_path_buf: [512]u8 = undefined;
@@ -198,8 +205,7 @@ fn waitJoinedAndReport(io: Io, gpa: Allocator, exe: []const u8, dir: []const u8,
                 return;
             }
         } else if (waited >= join_deadline_ms) {
-            emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"join-timeout\",\"detail\":\"peer did not report joined in time; check the locator and that the room is reachable\"}}\n", .{});
-            return error.PeerFailed;
+            return failJoinTimeout(io, gpa, dir, pid, started);
         }
         if (!pidAlive(io, gpa, pid)) {
             const tail = readFile(io, gpa, dir, "peer.out") catch gpa.dupe(u8, "") catch "";
@@ -213,7 +219,48 @@ fn waitJoinedAndReport(io: Io, gpa: Allocator, exe: []const u8, dir: []const u8,
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(300), .real) catch {};
         waited += 300;
     }
-    emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"join-timeout\",\"detail\":\"peer did not report joined in time; check the locator and that the room is reachable\"}}\n", .{});
+    return failJoinTimeout(io, gpa, dir, pid, started);
+}
+
+/// The `join_attempts` counter out of state.json. `stateField` extracts
+/// strings and bools only, so the one numeric field gets its own read.
+fn stateJoinAttempts(io: Io, gpa: Allocator, dir: []const u8) u32 {
+    const raw = readFile(io, gpa, dir, "state.json") catch return 0;
+    defer gpa.free(raw);
+    const parsed = std.json.parseFromSlice(std.json.Value, gpa, raw, .{}) catch return 0;
+    defer parsed.deinit();
+    if (parsed.value == .object) {
+        if (parsed.value.object.get("join_attempts")) |v| {
+            if (v == .integer and v.integer >= 0 and v.integer <= std.math.maxInt(u32)) {
+                return @intCast(v.integer);
+            }
+        }
+    }
+    return 0;
+}
+
+/// The join deadline passed. A peer this `start` spawned is stopped so a
+/// never-joined daemon is not left as an orphan; an adopted pre-existing peer
+/// is left running — it may be mid-outage on its own backoff, and this `start`
+/// does not own it. The JSON detail says which happened; `status` and
+/// `join_attempts` carry the peer's last observed phase and how many join
+/// tries it has abandoned.
+fn failJoinTimeout(io: Io, gpa: Allocator, dir: []const u8, pid: i32, started: bool) error{PeerFailed} {
+    const status = stateField(io, gpa, dir, "status");
+    defer gpa.free(status);
+    const join_attempts = stateJoinAttempts(io, gpa, dir);
+    if (started) _ = stopPeerPid(io, gpa, dir, pid);
+    var esc: std.ArrayList(u8) = .empty;
+    defer esc.deinit(gpa);
+    writeJsonString(&esc, gpa, status) catch {};
+    emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"join-timeout\",\"status\":{s},\"join_attempts\":{d},\"detail\":\"{s}\"}}\n", .{
+        esc.items,
+        join_attempts,
+        if (started)
+            "peer did not report joined in time and was stopped; check the locator and that the room is reachable"
+        else
+            "existing peer has not joined; left running (its own backoff may recover it) — rooms-peer stop if wedged",
+    });
     return error.PeerFailed;
 }
 
@@ -272,22 +319,20 @@ fn reportStarted(
 
 // --- stop -------------------------------------------------------------------
 
-pub fn runStop(init: std.process.Init, flags: Flags) !void {
-    const io = init.io;
-    const gpa = init.gpa;
-    if (flags.dir.len == 0) {
-        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"stop needs --dir\"}}\n", .{});
-        return error.UsageFailed;
+/// What a stop attempt did: whether any signal was sent, and whether it
+/// escalated to SIGKILL.
+const StopOutcome = struct {
+    signaled: bool,
+    sigkill: bool,
+};
+
+/// SIGTERM then SIGKILL a live peer pid and clear `peer.pid`.
+fn stopPeerPid(io: Io, gpa: Allocator, dir: []const u8, target: i32) StopOutcome {
+    if (!pidAlive(io, gpa, target)) {
+        removeFile(io, dir, "peer.pid");
+        return .{ .signaled = false, .sigkill = false };
     }
-    const pid = readPid(io, gpa, flags.dir);
-    if (pid == null or !pidAlive(io, gpa, pid.?)) {
-        removeFile(io, flags.dir, "peer.pid");
-        emitStdoutFmt(io, "{{\"ok\":true,\"stopped\":false,\"detail\":\"no peer running for this dir\"}}\n", .{});
-        return;
-    }
-    const target = pid.?;
     std.posix.kill(target, std.posix.SIG.TERM) catch {};
-    // Give the clean SIGTERM path a few seconds before escalating.
     var waited: u64 = 0;
     while (waited < 6000 and pidAlive(io, gpa, target)) {
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(100), .real) catch {};
@@ -303,6 +348,31 @@ pub fn runStop(init: std.process.Init, flags: Flags) !void {
             w2 += 100;
         }
     }
-    removeFile(io, flags.dir, "peer.pid");
-    emitStdoutFmt(io, "{{\"ok\":true,\"stopped\":true,\"pid\":{d},\"sigkill\":{s}}}\n", .{ target, if (sigkill) "true" else "false" });
+    removeFile(io, dir, "peer.pid");
+    return .{ .signaled = true, .sigkill = sigkill };
+}
+
+pub fn runStop(init: std.process.Init, flags: Flags) !void {
+    const io = init.io;
+    const gpa = init.gpa;
+    if (flags.dir.len == 0) {
+        emitStdoutFmt(io, "{{\"ok\":false,\"error\":\"usage\",\"detail\":\"stop needs --dir\"}}\n", .{});
+        return error.UsageFailed;
+    }
+    const pid = readPid(io, gpa, flags.dir) orelse {
+        // Missing or unparseable pid file: clear it and report nothing to stop.
+        removeFile(io, flags.dir, "peer.pid");
+        emitStdoutFmt(io, "{{\"ok\":true,\"stopped\":false,\"detail\":\"no peer running for this dir\"}}\n", .{});
+        return;
+    };
+    // stopPeerPid owns the dead-pid arm too (clears the stale pid file).
+    const outcome = stopPeerPid(io, gpa, flags.dir, pid);
+    if (!outcome.signaled) {
+        emitStdoutFmt(io, "{{\"ok\":true,\"stopped\":false,\"detail\":\"no peer running for this dir\"}}\n", .{});
+        return;
+    }
+    emitStdoutFmt(io, "{{\"ok\":true,\"stopped\":true,\"pid\":{d},\"sigkill\":{s}}}\n", .{
+        pid,
+        if (outcome.sigkill) "true" else "false",
+    });
 }

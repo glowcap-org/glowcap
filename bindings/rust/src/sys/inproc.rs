@@ -8,10 +8,6 @@
 //! [`crate::sys`].
 #![allow(dead_code)]
 
-use core::ffi::{c_int, c_uchar, c_uint};
-
-use crate::sys::{PancakeContext, PancakeFrame, PancakeManagedFrame};
-
 #[repr(C)]
 pub struct PancakeInprocNetlayer {
 	_private: [u8; 0],
@@ -25,46 +21,8 @@ pub struct PancakeInprocListener {
 	_private: [u8; 0],
 }
 
-extern "C" {
-	// The in-process transport archive carries its own thread-local last-error,
-	// read through `pancake_inproc_last_error` rather than the ocapn family's
-	// `pancake_last_error`.
-	pub fn pancake_inproc_last_error(out_buf: *mut c_uchar, cap: usize) -> usize;
-	pub fn pancake_inproc_clear_last_error();
-	pub fn pancake_inproc_netlayer_new(out: *mut *mut PancakeInprocNetlayer) -> c_int;
-	pub fn pancake_inproc_netlayer_new_in(
-		context: *mut PancakeContext,
-		out: *mut *mut PancakeInprocNetlayer,
-	) -> c_int;
-	pub fn pancake_inproc_netlayer_release(netlayer: *mut PancakeInprocNetlayer);
-	pub fn pancake_inproc_connect(
-		netlayer: *mut PancakeInprocNetlayer,
-		designator: *const c_uchar,
-		designator_len: usize,
-		codec: c_uint,
-		max_frame_bytes: usize,
-		out: *mut *mut PancakeInprocConn,
-	) -> c_int;
-	pub fn pancake_inproc_listen(
-		netlayer: *mut PancakeInprocNetlayer,
-		designator: *const c_uchar,
-		designator_len: usize,
-		out: *mut *mut PancakeInprocListener,
-	) -> c_int;
-	pub fn pancake_inproc_accept(
-		listener: *mut PancakeInprocListener,
-		codec: c_uint,
-		max_frame_bytes: usize,
-		out: *mut *mut PancakeInprocConn,
-	) -> c_int;
-	pub fn pancake_inproc_conn_read_frame(
-		conn: *mut PancakeInprocConn,
-		out: *mut PancakeManagedFrame,
-	) -> c_int;
-	pub fn pancake_inproc_conn_write_frame(
-		conn: *mut PancakeInprocConn,
-		frame: *const PancakeFrame,
-	) -> c_int;
-	pub fn pancake_inproc_conn_release(conn: *mut PancakeInprocConn);
-	pub fn pancake_inproc_listener_release(listener: *mut PancakeInprocListener);
-}
+// The raw extern block is generated (`inproc_fns_gen.rs`, `zig build
+// gen-binding-rust-ffi`): types reflected from the Zig exports, parameter
+// names from the generated C header. Re-exported here so consumers keep
+// their `sys::inproc::pancake_inproc_*` paths.
+pub use super::inproc_fns_gen::*;

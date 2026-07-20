@@ -13,7 +13,7 @@
 //! on the engine (imports it, never the reverse), enqueuing onto the peer's
 //! outbound queue and reading its events while the application drives the socket.
 
-const vat = @import("vat.zig");
+const vat = @import("vat/mod.zig");
 const ocap_mod = @import("ocap.zig");
 
 pub const Vat = vat.Vat;

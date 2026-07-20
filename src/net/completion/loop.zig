@@ -108,6 +108,7 @@ const std = @import("std");
 const foundation = @import("foundation");
 const engine = @import("engine");
 const frame_stream = @import("../frame_stream.zig");
+const clock = @import("../clock.zig");
 const tcp_keepalive = @import("tcp_keepalive.zig");
 
 /// Re-export so loop callers configure keepalive without a second import path.
@@ -359,17 +360,6 @@ fn opOf(ud: u64) Op {
 }
 fn slotOf(ud: u64) usize {
     return @intCast(ud >> 3);
-}
-
-/// Wall-clock milliseconds since the Unix epoch for `runUntil` deadlines.
-fn milliTimestamp() i64 {
-    var ts: std.posix.timespec = .{ .sec = 0, .nsec = 0 };
-    switch (std.posix.errno(std.posix.system.clock_gettime(std.posix.CLOCK.REALTIME, &ts))) {
-        .SUCCESS => {},
-        else => return 0,
-    }
-    return @as(i64, @intCast(ts.sec)) * std.time.ms_per_s +
-        @divFloor(@as(i64, @intCast(ts.nsec)), std.time.ns_per_ms);
 }
 
 /// Size of one shared pool buffer (the spill carries the rare larger frame).
@@ -682,10 +672,10 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
             if (self.listen_fd) |fd| try self.backend.submitAccept(userData(.accept, 0), fd);
             const poll_batch = 256;
             var completions: [poll_batch]Completion = undefined;
-            const deadline_start: ?i64 = if (deadline_ms > 0) milliTimestamp() else null;
+            const deadline_start: ?i64 = if (deadline_ms > 0) clock.nowMonotonicMs() else null;
             while (!done.load(.acquire)) {
                 const poll_timeout: i32 = if (deadline_ms > 0) blk: {
-                    const elapsed = milliTimestamp() - deadline_start.?;
+                    const elapsed = clock.nowMonotonicMs() - deadline_start.?;
                     const remaining = deadline_ms - @as(i32, @intCast(elapsed));
                     if (remaining <= 0) return error.Timeout;
                     break :blk remaining;
@@ -991,19 +981,32 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// plus the replies of frames already buffered.
         fn armOrPark(self: *Self, slot: usize, c: *Conn) !void {
             if (pendingOut(c) > self.outbound_high_water) {
-                self.markParked(slot, c);
+                // A genuine sink park: this connection is not draining its own
+                // outbound, so it is the slow reader the reaper targets.
+                self.markParked(slot, c, .sink);
                 return;
             }
             if (self.fan_in_throttle and self.anySinkParked()) {
-                self.markParked(slot, c);
+                // A fan-in park: an innocent fast source throttled behind some
+                // other slow sink. It is a victim, not the slow reader.
+                self.markParked(slot, c, .fan_in);
                 return;
             }
             try self.armRecv(slot, c);
         }
 
-        fn markParked(self: *Self, slot: usize, c: *Conn) void {
+        const ParkReason = enum { sink, fan_in };
+
+        fn markParked(self: *Self, slot: usize, c: *Conn, reason: ParkReason) void {
             if (c.read != .parked) {
-                c.parked_at_ms = if (self.park_kill_ms != null) milliTimestamp() else 0;
+                // Only a sink park arms the slow-reader reaper. A fan-in park is
+                // a throttled victim, not a slow reader, so it stays exempt
+                // (`parked_at_ms == 0`, which `reapParkKills` skips) — reaping it
+                // would kill a fast source for its neighbour's slowness. A victim
+                // that later becomes a real sink is re-stamped `.sink` when fan-in
+                // pressure clears and its read re-arms, so it ages then.
+                c.parked_at_ms =
+                    if (reason == .sink and self.park_kill_ms != null) clock.nowMonotonicMs() else 0;
                 if (self.on_park) |hook| hook(self.make_ctx, slot, c.app_ctx);
             }
             c.read = .parked;
@@ -1021,7 +1024,7 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
         /// Close connections that have stayed `.parked` past `park_kill_ms`.
         fn reapParkKills(self: *Self) void {
             const limit = self.park_kill_ms orelse return;
-            const now = milliTimestamp();
+            const now = clock.nowMonotonicMs();
             for (self.conns, 0..) |*c, slot| {
                 if (c.state != .open or c.read != .parked) continue;
                 if (c.parked_at_ms == 0) continue;
@@ -1193,11 +1196,11 @@ pub fn Loop(comptime Backend: type, comptime Locator: type) type {
                 c.read = .idle;
                 if (c.state != .open) continue;
                 if (pendingOut(c) > self.outbound_high_water) {
-                    self.markParked(slot, c);
+                    self.markParked(slot, c, .sink);
                     continue;
                 }
                 if (self.fan_in_throttle and self.anySinkParked()) {
-                    self.markParked(slot, c);
+                    self.markParked(slot, c, .fan_in);
                     continue;
                 }
                 self.armRecv(slot, c) catch {

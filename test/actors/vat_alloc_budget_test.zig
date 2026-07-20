@@ -15,6 +15,7 @@ const actors = pancake.actors;
 const Turn = actors.Turn;
 const Message = actors.Message;
 const CountingAllocator = @import("../support/alloc_metrics.zig").CountingAllocator;
+const promise_capture = @import("../support/capture.zig");
 
 /// Replies with a fresh turn-arena byte string, the documented handler
 /// pattern: the reply must be cloned for the settling listener, and where
@@ -26,19 +27,7 @@ const ArenaReplier = struct {
     }
 };
 
-const ByteCapture = struct {
-    buf: [64]u8 = undefined,
-    len: usize = 0,
-    fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *ByteCapture = @ptrCast(@alignCast(ctx.?));
-        const bytes = switch (resolution) {
-            .fulfilled => |value| value.bytes,
-            .broken, .give => return,
-        };
-        @memcpy(self.buf[0..bytes.len], bytes);
-        self.len = bytes.len;
-    }
-};
+const ByteCapture = promise_capture.CapturedBytes;
 
 test "a warmed local settle window costs zero gpa allocations" {
     var counter = CountingAllocator{ .backing = std.testing.allocator };

@@ -165,10 +165,24 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\     LOCAL_DISCOVERY    in-process shared address book; resolves by id
         \\                        alone with no relay, DNS, or hints. For tests
         \\                        and same-process embeddings, never the internet. */
-        \\#define PANCAKE_IROH_REACH_DIRECT 0u
-        \\#define PANCAKE_IROH_REACH_DISCOVERY 1u
-        \\#define PANCAKE_IROH_REACH_DISCOVERY_NO_RELAY 2u
-        \\#define PANCAKE_IROH_REACH_LOCAL_DISCOVERY 3u
+        \\
+    );
+    // Reflected from the Zig module (which mirrors the resident's enum), so
+    // the header cannot disagree with the values the archive accepts.
+    try b.print(gpa, "#define PANCAKE_IROH_REACH_DIRECT {d}u\n", .{c.PANCAKE_IROH_REACH_DIRECT});
+    try b.print(gpa, "#define PANCAKE_IROH_REACH_DISCOVERY {d}u\n", .{c.PANCAKE_IROH_REACH_DISCOVERY});
+    try b.print(gpa, "#define PANCAKE_IROH_REACH_DISCOVERY_NO_RELAY {d}u\n", .{c.PANCAKE_IROH_REACH_DISCOVERY_NO_RELAY});
+    try b.print(gpa, "#define PANCAKE_IROH_REACH_LOCAL_DISCOVERY {d}u\n", .{c.PANCAKE_IROH_REACH_LOCAL_DISCOVERY});
+    try b.appendSlice(gpa,
+        \\
+        \\/* The posture a Host redeems a hint-less handoff give under until the
+        \\   embedder sets one: DISCOVERY, the maximal-reach choice. The netlayer
+        \\   constructor still takes no default; this names the redeem knob's one
+        \\   starting value so every consumer initializes from the same fact. */
+        \\
+    );
+    try b.print(gpa, "#define PANCAKE_IROH_REACH_REDEEM_DEFAULT {d}u\n", .{c.PANCAKE_IROH_REACH_REDEEM_DEFAULT});
+    try b.appendSlice(gpa,
         \\
         \\/* Readiness event bits (ADR-0057). The netlayer's loop serves many
         \\   connections from one host thread: park on the readiness fd from
@@ -179,10 +193,13 @@ pub fn generate(gpa: std.mem.Allocator) ![]u8 {
         \\   frame with a PancakePeer, as for TCP). No call parks on a specific
         \\   connection, so releasing one never races a read. The would-block code
         \\   is the shared PANCAKE_ERR_WOULD_BLOCK from pancake_ocapn.h. */
-        \\#define PANCAKE_IROH_EV_READABLE 1u
-        \\#define PANCAKE_IROH_EV_WRITABLE 2u
-        \\#define PANCAKE_IROH_EV_CLOSED 4u
-        \\#define PANCAKE_IROH_EV_ACCEPT 8u
+        \\
+    );
+    try b.print(gpa, "#define PANCAKE_IROH_EV_READABLE {d}u\n", .{c.PANCAKE_IROH_EV_READABLE});
+    try b.print(gpa, "#define PANCAKE_IROH_EV_WRITABLE {d}u\n", .{c.PANCAKE_IROH_EV_WRITABLE});
+    try b.print(gpa, "#define PANCAKE_IROH_EV_CLOSED {d}u\n", .{c.PANCAKE_IROH_EV_CLOSED});
+    try b.print(gpa, "#define PANCAKE_IROH_EV_ACCEPT {d}u\n", .{c.PANCAKE_IROH_EV_ACCEPT});
+    try b.appendSlice(gpa,
         \\
         \\/* One readiness record from pancake_iroh_netlayer_drain_ready: the
         \\   connection that became ready and the PANCAKE_IROH_EV_* bitset. conn is

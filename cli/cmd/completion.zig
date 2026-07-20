@@ -14,17 +14,15 @@ pub fn parseShell(name: []const u8) ?Shell {
     return null;
 }
 
-const Emitter = struct {
-    gpa: ?std.mem.Allocator = null,
-    list: ?*std.ArrayList(u8) = null,
-    io: ?std.Io = null,
+const Emitter = union(enum) {
+    stdout: std.Io,
+    list: struct { gpa: std.mem.Allocator, out: *std.ArrayList(u8) },
 
     fn writeAll(self: *Emitter, bytes: []const u8) !void {
-        if (self.list) |list| {
-            try list.appendSlice(self.gpa.?, bytes);
-            return;
+        switch (self.*) {
+            .stdout => |io| try argv.writeStdout(io, bytes),
+            .list => |sink| try sink.out.appendSlice(sink.gpa, bytes),
         }
-        try argv.writeStdout(self.io.?, bytes);
     }
 
     fn writeFmt(self: *Emitter, comptime fmt: []const u8, args: anytype) !void {
@@ -36,7 +34,7 @@ const Emitter = struct {
 
 /// Emit a completion script for `shell` rooted at `root` to stdout.
 pub fn emit(io: std.Io, root: *const Command, shell: Shell) !void {
-    var em = Emitter{ .io = io };
+    var em = Emitter{ .stdout = io };
     try emitWith(&em, root, shell);
 }
 
@@ -44,7 +42,7 @@ pub fn emit(io: std.Io, root: *const Command, shell: Shell) !void {
 pub fn emitAlloc(gpa: std.mem.Allocator, root: *const Command, shell: Shell) ![]u8 {
     var list: std.ArrayList(u8) = .empty;
     errdefer list.deinit(gpa);
-    var em = Emitter{ .gpa = gpa, .list = &list };
+    var em = Emitter{ .list = .{ .gpa = gpa, .out = &list } };
     try emitWith(&em, root, shell);
     return try list.toOwnedSlice(gpa);
 }
@@ -87,12 +85,19 @@ fn emitBash(em: *Emitter, root: *const Command) !void {
         \\}
         \\
     );
+    try emitCaseTables(em, root, "complete -F _pancake pancake\n");
+}
+
+/// The `_pancake_cmds` / `_pancake_flags` case tables bash and zsh share; only
+/// the registration line at the tail differs per shell.
+fn emitCaseTables(em: *Emitter, root: *const Command, register: []const u8) !void {
     try em.writeAll("_pancake_cmds() {\n  case \"$*\" in\n");
     try writeCmdCases(em, root, &.{});
     try em.writeAll("  esac\n}\n\n");
     try em.writeAll("_pancake_flags() {\n  case \"$*\" in\n");
-    try writeFlagCases(em, root, &.{});
-    try em.writeAll("  esac\n}\n\ncomplete -F _pancake pancake\n");
+    try writeFlagCases(em, root, &.{}, root.flags);
+    try em.writeAll("  esac\n}\n\n");
+    try em.writeAll(register);
 }
 
 fn emitZsh(em: *Emitter, root: *const Command) !void {
@@ -124,12 +129,7 @@ fn emitZsh(em: *Emitter, root: *const Command) !void {
         \\}
         \\
     );
-    try em.writeAll("_pancake_cmds() {\n  case \"$*\" in\n");
-    try writeCmdCases(em, root, &.{});
-    try em.writeAll("  esac\n}\n\n");
-    try em.writeAll("_pancake_flags() {\n  case \"$*\" in\n");
-    try writeFlagCases(em, root, &.{});
-    try em.writeAll("  esac\n}\n\ncompdef _pancake pancake\n");
+    try emitCaseTables(em, root, "compdef _pancake pancake\n");
 }
 
 fn pathKey(parts: []const []const u8, buf: []u8) []const u8 {
@@ -175,7 +175,14 @@ fn writeCmdCases(em: *Emitter, cmd: *const Command, path: []const []const u8) !v
     }
 }
 
-fn writeFlagCases(em: *Emitter, cmd: *const Command, path: []const []const u8) !void {
+fn hasFlag(flags: []const types.Flag, long: []const u8) bool {
+    for (flags) |f| {
+        if (std.mem.eql(u8, f.long, long)) return true;
+    }
+    return false;
+}
+
+fn writeFlagCases(em: *Emitter, cmd: *const Command, path: []const []const u8, root_flags: []const types.Flag) !void {
     var key_buf: [256]u8 = undefined;
     const key = pathKey(path, &key_buf);
 
@@ -183,31 +190,19 @@ fn writeFlagCases(em: *Emitter, cmd: *const Command, path: []const []const u8) !
     try em.writeAll(key);
     try em.writeAll("\") echo \"");
     var first = true;
-    var saw_json = false;
-    var saw_plain = false;
-    var saw_identity = false;
     for (cmd.flags) |f| {
         if (!first) try em.writeAll(" ");
         first = false;
         try em.writeFmt("--{s}", .{f.long});
-        if (std.mem.eql(u8, f.long, "json")) saw_json = true;
-        if (std.mem.eql(u8, f.long, "plain")) saw_plain = true;
-        if (std.mem.eql(u8, f.long, "identity")) saw_identity = true;
     }
-    if (!saw_json) {
+    // Persistent root flags apply at every node; derived, so a new one lands
+    // in completion the same day it lands in `root_flags`.
+    for (root_flags) |f| {
+        if (!f.persistent) continue;
+        if (hasFlag(cmd.flags, f.long)) continue;
         if (!first) try em.writeAll(" ");
-        try em.writeAll("--json");
         first = false;
-    }
-    if (!saw_plain) {
-        if (!first) try em.writeAll(" ");
-        try em.writeAll("--plain");
-        first = false;
-    }
-    if (!saw_identity) {
-        if (!first) try em.writeAll(" ");
-        try em.writeAll("--identity");
-        first = false;
+        try em.writeFmt("--{s}", .{f.long});
     }
     if (!first) try em.writeAll(" ");
     try em.writeAll("--help");
@@ -220,19 +215,37 @@ fn writeFlagCases(em: *Emitter, cmd: *const Command, path: []const []const u8) !
         if (n >= child_path_buf.len) continue;
         @memcpy(child_path_buf[0..n], path);
         child_path_buf[n] = c.name;
-        try writeFlagCases(em, c, child_path_buf[0 .. n + 1]);
+        try writeFlagCases(em, c, child_path_buf[0 .. n + 1], root_flags);
     }
 }
 
 fn emitFish(em: *Emitter, root: *const Command) !void {
+    var help_buf: [256]u8 = undefined;
     try em.writeAll("# pancake fish completion — pancake completion fish | source\n");
     try em.writeAll("complete -c pancake -f\n");
-    try em.writeAll("complete -c pancake -l json -d 'JSON output'\n");
-    try em.writeAll("complete -c pancake -l plain -d 'Human output'\n");
-    try em.writeAll("complete -c pancake -l identity -d 'Identity seed path' -r\n");
+    // Persistent root flags are emitted once, unguarded, so fish offers them in
+    // every context; per-node lines below carry only the node's own flags.
+    // Derived, so a new persistent flag lands here the day it lands in the tree.
+    for (root.flags) |f| {
+        if (!f.persistent) continue;
+        try em.writeAll("complete -c pancake");
+        try writeFishFlagSpec(em, f, &help_buf);
+        try em.writeAll("\n");
+    }
     try em.writeAll("complete -c pancake -l help -s h -d 'Help'\n");
     try writeFishNode(em, root, &.{});
     try em.writeAll("\n");
+}
+
+/// One fish flag spec (` -l NAME -d 'HELP'`, plus ` -r` when it takes a value),
+/// shared by the global persistent lines and the per-node lines.
+fn writeFishFlagSpec(em: *Emitter, f: types.Flag, help_buf: []u8) !void {
+    const d = fishEscape(f.help, help_buf);
+    if (f.kind == .string_flag) {
+        try em.writeFmt(" -l {s} -d '{s}' -r", .{ f.long, d });
+    } else {
+        try em.writeFmt(" -l {s} -d '{s}'", .{ f.long, d });
+    }
 }
 
 fn fishEscape(s: []const u8, buf: []u8) []const u8 {
@@ -268,12 +281,7 @@ fn writeFishNode(em: *Emitter, cmd: *const Command, path: []const []const u8) !v
             try em.writeFmt(" -a '{s}' -d '{s}'", .{ c.name, d });
         }
         for (cmd.flags) |f| {
-            const d = fishEscape(f.help, &help_buf);
-            if (f.kind == .string_flag) {
-                try em.writeFmt(" -l {s} -d '{s}' -r", .{ f.long, d });
-            } else {
-                try em.writeFmt(" -l {s} -d '{s}'", .{ f.long, d });
-            }
+            try writeFishFlagSpec(em, f, &help_buf);
         }
         try em.writeAll("\n");
     }

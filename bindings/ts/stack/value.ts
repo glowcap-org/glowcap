@@ -7,7 +7,14 @@
 // public members; `isReference` and the `near` constructor stay
 // package-internal.
 
-import { CODEC_CAPNP, CODEC_SYRUP } from "@pancake/abi";
+import {
+	CODEC_CAPNP,
+	CODEC_SYRUP,
+	IROH_REACH_DIRECT,
+	IROH_REACH_DISCOVERY,
+	IROH_REACH_DISCOVERY_NO_RELAY,
+	IROH_REACH_LOCAL_DISCOVERY,
+} from "@pancake/abi";
 
 export type Reference =
 	| { kind: "near"; id: bigint; promise?: boolean }
@@ -85,13 +92,14 @@ export function codecId(codec: Codec): number {
  *
  * The type lives in the core so `connect` and `Host` name the posture without a
  * runtime dependency on the optional `@pancake/iroh` package (which re-exports
- * this enum); the values match `libpancake_net_transport_iroh`'s C ABI. A `tcp`
+ * this enum); the members read the generated `@pancake/abi` mirror of
+ * `libpancake_net_transport_iroh`, so they cannot drift from the C ABI. A `tcp`
  * locator ignores it. */
 export enum Reachability {
-	Direct = 0,
-	Discovery = 1,
-	DiscoveryNoRelay = 2,
-	LocalDiscovery = 3,
+	Direct = IROH_REACH_DIRECT,
+	Discovery = IROH_REACH_DISCOVERY,
+	DiscoveryNoRelay = IROH_REACH_DISCOVERY_NO_RELAY,
+	LocalDiscovery = IROH_REACH_LOCAL_DISCOVERY,
 }
 
 export function isReference(v: unknown): v is Reference {

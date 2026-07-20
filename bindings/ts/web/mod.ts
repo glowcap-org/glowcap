@@ -36,6 +36,11 @@ export interface WebInitOptions {
 	/** Map a dial's host:port to its WebSocket URL; defaults to
 	 * `ws://host:port/` (the peer itself accepts WebSocket). */
 	wsUrl?: WsUrl;
+	/** Map an `ocapn://` locator (a native-only transport such as iroh) to the
+	 * WebSocket URL of a byte relay that dials it, e.g.
+	 * `` (loc) => `wss://example/relay?locator=${encodeURIComponent(loc)}` ``.
+	 * Without it, dialing a native-only locator refuses. */
+	relayUrl?: (locator: string) => string;
 }
 
 /** The stack's public surface, as `init` returns it. */
@@ -47,9 +52,17 @@ export type PancakeStack = typeof import("@pancake/stack");
 const injected_adapter_key = Symbol.for("pancake.stack.adapter");
 
 export type { WsUrl } from "./adapter.ts";
+export { webSocketChannel } from "./ws_channel.ts";
 
 let loaded: Promise<PancakeStack> | null = null;
 let loadedOptions: WebInitOptions | null = null;
+
+/** The configured native-locator relay mapping, read by the browser dial path
+ * for native-only transports (`browser_iroh_stub.ts`). Null before `init` or
+ * when the page configured none. */
+export function _relayUrl(): ((locator: string) => string) | null {
+	return loadedOptions?.relayUrl ?? null;
+}
 
 /** Instantiate the wasm peer and load the pancake stack over it. One
  * configuration per page: the stack binds its adapter at load, so a repeat

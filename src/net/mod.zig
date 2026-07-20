@@ -43,6 +43,10 @@ pub const FrameStream = frame_stream.FrameStream;
 pub const Spill = frame_stream.Spill;
 pub const readFrameFrom = frame_stream.readFrameFrom;
 
+/// The one monotonic elapsed-time source for every adapter deadline. See
+/// `clock.zig`.
+pub const clock = @import("clock.zig");
+
 pub const tcp = @import("transport/tcp.zig");
 
 /// The socket library: raw OS socket + stream plumbing beneath a netlayer,

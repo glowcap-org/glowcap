@@ -17,6 +17,7 @@
 const std = @import("std");
 const pancake = @import("pancake");
 const goblins_child = @import("goblins_child.zig");
+const harness = @import("interop_harness");
 
 const model = pancake.ocapn.model;
 const actors = pancake.actors;
@@ -28,6 +29,7 @@ const tcp = pancake.net.tcp;
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
 const TcpBridge = driver.Bridge(net.TcpLoop);
+const runLoop = harness.LoopRunner(net.TcpLoop).runUntilFlag;
 
 const host_addr = "127.0.0.1";
 const default_bob_port: u16 = 22120;
@@ -37,35 +39,6 @@ const recipient_script = "conformance/goblins-peer/racket/gift-recipient.rkt";
 const greeter_swiss = "pancakeGiftGreeterSwissnum000001";
 const introducer_swiss = "introducer";
 const deadline_ms: u64 = 60_000;
-
-fn deadlineAfter(io: std.Io) std.Io.Clock.Timestamp {
-    return std.Io.Clock.Timestamp.fromNow(io, .{
-        .raw = std.Io.Duration.fromMilliseconds(deadline_ms),
-        .clock = .real,
-    });
-}
-
-fn expired(io: std.Io, deadline: std.Io.Clock.Timestamp) bool {
-    return std.Io.Clock.Timestamp.now(io, .real).compare(.gte, deadline);
-}
-
-fn waitFlag(io: std.Io, flag: *const std.atomic.Value(bool)) !void {
-    const deadline = deadlineAfter(io);
-    while (!flag.load(.acquire)) {
-        if (expired(io, deadline)) return error.WaitTimedOut;
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
-    }
-}
-
-fn runLoop(loop: *net.TcpLoop, done: *const std.atomic.Value(bool), out_err: *?anyerror) void {
-    loop.runUntil(done, 0) catch |err| {
-        out_err.* = err;
-        return;
-    };
-    loop.closeAndDrain() catch |err| {
-        out_err.* = err;
-    };
-}
 
 fn pokeListener(io: std.Io, port: u16) void {
     if (port == 0) return;
@@ -130,9 +103,9 @@ fn readCarolOk(io: std.Io, child: *std.process.Child) !void {
     const out = child.stdout orelse return error.NoChildStdout;
     var rbuf: [8192]u8 = undefined;
     var reader = out.readerStreaming(io, &rbuf);
-    const deadline = deadlineAfter(io);
+    const deadline = harness.deadlineAfter(io, deadline_ms);
     var saw_ok = false;
-    while (!expired(io, deadline)) {
+    while (!harness.expired(io, deadline)) {
         const line = reader.interface.takeDelimiterInclusive('\n') catch |err| switch (err) {
             error.EndOfStream => break,
             else => return err,
@@ -153,40 +126,21 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const allocator = init.gpa;
 
-    var args = std.process.Args.Iterator.init(init.minimal.args);
-    _ = args.next();
-    var bob_port: u16 = default_bob_port;
-    while (args.next()) |arg| {
-        if (std.mem.startsWith(u8, arg, "--port=")) {
-            bob_port = std.fmt.parseInt(u16, arg["--port=".len..], 10) catch 0;
-            if (bob_port == 0 or bob_port == 65535) {
-                std.debug.print("goblins-gift: --port must be an integer in 1..65534 (carol binds port+1)\n", .{});
-                return error.BadPort;
-            }
-        } else {
-            std.debug.print("goblins-gift: unknown argument '{s}'\n", .{arg});
-            return error.BadArgument;
-        }
-    }
+    const bob_port = try harness.parsePortFlag(init.minimal.args, "goblins-gift", default_bob_port, .{
+        .max = 65534,
+        .note = " (carol binds port+1)",
+    });
     var bob_port_buf: [8]u8 = undefined;
     const bob_port_str = try std.fmt.bufPrint(&bob_port_buf, "{d}", .{bob_port});
     var carol_port_buf: [8]u8 = undefined;
     const carol_port_str = try std.fmt.bufPrint(&carol_port_buf, "{d}", .{bob_port + 1});
 
-    var bob = try std.process.spawn(io, .{
-        .argv = &.{ goblins_child.racket_path, exporter_script, host_addr, bob_port_str },
-        .environ_map = init.environ_map,
-        .stdout = .pipe,
-        .stderr = .pipe,
-    });
+    const hosted = try goblins_child.spawnHostAwaitSwiss(io, allocator, init.environ_map, "goblins-gift", "greeter", &.{ exporter_script, host_addr, bob_port_str });
+    var bob = hosted.child;
     var bob_reaped = false;
     defer if (!bob_reaped) bob.kill(io);
 
-    const published = goblins_child.readPublishedSwiss(io, allocator, &bob) catch |err| {
-        std.debug.print("goblins-gift: never saw the greeter readiness line: {s}\n", .{@errorName(err)});
-        goblins_child.dumpChildStderr(io, "goblins-gift", &bob);
-        return err;
-    };
+    const published = hosted.swiss;
     defer allocator.free(published);
     std.debug.print("goblins-gift: goblins-bob exporting greeter swiss={s} on {s}:{s}\n", .{ greeter_swiss, host_addr, bob_port_str });
 
@@ -236,15 +190,11 @@ fn gifterStep(
         .fetched = &fetched,
     };
 
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
         .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = TcpBridge.serve,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
-    });
+    }));
     defer loop.deinit();
     const gifter_port = loop.port.?;
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
@@ -266,7 +216,7 @@ fn gifterStep(
         loop_future.await(io);
     }
 
-    try waitFlag(io, &fetched);
+    try harness.untilFlag(io, deadline_ms, &fetched);
     if (state.greeter == null) return error.FetchFailed;
 
     var gifter_designator_buf: [64]u8 = undefined;

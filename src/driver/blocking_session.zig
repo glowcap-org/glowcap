@@ -233,6 +233,18 @@ pub const BlockingSession = struct {
         return self.served.sendBootstrapFetch(name);
     }
 
+    /// Begin a cooperative fetch-then-send without driving I/O (see
+    /// `driver_core.Served.beginSendNamed`).
+    pub fn beginSendNamed(self: *BlockingSession, pending: *driver.PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
+        return self.served.beginSendNamed(pending, name, msg, terminal);
+    }
+
+    /// The fire-and-forget arm of `beginSendNamed` (see
+    /// `driver_core.Served.beginTellNamed`).
+    pub fn beginTellNamed(self: *BlockingSession, pending: *driver.PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
+        return self.served.beginTellNamed(pending, name, msg, terminal);
+    }
+
     /// Break every far vow still awaiting a partner answer (cancel / timeout /
     /// teardown). Stable `message` bytes are what listeners observe as the
     /// broken reason; pass a string literal.
@@ -298,11 +310,11 @@ pub const BlockingSession = struct {
         if (settle_state.done) return;
 
         const deadline_ms = self.settle_timeout_ms;
-        const start_ms: i64 = if (deadline_ms != 0) milliTimestamp() else 0;
+        const start_ms: i64 = if (deadline_ms != 0) net.clock.nowMs(self.conn.io) else 0;
 
         while (!settle_state.done) {
             if (deadline_ms != 0) {
-                const elapsed = milliTimestamp() - start_ms;
+                const elapsed = net.clock.nowMs(self.conn.io) - start_ms;
                 if (elapsed >= deadline_ms) {
                     // Take the stack-bound listener off the vat before returning.
                     self.served.vat.breakFarVows("wait timed out");
@@ -345,17 +357,6 @@ pub const BlockingSession = struct {
 /// file-scope function so `conn.runUntil` can take it by pointer.
 fn sessionOpenPred(peer: *engine.Peer) bool {
     return peer.sessionIsOpen();
-}
-
-/// Wall-clock milliseconds since the Unix epoch for settle deadlines.
-fn milliTimestamp() i64 {
-    var ts: std.posix.timespec = .{ .sec = 0, .nsec = 0 };
-    switch (std.posix.errno(std.posix.system.clock_gettime(std.posix.CLOCK.REALTIME, &ts))) {
-        .SUCCESS => {},
-        else => return 0,
-    }
-    return @as(i64, @intCast(ts.sec)) * std.time.ms_per_s +
-        @divFloor(@as(i64, @intCast(ts.nsec)), std.time.ns_per_ms);
 }
 
 /// Open a TCP connection to `address`, bind a vat to a fresh-wired peer, and

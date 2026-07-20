@@ -18,11 +18,11 @@ below argue the direction without pretending unfinished work is done.
 	</a>
 	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/boundaries.md">
 		<h3>Where the edges are</h3>
-		<p>Where the implemented surface ends, plainly: transport is cleartext TCP with encryption riding the separate iroh artifact, bootstrap registrations live for the process, and the OCapN Null (the spec's placeholder value) fails closed.</p>
+		<p>Where the implemented surface ends, plainly: transport is cleartext TCP with encryption riding the separate iroh artifact, bootstrap registrations live for the process, and the OCapN Null (the spec's placeholder value) is not modeled: an unknown record arrives as a tagged value.</p>
 	</a>
 	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/vision.md">
 		<h3>Where it is going</h3>
-		<p>The goal is to be the most performant OCapN implementation there is, fully canonical and proven by interop, with performance held to a measured contract rather than asserted.</p>
+		<p>The goal is a fully canonical OCapN implementation, proven by interop, with performance held to a measured contract rather than asserted.</p>
 	</a>
 	<a class="card" href="https://codeberg.org/jimisaacs/pancake/src/branch/main/docs/decisions/README.md">
 		<h3>Why the boundaries sit here</h3>

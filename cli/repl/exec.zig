@@ -6,6 +6,7 @@ const registry = @import("../registry.zig");
 const copy = @import("copy.zig");
 const teach = @import("teach.zig");
 const complete = @import("complete.zig");
+const meta = @import("meta.zig");
 const blocks = @import("blocks.zig");
 const splitLine = @import("mod.zig").splitLine;
 const await_queue = @import("await_queue.zig");
@@ -64,108 +65,112 @@ pub fn handleLine(
     const uline = std.fmt.bufPrint(&ubuf, "› {s}", .{line}) catch line;
     try store.appendLine(.user, uline);
 
-    if (std.mem.eql(u8, line, "quit") or std.mem.eql(u8, line, "exit")) {
-        result.quit = true;
-        return result;
-    }
-
-    if (std.mem.eql(u8, line, "focus")) {
-        result.toggle_quiet = true;
-        try store.appendLine(.system, "Toggled quiet/focus view (rail collapses to counts).");
-        return result;
-    }
-
-    if (std.mem.eql(u8, line, "?") or std.mem.eql(u8, line, "help")) {
-        if (std.mem.eql(u8, line, "?")) {
-            if (progress.guide_active) {
-                try appendGuideCoach(store);
-            } else {
-                try store.appendLine(.system, copy.workbench_ready);
-                try store.appendLine(.tip, "tip: guide enters the optional CapTP walkthrough");
-            }
-        } else {
-            var list: std.ArrayList(u8) = .empty;
-            defer list.deinit(ctx.gpa);
-            const HelpW = struct {
-                list: *std.ArrayList(u8),
-                gpa: std.mem.Allocator,
-                pub fn writeAll(self: @This(), bytes: []const u8) !void {
-                    try self.list.appendSlice(self.gpa, bytes);
+    // Meta commands resolve through the one table in `meta.zig`; the switch is
+    // exhaustive, so a new entry without an arm here is a compile error. A
+    // trailing argument on a command that takes none falls through to ordinary
+    // dispatch (which reports it), exactly as an unknown verb does.
+    const meta_first_len = std.mem.indexOfAny(u8, line, " \t") orelse line.len;
+    const meta_rest = std.mem.trim(u8, line[meta_first_len..], " \t");
+    if (meta.resolve(line[0..meta_first_len])) |m| meta_arm: {
+        switch (m) {
+            .quit => {
+                if (meta_rest.len != 0) break :meta_arm;
+                result.quit = true;
+                return result;
+            },
+            .focus => {
+                if (meta_rest.len != 0) break :meta_arm;
+                result.toggle_quiet = true;
+                try store.appendLine(.system, "Toggled quiet/focus view (rail collapses to counts).");
+                return result;
+            },
+            .question => {
+                if (meta_rest.len != 0) break :meta_arm;
+                if (progress.guide_active) {
+                    try appendGuideCoach(store);
+                } else {
+                    try store.appendLine(.system, copy.workbench_ready);
+                    try store.appendLine(.tip, "tip: guide enters the optional CapTP walkthrough");
                 }
-                pub fn print(self: @This(), comptime fmt: []const u8, args: anytype) !void {
-                    try self.list.print(self.gpa, fmt, args);
+                return result;
+            },
+            .help => {
+                if (std.mem.eql(u8, meta_rest, "captp")) {
+                    var it = std.mem.splitScalar(u8, copy.help_captp_map, '\n');
+                    while (it.next()) |l| {
+                        if (l.len == 0) continue;
+                        try store.appendLine(.system, l);
+                    }
+                    try store.appendLine(.tip, "tip: guide — optional CapTP walkthrough");
+                    return result;
                 }
-            };
-            const hw = HelpW{ .list = &list, .gpa = ctx.gpa };
-            try registry.helpEveryday(hw, .repl);
-            try hw.writeAll("REPL-only: help, help captp, guide, tour, focus, ?, quit\n");
-            try hw.writeAll("Keys: Tab · Ctrl-O transcript · F1 help · Ctrl-p panels · wheel scroll\n");
-            var it = std.mem.splitScalar(u8, list.items, '\n');
-            while (it.next()) |l| {
-                if (l.len == 0) continue;
-                try store.appendLine(.system, l);
-            }
+                if (meta_rest.len != 0) break :meta_arm;
+                var list: std.ArrayList(u8) = .empty;
+                defer list.deinit(ctx.gpa);
+                const HelpW = struct {
+                    list: *std.ArrayList(u8),
+                    gpa: std.mem.Allocator,
+                    pub fn writeAll(self: @This(), bytes: []const u8) !void {
+                        try self.list.appendSlice(self.gpa, bytes);
+                    }
+                    pub fn print(self: @This(), comptime fmt: []const u8, args: anytype) !void {
+                        try self.list.print(self.gpa, fmt, args);
+                    }
+                };
+                const hw = HelpW{ .list = &list, .gpa = ctx.gpa };
+                try registry.helpEveryday(hw, .repl);
+                try hw.writeAll(meta.footer);
+                try hw.writeAll("Keys: Tab · Ctrl-O transcript · F1 help · Ctrl-p panels · wheel scroll\n");
+                var it = std.mem.splitScalar(u8, list.items, '\n');
+                while (it.next()) |l| {
+                    if (l.len == 0) continue;
+                    try store.appendLine(.system, l);
+                }
+                return result;
+            },
+            .guide => {
+                // Optional walkthrough: bare `guide` toggles; `guide on` / `guide exit`.
+                const want_exit = std.mem.eql(u8, meta_rest, "exit") or
+                    std.mem.eql(u8, meta_rest, "off") or
+                    std.mem.eql(u8, meta_rest, "done") or
+                    std.mem.eql(u8, meta_rest, "stop") or
+                    (meta_rest.len == 0 and progress.guide_active);
+                const want_enter = std.mem.eql(u8, meta_rest, "on") or
+                    std.mem.eql(u8, meta_rest, "start") or
+                    (meta_rest.len == 0 and !progress.guide_active);
+                if (want_exit) {
+                    progress.exitGuide();
+                    try store.appendLine(.system, "Walkthrough off — workbench mode.");
+                } else if (want_enter) {
+                    progress.enterGuide();
+                    try store.appendLine(.system, "Walkthrough on — stage strip + next-step tips. guide exit to leave.");
+                    try appendGuideCoach(store);
+                    try store.appendLine(.tip, progress.nextStep());
+                } else {
+                    try store.appendLine(.error_line, "! guide | guide exit");
+                }
+                return result;
+            },
+            .tour => {
+                const name = if (meta_rest.len == 0) "exports" else meta_rest;
+                if (teach.parseTourPane(name)) |pane| {
+                    result.focus_pane = pane;
+                    progress.noteTour();
+                    try store.appendLine(.system, copy.tourBlurb(@tagName(pane)));
+                    if (progress.guide_active) {
+                        try store.appendLine(.tip, progress.nextStep());
+                    }
+                    result.flash = switch (pane) {
+                        .exports => .exports,
+                        .imports => .imports,
+                        .answers => .answers,
+                    };
+                } else {
+                    try store.appendLine(.error_line, "! Unknown pane. Try tour exports, tour imports, or tour answers.");
+                }
+                return result;
+            },
         }
-        return result;
-    }
-
-    if (std.mem.startsWith(u8, line, "help ")) {
-        const rest = std.mem.trim(u8, line["help ".len..], " \t");
-        if (std.mem.eql(u8, rest, "captp")) {
-            var it = std.mem.splitScalar(u8, copy.help_captp_map, '\n');
-            while (it.next()) |l| {
-                if (l.len == 0) continue;
-                try store.appendLine(.system, l);
-            }
-            try store.appendLine(.tip, "tip: guide — optional CapTP walkthrough");
-            return result;
-        }
-    }
-
-    // Optional walkthrough: bare `guide` toggles; `guide on` / `guide exit`.
-    if (std.mem.eql(u8, line, "guide") or std.mem.startsWith(u8, line, "guide ")) {
-        const rest = std.mem.trim(u8, line[@min(line.len, 5)..], " \t");
-        const want_exit = std.mem.eql(u8, rest, "exit") or
-            std.mem.eql(u8, rest, "off") or
-            std.mem.eql(u8, rest, "done") or
-            std.mem.eql(u8, rest, "stop") or
-            (rest.len == 0 and progress.guide_active);
-        const want_enter = std.mem.eql(u8, rest, "on") or
-            std.mem.eql(u8, rest, "start") or
-            (rest.len == 0 and !progress.guide_active);
-        if (want_exit) {
-            progress.exitGuide();
-            try store.appendLine(.system, "Walkthrough off — workbench mode.");
-        } else if (want_enter) {
-            progress.enterGuide();
-            try store.appendLine(.system, "Walkthrough on — stage strip + next-step tips. guide exit to leave.");
-            try appendGuideCoach(store);
-            try store.appendLine(.tip, progress.nextStep());
-        } else {
-            try store.appendLine(.error_line, "! guide | guide exit");
-        }
-        return result;
-    }
-
-    if (std.mem.startsWith(u8, line, "tour")) {
-        const rest = std.mem.trim(u8, line[@min(line.len, 4)..], " \t");
-        const name = if (rest.len == 0) "exports" else rest;
-        if (teach.parseTourPane(name)) |pane| {
-            result.focus_pane = pane;
-            progress.noteTour();
-            try store.appendLine(.system, copy.tourBlurb(@tagName(pane)));
-            if (progress.guide_active) {
-                try store.appendLine(.tip, progress.nextStep());
-            }
-            result.flash = switch (pane) {
-                .exports => .exports,
-                .imports => .imports,
-                .answers => .answers,
-            };
-        } else {
-            try store.appendLine(.error_line, "! Unknown pane. Try tour exports, tour imports, or tour answers.");
-        }
-        return result;
     }
 
     const tokens = try splitLine(ctx.gpa, line);
@@ -215,7 +220,7 @@ pub fn handleLine(
         const gm = std.fmt.bufPrint(&gbuf, "↳ {s}", .{teach.gloss(verb)}) catch "↳ ok";
         try store.appendLine(.gloss, gm);
         progress.noteVerb(verb, ctx);
-        if ((std.mem.eql(u8, verb, "fetch") or std.mem.eql(u8, verb, "call") or std.mem.eql(u8, verb, "tell") or std.mem.eql(u8, verb, "publish")) and tokens.len >= 2) {
+        if (await_queue.isSessionVerb(verb) and tokens.len >= 2) {
             complete_state.rememberName(tokens[1]) catch {};
         }
         result.flash = flashForVerb(verb);

@@ -87,5 +87,5 @@ zig build rust-dogfood    # cargo test against the pancake archives, sync + asyn
 The full surface lives in the
 [Rust binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/rust/README.md),
 and the
-[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/rust/client.rs)
+[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/rust/client.rs)
 builds a small capability-secure room on this surface.

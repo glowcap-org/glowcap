@@ -131,5 +131,5 @@ zig build bun-dogfood     # the same source, on Bun
 The full surface lives in the
 [TypeScript binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/ts/README.md),
 and the
-[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/deno/lib/room_client.ts)
+[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/deno/lib/room_client.ts)
 builds a small capability-secure room on this surface.

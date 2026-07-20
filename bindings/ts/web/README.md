@@ -52,6 +52,19 @@ proxies, three-party redemption.
   bounded yet: `write` resolves when the socket buffers the bytes, and inbound chunks queue until
   read, so a peer streaming faster than its partner processes grows tab memory.
 
+## Byte-transparent relay
+
+Browser peers cannot dial native sockets directly. A relay endpoint accepts a WebSocket connection
+and forwards bytes to a target TCP locator without parsing CapTP frames, so the keyed handshake and
+session authority run end to end unchanged. Pass `wsUrl` to `init()` with a function that maps
+`(host, port)` to the relay's URL, for example `` (h, p) => `ws://relay/relay?to=${h}:${p}` ``. The
+reference relay lives in the rooms app: the byte pipe in
+[`apps/rooms/lib/relay.ts`](../../../apps/rooms/lib/relay.ts) and the `/relay` endpoint in
+[`apps/rooms/deno/relay_server.ts`](../../../apps/rooms/deno/relay_server.ts), which allow-lists the
+room server's own port for TCP targets, checks the `Origin` header on the upgrade, caps live
+sessions, times out idle pairs, and bounds bytes per session. `zig build web-peer-relay-test` proves
+a keyed OCapN session from this binding through the relay to a native TCP host.
+
 ## The proof
 
 `zig build web-peer-test` runs [`test/web_peer_test.ts`](test/web_peer_test.ts): a native host

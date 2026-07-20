@@ -2,13 +2,14 @@
 //! table, so a value is mirrored exactly once and cannot drift.
 //!
 //! The integer and big-integer constant families the Rust, Python, and Racket
-//! bindings mirror from `pancake_ocapn.h` / `pancake_driver.h` used to be
-//! hand-copied three times, guarded only by a prose "mirrors" comment. Here
-//! the value comes from the `c_abi` / `c_abi_driver` declaration itself
-//! (`c.PANCAKE_*` / `cd.PANCAKE_*`), so a C-side value change regenerates a
-//! different file and `zig build gen-binding-constants-check` (part of
-//! `check`) rejects the stale copy. The one reflected table is the source of
-//! truth; every binding renders from it, so no two can disagree.
+//! bindings mirror from `pancake_ocapn.h` / `pancake_driver.h` /
+//! `pancake_net_transport_iroh.h` used to be hand-copied three times, guarded
+//! only by a prose "mirrors" comment. Here the value comes from the `c_abi` /
+//! `c_abi_driver` / `c_abi_net_transport_iroh` declaration itself
+//! (`c.PANCAKE_*` / `cd.PANCAKE_*` / `ci.PANCAKE_*`), so a C-side value change
+//! regenerates a different file and `zig build gen-binding-constants-check`
+//! (part of `check`) rejects the stale copy. The one reflected table is the
+//! source of truth; every binding renders from it, so no two can disagree.
 //!
 //! Adding a binding is one emitter function plus one `outputs` row: a new
 //! emitter reads `stem` and `value` and applies its own language's casing, so
@@ -23,8 +24,15 @@
 //! guarded by `meta-check` name-presence; this generator does not emit them.
 
 const std = @import("std");
+
+// Force sidecar stubs so reflecting the iroh archive stays cargo-free.
+comptime {
+    _ = @import("iroh_sidecar_stub");
+}
+
 const c = @import("c_abi");
 const cd = @import("c_abi_driver");
+const ci = @import("c_abi_net_transport_iroh");
 
 pub const Output = struct {
     path: []const u8,
@@ -155,6 +163,21 @@ const constants = [_]Const{
     con("MAX_LOCAL_FORWARD_HOPS", cd.PANCAKE_MAX_LOCAL_FORWARD_HOPS, .usize, null),
     con("DISCOVERY_DIAL_RETRY_MS", cd.PANCAKE_DISCOVERY_DIAL_RETRY_MS, .usize, null),
     con("DISCOVERY_DIAL_MAX_ATTEMPTS", cd.PANCAKE_DISCOVERY_DIAL_MAX_ATTEMPTS, .usize, null),
+    // Iroh reachability postures and the redeem knob's starting value (c_uint,
+    // libpancake_net_transport_iroh, reflected through the sidecar stub so this
+    // stays cargo-free). Each binding's `Reachability` surface and its
+    // hint-less-redeem default read these instead of hand-typing the numbers.
+    con("IROH_REACH_DIRECT", ci.PANCAKE_IROH_REACH_DIRECT, .uint, null),
+    con("IROH_REACH_DISCOVERY", ci.PANCAKE_IROH_REACH_DISCOVERY, .uint, null),
+    con("IROH_REACH_DISCOVERY_NO_RELAY", ci.PANCAKE_IROH_REACH_DISCOVERY_NO_RELAY, .uint, null),
+    con("IROH_REACH_LOCAL_DISCOVERY", ci.PANCAKE_IROH_REACH_LOCAL_DISCOVERY, .uint, null),
+    con("IROH_REACH_REDEEM_DEFAULT", ci.PANCAKE_IROH_REACH_REDEEM_DEFAULT, .uint, null),
+    // Iroh readiness event bits (c_uint, libpancake_net_transport_iroh): the
+    // PANCAKE_IROH_EV_* bitset a drain_ready record carries.
+    con("IROH_EV_READABLE", ci.PANCAKE_IROH_EV_READABLE, .uint, null),
+    con("IROH_EV_WRITABLE", ci.PANCAKE_IROH_EV_WRITABLE, .uint, null),
+    con("IROH_EV_CLOSED", ci.PANCAKE_IROH_EV_CLOSED, .uint, null),
+    con("IROH_EV_ACCEPT", ci.PANCAKE_IROH_EV_ACCEPT, .uint, null),
 };
 
 /// One reflected constant wider than the languages' native integer range.

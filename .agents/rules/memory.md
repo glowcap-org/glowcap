@@ -169,6 +169,19 @@ here.
   consumer. Deleting this relocates the cost into `max_frame_bytes`-sized
   per-connection read buffers, which is the exact scaling problem ADR-0041
   removed.
+- **Byte-fed session stream tail: `HostSession.feed_tail`
+  (`driver_core.Host.feedBytes`).** The spill posture above, replayed at the
+  byte-fed host tier as the one owner of the unconsumed stream tail — the
+  buffer four binding pumps each used to keep by hand. The steady path (no
+  pending tail) parses the borrowed chunk in place with zero copies and
+  stashes only a partial frame's leftover; while a tail is pending, each
+  chunk pays one bounded coalesce copy into it, the delimiter's
+  contiguous-bytes price the bindings paid before, now paid once. Bounded by
+  the cap-during-scan verdict plus the embedder's own read size (a big read's
+  frames coalesced behind the handshake hello wait here too), with retained
+  capacity returned past `steady_feed_tail_bytes` when the tail drains, and
+  freed with the shell. Deleting it hands the tail back to every binding,
+  which is the exact hand-copied choreography this owner removed.
 - **Shared read-buffer pool and the tail-to-spill copy (ADR-0054).** The
   completion loop's read buffers are a backend-owned shared pool
   (`Options.read_buffers`, default 256, each 16 KiB; io_uring provided buffers),
@@ -294,6 +307,15 @@ here.
   depth-bounded (`SessionLimits.max_nesting_depth`) so an attacker-nested arg
   tree fails loud with `NestingTooDeep`, which projects to a
   `resource_exhausted` abort, instead of overflowing the native stack.
+- **Introduced-import event patch: one gpa dupe per reference-introducing
+  deliver (`engine/inbound.zig`, surfacing `Event.introduced_far_imports`).**
+  The validate walk's `IntroducedImports` record above is turn-scratch, gone
+  before the embedder sees the event, while the surfaced event outlives the
+  turn — so the mention list is duped once onto the gpa and freed by
+  `Event.deinit`. The common no-reference deliver pays nothing. The dupe is
+  best-effort by contract: apply has already committed when the patch runs, so
+  an OOM leaves the field null and `gc` falls back to its own walk rather than
+  misreporting a successful receive as a failure.
 - **Settled-outcome materialization: one `model.cloneArgument` (or one
   broken-reason dupe) per blocking driver wait — `driver.BlockingSession.call` /
   `fetchSettled` and `driver.Session.call` / `settleVow` — into
@@ -451,8 +473,8 @@ here.
   carries an integer and dupes nothing.) Freed exactly once through
   `deinitProjection` — on fire, break, re-anchor failure, or answer teardown —
   and bounded per answer by `max_listeners_per_target` (ADR-0050).
-- **Boxed handoff argument: `owned.zig`'s module-private `cloneHandoffBoxed` (one alloc per
-  `desc:handoff-*` _argument_).** The owned `Argument.handoff` arm is
+- **Boxed handoff argument: the handoff arm of `view.zig`'s `Argument.toOwned`
+  (one alloc per `desc:handoff-*` _argument_).** The owned `Argument.handoff` arm is
   `*Handoff`, not inline: a handoff payload is ~160 bytes and would otherwise
   set the size of _every_ `Argument`, so an ordinary integer arg in a deliver
   list would pay for the handoff arm it never uses (`Argument` 168 → 88 bytes,
@@ -574,9 +596,9 @@ here.
   managed frame across the write (zero-copy). The copy is language/lifetime-
   forced for async FFI — do not "optimize" without a hold-across-await proof.
 - **Racket inbound `pin-immobile`.** Every `feed_bytes` path pins the feed
-  buffer into collector-immobile memory before the FFI call. Steady state still
-  avoids coalescing into the inbox when empty; the pin copy is the Racket FFI
-  cost, not a second inbox materialize.
+  buffer into collector-immobile memory before the FFI call. The pin copy is
+  the Racket FFI cost; the stream tail itself lives in the core session, so
+  no binding-side coalesce rides on top of it.
 - **Wasm linear-memory boundary (`bindings/ts/web/adapter.ts`, ADR-0070).**
   JavaScript cannot lend wasm a view of its buffers, so every buffer argument
   and `pointerOf` target pays one copy into linear memory, and each
@@ -605,8 +627,8 @@ The engine's four peer queues each bound their retained backing at
 `steady_queue_bytes = 4096` (`src/ocapn/engine/mod.zig`): capacity a burst grew
 above the bound is freed at the drain point, at the named price of one growth
 re-allocation when the next burst begins. The actor layer holds the same
-posture at one-vat-per-connection scale (`src/actors/vat.zig`, constants next
-to the vat's fields): `steady_turn_arena_bytes`, `steady_queue_arena_bytes`,
+posture at one-vat-per-connection scale (file-level constants in
+`src/actors/vat/mod.zig`, shared by the sibling vat modules): `steady_turn_arena_bytes`, `steady_queue_arena_bytes`,
 and `steady_settle_arena_bytes` (each 4096) bound the three vat arenas via
 `reset(.retain_with_limit)` at their existing reset boundaries, and
 `steady_list_bytes` (4096) bounds the `queue` / `moved_replies` ArrayLists via

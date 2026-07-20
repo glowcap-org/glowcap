@@ -148,6 +148,13 @@ pub const HostSession = struct {
     /// Lets `unindexSession` stay O(1) without scanning the map.
     indexed_partner_key: ?[crypto.PEER_KEY_BYTES]u8 = null,
 
+    /// The unconsumed stream tail `Host.feedBytes` keeps between chunks: a
+    /// partial frame straddling two reads, or the frames one read coalesced
+    /// behind the handshake hello (feeding stops at session-open). Owned by
+    /// the shell and freed with it; capacity a burst grew past
+    /// `steady_feed_tail_bytes` returns when the tail fully drains.
+    feed_tail: std.ArrayListUnmanaged(u8) = .empty,
+
     /// Which half of the handshake this session is, carrying the one datum
     /// only the dialing half has: the partner designator it dialed — the key
     /// the crossed-hellos tiebreak looks an outbound up by. Host-owned bytes,
@@ -171,6 +178,33 @@ pub const HostSession = struct {
         return self.served.peer.sessionIsOpen();
     }
 };
+
+/// Retained-capacity bound for a session's `feed_tail` between bursts — the
+/// engine's steady-queue posture at the byte-fed tier. A burst that grew the
+/// tail past this frees the excess when the tail drains, at the price of one
+/// growth re-allocation when the next burst begins.
+pub const steady_feed_tail_bytes: usize = 4096;
+
+/// Delimit and dispatch every complete frame at the front of `bytes`,
+/// returning how many leading bytes were consumed. Serves each frame's
+/// events before delimiting the next, so ordering matches the whole-frame
+/// path, and pauses at the session-open transition: the frames behind the
+/// hello wait for the embedder's post-open setup.
+fn parseStreamPrefix(session: *HostSession, bytes: []const u8, was_open: bool) !usize {
+    var consumed: usize = 0;
+    while (consumed < bytes.len) {
+        const outcome = try session.served.peer.applyStreamPrefix(bytes[consumed..]);
+        switch (outcome) {
+            .incomplete => break,
+            .consumed => |n| {
+                consumed += n;
+                try session.served.driveFed();
+                if (!was_open and session.served.peer.sessionIsOpen()) break;
+            },
+        }
+    }
+    return consumed;
+}
 
 /// One identity, one node, many byte-fed CapTP sessions — the sans-io host
 /// core. The node serve step decides, and this host executes each action
@@ -369,6 +403,7 @@ pub const Host = struct {
             // Drop index rows before freeing borrowed dialed-designator keys.
             self.unindexSession(session.*);
             session.*.served.deinit();
+            session.*.feed_tail.deinit(self.allocator);
             switch (session.*.role) {
                 .dialed => |designator| self.allocator.free(designator),
                 .accepted => {},
@@ -656,6 +691,7 @@ pub const Host = struct {
         const peer_id = session.peer_id;
         self.dropVowRows(peer_id);
         session.served.deinit();
+        session.feed_tail.deinit(self.allocator);
         switch (session.role) {
             .dialed => |designator| self.allocator.free(designator),
             .accepted => {},
@@ -769,49 +805,55 @@ pub const Host = struct {
     }
 
     /// Feed a byte-stream chunk the embedder read from its own transport
-    /// (borrowed for the call). The core owns framing: the session's codec
-    /// delimits each complete frame at the front of `bytes` — both codecs,
-    /// both frame shapes — and dispatches it exactly as `feed`, behavior and
-    /// settle callbacks firing inside, the pump running at the unwind.
-    /// Returns how many leading bytes were consumed; the embedder keeps the
-    /// unconsumed tail and extends it with its next read (a partial frame is
-    /// not an error, just an unconsumed tail). Consumption also stops at the
-    /// frame that completes the keyed handshake: bytes coalesced behind the
-    /// hello stay in the tail while the embedder acts on the fresh session
-    /// (publish, fetch), and the next call feeds them — post-open feeding is
-    /// unaffected. A frame exceeding the
+    /// (borrowed for the call). The core owns framing *and the tail*: the
+    /// session's codec delimits each complete frame at the front — both
+    /// codecs, both frame shapes — and dispatches it exactly as `feed`,
+    /// behavior and settle callbacks firing inside, the pump running at the
+    /// unwind; a partial frame straddling two reads stays in the session's
+    /// own `feed_tail`, so on success every byte of the chunk is consumed and
+    /// the embedder just reads and feeds. The steady path (no pending tail)
+    /// parses the borrowed chunk in place with zero copies and stashes only
+    /// the leftover; while a tail is pending the chunk coalesces into it —
+    /// the one bounded copy on this path, paid only while a frame straddles.
+    /// Consumption also pauses at the frame that completes the keyed
+    /// handshake: frames coalesced behind the hello wait in the tail while
+    /// the embedder acts on the fresh session (publish, fetch), and the next
+    /// call — an empty chunk works — feeds them. A frame exceeding the
     /// session's `frame_cap` (`error.FrameTooLarge`) or a malformed prefix
     /// projects a typed `op:abort` and surfaces the error, like any `feed`
-    /// failure; the consumed count is not reported then, because the session
-    /// is closing, not resuming.
-    pub fn feedBytes(self: *Host, session: *HostSession, bytes: []const u8) !usize {
+    /// failure; the session is closing then, and the tail frees with the
+    /// shell.
+    pub fn feedBytes(self: *Host, session: *HostSession, bytes: []const u8) !void {
+        // An empty resume with nothing held is a pure no-op — before the
+        // latch, so a pump's unconditional serve-start resume does not turn
+        // a condemned session (a crossed-hellos tiebreak loss, routine under
+        // concurrent introductions) into a spurious serve failure.
+        if (bytes.len == 0 and session.feed_tail.items.len == 0) return;
         const was_open = session.served.peer.sessionIsOpen();
-        return host_pump.dispatchStreamUnderLatch(self, session, struct {
+        return host_pump.dispatchUnderLatch(self, session, struct {
+            gpa: std.mem.Allocator,
             c: *HostSession,
             bytes: []const u8,
             was_open: bool,
-            pub fn call(s: @This()) !usize {
-                var consumed: usize = 0;
-                while (consumed < s.bytes.len) {
-                    const outcome = s.c.served.peer.applyStreamPrefix(s.bytes[consumed..]) catch |err|
-                        return err;
-                    switch (outcome) {
-                        .incomplete => break,
-                        .consumed => |n| {
-                            consumed += n;
-                            // Serve the frame's events before delimiting the next
-                            // frame, so ordering matches the whole-frame path.
-                            try s.c.served.driveFed();
-                            // Stop at the session-open transition: the frames
-                            // behind the hello wait for the embedder's post-open
-                            // setup and ride the tail into the next call.
-                            if (!s.was_open and s.c.served.peer.sessionIsOpen()) break;
-                        },
+            pub fn call(s: @This()) !void {
+                const tail = &s.c.feed_tail;
+                if (tail.items.len == 0) {
+                    const consumed = try parseStreamPrefix(s.c, s.bytes, s.was_open);
+                    if (consumed < s.bytes.len) {
+                        try tail.appendSlice(s.gpa, s.bytes[consumed..]);
                     }
+                    return;
                 }
-                return consumed;
+                try tail.appendSlice(s.gpa, s.bytes);
+                const consumed = try parseStreamPrefix(s.c, tail.items, s.was_open);
+                const remaining = tail.items.len - consumed;
+                std.mem.copyForwards(u8, tail.items[0..remaining], tail.items[consumed..]);
+                tail.items.len = remaining;
+                if (remaining == 0 and tail.capacity > steady_feed_tail_bytes) {
+                    tail.shrinkAndFree(s.gpa, steady_feed_tail_bytes);
+                }
             }
-        }{ .c = session, .bytes = bytes, .was_open = was_open });
+        }{ .gpa = self.allocator, .c = session, .bytes = bytes, .was_open = was_open });
     }
 
     /// Serve one already-polled event under the host — the per-event verb for

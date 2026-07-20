@@ -1,14 +1,13 @@
 #lang racket/base
 ;; Internal: the shared C-ABI vocabulary the pancake archives agree on by layout.
 ;;
-;; This module is the Racket mirror of the C ABI's `c_abi/shared` leaf (ADR-0059):
-;; the C-visible cstructs the binding consumes — frame, reference, argument,
-;; host action, and last abort. It declares the *types*, not any bound
-;; function, and it opens no library — so requiring it loads nothing. Archive
-;; path resolve + `ffi-lib` live in `lib-resolve.rkt`. Each per-archive loader
-;; (`ffi-ocapn.rkt`, `ffi-tcp.rkt`, `ffi-inproc.rkt`, `ffi-iroh.rkt`) requires this
-;; for the cstruct types its `_fun` signatures name, exactly as the C archives
-;; share these layouts without sharing a symbol.
+;; This module is the binding's one types leaf: every C-visible cstruct and
+;; callback type the archives' `_fun` signatures name — frame, reference,
+;; argument, host action, last abort, and the driver's plan/dial views and
+;; callback types. It declares the *types*, not any bound function, and it
+;; opens no library — so requiring it loads nothing, and the generated
+;; per-archive tables (`ffi-*-gen.rkt`) can require it below every hand
+;; module. Archive path resolve + `ffi-lib` live in `lib-resolve.rkt`.
 ;;
 ;; Memory discipline: Racket's collector moves GC-managed memory, so every
 ;; buffer whose raw address C reads — and every cstruct C reads or writes — is
@@ -125,3 +124,55 @@
              `(uint32 uint64 pointer ,argument-layout pointer uint64))
 (pin-layout! '_PancakeLastAbort _PancakeLastAbort PANCAKE-LAST-ABORT-SIZE
              '(uint32 uint32 pointer uint64 pointer uint64 pointer uint64))
+
+;; ── Driver-archive types (pancake_driver.h) ──────────────────────────────────
+
+;; The C behavior callback. `_fun` makes a Racket closure C-callable; the
+;; closure must stay reachable while the host may invoke it (the host's
+;; strong `keep` table in `private/host.rkt` provides that).
+(define _PancakeHostBehavior
+  (_fun _pointer _pointer _pointer _size _pointer _size _PancakeArgument-pointer -> _int32))
+
+;; Sync arm for pancake_host_pump_drain. Must not await — park decoded work
+;; and run I/O after the C loop returns.
+(define _PancakeHostPumpArmFn
+  (_fun _pointer _pointer _PancakeHostAction-pointer _pointer -> _int32))
+
+;; PancakeHostPumpHooks — five arm slots + caller ctx. Fields are `_fpointer`
+;; so `function-ptr` callbacks install cleanly.
+(define-cstruct _PancakeHostPumpHooks
+  ([ctx _pointer]
+   [flush _fpointer] [close _fpointer] [need-gift-id _fpointer]
+   [complete _fpointer] [dial _fpointer]) #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeHostPumpHooks _PancakeHostPumpHooks PANCAKE-HOST-PUMP-HOOKS-SIZE
+             '(pointer fpointer fpointer fpointer fpointer fpointer))
+
+;; PancakeDialPlan: the resolved dial pancake_host_plan_dial hands back.
+;; `shape` selects the live fields (HOST-PORT fills host/port, PEER-ID fills
+;; addresses/reach); host/addresses borrow the caller's input buffers.
+(define-cstruct _PancakeDialPlan
+  ([shape _uint32] [host _pointer] [host-len _size] [port _uint16]
+   [addresses _pointer] [addresses-len _size]
+   [reach-kind _uint32] [reach-value _uint32]) #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeDialPlan _PancakeDialPlan PANCAKE-DIAL-PLAN-SIZE
+             '(uint32 pointer uint64 uint16 pointer uint64 uint32 uint32))
+
+;; PancakeAcceptPlan: signing designator + hint from pancake_host_plan_accept.
+(define-cstruct _PancakeAcceptPlan
+  ([designator _pointer]
+   [designator-len _size]
+   [direct-addresses-hint _pointer]
+   [direct-addresses-hint-len _size]) #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakeAcceptPlan _PancakeAcceptPlan PANCAKE-ACCEPT-PLAN-SIZE
+             '(pointer uint64 pointer uint64))
+
+;; Borrowed pending dial view (transport/designator/hint).
+(define-cstruct _PancakePendingDial
+  ([transport _pointer]
+   [transport-len _size]
+   [designator _pointer]
+   [designator-len _size]
+   [hint _pointer]
+   [hint-len _size]) #:malloc-mode 'atomic-interior)
+(pin-layout! '_PancakePendingDial _PancakePendingDial PANCAKE-PENDING-DIAL-SIZE
+             '(pointer uint64 pointer uint64 pointer uint64))

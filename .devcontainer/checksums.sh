@@ -1,12 +1,17 @@
 # Per-arch SHA-256 for pinned toolchain downloads. Versions live in pins.sh.
 # Call only after pins.sh is sourced (racket_tarball_and_sha256 uses RACKET_VERSION).
 
+# Keyed on OS-arch, not arch alone: the release workflow installs the same
+# pinned Zig on macOS runners through install-zig.sh, so the macOS tarballs
+# are pinned here beside the Linux ones.
 zig_sha256() {
-    case "$(uname -m)" in
-        x86_64) echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00" ;;
-        aarch64) echo "ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17" ;;
+    case "$(uname -s)-$(uname -m)" in
+        Linux-x86_64) echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00" ;;
+        Linux-aarch64) echo "ea4b09bfb22ec6f6c6ceac57ab63efb6b46e17ab08d21f69f3a48b38e1534f17" ;;
+        Darwin-arm64) echo "b23d70deaa879b5c2d486ed3316f7eaa53e84acf6fc9cc747de152450d401489" ;;
+        Darwin-x86_64) echo "0387557ed1877bc6a2e1802c8391953baddba76081876301c522f52977b52ba7" ;;
         *)
-            echo "zig_sha256: unsupported architecture: $(uname -m)" >&2
+            echo "zig_sha256: unsupported platform: $(uname -s)-$(uname -m)" >&2
             return 1
             ;;
     esac

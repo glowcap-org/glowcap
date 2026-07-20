@@ -5,7 +5,7 @@ Runnable CapTP and OCapN walkthroughs. Each program carries its narrative in a
 prose and the API calls cannot drift from each other.
 
 For CapTP from a shell: call a published name, host a temporary echo listener,
-open a REPL, or script with `--json`: install `pancake` on your `PATH` and
+open a REPL, or script with `--json`. Install `pancake` on your `PATH` and
 follow [`docs/cli.md`](../docs/cli.md). These chapters teach the Zig API; the
 CLI is the product adapter over the same stack.
 
@@ -30,7 +30,7 @@ Full applications run in every binding, each built on the same small surface
 (`connect`, `listen`, `fetch`, `publish`, `spawn`, `send`, `tell`, `serve`,
 `close`). That surface reads the same in every language:
 
-- [`apps/rooms/`](apps/rooms/): a capability-secure chat (real-time). A Deno
+- [`apps/rooms/`](../apps/rooms/): a capability-secure chat (real-time). A Deno
   server hosts a directory of rooms (`open`/`enter`, each returning a room
   capability, plus `list`/`watch` for discovery) and one client per language
   (Zig, Rust, Python, Racket, Deno). `zig build demo-rooms` joins one room over
@@ -38,27 +38,27 @@ Full applications run in every binding, each built on the same small surface
   always-built Zig client; the Python, Racket, and Rust clients join when their
   runtimes are present and are skipped with a note otherwise. It runs as a
   sibling of `check`, not part of the self-contained `zig build check`.
-- [`apps/tasks/`](apps/tasks/): a capability-secure shared task board (CRUD +
+- [`apps/tasks/`](../apps/tasks/): a capability-secure shared task board (CRUD +
   live state). A Deno server and one client per language (Zig, Rust, Python,
   Racket, Deno). `zig build demo-tasks` runs each client against one board: add
   a task, list, mark it done, confirm. It exercises request-response as
   promises, structured data over the wire, and live change notifications through
   capability callbacks, with the same runtime requirements as rooms.
-- [`apps/tools/`](apps/tools/): the capability showcase (AI agent harness). A
+- [`apps/tools/`](../apps/tools/): the capability showcase (AI agent harness). A
   Deno coordinator hands an agent capabilities to tools (attenuated to
   read-only, and revocable) and an agent in each language (Zig, Rust, Python,
   Racket, Deno) proves delegation, attenuation, and revocation over OCapN.
   `zig build demo-tools` runs each available agent against the coordinator.
   Coordinator and agent are different languages on the wire, so the capability
   trio is real, not in-process.
-- [`apps/accountability-on-pancake/`](apps/accountability-on-pancake/): a
+- [`apps/accountability-on-pancake/`](../apps/accountability-on-pancake/): a
   signed-call accountability application: KERI-anchored identity, a signed
   Episode per capability invocation, and a Merkle transparency log, all above
   pancake's runtime over an OCapN session on the `tcp` netlayer. `zig build accountability`
   runs the native Zig walk (ridden by `zig build check`).
   `zig build demo-accountability` runs the Zig host with Deno and Python callers
-  over the C ABI. `zig build accountability-three-party` proves a handoff-
-  introduced caller is attributed, not the introducer.
+  over the C ABI. `zig build accountability-three-party` proves a
+  handoff-introduced caller is attributed, not the introducer.
 
 Each demo binds an ephemeral port by default. Pin the port with `-Dport`
 (`zig build demo-rooms -Dport=9099`), or add `-Dattach=true` to join a server

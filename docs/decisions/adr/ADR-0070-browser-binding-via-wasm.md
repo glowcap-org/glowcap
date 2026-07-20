@@ -14,7 +14,7 @@ superseded_by: []
 
 A browser cannot open a raw TCP socket or speak iroh's QUIC, so today a browser
 tab is not an OCapN peer at all. The rooms web demo works around this with a
-per-tab bridge (`examples/apps/rooms/deno/web.ts`): the browser talks JSON over a
+per-tab bridge (`apps/rooms/deno/web.ts`): the browser talks JSON over a
 WebSocket to a Deno process that holds the real pancake connection through the C
 ABI and relays between the two. The bridge is honest about what it is, but the
 browser never holds a capability, never runs the session, and cannot be

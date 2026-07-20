@@ -442,14 +442,14 @@
       (check/host rc)
       (build-session m ptr tr #f))))
 
-;; ── Bounded inbox: an over-cap frame is a typed refusal, not "read more" ──────
-;; A connection's inbox keeps growing only while the core's stream delimiter
-;; (`pancake_host_session_feed_bytes`) reports an unconsumed tail; a frame
+;; ── Bounded tail: an over-cap frame is a typed refusal, not "read more" ──────
+;; The core's stream delimiter (`pancake_host_session_feed_bytes`) buffers a
+;; partial frame in the session only while the frame stays admissible; a frame
 ;; declaring more than the frame cap must surface as the typed FRAME_TOO_LARGE
-;; error (-11), or a hostile partner could grow the inbox without bound. This
-;; feeds the hostile prefix through the exact byte path the connection pump
-;; uses, into a byte-fed connection whose transport discards the projected
-;; outbound abort.
+;; error (-11), or a hostile partner could grow the session's tail without
+;; bound. This feeds the hostile prefix through the exact byte path the
+;; connection pump uses, into a byte-fed connection whose transport discards
+;; the projected outbound abort.
 (define oc-host (make-fresh-host))
 (define oc-session (open-accepted-over oc-host "tcp" (socket-addr-designator "127.0.0.1" 9)
                                     (async-transport (lambda (_f) (void)) void

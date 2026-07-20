@@ -1,14 +1,29 @@
 #!/usr/bin/env bash
+# The one checksummed Zig install: the devcontainer image build and every CI
+# job (Codeberg hosted runners, the GitHub release legs) install the pinned
+# compiler through this script, so the version and SHA-256 authority stays in
+# pins.sh + checksums.sh. ZIG_INSTALL_DIR overrides the /opt/zig prefix for
+# runners without root; the /usr/local/bin symlink is laid only for the
+# default prefix.
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib.sh
 source "${dir}/lib.sh"
 pancake_devcontainer_init "${dir}" checksums
-require_arch "zig"
 
-cpu="$(linux_cpu)"
-tarball="zig-${cpu}-linux-${ZIG_VERSION}.tar.xz"
+case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64) triple="x86_64-linux" ;;
+    Linux-aarch64) triple="aarch64-linux" ;;
+    Darwin-arm64) triple="aarch64-macos" ;;
+    Darwin-x86_64) triple="x86_64-macos" ;;
+    *)
+        echo "install-zig: unsupported platform: $(uname -s)-$(uname -m)" >&2
+        exit 1
+        ;;
+esac
+
+tarball="zig-${triple}-${ZIG_VERSION}.tar.xz"
 url="https://ziglang.org/download/${ZIG_VERSION}/${tarball}"
 tmp="$(mktemp -d -t pancake-zig-install-XXXXXX)"
 trap 'rm -rf "${tmp}"' EXIT
@@ -17,8 +32,10 @@ echo "downloading ${url}" >&2
 curl --fail --location --silent --show-error --output "${tmp}/${tarball}" "${url}"
 verify_download_sha256 "${tmp}/${tarball}" "$(zig_sha256)"
 
-install_dir="/opt/zig"
+install_dir="${ZIG_INSTALL_DIR:-/opt/zig}"
 mkdir -p "${install_dir}"
 tar -xJf "${tmp}/${tarball}" --strip-components=1 -C "${install_dir}"
-ln -sf "${install_dir}/zig" /usr/local/bin/zig
-zig version
+if [[ -z "${ZIG_INSTALL_DIR:-}" ]]; then
+    ln -sf "${install_dir}/zig" /usr/local/bin/zig
+fi
+"${install_dir}/zig" version

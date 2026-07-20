@@ -55,9 +55,9 @@ const OutboundConnect = union(enum) {
 /// The completion-loop to `driver_core.Host` bridge, generic over the loop
 /// type so TCP (`net.TcpLoop`) and iroh (`completion.Loop(iroh.Backend, iroh.DialResolver)`) share
 /// one translator. Construct with `init` (the loop storage address is known
-/// before `Loop.init` fills it), fill the loop, then `attach` the listener
-/// designator, and pass `makePeer` / `makeConnCtx` / `serve` / `freeConnCtx` /
-/// `onClose` as the loop's hooks with the bridge as `make_ctx`.
+/// before `Loop.init` fills it), fill the loop with `hookOptions` as the loop
+/// options and `makePeer` / `@ptrCast(&bridge)` as the peer factory, then
+/// `attach` the listener designator.
 pub fn Bridge(comptime LoopT: type) type {
     return struct {
         const Self = @This();
@@ -176,6 +176,21 @@ pub fn Bridge(comptime LoopT: type) type {
             };
         }
 
+        /// The loop options every Bridge embedder wires: `base` with this
+        /// bridge's four per-connection hooks spliced in. Callers set only the
+        /// sizing and metrics fields (`frame_cap`, `max_conns`, `listen`,
+        /// `on_park`, …) and pass `makePeer` / `@ptrCast(bridge)` alongside to
+        /// `Loop.init` / `initWithBackend`; a hand-wired hook set that skips
+        /// one callback is an adoption leak, so the splice is the API.
+        pub fn hookOptions(base: net.completion.Options) net.completion.Options {
+            var options = base;
+            options.make_conn_ctx = makeConnCtx;
+            options.serve = serve;
+            options.free_conn_ctx = freeConnCtx;
+            options.on_close = onClose;
+            return options;
+        }
+
         /// Record the listener's dialable address. Call after `Loop.init` (the
         /// kernel-chosen port is known then) and before the loop serves its first
         /// connection. Refuses a second attach — the bridge points at exactly one
@@ -257,6 +272,15 @@ pub fn Bridge(comptime LoopT: type) type {
                 designator,
                 direct_addresses_hint,
             );
+        }
+
+        /// Close the loop connection serving `peer_id`, if one is still
+        /// adopted. The slot row leaves in `freeConnCtx` before the session's
+        /// release, so a stale or already-torn id no-ops — the same spine
+        /// `drainActions`' close arm rides. Call from the loop-owner thread
+        /// only (`Loop.closeSlot` affinity).
+        pub fn closeConn(self: *Self, peer_id: engine.PeerId) void {
+            if (self.slots.get(peer_id)) |slot| self.loop.closeSlot(slot);
         }
 
         /// Shared dialLocator + pending_connects.put spine for app and redeem.
@@ -430,7 +454,7 @@ pub fn Bridge(comptime LoopT: type) type {
                 }
 
                 pub fn close(e: @This(), peer_id: engine.PeerId) !void {
-                    if (e.bridge.slots.get(peer_id)) |slot| e.loop.closeSlot(slot);
+                    e.bridge.closeConn(peer_id);
                 }
 
                 pub fn dial(e: @This(), d: @FieldType(driver_core.HostAction, "dial")) !void {

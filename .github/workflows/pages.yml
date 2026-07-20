@@ -1,5 +1,7 @@
 # Build the documentation site on the GitHub mirror and deploy the exact
-# `zig build site` artifact to GitHub Pages.
+# `zig build site` artifact to GitHub Pages. The site build needs only the
+# pinned Zig (the site sub-build fetches Zine itself), installed through the
+# devcontainer's checksummed installer — no devcontainer image build.
 name: pages
 
 on:
@@ -19,16 +21,19 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Build the site in the devcontainer
-        uses: devcontainers/ci@v0.3
-        with:
-          push: never
-          runCmd: zig build site
+      - name: Install the pinned Zig
+        run: |
+          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/install-zig.sh
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+
+      - name: Build the site
+        run: zig build site
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
@@ -37,6 +42,7 @@ jobs:
 
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: build
     environment:
       name: github-pages

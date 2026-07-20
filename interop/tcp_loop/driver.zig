@@ -22,6 +22,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const harness = @import("interop_harness");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -30,6 +31,7 @@ const driver = pancake.driver;
 const net = pancake.net;
 
 const TcpBridge = driver.Bridge(net.TcpLoop);
+const runLoop = harness.LoopRunner(net.TcpLoop).runAfterClosed;
 
 const frame_cap: usize = 4096;
 const greeting = "hello over the tcp loop";
@@ -100,25 +102,8 @@ const LiveBytes = struct {
 
 /// The published actor: answers `greet` with a static greeting; a fresh
 /// instance per connection through the bridge's publish callback.
-const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
-        return .{ .string = greeting };
-    }
-};
-
-fn publishGreeter(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
-    _ = ctx;
-    _ = try served.publish("greeter", Greeter, .{});
-}
-
-fn runLoop(loop: *net.TcpLoop, until_closed: usize, out_err: *?anyerror) void {
-    loop.run(.{ .after_closed = until_closed }) catch |err| {
-        out_err.* = err;
-    };
-}
+const Greeter = harness.StaticReplyActor("greet", greeting);
+const publishGreeter = harness.publisher("greeter", Greeter);
 
 /// Gates the footprint measurement: wave-one clients report in when their
 /// calls are done and hold their connection open until the main thread has
@@ -132,46 +117,25 @@ const Barrier = struct {
 /// asserted calls, then (in the measured wave) hold the connection open until
 /// the footprint read. `barrier == null` skips the hold — the churn wave.
 fn clientOnce(io: std.Io, allocator: std.mem.Allocator, port: u16, barrier: ?*Barrier) anyerror!void {
-    var peer = engine.Peer.initNegotiating(allocator);
-    defer peer.deinit();
-    peer.session_state.limits.max_frame_bytes = frame_cap;
-
-    const read_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(read_buf);
-    const write_buf = try allocator.alloc(u8, frame_cap);
-    defer allocator.free(write_buf);
+    var scaffold = try harness.PeerScaffold.init(allocator, frame_cap);
+    defer scaffold.deinit();
 
     const address = try std.Io.net.IpAddress.parse("127.0.0.1", port);
-    var cv = try driver.connectTcp(allocator, io, &peer, address, read_buf, write_buf);
+    var cv = try driver.connectTcp(allocator, io, &scaffold.peer, address, scaffold.read_buf, scaffold.write_buf);
     defer cv.deinit();
 
     const greeter = try cv.fetch("greeter");
     var i: usize = 0;
     while (i < calls_per_conn) : (i += 1) {
-        var arena_state = std.heap.ArenaAllocator.init(allocator);
-        defer arena_state.deinit();
-        const settled = try cv.call(greeter, .{ .verb = "greet", .args = &.{} }, arena_state.allocator());
-        const ok = switch (settled) {
-            .fulfilled => |arg| arg == .string and std.mem.eql(u8, arg.string, greeting),
-            .broken, .give => false,
-        };
-        if (!ok) return error.WrongReply;
+        try harness.expectStringReply(&cv, allocator, greeter, "greet", &.{}, greeting);
     }
 
     if (barrier) |b| {
         _ = b.ready.fetchAdd(1, .acq_rel);
         // Fail loud past a wall-clock deadline — an undeadlined spin here is
         // the same silent-hang class the test/support/wait harness closes for
-        // the hermetic suite. This interop binary cannot import that module
-        // (outside the module path), so the deadline lives inline.
-        const deadline = std.Io.Clock.Timestamp.fromNow(io, .{
-            .raw = std.Io.Duration.fromMilliseconds(15_000),
-            .clock = .real,
-        });
-        while (!b.measured.load(.acquire)) {
-            if (std.Io.Clock.Timestamp.now(io, .real).compare(.gte, deadline)) return error.WaitTimedOut;
-            std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
-        }
+        // the hermetic suite; the interop harness mirrors that contract.
+        try harness.untilFlag(io, 15_000, &b.measured);
     }
 }
 
@@ -198,17 +162,13 @@ pub fn main(init: std.process.Init) !void {
     var bridge = TcpBridge.init(server_alloc, &host, io, &loop, .{ .publish = publishGreeter });
     defer bridge.deinit();
 
-    loop = try net.TcpLoop.init(server_alloc, TcpBridge.makePeer, @ptrCast(&bridge), .{
+    loop = try net.TcpLoop.init(server_alloc, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
         .frame_cap = frame_cap,
         .max_conns = conns_per_wave * 2,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = TcpBridge.serve,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
         // ADR-0082: embedder park-metric dogfood (completion_loop_test pins the hook).
         .on_park = reportPark,
-    });
+    }));
     defer loop.deinit();
     const port = loop.port.?;
     var designator_buf: [net.tcp.designator_buf_len]u8 = undefined;

@@ -25,7 +25,7 @@ typedef struct {
 } FlushCtx;
 
 static int fail(const char *what) {
-	char buf[256];
+	uint8_t buf[256];
 	size_t n = pancake_host_last_error(buf, sizeof buf);
 	fprintf(stderr, "host_embedder_pump: %s: %.*s\n", what, (int)n, buf);
 	return 1;
@@ -78,18 +78,14 @@ static int drain_actions(PancakeHost *host, BytePipe *pipe, PancakeHostSession *
 }
 
 static int feed_pipe(PancakeHostSession *to, BytePipe *pipe) {
-	while (pipe->len > 0) {
-		size_t consumed = 0;
-		int32_t rc = pancake_host_session_feed_bytes(to, pipe->buf, pipe->len, &consumed);
-		if (rc != PANCAKE_OK) {
-			return rc;
-		}
-		if (consumed == 0) {
-			return PANCAKE_OK;
-		}
-		memmove(pipe->buf, pipe->buf + consumed, pipe->len - consumed);
-		pipe->len -= consumed;
+	/* The library owns framing and the unconsumed tail, so one call moves
+	   the whole pipe; an empty feed resumes frames the session held behind
+	   its handshake open. */
+	int32_t rc = pancake_host_session_feed_bytes(to, pipe->buf, pipe->len);
+	if (rc != PANCAKE_OK) {
+		return rc;
 	}
+	pipe->len = 0;
 	return PANCAKE_OK;
 }
 
@@ -187,8 +183,7 @@ int main(void) {
 	if (drain_actions(peer, &refuse_pipe, peer_dial) != PANCAKE_OK) {
 		return fail("peer hello encode");
 	}
-	size_t consumed = 0;
-	int32_t refused = pancake_host_session_feed_bytes(tiny_acc, refuse_pipe.buf, refuse_pipe.len, &consumed);
+	int32_t refused = pancake_host_session_feed_bytes(tiny_acc, refuse_pipe.buf, refuse_pipe.len);
 	if (refused == PANCAKE_OK) {
 		fprintf(stderr, "host_embedder_pump: expected over-cap refusal\n");
 		return 1;

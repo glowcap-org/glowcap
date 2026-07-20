@@ -1,18 +1,20 @@
 # Session lifecycle
 
-Anchors: CapTP Specification § Sessions, § op:start-session, § Ending a session,
-§ Crossed hellos.
+Anchors: CapTP Specification § CapTP Overview, § op:start-session, § Ending a
+session, § Crossed Hellos Resolution.
 
 ## SL-1: Session state machine
 
 The lifecycle is one-way: a session moves from `Negotiating` to `Open` to
-`Closed`. No transition reverses; a closed session never reopens.
+`Closed`, with one self-loop where a refused handshake stays negotiating. No
+transition reverses; a closed session never reopens.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Negotiating
     Negotiating --> Open: both start-session halves observed, versions equal
-    Negotiating --> Closed: version mismatch or invalid location signature
+    Negotiating --> Negotiating: handshake refusal (typed op:abort queued, ADR-0083)
+    Negotiating --> Closed: op:abort received, fatal non-handshake refusal, or transport closed by the adapter
     Open --> Closed: abort (sent or received)
     Closed --> [*]
 ```
@@ -36,9 +38,14 @@ sequenceDiagram
 
 ## SL-3: Handshake refusal
 
-A version mismatch or a location signature that fails verification is fatal: the
-offended side sends `op:abort` and the session moves straight to Closed without
-ever opening.
+A version mismatch or a location signature that fails verification refuses the
+handshake: the offended side emits the typed `op:abort` and stays negotiating.
+Staying negotiating is ADR-0083's named exception, spelled out in SL-6;
+severing the transport is the adapter's call, not the session's. The refused
+hello never opens the session; a corrected hello on the same stream still can,
+and it grants nothing a first valid hello would not. A partner that severs
+after aborting, as the spec advises and Goblins does, never uses that retry:
+it is pancake's session-layer accounting, not an interop expectation.
 
 ```mermaid
 sequenceDiagram
@@ -47,7 +54,7 @@ sequenceDiagram
     A->>B: op:start-session (captp-version 1.0, ...)
     Note over B: version unsupported, or location-sig invalid
     B->>A: op:abort (reason)
-    Note over A,B: session Closed, never Opened
+    Note over A,B: session never Opened; B stays Negotiating (SL-6)
 ```
 
 ## SL-4: Crossed hellos

@@ -80,5 +80,5 @@ zig build racket-dogfood    # the Racket consumer against the pancake archives
 The full surface lives in the
 [Racket binding README](https://codeberg.org/jimisaacs/pancake/src/branch/main/bindings/racket/README.md),
 and the
-[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/racket/room-client.rkt)
+[rooms chat client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/racket/room-client.rkt)
 builds a small capability-secure room on this surface.

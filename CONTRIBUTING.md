@@ -102,7 +102,7 @@ zig build meta-check     # documented build steps, overlays, and doc registry
 zig build oracle-check   # protocol reference fixtures + Syrup fixture parity
 zig build arch-check     # layer dependency DAG + no std.Io in the core
 zig build examples       # build and run the public examples
-zig build cli-test       # hermetic CapTP CLI goldens
+zig build cli-test       # self-contained CapTP CLI golden tests
 zig build rust-dogfood   # Rust consumes the C ABI (binding smoke)
 zig build bindings       # rust + deno + bun + python + racket C ABI smokes
 zig build bench-codec    # codec / dispatch throughput
@@ -110,6 +110,19 @@ zig build bench-codec    # codec / dispatch throughput
 
 `zig build check` must be green before a change is complete. The architecture
 check ([tools/check/arch_check.zig](tools/check/arch_check.zig)) blocks layering violations.
+
+## Continuous integration
+
+Codeberg is the origin. Its hosted runners cannot build the devcontainer
+image, so the workflows under [.forgejo/workflows/](.forgejo/workflows/)
+install the pinned Zig directly, run the Zig-only checks, and publish the
+documentation site to the `pages` branch. The GitHub mirror
+([.github/workflows/](.github/workflows/)) runs the full sequence
+([`ci/gates.sh`](ci/gates.sh) inside the devcontainer image) plus GitHub
+Pages and the tagged release build. Every CI job installs toolchains through
+the checksummed [`.devcontainer/`](.devcontainer/) installers, so the pins in
+[`.devcontainer/pins.sh`](.devcontainer/pins.sh) are the one version
+authority.
 
 ## License
 

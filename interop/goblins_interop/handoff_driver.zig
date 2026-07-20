@@ -17,6 +17,7 @@
 const std = @import("std");
 const pancake = @import("pancake");
 const goblins_child = @import("goblins_child.zig");
+const harness = @import("interop_harness");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -29,41 +30,13 @@ const tcp = pancake.net.tcp;
 const Host = driver.core.Host;
 const HostSession = driver.core.HostSession;
 const TcpBridge = driver.Bridge(net.TcpLoop);
+const runLoop = harness.LoopRunner(net.TcpLoop).runUntilFlag;
 
 const host_addr = "127.0.0.1";
 const default_alice_port: u16 = 22110;
 const frame_cap: usize = 1 << 16;
 const host_script = "conformance/goblins-peer/racket/handoff-introducer-host.rkt";
 const deadline_ms: u64 = 60_000;
-
-fn deadlineAfter(io: std.Io) std.Io.Clock.Timestamp {
-    return std.Io.Clock.Timestamp.fromNow(io, .{
-        .raw = std.Io.Duration.fromMilliseconds(deadline_ms),
-        .clock = .real,
-    });
-}
-
-fn expired(io: std.Io, deadline: std.Io.Clock.Timestamp) bool {
-    return std.Io.Clock.Timestamp.now(io, .real).compare(.gte, deadline);
-}
-
-fn waitFlag(io: std.Io, flag: *const std.atomic.Value(bool)) !void {
-    const deadline = deadlineAfter(io);
-    while (!flag.load(.acquire)) {
-        if (expired(io, deadline)) return error.WaitTimedOut;
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
-    }
-}
-
-fn runLoop(loop: *net.TcpLoop, done: *const std.atomic.Value(bool), out_err: *?anyerror) void {
-    loop.runUntil(done, 0) catch |err| {
-        out_err.* = err;
-        return;
-    };
-    loop.closeAndDrain() catch |err| {
-        out_err.* = err;
-    };
-}
 
 const RecipientState = struct {
     host: *Host,
@@ -163,40 +136,21 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const allocator = init.gpa;
 
-    var args = std.process.Args.Iterator.init(init.minimal.args);
-    _ = args.next();
-    var alice_port: u16 = default_alice_port;
-    while (args.next()) |arg| {
-        if (std.mem.startsWith(u8, arg, "--port=")) {
-            alice_port = std.fmt.parseInt(u16, arg["--port=".len..], 10) catch 0;
-            if (alice_port == 0 or alice_port == 65535) {
-                std.debug.print("goblins-handoff: --port must be an integer in 1..65534 (bob listens on port+1)\n", .{});
-                return error.BadPort;
-            }
-        } else {
-            std.debug.print("goblins-handoff: unknown argument '{s}'\n", .{arg});
-            return error.BadArgument;
-        }
-    }
+    const alice_port = try harness.parsePortFlag(init.minimal.args, "goblins-handoff", default_alice_port, .{
+        .max = 65534,
+        .note = " (bob listens on port+1)",
+    });
     var alice_port_buf: [8]u8 = undefined;
     const alice_port_str = try std.fmt.bufPrint(&alice_port_buf, "{d}", .{alice_port});
     var bob_port_buf: [8]u8 = undefined;
     const bob_port_str = try std.fmt.bufPrint(&bob_port_buf, "{d}", .{alice_port + 1});
 
-    var child = try std.process.spawn(io, .{
-        .argv = &.{ goblins_child.racket_path, host_script, alice_port_str, bob_port_str },
-        .environ_map = init.environ_map,
-        .stdout = .pipe,
-        .stderr = .pipe,
-    });
+    const hosted = try goblins_child.spawnHostAwaitSwiss(io, allocator, init.environ_map, "goblins-handoff", "introducer", &.{ host_script, alice_port_str, bob_port_str });
+    var child = hosted.child;
     var reaped = false;
     defer if (!reaped) child.kill(io);
 
-    const swiss = goblins_child.readPublishedSwiss(io, allocator, &child) catch |err| {
-        std.debug.print("goblins-handoff: never saw the introducer readiness line: {s}\n", .{@errorName(err)});
-        goblins_child.dumpChildStderr(io, "goblins-handoff", &child);
-        return err;
-    };
+    const swiss = hosted.swiss;
     defer allocator.free(swiss);
     std.debug.print("goblins-handoff: alice published introducer swiss={s} on {s}:{s}\n", .{ swiss, host_addr, alice_port_str });
 
@@ -237,15 +191,11 @@ fn recipientStep(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, al
         .ok = &ok,
     };
 
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
         .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = TcpBridge.serve,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
-    });
+    }));
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const bound_addr = try tcp.parseHostPort("127.0.0.1", loop.port.?);
@@ -260,7 +210,7 @@ fn recipientStep(io: std.Io, allocator: std.mem.Allocator, swiss: []const u8, al
 
     var loop_err: ?anyerror = null;
     var loop_future = try io.concurrent(runLoop, .{ &loop, &greeter_done, &loop_err });
-    try waitFlag(io, &greeter_done);
+    try harness.untilFlag(io, deadline_ms, &greeter_done);
     loop_future.await(io);
     if (loop_err) |err| return err;
     if (!ok.load(.acquire)) return error.HandoffFailed;

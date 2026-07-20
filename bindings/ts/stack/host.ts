@@ -15,7 +15,7 @@
 import { driverS } from "./internal/ffi/driver.ts";
 import { NULL, type Ptr } from "./internal/ffi/runtime.ts";
 import { ab, outPointer } from "./internal/seam.ts";
-import { CLOSED, DEFAULT_FRAME_CAP } from "@pancake/abi";
+import { CLOSED, DEFAULT_FRAME_CAP, IROH_REACH_REDEEM_DEFAULT } from "@pancake/abi";
 import { checkHost, PancakeError } from "./errors.ts";
 import { type Argument, type Behavior, type Codec, codecId, Reachability } from "./value.ts";
 import { insideTurn, registerBehavior, trampolinePointer } from "./trampoline.ts";
@@ -80,10 +80,11 @@ export class Host {
 	readonly #unobserved: bigint[] = [];
 	// The iroh reachability posture this host uses to redeem a *hint-less*
 	// handoff give — one whose exporter location names the exporter by node id
-	// alone. Defaults to `Discovery` (n0 relays + DNS/pkarr, the maximal-reach
-	// choice); a relay-policy deployment lowers it to `DiscoveryNoRelay`. A
-	// hinted give always dials `Direct` and ignores this.
-	#redeemReachability: Reachability = Reachability.Discovery;
+	// alone. Starts at the generated ABI default (`Discovery`: n0 relays +
+	// DNS/pkarr, the maximal-reach choice); a relay-policy deployment lowers it
+	// to `DiscoveryNoRelay`. A hinted give always dials `Direct` and ignores
+	// this.
+	#redeemReachability: Reachability = IROH_REACH_REDEEM_DEFAULT as Reachability;
 	// Releases the C tier refused inside a behavior callback park here
 	// (`pancake_host_session_release` / `pancake_host_release` are refused
 	// mid-turn); the drain runs them once the enclosing feed unwinds, so a

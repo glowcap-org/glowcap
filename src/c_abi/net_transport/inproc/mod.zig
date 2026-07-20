@@ -62,6 +62,10 @@ const PANCAKE_ERR_IO = c.PANCAKE_ERR_IO;
 /// most `cap - 1` bytes and always NUL-terminates when `cap > 0`;
 /// `out_buf == NULL` or `cap == 0` queries the length. Returns the full message
 /// length, or 0 when none is set.
+/// The annotated symbol inventory (crossing semantics per export) the
+/// binding FFI-table generators reflect from — see `symbols.zig`.
+pub const symbols = @import("symbols.zig");
+
 pub export fn pancake_inproc_last_error(out_buf: ?[*]u8, cap: usize) usize {
     return c.lastErrorRead(out_buf, cap);
 }

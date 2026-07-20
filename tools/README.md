@@ -12,6 +12,6 @@ Maintainer-only surface. The usual verification verbs in this repository are
 
 Product apps do not live here. First-party binaries go under
 [`apps/`](../apps/) or [`cli/`](../cli/); demos go under
-[`examples/apps/`](../examples/apps/).
+[`apps/`](../apps/).
 
 Layout decision: [ADR-0085](../docs/decisions/adr/ADR-0085-repository-product-and-devtool-layout.md).

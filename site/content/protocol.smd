@@ -29,7 +29,7 @@ session, makes a call, settles a promise, or tears the whole thing down.
 | `op:deliver` | Calls a method on a reference and registers an answer, so the caller holds a promise as soon as the call goes out. |
 | `op:resolve` | Settles a promise to its final value, or to a break if the call failed. |
 | `op:listen` | Subscribes to a promise's resolution, so a waiter is told the answer the moment it lands. |
-| `op:abort` | Ends the session with a typed reason. The connection is finished. |
+| `op:abort` | Ends the session with a typed reason. It also answers a refused handshake, where the refusing side stays negotiating. |
 | `op:get` | Projects a named field off an answer without waiting for the whole result to settle. |
 | `op:index` | Projects a positional element off an answer. |
 | `op:untag` | Unwraps a tagged value projected off an answer. |
@@ -43,10 +43,10 @@ handoff rides *inside* a message, naming what a slot points at.
 
 | Descriptor | What it names |
 | --- | --- |
-| `desc:export` | A reference to an object the sender exports for the other side to call. |
+| `desc:export` | A reference back to an object the receiver exports: how the sender names something it was given earlier (position 0 is the bootstrap object). |
 | `desc:answer` | A reference to a pending answer from an earlier `op:deliver`, the target of promise pipelining. |
-| `desc:import-object` | The receiver's side of a `desc:export`: the same object, as the importer sees it. |
-| `desc:import-promise` | The receiver's side of a promised reference, settled later by an `op:resolve`. |
+| `desc:import-object` | An object the sender hosts and is introducing; the receiver records it as an import. |
+| `desc:import-promise` | A promised reference the sender is introducing, settled later by the exporting side's resolution notification. |
 | `desc:handoff-give` | The gifter's half of a three-party introduction: "go meet this peer, on my word." |
 | `desc:handoff-receive` | The recipient's half of that introduction, redeemed with the third party. |
 | `desc:sig-envelope` | A signed wrapper that makes a handoff unforgeable as it crosses between the three parties. |

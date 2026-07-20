@@ -18,7 +18,7 @@ The protocol core is deterministic, synchronous, and does no I/O. Sockets and
 scheduling live in adapters above it. Frame ownership, copies, and wire format
 stay visible at the boundary that owns them.
 
-Peers can meet without a server in the middle: the
+Peers can meet without an application server brokering them: the
 [iroh transport]($link.page('transports/iroh')) carries CapTP over encrypted QUIC
 and names each peer by a self-authenticating key. It is an optional artifact: a
 TCP-only program never pays for it.

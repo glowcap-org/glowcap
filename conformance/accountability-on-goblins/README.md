@@ -9,7 +9,7 @@ not part of pancake's protocol core.
 
 This application is external conformance pressure for the kind of host software
 pancake supports; the worked application
-[`accountability-on-pancake/`](../../examples/apps/accountability-on-pancake/)
+[`accountability-on-pancake/`](../../apps/accountability-on-pancake/)
 runs the same shape on pancake itself. It exercises three concerns above CapTP:
 
 1. networked capability invocation;
@@ -17,7 +17,7 @@ runs the same shape on pancake itself. It exercises three concerns above CapTP:
 3. an observation point that emits a signed Episode for each invocation.
 
 This implementation uses Goblins for the runtime. Pancake's core remains
-codec-neutral CapTP; the pancake port in `examples/apps/accountability-on-pancake/` wraps the
+codec-neutral CapTP; the pancake port in `apps/accountability-on-pancake/` wraps the
 caller-owned `Peer` boundary rather than pushing Episode/KERI vocabulary into
 the protocol core.
 

@@ -18,6 +18,7 @@
 const std = @import("std");
 const pancake = @import("pancake");
 const iroh = @import("iroh");
+const harness = @import("interop_harness");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -38,14 +39,7 @@ const gifter_seed: [32]u8 = @splat(0x26);
 const exporter_seed: [32]u8 = @splat(0x2e);
 const recipient_seed: [32]u8 = @splat(0x2c);
 
-const Widget = struct {
-    pub fn handle(self: *Widget, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "poke")) return error.NoSuchMethod;
-        return .{ .string = "poked directly at the exporter" };
-    }
-};
+const Widget = harness.StaticReplyActor("poke", "poked directly at the exporter");
 
 const RedeemShared = struct {
     gifter_id: []const u8 = &.{},
@@ -55,29 +49,14 @@ const RedeemShared = struct {
     done: std.atomic.Value(bool) = .init(false),
 };
 
-fn deadlineAfter(io: std.Io) std.Io.Clock.Timestamp {
-    return std.Io.Clock.Timestamp.fromNow(io, .{
-        .raw = std.Io.Duration.fromMilliseconds(deadline_ms),
-        .clock = .real,
-    });
-}
-
-fn expired(io: std.Io, deadline: std.Io.Clock.Timestamp) bool {
-    return std.Io.Clock.Timestamp.now(io, .real).compare(.gte, deadline);
-}
-
 fn waitFlag(io: std.Io, flag: *const std.atomic.Value(bool)) !void {
-    const deadline = deadlineAfter(io);
-    while (!flag.load(.acquire)) {
-        if (expired(io, deadline)) return error.WaitTimedOut;
-        std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
-    }
+    try harness.untilFlag(io, deadline_ms, flag);
 }
 
 fn waitNonEmpty(io: std.Io, slice: *const []const u8) !void {
-    const deadline = deadlineAfter(io);
+    const deadline = harness.deadlineAfter(io, deadline_ms);
     while (slice.*.len == 0) {
-        if (expired(io, deadline)) return error.WaitTimedOut;
+        if (harness.expired(io, deadline)) return error.WaitTimedOut;
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
     }
 }
@@ -97,21 +76,21 @@ fn initLoop(
 ) !IrohLoop {
     const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
     const backend = try iroh.Backend.initBound(allocator, resident, 256, 256, read_buffer_bytes);
-    return IrohLoop.initWithBackend(allocator, backend, IrohBridge.makePeer, @ptrCast(bridge), .{
+    // This driver interposes its own `serve` (it watches the redeem settle),
+    // so it overrides the bridge's spliced hook after `hookOptions`.
+    var options = IrohBridge.hookOptions(.{
         .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
-        .make_conn_ctx = IrohBridge.makeConnCtx,
-        .serve = serve,
-        .free_conn_ctx = IrohBridge.freeConnCtx,
-        .on_close = IrohBridge.onClose,
     });
+    options.serve = serve;
+    return IrohLoop.initWithBackend(allocator, backend, IrohBridge.makePeer, @ptrCast(bridge), options);
 }
 
 fn joinLoop(io: std.Io, resident: *iroh.Resident, loop_done: *std.atomic.Value(bool), loop_future: *std.Io.Future(void), loop_err: *?anyerror) void {
-    const drain_deadline = deadlineAfter(io);
+    const drain_deadline = harness.deadlineAfter(io, deadline_ms);
     while (!loop_done.load(.acquire)) {
-        if (expired(io, drain_deadline)) break;
+        if (harness.expired(io, drain_deadline)) break;
         resident.close();
         std.Io.sleep(io, std.Io.Duration.fromMilliseconds(2), .real) catch {};
     }
@@ -127,10 +106,7 @@ const ExporterState = struct {
     g_conn: ?*HostSession = null,
 };
 
-fn publishExporterTarget(ctx: ?*anyopaque, served: *driver.Served) anyerror!void {
-    _ = ctx;
-    _ = try served.publish("target", Widget, .{});
-}
+const publishExporterTarget = harness.publisher("target", Widget);
 
 fn exporterOnOpen(ctx: ?*anyopaque, bridge: *IrohBridge, conn: *IrohBridge.Slot) anyerror!void {
     const state: *ExporterState = @ptrCast(@alignCast(ctx.?));

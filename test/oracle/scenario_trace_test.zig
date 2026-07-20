@@ -88,6 +88,105 @@ test "driven listen/resolve fires the registered listener across paired peers" {
     );
 }
 
+test "driven projections resolve the projected answers when each source settles" {
+    const allocator = std.testing.allocator;
+
+    const actual = try oracle.runDrivenProjections(allocator, .syrup);
+    defer allocator.free(actual);
+
+    try std.testing.expectEqualStrings(
+        "scenario=driven_projections\n" ++
+            "p1=sent:deliver:answer=11\n" ++
+            "p2=event:deliver\n" ++
+            "p1=sent:deliver:answer=21\n" ++
+            "p2=event:deliver\n" ++
+            "p1=sent:deliver:answer=31\n" ++
+            "p2=event:deliver\n" ++
+            // Each projection send also carries the engine-synthesized
+            // `op:listen` on the projected answer (ADR-0007), so the
+            // settlement can ride back as a V1.0 resolver callback.
+            "p1=sent:get\n" ++
+            "p2=event:get\n" ++
+            "p2=event:listen\n" ++
+            "p1=sent:index\n" ++
+            "p2=event:index\n" ++
+            "p2=event:listen\n" ++
+            "p1=sent:untag\n" ++
+            "p2=event:untag\n" ++
+            "p2=event:listen\n" ++
+            "p2=sent:resolve:answer=11\n" ++
+            "p1=event:resolve:answer=11:fulfill=struct\n" ++
+            "p1=event:resolve:answer=12:fulfill=tabby\n" ++
+            "p2=sent:resolve:answer=21\n" ++
+            "p1=event:resolve:answer=21:fulfill=list\n" ++
+            "p1=event:resolve:answer=22:fulfill=one\n" ++
+            "p2=sent:resolve:answer=31\n" ++
+            "p1=event:resolve:answer=31:fulfill=tagged\n" ++
+            "p1=event:resolve:answer=32:fulfill=5\n\n",
+        actual,
+    );
+}
+
+test "driven gc releases the export and the answer across paired peers" {
+    const allocator = std.testing.allocator;
+
+    const actual = try oracle.runDrivenGcPair(allocator, .syrup);
+    defer allocator.free(actual);
+
+    try std.testing.expectEqualStrings(
+        "scenario=driven_gc\n" ++
+            "p1=sent:deliver:answer=21\n" ++
+            "p2=event:deliver\n" ++
+            "p1=sent:gc_export:position=3:delta=1\n" ++
+            "p2=event:gc_export\n" ++
+            // The partner's gc releases only its wire holds: the exporter's
+            // baseline floats, so the row lives until the local release.
+            "p2=export3_refs=1:live=true\n" ++
+            "p2=released:baseline:export3_live=false\n" ++
+            "p1=sent:gc_answer:position=21\n" ++
+            "p2=event:gc_answer\n" ++
+            "p2=answer21_live=false\n\n",
+        actual,
+    );
+}
+
+test "driven handoff parks the early withdraw, settles it on deposit, and the redeemed cap answers directly" {
+    const allocator = std.testing.allocator;
+
+    const actual = try oracle.runDrivenHandoff(allocator, .syrup);
+    defer allocator.free(actual);
+
+    try std.testing.expectEqualStrings(
+        "scenario=driven_handoff\n" ++
+            "exporter=registered:swissnum=thermostat:gifter_session=1:recipient_session=1\n" ++
+            "gifter=sent:fetch\n" ++
+            "exporter=event:deliver\n" ++
+            "gifter=fetched:thermostat:import=1\n" ++
+            "recipient=sent:deliver:answer=42\n" ++
+            "gifter=event:deliver\n" ++
+            "gifter=sent:deposit_gift\n" ++
+            "gifter=sent:resolve_give:answer=42\n" ++
+            "recipient=event:resolve:answer=42:fulfill=handoff\n" ++
+            "recipient=sent:withdraw_gift:answer=1\n" ++
+            "exporter=event:deliver\n" ++
+            // The withdraw outran its deposit (they travel on different
+            // sessions), so the exporter parks it rather than refusing — the
+            // arrival-order contract the upstream OCapN suite pins.
+            "exporter=withdraw_parked=1:gift_live=false\n" ++
+            "exporter=event:deliver\n" ++
+            "exporter=deposit_recorded:gift_live=true\n" ++
+            // Settling consumes the gift row; replay stays blocked by the
+            // monotonic handoff count, not a retained row.
+            "exporter=withdraw_settled:parked=0:gift_live=false\n" ++
+            "recipient=event:resolve:answer=1:fulfill=import=1\n" ++
+            "recipient=sent:deliver:answer=2:direct\n" ++
+            "exporter=event:deliver\n" ++
+            "exporter=sent:resolve:answer=2\n" ++
+            "recipient=event:resolve:answer=2:fulfill=72F\n\n",
+        actual,
+    );
+}
+
 test "deliver/resolve trace is identical on Syrup and Cap'n Proto" {
     const allocator = std.testing.allocator;
 
@@ -116,6 +215,39 @@ test "bootstrap-fetch trace is identical on Syrup and Cap'n Proto" {
     const syrup = try oracle.runHandshakeThenBootstrapFetch(allocator, .syrup);
     defer allocator.free(syrup);
     const capnp = try oracle.runHandshakeThenBootstrapFetch(allocator, .capnp);
+    defer allocator.free(capnp);
+
+    try std.testing.expectEqualStrings(syrup, capnp);
+}
+
+test "projections trace is identical on Syrup and Cap'n Proto" {
+    const allocator = std.testing.allocator;
+
+    const syrup = try oracle.runDrivenProjections(allocator, .syrup);
+    defer allocator.free(syrup);
+    const capnp = try oracle.runDrivenProjections(allocator, .capnp);
+    defer allocator.free(capnp);
+
+    try std.testing.expectEqualStrings(syrup, capnp);
+}
+
+test "handoff trace is identical on Syrup and Cap'n Proto" {
+    const allocator = std.testing.allocator;
+
+    const syrup = try oracle.runDrivenHandoff(allocator, .syrup);
+    defer allocator.free(syrup);
+    const capnp = try oracle.runDrivenHandoff(allocator, .capnp);
+    defer allocator.free(capnp);
+
+    try std.testing.expectEqualStrings(syrup, capnp);
+}
+
+test "gc trace is identical on Syrup and Cap'n Proto" {
+    const allocator = std.testing.allocator;
+
+    const syrup = try oracle.runDrivenGcPair(allocator, .syrup);
+    defer allocator.free(syrup);
+    const capnp = try oracle.runDrivenGcPair(allocator, .capnp);
     defer allocator.free(capnp);
 
     try std.testing.expectEqualStrings(syrup, capnp);

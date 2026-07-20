@@ -19,30 +19,15 @@ import ctypes
 from ._ffi_ocapn import _Frame, _Lib, _ManagedFrame, _bind
 from ._lib_resolve import _lib_path
 
+# The signature table is generated from the archive's annotated symbol
+# inventory (``zig build gen-binding-python-ffi``).
+from ._sigs_gen import inproc_sigs
 
 
 def _load():
-    P = ctypes.c_void_p
-    inproc_sigs = {
-        "pancake_inproc_last_error": ([ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t], ctypes.c_size_t),
-        "pancake_inproc_netlayer_new": ([ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_inproc_netlayer_release": ([P], None),
-        "pancake_inproc_connect": (
-            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint32, ctypes.c_size_t, ctypes.POINTER(P)],
-            ctypes.c_int32,
-        ),
-        "pancake_inproc_listen": (
-            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32,
-        ),
-        "pancake_inproc_accept": ([P, ctypes.c_uint32, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_inproc_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame)], ctypes.c_int32),
-        "pancake_inproc_conn_write_frame": ([P, ctypes.POINTER(_Frame)], ctypes.c_int32),
-        "pancake_inproc_conn_release": ([P], None),
-        "pancake_inproc_listener_release": ([P], None),
-    }
     inproc = ctypes.CDLL(str(_lib_path("pancake_net_transport_inproc")))
     facade = _Lib(inproc)
-    _bind(facade, inproc, inproc_sigs)
+    _bind(facade, inproc, inproc_sigs(_Frame, _ManagedFrame))
     return facade
 
 

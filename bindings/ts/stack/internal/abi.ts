@@ -105,3 +105,8 @@ export const PENDING_DIAL_DESIGNATOR_LEN_OFF = 24;
 export const PENDING_DIAL_HINT_OFF = 32;
 export const PENDING_DIAL_HINT_LEN_OFF = 40;
 
+// PancakeIrohReadyEvent (libpancake_net_transport_iroh, pancake_iroh_netlayer_drain_ready)
+export const IROH_READY_EVENT_SIZE = 16;
+export const IROH_READY_EVENT_CONN_OFF = 0;
+export const IROH_READY_EVENT_EVENTS_OFF = 8;
+

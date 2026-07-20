@@ -320,15 +320,11 @@ fn benchIrohLoop(io: std.Io, allocator: std.mem.Allocator, warmup: usize, calls:
 
     const read_buffer_bytes: u32 = @intCast(@min(frame_cap, 16 * 1024));
     const backend = try iroh.Backend.initBound(allocator, &server, 256, 256, read_buffer_bytes);
-    loop = try IrohLoop.initWithBackend(allocator, backend, IrohBridge.makePeer, @ptrCast(&bridge), .{
+    loop = try IrohLoop.initWithBackend(allocator, backend, IrohBridge.makePeer, @ptrCast(&bridge), IrohBridge.hookOptions(.{
         .frame_cap = frame_cap,
         .max_conns = 64,
         .listen = 0,
-        .make_conn_ctx = IrohBridge.makeConnCtx,
-        .serve = IrohBridge.serve,
-        .free_conn_ctx = IrohBridge.freeConnCtx,
-        .on_close = IrohBridge.onClose,
-    });
+    }));
     defer loop.deinit();
     try bridge.attach(iroh.transport_name, server_id, &.{});
 

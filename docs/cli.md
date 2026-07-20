@@ -164,20 +164,12 @@ focus                        # quiet/focus mode (collapse rail to counts)
 # TTY only: call/fetch/tell/publish settle in the background; a spinner line
 # appears in the transcript; the prompt stays usable. CapTP verbs queue FIFO;
 # tour/help/focus/guide run immediately. Esc cancels the active wait (#0 is bootstrap).
-Tab / Shift-Tab              # cycle completions (TTY); Enter accepts, Esc dismisses menu / cancels wait
-↑ / ↓                        # command history at the prompt
-Ctrl-O                       # transcript browse (j/k, PgUp/PgDn, g/G)
-F1                           # modal key help
-wheel / Shift↑↓ / PgUp·PgDn  # scroll (Ctrl-Home/End jump)
-[↓ jump] button              # when scrolled up, click to return to live
-click                        # expand/collapse long blocks; menu accept
-Ctrl-click                   # open/insert ocapn:// or https:// link
-drag                         # character select across lines → copy on release (OSC 52)
-Shift-drag                   # terminal-native select (SSH/tmux fallback)
-Ctrl-y                       # re-copy last in-app selection
-Ctrl-p / Ctrl-t              # cycle panel focus (prompt / transcript / rail)
 quit
 ```
+
+`Tab` completes, `F1` shows the full key map, and mouse, selection, scrolling,
+and clipboard behavior are documented in-app, so this page does not repeat
+them.
 
 The lab tracks terminal resizes (SIGWINCH) and reflows (side rail ≥80 cols;
 narrow terminals stack CapTP counts above the REPL). For the whole alt-screen
@@ -210,7 +202,7 @@ when `pancake` is on `PATH` (no shim: set `PANCAKE_STATE` explicitly):
 Room presence is `pancake app rooms-peer` (install alias `rooms-peer`). The peer
 registers a giftable `dm` inbox so `reply --dm PEER` delivers via directory
 introduction (same path as `demo-rooms-dm-iroh`). Deploy and locator details:
-[`examples/apps/rooms/README.md`](../examples/apps/rooms/README.md).
+[`apps/rooms/README.md`](../apps/rooms/README.md).
 
 ## Shell completion
 

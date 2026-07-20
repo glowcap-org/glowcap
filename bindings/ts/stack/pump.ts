@@ -7,7 +7,7 @@
 
 import { driverS } from "./internal/ffi/driver.ts";
 import { type Ptr } from "./internal/ffi/runtime.ts";
-import { ab, outUsize, readBytes, releaseManagedFrame } from "./internal/seam.ts";
+import { ab, readBytes, releaseManagedFrame } from "./internal/seam.ts";
 import {
 	type AbortDetail,
 	abortDomainLabel,
@@ -22,7 +22,7 @@ const utf8Encoder = new TextEncoder();
 const utf8Decoder = new TextDecoder();
 
 /** Live state and callbacks `Session` owns that the pump needs. Session builds
- * one of these from its private fields (getters/setters into `#ptr`, `#inbox`,
+ * one of these from its private fields (getters/setters into `#ptr`,
  * `#closing`, …) so this module never reaches into private class state. */
 export interface PumpHandle {
 	readonly ptr: Ptr;
@@ -33,7 +33,6 @@ export interface PumpHandle {
 	closingFlag: boolean;
 	/** Teardown has begun: `closingFlag || released`. */
 	readonly closing: boolean;
-	inbox: Uint8Array;
 	writing: Promise<void>;
 	read(): Promise<Uint8Array | null>;
 	write(data: Uint8Array): Promise<void>;
@@ -69,9 +68,9 @@ export async function runHandshake(h: PumpHandle): Promise<void> {
  * rejects on a transport or protocol error. */
 export async function serveLoop(h: PumpHandle): Promise<void> {
 	try {
-		// Frames that arrived behind the handshake's tail are still buffered;
-		// dispatch them before parking on the wire.
-		if (h.inbox.length > 0) await feed(h, new Uint8Array(0));
+		// Frames that rode behind the handshake's tail wait in the session's
+		// own tail; an empty feed dispatches them before parking on the wire.
+		await feed(h, new Uint8Array(0));
 		while (true) {
 			if (h.released) return;
 			const chunk = await h.read();
@@ -105,60 +104,27 @@ export async function serveLoop(h: PumpHandle): Promise<void> {
 	}
 }
 
-/** Append freshly read bytes onto the inbox and feed the core's stream
- * delimiter: the session's codec splits each complete frame off the front —
- * both codecs, both frame shapes, the frame cap enforced during the scan —
- * and dispatches it (behavior trampolines fire and completions queue
- * inside), then the actions the dispatch queued drain. Steady state (empty
- * inbox) borrows the chunk for one synchronous feed — zero-copy; only when a
- * partial frame already straddles two reads is the burst coalesced into the
- * inbox. Only the unconsumed tail stays in the inbox (copied out of the read
- * buffer so the next read can reuse it). */
+/** Feed freshly read bytes to the core's stream delimiter: the session's
+ * codec splits each complete frame off the front — both codecs, both frame
+ * shapes, the frame cap enforced during the scan — and dispatches it
+ * (behavior trampolines fire and completions queue inside), then the actions
+ * the dispatch queued drain. The library owns the unconsumed tail — a
+ * partial frame straddling two reads stays buffered in the session — so one
+ * borrowed call moves the whole chunk; an empty chunk resumes frames the
+ * session held behind its handshake open. */
 export async function feed(h: PumpHandle, chunk: Uint8Array): Promise<void> {
 	if (h.released) return;
-	if (h.inbox.length === 0) {
-		if (chunk.length === 0) return;
-		const out = new Uint8Array(8);
-		const rc = driverS.pancake_host_session_feed_bytes(
-			h.ptr,
-			ab(chunk),
-			BigInt(chunk.length),
-			ab(out),
-		);
-		// Parked releases drain before the refusal check, matching the Python
-		// and Rust pumps, so a mid-feed close's C release never waits behind a
-		// refused feed's raise.
-		h.drainParkedReleases();
-		if (rc !== OK) await raiseFeedRefusal(h, rc);
-		const consumed = Number(outUsize(out));
-		if (consumed < chunk.length) {
-			h.inbox = chunk.subarray(consumed).slice();
-		}
-		await h.kickActions();
-		return;
-	}
-	appendInbox(h, chunk);
-	const out = new Uint8Array(8);
 	const rc = driverS.pancake_host_session_feed_bytes(
 		h.ptr,
-		ab(h.inbox),
-		BigInt(h.inbox.length),
-		ab(out),
+		ab(chunk),
+		BigInt(chunk.length),
 	);
+	// Parked releases drain before the refusal check, matching the Python
+	// and Rust pumps, so a mid-feed close's C release never waits behind a
+	// refused feed's raise.
 	h.drainParkedReleases();
 	if (rc !== OK) await raiseFeedRefusal(h, rc);
-	const consumed = Number(outUsize(out));
-	h.inbox = h.inbox.subarray(consumed);
 	await h.kickActions();
-}
-
-/** Coalesce freshly read bytes into a non-empty inbox (the one copy on the
- * inbound path, paid only while a partial frame is pending). */
-export function appendInbox(h: PumpHandle, bytes: Uint8Array): void {
-	const grown = new Uint8Array(h.inbox.length + bytes.length);
-	grown.set(h.inbox, 0);
-	grown.set(bytes, h.inbox.length);
-	h.inbox = grown;
 }
 
 /** The typed cause of this CapTP session's most recent local dispatch failure,

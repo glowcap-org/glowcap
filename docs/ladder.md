@@ -40,8 +40,9 @@ match that encoder. It does not prove independent Goblins emission.
 
 Today's proof also includes pancake-to-pancake cross-codec traces, the live
 Goblins conversation both ways (`goblins-interop`), three-party handoff as
-recipient and as gifter (`goblins-handoff`, `goblins-gift`, and binding
-`*-goblins-gift`), inbound `op:gc-exports` from a Goblins vat (`goblins-gc`),
+recipient and as gifter (`goblins-handoff`, `goblins-gift`, and the binding
+`*-goblins-handoff` / `*-goblins-gift` steps), inbound `op:gc-exports` from a
+Goblins vat (`goblins-gc`),
 and the upstream suite (`ocapn-conformance`). `goblins-gc` covers inbound
 export release only, not `op:gc-answers` or binding finalizer GC.
 
@@ -64,19 +65,19 @@ model requires, pinned by `test/engine/alloc_budget_test.zig`. `engine.Peer`
 carries a `comptime` ceiling on its own struct size, so staying under **1
 KiB** of inline session state is a compile error to break, and
 `test/engine/footprint_budget_test.zig` holds the warmed total (struct plus
-session heap) at or under **2 KiB** per session, 500,000 sessions at 2 KiB
+session heap) at or under **2 KiB** per session; 500,000 sessions at 2 KiB
 is under 1 GiB of protocol-core state. `zig build bench-peer-scaling` reports
 the live measured numbers and extrapolates to 500k; `zig build check` runs
 it in `--smoke` mode plus both budget checks.
 
 The completion loop wraps each `Peer` in one `Conn` slot, which carries a
-ceiling of its own. A `Conn`'s bookkeeping beyond the embedded `Peer`: slot
+ceiling of its own. A `Conn`'s bookkeeping beyond the embedded `Peer` (slot
 state, the outbound queue's two buffer headers, the spill header, the
-intrusive free/starved link, and the in-flight and app-context words,
+intrusive free/starved link, and the in-flight and app-context words)
 measures 112 bytes on every backend, and a `comptime` assertion in
 `net/completion/loop.zig` holds it at or under **128 bytes**
 (`conn_slot_overhead_bytes`, headroom for park-kill bookkeeping). Crossing it
-is a design event: the constant moves in the test and in `loop.zig`
+is a design event: the constant moves in `loop.zig` and in this standing
 together.
 
 Those two are the headline numbers, not the only checked costs. The same test
@@ -90,8 +91,8 @@ benches in ReleaseFast and holds three ceilings, each the minimum of five
 batch means so machine noise can't cross them: a warm inbound dispatch turn
 under **2,000 ns**, an answered outbound send under **8,000 ns**, and the
 `op:gc-answers` release storm's ns/answer growing by at most **3.0x** from
-Q=1,000 to Q=8,000, a dimensionless ratio measured against a noise floor
-near 1.2, so a reintroduced per-position scan would show as roughly
+Q=1,000 to Q=8,000. That ratio is dimensionless and sits against a noise
+floor near 1.2, so a reintroduced per-position scan would show as roughly
 Q-proportional growth. A tighter threshold would flake across hardware, so
 smaller drift stays the printed benches' job. The ceilings live at the top
 of `bench/dispatch_scaling_bench.zig` and `bench/outbound_bench.zig`;
@@ -99,9 +100,7 @@ raising one is a design event same as crossing one (ADR-0073).
 
 What stays open is pushing the opt-in live harness toward the full 500k
 target on a box with the ulimit headroom for it: the harness exists, and
-this is machine work, not missing API. The completion loop's read buffers
-come from a shared backend-owned pool (ADR-0054), so an idle connection
-holds zero read-buffer bytes.
+this is machine work, not missing API.
 
 ## Step 3: A Hosted Application
 
@@ -142,8 +141,8 @@ endpoint by Ed25519 id over an encrypted QUIC stream, carried by the
 `transports/iroh` Rust sidecar so the pure-Zig archives stay pure Zig,
 proven live by `zig build iroh-interop`. All four drive through the same
 `connectVia`/`acceptVia` dispatch and handshake over one transport-generic
-`Connection`, and adding each edited no driver, core, or contract file,
-which is why the contract counts as transport-general rather than
+`Connection`. Adding each transport touched no driver, core, or contract
+file, which is why the contract counts as transport-general rather than
 socket-shaped. `net` owns `std.Io` behind the core/adapters boundary, on
 io_uring for Linux and kqueue for macOS/BSD.
 
@@ -177,16 +176,16 @@ Open work on this step is pushing the live-socket harness to full-target N on
 a suitable box, plus a Windows completion backend; everything else has landed.
 Windows/IOCP, macOS runtime CI, and browser WASM are backlogged platform rocks.
 Their blockers and flip conditions live in [roadmap.md](roadmap.md) section 2.
-They are not silent holes, and they are not the next opportunistic PR. Full-N
-live measurement is machine work here. Claiming 500k as an achievement waits on
-printed `--live` or loop figures in the same diff that updates this standing.
+Claiming
+500k as an achievement waits on printed `--live` or loop figures in the same
+diff that updates this standing.
 
 ## Reading the ladder
 
 Steps 1, 3, and 4 are held and stay held by the build check; they reopen only
 if a check step weakens, and weakening a check step is the change that needs
 the argument. Step 2's in-process budget is held by the build check too, with
-full-N live-socket measurement still machine work on step 5. Step 1 doubles
+the full-N live-socket measurement still open on step 5. Step 1 doubles
 as the standing discipline every protocol-touching diff pays into. Step 5 is
 where new work toward the vision starts.
 

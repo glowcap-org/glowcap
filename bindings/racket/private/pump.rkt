@@ -54,7 +54,6 @@
          current-defer-drain-effects
          drain-outbound!
          write-pending!
-         feed-inbox!
          feed-bytes!
          capture-feed-refusal
          raise-feed-refusal
@@ -136,79 +135,40 @@
            [wrote? ((async-transport-flush! tr))]
            [else (void)]))))))
 
-;; Feed the connection's buffered inbound bytes into the host through the
-;; core's stream delimiter (`pancake_host_session_feed_bytes`): the session's
-;; codec splits each complete frame off the front — both codecs, both frame
-;; shapes, the frame cap enforced during the scan — and dispatches it (behavior
-;; and settle callbacks fire inside), then the actions the dispatch queued
-;; drain. Only the unconsumed tail stays in the inbox. Returns the consumed
-;; byte count, zero when the inbox is empty or holds only a partial frame. On
-;; a refused stream the peer has already projected a typed op:abort; write it
+;; Feed freshly read bytes into the host through the core's stream delimiter
+;; (`pancake_host_session_feed_bytes`): the session's codec splits each
+;; complete frame off the front — both codecs, both frame shapes, the frame
+;; cap enforced during the scan — and dispatches it (behavior and settle
+;; callbacks fire inside), then the actions the dispatch queued drain. The
+;; library owns the unconsumed tail — a partial frame straddling two reads
+;; stays buffered in the session — so one call moves the whole read; an empty
+;; `got` resumes frames the session held behind its handshake open. On a
+;; refused stream the peer has already projected a typed op:abort; write it
 ;; so the partner hears why, then raise the typed failure carrying the
-;; connection's `abort-info`.
-;; Locked feed of one immobile buffer into the host session. Shared by
-;; `feed-inbox!` (inbox bytes) and the empty-inbox arm of `feed-bytes!`
-;; (fresh `got`). `after-ok` runs under the lock after a successful feed
-;; (consume / stash unconsumed tail).
-(define (feed-locked! c buf-bytes after-ok)
+;; connection's `abort-info`. The FFI pin (`pin-immobile`) is a named Racket
+;; collector cost on every feed.
+(define (feed-bytes! c got)
   (guard-open 'session-serve c)
   (define m (session-host c))
-  ;; Two values ride out of the locked drain: the consumed byte count and
-  ;; the refusal captured under the lock. Refusal parks the abort on the
-  ;; FIFO and marks `c` touched so `run-drain-effects!` writes it — under
-  ;; the reader that runs after the gate clears; outside the reader it
-  ;; runs before this returns. Then raise.
-  (define-values (consumed refusal)
+  ;; The refusal is captured under the lock: it parks the abort on the FIFO
+  ;; and marks `c` touched so `run-drain-effects!` writes it — under the
+  ;; reader that runs after the gate clears; outside the reader it runs
+  ;; before this returns. Then raise.
+  (define refusal
     (with-host-drain m
       (lambda ()
-        (define buf (pin-immobile buf-bytes))
-        (define-values (rc n)
-          (pancake_host_session_feed_bytes (session-ptr c) buf (bytes-length buf-bytes)))
+        (define buf (pin-immobile got))
+        (define rc
+          (pancake_host_session_feed_bytes (session-ptr c) buf (bytes-length got)))
         (cond
           [(= rc OK)
-           (after-ok n)
            (host-drain-parked-releases! m)
-           (values (drain-host-actions! m) n #f)]
+           (values (drain-host-actions! m) #f)]
           [else
            ;; Park the abort on the FIFO and mark `c` touched so the shared
            ;; drain spine writes it — refusal is a flush, not a private exit.
-           (values (drain-effects (list c) '()) 0 (capture-feed-refusal c rc))]))))
-  (when refusal (raise-feed-refusal refusal))
-  consumed)
-
-(define (feed-inbox! c)
-  (define ac (session-async c))
-  (define bs (async-connection-inbox ac))
-  (cond
-    [(zero? (bytes-length bs)) 0]
-    [else
-     (feed-locked!
-      c bs
-      (lambda (n)
-        (async-consume! ac n)))]))
-
-;; Append freshly read bytes onto the inbox and feed it — the pump's
-;; fill-then-feed step, and the scripted smoke's byte-injection seam.
-;; Steady state (empty inbox) feeds `got` directly so the inbox is not a
-;; coalesce copy; only an unconsumed tail is materialised into the inbox
-;; (`subbytes`). A non-empty inbox still coalesces via `async-fill!` (the
-;; delimiter needs contiguous bytes). The FFI pin (`pin-immobile`) is a named
-;; Racket collector cost on every feed.
-(define (feed-bytes! c got)
-  (define ac (session-async c))
-  (cond
-    [(zero? (bytes-length (async-connection-inbox ac)))
-     (cond
-       [(zero? (bytes-length got)) 0]
-       [else
-        (feed-locked!
-         c got
-         (lambda (n)
-           (when (< n (bytes-length got))
-             (set-async-connection-inbox! ac (subbytes got n)))))])]
-    [else
-     (async-fill! ac got)
-     (feed-inbox! c)]))
+           (values (drain-effects (list c) '()) (capture-feed-refusal c rc))]))))
+  (when refusal (raise-feed-refusal refusal)))
 
 ;; The feed refusal choreography, split around the host lock. Under the lock
 ;; (`capture-feed-refusal`): read the typed cause before another verb can
@@ -251,29 +211,35 @@
       (lambda ()
         (break-far-vows-bytes! c #"connection closed")))))
 
-;; One reader step: feed whatever the inbox already buffers; when that made no
-;; progress (empty, or a partial frame needing more bytes), wait on the
-;; transport and the host's progress event together — 'woke means another
-;; thread moved the host, so the caller re-checks its predicate.
+;; One reader step. The first step on an open session resumes the frames the
+;; core held behind the handshake hello (an empty feed) and returns without
+;; waiting, so the resume's deferred effects run before any park. Every later
+;; step waits on the transport and the host's progress event together —
+;; 'woke means another thread moved the host, so the caller re-checks its
+;; predicate.
 ;;
-;; Snapshot the wake evt only after a no-progress feed. Under the reader,
-;; feed parks drain effects (no bump); bumping before the fill would wake
-;; waiters while this thread still holds the gate. After effects run and the
-;; gate clears, `pump-until` bumps once.
+;; Snapshot the wake evt only before the wait. Under the reader, feed parks
+;; drain effects (no bump); bumping before the read would wake waiters while
+;; this thread still holds the gate. After effects run and the gate clears,
+;; `pump-until` bumps once.
 (define (pump-read-once! c)
   (define ac (session-async c))
   (define m (session-host c))
-  (when (zero? (feed-inbox! c))
-    (define gen (host-progress-evt m))
-    (define got
-      ;; A port closed under us (another thread's `session-close!`) is an
-      ;; end of stream, not a fault.
-      (with-handlers ([exn:fail? (lambda (_e) eof)])
-        ((async-transport-fill-inbox! (async-connection-transport ac)) gen)))
-    (cond
-      [(eq? got 'woke) (void)]
-      [(eof-object? got) (handle-session-eof! c)]
-      [else (feed-bytes! c got)])))
+  (cond
+    [(and (session-open? c) (not (unbox (async-connection-tail-resumed? ac))))
+     (set-box! (async-connection-tail-resumed? ac) #t)
+     (feed-bytes! c #"")]
+    [else
+     (define gen (host-progress-evt m))
+     (define got
+       ;; A port closed under us (another thread's `session-close!`) is an
+       ;; end of stream, not a fault.
+       (with-handlers ([exn:fail? (lambda (_e) eof)])
+         ((async-transport-read-some! (async-connection-transport ac)) gen)))
+     (cond
+       [(eq? got 'woke) (void)]
+       [(eof-object? got) (handle-session-eof! c)]
+       [else (feed-bytes! c got)])]))
 
 ;; Drive the connection until `done` returns non-#f, returning that value.
 ;; Exactly one thread reads the transport at a time (the reader gate); every

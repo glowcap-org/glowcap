@@ -6,6 +6,7 @@ const exit_codes = @import("../exit_codes.zig");
 const log = @import("../operability/log.zig");
 const registry = @import("../registry.zig");
 const signals = @import("../operability/signals.zig");
+const clock = @import("../operability/clock.zig");
 const argv = @import("../argv.zig");
 const schema = @import("schema.zig");
 const Parsed = @import("../cmd/types.zig").Parsed;
@@ -189,16 +190,18 @@ fn closeStdin(io: *std.Io) void {
 }
 
 /// Default MCP idle (no message) and max session lifetimes. Zero disables a cap.
-pub const default_idle_ms: u64 = 30 * 60 * 1000;
-pub const default_max_session_ms: u64 = 8 * 60 * 60 * 1000;
+/// Millisecond spans share `clock.nowMs`'s `i64` so every comparison in
+/// `CapsWatch` is plain signed arithmetic against one clock type.
+pub const default_idle_ms: i64 = 30 * 60 * 1000;
+pub const default_max_session_ms: i64 = 8 * 60 * 60 * 1000;
 
 const CapsWatch = struct {
     io: std.Io,
     io_box: *std.Io,
-    last_activity_ms: *std.atomic.Value(u64),
-    started_ms: u64,
-    idle_ms: u64,
-    max_session_ms: u64,
+    last_activity_ms: *std.atomic.Value(i64),
+    started_ms: i64,
+    idle_ms: i64,
+    max_session_ms: i64,
     closed: std.atomic.Value(bool) = .init(false),
 
     fn closeOnce(self: *CapsWatch) void {
@@ -206,29 +209,21 @@ const CapsWatch = struct {
         closeStdin(self.io_box);
     }
 
-    fn nowMs() u64 {
-        var ts: std.posix.timespec = .{ .sec = 0, .nsec = 0 };
-        switch (std.posix.errno(std.posix.system.clock_gettime(std.posix.CLOCK.REALTIME, &ts))) {
-            .SUCCESS => {},
-            else => return 0,
-        }
-        const ms = @as(i64, @intCast(ts.sec)) * std.time.ms_per_s +
-            @divFloor(@as(i64, @intCast(ts.nsec)), std.time.ns_per_ms);
-        return @intCast(@max(ms, 0));
-    }
-
     pub fn run(self: *CapsWatch) void {
         while (!signals.stopRequested()) {
-            const now = nowMs();
-            if (self.max_session_ms != 0 and now -% self.started_ms >= self.max_session_ms) {
+            const now = clock.nowMs();
+            if (self.max_session_ms != 0 and now - self.started_ms >= self.max_session_ms) {
                 log.info(self.io, "mcp max session reached; draining", .{});
                 signals.requestStop();
                 self.closeOnce();
                 return;
             }
             if (self.idle_ms != 0) {
+                // The activity thread may stamp a reading newer than `now`
+                // between our two loads; the signed difference goes negative
+                // then, which reads as fresh activity, not idleness.
                 const last = self.last_activity_ms.load(.acquire);
-                if (now -% last >= self.idle_ms) {
+                if (now - last >= self.idle_ms) {
                     log.info(self.io, "mcp idle timeout; draining", .{});
                     signals.requestStop();
                     self.closeOnce();
@@ -241,8 +236,10 @@ const CapsWatch = struct {
     }
 };
 
-fn parseU64(s: []const u8) ?u64 {
-    return std.fmt.parseInt(u64, s, 10) catch null;
+/// Parse a millisecond span, clamped into the clock's `i64` domain.
+fn parseMs(s: []const u8) ?i64 {
+    const n = std.fmt.parseInt(u64, s, 10) catch return null;
+    return std.math.cast(i64, n) orelse std.math.maxInt(i64);
 }
 
 /// Command-tree entry for `pancake mcp …`.
@@ -251,13 +248,13 @@ pub fn runParsed(ctx: *Ctx, parsed: *Parsed) !u8 {
     // Same CapTP body shape as argv `--json` so agents parse one contract.
     ctx.json = .json;
     var catalog: McpCatalog = .default;
-    var idle_ms: u64 = default_idle_ms;
-    var max_session_ms: u64 = default_max_session_ms;
+    var idle_ms: i64 = default_idle_ms;
+    var max_session_ms: i64 = default_max_session_ms;
     if (ctx.environ.get("PANCAKE_MCP_IDLE_MS")) |v| {
-        if (parseU64(v)) |n| idle_ms = n;
+        if (parseMs(v)) |n| idle_ms = n;
     }
     if (ctx.environ.get("PANCAKE_MCP_MAX_SESSION_MS")) |v| {
-        if (parseU64(v)) |n| max_session_ms = n;
+        if (parseMs(v)) |n| max_session_ms = n;
     }
     if (parsed.flagString("tools")) |v| {
         catalog = catalogFromArg(v) orelse {
@@ -266,13 +263,13 @@ pub fn runParsed(ctx: *Ctx, parsed: *Parsed) !u8 {
         };
     }
     if (parsed.flagString("idle-ms")) |v| {
-        idle_ms = parseU64(v) orelse {
+        idle_ms = parseMs(v) orelse {
             log.err(ctx.io, "invalid --idle-ms {s}", .{v});
             return exit_codes.usage;
         };
     }
     if (parsed.flagString("max-session-ms")) |v| {
-        max_session_ms = parseU64(v) orelse {
+        max_session_ms = parseMs(v) orelse {
             log.err(ctx.io, "invalid --max-session-ms {s}", .{v});
             return exit_codes.usage;
         };
@@ -280,10 +277,10 @@ pub fn runParsed(ctx: *Ctx, parsed: *Parsed) !u8 {
     return serveMcp(ctx, catalog, idle_ms, max_session_ms);
 }
 
-fn serveMcp(ctx: *Ctx, catalog: McpCatalog, idle_ms: u64, max_session_ms: u64) !u8 {
+fn serveMcp(ctx: *Ctx, catalog: McpCatalog, idle_ms: i64, max_session_ms: i64) !u8 {
     signals.install();
     var io_box = ctx.io;
-    var last_activity = std.atomic.Value(u64).init(CapsWatch.nowMs());
+    var last_activity = std.atomic.Value(i64).init(clock.nowMs());
     const started_ms = last_activity.load(.unordered);
     var caps = CapsWatch{
         .io = ctx.io,
@@ -309,7 +306,7 @@ fn serveMcp(ctx: *Ctx, catalog: McpCatalog, idle_ms: u64, max_session_ms: u64) !
             return err;
         } orelse break;
         defer ctx.gpa.free(body);
-        last_activity.store(CapsWatch.nowMs(), .release);
+        last_activity.store(clock.nowMs(), .release);
 
         const msg = std.json.parseFromSlice(std.json.Value, ctx.gpa, body, .{}) catch {
             try writeError(ctx.io, ctx.gpa, "null", -32700, "parse error");

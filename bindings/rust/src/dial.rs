@@ -124,11 +124,21 @@ fn plan_dial(
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Reachability {
-	Direct = 0,
-	Discovery = 1,
-	DiscoveryNoRelay = 2,
-	LocalDiscovery = 3,
+	Direct = crate::abi_constants::IROH_REACH_DIRECT,
+	Discovery = crate::abi_constants::IROH_REACH_DISCOVERY,
+	DiscoveryNoRelay = crate::abi_constants::IROH_REACH_DISCOVERY_NO_RELAY,
+	LocalDiscovery = crate::abi_constants::IROH_REACH_LOCAL_DISCOVERY,
 }
+
+impl Reachability {
+	/// The posture a hint-less handoff give redeems under until
+	/// [`crate::Host::set_redeem_reachability`] changes it. The compile-time
+	/// assert below locks it to the generated ABI default, so the variant here
+	/// cannot drift from the value every other binding starts from.
+	pub(crate) const REDEEM_DEFAULT: Reachability = Reachability::Discovery;
+}
+const _: () =
+	assert!(Reachability::REDEEM_DEFAULT as u32 == crate::abi_constants::IROH_REACH_REDEEM_DEFAULT);
 
 /// The one dial path for [`connect`] and handoff redeem alike: no dispatch, no
 /// grammar, no posture — the core resolves all of that in `pancake_host_plan_dial`,

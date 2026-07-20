@@ -16,34 +16,17 @@ import ctypes
 from ._ffi_ocapn import _Frame, _Lib, _ManagedFrame, _bind
 from ._lib_resolve import _lib_path
 
+# The signature table is generated from the archive's annotated symbol
+# inventory (``zig build gen-binding-python-ffi``). The TCP archive carries
+# its own thread-local last-error: a tcp call's diagnostic is read through
+# ``pancake_tcp_last_error``, never the core family's ``pancake_last_error``.
+from ._sigs_gen import tcp_sigs
 
 
 def _load():
-    P = ctypes.c_void_p
-    # The TCP transport archive carries the `pancake_tcp_*` family plus its own
-    # thread-local last-error: a tcp call's diagnostic is read through
-    # `pancake_tcp_last_error`, never the core family's `pancake_last_error`.
-    tcp_sigs = {
-        "pancake_tcp_last_error": ([ctypes.POINTER(ctypes.c_uint8), ctypes.c_size_t], ctypes.c_size_t),
-        "pancake_tcp_netlayer_new": ([ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_tcp_netlayer_release": ([P], None),
-        "pancake_tcp_connect": (
-            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint16, ctypes.c_uint32, ctypes.c_size_t, ctypes.POINTER(P)],
-            ctypes.c_int32,
-        ),
-        "pancake_tcp_listen": (
-            [P, ctypes.c_void_p, ctypes.c_size_t, ctypes.c_uint16, ctypes.POINTER(P)], ctypes.c_int32,
-        ),
-        "pancake_tcp_listener_port": ([P, ctypes.POINTER(ctypes.c_uint16)], ctypes.c_int32),
-        "pancake_tcp_accept": ([P, ctypes.c_uint32, ctypes.c_size_t, ctypes.POINTER(P)], ctypes.c_int32),
-        "pancake_tcp_conn_read_frame": ([P, ctypes.POINTER(_ManagedFrame)], ctypes.c_int32),
-        "pancake_tcp_conn_write_frame": ([P, ctypes.POINTER(_Frame)], ctypes.c_int32),
-        "pancake_tcp_conn_release": ([P], None),
-        "pancake_tcp_listener_release": ([P], None),
-    }
     tcp = ctypes.CDLL(str(_lib_path("pancake_net_transport_tcp")))
     facade = _Lib(tcp)
-    _bind(facade, tcp, tcp_sigs)
+    _bind(facade, tcp, tcp_sigs(_Frame, _ManagedFrame))
     return facade
 
 

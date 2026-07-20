@@ -141,15 +141,11 @@ fn exporterTask(allocator: std.mem.Allocator, shared: *Shared, gifter_designator
     defer bridge.deinit();
     state.bridge = &bridge;
 
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), TcpBridge.hookOptions(.{
         .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = TcpBridge.serve,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
-    });
+    }));
     defer loop.deinit();
     var buf: [tcp.designator_buf_len]u8 = undefined;
     const address = try tcp.parseHostPort("127.0.0.1", loop.port.?);
@@ -307,15 +303,15 @@ pub fn main(init: std.process.Init) !void {
     });
     defer bridge.deinit();
 
-    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), .{
+    // The gifter interposes its own `serve` (it watches the introduce
+    // settle), so it overrides the bridge's spliced hook after `hookOptions`.
+    var gifter_options = TcpBridge.hookOptions(.{
         .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = gifterServe,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
     });
+    gifter_options.serve = gifterServe;
+    loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&bridge), gifter_options);
     defer loop.deinit();
     var designator_buf: [tcp.designator_buf_len]u8 = undefined;
     const gifter_designator_addr = try tcp.parseHostPort("127.0.0.1", loop.port.?);
@@ -350,15 +346,11 @@ pub fn main(init: std.process.Init) !void {
         .on_open_ctx = &r_state,
     });
     defer r_bridge.deinit();
-    r_loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&r_bridge), .{
+    r_loop = try net.TcpLoop.init(allocator, TcpBridge.makePeer, @ptrCast(&r_bridge), TcpBridge.hookOptions(.{
         .frame_cap = frame_cap,
         .max_conns = 8,
         .listen = 0,
-        .make_conn_ctx = TcpBridge.makeConnCtx,
-        .serve = TcpBridge.serve,
-        .free_conn_ctx = TcpBridge.freeConnCtx,
-        .on_close = TcpBridge.onClose,
-    });
+    }));
     defer r_loop.deinit();
     var r_buf: [tcp.designator_buf_len]u8 = undefined;
     const r_designator_addr = try tcp.parseHostPort("127.0.0.1", r_loop.port.?);

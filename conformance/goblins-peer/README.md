@@ -31,9 +31,13 @@ wrappers and small Racket programs around that API.
 | File                              | Role                                                                                         |
 | --------------------------------- | -------------------------------------------------------------------------------------------- |
 | `racket/goblins-host.rkt`         | Echo + Struct host pancake dials as client (NDJSON readiness).                               |
+| `racket/gc-echo-host.rkt`         | Echo host with a background collect loop, so `op:gc-exports` fires within `goblins-gc`'s deadline. |
 | `racket/pancake-actor-call.rkt`   | Goblins client: settle-call a pancake-hosted actor.                                          |
 | `racket/goblins-tap-dialer.rkt`   | Goblins client: pipelined enliven-and-call against pancake.                                  |
 | `racket/pancake-break-call.rkt`   | Goblins client: unknown-swiss fetch, asserts pancake's break reason.                         |
+| `racket/pancake-export-listen.rkt` | Goblins client: `listen` on a live pancake object export, asserts the fulfill.              |
+| `racket/pancake-projection-asker.rkt` | Goblins client: writes canonical `op:get` / `op:index` at pancake's responders. Goblins 0.18.0 has no application-level outbound projection send, so it marshals records Goblins already defines through the live session. |
+| `racket/captp-projection-wire.rkt` | The projection records and marshallers `pancake-projection-asker.rkt` writes with.          |
 | `racket/handoff-introducer-host.rkt` | Goblins Alice+Bob for recipient-side handoff (`goblins-handoff` / `*-goblins-handoff`).   |
 | `racket/gift-exporter-host.rkt`   | Goblins Bob (exporter) for pancake-as-gifter (`*-goblins-gift`).                                  |
 | `racket/gift-recipient.rkt`       | Goblins Carol (recipient) that redeems a pancake-minted give (`*-goblins-gift`).             |

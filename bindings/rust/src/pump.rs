@@ -37,7 +37,7 @@ pub(crate) async fn run_handshake(shared: &Rc<SessionShared>) -> Result<()> {
 			if n == 0 {
 				return Err(Error::with_detail(
 					sys::ERR_CLOSED,
-					"session closed during the OCapN handshake".to_string(),
+					"connection closed during the OCapN handshake".to_string(),
 				));
 			}
 			feed(shared, &chunk[..n]).await?;
@@ -60,11 +60,9 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) {
 	};
 	let mut chunk = vec![0u8; READ_CHUNK];
 	let result: Result<()> = async {
-		// Frames that arrived behind the handshake's tail are still
-		// buffered; dispatch them before parking on the wire.
-		if !shared.inbox.borrow().is_empty() {
-			feed(&shared, &[]).await?;
-		}
+		// Frames that rode behind the handshake's tail wait in the session's
+		// own tail; an empty feed dispatches them before parking on the wire.
+		feed(&shared, &[]).await?;
 		loop {
 			if shared.released.get() {
 				return Ok(());
@@ -121,66 +119,31 @@ pub(crate) async fn serve_loop(shared: Rc<SessionShared>) {
 	}
 }
 
-fn feed_raw(shared: &SessionShared, bytes: &[u8]) -> (i32, usize) {
-	let mut consumed: usize = 0;
-	let rc = unsafe {
-		ffi::pancake_host_session_feed_bytes(
-			shared.ptr.get(),
-			bytes.as_ptr(),
-			bytes.len(),
-			&mut consumed,
-		)
-	};
-	(rc, consumed)
-}
-
-/// Append freshly read bytes onto the inbox and feed the core's stream
-/// delimiter: the session's codec splits each complete frame off the front —
-/// both codecs, both frame shapes, the frame cap enforced during the scan —
-/// and dispatches it (behavior trampolines fire and completions queue
-/// inside), then the actions the dispatch queued drain. Steady state (empty
-/// inbox) borrows `chunk` for one synchronous feed — zero-copy; only when a
-/// partial frame already straddles two reads is the burst coalesced into the
-/// inbox Vec. Only the unconsumed tail stays in the inbox. The inbox is taken
-/// out for the coalesce feed so no `RefCell` borrow is held across an FFI call
-/// that can fire the trampoline.
+/// Feed freshly read bytes to the core's stream delimiter: the session's
+/// codec splits each complete frame off the front — both codecs, both frame
+/// shapes, the frame cap enforced during the scan — and dispatches it
+/// (behavior trampolines fire and completions queue inside), then the
+/// actions the dispatch queued drain. The library owns the unconsumed tail —
+/// a partial frame straddling two reads stays buffered in the session — so
+/// one borrowed call moves the whole chunk; an empty chunk resumes frames
+/// the session held behind its handshake open.
 pub(crate) async fn feed(shared: &Rc<SessionShared>, chunk: &[u8]) -> Result<()> {
 	let mut refusal: Option<i32> = None;
-	if shared.inbox.borrow().is_empty() {
-		if chunk.is_empty() {
-			return Ok(());
+	if !shared.released.get() {
+		let rc = unsafe {
+			ffi::pancake_host_session_feed_bytes(
+				shared.ptr.get(),
+				if chunk.is_empty() {
+					std::ptr::null()
+				} else {
+					chunk.as_ptr()
+				},
+				chunk.len(),
+			)
+		};
+		if rc != sys::OK {
+			refusal = Some(rc);
 		}
-		if !shared.released.get() {
-			let (rc, consumed) = feed_raw(shared, chunk);
-			if rc != sys::OK {
-				refusal = Some(rc);
-			} else if consumed < chunk.len() {
-				shared
-					.inbox
-					.borrow_mut()
-					.extend_from_slice(&chunk[consumed..]);
-			}
-		}
-	} else {
-		{
-			let mut inbox = shared.inbox.borrow_mut();
-			inbox.extend_from_slice(chunk);
-		}
-		// One call: the core delimits and dispatches every complete frame in
-		// the buffer itself, stops at a partial tail, and during the
-		// handshake stops at the frame that opens the session.
-		let mut buf = std::mem::take(&mut *shared.inbox.borrow_mut());
-		if !shared.released.get() {
-			let (rc, consumed) = feed_raw(shared, &buf);
-			if rc != sys::OK {
-				refusal = Some(rc);
-			} else {
-				buf.drain(..consumed);
-			}
-		}
-		let mut inbox = shared.inbox.borrow_mut();
-		buf.extend_from_slice(&inbox);
-		*inbox = buf;
 	}
 	drain_pending_releases();
 	if let Some(rc) = refusal {

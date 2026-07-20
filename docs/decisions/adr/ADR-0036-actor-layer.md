@@ -29,7 +29,7 @@ hidden runtime" posture without strain.
 ## Decision
 
 A new layer [`src/actors/`](../../../src/actors/) sits above the engine. Its
-core is [`Vat`](../../../src/actors/vat.zig): a turn loop over a heap of local
+core is [`Vat`](../../../src/actors/vat/mod.zig): a turn loop over a heap of local
 actors.
 
 - **Actor.** Any type with

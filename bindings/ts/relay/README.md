@@ -1,0 +1,57 @@
+# @pancake/relay
+
+The byte-transparent relay a pancake embedder runs so a peer that cannot open a socket itself — a
+browser — can hold a keyed CapTP session with a native server. The relay forwards the raw session
+bytes without parsing them, so the keyed handshake and session authority run end to end and the
+relay holds no capability. The contract every runtime's relay obeys is
+[ADR-0086](../../../docs/decisions/adr/ADR-0086-byte-transparent-relay.md); this package is its
+TypeScript reference implementation.
+
+## The five parts
+
+A relay in any runtime is assembled from five pieces. This package ships the two that are agnostic
+across JavaScript runtimes (the pump and the WebSocket wiring); the other three are the embedder's,
+and the same five shapes appear in every language's relay.
+
+1. **A raw byte channel** to the target — `read() → Uint8Array | null`,
+   `write(bytes) → Promise<void>`, `close()` (idempotent): the `RelayChannel` type. For an iroh
+   target it comes from `@pancake/iroh`'s `dialLocatorForRelay`; for a TCP target it is the
+   runtime's own socket.
+2. **The pump**, `relayBytes(source, sink, channel, config, closeSource)`: moves bytes between the
+   two legs with pair-atomic teardown, an idle timeout, a byte cap, and awaited-write backpressure.
+3. **A WebSocket adapter**, `webSocketRelay(socket, getChannel, dialFailReason,
+   config)`: wires
+   an accepted WebSocket to the pump, buffering the browser's first handshake bytes across the async
+   dial and gating outbound flow on the socket's send buffer. The embedder supplies the accepted
+   socket from its own HTTP server.
+4. **A dial dispatcher** (the embedder's): classify the target locator and open the matching
+   channel. This reference relay classifies locally today; routing the classification through the
+   shared core primitive `pancake_host_plan_dial` (so every binding's relay agrees) is part of the
+   cross-runtime build-out. Open an iroh channel or a socket per the shape.
+5. **Config** — `{ idleTimeoutMs, maxBytesPerSession }`. The embedding app supplies which targets
+   may be dialed separately, as policy.
+
+## Usage
+
+```ts
+import { webSocketRelay } from "@pancake/relay";
+import { dialLocatorForRelay, Reachability } from "@pancake/iroh";
+
+// Inside the runtime's WebSocket-upgrade handler, once the app has admitted the
+// target, hand the accepted socket and a far-side dial to the pump:
+webSocketRelay(
+	socket,
+	() => dialLocatorForRelay(locator, Reachability.Discovery),
+	"iroh relay dial failed",
+	{ idleTimeoutMs: 60_000, maxBytesPerSession: 1 << 30 },
+);
+```
+
+## Backpressure
+
+Flow control is end to end only if both legs block their producer. The target leg blocks through the
+byte channel (a socket write, or the iroh channel's `WOULD_BLOCK`). The browser-bound leg has no
+drain event, so `webSocketRelay` holds its next read until the socket's `bufferedAmount` falls below
+a high-water. A relay in another runtime must gate the browser-bound leg the same way (Python
+`websockets`' awaited `send`, Rust `SinkExt::poll_ready`); ADR-0086 makes that gate a non-optional
+contract clause; a relay conformance test asserting it is part of the cross-runtime build-out.

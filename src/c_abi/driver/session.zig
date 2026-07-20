@@ -145,32 +145,31 @@ pub export fn pancake_host_session_feed(raw: ?*PancakeHostSession, frame_in: ?*c
 }
 
 /// Feed a byte-stream chunk the embedder read from its own transport
-/// (borrowed for the call). The library owns framing: the session's codec
-/// delimits each complete frame at the front of `bytes` — both codecs, both
-/// frame shapes — and dispatches it exactly as `pancake_host_session_feed`, so
-/// the embedder just moves bytes and keeps the tail. `*out_consumed` receives
-/// the count of leading bytes consumed; drop them and extend the remainder
-/// with the next read (a partial frame is not an error — OK with a smaller
-/// count, possibly zero). Consumption also stops at the frame that completes
-/// the keyed handshake: bytes coalesced behind the hello stay in the tail
-/// while the embedder acts on the fresh session (publish, fetch), and the
-/// next call feeds them. A frame exceeding the connection's frame cap is
-/// refused `PANCAKE_ERR_FRAME_TOO_LARGE`; any other failure classifies as
-/// `pancake_host_session_feed`'s do. After any failure `*out_consumed` is zero
-/// and the session is closing: drain `take_outbound` (a typed `op:abort` is
-/// queued for the partner) and release the connection.
+/// (borrowed for the call). The library owns framing *and the tail*: the
+/// session's codec delimits each complete frame at the front of `bytes` —
+/// both codecs, both frame shapes — and dispatches it exactly as
+/// `pancake_host_session_feed`, while a partial frame straddling two reads
+/// stays buffered in the session, so on success every byte was consumed and
+/// the embedder just reads and feeds. Dispatch also pauses at the frame that
+/// completes the keyed handshake: frames coalesced behind the hello wait in
+/// the session's tail while the embedder acts on the fresh session (publish,
+/// fetch), and the next call — an empty chunk (`len` 0, `bytes` may be NULL)
+/// works — feeds them. A frame exceeding the session's frame cap is refused
+/// `PANCAKE_ERR_FRAME_TOO_LARGE`; any other failure classifies as
+/// `pancake_host_session_feed`'s do. After any failure the session is
+/// closing: drain `take_outbound` (a typed `op:abort` is queued for the
+/// partner) and release the session.
 pub export fn pancake_host_session_feed_bytes(
     raw: ?*PancakeHostSession,
     bytes: ?[*]const u8,
     len: usize,
-    out_consumed: ?*usize,
 ) i32 {
     const session = connFrom(raw) orelse return PANCAKE_ERR_NULL_POINTER;
-    const slot = out_consumed orelse return PANCAKE_ERR_NULL_POINTER;
-    slot.* = 0;
-    if (len == 0) return PANCAKE_OK;
-    const buf = bytes orelse return PANCAKE_ERR_NULL_POINTER;
-    slot.* = session.host.feedBytes(session, buf[0..len]) catch |err| switch (err) {
+    const chunk: []const u8 = if (len == 0) &.{} else blk: {
+        const buf = bytes orelse return PANCAKE_ERR_NULL_POINTER;
+        break :blk buf[0..len];
+    };
+    session.host.feedBytes(session, chunk) catch |err| switch (err) {
         error.FrameTooLarge => {
             shared.setLastError("host: {s}", .{@errorName(err)});
             return shared.PANCAKE_ERR_FRAME_TOO_LARGE;

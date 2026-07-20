@@ -1,9 +1,10 @@
 # bindings/
 
-This directory holds the per-language consumers of the pancake C ABI archives.
-Each one exercises the C ABI as a real foreign-language consumer, which catches
-the wire-shape and ABI regressions that surface only through an actual FFI
-caller.
+You write Rust, TypeScript, Python, or Racket; this directory holds the
+binding that gives your language the pancake application surface, and this
+page is the contract every binding shares. Each binding also exercises the C
+ABI as a real foreign-language consumer, which catches the wire-shape and ABI
+regressions that surface only through an actual FFI caller.
 
 ## The application surface (what you build against)
 
@@ -74,7 +75,7 @@ Racket uses the `session-send-promise` result. Settle only the tail.
 All four bindings ship the session tier alone over the byte-fed host archive
 (`pancake_host_*`, ADR-0072). Their raw `pancake_peer_*` wrappers are gone. The
 raw family stays a C-consumer surface covered by the Zig C-ABI tests and the C
-examples. The [`examples/apps/`](../examples/apps/) clients are built entirely on
+examples. The [`apps/`](../apps/) clients are built entirely on
 the surface above.
 
 A few binding-specific shapes remain, each following its language's own model.
@@ -280,7 +281,12 @@ Three bindings declare struct layouts symbolically (ctypes, `define-cstruct`,
 `#[repr(C)]`); TypeScript's FFI has no struct types, so its mirror (constant
 values, struct sizes, and field offsets) is *generated* from the Zig source of
 truth (`bindings/ts/stack/internal/abi.ts`, `zig build gen-ts-abi`, held by
-`gen-ts-abi-check` inside `check`), never hand-derived. The internal modules sit
+`gen-ts-abi-check` inside `check`), never hand-derived. The function-signature
+tier is generated for every binding the same way, each from the archives'
+annotated symbol inventories and the reflected Zig exports: the TS dlopen
+tables (`gen-ts-abi`), the Rust extern blocks (`gen-binding-rust-ffi`), the
+Python ctypes signature tables (`gen-binding-python-ffi`), and the Racket
+`ffi/unsafe` tables with their out-cell wrappers (`gen-binding-racket-ffi`). The internal modules sit
 where the C ABI's own split puts them: Rust's private `sys`
 (`sys/{ocapn,driver,tcp,inproc,iroh}.rs`) and `abi_constants`, the JS binding's
 per-archive loaders and runtime FFI shim under
@@ -307,13 +313,15 @@ One async `Session` is one CapTP partner on a `Host`. It lives on one task or
 thread. Host verbs do no I/O and never block the event loop; only the socket
 reads and writes await.
 
-The inbox each connection accumulates is bounded by the library, not by binding
-code. A connection keeps reading only while `recv_stream` or `conn_feed_bytes`
-answers "partial frame, read more". A frame that cannot complete within the
-peer's `max_frame_bytes` is refused with the typed `FRAME_TOO_LARGE` error the
-moment that is knowable. That can be when its length prefix declares past the
-cap or when its bytes have already crossed it (ADR-0041). Every binding's smoke
-pins this, so a hostile partner cannot grow a binding's inbox without bound.
+The unconsumed stream tail lives in the library, not in binding code: a
+partial frame straddling two reads stays buffered in the session, so a feed
+consumes every byte it is handed and the binding just reads and feeds. The
+tail is bounded by the same cap that frames are: a frame that cannot complete
+within the peer's `max_frame_bytes` is refused with the typed
+`FRAME_TOO_LARGE` error the moment that is knowable — when its length prefix
+declares past the cap or when its bytes have already crossed it (ADR-0041).
+Every binding's smoke pins this, so a hostile partner cannot grow a session's
+tail without bound.
 
 The outbound side is bounded by write discipline rather than a queue. Every
 binding awaits or blocks on its socket writes frame by frame (JS per-frame
@@ -338,7 +346,7 @@ registering callbacks:
 | [`racket/`](racket/) | `(session-serve sess)` on a green thread | `(session-send sess ref verb args)` |
 | [`rust/`](rust/) | `session.serve()` (a completes-on-close future) | `session.send(&ref, verb, args).await` |
 
-The `examples/apps/rooms/` clients each build a small `Room` on this surface, so
+The `apps/rooms/` clients each build a small `Room` on this surface, so
 the app above reads like an app in every language.
 
 Each binding also exposes a Goblins-shaped **actor layer** in its own idiom. An
@@ -491,13 +499,16 @@ implementations cannot drift.
   the one-partner application object. Map multi-session CapTP work to the host
   tier, not the peer waist. Binding `Node` and binding `Connection` types are
   gone; `net.Connection` is the framed byte stream only.
-- **Bytes in, frames out.** Feed raw inbound bytes through `conn_feed_bytes` and
-  keep only the unconsumed tail. The core owns frame delimiting for both codecs,
-  including the `FRAME_TOO_LARGE` cap. Never hand-roll a frame scanner in the
-  binding. That is hostile-input parsing the core already does once. The
-  handshake needs no special pump either. Consumption stops at the frame that
-  opens the session, so application frames a fast partner coalesced behind its
-  hello stay in your tail until you have published and fed again.
+- **Bytes in, frames out.** Feed raw inbound bytes through `conn_feed_bytes`;
+  the core owns frame delimiting for both codecs, including the
+  `FRAME_TOO_LARGE` cap, and buffers the unconsumed tail in the session
+  itself, so every fed byte is consumed on success. Never hand-roll a frame
+  scanner or a tail buffer in the binding. That is hostile-input parsing and
+  lifetime bookkeeping the core already does once. The handshake needs no
+  special pump either. Dispatch pauses at the frame that opens the session,
+  so application frames a fast partner coalesced behind its hello wait in the
+  session's tail until you have published and fed again — an empty feed
+  resumes them.
 - **Feed failure choreography.** A failed feed leaves a typed `op:abort` on the
   outbound queue. Capture `conn_last_abort` or last-error, then run the shared
   action drain (`kick_actions` or `with-host-drain`) so the abort and any
@@ -536,8 +547,8 @@ implementations cannot drift.
   views are host-owned until the next `next_action`, so copy them out in the
   drain.
 - **Struct mirrors are generated or pinned.** TypeScript's struct mirror is
-  generated (`zig build gen-ts-abi` covers the ocapn and driver archives
-  together, held by `gen-ts-abi-check`). The Racket, Python, and Rust FFI struct
+  generated (`zig build gen-ts-abi` covers the ocapn, driver, and iroh
+  transport archives together, held by `gen-ts-abi-check`). The Racket, Python, and Rust FFI struct
   definitions are hand-mirrored. Each pins its mirror against the header's
   documented sizes and offsets. Rust pins at compile time (`src/sys/driver.rs`'s
   `const` assert block). Python and Racket pin at import time (`_ffi_driver.py`,
@@ -598,7 +609,7 @@ busy-poll. Every binding's loop is held to the same scale bar by a
 many-connection build check: `zig build bindings-iroh-loop` runs
 `deno-iroh-loop`, `python-iroh-loop`, `rust-iroh-loop`, and `racket-iroh-loop`,
 the binding siblings of `iroh-loop`. The
-`examples/apps/rooms/` clients dial a transport-neutral locator, so
+`apps/rooms/` clients dial a transport-neutral locator, so
 `zig build demo-rooms-iroh` runs the same cross-language room over iroh; a
 binding joins when its runtime and the iroh library are both present.
 

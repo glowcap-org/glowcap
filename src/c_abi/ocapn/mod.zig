@@ -56,6 +56,10 @@ pub const PANCAKE_VERSION_PATCH: u32 = 0;
 /// Report the ABI version the linked library implements. Any out-pointer may be
 /// null to skip that component. Lets a consumer detect header/library skew by
 /// comparing against the `PANCAKE_VERSION_*` macros it compiled against.
+/// The annotated symbol inventory (crossing semantics per export) the
+/// binding FFI-table generators reflect from — see `symbols.zig`.
+pub const symbols = @import("symbols.zig");
+
 pub export fn pancake_abi_version(out_major: ?*u32, out_minor: ?*u32, out_patch: ?*u32) void {
     if (out_major) |p| p.* = PANCAKE_VERSION_MAJOR;
     if (out_minor) |p| p.* = PANCAKE_VERSION_MINOR;

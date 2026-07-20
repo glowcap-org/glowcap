@@ -11,6 +11,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const promise_capture = @import("../support/capture.zig");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -68,70 +69,13 @@ const SiblingFlood = struct {
     }
 };
 
-const Pair = struct { ah: *Host, a: *HostSession, bh: *Host, b: *HostSession };
+const host_pair = @import("../support/host_pair.zig");
+const Pair = host_pair.Pair;
+const pumpToQuiescence = host_pair.pumpToQuiescence;
+const openPair = host_pair.openPair;
 
-/// Move every queued frame across the pair, both directions; a feed error
-/// surfaces to the caller (the assertion under test).
-fn shuttle(pair: Pair) !bool {
-    var moved = false;
-    while (try pair.a.takeOutbound()) |frame_value| {
-        var frame = frame_value;
-        defer frame.deinit();
-        try pair.bh.feed(pair.b, frame.view());
-        moved = true;
-    }
-    while (try pair.b.takeOutbound()) |frame_value| {
-        var frame = frame_value;
-        defer frame.deinit();
-        try pair.ah.feed(pair.a, frame.view());
-        moved = true;
-    }
-    return moved;
-}
-
-fn pumpToQuiescence(pairs: []const Pair) !void {
-    var rounds: usize = 0;
-    while (rounds < 64) : (rounds += 1) {
-        var moved = false;
-        for (pairs) |pair| {
-            if (try shuttle(pair)) moved = true;
-        }
-        if (!moved) return;
-    }
-    return error.PumpDidNotQuiesce;
-}
-
-fn tcpLocator(designator: []const u8) model.PeerLocator {
-    return .{ .transport = "tcp", .designator = designator, .hints = model.Hints.emptyFalse() };
-}
-
-fn openPair(dialer: *Host, acceptor: *Host, designator: []const u8) !Pair {
-    const accepted = try acceptor.openAccepted("tcp", designator, &.{});
-    const dialed = try dialer.openDialedLocator(tcpLocator(designator));
-    const pair = Pair{ .ah = dialer, .a = dialed, .bh = acceptor, .b = accepted };
-    try pumpToQuiescence(&.{pair});
-    try std.testing.expect(dialed.sessionOpen());
-    try std.testing.expect(accepted.sessionOpen());
-    return pair;
-}
-
-const CapturedRef = struct {
-    ref: ?model.Reference = null,
-    fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *CapturedRef = @ptrCast(@alignCast(ctx.?));
-        if (resolution == .fulfilled and resolution.fulfilled == .reference)
-            self.ref = resolution.fulfilled.reference;
-    }
-};
-
-const CapturedInt = struct {
-    value: ?i64 = null,
-    fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *CapturedInt = @ptrCast(@alignCast(ctx.?));
-        if (resolution == .fulfilled and resolution.fulfilled == .integer)
-            self.value = resolution.fulfilled.integer;
-    }
-};
+const CapturedRef = promise_capture.CapturedRef;
+const CapturedInt = promise_capture.CapturedInt;
 
 /// Fetch `name` over `pair` (client side `a`) and settle it to a far ref.
 fn fetchRef(pair: Pair, name: []const u8) !model.Reference {

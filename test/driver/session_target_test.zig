@@ -13,6 +13,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const support_actors = @import("../support/actors.zig");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -25,14 +26,7 @@ const node_designator = "target-node";
 const frame_cap = 4096;
 
 /// The published actor the positive control calls.
-const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
-        return .{ .string = "hello over inproc" };
-    }
-};
+const Greeter = support_actors.StaticReplyActor("greet", "hello over inproc");
 
 /// Accept one partner over the bound listener, publish the greeter, and serve
 /// until the client leaves. Mirrors the owning `Server` accept the bindings ride.

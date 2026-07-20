@@ -50,6 +50,9 @@ pub const BeforeServeHook = driver_core.BeforeServeHook;
 pub const Error = driver_core.Error;
 pub const SettleCapture = driver_core.SettleCapture;
 pub const SettleFlag = driver_core.SettleFlag;
+/// A cooperative fetch-then-deliver in flight (see
+/// `driver_core.Served.PendingSend`).
+pub const PendingSend = driver_core.Served.PendingSend;
 pub const FetchCapture = driver_core.FetchCapture;
 pub const Identity = driver_core.Identity;
 pub const AcceptIdentity = driver_core.AcceptIdentity;

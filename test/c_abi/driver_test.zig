@@ -1015,8 +1015,7 @@ fn reentryBehavior(
     const garbage = "x";
     const borrowed: c.PancakeFrame = .{ .bytes = @constCast(garbage.ptr), .len = garbage.len, .shape = c.PANCAKE_FRAME_SHAPE_BYTE };
     ok = ok and cd.pancake_host_session_feed(rc.conn, &borrowed) == inv;
-    var consumed: usize = 0;
-    ok = ok and cd.pancake_host_session_feed_bytes(rc.conn, garbage.ptr, garbage.len, &consumed) == inv;
+    ok = ok and cd.pancake_host_session_feed_bytes(rc.conn, garbage.ptr, garbage.len) == inv;
     var mf: c.PancakeManagedFrame = undefined;
     ok = ok and cd.pancake_host_session_take_outbound(rc.conn, &mf) == inv;
     var action: cd.PancakeHostAction = undefined;
@@ -1107,18 +1106,21 @@ test "libpancake_driver: inside a callback every top-level verb refuses and ever
     try std.testing.expectEqual(@as(u32, 2), counter.pokes);
 }
 
-/// One direction's byte inbox for the feed_bytes shuttle: the unconsumed
-/// stream tail an embedder would keep between reads.
+/// One direction's staging buffer for the feed_bytes shuttle: the encoded
+/// frames awaiting their chunked presentation. The library owns the
+/// unconsumed stream tail, so nothing carries over between rounds.
 const BytePipe = struct {
     buf: [8192]u8 = undefined,
     len: usize = 0,
 };
 
 /// Drain `from`'s encoded frames into `pipe`, then feed them to `to` through
-/// pancake_host_session_feed_bytes, presenting at most `chunk` fresh bytes per
+/// pancake_host_session_feed_bytes, presenting at most `chunk` bytes per
 /// call so frames split at pathological boundaries, including mid-frame. The
-/// library reports what it consumed; the pipe keeps the tail.
+/// library owns the tail, so every presented byte is consumed; the leading
+/// empty feed resumes any frames the session held behind its handshake open.
 fn shuttleBytes(from: ?*cd.PancakeHostSession, to: ?*cd.PancakeHostSession, pipe: *BytePipe, chunk: usize) !bool {
+    try expectOk(cd.pancake_host_session_feed_bytes(to, null, 0));
     var moved = false;
     while (true) {
         var mf: c.PancakeManagedFrame = undefined;
@@ -1131,36 +1133,34 @@ fn shuttleBytes(from: ?*cd.PancakeHostSession, to: ?*cd.PancakeHostSession, pipe
         pipe.len += mf.len;
         moved = true;
     }
-    var presented: usize = 0;
-    var progress = true;
-    while (progress and pipe.len > 0) {
-        progress = false;
-        if (presented < pipe.len) {
-            presented = @min(presented + chunk, pipe.len);
-            progress = true;
-        }
-        var consumed: usize = 0;
-        try expectOk(cd.pancake_host_session_feed_bytes(to, &pipe.buf, presented, &consumed));
-        if (consumed > 0) {
-            std.mem.copyForwards(u8, pipe.buf[0 .. pipe.len - consumed], pipe.buf[consumed..pipe.len]);
-            pipe.len -= consumed;
-            presented -= consumed;
-            progress = true;
-            moved = true;
-        }
+    var offset: usize = 0;
+    while (offset < pipe.len) {
+        const n = @min(chunk, pipe.len - offset);
+        try expectOk(cd.pancake_host_session_feed_bytes(to, pipe.buf[offset..].ptr, n));
+        offset += n;
+        moved = true;
     }
+    pipe.len = 0;
     return moved;
 }
 
-/// `pump`, but every frame crosses as a chunked byte stream.
+/// `pump`, but every frame crosses as a chunked byte stream. Quiesces after
+/// two consecutive no-progress rounds: the leading resume feeds can dispatch
+/// session-held frames whose effects surface only on the following round.
 fn pumpBytes(hosts: []const ?*cd.PancakeHost, pair: Pair, pipes: *[2]BytePipe, chunk: usize, dials: *Dials, watches: *Watches) !void {
     var rounds: usize = 0;
+    var quiet: usize = 0;
     while (rounds < 128) : (rounds += 1) {
         var progressed = false;
         if (try shuttleBytes(pair.a, pair.b, &pipes[0], chunk)) progressed = true;
         if (try shuttleBytes(pair.b, pair.a, &pipes[1], chunk)) progressed = true;
         if (try drainActions(hosts, dials, watches)) progressed = true;
-        if (!progressed) return;
+        if (progressed) {
+            quiet = 0;
+        } else {
+            quiet += 1;
+            if (quiet == 2) return;
+        }
     }
     return error.PumpDidNotQuiesce;
 }
@@ -1237,12 +1237,10 @@ test "libpancake_driver: feed_bytes refuses an over-cap frame with the typed FRA
     defer c.pancake_managed_frame_release(&hello);
     try std.testing.expect(hello.len > 64);
 
-    var consumed: usize = 99;
     try std.testing.expectEqual(
         c.PANCAKE_ERR_FRAME_TOO_LARGE,
-        cd.pancake_host_session_feed_bytes(accepted, hello.bytes, hello.len, &consumed),
+        cd.pancake_host_session_feed_bytes(accepted, hello.bytes, hello.len),
     );
-    try std.testing.expectEqual(@as(usize, 0), consumed);
 
     // The typed cause is retained locally and the loud abort is queued for
     // the partner, exactly the whole-frame feed's failure choreography:
@@ -1442,7 +1440,6 @@ test "libpancake_driver: feed_bytes stops at the session-open transition so a co
     try expectOk(cd.pancake_host_session_fetch(dialed, "widget", 6, &fetch_vow));
     var buf: [4096]u8 = undefined;
     var len: usize = 0;
-    var hello_len: usize = 0;
     var frames: usize = 0;
     while (true) {
         var mf: c.PancakeManagedFrame = undefined;
@@ -1451,27 +1448,25 @@ test "libpancake_driver: feed_bytes stops at the session-open transition so a co
         try expectOk(rc);
         defer c.pancake_managed_frame_release(&mf);
         @memcpy(buf[len..][0..mf.len], mf.bytes.?[0..mf.len]);
-        if (frames == 0) hello_len = mf.len;
         len += mf.len;
         frames += 1;
     }
     try std.testing.expect(frames >= 2);
 
-    // One feed of the whole buffer consumes exactly the hello: the session
-    // just opened, and the frames coalesced behind it wait in the tail.
-    var consumed: usize = 0;
-    try expectOk(cd.pancake_host_session_feed_bytes(accepted, &buf, len, &consumed));
-    try std.testing.expectEqual(hello_len, consumed);
+    // One feed of the whole buffer dispatches exactly the hello: the session
+    // just opened, and the frames coalesced behind it wait in the session's
+    // own tail — the fetch has not answered, because its target is not
+    // published yet.
+    try expectOk(cd.pancake_host_session_feed_bytes(accepted, &buf, len));
     try std.testing.expect(cd.pancake_host_session_session_open(accepted) != 0);
 
-    // The embedder acts on the fresh session — publish — then re-feeds the
-    // tail, and the fetch that rode behind the hello answers correctly.
+    // The embedder acts on the fresh session — publish — then resumes the
+    // held tail with an empty feed, and the fetch that rode behind the hello
+    // answers correctly.
     var counter = Counter{};
     var widget_position: u64 = 0;
     try expectOk(cd.pancake_host_session_publish(accepted, "widget", 6, widgetBehavior, &counter, null, &widget_position));
-    var tail_consumed: usize = 0;
-    try expectOk(cd.pancake_host_session_feed_bytes(accepted, buf[consumed..].ptr, len - consumed, &tail_consumed));
-    try std.testing.expectEqual(len - consumed, tail_consumed);
+    try expectOk(cd.pancake_host_session_feed_bytes(accepted, null, 0));
 
     var dials = Dials{};
     var watches = Watches{};

@@ -93,7 +93,8 @@
 (define failures
   (filter (lambda (cr) (not (eq? 'ok (unbox (cdr cr))))) client-results))
 (unless (null? failures)
-  (fail (format "~a/~a client(s) failed; first: ~s"
+  (fail "racket-iroh-loop"
+        (format "~a/~a client(s) failed; first: ~s"
                 (length failures) NUM-CONNS (unbox (cdr (car failures))))))
 
 (printf

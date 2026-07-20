@@ -9,11 +9,12 @@ of the current shape is [`docs/architecture.md`](../architecture.md); when an
 ADR and the architecture doc disagree, the architecture doc is current and the
 ADR is history.
 
-The set is pruned, not only grown. When the records get numerous, flatten them:
-retire a record a later decision superseded, and fold a cluster of related
-decisions into the single record that now carries them: moving any still-live
-context into the keeper or into [`docs/architecture.md`](../architecture.md)
-first, and fixing every referrer in the same change. The directory listing is
+The set is pruned, not only grown. When the records get numerous, flatten
+them: retire a record a later decision superseded, and fold a cluster of
+related decisions into the single record that now carries them. Move any
+still-live context into the keeper or into
+[`docs/architecture.md`](../architecture.md) first, and fix every referrer in
+the same change. The directory listing is
 the index; numbering has gaps because retired and consolidated records are not
 renumbered, so a gap is not a missing file.
 

@@ -17,6 +17,7 @@
 
 const std = @import("std");
 const pancake = @import("pancake");
+const support_actors = @import("../support/actors.zig");
 
 const model = pancake.ocapn.model;
 const engine = pancake.ocapn.engine;
@@ -117,14 +118,7 @@ const LoopbackResident = struct {
 };
 
 /// The published actor: answers `greet` with a static greeting.
-const Greeter = struct {
-    pub fn handle(self: *Greeter, turn: *actors.Turn, msg: actors.Message) !model.Argument {
-        _ = self;
-        _ = turn;
-        if (!std.mem.eql(u8, msg.verb, "greet")) return error.NoSuchMethod;
-        return .{ .string = "hello over x-loopback" };
-    }
-};
+const Greeter = support_actors.StaticReplyActor("greet", "hello over x-loopback");
 
 /// Host: accept one partner through `acceptVia`, publish the greeter, serve.
 fn hostOnce(listener: net.netlayer.Listener, allocator: std.mem.Allocator) anyerror!void {

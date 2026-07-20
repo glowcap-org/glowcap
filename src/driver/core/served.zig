@@ -302,4 +302,107 @@ pub const Served = struct {
     pub fn on(self: *Served, vow: actors.Vow, listener: actors.Listener) !void {
         return self.vat.on(vow, listener);
     }
+
+    /// A cooperative fetch-then-deliver in flight, the caller-owned context
+    /// `beginSendNamed` / `beginTellNamed` chain through. The caller keeps it
+    /// alive and address-stable until the terminal listener fires (or the
+    /// session tears down), then frees the owned message clone with `deinit`.
+    /// `stage` says which leg an outcome came from: a break delivered while
+    /// `stage == .fetching` is the fetch's own refusal (an unpublished name),
+    /// so a UI can attribute it without parsing reasons.
+    pub const PendingSend = struct {
+        served: *Served,
+        /// Owns the verb and args clone from begin until `deinit`: the send
+        /// happens later, inside the fetch vow's listener, after the caller's
+        /// borrowed message may already be gone.
+        msg_arena: std.heap.ArenaAllocator,
+        verb: []const u8 = "",
+        args: []const model.Argument = &.{},
+        mode: Mode = .send,
+        stage: Stage = .fetching,
+        terminal: actors.Listener,
+
+        pub const Mode = enum { send, tell };
+        pub const Stage = enum { fetching, delivering };
+
+        pub fn deinit(self: *PendingSend) void {
+            self.msg_arena.deinit();
+        }
+
+        fn onFetch(ctx: ?*anyopaque, resolution: actors.Resolution) void {
+            const self: *PendingSend = @ptrCast(@alignCast(ctx.?));
+            const target: actors.Ref = switch (resolution) {
+                .fulfilled => |value| switch (value) {
+                    .reference => |reference| switch (reference) {
+                        .far => |far| .{ .far = far },
+                        else => return self.fireBroken("fetch did not resolve to a capability"),
+                    },
+                    else => return self.fireBroken("fetch did not resolve to a capability"),
+                },
+                // A fetch break forwards verbatim (a cancel or timeout arrives
+                // here too); `stage` still reads `.fetching`, which is how the
+                // caller attributes it. A bootstrap fetch never fulfills with
+                // an introduction, so `.give` rides the same forward rather
+                // than earning an arm it cannot reach.
+                .broken, .give => return self.terminal.func(self.terminal.ctx, resolution),
+            };
+            self.stage = .delivering;
+            const msg: actors.Message = .{ .verb = self.verb, .args = self.args };
+            switch (self.mode) {
+                .send => {
+                    // Registering the terminal on the new vow inside this
+                    // listener call is the vat's documented re-entrancy: the
+                    // fire removed this entry first, and a disconnect's
+                    // `breakFarVows` re-checks for registrations made during
+                    // the break, so the chained vow can never strand.
+                    const vow = self.served.send(target, msg) catch |err| return self.fireBroken(@errorName(err));
+                    self.served.on(vow, self.terminal) catch |err| return self.fireBroken(@errorName(err));
+                },
+                .tell => {
+                    self.served.tell(target, msg) catch |err| return self.fireBroken(@errorName(err));
+                    self.terminal.func(self.terminal.ctx, .{ .fulfilled = .{ .void = {} } });
+                },
+            }
+        }
+
+        fn fireBroken(self: *PendingSend, reason: []const u8) void {
+            self.terminal.func(self.terminal.ctx, .{ .broken = reason });
+        }
+    };
+
+    /// Begin a cooperative fetch-then-send: fetch the capability published as
+    /// `name` and, when it fulfills, eventual-send `msg` to it, the terminal
+    /// outcome (or the first break) firing `terminal` exactly once. No I/O is
+    /// driven here; the caller pumps its loop until the listener fires. `msg`
+    /// is borrowed only for this call — the verb and args are cloned into
+    /// `pending`, which the caller keeps address-stable until the fire and
+    /// then reclaims with `PendingSend.deinit`. This is the non-blocking
+    /// spelling of the fetch-then-call an event-loop UI cannot express with
+    /// the blocking `call`, so the chaining lives here once instead of as a
+    /// shadow state machine in every embedder.
+    pub fn beginSendNamed(self: *Served, pending: *PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
+        return self.beginDeliverNamed(pending, name, msg, .send, terminal);
+    }
+
+    /// `beginSendNamed`'s fire-and-forget arm: fetch `name`, then `tell` it
+    /// `msg`. The terminal fires `.fulfilled = .void` once the tell is queued
+    /// (there is no answer to await), or the fetch's break.
+    pub fn beginTellNamed(self: *Served, pending: *PendingSend, name: []const u8, msg: actors.Message, terminal: actors.Listener) !void {
+        return self.beginDeliverNamed(pending, name, msg, .tell, terminal);
+    }
+
+    fn beginDeliverNamed(self: *Served, pending: *PendingSend, name: []const u8, msg: actors.Message, mode: PendingSend.Mode, terminal: actors.Listener) !void {
+        pending.* = .{
+            .served = self,
+            .msg_arena = std.heap.ArenaAllocator.init(self.vat.allocator),
+            .mode = mode,
+            .terminal = terminal,
+        };
+        errdefer pending.msg_arena.deinit();
+        const arena = pending.msg_arena.allocator();
+        pending.verb = try arena.dupe(u8, msg.verb);
+        pending.args = try model.cloneArgumentSlice(arena, msg.args);
+        const vow = try self.sendBootstrapFetch(name);
+        try self.vat.on(vow, .{ .ctx = pending, .func = PendingSend.onFetch });
+    }
 };

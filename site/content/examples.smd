@@ -57,11 +57,11 @@ Rust, Python, Racket, and TypeScript.
 
 | App | What it is | Run it |
 | --- | --- | --- |
-| [rooms](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/) | a capability-secure chat, real-time, with a browser UI and direct messages by introduction | `zig build demo-rooms` |
+| [rooms](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/) | a capability-secure chat, real-time, with a browser UI and direct messages by introduction | `zig build demo-rooms` |
 | rooms over iroh | the same chat over encrypted QUIC | `zig build demo-rooms-iroh` (needs cargo) |
-| [tasks](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tasks/) | a shared task board: CRUD plus live state | `zig build demo-tasks` |
-| [tools](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/tools/) | a capability showcase for AI agent harnesses: delegation, attenuation, revocation | `zig build demo-tools` |
-| [accountability](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/accountability-on-pancake/) | a signed-call accountability app over a real OCapN session on the `tcp` netlayer | `zig build demo-accountability` |
+| [tasks](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/tasks/) | a shared task board: CRUD plus live state | `zig build demo-tasks` |
+| [tools](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/tools/) | a capability showcase for AI agent harnesses: delegation, attenuation, revocation | `zig build demo-tools` |
+| [accountability](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/accountability-on-pancake/) | a signed-call accountability app over a real OCapN session on the `tcp` netlayer | `zig build demo-accountability` |
 
 `rooms` is the fullest live picture. `zig build rooms-web` serves
 `http://localhost:8000`. Pick a member and choose _Message_: the room runs a

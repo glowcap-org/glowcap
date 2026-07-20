@@ -1,5 +1,6 @@
 //! User-facing CapTP lab strings (content design). No CapTP authority.
 const std = @import("std");
+const meta = @import("meta.zig");
 
 /// One-line workbench greeting (default). Not a walkthrough dump.
 pub const workbench_ready =
@@ -63,11 +64,7 @@ pub fn gloss(verb: []const u8) []const u8 {
     if (std.mem.eql(u8, verb, "probe")) return "Handshake only, then close. Does not keep a session.";
     if (std.mem.eql(u8, verb, "close")) return "Close the open session (there is no table-reset; close + redial).";
     if (std.mem.eql(u8, verb, "info")) return "Show identity and session summary.";
-    if (std.mem.eql(u8, verb, "help")) return "Everyday CapTP verbs and REPL help.";
-    if (std.mem.eql(u8, verb, "quit") or std.mem.eql(u8, verb, "exit")) return "Leave the CapTP lab.";
-    if (std.mem.eql(u8, verb, "tour")) return "Point at a CapTP pane: exports, imports, or answers.";
-    if (std.mem.eql(u8, verb, "guide")) return "Enter or exit the optional CapTP walkthrough.";
-    if (std.mem.eql(u8, verb, "?")) return "Help: workbench tips, or the guide coach while guided.";
+    if (meta.glossOf(verb)) |g| return g;
     return "CapTP lab command.";
 }
 

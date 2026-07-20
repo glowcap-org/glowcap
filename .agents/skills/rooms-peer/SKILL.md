@@ -76,10 +76,16 @@ pancake app rooms-peer start --nick Alice --dir /tmp/rooms-peer-alice --room <ro
 ```
 
 Wait for `"ok": true`. **`joined` (status) is room presence; `registered: true`
-means DM introduce works** — different CapTP capabilities. If `registered` is
+means DM introduce works** — different CapTP capabilities. `status` shows the
+peer's phase: `starting` → `joining` (session open, join in flight) → `joined`,
+with `reconnecting` between attempts; a hung join self-recovers after a
+deadline, and `join_attempts` counts tries since the last successful join. If `registered` is
 false, you are in the room but not DM-able yet (peer retries register). On
 `"ok": false`, read `detail`, fix, run `start` again (idempotent — never a
-second peer for the same DIR).
+second peer for the same DIR). A `join-timeout` **stops a peer this `start`
+spawned** before returning failure; an adopted already-running peer is left up,
+and the `detail` says which happened. Do not assume a timed-out fresh start
+left a live daemon.
 
 ## 3. Stay present — the wake loop
 

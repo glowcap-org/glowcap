@@ -183,19 +183,7 @@ const Greeter = struct {
     }
 };
 
-const Captured = struct {
-    buf: [64]u8 = undefined,
-    len: usize = 0,
-    fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *Captured = @ptrCast(@alignCast(ctx.?));
-        const bytes = switch (resolution) {
-            .fulfilled => |value| value.bytes,
-            .broken, .give => return,
-        };
-        @memcpy(self.buf[0..bytes.len], bytes);
-        self.len = bytes.len;
-    }
-};
+const Captured = promise_capture.CapturedBytes;
 
 test "a handler allocates its reply from turn.arena without leaking" {
     const allocator = std.testing.allocator;
@@ -1264,19 +1252,7 @@ const StringSwapper = struct {
     }
 };
 
-const StringCapture = struct {
-    buf: [64]u8 = undefined,
-    len: usize = 0,
-    fn record(ctx: ?*anyopaque, resolution: actors.Resolution) void {
-        const self: *StringCapture = @ptrCast(@alignCast(ctx.?));
-        const text = switch (resolution) {
-            .fulfilled => |value| if (value == .string) value.string else return,
-            .broken, .give => return,
-        };
-        @memcpy(self.buf[0..text.len], text);
-        self.len = text.len;
-    }
-};
+const StringCapture = promise_capture.CapturedString;
 
 test "moveOutString hands an owned string reply to the vat with no sever-copy across a become" {
     const allocator = std.testing.allocator;

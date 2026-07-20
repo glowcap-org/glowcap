@@ -4,6 +4,7 @@
     "@pancake/stack/ffi": "./bindings/ts/stack/ffi.ts",
     "@pancake/iroh": "./bindings/ts/iroh/mod.ts",
     "@pancake/iroh/internal": "./bindings/ts/iroh/internal.ts",
+    "@pancake/relay": "./bindings/ts/relay/mod.ts",
     "zod": "npm:zod@4.4.3"
   },
   "fmt": {

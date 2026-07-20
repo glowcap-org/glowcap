@@ -19,7 +19,7 @@
 
 const std = @import("std");
 const model = @import("model");
-const vat_mod = @import("vat.zig");
+const vat_mod = @import("vat/mod.zig");
 
 const Vat = vat_mod.Vat;
 const Ref = vat_mod.Ref;

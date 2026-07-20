@@ -50,7 +50,8 @@
     OK)
   (define arm-cb (function-ptr arm _PancakeHostPumpArmFn))
   (define hooks (make-PancakeHostPumpHooks #f arm-cb arm-cb arm-cb arm-cb arm-cb))
-  (check/host (pancake_host_pump_drain (host-ptr m) hooks #f))
+  (define-values (rc _drained) (pancake_host_pump_drain (host-ptr m) hooks))
+  (check/host rc)
   (reverse parked))
 
 ;; ── Execute ───────────────────────────────────────────────────────────────────

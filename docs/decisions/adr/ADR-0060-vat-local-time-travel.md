@@ -34,7 +34,7 @@ opt-in, named, and off the default path).
 
 ## Decision
 
-Actor state in [`src/actors/vat.zig`](../../../src/actors/vat.zig) moves behind
+Actor state in [`src/actors/vat.zig`](../../../src/actors/vat/mod.zig) moves behind
 a heap-allocated `StateBox` carrying the state pointer, a non-atomic reference
 count, the behavior's `handle`/`destroy`/`clone` function pointers, and a
 `persistent` flag. A `Cell` becomes a single `*StateBox`. The reference count is

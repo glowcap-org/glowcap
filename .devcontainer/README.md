@@ -61,7 +61,7 @@ Ptrace is enabled in [`docker-compose.yml`](docker-compose.yml) (`cap_add` /
 The devcontainer attaches to two networks at container-create time:
 
 - **`rooms-net`** — the fabric it shares with the rooms app
-  ([`examples/apps/rooms/deno/deploy`](../examples/apps/rooms/deno/deploy/)). It
+  ([`apps/rooms/deno/deploy`](../apps/rooms/deno/deploy/)). It
   has a fixed name and is committed in both compose files, so a rooms-peer in the
   devcontainer reaches the deployed room's internal CapTP by Docker DNS.
   `initializeCommand` runs `docker network create rooms-net` for you.

@@ -115,7 +115,7 @@ The tcp tab is carried verbatim by
 [`readme_quick_start.zig`](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/zig/readme_quick_start.zig);
 `zig build examples` runs it and `zig build meta-check` holds this page to those
 lines. The iroh tab follows the
-[rooms client](https://codeberg.org/jimisaacs/pancake/src/branch/main/examples/apps/rooms/zig/client.zig):
+[rooms client](https://codeberg.org/jimisaacs/pancake/src/branch/main/apps/rooms/zig/client.zig):
 reachability posture, bare node id, same fetch / call / switch. The id still
 arrives out of band. Discovery turns a name you were given into a route; it
 does not browse for peers. Dial-by-id: [iroh]($link.page('transports/iroh')).

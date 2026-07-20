@@ -32,21 +32,14 @@ jobs:
           - runner: macos-13 # x86_64-macos
     runs-on: ${{ matrix.runner }}
     steps:
+      # release-pack needs no conformance submodule, so no
+      # `submodules: recursive` here.
       - uses: actions/checkout@v4
 
       - name: Install the pinned Zig
         run: |
-          source .devcontainer/pins.sh
-          case "$(uname -s)-$(uname -m)" in
-            Linux-x86_64) triple=x86_64-linux ;;
-            Linux-aarch64) triple=aarch64-linux ;;
-            Darwin-arm64) triple=aarch64-macos ;;
-            Darwin-x86_64) triple=x86_64-macos ;;
-            *) echo "unmapped runner: $(uname -s)-$(uname -m)" >&2; exit 1 ;;
-          esac
-          curl -fsSLO "https://ziglang.org/download/${ZIG_VERSION}/zig-${triple}-${ZIG_VERSION}.tar.xz"
-          tar -xJf "zig-${triple}-${ZIG_VERSION}.tar.xz"
-          echo "$PWD/zig-${triple}-${ZIG_VERSION}" >> "$GITHUB_PATH"
+          ZIG_INSTALL_DIR="$RUNNER_TEMP/zig" bash .devcontainer/install-zig.sh
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
 
       - name: Install the pinned Rust
         run: |
@@ -78,7 +71,7 @@ jobs:
           if jq -e '.releases_published == true' bindings/c-abi-resolve.json >/dev/null; then
             echo "enabled=true" >> "$GITHUB_OUTPUT"
           else
-            echo "publish disabled (releases_published is false)"
+            echo "::notice::release skipped: releases_published is false in bindings/c-abi-resolve.json"
             echo "enabled=false" >> "$GITHUB_OUTPUT"
           fi
 

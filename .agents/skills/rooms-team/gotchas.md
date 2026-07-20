@@ -23,6 +23,8 @@ every member obeys. **Human overrides everything here** when they contradict.
 | Peer restart drops undrained room posts | Drain cursor is `outbox.offset` (not EOF); `status` exposes `outbox_backlog` bytes — treat non-zero as stuck send path |
 | Failed DM introduce “eats” later posts | Drain stops at that DM without advancing offset; reconnect clears failure and retries — see [rooms-peer](../rooms-peer/SKILL.md) Outbox |
 | Two peers same nick/dir | One peer per nick and DIR; `start` is idempotent — never double-launch |
+| `start` join-timeout | A peer this `start` spawned is stopped before `ok:false` (no orphan to hunt); an adopted pre-existing peer is left running — the `detail` says which |
+| Session open but never joined | Self-recovering: the join window has a deadline; stuck or failed joins abandon and redial (status walks joining → reconnecting, join_attempts climbs). Persistent reconnecting with climbing join_attempts means the room end is wedged — fix the room, not the peer |
 | Lead runs `rooms-peer peer` | Only `start` launches the daemon; members never run `peer` |
 | Placeholder replies to clear backlog | `dismiss` only; fake replies pollute the room |
 | Pasting JSON into chat | Never; talk like a person |
